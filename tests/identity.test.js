@@ -1,5 +1,5 @@
 // tests/identity.test.js
-const { generateCode, generateUserId, loadIdentity, saveIdentity } = require('../js/identity');
+const { generateCode, generateUserId, loadIdentity, saveIdentity, clearIdentity } = require('../js/identity');
 
 beforeEach(() => {
   localStorage.clear();
@@ -28,4 +28,10 @@ test('saveIdentity persists and loadIdentity retrieves it', () => {
   saveIdentity('user-123', 'AB3K9X');
   const identity = loadIdentity();
   expect(identity).toEqual({ userId: 'user-123', code: 'AB3K9X' });
+});
+
+test('clearIdentity removes the stored identity so loadIdentity returns null', () => {
+  saveIdentity('user-abc', 'XYZ123');
+  clearIdentity();
+  expect(loadIdentity()).toBeNull();
 });

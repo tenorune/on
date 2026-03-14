@@ -31,4 +31,8 @@ function saveIdentity(userId, code) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ userId, code }));
 }
 
-module.exports = { generateCode, generateUserId, loadIdentity, saveIdentity };
+function clearIdentity() {
+  localStorage.removeItem(STORAGE_KEY);
+}
+
+module.exports = { generateCode, generateUserId, loadIdentity, saveIdentity, clearIdentity };
