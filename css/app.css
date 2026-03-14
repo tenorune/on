@@ -146,3 +146,56 @@ main {
   padding: 0;
   box-sizing: border-box;
 }
+
+/* Unfollow button (icon-only × on followee rows) */
+.unfollow-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  align-self: flex-start;
+  transition: color 0.15s;
+}
+.unfollow-btn:hover { color: var(--error-text); }
+
+/* Status text: available portion */
+.status-available { color: var(--green); font-weight: 500; }
+
+/* Confirm overlay (unfollow sheet) */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 200;
+  padding-bottom: 2rem;
+}
+.confirm-sheet {
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 1.25rem;
+  width: calc(100% - 2rem);
+  max-width: 380px;
+  text-align: center;
+}
+.confirm-sheet h4 { font-size: 1rem; margin-bottom: 0.35rem; }
+.confirm-sheet p  { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem; }
+.confirm-btns { display: flex; gap: 0.6rem; }
+.confirm-btns button {
+  flex: 1;
+  padding: 0.65rem;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.confirm-btn-cancel { background: var(--surface2); color: var(--text-muted); }
+.confirm-btn-remove { background: var(--error-bg); color: var(--error-text); }
