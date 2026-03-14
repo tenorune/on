@@ -31,11 +31,11 @@ let dragDebounce = null;
 slider.addEventListener('input', () => {
   if (dot.classList.contains('available')) {
     sliderValue.textContent = `${slider.value}h`;
+    setLastTimeout(parseInt(slider.value, 10)); // persist synchronously so it's saved even if debounce never fires
     clearTimeout(dragDebounce);
     dragDebounce = setTimeout(async () => {
       const hours = parseInt(slider.value, 10);
       const newUntil = Date.now() + hours * 3600000;
-      setLastTimeout(hours);
       await setStatus(myUserId, 'available', newUntil);
       // Restart the countdown timer so it stays in sync with the new availableUntil
       clearInterval(countdownTimer);
