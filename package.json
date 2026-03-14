@@ -1,0 +1,28 @@
+{
+  "name": "pwa-status-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "jest",
+    "build": "esbuild js/app.js --bundle --outfile=dist/bundle.js",
+    "dev": "esbuild js/app.js --bundle --outfile=dist/bundle.js --watch --servedir=."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/preset-env": "^7.29.0",
+    "babel-jest": "^30.3.0",
+    "esbuild": "^0.27.4",
+    "jest": "^30.3.0",
+    "jest-environment-jsdom": "^30.3.0"
+  },
+  "dependencies": {
+    "firebase": "^12.10.0"
+  }
+}
