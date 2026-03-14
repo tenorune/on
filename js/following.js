@@ -46,39 +46,41 @@ async function doUnfollow() {
   if (li) li.remove();
 
   const list = document.getElementById('following-list');
-  if (list.querySelectorAll('li[id^="followee-"]').length === 0) {
+  if (list && list.querySelectorAll('li[id^="followee-"]').length === 0) {
     list.innerHTML = '<li style="color:var(--text-muted);font-size:13px;padding:12px 0;list-style:none">You\'re not following anyone yet.</li>';
   }
 }
 
 export function initFollowingTab(myUserId, myCode) {
-  // Inject confirm sheet once
-  const confirmEl = document.createElement('div');
-  confirmEl.id = 'unfollow-confirm';
-  confirmEl.className = 'confirm-overlay hidden';
-  confirmEl.innerHTML = `
-  <div class="confirm-sheet">
-    <h4 id="unfollow-confirm-title">Unfollow?</h4>
-    <p>They won't be notified. You can re-add them later using their code.</p>
-    <div class="confirm-btns">
-      <button class="confirm-btn-cancel" id="unfollow-cancel-btn">Cancel</button>
-      <button class="confirm-btn-remove" id="unfollow-do-btn">Unfollow</button>
-    </div>
-  </div>`;
-  document.body.appendChild(confirmEl);
+  // Inject confirm sheet once (guard prevents duplicate on re-init)
+  if (!document.getElementById('unfollow-confirm')) {
+    const confirmEl = document.createElement('div');
+    confirmEl.id = 'unfollow-confirm';
+    confirmEl.className = 'confirm-overlay hidden';
+    confirmEl.innerHTML = `
+    <div class="confirm-sheet">
+      <h4 id="unfollow-confirm-title">Unfollow?</h4>
+      <p>They won't be notified. You can re-add them later using their code.</p>
+      <div class="confirm-btns">
+        <button class="confirm-btn-cancel" id="unfollow-cancel-btn">Cancel</button>
+        <button class="confirm-btn-remove" id="unfollow-do-btn">Unfollow</button>
+      </div>
+    </div>`;
+    document.body.appendChild(confirmEl);
 
-  // Dismiss on backdrop click or Escape
-  confirmEl.addEventListener('click', (e) => {
-    if (e.target === confirmEl) dismissConfirm();
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' &&
-        !document.getElementById('unfollow-confirm').classList.contains('hidden')) {
-      dismissConfirm();
-    }
-  });
-  document.getElementById('unfollow-cancel-btn').addEventListener('click', dismissConfirm);
-  document.getElementById('unfollow-do-btn').addEventListener('click', doUnfollow);
+    // Dismiss on backdrop click or Escape
+    confirmEl.addEventListener('click', (e) => {
+      if (e.target === confirmEl) dismissConfirm();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' &&
+          !document.getElementById('unfollow-confirm').classList.contains('hidden')) {
+        dismissConfirm();
+      }
+    });
+    document.getElementById('unfollow-cancel-btn').addEventListener('click', dismissConfirm);
+    document.getElementById('unfollow-do-btn').addEventListener('click', doUnfollow);
+  }
 
   renderFollowingList(myUserId);
 
