@@ -3,10 +3,11 @@ import {
   lookupCode, watchStatus, registerAsFollower,
   isExpired, writeBackExpired, formatTimeRemaining, timeRemainingMs,
 } from './db.js';
-import { getFollowing, addFollowing, removeFollowing } from './store.js';
+import { getFollowing, addFollowing, removeFollowing, renameFollowing } from './store.js';
 import { escapeHtml } from './utils.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
+const editingSet = new Set();
 
 export function initFollowingTab(myUserId, myCode) {
   renderFollowingList(myUserId);
@@ -66,6 +67,7 @@ function subscribeToFollowee(entry, myUserId) {
       userData.availableUntil = null;
     }
 
+    if (editingSet.has(entry.userId)) return;
     updateFolloweeRow(entry, userData);
     sortFollowingList();
   });
@@ -91,6 +93,9 @@ function updateFolloweeRow(entry, userData) {
         <div class="person-status${isAvail ? ' available' : ''}">${statusText}</div>
       </div>`;
     list.appendChild(li);
+    li.querySelector('.person-label').addEventListener('click', () => {
+      activateRename(entry, li.querySelector('.person-label'));
+    });
   } else {
     li.dataset.available = String(isAvail);
     const dot = li.querySelector('.person-dot');
@@ -101,6 +106,12 @@ function updateFolloweeRow(entry, userData) {
   }
 }
 
+function getLabelText(li) {
+  const labelEl = li.querySelector('.person-label');
+  const input = labelEl.querySelector('.rename-input');
+  return input ? input.value : labelEl.textContent;
+}
+
 function sortFollowingList() {
   const list = document.getElementById('following-list');
   const items = Array.from(list.querySelectorAll('li'));
@@ -108,11 +119,45 @@ function sortFollowingList() {
     const aAvail = a.dataset.available === 'true';
     const bAvail = b.dataset.available === 'true';
     if (aAvail !== bAvail) return bAvail ? 1 : -1;
-    return a.querySelector('.person-label').textContent.localeCompare(
-      b.querySelector('.person-label').textContent,
-    );
+    return getLabelText(a).localeCompare(getLabelText(b));
   });
   items.forEach((li) => list.appendChild(li));
+}
+
+function activateRename(entry, labelEl) {
+  const original = entry.label;
+  editingSet.add(entry.userId);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'rename-input';
+  input.value = original;
+  labelEl.textContent = '';
+  labelEl.appendChild(input);
+  input.focus();
+  input.select();
+
+  function confirm() {
+    const val = input.value.trim();
+    if (!val) return;
+    renameFollowing(entry.userId, val);
+    entry.label = val;
+    editingSet.delete(entry.userId);
+    labelEl.textContent = val;
+  }
+
+  function cancel() {
+    editingSet.delete(entry.userId);
+    labelEl.textContent = original;
+  }
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+    if (e.key === 'Escape') { cancel(); }
+  });
+  input.addEventListener('blur', () => {
+    if (editingSet.has(entry.userId)) confirm();
+  });
 }
 
 async function handleAddPerson(myUserId, myCode) {

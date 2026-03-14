@@ -39,4 +39,11 @@ function setLastTimeout(n) {
   localStorage.setItem(TIMEOUT_KEY, String(n));
 }
 
-module.exports = { getFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout };
+function renameFollowing(userId, newLabel) {
+  const list = getFollowing().map((e) =>
+    e.userId === userId ? { ...e, label: newLabel } : e
+  );
+  saveFollowing(list);
+}
+
+module.exports = { getFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, renameFollowing };

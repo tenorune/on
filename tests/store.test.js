@@ -1,7 +1,7 @@
 // tests/store.test.js
 const {
   getFollowing, addFollowing, removeFollowing, isFollowing,
-  getLastTimeout, setLastTimeout,
+  getLastTimeout, setLastTimeout, renameFollowing,
 } = require('../js/store');
 
 beforeEach(() => {
@@ -54,4 +54,25 @@ test('getLastTimeout returns 2 by default', () => {
 test('setLastTimeout persists and getLastTimeout retrieves it', () => {
   setLastTimeout(7);
   expect(getLastTimeout()).toBe(7);
+});
+
+test('renameFollowing updates label for matching userId, other fields unchanged', () => {
+  addFollowing({ code: 'AB3K9X', label: 'Partner', userId: 'user-1' });
+  renameFollowing('user-1', 'Alice');
+  const list = getFollowing();
+  expect(list[0]).toEqual({ code: 'AB3K9X', label: 'Alice', userId: 'user-1' });
+});
+
+test('renameFollowing leaves other entries unchanged', () => {
+  addFollowing({ code: 'AB3K9X', label: 'Partner', userId: 'user-1' });
+  addFollowing({ code: 'ZZ91TL', label: 'Mom', userId: 'user-2' });
+  renameFollowing('user-1', 'Alice');
+  const list = getFollowing();
+  expect(list[1]).toEqual({ code: 'ZZ91TL', label: 'Mom', userId: 'user-2' });
+});
+
+test('renameFollowing does nothing if userId not found', () => {
+  addFollowing({ code: 'AB3K9X', label: 'Partner', userId: 'user-1' });
+  renameFollowing('unknown', 'Alice');
+  expect(getFollowing()).toEqual([{ code: 'AB3K9X', label: 'Partner', userId: 'user-1' }]);
 });

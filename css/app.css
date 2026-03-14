@@ -135,3 +135,14 @@ main {
 
 /* Utilities */
 .hidden { display: none !important; }
+.rename-input {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--green);
+  outline: none;
+  width: 100%;
+  padding: 0;
+  box-sizing: border-box;
+}
