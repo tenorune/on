@@ -130,3 +130,10 @@ export async function writeBackExpired(userId) {
     availableUntil: null,
   });
 }
+
+// One-time check: does this user's record exist in Firebase?
+// Returns true if found, false if missing. Throws on network error (caller decides how to handle).
+export async function userExists(userId) {
+  const snap = await get(ref(db, `users/${userId}`));
+  return snap.exists();
+}
