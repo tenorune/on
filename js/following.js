@@ -8,9 +8,23 @@ import { escapeHtml } from './utils.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
+const lastUserData = new Map(); // userId → most recent userData from Firebase
 
 export function initFollowingTab(myUserId, myCode) {
   renderFollowingList(myUserId);
+
+  // Refresh time labels for available followees every 60s (availableUntil is a
+  // fixed timestamp in Firebase that never changes, so the subscription callback
+  // won't re-fire; we need to recompute client-side to keep the display current)
+  setInterval(() => {
+    getFollowing().forEach((entry) => {
+      const userData = lastUserData.get(entry.userId);
+      if (!userData || userData.status !== 'available') return;
+      if (editingSet.has(entry.userId)) return;
+      updateFolloweeRow(entry, userData);
+      sortFollowingList();
+    });
+  }, 60000);
 
   document.getElementById('add-person-btn').addEventListener('click', () => {
     document.getElementById('add-person-form').classList.remove('hidden');
@@ -39,6 +53,7 @@ function renderFollowingList(myUserId) {
   // Unsubscribe existing listeners
   unsubscribers.forEach((unsub) => unsub());
   unsubscribers.clear();
+  lastUserData.clear();
 
   const following = getFollowing();
   const list = document.getElementById('following-list');
@@ -67,6 +82,7 @@ function subscribeToFollowee(entry, myUserId) {
       userData.availableUntil = null;
     }
 
+    lastUserData.set(entry.userId, userData);
     if (editingSet.has(entry.userId)) return;
     updateFolloweeRow(entry, userData);
     sortFollowingList();
