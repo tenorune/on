@@ -2,7 +2,7 @@
 jest.mock('../js/firebase-config.js', () => ({ db: {} }));
 jest.mock('firebase/database', () => ({}));
 
-const { isExpired, timeRemainingMs, formatTimeRemaining, formatTimeRemainingFuzzy } = require('../js/db');
+const { isExpired, timeRemainingMs, formatTimeRemaining, formatTimeRemainingFuzzy, formatLastSeen } = require('../js/db');
 
 test('isExpired returns false when availableUntil is null', () => {
   expect(isExpired(null)).toBe(false);
@@ -78,9 +78,6 @@ test('formatTimeRemainingFuzzy returns "About N hours left" for the middle of an
 test('formatTimeRemainingFuzzy returns "Nearly N hours left" when close below a whole hour', () => {
   expect(formatTimeRemainingFuzzy(2.8 * 3600000)).toBe('Nearly 3 hours left');
 });
-
-// formatLastSeen
-const { formatLastSeen } = require('../js/db');
 
 test('formatLastSeen returns null for null input', () => {
   expect(formatLastSeen(null)).toBeNull();
