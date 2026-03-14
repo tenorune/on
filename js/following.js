@@ -1,0 +1,181 @@
+// js/following.js
+import {
+  lookupCode, watchStatus, registerAsFollower,
+  isExpired, writeBackExpired, formatTimeRemaining, timeRemainingMs,
+} from './db.js';
+import { getFollowing, addFollowing, removeFollowing } from './store.js';
+
+const unsubscribers = new Map(); // userId → unsubscribe fn
+
+export function initFollowingTab(myUserId, myCode) {
+  renderFollowingList(myUserId);
+
+  document.getElementById('add-person-btn').addEventListener('click', () => {
+    document.getElementById('add-person-form').classList.remove('hidden');
+    document.getElementById('add-person-btn').classList.add('hidden');
+    document.getElementById('add-code-input').focus();
+  });
+
+  document.getElementById('add-cancel-btn').addEventListener('click', () => {
+    closeAddForm();
+  });
+
+  document.getElementById('add-code-input').addEventListener('input', (e) => {
+    e.target.value = e.target.value.toUpperCase();
+  });
+
+  document.getElementById('add-submit-btn').addEventListener('click', () => {
+    handleAddPerson(myUserId, myCode);
+  });
+
+  window.addEventListener('online', () => document.getElementById('offline-banner').classList.add('hidden'));
+  window.addEventListener('offline', () => document.getElementById('offline-banner').classList.remove('hidden'));
+  if (!navigator.onLine) document.getElementById('offline-banner').classList.remove('hidden');
+}
+
+function renderFollowingList(myUserId) {
+  // Unsubscribe existing listeners
+  unsubscribers.forEach((unsub) => unsub());
+  unsubscribers.clear();
+
+  const following = getFollowing();
+  const list = document.getElementById('following-list');
+  list.innerHTML = '';
+
+  following.forEach((entry) => subscribeToFollowee(entry, myUserId));
+}
+
+function subscribeToFollowee(entry, myUserId) {
+  const unsub = watchStatus(entry.userId, (userData) => {
+    if (!userData) return;
+
+    // Check if this user has revoked us
+    if (userData.revokedFollowers && userData.revokedFollowers[myUserId]) {
+      removeFollowing(entry.userId);
+      unsub();
+      unsubscribers.delete(entry.userId);
+      renderFollowingList(myUserId);
+      return;
+    }
+
+    // Expiry write-back
+    if (userData.status === 'available' && isExpired(userData.availableUntil)) {
+      writeBackExpired(entry.userId);
+      userData.status = 'unavailable';
+      userData.availableUntil = null;
+    }
+
+    updateFolloweeRow(entry, userData);
+    sortFollowingList();
+  });
+  unsubscribers.set(entry.userId, unsub);
+}
+
+function updateFolloweeRow(entry, userData) {
+  const list = document.getElementById('following-list');
+  let li = document.getElementById(`followee-${entry.userId}`);
+
+  const isAvail = userData.status === 'available' && !isExpired(userData.availableUntil);
+  const ms = timeRemainingMs(userData.availableUntil);
+  const statusText = isAvail ? `Available · ${formatTimeRemaining(ms)} left` : 'Unavailable';
+
+  if (!li) {
+    li = document.createElement('li');
+    li.id = `followee-${entry.userId}`;
+    li.dataset.available = String(isAvail);
+    li.innerHTML = `
+      <div class="person-dot${isAvail ? ' available' : ''}"></div>
+      <div class="person-info">
+        <div class="person-label">${escapeHtml(entry.label)}</div>
+        <div class="person-status${isAvail ? ' available' : ''}">${statusText}</div>
+      </div>`;
+    list.appendChild(li);
+  } else {
+    li.dataset.available = String(isAvail);
+    const dot = li.querySelector('.person-dot');
+    const statusEl = li.querySelector('.person-status');
+    dot.className = `person-dot${isAvail ? ' available' : ''}`;
+    statusEl.className = `person-status${isAvail ? ' available' : ''}`;
+    statusEl.textContent = statusText;
+  }
+}
+
+function sortFollowingList() {
+  const list = document.getElementById('following-list');
+  const items = Array.from(list.querySelectorAll('li'));
+  items.sort((a, b) => {
+    const aAvail = a.dataset.available === 'true';
+    const bAvail = b.dataset.available === 'true';
+    if (aAvail !== bAvail) return bAvail ? 1 : -1;
+    return a.querySelector('.person-label').textContent.localeCompare(
+      b.querySelector('.person-label').textContent,
+    );
+  });
+  items.forEach((li) => list.appendChild(li));
+}
+
+async function handleAddPerson(myUserId, myCode) {
+  const codeInput = document.getElementById('add-code-input');
+  const labelInput = document.getElementById('add-label-input');
+  const errorEl = document.getElementById('add-error');
+
+  const code = codeInput.value.trim().toUpperCase();
+  const label = labelInput.value.trim();
+
+  errorEl.classList.add('hidden');
+
+  if (!code || !label) {
+    showError(errorEl, 'Please fill in both fields.');
+    return;
+  }
+
+  if (code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) {
+    showError(errorEl, 'Code must be 6 letters and numbers.');
+    return;
+  }
+
+  const myCode6 = myCode.toUpperCase();
+  if (code === myCode6) {
+    showError(errorEl, "That's your own code.");
+    return;
+  }
+
+  const following = getFollowing();
+  const existing = following.find((e) => e.code.toUpperCase() === code);
+  if (existing) {
+    showError(errorEl, `You're already following someone with that code (${existing.label}).`);
+    return;
+  }
+
+  document.getElementById('add-submit-btn').disabled = true;
+
+  const targetUserId = await lookupCode(code);
+  if (!targetUserId) {
+    showError(errorEl, 'Code not found. Check the code and try again.');
+    document.getElementById('add-submit-btn').disabled = false;
+    return;
+  }
+
+  await registerAsFollower(targetUserId, myUserId, myCode);
+  addFollowing({ code, label, userId: targetUserId });
+  subscribeToFollowee({ code, label, userId: targetUserId }, myUserId);
+  closeAddForm();
+  document.getElementById('add-submit-btn').disabled = false;
+}
+
+function closeAddForm() {
+  document.getElementById('add-person-form').classList.add('hidden');
+  document.getElementById('add-person-btn').classList.remove('hidden');
+  document.getElementById('add-code-input').value = '';
+  document.getElementById('add-label-input').value = '';
+  document.getElementById('add-error').classList.add('hidden');
+}
+
+function showError(el, msg) {
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
