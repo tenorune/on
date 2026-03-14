@@ -2,7 +2,7 @@
 import {
   lookupCode, watchStatus, registerAsFollower, unregisterAsFollower,
   isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
-  formatLastSeen,
+  formatLastSeen, // used in updateFolloweeRow for combined status text
 } from './db.js';
 import { getFollowing, addFollowing, removeFollowing, renameFollowing } from './store.js';
 import { escapeHtml } from './utils.js';
@@ -46,7 +46,7 @@ async function doUnfollow() {
   if (li) li.remove();
 
   const list = document.getElementById('following-list');
-  if (getFollowing().length === 0) {
+  if (list.querySelectorAll('li[id^="followee-"]').length === 0) {
     list.innerHTML = '<li style="color:var(--text-muted);font-size:13px;padding:12px 0;list-style:none">You\'re not following anyone yet.</li>';
   }
 }
@@ -72,7 +72,10 @@ export function initFollowingTab(myUserId, myCode) {
     if (e.target === confirmEl) dismissConfirm();
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') dismissConfirm();
+    if (e.key === 'Escape' &&
+        !document.getElementById('unfollow-confirm').classList.contains('hidden')) {
+      dismissConfirm();
+    }
   });
   document.getElementById('unfollow-cancel-btn').addEventListener('click', dismissConfirm);
   document.getElementById('unfollow-do-btn').addEventListener('click', doUnfollow);
