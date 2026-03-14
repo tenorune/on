@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Status</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+
+  <!-- Tab panels -->
+  <main>
+    <section id="tab-me" class="tab-panel active">
+      <div class="dot-wrap">
+        <div id="my-dot" class="dot"></div>
+        <div id="my-status-label" class="status-label">Unavailable</div>
+      </div>
+      <div id="slider-wrap" class="slider-wrap hidden">
+        <div class="slider-header">
+          <span class="slider-title">Turns off in</span>
+          <span id="slider-value" class="slider-value">2h</span>
+        </div>
+        <input id="timeout-slider" type="range" min="1" max="12" value="2" class="slider" />
+        <div class="slider-ticks">
+          <span>1h</span><span>6h</span><span>12h</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-following" class="tab-panel">
+      <div id="offline-banner" class="offline-banner hidden">Offline — showing last known status</div>
+      <ul id="following-list" class="person-list"></ul>
+      <button id="add-person-btn" class="add-btn">+ Add person</button>
+      <div id="add-person-form" class="add-form hidden">
+        <label class="field-label">Their code</label>
+        <input id="add-code-input" type="text" maxlength="6" placeholder="e.g. XK7P2M" class="code-input" autocomplete="off" />
+        <label class="field-label">Your label for them</label>
+        <input id="add-label-input" type="text" maxlength="40" placeholder="e.g. Partner, Mom" class="text-input" />
+        <div id="add-error" class="error-msg hidden"></div>
+        <button id="add-submit-btn" class="primary-btn">Follow</button>
+        <button id="add-cancel-btn" class="ghost-btn">Cancel</button>
+      </div>
+    </section>
+
+    <section id="tab-mycode" class="tab-panel">
+      <div class="code-card">
+        <div class="code-card-label">Your code</div>
+        <div id="my-code-display" class="code-display">------</div>
+        <button id="copy-code-btn" class="ghost-btn">Copy</button>
+        <p class="hint">Share this code so others can follow your status.</p>
+      </div>
+      <div class="followers-section">
+        <div class="section-title">Followers</div>
+        <ul id="followers-list" class="person-list"></ul>
+        <div id="no-followers-msg" class="hint hidden">No one is following you yet.</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Bottom nav -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-tab="me">
+      <span class="nav-icon">●</span>
+      <span class="nav-label">Me</span>
+    </button>
+    <button class="nav-btn" data-tab="following">
+      <span class="nav-icon">⊕</span>
+      <span class="nav-label">Following</span>
+    </button>
+    <button class="nav-btn" data-tab="mycode">
+      <span class="nav-icon">#</span>
+      <span class="nav-label">My Code</span>
+    </button>
+  </nav>
+
+  <script src="dist/bundle.js"></script>
+</body>
+</html>
