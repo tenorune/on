@@ -78,6 +78,7 @@ export async function setStatus(userId, status, availableUntil) {
   await update(ref(db, `users/${userId}`), {
     status,
     availableUntil: availableUntil ?? null,
+    lastSeen: Date.now(),
   });
 }
 
@@ -108,6 +109,12 @@ export function watchFollowers(myUserId, callback) {
 // Called when user A follows user B: registers A in B's followers
 export async function registerAsFollower(targetUserId, myUserId, myCode) {
   await set(ref(db, `users/${targetUserId}/followers/${myUserId}`), myCode);
+}
+
+// Called when the follower wants to stop following targetUserId.
+// Only removes the followers entry — does NOT write to revokedFollowers.
+export async function unregisterAsFollower(targetUserId, myUserId) {
+  await remove(ref(db, `users/${targetUserId}/followers/${myUserId}`));
 }
 
 // Remove a follower and add them to revokedFollowers
