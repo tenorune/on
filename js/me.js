@@ -81,6 +81,7 @@ function updateCountdownLabel(label, availableUntil) {
   const sliderWrap = document.getElementById('slider-wrap');
   const ms = timeRemainingMs(availableUntil);
   if (ms <= 0) {
+    document.getElementById('my-dot').classList.remove('available');
     label.textContent = 'Unavailable';
     label.classList.remove('available');
     sliderWrap.classList.add('hidden');
