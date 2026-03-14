@@ -1,5 +1,6 @@
 // js/mycode.js
 import { watchFollowers, removeFollower } from './db.js';
+import { escapeHtml } from './utils.js';
 
 export function initMyCodeTab(myUserId, myCode) {
   document.getElementById('my-code-display').textContent = myCode;
@@ -45,11 +46,3 @@ function renderFollowers(myUserId, followers) {
   });
 }
 
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}

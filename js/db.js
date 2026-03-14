@@ -1,7 +1,7 @@
 // js/db.js
 import { db } from './firebase-config.js';
 import {
-  ref, set, get, onValue, remove, runTransaction,
+  ref, set, get, update, onValue, remove, runTransaction,
 } from 'firebase/database';
 
 // --- Pure helpers (exported for testing) ---
@@ -49,8 +49,10 @@ export async function initUser(userId, code) {
 
 // Write own status to Firebase
 export async function setStatus(userId, status, availableUntil) {
-  await set(ref(db, `users/${userId}/status`), status);
-  await set(ref(db, `users/${userId}/availableUntil`), availableUntil ?? null);
+  await update(ref(db, `users/${userId}`), {
+    status,
+    availableUntil: availableUntil ?? null,
+  });
 }
 
 // Look up a userId by code. Returns userId string or null.
@@ -90,6 +92,8 @@ export async function removeFollower(myUserId, followerUserId) {
 
 // Write back expired status (idempotent)
 export async function writeBackExpired(userId) {
-  await set(ref(db, `users/${userId}/status`), 'unavailable');
-  await set(ref(db, `users/${userId}/availableUntil`), null);
+  await update(ref(db, `users/${userId}`), {
+    status: 'unavailable',
+    availableUntil: null,
+  });
 }

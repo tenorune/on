@@ -4,6 +4,7 @@ import {
   isExpired, writeBackExpired, formatTimeRemaining, timeRemainingMs,
 } from './db.js';
 import { getFollowing, addFollowing, removeFollowing } from './store.js';
+import { escapeHtml } from './utils.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 
@@ -58,9 +59,9 @@ function subscribeToFollowee(entry, myUserId) {
       return;
     }
 
-    // Expiry write-back
+    // Expiry write-back (only when online to avoid queued writes on reconnect)
     if (userData.status === 'available' && isExpired(userData.availableUntil)) {
-      writeBackExpired(entry.userId);
+      if (navigator.onLine) writeBackExpired(entry.userId);
       userData.status = 'unavailable';
       userData.availableUntil = null;
     }
@@ -176,6 +177,3 @@ function showError(el, msg) {
   el.classList.remove('hidden');
 }
 
-function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
