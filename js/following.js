@@ -1,7 +1,8 @@
 // js/following.js
 import {
-  lookupCode, watchStatus, registerAsFollower,
+  lookupCode, watchStatus, registerAsFollower, unregisterAsFollower,
   isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
+  formatLastSeen,
 } from './db.js';
 import { getFollowing, addFollowing, removeFollowing, renameFollowing } from './store.js';
 import { escapeHtml } from './utils.js';
@@ -10,7 +11,72 @@ const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
 const lastUserData = new Map(); // userId → most recent userData from Firebase
 
+let pendingUnfollow = null; // { entry, myUserId }
+
+function showConfirm(entry, myUserId) {
+  pendingUnfollow = { entry, myUserId };
+  document.getElementById('unfollow-confirm-title').textContent = `Unfollow ${entry.label}?`;
+  document.getElementById('unfollow-confirm').classList.remove('hidden');
+}
+
+function dismissConfirm() {
+  document.getElementById('unfollow-confirm').classList.add('hidden');
+  pendingUnfollow = null;
+}
+
+async function doUnfollow() {
+  if (!pendingUnfollow) return;
+  const { entry, myUserId } = pendingUnfollow;
+  dismissConfirm();
+
+  // 1. Unsubscribe first so the Firebase deletion echo doesn't re-trigger the callback
+  const unsub = unsubscribers.get(entry.userId);
+  if (unsub) unsub();
+  unsubscribers.delete(entry.userId);
+  lastUserData.delete(entry.userId);
+
+  // 2. Remove from Firebase followers list (self-initiated — does not write revokedFollowers)
+  await unregisterAsFollower(entry.userId, myUserId);
+
+  // 3. Remove from localStorage
+  removeFollowing(entry.userId);
+
+  // 4. Remove row from DOM; show empty state if list is now empty
+  const li = document.getElementById(`followee-${entry.userId}`);
+  if (li) li.remove();
+
+  const list = document.getElementById('following-list');
+  if (getFollowing().length === 0) {
+    list.innerHTML = '<li style="color:var(--text-muted);font-size:13px;padding:12px 0;list-style:none">You\'re not following anyone yet.</li>';
+  }
+}
+
 export function initFollowingTab(myUserId, myCode) {
+  // Inject confirm sheet once
+  const confirmEl = document.createElement('div');
+  confirmEl.id = 'unfollow-confirm';
+  confirmEl.className = 'confirm-overlay hidden';
+  confirmEl.innerHTML = `
+  <div class="confirm-sheet">
+    <h4 id="unfollow-confirm-title">Unfollow?</h4>
+    <p>They won't be notified. You can re-add them later using their code.</p>
+    <div class="confirm-btns">
+      <button class="confirm-btn-cancel" id="unfollow-cancel-btn">Cancel</button>
+      <button class="confirm-btn-remove" id="unfollow-do-btn">Unfollow</button>
+    </div>
+  </div>`;
+  document.body.appendChild(confirmEl);
+
+  // Dismiss on backdrop click or Escape
+  confirmEl.addEventListener('click', (e) => {
+    if (e.target === confirmEl) dismissConfirm();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') dismissConfirm();
+  });
+  document.getElementById('unfollow-cancel-btn').addEventListener('click', dismissConfirm);
+  document.getElementById('unfollow-do-btn').addEventListener('click', doUnfollow);
+
   renderFollowingList(myUserId);
 
   // Refresh time labels for available followees every 60s (availableUntil is a
@@ -21,7 +87,7 @@ export function initFollowingTab(myUserId, myCode) {
       const userData = lastUserData.get(entry.userId);
       if (!userData || userData.status !== 'available') return;
       if (editingSet.has(entry.userId)) return;
-      updateFolloweeRow(entry, userData);
+      updateFolloweeRow(entry, userData, myUserId);
       sortFollowingList();
     });
   }, 60000);
@@ -84,13 +150,13 @@ function subscribeToFollowee(entry, myUserId) {
 
     lastUserData.set(entry.userId, userData);
     if (editingSet.has(entry.userId)) return;
-    updateFolloweeRow(entry, userData);
+    updateFolloweeRow(entry, userData, myUserId);
     sortFollowingList();
   });
   unsubscribers.set(entry.userId, unsub);
 }
 
-function updateFolloweeRow(entry, userData) {
+function updateFolloweeRow(entry, userData, myUserId) {
   const list = document.getElementById('following-list');
   let li = document.getElementById(`followee-${entry.userId}`);
 
@@ -106,11 +172,15 @@ function updateFolloweeRow(entry, userData) {
       <div class="person-dot${isAvail ? ' available' : ''}"></div>
       <div class="person-info">
         <div class="person-label">${escapeHtml(entry.label)}</div>
-        <div class="person-status${isAvail ? ' available' : ''}">${statusText}</div>
-      </div>`;
+        <div class="person-status">${statusText}</div>
+      </div>
+      <button class="unfollow-btn" title="Unfollow" data-userid="${entry.userId}">×</button>`;
     list.appendChild(li);
     li.querySelector('.person-label').addEventListener('click', () => {
       activateRename(entry, li.querySelector('.person-label'));
+    });
+    li.querySelector('.unfollow-btn').addEventListener('click', () => {
+      showConfirm(entry, myUserId);
     });
   } else {
     li.dataset.available = String(isAvail);
