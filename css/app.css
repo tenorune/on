@@ -198,3 +198,31 @@ main {
 }
 .confirm-btn-cancel { background: var(--surface2); color: var(--text-muted); }
 .confirm-btn-remove { background: var(--error-bg); color: var(--error-text); }
+
+/* Stale identity recovery screen */
+.stale-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  padding: 2rem;
+}
+.stale-card {
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 2rem 1.5rem;
+  max-width: 340px;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+.stale-msg {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
