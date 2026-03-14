@@ -24,17 +24,25 @@ A new exported async function that performs a one-time `get()` on `users/{userId
 
 Uses the existing `get` and `ref` imports. No subscription, no side effects.
 
-**Tests:** Two unit tests in `tests/status.test.js` — one for a record that exists (returns `true`), one for a missing record (returns `false`).
+**Tests:** Two unit tests in a new `tests/db.test.js` file — one for a record that exists (returns `true`), one for a missing record (returns `false`). A separate file is required because `tests/status.test.js` mocks `firebase/database` as an empty object; `userExists` needs `get` to be a working mock, which would conflict with the existing setup.
 
 ### 2. `clearIdentity()` — `js/identity.js`
 
-A new exported function that removes the identity key from localStorage. Mirrors the existing `saveIdentity` / `loadIdentity` pattern.
+A new exported function that removes the identity key from localStorage. Mirrors the existing `saveIdentity` / `loadIdentity` pattern. Must be added to `identity.js`'s `module.exports` object (the file uses CommonJS; `app.js` imports it via Babel's interop).
 
 ### 3. Updated `ensureIdentity()` — `js/app.js`
 
 After loading an existing identity from localStorage, calls `userExists(userId)`. If it returns `false`, calls `clearIdentity()` and returns `null`. If the Firebase call throws (offline/network error), catches the error and returns the existing identity unchanged.
 
 If no identity is in localStorage, proceeds with normal new-user registration as before.
+
+**Call site change required:** The current `main()` destructures the return value directly (`const { userId, code } = await ensureIdentity()`). This must be refactored to a null-check first, otherwise a `null` return throws a TypeError before `main()` can show the stale screen:
+
+```js
+const identity = await ensureIdentity();
+if (!identity) { /* show stale screen */ }
+const { userId, code } = identity;
+```
 
 ### 4. Stale identity screen — `index.html` + `css/app.css`
 
@@ -85,3 +93,4 @@ main() receives null
 - Migrating or recovering a lost code
 - Notifying followers that a user's identity has changed
 - Detecting partial corruption (e.g. `codeIndex` entry exists but `users` entry does not)
+- Cleaning up orphaned `codeIndex` entries left behind by reset identities (the old entry is harmless since the new identity will use a fresh code)
