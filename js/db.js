@@ -43,6 +43,16 @@ export function formatTimeRemainingFuzzy(ms) {
   return `About ${Math.round(hours)} hours left`;
 }
 
+export function formatLastSeen(lastSeenMs) {
+  if (lastSeenMs == null) return null;
+  const elapsed = Date.now() - lastSeenMs;
+  const days = elapsed / (24 * 60 * 60 * 1000);
+  if (days < 7) return null;
+  if (days < 14) return 'over a week ago';
+  if (days < 28) return 'over two weeks ago';
+  return 'over a month ago';
+}
+
 // --- Firebase operations ---
 
 // Register new user. Retries on code collision. Returns true on success, null on collision.

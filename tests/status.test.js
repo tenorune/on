@@ -78,3 +78,43 @@ test('formatTimeRemainingFuzzy returns "About N hours left" for the middle of an
 test('formatTimeRemainingFuzzy returns "Nearly N hours left" when close below a whole hour', () => {
   expect(formatTimeRemainingFuzzy(2.8 * 3600000)).toBe('Nearly 3 hours left');
 });
+
+// formatLastSeen
+const { formatLastSeen } = require('../js/db');
+
+test('formatLastSeen returns null for null input', () => {
+  expect(formatLastSeen(null)).toBeNull();
+});
+
+test('formatLastSeen returns null for undefined input', () => {
+  expect(formatLastSeen(undefined)).toBeNull();
+});
+
+test('formatLastSeen returns null when last seen less than 7 days ago', () => {
+  const sixDaysAgo = Date.now() - 6 * 24 * 60 * 60 * 1000;
+  expect(formatLastSeen(sixDaysAgo)).toBeNull();
+});
+
+test('formatLastSeen returns null for exactly 0ms elapsed (just now)', () => {
+  expect(formatLastSeen(Date.now())).toBeNull();
+});
+
+test('formatLastSeen returns "over a week ago" when last seen 7–13 days ago', () => {
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000 - 1;
+  expect(formatLastSeen(sevenDaysAgo)).toBe('over a week ago');
+});
+
+test('formatLastSeen returns "over a week ago" when last seen 13 days ago', () => {
+  const thirteenDaysAgo = Date.now() - 13 * 24 * 60 * 60 * 1000;
+  expect(formatLastSeen(thirteenDaysAgo)).toBe('over a week ago');
+});
+
+test('formatLastSeen returns "over two weeks ago" when last seen 14–27 days ago', () => {
+  const fourteenDaysAgo = Date.now() - 14 * 24 * 60 * 60 * 1000 - 1;
+  expect(formatLastSeen(fourteenDaysAgo)).toBe('over two weeks ago');
+});
+
+test('formatLastSeen returns "over a month ago" when last seen 28+ days ago', () => {
+  const twentyEightDaysAgo = Date.now() - 28 * 24 * 60 * 60 * 1000 - 1;
+  expect(formatLastSeen(twentyEightDaysAgo)).toBe('over a month ago');
+});
