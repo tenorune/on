@@ -1,7 +1,7 @@
 // js/following.js
 import {
   lookupCode, watchStatus, registerAsFollower,
-  isExpired, writeBackExpired, formatTimeRemaining, timeRemainingMs,
+  isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
 } from './db.js';
 import { getFollowing, addFollowing, removeFollowing, renameFollowing } from './store.js';
 import { escapeHtml } from './utils.js';
@@ -80,7 +80,7 @@ function updateFolloweeRow(entry, userData) {
 
   const isAvail = userData.status === 'available' && !isExpired(userData.availableUntil);
   const ms = timeRemainingMs(userData.availableUntil);
-  const statusText = isAvail ? `Available · ${formatTimeRemaining(ms)} left` : 'Unavailable';
+  const statusText = isAvail ? formatTimeRemainingFuzzy(ms) : 'Unavailable';
 
   if (!li) {
     li = document.createElement('li');

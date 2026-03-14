@@ -27,6 +27,22 @@ export function formatTimeRemaining(ms) {
   return `${hours}h ${minutes}m`;
 }
 
+export function formatTimeRemainingFuzzy(ms) {
+  if (ms <= 0) return '';
+  const minutes = ms / 60000;
+  const hours = ms / 3600000;
+  if (minutes < 5) return 'Just a few minutes left';
+  if (minutes < 20) return 'About 15 minutes left';
+  if (minutes < 45) return 'About half an hour left';
+  if (minutes < 75) return 'About an hour left';
+  if (minutes < 120) return 'A little more than an hour left';
+  const floor = Math.floor(hours);
+  const frac = hours - floor;
+  if (frac < 0.25) return `Just over ${floor} hours left`;
+  if (frac >= 0.75) return `Nearly ${floor + 1} hours left`;
+  return `About ${Math.round(hours)} hours left`;
+}
+
 // --- Firebase operations ---
 
 // Register new user. Retries on code collision. Returns true on success, null on collision.

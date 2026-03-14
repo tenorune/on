@@ -15,23 +15,19 @@ export function initMeTab(myUserId) {
   slider.value = getLastTimeout();
   sliderValue.textContent = `${slider.value}h`;
 
-  let dragDebounce = null;
   slider.addEventListener('input', () => {
+    sliderValue.textContent = `${slider.value}h`;
+    setLastTimeout(parseInt(slider.value, 10));
+  });
+
+  slider.addEventListener('change', async () => {
     if (dot.classList.contains('available')) {
-      sliderValue.textContent = `${slider.value}h`;
-      setLastTimeout(parseInt(slider.value, 10));
-      clearTimeout(dragDebounce);
-      dragDebounce = setTimeout(async () => {
-        const hours = parseInt(slider.value, 10);
-        const newUntil = Date.now() + hours * 3600000;
-        await setStatus(myUserId, 'available', newUntil);
-        clearInterval(countdownTimer);
-        updateCountdownLabel(label, newUntil);
-        countdownTimer = setInterval(() => updateCountdownLabel(label, newUntil), 30000);
-      }, 500);
-    } else {
-      sliderValue.textContent = `${slider.value}h`;
-      setLastTimeout(parseInt(slider.value, 10));
+      const hours = parseInt(slider.value, 10);
+      const newUntil = Date.now() + hours * 3600000;
+      await setStatus(myUserId, 'available', newUntil);
+      clearInterval(countdownTimer);
+      updateCountdownLabel(label, newUntil);
+      countdownTimer = setInterval(() => updateCountdownLabel(label, newUntil), 30000);
     }
   });
 
