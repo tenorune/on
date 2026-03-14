@@ -165,7 +165,13 @@ function updateFolloweeRow(entry, userData, myUserId) {
 
   const isAvail = userData.status === 'available' && !isExpired(userData.availableUntil);
   const ms = timeRemainingMs(userData.availableUntil);
-  const statusText = isAvail ? formatTimeRemainingFuzzy(ms) : 'Unavailable';
+  let statusText;
+  if (isAvail) {
+    statusText = `<span class="status-available">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
+  } else {
+    const lastSeenPhrase = formatLastSeen(userData.lastSeen ?? null);
+    statusText = lastSeenPhrase ? `Last seen ${lastSeenPhrase}` : 'Unavailable';
+  }
 
   if (!li) {
     li = document.createElement('li');
@@ -190,8 +196,8 @@ function updateFolloweeRow(entry, userData, myUserId) {
     const dot = li.querySelector('.person-dot');
     const statusEl = li.querySelector('.person-status');
     dot.className = `person-dot${isAvail ? ' available' : ''}`;
-    statusEl.className = `person-status${isAvail ? ' available' : ''}`;
-    statusEl.textContent = statusText;
+    statusEl.className = 'person-status';
+    statusEl.innerHTML = statusText;
   }
 }
 
