@@ -1,13 +1,24 @@
 // js/app.js
-import { loadIdentity, saveIdentity, generateUserId, generateCode } from './identity.js';
-import { initUser, watchStatus, isExpired, writeBackExpired } from './db.js';
+import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity } from './identity.js';
+import { initUser, watchStatus, isExpired, writeBackExpired, userExists } from './db.js';
 import { initMeTab, applyOwnStatus } from './me.js';
 import { initFollowingTab } from './following.js';
 import { initMyCodeTab } from './mycode.js';
 
 async function ensureIdentity() {
   const existing = loadIdentity();
-  if (existing) return existing;
+  if (existing) {
+    try {
+      const valid = await userExists(existing.userId);
+      if (!valid) {
+        clearIdentity();
+        return null; // signals stale identity to caller
+      }
+    } catch {
+      // Network error (offline) — assume valid and proceed
+    }
+    return existing;
+  }
 
   // First open: generate identity and register in Firebase with collision retry
   let userId, code, success;
@@ -36,10 +47,25 @@ function initTabs() {
   });
 }
 
+function showStaleScreen() {
+  return new Promise((resolve) => {
+    document.getElementById('stale-screen').classList.remove('hidden');
+    document.getElementById('stale-continue-btn').addEventListener('click', () => {
+      document.getElementById('stale-screen').classList.add('hidden');
+      resolve();
+    }, { once: true });
+  });
+}
+
 async function main() {
   initTabs();
 
-  const { userId, code } = await ensureIdentity();
+  let identity = await ensureIdentity();
+  if (!identity) {
+    await showStaleScreen();
+    identity = await ensureIdentity();
+  }
+  const { userId, code } = identity;
 
   initMeTab(userId);
   initFollowingTab(userId, code);
