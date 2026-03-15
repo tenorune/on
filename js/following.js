@@ -13,6 +13,7 @@ const lastUserData = new Map(); // userId → most recent userData from Firebase
 
 let latestFollowersSnapshot = [];
 let unsubFollowers = null;
+let refreshInterval = null;
 let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
 
@@ -60,6 +61,7 @@ export function initList(myUserId, myCode) {
   editingSet.clear();
   latestFollowersSnapshot = [];
   pendingAction = null;
+  if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
 
   // Inject confirm sheet once
   if (!document.getElementById('unfollow-confirm')) {
@@ -95,7 +97,7 @@ export function initList(myUserId, myCode) {
   });
 
   // Refresh time labels every 60s
-  setInterval(() => {
+  refreshInterval = setInterval(() => {
     getFollowing().forEach((entry) => {
       const userData = lastUserData.get(entry.userId);
       if (!userData || userData.status !== 'available') return;
