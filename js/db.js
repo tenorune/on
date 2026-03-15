@@ -31,16 +31,16 @@ export function formatTimeRemainingFuzzy(ms) {
   if (ms <= 0) return '';
   const minutes = ms / 60000;
   const hours = ms / 3600000;
-  if (minutes < 5) return 'Just a few minutes left';
-  if (minutes < 20) return 'About 15 minutes left';
-  if (minutes < 45) return 'About half an hour left';
-  if (minutes < 75) return 'About an hour left';
-  if (minutes < 120) return 'A little more than an hour left';
+  if (minutes < 5) return 'just a few minutes left';
+  if (minutes < 20) return 'about 15 minutes left';
+  if (minutes < 45) return 'about half an hour left';
+  if (minutes < 75) return 'about an hour left';
+  if (minutes < 120) return 'a little more than an hour left';
   const floor = Math.floor(hours);
   const frac = hours - floor;
-  if (frac < 0.25) return `Just over ${floor} hours left`;
-  if (frac >= 0.75) return `Nearly ${floor + 1} hours left`;
-  return `About ${Math.round(hours)} hours left`;
+  if (frac < 0.25) return `just over ${floor} hours left`;
+  if (frac >= 0.75) return `nearly ${floor + 1} hours left`;
+  return `about ${Math.round(hours)} hours left`;
 }
 
 export function formatLastSeen(lastSeenMs) {
@@ -136,4 +136,9 @@ export async function writeBackExpired(userId) {
 export async function userExists(userId) {
   const snap = await get(ref(db, `users/${userId}`));
   return snap.exists();
+}
+
+// Update lastSeen timestamp without changing status — called on every app open.
+export async function touchLastSeen(userId) {
+  await update(ref(db, `users/${userId}`), { lastSeen: Date.now() });
 }

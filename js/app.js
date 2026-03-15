@@ -1,6 +1,6 @@
 // js/app.js
 import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity } from './identity.js';
-import { initUser, watchStatus, isExpired, writeBackExpired, userExists } from './db.js';
+import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen } from './db.js';
 import { initMeTab, applyOwnStatus } from './me.js';
 import { initFollowingTab } from './following.js';
 import { initMyCodeTab } from './mycode.js';
@@ -66,6 +66,9 @@ async function main() {
     identity = await ensureIdentity();
   }
   const { userId, code } = identity;
+
+  // Update lastSeen on every app open so followers see activity even if status is never set
+  touchLastSeen(userId).catch(() => {});
 
   initMeTab(userId);
   initFollowingTab(userId, code);
