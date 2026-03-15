@@ -4,7 +4,9 @@
 jest.mock('../js/db.js', () => ({
   watchFollowers: jest.fn(),
   removeFollower: jest.fn(),
+  rotateCode: jest.fn(),
 }));
+jest.mock('../js/identity.js', () => ({ saveIdentity: jest.fn() }));
 jest.mock('../js/store.js', () => ({ getFollowing: jest.fn() }));
 
 const { getFollowing } = require('../js/store.js');
