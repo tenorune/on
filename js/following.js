@@ -109,6 +109,9 @@ export function initList(myUserId, myCode) {
   document.getElementById('add-person-btn').addEventListener('click', () => {
     document.getElementById('add-person-form').classList.add('open');
     document.getElementById('add-code-input').focus();
+    setTimeout(() => {
+      document.getElementById('add-code-input').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
   });
 
   document.getElementById('add-cancel-btn').addEventListener('click', closeAddForm);
@@ -197,6 +200,11 @@ function renderList() {
     // Only subscribe for entries not already subscribed (preserves existing connection)
     if (!unsubscribers.has(entry.userId)) {
       subscribeToFollowee(entry, myUserId);
+    } else {
+      // Row was just recreated from scratch; repopulate from cache so it doesn't
+      // flash "Unavailable" until the next Firebase event arrives.
+      const cached = lastUserData.get(entry.userId);
+      if (cached) updateFolloweeRow(entry, cached, myUserId);
     }
   });
 
@@ -204,6 +212,9 @@ function renderList() {
     createFolloweeRow(entry, myUserId);
     if (!unsubscribers.has(entry.userId)) {
       subscribeToFollowee(entry, myUserId);
+    } else {
+      const cached = lastUserData.get(entry.userId);
+      if (cached) updateFolloweeRow(entry, cached, myUserId);
     }
   });
 

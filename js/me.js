@@ -95,7 +95,7 @@ function setAvailable(availableUntil) {
     timeRemaining.textContent = '· ' + formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
     timeRemaining.style.opacity = '0';
     timeRemaining.style.display = '';
-    chips.style.pointerEvents = '';
+    chips.style.pointerEvents = 'auto';
     chips.style.opacity = '0';
     requestAnimationFrame(() => {
       label.style.opacity = '1';

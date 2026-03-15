@@ -75,7 +75,7 @@ test('applyOwnStatus available: header-chips opacity set to 1 (rAF is synchronou
 test('applyOwnStatus available: header-chips pointer-events restored', () => {
   applyOwnStatus('available', Date.now() + 7200000);
   jest.advanceTimersByTime(250);
-  expect(document.getElementById('header-chips').style.pointerEvents).toBe('');
+  expect(document.getElementById('header-chips').style.pointerEvents).toBe('auto');
 });
 
 test('applyOwnStatus unavailable: dot loses available class', () => {

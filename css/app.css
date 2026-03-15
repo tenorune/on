@@ -58,16 +58,22 @@ main {
   padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer;
 }
 
+/* Add person area */
+#add-person-area {
+  background: var(--surface2);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-top: 0.25rem;
+}
+
 /* Add person drawer */
 #add-person-form {
   overflow: hidden;
   max-height: 0;
-  transition: max-height 0.3s ease, margin-top 0.3s ease;
-  margin-top: 0;
+  transition: max-height 0.3s ease;
 }
 #add-person-form.open {
   max-height: 22rem;
-  margin-top: 0.5rem;
 }
 
 /* Offline banner */
@@ -78,11 +84,11 @@ main {
 
 /* Add person form */
 .add-btn {
-  width: 100%; background: var(--surface); color: var(--text-muted);
-  border: 1px dashed var(--surface2); padding: 0.75rem; border-radius: 10px;
-  font-size: 0.8125rem; cursor: pointer; margin-top: 0.25rem;
+  width: 100%; background: transparent; color: var(--text);
+  border: none; padding: 0.625rem 0.875rem;
+  font-size: 0.8125rem; cursor: pointer; text-align: left;
 }
-.add-form { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+.add-form { width: 100%; display: flex; flex-direction: column; gap: 10px; padding: 0 0.875rem 0.875rem; }
 .field-label { font-size: 11px; letter-spacing: 1px; color: var(--text-muted); text-transform: uppercase; }
 .code-input, .text-input {
   background: var(--surface); color: var(--text); border: 1px solid var(--surface2);
