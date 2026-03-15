@@ -73,8 +73,8 @@ The `#stale-screen` overlay and `#offline-banner` remain unchanged (fixed positi
 
 - `#my-dot` — 48px circle; taps to toggle available ↔ unavailable (same logic as current dot)
 - `#my-status-label` — text is "Available" or "Unavailable" only (never includes time); color fades green ↔ muted grey on transition
-- `#time-remaining` — shown inline when available (e.g. "· 2 hours left") via JS setting `textContent`; cleared and hidden when unavailable. This is a separate element from `#my-status-label` — the two elements sit side by side in `#header-status-row`.
-- `#header-chips` — controlled via `.visible` class (see Section 4). When going available: set `display: flex` then on the next animation frame add `.visible`. When going unavailable: remove `.visible`, then listen for `transitionend` on `#mycode-chip` filtered to `e.propertyName === 'opacity'` (it is the last element to finish due to its 80ms delay), then set `display: none`. This sequences the display change to allow the CSS opacity/transform transition to run completely.
+- `#time-remaining` — shown inline when available (e.g. "· 2 hours left") via JS setting `textContent` and `style.display = ''`; cleared and `style.display = 'none'` when unavailable. This is a separate element from `#my-status-label` — the two elements sit side by side in `#header-status-row`. The HTML initial state sets `style.display = 'none'` (not a CSS class) so no flicker on load.
+- `#header-chips` — controlled via `.visible` class (see Section 4). When going available: set `display: flex` then on the next animation frame add `.visible`. When going unavailable: only add the `transitionend` listener if chips are currently visible (`getComputedStyle(chips).display !== 'none'`); if not visible, skip directly to ensuring `display: none`. When the listener fires, filter on `e.target === mycodeChip && e.propertyName === 'opacity'` (the last element to finish due to 80ms delay), then set `display: none`. This prevents the `transitionend` listener from hanging on initial page load when status is already unavailable.
 - Chips animate in with stagger: `#time-chip` transitions immediately; `#mycode-chip` transitions 80ms later (via `transition-delay`).
 
 ### Time chip (`#time-chip`)
@@ -127,12 +127,18 @@ Section labels are `<li class="list-section-label">` items inserted before each 
 
 Mutuals are determined by joining on **`userId`**:
 
-- `getFollowing()` returns `[{ userId, code, label }]` from localStorage
-- The live Firebase followers snapshot is `{ [followerId]: followerCode }` where the key is the follower's userId
+- `getFollowing()` returns `Array<{ userId, code, label }>` from localStorage
+- `watchFollowers(userId, cb)` in `db.js` delivers `Array<{ userId, code }>` to the callback (it transforms the Firebase snapshot into an array before calling the callback)
 
-A user is a **Mutual** if their `userId` appears as a key in the followers snapshot AND in `getFollowing()`.
-A user is **Following-only** if their `userId` appears in `getFollowing()` but not in the followers snapshot.
-A user is **Follower-only** if their `userId` appears as a key in the followers snapshot but not in `getFollowing()`.
+Store the latest followers array in a module-level `latestFollowersSnapshot` variable (initialized to `[]`). Build a `Set` of follower userIds for O(1) lookup:
+
+```js
+const followerIds = new Set(latestFollowersSnapshot.map(f => f.userId));
+```
+
+A user is a **Mutual** if their `userId` is in `followerIds` AND in `getFollowing()`.
+A user is **Following-only** if their `userId` is in `getFollowing()` but not in `followerIds`.
+A user is **Follower-only** if their `userId` is in `followerIds` but not in `getFollowing()`.
 
 Matching is always on `userId`, not on `code` (codes can change via rotation).
 
@@ -148,7 +154,7 @@ Within each section, rows are sorted: available-first, then alphabetically by la
 [dot 32px] [label] [status text]          [× btn]
 ```
 
-If the user's label from `getFollowing()` is non-empty, it is shown as the primary name. Below the name, a `.person-follower-name` element shows their code in muted text (same pattern as the current follower name display in `mycode.js`).
+If the user's label from `getFollowing()` is non-empty, it is shown as the primary name and a `.person-follower-name` element shows their code in muted text below. If the label is empty, the code is shown as the primary name (in monospace) and no `.person-follower-name` element is rendered. Tapping the name triggers inline rename; blank rename is rejected (existing behavior — empty `val` is a no-op in `activateRename`).
 
 **Following-only row:** identical to Mutual row.
 
@@ -166,9 +172,9 @@ Row has `class="follower-only"` (opacity 0.6). The `+` button is `.follow-back-b
 
 ### Actions
 
-**× on Mutual / Following row:** Opens confirmation sheet with title "Unfollow [name]?" → on confirm: calls `unregisterAsFollower(targetUserId, myUserId)` + `removeFollowing(targetUserId)` from store (existing unfollow flow).
+**× on Mutual / Following row:** Opens the existing `#unfollow-confirm` sheet (reused for all confirmations) with title "Unfollow [name]?" → on confirm: calls `unregisterAsFollower(targetUserId, myUserId)` + `removeFollowing(targetUserId)`, then calls `renderList()`.
 
-**× on Follower-only row:** Opens confirmation sheet with title "Remove follower [code]?" → on confirm: calls `removeFollower(myUserId, followerUserId)` (existing remove-follower flow).
+**× on Follower-only row:** Opens the existing `#unfollow-confirm` sheet with title "Remove follower [code]?". The pending-action object captures `{ userId: followerUserId, code: followerCode }` from the followers snapshot at render time. On confirm: calls `removeFollower(myUserId, followerUserId)`, then calls `renderList()`.
 
 **Inline rename:** Tapping a name label on a Mutual or Following row activates inline rename (existing behavior). Follower-only rows show a monospace code with no tap behavior — tapping the code does nothing.
 
@@ -351,20 +357,21 @@ initList(myUserId, myCode);        // third: list subscribes to followers
 
 - Rename `initFollowingTab(userId, code)` → `initList(userId, code)`
 - Replace all `#following-list` references with `#people-list` throughout (including the `doUnfollow` DOM removal)
-- **`watchFollowers` call (moved from `mycode.js`):** Store the returned unsubscribe function in a module-level variable (`let unsubFollowers = null`). Call it only once from `initList`. In the `watchFollowers` callback, store the latest snapshot in a module-level variable (`let latestFollowersSnapshot = {}`) and call `renderList`.
-- **`renderList(userId)` (no parameters — reads `getFollowing()` and `latestFollowersSnapshot` from module scope):**
-  - Computes mutual/following/follower-only groupings (join on userId as described in Section 3)
+- **`watchFollowers` call (moved from `mycode.js`):** `watchFollowers(userId, cb)` delivers `Array<{ userId, code }>` to the callback. Store the returned unsubscribe function in a module-level variable (`let unsubFollowers = null`). Call it only once from `initList`. In the `watchFollowers` callback, store the latest array in a module-level variable (`let latestFollowersSnapshot = []`) and call `renderList()`.
+- **`renderList()` (no parameters — reads `getFollowing()` and `latestFollowersSnapshot` from module scope):**
+  - Computes mutual/following/follower-only groupings as described in Section 3
   - Clears `#people-list`, renders section label `<li>` items and person rows
+  - Each rendered `<li>` for a Mutual or Following entry gets `data-user-id="{userId}"` attribute (replaces the old `id="followee-{userId}"` pattern) — used for `updateFolloweeRow` lookup
   - Shows `#empty-list-msg` and hides `#people-list` when all sections are empty; reverses when non-empty
   - Sorts rows within each section: available-first, then alphabetical
   - For each Mutual/Following entry, calls `subscribeToFollowee(entry, userId)` (existing behavior) so real-time status updates continue to work
-- **`renderList` triggers:** called from (1) the `watchFollowers` callback whenever the followers snapshot changes, and (2) after any action that modifies `getFollowing()` (add person, unfollow) so the sections recompute with the updated following list
-- **`updateFolloweeRow`** (existing function) — keep for incremental DOM updates when a followee's status changes; retarget to `#people-list` row lookup by `data-user-id` attribute
-- Absorbs `renderFollowers` name-display logic from `mycode.js`: on Mutual rows, if `getFollowing()` has a matching entry with a non-empty label, show `<div class="person-follower-name">` with the followee's code in muted text
-- **Confirmation for Follower-only ×:** The pending-action object must capture `{ userId: followerUserId, code: followerCode }` from the snapshot at render time. The confirmation sheet title is "Remove follower [code]?" where `[code]` is the captured code. On confirm: calls `removeFollower(myUserId, followerUserId)`.
+- **`renderList` triggers:** called from (1) the `watchFollowers` callback, and (2) after any action that modifies `getFollowing()` (add person, unfollow) so sections recompute
+- **`updateFolloweeRow`** (existing function) — keep for incremental DOM updates when a followee's status changes; change row lookup from `document.getElementById('followee-' + userId)` to `document.querySelector('[data-user-id="' + userId + '"]')`. The 60-second interval that refreshes time labels (existing) continues to call `updateFolloweeRow` — no change needed.
+- **`doUnfollow`** — remove the existing manual `<li>` DOM removal code entirely. Replace with a call to `renderList()` after `removeFollowing(targetUserId)` completes. The empty-list check in `doUnfollow` is also removed (handled by `renderList`).
+- Absorbs name-display logic from `mycode.js` (see Section 3 Row layouts for full rules on label vs. code display)
 - Follower-only rows: `.follow-back-btn` click pre-fills `#add-code-input` with the follower's code, hides `#add-person-btn`, shows `#add-person-form`
 - Add Person form logic (existing) retargeted to new IDs: `#add-person-btn`, `#add-person-form`, `#add-code-input`, `#add-label-input`, `#add-submit-btn`, `#add-cancel-btn`, `#add-error`; label field is optional (remove the `!label` check from validation; only require non-empty code, error message: "Please enter a code.")
-- `sortFollowingList()` is replaced by the sort logic inside `renderList` (sort per section, not as a global DOM operation)
+- `sortFollowingList()` is replaced by the sort logic inside `renderList`
 
 ### Unchanged modules
 
