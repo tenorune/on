@@ -1,5 +1,6 @@
 // js/mycode.js
 import { watchFollowers, removeFollower } from './db.js';
+import { getFollowing } from './store.js';
 import { escapeHtml } from './utils.js';
 
 export function initMyCodeTab(myUserId, myCode) {
@@ -18,7 +19,7 @@ export function initMyCodeTab(myUserId, myCode) {
   });
 }
 
-function renderFollowers(myUserId, followers) {
+export function renderFollowers(myUserId, followers) {
   const list = document.getElementById('followers-list');
   const noMsg = document.getElementById('no-followers-msg');
 
@@ -32,9 +33,14 @@ function renderFollowers(myUserId, followers) {
   noMsg.classList.add('hidden');
   followers.forEach(({ userId, code }) => {
     const li = document.createElement('li');
+    const followingEntry = getFollowing().find((f) => f.userId === userId);
+    const nameHtml = (followingEntry && followingEntry.label)
+      ? `<div class="person-follower-name">${escapeHtml(followingEntry.label)}</div>`
+      : '';
     li.innerHTML = `
       <div class="person-info">
         <div class="person-label" style="letter-spacing:2px;font-size:13px">${escapeHtml(code)}</div>
+        ${nameHtml}
       </div>
       <button class="remove-btn" data-follower-id="${escapeHtml(userId)}">Remove</button>`;
     li.querySelector('.remove-btn').addEventListener('click', async (e) => {

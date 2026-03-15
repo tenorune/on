@@ -131,6 +131,7 @@ main {
 .hint { font-size: 12px; color: var(--text-muted); margin-top: 10px; text-align: center; }
 .section-title { font-size: 11px; letter-spacing: 1px; color: var(--text-muted); text-transform: uppercase; width: 100%; max-width: 320px; margin-bottom: 8px; }
 .followers-section { width: 100%; max-width: 320px; display: flex; flex-direction: column; align-items: flex-start; }
+.person-follower-name { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
 /* Utilities */
 .hidden { display: none !important; }
