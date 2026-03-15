@@ -178,7 +178,7 @@ describe('renderList: name display on mutual rows', () => {
     jest.clearAllMocks();
   });
 
-  test('mutual row with non-empty label shows .person-follower-name with code', () => {
+  test('mutual row with non-empty label does not show .person-follower-name', () => {
     getFollowing.mockReturnValue([
       { userId: 'u1', code: 'XY9K2M', label: 'Alice' },
     ]);
@@ -186,9 +186,7 @@ describe('renderList: name display on mutual rows', () => {
     fire([{ userId: 'u1', code: 'XY9K2M' }]);
 
     const li = document.querySelector('[data-user-id="u1"]');
-    const nameEl = li.querySelector('.person-follower-name');
-    expect(nameEl).not.toBeNull();
-    expect(nameEl.textContent).toBe('XY9K2M');
+    expect(li.querySelector('.person-follower-name')).toBeNull();
   });
 
   test('mutual row with empty label has no .person-follower-name', () => {

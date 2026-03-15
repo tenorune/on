@@ -49,8 +49,8 @@ test('rotate success: updates code display and calls saveIdentity', async () => 
   document.getElementById('rotate-code-btn').click();
   document.getElementById('rotate-do-btn').click();
 
-  // Flush promises and the 200ms fade timeout
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  // Flush promises and the 250ms parallel fade timeout
+  await new Promise((resolve) => setTimeout(resolve, 350));
 
   expect(document.getElementById('my-code-display').textContent).toBe('XYZ789');
   expect(saveIdentity).toHaveBeenCalledWith('uid1', 'XYZ789');

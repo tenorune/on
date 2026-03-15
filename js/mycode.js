@@ -8,8 +8,8 @@ export function initCodeDrawer(myUserId, myCode) {
   document.getElementById('my-code-display').textContent = currentCode;
 
   document.getElementById('copy-code-btn').addEventListener('click', () => {
-    navigator.clipboard.writeText(currentCode).then(() => {
-      const btn = document.getElementById('copy-code-btn');
+    const btn = document.getElementById('copy-code-btn');
+    copyText(currentCode).then(() => {
       btn.textContent = 'Copied!';
       setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
     });
@@ -45,24 +45,49 @@ export function initCodeDrawer(myUserId, myCode) {
     const rotateBtn = document.getElementById('rotate-code-btn');
     const copyBtn = document.getElementById('copy-code-btn');
     const errorEl = document.getElementById('rotate-error-msg');
+    const display = document.getElementById('my-code-display');
 
     rotateBtn.classList.add('spinning');
     rotateBtn.disabled = true;
     copyBtn.disabled = true;
     errorEl.classList.add('hidden');
 
+    // Start fading out the old code immediately, in parallel with the network call
+    display.classList.add('fading');
+
     try {
-      const newCode = await rotateCode(myUserId, currentCode);
+      const [newCode] = await Promise.all([
+        rotateCode(myUserId, currentCode),
+        new Promise((r) => setTimeout(r, 250)), // ensure full fade-out completes
+      ]);
 
-      const display = document.getElementById('my-code-display');
-      display.classList.add('fading');
-      await new Promise((r) => setTimeout(r, 200));
+      // Code is invisible — swap text and update state
       display.textContent = newCode;
-      display.classList.remove('fading');
-
       currentCode = newCode;
       saveIdentity(myUserId, newCode);
+
+      // Create NEW badge (starts invisible via CSS opacity:0)
+      const badge = document.createElement('span');
+      badge.className = 'new-badge';
+      badge.textContent = 'NEW';
+      display.insertAdjacentElement('afterend', badge);
+
+      // Fade in code + badge simultaneously
+      display.classList.remove('fading');
+      requestAnimationFrame(() => { badge.style.opacity = '1'; });
+
+      // Stop spinning once the new code is visible
+      await new Promise((r) => setTimeout(r, 350));
+      rotateBtn.classList.remove('spinning');
+
+      // Fade out and remove the NEW badge
+      await new Promise((r) => setTimeout(r, 900));
+      badge.style.opacity = '0';
+      await new Promise((r) => setTimeout(r, 400));
+      badge.remove();
+
     } catch (_e) {
+      display.classList.remove('fading');
       errorEl.classList.remove('hidden');
     } finally {
       rotateBtn.classList.remove('spinning');
@@ -74,4 +99,24 @@ export function initCodeDrawer(myUserId, myCode) {
   function dismissRotateConfirm() {
     document.getElementById('rotate-confirm').classList.add('hidden');
   }
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (_) {
+      // fall through to execCommand fallback
+    }
+  }
+  // Fallback for iOS Safari and older browsers
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
 }

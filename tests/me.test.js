@@ -82,9 +82,10 @@ test('applyOwnStatus unavailable: dot loses available class', () => {
   expect(document.getElementById('my-dot').classList.contains('available')).toBe(false);
 });
 
-test('applyOwnStatus unavailable: time-remaining is hidden', () => {
+test('applyOwnStatus unavailable: time-remaining is hidden after fade-out', () => {
   applyOwnStatus('available', Date.now() + 7200000);
   applyOwnStatus('unavailable', null);
+  jest.advanceTimersByTime(300);
   expect(document.getElementById('time-remaining').style.display).toBe('none');
 });
 

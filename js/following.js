@@ -218,8 +218,7 @@ function createFolloweeRow(entry, myUserId) {
   li.dataset.userId = entry.userId;
 
   const nameHtml = (entry.label)
-    ? `<div class="person-label">${escapeHtml(entry.label)}</div>
-       <div class="person-follower-name">${escapeHtml(entry.code)}</div>`
+    ? `<div class="person-label">${escapeHtml(entry.label)}</div>`
     : `<div class="person-label" style="font-family:monospace">${escapeHtml(entry.code)}</div>`;
 
   li.innerHTML = `

@@ -102,7 +102,9 @@ function setAvailable(availableUntil) {
   label.classList.add('available');
   label.textContent = 'Available';
   timeRemaining.textContent = '· ' + formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
+  timeRemaining.style.opacity = '0';
   timeRemaining.style.display = '';
+  requestAnimationFrame(() => { timeRemaining.style.opacity = '1'; });
   showChips(chips);
 
   clearInterval(countdownTimer);
@@ -112,8 +114,8 @@ function setAvailable(availableUntil) {
       dot.classList.remove('available');
       label.classList.remove('available');
       label.textContent = 'Unavailable';
-      timeRemaining.textContent = '';
-      timeRemaining.style.display = 'none';
+      timeRemaining.style.opacity = '0';
+      setTimeout(() => { timeRemaining.style.display = 'none'; timeRemaining.style.opacity = ''; }, 260);
       hideChips(chips);
       clearInterval(countdownTimer);
     } else {
@@ -131,8 +133,8 @@ function setUnavailable() {
   dot.classList.remove('available');
   label.classList.remove('available');
   label.textContent = 'Unavailable';
-  timeRemaining.textContent = '';
-  timeRemaining.style.display = 'none';
+  timeRemaining.style.opacity = '0';
+  setTimeout(() => { timeRemaining.style.display = 'none'; timeRemaining.style.opacity = ''; }, 260);
   hideChips(chips);
   clearInterval(countdownTimer);
 }

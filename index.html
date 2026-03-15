@@ -36,21 +36,24 @@
       </div>
     </div>
     <div id="code-drawer">
-      <p class="code-card-label">Your code</p>
-      <div class="code-display-row">
-        <span id="my-code-display" class="code-display"></span>
-        <button id="rotate-code-btn" class="rotate-btn" title="Generate new code">↻</button>
-        <button id="copy-code-btn" class="ghost-btn">Copy</button>
+      <div class="drawer-inner">
+        <div class="code-row">
+          <span id="my-code-display" class="code-display"></span>
+          <button id="rotate-code-btn" class="rotate-btn" title="Generate new code">↻</button>
+        </div>
+        <div class="code-actions">
+          <button id="copy-code-btn" class="ghost-btn">Copy</button>
+        </div>
+        <p id="rotate-error-msg" class="error-msg hidden"></p>
+        <p class="hint">Share this so others can follow your status.</p>
       </div>
-      <p id="rotate-error-msg" class="error-msg hidden"></p>
-      <p class="hint">Share this so others can follow your status.</p>
     </div>
   </header>
 
   <main id="main-list">
     <div id="offline-banner" class="offline-banner hidden">Offline — showing last known status</div>
     <ul id="people-list" class="person-list"></ul>
-    <p id="empty-list-msg" class="hidden">Add someone below to get started.</p>
+    <p id="empty-list-msg" class="hidden"></p>
     <button id="add-person-btn" class="add-btn">+ Add person</button>
     <div id="add-person-form" class="add-form hidden">
       <label class="field-label">Code</label>
