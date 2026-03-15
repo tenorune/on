@@ -1,8 +1,8 @@
 // js/following.js
 import {
-  lookupCode, watchStatus, registerAsFollower, unregisterAsFollower,
-  isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
-  formatLastSeen, // used in updateFolloweeRow for combined status text
+  lookupCode, watchStatus, watchFollowers, registerAsFollower, unregisterAsFollower,
+  removeFollower, isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
+  formatLastSeen,
 } from './db.js';
 import { getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode } from './store.js';
 import { escapeHtml } from './utils.js';
@@ -11,48 +11,57 @@ const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
 const lastUserData = new Map(); // userId → most recent userData from Firebase
 
-let pendingUnfollow = null; // { entry, myUserId }
+let latestFollowersSnapshot = [];
+let unsubFollowers = null;
+let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
+let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
 
-function showConfirm(entry, myUserId) {
-  pendingUnfollow = { entry, myUserId };
-  document.getElementById('unfollow-confirm-title').textContent = `Unfollow ${entry.label}?`;
+function showConfirm(title, btnText, action) {
+  pendingAction = action;
+  document.getElementById('unfollow-confirm-title').textContent = title;
+  document.getElementById('unfollow-do-btn').textContent = btnText;
   document.getElementById('unfollow-confirm').classList.remove('hidden');
 }
 
 function dismissConfirm() {
   document.getElementById('unfollow-confirm').classList.add('hidden');
-  pendingUnfollow = null;
+  pendingAction = null;
 }
 
-async function doUnfollow() {
-  if (!pendingUnfollow) return;
-  const { entry, myUserId } = pendingUnfollow;
+async function doConfirm() {
+  if (!pendingAction) return;
+  const action = pendingAction;
   dismissConfirm();
 
-  // 1. Unsubscribe first so the Firebase deletion echo doesn't re-trigger the callback
-  const unsub = unsubscribers.get(entry.userId);
-  if (unsub) unsub();
-  unsubscribers.delete(entry.userId);
-  lastUserData.delete(entry.userId);
-
-  // 2. Remove from Firebase followers list (self-initiated — does not write revokedFollowers)
-  await unregisterAsFollower(entry.userId, myUserId);
-
-  // 3. Remove from localStorage
-  removeFollowing(entry.userId);
-
-  // 4. Remove row from DOM; show empty state if list is now empty
-  const li = document.getElementById(`followee-${entry.userId}`);
-  if (li) li.remove();
-
-  const list = document.getElementById('following-list');
-  if (list && list.querySelectorAll('li[id^="followee-"]').length === 0) {
-    list.innerHTML = '<li style="color:var(--text-muted);font-size:13px;padding:12px 0;list-style:none">You\'re not following anyone yet.</li>';
+  if (action.type === 'unfollow') {
+    const unsub = unsubscribers.get(action.userId);
+    if (unsub) unsub();
+    unsubscribers.delete(action.userId);
+    lastUserData.delete(action.userId);
+    await unregisterAsFollower(action.userId, action.myUserId);
+    removeFollowing(action.userId);
+    renderList();
+  } else if (action.type === 'removeFollower') {
+    await removeFollower(action.myUserId, action.userId);
+    // latestFollowersSnapshot will be updated by watchFollowers callback automatically
+    // but we re-render immediately using the current snapshot minus the removed entry
+    latestFollowersSnapshot = latestFollowersSnapshot.filter(f => f.userId !== action.userId);
+    renderList();
   }
 }
 
-export function initFollowingTab(myUserId, myCode) {
-  // Inject confirm sheet once (guard prevents duplicate on re-init)
+export function initList(myUserId, myCode) {
+  myUserIdRef = myUserId;
+
+  // Reset stale subscription state from any prior init (also makes tests independent)
+  unsubscribers.forEach((unsub) => unsub());
+  unsubscribers.clear();
+  lastUserData.clear();
+  editingSet.clear();
+  latestFollowersSnapshot = [];
+  pendingAction = null;
+
+  // Inject confirm sheet once
   if (!document.getElementById('unfollow-confirm')) {
     const confirmEl = document.createElement('div');
     confirmEl.id = 'unfollow-confirm';
@@ -67,11 +76,7 @@ export function initFollowingTab(myUserId, myCode) {
       </div>
     </div>`;
     document.body.appendChild(confirmEl);
-
-    // Dismiss on backdrop click or Escape
-    confirmEl.addEventListener('click', (e) => {
-      if (e.target === confirmEl) dismissConfirm();
-    });
+    confirmEl.addEventListener('click', (e) => { if (e.target === confirmEl) dismissConfirm(); });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' &&
           !document.getElementById('unfollow-confirm').classList.contains('hidden')) {
@@ -79,21 +84,23 @@ export function initFollowingTab(myUserId, myCode) {
       }
     });
     document.getElementById('unfollow-cancel-btn').addEventListener('click', dismissConfirm);
-    document.getElementById('unfollow-do-btn').addEventListener('click', doUnfollow);
+    document.getElementById('unfollow-do-btn').addEventListener('click', doConfirm);
   }
 
-  renderFollowingList(myUserId);
+  // Subscribe to followers list
+  if (unsubFollowers) unsubFollowers();
+  unsubFollowers = watchFollowers(myUserId, (followers) => {
+    latestFollowersSnapshot = followers;
+    renderList();
+  });
 
-  // Refresh time labels for available followees every 60s (availableUntil is a
-  // fixed timestamp in Firebase that never changes, so the subscription callback
-  // won't re-fire; we need to recompute client-side to keep the display current)
+  // Refresh time labels every 60s
   setInterval(() => {
     getFollowing().forEach((entry) => {
       const userData = lastUserData.get(entry.userId);
       if (!userData || userData.status !== 'available') return;
       if (editingSet.has(entry.userId)) return;
       updateFolloweeRow(entry, userData, myUserId);
-      sortFollowingList();
     });
   }, 60000);
 
@@ -103,9 +110,7 @@ export function initFollowingTab(myUserId, myCode) {
     document.getElementById('add-code-input').focus();
   });
 
-  document.getElementById('add-cancel-btn').addEventListener('click', () => {
-    closeAddForm();
-  });
+  document.getElementById('add-cancel-btn').addEventListener('click', closeAddForm);
 
   document.getElementById('add-code-input').addEventListener('input', (e) => {
     e.target.value = e.target.value.toUpperCase();
@@ -120,56 +125,188 @@ export function initFollowingTab(myUserId, myCode) {
   if (!navigator.onLine) document.getElementById('offline-banner').classList.remove('hidden');
 }
 
-function renderFollowingList(myUserId) {
-  // Unsubscribe existing listeners
-  unsubscribers.forEach((unsub) => unsub());
-  unsubscribers.clear();
-  lastUserData.clear();
-
+function renderList() {
+  const myUserId = myUserIdRef;
   const following = getFollowing();
-  const list = document.getElementById('following-list');
+  const followerIds = new Set(latestFollowersSnapshot.map(f => f.userId));
+
+  const mutuals = following.filter(f => followerIds.has(f.userId));
+  const followingOnly = following.filter(f => !followerIds.has(f.userId));
+  const followerOnly = latestFollowersSnapshot.filter(
+    f => !following.find(g => g.userId === f.userId)
+  );
+
+  // Unsubscribe only entries no longer in the active (mutual/following) set.
+  // Preserving existing subscriptions prevents a visible flash to "Unavailable"
+  // on every followers-list change, and keeps lastUserData accurate for sorting.
+  const activeUserIds = new Set([...mutuals, ...followingOnly].map(e => e.userId));
+  unsubscribers.forEach((unsub, userId) => {
+    if (!activeUserIds.has(userId)) {
+      unsub();
+      unsubscribers.delete(userId);
+      lastUserData.delete(userId);
+    }
+  });
+
+  const list = document.getElementById('people-list');
+  const emptyMsg = document.getElementById('empty-list-msg');
+
+  const isEmpty = mutuals.length === 0 && followingOnly.length === 0 && followerOnly.length === 0;
+  if (isEmpty) {
+    list.innerHTML = '';
+    list.style.display = 'none';
+    emptyMsg.classList.remove('hidden');
+    return;
+  }
+
+  list.style.display = '';
+  emptyMsg.classList.add('hidden');
   list.innerHTML = '';
 
-  following.forEach((entry) => subscribeToFollowee(entry, myUserId));
+  // Sort uses lastUserData which still has status for entries with active subscriptions.
+  // New entries (not yet subscribed) will sort as unavailable until Firebase delivers status.
+  function sortFollowees(entries) {
+    return [...entries].sort((a, b) => {
+      const aData = lastUserData.get(a.userId);
+      const bData = lastUserData.get(b.userId);
+      const aAvail = aData ? aData.status === 'available' && !isExpired(aData.availableUntil) : false;
+      const bAvail = bData ? bData.status === 'available' && !isExpired(bData.availableUntil) : false;
+      if (aAvail !== bAvail) return bAvail ? 1 : -1;
+      const aName = a.label || a.code;
+      const bName = b.label || b.code;
+      return aName.localeCompare(bName);
+    });
+  }
+
+  function sortFollowerOnly(entries) {
+    return [...entries].sort((a, b) => a.code.localeCompare(b.code));
+  }
+
+  function appendSection(labelText, entries, renderRow) {
+    if (entries.length === 0) return;
+    const labelLi = document.createElement('li');
+    labelLi.className = 'list-section-label';
+    labelLi.textContent = labelText;
+    list.appendChild(labelLi);
+    entries.forEach(renderRow);
+  }
+
+  appendSection('Mutuals', sortFollowees(mutuals), (entry) => {
+    createFolloweeRow(entry, myUserId);
+    // Only subscribe for entries not already subscribed (preserves existing connection)
+    if (!unsubscribers.has(entry.userId)) {
+      subscribeToFollowee(entry, myUserId);
+    }
+  });
+
+  appendSection('Following', sortFollowees(followingOnly), (entry) => {
+    createFolloweeRow(entry, myUserId);
+    if (!unsubscribers.has(entry.userId)) {
+      subscribeToFollowee(entry, myUserId);
+    }
+  });
+
+  appendSection('Followers', sortFollowerOnly(followerOnly), (follower) => {
+    createFollowerOnlyRow(follower, myUserId);
+  });
+}
+
+function createFolloweeRow(entry, myUserId) {
+  const li = document.createElement('li');
+  li.dataset.userId = entry.userId;
+
+  const nameHtml = (entry.label)
+    ? `<div class="person-label">${escapeHtml(entry.label)}</div>
+       <div class="person-follower-name">${escapeHtml(entry.code)}</div>`
+    : `<div class="person-label" style="font-family:monospace">${escapeHtml(entry.code)}</div>`;
+
+  li.innerHTML = `
+    <div class="person-dot"></div>
+    <div class="person-info">
+      ${nameHtml}
+      <div class="person-status">Unavailable</div>
+    </div>
+    <button class="unfollow-btn" title="Unfollow">×</button>`;
+
+  const displayName = entry.label || entry.code;
+  li.querySelector('.unfollow-btn').addEventListener('click', () => {
+    showConfirm(`Unfollow ${displayName}?`, 'Unfollow', {
+      type: 'unfollow',
+      userId: entry.userId,
+      myUserId,
+    });
+  });
+
+  li.querySelector('.person-label').addEventListener('click', () => {
+    activateRename(entry, li.querySelector('.person-label'));
+  });
+
+  document.getElementById('people-list').appendChild(li);
+}
+
+function createFollowerOnlyRow(follower, myUserId) {
+  const li = document.createElement('li');
+  li.className = 'follower-only';
+  li.dataset.userId = follower.userId;
+
+  li.innerHTML = `
+    <button class="follow-back-btn" title="Follow back">+</button>
+    <div class="person-info">
+      <div class="person-label" style="font-family:monospace">${escapeHtml(follower.code)}</div>
+    </div>
+    <button class="unfollow-btn" title="Remove">×</button>`;
+
+  li.querySelector('.follow-back-btn').addEventListener('click', () => {
+    document.getElementById('add-code-input').value = follower.code;
+    document.getElementById('add-label-input').value = '';
+    document.getElementById('add-person-form').classList.remove('hidden');
+    document.getElementById('add-person-btn').classList.add('hidden');
+  });
+
+  li.querySelector('.unfollow-btn').addEventListener('click', () => {
+    showConfirm(`Remove follower ${follower.code}?`, 'Remove', {
+      type: 'removeFollower',
+      userId: follower.userId,
+      myUserId,
+    });
+  });
+
+  document.getElementById('people-list').appendChild(li);
 }
 
 function subscribeToFollowee(entry, myUserId) {
   const unsub = watchStatus(entry.userId, (userData) => {
     if (!userData) return;
 
-    // Check if this user has revoked us
     if (userData.revokedFollowers && userData.revokedFollowers[myUserId]) {
       removeFollowing(entry.userId);
       unsub();
       unsubscribers.delete(entry.userId);
-      renderFollowingList(myUserId);
+      renderList();
       return;
     }
 
-    // Expiry write-back (only when online to avoid queued writes on reconnect)
     if (userData.status === 'available' && isExpired(userData.availableUntil)) {
       if (navigator.onLine) writeBackExpired(entry.userId);
       userData.status = 'unavailable';
       userData.availableUntil = null;
     }
 
-    // Code change sync — update localStorage if the followed user rotated their code
     if (userData.code && userData.code !== entry.code) {
-      entry.code = userData.code;           // update in-memory entry to stay consistent
+      entry.code = userData.code;
       updateFollowingCode(entry.userId, userData.code);
     }
 
     lastUserData.set(entry.userId, userData);
     if (editingSet.has(entry.userId)) return;
     updateFolloweeRow(entry, userData, myUserId);
-    sortFollowingList();
   });
   unsubscribers.set(entry.userId, unsub);
 }
 
 function updateFolloweeRow(entry, userData, myUserId) {
-  const list = document.getElementById('following-list');
-  let li = document.getElementById(`followee-${entry.userId}`);
+  const li = document.querySelector(`[data-user-id="${entry.userId}"]`);
+  if (!li) return;
 
   const isAvail = userData.status === 'available' && !isExpired(userData.availableUntil);
   const ms = timeRemainingMs(userData.availableUntil);
@@ -181,50 +318,17 @@ function updateFolloweeRow(entry, userData, myUserId) {
     statusText = lastSeenPhrase ? `Last seen ${lastSeenPhrase}` : 'Unavailable';
   }
 
-  if (!li) {
-    li = document.createElement('li');
-    li.id = `followee-${entry.userId}`;
-    li.dataset.available = String(isAvail);
-    li.innerHTML = `
-      <div class="person-dot${isAvail ? ' available' : ''}"></div>
-      <div class="person-info">
-        <div class="person-label">${escapeHtml(entry.label)}</div>
-        <div class="person-status">${statusText}</div>
-      </div>
-      <button class="unfollow-btn" title="Unfollow" data-userid="${entry.userId}">×</button>`;
-    list.appendChild(li);
-    li.querySelector('.person-label').addEventListener('click', () => {
-      activateRename(entry, li.querySelector('.person-label'));
-    });
-    li.querySelector('.unfollow-btn').addEventListener('click', () => {
-      showConfirm(entry, myUserId);
-    });
-  } else {
-    li.dataset.available = String(isAvail);
-    const dot = li.querySelector('.person-dot');
-    const statusEl = li.querySelector('.person-status');
-    dot.className = `person-dot${isAvail ? ' available' : ''}`;
-    statusEl.className = 'person-status';
-    statusEl.innerHTML = statusText;
-  }
+  li.dataset.available = String(isAvail);
+  const dot = li.querySelector('.person-dot');
+  if (dot) dot.className = `person-dot${isAvail ? ' available' : ''}`;
+  const statusEl = li.querySelector('.person-status');
+  if (statusEl) statusEl.innerHTML = statusText;
 }
 
 function getLabelText(li) {
   const labelEl = li.querySelector('.person-label');
-  const input = labelEl.querySelector('.rename-input');
-  return input ? input.value : labelEl.textContent;
-}
-
-function sortFollowingList() {
-  const list = document.getElementById('following-list');
-  const items = Array.from(list.querySelectorAll('li'));
-  items.sort((a, b) => {
-    const aAvail = a.dataset.available === 'true';
-    const bAvail = b.dataset.available === 'true';
-    if (aAvail !== bAvail) return bAvail ? 1 : -1;
-    return getLabelText(a).localeCompare(getLabelText(b));
-  });
-  items.forEach((li) => list.appendChild(li));
+  const input = labelEl ? labelEl.querySelector('.rename-input') : null;
+  return input ? input.value : (labelEl ? labelEl.textContent : '');
 }
 
 function activateRename(entry, labelEl) {
@@ -240,7 +344,7 @@ function activateRename(entry, labelEl) {
   input.focus();
   input.select();
 
-  function confirm() {
+  function confirmRename() {
     const val = input.value.trim();
     if (!val) return;
     renameFollowing(entry.userId, val);
@@ -249,17 +353,17 @@ function activateRename(entry, labelEl) {
     labelEl.textContent = val;
   }
 
-  function cancel() {
+  function cancelRename() {
     editingSet.delete(entry.userId);
     labelEl.textContent = original;
   }
 
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); confirm(); }
-    if (e.key === 'Escape') { cancel(); }
+    if (e.key === 'Enter') { e.preventDefault(); confirmRename(); }
+    if (e.key === 'Escape') { cancelRename(); }
   });
   input.addEventListener('blur', () => {
-    if (editingSet.has(entry.userId)) confirm();
+    if (editingSet.has(entry.userId)) confirmRename();
   });
 }
 
@@ -273,8 +377,8 @@ async function handleAddPerson(myUserId, myCode) {
 
   errorEl.classList.add('hidden');
 
-  if (!code || !label) {
-    showError(errorEl, 'Please fill in both fields.');
+  if (!code) {
+    showError(errorEl, 'Please enter a code.');
     return;
   }
 
@@ -283,8 +387,7 @@ async function handleAddPerson(myUserId, myCode) {
     return;
   }
 
-  const myCode6 = myCode.toUpperCase();
-  if (code === myCode6) {
+  if (code === myCode.toUpperCase()) {
     showError(errorEl, "That's your own code.");
     return;
   }
@@ -292,7 +395,7 @@ async function handleAddPerson(myUserId, myCode) {
   const following = getFollowing();
   const existing = following.find((e) => e.code.toUpperCase() === code);
   if (existing) {
-    showError(errorEl, `You're already following someone with that code (${existing.label}).`);
+    showError(errorEl, `You're already following ${existing.label || existing.code}.`);
     return;
   }
 
@@ -307,8 +410,8 @@ async function handleAddPerson(myUserId, myCode) {
 
   await registerAsFollower(targetUserId, myUserId, myCode);
   addFollowing({ code, label, userId: targetUserId });
-  subscribeToFollowee({ code, label, userId: targetUserId }, myUserId);
   closeAddForm();
+  renderList();
   document.getElementById('add-submit-btn').disabled = false;
 }
 
@@ -324,4 +427,3 @@ function showError(el, msg) {
   el.textContent = msg;
   el.classList.remove('hidden');
 }
-
