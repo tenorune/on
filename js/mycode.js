@@ -31,9 +31,10 @@ export function renderFollowers(myUserId, followers) {
   }
 
   noMsg.classList.add('hidden');
+  const following = getFollowing();
   followers.forEach(({ userId, code }) => {
     const li = document.createElement('li');
-    const followingEntry = getFollowing().find((f) => f.userId === userId);
+    const followingEntry = following.find((f) => f.userId === userId);
     const nameHtml = (followingEntry && followingEntry.label)
       ? `<div class="person-follower-name">${escapeHtml(followingEntry.label)}</div>`
       : '';

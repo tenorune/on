@@ -40,3 +40,15 @@ test('does not show name when label is empty string', () => {
   const li = document.querySelector('#followers-list li');
   expect(li.querySelector('.person-follower-name')).toBeNull();
 });
+
+test('escapes HTML in label to prevent XSS', () => {
+  getFollowing.mockReturnValue([
+    { userId: 'u1', code: 'XY9K2M', label: '<b>Alice</b>' },
+  ]);
+
+  renderFollowers('myUserId', [{ userId: 'u1', code: 'XY9K2M' }]);
+
+  const nameEl = document.querySelector('.person-follower-name');
+  expect(nameEl.textContent).toBe('<b>Alice</b>');
+  expect(nameEl.innerHTML).not.toContain('<b>');
+});
