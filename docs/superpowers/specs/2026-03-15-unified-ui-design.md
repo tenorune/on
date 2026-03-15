@@ -164,6 +164,8 @@ If the user's label from `getFollowing()` is non-empty, it is shown as the prima
 [+ btn 32px] [code monospace]             [× btn]
 ```
 
+Follower-only rows show no status text and no status dot — the app is not subscribed to this user's status. The 60-second interval only iterates `getFollowing()`, so follower-only entries are intentionally excluded from live updates.
+
 Row has `class="follower-only"` (opacity 0.6). The `+` button is `.follow-back-btn` (circle outline in accent color). Tapping it:
 
 1. Pre-fills `#add-code-input` with the follower's code
@@ -172,9 +174,11 @@ Row has `class="follower-only"` (opacity 0.6). The `+` button is `.follow-back-b
 
 ### Actions
 
-**× on Mutual / Following row:** Opens the existing `#unfollow-confirm` sheet (reused for all confirmations) with title "Unfollow [name]?" → on confirm: calls `unregisterAsFollower(targetUserId, myUserId)` + `removeFollowing(targetUserId)`, then calls `renderList()`.
+**× on Mutual / Following row:** Opens the existing `#unfollow-confirm` sheet (reused for all confirmations). Before showing, set the sheet title to "Unfollow [name]?" and the confirm button text to "Unfollow". Store `{ type: 'unfollow', userId: targetUserId }` in a module-level `pendingAction` variable. On confirm: calls `unregisterAsFollower(targetUserId, myUserId)` + `removeFollowing(targetUserId)`, then calls `renderList()`.
 
-**× on Follower-only row:** Opens the existing `#unfollow-confirm` sheet with title "Remove follower [code]?". The pending-action object captures `{ userId: followerUserId, code: followerCode }` from the followers snapshot at render time. On confirm: calls `removeFollower(myUserId, followerUserId)`, then calls `renderList()`.
+**× on Follower-only row:** Opens the existing `#unfollow-confirm` sheet. Before showing, set the sheet title to "Remove follower [code]?" and the confirm button text to "Remove". Store `{ type: 'removeFollower', userId: followerUserId }` in `pendingAction`. The `code` value for the title is read from the `latestFollowersSnapshot` at render time (captured in the click handler closure). On confirm: calls `removeFollower(myUserId, followerUserId)`, then calls `renderList()`.
+
+The confirm button handler routes based on `pendingAction.type`.
 
 **Inline rename:** Tapping a name label on a Mutual or Following row activates inline rename (existing behavior). Follower-only rows show a monospace code with no tap behavior — tapping the code does nothing.
 
@@ -370,7 +374,7 @@ initList(myUserId, myCode);        // third: list subscribes to followers
 - **`doUnfollow`** — remove the existing manual `<li>` DOM removal code entirely. Replace with a call to `renderList()` after `removeFollowing(targetUserId)` completes. The empty-list check in `doUnfollow` is also removed (handled by `renderList`).
 - Absorbs name-display logic from `mycode.js` (see Section 3 Row layouts for full rules on label vs. code display)
 - Follower-only rows: `.follow-back-btn` click pre-fills `#add-code-input` with the follower's code, hides `#add-person-btn`, shows `#add-person-form`
-- Add Person form logic (existing) retargeted to new IDs: `#add-person-btn`, `#add-person-form`, `#add-code-input`, `#add-label-input`, `#add-submit-btn`, `#add-cancel-btn`, `#add-error`; label field is optional (remove the `!label` check from validation; only require non-empty code, error message: "Please enter a code.")
+- Add Person form logic (existing) retargeted to new IDs: `#add-person-btn`, `#add-person-form`, `#add-code-input`, `#add-label-input`, `#add-submit-btn`, `#add-cancel-btn`, `#add-error`; label field is optional (remove the `!label` check from validation; only require non-empty code, error message: "Please enter a code."). The duplicate-code error message becomes: `"You're already following ${existing.label || existing.code}."` (uses label if non-empty, falls back to code).
 - `sortFollowingList()` is replaced by the sort logic inside `renderList`
 
 ### Unchanged modules
