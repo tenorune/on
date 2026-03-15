@@ -3,6 +3,8 @@ import { db } from './firebase-config.js';
 import {
   ref, set, get, update, onValue, remove, runTransaction,
 } from 'firebase/database';
+import { generateCode } from './identity.js';
+import { getFollowing } from './store.js';
 
 // --- Pure helpers (exported for testing) ---
 
@@ -141,4 +143,33 @@ export async function userExists(userId) {
 // Update lastSeen timestamp without changing status — called on every app open.
 export async function touchLastSeen(userId) {
   await update(ref(db, `users/${userId}`), { lastSeen: Date.now() });
+}
+
+// Reserve a fresh code, update user record + follower entries, release old code.
+// Returns the new code string on success. Throws on failure.
+// Old code is deleted LAST so it remains valid if any earlier write fails.
+export async function rotateCode(userId, oldCode) {
+  // Step 1: reserve new code (collision-safe)
+  let newCode, committed;
+  do {
+    newCode = generateCode();
+    const result = await runTransaction(ref(db, `codeIndex/${newCode}`), (current) => {
+      if (current !== null) return; // abort on collision
+      return userId;
+    });
+    committed = result.committed;
+  } while (!committed);
+
+  // Steps 2–3: establish new code. If either throws, new code is orphaned in
+  // codeIndex but old code remains valid — user retries and the orphan is harmless.
+  await update(ref(db, `users/${userId}`), { code: newCode });
+  for (const entry of getFollowing()) {
+    await set(ref(db, `users/${entry.userId}/followers/${userId}`), newCode);
+  }
+
+  // Step 4: release old code last. If this throws, both codes exist briefly —
+  // new code is already active, so old code is a harmless orphan. No rollback needed.
+  await remove(ref(db, `codeIndex/${oldCode}`)).catch(() => {});
+
+  return newCode;
 }
