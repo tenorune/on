@@ -2,39 +2,194 @@
 jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
   isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
-  formatTimeRemaining: (ms) => (ms > 0 ? '1h' : ''),
-  timeRemainingMs: (t) => (!t ? 0 : Math.max(0, t - Date.now())),
+  formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
+  timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
 }));
 jest.mock('../js/store.js', () => ({
-  getLastTimeout: () => 2,
+  getLastTimeout: jest.fn(),
   setLastTimeout: jest.fn(),
 }));
 
-const { applyOwnStatus } = require('../js/me');
+const { setStatus } = require('../js/db.js');
+const { getLastTimeout, setLastTimeout } = require('../js/store.js');
+const { applyOwnStatus, initHeader } = require('../js/me.js');
+
+// jsdom doesn't apply stylesheets, so #header-chips has no computed display.
+// The fixture sets style="display:none" on chips to match the CSS default.
+function makeFixture() {
+  document.body.innerHTML = `
+    <div id="my-dot"></div>
+    <span id="my-status-label" class="status-label">Unavailable</span>
+    <span id="time-remaining" style="display:none"></span>
+    <div id="header-chips" style="display:none">
+      <button id="time-chip" class="chip time-chip"></button>
+      <button id="mycode-chip" class="chip"></button>
+    </div>
+    <div id="code-drawer"></div>
+  `;
+}
 
 beforeEach(() => {
   jest.useFakeTimers();
-  document.body.innerHTML = `
-    <div id="my-dot"></div>
-    <div id="my-status-label"></div>
-    <div id="slider-wrap" class="hidden"></div>
-    <input id="timeout-slider" type="range" value="2" min="1" max="12" />
-    <span id="slider-value">2h</span>
-  `;
+  global.requestAnimationFrame = (fn) => fn();
+  makeFixture();
+  jest.clearAllMocks();
+  getLastTimeout.mockReturnValue(2); // old-format default — set AFTER clearAllMocks
 });
 
 afterEach(() => {
   jest.useRealTimers();
 });
 
-test('dot loses available class when countdown timer fires after expiry', () => {
-  const availableUntil = Date.now() + 1000; // expires 1 second from now
+// --- applyOwnStatus ---
+
+test('applyOwnStatus available: label text is "Available"', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  expect(document.getElementById('my-status-label').textContent).toBe('Available');
+});
+
+test('applyOwnStatus available: dot gets available class', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  expect(document.getElementById('my-dot').classList.contains('available')).toBe(true);
+});
+
+test('applyOwnStatus available: time-remaining is visible with time text', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  const el = document.getElementById('time-remaining');
+  expect(el.style.display).not.toBe('none');
+  expect(el.textContent).toMatch(/^· .+ left$/);
+});
+
+test('applyOwnStatus available: header-chips display is set to flex', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  expect(document.getElementById('header-chips').style.display).toBe('flex');
+});
+
+test('applyOwnStatus available: header-chips gets .visible class (rAF is synchronous in tests)', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  expect(document.getElementById('header-chips').classList.contains('visible')).toBe(true);
+});
+
+test('applyOwnStatus unavailable: label text is "Unavailable"', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  applyOwnStatus('unavailable', null);
+  expect(document.getElementById('my-status-label').textContent).toBe('Unavailable');
+});
+
+test('applyOwnStatus unavailable: dot loses available class', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  applyOwnStatus('unavailable', null);
+  expect(document.getElementById('my-dot').classList.contains('available')).toBe(false);
+});
+
+test('applyOwnStatus unavailable: time-remaining is hidden', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  applyOwnStatus('unavailable', null);
+  expect(document.getElementById('time-remaining').style.display).toBe('none');
+});
+
+test('applyOwnStatus unavailable: chips .visible class removed', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  applyOwnStatus('unavailable', null);
+  expect(document.getElementById('header-chips').classList.contains('visible')).toBe(false);
+});
+
+test('countdown timer fires after expiry: dot loses available class', () => {
+  const availableUntil = Date.now() + 1000;
   applyOwnStatus('available', availableUntil);
+  expect(document.getElementById('my-dot').classList.contains('available')).toBe(true);
+  jest.advanceTimersByTime(35000);
+  expect(document.getElementById('my-dot').classList.contains('available')).toBe(false);
+});
 
-  const dot = document.getElementById('my-dot');
-  expect(dot.classList.contains('available')).toBe(true);
+// --- chip migration ---
 
-  jest.advanceTimersByTime(35000); // advance past expiry and past the 30s interval tick
+test('getLastTimeout returning 2 (old format hours): time-chip text is "2 hours"', () => {
+  getLastTimeout.mockReturnValue(2);
+  initHeader('uid1');
+  expect(document.getElementById('time-chip').textContent).toBe('2 hours');
+});
 
-  expect(dot.classList.contains('available')).toBe(false);
+test('getLastTimeout returning 120 (new format minutes): time-chip text is "2 hours"', () => {
+  getLastTimeout.mockReturnValue(120);
+  initHeader('uid1');
+  expect(document.getElementById('time-chip').textContent).toBe('2 hours');
+});
+
+test('getLastTimeout returning 60 (new format minutes): time-chip text is "1 hour"', () => {
+  getLastTimeout.mockReturnValue(60);
+  initHeader('uid1');
+  expect(document.getElementById('time-chip').textContent).toBe('1 hour');
+});
+
+test('getLastTimeout returning 1 (old format 1h): time-chip text is "1 hour"', () => {
+  getLastTimeout.mockReturnValue(1);
+  initHeader('uid1');
+  expect(document.getElementById('time-chip').textContent).toBe('1 hour');
+});
+
+// --- time chip cycle ---
+
+test('clicking time chip while available advances to next chip and calls setStatus', async () => {
+  getLastTimeout.mockReturnValue(120); // index 3 = 2 hours
+  initHeader('uid1');
+  document.getElementById('my-dot').classList.add('available');
+
+  document.getElementById('time-chip').click();
+  await Promise.resolve();
+
+  // Advances from index 3 (120min/2 hours) to index 4 (180min/3 hours)
+  expect(document.getElementById('time-chip').textContent).toBe('3 hours');
+  expect(setStatus).toHaveBeenCalledWith('uid1', 'available', expect.any(Number));
+  expect(setLastTimeout).toHaveBeenCalledWith(180);
+});
+
+test('time chip cycle wraps from last chip back to first', async () => {
+  getLastTimeout.mockReturnValue(480); // index 7 = 8 hours
+  initHeader('uid1');
+  document.getElementById('my-dot').classList.add('available');
+
+  document.getElementById('time-chip').click();
+  await Promise.resolve();
+
+  expect(document.getElementById('time-chip').textContent).toBe('30 minutes');
+  expect(setLastTimeout).toHaveBeenCalledWith(30);
+});
+
+test('clicking time chip while unavailable does nothing', async () => {
+  getLastTimeout.mockReturnValue(120);
+  initHeader('uid1');
+  // dot does NOT have 'available' class
+
+  document.getElementById('time-chip').click();
+  await Promise.resolve();
+
+  expect(setStatus).not.toHaveBeenCalled();
+});
+
+// --- mycode chip ---
+
+test('clicking mycode chip toggles code-drawer open class', () => {
+  getLastTimeout.mockReturnValue(2);
+  initHeader('uid1');
+
+  const drawer = document.getElementById('code-drawer');
+  expect(drawer.classList.contains('open')).toBe(false);
+
+  document.getElementById('mycode-chip').click();
+  expect(drawer.classList.contains('open')).toBe(true);
+
+  document.getElementById('mycode-chip').click();
+  expect(drawer.classList.contains('open')).toBe(false);
+});
+
+test('clicking mycode chip toggles active class on the chip', () => {
+  getLastTimeout.mockReturnValue(2);
+  initHeader('uid1');
+
+  const chip = document.getElementById('mycode-chip');
+  chip.click();
+  expect(chip.classList.contains('active')).toBe(true);
+  chip.click();
+  expect(chip.classList.contains('active')).toBe(false);
 });
