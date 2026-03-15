@@ -1,56 +1,82 @@
 // tests/mycode.test.js
-// Mock db.js directly — prevents firebase from loading (same pattern as me.test.js)
-// utils.js needs no mock; it's a pure function with no external dependencies
 jest.mock('../js/db.js', () => ({
-  watchFollowers: jest.fn(),
-  removeFollower: jest.fn(),
   rotateCode: jest.fn(),
 }));
 jest.mock('../js/identity.js', () => ({ saveIdentity: jest.fn() }));
-jest.mock('../js/store.js', () => ({ getFollowing: jest.fn() }));
 
-const { getFollowing } = require('../js/store.js');
-const { renderFollowers } = require('../js/mycode.js');
+const { rotateCode } = require('../js/db.js');
+const { saveIdentity } = require('../js/identity.js');
+const { initCodeDrawer } = require('../js/mycode.js');
 
 beforeEach(() => {
-  document.body.innerHTML = '<ul id="followers-list"></ul><p id="no-followers-msg"></p>';
-  getFollowing.mockReset();
+  document.body.innerHTML = `
+    <span id="my-code-display" class="code-display"></span>
+    <button id="rotate-code-btn" class="rotate-btn"></button>
+    <button id="copy-code-btn" class="ghost-btn">Copy</button>
+    <p id="rotate-error-msg" class="error-msg hidden"></p>
+  `;
+  Object.defineProperty(navigator, 'onLine', { get: () => true, configurable: true });
+  jest.clearAllMocks();
 });
 
-test('shows custom name for a followed-back follower, and no name for an unknown follower', () => {
-  getFollowing.mockReturnValue([
-    { userId: 'u1', code: 'XY9K2M', label: 'Alice' },
-  ]);
-
-  renderFollowers('myUserId', [
-    { userId: 'u1', code: 'XY9K2M' },
-    { userId: 'u2', code: 'Q3ZP7R' },
-  ]);
-
-  const items = document.querySelectorAll('#followers-list li');
-  expect(items[0].querySelector('.person-follower-name').textContent).toBe('Alice');
-  expect(items[1].querySelector('.person-follower-name')).toBeNull();
+test('initCodeDrawer sets code display to initial code', () => {
+  initCodeDrawer('uid1', 'ABC123');
+  expect(document.getElementById('my-code-display').textContent).toBe('ABC123');
 });
 
-test('does not show name when label is empty string', () => {
-  getFollowing.mockReturnValue([
-    { userId: 'u1', code: 'XY9K2M', label: '' },
-  ]);
-
-  renderFollowers('myUserId', [{ userId: 'u1', code: 'XY9K2M' }]);
-
-  const li = document.querySelector('#followers-list li');
-  expect(li.querySelector('.person-follower-name')).toBeNull();
+test('initCodeDrawer: rotate button opens confirm sheet when online', () => {
+  initCodeDrawer('uid1', 'ABC123');
+  document.getElementById('rotate-code-btn').click();
+  const sheet = document.getElementById('rotate-confirm');
+  expect(sheet).not.toBeNull();
+  expect(sheet.classList.contains('hidden')).toBe(false);
 });
 
-test('escapes HTML in label to prevent XSS', () => {
-  getFollowing.mockReturnValue([
-    { userId: 'u1', code: 'XY9K2M', label: '<b>Alice</b>' },
-  ]);
+test('initCodeDrawer: rotate button does nothing when offline', () => {
+  Object.defineProperty(navigator, 'onLine', { get: () => false, configurable: true });
+  initCodeDrawer('uid1', 'ABC123');
+  document.getElementById('rotate-code-btn').click();
+  // confirm sheet is injected on init but stays hidden
+  const sheet = document.getElementById('rotate-confirm');
+  expect(sheet.classList.contains('hidden')).toBe(true);
+});
 
-  renderFollowers('myUserId', [{ userId: 'u1', code: 'XY9K2M' }]);
+test('rotate success: updates code display and calls saveIdentity', async () => {
+  rotateCode.mockResolvedValue('XYZ789');
+  initCodeDrawer('uid1', 'ABC123');
 
-  const nameEl = document.querySelector('.person-follower-name');
-  expect(nameEl.textContent).toBe('<b>Alice</b>');
-  expect(nameEl.innerHTML).not.toContain('<b>');
+  // Open confirm, click generate
+  document.getElementById('rotate-code-btn').click();
+  document.getElementById('rotate-do-btn').click();
+
+  // Flush promises and the 200ms fade timeout
+  await new Promise((resolve) => setTimeout(resolve, 250));
+
+  expect(document.getElementById('my-code-display').textContent).toBe('XYZ789');
+  expect(saveIdentity).toHaveBeenCalledWith('uid1', 'XYZ789');
+});
+
+test('rotate error: shows error message and re-enables buttons', async () => {
+  rotateCode.mockRejectedValue(new Error('network'));
+  initCodeDrawer('uid1', 'ABC123');
+
+  document.getElementById('rotate-code-btn').click();
+  document.getElementById('rotate-do-btn').click();
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  expect(document.getElementById('rotate-error-msg').classList.contains('hidden')).toBe(false);
+  expect(document.getElementById('rotate-code-btn').disabled).toBe(false);
+  expect(document.getElementById('copy-code-btn').disabled).toBe(false);
+});
+
+test('copy button calls clipboard.writeText with current code', () => {
+  const writeText = jest.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    get: () => ({ writeText }),
+    configurable: true,
+  });
+  initCodeDrawer('uid1', 'ABC123');
+  document.getElementById('copy-code-btn').click();
+  expect(writeText).toHaveBeenCalledWith('ABC123');
 });
