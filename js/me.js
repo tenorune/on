@@ -28,20 +28,12 @@ function migrateToChipIndex() {
   return bestIndex;
 }
 
-function showChips(chipsEl) {
-  chipsEl.style.display = 'flex';
-  requestAnimationFrame(() => chipsEl.classList.add('visible'));
+function showTimeChip() {
+  document.getElementById('time-chip').classList.remove('collapsed');
 }
 
-function hideChips(chipsEl) {
-  if (getComputedStyle(chipsEl).display === 'none') return;
-  chipsEl.classList.remove('visible');
-  chipsEl.addEventListener('transitionend', function handler(e) {
-    if (e.target === chipsEl && e.propertyName === 'opacity') {
-      chipsEl.style.display = 'none';
-      chipsEl.removeEventListener('transitionend', handler);
-    }
-  });
+function hideTimeChip() {
+  document.getElementById('time-chip').classList.add('collapsed');
 }
 
 export function initHeader(myUserId) {
@@ -96,7 +88,6 @@ function setAvailable(availableUntil) {
   const dot = document.getElementById('my-dot');
   const label = document.getElementById('my-status-label');
   const timeRemaining = document.getElementById('time-remaining');
-  const chips = document.getElementById('header-chips');
 
   dot.classList.add('available');
   label.classList.add('available');
@@ -105,19 +96,13 @@ function setAvailable(availableUntil) {
   timeRemaining.style.opacity = '0';
   timeRemaining.style.display = '';
   requestAnimationFrame(() => { timeRemaining.style.opacity = '1'; });
-  showChips(chips);
+  showTimeChip();
 
   clearInterval(countdownTimer);
   countdownTimer = setInterval(() => {
     const ms = timeRemainingMs(availableUntil);
     if (ms <= 0) {
-      dot.classList.remove('available');
-      label.classList.remove('available');
-      label.textContent = 'Unavailable';
-      timeRemaining.style.opacity = '0';
-      setTimeout(() => { timeRemaining.style.display = 'none'; timeRemaining.style.opacity = ''; }, 260);
-      hideChips(chips);
-      clearInterval(countdownTimer);
+      setUnavailable();
     } else {
       timeRemaining.textContent = '· ' + formatTimeRemaining(ms) + ' left';
     }
@@ -128,13 +113,17 @@ function setUnavailable() {
   const dot = document.getElementById('my-dot');
   const label = document.getElementById('my-status-label');
   const timeRemaining = document.getElementById('time-remaining');
-  const chips = document.getElementById('header-chips');
 
   dot.classList.remove('available');
   label.classList.remove('available');
   label.textContent = 'Unavailable';
   timeRemaining.style.opacity = '0';
   setTimeout(() => { timeRemaining.style.display = 'none'; timeRemaining.style.opacity = ''; }, 260);
-  hideChips(chips);
+  hideTimeChip();
   clearInterval(countdownTimer);
+
+  const drawer = document.getElementById('code-drawer');
+  const mycodeChip = document.getElementById('mycode-chip');
+  if (drawer) drawer.classList.remove('open');
+  if (mycodeChip) mycodeChip.classList.remove('active');
 }

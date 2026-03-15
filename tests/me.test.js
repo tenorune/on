@@ -21,7 +21,7 @@ function makeFixture() {
     <div id="my-dot"></div>
     <span id="my-status-label" class="status-label">Unavailable</span>
     <span id="time-remaining" style="display:none"></span>
-    <div id="header-chips" style="display:none">
+    <div id="header-chips">
       <button id="time-chip" class="chip time-chip"></button>
       <button id="mycode-chip" class="chip"></button>
     </div>
@@ -60,14 +60,15 @@ test('applyOwnStatus available: time-remaining is visible with time text', () =>
   expect(el.textContent).toMatch(/^· .+ left$/);
 });
 
-test('applyOwnStatus available: header-chips display is set to flex', () => {
+test('applyOwnStatus available: time-chip does not have collapsed class', () => {
   applyOwnStatus('available', Date.now() + 7200000);
-  expect(document.getElementById('header-chips').style.display).toBe('flex');
+  expect(document.getElementById('time-chip').classList.contains('collapsed')).toBe(false);
 });
 
-test('applyOwnStatus available: header-chips gets .visible class (rAF is synchronous in tests)', () => {
+test('applyOwnStatus available: time-chip collapsed class removed when transitioning from unavailable', () => {
+  document.getElementById('time-chip').classList.add('collapsed');
   applyOwnStatus('available', Date.now() + 7200000);
-  expect(document.getElementById('header-chips').classList.contains('visible')).toBe(true);
+  expect(document.getElementById('time-chip').classList.contains('collapsed')).toBe(false);
 });
 
 test('applyOwnStatus unavailable: label text is "Unavailable"', () => {
@@ -89,10 +90,19 @@ test('applyOwnStatus unavailable: time-remaining is hidden after fade-out', () =
   expect(document.getElementById('time-remaining').style.display).toBe('none');
 });
 
-test('applyOwnStatus unavailable: chips .visible class removed', () => {
+test('applyOwnStatus unavailable: time-chip gets collapsed class', () => {
   applyOwnStatus('available', Date.now() + 7200000);
   applyOwnStatus('unavailable', null);
-  expect(document.getElementById('header-chips').classList.contains('visible')).toBe(false);
+  expect(document.getElementById('time-chip').classList.contains('collapsed')).toBe(true);
+});
+
+test('applyOwnStatus unavailable: closes code drawer and deactivates mycode chip', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  document.getElementById('code-drawer').classList.add('open');
+  document.getElementById('mycode-chip').classList.add('active');
+  applyOwnStatus('unavailable', null);
+  expect(document.getElementById('code-drawer').classList.contains('open')).toBe(false);
+  expect(document.getElementById('mycode-chip').classList.contains('active')).toBe(false);
 });
 
 test('countdown timer fires after expiry: dot loses available class', () => {

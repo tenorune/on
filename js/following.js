@@ -296,6 +296,8 @@ function subscribeToFollowee(entry, myUserId) {
     if (userData.code && userData.code !== entry.code) {
       entry.code = userData.code;
       updateFollowingCode(entry.userId, userData.code);
+      renderList();
+      return;
     }
 
     lastUserData.set(entry.userId, userData);

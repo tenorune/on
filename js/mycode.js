@@ -47,7 +47,7 @@ export function initCodeDrawer(myUserId, myCode) {
     const errorEl = document.getElementById('rotate-error-msg');
     const display = document.getElementById('my-code-display');
 
-    rotateBtn.classList.add('spinning');
+    rotateBtn.style.display = 'none';
     rotateBtn.disabled = true;
     copyBtn.disabled = true;
     errorEl.classList.add('hidden');
@@ -58,7 +58,7 @@ export function initCodeDrawer(myUserId, myCode) {
     try {
       const [newCode] = await Promise.all([
         rotateCode(myUserId, currentCode),
-        new Promise((r) => setTimeout(r, 250)), // ensure full fade-out completes
+        new Promise((r) => setTimeout(r, 500)), // ensure full fade-out completes
       ]);
 
       // Code is invisible — swap text and update state
@@ -76,21 +76,18 @@ export function initCodeDrawer(myUserId, myCode) {
       display.classList.remove('fading');
       requestAnimationFrame(() => { badge.style.opacity = '1'; });
 
-      // Stop spinning once the new code is visible
-      await new Promise((r) => setTimeout(r, 350));
-      rotateBtn.classList.remove('spinning');
-
-      // Fade out and remove the NEW badge
+      // Fade out and remove the NEW badge, then restore rotate button
       await new Promise((r) => setTimeout(r, 900));
       badge.style.opacity = '0';
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 500));
       badge.remove();
+      rotateBtn.style.display = '';
 
     } catch (_e) {
       display.classList.remove('fading');
       errorEl.classList.remove('hidden');
+      rotateBtn.style.display = '';
     } finally {
-      rotateBtn.classList.remove('spinning');
       rotateBtn.disabled = false;
       copyBtn.disabled = false;
     }
