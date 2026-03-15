@@ -46,4 +46,10 @@ function renameFollowing(userId, newLabel) {
   saveFollowing(list);
 }
 
-module.exports = { getFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, renameFollowing };
+function updateFollowingCode(userId, newCode) {
+  saveFollowing(getFollowing().map((e) =>
+    e.userId === userId ? { ...e, code: newCode } : e
+  ));
+}
+
+module.exports = { getFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode };

@@ -1,7 +1,7 @@
 // tests/store.test.js
 const {
   getFollowing, addFollowing, removeFollowing, isFollowing,
-  getLastTimeout, setLastTimeout, renameFollowing,
+  getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode,
 } = require('../js/store');
 
 beforeEach(() => {
@@ -75,4 +75,19 @@ test('renameFollowing does nothing if userId not found', () => {
   addFollowing({ code: 'AB3K9X', label: 'Partner', userId: 'user-1' });
   renameFollowing('unknown', 'Alice');
   expect(getFollowing()).toEqual([{ code: 'AB3K9X', label: 'Partner', userId: 'user-1' }]);
+});
+
+test('updateFollowingCode updates code for matching userId, leaves other fields unchanged', () => {
+  addFollowing({ code: 'OLD123', label: 'Alice', userId: 'user-1' });
+  updateFollowingCode('user-1', 'NEW456');
+  const list = getFollowing();
+  expect(list[0]).toEqual({ code: 'NEW456', label: 'Alice', userId: 'user-1' });
+});
+
+test('updateFollowingCode does not modify non-matching entries', () => {
+  addFollowing({ code: 'OLD123', label: 'Alice', userId: 'user-1' });
+  addFollowing({ code: 'ZZ91TL', label: 'Bob', userId: 'user-2' });
+  updateFollowingCode('user-1', 'NEW456');
+  const list = getFollowing();
+  expect(list[1]).toEqual({ code: 'ZZ91TL', label: 'Bob', userId: 'user-2' });
 });
