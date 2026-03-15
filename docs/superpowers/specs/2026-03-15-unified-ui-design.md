@@ -74,8 +74,7 @@ The `#stale-screen` overlay and `#offline-banner` remain unchanged (fixed positi
 - `#my-dot` — 48px circle; taps to toggle available ↔ unavailable (same logic as current dot)
 - `#my-status-label` — text is "Available" or "Unavailable" only (never includes time); color fades green ↔ muted grey on transition
 - `#time-remaining` — shown inline when available (e.g. "· 2 hours left") via JS setting `textContent` and `style.display = ''`; cleared and `style.display = 'none'` when unavailable. This is a separate element from `#my-status-label` — the two elements sit side by side in `#header-status-row`. The HTML initial state sets `style.display = 'none'` (not a CSS class) so no flicker on load.
-- `#header-chips` — controlled via `.visible` class (see Section 4). When going available: set `display: flex` then on the next animation frame add `.visible`. When going unavailable: only add the `transitionend` listener if chips are currently visible (`getComputedStyle(chips).display !== 'none'`); if not visible, skip directly to ensuring `display: none`. When the listener fires, filter on `e.target === mycodeChip && e.propertyName === 'opacity'` (the last element to finish due to 80ms delay), then set `display: none`. This prevents the `transitionend` listener from hanging on initial page load when status is already unavailable.
-- Chips animate in with stagger: `#time-chip` transitions immediately; `#mycode-chip` transitions 80ms later (via `transition-delay`).
+- `#header-chips` — controlled via `.visible` class (see Section 4). The `opacity` and `transform` transitions are on the container element itself. When going available: set `display: flex` then on the next animation frame add `.visible`. When going unavailable: only add the `transitionend` listener if chips are currently visible (`getComputedStyle(chips).display !== 'none'`); if not visible, skip directly to `display: none`. When the listener fires, filter on `e.target === chipsEl && e.propertyName === 'opacity'`, then set `display: none`. This prevents the listener from hanging on page load when status is already unavailable.
 
 ### Time chip (`#time-chip`)
 
@@ -265,10 +264,6 @@ The confirm button handler routes based on `pendingAction.type`.
 .time-chip {
   width: 148px;
   text-align: center;
-}
-/* Stagger: mycode-chip animates 80ms after time-chip */
-#mycode-chip {
-  transition-delay: 80ms;
 }
 
 /* Code drawer slide */
