@@ -58,8 +58,12 @@
     <section id="tab-mycode" class="tab-panel">
       <div class="code-card">
         <div class="code-card-label">Your code</div>
-        <div id="my-code-display" class="code-display">------</div>
+        <div class="code-display-row">
+          <div id="my-code-display" class="code-display">------</div>
+          <button id="rotate-code-btn" class="rotate-btn" title="Generate new code">↻</button>
+        </div>
         <button id="copy-code-btn" class="ghost-btn">Copy</button>
+        <div id="rotate-error-msg" class="error-msg hidden">Couldn't generate a new code. Please try again.</div>
         <p class="hint">Share this code so others can follow your status.</p>
       </div>
       <div class="followers-section">
