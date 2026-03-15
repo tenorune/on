@@ -4,7 +4,7 @@ import {
   isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
   formatLastSeen, // used in updateFolloweeRow for combined status text
 } from './db.js';
-import { getFollowing, addFollowing, removeFollowing, renameFollowing } from './store.js';
+import { getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode } from './store.js';
 import { escapeHtml } from './utils.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
@@ -151,6 +151,12 @@ function subscribeToFollowee(entry, myUserId) {
       if (navigator.onLine) writeBackExpired(entry.userId);
       userData.status = 'unavailable';
       userData.availableUntil = null;
+    }
+
+    // Code change sync — update localStorage if the followed user rotated their code
+    if (userData.code && userData.code !== entry.code) {
+      entry.code = userData.code;           // update in-memory entry to stay consistent
+      updateFollowingCode(entry.userId, userData.code);
     }
 
     lastUserData.set(entry.userId, userData);
