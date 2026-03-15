@@ -21,74 +21,49 @@
     </div>
   </div>
 
-  <!-- Tab panels -->
-  <main>
-    <section id="tab-me" class="tab-panel active">
-      <div class="dot-wrap">
-        <div id="my-dot" class="dot"></div>
-        <div id="my-status-label" class="status-label">Unavailable</div>
-      </div>
-      <div id="slider-wrap" class="slider-wrap hidden">
-        <div class="slider-header">
-          <span class="slider-title">Turns off in</span>
-          <span id="slider-value" class="slider-value">2h</span>
+  <header id="app-header">
+    <div id="header-row">
+      <div id="my-dot" class="dot"></div>
+      <div id="header-text">
+        <div id="header-status-row">
+          <span id="my-status-label" class="status-label">Unavailable</span>
+          <span id="time-remaining" style="display:none"></span>
         </div>
-        <input id="timeout-slider" type="range" min="1" max="12" value="2" class="slider" />
-        <div class="slider-ticks">
-          <span>1h</span><span>6h</span><span>12h</span>
+        <div id="header-chips">
+          <button id="time-chip" class="chip time-chip">2 hours</button>
+          <button id="mycode-chip" class="chip">My Code</button>
         </div>
       </div>
-    </section>
+    </div>
+    <div id="code-drawer">
+      <p class="code-card-label">Your code</p>
+      <div class="code-display-row">
+        <span id="my-code-display" class="code-display"></span>
+        <button id="rotate-code-btn" class="rotate-btn" title="Generate new code">↻</button>
+        <button id="copy-code-btn" class="ghost-btn">Copy</button>
+      </div>
+      <p id="rotate-error-msg" class="error-msg hidden"></p>
+      <p class="hint">Share this so others can follow your status.</p>
+    </div>
+  </header>
 
-    <section id="tab-following" class="tab-panel">
-      <div id="offline-banner" class="offline-banner hidden">Offline — showing last known status</div>
-      <ul id="following-list" class="person-list"></ul>
-      <button id="add-person-btn" class="add-btn">+ Add person</button>
-      <div id="add-person-form" class="add-form hidden">
-        <label class="field-label">Their code</label>
-        <input id="add-code-input" type="text" maxlength="6" placeholder="e.g. XK7P2M" class="code-input" autocomplete="off" />
-        <label class="field-label">Your label for them</label>
-        <input id="add-label-input" type="text" maxlength="40" placeholder="e.g. Partner, Mom" class="text-input" />
-        <div id="add-error" class="error-msg hidden"></div>
+  <main id="main-list">
+    <div id="offline-banner" class="offline-banner hidden">Offline — showing last known status</div>
+    <ul id="people-list" class="person-list"></ul>
+    <p id="empty-list-msg" class="hidden">Add someone below to get started.</p>
+    <button id="add-person-btn" class="add-btn">+ Add person</button>
+    <div id="add-person-form" class="add-form hidden">
+      <label class="field-label">Code</label>
+      <input id="add-code-input" type="text" maxlength="6" placeholder="e.g. XK7P2M" class="code-input" autocomplete="off" />
+      <label class="field-label">Name (optional)</label>
+      <input id="add-label-input" type="text" maxlength="40" placeholder="e.g. Partner, Mom" class="text-input" />
+      <p id="add-error" class="error-msg hidden"></p>
+      <div style="display:flex;gap:8px">
         <button id="add-submit-btn" class="primary-btn">Follow</button>
         <button id="add-cancel-btn" class="ghost-btn">Cancel</button>
       </div>
-    </section>
-
-    <section id="tab-mycode" class="tab-panel">
-      <div class="code-card">
-        <div class="code-card-label">Your code</div>
-        <div class="code-display-row">
-          <div id="my-code-display" class="code-display">------</div>
-          <button id="rotate-code-btn" class="rotate-btn" title="Generate new code">↻</button>
-        </div>
-        <button id="copy-code-btn" class="ghost-btn">Copy</button>
-        <div id="rotate-error-msg" class="error-msg hidden">Couldn't generate a new code. Please try again.</div>
-        <p class="hint">Share this code so others can follow your status.</p>
-      </div>
-      <div class="followers-section">
-        <div class="section-title">Followers</div>
-        <ul id="followers-list" class="person-list"></ul>
-        <div id="no-followers-msg" class="hint hidden">No one is following you yet.</div>
-      </div>
-    </section>
+    </div>
   </main>
-
-  <!-- Bottom nav -->
-  <nav class="bottom-nav">
-    <button class="nav-btn active" data-tab="me">
-      <span class="nav-icon">●</span>
-      <span class="nav-label">Me</span>
-    </button>
-    <button class="nav-btn" data-tab="following">
-      <span class="nav-icon">⊕</span>
-      <span class="nav-label">Following</span>
-    </button>
-    <button class="nav-btn" data-tab="mycode">
-      <span class="nav-icon">#</span>
-      <span class="nav-label">My Code</span>
-    </button>
-  </nav>
 
   <script src="dist/bundle.js"></script>
 </body>
