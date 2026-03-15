@@ -107,8 +107,7 @@ export function initList(myUserId, myCode) {
   }, 60000);
 
   document.getElementById('add-person-btn').addEventListener('click', () => {
-    document.getElementById('add-person-form').classList.remove('hidden');
-    document.getElementById('add-person-btn').classList.add('hidden');
+    document.getElementById('add-person-form').classList.add('open');
     document.getElementById('add-code-input').focus();
   });
 
@@ -260,8 +259,7 @@ function createFollowerOnlyRow(follower, myUserId) {
   li.querySelector('.follow-back-btn').addEventListener('click', () => {
     document.getElementById('add-code-input').value = follower.code;
     document.getElementById('add-label-input').value = '';
-    document.getElementById('add-person-form').classList.remove('hidden');
-    document.getElementById('add-person-btn').classList.add('hidden');
+    document.getElementById('add-person-form').classList.add('open');
   });
 
   li.querySelector('.unfollow-btn').addEventListener('click', () => {
@@ -419,8 +417,7 @@ async function handleAddPerson(myUserId, myCode) {
 }
 
 function closeAddForm() {
-  document.getElementById('add-person-form').classList.add('hidden');
-  document.getElementById('add-person-btn').classList.remove('hidden');
+  document.getElementById('add-person-form').classList.remove('open');
   document.getElementById('add-code-input').value = '';
   document.getElementById('add-label-input').value = '';
   document.getElementById('add-error').classList.add('hidden');

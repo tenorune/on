@@ -58,6 +58,18 @@ main {
   padding: 5px 10px; border-radius: 6px; font-size: 11px; cursor: pointer;
 }
 
+/* Add person drawer */
+#add-person-form {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.3s ease, margin-top 0.3s ease;
+  margin-top: 0;
+}
+#add-person-form.open {
+  max-height: 22rem;
+  margin-top: 0.5rem;
+}
+
 /* Offline banner */
 .offline-banner {
   background: var(--surface2); color: var(--text-muted); font-size: 12px;
@@ -134,6 +146,7 @@ main {
 .hidden { display: none !important; }
 .rename-input {
   font: inherit;
+  font-size: 1rem; /* prevent iOS Safari zoom (triggers when font-size < 16px) */
   color: inherit;
   background: transparent;
   border: none;
@@ -261,10 +274,11 @@ main {
 
 /* Chips */
 #header-chips {
-  display: none;
+  display: flex;
   gap: 0.5rem;
   margin-top: 0.5rem;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 0.25s ease;
 }
 

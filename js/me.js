@@ -95,7 +95,7 @@ function setAvailable(availableUntil) {
     timeRemaining.textContent = '· ' + formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
     timeRemaining.style.opacity = '0';
     timeRemaining.style.display = '';
-    chips.style.display = 'flex';
+    chips.style.pointerEvents = '';
     chips.style.opacity = '0';
     requestAnimationFrame(() => {
       label.style.opacity = '1';
@@ -131,12 +131,11 @@ function setUnavailable() {
 
   label.style.opacity = '0';
   chips.style.opacity = '0';
+  chips.style.pointerEvents = 'none';
   timeRemaining.style.opacity = '0';
 
   // After fade-out: hide chips, swap label to "Unavailable", fade label back in
   setTimeout(() => {
-    chips.style.display = 'none';
-    chips.style.opacity = '';
     timeRemaining.style.display = 'none';
     timeRemaining.style.opacity = '';
     label.classList.remove('available');

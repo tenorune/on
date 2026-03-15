@@ -14,14 +14,14 @@ const { setStatus } = require('../js/db.js');
 const { getLastTimeout, setLastTimeout } = require('../js/store.js');
 const { applyOwnStatus, initHeader } = require('../js/me.js');
 
-// jsdom doesn't apply stylesheets, so #header-chips has no computed display.
-// The fixture sets style="display:none" on chips to match the CSS default.
+// jsdom doesn't apply stylesheets. #header-chips is always display:flex in CSS;
+// opacity and pointer-events are controlled by JS.
 function makeFixture() {
   document.body.innerHTML = `
     <div id="my-dot"></div>
     <span id="my-status-label" class="status-label">Unavailable</span>
     <span id="time-remaining" style="display:none"></span>
-    <div id="header-chips" style="display:none">
+    <div id="header-chips">
       <button id="time-chip" class="chip time-chip"></button>
       <button id="mycode-chip" class="chip"></button>
     </div>
@@ -66,16 +66,16 @@ test('applyOwnStatus available: time-remaining is visible with time text', () =>
   expect(el.textContent).toMatch(/^· .+ left$/);
 });
 
-test('applyOwnStatus available: header-chips display is set to flex', () => {
-  applyOwnStatus('available', Date.now() + 7200000);
-  jest.advanceTimersByTime(250);
-  expect(document.getElementById('header-chips').style.display).toBe('flex');
-});
-
 test('applyOwnStatus available: header-chips opacity set to 1 (rAF is synchronous in tests)', () => {
   applyOwnStatus('available', Date.now() + 7200000);
   jest.advanceTimersByTime(250);
   expect(document.getElementById('header-chips').style.opacity).toBe('1');
+});
+
+test('applyOwnStatus available: header-chips pointer-events restored', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  jest.advanceTimersByTime(250);
+  expect(document.getElementById('header-chips').style.pointerEvents).toBe('');
 });
 
 test('applyOwnStatus unavailable: dot loses available class', () => {
@@ -101,12 +101,12 @@ test('applyOwnStatus unavailable: time-remaining is hidden after fade-out', () =
   expect(document.getElementById('time-remaining').style.display).toBe('none');
 });
 
-test('applyOwnStatus unavailable: header-chips hidden after fade-out', () => {
+test('applyOwnStatus unavailable: header-chips faded out with pointer-events disabled', () => {
   applyOwnStatus('available', Date.now() + 7200000);
   jest.advanceTimersByTime(250);
   applyOwnStatus('unavailable', null);
-  jest.advanceTimersByTime(250);
-  expect(document.getElementById('header-chips').style.display).toBe('none');
+  expect(document.getElementById('header-chips').style.opacity).toBe('0');
+  expect(document.getElementById('header-chips').style.pointerEvents).toBe('none');
 });
 
 test('applyOwnStatus unavailable: closes code drawer and deactivates mycode chip', () => {

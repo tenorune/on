@@ -29,7 +29,7 @@ function setupDom() {
     <ul id="people-list"></ul>
     <p id="empty-list-msg" class="hidden">Add someone below to get started.</p>
     <button id="add-person-btn"></button>
-    <div id="add-person-form" class="hidden">
+    <div id="add-person-form">
       <input id="add-code-input" />
       <input id="add-label-input" />
       <p id="add-error" class="hidden"></p>
@@ -165,8 +165,7 @@ describe('renderList: follower-only rows', () => {
     li.querySelector('.follow-back-btn').click();
 
     expect(document.getElementById('add-code-input').value).toBe('Q3ZP7R');
-    expect(document.getElementById('add-person-form').classList.contains('hidden')).toBe(false);
-    expect(document.getElementById('add-person-btn').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('add-person-form').classList.contains('open')).toBe(true);
   });
 });
 
