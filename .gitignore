@@ -7,3 +7,4 @@ dist/
 *.log
 coverage/
 NOTES.md
+.worktrees/
