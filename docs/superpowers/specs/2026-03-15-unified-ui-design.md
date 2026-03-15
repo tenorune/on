@@ -71,7 +71,7 @@ The `#stale-screen` overlay and `#offline-banner` remain unchanged (fixed positi
 
 ### Status header
 
-- `#my-dot` — 48px circle; taps to toggle available ↔ unavailable (same logic as current dot)
+- `#my-dot` — 3rem circle (48px at 16px base); taps to toggle available ↔ unavailable (same logic as current dot)
 - `#my-status-label` — text is "Available" or "Unavailable" only (never includes time); color fades green ↔ muted grey on transition
 - `#time-remaining` — shown inline when available (e.g. "· 2 hours left") via JS setting `textContent` and `style.display = ''`; cleared and `style.display = 'none'` when unavailable. This is a separate element from `#my-status-label` — the two elements sit side by side in `#header-status-row`. The HTML initial state sets `style.display = 'none'` (not a CSS class) so no flicker on load.
 - `#header-chips` — controlled via `.visible` class (see Section 4). The `opacity` and `transform` transitions are on the container element itself. When going available: set `display: flex` then on the next animation frame add `.visible`. When going unavailable: only add the `transitionend` listener if chips are currently visible (`getComputedStyle(chips).display !== 'none'`); if not visible, skip directly to `display: none`. When the listener fires, filter on `e.target === chipsEl && e.propertyName === 'opacity'`, then set `display: none`. This prevents the listener from hanging on page load when status is already unavailable.
@@ -150,7 +150,7 @@ Within each section, rows are sorted: available-first, then alphabetically by la
 **Mutual row:**
 
 ```text
-[dot 32px] [label] [status text]          [× btn]
+[dot 2rem] [label] [status text]          [× btn]
 ```
 
 If the user's label from `getFollowing()` is non-empty, it is shown as the primary name and a `.person-follower-name` element shows their code in muted text below. If the label is empty, the code is shown as the primary name (in monospace) and no `.person-follower-name` element is rendered. Tapping the name triggers inline rename; blank rename is rejected (existing behavior — empty `val` is a no-op in `activateRename`).
@@ -160,7 +160,7 @@ If the user's label from `getFollowing()` is non-empty, it is shown as the prima
 **Follower-only row:**
 
 ```text
-[+ btn 32px] [code monospace]             [× btn]
+[+ btn 2rem] [code monospace]             [× btn]
 ```
 
 Follower-only rows show no status text and no status dot — the app is not subscribed to this user's status. The 60-second interval only iterates `getFollowing()`, so follower-only entries are intentionally excluded from live updates.
@@ -197,8 +197,8 @@ The confirm button handler routes based on `pendingAction.type`.
 
 ### Update
 
-- `main` — remove `calc(100vh - 64px)` height constraint; set `padding: 16px`
-- `.dot` — set size to 48px (down from 100px); remove tap-to-toggle size animation if any
+- `main` — remove `calc(100vh - 64px)` height constraint; set `padding: 1rem`
+- `.dot` — set size to 3rem (down from 100px); remove tap-to-toggle size animation if any
 
 ### Add
 
@@ -208,14 +208,14 @@ The confirm button handler routes based on `pendingAction.type`.
   top: 0;
   z-index: 100;
   background: var(--surface);
-  padding: 16px;
+  padding: 1rem;
   border-bottom: 1px solid var(--surface2);
 }
 
 #header-row {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 0.875rem;
 }
 
 #header-text {
@@ -225,20 +225,20 @@ The confirm button handler routes based on `pendingAction.type`.
 #header-status-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 16px;
+  gap: 0.375rem;
+  font-size: 1rem;
 }
 
 #time-remaining {
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 /* Chips — hidden by default, shown via JS class toggle */
 #header-chips {
   display: none; /* JS sets display:flex before adding .visible */
-  gap: 8px;
-  margin-top: 8px;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
   opacity: 0;
   transform: translateY(-6px);
   transition: opacity 0.25s ease, transform 0.25s ease;
@@ -253,8 +253,8 @@ The confirm button handler routes based on `pendingAction.type`.
   border: 1px solid var(--surface2);
   color: var(--text);
   border-radius: 999px;
-  padding: 4px 14px;
-  font-size: 13px;
+  padding: 0.25rem 0.875rem;
+  font-size: 0.8125rem;
   cursor: pointer;
 }
 .chip.active {
@@ -262,7 +262,7 @@ The confirm button handler routes based on `pendingAction.type`.
   color: var(--accent);
 }
 .time-chip {
-  width: 148px;
+  min-width: 9.25rem; /* ~148px at 16px base; grows if text is larger */
   text-align: center;
 }
 
@@ -274,17 +274,17 @@ The confirm button handler routes based on `pendingAction.type`.
   margin-top: 0;
 }
 #code-drawer.open {
-  max-height: 200px;
-  margin-top: 12px;
+  max-height: 12.5rem; /* 200px; sufficiently large for drawer content */
+  margin-top: 0.75rem;
 }
 
 /* List section labels */
 .list-section-label {
-  font-size: 11px;
+  font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.0625rem;
   color: var(--text-muted);
-  padding: 12px 0 4px;
+  padding: 0.75rem 0 0.25rem;
   list-style: none;
 }
 
@@ -294,19 +294,23 @@ The confirm button handler routes based on `pendingAction.type`.
 }
 
 /* Follow-back button (occupies same left slot as status dot) */
+/* Visual size is 2rem (32px equiv); tap target expanded to 2.75rem via padding */
 .follow-back-btn {
-  width: 32px;
-  height: 32px;
+  width: 2rem;
+  height: 2rem;
   border-radius: 50%;
   border: 1.5px solid var(--accent);
   color: var(--accent);
   background: transparent;
-  font-size: 18px;
+  font-size: 1.125rem;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
+  /* Expand tap target to ~44px without affecting layout */
+  padding: 0.375rem;
+  margin: -0.375rem;
 }
 ```
 
