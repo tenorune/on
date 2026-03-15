@@ -21,7 +21,7 @@ function makeFixture() {
     <div id="my-dot"></div>
     <span id="my-status-label" class="status-label">Unavailable</span>
     <span id="time-remaining" style="display:none"></span>
-    <div id="header-chips">
+    <div id="header-chips" style="display:none">
       <button id="time-chip" class="chip time-chip"></button>
       <button id="mycode-chip" class="chip"></button>
     </div>
@@ -43,64 +43,79 @@ afterEach(() => {
 
 // --- applyOwnStatus ---
 
-test('applyOwnStatus available: label text is "Available"', () => {
-  applyOwnStatus('available', Date.now() + 7200000);
-  expect(document.getElementById('my-status-label').textContent).toBe('Available');
-});
+// Label text and chip visibility change inside a 200ms setTimeout (after the
+// fade-out). Advance 250ms to fire that timeout before asserting final state.
 
 test('applyOwnStatus available: dot gets available class', () => {
   applyOwnStatus('available', Date.now() + 7200000);
+  // dot changes immediately, no timer advance needed
   expect(document.getElementById('my-dot').classList.contains('available')).toBe(true);
+});
+
+test('applyOwnStatus available: label text is "Available"', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  jest.advanceTimersByTime(250);
+  expect(document.getElementById('my-status-label').textContent).toBe('Available');
 });
 
 test('applyOwnStatus available: time-remaining is visible with time text', () => {
   applyOwnStatus('available', Date.now() + 7200000);
+  jest.advanceTimersByTime(250);
   const el = document.getElementById('time-remaining');
   expect(el.style.display).not.toBe('none');
   expect(el.textContent).toMatch(/^· .+ left$/);
 });
 
-test('applyOwnStatus available: time-chip does not have collapsed class', () => {
+test('applyOwnStatus available: header-chips display is set to flex', () => {
   applyOwnStatus('available', Date.now() + 7200000);
-  expect(document.getElementById('time-chip').classList.contains('collapsed')).toBe(false);
+  jest.advanceTimersByTime(250);
+  expect(document.getElementById('header-chips').style.display).toBe('flex');
 });
 
-test('applyOwnStatus available: time-chip collapsed class removed when transitioning from unavailable', () => {
-  document.getElementById('time-chip').classList.add('collapsed');
+test('applyOwnStatus available: header-chips opacity set to 1 (rAF is synchronous in tests)', () => {
   applyOwnStatus('available', Date.now() + 7200000);
-  expect(document.getElementById('time-chip').classList.contains('collapsed')).toBe(false);
-});
-
-test('applyOwnStatus unavailable: label text is "Unavailable"', () => {
-  applyOwnStatus('available', Date.now() + 7200000);
-  applyOwnStatus('unavailable', null);
-  expect(document.getElementById('my-status-label').textContent).toBe('Unavailable');
+  jest.advanceTimersByTime(250);
+  expect(document.getElementById('header-chips').style.opacity).toBe('1');
 });
 
 test('applyOwnStatus unavailable: dot loses available class', () => {
   applyOwnStatus('available', Date.now() + 7200000);
   applyOwnStatus('unavailable', null);
+  // dot changes immediately, no timer advance needed
   expect(document.getElementById('my-dot').classList.contains('available')).toBe(false);
+});
+
+test('applyOwnStatus unavailable: label text is "Unavailable"', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  jest.advanceTimersByTime(250); // complete available animation
+  applyOwnStatus('unavailable', null);
+  jest.advanceTimersByTime(250); // complete unavailable animation
+  expect(document.getElementById('my-status-label').textContent).toBe('Unavailable');
 });
 
 test('applyOwnStatus unavailable: time-remaining is hidden after fade-out', () => {
   applyOwnStatus('available', Date.now() + 7200000);
+  jest.advanceTimersByTime(250);
   applyOwnStatus('unavailable', null);
-  jest.advanceTimersByTime(300);
+  jest.advanceTimersByTime(250);
   expect(document.getElementById('time-remaining').style.display).toBe('none');
 });
 
-test('applyOwnStatus unavailable: time-chip gets collapsed class', () => {
+test('applyOwnStatus unavailable: header-chips hidden after fade-out', () => {
   applyOwnStatus('available', Date.now() + 7200000);
+  jest.advanceTimersByTime(250);
   applyOwnStatus('unavailable', null);
-  expect(document.getElementById('time-chip').classList.contains('collapsed')).toBe(true);
+  jest.advanceTimersByTime(250);
+  expect(document.getElementById('header-chips').style.display).toBe('none');
 });
 
 test('applyOwnStatus unavailable: closes code drawer and deactivates mycode chip', () => {
   applyOwnStatus('available', Date.now() + 7200000);
+  jest.advanceTimersByTime(250);
   document.getElementById('code-drawer').classList.add('open');
   document.getElementById('mycode-chip').classList.add('active');
   applyOwnStatus('unavailable', null);
+  // drawer closes immediately (synchronous), no advance needed
   expect(document.getElementById('code-drawer').classList.contains('open')).toBe(false);
   expect(document.getElementById('mycode-chip').classList.contains('active')).toBe(false);
 });

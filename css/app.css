@@ -35,7 +35,7 @@ main {
   border-color: var(--green);
   box-shadow: 0 0 32px var(--green-glow);
 }
-.status-label { font-size: 1rem; font-weight: 600; color: var(--text-muted); transition: color 0.3s ease; }
+.status-label { font-size: 1rem; font-weight: 600; color: var(--text-muted); transition: opacity 0.2s ease, color 0.3s ease; }
 .status-label.available { color: var(--green); }
 
 /* Following tab */
@@ -261,9 +261,11 @@ main {
 
 /* Chips */
 #header-chips {
-  display: flex;
+  display: none;
   gap: 0.5rem;
   margin-top: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.25s ease;
 }
 
 .chip {
@@ -282,18 +284,6 @@ main {
 .time-chip {
   min-width: 9.25rem;
   text-align: center;
-  overflow: hidden;
-  transition: max-width 0.3s ease, min-width 0.3s ease, opacity 0.3s ease,
-              padding-left 0.3s ease, padding-right 0.3s ease;
-}
-.time-chip.collapsed {
-  max-width: 0;
-  min-width: 0;
-  opacity: 0;
-  padding-left: 0;
-  padding-right: 0;
-  border-color: transparent;
-  pointer-events: none;
 }
 .time-chip:active {
   border-color: var(--accent);

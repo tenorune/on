@@ -28,14 +28,6 @@ function migrateToChipIndex() {
   return bestIndex;
 }
 
-function showTimeChip() {
-  document.getElementById('time-chip').classList.remove('collapsed');
-}
-
-function hideTimeChip() {
-  document.getElementById('time-chip').classList.add('collapsed');
-}
-
 export function initHeader(myUserId) {
   const dot = document.getElementById('my-dot');
   const timeChip = document.getElementById('time-chip');
@@ -87,24 +79,37 @@ export function applyOwnStatus(status, availableUntil) {
 function setAvailable(availableUntil) {
   const dot = document.getElementById('my-dot');
   const label = document.getElementById('my-status-label');
-  const timeRemaining = document.getElementById('time-remaining');
+  const chips = document.getElementById('header-chips');
 
+  // Immediate: dot changes and old label starts fading out
   dot.classList.add('available');
-  label.classList.add('available');
-  label.textContent = 'Available';
-  timeRemaining.textContent = '· ' + formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
-  timeRemaining.style.opacity = '0';
-  timeRemaining.style.display = '';
-  requestAnimationFrame(() => { timeRemaining.style.opacity = '1'; });
-  showTimeChip();
+  label.style.opacity = '0';
 
   clearInterval(countdownTimer);
+
+  // After fade-out: swap content and fade in label + chips + time-remaining together
+  setTimeout(() => {
+    const timeRemaining = document.getElementById('time-remaining');
+    label.classList.add('available');
+    label.textContent = 'Available';
+    timeRemaining.textContent = '· ' + formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
+    timeRemaining.style.opacity = '0';
+    timeRemaining.style.display = '';
+    chips.style.display = 'flex';
+    chips.style.opacity = '0';
+    requestAnimationFrame(() => {
+      label.style.opacity = '1';
+      chips.style.opacity = '1';
+      timeRemaining.style.opacity = '1';
+    });
+  }, 200);
+
   countdownTimer = setInterval(() => {
     const ms = timeRemainingMs(availableUntil);
     if (ms <= 0) {
       setUnavailable();
     } else {
-      timeRemaining.textContent = '· ' + formatTimeRemaining(ms) + ' left';
+      document.getElementById('time-remaining').textContent = '· ' + formatTimeRemaining(ms) + ' left';
     }
   }, 30000);
 }
@@ -112,18 +117,30 @@ function setAvailable(availableUntil) {
 function setUnavailable() {
   const dot = document.getElementById('my-dot');
   const label = document.getElementById('my-status-label');
+  const chips = document.getElementById('header-chips');
   const timeRemaining = document.getElementById('time-remaining');
 
+  // Immediate: dot changes, drawer closes, and label + chips start fading out together
   dot.classList.remove('available');
-  label.classList.remove('available');
-  label.textContent = 'Unavailable';
-  timeRemaining.style.opacity = '0';
-  setTimeout(() => { timeRemaining.style.display = 'none'; timeRemaining.style.opacity = ''; }, 260);
-  hideTimeChip();
   clearInterval(countdownTimer);
 
   const drawer = document.getElementById('code-drawer');
   const mycodeChip = document.getElementById('mycode-chip');
   if (drawer) drawer.classList.remove('open');
   if (mycodeChip) mycodeChip.classList.remove('active');
+
+  label.style.opacity = '0';
+  chips.style.opacity = '0';
+  timeRemaining.style.opacity = '0';
+
+  // After fade-out: hide chips, swap label to "Unavailable", fade label back in
+  setTimeout(() => {
+    chips.style.display = 'none';
+    chips.style.opacity = '';
+    timeRemaining.style.display = 'none';
+    timeRemaining.style.opacity = '';
+    label.classList.remove('available');
+    label.textContent = 'Unavailable';
+    requestAnimationFrame(() => { label.style.opacity = '1'; });
+  }, 200);
 }
