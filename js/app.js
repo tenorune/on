@@ -1,6 +1,6 @@
 // js/app.js
 import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity } from './identity.js';
-import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen } from './db.js';
+import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus } from './db.js';
 import { initHeader, applyOwnStatus } from './me.js';
 import { initList } from './following.js';
 import { initCodeDrawer } from './mycode.js';
@@ -12,12 +12,12 @@ async function ensureIdentity() {
       const valid = await userExists(existing.userId);
       if (!valid) {
         clearIdentity();
-        return null;
+        return { identity: null, isNew: false };
       }
     } catch {
       // Network error (offline) — assume valid and proceed
     }
-    return existing;
+    return { identity: existing, isNew: false };
   }
 
   let userId, code, success;
@@ -28,7 +28,7 @@ async function ensureIdentity() {
   } while (!success);
 
   saveIdentity(userId, code);
-  return { userId, code };
+  return { identity: { userId, code }, isNew: true };
 }
 
 function showStaleScreen() {
@@ -42,10 +42,10 @@ function showStaleScreen() {
 }
 
 async function main() {
-  let identity = await ensureIdentity();
+  let { identity, isNew } = await ensureIdentity();
   if (!identity) {
     await showStaleScreen();
-    identity = await ensureIdentity();
+    ({ identity, isNew } = await ensureIdentity());
   }
   const { userId, code } = identity;
 
@@ -64,6 +64,11 @@ async function main() {
       expired ? null : userData.availableUntil,
     );
   });
+
+  if (isNew) {
+    const availableUntil = Date.now() + 120 * 60000;
+    setStatus(userId, 'available', availableUntil).catch(() => {});
+  }
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(console.error);
