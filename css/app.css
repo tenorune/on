@@ -65,6 +65,9 @@ main {
   overflow: hidden;
   margin-top: 0.25rem;
 }
+#add-person-area.has-list {
+  margin-top: 1rem;
+}
 
 /* Add person drawer */
 #add-person-form {

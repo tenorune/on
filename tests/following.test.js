@@ -28,6 +28,7 @@ function setupDom() {
   document.body.innerHTML = `
     <ul id="people-list"></ul>
     <p id="empty-list-msg" class="hidden">Add someone below to get started.</p>
+    <div id="add-person-area">
     <button id="add-person-btn"></button>
     <div id="add-person-form">
       <input id="add-code-input" />
@@ -35,6 +36,7 @@ function setupDom() {
       <p id="add-error" class="hidden"></p>
       <button id="add-submit-btn"></button>
       <button id="add-cancel-btn"></button>
+    </div>
     </div>
     <div id="offline-banner" class="hidden"></div>
   `;

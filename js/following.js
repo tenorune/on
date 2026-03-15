@@ -156,6 +156,7 @@ function renderList() {
   const emptyMsg = document.getElementById('empty-list-msg');
 
   const isEmpty = mutuals.length === 0 && followingOnly.length === 0 && followerOnly.length === 0;
+  document.getElementById('add-person-area').classList.toggle('has-list', !isEmpty);
   if (isEmpty) {
     list.innerHTML = '';
     list.style.display = 'none';
