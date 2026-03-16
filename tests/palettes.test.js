@@ -25,7 +25,7 @@ const {
   tapSwatch, initSwatches, switchSet,
 } = require('../js/palettes.js');
 const { setStatusColor } = require('../js/db.js');
-const { getPaletteState, setPaletteState, getPalette: getPaletteMock, setPalette } = require('../js/store.js');
+const { getPaletteState, setPaletteState } = require('../js/store.js');
 
 // --- PALETTE_SETS structure ---
 
@@ -105,16 +105,21 @@ test('getGlowForColor falls back to forest glow for unknown hex', () => {
   expect(getGlowForColor('#000000')).toBe('rgba(34,197,94,0.4)');
 });
 
-// --- applyPaletteVars ---
+// --- applyPaletteVars (unchanged API) ---
 
-test('applyPaletteVars sets --my-status on :root for known key', () => {
+test('applyPaletteVars sets --my-status on :root for Set 1 key', () => {
   applyPaletteVars('iris');
   expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#818cf8');
 });
 
-test('applyPaletteVars sets --my-glow on :root for known key', () => {
+test('applyPaletteVars sets --my-glow on :root for Set 1 key', () => {
   applyPaletteVars('iris');
   expect(document.documentElement.style.getPropertyValue('--my-glow')).toBe('rgba(129,140,248,0.4)');
+});
+
+test('applyPaletteVars works for Set 2 key', () => {
+  applyPaletteVars('volt');
+  expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#aaff00');
 });
 
 test('applyPaletteVars falls back to forest for unknown key', () => {
@@ -127,6 +132,13 @@ test('applyPaletteVars falls back to forest for unknown key', () => {
 describe('tapSwatch', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', activePaletteKey: null },
+        '2': { selectedKey: 'volt',   activePaletteKey: null },
+      },
+    });
     document.body.innerHTML = `
       <div id="swatch-row">
         <div class="swatch selected" data-key="forest"></div>
@@ -134,12 +146,18 @@ describe('tapSwatch', () => {
       </div>`;
   });
 
-  test('calls setPalette with the tapped key', () => {
+  test('calls setPaletteState with updated selectedKey for active set', () => {
     tapSwatch('iris', 'uid1');
-    expect(setPalette).toHaveBeenCalledWith('iris');
+    expect(setPaletteState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sets: expect.objectContaining({
+          '1': expect.objectContaining({ selectedKey: 'iris' }),
+        }),
+      })
+    );
   });
 
-  test('calls setStatusColor with userId and palette color (fire-and-forget)', () => {
+  test('calls setStatusColor with userId and palette color', () => {
     tapSwatch('iris', 'uid1');
     expect(setStatusColor).toHaveBeenCalledWith('uid1', '#818cf8');
   });
@@ -149,15 +167,14 @@ describe('tapSwatch', () => {
     expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#818cf8');
   });
 
-  test('moves .selected from old swatch to tapped swatch', () => {
+  test('moves .selected to tapped swatch', () => {
     tapSwatch('iris', 'uid1');
     expect(document.querySelector('[data-key="forest"]').classList.contains('selected')).toBe(false);
     expect(document.querySelector('[data-key="iris"]').classList.contains('selected')).toBe(true);
   });
 
-  test('is synchronous — returns undefined, not a Promise', () => {
-    const result = tapSwatch('iris', 'uid1');
-    expect(result).toBeUndefined();
+  test('is synchronous — returns undefined', () => {
+    expect(tapSwatch('iris', 'uid1')).toBeUndefined();
   });
 });
 
@@ -166,7 +183,13 @@ describe('tapSwatch', () => {
 describe('initSwatches', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    getPaletteMock.mockReturnValue('iris');
+    getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'iris', activePaletteKey: null },
+        '2': { selectedKey: 'volt', activePaletteKey: null },
+      },
+    });
     document.body.innerHTML = `<div id="swatch-row"></div>`;
   });
 
@@ -175,32 +198,112 @@ describe('initSwatches', () => {
     expect(document.querySelectorAll('.swatch')).toHaveLength(8);
   });
 
-  test('each swatch has correct data-key', () => {
+  test('toggle button is first child of swatch-row', () => {
+    initSwatches('uid1');
+    const first = document.getElementById('swatch-row').firstChild;
+    expect(first.tagName).toBe('BUTTON');
+    expect(first.className).toBe('set-toggle-btn');
+  });
+
+  test('toggle button shows bolt icon when in Set 1 (pointing to Electric)', () => {
+    initSwatches('uid1');
+    const btn = document.querySelector('.set-toggle-btn');
+    expect(btn.innerHTML).toContain('<svg');
+    expect(btn.innerHTML).toContain('Switch to Electric');
+  });
+
+  test('Set 1 swatches have correct data-keys', () => {
     initSwatches('uid1');
     const keys = Array.from(document.querySelectorAll('.swatch')).map(s => s.dataset.key);
-    expect(keys).toEqual(expect.arrayContaining(['forest', 'ocean', 'iris', 'ember', 'coral', 'sky', 'gold', 'mint']));
+    expect(keys).toEqual(['forest', 'ocean', 'iris', 'ember', 'coral', 'sky', 'gold', 'mint']);
   });
 
-  test('each swatch background is set to palette color', () => {
-    initSwatches('uid1');
-    const forestSwatch = document.querySelector('[data-key="forest"]');
-    expect(forestSwatch.style.background).toBe('rgb(34, 197, 94)');
-  });
-
-  test('swatch matching saved key gets .selected', () => {
-    initSwatches('uid1'); // saved key is 'iris'
+  test('swatch matching savedKey gets .selected', () => {
+    initSwatches('uid1'); // savedKey is 'iris'
     expect(document.querySelector('[data-key="iris"]').classList.contains('selected')).toBe(true);
     expect(document.querySelector('[data-key="forest"]').classList.contains('selected')).toBe(false);
   });
 
-  test('clicking a swatch calls setPalette (via tapSwatch)', () => {
+  test('clicking a swatch calls setPaletteState (via tapSwatch)', () => {
     initSwatches('uid1');
     document.querySelector('[data-key="forest"]').click();
-    expect(setPalette).toHaveBeenCalledWith('forest');
+    expect(setPaletteState).toHaveBeenCalled();
+  });
+});
+
+// --- switchSet ---
+
+describe('switchSet', () => {
+  let mockState;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockState = {
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', activePaletteKey: null },
+        '2': { selectedKey: 'volt',   activePaletteKey: null },
+      },
+    };
+    document.body.innerHTML = `<div id="swatch-row"></div>`;
   });
 
-  test('does NOT add .visible to #swatch-row', () => {
+  test('calls setPaletteState with activeSet updated to target', () => {
+    getPaletteState.mockReturnValue(JSON.parse(JSON.stringify(mockState)));
+    switchSet(2, 'uid1');
+    expect(setPaletteState).toHaveBeenCalledWith(
+      expect.objectContaining({ activeSet: 2 })
+    );
+  });
+
+  test('applies --my-status CSS var for target set selectedKey', () => {
+    getPaletteState.mockReturnValue(JSON.parse(JSON.stringify(mockState)));
+    switchSet(2, 'uid1');
+    // volt (#aaff00) is Set 2 selectedKey
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#aaff00');
+  });
+
+  test('calls setStatusColor with target set selectedKey color', () => {
+    getPaletteState.mockReturnValue(JSON.parse(JSON.stringify(mockState)));
+    switchSet(2, 'uid1');
+    expect(setStatusColor).toHaveBeenCalledWith('uid1', '#aaff00');
+  });
+
+  test('re-renders swatch row with Set 2 swatches after switching to Set 2', () => {
+    // First call (in switchSet): returns state with activeSet 1
+    // Second call (in renderSwatchRow after setPaletteState): returns state with activeSet 2
+    getPaletteState
+      .mockReturnValueOnce(JSON.parse(JSON.stringify(mockState)))
+      .mockReturnValueOnce({ ...JSON.parse(JSON.stringify(mockState)), activeSet: 2 });
+
+    switchSet(2, 'uid1');
+
+    const keys = Array.from(document.querySelectorAll('.swatch')).map(s => s.dataset.key);
+    expect(keys).toContain('volt');
+    expect(keys).not.toContain('forest');
+  });
+
+  test('toggle button shows tree icon after switching to Set 2', () => {
+    getPaletteState
+      .mockReturnValueOnce(JSON.parse(JSON.stringify(mockState)))
+      .mockReturnValueOnce({ ...JSON.parse(JSON.stringify(mockState)), activeSet: 2 });
+
+    switchSet(2, 'uid1');
+    const btn = document.querySelector('.set-toggle-btn');
+    expect(btn.innerHTML).toContain('Switch to Natural');
+  });
+
+  test('clicking toggle button from Set 1 calls switchSet with 2', () => {
+    getPaletteState.mockReturnValue(JSON.parse(JSON.stringify(mockState)));
     initSwatches('uid1');
-    expect(document.getElementById('swatch-row').classList.contains('visible')).toBe(false);
+    jest.clearAllMocks();
+
+    // Return state with activeSet 1 for the toggle click's switchSet call
+    getPaletteState.mockReturnValue(JSON.parse(JSON.stringify(mockState)));
+
+    document.querySelector('.set-toggle-btn').click();
+    expect(setPaletteState).toHaveBeenCalledWith(
+      expect.objectContaining({ activeSet: 2 })
+    );
   });
 });

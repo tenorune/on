@@ -1,5 +1,5 @@
 // js/palettes.js
-import { getPaletteState, setPaletteState, getPalette, setPalette } from './store.js';
+import { getPaletteState, setPaletteState } from './store.js';
 import { setStatusColor } from './db.js';
 
 // SVG Icons (inlined)
@@ -134,21 +134,22 @@ export function applyPaletteVars(key) {
   document.documentElement.style.setProperty('--my-glow', p.glow);
 }
 
-export function tapSwatch(key, userId) {
-  const palette = getPaletteByKey(key);
-  setPalette(key);
-  setStatusColor(userId, palette.color).catch(() => {});
-  applyPaletteVars(key);
+function renderSwatchRow(userId) {
   const row = document.getElementById('swatch-row');
-  row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
-  const target = row.querySelector(`[data-key="${key}"]`);
-  if (target) target.classList.add('selected');
-}
+  row.innerHTML = '';
+  const state = getPaletteState();
+  const setNum = state.activeSet;
+  const savedKey = state.sets[String(setNum)].selectedKey;
 
-export function initSwatches(userId) {
-  const row = document.getElementById('swatch-row');
-  const savedKey = getPalette();
-  PALETTE_SETS[1].forEach(p => {
+  // Toggle button — icon represents the OTHER set (what you'd switch to)
+  const btn = document.createElement('button');
+  btn.className = 'set-toggle-btn';
+  btn.innerHTML = setNum === 1 ? ICON_BOLT : ICON_TREE;
+  btn.addEventListener('click', () => switchSet(setNum === 1 ? 2 : 1, userId));
+  row.appendChild(btn);
+
+  // Swatches for active set (Increment 2 will extend this to handle palette mode)
+  PALETTE_SETS[setNum].forEach(p => {
     const swatch = document.createElement('div');
     swatch.className = 'swatch';
     swatch.dataset.key = p.key;
@@ -157,4 +158,36 @@ export function initSwatches(userId) {
     swatch.addEventListener('click', () => tapSwatch(p.key, userId));
     row.appendChild(swatch);
   });
+}
+
+export function tapSwatch(key, userId) {
+  const state = getPaletteState();
+  const setKey = String(state.activeSet);
+  state.sets[setKey].selectedKey = key;
+  setPaletteState(state);
+  const palette = getPaletteByKey(key);
+  setStatusColor(userId, palette.color).catch(() => {});
+  applyPaletteVars(key);
+  // Update DOM selection
+  const row = document.getElementById('swatch-row');
+  row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
+  const target = row.querySelector(`[data-key="${key}"]`);
+  if (target) target.classList.add('selected');
+}
+
+export function initSwatches(userId) {
+  renderSwatchRow(userId);
+}
+
+export function switchSet(toSet, userId) {
+  const state = getPaletteState();
+  state.activeSet = toSet;
+  setPaletteState(state);
+
+  const selectedKey = state.sets[String(toSet)].selectedKey;
+  const palette = getPaletteByKey(selectedKey);
+  applyPaletteVars(selectedKey);
+  setStatusColor(userId, palette.color).catch(() => {});
+
+  renderSwatchRow(userId);
 }
