@@ -7,7 +7,7 @@ import {
 import { getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode } from './store.js';
 import { escapeHtml } from './utils.js';
 import { PALETTES_ENABLED } from './features.js';
-import { getGlowForColor } from './palettes.js';
+import { getGlowForColor, getPaletteByKey } from './palettes.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
@@ -357,6 +357,29 @@ function updateFolloweeRow(entry, userData, myUserId) {
   }
   const statusEl = li.querySelector('.person-status');
   if (statusEl) statusEl.innerHTML = statusText;
+
+  // Palette card styling (Increment 3)
+  if (PALETTES_ENABLED && userData.paletteKey) {
+    const palette = getPaletteByKey(userData.paletteKey);
+    if (palette) {
+      li.style.background      = palette.theme.surface;
+      li.style.borderLeftColor = isAvail ? palette.color : 'transparent';
+      statusEl.style.color     = palette.theme.textMuted;
+      if (isAvail) {
+        const availableSpan = statusEl.querySelector('.status-available');
+        if (availableSpan) availableSpan.style.color = palette.color;
+      }
+    } else {
+      // Unknown key — clear any previously set inline styles
+      li.style.background      = '';
+      li.style.borderLeftColor = '';
+      statusEl.style.color     = '';
+    }
+  } else {
+    li.style.background      = '';
+    li.style.borderLeftColor = '';
+    if (statusEl) statusEl.style.color = '';
+  }
 }
 
 function getLabelText(li) {

@@ -1,5 +1,9 @@
 // tests/following.test.js
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
+jest.mock('../js/palettes.js', () => ({
+  ...jest.requireActual('../js/palettes.js'),
+  getPaletteByKey: jest.fn(),
+}));
 jest.mock('../js/db.js', () => ({
   lookupCode: jest.fn(),
   watchStatus: jest.fn(),
@@ -23,6 +27,7 @@ jest.mock('../js/store.js', () => ({
 
 const { watchStatus, watchFollowers } = require('../js/db.js');
 const { getFollowing, updateFollowingCode } = require('../js/store.js');
+const { getGlowForColor, getPaletteByKey } = require('../js/palettes.js');
 const { initList } = require('../js/following.js');
 
 function setupDom() {
@@ -391,5 +396,100 @@ describe('updateFolloweeRow: palette-aware dot and status text', () => {
     watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000 });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
     expect(dot.style.background).toBe('rgb(34, 197, 94)');
+  });
+});
+
+// --- Palette Cards (Increment 3) ---
+
+describe('palette card styling', () => {
+  const OCEAN_PALETTE = {
+    key: 'ocean', color: '#3b82f6', glow: 'rgba(59,130,246,0.4)',
+    theme: { bg: '#05101e', surface: '#0b1e38', surface2: '#102c52', text: '#eef4ff', textMuted: '#5f9acf' },
+    complements: [],
+  };
+
+  function setupOneFollowee(paletteKey) {
+    setupDom();
+    getFollowing.mockReturnValue([{ userId: 'user1', code: 'ABC123', label: 'Jordan' }]);
+
+    let watchStatusCallback;
+    let watchFollowersCallback;
+
+    watchFollowers.mockImplementation((_userId, cb) => {
+      watchFollowersCallback = cb;
+      return jest.fn();
+    });
+    watchStatus.mockImplementation((_uid, cb) => {
+      watchStatusCallback = cb;
+      return jest.fn();
+    });
+
+    initList('myUid', 'MYCODE');
+    watchFollowersCallback([]);     // no followers — 'Jordan' appears in Following section
+
+    // Trigger watchStatus with palette data
+    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, paletteKey });
+    return document.querySelector('[data-user-id="user1"]');
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const VOLT_PALETTE = {
+    key: 'volt', color: '#aaff00', glow: 'rgba(170,255,0,0.4)',
+    theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600', text: '#f4ffe6', textMuted: '#88cc33' },
+    complements: [],
+  };
+
+  test('card with known Set 1 paletteKey gets palette.theme.surface as background', () => {
+    getPaletteByKey.mockReturnValue(OCEAN_PALETTE);
+    const li = setupOneFollowee('ocean');
+    expect(li.style.background).toBe('rgb(11, 30, 56)');
+  });
+
+  test('card with known Set 2 paletteKey gets palette.theme.surface as background', () => {
+    getPaletteByKey.mockReturnValue(VOLT_PALETTE);
+    const li = setupOneFollowee('volt');
+    expect(li.style.background).toBe('rgb(25, 37, 0)');
+  });
+
+  test('card with known paletteKey gets palette.color as borderLeftColor when available', () => {
+    getPaletteByKey.mockReturnValue(OCEAN_PALETTE);
+    const li = setupOneFollowee('ocean');
+    expect(li.style.borderLeftColor).toBe('rgb(59, 130, 246)');
+  });
+
+  test('card with known paletteKey gets palette.theme.textMuted as status text color', () => {
+    getPaletteByKey.mockReturnValue(OCEAN_PALETTE);
+    const li = setupOneFollowee('ocean');
+    const statusEl = li.querySelector('.person-status');
+    expect(statusEl.style.color).toBe('rgb(95, 154, 207)');
+  });
+
+  test('available span inside status gets palette.color when available', () => {
+    getPaletteByKey.mockReturnValue(OCEAN_PALETTE);
+    const li = setupOneFollowee('ocean');
+    const span = li.querySelector('.status-available');
+    expect(span).not.toBeNull();
+    expect(span.style.color).toBe('rgb(59, 130, 246)');
+  });
+
+  test('card with paletteKey: null renders with default CSS, no inline background', () => {
+    getPaletteByKey.mockReturnValue(null);
+    const li = setupOneFollowee(null);
+    expect(li.style.background).toBe('');
+  });
+
+  test('card with unknown paletteKey string falls back to default CSS, no inline background', () => {
+    getPaletteByKey.mockReturnValue(null);
+    const li = setupOneFollowee('unknown-palette');
+    expect(li.style.background).toBe('');
+  });
+
+  test('card without paletteKey field renders with default CSS (no regression)', () => {
+    getPaletteByKey.mockReturnValue(null);
+    const li = setupOneFollowee(undefined);
+    expect(li.style.background).toBe('');
   });
 });
