@@ -46,6 +46,7 @@ main {
   background: var(--surface); border-radius: 10px; padding: 0.75rem 0.875rem;
   display: flex; align-items: center; gap: 0.75rem;
   margin-bottom: 0.5rem; list-style: none;
+  border-left: 3px solid transparent;
 }
 .person-dot {
   width: 2rem; height: 2rem; border-radius: 50%; flex-shrink: 0;
