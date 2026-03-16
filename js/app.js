@@ -5,8 +5,8 @@ import { initHeader, applyOwnStatus, enterFirstUseMode } from './me.js';
 import { initList } from './following.js';
 import { initCodeDrawer } from './mycode.js';
 import { PALETTES_ENABLED } from './features.js';
-import { applyPaletteVars, initSwatches } from './palettes.js';
-import { getPalette } from './store.js';
+import { applyPaletteVars, applyThemeVars, getPaletteByKey, initSwatches } from './palettes.js';
+import { getPaletteState } from './store.js';
 
 async function ensureIdentity() {
   const existing = loadIdentity();
@@ -61,8 +61,16 @@ async function main() {
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
 
   if (PALETTES_ENABLED) {
-    document.getElementById('swatch-row').style.display = '';  // clear display:none from HTML
-    applyPaletteVars(getPalette());   // apply saved color before first paint
+    document.getElementById('swatch-row').style.display = '';
+    const paletteState = getPaletteState();
+    const activeSetKey = String(paletteState.activeSet);
+    const { selectedKey, activePaletteKey } = paletteState.sets[activeSetKey];
+    // Apply status color vars before first paint
+    applyPaletteVars(selectedKey);
+    // If stored in palette mode, apply theme before first paint (avoids flash)
+    if (activePaletteKey) {
+      applyThemeVars(getPaletteByKey(activePaletteKey).theme);
+    }
     initSwatches(userId);
   }
 
