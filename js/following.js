@@ -6,8 +6,9 @@ import {
 } from './db.js';
 import { getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode } from './store.js';
 import { escapeHtml } from './utils.js';
-import { PALETTES_ENABLED } from './features.js';
+import { PALETTES_ENABLED, KNOCK_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey } from './palettes.js';
+import { sendKnock } from './knock.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
@@ -199,7 +200,7 @@ function renderList() {
   }
 
   appendSection('Mutuals', sortFollowees(mutuals), (entry) => {
-    createFolloweeRow(entry, myUserId);
+    createFolloweeRow(entry, myUserId, true);
     // Only subscribe for entries not already subscribed (preserves existing connection)
     if (!unsubscribers.has(entry.userId)) {
       subscribeToFollowee(entry, myUserId);
@@ -226,7 +227,7 @@ function renderList() {
   });
 }
 
-function createFolloweeRow(entry, myUserId) {
+function createFolloweeRow(entry, myUserId, isMutual = false) {
   const li = document.createElement('li');
   li.dataset.userId = entry.userId;
 
@@ -254,6 +255,17 @@ function createFolloweeRow(entry, myUserId) {
   li.querySelector('.person-label').addEventListener('click', () => {
     activateRename(entry, li.querySelector('.person-label'));
   });
+
+  if (KNOCK_ENABLED && isMutual) {
+    const labelEl = li.querySelector('.person-label');
+    const unfollowBtnEl = li.querySelector('.unfollow-btn');
+    li.addEventListener('click', (e) => {
+      if (labelEl.contains(e.target)) return;
+      if (unfollowBtnEl.contains(e.target)) return;
+      const statusColor = lastUserData.get(entry.userId)?.statusColor;
+      sendKnock(entry.userId, myUserId, statusColor);
+    });
+  }
 
   document.getElementById('people-list').appendChild(li);
 }
@@ -312,8 +324,17 @@ function subscribeToFollowee(entry, myUserId) {
       return;
     }
 
+    const prevUserData = lastUserData.get(entry.userId);
     lastUserData.set(entry.userId, userData);
     if (editingSet.has(entry.userId)) return;
+    // Skip re-render if only the knocks subtree changed — knock writes trigger onValue
+    // on the parent node, and we don't want them interrupting card animations.
+    if (prevUserData &&
+        userData.status === prevUserData.status &&
+        userData.availableUntil === prevUserData.availableUntil &&
+        userData.statusColor === prevUserData.statusColor &&
+        userData.paletteKey === prevUserData.paletteKey &&
+        userData.code === prevUserData.code) return;
     updateFolloweeRow(entry, userData, myUserId);
   });
   unsubscribers.set(entry.userId, unsub);

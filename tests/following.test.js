@@ -1,5 +1,5 @@
 // tests/following.test.js
-jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
+jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, KNOCK_ENABLED: true }));
 jest.mock('../js/palettes.js', () => ({
   ...jest.requireActual('../js/palettes.js'),
   getPaletteByKey: jest.fn(),
@@ -16,6 +16,13 @@ jest.mock('../js/db.js', () => ({
   formatTimeRemainingFuzzy: jest.fn(() => 'about 2 hours left'),
   timeRemainingMs: jest.fn(() => 7200000),
   formatLastSeen: jest.fn(() => null),
+  writeKnock: jest.fn(),
+  getKnocks: jest.fn(),
+  watchKnocksAdded: jest.fn(),
+  clearKnock: jest.fn(),
+}));
+jest.mock('../js/knock.js', () => ({
+  sendKnock: jest.fn(),
 }));
 jest.mock('../js/store.js', () => ({
   getFollowing: jest.fn(),
@@ -508,5 +515,102 @@ describe('palette card styling', () => {
     // Unavailable: all palette card styles cleared — default CSS applies
     expect(li.style.background).toBe('');
     expect(li.style.borderLeftColor).toBe('');
+  });
+});
+
+// --- subscribeToFollowee: field-change guard ---
+
+describe('subscribeToFollowee: field-change guard', () => {
+  let fireStatus; // fn(userData) → triggers watchStatus callback
+
+  function setupMutual(userId = 'u1') {
+    setupDom();
+    jest.clearAllMocks();
+    getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
+    let statusCallback;
+    watchStatus.mockImplementation((_uid, cb) => {
+      statusCallback = cb;
+      return jest.fn();
+    });
+    watchFollowers.mockImplementation((_uid, cb) => {
+      cb([{ userId, code: 'ABC123' }]); // make it a mutual
+      return jest.fn();
+    });
+    initList('myUid', 'MYCODE');
+    fireStatus = (data) => statusCallback(data);
+  }
+
+  test('updateFolloweeRow NOT called when only knocks key changes', () => {
+    setupMutual();
+    const baseData = {
+      status: 'unavailable', availableUntil: null,
+      statusColor: '#22c55e', paletteKey: null, code: 'ABC123',
+    };
+    fireStatus(baseData); // initial call, sets lastUserData
+
+    const li = document.querySelector('[data-user-id="u1"]');
+    const dotBefore = li.querySelector('.person-dot').className;
+
+    // Fire again with only knocks key added — all 5 named fields unchanged
+    fireStatus({ ...baseData, knocks: { someUser: { count: 1, ts: Date.now() } } });
+
+    // DOM should not have changed (no re-render)
+    expect(li.querySelector('.person-dot').className).toBe(dotBefore);
+  });
+
+  test('updateFolloweeRow IS called when status changes', () => {
+    setupMutual();
+    const baseData = {
+      status: 'unavailable', availableUntil: null,
+      statusColor: '#22c55e', paletteKey: null, code: 'ABC123',
+    };
+    fireStatus(baseData);
+    const li = document.querySelector('[data-user-id="u1"]');
+    const statusElBefore = li.querySelector('.person-status').innerHTML;
+
+    // Fire with changed status
+    fireStatus({ ...baseData, status: 'available', availableUntil: Date.now() + 3600000 });
+    // status changed → updateFolloweeRow runs → person-status text changes
+    expect(document.querySelector('[data-user-id="u1"] .person-status').innerHTML)
+      .not.toBe(statusElBefore);
+  });
+});
+
+// --- knock click handler on mutual rows ---
+
+describe('knock click handler on mutual rows', () => {
+  const { sendKnock } = require('../js/knock.js');
+
+  function setupMutualWithKnock(userId = 'u1') {
+    setupDom();
+    jest.clearAllMocks();
+    getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
+    watchStatus.mockReturnValue(jest.fn());
+    watchFollowers.mockImplementation((_uid, cb) => {
+      cb([{ userId, code: 'ABC123' }]);
+      return jest.fn();
+    });
+    initList('myUid', 'MYCODE');
+    return document.querySelector(`[data-user-id="${userId}"]`);
+  }
+
+  test('tapping mutual li calls sendKnock', () => {
+    const li = setupMutualWithKnock();
+    li.click();
+    expect(sendKnock).toHaveBeenCalled();
+  });
+
+  test('tapping person-label skips knock (allows rename)', () => {
+    const li = setupMutualWithKnock();
+    sendKnock.mockClear();
+    li.querySelector('.person-label').click();
+    expect(sendKnock).not.toHaveBeenCalled();
+  });
+
+  test('tapping unfollow-btn skips knock', () => {
+    const li = setupMutualWithKnock();
+    sendKnock.mockClear();
+    li.querySelector('.unfollow-btn').click();
+    expect(sendKnock).not.toHaveBeenCalled();
   });
 });
