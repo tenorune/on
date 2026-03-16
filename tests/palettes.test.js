@@ -89,9 +89,8 @@ test('getPaletteByKey returns correct palette for Set 2 key', () => {
   expect(p.color).toBe('#aaff00');
 });
 
-test('getPaletteByKey falls back to forest for unknown key', () => {
-  const p = getPaletteByKey('nonexistent');
-  expect(p.key).toBe('forest');
+test('getPaletteByKey returns null for unknown key', () => {
+  expect(getPaletteByKey('nonexistent')).toBeNull();
 });
 
 // --- getGlowForColor ---

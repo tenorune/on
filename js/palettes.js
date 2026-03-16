@@ -117,7 +117,7 @@ export function getPaletteByKey(key) {
     const found = set.find(p => p.key === key);
     if (found) return found;
   }
-  return PALETTE_SETS[1][0]; // forest fallback (changed to null in Increment 3)
+  return null; // callers that need a non-null default must handle this
 }
 
 export function getGlowForColor(hex) {
@@ -129,7 +129,7 @@ export function getGlowForColor(hex) {
 }
 
 export function applyPaletteVars(key) {
-  const p = getPaletteByKey(key);
+  const p = getPaletteByKey(key) || PALETTE_SETS[1][0]; // forest fallback
   document.documentElement.style.setProperty('--my-status', p.color);
   document.documentElement.style.setProperty('--my-glow', p.glow);
 }
