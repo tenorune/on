@@ -492,4 +492,20 @@ describe('palette card styling', () => {
     const li = setupOneFollowee(undefined);
     expect(li.style.background).toBe('');
   });
+
+  test('unavailable card with known paletteKey gets transparent borderLeftColor', () => {
+    setupDom();
+    getFollowing.mockReturnValue([{ userId: 'user1', code: 'ABC123', label: 'Jordan' }]);
+    let watchStatusCallback;
+    let watchFollowersCallback;
+    watchFollowers.mockImplementation((_userId, cb) => { watchFollowersCallback = cb; return jest.fn(); });
+    watchStatus.mockImplementation((_uid, cb) => { watchStatusCallback = cb; return jest.fn(); });
+    initList('myUid', 'MYCODE');
+    watchFollowersCallback([]);
+    getPaletteByKey.mockReturnValue(OCEAN_PALETTE);
+    watchStatusCallback({ status: 'unavailable', paletteKey: 'ocean' });
+    const li = document.querySelector('[data-user-id="user1"]');
+    expect(li.style.borderLeftColor).toBe('transparent');
+    expect(li.style.background).toBe('rgb(11, 30, 56)'); // background still applied
+  });
 });
