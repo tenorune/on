@@ -411,7 +411,9 @@ main {
   -webkit-tap-highlight-color: transparent;
   outline: none;
 }
-.set-toggle-btn:hover { color: var(--text); background: rgba(255,255,255,0.07); }
+@media (hover: hover) {
+  .set-toggle-btn:hover { color: var(--text); background: rgba(255,255,255,0.07); }
+}
 .set-toggle-btn svg { width: 22px; height: 22px; }
 .swatch.key-swatch {
   border-color: transparent;
@@ -423,6 +425,6 @@ main {
 .swatch.key-swatch::after {
   content: ''; position: absolute; inset: -6px; border-radius: 50%;
   border: 1.5px dashed rgba(255,255,255,0.65);
-  animation: key-spin 2s ease-out 2 forwards; pointer-events: none;
+  animation: key-spin 5s ease-out 1 forwards; pointer-events: none;
 }
-@keyframes key-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes key-spin { from { transform: rotate(0deg); } to { transform: rotate(720deg); } }
