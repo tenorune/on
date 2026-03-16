@@ -365,16 +365,16 @@ describe('updateFolloweeRow: palette-aware dot and status text', () => {
   });
 
   test('available dot has inline boxShadow derived from statusColor', () => {
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
+    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#818cf8' });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
-    expect(dot.style.boxShadow).toContain('rgba(168, 85, 247, 0.4)');
+    expect(dot.style.boxShadow).toContain('rgba(129,140,248,0.4)');
   });
 
   test('unavailable dot has inline styles cleared', () => {
     // First set available with a color
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
+    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#818cf8' });
     // Then go unavailable
-    watchStatusCallback({ status: 'unavailable', statusColor: '#a855f7' });
+    watchStatusCallback({ status: 'unavailable', statusColor: '#818cf8' });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
     expect(dot.style.background).toBe('');
     expect(dot.style.boxShadow).toBe('');
