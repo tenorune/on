@@ -14,7 +14,7 @@ Two coordinated changes:
 
 2. **Color fix** — both live and deferred knock animations read the sender's status color from their `person-dot` element at the moment the animation runs, instead of hardcoding `'#22c55e'`.
 
-Deferred knock animations (played on app open) are **not changed** in this spec.
+Deferred knock animations (played on app open) are unchanged in their sequencing and timing, but do receive the color fix (`playNext()` reads the sender's status color instead of hardcoding green).
 
 ---
 
@@ -53,7 +53,9 @@ Called from the `watchKnocksAdded` callback in place of the previous `count × e
 
 6. Begin 2s decay:
    li.style.transition = 'background-color 2s ease-out'
-   li.style.backgroundColor = 'transparent'
+   li.style.backgroundColor = hexToRgba(color, 0)
+   // Use rgba(r,g,b,0) — not 'transparent' — to preserve hue during the CSS transition.
+   // Transitioning to 'transparent' (rgba(0,0,0,0)) would shift intermediate frames toward black.
 
 7. timerId = setTimeout(() => {
      li.style.transition = ''
@@ -80,6 +82,7 @@ for (let i = 0; i < count; i++) {
 **After:**
 ```js
 applyLiveKnock(senderId, count);
+// clearKnock call is retained — only the enqueue loop changes
 ```
 
 ---
