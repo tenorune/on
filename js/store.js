@@ -52,4 +52,12 @@ function updateFollowingCode(userId, newCode) {
   ));
 }
 
-module.exports = { getFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode };
+function getPalette() {
+  return localStorage.getItem('statusapp_palette') || 'forest';
+}
+
+function setPalette(key) {
+  localStorage.setItem('statusapp_palette', key);
+}
+
+module.exports = { getFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode, getPalette, setPalette };

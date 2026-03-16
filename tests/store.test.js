@@ -2,6 +2,7 @@
 const {
   getFollowing, addFollowing, removeFollowing, isFollowing,
   getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode,
+  getPalette, setPalette,
 } = require('../js/store');
 
 beforeEach(() => {
@@ -90,4 +91,13 @@ test('updateFollowingCode does not modify non-matching entries', () => {
   updateFollowingCode('user-1', 'NEW456');
   const list = getFollowing();
   expect(list[1]).toEqual({ code: 'ZZ91TL', label: 'Bob', userId: 'user-2' });
+});
+
+test('getPalette returns "forest" when nothing stored', () => {
+  expect(getPalette()).toBe('forest');
+});
+
+test('setPalette saves key; getPalette returns it', () => {
+  setPalette('iris');
+  expect(getPalette()).toBe('iris');
 });
