@@ -1,9 +1,12 @@
 // js/app.js
 import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity } from './identity.js';
 import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus } from './db.js';
-import { initHeader, applyOwnStatus } from './me.js';
+import { initHeader, applyOwnStatus, enterFirstUseMode } from './me.js';
 import { initList } from './following.js';
 import { initCodeDrawer } from './mycode.js';
+import { PALETTES_ENABLED } from './features.js';
+import { applyPaletteVars, initSwatches } from './palettes.js';
+import { getPalette } from './store.js';
 
 async function ensureIdentity() {
   const existing = loadIdentity();
@@ -54,6 +57,14 @@ async function main() {
   initCodeDrawer(userId, code);
   initHeader(userId);
   initList(userId, code);
+
+  if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
+
+  if (PALETTES_ENABLED) {
+    document.getElementById('swatch-row').style.display = '';  // clear display:none from HTML
+    applyPaletteVars(getPalette());   // apply saved color before first paint
+    initSwatches(userId);
+  }
 
   watchStatus(userId, (userData) => {
     if (!userData) return;
