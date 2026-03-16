@@ -1,4 +1,4 @@
 // js/features.js
 module.exports = {
-  PALETTES_ENABLED: false,
+  PALETTES_ENABLED: true,
 };
