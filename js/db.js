@@ -177,3 +177,7 @@ export async function rotateCode(userId, oldCode) {
 export async function setStatusColor(userId, color) {
   await update(ref(db, `users/${userId}`), { statusColor: color });
 }
+
+export async function setPaletteKey(userId, paletteKey) {
+  await update(ref(db, `users/${userId}`), { paletteKey: paletteKey ?? null });
+}

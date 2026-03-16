@@ -1,5 +1,5 @@
 // tests/db.test.js
-const { userExists, touchLastSeen, rotateCode, setStatusColor } = require('../js/db');
+const { userExists, touchLastSeen, rotateCode, setStatusColor, setPaletteKey } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
   ref: jest.fn(() => 'mock-ref'),
@@ -108,5 +108,29 @@ describe('setStatusColor', () => {
     await setStatusColor('user-1', '#a855f7');
     expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/user-1');
     expect(update).toHaveBeenCalledWith('mock-ref', { statusColor: '#a855f7' });
+  });
+});
+
+describe('setPaletteKey', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('setPaletteKey calls update with paletteKey field', async () => {
+    update.mockResolvedValueOnce();
+    await setPaletteKey('uid1', 'ember');
+    expect(update).toHaveBeenCalledWith(
+      expect.anything(),
+      { paletteKey: 'ember' }
+    );
+  });
+
+  test('setPaletteKey coerces undefined to null', async () => {
+    update.mockResolvedValueOnce();
+    await setPaletteKey('uid1', undefined);
+    expect(update).toHaveBeenCalledWith(
+      expect.anything(),
+      { paletteKey: null }
+    );
   });
 });
