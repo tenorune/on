@@ -38,3 +38,18 @@ export function tapSwatch(key, userId) {
   const target = row.querySelector(`[data-key="${key}"]`);
   if (target) target.classList.add('selected');
 }
+
+export function initSwatches(userId) {
+  const row = document.getElementById('swatch-row');
+  const savedKey = getPalette();
+  PALETTES.forEach(p => {
+    const swatch = document.createElement('div');
+    swatch.className = 'swatch';
+    swatch.dataset.key = p.key;
+    swatch.style.setProperty('--swatch-color', p.color);
+    swatch.style.background = p.color;
+    if (p.key === savedKey) swatch.classList.add('selected');
+    swatch.addEventListener('click', () => tapSwatch(p.key, userId));
+    row.appendChild(swatch);
+  });
+}

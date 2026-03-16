@@ -8,7 +8,7 @@ jest.mock('../js/store.js', () => ({
 }));
 
 const {
-  PALETTES, getPaletteByKey, getGlowForColor, applyPaletteVars, tapSwatch,
+  PALETTES, getPaletteByKey, getGlowForColor, applyPaletteVars, tapSwatch, initSwatches,
 } = require('../js/palettes.js');
 const { setStatusColor } = require('../js/db.js');
 const { getPalette: getPaletteMock, setPalette } = require('../js/store.js');
@@ -109,5 +109,50 @@ describe('tapSwatch', () => {
   test('is synchronous — returns undefined, not a Promise', () => {
     const result = tapSwatch('iris', 'uid1');
     expect(result).toBeUndefined();
+  });
+});
+
+// --- initSwatches ---
+
+describe('initSwatches', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getPaletteMock.mockReturnValue('iris');
+    document.body.innerHTML = `<div id="swatch-row"></div>`;
+  });
+
+  test('injects 8 swatches into #swatch-row', () => {
+    initSwatches('uid1');
+    expect(document.querySelectorAll('.swatch')).toHaveLength(8);
+  });
+
+  test('each swatch has correct data-key', () => {
+    initSwatches('uid1');
+    const keys = Array.from(document.querySelectorAll('.swatch')).map(s => s.dataset.key);
+    expect(keys).toEqual(expect.arrayContaining(['forest', 'ocean', 'iris', 'ember', 'coral', 'sky', 'gold', 'mint']));
+  });
+
+  test('each swatch background is set to palette color', () => {
+    initSwatches('uid1');
+    const forestSwatch = document.querySelector('[data-key="forest"]');
+    // jsdom normalizes hex to rgb; check the custom property which preserves the original value
+    expect(forestSwatch.style.getPropertyValue('--swatch-color')).toBe('#22c55e');
+  });
+
+  test('swatch matching saved key gets .selected', () => {
+    initSwatches('uid1'); // saved key is 'iris'
+    expect(document.querySelector('[data-key="iris"]').classList.contains('selected')).toBe(true);
+    expect(document.querySelector('[data-key="forest"]').classList.contains('selected')).toBe(false);
+  });
+
+  test('clicking a swatch calls setPalette (via tapSwatch)', () => {
+    initSwatches('uid1');
+    document.querySelector('[data-key="forest"]').click();
+    expect(setPalette).toHaveBeenCalledWith('forest');
+  });
+
+  test('does NOT add .visible to #swatch-row', () => {
+    initSwatches('uid1');
+    expect(document.getElementById('swatch-row').classList.contains('visible')).toBe(false);
   });
 });
