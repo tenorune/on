@@ -232,7 +232,7 @@ function createFolloweeRow(entry, myUserId) {
 
   const nameHtml = (entry.label)
     ? `<div class="person-label">${escapeHtml(entry.label)}</div>`
-    : `<div class="person-label" style="font-family:monospace">${escapeHtml(entry.code)}</div>`;
+    : `<div class="person-label">${escapeHtml(entry.code)}</div>`;
 
   li.innerHTML = `
     <div class="person-dot"></div>
@@ -380,7 +380,7 @@ function activateRename(entry, labelEl) {
 
   function confirmRename() {
     const val = input.value.trim();
-    if (!val) return;
+    if (!val) { cancelRename(); return; }
     renameFollowing(entry.userId, val);
     entry.label = val;
     editingSet.delete(entry.userId);
@@ -389,7 +389,7 @@ function activateRename(entry, labelEl) {
 
   function cancelRename() {
     editingSet.delete(entry.userId);
-    labelEl.textContent = original;
+    labelEl.textContent = original || entry.code;
   }
 
   input.addEventListener('keydown', (e) => {

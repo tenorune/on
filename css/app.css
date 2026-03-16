@@ -53,7 +53,7 @@ main {
 }
 .person-dot.available { background: var(--green); border-color: var(--green); box-shadow: 0 0 10px var(--green-glow); }
 .person-info { flex: 1; }
-.person-label { font-size: 0.875rem; color: var(--text); cursor: pointer; }
+.person-label { font-size: 1rem; line-height: 1.4; height: 1.4rem; color: var(--text); cursor: pointer; }
 .person-status { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
 .remove-btn {
   background: var(--error-bg); color: var(--error-text); border: none;
@@ -156,15 +156,19 @@ main {
 /* Utilities */
 .hidden { display: none !important; }
 .rename-input {
+  display: block;
   font: inherit;
   font-size: 1rem; /* prevent iOS Safari zoom (triggers when font-size < 16px) */
+  line-height: 1.4;
+  height: 100%; /* fill .person-label's locked 1.4rem height */
   color: inherit;
   background: transparent;
   border: none;
-  border-bottom: 1px solid var(--green);
+  border-bottom: 1px solid var(--accent);
   outline: none;
   width: 100%;
   padding: 0;
+  margin: 0;
   box-sizing: border-box;
 }
 
@@ -268,6 +272,7 @@ main {
 
 #header-text {
   flex: 1;
+  display: grid;
 }
 
 #header-status-row {
@@ -275,6 +280,7 @@ main {
   align-items: center;
   gap: 0.375rem;
   font-size: 1rem;
+  grid-row: 1;
 }
 
 #time-remaining {
@@ -288,6 +294,9 @@ main {
   display: flex;
   gap: 0.5rem;
   margin-top: 0.5rem;
+  grid-row: 2;
+  grid-column: 1;
+  align-self: start;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.25s ease;
@@ -369,6 +378,9 @@ main {
   display: flex;
   gap: 6px;
   margin-top: 0.5rem;
+  grid-row: 2;
+  grid-column: 1;
+  align-self: start;
   align-items: center;
   opacity: 0;
   pointer-events: none;

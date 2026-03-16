@@ -66,14 +66,20 @@ async function main() {
     initSwatches(userId);
   }
 
+  let lastStatus = null;
+  let lastAvailableUntil = null;
   watchStatus(userId, (userData) => {
     if (!userData) return;
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);
+    const effectiveStatus = expired ? 'unavailable' : userData.status;
+    const effectiveUntil  = expired ? null : userData.availableUntil;
+    // Skip re-render when only unrelated fields changed (code, statusColor, followers).
+    // This prevents the label animation from firing on every swatch tap or code rotation.
+    if (effectiveStatus === lastStatus && effectiveUntil === lastAvailableUntil) return;
+    lastStatus = effectiveStatus;
+    lastAvailableUntil = effectiveUntil;
     if (expired) writeBackExpired(userId);
-    applyOwnStatus(
-      expired ? 'unavailable' : userData.status,
-      expired ? null : userData.availableUntil,
-    );
+    applyOwnStatus(effectiveStatus, effectiveUntil);
   });
 
   if (isNew) {
