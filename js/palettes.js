@@ -14,49 +14,49 @@ export const PALETTE_SETS = {
     {
       key: 'forest', label: 'Forest',
       color: '#22c55e', glow: 'rgba(34,197,94,0.4)',
-      theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226', text: '#ecfdf4', textMuted: '#5ea87a' },
+      theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226', text: '#ecfdf4', textMuted: '#5ea87a', accent: '#22c55e', errorBg: '#2a1006', errorText: '#fca5a5' },
       complements: ['#84cc16','#bef264','#a3e635','#fbbf24','#34d399','#4ade80','#86efac'],
     },
     {
       key: 'ocean', label: 'Ocean',
       color: '#3b82f6', glow: 'rgba(59,130,246,0.4)',
-      theme: { bg: '#05101e', surface: '#0b1e38', surface2: '#102c52', text: '#eef4ff', textMuted: '#5f9acf' },
+      theme: { bg: '#05101e', surface: '#0b1e38', surface2: '#102c52', text: '#eef4ff', textMuted: '#5f9acf', accent: '#3b82f6', errorBg: '#240814', errorText: '#fca5a5' },
       complements: ['#06b6d4','#22d3ee','#38bdf8','#7dd3fc','#0ea5e9','#60a5fa','#a5f3fc'],
     },
     {
       key: 'iris', label: 'Iris',
       color: '#818cf8', glow: 'rgba(129,140,248,0.4)',
-      theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47', text: '#eeeeff', textMuted: '#8080c0' },
+      theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47', text: '#eeeeff', textMuted: '#8080c0', accent: '#818cf8', errorBg: '#1e0818', errorText: '#fca5a5' },
       complements: ['#8b5cf6','#a78bfa','#c4b5fd','#ec4899','#6366f1','#e879f9','#f472b6'],
     },
     {
       key: 'ember', label: 'Ember',
       color: '#f97316', glow: 'rgba(249,115,22,0.4)',
-      theme: { bg: '#180a02', surface: '#2b1505', surface2: '#3f1f08', text: '#fff1e8', textMuted: '#b06a30' },
+      theme: { bg: '#180a02', surface: '#2b1505', surface2: '#3f1f08', text: '#fff1e8', textMuted: '#b06a30', accent: '#f97316', errorBg: '#280000', errorText: '#fca5a5' },
       complements: ['#fbbf24','#f59e0b','#ef4444','#fb923c','#fcd34d','#dc2626','#d97706'],
     },
     {
       key: 'coral', label: 'Coral',
       color: '#f43f5e', glow: 'rgba(244,63,94,0.4)',
-      theme: { bg: '#180507', surface: '#2b0a11', surface2: '#3f0e1a', text: '#ffe8ec', textMuted: '#a8406a' },
+      theme: { bg: '#180507', surface: '#2b0a11', surface2: '#3f0e1a', text: '#ffe8ec', textMuted: '#a8406a', accent: '#f43f5e', errorBg: '#0d0028', errorText: '#d4a0ff' },
       complements: ['#fb7185','#fda4af','#ec4899','#f472b6','#e11d48','#ff6b9d','#fce7f3'],
     },
     {
       key: 'sky', label: 'Sky',
       color: '#06b6d4', glow: 'rgba(6,182,212,0.4)',
-      theme: { bg: '#030f18', surface: '#071e30', surface2: '#0b2d47', text: '#e8fbff', textMuted: '#3a9ab8' },
+      theme: { bg: '#030f18', surface: '#071e30', surface2: '#0b2d47', text: '#e8fbff', textMuted: '#3a9ab8', accent: '#06b6d4', errorBg: '#280000', errorText: '#fca5a5' },
       complements: ['#0ea5e9','#38bdf8','#7dd3fc','#10b981','#34d399','#3b82f6','#a5f3fc'],
     },
     {
       key: 'gold', label: 'Gold',
       color: '#eab308', glow: 'rgba(234,179,8,0.4)',
-      theme: { bg: '#120d00', surface: '#221800', surface2: '#332400', text: '#fffbea', textMuted: '#9a7010' },
+      theme: { bg: '#120d00', surface: '#221800', surface2: '#332400', text: '#fffbea', textMuted: '#9a7010', accent: '#eab308', errorBg: '#00050f', errorText: '#93c5fd' },
       complements: ['#f59e0b','#fb923c','#fbbf24','#fde68a','#f97316','#d97706','#fcd34d'],
     },
     {
       key: 'mint', label: 'Mint',
       color: '#10b981', glow: 'rgba(16,185,129,0.4)',
-      theme: { bg: '#031210', surface: '#07221e', surface2: '#0b332c', text: '#e8fff9', textMuted: '#308870' },
+      theme: { bg: '#031210', surface: '#07221e', surface2: '#0b332c', text: '#e8fff9', textMuted: '#308870', accent: '#10b981', errorBg: '#280000', errorText: '#fca5a5' },
       complements: ['#06b6d4','#14b8a6','#2dd4bf','#22c55e','#34d399','#6ee7b7','#67e8f9'],
     },
   ],
@@ -64,49 +64,49 @@ export const PALETTE_SETS = {
     {
       key: 'volt', label: 'Volt',
       color: '#aaff00', glow: 'rgba(170,255,0,0.4)',
-      theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600', text: '#f4ffe6', textMuted: '#88cc33' },
+      theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600', text: '#f4ffe6', textMuted: '#88cc33', accent: '#aaff00', errorBg: '#0d0028', errorText: '#d4a0ff' },
       complements: ['#6633ff','#00ccee','#ff00aa','#1155ff','#bb00ff','#44ff00','#ffcc00'],
     },
     {
       key: 'plasma', label: 'Plasma',
       color: '#ff1aad', glow: 'rgba(255,26,173,0.4)',
-      theme: { bg: '#180012', surface: '#260020', surface2: '#38002e', text: '#ffe8f8', textMuted: '#cc44aa' },
+      theme: { bg: '#180012', surface: '#260020', surface2: '#38002e', text: '#ffe8f8', textMuted: '#cc44aa', accent: '#ff1aad', errorBg: '#001a28', errorText: '#67e8f9' },
       complements: ['#22ff66','#aaff00','#00ccee','#44ff00','#00ffaa','#ff2244','#bb00ff'],
     },
     {
       key: 'arc', label: 'Arc',
       color: '#0055ff', glow: 'rgba(0,85,255,0.4)',
-      theme: { bg: '#00050f', surface: '#000a1e', surface2: '#00102d', text: '#e8f0ff', textMuted: '#4488ee' },
+      theme: { bg: '#00050f', surface: '#000a1e', surface2: '#00102d', text: '#e8f0ff', textMuted: '#4488ee', accent: '#0055ff', errorBg: '#180500', errorText: '#fca5a5' },
       complements: ['#ff8800','#ff2244','#aaff00','#ff3300','#ffdd00','#7700ff','#00ddcc'],
     },
     {
       key: 'venom', label: 'Venom',
       color: '#00ff66', glow: 'rgba(0,255,102,0.4)',
-      theme: { bg: '#001008', surface: '#001c10', surface2: '#002a18', text: '#e8fff2', textMuted: '#33aa66' },
+      theme: { bg: '#001008', surface: '#001c10', surface2: '#002a18', text: '#e8fff2', textMuted: '#33aa66', accent: '#00ff66', errorBg: '#0f0028', errorText: '#c4b5fd' },
       complements: ['#ff1aaa','#7733ff','#ff4400','#9900ff','#ff1133','#00ffdd','#77ff00'],
     },
     {
       key: 'inferno', label: 'Inferno',
       color: '#ff3300', glow: 'rgba(255,51,0,0.4)',
-      theme: { bg: '#140400', surface: '#220700', surface2: '#320c00', text: '#fff0eb', textMuted: '#cc4422' },
+      theme: { bg: '#140400', surface: '#220700', surface2: '#320c00', text: '#fff0eb', textMuted: '#cc4422', accent: '#ff3300', errorBg: '#001a28', errorText: '#67e8f9' },
       complements: ['#00ccdd','#33ee00','#0044ff','#00ddaa','#0055ff','#ffaa00','#ff0044'],
     },
     {
       key: 'aurora', label: 'Aurora',
       color: '#00e5ff', glow: 'rgba(0,229,255,0.4)',
-      theme: { bg: '#00080f', surface: '#000f1a', surface2: '#001828', text: '#e8fcff', textMuted: '#22aacc' },
+      theme: { bg: '#00080f', surface: '#000f1a', surface2: '#001828', text: '#e8fcff', textMuted: '#22aacc', accent: '#00e5ff', errorBg: '#280000', errorText: '#fca5a5' },
       complements: ['#ff3300','#ff11bb','#eeff00','#ff2266','#ff8800','#0055ff','#00ff88'],
     },
     {
       key: 'solar', label: 'Solar',
       color: '#ffdd00', glow: 'rgba(255,221,0,0.4)',
-      theme: { bg: '#0f0c00', surface: '#1e1700', surface2: '#2d2300', text: '#fffde8', textMuted: '#ccaa00' },
+      theme: { bg: '#0f0c00', surface: '#1e1700', surface2: '#2d2300', text: '#fffde8', textMuted: '#ccaa00', accent: '#ffdd00', errorBg: '#00050f', errorText: '#93c5fd' },
       complements: ['#0044ff','#00ffcc','#aa00ff','#00aaff','#5500ff','#bbff00','#ff4400'],
     },
     {
       key: 'ultraviolet', label: 'Ultraviolet',
       color: '#8800ff', glow: 'rgba(136,0,255,0.4)',
-      theme: { bg: '#070013', surface: '#0e0022', surface2: '#160033', text: '#f0e8ff', textMuted: '#9944dd' },
+      theme: { bg: '#070013', surface: '#0e0022', surface2: '#160033', text: '#f0e8ff', textMuted: '#9944dd', accent: '#8800ff', errorBg: '#0a1a00', errorText: '#a3e635' },
       complements: ['#bbff00','#ff7700','#00ff44','#ffee00','#00ee66','#ff00cc','#0055ff'],
     },
   ],
@@ -141,6 +141,9 @@ export function applyThemeVars(theme) {
   r.style.setProperty('--surface2',   theme.surface2);
   r.style.setProperty('--text',       theme.text);
   r.style.setProperty('--text-muted', theme.textMuted);
+  r.style.setProperty('--accent',     theme.accent);
+  r.style.setProperty('--error-bg',   theme.errorBg);
+  r.style.setProperty('--error-text', theme.errorText);
 }
 
 export function resetThemeVars() {
@@ -150,6 +153,9 @@ export function resetThemeVars() {
   r.style.setProperty('--surface2',   '#334155');
   r.style.setProperty('--text',       '#f1f5f9');
   r.style.setProperty('--text-muted', '#94a3b8');
+  r.style.setProperty('--accent',     '#6366f1');
+  r.style.setProperty('--error-bg',   '#7f1d1d');
+  r.style.setProperty('--error-text', '#fca5a5');
 }
 
 export function enterPaletteMode(key, userId) {

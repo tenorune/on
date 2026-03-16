@@ -313,31 +313,41 @@ describe('switchSet', () => {
 // --- applyThemeVars / resetThemeVars ---
 
 describe('applyThemeVars', () => {
-  test('sets all five theme CSS vars', () => {
-    applyThemeVars({ bg: '#111', surface: '#222', surface2: '#333', text: '#eee', textMuted: '#999' });
+  const theme = { bg: '#111', surface: '#222', surface2: '#333', text: '#eee', textMuted: '#999', accent: '#f00', errorBg: '#100', errorText: '#faa' };
+
+  test('sets all eight theme CSS vars', () => {
+    applyThemeVars(theme);
     expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#111');
     expect(document.documentElement.style.getPropertyValue('--surface')).toBe('#222');
     expect(document.documentElement.style.getPropertyValue('--surface2')).toBe('#333');
     expect(document.documentElement.style.getPropertyValue('--text')).toBe('#eee');
     expect(document.documentElement.style.getPropertyValue('--text-muted')).toBe('#999');
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#f00');
+    expect(document.documentElement.style.getPropertyValue('--error-bg')).toBe('#100');
+    expect(document.documentElement.style.getPropertyValue('--error-text')).toBe('#faa');
   });
 
   test('does not touch --my-status or --my-glow', () => {
     applyPaletteVars('iris');
-    applyThemeVars({ bg: '#111', surface: '#222', surface2: '#333', text: '#eee', textMuted: '#999' });
+    applyThemeVars(theme);
     expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#818cf8');
   });
 });
 
 describe('resetThemeVars', () => {
-  test('restores all five vars to slate defaults', () => {
-    applyThemeVars({ bg: '#111', surface: '#222', surface2: '#333', text: '#eee', textMuted: '#999' });
+  const theme = { bg: '#111', surface: '#222', surface2: '#333', text: '#eee', textMuted: '#999', accent: '#f00', errorBg: '#100', errorText: '#faa' };
+
+  test('restores all eight vars to slate defaults', () => {
+    applyThemeVars(theme);
     resetThemeVars();
     expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#0f172a');
     expect(document.documentElement.style.getPropertyValue('--surface')).toBe('#1e293b');
     expect(document.documentElement.style.getPropertyValue('--surface2')).toBe('#334155');
     expect(document.documentElement.style.getPropertyValue('--text')).toBe('#f1f5f9');
     expect(document.documentElement.style.getPropertyValue('--text-muted')).toBe('#94a3b8');
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#6366f1');
+    expect(document.documentElement.style.getPropertyValue('--error-bg')).toBe('#7f1d1d');
+    expect(document.documentElement.style.getPropertyValue('--error-text')).toBe('#fca5a5');
   });
 
   test('does not touch --my-status', () => {
@@ -415,7 +425,7 @@ describe('exitPaletteMode', () => {
     };
     document.body.innerHTML = `<div id="swatch-row"></div>`;
     // Apply a theme so we can verify it's reverted
-    applyThemeVars({ bg: '#180a02', surface: '#2b1505', surface2: '#3f1f08', text: '#fff1e8', textMuted: '#b06a30' });
+    applyThemeVars({ bg: '#180a02', surface: '#2b1505', surface2: '#3f1f08', text: '#fff1e8', textMuted: '#b06a30', accent: '#f97316', errorBg: '#280000', errorText: '#fca5a5' });
   });
 
   test('clears activePaletteKey in stored state', () => {
