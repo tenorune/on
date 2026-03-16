@@ -286,4 +286,12 @@ describe('first-use state', () => {
     applyOwnStatus('available', Date.now() + 7200000);
     expect(document.getElementById('my-dot').classList.contains('available')).toBe(true);
   });
+
+  test('applyOwnStatus available while first-use: chips are visible', () => {
+    enterFirstUseMode();
+    applyOwnStatus('unavailable', null);
+    applyOwnStatus('available', Date.now() + 7200000);
+    jest.advanceTimersByTime(250);
+    expect(document.getElementById('header-chips').style.opacity).not.toBe('0');
+  });
 });
