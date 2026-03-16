@@ -50,7 +50,7 @@ main {
 }
 .person-dot {
   width: 2rem; height: 2rem; border-radius: 50%; flex-shrink: 0;
-  background: var(--dot-off); border: 1px solid var(--dot-off-border);
+  background: var(--dot-off); border: none;
 }
 .person-dot.available { background: var(--green); border-color: var(--green); box-shadow: 0 0 10px var(--green-glow); }
 .person-info { flex: 1; }
@@ -406,8 +406,10 @@ main {
   cursor: pointer; color: var(--text-muted); padding: 0;
   flex-shrink: 0; display: flex; align-items: center; justify-content: center;
   border-radius: 5px; transition: color 0.15s, background 0.15s;
+  margin-right: 0.8em;
 }
 .set-toggle-btn:hover { color: var(--text); background: rgba(255,255,255,0.07); }
+.set-toggle-btn svg { width: 22px; height: 22px; }
 .swatch.key-swatch {
   border-color: white;
   box-shadow: 0 0 0 2px rgba(255,255,255,0.25);
@@ -416,6 +418,6 @@ main {
 .swatch.key-swatch::after {
   content: ''; position: absolute; inset: -6px; border-radius: 50%;
   border: 1.5px dashed rgba(255,255,255,0.65);
-  animation: key-spin 4s linear infinite; pointer-events: none;
+  animation: key-spin 1s linear 5 forwards; pointer-events: none;
 }
 @keyframes key-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

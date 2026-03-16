@@ -210,14 +210,30 @@ function renderSwatchRow(userId) {
       if (i === keyIdx) {
         swatch.className = 'swatch key-swatch';
         swatch.style.background = keyPalette.color;
-        swatch.addEventListener('click', () => exitPaletteMode(userId));
+        if (savedKey === activePaletteKey) swatch.classList.add('selected');
+        swatch.addEventListener('click', () => {
+          if (swatch.classList.contains('selected')) {
+            // Tap KS while it is the active status color → exit palette mode
+            exitPaletteMode(userId);
+          } else {
+            // Tap KS while a different swatch is active → KS becomes the status color
+            row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
+            swatch.classList.add('selected');
+            const st = getPaletteState();
+            st.sets[String(st.activeSet)].selectedKey = activePaletteKey;
+            setPaletteState(st);
+            applyPaletteVars(activePaletteKey);
+            setStatusColor(userId, keyPalette.color).catch(() => {});
+          }
+        });
       } else {
         const color = complements[ci++];
         swatch.className = 'swatch';
         swatch.style.background = color;
         swatch.addEventListener('click', () => {
-          exitPaletteMode(userId);
-          // Apply the complement color as status color directly
+          // Change status color; keep palette mode and theme active
+          row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
+          swatch.classList.add('selected');
           document.documentElement.style.setProperty('--my-status', color);
           setStatusColor(userId, color).catch(() => {});
         });
@@ -231,24 +247,6 @@ export function tapSwatch(key, userId) {
   const state = getPaletteState();
   const setKey = String(state.activeSet);
   const currentlySelected = state.sets[setKey].selectedKey;
-  const inPaletteMode = state.sets[setKey].activePaletteKey !== null;
-
-  if (inPaletteMode) {
-    // Tapping any non-Key swatch in palette mode: exit first, then apply new color
-    exitPaletteMode(userId);
-    // Re-read state after exit
-    const freshState = getPaletteState();
-    freshState.sets[setKey].selectedKey = key;
-    setPaletteState(freshState);
-    const palette = getPaletteByKey(key);
-    setStatusColor(userId, palette.color).catch(() => {});
-    applyPaletteVars(key);
-    const row = document.getElementById('swatch-row');
-    row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
-    const target = row.querySelector(`[data-key="${key}"]`);
-    if (target) target.classList.add('selected');
-    return;
-  }
 
   if (key === currentlySelected) {
     // Second tap on already-selected swatch: enter palette mode

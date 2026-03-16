@@ -505,7 +505,8 @@ describe('palette card styling', () => {
     getPaletteByKey.mockReturnValue(OCEAN_PALETTE);
     watchStatusCallback({ status: 'unavailable', paletteKey: 'ocean' });
     const li = document.querySelector('[data-user-id="user1"]');
-    expect(li.style.borderLeftColor).toBe('transparent');
-    expect(li.style.background).toBe('rgb(11, 30, 56)'); // background still applied
+    // Unavailable: all palette card styles cleared — default CSS applies
+    expect(li.style.background).toBe('');
+    expect(li.style.borderLeftColor).toBe('');
   });
 });

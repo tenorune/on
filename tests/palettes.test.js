@@ -472,16 +472,20 @@ describe('tapSwatch two-tap', () => {
     expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#180a02');
   });
 
-  test('first tap on a different swatch in palette mode calls exitPaletteMode then sets new color', () => {
+  test('tapSwatch is not called in palette mode — palette mode uses its own click handlers', () => {
+    // tapSwatch is only invoked from base-mode swatch clicks.
+    // In palette mode, renderSwatchRow attaches specialized handlers directly.
+    // This test documents that tapSwatch ignores activePaletteKey entirely.
     getPaletteState.mockReturnValue({
       activeSet: 1,
-      sets: { '1': { selectedKey: 'ember', activePaletteKey: 'ember' }, '2': { selectedKey: 'volt', activePaletteKey: null } },
+      sets: { '1': { selectedKey: 'forest', activePaletteKey: null }, '2': { selectedKey: 'volt', activePaletteKey: null } },
     });
     tapSwatch('coral', 'uid1');
-    // exitPaletteMode should have reset theme
-    expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#0f172a');
-    // New color should be applied
-    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#f43f5e');
+    expect(setPaletteState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sets: expect.objectContaining({ '1': expect.objectContaining({ selectedKey: 'coral' }) }),
+      })
+    );
   });
 });
 

@@ -358,19 +358,16 @@ function updateFolloweeRow(entry, userData, myUserId) {
   const statusEl = li.querySelector('.person-status');
   if (statusEl) statusEl.innerHTML = statusText;
 
-  // Palette card styling (Increment 3)
-  if (PALETTES_ENABLED && userData.paletteKey) {
+  // Palette card styling (Increment 3): only when available
+  if (PALETTES_ENABLED && userData.paletteKey && isAvail) {
     const palette = getPaletteByKey(userData.paletteKey);
     if (palette) {
       li.style.background      = palette.theme.surface;
-      li.style.borderLeftColor = isAvail ? palette.color : 'transparent';
+      li.style.borderLeftColor = palette.color;
       statusEl.style.color     = palette.theme.textMuted;
-      if (isAvail) {
-        const availableSpan = statusEl.querySelector('.status-available');
-        if (availableSpan) availableSpan.style.color = palette.color;
-      }
+      const availableSpan = statusEl.querySelector('.status-available');
+      if (availableSpan) availableSpan.style.color = palette.color;
     } else {
-      // Unknown key — clear any previously set inline styles
       li.style.background      = '';
       li.style.borderLeftColor = '';
       statusEl.style.color     = '';
