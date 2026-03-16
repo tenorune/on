@@ -178,7 +178,7 @@ Hidden by default via inline `display:none`. When `PALETTES_ENABLED` is true, `a
 
 Once the feature is enabled, `#swatch-row` uses opacity-only toggling via the `.visible` CSS class — **not** direct inline style (unlike `#header-chips`, which uses `chips.style.opacity` in `me.js`). The class approach is preferred here because the CSS rule for `.visible` handles both `opacity` and `pointer-events` atomically, preventing swatches from being accidentally tappable when hidden.
 
-`display: flex` is permanent once `app.js` clears the inline style, so `#swatch-row` always occupies layout space (22px + 0.5rem margin) for Available users — it is invisible (`opacity: 0`) but present in flow. This is intentional: both rows are always in layout so transitions are jank-free. The header height may vary by a few pixels between Available (chips visible, swatches invisible-but-present) and Unavailable (chips invisible-but-present, swatches visible) states — this is acceptable.
+`display: flex` is permanent once `app.js` clears the inline style, so `#swatch-row` always occupies layout space (22px + 0.5rem margin) — it is invisible (`opacity: 0`) but present in flow. Because both rows use opacity-only toggling and are always present in the layout simultaneously, the header height is stable across Available and Unavailable states. No fixed-height wrapper is needed.
 
 The feature-disabled case is handled by the `display:none` inline style in HTML (which `app.js` removes only when `PALETTES_ENABLED` is true), so the swatch row never occupies space when the feature is off.
 
@@ -206,20 +206,81 @@ If the user is currently Available, the dot updates immediately because it reads
 ### App startup (`app.js`)
 
 ```js
+if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
+
 if (PALETTES_ENABLED) {
   document.getElementById('swatch-row').style.display = '';  // unhide from inline style
   applyPaletteVars(getPalette());   // apply before render — no green flash
   initSwatches(userId);
 }
+
+watchStatus(userId, (userData) => { /* ... applyOwnStatus ... */ });
+
+if (isNew) {
+  const availableUntil = Date.now() + 120 * 60000;
+  setStatus(userId, 'available', availableUntil).catch(() => {});
+}
 ```
+
+`enterFirstUseMode()` must be called before `watchStatus` subscribes. The first Firebase callback (Unavailable) will arrive while `firstUseActive` is true, routing to `setKnockKnock()` instead of `setUnavailable()`. The second callback (Available, from the `setStatus` write) clears the flag and transitions normally to `setAvailable`.
 
 `applyPaletteVars` is called before `watchStatus` resolves so the correct color is in place from the first paint.
 
-`#swatch-row` starts with no `.visible` class (hidden via `opacity: 0`). Visibility is set when `watchStatus` fires its first callback and calls `applyOwnStatus`, which calls either `setAvailable` or `setUnavailable`. Since Firebase delivers the initial snapshot immediately on subscription, the swatch row will show for Unavailable users within the same render cycle. No extra initialisation step is needed.
+`#swatch-row` starts with no `.visible` class (hidden via `opacity: 0`). Visibility is set when `watchStatus` fires its first callback and calls `applyOwnStatus`. For new users, the first-use holding state never adds `.visible` to the swatch row — it remains hidden until `setAvailable` fires.
 
 Once `app.js` clears the inline `display:none`, the swatch row permanently occupies layout space even when Available and `opacity: 0`. This is intentional — do not add `display:none` toggling in `setAvailable`. The row is invisible to users but present in the DOM height, matching the chip row model.
 
-**New-user note:** On first use, `app.js` calls `setStatus('available', ...)` immediately after subscribing. Firebase delivers the initial snapshot as Unavailable first (triggering `setUnavailable` → swatch row shows briefly), then delivers the Available update (triggering `setAvailable` → swatch row hides). This one-time flash on account creation is acceptable and requires no special handling.
+### First Time Use State (`me.js`)
+
+`me.js` owns a module-level boolean `firstUseActive = false`. `app.js` sets it via a new export before subscribing:
+
+```js
+export function enterFirstUseMode() {
+  firstUseActive = true;
+}
+```
+
+`applyOwnStatus` is updated to route through `setKnockKnock` while the flag is set:
+
+```js
+export function applyOwnStatus(status, availableUntil) {
+  if (firstUseActive) {
+    if (status === 'available' && !isExpired(availableUntil)) {
+      firstUseActive = false;
+      setAvailable(availableUntil);
+    } else {
+      setKnockKnock();
+    }
+    return;
+  }
+  if (status === 'available' && !isExpired(availableUntil)) {
+    setAvailable(availableUntil);
+  } else {
+    setUnavailable();
+  }
+}
+```
+
+`setKnockKnock()` renders the holding state — green dot, blank label, chips hidden:
+
+```js
+function setKnockKnock() {
+  const dot   = document.getElementById('my-dot');
+  const label = document.getElementById('my-status-label');
+  const chips = document.getElementById('header-chips');
+
+  dot.classList.add('available');      // green dot — first-use color is always forest green
+  chips.style.opacity = '0';
+  chips.style.pointerEvents = 'none';
+  label.classList.remove('available');
+  label.textContent = '';
+  label.style.opacity = '1';
+}
+```
+
+The green dot is correct because a first-time user has never changed their palette — `forest` (green) is the default. `setAvailable` requires no changes; it adds `.available` to the dot (already present, no-op) and then proceeds with the normal fade-in sequence.
+
+No swatch row changes occur in `setKnockKnock` — the `.visible` class is never added, so the swatch row stays hidden.
 
 ### `setUnavailable` / `setAvailable` (`me.js`)
 
@@ -309,7 +370,7 @@ export function tapSwatch(key, userId);  // exported for tests
 | `js/store.js` | Add `getPalette`, `setPalette` to `module.exports` |
 | `js/db.js` | Add `export async function setStatusColor(userId, color)` |
 | `js/app.js` | Import `PALETTES_ENABLED` from `features.js`, `applyPaletteVars`/`initSwatches` from `palettes.js`, `getPalette` from `store.js`; unhide swatch row, apply palette vars and init swatches on startup if enabled |
-| `js/me.js` | Import flag; add swatch-row show/hide logic inside `setAvailable`/`setUnavailable` |
+| `js/me.js` | Import flag; add `enterFirstUseMode`, `setKnockKnock`; update `applyOwnStatus` for first-use routing; add swatch-row show/hide logic inside `setAvailable`/`setUnavailable` |
 | `js/following.js` | Import `getGlowForColor` from palettes.js; inline-style dots and available text when enabled |
 | `index.html` | Add `<div id="swatch-row">` inside `#header-text` |
 | `css/app.css` | Add `--my-status`/`--my-glow` root vars; swatch + selected styles; update `.dot.available` and `.status-label.available` from `var(--green)` to `var(--my-status)`/`var(--my-glow)` |
@@ -319,7 +380,7 @@ export function tapSwatch(key, userId);  // exported for tests
 ## Testing
 
 - `tests/palettes.test.js` — `getPaletteByKey`, `applyPaletteVars` (checks CSS vars on documentElement), `getGlowForColor`, `initSwatches` (checks DOM injection + selected class), `tapSwatch` (checks store, db, CSS vars, swatch ring)
-- `tests/me.test.js` — add `<div id="swatch-row"></div>` to `makeFixture()`; add: swatch row gets `.visible` after `applyOwnStatus('unavailable', …)`; swatch row loses `.visible` after `applyOwnStatus('available', …)`; both gated on `PALETTES_ENABLED: true` mock
+- `tests/me.test.js` — add `<div id="swatch-row"></div>` to `makeFixture()`; add: swatch row gets `.visible` after `applyOwnStatus('unavailable', …)`; swatch row loses `.visible` after `applyOwnStatus('available', …)`; both gated on `PALETTES_ENABLED: true` mock; add first-use tests: after `enterFirstUseMode()`, `applyOwnStatus('unavailable', …)` renders dot with `.available` class, blank label text, and no `.visible` on swatch row; subsequent `applyOwnStatus('available', …)` clears `firstUseActive` and transitions to Available
 - `tests/following.test.js` — `palettes.js` imports from `db.js` but `db.js` is already mocked in this test file, so no additional mock is needed; add: follower dot uses inline `statusColor` when present; falls back to green class when absent; Available text has inline color matching `statusColor`
 - `tests/db.test.js` — add: `setStatusColor` writes `statusColor` field to Firebase path
 
