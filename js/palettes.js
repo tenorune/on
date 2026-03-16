@@ -46,7 +46,6 @@ export function initSwatches(userId) {
     const swatch = document.createElement('div');
     swatch.className = 'swatch';
     swatch.dataset.key = p.key;
-    swatch.style.setProperty('--swatch-color', p.color);
     swatch.style.background = p.color;
     if (p.key === savedKey) swatch.classList.add('selected');
     swatch.addEventListener('click', () => tapSwatch(p.key, userId));

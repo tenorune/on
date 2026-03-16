@@ -135,8 +135,7 @@ describe('initSwatches', () => {
   test('each swatch background is set to palette color', () => {
     initSwatches('uid1');
     const forestSwatch = document.querySelector('[data-key="forest"]');
-    // jsdom normalizes hex to rgb; check the custom property which preserves the original value
-    expect(forestSwatch.style.getPropertyValue('--swatch-color')).toBe('#22c55e');
+    expect(forestSwatch.style.background).toBe('rgb(34, 197, 94)');
   });
 
   test('swatch matching saved key gets .selected', () => {
