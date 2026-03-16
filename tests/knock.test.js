@@ -203,10 +203,10 @@ describe('initKnocks: deferredKeys skip set', () => {
     });
 
     const initPromise = initKnocks('myUid');
-    // Fire live callback for alice while deletion is pending
+    // Fire live callback for alice while deletion is pending (deferredKeys still has alice)
     liveCallback('alice', { count: 1, ts: Date.now() });
-    // writeKnock should NOT be called (skipped by deferredKeys)
-    expect(writeKnock).not.toHaveBeenCalled();
+    // clearKnock should NOT have been called by the live listener (alice is in deferredKeys, skip)
+    expect(clearKnock).not.toHaveBeenCalled();
     resolveClear();
     await initPromise;
   });

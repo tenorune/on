@@ -6,6 +6,7 @@ import { writeKnock, getKnocks, watchKnocksAdded, clearKnock } from './db.js';
 let debounceMap = new Map();   // recipientId → last knock timestamp
 let queue = [];                // { userId, animationType, ts }
 let deferredKeys = new Set();  // senderIds from snapshot; blocks live listener until cleared
+let snapshotPending = false;   // true while waiting for getKnocks to resolve
 let isPlaying = false;
 let unsubKnocks = null;
 
@@ -32,16 +33,19 @@ export async function initKnocks(myUserId) {
   debounceMap = new Map();
   queue = [];
   deferredKeys = new Set();
+  snapshotPending = true;
   isPlaying = false;
   if (unsubKnocks) { unsubKnocks(); unsubKnocks = null; }
 
   const appOpenTime = Date.now();
 
-  // 1. Attach live listener synchronously (before any await) so deferredKeys
-  //    is already populated when the first live event fires.
+  // 1. Attach live listener synchronously (before any await) so we catch events
+  //    that arrive during the snapshot fetch. Events arriving while snapshotPending
+  //    is true are held until deferredKeys is populated; senders in deferredKeys
+  //    are then skipped (they will be handled by the deferred batch).
   unsubKnocks = watchKnocksAdded(myUserId, (senderId, { count, ts }) => {
     // Skip senders from the initial snapshot (handled as deferred)
-    if (deferredKeys.size > 0 && deferredKeys.has(senderId)) return;
+    if (snapshotPending || deferredKeys.has(senderId)) return;
     // Enqueue count × live animations
     for (let i = 0; i < count; i++) {
       enqueue({ userId: senderId, animationType: 'live', ts: Date.now() });
@@ -52,10 +56,12 @@ export async function initKnocks(myUserId) {
   // 2. Read deferred knocks (one-time get)
   const snapshot = await getKnocks(myUserId);
 
-  // 3. Populate deferredKeys from snapshot
+  // 3. Populate deferredKeys from snapshot, then clear the pending flag so
+  //    live events for non-deferred senders are processed normally going forward.
   if (snapshot.exists()) {
     Object.keys(snapshot.val()).forEach(senderId => deferredKeys.add(senderId));
   }
+  snapshotPending = false;
 
   if (!snapshot.exists()) return;
 
@@ -99,10 +105,16 @@ function playNext() {
   const cls = entry.animationType === 'live' ? 'knock-live' : 'knock-deferred';
   li.classList.add(cls);
 
-  li.addEventListener('animationend', () => {
+  let advanced = false;
+  function advance() {
+    if (advanced) return;
+    advanced = true;
+    clearTimeout(fallback);
     li.classList.remove(cls);
-    // 300ms within a sequence (same userId), 500ms between sequences
     const gap = (queue[0] && queue[0].userId === entry.userId) ? 300 : 500;
     setTimeout(playNext, gap);
-  }, { once: true });
+  }
+
+  const fallback = setTimeout(advance, 1200); // guard: advance if animationend never fires
+  li.addEventListener('animationend', advance, { once: true });
 }
