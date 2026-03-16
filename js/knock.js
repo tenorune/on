@@ -1,5 +1,4 @@
 // js/knock.js
-import { KNOCK_ENABLED } from './features.js';
 import { writeKnock, getKnocks, watchKnocksAdded, clearKnock } from './db.js';
 
 // Module-level state — reset by initKnocks on each call
