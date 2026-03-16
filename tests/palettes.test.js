@@ -1,6 +1,7 @@
 // tests/palettes.test.js
 jest.mock('../js/db.js', () => ({
   setStatusColor: jest.fn().mockResolvedValue(undefined),
+  setPaletteKey: jest.fn().mockResolvedValue(undefined),
 }));
 
 const DEFAULT_PALETTE_STATE = {
@@ -22,7 +23,9 @@ jest.mock('../js/store.js', () => ({
 
 const {
   PALETTE_SETS, getPaletteByKey, getGlowForColor, applyPaletteVars,
+  applyThemeVars, resetThemeVars,
   tapSwatch, initSwatches, switchSet,
+  enterPaletteMode, exitPaletteMode,
 } = require('../js/palettes.js');
 const { setStatusColor } = require('../js/db.js');
 const { getPaletteState, setPaletteState } = require('../js/store.js');
@@ -305,5 +308,234 @@ describe('switchSet', () => {
     expect(setPaletteState).toHaveBeenCalledWith(
       expect.objectContaining({ activeSet: 2 })
     );
+  });
+});
+
+// --- applyThemeVars / resetThemeVars ---
+
+describe('applyThemeVars', () => {
+  test('sets all five theme CSS vars', () => {
+    applyThemeVars({ bg: '#111', surface: '#222', surface2: '#333', text: '#eee', textMuted: '#999' });
+    expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#111');
+    expect(document.documentElement.style.getPropertyValue('--surface')).toBe('#222');
+    expect(document.documentElement.style.getPropertyValue('--surface2')).toBe('#333');
+    expect(document.documentElement.style.getPropertyValue('--text')).toBe('#eee');
+    expect(document.documentElement.style.getPropertyValue('--text-muted')).toBe('#999');
+  });
+
+  test('does not touch --my-status or --my-glow', () => {
+    applyPaletteVars('iris');
+    applyThemeVars({ bg: '#111', surface: '#222', surface2: '#333', text: '#eee', textMuted: '#999' });
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#818cf8');
+  });
+});
+
+describe('resetThemeVars', () => {
+  test('restores all five vars to slate defaults', () => {
+    applyThemeVars({ bg: '#111', surface: '#222', surface2: '#333', text: '#eee', textMuted: '#999' });
+    resetThemeVars();
+    expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#0f172a');
+    expect(document.documentElement.style.getPropertyValue('--surface')).toBe('#1e293b');
+    expect(document.documentElement.style.getPropertyValue('--surface2')).toBe('#334155');
+    expect(document.documentElement.style.getPropertyValue('--text')).toBe('#f1f5f9');
+    expect(document.documentElement.style.getPropertyValue('--text-muted')).toBe('#94a3b8');
+  });
+
+  test('does not touch --my-status', () => {
+    applyPaletteVars('ember');
+    resetThemeVars();
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#f97316');
+  });
+});
+
+// --- enterPaletteMode / exitPaletteMode ---
+
+describe('enterPaletteMode', () => {
+  let mockState;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockState = {
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'ember', activePaletteKey: null },
+        '2': { selectedKey: 'volt',  activePaletteKey: null },
+      },
+    };
+    getPaletteState.mockReturnValue(JSON.parse(JSON.stringify(mockState)));
+    document.body.innerHTML = `<div id="swatch-row"></div>`;
+  });
+
+  test('sets activePaletteKey in stored state', () => {
+    enterPaletteMode('ember', 'uid1');
+    expect(setPaletteState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sets: expect.objectContaining({
+          '1': expect.objectContaining({ activePaletteKey: 'ember' }),
+        }),
+      })
+    );
+  });
+
+  test('calls applyThemeVars — sets --bg to ember theme bg', () => {
+    enterPaletteMode('ember', 'uid1');
+    expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#180a02');
+  });
+
+  test('re-renders swatch row in palette mode (Key Swatch present)', () => {
+    // After setPaletteState, renderSwatchRow calls getPaletteState — return updated state
+    getPaletteState
+      .mockReturnValueOnce(JSON.parse(JSON.stringify(mockState)))
+      .mockReturnValueOnce({
+        ...JSON.parse(JSON.stringify(mockState)),
+        sets: { '1': { selectedKey: 'ember', activePaletteKey: 'ember' }, '2': { selectedKey: 'volt', activePaletteKey: null } },
+      });
+    enterPaletteMode('ember', 'uid1');
+    expect(document.querySelector('.key-swatch')).not.toBeNull();
+  });
+
+  test('calls setPaletteKey with the entered key', () => {
+    const { setPaletteKey } = require('../js/db.js');
+    getPaletteState.mockReturnValue(JSON.parse(JSON.stringify(mockState)));
+    enterPaletteMode('ember', 'uid1');
+    expect(setPaletteKey).toHaveBeenCalledWith('uid1', 'ember');
+  });
+});
+
+describe('exitPaletteMode', () => {
+  let mockState;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockState = {
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'ember', activePaletteKey: 'ember' },
+        '2': { selectedKey: 'volt',  activePaletteKey: null },
+      },
+    };
+    document.body.innerHTML = `<div id="swatch-row"></div>`;
+    // Apply a theme so we can verify it's reverted
+    applyThemeVars({ bg: '#180a02', surface: '#2b1505', surface2: '#3f1f08', text: '#fff1e8', textMuted: '#b06a30' });
+  });
+
+  test('clears activePaletteKey in stored state', () => {
+    getPaletteState.mockReturnValue(JSON.parse(JSON.stringify(mockState)));
+    exitPaletteMode('uid1');
+    expect(setPaletteState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sets: expect.objectContaining({
+          '1': expect.objectContaining({ activePaletteKey: null }),
+        }),
+      })
+    );
+  });
+
+  test('calls resetThemeVars — reverts --bg to slate default', () => {
+    getPaletteState.mockReturnValue(JSON.parse(JSON.stringify(mockState)));
+    exitPaletteMode('uid1');
+    expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#0f172a');
+  });
+
+  test('preserves --my-status (does not clear status color)', () => {
+    applyPaletteVars('ember');
+    getPaletteState.mockReturnValue(JSON.parse(JSON.stringify(mockState)));
+    exitPaletteMode('uid1');
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#f97316');
+  });
+
+  test('calls setPaletteKey with null', () => {
+    const { setPaletteKey } = require('../js/db.js');
+    getPaletteState.mockReturnValue(JSON.parse(JSON.stringify(mockState)));
+    exitPaletteMode('uid1');
+    expect(setPaletteKey).toHaveBeenCalledWith('uid1', null);
+  });
+});
+
+// --- tapSwatch two-tap behavior ---
+
+describe('tapSwatch two-tap', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    document.body.innerHTML = `
+      <div id="swatch-row">
+        <div class="swatch selected" data-key="ember"></div>
+      </div>`;
+  });
+
+  test('second tap on already-selected swatch (not in palette mode) calls enterPaletteMode', () => {
+    getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: { '1': { selectedKey: 'ember', activePaletteKey: null }, '2': { selectedKey: 'volt', activePaletteKey: null } },
+    });
+    tapSwatch('ember', 'uid1');
+    // enterPaletteMode should set --bg to ember theme
+    expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#180a02');
+  });
+
+  test('first tap on a different swatch in palette mode calls exitPaletteMode then sets new color', () => {
+    getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: { '1': { selectedKey: 'ember', activePaletteKey: 'ember' }, '2': { selectedKey: 'volt', activePaletteKey: null } },
+    });
+    tapSwatch('coral', 'uid1');
+    // exitPaletteMode should have reset theme
+    expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#0f172a');
+    // New color should be applied
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#f43f5e');
+  });
+});
+
+// --- palette mode swatch layout ---
+
+describe('palette mode swatch layout', () => {
+  function setupPaletteMode(activePaletteKey) {
+    const idx = PALETTE_SETS[1].findIndex(p => p.key === activePaletteKey);
+    getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: { '1': { selectedKey: activePaletteKey, activePaletteKey }, '2': { selectedKey: 'volt', activePaletteKey: null } },
+    });
+    document.body.innerHTML = `<div id="swatch-row"></div>`;
+    initSwatches('uid1');
+    return idx;
+  }
+
+  test('K=0 (forest): Key Swatch at position 0', () => {
+    setupPaletteMode('forest');
+    const swatches = document.querySelectorAll('.swatch');
+    expect(swatches[0].classList.contains('key-swatch')).toBe(true);
+    expect(swatches[1].classList.contains('key-swatch')).toBe(false);
+  });
+
+  test('K=3 (ember): Key Swatch at position 3', () => {
+    setupPaletteMode('ember');
+    const swatches = document.querySelectorAll('.swatch');
+    expect(swatches[3].classList.contains('key-swatch')).toBe(true);
+    expect(swatches[2].classList.contains('key-swatch')).toBe(false);
+    expect(swatches[4].classList.contains('key-swatch')).toBe(false);
+  });
+
+  test('K=7 (mint): Key Swatch at position 7', () => {
+    setupPaletteMode('mint');
+    const swatches = document.querySelectorAll('.swatch');
+    expect(swatches[7].classList.contains('key-swatch')).toBe(true);
+    expect(swatches[6].classList.contains('key-swatch')).toBe(false);
+  });
+
+  test('8 total swatches in palette mode', () => {
+    setupPaletteMode('ember');
+    expect(document.querySelectorAll('.swatch')).toHaveLength(8);
+  });
+
+  test('tapping Key Swatch calls exitPaletteMode', () => {
+    setupPaletteMode('forest');
+    // Re-set getPaletteState for the exitPaletteMode call
+    getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: { '1': { selectedKey: 'forest', activePaletteKey: 'forest' }, '2': { selectedKey: 'volt', activePaletteKey: null } },
+    });
+    document.querySelector('.key-swatch').click();
+    // exitPaletteMode resets theme
+    expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#0f172a');
   });
 });

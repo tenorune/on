@@ -1,6 +1,6 @@
 // js/palettes.js
 import { getPaletteState, setPaletteState } from './store.js';
-import { setStatusColor } from './db.js';
+import { setStatusColor, setPaletteKey } from './db.js';
 
 // SVG Icons (inlined)
 // Heroicons bolt-solid (MIT) https://heroicons.com
@@ -134,41 +134,134 @@ export function applyPaletteVars(key) {
   document.documentElement.style.setProperty('--my-glow', p.glow);
 }
 
+export function applyThemeVars(theme) {
+  const r = document.documentElement;
+  r.style.setProperty('--bg',         theme.bg);
+  r.style.setProperty('--surface',    theme.surface);
+  r.style.setProperty('--surface2',   theme.surface2);
+  r.style.setProperty('--text',       theme.text);
+  r.style.setProperty('--text-muted', theme.textMuted);
+}
+
+export function resetThemeVars() {
+  const r = document.documentElement;
+  r.style.setProperty('--bg',         '#0f172a');
+  r.style.setProperty('--surface',    '#1e293b');
+  r.style.setProperty('--surface2',   '#334155');
+  r.style.setProperty('--text',       '#f1f5f9');
+  r.style.setProperty('--text-muted', '#94a3b8');
+}
+
+export function enterPaletteMode(key, userId) {
+  const state = getPaletteState();
+  state.sets[String(state.activeSet)].activePaletteKey = key;
+  setPaletteState(state);
+  const palette = getPaletteByKey(key);
+  applyThemeVars(palette.theme);
+  setPaletteKey(userId, key).catch(() => {});
+  renderSwatchRow(userId);
+}
+
+export function exitPaletteMode(userId) {
+  const state = getPaletteState();
+  state.sets[String(state.activeSet)].activePaletteKey = null;
+  setPaletteState(state);
+  resetThemeVars();
+  setPaletteKey(userId, null).catch(() => {});
+  renderSwatchRow(userId);
+}
+
 function renderSwatchRow(userId) {
   const row = document.getElementById('swatch-row');
   row.innerHTML = '';
   const state = getPaletteState();
   const setNum = state.activeSet;
-  const savedKey = state.sets[String(setNum)].selectedKey;
+  const setKey = String(setNum);
+  const savedKey = state.sets[setKey].selectedKey;
+  const activePaletteKey = state.sets[setKey].activePaletteKey;
 
-  // Toggle button — icon represents the OTHER set (what you'd switch to)
+  // Toggle button
   const btn = document.createElement('button');
   btn.className = 'set-toggle-btn';
   btn.innerHTML = setNum === 1 ? ICON_BOLT : ICON_TREE;
   btn.addEventListener('click', () => switchSet(setNum === 1 ? 2 : 1, userId));
   row.appendChild(btn);
 
-  // Swatches for active set (Increment 2 will extend this to handle palette mode)
-  PALETTE_SETS[setNum].forEach(p => {
-    const swatch = document.createElement('div');
-    swatch.className = 'swatch';
-    swatch.dataset.key = p.key;
-    swatch.style.background = p.color;
-    if (p.key === savedKey) swatch.classList.add('selected');
-    swatch.addEventListener('click', () => tapSwatch(p.key, userId));
-    row.appendChild(swatch);
-  });
+  if (!activePaletteKey) {
+    // Base mode: 8 swatches for active set
+    PALETTE_SETS[setNum].forEach(p => {
+      const swatch = document.createElement('div');
+      swatch.className = 'swatch';
+      swatch.dataset.key = p.key;
+      swatch.style.background = p.color;
+      if (p.key === savedKey) swatch.classList.add('selected');
+      swatch.addEventListener('click', () => tapSwatch(p.key, userId));
+      row.appendChild(swatch);
+    });
+  } else {
+    // Palette mode: Key Swatch at index K, complement swatches at other positions
+    const keyPalette = getPaletteByKey(activePaletteKey);
+    const keyIdx = PALETTE_SETS[setNum].findIndex(p => p.key === activePaletteKey);
+    const complements = keyPalette.complements;
+    let ci = 0;
+
+    for (let i = 0; i < 8; i++) {
+      const swatch = document.createElement('div');
+      if (i === keyIdx) {
+        swatch.className = 'swatch key-swatch';
+        swatch.style.background = keyPalette.color;
+        swatch.addEventListener('click', () => exitPaletteMode(userId));
+      } else {
+        const color = complements[ci++];
+        swatch.className = 'swatch';
+        swatch.style.background = color;
+        swatch.addEventListener('click', () => {
+          exitPaletteMode(userId);
+          // Apply the complement color as status color directly
+          document.documentElement.style.setProperty('--my-status', color);
+          setStatusColor(userId, color).catch(() => {});
+        });
+      }
+      row.appendChild(swatch);
+    }
+  }
 }
 
 export function tapSwatch(key, userId) {
   const state = getPaletteState();
   const setKey = String(state.activeSet);
+  const currentlySelected = state.sets[setKey].selectedKey;
+  const inPaletteMode = state.sets[setKey].activePaletteKey !== null;
+
+  if (inPaletteMode) {
+    // Tapping any non-Key swatch in palette mode: exit first, then apply new color
+    exitPaletteMode(userId);
+    // Re-read state after exit
+    const freshState = getPaletteState();
+    freshState.sets[setKey].selectedKey = key;
+    setPaletteState(freshState);
+    const palette = getPaletteByKey(key);
+    setStatusColor(userId, palette.color).catch(() => {});
+    applyPaletteVars(key);
+    const row = document.getElementById('swatch-row');
+    row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
+    const target = row.querySelector(`[data-key="${key}"]`);
+    if (target) target.classList.add('selected');
+    return;
+  }
+
+  if (key === currentlySelected) {
+    // Second tap on already-selected swatch: enter palette mode
+    enterPaletteMode(key, userId);
+    return;
+  }
+
+  // First tap on unselected swatch: status color change only
   state.sets[setKey].selectedKey = key;
   setPaletteState(state);
   const palette = getPaletteByKey(key);
   setStatusColor(userId, palette.color).catch(() => {});
   applyPaletteVars(key);
-  // Update DOM selection
   const row = document.getElementById('swatch-row');
   row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
   const target = row.querySelector(`[data-key="${key}"]`);
@@ -184,10 +277,19 @@ export function switchSet(toSet, userId) {
   state.activeSet = toSet;
   setPaletteState(state);
 
-  const selectedKey = state.sets[String(toSet)].selectedKey;
+  const targetSetKey = String(toSet);
+  const selectedKey = state.sets[targetSetKey].selectedKey;
+  const activePaletteKey = state.sets[targetSetKey].activePaletteKey;
   const palette = getPaletteByKey(selectedKey);
+
   applyPaletteVars(selectedKey);
   setStatusColor(userId, palette.color).catch(() => {});
+
+  if (activePaletteKey) {
+    applyThemeVars(getPaletteByKey(activePaletteKey).theme);
+  } else {
+    resetThemeVars();
+  }
 
   renderSwatchRow(userId);
 }
