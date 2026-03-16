@@ -7,7 +7,11 @@ jest.mock('../js/store.js', () => ({
   setPalette: jest.fn(),
 }));
 
-const { PALETTES, getPaletteByKey, getGlowForColor, applyPaletteVars } = require('../js/palettes.js');
+const {
+  PALETTES, getPaletteByKey, getGlowForColor, applyPaletteVars, tapSwatch,
+} = require('../js/palettes.js');
+const { setStatusColor } = require('../js/db.js');
+const { getPalette: getPaletteMock, setPalette } = require('../js/store.js');
 
 // --- PALETTES array ---
 
@@ -67,4 +71,43 @@ test('applyPaletteVars sets --my-glow on :root for known key', () => {
 test('applyPaletteVars falls back to forest for unknown key', () => {
   applyPaletteVars('nonexistent');
   expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#22c55e');
+});
+
+// --- tapSwatch ---
+
+describe('tapSwatch', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    document.body.innerHTML = `
+      <div id="swatch-row">
+        <div class="swatch selected" data-key="forest"></div>
+        <div class="swatch" data-key="iris"></div>
+      </div>`;
+  });
+
+  test('calls setPalette with the tapped key', () => {
+    tapSwatch('iris', 'uid1');
+    expect(setPalette).toHaveBeenCalledWith('iris');
+  });
+
+  test('calls setStatusColor with userId and palette color (fire-and-forget)', () => {
+    tapSwatch('iris', 'uid1');
+    expect(setStatusColor).toHaveBeenCalledWith('uid1', '#a855f7');
+  });
+
+  test('updates --my-status CSS var', () => {
+    tapSwatch('iris', 'uid1');
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#a855f7');
+  });
+
+  test('moves .selected from old swatch to tapped swatch', () => {
+    tapSwatch('iris', 'uid1');
+    expect(document.querySelector('[data-key="forest"]').classList.contains('selected')).toBe(false);
+    expect(document.querySelector('[data-key="iris"]').classList.contains('selected')).toBe(true);
+  });
+
+  test('is synchronous — returns undefined, not a Promise', () => {
+    const result = tapSwatch('iris', 'uid1');
+    expect(result).toBeUndefined();
+  });
 });

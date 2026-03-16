@@ -27,3 +27,14 @@ export function applyPaletteVars(key) {
   document.documentElement.style.setProperty('--my-status', p.color);
   document.documentElement.style.setProperty('--my-glow', p.glow);
 }
+
+export function tapSwatch(key, userId) {
+  const palette = getPaletteByKey(key);
+  setPalette(key);
+  setStatusColor(userId, palette.color).catch(() => {});
+  applyPaletteVars(key);
+  const row = document.getElementById('swatch-row');
+  row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
+  const target = row.querySelector(`[data-key="${key}"]`);
+  if (target) target.classList.add('selected');
+}
