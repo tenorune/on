@@ -1,7 +1,7 @@
 // js/db.js
 import { db } from './firebase-config.js';
 import {
-  ref, set, get, update, onValue, remove, runTransaction,
+  ref, set, get, update, onValue, remove, runTransaction, onChildAdded,
 } from 'firebase/database';
 import { generateCode } from './identity.js';
 import { getFollowing } from './store.js';
@@ -180,4 +180,36 @@ export async function setStatusColor(userId, color) {
 
 export async function setPaletteKey(userId, paletteKey) {
   await update(ref(db, `users/${userId}`), { paletteKey: paletteKey ?? null });
+}
+
+// Write a knock from sender to recipient (capped at 5).
+// runTransaction: null → {count:1,ts}, count<5 → increment, count>=5 → abort.
+export async function writeKnock(recipientId, senderId) {
+  const knockRef = ref(db, `users/${recipientId}/knocks/${senderId}`);
+  await runTransaction(knockRef, (current) => {
+    if (current === null) return { count: 1, ts: Date.now() };
+    if (current.count >= 5) return; // abort
+    return { count: current.count + 1, ts: Date.now() };
+  });
+}
+
+// One-time read of all pending knocks for myUserId.
+// Returns Promise<DataSnapshot>. Caller checks snapshot.exists() and iterates snapshot.val().
+export function getKnocks(myUserId) {
+  return get(ref(db, `users/${myUserId}/knocks`));
+}
+
+// Attach onChildAdded listener on users/{myUserId}/knocks.
+// callback(senderId, { count, ts }) fires for each child added (including existing at attach time).
+// Returns unsubscribe function.
+export function watchKnocksAdded(myUserId, callback) {
+  const knocksRef = ref(db, `users/${myUserId}/knocks`);
+  return onChildAdded(knocksRef, (snap) => {
+    callback(snap.key, snap.val());
+  });
+}
+
+// Delete a single knock entry for a sender. Returns raw promise — caller handles errors.
+export function clearKnock(myUserId, senderId) {
+  return remove(ref(db, `users/${myUserId}/knocks/${senderId}`));
 }
