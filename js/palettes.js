@@ -21,3 +21,9 @@ export function getGlowForColor(hex) {
   const p = PALETTES.find(p => p.color === hex);
   return p ? p.glow : PALETTES[0].glow;  // fallback to forest glow
 }
+
+export function applyPaletteVars(key) {
+  const p = getPaletteByKey(key);
+  document.documentElement.style.setProperty('--my-status', p.color);
+  document.documentElement.style.setProperty('--my-glow', p.glow);
+}

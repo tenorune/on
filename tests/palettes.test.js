@@ -7,7 +7,7 @@ jest.mock('../js/store.js', () => ({
   setPalette: jest.fn(),
 }));
 
-const { PALETTES, getPaletteByKey, getGlowForColor } = require('../js/palettes.js');
+const { PALETTES, getPaletteByKey, getGlowForColor, applyPaletteVars } = require('../js/palettes.js');
 
 // --- PALETTES array ---
 
@@ -50,4 +50,21 @@ test('getGlowForColor returns correct glow for known hex', () => {
 test('getGlowForColor falls back to forest glow for unknown hex', () => {
   // Must match the forest PALETTES entry exactly (spaced form)
   expect(getGlowForColor('#000000')).toBe('rgba(34, 197, 94, 0.4)');
+});
+
+// --- applyPaletteVars ---
+
+test('applyPaletteVars sets --my-status on :root for known key', () => {
+  applyPaletteVars('iris');
+  expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#a855f7');
+});
+
+test('applyPaletteVars sets --my-glow on :root for known key', () => {
+  applyPaletteVars('iris');
+  expect(document.documentElement.style.getPropertyValue('--my-glow')).toBe('rgba(168, 85, 247, 0.4)');
+});
+
+test('applyPaletteVars falls back to forest for unknown key', () => {
+  applyPaletteVars('nonexistent');
+  expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#22c55e');
 });
