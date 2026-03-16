@@ -1,6 +1,7 @@
 // js/me.js
 import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs } from './db.js';
 import { getLastTimeout, setLastTimeout } from './store.js';
+import { PALETTES_ENABLED } from './features.js';
 
 const CHIP_VALUES = [
   { minutes: 30,  text: '30 minutes' },
@@ -15,6 +16,7 @@ const CHIP_VALUES = [
 
 let countdownTimer = null;
 let currentChipIndex = 3; // default: 2 hours
+let firstUseActive = false;
 
 function migrateToChipIndex() {
   let stored = getLastTimeout();
@@ -68,12 +70,38 @@ export function initHeader(myUserId) {
   });
 }
 
+export function enterFirstUseMode() {
+  firstUseActive = true;
+}
+
 export function applyOwnStatus(status, availableUntil) {
+  if (firstUseActive) {
+    if (status === 'available' && !isExpired(availableUntil)) {
+      firstUseActive = false;
+      setAvailable(availableUntil);
+    } else {
+      setKnockKnock();
+    }
+    return;
+  }
   if (status === 'available' && !isExpired(availableUntil)) {
     setAvailable(availableUntil);
   } else {
     setUnavailable();
   }
+}
+
+function setKnockKnock() {
+  const dot   = document.getElementById('my-dot');
+  const label = document.getElementById('my-status-label');
+  const chips = document.getElementById('header-chips');
+
+  dot.classList.add('available');
+  chips.style.opacity = '0';
+  chips.style.pointerEvents = 'none';
+  label.classList.remove('available');
+  label.textContent = '';
+  label.style.opacity = '1';
 }
 
 function setAvailable(availableUntil) {
@@ -89,6 +117,9 @@ function setAvailable(availableUntil) {
 
   // After fade-out: swap content and fade in label + chips + time-remaining together
   setTimeout(() => {
+    if (PALETTES_ENABLED) {
+      document.getElementById('swatch-row').classList.remove('visible');
+    }
     const timeRemaining = document.getElementById('time-remaining');
     label.classList.add('available');
     label.textContent = 'Available';
@@ -136,6 +167,9 @@ function setUnavailable() {
 
   // After fade-out: hide chips, swap label to "Unavailable", fade label back in
   setTimeout(() => {
+    if (PALETTES_ENABLED) {
+      document.getElementById('swatch-row').classList.add('visible');
+    }
     timeRemaining.style.display = 'none';
     timeRemaining.style.opacity = '';
     label.classList.remove('available');

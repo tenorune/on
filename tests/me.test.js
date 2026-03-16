@@ -1,4 +1,5 @@
 // tests/me.test.js
+jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
 jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
   isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
@@ -12,7 +13,7 @@ jest.mock('../js/store.js', () => ({
 
 const { setStatus } = require('../js/db.js');
 const { getLastTimeout, setLastTimeout } = require('../js/store.js');
-const { applyOwnStatus, initHeader } = require('../js/me.js');
+const { applyOwnStatus, initHeader, enterFirstUseMode } = require('../js/me.js');
 
 // jsdom doesn't apply stylesheets. #header-chips is always display:flex in CSS;
 // opacity and pointer-events are controlled by JS.
@@ -25,6 +26,7 @@ function makeFixture() {
       <button id="time-chip" class="chip time-chip"></button>
       <button id="mycode-chip" class="chip"></button>
     </div>
+    <div id="swatch-row"></div>
     <div id="code-drawer"></div>
   `;
 }
@@ -218,4 +220,70 @@ test('clicking mycode chip toggles active class on the chip', () => {
   expect(chip.classList.contains('active')).toBe(true);
   chip.click();
   expect(chip.classList.contains('active')).toBe(false);
+});
+
+// --- swatch row toggle (PALETTES_ENABLED: true) ---
+
+test('swatch row gets .visible after applyOwnStatus unavailable', () => {
+  applyOwnStatus('unavailable', null);
+  jest.advanceTimersByTime(250);
+  expect(document.getElementById('swatch-row').classList.contains('visible')).toBe(true);
+});
+
+test('swatch row loses .visible after applyOwnStatus available', () => {
+  applyOwnStatus('unavailable', null);
+  jest.advanceTimersByTime(250);
+  applyOwnStatus('available', Date.now() + 7200000);
+  jest.advanceTimersByTime(250);
+  expect(document.getElementById('swatch-row').classList.contains('visible')).toBe(false);
+});
+
+// --- first-use state ---
+
+describe('first-use state', () => {
+  afterEach(() => {
+    // Ensure firstUseActive is cleared between tests — call applyOwnStatus
+    // with 'available' which sets firstUseActive = false if it was true.
+    applyOwnStatus('available', Date.now() + 7200000);
+    jest.advanceTimersByTime(250);
+  });
+
+  test('applyOwnStatus unavailable while first-use: dot has .available class', () => {
+    enterFirstUseMode();
+    applyOwnStatus('unavailable', null);
+    expect(document.getElementById('my-dot').classList.contains('available')).toBe(true);
+  });
+
+  test('applyOwnStatus unavailable while first-use: label text is blank', () => {
+    enterFirstUseMode();
+    applyOwnStatus('unavailable', null);
+    expect(document.getElementById('my-status-label').textContent).toBe('');
+  });
+
+  test('applyOwnStatus unavailable while first-use: chips are hidden', () => {
+    enterFirstUseMode();
+    applyOwnStatus('unavailable', null);
+    expect(document.getElementById('header-chips').style.opacity).toBe('0');
+  });
+
+  test('applyOwnStatus unavailable while first-use: swatch row has no .visible', () => {
+    enterFirstUseMode();
+    applyOwnStatus('unavailable', null);
+    expect(document.getElementById('swatch-row').classList.contains('visible')).toBe(false);
+  });
+
+  test('applyOwnStatus available while first-use: transitions to Available label', () => {
+    enterFirstUseMode();
+    applyOwnStatus('unavailable', null);
+    applyOwnStatus('available', Date.now() + 7200000);
+    jest.advanceTimersByTime(250);
+    expect(document.getElementById('my-status-label').textContent).toBe('Available');
+  });
+
+  test('applyOwnStatus available while first-use: dot retains .available class', () => {
+    enterFirstUseMode();
+    applyOwnStatus('unavailable', null);
+    applyOwnStatus('available', Date.now() + 7200000);
+    expect(document.getElementById('my-dot').classList.contains('available')).toBe(true);
+  });
 });
