@@ -1,5 +1,5 @@
 // tests/db.test.js
-const { userExists, touchLastSeen, rotateCode } = require('../js/db');
+const { userExists, touchLastSeen, rotateCode, setStatusColor } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
   ref: jest.fn(() => 'mock-ref'),
@@ -13,7 +13,7 @@ jest.mock('../js/firebase-config', () => ({ db: {} }));
 jest.mock('../js/identity.js', () => ({ generateCode: jest.fn() }));
 jest.mock('../js/store.js', () => ({ getFollowing: jest.fn() }));
 
-const { get, update, set, remove, runTransaction } = require('firebase/database');
+const { ref, get, update, set, remove, runTransaction } = require('firebase/database');
 const { generateCode } = require('../js/identity.js');
 const { getFollowing } = require('../js/store.js');
 
@@ -95,5 +95,18 @@ describe('rotateCode', () => {
 
     await expect(rotateCode('user-1', 'OLD123')).rejects.toThrow('network error');
     expect(remove).not.toHaveBeenCalled();
+  });
+});
+
+describe('setStatusColor', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('writes statusColor to users/{userId} path', async () => {
+    update.mockResolvedValueOnce();
+    await setStatusColor('user-1', '#a855f7');
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/user-1');
+    expect(update).toHaveBeenCalledWith('mock-ref', { statusColor: '#a855f7' });
   });
 });

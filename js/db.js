@@ -173,3 +173,7 @@ export async function rotateCode(userId, oldCode) {
 
   return newCode;
 }
+
+export async function setStatusColor(userId, color) {
+  await update(ref(db, `users/${userId}`), { statusColor: color });
+}
