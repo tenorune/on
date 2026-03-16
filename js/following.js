@@ -6,6 +6,8 @@ import {
 } from './db.js';
 import { getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode } from './store.js';
 import { escapeHtml } from './utils.js';
+import { PALETTES_ENABLED } from './features.js';
+import { getGlowForColor } from './palettes.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
@@ -322,10 +324,16 @@ function updateFolloweeRow(entry, userData, myUserId) {
   if (!li) return;
 
   const isAvail = userData.status === 'available' && !isExpired(userData.availableUntil);
+  const color = userData.statusColor || '#22c55e';
+  const glow  = getGlowForColor(color);
   const ms = timeRemainingMs(userData.availableUntil);
   let statusText;
   if (isAvail) {
-    statusText = `<span class="status-available">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
+    if (PALETTES_ENABLED) {
+      statusText = `<span class="status-available" style="color:${color}">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
+    } else {
+      statusText = `<span class="status-available">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
+    }
   } else {
     const lastSeenPhrase = formatLastSeen(userData.lastSeen ?? null);
     statusText = lastSeenPhrase ? `Last seen ${lastSeenPhrase}` : 'Unavailable';
@@ -333,7 +341,20 @@ function updateFolloweeRow(entry, userData, myUserId) {
 
   li.dataset.available = String(isAvail);
   const dot = li.querySelector('.person-dot');
-  if (dot) dot.className = `person-dot${isAvail ? ' available' : ''}`;
+  if (dot) {
+    dot.className = `person-dot${isAvail ? ' available' : ''}`;
+    if (PALETTES_ENABLED) {
+      if (isAvail) {
+        dot.style.background  = color;
+        dot.style.borderColor = color;
+        dot.style.boxShadow   = `0 0 10px ${glow}`;
+      } else {
+        dot.style.background  = '';
+        dot.style.borderColor = '';
+        dot.style.boxShadow   = '';
+      }
+    }
+  }
   const statusEl = li.querySelector('.person-status');
   if (statusEl) statusEl.innerHTML = statusText;
 }

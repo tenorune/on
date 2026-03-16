@@ -1,4 +1,5 @@
 // tests/following.test.js
+jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
 jest.mock('../js/db.js', () => ({
   lookupCode: jest.fn(),
   watchStatus: jest.fn(),
@@ -329,5 +330,66 @@ describe('subscribeToFollowee — code-change sync', () => {
     watchStatusCallback({ status: 'unavailable', code: 'NEW456' });
     watchStatusCallback({ status: 'unavailable', code: 'NEW456' });
     expect(updateFollowingCode).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- palette-aware follower rows (PALETTES_ENABLED: true) ---
+
+describe('updateFolloweeRow: palette-aware dot and status text', () => {
+  let watchFollowersCallback;
+  let watchStatusCallback;
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+
+    watchFollowers.mockImplementation((_userId, cb) => {
+      watchFollowersCallback = cb;
+      return jest.fn();
+    });
+    watchStatus.mockImplementation((_userId, cb) => {
+      watchStatusCallback = cb;
+      return jest.fn();
+    });
+    getFollowing.mockReturnValue([
+      { userId: 'u1', code: 'XY9K2M', label: 'Alice' },
+    ]);
+    initList('myUid', 'MYCODE');
+    watchFollowersCallback([{ userId: 'u1', code: 'XY9K2M' }]); // u1 is mutual
+  });
+
+  test('available dot has inline background matching statusColor', () => {
+    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
+    const dot = document.querySelector('[data-user-id="u1"] .person-dot');
+    expect(dot.style.background).toBe('rgb(168, 85, 247)');
+  });
+
+  test('available dot has inline boxShadow derived from statusColor', () => {
+    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
+    const dot = document.querySelector('[data-user-id="u1"] .person-dot');
+    expect(dot.style.boxShadow).toContain('rgba(168, 85, 247, 0.4)');
+  });
+
+  test('unavailable dot has inline styles cleared', () => {
+    // First set available with a color
+    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
+    // Then go unavailable
+    watchStatusCallback({ status: 'unavailable', statusColor: '#a855f7' });
+    const dot = document.querySelector('[data-user-id="u1"] .person-dot');
+    expect(dot.style.background).toBe('');
+    expect(dot.style.boxShadow).toBe('');
+  });
+
+  test('available status text has inline color matching statusColor', () => {
+    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
+    const statusEl = document.querySelector('[data-user-id="u1"] .person-status');
+    const span = statusEl.querySelector('.status-available');
+    expect(span.style.color).toBe('rgb(168, 85, 247)');
+  });
+
+  test('falls back to green (#22c55e) when statusColor absent', () => {
+    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000 });
+    const dot = document.querySelector('[data-user-id="u1"] .person-dot');
+    expect(dot.style.background).toBe('rgb(34, 197, 94)');
   });
 });
