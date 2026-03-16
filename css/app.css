@@ -9,6 +9,8 @@
   --text-muted: #94a3b8;
   --green: #22c55e;
   --green-glow: rgba(34,197,94,0.4);
+  --my-status: #22c55e;
+  --my-glow:   rgba(34, 197, 94, 0.4);
   --dot-off: #374151;
   --dot-off-border: #4b5563;
   --accent: #6366f1;
@@ -31,12 +33,12 @@ main {
   flex-shrink: 0;
 }
 .dot.available {
-  background: var(--green);
-  border-color: var(--green);
-  box-shadow: 0 0 32px var(--green-glow);
+  background: var(--my-status);
+  border-color: var(--my-status);
+  box-shadow: 0 0 32px var(--my-glow);
 }
 .status-label { font-size: 1rem; font-weight: 600; color: var(--text-muted); transition: opacity 0.2s ease, color 0.3s ease; }
-.status-label.available { color: var(--green); }
+.status-label.available { color: var(--my-status); }
 
 /* Following tab */
 .person-list { list-style: none; width: 100%; }
@@ -359,4 +361,30 @@ main {
   cursor: pointer;
   flex-shrink: 0;
   padding: 0;
+}
+
+/* --- Swatch row --- */
+
+#swatch-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 0.5rem;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+#swatch-row.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.swatch {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer; flex-shrink: 0;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.swatch.selected {
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.2);
 }
