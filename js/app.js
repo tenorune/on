@@ -3,8 +3,9 @@ import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity
 import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode } from './me.js';
 import { initList } from './following.js';
+import { initKnocks } from './knock.js';
 import { initCodeDrawer } from './mycode.js';
-import { PALETTES_ENABLED } from './features.js';
+import { PALETTES_ENABLED, KNOCK_ENABLED } from './features.js';
 import { applyPaletteVars, applyThemeVars, getPaletteByKey, initSwatches } from './palettes.js';
 import { getPaletteState } from './store.js';
 
@@ -57,6 +58,7 @@ async function main() {
   initCodeDrawer(userId, code);
   initHeader(userId);
   initList(userId, code);
+  if (KNOCK_ENABLED) initKnocks(userId);
 
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
 
