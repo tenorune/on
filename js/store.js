@@ -1,6 +1,16 @@
 // js/store.js
 const FOLLOWING_KEY = 'statusapp_following';
 const TIMEOUT_KEY = 'statusapp_last_timeout';
+const PALETTE_STATE_KEY = 'statusapp_palette_state';
+const PALETTE_LEGACY_KEY = 'statusapp_palette';
+
+const DEFAULT_PALETTE_STATE = {
+  activeSet: 1,
+  sets: {
+    '1': { selectedKey: 'forest', activePaletteKey: null },
+    '2': { selectedKey: 'volt',   activePaletteKey: null },
+  },
+};
 
 function getFollowing() {
   const raw = localStorage.getItem(FOLLOWING_KEY);
@@ -52,12 +62,35 @@ function updateFollowingCode(userId, newCode) {
   ));
 }
 
+function getPaletteState() {
+  const raw = localStorage.getItem(PALETTE_STATE_KEY);
+  if (raw) {
+    try { return JSON.parse(raw); } catch { /* fall through to default */ }
+  }
+  // Write default first
+  const state = JSON.parse(JSON.stringify(DEFAULT_PALETTE_STATE));
+  localStorage.setItem(PALETTE_STATE_KEY, JSON.stringify(state));
+  // Migrate legacy key
+  const legacy = localStorage.getItem(PALETTE_LEGACY_KEY);
+  if (legacy) {
+    state.sets['1'].selectedKey = legacy;
+    localStorage.setItem(PALETTE_STATE_KEY, JSON.stringify(state));
+    localStorage.removeItem(PALETTE_LEGACY_KEY);
+  }
+  return state;
+}
+
+function setPaletteState(state) {
+  localStorage.setItem(PALETTE_STATE_KEY, JSON.stringify(state));
+}
+
 function getPalette() {
-  return localStorage.getItem('statusapp_palette') || 'forest';
+  const state = getPaletteState();
+  return state.sets[String(state.activeSet)].selectedKey;
 }
 
 function setPalette(key) {
   localStorage.setItem('statusapp_palette', key);
 }
 
-module.exports = { getFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode, getPalette, setPalette };
+module.exports = { getFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode, getPalette, setPalette, getPaletteState, setPaletteState };

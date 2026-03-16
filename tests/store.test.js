@@ -2,7 +2,7 @@
 const {
   getFollowing, addFollowing, removeFollowing, isFollowing,
   getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode,
-  getPalette, setPalette,
+  getPalette, setPalette, getPaletteState, setPaletteState,
 } = require('../js/store');
 
 beforeEach(() => {
@@ -97,7 +97,50 @@ test('getPalette returns "forest" when nothing stored', () => {
   expect(getPalette()).toBe('forest');
 });
 
-test('setPalette saves key; getPalette returns it', () => {
-  setPalette('iris');
+test('getPalette returns activeSet selectedKey from palette state', () => {
+  const state = getPaletteState();
+  state.sets['1'].selectedKey = 'iris';
+  setPaletteState(state);
   expect(getPalette()).toBe('iris');
+});
+
+// --- getPaletteState / setPaletteState ---
+
+test('getPaletteState returns default state when nothing stored', () => {
+  const state = getPaletteState();
+  expect(state.activeSet).toBe(1);
+  expect(state.sets['1'].selectedKey).toBe('forest');
+  expect(state.sets['1'].activePaletteKey).toBeNull();
+  expect(state.sets['2'].selectedKey).toBe('volt');
+  expect(state.sets['2'].activePaletteKey).toBeNull();
+});
+
+test('getPaletteState writes default to localStorage on first call', () => {
+  getPaletteState();
+  const raw = localStorage.getItem('statusapp_palette_state');
+  expect(raw).not.toBeNull();
+  const saved = JSON.parse(raw);
+  expect(saved.activeSet).toBe(1);
+});
+
+test('getPaletteState migrates legacy statusapp_palette key into Set 1 selectedKey', () => {
+  localStorage.setItem('statusapp_palette', 'ember');
+  const state = getPaletteState();
+  expect(state.sets['1'].selectedKey).toBe('ember');
+  expect(localStorage.getItem('statusapp_palette')).toBeNull();
+});
+
+test('getPaletteState migration writes new state before deleting old key', () => {
+  localStorage.setItem('statusapp_palette', 'coral');
+  getPaletteState();
+  const raw = localStorage.getItem('statusapp_palette_state');
+  expect(JSON.parse(raw).sets['1'].selectedKey).toBe('coral');
+});
+
+test('setPaletteState round-trips via getPaletteState', () => {
+  const state = getPaletteState();
+  state.sets['1'].selectedKey = 'gold';
+  setPaletteState(state);
+  const loaded = getPaletteState();
+  expect(loaded.sets['1'].selectedKey).toBe('gold');
 });
