@@ -89,6 +89,8 @@ function getPalette() {
   return state.sets[String(state.activeSet)].selectedKey;
 }
 
+// @deprecated — writes to legacy key (statusapp_palette); no longer read by production code.
+// Kept for export compatibility. Do not call.
 function setPalette(key) {
   localStorage.setItem('statusapp_palette', key);
 }

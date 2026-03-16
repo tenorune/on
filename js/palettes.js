@@ -156,7 +156,7 @@ export function enterPaletteMode(key, userId) {
   const state = getPaletteState();
   state.sets[String(state.activeSet)].activePaletteKey = key;
   setPaletteState(state);
-  const palette = getPaletteByKey(key);
+  const palette = getPaletteByKey(key) || PALETTE_SETS[1][0];
   applyThemeVars(palette.theme);
   setPaletteKey(userId, key).catch(() => {});
   renderSwatchRow(userId);
@@ -280,7 +280,7 @@ export function switchSet(toSet, userId) {
   const targetSetKey = String(toSet);
   const selectedKey = state.sets[targetSetKey].selectedKey;
   const activePaletteKey = state.sets[targetSetKey].activePaletteKey;
-  const palette = getPaletteByKey(selectedKey);
+  const palette = getPaletteByKey(selectedKey) || PALETTE_SETS[1][0];
 
   applyPaletteVars(selectedKey);
   setStatusColor(userId, palette.color).catch(() => {});
