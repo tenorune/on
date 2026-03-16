@@ -47,6 +47,7 @@ main {
   display: flex; align-items: center; gap: 0.75rem;
   margin-bottom: 0.5rem; list-style: none;
   border-left: 3px solid transparent;
+  touch-action: manipulation;
 }
 .person-dot {
   width: 2rem; height: 2rem; border-radius: 50%; flex-shrink: 0;
@@ -54,7 +55,7 @@ main {
 }
 .person-dot.available { background: var(--green); border-color: var(--green); box-shadow: 0 0 10px var(--green-glow); }
 .person-info { flex: 1; }
-.person-label { font-size: 1rem; line-height: 1.4; height: 1.4rem; color: var(--text); cursor: pointer; }
+.person-label { font-size: 1rem; line-height: 1.4; height: 1.4rem; color: var(--text); cursor: pointer; width: fit-content; }
 .person-status { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.125rem; }
 .remove-btn {
   background: var(--error-bg); color: var(--error-text); border: none;
@@ -428,3 +429,20 @@ main {
   animation: key-spin 5s ease-out 1 forwards; pointer-events: none;
 }
 @keyframes key-spin { from { transform: rotate(0deg); } to { transform: rotate(720deg); } }
+
+/* Knock animations */
+@keyframes knock-live {
+  0%   { background-color: var(--knock-color); }
+  100% { background-color: transparent; }
+}
+@keyframes knock-deferred {
+  0%   { background-color: color-mix(in srgb, var(--knock-color) 55%, transparent); }
+  100% { background-color: transparent; }
+}
+@keyframes knock-sender {
+  0%   { background-color: var(--knock-color); }
+  100% { background-color: transparent; }
+}
+.knock-live     { animation: knock-live     0.4s ease-out; }
+.knock-deferred { animation: knock-deferred 0.8s ease-out; }
+.knock-sender   { animation: knock-sender   0.2s ease-out; }
