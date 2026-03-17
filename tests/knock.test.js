@@ -498,3 +498,30 @@ describe('live knock pulse: pulseMap reset', () => {
     expect(true).toBe(true);
   });
 });
+
+// --- deferred color fix ---
+
+describe('initKnocks: deferred color fix', () => {
+  test('playNext uses sender dot color instead of hardcoded green', async () => {
+    const ts = Date.now() - 1000;
+    getKnocks.mockResolvedValue({
+      exists: () => true,
+      val: () => ({ alice: { count: 1, ts } }),
+    });
+    watchKnocksAdded.mockReturnValue(jest.fn());
+    clearKnock.mockResolvedValue();
+
+    const li = makeLi('alice');
+    const dot = document.createElement('div');
+    dot.className = 'person-dot';
+    dot.style.background = '#f43f5e';
+    li.appendChild(dot);
+
+    await initKnocks('myUid');
+
+    // --knock-color should reflect the sender's dot color, not hardcoded green.
+    // jsdom normalizes dot.style.background '#f43f5e' → 'rgb(244, 63, 94)' on read,
+    // so getSenderColor returns 'rgb(244, 63, 94)' and that is what gets set as --knock-color.
+    expect(li.style.getPropertyValue('--knock-color')).toBe('rgb(244, 63, 94)');
+  });
+});
