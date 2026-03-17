@@ -35,7 +35,7 @@ jest.mock('../js/store.js', () => ({
 const { watchStatus, watchFollowers } = require('../js/db.js');
 const { getFollowing, updateFollowingCode } = require('../js/store.js');
 const { getGlowForColor, getPaletteByKey } = require('../js/palettes.js');
-const { initList } = require('../js/following.js');
+const { initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees } = require('../js/following.js');
 
 function setupDom() {
   document.body.innerHTML = `
@@ -612,5 +612,66 @@ describe('knock click handler on mutual rows', () => {
     sendKnock.mockClear();
     li.querySelector('.unfollow-btn').click();
     expect(sendKnock).not.toHaveBeenCalled();
+  });
+});
+
+describe('setFolloweeReadyCallback', () => {
+  function makeFolloweeLi(userId) {
+    const li = document.createElement('li');
+    li.dataset.userId = userId;
+    li.innerHTML = `
+      <div class="person-dot"></div>
+      <div class="person-info">
+        <div class="person-label">${userId}</div>
+        <div class="person-status">Unavailable</div>
+      </div>
+      <button class="unfollow-btn">×</button>`;
+    document.getElementById('people-list').appendChild(li);
+    return li;
+  }
+
+  let cb;
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+    cb = jest.fn();
+    setFolloweeReadyCallback(cb);
+  });
+
+  test('callback fires on first updateFolloweeRow call for a userId', () => {
+    const li = makeFolloweeLi('alice');
+    const entry = { userId: 'alice', code: 'ALICE1' };
+    updateFolloweeRow(entry, { status: 'unavailable', availableUntil: null }, 'me');
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  test('callback does not fire again for the same userId', () => {
+    const li = makeFolloweeLi('alice');
+    const entry = { userId: 'alice', code: 'ALICE1' };
+    updateFolloweeRow(entry, { status: 'unavailable', availableUntil: null }, 'me');
+    updateFolloweeRow(entry, { status: 'available', availableUntil: Date.now() + 3600000 }, 'me');
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  test('callback fires independently for different userIds', () => {
+    makeFolloweeLi('alice');
+    makeFolloweeLi('bob');
+    const entryA = { userId: 'alice', code: 'ALICE1' };
+    const entryB = { userId: 'bob',   code: 'BOB111' };
+    updateFolloweeRow(entryA, { status: 'unavailable', availableUntil: null }, 'me');
+    updateFolloweeRow(entryB, { status: 'unavailable', availableUntil: null }, 'me');
+    expect(cb).toHaveBeenCalledTimes(2);
+  });
+
+  test('initList resets renderedFollowees so callback fires again after re-init', () => {
+    makeFolloweeLi('alice');
+    const entry = { userId: 'alice', code: 'ALICE1' };
+    updateFolloweeRow(entry, { status: 'unavailable', availableUntil: null }, 'me');
+    // Simulate re-init: initList clears renderedFollowees
+    resetRenderedFollowees();
+    makeFolloweeLi('alice');
+    updateFolloweeRow(entry, { status: 'unavailable', availableUntil: null }, 'me');
+    expect(cb).toHaveBeenCalledTimes(2);
   });
 });

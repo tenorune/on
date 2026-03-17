@@ -13,6 +13,8 @@ import { sendKnock } from './knock.js';
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
 const lastUserData = new Map(); // userId → most recent userData from Firebase
+const renderedFollowees = new Set();
+let onFolloweeReady = null;
 
 let latestFollowersSnapshot = [];
 let unsubFollowers = null;
@@ -56,6 +58,8 @@ async function doConfirm() {
 
 export function initList(myUserId, myCode) {
   myUserIdRef = myUserId;
+
+  renderedFollowees.clear();
 
   // Reset stale subscription state from any prior init (also makes tests independent)
   unsubscribers.forEach((unsub) => unsub());
@@ -123,6 +127,28 @@ export function initList(myUserId, myCode) {
     e.target.value = e.target.value.toUpperCase();
   });
 
+  document.getElementById('add-code-input').addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    const codeInput = document.getElementById('add-code-input');
+    const errorEl = document.getElementById('add-error');
+    const code = codeInput.value.trim().toUpperCase();
+    errorEl.classList.add('hidden');
+    if (!code) { showError(errorEl, 'Please enter a code.'); return; }
+    if (code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) { showError(errorEl, 'Code must be 6 letters and numbers.'); return; }
+    if (code === myCode.toUpperCase()) { showError(errorEl, "That's your own code."); return; }
+    const existing = getFollowing().find((f) => f.code.toUpperCase() === code);
+    if (existing) { showError(errorEl, `You're already following ${existing.label || existing.code}.`); return; }
+    codeInput.disabled = true;
+    const targetUserId = await lookupCode(code);
+    codeInput.disabled = false;
+    if (!targetUserId) { showError(errorEl, 'Code not found. Check the code and try again.'); return; }
+    document.getElementById('add-label-input').focus();
+  });
+
+  document.getElementById('add-label-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleAddPerson(myUserId, myCode);
+  });
+
   document.getElementById('add-submit-btn').addEventListener('click', () => {
     handleAddPerson(myUserId, myCode);
   });
@@ -130,6 +156,14 @@ export function initList(myUserId, myCode) {
   window.addEventListener('online', () => document.getElementById('offline-banner').classList.add('hidden'));
   window.addEventListener('offline', () => document.getElementById('offline-banner').classList.remove('hidden'));
   if (!navigator.onLine) document.getElementById('offline-banner').classList.remove('hidden');
+}
+
+export function setFolloweeReadyCallback(fn) {
+  onFolloweeReady = fn;
+}
+
+export function resetRenderedFollowees() {
+  renderedFollowees.clear();
 }
 
 function renderList() {
@@ -340,7 +374,11 @@ function subscribeToFollowee(entry, myUserId) {
   unsubscribers.set(entry.userId, unsub);
 }
 
-function updateFolloweeRow(entry, userData, myUserId) {
+export function updateFolloweeRow(entry, userData, myUserId) {
+  if (!renderedFollowees.has(entry.userId)) {
+    renderedFollowees.add(entry.userId);
+    onFolloweeReady?.();
+  }
   const li = document.querySelector(`[data-user-id="${entry.userId}"]`);
   if (!li) return;
 
