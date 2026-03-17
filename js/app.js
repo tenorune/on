@@ -16,7 +16,7 @@ import { getPaletteState, getFollowing } from './store.js';
     const raw = localStorage.getItem('statusapp_palette_state');
     if (!raw) return;
     const state = JSON.parse(raw);
-    const key = state?.activePaletteKey;
+    const key = state?.sets?.[String(state?.activeSet)]?.activePaletteKey;
     if (!key) return;
     const palette = getPaletteByKey(key);
     if (palette) applyThemeVars(palette.theme);
