@@ -118,17 +118,19 @@ function applyLiveKnock(senderId, count) {
   const newIntensity = Math.min(1, current.intensity + count * INTENSITY_STEP);
 
   // Instant rise (no transition)
+  // Use inset box-shadow instead of background-color so the pulse overlays without
+  // conflicting with the palette card background set by updateFolloweeRow.
   li.style.transition = 'none';
-  li.style.backgroundColor = colorToRgba(color, newIntensity);
+  li.style.boxShadow = `inset 0 0 0 9999px ${colorToRgba(color, newIntensity)}`;
   void li.offsetHeight; // force reflow
 
-  // Begin 2s decay to rgba(r,g,b,0) — not 'transparent' — to preserve hue during transition
-  li.style.transition = 'background-color 2s ease-out';
-  li.style.backgroundColor = colorToRgba(color, 0);
+  // Begin 2s decay
+  li.style.transition = 'box-shadow 2s ease-out';
+  li.style.boxShadow = `inset 0 0 0 9999px ${colorToRgba(color, 0)}`;
 
   const timerId = setTimeout(() => {
     li.style.transition = '';
-    li.style.backgroundColor = '';
+    li.style.boxShadow = '';
     pulseMap.delete(senderId);
   }, 2100);
 

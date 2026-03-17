@@ -330,8 +330,8 @@ describe('live knock pulse: color', () => {
 
     fire('alice', { count: 1, ts: Date.now() });
     // colorToRgba handles rgb(...) so the decay target is correctly set
-    expect(li.style.transition).toBe('background-color 2s ease-out');
-    expect(li.style.backgroundColor).toBe('rgba(244, 63, 94, 0)');
+    expect(li.style.transition).toBe('box-shadow 2s ease-out');
+    expect(li.style.boxShadow).toBe('inset 0 0 0 9999px rgba(244, 63, 94, 0)');
   });
 
   test('falls back to #22c55e when dot has no inline background', async () => {
@@ -342,8 +342,8 @@ describe('live knock pulse: color', () => {
     li.appendChild(dot); // no dot.style.background set
 
     fire('alice', { count: 1, ts: Date.now() });
-    expect(li.style.transition).toBe('background-color 2s ease-out');
-    expect(li.style.backgroundColor).toBe('rgba(34, 197, 94, 0)');
+    expect(li.style.transition).toBe('box-shadow 2s ease-out');
+    expect(li.style.boxShadow).toBe('inset 0 0 0 9999px rgba(34, 197, 94, 0)');
   });
 });
 
@@ -361,33 +361,33 @@ describe('live knock pulse: intensity', () => {
     const fire = await setupLive();
     const li = makeLi('alice');
 
-    const bgValues = [];
-    const origDescriptor = Object.getOwnPropertyDescriptor(CSSStyleDeclaration.prototype, 'backgroundColor');
-    Object.defineProperty(li.style, 'backgroundColor', {
-      set(v) { bgValues.push(v); origDescriptor.set.call(this, v); },
+    const bsValues = [];
+    const origDescriptor = Object.getOwnPropertyDescriptor(CSSStyleDeclaration.prototype, 'boxShadow');
+    Object.defineProperty(li.style, 'boxShadow', {
+      set(v) { bsValues.push(v); origDescriptor.set.call(this, v); },
       get() { return origDescriptor.get.call(this); },
       configurable: true,
     });
 
     fire('alice', { count: 1, ts: Date.now() });
-    // bgValues[0] = peak (alpha=0.4), bgValues[1] = decay target (alpha=0)
-    expect(bgValues[0]).toBe('rgba(34, 197, 94, 0.4)');
+    // bsValues[0] = peak (alpha=0.4), bsValues[1] = decay target (alpha=0)
+    expect(bsValues[0]).toBe('inset 0 0 0 9999px rgba(34, 197, 94, 0.4)');
   });
 
   test('count=2 sets alpha to 0.8', async () => {
     const fire = await setupLive();
     const li = makeLi('alice');
 
-    const bgValues = [];
-    const origDescriptor = Object.getOwnPropertyDescriptor(CSSStyleDeclaration.prototype, 'backgroundColor');
-    Object.defineProperty(li.style, 'backgroundColor', {
-      set(v) { bgValues.push(v); origDescriptor.set.call(this, v); },
+    const bsValues = [];
+    const origDescriptor = Object.getOwnPropertyDescriptor(CSSStyleDeclaration.prototype, 'boxShadow');
+    Object.defineProperty(li.style, 'boxShadow', {
+      set(v) { bsValues.push(v); origDescriptor.set.call(this, v); },
       get() { return origDescriptor.get.call(this); },
       configurable: true,
     });
 
     fire('alice', { count: 2, ts: Date.now() });
-    expect(bgValues[0]).toBe('rgba(34, 197, 94, 0.8)');
+    expect(bsValues[0]).toBe('inset 0 0 0 9999px rgba(34, 197, 94, 0.8)');
   });
 
   test('intensity capped at 1.0 — two sequential count=2 knocks stay ≤ 1', async () => {
@@ -396,10 +396,10 @@ describe('live knock pulse: intensity', () => {
     fire('alice', { count: 2, ts: Date.now() }); // 0.8
     fire('alice', { count: 2, ts: Date.now() }); // would be 1.6, capped to 1.0
     // Transition was started (not blocked by a cap bug)
-    expect(li.style.transition).toBe('background-color 2s ease-out');
+    expect(li.style.transition).toBe('box-shadow 2s ease-out');
     // Timer fires after 2.1s — cleanup works even at capped intensity
     jest.advanceTimersByTime(2100);
-    expect(li.style.backgroundColor).toBe('');
+    expect(li.style.boxShadow).toBe('');
   });
 
   test('cancels previous cleanup timer on re-knock', async () => {
@@ -410,17 +410,17 @@ describe('live knock pulse: intensity', () => {
     fire('alice', { count: 1, ts: Date.now() }); // resets timer
     // 1.2s after second knock (2.2s after first): first timer would have fired, second hasn't
     jest.advanceTimersByTime(1200);
-    expect(li.style.backgroundColor).not.toBe('');
+    expect(li.style.boxShadow).not.toBe('');
   });
 
   test('cleans up inline styles after 2.1s', async () => {
     const fire = await setupLive();
     const li = makeLi('alice');
     fire('alice', { count: 1, ts: Date.now() });
-    expect(li.style.backgroundColor).not.toBe('');
+    expect(li.style.boxShadow).not.toBe('');
 
     jest.advanceTimersByTime(2100);
-    expect(li.style.backgroundColor).toBe('');
+    expect(li.style.boxShadow).toBe('');
     expect(li.style.transition).toBe('');
   });
 
@@ -441,7 +441,7 @@ describe('live knock pulse: pulseMap reset', () => {
 
     const li = makeLi('alice');
     liveCallback('alice', { count: 1, ts: Date.now() });
-    expect(li.style.backgroundColor).not.toBe('');
+    expect(li.style.boxShadow).not.toBe('');
 
     // Re-init: pulseMap reset; timer cancelled; styles NOT cleaned (reset only clears state)
     getKnocks.mockResolvedValue({ exists: () => false });
