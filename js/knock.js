@@ -14,13 +14,14 @@ let pulseMap = new Map();      // senderId → { intensity: number, timerId: num
 
 // Send a knock to recipientId. Guards: debounce (300ms). Flash fires only after debounce passes.
 export function sendKnock(recipientId, senderId, statusColor) {
-  const color = statusColor || '#22c55e';
   const now = Date.now();
   if (now - (debounceMap.get(recipientId) ?? 0) < 300) return;
   debounceMap.set(recipientId, now);
 
   const li = document.querySelector(`[data-user-id="${recipientId}"]`);
   if (li) {
+    // Use the recipient's current status color; fall back to grey when Unavailable
+    const color = li.dataset.available === 'true' ? (statusColor || '#22c55e') : getKnockColor(li);
     li.style.setProperty('--knock-color', color);
     li.classList.add('knock-sender');
     li.addEventListener('animationend', () => li.classList.remove('knock-sender'), { once: true });
@@ -89,7 +90,12 @@ export async function initKnocks(myUserId) {
   toAnimate.forEach(entry => enqueue(entry));
 }
 
-function getSenderColor(li) {
+// Returns the color to use for knock animations on this card.
+// Uses grey when the person is Unavailable so the pulse matches their dot state.
+function getKnockColor(li) {
+  if (li.dataset.available !== 'true') {
+    return getComputedStyle(document.documentElement).getPropertyValue('--dot-off').trim() || '#6b7280';
+  }
   const dot = li.querySelector('.person-dot');
   return (dot && dot.style.background) || '#22c55e';
 }
@@ -111,7 +117,7 @@ function applyLiveKnock(senderId, count) {
   const li = document.querySelector(`[data-user-id="${senderId}"]`);
   if (!li) return;
 
-  const color = getSenderColor(li);
+  const color = getKnockColor(li);
   const current = pulseMap.get(senderId) ?? { intensity: 0, timerId: null };
   if (current.timerId) clearTimeout(current.timerId);
 
@@ -150,7 +156,7 @@ function playNext() {
   const li = document.querySelector(`[data-user-id="${entry.userId}"]`);
   if (!li) { playNext(); return; } // not in DOM — skip silently
 
-  li.style.setProperty('--knock-color', getSenderColor(li));
+  li.style.setProperty('--knock-color', getKnockColor(li));
   li.classList.add('knock-deferred');
 
   let advanced = false;

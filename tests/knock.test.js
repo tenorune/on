@@ -29,9 +29,10 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-function makeLi(userId) {
+function makeLi(userId, { available = true } = {}) {
   const li = document.createElement('li');
   li.dataset.userId = userId;
+  li.dataset.available = String(available);
   document.body.appendChild(li);
   return li;
 }
@@ -87,16 +88,23 @@ describe('sendKnock: flash', () => {
     expect(li.classList.contains('knock-sender')).toBe(false);
   });
 
-  test('statusColor defaults to #22c55e when absent', () => {
+  test('statusColor defaults to #22c55e when available and absent', () => {
     const li = makeLi('u1');
     sendKnock('u1', 'me');
     expect(li.style.getPropertyValue('--knock-color')).toBe('#22c55e');
   });
 
-  test('statusColor is applied as --knock-color when provided', () => {
+  test('statusColor is applied as --knock-color when available and provided', () => {
     const li = makeLi('u1');
     sendKnock('u1', 'me', '#f43f5e');
     expect(li.style.getPropertyValue('--knock-color')).toBe('#f43f5e');
+  });
+
+  test('uses grey (#6b7280 fallback) when recipient is unavailable', () => {
+    const li = makeLi('u1', { available: false });
+    sendKnock('u1', 'me', '#f43f5e'); // statusColor ignored when unavailable
+    // jsdom has no CSS vars so getKnockColor returns the '#6b7280' fallback
+    expect(li.style.getPropertyValue('--knock-color')).toBe('#6b7280');
   });
 
   test('knock-sender class is removed on animationend', () => {
@@ -334,7 +342,7 @@ describe('live knock pulse: color', () => {
     expect(li.style.boxShadow).toBe('inset 0 0 0 9999px rgba(244, 63, 94, 0)');
   });
 
-  test('falls back to #22c55e when dot has no inline background', async () => {
+  test('falls back to #22c55e when available and dot has no inline background', async () => {
     const fire = await setupLive();
     const li = makeLi('alice');
     const dot = document.createElement('div');
@@ -344,6 +352,17 @@ describe('live knock pulse: color', () => {
     fire('alice', { count: 1, ts: Date.now() });
     expect(li.style.transition).toBe('box-shadow 2s ease-out');
     expect(li.style.boxShadow).toBe('inset 0 0 0 9999px rgba(34, 197, 94, 0)');
+  });
+
+  test('uses grey (#6b7280 fallback) when sender is unavailable', async () => {
+    const fire = await setupLive();
+    const li = makeLi('alice', { available: false });
+
+    fire('alice', { count: 1, ts: Date.now() });
+    // jsdom has no CSS vars so getKnockColor returns '#6b7280' fallback
+    // colorToRgba('#6b7280', 0) = rgba(107, 114, 128, 0)
+    expect(li.style.transition).toBe('box-shadow 2s ease-out');
+    expect(li.style.boxShadow).toBe('inset 0 0 0 9999px rgba(107, 114, 128, 0)');
   });
 });
 
