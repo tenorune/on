@@ -50,6 +50,16 @@ export async function initKnocks(myUserId) {
   unsubKnocks = watchKnocksAdded(myUserId, (senderId, { count, ts }) => {
     // Skip senders from the initial snapshot (handled as deferred)
     if (snapshotPending || deferredKeys.has(senderId)) return;
+    // App is backgrounded — leave knock in DB so the next initKnocks (on foreground)
+    // picks it up via getKnocks and shows it as deferred.
+    if (document.visibilityState !== 'visible') return;
+    // Knock predates this session (arrived via Firebase reconnect after getKnocks
+    // already resolved with stale cached data) — treat as deferred, not live.
+    if (ts < appOpenTime) {
+      applyDeferredKnock(senderId);
+      clearKnock(myUserId, senderId).catch(() => {});
+      return;
+    }
     applyLiveKnock(senderId, count);
     clearKnock(myUserId, senderId).catch(() => {});
   });

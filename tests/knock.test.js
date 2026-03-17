@@ -329,6 +329,41 @@ describe('visibilitychange re-init', () => {
   });
 });
 
+// --- live listener background / reconnect guards ---
+
+describe('live listener: visibility and timestamp guards', () => {
+  async function setupLiveListener() {
+    let liveCallback;
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockImplementation((_uid, cb) => { liveCallback = cb; return jest.fn(); });
+    clearKnock.mockResolvedValue();
+    await initKnocks('myUid');
+    return liveCallback;
+  }
+
+  test('knock arriving while hidden is not processed (stays in DB for deferred pick-up)', async () => {
+    const fire = await setupLiveListener();
+    const li = makeLi('alice');
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    fire('alice', { count: 1, ts: Date.now() });
+    // Neither live pulse nor clear should have been triggered
+    expect(li.style.boxShadow).toBe('');
+    expect(clearKnock).not.toHaveBeenCalled();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  test('knock with ts before appOpenTime is shown as deferred, not live', async () => {
+    const fire = await setupLiveListener();
+    const li = makeLi('alice');
+    // ts well before session start — simulates reconnect delivering a pre-existing knock
+    fire('alice', { count: 1, ts: Date.now() - 60_000 });
+    expect(li.classList.contains('knock-deferred')).toBe(true);
+    expect(clearKnock).toHaveBeenCalledWith('myUid', 'alice');
+    // Should NOT have applied a live pulse (no boxShadow transition set)
+    expect(li.style.transition).not.toContain('box-shadow 2s');
+  });
+});
+
 // --- live knock pulse ---
 
 describe('live knock pulse: color', () => {
