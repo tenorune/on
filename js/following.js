@@ -395,7 +395,7 @@ function updateFolloweeRow(entry, userData, myUserId) {
     }
   } else {
     li.style.background      = '';
-    li.style.borderLeftColor = '';
+    li.style.borderLeftColor = isAvail ? color : '';
     if (statusEl) statusEl.style.color = '';
   }
 }
