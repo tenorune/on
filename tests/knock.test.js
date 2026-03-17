@@ -303,6 +303,32 @@ describe('initKnocks: state reset', () => {
   });
 });
 
+// --- visibilitychange re-init ---
+
+describe('visibilitychange re-init', () => {
+  test('becoming visible resets module state (debounce map cleared)', async () => {
+    // Initial app load
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockReturnValue(jest.fn());
+    await initKnocks('myUid');
+
+    // Fire a knock to populate the debounce map
+    const li = makeLi('u1');
+    sendKnock('u1', 'me');
+    writeKnock.mockClear();
+
+    // Simulate app returning to foreground; state reset is synchronous at top of initKnocks
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockReturnValue(jest.fn());
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    // Debounce map is cleared synchronously — knock should fire again immediately
+    sendKnock('u1', 'me');
+    expect(writeKnock).toHaveBeenCalledWith('u1', 'me');
+  });
+});
+
 // --- live knock pulse ---
 
 describe('live knock pulse: color', () => {

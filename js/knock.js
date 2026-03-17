@@ -6,6 +6,7 @@ let debounceMap = new Map();   // recipientId → last knock timestamp
 let deferredKeys = new Set();  // senderIds from snapshot; blocks live listener until cleared
 let snapshotPending = false;   // true while waiting for getKnocks to resolve
 let unsubKnocks = null;
+let cachedUserId = null;       // stored so the visibility handler can re-call initKnocks
 
 const INTENSITY_STEP = 0.4;
 let pulseMap = new Map();      // senderId → { intensity: number, timerId: number | null }
@@ -30,6 +31,8 @@ export function sendKnock(recipientId, senderId, statusColor) {
 
 // Initialize knock state and start listening. Call after initList so DOM exists.
 export async function initKnocks(myUserId) {
+  cachedUserId = myUserId;
+
   // Reset all module-level state
   debounceMap = new Map();
   deferredKeys = new Set();
@@ -146,3 +149,11 @@ function applyDeferredKnock(userId) {
   li.classList.add('knock-deferred');
   li.addEventListener('animationend', () => li.classList.remove('knock-deferred'), { once: true });
 }
+
+// Re-run initKnocks when the app returns to the foreground so that any knocks
+// delivered via Firebase reconnect are classified as deferred, not live.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && cachedUserId) {
+    initKnocks(cachedUserId);
+  }
+});
