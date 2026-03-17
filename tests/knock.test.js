@@ -149,13 +149,11 @@ describe('initKnocks: deferred (within 24h)', () => {
 
     await initKnocks('myUid');
 
-    // Each sender gets one deferred animation class (not three)
+    // All senders get knock-deferred simultaneously
     const aliceLi = document.querySelector('[data-user-id="alice"]');
     const bobLi = document.querySelector('[data-user-id="bob"]');
-    // One of them should have a knock-deferred class (the queue runs the first)
-    const hasDeferredClass = aliceLi.classList.contains('knock-deferred') ||
-                             bobLi.classList.contains('knock-deferred');
-    expect(hasDeferredClass).toBe(true);
+    expect(aliceLi.classList.contains('knock-deferred')).toBe(true);
+    expect(bobLi.classList.contains('knock-deferred')).toBe(true);
   });
 
   test('older-than-24h entries are deleted without animating', async () => {
@@ -236,47 +234,36 @@ describe('initKnocks: deferredKeys skip set', () => {
     await initKnocks('myUid');
 
     // After initKnocks completes, deferredKeys is cleared
-    // A new live callback for alice should now enqueue a live animation
+    // A new live callback for alice should now trigger a live animation
     clearKnock.mockClear();
     liveCallback('alice', { count: 2, ts: Date.now() });
     expect(clearKnock).toHaveBeenCalledWith('myUid', 'alice');
   });
 });
 
-// --- animation queue ---
+// --- deferred animation: simultaneous ---
 
-describe('animation queue: sequence gap', () => {
-  test('deferred sorted ascending before playback; live knocks appended to end', async () => {
+describe('applyDeferredKnock: simultaneous animations', () => {
+  test('all within-24h deferred senders animate simultaneously', async () => {
     const now = Date.now();
-    const ts1 = now - 5000; // older
-    const ts2 = now - 2000; // newer
-    let liveCallback;
-
     getKnocks.mockResolvedValue({
       exists: () => true,
       val: () => ({
-        bob:   { count: 1, ts: ts2 },
-        alice: { count: 1, ts: ts1 },
+        bob:   { count: 1, ts: now - 2000 },
+        alice: { count: 1, ts: now - 5000 },
       }),
     });
     clearKnock.mockResolvedValue();
-    watchKnocksAdded.mockImplementation((_uid, cb) => {
-      liveCallback = cb;
-      return jest.fn();
-    });
+    watchKnocksAdded.mockReturnValue(jest.fn());
 
     const liA = makeLi('alice');
     const liB = makeLi('bob');
-    const liC = makeLi('carol');
 
     await initKnocks('myUid');
 
-    // After deferredKeys is cleared, enqueue a live knock for carol
-    liveCallback('carol', { count: 1, ts: Date.now() });
-
-    // alice (older ts) should animate first
+    // Both senders should have knock-deferred class at the same time
     expect(liA.classList.contains('knock-deferred')).toBe(true);
-    expect(liB.classList.contains('knock-deferred')).toBe(false);
+    expect(liB.classList.contains('knock-deferred')).toBe(true);
   });
 
   test('skips silently when [data-user-id] element not found in DOM', async () => {
@@ -297,7 +284,7 @@ describe('animation queue: sequence gap', () => {
 // --- initKnocks: state reset ---
 
 describe('initKnocks: state reset', () => {
-  test('resets debounce map, queue, and deferredKeys on re-call', async () => {
+  test('resets debounce map and deferredKeys on re-call', async () => {
     getKnocks.mockResolvedValue({ exists: () => false });
     watchKnocksAdded.mockReturnValue(jest.fn());
 
@@ -477,7 +464,7 @@ describe('live knock pulse: pulseMap reset', () => {
 // --- deferred color fix ---
 
 describe('initKnocks: deferred color fix', () => {
-  test('playNext uses sender dot color instead of hardcoded green', async () => {
+  test('applyDeferredKnock uses sender dot color instead of hardcoded green', async () => {
     const ts = Date.now() - 1000;
     getKnocks.mockResolvedValue({
       exists: () => true,
