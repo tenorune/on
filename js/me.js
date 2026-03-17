@@ -17,6 +17,8 @@ const CHIP_VALUES = [
 let countdownTimer = null;
 let currentChipIndex = 3; // default: 2 hours
 let firstUseActive = false;
+let ownStatusSignalled = false;
+let onOwnStatusReady = null;
 
 function migrateToChipIndex() {
   let stored = getLastTimeout();
@@ -31,6 +33,7 @@ function migrateToChipIndex() {
 }
 
 export function initHeader(myUserId) {
+  ownStatusSignalled = false;
   const dot = document.getElementById('my-dot');
   const timeChip = document.getElementById('time-chip');
   const mycodeChip = document.getElementById('mycode-chip');
@@ -74,7 +77,15 @@ export function enterFirstUseMode() {
   firstUseActive = true;
 }
 
+export function setOwnStatusReadyCallback(fn) {
+  onOwnStatusReady = fn;
+}
+
 export function applyOwnStatus(status, availableUntil) {
+  if (!ownStatusSignalled) {
+    ownStatusSignalled = true;
+    onOwnStatusReady?.();
+  }
   if (firstUseActive) {
     if (status === 'available' && !isExpired(availableUntil)) {
       firstUseActive = false;

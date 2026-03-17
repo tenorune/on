@@ -13,7 +13,7 @@ jest.mock('../js/store.js', () => ({
 
 const { setStatus } = require('../js/db.js');
 const { getLastTimeout, setLastTimeout } = require('../js/store.js');
-const { applyOwnStatus, initHeader, enterFirstUseMode } = require('../js/me.js');
+const { applyOwnStatus, initHeader, enterFirstUseMode, setOwnStatusReadyCallback } = require('../js/me.js');
 
 // jsdom doesn't apply stylesheets. #header-chips is always display:flex in CSS;
 // opacity and pointer-events are controlled by JS.
@@ -293,5 +293,45 @@ describe('first-use state', () => {
     applyOwnStatus('available', Date.now() + 7200000);
     jest.advanceTimersByTime(250);
     expect(document.getElementById('header-chips').style.opacity).not.toBe('0');
+  });
+});
+
+describe('setOwnStatusReadyCallback', () => {
+  beforeEach(() => {
+    makeFixture();
+    initHeader('u1');
+  });
+
+  test('callback fires on first applyOwnStatus call', () => {
+    const cb = jest.fn();
+    setOwnStatusReadyCallback(cb);
+    applyOwnStatus('available', Date.now() + 7200000);
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  test('callback does not fire on second applyOwnStatus call', () => {
+    const cb = jest.fn();
+    setOwnStatusReadyCallback(cb);
+    applyOwnStatus('available', Date.now() + 7200000);
+    applyOwnStatus('unavailable', null);
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  test('callback fires on first-use path (setKnockKnock branch)', () => {
+    const cb = jest.fn();
+    setOwnStatusReadyCallback(cb);
+    enterFirstUseMode();
+    applyOwnStatus('unavailable', null); // triggers setKnockKnock
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  test('initHeader resets the flag so callback fires again after re-init', () => {
+    const cb = jest.fn();
+    setOwnStatusReadyCallback(cb);
+    applyOwnStatus('available', Date.now() + 7200000);
+    jest.advanceTimersByTime(250); // flush the setAvailable 200ms timer before re-init
+    initHeader('u1'); // re-init resets ownStatusSignalled
+    applyOwnStatus('unavailable', null);
+    expect(cb).toHaveBeenCalledTimes(2);
   });
 });
