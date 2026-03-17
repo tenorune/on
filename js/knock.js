@@ -3,7 +3,7 @@ import { writeKnock, getKnocks, watchKnocksAdded, clearKnock } from './db.js';
 
 // Module-level state — reset by initKnocks on each call
 let debounceMap = new Map();   // recipientId → last knock timestamp
-let queue = [];                // { userId, animationType, ts }
+let queue = [];                // { userId, ts }
 let deferredKeys = new Set();  // senderIds from snapshot; blocks live listener until cleared
 let snapshotPending = false;   // true while waiting for getKnocks to resolve
 let isPlaying = false;
@@ -73,7 +73,7 @@ export async function initKnocks(myUserId) {
   Object.entries(snapshot.val()).forEach(([senderId, { count, ts }]) => {
     toDelete.push(senderId);
     if (ts >= appOpenTime - 24 * 60 * 60 * 1000) {
-      toAnimate.push({ userId: senderId, animationType: 'deferred', ts });
+      toAnimate.push({ userId: senderId, ts });
     }
     // Older-than-24h: added to toDelete but not toAnimate (silent delete)
   });
@@ -94,7 +94,7 @@ function getSenderColor(li) {
   return (dot && dot.style.background) || '#22c55e';
 }
 
-function colorToRgba(color, alpha) {
+export function colorToRgba(color, alpha) {
   if (color.startsWith('#')) {
     const r = parseInt(color.slice(1, 3), 16);
     const g = parseInt(color.slice(3, 5), 16);

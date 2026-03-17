@@ -2,7 +2,7 @@
 
 // Module-level let bindings — re-assigned in beforeEach after jest.resetModules()
 let writeKnock, getKnocks, watchKnocksAdded, clearKnock;
-let sendKnock, initKnocks;
+let sendKnock, initKnocks, colorToRgba;
 
 beforeEach(() => {
   jest.useFakeTimers();
@@ -16,7 +16,7 @@ beforeEach(() => {
   }));
   jest.mock('../js/store.js', () => ({}));
   jest.mock('../js/firebase-config.js', () => ({ db: {} }));
-  ({ sendKnock, initKnocks } = require('../js/knock.js'));
+  ({ sendKnock, initKnocks, colorToRgba } = require('../js/knock.js'));
   // Re-bind db mocks to fresh instances created after resetModules
   const db = require('../js/db.js');
   writeKnock = db.writeKnock;
@@ -359,19 +359,35 @@ describe('live knock pulse: intensity', () => {
 
   test('count=1 sets alpha to 0.4 (INTENSITY_STEP)', async () => {
     const fire = await setupLive();
-    makeLi('alice');
+    const li = makeLi('alice');
+
+    const bgValues = [];
+    const origDescriptor = Object.getOwnPropertyDescriptor(CSSStyleDeclaration.prototype, 'backgroundColor');
+    Object.defineProperty(li.style, 'backgroundColor', {
+      set(v) { bgValues.push(v); origDescriptor.set.call(this, v); },
+      get() { return origDescriptor.get.call(this); },
+      configurable: true,
+    });
+
     fire('alice', { count: 1, ts: Date.now() });
-    // jsdom shows decay target (alpha=0); transition property confirms fade was started
-    expect(document.querySelector('[data-user-id="alice"]').style.transition)
-      .toBe('background-color 2s ease-out');
+    // bgValues[0] = peak (alpha=0.4), bgValues[1] = decay target (alpha=0)
+    expect(bgValues[0]).toBe('rgba(34, 197, 94, 0.4)');
   });
 
   test('count=2 sets alpha to 0.8', async () => {
     const fire = await setupLive();
-    makeLi('alice');
+    const li = makeLi('alice');
+
+    const bgValues = [];
+    const origDescriptor = Object.getOwnPropertyDescriptor(CSSStyleDeclaration.prototype, 'backgroundColor');
+    Object.defineProperty(li.style, 'backgroundColor', {
+      set(v) { bgValues.push(v); origDescriptor.set.call(this, v); },
+      get() { return origDescriptor.get.call(this); },
+      configurable: true,
+    });
+
     fire('alice', { count: 2, ts: Date.now() });
-    expect(document.querySelector('[data-user-id="alice"]').style.transition)
-      .toBe('background-color 2s ease-out');
+    expect(bgValues[0]).toBe('rgba(34, 197, 94, 0.8)');
   });
 
   test('intensity capped at 1.0 — two sequential count=2 knocks stay ≤ 1', async () => {
@@ -463,5 +479,25 @@ describe('initKnocks: deferred color fix', () => {
     // jsdom normalizes dot.style.background '#f43f5e' → 'rgb(244, 63, 94)' on read,
     // so getSenderColor returns 'rgb(244, 63, 94)' and that is what gets set as --knock-color.
     expect(li.style.getPropertyValue('--knock-color')).toBe('rgb(244, 63, 94)');
+  });
+});
+
+// --- colorToRgba unit tests ---
+
+describe('colorToRgba', () => {
+  test('converts #rrggbb hex to rgba', () => {
+    expect(colorToRgba('#f43f5e', 0.4)).toBe('rgba(244, 63, 94, 0.4)');
+  });
+
+  test('converts browser-normalized rgb(r, g, b) to rgba', () => {
+    expect(colorToRgba('rgb(244, 63, 94)', 0.4)).toBe('rgba(244, 63, 94, 0.4)');
+  });
+
+  test('fallback for unrecognized format returns green', () => {
+    expect(colorToRgba('hsl(350, 90%, 60%)', 0.5)).toBe('rgba(34, 197, 94, 0.5)');
+  });
+
+  test('alpha=0 produces correct decay target', () => {
+    expect(colorToRgba('#22c55e', 0)).toBe('rgba(34, 197, 94, 0)');
   });
 });
