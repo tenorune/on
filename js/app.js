@@ -101,13 +101,13 @@ async function main() {
 
   initCodeDrawer(userId, code);
   initHeader(userId);
-  initList(userId, code);
   if (!splashDone) {
     const followeeCount = getFollowing().length;
     initSplash(followeeCount);
     setOwnStatusReadyCallback(signalReady);
     setFolloweeReadyCallback(signalReady);
   }
+  initList(userId, code);
   if (KNOCK_ENABLED) initKnocks(userId);
 
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
