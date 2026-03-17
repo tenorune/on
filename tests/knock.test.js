@@ -235,69 +235,9 @@ describe('initKnocks: deferredKeys skip set', () => {
   });
 });
 
-// --- initKnocks: live listener ---
-
-describe('initKnocks: live listener', () => {
-  test('enqueues correct count × animation-1 entries (including count > 1)', async () => {
-    let liveCallback;
-    getKnocks.mockResolvedValue({ exists: () => false });
-    watchKnocksAdded.mockImplementation((_uid, cb) => {
-      liveCallback = cb;
-      return jest.fn();
-    });
-    clearKnock.mockResolvedValue();
-
-    await initKnocks('myUid');
-
-    const li = makeLi('alice');
-    liveCallback('alice', { count: 3, ts: Date.now() });
-
-    // First knock-live animation starts immediately
-    expect(li.classList.contains('knock-live')).toBe(true);
-
-    // Fire animationend, advance timer past gap; second animation should start
-    li.dispatchEvent(new Event('animationend'));
-    jest.advanceTimersByTime(300);
-    expect(li.classList.contains('knock-live')).toBe(true);
-
-    li.dispatchEvent(new Event('animationend'));
-    jest.advanceTimersByTime(300);
-    expect(li.classList.contains('knock-live')).toBe(true);
-  });
-});
-
 // --- animation queue ---
 
 describe('animation queue: sequence gap', () => {
-  test('500ms gap between sequences (different userId)', async () => {
-    let liveCallback;
-    getKnocks.mockResolvedValue({ exists: () => false });
-    watchKnocksAdded.mockImplementation((_uid, cb) => {
-      liveCallback = cb;
-      return jest.fn();
-    });
-    clearKnock.mockResolvedValue();
-
-    await initKnocks('myUid');
-    const liA = makeLi('alice');
-    const liB = makeLi('bob');
-
-    liveCallback('alice', { count: 1, ts: Date.now() });
-    liveCallback('bob', { count: 1, ts: Date.now() + 1 });
-
-    // alice animates first
-    expect(liA.classList.contains('knock-live')).toBe(true);
-    liA.dispatchEvent(new Event('animationend'));
-
-    // < 500ms: bob should not have started
-    jest.advanceTimersByTime(499);
-    expect(liB.classList.contains('knock-live')).toBe(false);
-
-    // After 500ms: bob starts
-    jest.advanceTimersByTime(1);
-    expect(liB.classList.contains('knock-live')).toBe(true);
-  });
-
   test('deferred sorted ascending before playback; live knocks appended to end', async () => {
     const now = Date.now();
     const ts1 = now - 5000; // older

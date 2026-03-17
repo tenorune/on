@@ -431,10 +431,6 @@ main {
 @keyframes key-spin { from { transform: rotate(0deg); } to { transform: rotate(720deg); } }
 
 /* Knock animations */
-@keyframes knock-live {
-  0%   { background-color: var(--knock-color); }
-  100% { background-color: transparent; }
-}
 @keyframes knock-deferred {
   0%   { background-color: color-mix(in srgb, var(--knock-color) 55%, transparent); }
   100% { background-color: transparent; }
@@ -443,6 +439,5 @@ main {
   0%   { background-color: var(--knock-color); }
   100% { background-color: transparent; }
 }
-.knock-live     { animation: knock-live     0.4s ease-out; }
 .knock-deferred { animation: knock-deferred 0.8s ease-out; }
 .knock-sender   { animation: knock-sender   0.2s ease-out; }
