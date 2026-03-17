@@ -29,6 +29,9 @@ export function formatTimeRemaining(ms) {
   return `${hours}h ${minutes}m`;
 }
 
+const HOUR_WORDS = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+function hourWord(n) { return HOUR_WORDS[n] ?? String(n); }
+
 export function formatTimeRemainingFuzzy(ms) {
   if (ms <= 0) return '';
   const minutes = ms / 60000;
@@ -37,12 +40,12 @@ export function formatTimeRemainingFuzzy(ms) {
   if (minutes < 20) return 'about 15 minutes left';
   if (minutes < 45) return 'about half an hour left';
   if (minutes < 75) return 'about an hour left';
-  if (minutes < 120) return 'a little more than an hour left';
+  if (minutes < 120) return 'one to two hours left';
   const floor = Math.floor(hours);
   const frac = hours - floor;
-  if (frac < 0.25) return `just over ${floor} hours left`;
-  if (frac >= 0.75) return `nearly ${floor + 1} hours left`;
-  return `about ${Math.round(hours)} hours left`;
+  if (frac < 0.25) return `just over ${hourWord(floor)} hours left`;
+  if (frac >= 0.75) return `nearly ${hourWord(floor + 1)} hours left`;
+  return `about ${hourWord(Math.round(hours))} hours left`;
 }
 
 export function formatLastSeen(lastSeenMs) {
