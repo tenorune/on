@@ -9,6 +9,9 @@ let snapshotPending = false;   // true while waiting for getKnocks to resolve
 let isPlaying = false;
 let unsubKnocks = null;
 
+const INTENSITY_STEP = 0.4;
+let pulseMap = new Map();      // senderId → { intensity: number, timerId: number | null }
+
 // Send a knock to recipientId. Guards: debounce (300ms). Flash fires only after debounce passes.
 export function sendKnock(recipientId, senderId, statusColor) {
   const color = statusColor || '#22c55e';
@@ -35,6 +38,8 @@ export async function initKnocks(myUserId) {
   snapshotPending = true;
   isPlaying = false;
   if (unsubKnocks) { unsubKnocks(); unsubKnocks = null; }
+  pulseMap.forEach(({ timerId }) => { if (timerId) clearTimeout(timerId); });
+  pulseMap = new Map();
 
   const appOpenTime = Date.now();
 
@@ -45,10 +50,7 @@ export async function initKnocks(myUserId) {
   unsubKnocks = watchKnocksAdded(myUserId, (senderId, { count, ts }) => {
     // Skip senders from the initial snapshot (handled as deferred)
     if (snapshotPending || deferredKeys.has(senderId)) return;
-    // Enqueue count × live animations
-    for (let i = 0; i < count; i++) {
-      enqueue({ userId: senderId, animationType: 'live', ts: Date.now() });
-    }
+    applyLiveKnock(senderId, count);
     clearKnock(myUserId, senderId).catch(() => {});
   });
 
@@ -87,6 +89,46 @@ export async function initKnocks(myUserId) {
   toAnimate.forEach(entry => enqueue(entry));
 }
 
+function getSenderColor(li) {
+  const dot = li.querySelector('.person-dot');
+  return (dot && dot.style.background) || '#22c55e';
+}
+
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function applyLiveKnock(senderId, count) {
+  const li = document.querySelector(`[data-user-id="${senderId}"]`);
+  if (!li) return;
+
+  const color = getSenderColor(li);
+  const current = pulseMap.get(senderId) ?? { intensity: 0, timerId: null };
+  if (current.timerId) clearTimeout(current.timerId);
+
+  const newIntensity = Math.min(1, current.intensity + count * INTENSITY_STEP);
+
+  // Instant rise (no transition)
+  li.style.transition = 'none';
+  li.style.backgroundColor = hexToRgba(color, newIntensity);
+  void li.offsetHeight; // force reflow
+
+  // Begin 2s decay to rgba(r,g,b,0) — not 'transparent' — to preserve hue during transition
+  li.style.transition = 'background-color 2s ease-out';
+  li.style.backgroundColor = hexToRgba(color, 0);
+
+  const timerId = setTimeout(() => {
+    li.style.transition = '';
+    li.style.backgroundColor = '';
+    pulseMap.delete(senderId);
+  }, 2100);
+
+  pulseMap.set(senderId, { intensity: newIntensity, timerId });
+}
+
 function enqueue(entry) {
   queue.push(entry);
   if (!isPlaying) playNext();
@@ -100,16 +142,15 @@ function playNext() {
   const li = document.querySelector(`[data-user-id="${entry.userId}"]`);
   if (!li) { playNext(); return; } // not in DOM — skip silently
 
-  li.style.setProperty('--knock-color', '#22c55e');
-  const cls = entry.animationType === 'live' ? 'knock-live' : 'knock-deferred';
-  li.classList.add(cls);
+  li.style.setProperty('--knock-color', getSenderColor(li));
+  li.classList.add('knock-deferred');
 
   let advanced = false;
   function advance() {
     if (advanced) return;
     advanced = true;
     clearTimeout(fallback);
-    li.classList.remove(cls);
+    li.classList.remove('knock-deferred');
     const gap = (queue[0] && queue[0].userId === entry.userId) ? 300 : 500;
     setTimeout(playNext, gap);
   }

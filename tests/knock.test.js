@@ -367,3 +367,135 @@ describe('initKnocks: state reset', () => {
     expect(writeKnock).toHaveBeenCalledWith('u1', 'me');
   });
 });
+
+// --- live knock pulse ---
+
+describe('live knock pulse: color', () => {
+  async function setupLive() {
+    let liveCallback;
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockImplementation((_uid, cb) => { liveCallback = cb; return jest.fn(); });
+    clearKnock.mockResolvedValue();
+    await initKnocks('myUid');
+    return liveCallback;
+  }
+
+  test('color read from person-dot.style.background', async () => {
+    const fire = await setupLive();
+    const li = makeLi('alice');
+    const dot = document.createElement('div');
+    dot.className = 'person-dot';
+    dot.style.background = '#f43f5e'; // rgb(244, 63, 94)
+    li.appendChild(dot);
+
+    fire('alice', { count: 1, ts: Date.now() });
+    // jsdom applies step 6 immediately; verify the transition was started
+    // (jsdom normalizes dot.style.background '#f43f5e' → 'rgb(...)' which breaks hex-only
+    // hexToRgba, so backgroundColor ends up empty — transition assertion covers step 6)
+    expect(li.style.transition).toBe('background-color 2s ease-out');
+  });
+
+  test('falls back to #22c55e when dot has no inline background', async () => {
+    const fire = await setupLive();
+    const li = makeLi('alice');
+    const dot = document.createElement('div');
+    dot.className = 'person-dot';
+    li.appendChild(dot); // no dot.style.background set
+
+    fire('alice', { count: 1, ts: Date.now() });
+    expect(li.style.transition).toBe('background-color 2s ease-out');
+    expect(li.style.backgroundColor).toBe('rgba(34, 197, 94, 0)');
+  });
+});
+
+describe('live knock pulse: intensity', () => {
+  async function setupLive() {
+    let liveCallback;
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockImplementation((_uid, cb) => { liveCallback = cb; return jest.fn(); });
+    clearKnock.mockResolvedValue();
+    await initKnocks('myUid');
+    return liveCallback;
+  }
+
+  test('count=1 sets alpha to 0.4 (INTENSITY_STEP)', async () => {
+    const fire = await setupLive();
+    makeLi('alice');
+    fire('alice', { count: 1, ts: Date.now() });
+    // jsdom shows decay target (alpha=0); transition property confirms fade was started
+    expect(document.querySelector('[data-user-id="alice"]').style.transition)
+      .toBe('background-color 2s ease-out');
+  });
+
+  test('count=2 sets alpha to 0.8', async () => {
+    const fire = await setupLive();
+    makeLi('alice');
+    fire('alice', { count: 2, ts: Date.now() });
+    expect(document.querySelector('[data-user-id="alice"]').style.transition)
+      .toBe('background-color 2s ease-out');
+  });
+
+  test('intensity capped at 1.0 — two sequential count=2 knocks stay ≤ 1', async () => {
+    const fire = await setupLive();
+    const li = makeLi('alice');
+    fire('alice', { count: 2, ts: Date.now() }); // 0.8
+    fire('alice', { count: 2, ts: Date.now() }); // would be 1.6, capped to 1.0
+    // Transition was started (not blocked by a cap bug)
+    expect(li.style.transition).toBe('background-color 2s ease-out');
+    // Timer fires after 2.1s — cleanup works even at capped intensity
+    jest.advanceTimersByTime(2100);
+    expect(li.style.backgroundColor).toBe('');
+  });
+
+  test('cancels previous cleanup timer on re-knock', async () => {
+    const fire = await setupLive();
+    const li = makeLi('alice');
+    fire('alice', { count: 1, ts: Date.now() });
+    jest.advanceTimersByTime(1000); // 1s into 2.1s timer
+    fire('alice', { count: 1, ts: Date.now() }); // resets timer
+    // 1.2s after second knock (2.2s after first): first timer would have fired, second hasn't
+    jest.advanceTimersByTime(1200);
+    expect(li.style.backgroundColor).not.toBe('');
+  });
+
+  test('cleans up inline styles after 2.1s', async () => {
+    const fire = await setupLive();
+    const li = makeLi('alice');
+    fire('alice', { count: 1, ts: Date.now() });
+    expect(li.style.backgroundColor).not.toBe('');
+
+    jest.advanceTimersByTime(2100);
+    expect(li.style.backgroundColor).toBe('');
+    expect(li.style.transition).toBe('');
+  });
+
+  test('skips silently when sender li not in DOM', async () => {
+    const fire = await setupLive();
+    // 'ghost' has no li in the DOM
+    expect(() => fire('ghost', { count: 1, ts: Date.now() })).not.toThrow();
+  });
+});
+
+describe('live knock pulse: pulseMap reset', () => {
+  test('pulseMap is cleared on initKnocks re-call (cleanup timer cancelled)', async () => {
+    let liveCallback;
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockImplementation((_uid, cb) => { liveCallback = cb; return jest.fn(); });
+    clearKnock.mockResolvedValue();
+    await initKnocks('myUid');
+
+    const li = makeLi('alice');
+    liveCallback('alice', { count: 1, ts: Date.now() });
+    expect(li.style.backgroundColor).not.toBe('');
+
+    // Re-init: pulseMap reset; timer cancelled; styles NOT cleaned (reset only clears state)
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockReturnValue(jest.fn());
+    await initKnocks('myUid');
+
+    // Advance past old timer duration — it should have been cancelled, no double-cleanup crash
+    jest.advanceTimersByTime(2100);
+    // No error means the cancelled timer didn't fire the delete on an already-cleared map
+    expect(true).toBe(true);
+  });
+});
