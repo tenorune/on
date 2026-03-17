@@ -385,14 +385,13 @@ describe('live knock pulse: color', () => {
     const li = makeLi('alice');
     const dot = document.createElement('div');
     dot.className = 'person-dot';
-    dot.style.background = '#f43f5e'; // rgb(244, 63, 94)
+    dot.style.background = '#f43f5e'; // jsdom normalizes to rgb(244, 63, 94)
     li.appendChild(dot);
 
     fire('alice', { count: 1, ts: Date.now() });
-    // jsdom applies step 6 immediately; verify the transition was started
-    // (jsdom normalizes dot.style.background '#f43f5e' → 'rgb(...)' which breaks hex-only
-    // hexToRgba, so backgroundColor ends up empty — transition assertion covers step 6)
+    // colorToRgba handles rgb(...) so the decay target is correctly set
     expect(li.style.transition).toBe('background-color 2s ease-out');
+    expect(li.style.backgroundColor).toBe('rgba(244, 63, 94, 0)');
   });
 
   test('falls back to #22c55e when dot has no inline background', async () => {

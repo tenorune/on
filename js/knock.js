@@ -94,11 +94,17 @@ function getSenderColor(li) {
   return (dot && dot.style.background) || '#22c55e';
 }
 
-function hexToRgba(hex, alpha) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+function colorToRgba(color, alpha) {
+  if (color.startsWith('#')) {
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  // rgb(r, g, b) — browser-normalized form
+  const m = color.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+  if (m) return `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${alpha})`;
+  return `rgba(34, 197, 94, ${alpha})`; // fallback: green
 }
 
 function applyLiveKnock(senderId, count) {
@@ -113,12 +119,12 @@ function applyLiveKnock(senderId, count) {
 
   // Instant rise (no transition)
   li.style.transition = 'none';
-  li.style.backgroundColor = hexToRgba(color, newIntensity);
+  li.style.backgroundColor = colorToRgba(color, newIntensity);
   void li.offsetHeight; // force reflow
 
   // Begin 2s decay to rgba(r,g,b,0) — not 'transparent' — to preserve hue during transition
   li.style.transition = 'background-color 2s ease-out';
-  li.style.backgroundColor = hexToRgba(color, 0);
+  li.style.backgroundColor = colorToRgba(color, 0);
 
   const timerId = setTimeout(() => {
     li.style.transition = '';
