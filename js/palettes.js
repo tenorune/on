@@ -144,9 +144,11 @@ export function applyThemeVars(theme) {
   r.style.setProperty('--accent',     theme.accent);
   r.style.setProperty('--error-bg',   theme.errorBg);
   r.style.setProperty('--error-text', theme.errorText);
+  try { localStorage.setItem('statusapp_theme', JSON.stringify(theme)); } catch {}
 }
 
 export function resetThemeVars() {
+  try { localStorage.removeItem('statusapp_theme'); } catch {}
   const r = document.documentElement;
   r.style.setProperty('--bg',         '#0f172a');
   r.style.setProperty('--surface',    '#1e293b');

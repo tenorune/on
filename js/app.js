@@ -6,22 +6,9 @@ import { initList, setFolloweeReadyCallback } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer } from './mycode.js';
 import { PALETTES_ENABLED, KNOCK_ENABLED } from './features.js';
-import { applyPaletteVars, applyThemeVars, getPaletteByKey, initSwatches } from './palettes.js';
+import { applyPaletteVars, initSwatches } from './palettes.js';
 import { getPaletteState, getFollowing } from './store.js';
 
-// Apply stored palette theme before main() initialises Firebase so the splash
-// renders in the user's chosen colours immediately.
-(function applyStoredTheme() {
-  try {
-    const raw = localStorage.getItem('statusapp_palette_state');
-    if (!raw) return;
-    const state = JSON.parse(raw);
-    const key = state?.sets?.[String(state?.activeSet)]?.activePaletteKey;
-    if (!key) return;
-    const palette = getPaletteByKey(key);
-    if (palette) applyThemeVars(palette.theme);
-  } catch {}
-})();
 
 let splashCounter = 0;
 let splashDone = false;
