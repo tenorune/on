@@ -1,13 +1,56 @@
 // js/app.js
 import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity } from './identity.js';
 import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus } from './db.js';
-import { initHeader, applyOwnStatus, enterFirstUseMode } from './me.js';
-import { initList } from './following.js';
+import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
+import { initList, setFolloweeReadyCallback } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer } from './mycode.js';
 import { PALETTES_ENABLED, KNOCK_ENABLED } from './features.js';
 import { applyPaletteVars, applyThemeVars, getPaletteByKey, initSwatches } from './palettes.js';
-import { getPaletteState } from './store.js';
+import { getPaletteState, getFollowing } from './store.js';
+
+// Apply stored palette theme before main() initialises Firebase so the splash
+// renders in the user's chosen colours immediately.
+(function applyStoredTheme() {
+  try {
+    const raw = localStorage.getItem('statusapp_palette_state');
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    const key = state?.activePaletteKey;
+    if (!key) return;
+    const palette = getPaletteByKey(key);
+    if (palette) applyThemeVars(palette.theme);
+  } catch {}
+})();
+
+let splashCounter = 0;
+let splashDone = false;
+
+function initSplash(followeeCount) {
+  splashCounter = 1 + followeeCount;
+  // Call dismissSplash directly (not signalReady) so the splash always
+  // disappears after 3s regardless of how many followees haven't reported in.
+  setTimeout(dismissSplash, 3000);
+}
+
+function signalReady() {
+  if (splashDone) return;
+  splashCounter--;
+  if (splashCounter <= 0) {
+    dismissSplash();
+  }
+}
+
+function dismissSplash() {
+  if (splashDone) return;
+  splashDone = true;
+  const el = document.getElementById('splash');
+  if (!el) return;
+  el.classList.add('fading');
+  el.addEventListener('transitionend', (e) => {
+    if (e.propertyName === 'opacity') el.style.display = 'none';
+  }, { once: true });
+}
 
 async function ensureIdentity() {
   const existing = loadIdentity();
@@ -48,6 +91,7 @@ function showStaleScreen() {
 async function main() {
   let { identity, isNew } = await ensureIdentity();
   if (!identity) {
+    dismissSplash();
     await showStaleScreen();
     ({ identity, isNew } = await ensureIdentity());
   }
@@ -58,6 +102,12 @@ async function main() {
   initCodeDrawer(userId, code);
   initHeader(userId);
   initList(userId, code);
+  if (!splashDone) {
+    const followeeCount = getFollowing().length;
+    initSplash(followeeCount);
+    setOwnStatusReadyCallback(signalReady);
+    setFolloweeReadyCallback(signalReady);
+  }
   if (KNOCK_ENABLED) initKnocks(userId);
 
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
@@ -69,10 +119,6 @@ async function main() {
     const { selectedKey, activePaletteKey } = paletteState.sets[activeSetKey];
     // Apply status color vars before first paint
     applyPaletteVars(selectedKey);
-    // If stored in palette mode, apply theme before first paint (avoids flash)
-    if (activePaletteKey) {
-      applyThemeVars(getPaletteByKey(activePaletteKey).theme);
-    }
     initSwatches(userId);
   }
 
