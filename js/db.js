@@ -185,6 +185,22 @@ export async function setPaletteKey(userId, paletteKey) {
   await update(ref(db, `users/${userId}`), { paletteKey: paletteKey ?? null });
 }
 
+export async function setCallState(callerId, calleeId) {
+  await update(ref(db, `users/${callerId}`), {
+    callState: { calleeId, since: Date.now() },
+  });
+}
+
+export async function clearCallState(callerId) {
+  await update(ref(db, `users/${callerId}`), { callState: null });
+}
+
+// One-time read of a user's full document. Returns data object or null.
+export async function getUser(userId) {
+  const snap = await get(ref(db, `users/${userId}`));
+  return snap.exists() ? snap.val() : null;
+}
+
 // Write a knock from sender to recipient (capped at 5).
 // runTransaction: null → {count:1,ts}, count<5 → increment, count>=5 → abort.
 export async function writeKnock(recipientId, senderId) {
