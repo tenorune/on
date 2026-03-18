@@ -62,11 +62,11 @@ const FOREST_PALETTE = { color: '#22c55e', theme: { bg: '#052e16' } };
 const VOLT_PALETTE   = { color: '#aaff00', theme: { bg: '#1a2a00' } };
 const IRIS_PALETTE   = { color: '#818cf8', theme: { bg: '#1e1b4b' } };
 
-function mockDefaultPaletteByKey(key) {
+function defaultPaletteByKey(key) {
   return { forest: FOREST_PALETTE, volt: VOLT_PALETTE, iris: IRIS_PALETTE }[key] ?? null;
 }
 
-function mockDefaultPaletteState() {
+function defaultPaletteState() {
   return {
     activeSet: 1,
     sets: {
@@ -95,13 +95,26 @@ describe('saveFavorite', () => {
       switchSet: jest.fn(),
       enterPaletteMode: jest.fn(),
       exitPaletteMode: jest.fn(),
-      getPaletteByKey: jest.fn(mockDefaultPaletteByKey),
+      getPaletteByKey: jest.fn((key) => {
+        const palettes = {
+          forest: { color: '#22c55e', theme: { bg: '#052e16' } },
+          volt: { color: '#aaff00', theme: { bg: '#1a2a00' } },
+          iris: { color: '#818cf8', theme: { bg: '#1e1b4b' } },
+        };
+        return palettes[key] ?? null;
+      }),
       getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
     }));
     jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
     jest.mock('../js/store.js', () => ({
       ...jest.requireActual('../js/store.js'),
-      getPaletteState: jest.fn(mockDefaultPaletteState),
+      getPaletteState: jest.fn(() => ({
+        activeSet: 1,
+        sets: {
+          '1': { selectedKey: 'forest', activePaletteKey: null },
+          '2': { selectedKey: 'volt', activePaletteKey: null },
+        },
+      })),
       setPaletteState: jest.fn(),
       getFavorites: jest.fn(() => []),
       setFavorites: jest.fn(),
@@ -174,7 +187,7 @@ describe('saveFavorite', () => {
     require('../js/store.js').getPaletteState.mockReturnValue({
       activeSet: 1,
       sets: {
-        '1': { selectedKey: 'iris', activePaletteKey: 'iris' },
+        '1': { selectedKey: 'forest', activePaletteKey: 'iris' },
         '2': { selectedKey: 'volt', activePaletteKey: null },
       },
     });

@@ -31,12 +31,13 @@ function buildCombo() {
 function slotCombo(setNum) {
   const ps = getPaletteState();
   const setKey = String(setNum);
-  const { selectedKey } = ps.sets[setKey];
+  const { selectedKey, activePaletteKey } = ps.sets[setKey];
   const statusPalette = getPaletteByKey(selectedKey);
+  const themePalette  = activePaletteKey ? getPaletteByKey(activePaletteKey) : null;
   return {
     statusColor: statusPalette?.color ?? DEFAULT_THEME_BG,
-    themeBg: DEFAULT_THEME_BG,
-    paletteKey: null,
+    themeBg: themePalette?.theme.bg ?? DEFAULT_THEME_BG,
+    paletteKey: activePaletteKey,
     selectedKey,
     activeSet: setNum,
   };
