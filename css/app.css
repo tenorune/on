@@ -51,6 +51,12 @@ main {
 .status-label { font-size: 1rem; font-weight: 600; color: var(--text-muted); transition: opacity 0.2s ease, color 0.3s ease; }
 .status-label.available { color: var(--my-status); }
 
+@keyframes call-pulse {
+  0%, 100% { box-shadow: 0 0 0 1.5px rgba(var(--call-color-rgb), 0.5), 0 0 14px rgba(var(--call-color-rgb), 0.25); }
+  50%       { box-shadow: 0 0 0 1.5px rgba(var(--call-color-rgb), 0.9), 0 0 24px rgba(var(--call-color-rgb), 0.55); }
+}
+.call-mode { animation: call-pulse 2s ease-in-out infinite; }
+
 /* Following tab */
 .person-list { list-style: none; width: 100%; }
 .person-list li {
@@ -58,7 +64,7 @@ main {
   display: flex; align-items: center; gap: 0.75rem;
   margin-bottom: 0.5rem; list-style: none;
   border-left: 3px solid transparent;
-  touch-action: manipulation;
+  touch-action: pan-y;
 }
 .person-dot {
   width: 2rem; height: 2rem; border-radius: 50%; flex-shrink: 0;
