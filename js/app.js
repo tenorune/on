@@ -2,7 +2,7 @@
 import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity } from './identity.js';
 import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
-import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following.js';
+import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer } from './mycode.js';
 import { PALETTES_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
@@ -135,6 +135,9 @@ async function main() {
           }
         }
       }
+    } else if (CALL_ENABLED && getCallModeCalleeId() !== null && !userData.callState) {
+      // Callee remotely cleared our callState — exit call mode
+      exitCallMode(userId);
     }
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);

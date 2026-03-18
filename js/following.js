@@ -2,14 +2,14 @@
 import {
   lookupCode, watchStatus, watchFollowers, registerAsFollower, unregisterAsFollower,
   removeFollower, isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
-  formatLastSeen, setCallState, clearCallState, setStatusColor,
+  formatLastSeen, setCallState, clearCallState,
 } from './db.js';
 import {
-  getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode, getPaletteState,
+  getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
 } from './store.js';
 import { escapeHtml, hexToRgb } from './utils.js';
 import { PALETTES_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
-import { getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars } from './palettes.js';
+import { getGlowForColor, getPaletteByKey } from './palettes.js';
 import { sendKnock } from './knock.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
@@ -24,7 +24,6 @@ let refreshInterval = null;
 let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
 let callModeCalleeId = null;   // userId of callee while in call mode (null = not in call mode)
-let callModeSnapshot = null;   // caller's own statusColor snapshot before entering call mode
 
 function showConfirm(title, btnText, action) {
   pendingAction = action;
@@ -71,7 +70,6 @@ export function initList(myUserId, myCode) {
   lastUserData.clear();
   editingSet.clear();
   callModeCalleeId = null;
-  callModeSnapshot = null;
   latestFollowersSnapshot = [];
   pendingAction = null;
   if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
@@ -175,37 +173,25 @@ export function resetRenderedFollowees() {
 export function getCallModeCalleeId() { return callModeCalleeId; }
 
 export function enterCallMode(calleeEntry, myUserId) {
-  // Snapshot own statusColor only at the first call mode entry (not on replacement)
-  if (callModeCalleeId === null) {
-    callModeSnapshot =
-      document.documentElement.style.getPropertyValue('--my-status').trim() || '#22c55e';
-  }
-  callModeCalleeId = calleeEntry.userId;
+  // If we were being called by someone, clear their callState first
+  lastUserData.forEach((userData, userId) => {
+    if (userData.callState?.calleeId === myUserId) {
+      clearCallState(userId).catch(() => {});
+    }
+  });
 
+  callModeCalleeId = calleeEntry.userId;
   setCallState(myUserId, calleeEntry.userId).catch(() => {});
 
   const calleeData = lastUserData.get(calleeEntry.userId);
-  const color = calleeData?.statusColor || '#22c55e';
-
-  // Apply callee's full theme
-  if (calleeData?.paletteKey) {
-    const palette = getPaletteByKey(calleeData.paletteKey);
-    if (palette) applyThemeVars(palette.theme);
-  }
-
-  // Apply callee's status color to own CSS vars
-  document.documentElement.style.setProperty('--my-status', color);
-  document.documentElement.style.setProperty('--my-glow', `rgba(${hexToRgb(color)}, 0.4)`);
-
-  // Update own statusColor in Firebase so other mutuals see the adopted color
-  setStatusColor(myUserId, color).catch(() => {});
+  const callColor = calleeData?.statusColor || '#22c55e';
 
   // Apply glow to callee's card (clear any in-progress knock animation first)
   const liPre = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
   if (liPre) {
     liPre.style.boxShadow = '';
     liPre.style.transition = '';
-    liPre.style.setProperty('--call-color-rgb', hexToRgb(color));
+    liPre.style.setProperty('--call-color-rgb', hexToRgb(callColor));
     liPre.classList.add('call-mode');
   }
 
@@ -214,20 +200,13 @@ export function enterCallMode(calleeEntry, myUserId) {
 
 export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
   callModeCalleeId = calleeEntry.userId;
-  // No snapshot — exit will fall back to own palette primary color
-  const color = calleeData?.statusColor || '#22c55e';
-  if (calleeData?.paletteKey) {
-    const palette = getPaletteByKey(calleeData.paletteKey);
-    if (palette) applyThemeVars(palette.theme);
-  }
-  document.documentElement.style.setProperty('--my-status', color);
-  document.documentElement.style.setProperty('--my-glow', `rgba(${hexToRgb(color)}, 0.4)`);
-  setStatusColor(myUserId, color).catch(() => {});
+  // No Firebase write — state already persisted
+  const callColor = calleeData?.statusColor || '#22c55e';
   const li = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
   if (li) {
     li.style.boxShadow = '';
     li.style.transition = '';
-    li.style.setProperty('--call-color-rgb', hexToRgb(color));
+    li.style.setProperty('--call-color-rgb', hexToRgb(callColor));
     li.classList.add('call-mode');
   }
   renderList();
@@ -235,34 +214,9 @@ export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
 
 export function exitCallMode(myUserId) {
   const prevCalleeId = callModeCalleeId;
-
-  // Determine revert color: snapshot first, then active palette primary, then hardcoded default
-  const paletteState = getPaletteState();
-  const setKey = String(paletteState.activeSet);
-  const activePaletteKey = paletteState.sets[setKey].activePaletteKey;
-  const fallbackPalette = getPaletteByKey(activePaletteKey);
-  const fallbackColor = fallbackPalette ? fallbackPalette.color : '#22c55e';
-  const revertColor = callModeSnapshot || fallbackColor;
-
+  callModeCalleeId = null;
   clearCallState(myUserId).catch(() => {});
 
-  callModeCalleeId = null;
-  callModeSnapshot = null;
-
-  // Revert theme
-  if (activePaletteKey) {
-    const ownPalette = getPaletteByKey(activePaletteKey);
-    if (ownPalette) applyThemeVars(ownPalette.theme);
-  } else {
-    resetThemeVars();
-  }
-
-  // Revert own status color
-  document.documentElement.style.setProperty('--my-status', revertColor);
-  document.documentElement.style.setProperty('--my-glow', `rgba(${hexToRgb(revertColor)}, 0.4)`);
-  setStatusColor(myUserId, revertColor).catch(() => {});
-
-  // Remove glow from old callee's card
   if (prevCalleeId) {
     const li = document.querySelector(`[data-user-id="${prevCalleeId}"]`);
     if (li) {
@@ -595,7 +549,9 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   const isCallee = callModeCalleeId !== null && entry.userId === callModeCalleeId;
   const isCallModeReceiver = !isCallee && userData.callState?.calleeId === myUserId;
   if (isCallee || isCallModeReceiver) {
-    const callColor = userData.statusColor || '#22c55e';
+    const callColor = isAvail
+      ? (userData.statusColor || '#22c55e')
+      : (getComputedStyle(document.documentElement).getPropertyValue('--dot-off').trim() || '#6b7280');
     li.style.setProperty('--call-color-rgb', hexToRgb(callColor));
     li.classList.add('call-mode');
   } else {

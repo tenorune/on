@@ -52,10 +52,14 @@ main {
 .status-label.available { color: var(--my-status); }
 
 @keyframes call-pulse {
-  0%, 100% { box-shadow: 0 0 0 1.5px rgba(var(--call-color-rgb), 0.5), 0 0 14px rgba(var(--call-color-rgb), 0.25); }
-  50%       { box-shadow: 0 0 0 1.5px rgba(var(--call-color-rgb), 0.9), 0 0 24px rgba(var(--call-color-rgb), 0.55); }
+  0%, 100% { box-shadow: 0 0 0 1.5px rgba(var(--call-color-rgb), 0.3), 0 0 14px rgba(var(--call-color-rgb), 0.15); }
+  50%       { box-shadow: 0 0 0 1.5px rgba(var(--call-color-rgb), 1.0), 0 0 24px rgba(var(--call-color-rgb), 0.65); }
 }
-.call-mode { animation: call-pulse 2s ease-in-out infinite; }
+.call-mode { position: relative; }
+.call-mode::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  pointer-events: none; animation: call-pulse 3s ease-in-out infinite;
+}
 
 /* Following tab */
 .person-list { list-style: none; width: 100%; }
