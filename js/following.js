@@ -212,6 +212,27 @@ export function enterCallMode(calleeEntry, myUserId) {
   renderList();
 }
 
+export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
+  callModeCalleeId = calleeEntry.userId;
+  // No snapshot — exit will fall back to own palette primary color
+  const color = calleeData?.statusColor || '#22c55e';
+  if (calleeData?.paletteKey) {
+    const palette = getPaletteByKey(calleeData.paletteKey);
+    if (palette) applyThemeVars(palette.theme);
+  }
+  document.documentElement.style.setProperty('--my-status', color);
+  document.documentElement.style.setProperty('--my-glow', `rgba(${hexToRgb(color)}, 0.4)`);
+  setStatusColor(myUserId, color).catch(() => {});
+  const li = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
+  if (li) {
+    li.style.boxShadow = '';
+    li.style.transition = '';
+    li.style.setProperty('--call-color-rgb', hexToRgb(color));
+    li.classList.add('call-mode');
+  }
+  renderList();
+}
+
 export function exitCallMode(myUserId) {
   const prevCalleeId = callModeCalleeId;
 

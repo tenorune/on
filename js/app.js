@@ -1,11 +1,11 @@
 // js/app.js
 import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity } from './identity.js';
-import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus } from './db.js';
+import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
-import { initList, setFolloweeReadyCallback } from './following.js';
+import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer } from './mycode.js';
-import { PALETTES_ENABLED, KNOCK_ENABLED } from './features.js';
+import { PALETTES_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { applyPaletteVars, initSwatches } from './palettes.js';
 import { getPaletteState, getFollowing } from './store.js';
 
@@ -111,8 +111,32 @@ async function main() {
 
   let lastStatus = null;
   let lastAvailableUntil = null;
-  watchStatus(userId, (userData) => {
+  let callModeHandled = false;
+  watchStatus(userId, async (userData) => {
     if (!userData) return;
+
+    if (!callModeHandled) {
+      callModeHandled = true;
+      if (CALL_ENABLED && userData.callState) {
+        const { calleeId } = userData.callState;
+        const calleeEntry = getFollowing().find(e => e.userId === calleeId);
+        if (!calleeEntry) {
+          clearCallState(userId).catch(() => {});
+        } else {
+          try {
+            const calleeData = await getUser(calleeId);
+            if (calleeData) {
+              reEnterCallMode(calleeEntry, calleeData, userId);
+            } else {
+              clearCallState(userId).catch(() => {});
+            }
+          } catch {
+            clearCallState(userId).catch(() => {});
+          }
+        }
+      }
+    }
+
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);
     const effectiveStatus = expired ? 'unavailable' : userData.status;
     const effectiveUntil  = expired ? null : userData.availableUntil;

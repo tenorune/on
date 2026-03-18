@@ -60,7 +60,7 @@ const { getFollowing, updateFollowingCode } = require('../js/store.js');
 const { getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars } = require('../js/palettes.js');
 const {
   initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees,
-  enterCallMode, exitCallMode, getCallModeCalleeId,
+  enterCallMode, exitCallMode, getCallModeCalleeId, reEnterCallMode,
 } = require('../js/following.js');
 
 function setupDom() {
@@ -1024,5 +1024,128 @@ describe('call mode: swipe gesture', () => {
     firePointer(li, 'pointerup',   100, 100);
 
     expect(setCallState).not.toHaveBeenCalled();
+  });
+});
+
+describe('call mode: reEnterCallMode', () => {
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+    // initList resets callModeCalleeId/callModeSnapshot
+    initAndCaptureFollowersCallback('myUid', 'MYCODE');
+  });
+
+  test('sets callModeCalleeId to callee userId', () => {
+    reEnterCallMode({ userId: 'alice', code: 'AAA111', label: 'Alice' }, {}, 'myUid');
+    expect(getCallModeCalleeId()).toBe('alice');
+  });
+
+  test('does NOT call setCallState (no Firebase write on restart)', () => {
+    reEnterCallMode({ userId: 'alice', code: 'AAA111', label: 'Alice' }, {}, 'myUid');
+    expect(setCallState).not.toHaveBeenCalled();
+  });
+
+  test('sets --my-status CSS var to calleeData.statusColor', () => {
+    reEnterCallMode(
+      { userId: 'alice', code: 'AAA111', label: 'Alice' },
+      { statusColor: '#3b82f6' },
+      'myUid'
+    );
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#3b82f6');
+  });
+
+  test('sets --my-glow CSS var derived from calleeData.statusColor', () => {
+    reEnterCallMode(
+      { userId: 'alice', code: 'AAA111', label: 'Alice' },
+      { statusColor: '#3b82f6' },
+      'myUid'
+    );
+    expect(document.documentElement.style.getPropertyValue('--my-glow')).toBe('rgba(59, 130, 246, 0.4)');
+  });
+
+  test('falls back to #22c55e when calleeData has no statusColor', () => {
+    reEnterCallMode({ userId: 'alice', code: 'AAA111', label: 'Alice' }, {}, 'myUid');
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#22c55e');
+  });
+
+  test('applies theme vars when calleeData has a known paletteKey', () => {
+    const OCEAN_PALETTE = {
+      key: 'ocean', color: '#3b82f6',
+      theme: { bg: '#05101e', surface: '#0b1e38', surface2: '#102c52', text: '#eef4ff', textMuted: '#5f9acf' },
+    };
+    getPaletteByKey.mockReturnValue(OCEAN_PALETTE);
+    reEnterCallMode(
+      { userId: 'alice', code: 'AAA111', label: 'Alice' },
+      { statusColor: '#3b82f6', paletteKey: 'ocean' },
+      'myUid'
+    );
+    expect(getPaletteByKey).toHaveBeenCalledWith('ocean');
+    expect(applyThemeVars).toHaveBeenCalledWith(OCEAN_PALETTE.theme);
+  });
+
+  test('does NOT call applyThemeVars when calleeData has no paletteKey', () => {
+    reEnterCallMode(
+      { userId: 'alice', code: 'AAA111', label: 'Alice' },
+      { statusColor: '#3b82f6' },
+      'myUid'
+    );
+    expect(applyThemeVars).not.toHaveBeenCalled();
+  });
+
+  test('adds .call-mode class to callee li element', () => {
+    // Set up alice as a mutual with cached status data so updateFolloweeRow fires on re-render
+    getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
+    let aliceStatusCallback;
+    watchStatus.mockImplementationOnce((_uid, cb) => {
+      aliceStatusCallback = cb;
+      return jest.fn();
+    });
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    fire([{ userId: 'alice', code: 'AAA111' }]);
+    // Populate lastUserData for alice so updateFolloweeRow is called on re-render
+    aliceStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6' });
+
+    reEnterCallMode(
+      { userId: 'alice', code: 'AAA111', label: 'Alice' },
+      { statusColor: '#3b82f6' },
+      'myUid'
+    );
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(true);
+  });
+
+  test('sets --call-color-rgb on callee li element', () => {
+    // Set up alice as a mutual with cached status data so updateFolloweeRow fires on re-render
+    getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
+    let aliceStatusCallback;
+    watchStatus.mockImplementationOnce((_uid, cb) => {
+      aliceStatusCallback = cb;
+      return jest.fn();
+    });
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    fire([{ userId: 'alice', code: 'AAA111' }]);
+    aliceStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6' });
+
+    reEnterCallMode(
+      { userId: 'alice', code: 'AAA111', label: 'Alice' },
+      { statusColor: '#3b82f6' },
+      'myUid'
+    );
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.style.getPropertyValue('--call-color-rgb')).toBe('59, 130, 246');
+  });
+
+  test('no snapshot set — exitCallMode reverts to own palette primary color', () => {
+    // When reEnterCallMode is used, callModeSnapshot stays null.
+    // exitCallMode should fall back to the active palette color (or #22c55e if none).
+    // Ensure getPaletteByKey returns null so fallbackColor = '#22c55e'
+    getPaletteByKey.mockReturnValue(null);
+    reEnterCallMode({ userId: 'alice', code: 'AAA111', label: 'Alice' }, {}, 'myUid');
+    jest.clearAllMocks();
+    getPaletteByKey.mockReturnValue(null);
+    exitCallMode('myUid');
+    // getPaletteState mock returns activePaletteKey: null → fallback is #22c55e
+    expect(setStatusColor).toHaveBeenCalledWith('myUid', '#22c55e');
   });
 });
