@@ -472,12 +472,17 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
   if (PALETTES_ENABLED) {
     let pressTimer = null;
     let pressStartX, pressStartY;
+    let suppressNextClick = false;
 
     li.addEventListener('pointerdown', (e) => {
       clearTimeout(pressTimer); pressTimer = null;
       pressStartX = e.clientX;
       pressStartY = e.clientY;
-      pressTimer = setTimeout(() => triggerAdoption(entry, myUserId), 500);
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        suppressNextClick = true;
+        triggerAdoption(entry, myUserId);
+      }, 500);
     });
     li.addEventListener('pointermove', (e) => {
       if (pressTimer && (Math.abs(e.clientX - pressStartX) > 8 ||
@@ -488,6 +493,9 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     ['pointerup', 'pointercancel'].forEach(ev =>
       li.addEventListener(ev, () => { clearTimeout(pressTimer); pressTimer = null; })
     );
+    li.addEventListener('click', (e) => {
+      if (suppressNextClick) { suppressNextClick = false; e.stopImmediatePropagation(); }
+    }, true);
   }
 
   document.getElementById('people-list').appendChild(li);
