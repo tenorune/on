@@ -61,6 +61,12 @@ main {
   pointer-events: none; animation: call-pulse 3s ease-in-out infinite;
 }
 
+/* Long-press palette adoption indicator */
+.adopted-from {
+  outline: 1.5px solid var(--my-status, #22c55e);
+  outline-offset: -1.5px;
+}
+
 /* Following tab */
 .person-list { list-style: none; width: 100%; }
 .person-list li {

@@ -1465,4 +1465,19 @@ describe('long press handler', () => {
     jest.resetModules();
     jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
   });
+
+  test('fires adoption on third long-press (re-adopt after revert)', () => {
+    const li = setupForLongPress({ statusColor: '#f59e0b', paletteKey: 'ember' });
+    // First long-press: adopt
+    press(li); jest.advanceTimersByTime(500);
+    expect(enterPaletteMode).toHaveBeenCalledWith('ember', MY_ID);
+    jest.clearAllMocks();
+    // Second long-press: revert
+    press(li); jest.advanceTimersByTime(500);
+    expect(switchSet).toHaveBeenCalled();
+    jest.clearAllMocks();
+    // Third long-press: re-adopt
+    press(li); jest.advanceTimersByTime(500);
+    expect(enterPaletteMode).toHaveBeenCalledWith('ember', MY_ID);
+  });
 });
