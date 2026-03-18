@@ -1089,3 +1089,76 @@ describe('long-press palette adoption: scaffolding', () => {
     expect(jest.isMockFunction(switchSet)).toBe(true);
   });
 });
+
+// Helper used in adoption tests — sets up a mutual card and populates lastUserData
+function setupMutualAndFireStatus(userId, userData, myUserId = 'myUid') {
+  getFollowing.mockReturnValue([{ userId, code: 'XY9K2M', label: 'Alice' }]);
+  const fire = initAndCaptureFollowersCallback(myUserId);
+  fire([{ userId, code: 'XY9K2M' }]);  // mutual
+  // Populate lastUserData by firing a watchStatus callback
+  const watchStatusCb = watchStatus.mock.calls.find(c => c[0] === userId)?.[1];
+  if (watchStatusCb) watchStatusCb(userData);
+  return document.querySelector(`[data-user-id="${userId}"]`);
+}
+
+describe('applyAdoption', () => {
+  const TARGET_ID = 'u1';
+  const MY_ID = 'myUid';
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    document.documentElement.style.setProperty('--my-status', '#22c55e');
+    document.documentElement.style.setProperty('--my-glow', '#86efac');
+  });
+
+  function triggerAdoptionFor(userId, userData) {
+    const li = setupMutualAndFireStatus(userId, userData, MY_ID);
+    const { _testOnlyTriggerAdoption } = require('../js/following.js');
+    _testOnlyTriggerAdoption({ userId }, MY_ID);
+    return li;
+  }
+
+  test('calls enterPaletteMode with target paletteKey when present', () => {
+    triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b', paletteKey: 'ember' });
+    expect(enterPaletteMode).toHaveBeenCalledWith('ember', MY_ID);
+  });
+
+  test('does NOT call enterPaletteMode when target has no paletteKey', () => {
+    triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b' });
+    expect(enterPaletteMode).not.toHaveBeenCalled();
+  });
+
+  test('calls setStatusColor with target statusColor when present', () => {
+    const { setStatusColor } = require('../js/db.js');
+    triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b', paletteKey: 'ember' });
+    expect(setStatusColor).toHaveBeenCalledWith(MY_ID, '#f59e0b');
+  });
+
+  test('does NOT call setStatusColor when target has no statusColor', () => {
+    const { setStatusColor } = require('../js/db.js');
+    triggerAdoptionFor(TARGET_ID, { paletteKey: 'ember' });
+    expect(setStatusColor).not.toHaveBeenCalled();
+  });
+
+  test('sets --my-status CSS var to target statusColor', () => {
+    triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b' });
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#f59e0b');
+  });
+
+  test('adds .adopted-from class to target li', () => {
+    const li = triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b' });
+    expect(li.classList.contains('adopted-from')).toBe(true);
+  });
+
+  test('snapshots current --my-status before applying new one', () => {
+    const { setStatusColor } = require('../js/db.js');
+    triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b' });
+    // First adoption wrote #f59e0b; snapshot held #22c55e
+    // Second long press on same card should revert
+    const { _testOnlyTriggerAdoption } = require('../js/following.js');
+    _testOnlyTriggerAdoption({ userId: TARGET_ID }, MY_ID);
+    // Revert: setStatusColor called with original #22c55e
+    expect(setStatusColor).toHaveBeenLastCalledWith(MY_ID, '#22c55e');
+  });
+});

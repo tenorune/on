@@ -330,6 +330,64 @@ function renderList() {
   });
 }
 
+function applyAdoption(entry, myUserId) {
+  if (adoptionSnapshot) revertAdoption(myUserId);
+
+  const ps = getPaletteState();
+  const activeSet = String(ps.activeSet);
+  const style = getComputedStyle(document.documentElement);
+  adoptionSnapshot = {
+    fromUserId: entry.userId,
+    activeSet: ps.activeSet,
+    activePaletteKey: ps.sets[activeSet].activePaletteKey,
+    selectedKey: ps.sets[activeSet].selectedKey,
+    statusColor: style.getPropertyValue('--my-status').trim(),
+    glowColor:   style.getPropertyValue('--my-glow').trim(),
+  };
+
+  const targetData = lastUserData.get(entry.userId);
+  if (targetData?.paletteKey) {
+    enterPaletteMode(targetData.paletteKey, myUserId);
+  }
+  if (targetData?.statusColor) {
+    setStatusColor(myUserId, targetData.statusColor).catch(() => {});
+    const glow = getGlowForColor(targetData.statusColor);
+    document.documentElement.style.setProperty('--my-status', targetData.statusColor);
+    document.documentElement.style.setProperty('--my-glow', glow);
+  }
+
+  const li = document.querySelector(`[data-user-id="${entry.userId}"]`);
+  if (li) li.classList.add('adopted-from');
+}
+
+function revertAdoption(myUserId) {
+  const snapshot = adoptionSnapshot;
+  if (!snapshot) return;
+
+  switchSet(snapshot.activeSet, myUserId);
+
+  if (snapshot.activePaletteKey) {
+    enterPaletteMode(snapshot.activePaletteKey, myUserId);
+  } else {
+    exitPaletteMode(myUserId);
+  }
+
+  document.documentElement.style.setProperty('--my-status', snapshot.statusColor);
+  document.documentElement.style.setProperty('--my-glow', snapshot.glowColor);
+  setStatusColor(myUserId, snapshot.statusColor).catch(() => {});
+
+  document.querySelectorAll('.adopted-from').forEach(el => el.classList.remove('adopted-from'));
+  adoptionSnapshot = null;
+}
+
+function triggerAdoption(entry, myUserId) {
+  if (adoptionSnapshot?.fromUserId === entry.userId) {
+    revertAdoption(myUserId);
+  } else {
+    applyAdoption(entry, myUserId);
+  }
+}
+
 function createFolloweeRow(entry, myUserId, isMutual = false) {
   const li = document.createElement('li');
   li.dataset.userId = entry.userId;
@@ -664,3 +722,6 @@ function showError(el, msg) {
   el.textContent = msg;
   el.classList.remove('hidden');
 }
+
+// TODO: remove in Task 4 Step 5 — replaced by long press handler integration tests
+export function _testOnlyTriggerAdoption(entry, myUserId) { triggerAdoption(entry, myUserId); }
