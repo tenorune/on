@@ -210,13 +210,6 @@ export function enterCallMode(calleeEntry, myUserId) {
   }
 
   renderList();
-
-  // renderList() recreates the li element; re-apply call-mode glow to the new element
-  const liPost = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
-  if (liPost) {
-    liPost.style.setProperty('--call-color-rgb', hexToRgb(color));
-    liPost.classList.add('call-mode');
-  }
 }
 
 export function exitCallMode(myUserId) {

@@ -951,7 +951,10 @@ describe('call mode: swipe gesture', () => {
 
   test('left-swipe on caller-side .call-mode card calls clearCallState(myUserId)', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchStatus.mockImplementationOnce((_uid, cb) => {
+      cb({ status: 'unavailable', statusColor: '#22c55e' });
+      return jest.fn();
+    });
     const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
     fire([{ userId: 'alice', code: 'AAA111' }]);
 
@@ -971,7 +974,10 @@ describe('call mode: swipe gesture', () => {
 
   test('left-swipe on receiver-side .call-mode card calls clearCallState(callerId)', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchStatus.mockImplementationOnce((_uid, cb) => {
+      cb({ status: 'unavailable', statusColor: '#22c55e' });
+      return jest.fn();
+    });
     const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
     fire([{ userId: 'alice', code: 'AAA111' }]);
 
