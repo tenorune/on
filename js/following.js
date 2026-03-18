@@ -474,6 +474,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     let pressStartX, pressStartY;
 
     li.addEventListener('pointerdown', (e) => {
+      clearTimeout(pressTimer); pressTimer = null;
       pressStartX = e.clientX;
       pressStartY = e.clientY;
       pressTimer = setTimeout(() => triggerAdoption(entry, myUserId), 500);
