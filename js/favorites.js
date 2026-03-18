@@ -154,9 +154,51 @@ function renderPill(combo, state, type, index) {
 // ─── Interaction handlers (filled in Task 5) ────────────────────────────────
 
 function handleSlotTap(slotNum) {
-  // filled in Task 5
+  const ps = getPaletteState();
+  if (ps.activeSet === slotNum) return;
+  switchSet(slotNum, _myUserId);
+  renderStrip();
 }
 
 function handleHistoryTap(idx) {
-  // filled in Task 5
+  const history = getFavorites();
+  const combo = history[idx];
+  if (!combo) return;
+
+  // Snapshot old active slot BEFORE mutating state
+  const oldSlot = slotCombo(getPaletteState().activeSet);
+
+  // Step 0: restore selectedKey so switchSet highlights the right swatch
+  const state = getPaletteState();
+  state.sets[String(combo.activeSet)].selectedKey = combo.selectedKey;
+  setPaletteState(state);
+
+  // Step 1: switchSet (also calls setStatusColor internally — step 3 overrides)
+  switchSet(combo.activeSet, _myUserId);
+
+  // Step 2: apply or clear palette theme
+  if (combo.paletteKey) {
+    enterPaletteMode(combo.paletteKey, _myUserId);
+  } else {
+    exitPaletteMode(_myUserId);
+  }
+
+  // Step 3: apply canonical status color (overrides what switchSet wrote)
+  setStatusColor(_myUserId, combo.statusColor).catch(() => {});
+  document.documentElement.style.setProperty('--my-status', combo.statusColor);
+  document.documentElement.style.setProperty('--my-glow', getGlowForColor(combo.statusColor));
+
+  // Step 4: remove pill from history
+  const newHistory = history.filter((_, i) => i !== idx);
+
+  // Step 5: prepend old slot — dedup against new slot state
+  const newSlot1 = slotCombo(1);
+  const newSlot2 = slotCombo(2);
+  const shouldPrepend = !combosMatch(oldSlot, newSlot1) && !combosMatch(oldSlot, newSlot2);
+  const finalHistory = shouldPrepend
+    ? [oldSlot, ...newHistory].slice(0, MAX_HISTORY)
+    : newHistory;
+
+  setFavorites(finalHistory);
+  renderStrip();
 }
