@@ -1,8 +1,10 @@
 // tests/following.test.js
-jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, KNOCK_ENABLED: true }));
+jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: false }));
 jest.mock('../js/palettes.js', () => ({
   ...jest.requireActual('../js/palettes.js'),
   getPaletteByKey: jest.fn(),
+  applyThemeVars: jest.fn(),
+  resetThemeVars: jest.fn(),
 }));
 jest.mock('../js/db.js', () => ({
   lookupCode: jest.fn(),
@@ -20,6 +22,9 @@ jest.mock('../js/db.js', () => ({
   getKnocks: jest.fn(),
   watchKnocksAdded: jest.fn(),
   clearKnock: jest.fn(),
+  setCallState: jest.fn().mockResolvedValue(undefined),
+  clearCallState: jest.fn().mockResolvedValue(undefined),
+  setStatusColor: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
@@ -30,11 +35,18 @@ jest.mock('../js/store.js', () => ({
   removeFollowing: jest.fn(),
   renameFollowing: jest.fn(),
   updateFollowingCode: jest.fn(),
+  getPaletteState: jest.fn().mockReturnValue({
+    activeSet: 1,
+    sets: {
+      '1': { selectedKey: 'forest', activePaletteKey: null },
+      '2': { selectedKey: 'volt',   activePaletteKey: null },
+    },
+  }),
 }));
 
-const { watchStatus, watchFollowers } = require('../js/db.js');
+const { watchStatus, watchFollowers, setCallState, clearCallState } = require('../js/db.js');
 const { getFollowing, updateFollowingCode } = require('../js/store.js');
-const { getGlowForColor, getPaletteByKey } = require('../js/palettes.js');
+const { getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars } = require('../js/palettes.js');
 const { initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees } = require('../js/following.js');
 
 function setupDom() {
@@ -615,21 +627,22 @@ describe('knock click handler on mutual rows', () => {
   });
 });
 
-describe('setFolloweeReadyCallback', () => {
-  function makeFolloweeLi(userId) {
-    const li = document.createElement('li');
-    li.dataset.userId = userId;
-    li.innerHTML = `
-      <div class="person-dot"></div>
-      <div class="person-info">
-        <div class="person-label">${userId}</div>
-        <div class="person-status">Unavailable</div>
-      </div>
-      <button class="unfollow-btn">×</button>`;
-    document.getElementById('people-list').appendChild(li);
-    return li;
-  }
+// --- Helper used by call mode tests ---
+function makeFolloweeLi(userId) {
+  const li = document.createElement('li');
+  li.dataset.userId = userId;
+  li.innerHTML = `
+    <div class="person-dot"></div>
+    <div class="person-info">
+      <div class="person-label">Name</div>
+      <div class="person-status"></div>
+    </div>
+    <button class="unfollow-btn"></button>`;
+  document.getElementById('people-list').appendChild(li);
+  return li;
+}
 
+describe('setFolloweeReadyCallback', () => {
   let cb;
   beforeEach(() => {
     setupDom();
@@ -673,5 +686,106 @@ describe('setFolloweeReadyCallback', () => {
     makeFolloweeLi('alice');
     updateFolloweeRow(entry, { status: 'unavailable', availableUntil: null }, 'me');
     expect(cb).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('call mode: receiver-side glow via updateFolloweeRow', () => {
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+  });
+
+  test('adds .call-mode and sets --call-color-rgb when callState.calleeId === myUserId', () => {
+    const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    makeFolloweeLi('alice');
+    updateFolloweeRow(entry, {
+      status: 'available',
+      availableUntil: Date.now() + 3600000,
+      statusColor: '#3b82f6',
+      callState: { calleeId: 'myUid', since: Date.now() },
+    }, 'myUid');
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(true);
+    expect(li.style.getPropertyValue('--call-color-rgb')).toBe('59, 130, 246');
+  });
+
+  test('removes .call-mode when callState is absent', () => {
+    const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    const li = makeFolloweeLi('alice');
+    li.classList.add('call-mode');
+    li.style.setProperty('--call-color-rgb', '59, 130, 246');
+    updateFolloweeRow(entry, {
+      status: 'available',
+      availableUntil: Date.now() + 3600000,
+      statusColor: '#3b82f6',
+    }, 'myUid');
+    expect(li.classList.contains('call-mode')).toBe(false);
+    expect(li.style.getPropertyValue('--call-color-rgb')).toBe('');
+  });
+
+  test('removes .call-mode when callState.calleeId !== myUserId', () => {
+    const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    const li = makeFolloweeLi('alice');
+    li.classList.add('call-mode');
+    updateFolloweeRow(entry, {
+      status: 'available',
+      availableUntil: Date.now() + 3600000,
+      statusColor: '#3b82f6',
+      callState: { calleeId: 'someoneElse', since: Date.now() },
+    }, 'myUid');
+    expect(li.classList.contains('call-mode')).toBe(false);
+  });
+
+  test('uses fallback #22c55e when statusColor absent', () => {
+    const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    makeFolloweeLi('alice');
+    updateFolloweeRow(entry, {
+      status: 'available',
+      availableUntil: Date.now() + 3600000,
+      callState: { calleeId: 'myUid', since: Date.now() },
+    }, 'myUid');
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.style.getPropertyValue('--call-color-rgb')).toBe('34, 197, 94');
+  });
+});
+
+describe('call mode: change-detection guard passes callState changes through', () => {
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+  });
+
+  test('updateFolloweeRow fires when only callState changes', () => {
+    const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    makeFolloweeLi('alice');
+
+    let statusCallback;
+    watchStatus.mockImplementationOnce((_uid, cb) => {
+      statusCallback = cb;
+      return jest.fn();
+    });
+    watchFollowers.mockReturnValue(jest.fn());
+    getFollowing.mockReturnValue([entry]);
+
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    fire([{ userId: 'alice', code: 'AAA111' }]);
+
+    const baseData = {
+      status: 'available',
+      availableUntil: Date.now() + 3600000,
+      statusColor: '#3b82f6',
+      paletteKey: null,
+      code: 'AAA111',
+    };
+    statusCallback(baseData);
+
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(false);
+
+    // Same everything except callState now points to us
+    statusCallback({ ...baseData, callState: { calleeId: 'myUid', since: Date.now() } });
+    expect(li.classList.contains('call-mode')).toBe(true);
   });
 });

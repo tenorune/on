@@ -2,12 +2,14 @@
 import {
   lookupCode, watchStatus, watchFollowers, registerAsFollower, unregisterAsFollower,
   removeFollower, isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
-  formatLastSeen,
+  formatLastSeen, setCallState, clearCallState, setStatusColor,
 } from './db.js';
-import { getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode } from './store.js';
-import { escapeHtml } from './utils.js';
-import { PALETTES_ENABLED, KNOCK_ENABLED } from './features.js';
-import { getGlowForColor, getPaletteByKey } from './palettes.js';
+import {
+  getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode, getPaletteState,
+} from './store.js';
+import { escapeHtml, hexToRgb } from './utils.js';
+import { PALETTES_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
+import { getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars } from './palettes.js';
 import { sendKnock } from './knock.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
@@ -21,6 +23,8 @@ let unsubFollowers = null;
 let refreshInterval = null;
 let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
+let callModeCalleeId = null;   // userId of callee while in call mode (null = not in call mode)
+let callModeSnapshot = null;   // caller's own statusColor snapshot before entering call mode
 
 function showConfirm(title, btnText, action) {
   pendingAction = action;
@@ -66,6 +70,8 @@ export function initList(myUserId, myCode) {
   unsubscribers.clear();
   lastUserData.clear();
   editingSet.clear();
+  callModeCalleeId = null;
+  callModeSnapshot = null;
   latestFollowersSnapshot = [];
   pendingAction = null;
   if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
@@ -368,7 +374,8 @@ function subscribeToFollowee(entry, myUserId) {
         userData.availableUntil === prevUserData.availableUntil &&
         userData.statusColor === prevUserData.statusColor &&
         userData.paletteKey === prevUserData.paletteKey &&
-        userData.code === prevUserData.code) return;
+        userData.code === prevUserData.code &&
+        userData.callState?.calleeId === prevUserData.callState?.calleeId) return;
     updateFolloweeRow(entry, userData, myUserId);
   });
   unsubscribers.set(entry.userId, unsub);
@@ -435,6 +442,18 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     li.style.background      = '';
     li.style.borderLeftColor = isAvail ? color : '';
     if (statusEl) statusEl.style.color = '';
+  }
+
+  // Call mode glow — caller side (this card is our active callee) or receiver side (they called us)
+  const isCallee = callModeCalleeId !== null && entry.userId === callModeCalleeId;
+  const isCallModeReceiver = !isCallee && userData.callState?.calleeId === myUserId;
+  if (isCallee || isCallModeReceiver) {
+    const callColor = userData.statusColor || '#22c55e';
+    li.style.setProperty('--call-color-rgb', hexToRgb(callColor));
+    li.classList.add('call-mode');
+  } else {
+    li.classList.remove('call-mode');
+    li.style.removeProperty('--call-color-rgb');
   }
 }
 
