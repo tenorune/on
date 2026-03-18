@@ -219,8 +219,7 @@ export function exitCallMode(myUserId) {
   const paletteState = getPaletteState();
   const setKey = String(paletteState.activeSet);
   const activePaletteKey = paletteState.sets[setKey].activePaletteKey;
-  const selectedKey = paletteState.sets[setKey].selectedKey;
-  const fallbackPalette = getPaletteByKey(activePaletteKey || selectedKey);
+  const fallbackPalette = getPaletteByKey(activePaletteKey);
   const fallbackColor = fallbackPalette ? fallbackPalette.color : '#22c55e';
   const revertColor = callModeSnapshot || fallbackColor;
 
