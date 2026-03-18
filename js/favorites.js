@@ -90,6 +90,16 @@ function renderCollapsed(container, history) {
   const slot2 = slotCombo(2);
   const allColors = [slot1.statusColor, slot2.statusColor, ...history.map(c => c.statusColor)];
   const n = allColors.length;
+  // n ≥ 3 in normal flow (renderStrip guards history.length ≥ 1, so n = 2 + history.length)
+  if (n <= 1) {
+    container.innerHTML =
+      `<div class="fav-collapsed" style="background:${allColors[0] ?? 'transparent'}"></div>`;
+    container.querySelector('.fav-collapsed').addEventListener('click', () => {
+      localStorage.removeItem(COLLAPSED_KEY);
+      renderStrip();
+    });
+    return;
+  }
   const stops = allColors
     .map((c, i) => `${c} ${Math.round((i / (n - 1)) * 100)}%`)
     .join(', ');
@@ -130,10 +140,15 @@ function renderExpanded(container, history) {
   });
 }
 
+function safeCssColor(v) {
+  if (typeof v === 'string' && (/^#[0-9a-fA-F]{3,8}$/.test(v) || /^rgb/.test(v))) return v;
+  return 'transparent';
+}
+
 function renderPill(combo, state, type, index) {
   return `<div class="fav-pill fav-pill--${state}" data-type="${type}" data-index="${index}">` +
-    `<div class="fav-pill-left" style="background:${combo.statusColor}"></div>` +
-    `<div class="fav-pill-right" style="background:${combo.themeBg}"></div></div>`;
+    `<div class="fav-pill-left" style="background:${safeCssColor(combo.statusColor)}"></div>` +
+    `<div class="fav-pill-right" style="background:${safeCssColor(combo.themeBg)}"></div></div>`;
 }
 
 // ─── Interaction handlers (filled in Task 5) ────────────────────────────────
