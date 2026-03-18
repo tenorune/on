@@ -64,6 +64,55 @@ main {
 /* Long-press palette adoption indicator */
 .adopted-from {}
 
+/* ── Favorites strip ─────────────────────────────────────────────── */
+#favorites-strip {
+  display: none; /* shown by JS when favorites exist */
+}
+
+.fav-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid #1e293b;
+}
+.fav-strip::-webkit-scrollbar { display: none; }
+
+.fav-pill {
+  display: flex;
+  height: 22px;
+  width: 40px;
+  border-radius: 11px;
+  overflow: hidden;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.fav-pill--inactive { opacity: 0.45; }
+.fav-pill--active   { opacity: 1; }
+.fav-pill--history  { opacity: 1; }
+
+.fav-pill-left,
+.fav-pill-right { flex: 1; }
+
+.fav-collapse-btn {
+  background: none;
+  border: none;
+  color: #475569;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.fav-collapsed {
+  height: 3px;
+  width: 100%;
+  cursor: pointer;
+}
+
 /* Following tab */
 .person-list { list-style: none; width: 100%; }
 .person-list li {
