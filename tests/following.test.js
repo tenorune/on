@@ -1162,3 +1162,138 @@ describe('applyAdoption', () => {
     expect(setStatusColor).toHaveBeenLastCalledWith(MY_ID, '#22c55e');
   });
 });
+
+describe('revertAdoption', () => {
+  const TARGET_ID = 'u1';
+  const MY_ID = 'myUid';
+
+  function adoptThenRevert(targetData) {
+    setupDom();
+    jest.clearAllMocks();
+    document.documentElement.style.setProperty('--my-status', '#22c55e');
+    document.documentElement.style.setProperty('--my-glow', '#86efac');
+    setupMutualAndFireStatus(TARGET_ID, targetData, MY_ID);
+    const { _testOnlyTriggerAdoption } = require('../js/following.js');
+    _testOnlyTriggerAdoption({ userId: TARGET_ID }, MY_ID);  // adopt
+    jest.clearAllMocks(); // clear calls from adoption so we only see revert calls
+    _testOnlyTriggerAdoption({ userId: TARGET_ID }, MY_ID);  // revert
+  }
+
+  test('calls switchSet with snapshot activeSet before enterPaletteMode/exitPaletteMode', () => {
+    adoptThenRevert({ statusColor: '#f59e0b', paletteKey: 'ember' });
+    // invocationCallOrder uses a global counter; clearAllMocks() resets call lists but NOT the
+    // counter, so values from the revert phase are always > values from the adoption phase.
+    expect(switchSet).toHaveBeenCalled();
+    const switchSetOrder = switchSet.mock.invocationCallOrder[0];
+    const exitOrder = exitPaletteMode.mock.invocationCallOrder[0];
+    expect(switchSetOrder).toBeLessThan(exitOrder);
+  });
+
+  test('calls enterPaletteMode with original activePaletteKey when snapshot had one', () => {
+    // Set up store to return an activePaletteKey in the snapshot
+    const { getPaletteState } = require('../js/store.js');
+    const originalMock = getPaletteState.getMockImplementation();
+    getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'ocean', activePaletteKey: 'ocean' },
+        '2': { selectedKey: 'volt', activePaletteKey: null },
+      },
+    });
+    try {
+      adoptThenRevert({ statusColor: '#f59e0b' });
+      expect(enterPaletteMode).toHaveBeenCalledWith('ocean', MY_ID);
+      expect(exitPaletteMode).not.toHaveBeenCalled();
+    } finally {
+      // Restore default mock so subsequent tests use the standard activePaletteKey: null state
+      getPaletteState.mockReturnValue({
+        activeSet: 1,
+        sets: {
+          '1': { selectedKey: 'forest', activePaletteKey: null },
+          '2': { selectedKey: 'volt',   activePaletteKey: null },
+        },
+      });
+    }
+  });
+
+  test('calls exitPaletteMode when snapshot activePaletteKey was null', () => {
+    // Default store mock has activePaletteKey: null
+    adoptThenRevert({ statusColor: '#f59e0b' });
+    expect(exitPaletteMode).toHaveBeenCalledWith(MY_ID);
+    expect(enterPaletteMode).not.toHaveBeenCalled();
+  });
+
+  test('restores --my-status CSS var from snapshot after palette mode calls', () => {
+    // enterPaletteMode/exitPaletteMode (mocked) would normally overwrite --my-status;
+    // revertAdoption must set CSS vars AFTER calling those functions.
+    // Verify by checking the final value matches the snapshot (not any intermediate value).
+    adoptThenRevert({ statusColor: '#f59e0b' });
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#22c55e');
+  });
+
+  test('--my-status restored after switchSet (ordering verified via invocationCallOrder)', () => {
+    // Spy on style.setProperty to capture the call order of switchSet vs CSS var restore.
+    const spy = jest.spyOn(document.documentElement.style, 'setProperty');
+    try {
+      adoptThenRevert({ statusColor: '#f59e0b' });
+      // invocationCallOrder uses global counter; clearAllMocks() preserves it.
+      const switchSetOrder = switchSet.mock.invocationCallOrder[0];
+      const statusVarCall = spy.mock.calls.findIndex(c => c[0] === '--my-status' && c[1] === '#22c55e');
+      expect(statusVarCall).toBeGreaterThanOrEqual(0); // guard: confirm the call was made
+      const statusVarOrder = spy.mock.invocationCallOrder[statusVarCall];
+      expect(switchSetOrder).toBeLessThan(statusVarOrder);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('restores --my-glow CSS var from snapshot', () => {
+    adoptThenRevert({ statusColor: '#f59e0b' });
+    expect(document.documentElement.style.getPropertyValue('--my-glow')).toBe('#86efac');
+  });
+
+  test('calls setStatusColor with original statusColor', () => {
+    const { setStatusColor } = require('../js/db.js');
+    adoptThenRevert({ statusColor: '#f59e0b' });
+    expect(setStatusColor).toHaveBeenCalledWith(MY_ID, '#22c55e');
+  });
+
+  test('setStatusColor called after switchSet', () => {
+    const { setStatusColor } = require('../js/db.js');
+    adoptThenRevert({ statusColor: '#f59e0b' });
+    // invocationCallOrder uses a global counter preserved across clearAllMocks() calls.
+    const switchSetOrder = switchSet.mock.invocationCallOrder[0];
+    const setStatusColorOrder = setStatusColor.mock.invocationCallOrder[0];
+    expect(switchSetOrder).toBeLessThan(setStatusColorOrder);
+  });
+
+  test('removes .adopted-from class from li', () => {
+    setupDom();
+    jest.clearAllMocks();
+    document.documentElement.style.setProperty('--my-status', '#22c55e');
+    document.documentElement.style.setProperty('--my-glow', '#86efac');
+    const li = setupMutualAndFireStatus(TARGET_ID, { statusColor: '#f59e0b' }, MY_ID);
+    const { _testOnlyTriggerAdoption } = require('../js/following.js');
+    _testOnlyTriggerAdoption({ userId: TARGET_ID }, MY_ID); // adopt
+    expect(li.classList.contains('adopted-from')).toBe(true);
+    _testOnlyTriggerAdoption({ userId: TARGET_ID }, MY_ID); // revert
+    expect(li.classList.contains('adopted-from')).toBe(false);
+  });
+
+  test('clears adoptionSnapshot — subsequent trigger is fresh adoption not revert', () => {
+    const { setStatusColor } = require('../js/db.js');
+    // Adopt then revert (snapshot → null)
+    adoptThenRevert({ statusColor: '#f59e0b' });
+    jest.clearAllMocks();
+    // Re-setup the card's lastUserData so it's available for the next trigger
+    setupMutualAndFireStatus(TARGET_ID, { statusColor: '#f59e0b' }, MY_ID);
+    jest.clearAllMocks(); // clear setupMutualAndFireStatus side effects
+    // Trigger: should be fresh adoption (snapshot is null), NOT revert
+    const { _testOnlyTriggerAdoption } = require('../js/following.js');
+    _testOnlyTriggerAdoption({ userId: TARGET_ID }, MY_ID);
+    // Fresh adoption: switchSet NOT called (switchSet is only called in revert)
+    expect(switchSet).not.toHaveBeenCalled();
+    // Fresh adoption: setStatusColor called with target's color (not a revert)
+    expect(setStatusColor).toHaveBeenCalledWith(MY_ID, '#f59e0b');
+  });
+});
