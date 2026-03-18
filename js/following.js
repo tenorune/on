@@ -6,11 +6,10 @@ import {
 } from './db.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
-  getPaletteState,
 } from './store.js';
 import { escapeHtml, hexToRgb } from './utils.js';
 import { PALETTES_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
-import { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } from './palettes.js';
+import { getGlowForColor, getPaletteByKey, enterPaletteMode } from './palettes.js';
 import { sendKnock } from './knock.js';
 import { saveFavorite } from './favorites.js';
 
@@ -26,7 +25,6 @@ let refreshInterval = null;
 let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
 let callModeCalleeId = null;   // userId of callee while in call mode (null = not in call mode)
-let adoptionSnapshot = null; // non-null while a card's palette is adopted
 
 function showConfirm(title, btnText, action) {
   pendingAction = action;
@@ -73,7 +71,6 @@ export function initList(myUserId, myCode) {
   lastUserData.clear();
   editingSet.clear();
   callModeCalleeId = null;
-  adoptionSnapshot = null;
   latestFollowersSnapshot = [];
   pendingAction = null;
   if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
@@ -332,20 +329,6 @@ function renderList() {
 }
 
 function applyAdoption(entry, myUserId) {
-  if (adoptionSnapshot) revertAdoption(myUserId);
-
-  const ps = getPaletteState();
-  const activeSet = String(ps.activeSet);
-  const style = getComputedStyle(document.documentElement);
-  adoptionSnapshot = {
-    fromUserId: entry.userId,
-    activeSet: ps.activeSet,
-    activePaletteKey: ps.sets[activeSet].activePaletteKey,
-    selectedKey: ps.sets[activeSet].selectedKey,
-    statusColor: style.getPropertyValue('--my-status').trim(),
-    glowColor:   style.getPropertyValue('--my-glow').trim(),
-  };
-
   const targetData = lastUserData.get(entry.userId);
   if (targetData?.paletteKey) {
     enterPaletteMode(targetData.paletteKey, myUserId);
@@ -361,33 +344,9 @@ function applyAdoption(entry, myUserId) {
   if (li) li.classList.add('adopted-from');
 }
 
-function revertAdoption(myUserId) {
-  const snapshot = adoptionSnapshot;
-  if (!snapshot) return;
-
-  switchSet(snapshot.activeSet, myUserId);
-
-  if (snapshot.activePaletteKey) {
-    enterPaletteMode(snapshot.activePaletteKey, myUserId);
-  } else {
-    exitPaletteMode(myUserId);
-  }
-
-  document.documentElement.style.setProperty('--my-status', snapshot.statusColor);
-  document.documentElement.style.setProperty('--my-glow', snapshot.glowColor);
-  setStatusColor(myUserId, snapshot.statusColor).catch(() => {});
-
-  document.querySelectorAll('.adopted-from').forEach(el => el.classList.remove('adopted-from'));
-  adoptionSnapshot = null;
-}
-
 function triggerAdoption(entry, myUserId) {
   saveFavorite();
-  if (adoptionSnapshot?.fromUserId === entry.userId) {
-    revertAdoption(myUserId);
-  } else {
-    applyAdoption(entry, myUserId);
-  }
+  applyAdoption(entry, myUserId);
 }
 
 function createFolloweeRow(entry, myUserId, isMutual = false) {
