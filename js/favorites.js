@@ -166,10 +166,11 @@ function handleHistoryTap(idx) {
   if (!combo) return;
 
   // Snapshot old active slot BEFORE mutating state
-  const oldSlot = slotCombo(getPaletteState().activeSet);
+  const ps = getPaletteState();
+  const oldSlot = slotCombo(ps.activeSet);
 
   // Step 0: restore selectedKey so switchSet highlights the right swatch
-  const state = getPaletteState();
+  const state = JSON.parse(JSON.stringify(ps));
   state.sets[String(combo.activeSet)].selectedKey = combo.selectedKey;
   setPaletteState(state);
 
