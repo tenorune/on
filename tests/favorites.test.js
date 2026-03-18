@@ -96,6 +96,7 @@ describe('saveFavorite', () => {
       enterPaletteMode: jest.fn(),
       exitPaletteMode: jest.fn(),
       getPaletteByKey: jest.fn((key) => {
+        // Inline the palette data from defaultPaletteByKey helper
         const palettes = {
           forest: { color: '#22c55e', theme: { bg: '#052e16' } },
           volt: { color: '#aaff00', theme: { bg: '#1a2a00' } },
@@ -108,13 +109,16 @@ describe('saveFavorite', () => {
     jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
     jest.mock('../js/store.js', () => ({
       ...jest.requireActual('../js/store.js'),
-      getPaletteState: jest.fn(() => ({
-        activeSet: 1,
-        sets: {
-          '1': { selectedKey: 'forest', activePaletteKey: null },
-          '2': { selectedKey: 'volt', activePaletteKey: null },
-        },
-      })),
+      getPaletteState: jest.fn(() => {
+        // Inline the palette state data from defaultPaletteState helper
+        return {
+          activeSet: 1,
+          sets: {
+            '1': { selectedKey: 'forest', activePaletteKey: null },
+            '2': { selectedKey: 'volt', activePaletteKey: null },
+          },
+        };
+      }),
       setPaletteState: jest.fn(),
       getFavorites: jest.fn(() => []),
       setFavorites: jest.fn(),
