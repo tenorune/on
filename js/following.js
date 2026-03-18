@@ -201,15 +201,22 @@ export function enterCallMode(calleeEntry, myUserId) {
   setStatusColor(myUserId, color).catch(() => {});
 
   // Apply glow to callee's card (clear any in-progress knock animation first)
-  const li = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
-  if (li) {
-    li.style.boxShadow = '';
-    li.style.transition = '';
-    li.style.setProperty('--call-color-rgb', hexToRgb(color));
-    li.classList.add('call-mode');
+  const liPre = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
+  if (liPre) {
+    liPre.style.boxShadow = '';
+    liPre.style.transition = '';
+    liPre.style.setProperty('--call-color-rgb', hexToRgb(color));
+    liPre.classList.add('call-mode');
   }
 
   renderList();
+
+  // renderList() recreates the li element; re-apply call-mode glow to the new element
+  const liPost = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
+  if (liPost) {
+    liPost.style.setProperty('--call-color-rgb', hexToRgb(color));
+    liPost.classList.add('call-mode');
+  }
 }
 
 export function exitCallMode(myUserId) {
@@ -390,6 +397,47 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
       const statusColor = lastUserData.get(entry.userId)?.statusColor;
       sendKnock(entry.userId, myUserId, statusColor);
     });
+  }
+
+  if (CALL_ENABLED && isMutual) {
+    let swipeStartX = 0, swipeStartY = 0, swipeCardWidth = 0, swipeActive = false;
+
+    li.addEventListener('pointerdown', (e) => {
+      swipeStartX = e.clientX;
+      swipeStartY = e.clientY;
+      swipeCardWidth = li.getBoundingClientRect().width;
+      swipeActive = true;
+      try { li.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+
+    li.addEventListener('pointermove', (e) => {
+      if (!swipeActive) return;
+      const dx = e.clientX - swipeStartX;
+      const dy = e.clientY - swipeStartY;
+      // Ignore predominantly vertical movements (scroll)
+      if (Math.abs(dx) / (Math.abs(dy) + 0.001) < 1.5) return;
+      const threshold = swipeCardWidth * 0.4;
+      if (dx > threshold) {
+        swipeActive = false;
+        enterCallMode(entry, myUserId);
+      } else if (dx < -threshold) {
+        swipeActive = false;
+        if (li.classList.contains('call-mode')) {
+          if (callModeCalleeId === entry.userId) {
+            // We are the caller — exit call mode
+            exitCallMode(myUserId);
+          } else {
+            // We are the receiver — optimistic UI, fire-and-forget Firebase delete
+            li.classList.remove('call-mode');
+            li.style.removeProperty('--call-color-rgb');
+            clearCallState(entry.userId).catch(() => {});
+          }
+        }
+      }
+    });
+
+    li.addEventListener('pointerup',     () => { swipeActive = false; });
+    li.addEventListener('pointercancel', () => { swipeActive = false; });
   }
 
   document.getElementById('people-list').appendChild(li);

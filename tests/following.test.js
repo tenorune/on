@@ -1,5 +1,16 @@
 // tests/following.test.js
-jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: false }));
+
+// PointerEvent polyfill for jsdom (does not implement it natively)
+if (typeof PointerEvent === 'undefined') {
+  global.PointerEvent = class PointerEvent extends MouseEvent {
+    constructor(type, params = {}) {
+      super(type, params);
+      this.pointerId = params.pointerId ?? 0;
+    }
+  };
+}
+
+jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
 jest.mock('../js/palettes.js', () => ({
   ...jest.requireActual('../js/palettes.js'),
   getPaletteByKey: jest.fn(),
@@ -908,5 +919,104 @@ describe('call mode: sortFollowees pins callee to top', () => {
     // Find first mutual row (after the "Mutuals" label)
     const rows = Array.from(document.querySelectorAll('#people-list [data-user-id]'));
     expect(rows[0].dataset.userId).toBe('bob');
+  });
+});
+
+describe('call mode: swipe gesture', () => {
+  function firePointer(el, type, clientX, clientY) {
+    el.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX, clientY, pointerId: 1 }));
+  }
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+  });
+
+  test('right-swipe past 40% on a mutual card calls setCallState', () => {
+    getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
+    watchStatus.mockReturnValue(jest.fn());
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    fire([{ userId: 'alice', code: 'AAA111' }]);
+
+    const li = document.querySelector('[data-user-id="alice"]');
+    jest.spyOn(li, 'getBoundingClientRect').mockReturnValue({ width: 200 });
+
+    firePointer(li, 'pointerdown', 10, 50);
+    firePointer(li, 'pointermove', 100, 52); // dx=90 > 200*0.4=80; ratio 90/2 = 45 > 1.5 ✓
+    firePointer(li, 'pointerup',   100, 52);
+
+    expect(setCallState).toHaveBeenCalledWith('myUid', 'alice');
+  });
+
+  test('left-swipe on caller-side .call-mode card calls clearCallState(myUserId)', () => {
+    getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
+    watchStatus.mockReturnValue(jest.fn());
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    fire([{ userId: 'alice', code: 'AAA111' }]);
+
+    enterCallMode({ userId: 'alice', code: 'AAA111' }, 'myUid');
+    jest.clearAllMocks();
+
+    // Re-query li after renderList() from enterCallMode
+    const li = document.querySelector('[data-user-id="alice"]');
+    jest.spyOn(li, 'getBoundingClientRect').mockReturnValue({ width: 200 });
+
+    firePointer(li, 'pointerdown', 100, 50);
+    firePointer(li, 'pointermove',  10, 52); // dx=-90 < -80
+    firePointer(li, 'pointerup',    10, 52);
+
+    expect(clearCallState).toHaveBeenCalledWith('myUid');
+  });
+
+  test('left-swipe on receiver-side .call-mode card calls clearCallState(callerId)', () => {
+    getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
+    watchStatus.mockReturnValue(jest.fn());
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    fire([{ userId: 'alice', code: 'AAA111' }]);
+
+    // Receiver scenario: alice's card is glowing but WE are not in call mode
+    const li = document.querySelector('[data-user-id="alice"]');
+    li.classList.add('call-mode');
+    jest.spyOn(li, 'getBoundingClientRect').mockReturnValue({ width: 200 });
+
+    firePointer(li, 'pointerdown', 100, 50);
+    firePointer(li, 'pointermove',  10, 52);
+    firePointer(li, 'pointerup',    10, 52);
+
+    // alice is the caller (entry.userId = 'alice'), so clearCallState('alice')
+    expect(clearCallState).toHaveBeenCalledWith('alice');
+  });
+
+  test('short right-swipe (< 40%) does nothing', () => {
+    getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
+    watchStatus.mockReturnValue(jest.fn());
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    fire([{ userId: 'alice', code: 'AAA111' }]);
+
+    const li = document.querySelector('[data-user-id="alice"]');
+    jest.spyOn(li, 'getBoundingClientRect').mockReturnValue({ width: 200 });
+
+    firePointer(li, 'pointerdown', 10, 50);
+    firePointer(li, 'pointermove', 50, 52); // dx=40 = 20% < 40%
+    firePointer(li, 'pointerup',   50, 52);
+
+    expect(setCallState).not.toHaveBeenCalled();
+  });
+
+  test('mostly-vertical movement does not trigger swipe', () => {
+    getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
+    watchStatus.mockReturnValue(jest.fn());
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    fire([{ userId: 'alice', code: 'AAA111' }]);
+
+    const li = document.querySelector('[data-user-id="alice"]');
+    jest.spyOn(li, 'getBoundingClientRect').mockReturnValue({ width: 200 });
+
+    firePointer(li, 'pointerdown', 10, 10);
+    firePointer(li, 'pointermove', 100, 100); // dx=90, dy=90 → ratio 90/90=1.0 < 1.5 → blocked
+    firePointer(li, 'pointerup',   100, 100);
+
+    expect(setCallState).not.toHaveBeenCalled();
   });
 });
