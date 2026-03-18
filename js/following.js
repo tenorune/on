@@ -172,6 +172,88 @@ export function resetRenderedFollowees() {
   renderedFollowees.clear();
 }
 
+export function getCallModeCalleeId() { return callModeCalleeId; }
+
+export function enterCallMode(calleeEntry, myUserId) {
+  // Snapshot own statusColor only at the first call mode entry (not on replacement)
+  if (callModeCalleeId === null) {
+    callModeSnapshot =
+      document.documentElement.style.getPropertyValue('--my-status').trim() || '#22c55e';
+  }
+  callModeCalleeId = calleeEntry.userId;
+
+  setCallState(myUserId, calleeEntry.userId).catch(() => {});
+
+  const calleeData = lastUserData.get(calleeEntry.userId);
+  const color = calleeData?.statusColor || '#22c55e';
+
+  // Apply callee's full theme
+  if (calleeData?.paletteKey) {
+    const palette = getPaletteByKey(calleeData.paletteKey);
+    if (palette) applyThemeVars(palette.theme);
+  }
+
+  // Apply callee's status color to own CSS vars
+  document.documentElement.style.setProperty('--my-status', color);
+  document.documentElement.style.setProperty('--my-glow', `rgba(${hexToRgb(color)}, 0.4)`);
+
+  // Update own statusColor in Firebase so other mutuals see the adopted color
+  setStatusColor(myUserId, color).catch(() => {});
+
+  // Apply glow to callee's card (clear any in-progress knock animation first)
+  const li = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
+  if (li) {
+    li.style.boxShadow = '';
+    li.style.transition = '';
+    li.style.setProperty('--call-color-rgb', hexToRgb(color));
+    li.classList.add('call-mode');
+  }
+
+  renderList();
+}
+
+export function exitCallMode(myUserId) {
+  const prevCalleeId = callModeCalleeId;
+
+  // Determine revert color: snapshot first, then active palette primary, then hardcoded default
+  const paletteState = getPaletteState();
+  const setKey = String(paletteState.activeSet);
+  const activePaletteKey = paletteState.sets[setKey].activePaletteKey;
+  const selectedKey = paletteState.sets[setKey].selectedKey;
+  const fallbackPalette = getPaletteByKey(activePaletteKey || selectedKey);
+  const fallbackColor = fallbackPalette ? fallbackPalette.color : '#22c55e';
+  const revertColor = callModeSnapshot || fallbackColor;
+
+  clearCallState(myUserId).catch(() => {});
+
+  callModeCalleeId = null;
+  callModeSnapshot = null;
+
+  // Revert theme
+  if (activePaletteKey) {
+    const ownPalette = getPaletteByKey(activePaletteKey);
+    if (ownPalette) applyThemeVars(ownPalette.theme);
+  } else {
+    resetThemeVars();
+  }
+
+  // Revert own status color
+  document.documentElement.style.setProperty('--my-status', revertColor);
+  document.documentElement.style.setProperty('--my-glow', `rgba(${hexToRgb(revertColor)}, 0.4)`);
+  setStatusColor(myUserId, revertColor).catch(() => {});
+
+  // Remove glow from old callee's card
+  if (prevCalleeId) {
+    const li = document.querySelector(`[data-user-id="${prevCalleeId}"]`);
+    if (li) {
+      li.classList.remove('call-mode');
+      li.style.removeProperty('--call-color-rgb');
+    }
+  }
+
+  renderList();
+}
+
 function renderList() {
   const myUserId = myUserIdRef;
   const following = getFollowing();
@@ -215,6 +297,10 @@ function renderList() {
   // New entries (not yet subscribed) will sort as unavailable until Firebase delivers status.
   function sortFollowees(entries) {
     return [...entries].sort((a, b) => {
+      if (callModeCalleeId) {
+        if (a.userId === callModeCalleeId) return -1;
+        if (b.userId === callModeCalleeId) return 1;
+      }
       const aData = lastUserData.get(a.userId);
       const bData = lastUserData.get(b.userId);
       const aAvail = aData ? aData.status === 'available' && !isExpired(aData.availableUntil) : false;
