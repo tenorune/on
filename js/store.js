@@ -84,6 +84,18 @@ function setPaletteState(state) {
   localStorage.setItem(PALETTE_STATE_KEY, JSON.stringify(state));
 }
 
+const FAVORITES_KEY = 'statusapp_favorites';
+
+function getFavorites() {
+  try {
+    return JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]');
+  } catch (_) { return []; }
+}
+
+function setFavorites(arr) {
+  localStorage.setItem(FAVORITES_KEY, JSON.stringify(arr));
+}
+
 function getPalette() {
   const state = getPaletteState();
   return state.sets[String(state.activeSet)].selectedKey;
@@ -95,4 +107,4 @@ function setPalette(key) {
   localStorage.setItem('statusapp_palette', key);
 }
 
-module.exports = { getFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode, getPalette, setPalette, getPaletteState, setPaletteState };
+module.exports = { getFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode, getPalette, setPalette, getPaletteState, setPaletteState, getFavorites, setFavorites };
