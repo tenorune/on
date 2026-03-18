@@ -1,5 +1,6 @@
 // tests/me.test.js
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
+jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), initFavoritesStrip: jest.fn() }));
 jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
   isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
@@ -333,5 +334,49 @@ describe('setOwnStatusReadyCallback', () => {
     initHeader('u1'); // re-init resets ownStatusSignalled
     applyOwnStatus('unavailable', null);
     expect(cb).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('saveFavorite guard in setAvailable', () => {
+  let applyOwnStatus, saveFavoriteMock;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
+    jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), initFavoritesStrip: jest.fn() }));
+    jest.mock('../js/db.js', () => ({
+      setStatus: jest.fn().mockResolvedValue(undefined),
+      isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
+      formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
+      timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
+    }));
+    jest.mock('../js/store.js', () => ({
+      getLastTimeout: jest.fn().mockReturnValue(2),
+      setLastTimeout: jest.fn(),
+    }));
+    jest.useFakeTimers();
+    global.requestAnimationFrame = (fn) => fn();
+    makeFixture();
+    ({ applyOwnStatus } = require('../js/me.js'));
+    saveFavoriteMock = require('../js/favorites.js').saveFavorite;
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('saveFavorite does NOT fire during page-load restore of available status', () => {
+    // Fresh module: savingEnabled starts false. applyOwnStatus with available is the
+    // page-load restore path — saveFavorite must not fire here.
+    applyOwnStatus('available', Date.now() + 7200000);
+    expect(saveFavoriteMock).not.toHaveBeenCalled();
+  });
+
+  test('saveFavorite fires when applyOwnStatus sets available after prior status call', () => {
+    // applyOwnStatus(unavailable) → sets savingEnabled = true, then
+    // applyOwnStatus(available) → setAvailable → saveFavorite fires.
+    applyOwnStatus('unavailable', null);
+    applyOwnStatus('available', Date.now() + 7200000);
+    expect(saveFavoriteMock).toHaveBeenCalledTimes(1);
   });
 });

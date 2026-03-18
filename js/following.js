@@ -12,6 +12,7 @@ import { escapeHtml, hexToRgb } from './utils.js';
 import { PALETTES_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } from './palettes.js';
 import { sendKnock } from './knock.js';
+import { saveFavorite } from './favorites.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
@@ -381,6 +382,7 @@ function revertAdoption(myUserId) {
 }
 
 function triggerAdoption(entry, myUserId) {
+  saveFavorite();
   if (adoptionSnapshot?.fromUserId === entry.userId) {
     revertAdoption(myUserId);
   } else {

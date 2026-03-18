@@ -2,6 +2,7 @@
 import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs } from './db.js';
 import { getLastTimeout, setLastTimeout } from './store.js';
 import { PALETTES_ENABLED } from './features.js';
+import { saveFavorite } from './favorites.js';
 
 const CHIP_VALUES = [
   { minutes: 30,  text: '30 minutes' },
@@ -14,6 +15,7 @@ const CHIP_VALUES = [
   { minutes: 480, text: '8 hours' },
 ];
 
+let savingEnabled = false;
 let countdownTimer = null;
 let currentChipIndex = 3; // default: 2 hours
 let firstUseActive = false;
@@ -93,6 +95,7 @@ export function applyOwnStatus(status, availableUntil) {
     } else {
       setKnockKnock();
     }
+    savingEnabled = true;
     return;
   }
   if (status === 'available' && !isExpired(availableUntil)) {
@@ -100,6 +103,7 @@ export function applyOwnStatus(status, availableUntil) {
   } else {
     setUnavailable();
   }
+  savingEnabled = true;
 }
 
 function setKnockKnock() {
@@ -116,6 +120,7 @@ function setKnockKnock() {
 }
 
 function setAvailable(availableUntil) {
+  if (PALETTES_ENABLED && savingEnabled) saveFavorite();
   const dot = document.getElementById('my-dot');
   const label = document.getElementById('my-status-label');
   const chips = document.getElementById('header-chips');
