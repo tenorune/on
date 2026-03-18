@@ -469,6 +469,26 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     li.addEventListener('pointercancel', () => { swipeActive = false; });
   }
 
+  if (PALETTES_ENABLED) {
+    let pressTimer = null;
+    let pressStartX, pressStartY;
+
+    li.addEventListener('pointerdown', (e) => {
+      pressStartX = e.clientX;
+      pressStartY = e.clientY;
+      pressTimer = setTimeout(() => triggerAdoption(entry, myUserId), 500);
+    });
+    li.addEventListener('pointermove', (e) => {
+      if (pressTimer && (Math.abs(e.clientX - pressStartX) > 8 ||
+                         Math.abs(e.clientY - pressStartY) > 8)) {
+        clearTimeout(pressTimer); pressTimer = null;
+      }
+    });
+    ['pointerup', 'pointercancel'].forEach(ev =>
+      li.addEventListener(ev, () => { clearTimeout(pressTimer); pressTimer = null; })
+    );
+  }
+
   document.getElementById('people-list').appendChild(li);
 }
 
@@ -723,5 +743,3 @@ function showError(el, msg) {
   el.classList.remove('hidden');
 }
 
-// TODO: remove in Task 4 Step 5 — replaced by long press handler integration tests
-export function _testOnlyTriggerAdoption(entry, myUserId) { triggerAdoption(entry, myUserId); }

@@ -1090,6 +1090,16 @@ describe('long-press palette adoption: scaffolding', () => {
   });
 });
 
+// Helper: long-press a card by userId (fake timers, then restore real timers)
+function longPressCard(userId) {
+  jest.useFakeTimers();
+  const li = document.querySelector(`[data-user-id="${userId}"]`);
+  li.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 50, clientY: 50 }));
+  jest.advanceTimersByTime(500);
+  jest.useRealTimers();
+  return li;
+}
+
 // Helper used in adoption tests — sets up a mutual card and populates lastUserData
 function setupMutualAndFireStatus(userId, userData, myUserId = 'myUid') {
   getFollowing.mockReturnValue([{ userId, code: 'XY9K2M', label: 'Alice' }]);
@@ -1113,10 +1123,8 @@ describe('applyAdoption', () => {
   });
 
   function triggerAdoptionFor(userId, userData) {
-    const li = setupMutualAndFireStatus(userId, userData, MY_ID);
-    const { _testOnlyTriggerAdoption } = require('../js/following.js');
-    _testOnlyTriggerAdoption({ userId }, MY_ID);
-    return li;
+    setupMutualAndFireStatus(userId, userData, MY_ID);
+    return longPressCard(userId);
   }
 
   test('calls enterPaletteMode with target paletteKey when present', () => {
@@ -1156,8 +1164,7 @@ describe('applyAdoption', () => {
     triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b' });
     // First adoption wrote #f59e0b; snapshot held #22c55e
     // Second long press on same card should revert
-    const { _testOnlyTriggerAdoption } = require('../js/following.js');
-    _testOnlyTriggerAdoption({ userId: TARGET_ID }, MY_ID);
+    longPressCard(TARGET_ID);
     // Revert: setStatusColor called with original #22c55e
     expect(setStatusColor).toHaveBeenLastCalledWith(MY_ID, '#22c55e');
   });
@@ -1173,10 +1180,9 @@ describe('revertAdoption', () => {
     document.documentElement.style.setProperty('--my-status', '#22c55e');
     document.documentElement.style.setProperty('--my-glow', '#86efac');
     setupMutualAndFireStatus(TARGET_ID, targetData, MY_ID);
-    const { _testOnlyTriggerAdoption } = require('../js/following.js');
-    _testOnlyTriggerAdoption({ userId: TARGET_ID }, MY_ID);  // adopt
+    longPressCard(TARGET_ID);  // adopt
     jest.clearAllMocks(); // clear calls from adoption so we only see revert calls
-    _testOnlyTriggerAdoption({ userId: TARGET_ID }, MY_ID);  // revert
+    longPressCard(TARGET_ID);  // revert
   }
 
   test('calls switchSet with snapshot activeSet before enterPaletteMode/exitPaletteMode', () => {
@@ -1273,10 +1279,9 @@ describe('revertAdoption', () => {
     document.documentElement.style.setProperty('--my-status', '#22c55e');
     document.documentElement.style.setProperty('--my-glow', '#86efac');
     const li = setupMutualAndFireStatus(TARGET_ID, { statusColor: '#f59e0b' }, MY_ID);
-    const { _testOnlyTriggerAdoption } = require('../js/following.js');
-    _testOnlyTriggerAdoption({ userId: TARGET_ID }, MY_ID); // adopt
+    longPressCard(TARGET_ID); // adopt
     expect(li.classList.contains('adopted-from')).toBe(true);
-    _testOnlyTriggerAdoption({ userId: TARGET_ID }, MY_ID); // revert
+    longPressCard(TARGET_ID); // revert
     expect(li.classList.contains('adopted-from')).toBe(false);
   });
 
@@ -1289,11 +1294,175 @@ describe('revertAdoption', () => {
     setupMutualAndFireStatus(TARGET_ID, { statusColor: '#f59e0b' }, MY_ID);
     jest.clearAllMocks(); // clear setupMutualAndFireStatus side effects
     // Trigger: should be fresh adoption (snapshot is null), NOT revert
-    const { _testOnlyTriggerAdoption } = require('../js/following.js');
-    _testOnlyTriggerAdoption({ userId: TARGET_ID }, MY_ID);
+    longPressCard(TARGET_ID);
     // Fresh adoption: switchSet NOT called (switchSet is only called in revert)
     expect(switchSet).not.toHaveBeenCalled();
     // Fresh adoption: setStatusColor called with target's color (not a revert)
     expect(setStatusColor).toHaveBeenCalledWith(MY_ID, '#f59e0b');
+  });
+});
+
+describe('long press handler', () => {
+  const TARGET_ID = 'u1';
+  const MY_ID = 'myUid';
+
+  function setupForLongPress(userData = { statusColor: '#f59e0b' }) {
+    setupDom();
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    document.documentElement.style.setProperty('--my-status', '#22c55e');
+    document.documentElement.style.setProperty('--my-glow', '#86efac');
+    setupMutualAndFireStatus(TARGET_ID, userData, MY_ID);
+    return document.querySelector(`[data-user-id="${TARGET_ID}"]`);
+  }
+
+  afterEach(() => jest.useRealTimers());
+
+  function press(li, x = 50, y = 50) {
+    li.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y }));
+  }
+
+  test('fires adoption after 500 ms', () => {
+    const li = setupForLongPress();
+    press(li);
+    jest.advanceTimersByTime(500);
+    expect(enterPaletteMode).not.toHaveBeenCalled(); // no paletteKey
+    // setStatusColor should have been called (statusColor present)
+    const { setStatusColor } = require('../js/db.js');
+    expect(setStatusColor).toHaveBeenCalledWith(MY_ID, '#f59e0b');
+  });
+
+  test('does NOT fire adoption at 499 ms', () => {
+    const li = setupForLongPress();
+    press(li);
+    jest.advanceTimersByTime(499);
+    const { setStatusColor } = require('../js/db.js');
+    expect(setStatusColor).not.toHaveBeenCalled();
+  });
+
+  test('pointermove > 8 px cancels — no adoption', () => {
+    const li = setupForLongPress();
+    press(li, 50, 50);
+    li.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 59, clientY: 50 }));
+    jest.advanceTimersByTime(500);
+    const { setStatusColor } = require('../js/db.js');
+    expect(setStatusColor).not.toHaveBeenCalled();
+  });
+
+  test('pointermove <= 8 px does NOT cancel', () => {
+    const li = setupForLongPress();
+    press(li, 50, 50);
+    li.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 57, clientY: 50 }));
+    jest.advanceTimersByTime(500);
+    const { setStatusColor } = require('../js/db.js');
+    expect(setStatusColor).toHaveBeenCalled();
+  });
+
+  test('pointerup before 500 ms cancels — no adoption', () => {
+    const li = setupForLongPress();
+    press(li, 50, 50);
+    li.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+    jest.advanceTimersByTime(500);
+    const { setStatusColor } = require('../js/db.js');
+    expect(setStatusColor).not.toHaveBeenCalled();
+  });
+
+  test('pointercancel cancels — no adoption', () => {
+    const li = setupForLongPress();
+    press(li, 50, 50);
+    li.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true }));
+    jest.advanceTimersByTime(500);
+    const { setStatusColor } = require('../js/db.js');
+    expect(setStatusColor).not.toHaveBeenCalled();
+  });
+
+  test('long press same card twice — second press reverts (calls switchSet)', () => {
+    const li = setupForLongPress();
+    press(li); jest.advanceTimersByTime(500); // adopt
+    jest.clearAllMocks();
+    press(li); jest.advanceTimersByTime(500); // revert
+    expect(switchSet).toHaveBeenCalled();
+  });
+
+  test('long press different card while adopted — revertAdoption called before new applyAdoption', () => {
+    // Set up two mutual cards
+    setupDom();
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    document.documentElement.style.setProperty('--my-status', '#22c55e');
+    document.documentElement.style.setProperty('--my-glow', '#86efac');
+    getFollowing.mockReturnValue([
+      { userId: 'u1', code: 'AAAA11', label: 'Alice' },
+      { userId: 'u2', code: 'BBBB22', label: 'Bob' },
+    ]);
+    let followersCallback;
+    watchFollowers.mockImplementation((_uid, cb) => { followersCallback = cb; return jest.fn(); });
+    watchStatus.mockReturnValue(jest.fn());
+    initList(MY_ID, 'MYCODE');
+    followersCallback([
+      { userId: 'u1', code: 'AAAA11' },
+      { userId: 'u2', code: 'BBBB22' },
+    ]);
+    // Fire status for both users
+    const u1cb = watchStatus.mock.calls.find(c => c[0] === 'u1')?.[1];
+    const u2cb = watchStatus.mock.calls.find(c => c[0] === 'u2')?.[1];
+    if (u1cb) u1cb({ statusColor: '#f59e0b' });
+    if (u2cb) u2cb({ statusColor: '#3b82f6' });
+
+    const li1 = document.querySelector('[data-user-id="u1"]');
+    const li2 = document.querySelector('[data-user-id="u2"]');
+
+    // Adopt u1
+    li1.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 50, clientY: 50 }));
+    jest.advanceTimersByTime(500);
+    jest.clearAllMocks();
+
+    // Now long-press u2 — should revert u1 first, then adopt u2
+    li2.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 50, clientY: 50 }));
+    jest.advanceTimersByTime(500);
+
+    // switchSet called (revert of u1) before setStatusColor for u2's color
+    const { setStatusColor } = require('../js/db.js');
+    const switchSetOrder = switchSet.mock.invocationCallOrder[0];
+    const u2AdoptOrder = setStatusColor.mock.calls.findIndex(c => c[1] === '#3b82f6');
+    const u2AdoptInvOrder = setStatusColor.mock.invocationCallOrder[u2AdoptOrder];
+    expect(switchSetOrder).toBeLessThan(u2AdoptInvOrder);
+    // And u2 was actually adopted
+    expect(setStatusColor).toHaveBeenCalledWith(MY_ID, '#3b82f6');
+  });
+
+  test('target has no statusColor — CSS vars unchanged, setStatusColor not called', () => {
+    const { setStatusColor } = require('../js/db.js');
+    const li = setupForLongPress({ paletteKey: 'ember' }); // no statusColor
+    press(li);
+    jest.advanceTimersByTime(500);
+    expect(setStatusColor).not.toHaveBeenCalled();
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#22c55e'); // unchanged
+  });
+
+  test('PALETTES_ENABLED false — no adoption on long press', () => {
+    // Isolate this test: reset module registry, apply a PALETTES_ENABLED:false override,
+    // then restore the original mock after the test.
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: false, KNOCK_ENABLED: true, CALL_ENABLED: true }));
+    const { initList: initList2 } = require('../js/following.js');
+    setupDom();
+    jest.useFakeTimers();
+    let cb;
+    const { watchFollowers: wf, watchStatus: ws } = require('../js/db.js');
+    wf.mockImplementation((_uid, fn) => { cb = fn; return jest.fn(); });
+    ws.mockReturnValue(jest.fn());
+    const { getFollowing: gf } = require('../js/store.js');
+    gf.mockReturnValue([{ userId: TARGET_ID, code: 'XY9K2M', label: 'Alice' }]);
+    initList2(MY_ID, 'MYCODE');
+    cb([{ userId: TARGET_ID, code: 'XY9K2M' }]);
+    const li = document.querySelector(`[data-user-id="${TARGET_ID}"]`);
+    press(li);
+    jest.advanceTimersByTime(500);
+    const { setStatusColor } = require('../js/db.js');
+    expect(setStatusColor).not.toHaveBeenCalled();
+    // Restore: reset registry and re-apply original PALETTES_ENABLED:true mock
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
   });
 });
