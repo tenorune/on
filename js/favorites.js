@@ -66,8 +66,82 @@ export function initFavoritesStrip(myUserId) {
   renderStrip();
 }
 
-// ─── Rendering (stubs — filled in Task 4) ───────────────────────────────────
+// ─── Rendering ───────────────────────────────────────────────────────────────
 
 function renderStrip() {
-  // filled in Task 4
+  const container = document.getElementById('favorites-strip');
+  if (!container) return;
+  const history = getFavorites();
+  if (history.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = '';
+  const collapsed = localStorage.getItem(COLLAPSED_KEY) === 'true';
+  if (collapsed) {
+    renderCollapsed(container, history);
+  } else {
+    renderExpanded(container, history);
+  }
+}
+
+function renderCollapsed(container, history) {
+  const slot1 = slotCombo(1);
+  const slot2 = slotCombo(2);
+  const allColors = [slot1.statusColor, slot2.statusColor, ...history.map(c => c.statusColor)];
+  const n = allColors.length;
+  const stops = allColors
+    .map((c, i) => `${c} ${Math.round((i / (n - 1)) * 100)}%`)
+    .join(', ');
+  container.innerHTML =
+    `<div class="fav-collapsed" style="background:linear-gradient(to right,${stops})"></div>`;
+  container.querySelector('.fav-collapsed').addEventListener('click', () => {
+    localStorage.removeItem(COLLAPSED_KEY);
+    renderStrip();
+  });
+}
+
+function renderExpanded(container, history) {
+  const ps = getPaletteState();
+  const slot1 = slotCombo(1);
+  const slot2 = slotCombo(2);
+
+  const slotPills = [
+    renderPill(slot1, ps.activeSet === 1 ? 'active' : 'inactive', 'slot', 1),
+    renderPill(slot2, ps.activeSet === 2 ? 'active' : 'inactive', 'slot', 2),
+  ].join('');
+  const historyPills = history
+    .map((c, i) => renderPill(c, 'history', 'history', i))
+    .join('');
+
+  container.innerHTML =
+    `<div class="fav-strip">${slotPills}${historyPills}` +
+    `<button class="fav-collapse-btn" aria-label="Collapse">▲</button></div>`;
+
+  container.querySelectorAll('.fav-pill[data-type="slot"]').forEach(el => {
+    el.addEventListener('click', () => handleSlotTap(parseInt(el.dataset.index)));
+  });
+  container.querySelectorAll('.fav-pill[data-type="history"]').forEach(el => {
+    el.addEventListener('click', () => handleHistoryTap(parseInt(el.dataset.index)));
+  });
+  container.querySelector('.fav-collapse-btn').addEventListener('click', () => {
+    localStorage.setItem(COLLAPSED_KEY, 'true');
+    renderStrip();
+  });
+}
+
+function renderPill(combo, state, type, index) {
+  return `<div class="fav-pill fav-pill--${state}" data-type="${type}" data-index="${index}">` +
+    `<div class="fav-pill-left" style="background:${combo.statusColor}"></div>` +
+    `<div class="fav-pill-right" style="background:${combo.themeBg}"></div></div>`;
+}
+
+// ─── Interaction handlers (filled in Task 5) ────────────────────────────────
+
+function handleSlotTap(slotNum) {
+  // filled in Task 5
+}
+
+function handleHistoryTap(idx) {
+  // filled in Task 5
 }

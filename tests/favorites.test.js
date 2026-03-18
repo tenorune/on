@@ -211,3 +211,111 @@ describe('saveFavorite', () => {
     expect(saved.themeBg).toBe('#0f172a');
   });
 });
+
+describe('renderStrip / initFavoritesStrip', () => {
+  let initFavoritesStrip;
+  let mocks;
+
+  beforeEach(() => {
+    setupDom();
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
+    jest.mock('../js/palettes.js', () => ({
+      ...jest.requireActual('../js/palettes.js'),
+      switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
+      getPaletteByKey: jest.fn(key => ({
+        forest: { color: '#22c55e', theme: { bg: '#052e16' } },
+        volt:   { color: '#aaff00', theme: { bg: '#1a2a00' } },
+        iris:   { color: '#818cf8', theme: { bg: '#1e1b4b' } },
+      })[key] ?? null),
+      getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
+    }));
+    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/store.js', () => ({
+      ...jest.requireActual('../js/store.js'),
+      getPaletteState: jest.fn(() => ({
+        activeSet: 1,
+        sets: {
+          '1': { selectedKey: 'forest', activePaletteKey: null },
+          '2': { selectedKey: 'volt',   activePaletteKey: null },
+        },
+      })),
+      setPaletteState: jest.fn(),
+      getFavorites: jest.fn(() => []),
+      setFavorites: jest.fn(),
+    }));
+    mocks = {
+      getPaletteState: require('../js/store.js').getPaletteState,
+      getFavorites: require('../js/store.js').getFavorites,
+    };
+    ({ initFavoritesStrip } = require('../js/favorites.js'));
+  });
+
+  const ONE_ENTRY = [
+    { statusColor: '#818cf8', themeBg: '#1e1b4b', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
+  ];
+
+  test('strip container stays hidden when favorites array is empty', () => {
+    initFavoritesStrip('myUid');
+    expect(document.getElementById('favorites-strip').style.display).toBe('none');
+  });
+
+  test('strip container is shown when favorites has at least one entry', () => {
+    mocks.getFavorites.mockReturnValue(ONE_ENTRY);
+    initFavoritesStrip('myUid');
+    expect(document.getElementById('favorites-strip').style.display).not.toBe('none');
+  });
+
+  test('renders slot 1 pill with forest color and slot 2 pill with volt color', () => {
+    mocks.getFavorites.mockReturnValue(ONE_ENTRY);
+    initFavoritesStrip('myUid');
+    const pills = document.querySelectorAll('.fav-pill[data-type="slot"]');
+    expect(pills).toHaveLength(2);
+    expect(pills[0].querySelector('.fav-pill-left').style.background).toBe('rgb(34, 197, 94)');
+    expect(pills[1].querySelector('.fav-pill-left').style.background).toBe('rgb(170, 255, 0)');
+  });
+
+  test('active slot (Set 1 active) has fav-pill--active class, slot 2 has fav-pill--inactive', () => {
+    mocks.getFavorites.mockReturnValue(ONE_ENTRY);
+    initFavoritesStrip('myUid');
+    const pills = document.querySelectorAll('.fav-pill[data-type="slot"]');
+    expect(pills[0].classList.contains('fav-pill--active')).toBe(true);
+    expect(pills[1].classList.contains('fav-pill--inactive')).toBe(true);
+  });
+
+  test('renders history pills with correct left color', () => {
+    mocks.getFavorites.mockReturnValue(ONE_ENTRY);
+    initFavoritesStrip('myUid');
+    const historyPills = document.querySelectorAll('.fav-pill[data-type="history"]');
+    expect(historyPills).toHaveLength(1);
+    expect(historyPills[0].querySelector('.fav-pill-left').style.background).toBe('rgb(129, 140, 248)');
+  });
+
+  test('collapsed state: renders .fav-collapsed gradient line when collapsed', () => {
+    localStorage.setItem('statusapp_favorites_collapsed', 'true');
+    mocks.getFavorites.mockReturnValue(ONE_ENTRY);
+    initFavoritesStrip('myUid');
+    expect(document.querySelector('.fav-collapsed')).not.toBeNull();
+    expect(document.querySelector('.fav-strip')).toBeNull();
+    localStorage.removeItem('statusapp_favorites_collapsed');
+  });
+
+  test('collapse button sets collapsed state and re-renders to collapsed', () => {
+    mocks.getFavorites.mockReturnValue(ONE_ENTRY);
+    initFavoritesStrip('myUid');
+    document.querySelector('.fav-collapse-btn').click();
+    expect(localStorage.getItem('statusapp_favorites_collapsed')).toBe('true');
+    expect(document.querySelector('.fav-collapsed')).not.toBeNull();
+    localStorage.removeItem('statusapp_favorites_collapsed');
+  });
+
+  test('clicking collapsed line removes collapsed state and re-renders expanded', () => {
+    localStorage.setItem('statusapp_favorites_collapsed', 'true');
+    mocks.getFavorites.mockReturnValue(ONE_ENTRY);
+    initFavoritesStrip('myUid');
+    document.querySelector('.fav-collapsed').click();
+    expect(localStorage.getItem('statusapp_favorites_collapsed')).toBeNull();
+    expect(document.querySelector('.fav-strip')).not.toBeNull();
+    localStorage.removeItem('statusapp_favorites_collapsed');
+  });
+});
