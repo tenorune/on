@@ -2,11 +2,13 @@
 import {
   lookupCode, watchStatus, watchFollowers, registerAsFollower, unregisterAsFollower,
   removeFollower, isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
-  formatLastSeen,
+  formatLastSeen, setCallState, clearCallState,
 } from './db.js';
-import { getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode } from './store.js';
-import { escapeHtml } from './utils.js';
-import { PALETTES_ENABLED, KNOCK_ENABLED } from './features.js';
+import {
+  getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
+} from './store.js';
+import { escapeHtml, hexToRgb } from './utils.js';
+import { PALETTES_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey } from './palettes.js';
 import { sendKnock } from './knock.js';
 
@@ -21,6 +23,7 @@ let unsubFollowers = null;
 let refreshInterval = null;
 let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
+let callModeCalleeId = null;   // userId of callee while in call mode (null = not in call mode)
 
 function showConfirm(title, btnText, action) {
   pendingAction = action;
@@ -66,6 +69,7 @@ export function initList(myUserId, myCode) {
   unsubscribers.clear();
   lastUserData.clear();
   editingSet.clear();
+  callModeCalleeId = null;
   latestFollowersSnapshot = [];
   pendingAction = null;
   if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
@@ -166,6 +170,64 @@ export function resetRenderedFollowees() {
   renderedFollowees.clear();
 }
 
+export function getCallModeCalleeId() { return callModeCalleeId; }
+
+export function enterCallMode(calleeEntry, myUserId) {
+  // If we were being called by someone, clear their callState first
+  lastUserData.forEach((userData, userId) => {
+    if (userData.callState?.calleeId === myUserId) {
+      clearCallState(userId).catch(() => {});
+    }
+  });
+
+  callModeCalleeId = calleeEntry.userId;
+  setCallState(myUserId, calleeEntry.userId).catch(() => {});
+
+  const calleeData = lastUserData.get(calleeEntry.userId);
+  const callColor = calleeData?.statusColor || '#22c55e';
+
+  // Apply glow to callee's card (clear any in-progress knock animation first)
+  const liPre = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
+  if (liPre) {
+    liPre.style.boxShadow = '';
+    liPre.style.transition = '';
+    liPre.style.setProperty('--call-color-rgb', hexToRgb(callColor));
+    liPre.classList.add('call-mode');
+  }
+
+  renderList();
+}
+
+export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
+  callModeCalleeId = calleeEntry.userId;
+  // No Firebase write — state already persisted
+  const callColor = calleeData?.statusColor || '#22c55e';
+  const li = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
+  if (li) {
+    li.style.boxShadow = '';
+    li.style.transition = '';
+    li.style.setProperty('--call-color-rgb', hexToRgb(callColor));
+    li.classList.add('call-mode');
+  }
+  renderList();
+}
+
+export function exitCallMode(myUserId) {
+  const prevCalleeId = callModeCalleeId;
+  callModeCalleeId = null;
+  clearCallState(myUserId).catch(() => {});
+
+  if (prevCalleeId) {
+    const li = document.querySelector(`[data-user-id="${prevCalleeId}"]`);
+    if (li) {
+      li.classList.remove('call-mode');
+      li.style.removeProperty('--call-color-rgb');
+    }
+  }
+
+  renderList();
+}
+
 function renderList() {
   const myUserId = myUserIdRef;
   const following = getFollowing();
@@ -209,6 +271,10 @@ function renderList() {
   // New entries (not yet subscribed) will sort as unavailable until Firebase delivers status.
   function sortFollowees(entries) {
     return [...entries].sort((a, b) => {
+      if (callModeCalleeId) {
+        if (a.userId === callModeCalleeId) return -1;
+        if (b.userId === callModeCalleeId) return 1;
+      }
       const aData = lastUserData.get(a.userId);
       const bData = lastUserData.get(b.userId);
       const aAvail = aData ? aData.status === 'available' && !isExpired(aData.availableUntil) : false;
@@ -301,6 +367,47 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     });
   }
 
+  if (CALL_ENABLED && isMutual) {
+    let swipeStartX = 0, swipeStartY = 0, swipeCardWidth = 0, swipeActive = false;
+
+    li.addEventListener('pointerdown', (e) => {
+      swipeStartX = e.clientX;
+      swipeStartY = e.clientY;
+      swipeCardWidth = li.getBoundingClientRect().width;
+      swipeActive = true;
+      try { li.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+
+    li.addEventListener('pointermove', (e) => {
+      if (!swipeActive) return;
+      const dx = e.clientX - swipeStartX;
+      const dy = e.clientY - swipeStartY;
+      // Ignore predominantly vertical movements (scroll)
+      if (Math.abs(dx) / (Math.abs(dy) + 0.001) < 1.5) return;
+      const threshold = swipeCardWidth * 0.4;
+      if (dx > threshold) {
+        swipeActive = false;
+        enterCallMode(entry, myUserId);
+      } else if (dx < -threshold) {
+        swipeActive = false;
+        if (li.classList.contains('call-mode')) {
+          if (callModeCalleeId === entry.userId) {
+            // We are the caller — exit call mode
+            exitCallMode(myUserId);
+          } else {
+            // We are the receiver — optimistic UI, fire-and-forget Firebase delete
+            li.classList.remove('call-mode');
+            li.style.removeProperty('--call-color-rgb');
+            clearCallState(entry.userId).catch(() => {});
+          }
+        }
+      }
+    });
+
+    li.addEventListener('pointerup',     () => { swipeActive = false; });
+    li.addEventListener('pointercancel', () => { swipeActive = false; });
+  }
+
   document.getElementById('people-list').appendChild(li);
 }
 
@@ -368,7 +475,8 @@ function subscribeToFollowee(entry, myUserId) {
         userData.availableUntil === prevUserData.availableUntil &&
         userData.statusColor === prevUserData.statusColor &&
         userData.paletteKey === prevUserData.paletteKey &&
-        userData.code === prevUserData.code) return;
+        userData.code === prevUserData.code &&
+        userData.callState?.calleeId === prevUserData.callState?.calleeId) return;
     updateFolloweeRow(entry, userData, myUserId);
   });
   unsubscribers.set(entry.userId, unsub);
@@ -435,6 +543,20 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     li.style.background      = '';
     li.style.borderLeftColor = isAvail ? color : '';
     if (statusEl) statusEl.style.color = '';
+  }
+
+  // Call mode glow — caller side (this card is our active callee) or receiver side (they called us)
+  const isCallee = callModeCalleeId !== null && entry.userId === callModeCalleeId;
+  const isCallModeReceiver = !isCallee && userData.callState?.calleeId === myUserId;
+  if (isCallee || isCallModeReceiver) {
+    const callColor = isAvail
+      ? (userData.statusColor || '#22c55e')
+      : (getComputedStyle(document.documentElement).getPropertyValue('--dot-off').trim() || '#6b7280');
+    li.style.setProperty('--call-color-rgb', hexToRgb(callColor));
+    li.classList.add('call-mode');
+  } else {
+    li.classList.remove('call-mode');
+    li.style.removeProperty('--call-color-rgb');
   }
 }
 

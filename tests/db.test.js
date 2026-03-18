@@ -1,5 +1,8 @@
 // tests/db.test.js
-const { userExists, touchLastSeen, rotateCode, setStatusColor, setPaletteKey } = require('../js/db');
+const {
+  userExists, touchLastSeen, rotateCode, setStatusColor, setPaletteKey,
+  setCallState, clearCallState, getUser,
+} = require('../js/db');
 
 jest.mock('firebase/database', () => ({
   ref: jest.fn(() => 'mock-ref'),
@@ -132,5 +135,48 @@ describe('setPaletteKey', () => {
       expect.anything(),
       { paletteKey: null }
     );
+  });
+});
+
+describe('setCallState', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('writes callState {calleeId, since} to users/{callerId}', async () => {
+    update.mockResolvedValueOnce();
+    await setCallState('caller-1', 'callee-2');
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/caller-1');
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      callState: expect.objectContaining({
+        calleeId: 'callee-2',
+        since: expect.any(Number),
+      }),
+    });
+  });
+});
+
+describe('clearCallState', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('sets callState to null on users/{callerId}', async () => {
+    update.mockResolvedValueOnce();
+    await clearCallState('caller-1');
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/caller-1');
+    expect(update).toHaveBeenCalledWith('mock-ref', { callState: null });
+  });
+});
+
+describe('getUser', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('returns user data when record exists', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ status: 'available' }) });
+    const result = await getUser('user-1');
+    expect(result).toEqual({ status: 'available' });
+  });
+
+  test('returns null when record does not exist', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    const result = await getUser('user-1');
+    expect(result).toBeNull();
   });
 });
