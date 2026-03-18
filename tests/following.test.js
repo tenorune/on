@@ -16,6 +16,9 @@ jest.mock('../js/palettes.js', () => ({
   getPaletteByKey: jest.fn(),
   applyThemeVars: jest.fn(),
   resetThemeVars: jest.fn(),
+  enterPaletteMode: jest.fn(),
+  exitPaletteMode: jest.fn(),
+  switchSet: jest.fn(),
 }));
 jest.mock('../js/db.js', () => ({
   lookupCode: jest.fn(),
@@ -58,7 +61,7 @@ jest.mock('../js/store.js', () => ({
 
 const { watchStatus, watchFollowers, setCallState, clearCallState } = require('../js/db.js');
 const { getFollowing, updateFollowingCode } = require('../js/store.js');
-const { getGlowForColor, getPaletteByKey } = require('../js/palettes.js');
+const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
   initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees,
   enterCallMode, exitCallMode, getCallModeCalleeId, reEnterCallMode,
@@ -1069,4 +1072,20 @@ describe('call mode: reEnterCallMode', () => {
     expect(li.style.getPropertyValue('--call-color-rgb')).toBe('59, 130, 246');
   });
 
+});
+
+// --- long-press palette adoption ---
+
+describe('long-press palette adoption: scaffolding', () => {
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+  });
+
+  test('enterPaletteMode, exitPaletteMode, switchSet are jest.fn() in the palettes mock', () => {
+    const { enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
+    expect(jest.isMockFunction(enterPaletteMode)).toBe(true);
+    expect(jest.isMockFunction(exitPaletteMode)).toBe(true);
+    expect(jest.isMockFunction(switchSet)).toBe(true);
+  });
 });

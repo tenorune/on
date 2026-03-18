@@ -2,14 +2,15 @@
 import {
   lookupCode, watchStatus, watchFollowers, registerAsFollower, unregisterAsFollower,
   removeFollower, isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
-  formatLastSeen, setCallState, clearCallState,
+  formatLastSeen, setCallState, clearCallState, setStatusColor,
 } from './db.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
+  getPaletteState,
 } from './store.js';
 import { escapeHtml, hexToRgb } from './utils.js';
 import { PALETTES_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
-import { getGlowForColor, getPaletteByKey } from './palettes.js';
+import { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } from './palettes.js';
 import { sendKnock } from './knock.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
@@ -24,6 +25,7 @@ let refreshInterval = null;
 let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
 let callModeCalleeId = null;   // userId of callee while in call mode (null = not in call mode)
+let adoptionSnapshot = null; // non-null while a card's palette is adopted
 
 function showConfirm(title, btnText, action) {
   pendingAction = action;
@@ -70,6 +72,7 @@ export function initList(myUserId, myCode) {
   lastUserData.clear();
   editingSet.clear();
   callModeCalleeId = null;
+  adoptionSnapshot = null;
   latestFollowersSnapshot = [];
   pendingAction = null;
   if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
