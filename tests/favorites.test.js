@@ -210,6 +210,15 @@ describe('saveFavorite', () => {
     const saved = setFavorites.mock.calls.at(-1)[0][0];
     expect(saved.themeBg).toBe('#0f172a');
   });
+
+  test('force=true saves even when combo matches slot 1 (adoption path)', () => {
+    // Default state: --my-status = '#22c55e' = forest = slot 1 → normally deduped
+    saveFavorite(true);
+    const { setFavorites } = require('../js/store.js');
+    expect(setFavorites).toHaveBeenCalledWith([
+      expect.objectContaining({ statusColor: '#22c55e', selectedKey: 'forest', activeSet: 1 }),
+    ]);
+  });
 });
 
 describe('renderStrip / initFavoritesStrip', () => {

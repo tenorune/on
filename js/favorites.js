@@ -52,10 +52,10 @@ function combosMatch(a, b) {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function saveFavorite() {
+export function saveFavorite(force = false) {
   if (!PALETTES_ENABLED) return;
   const combo = buildCombo();
-  if (combosMatch(combo, slotCombo(1)) || combosMatch(combo, slotCombo(2))) return;
+  if (!force && (combosMatch(combo, slotCombo(1)) || combosMatch(combo, slotCombo(2)))) return;
   const history = getFavorites();
   setFavorites([combo, ...history].slice(0, MAX_HISTORY));
   renderStrip();

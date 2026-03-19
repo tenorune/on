@@ -345,7 +345,7 @@ function applyAdoption(entry, myUserId) {
 }
 
 function triggerAdoption(entry, myUserId) {
-  saveFavorite();
+  saveFavorite(true); // always save pre-adoption state so strip is visible for recovery
   applyAdoption(entry, myUserId);
 }
 

@@ -195,8 +195,17 @@ function renderSwatchRow(userId) {
   btn.addEventListener('click', () => switchSet(setNum === 1 ? 2 : 1, userId));
   row.appendChild(btn);
 
-  if (!activePaletteKey) {
-    // Base mode: 8 swatches for active set
+  const keyIdx = activePaletteKey
+    ? PALETTE_SETS[setNum].findIndex(p => p.key === activePaletteKey)
+    : -1;
+
+  if (!activePaletteKey || keyIdx < 0) {
+    // Base mode (or activePaletteKey from the other set — clear it and render base mode)
+    if (activePaletteKey && keyIdx < 0) {
+      const cleanState = getPaletteState();
+      cleanState.sets[setKey].activePaletteKey = null;
+      setPaletteState(cleanState);
+    }
     PALETTE_SETS[setNum].forEach(p => {
       const swatch = document.createElement('div');
       swatch.className = 'swatch';
@@ -209,7 +218,6 @@ function renderSwatchRow(userId) {
   } else {
     // Palette mode: Key Swatch at index K, complement swatches at other positions
     const keyPalette = getPaletteByKey(activePaletteKey);
-    const keyIdx = PALETTE_SETS[setNum].findIndex(p => p.key === activePaletteKey);
     const complements = keyPalette.complements;
     let ci = 0;
 
