@@ -5,7 +5,7 @@ import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallbac
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer } from './mycode.js';
-import { PALETTES_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
+import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { applyPaletteVars, initSwatches } from './palettes.js';
 import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
@@ -108,7 +108,7 @@ async function main() {
     // Apply status color vars before first paint
     applyPaletteVars(selectedKey);
     initSwatches(userId);
-    initFavoritesStrip(userId);
+    if (PALETTE_INTERACTIONS_ENABLED) initFavoritesStrip(userId);
   }
 
   let lastStatus = null;
