@@ -34,7 +34,7 @@ describe('getFavorites / setFavorites', () => {
 
 // ─── favorites.js tests ─────────────────────────────────────────────────────
 
-jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
+jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
 
 jest.mock('../js/palettes.js', () => ({
   ...jest.requireActual('../js/palettes.js'),
@@ -89,7 +89,7 @@ describe('saveFavorite', () => {
     setupDom();
     jest.resetModules();
     // Re-apply mocks after resetModules
-    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
     jest.mock('../js/palettes.js', () => ({
       ...jest.requireActual('../js/palettes.js'),
       switchSet: jest.fn(),
@@ -227,7 +227,7 @@ describe('renderStrip / initFavoritesStrip', () => {
   beforeEach(() => {
     setupDom();
     jest.resetModules();
-    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
     jest.mock('../js/palettes.js', () => ({
       ...jest.requireActual('../js/palettes.js'),
       switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
@@ -334,7 +334,7 @@ describe('slot tap interactions', () => {
   beforeEach(() => {
     setupDom();
     jest.resetModules();
-    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
     jest.mock('../js/palettes.js', () => ({
       ...jest.requireActual('../js/palettes.js'),
       switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
@@ -400,7 +400,7 @@ describe('history pill tap interactions', () => {
   beforeEach(() => {
     setupDom();
     jest.resetModules();
-    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
     jest.mock('../js/palettes.js', () => ({
       ...jest.requireActual('../js/palettes.js'),
       switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
@@ -530,4 +530,33 @@ describe('history pill tap interactions', () => {
     // Old slot 1 (forest, no theme, set 1, statusColor #22c55e) should be prepended
     expect(saved[0]).toMatchObject({ selectedKey: 'forest', activeSet: 1, paletteKey: null, statusColor: '#22c55e' });
   });
+});
+
+test('saveFavorite: does not save when PALETTE_INTERACTIONS_ENABLED is false', () => {
+  jest.resetModules();
+  jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: false }));
+  jest.mock('../js/palettes.js', () => ({
+    ...jest.requireActual('../js/palettes.js'),
+    getPaletteByKey: jest.fn(() => ({ color: '#22c55e', theme: { bg: '#052e16', surface2: '#184226' } })),
+    getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
+  }));
+  jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+  jest.mock('../js/store.js', () => ({
+    ...jest.requireActual('../js/store.js'),
+    getPaletteState: jest.fn(() => ({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', activePaletteKey: null },
+        '2': { selectedKey: 'volt', activePaletteKey: null },
+      },
+    })),
+    setPaletteState: jest.fn(),
+    getFavorites: jest.fn(() => []),
+    setFavorites: jest.fn(),
+  }));
+  const { saveFavorite: sf } = require('../js/favorites.js');
+  sf();
+  const { setFavorites } = require('../js/store.js');
+  expect(setFavorites).not.toHaveBeenCalled();
+  // No restore needed — this test is last in the file.
 });

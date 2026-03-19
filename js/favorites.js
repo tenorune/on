@@ -1,5 +1,5 @@
 // js/favorites.js
-import { PALETTES_ENABLED } from './features.js';
+import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
 import { getPaletteState, setPaletteState, getFavorites, setFavorites } from './store.js';
 import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowForColor } from './palettes.js';
 import { setStatusColor } from './db.js';
@@ -57,7 +57,7 @@ function combosMatch(a, b) {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export function saveFavorite(force = false) {
-  if (!PALETTES_ENABLED) return;
+  if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
   const combo = buildCombo();
   // if (!force && (combosMatch(combo, slotCombo(1)) || combosMatch(combo, slotCombo(2)))) return;
   const history = getFavorites();
