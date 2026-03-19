@@ -59,8 +59,8 @@ function combosMatch(a, b) {
 export function saveFavorite(force = false) {
   if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
   const combo = buildCombo();
-  // if (!force && (combosMatch(combo, slotCombo(1)) || combosMatch(combo, slotCombo(2)))) return;
   const history = getFavorites();
+  if (!force && history.length > 0 && combosMatch(combo, history[0])) return;
   setFavorites([combo, ...history].slice(0, MAX_HISTORY));
   renderStrip();
 }
