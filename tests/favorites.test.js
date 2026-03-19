@@ -283,12 +283,12 @@ describe('renderStrip / initFavoritesStrip', () => {
     expect(pills[1].querySelector('.fav-pill-left').style.background).toBe('rgb(170, 255, 0)');
   });
 
-  test('active slot (Set 1 active) has fav-pill--active class, slot 2 has fav-pill--inactive', () => {
+  test('active slot (Set 1 active) has fav-pill--inactive class, slot 2 has fav-pill--active', () => {
     mocks.getFavorites.mockReturnValue(ONE_ENTRY);
     initFavoritesStrip('myUid');
     const pills = document.querySelectorAll('.fav-pill[data-type="slot"]');
-    expect(pills[0].classList.contains('fav-pill--active')).toBe(true);
-    expect(pills[1].classList.contains('fav-pill--inactive')).toBe(true);
+    expect(pills[0].classList.contains('fav-pill--inactive')).toBe(true);
+    expect(pills[1].classList.contains('fav-pill--active')).toBe(true);
   });
 
   test('renders history pills with correct left color', () => {

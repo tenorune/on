@@ -90,7 +90,7 @@ main {
   flex-shrink: 0;
   cursor: pointer;
 }
-.fav-pill--inactive { opacity: 0.45; }
+.fav-pill--inactive { opacity: 0.45; cursor: default; }
 .fav-pill--active   { opacity: 1; }
 .fav-pill--history  { opacity: 1; }
 

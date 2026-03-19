@@ -116,8 +116,8 @@ function renderExpanded(container, history) {
   const slot2 = slotCombo(2);
 
   const slotPills = [
-    renderPill(slot1, ps.activeSet === 1 ? 'active' : 'inactive', 'slot', 1),
-    renderPill(slot2, ps.activeSet === 2 ? 'active' : 'inactive', 'slot', 2),
+    renderPill(slot1, ps.activeSet === 1 ? 'inactive' : 'active', 'slot', 1),
+    renderPill(slot2, ps.activeSet === 2 ? 'inactive' : 'active', 'slot', 2),
   ].join('');
   const historyPills = history
     .map((c, i) => renderPill(c, 'history', 'history', i))
@@ -128,7 +128,9 @@ function renderExpanded(container, history) {
     `<button class="fav-collapse-btn" aria-label="Collapse">▲</button></div>`;
 
   container.querySelectorAll('.fav-pill[data-type="slot"]').forEach(el => {
-    el.addEventListener('click', () => handleSlotTap(parseInt(el.dataset.index)));
+    if (parseInt(el.dataset.index) !== ps.activeSet) {
+      el.addEventListener('click', () => handleSlotTap(parseInt(el.dataset.index)));
+    }
   });
   container.querySelectorAll('.fav-pill[data-type="history"]').forEach(el => {
     el.addEventListener('click', () => handleHistoryTap(parseInt(el.dataset.index)));
