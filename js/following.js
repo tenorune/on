@@ -393,6 +393,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     let swipeStartX = 0, swipeStartY = 0, swipeCardWidth = 0, swipeActive = false;
 
     li.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.unfollow-btn, .person-label')) return;
       swipeStartX = e.clientX;
       swipeStartY = e.clientY;
       swipeCardWidth = li.getBoundingClientRect().width;
