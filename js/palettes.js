@@ -219,6 +219,7 @@ function renderSwatchRow(userId) {
     // Palette mode: Key Swatch at index K, complement swatches at other positions
     const keyPalette = getPaletteByKey(activePaletteKey);
     const complements = keyPalette.complements;
+    const activeColor = state.sets[setKey].selectedColor;
     let ci = 0;
 
     for (let i = 0; i < 8; i++) {
@@ -226,7 +227,7 @@ function renderSwatchRow(userId) {
       if (i === keyIdx) {
         swatch.className = 'swatch key-swatch';
         swatch.style.background = keyPalette.color;
-        if (savedKey === activePaletteKey) swatch.classList.add('selected');
+        if (!activeColor || activeColor === keyPalette.color) swatch.classList.add('selected');
         swatch.addEventListener('click', () => {
           if (swatch.classList.contains('selected')) {
             // Tap KS while it is the active status color → exit palette mode
@@ -250,6 +251,7 @@ function renderSwatchRow(userId) {
         const color = complements[ci++];
         swatch.className = 'swatch';
         swatch.style.background = color;
+        if (activeColor === color) swatch.classList.add('selected');
         swatch.addEventListener('click', () => {
           // Change status color; keep palette mode and theme active
           row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
