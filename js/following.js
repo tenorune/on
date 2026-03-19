@@ -6,10 +6,11 @@ import {
 } from './db.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
+  getPaletteState, setPaletteState,
 } from './store.js';
 import { escapeHtml, hexToRgb } from './utils.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
-import { getGlowForColor, getPaletteByKey, enterPaletteMode } from './palettes.js';
+import { getGlowForColor, getPaletteByKey, enterPaletteMode, PALETTE_SETS } from './palettes.js';
 import { sendKnock } from './knock.js';
 import { saveFavorite } from './favorites.js';
 
@@ -330,14 +331,27 @@ function renderList() {
 
 function applyAdoption(entry, myUserId) {
   const targetData = lastUserData.get(entry.userId);
+
+  // Set CSS vars first so renderStrip reads the correct color when palette-state-changed fires
+  if (targetData?.statusColor) {
+    document.documentElement.style.setProperty('--my-status', targetData.statusColor);
+    document.documentElement.style.setProperty('--my-glow', getGlowForColor(targetData.statusColor));
+  }
+
   if (targetData?.paletteKey) {
+    // Find which set this palette belongs to and update state before enterPaletteMode
+    const setNum = PALETTE_SETS[2].some(p => p.key === targetData.paletteKey) ? 2 : 1;
+    const setKey = String(setNum);
+    const state = getPaletteState();
+    state.activeSet = setNum;
+    state.sets[setKey].selectedKey = targetData.paletteKey;
+    if (targetData.statusColor) state.sets[setKey].selectedColor = targetData.statusColor;
+    setPaletteState(state);
     enterPaletteMode(targetData.paletteKey, myUserId);
   }
+
   if (targetData?.statusColor) {
     setStatusColor(myUserId, targetData.statusColor).catch(() => {});
-    const glow = getGlowForColor(targetData.statusColor);
-    document.documentElement.style.setProperty('--my-status', targetData.statusColor);
-    document.documentElement.style.setProperty('--my-glow', glow);
   }
 
   const li = document.querySelector(`[data-user-id="${entry.userId}"]`);

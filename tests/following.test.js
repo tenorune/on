@@ -58,6 +58,7 @@ jest.mock('../js/store.js', () => ({
       '2': { selectedKey: 'volt',   activePaletteKey: null },
     },
   }),
+  setPaletteState: jest.fn(),
 }));
 
 const { watchStatus, watchFollowers, setCallState, clearCallState } = require('../js/db.js');
