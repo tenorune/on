@@ -11,7 +11,7 @@ if (typeof PointerEvent === 'undefined') {
   };
 }
 
-jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
+jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
 jest.mock('../js/palettes.js', () => ({
   ...jest.requireActual('../js/palettes.js'),
   getPaletteByKey: jest.fn(),
@@ -1245,11 +1245,43 @@ describe('long press handler', () => {
     expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#22c55e'); // unchanged
   });
 
+  test('PALETTE_INTERACTIONS_ENABLED false — no long-press handler attached (palettes still active)', () => {
+    jest.resetModules();
+    jest.doMock('../js/features.js', () => ({
+      PALETTES_ENABLED: true,
+      PALETTE_INTERACTIONS_ENABLED: false,
+      KNOCK_ENABLED: true,
+      CALL_ENABLED: true,
+    }));
+    const { initList: initList3 } = require('../js/following.js');
+    setupDom();
+    jest.useFakeTimers();
+    let cb;
+    let statusCb;
+    const { watchFollowers: wf3, watchStatus: ws3 } = require('../js/db.js');
+    wf3.mockImplementation((_uid, fn) => { cb = fn; return jest.fn(); });
+    ws3.mockImplementation((_uid, fn) => { statusCb = fn; return jest.fn(); });
+    const { getFollowing: gf3 } = require('../js/store.js');
+    gf3.mockReturnValue([{ userId: TARGET_ID, code: 'XY9K2M', label: 'Alice' }]);
+    initList3(MY_ID, 'MYCODE');
+    cb([{ userId: TARGET_ID, code: 'XY9K2M' }]);
+    // Populate lastUserData so adoption would fire setStatusColor if handler is attached
+    if (statusCb) statusCb({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#f59e0b' });
+    const li = document.querySelector(`[data-user-id="${TARGET_ID}"]`);
+    press(li);
+    jest.advanceTimersByTime(600);
+    const { setStatusColor: ssc3 } = require('../js/db.js');
+    expect(ssc3).not.toHaveBeenCalled();
+    // Restore
+    jest.resetModules();
+    jest.doMock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
+  });
+
   test('PALETTES_ENABLED false — no adoption on long press', () => {
     // Isolate this test: reset module registry, apply a PALETTES_ENABLED:false override,
     // then restore the original mock after the test.
     jest.resetModules();
-    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: false, KNOCK_ENABLED: true, CALL_ENABLED: true }));
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: false, PALETTE_INTERACTIONS_ENABLED: false, KNOCK_ENABLED: true, CALL_ENABLED: true }));
     const { initList: initList2 } = require('../js/following.js');
     setupDom();
     jest.useFakeTimers();
@@ -1268,7 +1300,7 @@ describe('long press handler', () => {
     expect(setStatusColor).not.toHaveBeenCalled();
     // Restore: reset registry and re-apply original PALETTES_ENABLED:true mock
     jest.resetModules();
-    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
   });
 
 });

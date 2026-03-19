@@ -8,7 +8,7 @@ import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
 } from './store.js';
 import { escapeHtml, hexToRgb } from './utils.js';
-import { PALETTES_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
+import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode } from './palettes.js';
 import { sendKnock } from './knock.js';
 import { saveFavorite } from './favorites.js';
@@ -430,7 +430,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     li.addEventListener('pointercancel', () => { swipeActive = false; });
   }
 
-  if (PALETTES_ENABLED) {
+  if (PALETTES_ENABLED && PALETTE_INTERACTIONS_ENABLED) {
     let pressTimer = null;
     let pressStartX, pressStartY;
     let suppressNextClick = false;
