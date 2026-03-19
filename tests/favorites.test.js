@@ -110,12 +110,11 @@ describe('saveFavorite', () => {
     jest.mock('../js/store.js', () => ({
       ...jest.requireActual('../js/store.js'),
       getPaletteState: jest.fn(() => {
-        // Inline the palette state data from defaultPaletteState helper
         return {
           activeSet: 1,
           sets: {
-            '1': { selectedKey: 'forest', activePaletteKey: null },
-            '2': { selectedKey: 'volt', activePaletteKey: null },
+            '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#818cf8' },
+            '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' },
           },
         };
       }),
@@ -126,14 +125,20 @@ describe('saveFavorite', () => {
     ({ saveFavorite } = require('../js/favorites.js'));
   });
 
-  // Dedup logic is currently disabled; these tests document the OFF state.
-  test('saves even when combo matches slot 1 (dedup disabled)', () => {
+  test('does NOT save when selectedColor is absent (user made no explicit color choice)', () => {
+    require('../js/store.js').getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', activePaletteKey: null },
+        '2': { selectedKey: 'volt',   activePaletteKey: null },
+      },
+    });
     saveFavorite();
     const { setFavorites } = require('../js/store.js');
-    expect(setFavorites).toHaveBeenCalled();
+    expect(setFavorites).not.toHaveBeenCalled();
   });
 
-  test('saves even when combo matches slot 2 (dedup disabled)', () => {
+  test('does NOT save on Set 2 when selectedColor is absent', () => {
     require('../js/store.js').getPaletteState.mockReturnValue({
       activeSet: 2,
       sets: {
@@ -143,7 +148,7 @@ describe('saveFavorite', () => {
     });
     document.documentElement.style.setProperty('--my-status', '#aaff00');
     saveFavorite();
-    expect(require('../js/store.js').setFavorites).toHaveBeenCalled();
+    expect(require('../js/store.js').setFavorites).not.toHaveBeenCalled();
   });
 
   test('saves when statusColor differs from both slots', () => {
@@ -190,8 +195,8 @@ describe('saveFavorite', () => {
     require('../js/store.js').getPaletteState.mockReturnValue({
       activeSet: 1,
       sets: {
-        '1': { selectedKey: 'forest', activePaletteKey: 'iris' },
-        '2': { selectedKey: 'volt', activePaletteKey: null },
+        '1': { selectedKey: 'forest', activePaletteKey: 'iris', selectedColor: '#818cf8' },
+        '2': { selectedKey: 'volt',   activePaletteKey: null,   selectedColor: '#aaff00' },
       },
     });
     document.documentElement.style.setProperty('--my-status', '#818cf8');

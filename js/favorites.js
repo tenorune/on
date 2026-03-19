@@ -58,6 +58,9 @@ function combosMatch(a, b) {
 
 export function saveFavorite(force = false) {
   if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
+  const ps = getPaletteState();
+  const activeSetKey = String(ps.activeSet);
+  if (!force && !ps.sets[activeSetKey].selectedColor) return;
   const combo = buildCombo();
   const history = getFavorites();
   if (!force && history.length > 0 && combosMatch(combo, history[0])) return;
