@@ -10,7 +10,7 @@ import {
 } from './store.js';
 import { escapeHtml, hexToRgb } from './utils.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
-import { getGlowForColor, getPaletteByKey, enterPaletteMode, PALETTE_SETS } from './palettes.js';
+import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock } from './knock.js';
 import { saveFavorite } from './favorites.js';
 
@@ -338,8 +338,10 @@ function applyAdoption(entry, myUserId) {
     document.documentElement.style.setProperty('--my-glow', getGlowForColor(targetData.statusColor));
   }
 
+  let statusWrittenToFirebase = false;
+
   if (targetData?.paletteKey) {
-    // Find which set this palette belongs to and update state before enterPaletteMode
+    // Palette mode: switch to the set containing this palette, then enter palette mode
     const setNum = PALETTE_SETS[2].some(p => p.key === targetData.paletteKey) ? 2 : 1;
     const setKey = String(setNum);
     const state = getPaletteState();
@@ -348,9 +350,26 @@ function applyAdoption(entry, myUserId) {
     if (targetData.statusColor) state.sets[setKey].selectedColor = targetData.statusColor;
     setPaletteState(state);
     enterPaletteMode(targetData.paletteKey, myUserId);
+  } else if (targetData?.statusColor) {
+    // Base mode: find the palette whose key color matches statusColor (if any)
+    let matchedSet = null, matchedKey = null;
+    for (const [sn, palettes] of Object.entries(PALETTE_SETS)) {
+      const found = palettes.find(p => p.color === targetData.statusColor);
+      if (found) { matchedSet = Number(sn); matchedKey = found.key; break; }
+    }
+    if (matchedSet !== null) {
+      const state = getPaletteState();
+      state.activeSet = matchedSet;
+      state.sets[String(matchedSet)].selectedKey = matchedKey;
+      state.sets[String(matchedSet)].selectedColor = targetData.statusColor;
+      state.sets[String(matchedSet)].activePaletteKey = null;
+      setPaletteState(state);
+      switchSet(matchedSet, myUserId); // handles setStatusColor + renderSwatchRow + dispatch
+      statusWrittenToFirebase = true;
+    }
   }
 
-  if (targetData?.statusColor) {
+  if (targetData?.statusColor && !statusWrittenToFirebase) {
     setStatusColor(myUserId, targetData.statusColor).catch(() => {});
   }
 
