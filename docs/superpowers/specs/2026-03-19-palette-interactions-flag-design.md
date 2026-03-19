@@ -16,7 +16,7 @@ Introduces `PALETTE_INTERACTIONS_ENABLED` as a second palette-related feature fl
 
 ## Flag Definition
 
-**File:** `js/features.js`
+**File:** `js/features.js` — post-change state:
 
 ```js
 module.exports = {
@@ -27,11 +27,21 @@ module.exports = {
 };
 ```
 
-`PALETTE_INTERACTIONS_ENABLED: true` is only meaningful when `PALETTES_ENABLED: true`. The guard pattern at each call site is `PALETTES_ENABLED && PALETTE_INTERACTIONS_ENABLED`, matching the existing convention used for `KNOCK_ENABLED` and `CALL_ENABLED`.
+`PALETTE_INTERACTIONS_ENABLED: true` is only meaningful when `PALETTES_ENABLED: true`. The guard pattern at each v0.6 call site is `PALETTES_ENABLED && PALETTE_INTERACTIONS_ENABLED` — compound because long press and favorites are sub-features of the palette system.
 
 ## Affected Call Sites
 
+### `js/features.js`
+
+Add `PALETTE_INTERACTIONS_ENABLED: false` to the exports object.
+
 ### `js/favorites.js`
+
+Import updated:
+
+```js
+import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
+```
 
 `saveFavorite()` early-return guard:
 
@@ -43,36 +53,62 @@ if (!PALETTES_ENABLED) return;
 if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
 ```
 
-Import updated to include the new flag:
-
-```js
-import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
-```
-
 ### `js/app.js`
 
-`initFavoritesStrip()` is called inside the `if (PALETTES_ENABLED)` block. The condition is tightened:
+Import updated:
+
+```js
+// Before
+import { PALETTES_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
+
+// After
+import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
+```
+
+`initFavoritesStrip()` call inside the `if (PALETTES_ENABLED)` block (currently the last statement in that block):
 
 ```js
 // Before
 if (PALETTES_ENABLED) {
-  ...
+  document.getElementById('swatch-row').style.display = '';
+  const paletteState = getPaletteState();
+  const activeSetKey = String(paletteState.activeSet);
+  const { selectedKey, activePaletteKey } = paletteState.sets[activeSetKey];
+  // Apply status color vars before first paint
+  applyPaletteVars(selectedKey);
+  initSwatches(userId);
   initFavoritesStrip(userId);
 }
 
-// After
+// After — only the last line changes
 if (PALETTES_ENABLED) {
-  ...
+  document.getElementById('swatch-row').style.display = '';
+  const paletteState = getPaletteState();
+  const activeSetKey = String(paletteState.activeSet);
+  const { selectedKey, activePaletteKey } = paletteState.sets[activeSetKey];
+  // Apply status color vars before first paint
+  applyPaletteVars(selectedKey);
+  initSwatches(userId);
   if (PALETTE_INTERACTIONS_ENABLED) initFavoritesStrip(userId);
 }
 ```
 
 ### `js/following.js`
 
-Long-press handler attachment inside `createFolloweeRow`:
+Import updated:
 
 ```js
 // Before
+import { PALETTES_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
+
+// After
+import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
+```
+
+Long-press handler attachment inside `createFolloweeRow`:
+
+```js
+// Before (line 433)
 if (PALETTES_ENABLED) {
   // attach long press handler
 }
@@ -83,9 +119,7 @@ if (PALETTES_ENABLED && PALETTE_INTERACTIONS_ENABLED) {
 }
 ```
 
-Import updated to include the new flag.
-
-`triggerAdoption` calls `saveFavorite(true)` — no additional guard needed; `saveFavorite` already returns early when either flag is false.
+`triggerAdoption` calls `saveFavorite(true)` — no additional guard needed; once `saveFavorite`'s own guard is updated (per the `favorites.js` change above), it returns early when either flag is false.
 
 ## When Flag is False
 
@@ -96,18 +130,33 @@ Import updated to include the new flag.
 
 ## Tests
 
-All `jest.mock('../js/features.js', ...)` calls that test v0.6 behavior add `PALETTE_INTERACTIONS_ENABLED: true`:
+### Mock updates
 
-| File | Current mock | Updated mock |
-|---|---|---|
-| `tests/favorites.test.js` (top-level) | `{ PALETTES_ENABLED: true }` | `{ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }` |
-| `tests/favorites.test.js` (inner isolations) | same | same |
-| `tests/following.test.js` (adoption section) | `{ PALETTES_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }` | add `PALETTE_INTERACTIONS_ENABLED: true` |
-| `tests/following.test.js` (`PALETTES_ENABLED: false` test) | unchanged | add `PALETTE_INTERACTIONS_ENABLED: false` (already implied but explicit) |
+Every `jest.mock('../js/features.js', ...)` call in a v0.6 test file must add `PALETTE_INTERACTIONS_ENABLED: true`.
 
-A new test in `following.test.js` verifies: `PALETTE_INTERACTIONS_ENABLED: false` → no long-press handler attached (even when `PALETTES_ENABLED: true`).
+**`tests/favorites.test.js`** — 5 mock calls total:
 
-A new test in `favorites.test.js` verifies: `PALETTE_INTERACTIONS_ENABLED: false` → `saveFavorite()` returns without calling `setFavorites`.
+| Location | Current mock | Updated mock |
+| --- | --- | --- |
+| Line 37 (top-level) | `{ PALETTES_ENABLED: true }` | `{ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }` |
+| Line 92 (`saveFavorite` describe `beforeEach`) | `{ PALETTES_ENABLED: true }` | `{ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }` |
+| Line 230 (`renderStrip / initFavoritesStrip` describe `beforeEach`) | `{ PALETTES_ENABLED: true }` | `{ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }` |
+| Line 337 (`slot tap interactions` describe `beforeEach`) | `{ PALETTES_ENABLED: true }` | `{ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }` |
+| Line 403 (`history pill tap interactions` describe `beforeEach`) | `{ PALETTES_ENABLED: true }` | `{ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }` |
+
+**`tests/following.test.js`** — 3 mock calls affected:
+
+| Location | Current mock | Updated mock |
+| --- | --- | --- |
+| Line 14 (top-level) | `{ PALETTES_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }` | `{ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }` |
+| Line 1252 (`PALETTES_ENABLED: false` isolation) | `{ PALETTES_ENABLED: false, KNOCK_ENABLED: true, CALL_ENABLED: true }` | `{ PALETTES_ENABLED: false, PALETTE_INTERACTIONS_ENABLED: false, KNOCK_ENABLED: true, CALL_ENABLED: true }` |
+| Line 1271 (restore after isolation) | `{ PALETTES_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }` | `{ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }` |
+
+### New tests
+
+**`favorites.test.js`:** Add a test verifying `PALETTE_INTERACTIONS_ENABLED: false` → `saveFavorite()` returns without calling `setFavorites`.
+
+**`following.test.js`:** Add a test verifying `PALETTE_INTERACTIONS_ENABLED: false` (with `PALETTES_ENABLED: true`) → no long-press handler attached to followee rows.
 
 ## Out of Scope
 
