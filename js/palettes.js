@@ -240,6 +240,9 @@ function renderSwatchRow(userId) {
             setPaletteState(st);
             applyPaletteVars(activePaletteKey);
             setStatusColor(userId, keyPalette.color).catch(() => {});
+            const st2 = getPaletteState();
+            st2.sets[String(st2.activeSet)].selectedColor = keyPalette.color;
+            setPaletteState(st2);
             document.dispatchEvent(new CustomEvent('palette-state-changed'));
           }
         });
@@ -253,6 +256,9 @@ function renderSwatchRow(userId) {
           swatch.classList.add('selected');
           document.documentElement.style.setProperty('--my-status', color);
           setStatusColor(userId, color).catch(() => {});
+          const st = getPaletteState();
+          st.sets[String(st.activeSet)].selectedColor = color;
+          setPaletteState(st);
           document.dispatchEvent(new CustomEvent('palette-state-changed'));
         });
       }
@@ -275,8 +281,9 @@ export function tapSwatch(key, userId) {
 
   // First tap on unselected swatch: status color change only
   state.sets[setKey].selectedKey = key;
-  setPaletteState(state);
   const palette = getPaletteByKey(key);
+  state.sets[setKey].selectedColor = palette.color;
+  setPaletteState(state);
   setStatusColor(userId, palette.color).catch(() => {});
   applyPaletteVars(key);
   const row = document.getElementById('swatch-row');
@@ -300,8 +307,10 @@ export function switchSet(toSet, userId) {
   const activePaletteKey = state.sets[targetSetKey].activePaletteKey;
   const palette = getPaletteByKey(selectedKey) || PALETTE_SETS[1][0];
 
-  applyPaletteVars(selectedKey);
-  setStatusColor(userId, palette.color).catch(() => {});
+  const selectedColor = state.sets[targetSetKey].selectedColor || palette.color;
+  document.documentElement.style.setProperty('--my-status', selectedColor);
+  document.documentElement.style.setProperty('--my-glow', getGlowForColor(selectedColor));
+  setStatusColor(userId, selectedColor).catch(() => {});
 
   if (activePaletteKey) {
     applyThemeVars(getPaletteByKey(activePaletteKey).theme);

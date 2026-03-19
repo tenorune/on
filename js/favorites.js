@@ -37,7 +37,7 @@ function slotCombo(setNum) {
   const isActiveSet = ps.activeSet === setNum;
   const statusColor = isActiveSet
     ? getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim()
-    : (statusPalette?.color ?? DEFAULT_THEME_BG);
+    : (ps.sets[setKey].selectedColor || statusPalette?.color || DEFAULT_THEME_BG);
   return {
     statusColor,
     themeBg: themePalette?.theme.surface2 ?? DEFAULT_THEME_BG,
