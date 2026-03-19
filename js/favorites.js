@@ -67,6 +67,7 @@ export function saveFavorite(force = false) {
 
 export function initFavoritesStrip(myUserId) {
   _myUserId = myUserId;
+  document.addEventListener('palette-state-changed', renderStrip);
   renderStrip();
 }
 

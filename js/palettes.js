@@ -240,6 +240,7 @@ function renderSwatchRow(userId) {
             setPaletteState(st);
             applyPaletteVars(activePaletteKey);
             setStatusColor(userId, keyPalette.color).catch(() => {});
+            document.dispatchEvent(new CustomEvent('palette-state-changed'));
           }
         });
       } else {
@@ -252,11 +253,13 @@ function renderSwatchRow(userId) {
           swatch.classList.add('selected');
           document.documentElement.style.setProperty('--my-status', color);
           setStatusColor(userId, color).catch(() => {});
+          document.dispatchEvent(new CustomEvent('palette-state-changed'));
         });
       }
       row.appendChild(swatch);
     }
   }
+  document.dispatchEvent(new CustomEvent('palette-state-changed'));
 }
 
 export function tapSwatch(key, userId) {
@@ -280,6 +283,7 @@ export function tapSwatch(key, userId) {
   row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
   const target = row.querySelector(`[data-key="${key}"]`);
   if (target) target.classList.add('selected');
+  document.dispatchEvent(new CustomEvent('palette-state-changed'));
 }
 
 export function initSwatches(userId) {
