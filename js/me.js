@@ -120,8 +120,8 @@ function setKnockKnock() {
 }
 
 function setAvailable(availableUntil) {
-  if (PALETTES_ENABLED && savingEnabled) saveFavorite();
   const dot = document.getElementById('my-dot');
+  if (PALETTES_ENABLED && savingEnabled && !dot.classList.contains('available')) saveFavorite();
   const label = document.getElementById('my-status-label');
   const chips = document.getElementById('header-chips');
 

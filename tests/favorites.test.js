@@ -58,9 +58,9 @@ jest.mock('../js/store.js', () => ({
 }));
 
 // Default palette mock
-const FOREST_PALETTE = { color: '#22c55e', theme: { bg: '#052e16' } };
-const VOLT_PALETTE   = { color: '#aaff00', theme: { bg: '#1a2a00' } };
-const IRIS_PALETTE   = { color: '#818cf8', theme: { bg: '#1e1b4b' } };
+const FOREST_PALETTE = { color: '#22c55e', theme: { bg: '#052e16', surface2: '#184226' } };
+const VOLT_PALETTE   = { color: '#aaff00', theme: { bg: '#1a2a00', surface2: '#243600' } };
+const IRIS_PALETTE   = { color: '#818cf8', theme: { bg: '#1e1b4b', surface2: '#1d1d47' } };
 
 function defaultPaletteByKey(key) {
   return { forest: FOREST_PALETTE, volt: VOLT_PALETTE, iris: IRIS_PALETTE }[key] ?? null;
@@ -98,9 +98,9 @@ describe('saveFavorite', () => {
       getPaletteByKey: jest.fn((key) => {
         // Inline the palette data from defaultPaletteByKey helper
         const palettes = {
-          forest: { color: '#22c55e', theme: { bg: '#052e16' } },
-          volt: { color: '#aaff00', theme: { bg: '#1a2a00' } },
-          iris: { color: '#818cf8', theme: { bg: '#1e1b4b' } },
+          forest: { color: '#22c55e', theme: { bg: '#052e16', surface2: '#184226' } },
+          volt: { color: '#aaff00', theme: { bg: '#1a2a00', surface2: '#243600' } },
+          iris: { color: '#818cf8', theme: { bg: '#1e1b4b', surface2: '#1d1d47' } },
         };
         return palettes[key] ?? null;
       }),
@@ -126,15 +126,14 @@ describe('saveFavorite', () => {
     ({ saveFavorite } = require('../js/favorites.js'));
   });
 
-  test('does not save when combo matches slot 1 (all 4 fields match)', () => {
-    // --my-status = '#22c55e' = forest color, selectedKey = 'forest', activeSet = 1
-    // slot 1 statusColor = getPaletteByKey('forest').color = '#22c55e' → match
+  // Dedup logic is currently disabled; these tests document the OFF state.
+  test('saves even when combo matches slot 1 (dedup disabled)', () => {
     saveFavorite();
     const { setFavorites } = require('../js/store.js');
-    expect(setFavorites).not.toHaveBeenCalled();
+    expect(setFavorites).toHaveBeenCalled();
   });
 
-  test('does not save when combo matches slot 2', () => {
+  test('saves even when combo matches slot 2 (dedup disabled)', () => {
     require('../js/store.js').getPaletteState.mockReturnValue({
       activeSet: 2,
       sets: {
@@ -144,7 +143,7 @@ describe('saveFavorite', () => {
     });
     document.documentElement.style.setProperty('--my-status', '#aaff00');
     saveFavorite();
-    expect(require('../js/store.js').setFavorites).not.toHaveBeenCalled();
+    expect(require('../js/store.js').setFavorites).toHaveBeenCalled();
   });
 
   test('saves when statusColor differs from both slots', () => {
@@ -199,7 +198,7 @@ describe('saveFavorite', () => {
     saveFavorite();
     const { setFavorites } = require('../js/store.js');
     const saved = setFavorites.mock.calls.at(-1)[0][0];
-    expect(saved.themeBg).toBe('#1e1b4b'); // iris theme.bg
+    expect(saved.themeBg).toBe('#1d1d47'); // iris theme.surface2
     expect(saved.paletteKey).toBe('iris');
   });
 

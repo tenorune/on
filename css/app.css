@@ -76,7 +76,8 @@ main {
   padding: 6px 12px;
   overflow-x: auto;
   scrollbar-width: none;
-  border-bottom: 1px solid #1e293b;
+  background: #ffffff;
+  border-bottom: 1px solid #334155;
 }
 .fav-strip::-webkit-scrollbar { display: none; }
 
@@ -108,9 +109,13 @@ main {
 }
 
 .fav-collapsed {
-  height: 3px;
   width: 100%;
   cursor: pointer;
+  padding-bottom: 16px;
+}
+.fav-collapsed-line {
+  height: 3px;
+  width: 100%;
 }
 
 /* Following tab */

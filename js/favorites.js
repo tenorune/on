@@ -21,7 +21,7 @@ function buildCombo() {
     .getPropertyValue('--my-status').trim();
   return {
     statusColor,
-    themeBg: palette?.theme.bg ?? DEFAULT_THEME_BG,
+    themeBg: palette?.theme.surface2 ?? DEFAULT_THEME_BG,
     paletteKey: activePaletteKey,
     selectedKey,
     activeSet: ps.activeSet,
@@ -34,9 +34,13 @@ function slotCombo(setNum) {
   const { selectedKey, activePaletteKey } = ps.sets[setKey];
   const statusPalette = getPaletteByKey(selectedKey);
   const themePalette  = activePaletteKey ? getPaletteByKey(activePaletteKey) : null;
+  const isActiveSet = ps.activeSet === setNum;
+  const statusColor = isActiveSet
+    ? getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim()
+    : (statusPalette?.color ?? DEFAULT_THEME_BG);
   return {
-    statusColor: statusPalette?.color ?? DEFAULT_THEME_BG,
-    themeBg: themePalette?.theme.bg ?? DEFAULT_THEME_BG,
+    statusColor,
+    themeBg: themePalette?.theme.surface2 ?? DEFAULT_THEME_BG,
     paletteKey: activePaletteKey,
     selectedKey,
     activeSet: setNum,
@@ -76,6 +80,10 @@ function renderStrip() {
   //   container.style.display = 'none';
   //   return;
   // }
+  if (history.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
   container.style.display = 'block';
   const collapsed = localStorage.getItem(COLLAPSED_KEY) === 'true';
   if (collapsed) {
@@ -90,21 +98,11 @@ function renderCollapsed(container, history) {
   const slot2 = slotCombo(2);
   const allColors = [slot1.statusColor, slot2.statusColor, ...history.map(c => c.statusColor)];
   const n = allColors.length;
-  // n ≥ 3 in normal flow (renderStrip guards history.length ≥ 1, so n = 2 + history.length)
-  if (n <= 1) {
-    container.innerHTML =
-      `<div class="fav-collapsed" style="background:${allColors[0] ?? 'transparent'}"></div>`;
-    container.querySelector('.fav-collapsed').addEventListener('click', () => {
-      localStorage.removeItem(COLLAPSED_KEY);
-      renderStrip();
-    });
-    return;
-  }
-  const stops = allColors
-    .map((c, i) => `${c} ${Math.round((i / (n - 1)) * 100)}%`)
-    .join(', ');
+  const bg = n <= 1
+    ? (allColors[0] ?? 'transparent')
+    : `linear-gradient(to right,${allColors.map((c, i) => `${c} ${Math.round((i / (n - 1)) * 100)}%`).join(', ')})`;
   container.innerHTML =
-    `<div class="fav-collapsed" style="background:linear-gradient(to right,${stops})"></div>`;
+    `<div class="fav-collapsed"><div class="fav-collapsed-line" style="background:${bg}"></div></div>`;
   container.querySelector('.fav-collapsed').addEventListener('click', () => {
     localStorage.removeItem(COLLAPSED_KEY);
     renderStrip();
@@ -138,6 +136,35 @@ function renderExpanded(container, history) {
     localStorage.setItem(COLLAPSED_KEY, 'true');
     renderStrip();
   });
+
+  // Swipe up from below the strip to collapse
+  let _swipeTouchStart = null;
+  function onSwipeTouchStart(e) {
+    const touch = e.touches[0];
+    const bottom = container.getBoundingClientRect().bottom;
+    if (touch.clientY >= bottom) _swipeTouchStart = touch.clientY;
+  }
+  function onSwipeTouchEnd(e) {
+    if (_swipeTouchStart === null) return;
+    const endY = e.changedTouches[0].clientY;
+    if (_swipeTouchStart - endY > 30) {
+      localStorage.setItem(COLLAPSED_KEY, 'true');
+      renderStrip();
+    }
+    _swipeTouchStart = null;
+  }
+  document.addEventListener('touchstart', onSwipeTouchStart, { passive: true });
+  document.addEventListener('touchend', onSwipeTouchEnd, { passive: true });
+
+  // Clean up listeners when strip is re-rendered
+  const observer = new MutationObserver(() => {
+    if (!container.querySelector('.fav-strip')) {
+      document.removeEventListener('touchstart', onSwipeTouchStart);
+      document.removeEventListener('touchend', onSwipeTouchEnd);
+      observer.disconnect();
+    }
+  });
+  observer.observe(container, { childList: true });
 }
 
 function safeCssColor(v) {
