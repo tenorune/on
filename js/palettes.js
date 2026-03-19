@@ -316,8 +316,10 @@ export function switchSet(toSet, userId) {
 
   if (activePaletteKey) {
     applyThemeVars(getPaletteByKey(activePaletteKey).theme);
+    setPaletteKey(userId, activePaletteKey).catch(() => {});
   } else {
     resetThemeVars();
+    setPaletteKey(userId, null).catch(() => {});
   }
 
   renderSwatchRow(userId);
