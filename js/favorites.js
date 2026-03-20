@@ -54,6 +54,13 @@ function combosMatch(a, b) {
     && a.activeSet   === b.activeSet;
 }
 
+function slotVisuallyMatches(combo, setNum) {
+  const s = slotCombo(setNum);
+  return combo.statusColor === s.statusColor
+    && combo.paletteKey   === s.paletteKey
+    && combo.selectedKey  === s.selectedKey;
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export function saveFavorite(force = false) {
@@ -62,6 +69,7 @@ export function saveFavorite(force = false) {
   const activeSetKey = String(ps.activeSet);
   if (!force && !ps.sets[activeSetKey].selectedColor) return;
   const combo = buildCombo();
+  if (!force && (slotVisuallyMatches(combo, 1) || slotVisuallyMatches(combo, 2))) return;
   const history = getFavorites();
   if (!force && history.length > 0 && combosMatch(combo, history[0])) return;
   setFavorites([combo, ...history].slice(0, MAX_HISTORY));

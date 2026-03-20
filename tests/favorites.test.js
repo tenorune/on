@@ -151,10 +151,11 @@ describe('saveFavorite', () => {
     expect(require('../js/store.js').setFavorites).not.toHaveBeenCalled();
   });
 
-  test('saves when statusColor differs from both slots', () => {
-    // Adopted iris color — --my-status doesn't match forest or volt
+  test('force=true saves even when active slot matches (adoption path)', () => {
+    // Active slot always mirrors buildCombo, so non-forced saves are always blocked by slot dedup.
+    // force=true (used by adoption) bypasses all dedup checks.
     document.documentElement.style.setProperty('--my-status', '#818cf8');
-    saveFavorite();
+    saveFavorite(true);
     const { setFavorites } = require('../js/store.js');
     expect(setFavorites).toHaveBeenCalledWith([
       expect.objectContaining({
@@ -165,25 +166,25 @@ describe('saveFavorite', () => {
     ]);
   });
 
-  test('prepends to existing history', () => {
+  test('prepends to existing history (force=true)', () => {
     document.documentElement.style.setProperty('--my-status', '#818cf8');
     const existing = [{ statusColor: '#3b82f6', themeBg: '#0f172a', paletteKey: null, selectedKey: 'ocean', activeSet: 1 }];
     require('../js/store.js').getFavorites.mockReturnValue(existing);
-    saveFavorite();
+    saveFavorite(true);
     const { setFavorites } = require('../js/store.js');
     const saved = setFavorites.mock.calls.at(-1)[0];
     expect(saved[0].statusColor).toBe('#818cf8');
     expect(saved[1]).toEqual(existing[0]);
   });
 
-  test('drops oldest entry when history reaches 14', () => {
+  test('drops oldest entry when history reaches 14 (force=true)', () => {
     document.documentElement.style.setProperty('--my-status', '#818cf8');
     const full = Array.from({ length: 14 }, (_, i) => ({
       statusColor: `#${String(i).padStart(6, '0')}`,
       themeBg: '#0f172a', paletteKey: null, selectedKey: 'ocean', activeSet: 1,
     }));
     require('../js/store.js').getFavorites.mockReturnValue(full);
-    saveFavorite();
+    saveFavorite(true);
     const { setFavorites } = require('../js/store.js');
     const saved = setFavorites.mock.calls.at(-1)[0];
     expect(saved).toHaveLength(14);
@@ -191,7 +192,7 @@ describe('saveFavorite', () => {
     expect(saved[13]).toEqual(full[12]); // last old entry is full[12], full[13] dropped
   });
 
-  test('themeBg uses palette theme.bg when paletteKey is set', () => {
+  test('themeBg uses palette theme.surface2 when paletteKey is set (force=true)', () => {
     require('../js/store.js').getPaletteState.mockReturnValue({
       activeSet: 1,
       sets: {
@@ -200,16 +201,16 @@ describe('saveFavorite', () => {
       },
     });
     document.documentElement.style.setProperty('--my-status', '#818cf8');
-    saveFavorite();
+    saveFavorite(true);
     const { setFavorites } = require('../js/store.js');
     const saved = setFavorites.mock.calls.at(-1)[0][0];
     expect(saved.themeBg).toBe('#1d1d47'); // iris theme.surface2
     expect(saved.paletteKey).toBe('iris');
   });
 
-  test('themeBg is #0f172a when paletteKey is null', () => {
+  test('themeBg is #0f172a when paletteKey is null (force=true)', () => {
     document.documentElement.style.setProperty('--my-status', '#818cf8');
-    saveFavorite();
+    saveFavorite(true);
     const { setFavorites } = require('../js/store.js');
     const saved = setFavorites.mock.calls.at(-1)[0][0];
     expect(saved.themeBg).toBe('#0f172a');
