@@ -1161,12 +1161,11 @@ describe('applyAdoption', () => {
     expect(li.classList.contains('adopted-from')).toBe(true);
   });
 
-  test('calls saveFavorite(true) twice — once before adoption (pre-state) and once after (adopted state)', () => {
+  test('calls saveFavorite(true) once before adoption — adopted state enters history on next adoption or go-available', () => {
     const { saveFavorite } = require('../js/favorites.js');
     triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b', paletteKey: 'ember' });
-    expect(saveFavorite).toHaveBeenCalledTimes(2);
-    expect(saveFavorite).toHaveBeenNthCalledWith(1, true);
-    expect(saveFavorite).toHaveBeenNthCalledWith(2, true);
+    expect(saveFavorite).toHaveBeenCalledTimes(1);
+    expect(saveFavorite).toHaveBeenCalledWith(true);
   });
 
 });

@@ -378,9 +378,8 @@ function applyAdoption(entry, myUserId) {
 }
 
 function triggerAdoption(entry, myUserId) {
-  saveFavorite(true); // save pre-adoption state so user can return to it
+  saveFavorite(true); // save pre-adoption state; adopted state enters history on next adoption or go-available
   applyAdoption(entry, myUserId);
-  saveFavorite(true); // save adopted state so user can return to it after changing away
 }
 
 function createFolloweeRow(entry, myUserId, isMutual = false) {
