@@ -224,6 +224,87 @@ describe('saveFavorite', () => {
       expect.objectContaining({ statusColor: '#22c55e', selectedKey: 'forest', activeSet: 1 }),
     ]);
   });
+
+  test('non-forced: saves PREVIOUS combo (Apple) when user commits new combo (Banana)', () => {
+    // Commit Apple as the last known state via force=true (simulates prior "go available")
+    document.documentElement.style.setProperty('--my-status', '#22c55e');
+    require('../js/store.js').getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#22c55e' },
+        '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' },
+      },
+    });
+    saveFavorite(true); // sets _lastCommittedCombo = Apple; adds Apple to history
+    const { setFavorites } = require('../js/store.js');
+    setFavorites.mockClear();
+    // Clear Apple from history so dedup doesn't block
+    require('../js/store.js').getFavorites.mockReturnValue([]);
+
+    // Now change to Banana = iris
+    document.documentElement.style.setProperty('--my-status', '#818cf8');
+    require('../js/store.js').getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'iris', activePaletteKey: null, selectedColor: '#818cf8' },
+        '2': { selectedKey: 'volt', activePaletteKey: null, selectedColor: '#aaff00' },
+      },
+    });
+
+    saveFavorite(); // non-forced: should save Apple (previous), not Banana (current)
+    expect(setFavorites).toHaveBeenCalledTimes(1);
+    expect(setFavorites).toHaveBeenCalledWith([
+      expect.objectContaining({ statusColor: '#22c55e', selectedKey: 'forest', activeSet: 1 }),
+    ]);
+  });
+
+  test('non-forced: no save when current combo == previous (no change)', () => {
+    // Commit Apple, then call non-forced with same state → no save
+    saveFavorite(true); // sets _lastCommittedCombo = current (forest, #22c55e per beforeEach)
+    const { setFavorites } = require('../js/store.js');
+    setFavorites.mockClear();
+    saveFavorite(); // same state, no change
+    expect(setFavorites).not.toHaveBeenCalled();
+  });
+
+  test('non-forced: no save when previous combo already in history[0]', () => {
+    // Set _lastCommitted to Apple via force=true, keep Apple in history[0]
+    document.documentElement.style.setProperty('--my-status', '#22c55e');
+    require('../js/store.js').getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#22c55e' },
+        '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' },
+      },
+    });
+    saveFavorite(true); // saves Apple, _lastCommitted = Apple
+    // history[0] = Apple (the forced save above)
+    require('../js/store.js').getFavorites.mockReturnValue([
+      { statusColor: '#22c55e', themeBg: '#184226', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
+    ]);
+    const { setFavorites } = require('../js/store.js');
+    setFavorites.mockClear();
+
+    // Change to Banana
+    document.documentElement.style.setProperty('--my-status', '#818cf8');
+    require('../js/store.js').getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'iris', activePaletteKey: null, selectedColor: '#818cf8' },
+        '2': { selectedKey: 'volt', activePaletteKey: null, selectedColor: '#aaff00' },
+      },
+    });
+    saveFavorite(); // Apple is already in history[0] → no duplicate
+    expect(setFavorites).not.toHaveBeenCalled();
+  });
+
+  test('non-forced: no save when _lastCommittedCombo not yet set (no init or prior force)', () => {
+    // Fresh module, _lastCommittedCombo = null, selectedColor IS set (beforeEach default)
+    // previousCombo is null → return without saving
+    saveFavorite();
+    const { setFavorites } = require('../js/store.js');
+    expect(setFavorites).not.toHaveBeenCalled();
+  });
 });
 
 describe('renderStrip / initFavoritesStrip', () => {

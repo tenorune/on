@@ -9,6 +9,7 @@ const DEFAULT_THEME_BG = '#0f172a';
 const COLLAPSED_KEY = 'statusapp_favorites_collapsed';
 
 let _myUserId = null;
+let _lastCommittedCombo = null;
 
 // ─── Combo building ──────────────────────────────────────────────────────────
 
@@ -65,19 +66,33 @@ function slotVisuallyMatches(combo, setNum) {
 
 export function saveFavorite(force = false) {
   if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
+  const currentCombo = buildCombo();
+  if (force) {
+    _lastCommittedCombo = currentCombo;
+    const history = getFavorites();
+    setFavorites([currentCombo, ...history].slice(0, MAX_HISTORY));
+    renderStrip();
+    return;
+  }
+  // Non-forced (going available): push the PREVIOUS combo to history, not the current one.
+  // The current combo is already visible in a slot; what needs saving is what it replaced.
   const ps = getPaletteState();
   const activeSetKey = String(ps.activeSet);
-  if (!force && !ps.sets[activeSetKey].selectedColor) return;
-  const combo = buildCombo();
-  if (!force && (slotVisuallyMatches(combo, 1) || slotVisuallyMatches(combo, 2))) return;
+  if (!ps.sets[activeSetKey].selectedColor) return; // no explicit color choice made
+  const previousCombo = _lastCommittedCombo;
+  _lastCommittedCombo = currentCombo;
+  if (!previousCombo) return; // no prior committed state to push
+  if (combosMatch(currentCombo, previousCombo)) return; // nothing changed
   const history = getFavorites();
-  if (!force && history.length > 0 && combosMatch(combo, history[0])) return;
-  setFavorites([combo, ...history].slice(0, MAX_HISTORY));
+  if (slotVisuallyMatches(previousCombo, 1) || slotVisuallyMatches(previousCombo, 2)) return;
+  if (history.length > 0 && combosMatch(previousCombo, history[0])) return;
+  setFavorites([previousCombo, ...history].slice(0, MAX_HISTORY));
   renderStrip();
 }
 
 export function initFavoritesStrip(myUserId) {
   _myUserId = myUserId;
+  _lastCommittedCombo = buildCombo();
   document.addEventListener('palette-state-changed', renderStrip);
   renderStrip();
 }
@@ -197,6 +212,7 @@ function renderPill(combo, state, type, index) {
 function handleSlotTap(slotNum) {
   const ps = getPaletteState();
   if (ps.activeSet === slotNum) return;
+  _lastCommittedCombo = slotCombo(slotNum); // new active slot's baseline before any edits
   switchSet(slotNum, _myUserId);
   renderStrip();
 }
@@ -242,5 +258,6 @@ function handleHistoryTap(idx) {
     : newHistory;
 
   setFavorites(finalHistory);
+  _lastCommittedCombo = combo; // restored combo is the new baseline
   renderStrip();
 }
