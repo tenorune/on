@@ -378,8 +378,9 @@ function applyAdoption(entry, myUserId) {
 }
 
 function triggerAdoption(entry, myUserId) {
-  saveFavorite(true); // always save pre-adoption state so strip is visible for recovery
+  saveFavorite(true); // save pre-adoption state so user can return to it
   applyAdoption(entry, myUserId);
+  saveFavorite(true); // save adopted state so user can return to it after changing away
 }
 
 function createFolloweeRow(entry, myUserId, isMutual = false) {
