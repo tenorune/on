@@ -225,8 +225,8 @@ describe('saveFavorite', () => {
     expect(setFavorites).not.toHaveBeenCalled();
   });
 
-  test('force=true saves even when combo matches slot 1 (adoption path)', () => {
-    // Default state: --my-status = '#22c55e' = forest = slot 1 → normally deduped
+  test('force=true saves even when combo matches active slot (adoption path)', () => {
+    // Default state: --my-status = '#22c55e' = forest = slot 1 — force bypasses slot dedup
     saveFavorite(true);
     const { setFavorites } = require('../js/store.js');
     expect(setFavorites).toHaveBeenCalledWith([

@@ -378,7 +378,14 @@ function applyAdoption(entry, myUserId) {
 }
 
 function triggerAdoption(entry, myUserId) {
-  saveFavorite(true); // save pre-adoption state; adopted state enters history on next adoption or go-available
+  // Skip save if adopting a combo that looks the same as current state
+  const targetData = lastUserData.get(entry.userId);
+  const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim();
+  const ps = getPaletteState();
+  const myPaletteKey = ps.sets[String(ps.activeSet)].activePaletteKey;
+  if (myColor !== targetData?.statusColor || myPaletteKey !== (targetData?.paletteKey ?? null)) {
+    saveFavorite(true); // save pre-adoption state; adopted state enters history on next adoption or go-available
+  }
   applyAdoption(entry, myUserId);
 }
 

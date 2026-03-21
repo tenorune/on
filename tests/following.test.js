@@ -1168,6 +1168,13 @@ describe('applyAdoption', () => {
     expect(saveFavorite).toHaveBeenCalledWith(true);
   });
 
+  test('skips saveFavorite when adopting same combo as current state', () => {
+    const { saveFavorite } = require('../js/favorites.js');
+    // Target has same statusColor as --my-status (#22c55e) and same paletteKey (null)
+    triggerAdoptionFor(TARGET_ID, { statusColor: '#22c55e' });
+    expect(saveFavorite).not.toHaveBeenCalled();
+  });
+
 });
 
 describe('long press handler', () => {
