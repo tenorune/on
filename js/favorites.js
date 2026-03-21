@@ -10,6 +10,7 @@ const COLLAPSED_KEY = 'statusapp_favorites_collapsed';
 
 let _myUserId = null;
 let _lastCommittedCombo = null;
+let _prevPillCount = 0;
 
 // ─── Combo building ──────────────────────────────────────────────────────────
 
@@ -133,10 +134,6 @@ function renderStrip() {
   const container = document.getElementById('favorites-strip');
   if (!container) return;
   const history = getFavorites();
-  // if (history.length === 0) {
-  //   container.style.display = 'none';
-  //   return;
-  // }
   if (history.length === 0) {
     container.style.display = 'none';
     return;
@@ -164,6 +161,35 @@ function renderCollapsed(container, history) {
     localStorage.removeItem(COLLAPSED_KEY);
     renderStrip();
   });
+
+  // Swipe down from strip area or gap below it to expand
+  let _swipeDownStart = null;
+  function onSwipeDownStart(e) {
+    const touch = e.touches[0];
+    const stripBottom = container.getBoundingClientRect().bottom + 44; // include margin overlap
+    if (touch.clientY <= stripBottom) _swipeDownStart = touch.clientY;
+  }
+  function onSwipeDownEnd(e) {
+    if (_swipeDownStart === null) return;
+    const endY = e.changedTouches[0].clientY;
+    if (endY - _swipeDownStart > 30) {
+      localStorage.removeItem(COLLAPSED_KEY);
+      renderStrip();
+    }
+    _swipeDownStart = null;
+  }
+  document.addEventListener('touchstart', onSwipeDownStart, { passive: true });
+  document.addEventListener('touchend', onSwipeDownEnd, { passive: true });
+
+  // Clean up listeners when strip is re-rendered
+  const observer = new MutationObserver(() => {
+    if (!container.querySelector('.fav-collapsed')) {
+      document.removeEventListener('touchstart', onSwipeDownStart);
+      document.removeEventListener('touchend', onSwipeDownEnd);
+      observer.disconnect();
+    }
+  });
+  observer.observe(container, { childList: true });
 }
 
 function renderExpanded(container, history) {
@@ -182,6 +208,29 @@ function renderExpanded(container, history) {
   container.innerHTML =
     `<div class="fav-strip">${slotPills}${historyPills}` +
     `<button class="fav-collapse-btn" aria-label="Collapse">▲</button></div>`;
+
+  // Animate pill width when pill count changes
+  const strip = container.querySelector('.fav-strip');
+  const pills = container.querySelectorAll('.fav-pill');
+  const pillCount = pills.length;
+  const collapseBtn = container.querySelector('.fav-collapse-btn');
+  const gap = 6; // matches CSS gap
+  const padding = 24; // matches CSS padding (12px each side)
+  const btnWidth = collapseBtn ? collapseBtn.offsetWidth + gap : 0;
+  const availableWidth = strip.clientWidth - padding - btnWidth;
+  const targetWidth = Math.floor((availableWidth - gap * (pillCount - 1)) / pillCount);
+
+  if (_prevPillCount > 0 && pillCount > _prevPillCount) {
+    // Animate from old size to new size
+    const oldWidth = Math.floor((availableWidth - gap * (_prevPillCount - 1)) / _prevPillCount);
+    pills.forEach(el => { el.style.width = oldWidth + 'px'; });
+    requestAnimationFrame(() => {
+      pills.forEach(el => { el.style.width = targetWidth + 'px'; });
+    });
+  } else {
+    pills.forEach(el => { el.style.width = targetWidth + 'px'; });
+  }
+  _prevPillCount = pillCount;
 
   container.querySelectorAll('.fav-pill[data-type="slot"]').forEach(el => {
     if (parseInt(el.dataset.index) !== ps.activeSet) {
