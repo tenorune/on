@@ -208,7 +208,7 @@
 <body>
 
 <h1>Status App — Color &amp; Theme Data Model</h1>
-<p class="subtitle">v0.6.5 &middot; Palette Interactions &middot; March 2026</p>
+<p class="subtitle">v0.7 &middot; Palette Interactions &middot; March 2026</p>
 
 <nav class="toc">
   <h2>Contents</h2>
@@ -283,12 +283,28 @@ and restore previous configurations through the <strong>Favorites Strip</strong>
   </tr>
   <tr>
     <td><code>PALETTE_INTERACTIONS_ENABLED</code></td>
-    <td><code>false</code></td>
+    <td><code>true</code></td>
     <td>
       Favorites strip (slots + history pills), <code>saveFavorite</code> history recording,
       long-press adoption on user cards.
       Requires <code>PALETTES_ENABLED = true</code>.
       When <code>false</code>: no strip, no adoption, no history.
+    </td>
+  </tr>
+  <tr>
+    <td><code>KNOCK_ENABLED</code></td>
+    <td><code>true</code></td>
+    <td>
+      Tap-to-knock on mutual cards (sends a notification).
+      When <code>false</code>: no tap handler on cards.
+    </td>
+  </tr>
+  <tr>
+    <td><code>CALL_ENABLED</code></td>
+    <td><code>true</code></td>
+    <td>
+      Swipe-right-to-call on mutual cards (enters call mode with glow animation).
+      When <code>false</code>: no swipe handler on cards.
     </td>
   </tr>
 </table>
@@ -446,7 +462,17 @@ using a fixed width. With up to 8 pills sharing the space, each pill shrinks or 
 proportionally.</p>
 
 <h4>Collapsed Mode</h4>
-<p>A single gradient line showing all pill colors left-to-right. Tap to expand.</p>
+<p>A single gradient line showing all pill colors left-to-right. Tap to expand.
+The collapsed touch target extends below the visible line (via padding) to fill
+the gap between the strip and the list.</p>
+
+<h4>Gestures</h4>
+<ul>
+  <li><strong>Swipe down</strong> near the collapsed strip or the gap below it: expands to full pill view</li>
+  <li><strong>Swipe up</strong> below the expanded strip: collapses to gradient line</li>
+  <li><code>overscroll-behavior-y: none</code> on <code>html, body</code> prevents iOS Safari
+      pull-to-refresh from interfering with the swipe-down gesture</li>
+</ul>
 
 <!-- ===== 4. DATA MODEL ===== -->
 <h2 id="data-model">4. Data Model</h2>
@@ -833,7 +859,7 @@ setAvailable(availableUntil) in me.js
         +-- Guard: current !== previous?               &lt;-- same = return (no change)
         +-- Guard: !slotVisuallyMatches(prev, slot1)?  &lt;-- match = return (already in slot)
         +-- Guard: !slotVisuallyMatches(prev, slot2)?  &lt;-- match = return (already in slot)
-        +-- Guard: !history.some(combosMatch(prev))?   &lt;-- match = return (already in history)
+        +-- Guard: !history.some(pillsLookSame(prev))?  &lt;-- match = return (looks same in history)
         |
         +-- setFavorites([previousCombo, ...history])  &lt;-- localStorage
         +-- renderStrip()
@@ -857,6 +883,9 @@ triggerAdoption(entry, myUserId)
   |     (so user can recover pre-adoption state)
   |
   +-- applyAdoption(entry, myUserId)
+  |
+  +-- removeHistoryDuplicatesOfSlots()        &lt;-- post-cleanup: if adoption didn't
+        change anything, removes the now-duplicate pill
         |
         +-- Read target's statusColor, paletteKey from lastUserData cache
         |
@@ -885,6 +914,9 @@ triggerAdoption(entry, myUserId)
   <strong>Save timing:</strong> The pre-adoption <code>saveFavorite(true)</code> captures the
   user's state <em>before</em> adoption. The adopted combo itself enters history only when the user
   later moves away from it — either via another adoption or by going available with a new combo.
+  After adoption, <code>removeHistoryDuplicatesOfSlots()</code> cleans up: if the adopted combo
+  is identical to the user's current state (same-combo adoption), the pre-save is removed
+  since it now visually matches a slot.
 </div>
 
 <h3 id="history-restore">5.6 History Pill Restore <span class="flag-badge flag-interactions">INTERACTIONS</span></h3>
@@ -943,9 +975,15 @@ handleHistoryTap(idx)
   </tr>
   <tr>
     <td>3</td>
-    <td><code>history.some(h =&gt; combosMatch(prev, h))</code></td>
-    <td>No pill when the previous combo already exists anywhere in history
-        (full scan, not just <code>history[0]</code>)</td>
+    <td><code>history.some(h =&gt; pillsLookSame(prev, h))</code></td>
+    <td>No pill when a visually identical pill already exists anywhere in history
+        (compares <code>statusColor</code> + <code>themeBg</code> only)</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td><code>removeHistoryDuplicatesOfSlots()</code></td>
+    <td>Post-adoption cleanup: removes any history pill that now visually matches
+        Slot 1 or Slot 2 (handles same-combo adoption where pre-save creates a duplicate)</td>
   </tr>
 </table>
 
@@ -956,8 +994,15 @@ handleHistoryTap(idx)
   <tr>
     <td><code>combosMatch(a, b)</code></td>
     <td><code>statusColor</code>, <code>paletteKey</code>, <code>selectedKey</code>, <code>activeSet</code></td>
-    <td>Exact equality — used for full-history dedup, detecting "no change",
-        and force-save dedup</td>
+    <td>Exact equality — used for detecting "no change" between current and previous combo,
+        and for slot dedup in <code>handleHistoryTap</code></td>
+  </tr>
+  <tr>
+    <td><code>pillsLookSame(a, b)</code></td>
+    <td><code>statusColor</code>, <code>themeBg</code></td>
+    <td>Visual equality — compares only what the user sees (pill left/right colors).
+        Used for history dedup in both force-save and non-forced paths, and for
+        <code>removeHistoryDuplicatesOfSlots</code> post-adoption cleanup</td>
   </tr>
   <tr>
     <td><code>slotVisuallyMatches(combo, setNum)</code></td>
@@ -1120,7 +1165,7 @@ array (7 hex colors derived from the primary via color-wheel math).</p>
       re-renders to keep slot pills in sync.</li>
   <li><strong>Direct imports:</strong> <code>favorites.js</code> imports <code>switchSet</code> and
       <code>enterPaletteMode</code> from <code>palettes.js</code>; <code>following.js</code> imports
-      <code>saveFavorite</code> from <code>favorites.js</code>.</li>
+      <code>saveFavorite</code> and <code>removeHistoryDuplicatesOfSlots</code> from <code>favorites.js</code>.</li>
   <li><strong>Firebase stream:</strong> Peer visibility is entirely through <code>watchStatus</code>.
       There is no direct communication between users' palette pickers — one user's
       <code>setStatusColor</code>/<code>setPaletteKey</code> writes are read by peers'
@@ -1158,10 +1203,30 @@ array (7 hex colors derived from the primary via color-wheel math).</p>
       </ul>
     </td>
   </tr>
+  <tr>
+    <td><code>v0.7</code></td>
+    <td>2026-03-22</td>
+    <td>
+      <strong>All feature flags enabled. Dedup and gesture refinements:</strong>
+      <ul style="margin:0.3em 0 0 1.2em;">
+        <li>All flags now <code>true</code>: <code>PALETTES_ENABLED</code>, <code>PALETTE_INTERACTIONS_ENABLED</code>,
+            <code>KNOCK_ENABLED</code>, <code>CALL_ENABLED</code></li>
+        <li>History dedup uses <code>pillsLookSame</code> (visual: <code>statusColor</code> + <code>themeBg</code>)
+            instead of <code>combosMatch</code> (exact state) for history scans</li>
+        <li>Added <code>removeHistoryDuplicatesOfSlots()</code> post-adoption cleanup to remove
+            pills that now match a slot after same-combo adoption</li>
+        <li>Strip gestures: swipe-down-to-open (collapsed), swipe-up-to-close (expanded)</li>
+        <li>Added <code>overscroll-behavior-y: none</code> to prevent iOS Safari pull-to-refresh
+            from interfering with swipe gestures</li>
+        <li>Enlarged collapsed strip touch target; negative margin prevents layout push</li>
+        <li>List section labels and add-person area positioned higher</li>
+      </ul>
+    </td>
+  </tr>
 </table>
 
 <p style="color:var(--text-muted); font-size:0.8rem; margin-top:1rem;">
-  Generated from codebase at tag <code>v0.6.5</code>. Source files in <code>js/</code> and <code>css/</code>.
+  Generated from codebase at tag <code>v0.7</code>. Source files in <code>js/</code> and <code>css/</code>.
 </p>
 
 </body>
