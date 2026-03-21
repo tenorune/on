@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Status App — Color &amp; Theme Data Model</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface2: #334155;
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
+    --accent: #6366f1;
+    --green: #22c55e;
+    --border: #475569;
+    --code-bg: #1a2332;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    line-height: 1.6;
+    padding: 2rem;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-size: 1.75rem;
+    margin-bottom: 0.25rem;
+    color: var(--text);
+  }
+
+  h1 + .subtitle {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    margin-bottom: 2rem;
+  }
+
+  h2 {
+    font-size: 1.35rem;
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.4rem;
+  }
+
+  h3 {
+    font-size: 1.1rem;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--text);
+  }
+
+  h4 {
+    font-size: 0.95rem;
+    margin-top: 1.25rem;
+    margin-bottom: 0.4rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  p, li { color: var(--text); font-size: 0.92rem; }
+  p { margin-bottom: 0.75rem; }
+
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.3rem; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  code {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.85em;
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    color: #e2e8f0;
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-x: auto;
+    margin-bottom: 1rem;
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
+
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.25rem;
+    font-size: 0.88rem;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+  }
+
+  th {
+    background: var(--surface2);
+    color: var(--text);
+    font-weight: 600;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  td { background: var(--surface); }
+
+  .note {
+    background: var(--surface);
+    border-left: 3px solid var(--accent);
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.88rem;
+  }
+
+  .note strong { color: var(--accent); }
+
+  .flag-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.15em 0.5em;
+    border-radius: 4px;
+    vertical-align: middle;
+    margin-left: 0.3em;
+  }
+
+  .flag-palettes { background: #22c55e33; color: #4ade80; }
+  .flag-interactions { background: #6366f133; color: #a5b4fc; }
+
+  /* Diagram styles */
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.25rem;
+    overflow-x: auto;
+  }
+
+  .diagram svg { display: block; margin: 0 auto; }
+
+  /* Table of contents */
+  nav.toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  nav.toc h2 {
+    margin-top: 0;
+    font-size: 1rem;
+    border: none;
+    padding: 0;
+    margin-bottom: 0.5rem;
+  }
+
+  nav.toc ol { padding-left: 1.25rem; margin-bottom: 0; }
+  nav.toc li { margin-bottom: 0.25rem; font-size: 0.88rem; }
+  nav.toc ol ol { margin-top: 0.25rem; margin-bottom: 0.25rem; }
+
+  .color-swatch {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-right: 4px;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+
+  @media (max-width: 640px) {
+    body { padding: 1rem; }
+    .two-col { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Status App — Color &amp; Theme Data Model</h1>
+<p class="subtitle">v0.6.5 &middot; Palette Interactions &middot; March 2026</p>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#feature-flags">Feature Flags</a></li>
+    <li><a href="#what-the-user-sees">What the User Sees</a>
+      <ol>
+        <li><a href="#status-color">Status Color</a></li>
+        <li><a href="#ui-theme">UI Theme</a></li>
+        <li><a href="#user-cards">User Cards (Followee View)</a></li>
+        <li><a href="#palette-picker">Palette Picker</a></li>
+        <li><a href="#favorites-strip">Favorites Strip</a></li>
+      </ol>
+    </li>
+    <li><a href="#data-model">Data Model</a>
+      <ol>
+        <li><a href="#firebase-schema">Firebase Schema</a></li>
+        <li><a href="#local-palette-state">Local Palette State</a></li>
+        <li><a href="#favorites-storage">Favorites Storage</a></li>
+        <li><a href="#css-custom-properties">CSS Custom Properties</a></li>
+      </ol>
+    </li>
+    <li><a href="#state-transitions">State Transitions &amp; Event Flow</a>
+      <ol>
+        <li><a href="#swatch-tap">Swatch Tap (First &amp; Second)</a></li>
+        <li><a href="#complement-tap">Complement Swatch Tap</a></li>
+        <li><a href="#set-switch">Set Switch (Bolt/Flower or Pill Tap)</a></li>
+        <li><a href="#go-available">Going Available</a></li>
+        <li><a href="#adoption">Long-Press Adoption</a></li>
+        <li><a href="#history-restore">History Pill Restore</a></li>
+      </ol>
+    </li>
+    <li><a href="#dedup">Favorites Deduplication</a></li>
+    <li><a href="#file-map">File Map</a></li>
+  </ol>
+</nav>
+
+<!-- ===== 1. OVERVIEW ===== -->
+<h2 id="overview">1. Overview</h2>
+
+<p>The app lets users set an <strong>availability status</strong> (available/unavailable with a timeout)
+and personalise how they appear via a <strong>status color</strong> and optional <strong>UI theme</strong>.</p>
+
+<p>Color and theme are configured through a <strong>Palette Picker</strong> — a row of swatches organised into
+two independent sets (Natural and Electric, 8 palettes each). Each palette provides a primary
+status color, a full UI theme (8 CSS variables), and 7 complement colors. Users can also save
+and restore previous configurations through the <strong>Favorites Strip</strong>.</p>
+
+<p>Other users see these choices reflected on <strong>User Cards</strong> in the following list, and can
+<strong>adopt</strong> another user's color+theme combo via long-press.</p>
+
+<!-- ===== 2. FEATURE FLAGS ===== -->
+<h2 id="feature-flags">2. Feature Flags</h2>
+
+<p>Two flags gate palette and strip behaviour. Both are compile-time constants in <code>js/features.js</code>.</p>
+
+<table>
+  <tr>
+    <th>Flag</th>
+    <th>Default</th>
+    <th>What It Gates</th>
+  </tr>
+  <tr>
+    <td><code>PALETTES_ENABLED</code></td>
+    <td><code>true</code></td>
+    <td>
+      Swatch row rendering, theme CSS variables, palette-colored status dots,
+      palette-styled user cards, status color persistence to Firebase.
+      When <code>false</code>: default green status dot, no swatch row, no card theming.
+    </td>
+  </tr>
+  <tr>
+    <td><code>PALETTE_INTERACTIONS_ENABLED</code></td>
+    <td><code>false</code></td>
+    <td>
+      Favorites strip (slots + history pills), <code>saveFavorite</code> history recording,
+      long-press adoption on user cards.
+      Requires <code>PALETTES_ENABLED = true</code>.
+      When <code>false</code>: no strip, no adoption, no history.
+    </td>
+  </tr>
+</table>
+
+<div class="note">
+  <strong>Flag notation:</strong> Throughout this document,
+  <span class="flag-badge flag-palettes">PALETTES</span> marks features gated by <code>PALETTES_ENABLED</code> and
+  <span class="flag-badge flag-interactions">INTERACTIONS</span> marks those additionally gated by <code>PALETTE_INTERACTIONS_ENABLED</code>.
+</div>
+
+<!-- ===== 3. WHAT THE USER SEES ===== -->
+<h2 id="what-the-user-sees">3. What the User Sees</h2>
+
+<h3 id="status-color">3.1 Status Color</h3>
+
+<p>The <strong>status color</strong> is a hex color (e.g. <code>#22c55e</code>) that represents
+the user's current visual identity. It is displayed as:</p>
+
+<ul>
+  <li>The user's own <strong>status dot</strong> (background + box-shadow glow)</li>
+  <li>The <strong>left border accent</strong> on other users' cards</li>
+  <li>The <strong>"Available for …"</strong> text color on cards</li>
+  <li>The <strong>dot color</strong> on other users' following list entries</li>
+</ul>
+
+<p>Status color defaults to <span class="color-swatch" style="background:#22c55e"></span><code>#22c55e</code> (green)
+and changes when the user taps a swatch, taps a complement, adopts from a card, or restores from history.</p>
+
+<h3 id="ui-theme">3.2 UI Theme</h3>
+
+<p>A <strong>UI theme</strong> is a set of 8 CSS color variables that re-skin the app's background,
+surfaces, text, and accent. A theme is activated by double-tapping a palette swatch
+("entering palette mode"). In <strong>base mode</strong> (single tap or no palette mode), only the
+status color changes; the UI stays on the default dark-slate theme.</p>
+
+<table>
+  <tr><th>Mode</th><th>Status Color</th><th>UI Theme</th><th>Firebase <code>paletteKey</code></th></tr>
+  <tr>
+    <td><strong>Base mode</strong></td>
+    <td>Palette's primary color</td>
+    <td>Default (slate)</td>
+    <td><code>null</code></td>
+  </tr>
+  <tr>
+    <td><strong>Palette mode</strong></td>
+    <td>Primary or any complement</td>
+    <td>Palette's theme</td>
+    <td>e.g. <code>"forest"</code></td>
+  </tr>
+</table>
+
+<div class="note">
+  <strong>Why <code>null</code> and not <code>"slate"</code>?</strong>
+  Slate is not a palette — it is the hardcoded CSS default (the <code>:root</code> values in
+  <code>app.css</code>). The 16 palettes in <code>PALETTE_SETS</code> each define a unique theme,
+  complements array, and glow color. Slate has none of these; it is simply what the UI
+  reverts to when <code>resetThemeVars()</code> is called. Using <code>null</code> signals
+  "no palette chosen" rather than implying slate is a selectable entry in
+  <code>PALETTE_SETS</code>.
+</div>
+
+<h3 id="user-cards">3.3 User Cards (Followee View) <span class="flag-badge flag-palettes">PALETTES</span></h3>
+
+<p>When a followed user is <strong>available</strong>, their card reflects their status color and (if present) their palette theme:</p>
+
+<table>
+  <tr><th>Card Element</th><th>Data Source</th><th>Behaviour</th></tr>
+  <tr>
+    <td>Status dot</td>
+    <td><code>userData.statusColor</code></td>
+    <td>Background, border, and glow set to status color when available; cleared when unavailable</td>
+  </tr>
+  <tr>
+    <td>"Available for …" span</td>
+    <td><code>userData.statusColor</code></td>
+    <td>Inline <code>style="color:${color}"</code> on the <code>&lt;span&gt;</code>.
+        Always applied when available, regardless of <code>paletteKey</code>.
+        In palette mode this is overridden to <code>palette.color</code>.</td>
+  </tr>
+  <tr>
+    <td>Card background</td>
+    <td><code>userData.paletteKey</code> &rarr; <code>palette.theme.surface</code></td>
+    <td>Dark-tinted surface from palette theme. Only if <code>paletteKey</code> is set and user is available.
+        In base mode (<code>paletteKey = null</code>): cleared, falls back to CSS default.</td>
+  </tr>
+  <tr>
+    <td>Left border</td>
+    <td><code>userData.statusColor</code> or <code>palette.color</code></td>
+    <td>Accent stripe. In palette mode: <code>palette.color</code> (primary).
+        In base mode: <code>statusColor</code> when available, cleared when unavailable.</td>
+  </tr>
+  <tr>
+    <td>Status text color</td>
+    <td><code>palette.theme.textMuted</code> or CSS default</td>
+    <td><strong>Palette mode</strong> (<code>paletteKey</code> set): <code>statusEl.style.color</code>
+        is set to <code>palette.theme.textMuted</code>.<br>
+        <strong>Base mode</strong> (<code>paletteKey = null</code>): <code>statusEl.style.color</code>
+        is cleared (<code>''</code>), so the text falls back to inherited CSS
+        (<code>var(--text)</code> or the card's default rule). The "Available for …"
+        <code>&lt;span&gt;</code> still shows the status color via its own inline style,
+        but the surrounding text (e.g. "Last seen") uses the CSS cascade, not <code>textMuted</code>.</td>
+  </tr>
+</table>
+
+<p>When <code>paletteKey</code> is <code>null</code> or the user is unavailable, all palette-specific
+card styling (background, border, text color) is cleared. The card reverts to CSS defaults, though the
+"Available for …" span retains its inline <code>statusColor</code>.</p>
+
+<h3 id="palette-picker">3.4 Palette Picker <span class="flag-badge flag-palettes">PALETTES</span></h3>
+
+<p>The palette picker is a horizontal swatch row visible when the user is <strong>unavailable</strong>
+(hidden when available). It has two rendering modes:</p>
+
+<h4>Base Mode (no active theme)</h4>
+<ul>
+  <li>Shows 8 swatches for the active set (colored circles)</li>
+  <li>The swatch matching <code>selectedKey</code> has a white ring (<code>.selected</code>)</li>
+  <li>A toggle button (Bolt/Flower icon) switches between Set 1 and Set 2</li>
+  <li><strong>First tap</strong> on a swatch: changes status color, updates <code>selectedKey</code></li>
+  <li><strong>Second tap</strong> on the selected swatch: enters palette mode</li>
+</ul>
+
+<h4>Palette Mode (theme active)</h4>
+<ul>
+  <li>Shows the <strong>key swatch</strong> (palette's primary color) at its original index position</li>
+  <li>Shows <strong>7 complement swatches</strong> (derived colors) filling the remaining positions</li>
+  <li>White ring on whichever swatch matches <code>selectedColor</code></li>
+  <li>Tapping a complement: changes status color only; theme stays</li>
+  <li>Tapping the key swatch when it's already selected: exits palette mode</li>
+  <li>Tapping the key swatch when a complement is selected: reverts status to primary color</li>
+</ul>
+
+<h3 id="favorites-strip">3.5 Favorites Strip <span class="flag-badge flag-interactions">INTERACTIONS</span></h3>
+
+<p>A horizontally-scrollable strip below the swatch row. Contains two types of pills:</p>
+
+<h4>Slot Pills (Slots 1 &amp; 2)</h4>
+<ul>
+  <li>Always present; mirror the current state of Set 1 and Set 2</li>
+  <li>Each pill is a split circle: left half = <code>statusColor</code>, right half = <code>themeBg</code></li>
+  <li><strong>Active set's pill</strong>: reduced opacity, not tappable (it's what you're already looking at)</li>
+  <li><strong>Inactive set's pill</strong>: full opacity, tappable — tapping switches to that set</li>
+</ul>
+
+<h4>History Pills (Slots 3–16)</h4>
+<ul>
+  <li>Auto-saved combos, most recent first. Maximum 14 items</li>
+  <li>Full opacity, tappable — tapping restores the combo (color + theme + set)</li>
+  <li>Created by <code>saveFavorite(true)</code> (forced, pre-adoption) or <code>saveFavorite(false)</code> (going available)</li>
+</ul>
+
+<h4>Collapsed Mode</h4>
+<p>A single gradient line showing all pill colors left-to-right. Tap to expand.</p>
+
+<!-- ===== 4. DATA MODEL ===== -->
+<h2 id="data-model">4. Data Model</h2>
+
+<h3 id="firebase-schema">4.1 Firebase Schema</h3>
+
+<p>Firebase Realtime Database. All palette-related fields live on the user record at <code>users/{userId}/</code>.</p>
+
+<pre><code>users/
+  {userId}/
+    code: string               // 6-char discovery code
+    status: "available" | "unavailable"
+    availableUntil: number|null  // ms timestamp
+    lastSeen: number             // ms timestamp
+    statusColor: string          // hex, e.g. "#22c55e"
+    paletteKey: string|null      // active palette ID or null (base mode)
+    callState: { calleeId, since } | null
+    followers/
+      {followerId}: string       // follower's code
+    revokedFollowers/
+      {followerId}: true
+    knocks/
+      {senderId}: { count, ts }</code></pre>
+
+<h4>Palette-Relevant Fields</h4>
+
+<table>
+  <tr><th>Field</th><th>Type</th><th>Written By</th><th>Purpose</th></tr>
+  <tr>
+    <td><code>statusColor</code></td>
+    <td>hex string</td>
+    <td><code>palettes.js</code>, <code>favorites.js</code>, <code>following.js</code></td>
+    <td>Current status indicator color. Read by peers via <code>watchStatus</code> to style cards.</td>
+  </tr>
+  <tr>
+    <td><code>paletteKey</code></td>
+    <td>string | null</td>
+    <td><code>palettes.js</code>, <code>favorites.js</code></td>
+    <td>Active palette theme ID (e.g. <code>"forest"</code>, <code>"volt"</code>). Peers look up
+        the palette object to apply card theming. <code>null</code> = base mode (no theme).</td>
+  </tr>
+</table>
+
+<div class="note">
+  <strong>Dual storage pattern:</strong> Both <code>statusColor</code> and <code>paletteKey</code>
+  are always written together. A peer reads <code>paletteKey</code> to get the theme and
+  <code>statusColor</code> for the exact color (which may be a complement, not the palette's primary).
+</div>
+
+<h4>Firebase Read/Write Operations</h4>
+
+<table>
+  <tr><th>Function</th><th>File</th><th>Type</th><th>What It Does</th></tr>
+  <tr>
+    <td><code>setStatusColor(userId, color)</code></td>
+    <td>db.js</td>
+    <td>Write</td>
+    <td>Updates <code>statusColor</code> field</td>
+  </tr>
+  <tr>
+    <td><code>setPaletteKey(userId, key)</code></td>
+    <td>db.js</td>
+    <td>Write</td>
+    <td>Updates <code>paletteKey</code> field (string or null)</td>
+  </tr>
+  <tr>
+    <td><code>setStatus(userId, status, availableUntil)</code></td>
+    <td>db.js</td>
+    <td>Write</td>
+    <td>Updates <code>status</code>, <code>availableUntil</code>, <code>lastSeen</code></td>
+  </tr>
+  <tr>
+    <td><code>watchStatus(userId, callback)</code></td>
+    <td>db.js</td>
+    <td>Stream</td>
+    <td>Real-time listener on entire user record; delivers <code>statusColor</code> and <code>paletteKey</code> to peers</td>
+  </tr>
+</table>
+
+<h3 id="local-palette-state">4.2 Local Palette State</h3>
+
+<p>Stored in <code>localStorage</code> at key <code>statusapp_palette_state</code>. Managed by
+<code>getPaletteState()</code> / <code>setPaletteState()</code> in <code>store.js</code>.</p>
+
+<pre><code>{
+  activeSet: 1 | 2,                   // Which set is currently active
+  sets: {
+    "1": {
+      selectedKey: string,             // Palette key shown as selected (e.g. "forest")
+      activePaletteKey: string | null, // null = base mode; string = palette mode
+      selectedColor: string | undefined // Explicit color choice; set on user action only
+    },
+    "2": {
+      selectedKey: string,             // e.g. "volt"
+      activePaletteKey: string | null,
+      selectedColor: string | undefined
+    }
+  }
+}</code></pre>
+
+<h4>Field Purposes</h4>
+
+<table>
+  <tr><th>Field</th><th>Set On</th><th>Read By</th><th>Purpose</th></tr>
+  <tr>
+    <td><code>activeSet</code></td>
+    <td>Set switch, adoption, history restore</td>
+    <td>Swatch rendering, strip rendering, <code>buildCombo</code></td>
+    <td>Which set (1 or 2) the user is currently working in</td>
+  </tr>
+  <tr>
+    <td><code>selectedKey</code></td>
+    <td>First swatch tap, adoption, history restore</td>
+    <td><code>renderSwatchRow</code> (white ring position), <code>switchSet</code> (color lookup)</td>
+    <td>Which palette within the set is selected</td>
+  </tr>
+  <tr>
+    <td><code>activePaletteKey</code></td>
+    <td>Second swatch tap (enter), key swatch tap (exit), adoption</td>
+    <td><code>renderSwatchRow</code> (base vs palette mode), <code>switchSet</code> (theme apply/reset)</td>
+    <td><code>null</code> = base mode (color only). Non-null = palette mode (color + full theme)</td>
+  </tr>
+  <tr>
+    <td><code>selectedColor</code></td>
+    <td>Every explicit user color choice (swatch tap, complement tap, key swatch select, adoption)</td>
+    <td><code>renderSwatchRow</code> (ring on complement), <code>switchSet</code> (restore color), <code>slotCombo</code> (inactive slot color), <code>saveFavorite</code> (explicit-choice gate)</td>
+    <td>
+      The exact color the user chose. May differ from palette's primary when a complement
+      is selected. Also serves as the "user has made an explicit choice" signal —
+      if absent, <code>saveFavorite(false)</code> skips saving.
+    </td>
+  </tr>
+</table>
+
+<div class="note">
+  <strong>Local-only vs. persisted:</strong> <code>selectedKey</code>, <code>activePaletteKey</code>,
+  <code>selectedColor</code>, and <code>activeSet</code> are local only (localStorage).
+  Only <code>statusColor</code> and <code>paletteKey</code> are written to Firebase for peer visibility.
+</div>
+
+<h4>Default State</h4>
+
+<table>
+  <tr><th>Field</th><th>Default</th></tr>
+  <tr><td><code>activeSet</code></td><td><code>1</code></td></tr>
+  <tr><td>Set 1 <code>selectedKey</code></td><td><code>"forest"</code></td></tr>
+  <tr><td>Set 2 <code>selectedKey</code></td><td><code>"volt"</code></td></tr>
+  <tr><td>Both <code>activePaletteKey</code></td><td><code>null</code></td></tr>
+  <tr><td>Both <code>selectedColor</code></td><td><em>undefined</em> (no explicit choice yet)</td></tr>
+</table>
+
+<h3 id="favorites-storage">4.3 Favorites Storage</h3>
+
+<p>Stored in <code>localStorage</code> at key <code>statusapp_favorites</code>. Array of "combo" objects, maximum 14.</p>
+
+<h4>Combo Object Shape</h4>
+
+<pre><code>{
+  statusColor: string,       // hex — the status indicator color
+  themeBg: string,           // hex — palette theme surface2, or DEFAULT_THEME_BG
+  paletteKey: string | null, // palette ID or null (base mode)
+  selectedKey: string,       // palette key within the set
+  activeSet: 1 | 2           // which set this combo belonged to
+}</code></pre>
+
+<table>
+  <tr><th>Field</th><th>Source</th><th>Used For</th></tr>
+  <tr>
+    <td><code>statusColor</code></td>
+    <td>CSS <code>--my-status</code> (active set) or <code>selectedColor</code> (inactive set)</td>
+    <td>Left half of pill color; restored on tap</td>
+  </tr>
+  <tr>
+    <td><code>themeBg</code></td>
+    <td>CSS <code>--surface2</code></td>
+    <td>Right half of pill color; visual hint of theme</td>
+  </tr>
+  <tr>
+    <td><code>paletteKey</code></td>
+    <td><code>activePaletteKey</code> from palette state</td>
+    <td>Restored on tap to re-enter palette mode (or null for base mode)</td>
+  </tr>
+  <tr>
+    <td><code>selectedKey</code></td>
+    <td><code>selectedKey</code> from palette state</td>
+    <td>Determines which swatch gets the ring after restore</td>
+  </tr>
+  <tr>
+    <td><code>activeSet</code></td>
+    <td><code>activeSet</code> from palette state</td>
+    <td>Which set to switch to on restore</td>
+  </tr>
+</table>
+
+<h4>Internal Tracking: <code>_lastCommittedCombo</code></h4>
+
+<p>An in-memory variable (not persisted) that tracks the "last committed" combo state.
+Used by <code>saveFavorite(false)</code> to determine what the <em>previous</em> combo was,
+so it can save it to history when the user goes available with a new combo.</p>
+
+<table>
+  <tr><th>Event</th><th>Updated To</th></tr>
+  <tr><td><code>initFavoritesStrip()</code></td><td><code>buildCombo()</code> — current live state</td></tr>
+  <tr><td><code>saveFavorite()</code> (any call)</td><td>Current combo at time of call</td></tr>
+  <tr><td><code>handleSlotTap()</code></td><td><code>slotCombo(newSlot)</code> — the slot switched to</td></tr>
+  <tr><td><code>handleHistoryTap()</code></td><td>The restored combo</td></tr>
+</table>
+
+<h3 id="css-custom-properties">4.4 CSS Custom Properties</h3>
+
+<h4>Status Variables (set by palette interactions)</h4>
+
+<table>
+  <tr><th>Variable</th><th>Set By</th><th>Default</th><th>Purpose</th></tr>
+  <tr>
+    <td><code>--my-status</code></td>
+    <td><code>applyPaletteVars</code>, <code>switchSet</code>, adoption, history restore</td>
+    <td><code>#22c55e</code></td>
+    <td>Status dot color, glow source, card accent</td>
+  </tr>
+  <tr>
+    <td><code>--my-glow</code></td>
+    <td>Same as above</td>
+    <td><code>rgba(34,197,94,0.4)</code></td>
+    <td>Status dot box-shadow glow</td>
+  </tr>
+</table>
+
+<h4>Theme Variables (set by <code>applyThemeVars</code> / <code>resetThemeVars</code>)</h4>
+
+<table>
+  <tr><th>Variable</th><th>Default (Slate)</th><th>Purpose</th></tr>
+  <tr><td><code>--bg</code></td><td><code>#0f172a</code></td><td>Page background</td></tr>
+  <tr><td><code>--surface</code></td><td><code>#1e293b</code></td><td>Card / container background</td></tr>
+  <tr><td><code>--surface2</code></td><td><code>#334155</code></td><td>Secondary surface (used in pill <code>themeBg</code>)</td></tr>
+  <tr><td><code>--text</code></td><td><code>#f1f5f9</code></td><td>Primary text</td></tr>
+  <tr><td><code>--text-muted</code></td><td><code>#94a3b8</code></td><td>Secondary text</td></tr>
+  <tr><td><code>--accent</code></td><td><code>#6366f1</code></td><td>Accent / interactive elements</td></tr>
+  <tr><td><code>--error-bg</code></td><td><code>#7f1d1d</code></td><td>Error container background</td></tr>
+  <tr><td><code>--error-text</code></td><td><code>#fca5a5</code></td><td>Error message text</td></tr>
+</table>
+
+<div class="note">
+  <strong>Theme reset:</strong> When <code>activePaletteKey</code> is cleared (exit palette mode
+  or switch to a set in base mode), <code>resetThemeVars()</code> restores all 8 variables
+  to their default slate values.
+</div>
+
+<!-- ===== 5. STATE TRANSITIONS ===== -->
+<h2 id="state-transitions">5. State Transitions &amp; Event Flow</h2>
+
+<h3 id="swatch-tap">5.1 Swatch Tap (First &amp; Second)</h3>
+
+<h4>First Tap — Change Status Color Only</h4>
+
+<div class="diagram">
+<pre style="margin:0;border:0;background:transparent;font-size:0.8rem;">
+User taps swatch [key]
+  |
+  v
+tapSwatch(key, userId)
+  |
+  +-- state.selectedKey = key
+  +-- state.selectedColor = palette.color
+  +-- setPaletteState(state)              &lt;-- localStorage
+  +-- setStatusColor(userId, color)       &lt;-- Firebase
+  +-- applyPaletteVars(key)               &lt;-- CSS: --my-status, --my-glow
+  +-- Update .selected class in DOM
+  +-- dispatch 'palette-state-changed'    &lt;-- favorites.js re-renders strip
+</pre>
+</div>
+
+<h4>Second Tap — Enter Palette Mode</h4>
+
+<div class="diagram">
+<pre style="margin:0;border:0;background:transparent;font-size:0.8rem;">
+User taps already-selected swatch [key]
+  |
+  v
+tapSwatch(key, userId) detects key === selectedKey
+  |
+  v
+enterPaletteMode(key, userId)
+  |
+  +-- state.activePaletteKey = key
+  +-- setPaletteState(state)              &lt;-- localStorage
+  +-- applyThemeVars(palette.theme)       &lt;-- CSS: 8 theme vars
+  +-- setPaletteKey(userId, key)          &lt;-- Firebase
+  +-- renderSwatchRow(userId)             &lt;-- re-renders as key + 7 complements
+       +-- dispatch 'palette-state-changed'
+</pre>
+</div>
+
+<h3 id="complement-tap">5.2 Complement Swatch Tap (in Palette Mode)</h3>
+
+<div class="diagram">
+<pre style="margin:0;border:0;background:transparent;font-size:0.8rem;">
+User taps complement swatch [color] (while in palette mode)
+  |
+  v
+Complement click handler
+  |
+  +-- Deselect all, select this swatch
+  +-- CSS: --my-status = color
+  +-- setStatusColor(userId, color)       &lt;-- Firebase (color only, theme stays)
+  +-- state.selectedColor = color
+  +-- setPaletteState(state)              &lt;-- localStorage
+  +-- dispatch 'palette-state-changed'
+</pre>
+</div>
+
+<p>The theme (<code>paletteKey</code>) does <strong>not</strong> change — only the status color
+within that theme changes. This is how a user can have Forest theme with a non-Forest status color.</p>
+
+<h3 id="set-switch">5.3 Set Switch</h3>
+
+<p>Triggered by:</p>
+<ul>
+  <li>The <strong>Bolt/Flower toggle</strong> button in the swatch row</li>
+  <li>Tapping an <strong>inactive Slot pill</strong> in the favorites strip</li>
+  <li><strong>Long-press adoption</strong> — if the adopted combo belongs to the user's currently
+      inactive set, <code>applyAdoption</code> sets <code>activeSet</code> to that set before
+      calling <code>enterPaletteMode</code> or <code>switchSet</code>, effectively switching sets
+      as a side effect</li>
+</ul>
+
+<div class="diagram">
+<pre style="margin:0;border:0;background:transparent;font-size:0.8rem;">
+switchSet(toSet, userId)
+  |
+  +-- state.activeSet = toSet
+  +-- setPaletteState(state)                       &lt;-- localStorage
+  |
+  +-- Read target set's stored state:
+  |     selectedKey, activePaletteKey, selectedColor
+  |
+  +-- Determine statusColor:
+  |     selectedColor || getPaletteByKey(selectedKey).color
+  |
+  +-- CSS: --my-status = statusColor
+  +-- CSS: --my-glow = getGlowForColor(statusColor)
+  +-- setStatusColor(userId, statusColor)           &lt;-- Firebase
+  |
+  +-- if activePaletteKey:
+  |     applyThemeVars(palette.theme)               &lt;-- CSS: 8 theme vars
+  |     setPaletteKey(userId, activePaletteKey)      &lt;-- Firebase
+  +-- else:
+  |     resetThemeVars()                             &lt;-- CSS: slate defaults
+  |     setPaletteKey(userId, null)                   &lt;-- Firebase
+  |
+  +-- renderSwatchRow(userId)
+       +-- dispatch 'palette-state-changed'
+</pre>
+</div>
+
+<div class="note">
+  <strong>Set independence:</strong> Each set stores its own <code>selectedKey</code>,
+  <code>activePaletteKey</code>, and <code>selectedColor</code> independently.
+  Switching sets restores the target set's full state without affecting the other set.
+</div>
+
+<h3 id="go-available">5.4 Going Available <span class="flag-badge flag-interactions">INTERACTIONS</span></h3>
+
+<div class="diagram">
+<pre style="margin:0;border:0;background:transparent;font-size:0.8rem;">
+User taps dot to go available
+  |
+  v
+setAvailable(availableUntil) in me.js
+  |
+  +-- if transitioning from unavailable &amp; PALETTES_ENABLED:
+        |
+        v
+      saveFavorite(false)
+        |
+        +-- Guard: PALETTE_INTERACTIONS_ENABLED?      &lt;-- no  = return
+        +-- Guard: selectedColor set?                  &lt;-- no  = return (no explicit choice)
+        +-- previousCombo = _lastCommittedCombo
+        +-- _lastCommittedCombo = currentCombo
+        +-- Guard: previousCombo exists?               &lt;-- no  = return (first time)
+        +-- Guard: current !== previous?               &lt;-- same = return (no change)
+        +-- Guard: !slotVisuallyMatches(prev, slot1)?  &lt;-- match = return (already in slot)
+        +-- Guard: !slotVisuallyMatches(prev, slot2)?  &lt;-- match = return (already in slot)
+        +-- Guard: !combosMatch(prev, history[0])?     &lt;-- match = return (already most recent)
+        |
+        +-- setFavorites([previousCombo, ...history])  &lt;-- localStorage
+        +-- renderStrip()
+</pre>
+</div>
+
+<p>Key insight: <code>saveFavorite(false)</code> saves the <strong>previous</strong> combo (what was
+committed before the user changed), not the current one. The current combo is already visible
+in Slot 1 or 2.</p>
+
+<h3 id="adoption">5.5 Long-Press Adoption <span class="flag-badge flag-interactions">INTERACTIONS</span></h3>
+
+<div class="diagram">
+<pre style="margin:0;border:0;background:transparent;font-size:0.8rem;">
+User long-presses on a followee's card
+  |
+  v
+triggerAdoption(entry, myUserId)
+  |
+  +-- saveFavorite(true)                      &lt;-- force-save current combo to history
+  |     (so user can recover pre-adoption state)
+  |
+  +-- applyAdoption(entry, myUserId)
+        |
+        +-- Read target's statusColor, paletteKey from lastUserData cache
+        |
+        +-- Set CSS vars FIRST (before any mode change):
+        |     --my-status = statusColor
+        |     --my-glow = glow
+        |
+        +-- If target has paletteKey:
+        |     Determine which set (1 or 2) contains this palette
+        |     Update state: activeSet, selectedKey, selectedColor
+        |     setPaletteState()                &lt;-- localStorage
+        |     enterPaletteMode(key, userId)    &lt;-- theme + Firebase + re-render
+        |
+        +-- Else if statusColor matches a palette's primary:
+        |     Find matching set and key
+        |     Update state: activeSet, selectedKey, selectedColor
+        |     setPaletteState()                &lt;-- localStorage
+        |     switchSet(matchedSet, userId)    &lt;-- handles all writes + re-render
+        |
+        +-- Else (no palette match):
+              setStatusColor(userId, color)    &lt;-- Firebase only
+</pre>
+</div>
+
+<div class="note">
+  <strong>Save timing:</strong> The pre-adoption <code>saveFavorite(true)</code> captures the
+  user's state <em>before</em> adoption. The adopted combo itself enters history only when the user
+  later moves away from it — either via another adoption or by going available with a new combo.
+</div>
+
+<h3 id="history-restore">5.6 History Pill Restore <span class="flag-badge flag-interactions">INTERACTIONS</span></h3>
+
+<div class="diagram">
+<pre style="margin:0;border:0;background:transparent;font-size:0.8rem;">
+User taps history pill [idx]
+  |
+  v
+handleHistoryTap(idx)
+  |
+  +-- Read combo from history array
+  +-- Snapshot old slot: slotCombo(ps.activeSet)
+  |
+  +-- Update state: selectedKey, selectedColor on target set
+  +-- setPaletteState()                     &lt;-- localStorage
+  |
+  +-- switchSet(combo.activeSet, userId)    &lt;-- applies color + theme + Firebase
+  |
+  +-- If combo.paletteKey:
+  |     enterPaletteMode(key, userId)
+  +-- Else if activePaletteKey was set:
+  |     exitPaletteMode(userId)             &lt;-- clear theme
+  |
+  +-- Override status color to combo's exact color:
+  |     CSS: --my-status = combo.statusColor
+  |     setStatusColor(userId, combo.statusColor)  &lt;-- Firebase
+  |
+  +-- _lastCommittedCombo = combo
+  +-- Remove combo from history, re-save, renderStrip()
+</pre>
+</div>
+
+<!-- ===== 6. DEDUP ===== -->
+<h2 id="dedup">6. Favorites Deduplication</h2>
+
+<p>History pills are deduplicated to avoid visual clutter. Three mechanisms work together:</p>
+
+<table>
+  <tr><th>#</th><th>Check</th><th>What It Prevents</th></tr>
+  <tr>
+    <td>1</td>
+    <td><code>selectedColor</code> must be set</td>
+    <td>No pill when going available/unavailable repeatedly without ever choosing a color
+        (first-time use with defaults)</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td><code>slotVisuallyMatches(prev, slot1 | slot2)</code></td>
+    <td>No pill when the previous combo is already visible in Slot 1 or 2
+        (e.g. default state matches a slot)</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td><code>combosMatch(prev, history[0])</code></td>
+    <td>No pill when the previous combo is already the most recent history entry
+        (e.g. going available/unavailable without changes between two adoptions)</td>
+  </tr>
+</table>
+
+<h4>Comparison Functions</h4>
+
+<table>
+  <tr><th>Function</th><th>Compares</th><th>Use</th></tr>
+  <tr>
+    <td><code>combosMatch(a, b)</code></td>
+    <td><code>statusColor</code>, <code>paletteKey</code>, <code>selectedKey</code>, <code>activeSet</code></td>
+    <td>Exact equality — used for history[0] dedup and detecting "no change"</td>
+  </tr>
+  <tr>
+    <td><code>slotVisuallyMatches(combo, setNum)</code></td>
+    <td><code>statusColor</code>, <code>paletteKey</code>, <code>selectedKey</code> (ignores <code>activeSet</code>)</td>
+    <td>Appearance-only match — used for slot dedup. Ignores <code>activeSet</code>
+        because that field is irrelevant to whether a combo <em>looks like</em>
+        what's already in a slot.</td>
+  </tr>
+</table>
+
+<div class="note">
+  <strong>Why <code>slotVisuallyMatches</code> ignores <code>activeSet</code>:</strong>
+  The previous combo being checked has an <code>activeSet</code> value baked in from when
+  it was captured, and the slot is always either Set 1 or Set 2. The question being asked
+  is "does this combo look like what's already visible in this slot?" — <code>activeSet</code>
+  is not part of a pill's visual appearance (both slots render the same way: left half =
+  <code>statusColor</code>, right half = <code>themeBg</code>), so it is excluded.
+  Note that cross-set visual matches cannot actually occur with the current palette definitions,
+  since Set 1 and Set 2 have disjoint palette keys — but the comparison is correct to focus
+  on appearance rather than set membership.
+</div>
+
+<!-- ===== 7. PALETTE SETS ===== -->
+<h2 id="palette-sets">7. Palette Sets Reference</h2>
+
+<div class="two-col">
+  <div>
+    <h4>Set 1 — Natural</h4>
+    <table>
+      <tr><th>Key</th><th>Color</th></tr>
+      <tr><td><span class="color-swatch" style="background:#22c55e"></span> forest</td><td><code>#22c55e</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#3b82f6"></span> ocean</td><td><code>#3b82f6</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#818cf8"></span> iris</td><td><code>#818cf8</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#f97316"></span> ember</td><td><code>#f97316</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#f43f5e"></span> coral</td><td><code>#f43f5e</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#06b6d4"></span> sky</td><td><code>#06b6d4</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#eab308"></span> gold</td><td><code>#eab308</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#10b981"></span> mint</td><td><code>#10b981</code></td></tr>
+    </table>
+  </div>
+  <div>
+    <h4>Set 2 — Electric</h4>
+    <table>
+      <tr><th>Key</th><th>Color</th></tr>
+      <tr><td><span class="color-swatch" style="background:#aaff00"></span> volt</td><td><code>#aaff00</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#ff1aad"></span> plasma</td><td><code>#ff1aad</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#0055ff"></span> arc</td><td><code>#0055ff</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#00ff66"></span> venom</td><td><code>#00ff66</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#ff3300"></span> inferno</td><td><code>#ff3300</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#00e5ff"></span> aurora</td><td><code>#00e5ff</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#ffdd00"></span> solar</td><td><code>#ffdd00</code></td></tr>
+      <tr><td><span class="color-swatch" style="background:#8800ff"></span> ultraviolet</td><td><code>#8800ff</code></td></tr>
+    </table>
+  </div>
+</div>
+
+<p>Each palette also defines a <code>theme</code> object (8 color fields) and a <code>complements</code>
+array (7 hex colors derived from the primary via color-wheel math).</p>
+
+<!-- ===== 8. FILE MAP ===== -->
+<h2 id="file-map">8. File Map</h2>
+
+<table>
+  <tr><th>File</th><th>Palette / Theme Responsibilities</th></tr>
+  <tr>
+    <td><code>js/features.js</code></td>
+    <td>Exports <code>PALETTES_ENABLED</code> and <code>PALETTE_INTERACTIONS_ENABLED</code> flags</td>
+  </tr>
+  <tr>
+    <td><code>js/store.js</code></td>
+    <td><code>getPaletteState</code> / <code>setPaletteState</code> (localStorage). Also <code>getFavorites</code> / <code>setFavorites</code>.</td>
+  </tr>
+  <tr>
+    <td><code>js/db.js</code></td>
+    <td><code>setStatusColor</code>, <code>setPaletteKey</code>, <code>watchStatus</code> — Firebase persistence</td>
+  </tr>
+  <tr>
+    <td><code>js/palettes.js</code></td>
+    <td>
+      <code>PALETTE_SETS</code> definitions, <code>renderSwatchRow</code>, <code>tapSwatch</code>,
+      <code>enterPaletteMode</code>, <code>exitPaletteMode</code>, <code>switchSet</code>,
+      <code>applyPaletteVars</code>, <code>applyThemeVars</code>, <code>resetThemeVars</code>,
+      <code>getGlowForColor</code>, <code>getPaletteByKey</code>
+    </td>
+  </tr>
+  <tr>
+    <td><code>js/favorites.js</code></td>
+    <td>
+      <code>initFavoritesStrip</code>, <code>saveFavorite</code>, <code>renderStrip</code>,
+      <code>buildCombo</code>, <code>slotCombo</code>, <code>handleSlotTap</code>,
+      <code>handleHistoryTap</code>. Listens to <code>palette-state-changed</code> event.
+    </td>
+  </tr>
+  <tr>
+    <td><code>js/me.js</code></td>
+    <td>
+      Calls <code>saveFavorite()</code> on going available. Applies <code>--my-status</code>
+      to own dot/label. Toggles swatch row visibility.
+    </td>
+  </tr>
+  <tr>
+    <td><code>js/following.js</code></td>
+    <td>
+      <code>updateFolloweeRow</code> (card theming from <code>paletteKey</code>),
+      <code>applyAdoption</code> / <code>triggerAdoption</code> (long-press).
+    </td>
+  </tr>
+  <tr>
+    <td><code>css/app.css</code></td>
+    <td>
+      Defines <code>:root</code> CSS custom properties (defaults). Swatch row, favorites strip,
+      and card styling.
+    </td>
+  </tr>
+</table>
+
+<!-- ===== COMPONENT COMMUNICATION ===== -->
+<h2 id="event-flow">9. Component Communication</h2>
+
+<div class="diagram">
+<pre style="margin:0;border:0;background:transparent;font-size:0.8rem;">
+  palettes.js                    favorites.js                  following.js
+ +-----------+                  +-------------+               +-------------+
+ | tapSwatch |----dispatch----->| renderStrip  |               |             |
+ | complement|  'palette-       | (listener)   |               |             |
+ | keySwatch |   state-changed' |              |               |             |
+ | switchSet |                  |              |               |             |
+ +-----------+                  +------+-------+               |             |
+       |                               |                       |             |
+       | applyPaletteVars              | handleSlotTap ------->| switchSet   |
+       | applyThemeVars                | handleHistoryTap ---->| (imported)  |
+       |                               |                       |             |
+       v                               v                       |             |
+  CSS custom properties           localStorage                 |             |
+  (--my-status, --my-glow,       (favorites array)            |             |
+   --bg, --surface, etc.)                                      |             |
+       |                                                       | applyAdopt. |
+       v                                                       |      |      |
+  DOM styling                                                  |      v      |
+  (dot, cards, bg)                                             | saveFavorite|
+                                                               | (imported)  |
+       Firebase                                                +------+------+
+  +---------------+                                                   |
+  | statusColor   |<--- setStatusColor ---- palettes.js, favorites.js, following.js
+  | paletteKey    |<--- setPaletteKey  ---- palettes.js, favorites.js
+  +-------+-------+
+          |
+          | watchStatus (real-time)
+          v
+    following.js:updateFolloweeRow
+    (card theming for peers)
+</pre>
+</div>
+
+<h4>Key Communication Patterns</h4>
+
+<ul>
+  <li><strong>Custom event (<code>palette-state-changed</code>):</strong> Dispatched by palette interactions
+      (swatch tap, complement click, set switch, mode changes). The favorites strip listens and
+      re-renders to keep slot pills in sync.</li>
+  <li><strong>Direct imports:</strong> <code>favorites.js</code> imports <code>switchSet</code> and
+      <code>enterPaletteMode</code> from <code>palettes.js</code>; <code>following.js</code> imports
+      <code>saveFavorite</code> from <code>favorites.js</code>.</li>
+  <li><strong>Firebase stream:</strong> Peer visibility is entirely through <code>watchStatus</code>.
+      There is no direct communication between users' palette pickers — one user's
+      <code>setStatusColor</code>/<code>setPaletteKey</code> writes are read by peers'
+      <code>updateFolloweeRow</code> callbacks.</li>
+  <li><strong>CSS variables as shared state:</strong> <code>--my-status</code> is read by both
+      <code>buildCombo()</code> (favorites) and the status dot styling (me.js). It serves as the
+      source of truth for the active status color in the active set.</li>
+</ul>
+
+<hr style="margin-top:3rem; border-color: var(--border);">
+
+<h2 id="changelog">Changelog</h2>
+
+<table>
+  <tr><th>Version</th><th>Date</th><th>Changes</th></tr>
+  <tr>
+    <td><code>v0.6.5</code></td>
+    <td>2026-03-21</td>
+    <td>Initial document. Covers status color, UI themes, user cards, palette picker,
+        favorites strip, Firebase and local state schemas, state transitions,
+        deduplication logic, palette sets reference, and component communication.</td>
+  </tr>
+</table>
+
+<p style="color:var(--text-muted); font-size:0.8rem; margin-top:1rem;">
+  Generated from codebase at tag <code>v0.6.5</code>. Source files in <code>js/</code> and <code>css/</code>.
+</p>
+
+</body>
+</html>
