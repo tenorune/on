@@ -68,6 +68,18 @@ function slotVisuallyMatches(combo, setNum) {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
+export function removeHistoryDuplicatesOfSlots() {
+  if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
+  const history = getFavorites();
+  const slot1 = slotCombo(1);
+  const slot2 = slotCombo(2);
+  const cleaned = history.filter(h => !pillsLookSame(h, slot1) && !pillsLookSame(h, slot2));
+  if (cleaned.length !== history.length) {
+    setFavorites(cleaned);
+    renderStrip();
+  }
+}
+
 export function saveFavorite(force = false) {
   if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
   const currentCombo = buildCombo();

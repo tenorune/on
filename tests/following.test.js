@@ -1,5 +1,5 @@
 // tests/following.test.js
-jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), initFavoritesStrip: jest.fn() }));
+jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), removeHistoryDuplicatesOfSlots: jest.fn(), initFavoritesStrip: jest.fn() }));
 
 // PointerEvent polyfill for jsdom (does not implement it natively)
 if (typeof PointerEvent === 'undefined') {
@@ -1168,11 +1168,15 @@ describe('applyAdoption', () => {
     expect(saveFavorite).toHaveBeenCalledWith(true);
   });
 
-  test('skips saveFavorite when adopting same combo as current state', () => {
-    const { saveFavorite } = require('../js/favorites.js');
-    // Target has same statusColor as --my-status (#22c55e) and same paletteKey (null)
-    triggerAdoptionFor(TARGET_ID, { statusColor: '#22c55e' });
-    expect(saveFavorite).not.toHaveBeenCalled();
+  test('calls removeHistoryDuplicatesOfSlots after adoption to clean up same-combo duplicates', () => {
+    const { saveFavorite, removeHistoryDuplicatesOfSlots } = require('../js/favorites.js');
+    triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b', paletteKey: 'ember' });
+    expect(saveFavorite).toHaveBeenCalledTimes(1);
+    expect(removeHistoryDuplicatesOfSlots).toHaveBeenCalledTimes(1);
+    // cleanup must happen AFTER adoption
+    const saveOrder = saveFavorite.mock.invocationCallOrder[0];
+    const cleanupOrder = removeHistoryDuplicatesOfSlots.mock.invocationCallOrder[0];
+    expect(cleanupOrder).toBeGreaterThan(saveOrder);
   });
 
 });

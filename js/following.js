@@ -12,7 +12,7 @@ import { escapeHtml, hexToRgb } from './utils.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock } from './knock.js';
-import { saveFavorite } from './favorites.js';
+import { saveFavorite, removeHistoryDuplicatesOfSlots } from './favorites.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
@@ -378,15 +378,9 @@ function applyAdoption(entry, myUserId) {
 }
 
 function triggerAdoption(entry, myUserId) {
-  // Skip save if adopting a combo that looks the same as current state
-  const targetData = lastUserData.get(entry.userId);
-  const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim();
-  const ps = getPaletteState();
-  const myPaletteKey = ps.sets[String(ps.activeSet)].activePaletteKey;
-  if (myColor !== targetData?.statusColor || myPaletteKey !== (targetData?.paletteKey ?? null)) {
-    saveFavorite(true); // save pre-adoption state; adopted state enters history on next adoption or go-available
-  }
+  saveFavorite(true); // save pre-adoption state; adopted state enters history on next adoption or go-available
   applyAdoption(entry, myUserId);
+  removeHistoryDuplicatesOfSlots(); // if adoption didn't change anything, remove the now-duplicate pill
 }
 
 function createFolloweeRow(entry, myUserId, isMutual = false) {
