@@ -287,10 +287,10 @@ describe('saveFavorite', () => {
       },
     });
     saveFavorite(true); // saves Apple, _lastCommitted = Apple
-    // Apple is at history[1] (not [0]) — dedup still catches it
+    // Apple is at history[1] (not [0]) — dedup still catches it via pillsLookSame
     require('../js/store.js').getFavorites.mockReturnValue([
       { statusColor: '#3b82f6', themeBg: '#0f172a', paletteKey: null, selectedKey: 'ocean', activeSet: 1 },
-      { statusColor: '#22c55e', themeBg: '#184226', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
+      { statusColor: '#22c55e', themeBg: '#0f172a', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
     ]);
     const { setFavorites } = require('../js/store.js');
     setFavorites.mockClear();
@@ -305,6 +305,16 @@ describe('saveFavorite', () => {
       },
     });
     saveFavorite(); // Apple is in history[1] → dedup catches it, no duplicate
+    expect(setFavorites).not.toHaveBeenCalled();
+  });
+
+  test('force=true skips save when pill looks the same (different selectedKey, same visual)', () => {
+    document.documentElement.style.setProperty('--my-status', '#818cf8');
+    // History has a combo with same statusColor and themeBg but different selectedKey
+    const existing = [{ statusColor: '#818cf8', themeBg: '#0f172a', paletteKey: null, selectedKey: 'ocean', activeSet: 2 }];
+    require('../js/store.js').getFavorites.mockReturnValue(existing);
+    saveFavorite(true);
+    const { setFavorites } = require('../js/store.js');
     expect(setFavorites).not.toHaveBeenCalled();
   });
 

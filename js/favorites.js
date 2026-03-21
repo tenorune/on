@@ -55,6 +55,10 @@ function combosMatch(a, b) {
     && a.activeSet   === b.activeSet;
 }
 
+function pillsLookSame(a, b) {
+  return a.statusColor === b.statusColor && a.themeBg === b.themeBg;
+}
+
 function slotVisuallyMatches(combo, setNum) {
   const s = slotCombo(setNum);
   return combo.statusColor === s.statusColor
@@ -70,7 +74,7 @@ export function saveFavorite(force = false) {
   if (force) {
     _lastCommittedCombo = currentCombo;
     const history = getFavorites();
-    if (!history.some(h => combosMatch(currentCombo, h))) {
+    if (!history.some(h => pillsLookSame(currentCombo, h))) {
       setFavorites([currentCombo, ...history].slice(0, MAX_HISTORY));
       renderStrip();
     }
@@ -87,7 +91,7 @@ export function saveFavorite(force = false) {
   if (combosMatch(currentCombo, previousCombo)) return; // nothing changed
   const history = getFavorites();
   if (slotVisuallyMatches(previousCombo, 1) || slotVisuallyMatches(previousCombo, 2)) return;
-  if (history.some(h => combosMatch(previousCombo, h))) return;
+  if (history.some(h => pillsLookSame(previousCombo, h))) return;
   setFavorites([previousCombo, ...history].slice(0, MAX_HISTORY));
   renderStrip();
 }
