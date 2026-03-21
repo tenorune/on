@@ -4,7 +4,7 @@ import { getPaletteState, setPaletteState, getFavorites, setFavorites } from './
 import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowForColor } from './palettes.js';
 import { setStatusColor } from './db.js';
 
-const MAX_HISTORY = 14;
+const MAX_HISTORY = 6;
 const DEFAULT_THEME_BG = '#0f172a';
 const COLLAPSED_KEY = 'statusapp_favorites_collapsed';
 
@@ -70,8 +70,10 @@ export function saveFavorite(force = false) {
   if (force) {
     _lastCommittedCombo = currentCombo;
     const history = getFavorites();
-    setFavorites([currentCombo, ...history].slice(0, MAX_HISTORY));
-    renderStrip();
+    if (!history.some(h => combosMatch(currentCombo, h))) {
+      setFavorites([currentCombo, ...history].slice(0, MAX_HISTORY));
+      renderStrip();
+    }
     return;
   }
   // Non-forced (going available): push the PREVIOUS combo to history, not the current one.
@@ -85,15 +87,27 @@ export function saveFavorite(force = false) {
   if (combosMatch(currentCombo, previousCombo)) return; // nothing changed
   const history = getFavorites();
   if (slotVisuallyMatches(previousCombo, 1) || slotVisuallyMatches(previousCombo, 2)) return;
-  if (history.length > 0 && combosMatch(previousCombo, history[0])) return;
+  if (history.some(h => combosMatch(previousCombo, h))) return;
   setFavorites([previousCombo, ...history].slice(0, MAX_HISTORY));
+  renderStrip();
+}
+
+function onPaletteStateChanged() {
+  // When the active set changes (via Bolt/Flower toggle), update the committed
+  // baseline to the new set so saveFavorite saves the correct "previous" combo.
+  if (_lastCommittedCombo) {
+    const ps = getPaletteState();
+    if (ps.activeSet !== _lastCommittedCombo.activeSet) {
+      _lastCommittedCombo = slotCombo(ps.activeSet);
+    }
+  }
   renderStrip();
 }
 
 export function initFavoritesStrip(myUserId) {
   _myUserId = myUserId;
   _lastCommittedCombo = buildCombo();
-  document.addEventListener('palette-state-changed', renderStrip);
+  document.addEventListener('palette-state-changed', onPaletteStateChanged);
   renderStrip();
 }
 
@@ -222,13 +236,16 @@ function handleHistoryTap(idx) {
   const combo = history[idx];
   if (!combo) return;
 
-  // Snapshot old active slot BEFORE mutating state
+  // Snapshot the slot being overwritten BEFORE mutating state.
+  // When the pill targets a different set, the TARGET set is what changes — capture it.
   const ps = getPaletteState();
-  const oldSlot = slotCombo(ps.activeSet);
+  const oldSlot = slotCombo(combo.activeSet);
 
-  // Step 0: restore selectedKey so switchSet highlights the right swatch
+  // Step 0: restore selectedKey + selectedColor so switchSet highlights the right
+  // swatch and slotCombo reads the correct color when this set becomes inactive.
   const state = JSON.parse(JSON.stringify(ps));
   state.sets[String(combo.activeSet)].selectedKey = combo.selectedKey;
+  state.sets[String(combo.activeSet)].selectedColor = combo.statusColor;
   setPaletteState(state);
 
   // Step 1: switchSet (also calls setStatusColor internally — step 3 overrides)

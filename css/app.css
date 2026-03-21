@@ -84,10 +84,10 @@ main {
 .fav-pill {
   display: flex;
   height: 22px;
-  width: 40px;
+  min-width: 20px;
   border-radius: 11px;
   overflow: hidden;
-  flex-shrink: 0;
+  flex: 1 1 0;
   cursor: pointer;
 }
 .fav-pill--inactive { opacity: 0.45; cursor: default; }

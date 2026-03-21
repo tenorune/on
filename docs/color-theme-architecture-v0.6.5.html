@@ -433,12 +433,17 @@ card styling (background, border, text color) is cleared. The card reverts to CS
   <li><strong>Inactive set's pill</strong>: full opacity, tappable — tapping switches to that set</li>
 </ul>
 
-<h4>History Pills (Slots 3–16)</h4>
+<h4>History Pills (Slots 3–8)</h4>
 <ul>
-  <li>Auto-saved combos, most recent first. Maximum 14 items</li>
+  <li>Auto-saved combos, most recent first. Maximum 6 items</li>
   <li>Full opacity, tappable — tapping restores the combo (color + theme + set)</li>
   <li>Created by <code>saveFavorite(true)</code> (forced, pre-adoption) or <code>saveFavorite(false)</code> (going available)</li>
 </ul>
+
+<h4>Layout</h4>
+<p>Pills stretch dynamically to fill the strip width (<code>flex: 1 1 0</code>) rather than
+using a fixed width. With up to 8 pills sharing the space, each pill shrinks or grows
+proportionally.</p>
 
 <h4>Collapsed Mode</h4>
 <p>A single gradient line showing all pill colors left-to-right. Tap to expand.</p>
@@ -648,6 +653,9 @@ so it can save it to history when the user goes available with a new combo.</p>
   <tr><td><code>saveFavorite()</code> (any call)</td><td>Current combo at time of call</td></tr>
   <tr><td><code>handleSlotTap()</code></td><td><code>slotCombo(newSlot)</code> — the slot switched to</td></tr>
   <tr><td><code>handleHistoryTap()</code></td><td>The restored combo</td></tr>
+  <tr><td><code>onPaletteStateChanged()</code> (set switch via Bolt/Flower toggle)</td>
+      <td><code>slotCombo(newActiveSet)</code> — detects <code>activeSet</code> change
+          and re-baselines to the new set</td></tr>
 </table>
 
 <h3 id="css-custom-properties">4.4 CSS Custom Properties</h3>
@@ -825,7 +833,7 @@ setAvailable(availableUntil) in me.js
         +-- Guard: current !== previous?               &lt;-- same = return (no change)
         +-- Guard: !slotVisuallyMatches(prev, slot1)?  &lt;-- match = return (already in slot)
         +-- Guard: !slotVisuallyMatches(prev, slot2)?  &lt;-- match = return (already in slot)
-        +-- Guard: !combosMatch(prev, history[0])?     &lt;-- match = return (already most recent)
+        +-- Guard: !history.some(combosMatch(prev))?   &lt;-- match = return (already in history)
         |
         +-- setFavorites([previousCombo, ...history])  &lt;-- localStorage
         +-- renderStrip()
@@ -889,9 +897,11 @@ User taps history pill [idx]
 handleHistoryTap(idx)
   |
   +-- Read combo from history array
-  +-- Snapshot old slot: slotCombo(ps.activeSet)
+  +-- Snapshot the slot being OVERWRITTEN: slotCombo(combo.activeSet)
+  |     (captures the target set's state, not the active set —
+  |      the target set is what changes when a cross-set pill is tapped)
   |
-  +-- Update state: selectedKey, selectedColor on target set
+  +-- Update state: selectedKey + selectedColor on target set
   +-- setPaletteState()                     &lt;-- localStorage
   |
   +-- switchSet(combo.activeSet, userId)    &lt;-- applies color + theme + Firebase
@@ -905,8 +915,10 @@ handleHistoryTap(idx)
   |     CSS: --my-status = combo.statusColor
   |     setStatusColor(userId, combo.statusColor)  &lt;-- Firebase
   |
+  +-- Remove tapped pill from history
+  +-- Prepend old slot to history (if it doesn't match new Slot 1, 2, or existing history)
   +-- _lastCommittedCombo = combo
-  +-- Remove combo from history, re-save, renderStrip()
+  +-- setFavorites(), renderStrip()
 </pre>
 </div>
 
@@ -931,9 +943,9 @@ handleHistoryTap(idx)
   </tr>
   <tr>
     <td>3</td>
-    <td><code>combosMatch(prev, history[0])</code></td>
-    <td>No pill when the previous combo is already the most recent history entry
-        (e.g. going available/unavailable without changes between two adoptions)</td>
+    <td><code>history.some(h =&gt; combosMatch(prev, h))</code></td>
+    <td>No pill when the previous combo already exists anywhere in history
+        (full scan, not just <code>history[0]</code>)</td>
   </tr>
 </table>
 
@@ -944,7 +956,8 @@ handleHistoryTap(idx)
   <tr>
     <td><code>combosMatch(a, b)</code></td>
     <td><code>statusColor</code>, <code>paletteKey</code>, <code>selectedKey</code>, <code>activeSet</code></td>
-    <td>Exact equality — used for history[0] dedup and detecting "no change"</td>
+    <td>Exact equality — used for full-history dedup, detecting "no change",
+        and force-save dedup</td>
   </tr>
   <tr>
     <td><code>slotVisuallyMatches(combo, setNum)</code></td>
@@ -1129,6 +1142,21 @@ array (7 hex colors derived from the primary via color-wheel math).</p>
     <td>Initial document. Covers status color, UI themes, user cards, palette picker,
         favorites strip, Firebase and local state schemas, state transitions,
         deduplication logic, palette sets reference, and component communication.</td>
+  </tr>
+  <tr>
+    <td><code>v0.6.5</code></td>
+    <td>2026-03-21</td>
+    <td>
+      <strong>Favorites strip enhancements:</strong>
+      <ul style="margin:0.3em 0 0 1.2em;">
+        <li>Total slots reduced from 16 to 8 (MAX_HISTORY 14 → 6)</li>
+        <li>Pills now stretch to fill strip width (flex layout)</li>
+        <li>Dedup extended: full history scan instead of history[0] only; force-save also deduped</li>
+        <li>Set switch via Bolt/Flower toggle now updates <code>_lastCommittedCombo</code> baseline</li>
+        <li>History restore captures target set (slot being overwritten), not active set</li>
+        <li>History restore Step 0 now writes <code>selectedColor</code> alongside <code>selectedKey</code></li>
+      </ul>
+    </td>
   </tr>
 </table>
 

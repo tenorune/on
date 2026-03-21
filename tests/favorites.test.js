@@ -177,9 +177,9 @@ describe('saveFavorite', () => {
     expect(saved[1]).toEqual(existing[0]);
   });
 
-  test('drops oldest entry when history reaches 14 (force=true)', () => {
+  test('drops oldest entry when history reaches 6 (force=true)', () => {
     document.documentElement.style.setProperty('--my-status', '#818cf8');
-    const full = Array.from({ length: 14 }, (_, i) => ({
+    const full = Array.from({ length: 6 }, (_, i) => ({
       statusColor: `#${String(i).padStart(6, '0')}`,
       themeBg: '#0f172a', paletteKey: null, selectedKey: 'ocean', activeSet: 1,
     }));
@@ -187,9 +187,9 @@ describe('saveFavorite', () => {
     saveFavorite(true);
     const { setFavorites } = require('../js/store.js');
     const saved = setFavorites.mock.calls.at(-1)[0];
-    expect(saved).toHaveLength(14);
+    expect(saved).toHaveLength(6);
     expect(saved[0].statusColor).toBe('#818cf8');
-    expect(saved[13]).toEqual(full[12]); // last old entry is full[12], full[13] dropped
+    expect(saved[5]).toEqual(full[4]); // last old entry is full[4], full[5] dropped
   });
 
   test('themeBg uses palette theme.surface2 when paletteKey is set (force=true)', () => {
@@ -214,6 +214,15 @@ describe('saveFavorite', () => {
     const { setFavorites } = require('../js/store.js');
     const saved = setFavorites.mock.calls.at(-1)[0][0];
     expect(saved.themeBg).toBe('#0f172a');
+  });
+
+  test('force=true skips save when combo already exists in history (dedup)', () => {
+    document.documentElement.style.setProperty('--my-status', '#818cf8');
+    const existing = [{ statusColor: '#818cf8', themeBg: '#0f172a', paletteKey: null, selectedKey: 'forest', activeSet: 1 }];
+    require('../js/store.js').getFavorites.mockReturnValue(existing);
+    saveFavorite(true);
+    const { setFavorites } = require('../js/store.js');
+    expect(setFavorites).not.toHaveBeenCalled();
   });
 
   test('force=true saves even when combo matches slot 1 (adoption path)', () => {
@@ -267,8 +276,8 @@ describe('saveFavorite', () => {
     expect(setFavorites).not.toHaveBeenCalled();
   });
 
-  test('non-forced: no save when previous combo already in history[0]', () => {
-    // Set _lastCommitted to Apple via force=true, keep Apple in history[0]
+  test('non-forced: no save when previous combo already in any history slot', () => {
+    // Set _lastCommitted to Apple via force=true, keep Apple in history
     document.documentElement.style.setProperty('--my-status', '#22c55e');
     require('../js/store.js').getPaletteState.mockReturnValue({
       activeSet: 1,
@@ -278,8 +287,9 @@ describe('saveFavorite', () => {
       },
     });
     saveFavorite(true); // saves Apple, _lastCommitted = Apple
-    // history[0] = Apple (the forced save above)
+    // Apple is at history[1] (not [0]) — dedup still catches it
     require('../js/store.js').getFavorites.mockReturnValue([
+      { statusColor: '#3b82f6', themeBg: '#0f172a', paletteKey: null, selectedKey: 'ocean', activeSet: 1 },
       { statusColor: '#22c55e', themeBg: '#184226', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
     ]);
     const { setFavorites } = require('../js/store.js');
@@ -294,7 +304,7 @@ describe('saveFavorite', () => {
         '2': { selectedKey: 'volt', activePaletteKey: null, selectedColor: '#aaff00' },
       },
     });
-    saveFavorite(); // Apple is already in history[0] → no duplicate
+    saveFavorite(); // Apple is in history[1] → dedup catches it, no duplicate
     expect(setFavorites).not.toHaveBeenCalled();
   });
 
