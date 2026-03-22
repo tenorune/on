@@ -20,7 +20,7 @@ describe('getFavorites / setFavorites', () => {
 
   test('round-trips an array of combo objects', () => {
     const data = [
-      { statusColor: '#22c55e', themeBg: '#0f172a', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
+      { statusColor: '#22c55e', surface2: '#334155', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
     ];
     setFavorites(data);
     expect(getFavorites()).toEqual(data);
@@ -58,9 +58,9 @@ jest.mock('../js/store.js', () => ({
 }));
 
 // Default palette mock
-const FOREST_PALETTE = { color: '#22c55e', theme: { bg: '#052e16', surface2: '#184226' } };
-const VOLT_PALETTE   = { color: '#aaff00', theme: { bg: '#1a2a00', surface2: '#243600' } };
-const IRIS_PALETTE   = { color: '#818cf8', theme: { bg: '#1e1b4b', surface2: '#1d1d47' } };
+const FOREST_PALETTE = { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } };
+const VOLT_PALETTE   = { color: '#aaff00', theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600' } };
+const IRIS_PALETTE   = { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } };
 
 function defaultPaletteByKey(key) {
   return { forest: FOREST_PALETTE, volt: VOLT_PALETTE, iris: IRIS_PALETTE }[key] ?? null;
@@ -96,11 +96,10 @@ describe('saveFavorite', () => {
       enterPaletteMode: jest.fn(),
       exitPaletteMode: jest.fn(),
       getPaletteByKey: jest.fn((key) => {
-        // Inline the palette data from defaultPaletteByKey helper
         const palettes = {
-          forest: { color: '#22c55e', theme: { bg: '#052e16', surface2: '#184226' } },
-          volt: { color: '#aaff00', theme: { bg: '#1a2a00', surface2: '#243600' } },
-          iris: { color: '#818cf8', theme: { bg: '#1e1b4b', surface2: '#1d1d47' } },
+          forest: { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } },
+          volt: { color: '#aaff00', theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600' } },
+          iris: { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } },
         };
         return palettes[key] ?? null;
       }),
@@ -168,7 +167,7 @@ describe('saveFavorite', () => {
 
   test('prepends to existing history (force=true)', () => {
     document.documentElement.style.setProperty('--my-status', '#818cf8');
-    const existing = [{ statusColor: '#3b82f6', themeBg: '#0f172a', paletteKey: null, selectedKey: 'ocean', activeSet: 1 }];
+    const existing = [{ statusColor: '#3b82f6', surface2: '#334155', paletteKey: null, selectedKey: 'ocean', activeSet: 1 }];
     require('../js/store.js').getFavorites.mockReturnValue(existing);
     saveFavorite(true);
     const { setFavorites } = require('../js/store.js');
@@ -181,7 +180,7 @@ describe('saveFavorite', () => {
     document.documentElement.style.setProperty('--my-status', '#818cf8');
     const full = Array.from({ length: 6 }, (_, i) => ({
       statusColor: `#${String(i).padStart(6, '0')}`,
-      themeBg: '#0f172a', paletteKey: null, selectedKey: 'ocean', activeSet: 1,
+      surface2: '#334155', paletteKey: null, selectedKey: 'ocean', activeSet: 1,
     }));
     require('../js/store.js').getFavorites.mockReturnValue(full);
     saveFavorite(true);
@@ -192,7 +191,7 @@ describe('saveFavorite', () => {
     expect(saved[5]).toEqual(full[4]); // last old entry is full[4], full[5] dropped
   });
 
-  test('themeBg uses palette theme.surface2 when paletteKey is set (force=true)', () => {
+  test('combo surface2 uses palette theme.surface2 when paletteKey is set (force=true)', () => {
     require('../js/store.js').getPaletteState.mockReturnValue({
       activeSet: 1,
       sets: {
@@ -204,21 +203,46 @@ describe('saveFavorite', () => {
     saveFavorite(true);
     const { setFavorites } = require('../js/store.js');
     const saved = setFavorites.mock.calls.at(-1)[0][0];
-    expect(saved.themeBg).toBe('#1d1d47'); // iris theme.surface2
+    expect(saved.surface2).toBe('#1d1d47'); // iris theme.surface2
     expect(saved.paletteKey).toBe('iris');
   });
 
-  test('themeBg is #0f172a when paletteKey is null (force=true)', () => {
+  test('combo surface2 defaults to #334155 when paletteKey is null (force=true)', () => {
     document.documentElement.style.setProperty('--my-status', '#818cf8');
     saveFavorite(true);
     const { setFavorites } = require('../js/store.js');
     const saved = setFavorites.mock.calls.at(-1)[0][0];
-    expect(saved.themeBg).toBe('#0f172a');
+    expect(saved.surface2).toBe('#334155');
+  });
+
+  test('combo includes surface from palette theme when paletteKey is set (force=true)', () => {
+    require('../js/store.js').getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', activePaletteKey: 'iris', selectedColor: '#818cf8' },
+        '2': { selectedKey: 'volt', activePaletteKey: null, selectedColor: '#aaff00' },
+      },
+    });
+    document.documentElement.style.setProperty('--my-status', '#818cf8');
+    saveFavorite(true);
+    const { setFavorites } = require('../js/store.js');
+    const saved = setFavorites.mock.calls.at(-1)[0][0];
+    expect(saved.surface).toBe('#141432');   // iris theme.surface
+    expect(saved.surface2).toBe('#1d1d47');  // iris theme.surface2
+  });
+
+  test('combo includes default surface when paletteKey is null (force=true)', () => {
+    document.documentElement.style.setProperty('--my-status', '#818cf8');
+    saveFavorite(true);
+    const { setFavorites } = require('../js/store.js');
+    const saved = setFavorites.mock.calls.at(-1)[0][0];
+    expect(saved.surface).toBe('#1e293b');   // DEFAULT_SURFACE
+    expect(saved.surface2).toBe('#334155');  // DEFAULT_SURFACE2
   });
 
   test('force=true skips save when combo already exists in history (dedup)', () => {
     document.documentElement.style.setProperty('--my-status', '#818cf8');
-    const existing = [{ statusColor: '#818cf8', themeBg: '#0f172a', paletteKey: null, selectedKey: 'forest', activeSet: 1 }];
+    const existing = [{ statusColor: '#818cf8', surface2: '#334155', paletteKey: null, selectedKey: 'forest', activeSet: 1 }];
     require('../js/store.js').getFavorites.mockReturnValue(existing);
     saveFavorite(true);
     const { setFavorites } = require('../js/store.js');
@@ -289,8 +313,8 @@ describe('saveFavorite', () => {
     saveFavorite(true); // saves Apple, _lastCommitted = Apple
     // Apple is at history[1] (not [0]) — dedup still catches it via pillsLookSame
     require('../js/store.js').getFavorites.mockReturnValue([
-      { statusColor: '#3b82f6', themeBg: '#0f172a', paletteKey: null, selectedKey: 'ocean', activeSet: 1 },
-      { statusColor: '#22c55e', themeBg: '#0f172a', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
+      { statusColor: '#3b82f6', surface2: '#334155', paletteKey: null, selectedKey: 'ocean', activeSet: 1 },
+      { statusColor: '#22c55e', surface2: '#334155', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
     ]);
     const { setFavorites } = require('../js/store.js');
     setFavorites.mockClear();
@@ -310,8 +334,8 @@ describe('saveFavorite', () => {
 
   test('force=true skips save when pill looks the same (different selectedKey, same visual)', () => {
     document.documentElement.style.setProperty('--my-status', '#818cf8');
-    // History has a combo with same statusColor and themeBg but different selectedKey
-    const existing = [{ statusColor: '#818cf8', themeBg: '#0f172a', paletteKey: null, selectedKey: 'ocean', activeSet: 2 }];
+    // History has a combo with same statusColor and surface2 but different selectedKey
+    const existing = [{ statusColor: '#818cf8', surface2: '#334155', paletteKey: null, selectedKey: 'ocean', activeSet: 2 }];
     require('../js/store.js').getFavorites.mockReturnValue(existing);
     saveFavorite(true);
     const { setFavorites } = require('../js/store.js');
@@ -339,9 +363,9 @@ describe('renderStrip / initFavoritesStrip', () => {
       ...jest.requireActual('../js/palettes.js'),
       switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
       getPaletteByKey: jest.fn(key => ({
-        forest: { color: '#22c55e', theme: { bg: '#052e16' } },
-        volt:   { color: '#aaff00', theme: { bg: '#1a2a00' } },
-        iris:   { color: '#818cf8', theme: { bg: '#1e1b4b' } },
+        forest: { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } },
+        volt:   { color: '#aaff00', theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600' } },
+        iris:   { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } },
       })[key] ?? null),
       getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
     }));
@@ -367,7 +391,7 @@ describe('renderStrip / initFavoritesStrip', () => {
   });
 
   const ONE_ENTRY = [
-    { statusColor: '#818cf8', themeBg: '#1e1b4b', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
+    { statusColor: '#818cf8', surface2: '#1e1b4b', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
   ];
 
   test('strip container stays hidden when favorites array is empty', () => {
@@ -446,9 +470,9 @@ describe('slot tap interactions', () => {
       ...jest.requireActual('../js/palettes.js'),
       switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
       getPaletteByKey: jest.fn(key => ({
-        forest: { color: '#22c55e', theme: { bg: '#052e16' } },
-        volt:   { color: '#aaff00', theme: { bg: '#1a2a00' } },
-        iris:   { color: '#818cf8', theme: { bg: '#1e1b4b' } },
+        forest: { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } },
+        volt:   { color: '#aaff00', theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600' } },
+        iris:   { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } },
       })[key] ?? null),
       getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
     }));
@@ -464,7 +488,7 @@ describe('slot tap interactions', () => {
       })),
       setPaletteState: jest.fn(),
       getFavorites: jest.fn(() => [
-        { statusColor: '#818cf8', themeBg: '#1e1b4b', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
+        { statusColor: '#818cf8', surface2: '#1e1b4b', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
       ]),
       setFavorites: jest.fn(),
     }));
@@ -492,11 +516,11 @@ describe('slot tap interactions', () => {
 describe('history pill tap interactions', () => {
   let initFavoritesStrip, localMocks;
   const IRIS_COMBO = {
-    statusColor: '#818cf8', themeBg: '#1e1b4b',
+    statusColor: '#818cf8', surface2: '#1e1b4b',
     paletteKey: 'iris', selectedKey: 'iris', activeSet: 1,
   };
   const NO_THEME_COMBO = {
-    statusColor: '#3b82f6', themeBg: '#0f172a',
+    statusColor: '#3b82f6', surface2: '#334155',
     paletteKey: null, selectedKey: 'ocean', activeSet: 2,
   };
 
@@ -512,9 +536,9 @@ describe('history pill tap interactions', () => {
       ...jest.requireActual('../js/palettes.js'),
       switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
       getPaletteByKey: jest.fn(key => ({
-        forest: { color: '#22c55e', theme: { bg: '#052e16' } },
-        volt:   { color: '#aaff00', theme: { bg: '#1a2a00' } },
-        iris:   { color: '#818cf8', theme: { bg: '#1e1b4b' } },
+        forest: { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } },
+        volt:   { color: '#aaff00', theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600' } },
+        iris:   { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } },
       })[key] ?? null),
       getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
     }));
@@ -530,7 +554,7 @@ describe('history pill tap interactions', () => {
       })),
       setPaletteState: jest.fn(),
       getFavorites: jest.fn(() => [{
-        statusColor: '#818cf8', themeBg: '#1e1b4b',
+        statusColor: '#818cf8', surface2: '#1e1b4b',
         paletteKey: 'iris', selectedKey: 'iris', activeSet: 1,
       }]),
       setFavorites: jest.fn(),
@@ -644,7 +668,7 @@ test('saveFavorite: does not save when PALETTE_INTERACTIONS_ENABLED is false', (
   jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: false }));
   jest.mock('../js/palettes.js', () => ({
     ...jest.requireActual('../js/palettes.js'),
-    getPaletteByKey: jest.fn(() => ({ color: '#22c55e', theme: { bg: '#052e16', surface2: '#184226' } })),
+    getPaletteByKey: jest.fn(() => ({ color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } })),
     getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
   }));
   jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));

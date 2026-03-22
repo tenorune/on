@@ -25,7 +25,8 @@ function buildCombo() {
     .getPropertyValue('--my-status').trim();
   return {
     statusColor,
-    themeBg: palette?.theme.surface2 ?? DEFAULT_SURFACE2,
+    surface:  palette?.theme.surface  ?? DEFAULT_SURFACE,
+    surface2: palette?.theme.surface2 ?? DEFAULT_SURFACE2,
     paletteKey: activePaletteKey,
     selectedKey,
     activeSet: ps.activeSet,
@@ -44,7 +45,8 @@ function slotCombo(setNum) {
     : (ps.sets[setKey].selectedColor || statusPalette?.color || DEFAULT_STATUS_COLOR);
   return {
     statusColor,
-    themeBg: themePalette?.theme.surface2 ?? DEFAULT_SURFACE2,
+    surface:  themePalette?.theme.surface  ?? DEFAULT_SURFACE,
+    surface2: themePalette?.theme.surface2 ?? DEFAULT_SURFACE2,
     paletteKey: activePaletteKey,
     selectedKey,
     activeSet: setNum,
@@ -59,7 +61,7 @@ function combosMatch(a, b) {
 }
 
 function pillsLookSame(a, b) {
-  return a.statusColor === b.statusColor && a.themeBg === b.themeBg;
+  return a.statusColor === b.statusColor && a.surface2 === b.surface2;
 }
 
 function slotVisuallyMatches(combo, setNum) {
@@ -285,7 +287,7 @@ function safeCssColor(v) {
 function renderPill(combo, state, type, index) {
   return `<div class="fav-pill fav-pill--${state}" data-type="${type}" data-index="${index}">` +
     `<div class="fav-pill-left" style="background:${safeCssColor(combo.statusColor)}"></div>` +
-    `<div class="fav-pill-right" style="background:${safeCssColor(combo.themeBg)}"></div></div>`;
+    `<div class="fav-pill-right" style="background:${safeCssColor(combo.surface2)}"></div></div>`;
 }
 
 // ─── Interaction handlers (filled in Task 5) ────────────────────────────────
