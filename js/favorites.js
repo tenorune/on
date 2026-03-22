@@ -5,7 +5,9 @@ import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowF
 import { setStatusColor } from './db.js';
 
 const MAX_HISTORY = 6;
-const DEFAULT_THEME_BG = '#0f172a';
+const DEFAULT_STATUS_COLOR = '#22c55e';  // default green (forest primary)
+const DEFAULT_SURFACE  = '#1e293b';      // default slate card bg (--surface)
+const DEFAULT_SURFACE2 = '#334155';      // default slate pill bg (--surface2)
 const COLLAPSED_KEY = 'statusapp_favorites_collapsed';
 
 let _myUserId = null;
@@ -23,7 +25,7 @@ function buildCombo() {
     .getPropertyValue('--my-status').trim();
   return {
     statusColor,
-    themeBg: palette?.theme.surface2 ?? DEFAULT_THEME_BG,
+    themeBg: palette?.theme.surface2 ?? DEFAULT_SURFACE2,
     paletteKey: activePaletteKey,
     selectedKey,
     activeSet: ps.activeSet,
@@ -39,10 +41,10 @@ function slotCombo(setNum) {
   const isActiveSet = ps.activeSet === setNum;
   const statusColor = isActiveSet
     ? getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim()
-    : (ps.sets[setKey].selectedColor || statusPalette?.color || DEFAULT_THEME_BG);
+    : (ps.sets[setKey].selectedColor || statusPalette?.color || DEFAULT_STATUS_COLOR);
   return {
     statusColor,
-    themeBg: themePalette?.theme.surface2 ?? DEFAULT_THEME_BG,
+    themeBg: themePalette?.theme.surface2 ?? DEFAULT_SURFACE2,
     paletteKey: activePaletteKey,
     selectedKey,
     activeSet: setNum,
