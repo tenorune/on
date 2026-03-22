@@ -689,5 +689,66 @@ test('saveFavorite: does not save when PALETTE_INTERACTIONS_ENABLED is false', (
   sf();
   const { setFavorites } = require('../js/store.js');
   expect(setFavorites).not.toHaveBeenCalled();
-  // No restore needed — this test is last in the file.
+  // No restore needed.
+});
+
+describe('getAllCombos', () => {
+  let getAllCombos, initFavoritesStrip;
+
+  beforeEach(() => {
+    setupDom();
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
+    jest.mock('../js/palettes.js', () => ({
+      ...jest.requireActual('../js/palettes.js'),
+      switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
+      getPaletteByKey: jest.fn(key => ({
+        forest: { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } },
+        volt:   { color: '#aaff00', theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600' } },
+        iris:   { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } },
+      })[key] ?? null),
+      getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
+    }));
+    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/store.js', () => ({
+      ...jest.requireActual('../js/store.js'),
+      getPaletteState: jest.fn(() => ({
+        activeSet: 1,
+        sets: {
+          '1': { selectedKey: 'forest', activePaletteKey: null },
+          '2': { selectedKey: 'volt',   activePaletteKey: null },
+        },
+      })),
+      setPaletteState: jest.fn(),
+      getFavorites: jest.fn(() => [
+        { statusColor: '#818cf8', surface: '#141432', surface2: '#1d1d47', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
+      ]),
+      setFavorites: jest.fn(),
+    }));
+    ({ getAllCombos, initFavoritesStrip } = require('../js/favorites.js'));
+  });
+
+  test('returns slot 1, slot 2, then history combos', () => {
+    initFavoritesStrip('myUid');
+    const combos = getAllCombos();
+    expect(combos).toHaveLength(3);
+    expect(combos[0].activeSet).toBe(1);
+    expect(combos[1].activeSet).toBe(2);
+    expect(combos[2].paletteKey).toBe('iris');
+  });
+
+  test('all combos have surface and surface2 fields', () => {
+    initFavoritesStrip('myUid');
+    const combos = getAllCombos();
+    combos.forEach(c => {
+      expect(c.surface).toBeDefined();
+      expect(c.surface2).toBeDefined();
+    });
+  });
+
+  test('returns only 2 combos when history is empty', () => {
+    require('../js/store.js').getFavorites.mockReturnValue([]);
+    initFavoritesStrip('myUid');
+    expect(getAllCombos()).toHaveLength(2);
+  });
 });

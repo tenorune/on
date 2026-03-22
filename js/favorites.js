@@ -73,6 +73,17 @@ function slotVisuallyMatches(combo, setNum) {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
+export function getAllCombos() {
+  return [slotCombo(1), slotCombo(2), ...getFavorites()];
+}
+
+export function getCanvasColors() {
+  const combos = getAllCombos();
+  const penColors = [...new Set(combos.map(c => c.statusColor))];
+  const bgColors  = [...new Set(combos.map(c => c.surface))];
+  return { penColors, bgColors };
+}
+
 export function removeHistoryDuplicatesOfSlots() {
   if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
   const history = getFavorites();
