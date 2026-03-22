@@ -752,3 +752,57 @@ describe('getAllCombos', () => {
     expect(getAllCombos()).toHaveLength(2);
   });
 });
+
+describe('getCanvasColors', () => {
+  let getCanvasColors, initFavoritesStrip;
+
+  beforeEach(() => {
+    setupDom();
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
+    jest.mock('../js/palettes.js', () => ({
+      ...jest.requireActual('../js/palettes.js'),
+      switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
+      getPaletteByKey: jest.fn(key => ({
+        forest: { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } },
+        volt:   { color: '#aaff00', theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600' } },
+        iris:   { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } },
+      })[key] ?? null),
+      getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
+    }));
+    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/store.js', () => ({
+      ...jest.requireActual('../js/store.js'),
+      getPaletteState: jest.fn(() => ({
+        activeSet: 1,
+        sets: {
+          '1': { selectedKey: 'forest', activePaletteKey: null },
+          '2': { selectedKey: 'volt',   activePaletteKey: null },
+        },
+      })),
+      setPaletteState: jest.fn(),
+      getFavorites: jest.fn(() => [
+        { statusColor: '#818cf8', surface: '#141432', surface2: '#1d1d47', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
+      ]),
+      setFavorites: jest.fn(),
+    }));
+    ({ getCanvasColors, initFavoritesStrip } = require('../js/favorites.js'));
+  });
+
+  test('returns deduplicated pen colors', () => {
+    initFavoritesStrip('myUid');
+    const { penColors } = getCanvasColors();
+    expect(penColors).toContain('#22c55e');
+    expect(penColors).toContain('#aaff00');
+    expect(penColors).toContain('#818cf8');
+    expect(penColors.length).toBe(new Set(penColors).size);
+  });
+
+  test('returns deduplicated bg colors', () => {
+    initFavoritesStrip('myUid');
+    const { bgColors } = getCanvasColors();
+    expect(bgColors).toContain('#1e293b');  // default surface (both slots)
+    expect(bgColors).toContain('#141432');  // iris surface
+    expect(bgColors.length).toBe(new Set(bgColors).size);
+  });
+});
