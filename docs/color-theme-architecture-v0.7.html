@@ -632,7 +632,8 @@ the gap between the strip and the list.</p>
 
 <pre><code>{
   statusColor: string,       // hex — the status indicator color
-  themeBg: string,           // hex — palette theme surface2, or DEFAULT_THEME_BG
+  surface: string,           // hex — card bg (palette.theme.surface or DEFAULT_SURFACE)
+  surface2: string,          // hex — pill right-half (palette.theme.surface2 or DEFAULT_SURFACE2)
   paletteKey: string | null, // palette ID or null (base mode)
   selectedKey: string,       // palette key within the set
   activeSet: 1 | 2           // which set this combo belonged to
@@ -643,11 +644,16 @@ the gap between the strip and the list.</p>
   <tr>
     <td><code>statusColor</code></td>
     <td>CSS <code>--my-status</code> (active set) or <code>selectedColor</code> (inactive set)</td>
-    <td>Left half of pill color; restored on tap</td>
+    <td>Left half of pill color; pen color for Call Canvas; restored on tap</td>
   </tr>
   <tr>
-    <td><code>themeBg</code></td>
-    <td>CSS <code>--surface2</code></td>
+    <td><code>surface</code></td>
+    <td><code>palette.theme.surface</code> or <code>DEFAULT_SURFACE (#1e293b)</code></td>
+    <td>Card background color; canvas background color for Call Canvas</td>
+  </tr>
+  <tr>
+    <td><code>surface2</code></td>
+    <td><code>palette.theme.surface2</code> or <code>DEFAULT_SURFACE2 (#334155)</code></td>
     <td>Right half of pill color; visual hint of theme</td>
   </tr>
   <tr>
@@ -999,7 +1005,7 @@ handleHistoryTap(idx)
   </tr>
   <tr>
     <td><code>pillsLookSame(a, b)</code></td>
-    <td><code>statusColor</code>, <code>themeBg</code></td>
+    <td><code>statusColor</code>, <code>surface2</code></td>
     <td>Visual equality — compares only what the user sees (pill left/right colors).
         Used for history dedup in both force-save and non-forced paths, and for
         <code>removeHistoryDuplicatesOfSlots</code> post-adoption cleanup</td>
@@ -1091,9 +1097,11 @@ array (7 hex colors derived from the primary via color-wheel math).</p>
   <tr>
     <td><code>js/favorites.js</code></td>
     <td>
-      <code>initFavoritesStrip</code>, <code>saveFavorite</code>, <code>renderStrip</code>,
-      <code>buildCombo</code>, <code>slotCombo</code>, <code>handleSlotTap</code>,
-      <code>handleHistoryTap</code>. Listens to <code>palette-state-changed</code> event.
+      <code>initFavoritesStrip</code>, <code>saveFavorite</code>, <code>getAllCombos</code>,
+      <code>getCanvasColors</code>, <code>removeHistoryDuplicatesOfSlots</code>,
+      <code>renderStrip</code>, <code>buildCombo</code>, <code>slotCombo</code>,
+      <code>handleSlotTap</code>, <code>handleHistoryTap</code>.
+      Listens to <code>palette-state-changed</code> event.
     </td>
   </tr>
   <tr>
@@ -1212,7 +1220,7 @@ array (7 hex colors derived from the primary via color-wheel math).</p>
         <li>All flags now <code>true</code>: <code>PALETTES_ENABLED</code>, <code>PALETTE_INTERACTIONS_ENABLED</code>,
             <code>KNOCK_ENABLED</code>, <code>CALL_ENABLED</code></li>
         <li>History dedup uses <code>pillsLookSame</code> (visual: <code>statusColor</code> + <code>themeBg</code>)
-            instead of <code>combosMatch</code> (exact state) for history scans</li>
+            instead of <code>combosMatch</code> (exact state) for history scans (now compares <code>surface2</code>)</li>
         <li>Added <code>removeHistoryDuplicatesOfSlots()</code> post-adoption cleanup to remove
             pills that now match a slot after same-combo adoption</li>
         <li>Strip gestures: swipe-down-to-open (collapsed), swipe-up-to-close (expanded)</li>
@@ -1220,6 +1228,24 @@ array (7 hex colors derived from the primary via color-wheel math).</p>
             from interfering with swipe gestures</li>
         <li>Enlarged collapsed strip touch target; negative margin prevents layout push</li>
         <li>List section labels and add-person area positioned higher</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td><code>v0.7</code></td>
+    <td>2026-03-23</td>
+    <td>
+      <strong>Color data architecture refactoring:</strong>
+      <ul style="margin:0.3em 0 0 1.2em;">
+        <li>Combo shape enriched: <code>themeBg</code> renamed to <code>surface2</code>;
+            new <code>surface</code> field added (card bg color, from <code>palette.theme.surface</code>)</li>
+        <li><code>DEFAULT_THEME_BG</code> replaced with typed constants:
+            <code>DEFAULT_STATUS_COLOR</code>, <code>DEFAULT_SURFACE</code>, <code>DEFAULT_SURFACE2</code></li>
+        <li>New API: <code>getAllCombos()</code> — returns <code>[slotCombo(1), slotCombo(2), ...getFavorites()]</code>
+            as a single flat array of all 8 favorite combos</li>
+        <li>New API: <code>getCanvasColors()</code> — extracts deduplicated <code>penColors</code> (statusColor)
+            and <code>bgColors</code> (surface) from <code>getAllCombos()</code> for Call Canvas</li>
+        <li><code>pillsLookSame</code> now compares <code>surface2</code> (was <code>themeBg</code>)</li>
       </ul>
     </td>
   </tr>
