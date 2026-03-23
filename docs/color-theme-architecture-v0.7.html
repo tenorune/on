@@ -244,6 +244,14 @@
       </ol>
     </li>
     <li><a href="#dedup">Favorites Deduplication</a></li>
+    <li><a href="#call-canvas">Call Canvas</a>
+      <ol>
+        <li><a href="#canvas-firebase">Firebase Schema</a></li>
+        <li><a href="#canvas-flow">Call &amp; Canvas Flow</a></li>
+        <li><a href="#canvas-ui">UI Components</a></li>
+        <li><a href="#canvas-drawing">Drawing Engine</a></li>
+      </ol>
+    </li>
     <li><a href="#file-map">File Map</a></li>
   </ol>
 </nav>
@@ -1117,8 +1125,188 @@ handleHistoryTap(idx)
 <p>Each palette also defines a <code>theme</code> object (8 color fields) and a <code>complements</code>
 array (7 hex colors derived from the primary via color-wheel math).</p>
 
-<!-- ===== 8. FILE MAP ===== -->
-<h2 id="file-map">8. File Map</h2>
+<!-- ===== 8. CALL CANVAS ===== -->
+<h2 id="call-canvas">8. Call Canvas</h2>
+
+<p>When two mutual users enter a "call," they transition to a shared drawing canvas.
+The canvas persists between sessions for each unique pair of users.</p>
+
+<h3 id="canvas-firebase">8.1 Firebase Schema</h3>
+
+<pre><code>canvases/
+  {canvasId}/                        // sorted pair: e.g. "uid1_uid2"
+    bg: string                       // canvas background (surface color)
+    presence/
+      {userId}: boolean              // true = on canvas, false = left
+    strokes/
+      {strokeId}/
+        userId: string
+        color: string                // hex
+        thickness: number            // normalized 0–1
+        tool: "pen"
+        points: [[x,y], ...]         // normalized 0–1 coordinates
+        timestamp: number</code></pre>
+
+<p><code>canvasId</code> is derived from sorted user IDs:
+<code>[uid1, uid2].sort().join('_')</code> — ensures both users reference the same
+canvas regardless of who initiated.</p>
+
+<h4>Firebase Operations</h4>
+
+<table>
+  <tr><th>Function</th><th>File</th><th>What It Does</th></tr>
+  <tr>
+    <td><code>getCanvasId(uid1, uid2)</code></td>
+    <td>db.js</td>
+    <td>Returns sorted pair ID</td>
+  </tr>
+  <tr>
+    <td><code>loadCanvas(canvasId)</code></td>
+    <td>db.js</td>
+    <td>Gets existing bg + all strokes</td>
+  </tr>
+  <tr>
+    <td><code>pushStroke(canvasId, stroke)</code></td>
+    <td>db.js</td>
+    <td>Pushes completed stroke to strokes/</td>
+  </tr>
+  <tr>
+    <td><code>setCanvasBg(canvasId, color)</code></td>
+    <td>db.js</td>
+    <td>Updates canvas background color</td>
+  </tr>
+  <tr>
+    <td><code>watchStrokes(canvasId, lastKey, onStroke)</code></td>
+    <td>db.js</td>
+    <td>Listens for new strokes via <code>onChildAdded</code></td>
+  </tr>
+  <tr>
+    <td><code>setCanvasPresence(canvasId, userId, present)</code></td>
+    <td>db.js</td>
+    <td>Sets user's presence on canvas (true/false)</td>
+  </tr>
+  <tr>
+    <td><code>watchCanvasPresence(canvasId, onChange)</code></td>
+    <td>db.js</td>
+    <td>Watches presence changes for leave/rejoin detection</td>
+  </tr>
+</table>
+
+<h3 id="canvas-flow">8.2 Call &amp; Canvas Flow</h3>
+
+<h4>Entering Canvas</h4>
+
+<div class="diagram">
+<pre style="margin:0;border:0;background:transparent;font-size:0.8rem;">
+Caller swipes right on card
+  → enterCallMode() — writes callState to Firebase, card glows
+
+Receiver sees glow, swipes right
+  → writes own callState (without clearing caller's)
+  → enterCanvas(peerId, peerName, myUserId, myColor, peerColor, surface, onExit)
+     → loadCanvas() — get existing strokes + bg
+     → render strokes on &lt;canvas&gt;
+     → watchStrokes() — listen for peer's new strokes
+     → setCanvasPresence(true)
+     → watchCanvasPresence() — detect peer leave/rejoin
+     → build floating UI (header + toolbox)
+
+Caller's updateFolloweeRow detects mutual callState
+  → auto-enters canvas (same enterCanvas flow)
+</pre>
+</div>
+
+<h4>Exiting Canvas</h4>
+
+<div class="diagram">
+<pre style="margin:0;border:0;background:transparent;font-size:0.8rem;">
+User taps ‹ header → confirmation dialog → confirms
+  → exitCanvas()
+     → setCanvasPresence(false)
+     → unwatchStrokes(), unwatchCanvasPresence()
+     → remove floating UI, show main UI
+  → exitCallMode(myUserId)
+     → clearCallState(myUserId) — own callState only
+     → peer's callState remains (their card keeps glowing)
+
+Peer (still on canvas):
+  → presence watcher sees false → dims header, shows "partner left" dialog
+  → if user calls back: presence goes true → dialog dismissed, header undims
+  → if peer taps Done: exitCanvas() + exitCallMode()
+</pre>
+</div>
+
+<h4>Re-entry</h4>
+
+<p>After leaving canvas, if peer is still on canvas, their card keeps glowing
+(peer's callState still points at you). Swiping right on the glowing card
+re-enters the canvas with one swipe — the existing receiver-answer code path
+handles it since <code>isCallModeReceiver</code> is true.</p>
+
+<h3 id="canvas-ui">8.3 UI Components</h3>
+
+<p>The canvas screen is a full-screen fixed overlay (<code>#canvas-screen.active</code>).
+Main UI (header, strip, list) is hidden while canvas is active.</p>
+
+<table>
+  <tr><th>Element</th><th>Position</th><th>Behaviour</th></tr>
+  <tr>
+    <td>Header: <code>‹ Name ●</code></td>
+    <td>Top-right</td>
+    <td>Red arrow + peer name + peer pen color dot. Tap → end confirmation.
+        Dims (name + dot at 35% opacity) when peer leaves canvas.
+        Undims when peer returns. Height matches status UI chips.</td>
+  </tr>
+  <tr>
+    <td>Toolbox (collapsed)</td>
+    <td>Bottom-right</td>
+    <td>Pen icon + color ring with thickness indicator inside.
+        Tap to expand.</td>
+  </tr>
+  <tr>
+    <td>Toolbox (expanded)</td>
+    <td>Bottom-right</td>
+    <td>Color dots row (up to 8, from <code>getCanvasColors().penColors</code>)
+        with white ring on selected. Separator. Thickness dots row (3 grades).
+        Tap outside to close.</td>
+  </tr>
+</table>
+
+<h3 id="canvas-drawing">8.4 Drawing Engine</h3>
+
+<p>Drawing uses the HTML Canvas 2D API with pointer events.</p>
+
+<h4>Stroke Normalization</h4>
+
+<p>Points are stored as normalized 0–1 coordinates (<code>x/canvasWidth</code>,
+<code>y/canvasHeight</code>) so strokes render correctly on any screen size.
+Thickness is also normalized (multiplied by canvas width when rendering).</p>
+
+<table>
+  <tr><th>Thickness Grade</th><th>Normalized Value</th><th>Toolbox Dot Size</th></tr>
+  <tr><td>Thin</td><td>0.005</td><td>6px</td></tr>
+  <tr><td>Medium (default)</td><td>0.012</td><td>14px</td></tr>
+  <tr><td>Thick</td><td>0.025</td><td>24px</td></tr>
+</table>
+
+<h4>Drawing Flow</h4>
+
+<ul>
+  <li><code>pointerdown</code> — begin stroke, record first normalized point</li>
+  <li><code>pointermove</code> — draw locally (incremental lineTo), append point</li>
+  <li><code>pointerup</code> — render completed stroke locally, push to Firebase</li>
+  <li>Single taps (no pointermove) produce a dot rendered via <code>renderStroke</code></li>
+</ul>
+
+<h4>Pen Colors</h4>
+
+<p>Colors come from <code>getCanvasColors().penColors</code> — up to 8 unique
+<code>statusColor</code> values from the user's favorites (slots 1–2 + history).
+The user's current <code>statusColor</code> is the default pen and is prepended
+if not already in the list.</p>
+
+<!-- ===== 9. FILE MAP ===== -->
+<h2 id="file-map">9. File Map</h2>
 
 <table>
   <tr><th>File</th><th>Palette / Theme Responsibilities</th></tr>
@@ -1132,7 +1320,10 @@ array (7 hex colors derived from the primary via color-wheel math).</p>
   </tr>
   <tr>
     <td><code>js/db.js</code></td>
-    <td><code>setStatusColor</code>, <code>setPaletteKey</code>, <code>watchStatus</code> — Firebase persistence</td>
+    <td><code>setStatusColor</code>, <code>setPaletteKey</code>, <code>watchStatus</code> — Firebase persistence.
+        Canvas: <code>getCanvasId</code>, <code>loadCanvas</code>, <code>pushStroke</code>,
+        <code>setCanvasBg</code>, <code>watchStrokes</code>, <code>setCanvasPresence</code>,
+        <code>watchCanvasPresence</code>.</td>
   </tr>
   <tr>
     <td><code>js/palettes.js</code></td>
@@ -1164,7 +1355,24 @@ array (7 hex colors derived from the primary via color-wheel math).</p>
     <td><code>js/following.js</code></td>
     <td>
       <code>updateFolloweeRow</code> (card theming from <code>paletteKey</code>),
-      <code>applyAdoption</code> / <code>triggerAdoption</code> (long-press).
+      <code>applyAdoption</code> / <code>triggerAdoption</code> (long-press),
+      <code>enterCallMode</code> / <code>exitCallMode</code> (call flow),
+      canvas entry on swipe-right answer + caller auto-detect.
+    </td>
+  </tr>
+  <tr>
+    <td><code>js/canvas.js</code></td>
+    <td>
+      <code>enterCanvas</code>, <code>exitCanvas</code>, <code>showPeerLeftDialog</code>,
+      <code>dimPeerIndicator</code>. Drawing engine (pointer events, stroke rendering),
+      floating UI (header, toolbox), presence watcher, zoom prevention.
+    </td>
+  </tr>
+  <tr>
+    <td><code>css/canvas.css</code></td>
+    <td>
+      Canvas screen overlay, floating widget styles (header, toolbox, dialogs),
+      glass-morphism panels, safe-area-inset positioning.
     </td>
   </tr>
   <tr>
@@ -1177,7 +1385,7 @@ array (7 hex colors derived from the primary via color-wheel math).</p>
 </table>
 
 <!-- ===== COMPONENT COMMUNICATION ===== -->
-<h2 id="event-flow">9. Component Communication</h2>
+<h2 id="event-flow">10. Component Communication</h2>
 
 <div class="diagram">
 <pre style="margin:0;border:0;background:transparent;font-size:0.8rem;">
@@ -1295,6 +1503,31 @@ array (7 hex colors derived from the primary via color-wheel math).</p>
         <li>New API: <code>getCanvasColors()</code> — extracts deduplicated <code>penColors</code> (statusColor)
             and <code>bgColors</code> (surface) from <code>getAllCombos()</code> for Call Canvas</li>
         <li><code>pillsLookSame</code> now compares <code>surface2</code> (was <code>themeBg</code>)</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td><code>v0.7</code></td>
+    <td>2026-03-23</td>
+    <td>
+      <strong>Call Canvas:</strong>
+      <ul style="margin:0.3em 0 0 1.2em;">
+        <li>Shared drawing canvas entered via swipe-right call answer</li>
+        <li>Firebase schema: <code>canvases/{canvasId}/</code> with <code>bg</code>,
+            <code>presence/</code>, and <code>strokes/</code></li>
+        <li>Pen tool with 3 thickness grades, normalized 0–1 coordinates</li>
+        <li>Up to 8 pen colors from <code>getCanvasColors().penColors</code></li>
+        <li>Floating UI: combined <code>‹ Name ●</code> header + collapsible toolbox</li>
+        <li>Canvas presence system for leave/rejoin detection with auto-dismiss dialog</li>
+        <li>Exit clears own callState only — peer's card keeps glowing for re-entry</li>
+        <li>One-swipe re-entry when peer is still on canvas</li>
+        <li>Canvas persists per user pair between sessions</li>
+        <li>New files: <code>js/canvas.js</code>, <code>css/canvas.css</code></li>
+        <li>New db.js exports: <code>getCanvasId</code>, <code>loadCanvas</code>,
+            <code>pushStroke</code>, <code>setCanvasBg</code>, <code>watchStrokes</code>,
+            <code>setCanvasPresence</code>, <code>watchCanvasPresence</code></li>
+        <li>Dev workflow: <code>.env.local</code> Firebase config injection,
+            <code>npm run dev</code> with LAN URL on port 8080</li>
       </ul>
     </td>
   </tr>
