@@ -26,7 +26,7 @@
 .canvas-float {
   position: absolute;
   background: rgba(20, 20, 50, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: none;
   border-radius: 14px;
   padding: 8px 14px;
   backdrop-filter: blur(8px);
@@ -36,8 +36,8 @@
 
 /* End button — top left corner */
 .canvas-end-btn {
-  top: calc(env(safe-area-inset-top, 0px) + 24px);
-  left: 24px;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: 12px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -47,12 +47,12 @@
   font-weight: 600;
   padding: 10px 16px;
 }
-.canvas-end-btn svg { flex-shrink: 0; }
+.canvas-end-btn svg { flex-shrink: 0; vertical-align: middle; }
 
 /* Peer indicator — top right corner */
 .canvas-peer {
-  top: calc(env(safe-area-inset-top, 0px) + 24px);
-  right: 24px;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  right: 12px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -67,13 +67,13 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  box-shadow: 0 0 12px currentColor;
 }
+.canvas-peer.dimmed { opacity: 0.35; }
 
 /* Toolbox — bottom right */
 .canvas-toolbox {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
-  right: 24px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  right: 12px;
   padding: 8px 12px;
 }
 .canvas-toolbox-collapsed {
@@ -93,10 +93,7 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  border: 3px solid #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  border: none;
 }
 .canvas-thickness-indicator {
   border-radius: 50%;

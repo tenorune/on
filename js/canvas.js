@@ -3,6 +3,7 @@ import { getCanvasColors } from './favorites.js';
 import { safeCssColor } from './utils.js';
 import {
   getCanvasId, loadCanvas, pushStroke, setCanvasBg, watchStrokes, unwatchStrokes,
+  setCanvasPresence, watchCanvasPresence, unwatchCanvasPresence,
 } from './db.js';
 
 const THICKNESS_VALUES = [0.005, 0.012, 0.025]; // thin, medium, thick
@@ -18,6 +19,7 @@ let _thickness = THICKNESS_VALUES[1]; // default medium
 let _isDrawing = false;
 let _currentPoints = [];
 let _onExit = null;
+let _peerId = null;
 let _bgColor = '#0f172a';
 let _allStrokes = [];
 
@@ -85,7 +87,7 @@ function buildFloatingUI(container, penColors) {
   const peer = document.createElement('div');
   peer.className = 'canvas-float canvas-peer';
   peer.id = 'canvas-peer-indicator';
-  peer.innerHTML = `<span class="canvas-peer-name">${document.createTextNode(_peerName).textContent}</span><div class="canvas-peer-dot" id="canvas-peer-dot" style="background:${safeCssColor(_penColor)};color:${safeCssColor(_penColor)}"></div>`;
+  peer.innerHTML = `<span class="canvas-peer-name">${document.createTextNode(_peerName).textContent}</span><div class="canvas-peer-dot" id="canvas-peer-dot" style="background:${safeCssColor(_penColor)}"></div>`;
   container.appendChild(peer);
 
   // Toolbox (bottom-right)
@@ -97,7 +99,7 @@ function buildFloatingUI(container, penColors) {
   const collapsed = document.createElement('div');
   collapsed.className = 'canvas-toolbox-collapsed';
   const penIcon = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>`;
-  collapsed.innerHTML = `${penIcon}<div class="canvas-color-ring" id="canvas-ring" style="background:${safeCssColor(_penColor)}"><div class="canvas-thickness-indicator" id="canvas-ring-dot" style="width:${_thickness * 320}px;height:${_thickness * 320}px"></div></div>`;
+  collapsed.innerHTML = `${penIcon}<div class="canvas-color-ring" id="canvas-ring" style="background:${safeCssColor(_penColor)}"></div>`;
   toolbox.appendChild(collapsed);
 
   // Expanded state
@@ -157,9 +159,7 @@ function buildFloatingUI(container, penColors) {
 
 function updateToolboxState(toolbox) {
   const ring = toolbox.querySelector('#canvas-ring');
-  const dot = toolbox.querySelector('#canvas-ring-dot');
   if (ring) ring.style.background = safeCssColor(_penColor);
-  if (dot) { dot.style.width = _thickness * 320 + 'px'; dot.style.height = _thickness * 320 + 'px'; }
   toolbox.querySelectorAll('.canvas-color-dot').forEach(el => {
     el.classList.toggle('selected', el.style.background === safeCssColor(_penColor));
   });
@@ -172,8 +172,12 @@ function updatePeerDot(color) {
   const dot = document.getElementById('canvas-peer-dot');
   if (dot) {
     dot.style.background = safeCssColor(color);
-    dot.style.color = safeCssColor(color);
   }
+}
+
+export function dimPeerIndicator() {
+  const peer = document.getElementById('canvas-peer-indicator');
+  if (peer) peer.classList.add('dimmed');
 }
 
 // ─── Dialogs ─────────────────────────────────────────────────────────────────
@@ -221,6 +225,7 @@ export function showPeerLeftDialog(container, peerName, onDone) {
 export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, callerSurface, onExit) {
   _canvasId = getCanvasId(myUserId, peerId);
   _myUserId = myUserId;
+  _peerId = peerId;
   _peerName = peerName;
   _penColor = myStatusColor || '#22c55e';
   _thickness = THICKNESS_VALUES[1];
@@ -266,6 +271,14 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, cal
     _allStrokes.push(entry);
   });
 
+  // Mark self as present on canvas, watch peer presence
+  setCanvasPresence(_canvasId, _myUserId, true).catch(() => {});
+  watchCanvasPresence(_canvasId, (presence) => {
+    if (_peerId && presence[_peerId] === false) {
+      dimPeerIndicator();
+    }
+  });
+
   // Prevent pinch-zoom on iOS Safari
   screen.addEventListener('gesturestart', preventZoom);
   screen.addEventListener('touchmove', preventMultiTouch, { passive: false });
@@ -278,7 +291,11 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, cal
 }
 
 export function exitCanvas() {
+  if (_canvasId && _myUserId) {
+    setCanvasPresence(_canvasId, _myUserId, false).catch(() => {});
+  }
   unwatchStrokes();
+  unwatchCanvasPresence();
   const screen = document.getElementById('canvas-screen');
   if (screen) {
     screen.classList.remove('active');
@@ -303,13 +320,14 @@ export function exitCanvas() {
   _ctx = null;
   _canvas = null;
   _canvasId = null;
+  _peerId = null;
   _allStrokes = [];
 }
 
 function handleEnd() {
-  const onExit = _onExit;
   exitCanvas();
-  if (onExit) onExit();
+  // Don't call _onExit here — user stays in call mode after leaving canvas.
+  // They can exit call mode separately via swipe-left.
 }
 
 // ─── Zoom prevention ────────────────────────────────────────────────────────

@@ -273,3 +273,19 @@ export function watchStrokes(canvasId, lastKey, onStroke) {
 export function unwatchStrokes() {
   if (_strokeUnsub) { _strokeUnsub(); _strokeUnsub = null; }
 }
+
+export async function setCanvasPresence(canvasId, userId, present) {
+  await update(ref(db, `canvases/${canvasId}/presence`), { [userId]: present });
+}
+
+let _presenceUnsub = null;
+
+export function watchCanvasPresence(canvasId, onChange) {
+  _presenceUnsub = onValue(ref(db, `canvases/${canvasId}/presence`), (snap) => {
+    onChange(snap.val() || {});
+  });
+}
+
+export function unwatchCanvasPresence() {
+  if (_presenceUnsub) { _presenceUnsub(); _presenceUnsub = null; }
+}
