@@ -1,0 +1,194 @@
+/* css/canvas.css */
+
+/* ── Canvas screen overlay ─────────────────────────────────────── */
+#canvas-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: none;
+  flex-direction: column;
+}
+#canvas-screen.active {
+  display: flex;
+}
+
+#draw-canvas {
+  flex: 1;
+  width: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* ── Floating UI elements ──────────────────────────────────────── */
+.canvas-float {
+  position: absolute;
+  background: rgba(20, 20, 50, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 4px 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 210;
+}
+
+/* End button — top left */
+.canvas-end-btn {
+  top: 52px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  color: #f87171;
+  font-size: 0.6rem;
+  font-weight: 500;
+}
+.canvas-end-btn svg { flex-shrink: 0; }
+
+/* Peer indicator — top right */
+.canvas-peer {
+  top: 52px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.canvas-peer-name {
+  font-size: 0.55rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 500;
+}
+.canvas-peer-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* Toolbox — bottom right */
+.canvas-toolbox {
+  bottom: 24px;
+  right: 10px;
+}
+.canvas-toolbox-collapsed {
+  display: flex;
+  gap: 6px;
+  padding: 2px;
+  align-items: center;
+  cursor: pointer;
+}
+.canvas-toolbox-expanded {
+  display: none;
+}
+.canvas-toolbox.open .canvas-toolbox-collapsed { display: none; }
+.canvas-toolbox.open .canvas-toolbox-expanded { display: block; }
+
+.canvas-color-ring {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.canvas-thickness-indicator {
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+/* Color row */
+.canvas-colors {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+.canvas-color-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.canvas-color-dot.selected { border-color: #fff; }
+
+/* Thickness row */
+.canvas-thicknesses {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.canvas-thickness-btn {
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  border: none;
+}
+.canvas-thickness-btn.selected {
+  background: #e2e8f0;
+  outline: 1px solid rgba(99, 102, 241, 0.5);
+}
+
+/* Separator line in toolbox */
+.canvas-toolbox-sep {
+  width: 100%;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 0;
+}
+
+/* ── Confirm dialog ────────────────────────────────────────────── */
+.canvas-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 220;
+}
+.canvas-dialog {
+  background: rgba(20, 20, 50, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 20px 28px;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.canvas-dialog h3 {
+  font-size: 0.85rem;
+  color: #eeeeff;
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+.canvas-dialog p {
+  font-size: 0.65rem;
+  color: #8080c0;
+  margin-bottom: 14px;
+}
+.canvas-dialog-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.canvas-dialog-btn {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 6px 20px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.08);
+  color: #8080c0;
+}
+.canvas-dialog-btn.danger {
+  background: rgba(220, 38, 38, 0.3);
+  border-color: rgba(220, 38, 38, 0.4);
+  color: #f87171;
+}
+.canvas-dialog-btn.primary {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+}
