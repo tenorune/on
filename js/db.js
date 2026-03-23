@@ -2,6 +2,7 @@
 import { db } from './firebase-config.js';
 import {
   ref, set, get, update, onValue, remove, runTransaction, onChildAdded,
+  push, query, orderByKey, startAfter,
 } from 'firebase/database';
 import { generateCode } from './identity.js';
 import { getFollowing } from './store.js';
@@ -231,4 +232,44 @@ export function watchKnocksAdded(myUserId, callback) {
 // Delete a single knock entry for a sender. Returns raw promise — caller handles errors.
 export function clearKnock(myUserId, senderId) {
   return remove(ref(db, `users/${myUserId}/knocks/${senderId}`));
+}
+
+// --- Canvas operations ---
+
+export function getCanvasId(uid1, uid2) {
+  return [uid1, uid2].sort().join('_');
+}
+
+export async function loadCanvas(canvasId) {
+  const snap = await get(ref(db, `canvases/${canvasId}`));
+  if (!snap.exists()) return { bg: null, strokes: [] };
+  const val = snap.val();
+  const strokes = val.strokes
+    ? Object.entries(val.strokes).map(([key, data]) => ({ key, data }))
+    : [];
+  return { bg: val.bg || null, strokes };
+}
+
+export async function pushStroke(canvasId, stroke) {
+  await push(ref(db, `canvases/${canvasId}/strokes`), stroke);
+}
+
+export async function setCanvasBg(canvasId, color) {
+  await update(ref(db, `canvases/${canvasId}`), { bg: color });
+}
+
+let _strokeUnsub = null;
+
+export function watchStrokes(canvasId, lastKey, onStroke) {
+  const strokesRef = ref(db, `canvases/${canvasId}/strokes`);
+  const q = lastKey
+    ? query(strokesRef, orderByKey(), startAfter(lastKey))
+    : strokesRef;
+  _strokeUnsub = onChildAdded(q, (snap) => {
+    onStroke({ key: snap.key, data: snap.val() });
+  });
+}
+
+export function unwatchStrokes() {
+  if (_strokeUnsub) { _strokeUnsub(); _strokeUnsub = null; }
 }
