@@ -8,7 +8,7 @@ import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
   getPaletteState, setPaletteState,
 } from './store.js';
-import { escapeHtml, hexToRgb } from './utils.js';
+import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock } from './knock.js';
@@ -583,7 +583,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   let statusText;
   if (isAvail) {
     if (PALETTES_ENABLED) {
-      statusText = `<span class="status-available" style="color:${color}">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
+      statusText = `<span class="status-available" style="color:${safeCssColor(color)}">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
     } else {
       statusText = `<span class="status-available">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
     }
@@ -598,9 +598,9 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     dot.className = `person-dot${isAvail ? ' available' : ''}`;
     if (PALETTES_ENABLED) {
       if (isAvail) {
-        dot.style.background  = color;
-        dot.style.borderColor = color;
-        dot.style.boxShadow   = `0 0 10px ${glow}`;
+        dot.style.background  = safeCssColor(color);
+        dot.style.borderColor = safeCssColor(color);
+        dot.style.boxShadow   = `0 0 10px ${safeCssColor(glow)}`;
       } else {
         dot.style.background  = '';
         dot.style.borderColor = '';
@@ -627,7 +627,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     }
   } else {
     li.style.background      = '';
-    li.style.borderLeftColor = isAvail ? color : '';
+    li.style.borderLeftColor = isAvail ? safeCssColor(color) : '';
     if (statusEl) statusEl.style.color = '';
   }
 

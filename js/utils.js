@@ -8,6 +8,11 @@ export function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+export function safeCssColor(v) {
+  if (typeof v === 'string' && (/^#[0-9a-fA-F]{3,8}$/.test(v) || /^rgba?\([\d\s,.%]+\)$/.test(v))) return v;
+  return 'transparent';
+}
+
 export function hexToRgb(hex) {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
   if (!m) return '0, 0, 0';

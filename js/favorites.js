@@ -3,6 +3,7 @@ import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
 import { getPaletteState, setPaletteState, getFavorites, setFavorites } from './store.js';
 import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowForColor } from './palettes.js';
 import { setStatusColor } from './db.js';
+import { safeCssColor } from './utils.js';
 
 const MAX_HISTORY = 6;
 const DEFAULT_STATUS_COLOR = '#22c55e';  // default green (forest primary)
@@ -290,10 +291,6 @@ function renderExpanded(container, history) {
   observer.observe(container, { childList: true });
 }
 
-function safeCssColor(v) {
-  if (typeof v === 'string' && (/^#[0-9a-fA-F]{3,8}$/.test(v) || /^rgb/.test(v))) return v;
-  return 'transparent';
-}
 
 function renderPill(combo, state, type, index) {
   return `<div class="fav-pill fav-pill--${state}" data-type="${type}" data-index="${index}">` +
