@@ -6,7 +6,7 @@ import {
 } from './db.js';
 
 const THICKNESS_VALUES = [0.005, 0.012, 0.025]; // thin, medium, thick
-const THICKNESS_PX_LABELS = [3, 7, 13]; // visual dot sizes in toolbox
+const THICKNESS_PX_LABELS = [6, 14, 24]; // visual dot sizes in toolbox
 
 let _ctx = null;
 let _canvas = null;
@@ -77,7 +77,7 @@ function buildFloatingUI(container, penColors) {
   // End button (top-left)
   const endBtn = document.createElement('div');
   endBtn.className = 'canvas-float canvas-end-btn';
-  endBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg><span>End</span>`;
+  endBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg><span>End</span>`;
   endBtn.addEventListener('click', () => showEndDialog(container));
   container.appendChild(endBtn);
 
@@ -96,8 +96,8 @@ function buildFloatingUI(container, penColors) {
   // Collapsed state
   const collapsed = document.createElement('div');
   collapsed.className = 'canvas-toolbox-collapsed';
-  const penIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>`;
-  collapsed.innerHTML = `${penIcon}<div class="canvas-color-ring" id="canvas-ring" style="background:${safeCssColor(_penColor)}"><div class="canvas-thickness-indicator" id="canvas-ring-dot" style="width:${_thickness * 200}px;height:${_thickness * 200}px"></div></div>`;
+  const penIcon = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>`;
+  collapsed.innerHTML = `${penIcon}<div class="canvas-color-ring" id="canvas-ring" style="background:${safeCssColor(_penColor)}"><div class="canvas-thickness-indicator" id="canvas-ring-dot" style="width:${_thickness * 320}px;height:${_thickness * 320}px"></div></div>`;
   toolbox.appendChild(collapsed);
 
   // Expanded state
@@ -159,7 +159,7 @@ function updateToolboxState(toolbox) {
   const ring = toolbox.querySelector('#canvas-ring');
   const dot = toolbox.querySelector('#canvas-ring-dot');
   if (ring) ring.style.background = safeCssColor(_penColor);
-  if (dot) { dot.style.width = _thickness * 200 + 'px'; dot.style.height = _thickness * 200 + 'px'; }
+  if (dot) { dot.style.width = _thickness * 320 + 'px'; dot.style.height = _thickness * 320 + 'px'; }
   toolbox.querySelectorAll('.canvas-color-dot').forEach(el => {
     el.classList.toggle('selected', el.style.background === safeCssColor(_penColor));
   });
@@ -266,6 +266,10 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, cal
     _allStrokes.push(entry);
   });
 
+  // Prevent pinch-zoom on iOS Safari
+  screen.addEventListener('gesturestart', preventZoom);
+  screen.addEventListener('touchmove', preventMultiTouch, { passive: false });
+
   // Drawing event handlers
   _canvas.addEventListener('pointerdown', onPointerDown);
   _canvas.addEventListener('pointermove', onPointerMove);
@@ -278,11 +282,11 @@ export function exitCanvas() {
   const screen = document.getElementById('canvas-screen');
   if (screen) {
     screen.classList.remove('active');
-    // Remove floating UI (keep canvas element)
     screen.querySelectorAll('.canvas-float, .canvas-dialog-overlay').forEach(el => el.remove());
+    screen.removeEventListener('gesturestart', preventZoom);
+    screen.removeEventListener('touchmove', preventMultiTouch);
   }
 
-  // Remove drawing listeners
   if (_canvas) {
     _canvas.removeEventListener('pointerdown', onPointerDown);
     _canvas.removeEventListener('pointermove', onPointerMove);
@@ -307,6 +311,11 @@ function handleEnd() {
   exitCanvas();
   if (onExit) onExit();
 }
+
+// ─── Zoom prevention ────────────────────────────────────────────────────────
+
+function preventZoom(e) { e.preventDefault(); }
+function preventMultiTouch(e) { if (e.touches.length > 1) e.preventDefault(); }
 
 // ─── Pointer event handlers ──────────────────────────────────────────────────
 
