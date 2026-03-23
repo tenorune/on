@@ -1,5 +1,5 @@
 // sw.js
-const CACHE = 'status-pwa-v2';
+const CACHE = 'knockknock';
 const SHELL = ['/', '/index.html', '/css/app.css', '/dist/bundle.js', '/manifest.json'];
 
 self.addEventListener('install', (e) => {

@@ -1,7 +1,7 @@
 {
-  "name": "Status",
-  "short_name": "Status",
-  "description": "Share your availability with the people who matter",
+  "name": "KnockKnock",
+  "short_name": "KnockKnock",
+  "description": "Who's there?",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
