@@ -8,8 +8,8 @@
   },
   "scripts": {
     "test": "jest",
-    "build": "esbuild js/app.js --bundle --outfile=dist/bundle.js",
-    "dev": "esbuild js/app.js --bundle --outfile=dist/bundle.js --watch --servedir=."
+    "build": "node scripts/prod.js",
+    "dev": "node scripts/dev.js"
   },
   "keywords": [],
   "author": "",
