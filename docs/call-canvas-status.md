@@ -2,7 +2,7 @@
 
 *Last updated: 2026-03-23*
 *Baseline: v0.7.1 (`bc892c7`)*
-*Latest committed: `5597e28`*
+*Latest committed: `cff6606`*
 
 ## Implemented
 
@@ -64,7 +64,7 @@
 
 - [x] Commit accumulated changes — `5597e28`
 - [ ] Manual testing checklist verification
-- [ ] Architecture doc update with Call Canvas section + changelog
+- [x] Architecture doc update with Call Canvas section + changelog — `cff6606`
 - [ ] Tag milestone
 
 ## Deferred (SHOULD HAVE / NICE TO HAVE)
