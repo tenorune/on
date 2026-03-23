@@ -34,41 +34,35 @@
   z-index: 210;
 }
 
-/* End button — top left corner */
-.canvas-end-btn {
+/* Combined end + peer — top left */
+.canvas-header {
   top: calc(env(safe-area-inset-top, 0px) + 12px);
   left: calc(env(safe-area-inset-left, 0px) + 12px);
   display: flex;
   align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  color: #f87171;
-  font-size: 1rem;
-  font-weight: 600;
-  padding: 10px 16px;
-}
-.canvas-end-btn svg { flex-shrink: 0; vertical-align: middle; }
-
-/* Peer indicator — top right corner */
-.canvas-peer {
-  top: calc(env(safe-area-inset-top, 0px) + 12px);
-  right: calc(env(safe-area-inset-right, 0px) + 12px);
-  display: flex;
-  align-items: center;
   gap: 8px;
   padding: 8px 14px;
+  cursor: pointer;
 }
-.canvas-peer-name {
-  font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.6);
+.canvas-header-arrow {
+  color: #f87171;
+  font-size: 1.2rem;
+  font-weight: 600;
+  line-height: 1;
+}
+.canvas-header-name {
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.7);
   font-weight: 500;
 }
-.canvas-peer-dot {
+.canvas-header-dot {
   width: 28px;
   height: 28px;
   border-radius: 50%;
+  flex-shrink: 0;
 }
-.canvas-peer.dimmed { opacity: 0.35; }
+.canvas-header.dimmed .canvas-header-name,
+.canvas-header.dimmed .canvas-header-dot { opacity: 0.35; }
 
 /* Toolbox — bottom right */
 .canvas-toolbox {

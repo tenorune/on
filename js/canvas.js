@@ -78,19 +78,14 @@ function clearAndRedraw(ctx, cw, ch, bgColor, strokes) {
 // ─── Floating UI ─────────────────────────────────────────────────────────────
 
 function buildFloatingUI(container, penColors) {
-  // End button (top-left)
-  const endBtn = document.createElement('div');
-  endBtn.className = 'canvas-float canvas-end-btn';
-  endBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg><span>End</span>`;
-  endBtn.addEventListener('click', () => showEndDialog(container));
-  container.appendChild(endBtn);
-
-  // Peer indicator (top-right)
-  const peer = document.createElement('div');
-  peer.className = 'canvas-float canvas-peer';
-  peer.id = 'canvas-peer-indicator';
-  peer.innerHTML = `<span class="canvas-peer-name">${document.createTextNode(_peerName).textContent}</span><div class="canvas-peer-dot" id="canvas-peer-dot" style="background:${safeCssColor(_peerColor)}"></div>`;
-  container.appendChild(peer);
+  // Combined header: < Name (dot)
+  const header = document.createElement('div');
+  header.className = 'canvas-float canvas-header';
+  header.id = 'canvas-header';
+  const safeName = document.createTextNode(_peerName).textContent;
+  header.innerHTML = `<span class="canvas-header-arrow">&lsaquo;</span><span class="canvas-header-name">${safeName}</span><div class="canvas-header-dot" id="canvas-peer-dot" style="background:${safeCssColor(_peerColor)}"></div>`;
+  header.addEventListener('click', () => showEndDialog(container));
+  container.appendChild(header);
 
   // Toolbox (bottom-right)
   const toolbox = document.createElement('div');
@@ -179,8 +174,8 @@ function updatePeerDot(color) {
 }
 
 export function dimPeerIndicator() {
-  const peer = document.getElementById('canvas-peer-indicator');
-  if (peer) peer.classList.add('dimmed');
+  const header = document.getElementById('canvas-header');
+  if (header) header.classList.add('dimmed');
 }
 
 // ─── Dialogs ─────────────────────────────────────────────────────────────────
