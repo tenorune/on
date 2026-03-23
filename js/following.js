@@ -458,7 +458,8 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
             setCallState(myUserId, entry.userId).catch(() => {});
           }
           // Enter (or re-enter) canvas
-          enterCanvas(entry.userId, entry.label || entry.code, myUserId, myColor, peerSurface, () => {
+          const peerColor = peerData?.statusColor || '#22c55e';
+          enterCanvas(entry.userId, entry.label || entry.code, myUserId, myColor, peerColor, peerSurface, () => {
             exitCallMode(myUserId);
           }).catch(err => console.error('enterCanvas failed:', err));
         } else {
@@ -668,7 +669,8 @@ export function updateFolloweeRow(entry, userData, myUserId) {
           ? (getPaletteByKey(userData.paletteKey)?.theme?.surface || '#1e293b')
           : '#1e293b';
         const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
-        enterCanvas(entry.userId, entry.label || entry.code, myUserIdRef, myColor, peerSurface, () => {
+        const peerColor = userData.statusColor || '#22c55e';
+        enterCanvas(entry.userId, entry.label || entry.code, myUserIdRef, myColor, peerColor, peerSurface, () => {
           exitCallMode(myUserIdRef);
         }).catch(err => console.error('enterCanvas (caller) failed:', err));
       }

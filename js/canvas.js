@@ -20,8 +20,10 @@ let _isDrawing = false;
 let _currentPoints = [];
 let _onExit = null;
 let _peerId = null;
+let _peerColor = '#22c55e';
 let _bgColor = '#0f172a';
 let _allStrokes = [];
+let _stripWasVisible = false;
 
 // ─── Coordinate helpers (exported for testing) ───────────────────────────────
 
@@ -87,7 +89,7 @@ function buildFloatingUI(container, penColors) {
   const peer = document.createElement('div');
   peer.className = 'canvas-float canvas-peer';
   peer.id = 'canvas-peer-indicator';
-  peer.innerHTML = `<span class="canvas-peer-name">${document.createTextNode(_peerName).textContent}</span><div class="canvas-peer-dot" id="canvas-peer-dot" style="background:${safeCssColor(_penColor)}"></div>`;
+  peer.innerHTML = `<span class="canvas-peer-name">${document.createTextNode(_peerName).textContent}</span><div class="canvas-peer-dot" id="canvas-peer-dot" style="background:${safeCssColor(_peerColor)}"></div>`;
   container.appendChild(peer);
 
   // Toolbox (bottom-right)
@@ -223,11 +225,12 @@ export function showPeerLeftDialog(container, peerName, onDone) {
 
 // ─── Enter / Exit ────────────────────────────────────────────────────────────
 
-export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, callerSurface, onExit) {
+export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, peerStatusColor, callerSurface, onExit) {
   _canvasId = getCanvasId(myUserId, peerId);
   _myUserId = myUserId;
   _peerId = peerId;
   _peerName = peerName;
+  _peerColor = peerStatusColor || '#22c55e';
   _penColor = myStatusColor || '#22c55e';
   _thickness = THICKNESS_VALUES[1];
   _onExit = onExit;
@@ -239,6 +242,7 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, cal
   // Hide main UI
   document.getElementById('app-header').style.display = 'none';
   const strip = document.getElementById('favorites-strip');
+  _stripWasVisible = strip && strip.style.display !== 'none';
   if (strip) strip.style.display = 'none';
   document.getElementById('main-list').style.display = 'none';
 
@@ -315,7 +319,7 @@ export function exitCanvas() {
   // Show main UI
   document.getElementById('app-header').style.display = '';
   const strip = document.getElementById('favorites-strip');
-  if (strip) strip.style.display = '';
+  if (strip) strip.style.display = _stripWasVisible ? 'block' : 'none';
   document.getElementById('main-list').style.display = '';
 
   _ctx = null;
