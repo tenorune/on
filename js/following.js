@@ -452,10 +452,13 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
             ? (getPaletteByKey(peerData.paletteKey)?.theme?.surface || '#1e293b')
             : '#1e293b';
           const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
-          enterCallMode(entry, myUserId); // write callState so caller detects answer
+          // Write our own callState so caller detects the answer.
+          // Don't use enterCallMode — it clears the caller's callState.
+          callModeCalleeId = entry.userId;
+          setCallState(myUserId, entry.userId).catch(() => {});
           enterCanvas(entry.userId, entry.label || entry.code, myUserId, myColor, peerSurface, () => {
             exitCallMode(myUserId);
-          });
+          }).catch(err => console.error('enterCanvas failed:', err));
         } else {
           enterCallMode(entry, myUserId);
         }
@@ -665,7 +668,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
         const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
         enterCanvas(entry.userId, entry.label || entry.code, myUserIdRef, myColor, peerSurface, () => {
           exitCallMode(myUserIdRef);
-        });
+        }).catch(err => console.error('enterCanvas (caller) failed:', err));
       }
     }
   } else {
