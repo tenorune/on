@@ -674,6 +674,31 @@ the gap between the strip and the list.</p>
   </tr>
 </table>
 
+<h4>Default Constants</h4>
+
+<p>When a combo has no active palette (<code>paletteKey: null</code>, base mode), derived fields
+fall back to these constants defined in <code>favorites.js</code>:</p>
+
+<table>
+  <tr><th>Constant</th><th>Value</th><th>Used As Fallback For</th></tr>
+  <tr>
+    <td><code>DEFAULT_STATUS_COLOR</code></td>
+    <td><code>#22c55e</code></td>
+    <td><code>statusColor</code> in <code>slotCombo()</code> when inactive set has no
+        <code>selectedColor</code> and no palette color</td>
+  </tr>
+  <tr>
+    <td><code>DEFAULT_SURFACE</code></td>
+    <td><code>#1e293b</code></td>
+    <td><code>surface</code> — the default slate card background (<code>--surface</code>)</td>
+  </tr>
+  <tr>
+    <td><code>DEFAULT_SURFACE2</code></td>
+    <td><code>#334155</code></td>
+    <td><code>surface2</code> — the default slate pill background (<code>--surface2</code>)</td>
+  </tr>
+</table>
+
 <h4>Internal Tracking: <code>_lastCommittedCombo</code></h4>
 
 <p>An in-memory variable (not persisted) that tracks the "last committed" combo state.
