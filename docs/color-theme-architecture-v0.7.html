@@ -229,6 +229,7 @@
         <li><a href="#firebase-schema">Firebase Schema</a></li>
         <li><a href="#local-palette-state">Local Palette State</a></li>
         <li><a href="#favorites-storage">Favorites Storage</a></li>
+        <li><a href="#combo-apis">Combo APIs</a></li>
         <li><a href="#css-custom-properties">CSS Custom Properties</a></li>
       </ol>
     </li>
@@ -444,7 +445,7 @@ card styling (background, border, text color) is cleared. The card reverts to CS
 <h4>Slot Pills (Slots 1 &amp; 2)</h4>
 <ul>
   <li>Always present; mirror the current state of Set 1 and Set 2</li>
-  <li>Each pill is a split circle: left half = <code>statusColor</code>, right half = <code>themeBg</code></li>
+  <li>Each pill is a split circle: left half = <code>statusColor</code>, right half = <code>surface2</code></li>
   <li><strong>Active set's pill</strong>: reduced opacity, not tappable (it's what you're already looking at)</li>
   <li><strong>Inactive set's pill</strong>: full opacity, tappable — tapping switches to that set</li>
 </ul>
@@ -626,7 +627,7 @@ the gap between the strip and the list.</p>
 
 <h3 id="favorites-storage">4.3 Favorites Storage</h3>
 
-<p>Stored in <code>localStorage</code> at key <code>statusapp_favorites</code>. Array of "combo" objects, maximum 14.</p>
+<p>Stored in <code>localStorage</code> at key <code>statusapp_favorites</code>. Array of "combo" objects, maximum 6.</p>
 
 <h4>Combo Object Shape</h4>
 
@@ -690,7 +691,30 @@ so it can save it to history when the user goes available with a new combo.</p>
           and re-baselines to the new set</td></tr>
 </table>
 
-<h3 id="css-custom-properties">4.4 CSS Custom Properties</h3>
+<h3 id="combo-apis">4.4 Combo APIs</h3>
+
+<p>Two exported functions in <code>favorites.js</code> provide unified access to all favorite combos
+without consumers needing to know about the underlying storage keys.</p>
+
+<table>
+  <tr><th>Function</th><th>Returns</th><th>Purpose</th></tr>
+  <tr>
+    <td><code>getAllCombos()</code></td>
+    <td>Array of up to 8 combos: <code>[slotCombo(1), slotCombo(2), ...getFavorites()]</code></td>
+    <td>Single API for all favorite combos — live slots (Set 1, Set 2) followed by
+        history (up to 6). Each combo has the full enriched shape including
+        <code>surface</code> and <code>surface2</code>.</td>
+  </tr>
+  <tr>
+    <td><code>getCanvasColors()</code></td>
+    <td><code>{ penColors: string[], bgColors: string[] }</code></td>
+    <td>Deduplicated color arrays extracted from <code>getAllCombos()</code>.
+        <code>penColors</code> = unique <code>statusColor</code> values (for drawing pen palette).
+        <code>bgColors</code> = unique <code>surface</code> values (for canvas background options).</td>
+  </tr>
+</table>
+
+<h3 id="css-custom-properties">4.5 CSS Custom Properties</h3>
 
 <h4>Status Variables (set by palette interactions)</h4>
 
@@ -716,7 +740,7 @@ so it can save it to history when the user goes available with a new combo.</p>
   <tr><th>Variable</th><th>Default (Slate)</th><th>Purpose</th></tr>
   <tr><td><code>--bg</code></td><td><code>#0f172a</code></td><td>Page background</td></tr>
   <tr><td><code>--surface</code></td><td><code>#1e293b</code></td><td>Card / container background</td></tr>
-  <tr><td><code>--surface2</code></td><td><code>#334155</code></td><td>Secondary surface (used in pill <code>themeBg</code>)</td></tr>
+  <tr><td><code>--surface2</code></td><td><code>#334155</code></td><td>Secondary surface (used in pill <code>surface2</code> field)</td></tr>
   <tr><td><code>--text</code></td><td><code>#f1f5f9</code></td><td>Primary text</td></tr>
   <tr><td><code>--text-muted</code></td><td><code>#94a3b8</code></td><td>Secondary text</td></tr>
   <tr><td><code>--accent</code></td><td><code>#6366f1</code></td><td>Accent / interactive elements</td></tr>
@@ -983,7 +1007,7 @@ handleHistoryTap(idx)
     <td>3</td>
     <td><code>history.some(h =&gt; pillsLookSame(prev, h))</code></td>
     <td>No pill when a visually identical pill already exists anywhere in history
-        (compares <code>statusColor</code> + <code>themeBg</code> only)</td>
+        (compares <code>statusColor</code> + <code>surface2</code> only)</td>
   </tr>
   <tr>
     <td>4</td>
@@ -1025,7 +1049,7 @@ handleHistoryTap(idx)
   it was captured, and the slot is always either Set 1 or Set 2. The question being asked
   is "does this combo look like what's already visible in this slot?" — <code>activeSet</code>
   is not part of a pill's visual appearance (both slots render the same way: left half =
-  <code>statusColor</code>, right half = <code>themeBg</code>), so it is excluded.
+  <code>statusColor</code>, right half = <code>surface2</code>), so it is excluded.
   Note that cross-set visual matches cannot actually occur with the current palette definitions,
   since Set 1 and Set 2 have disjoint palette keys — but the comparison is correct to focus
   on appearance rather than set membership.
@@ -1219,8 +1243,8 @@ array (7 hex colors derived from the primary via color-wheel math).</p>
       <ul style="margin:0.3em 0 0 1.2em;">
         <li>All flags now <code>true</code>: <code>PALETTES_ENABLED</code>, <code>PALETTE_INTERACTIONS_ENABLED</code>,
             <code>KNOCK_ENABLED</code>, <code>CALL_ENABLED</code></li>
-        <li>History dedup uses <code>pillsLookSame</code> (visual: <code>statusColor</code> + <code>themeBg</code>)
-            instead of <code>combosMatch</code> (exact state) for history scans (now compares <code>surface2</code>)</li>
+        <li>History dedup uses <code>pillsLookSame</code> (visual: <code>statusColor</code> + <code>surface2</code>)
+            instead of <code>combosMatch</code> (exact state) for history scans</li>
         <li>Added <code>removeHistoryDuplicatesOfSlots()</code> post-adoption cleanup to remove
             pills that now match a slot after same-combo adoption</li>
         <li>Strip gestures: swipe-down-to-open (collapsed), swipe-up-to-close (expanded)</li>
