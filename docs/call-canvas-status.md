@@ -2,7 +2,7 @@
 
 *Last updated: 2026-03-23*
 *Baseline: v0.7.1 (`bc892c7`)*
-*Latest committed: `cff6606`*
+*Latest committed: `af8e02d`*
 
 ## Implemented
 
