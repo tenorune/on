@@ -220,7 +220,9 @@ export function exitCallMode(myUserId) {
   callModeCalleeId = null;
   clearCallState(myUserId).catch(() => {});
 
+  // Also clear peer's callState so the call is fully ended
   if (prevCalleeId) {
+    clearCallState(prevCalleeId).catch(() => {});
     const li = document.querySelector(`[data-user-id="${prevCalleeId}"]`);
     if (li) {
       li.classList.remove('call-mode');

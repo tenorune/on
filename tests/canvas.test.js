@@ -76,9 +76,9 @@ describe('canvas coordinate helpers', () => {
 });
 
 describe('thickness values', () => {
-  test('getThicknessValues returns 3 grades in ascending order', () => {
+  test('getThicknessValues returns 6 grades in ascending order', () => {
     const values = getThicknessValues();
-    expect(values).toHaveLength(3);
+    expect(values).toHaveLength(6);
     expect(values[0]).toBeLessThan(values[1]);
     expect(values[1]).toBeLessThan(values[2]);
   });

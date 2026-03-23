@@ -1,8 +1,8 @@
 // js/db.js
 import { db } from './firebase-config.js';
 import {
-  ref, set, get, update, onValue, remove, runTransaction, onChildAdded,
-  push, query, orderByKey, startAfter,
+  ref, set, get, update, onValue, remove, runTransaction, onChildAdded, onChildRemoved,
+  push, query, orderByKey, startAfter, onDisconnect,
 } from 'firebase/database';
 import { generateCode } from './identity.js';
 import { getFollowing } from './store.js';
@@ -251,31 +251,103 @@ export async function loadCanvas(canvasId) {
 }
 
 export async function pushStroke(canvasId, stroke) {
-  await push(ref(db, `canvases/${canvasId}/strokes`), stroke);
+  const strokeRef = await push(ref(db, `canvases/${canvasId}/strokes`), stroke);
+  return strokeRef.key;
+}
+
+export async function removeStroke(canvasId, strokeKey) {
+  await remove(ref(db, `canvases/${canvasId}/strokes/${strokeKey}`));
+}
+
+let _bgUnsub = null;
+
+export function watchCanvasBg(canvasId, onChange) {
+  _bgUnsub = onValue(ref(db, `canvases/${canvasId}/bg`), (snap) => {
+    onChange(snap.val());
+  });
+}
+
+export function unwatchCanvasBg() {
+  if (_bgUnsub) { _bgUnsub(); _bgUnsub = null; }
+}
+
+export function setDrawingState(canvasId, userId, drawingData) {
+  return set(ref(db, `canvases/${canvasId}/drawing/${userId}`), drawingData);
+}
+
+let _drawingUnsub = null;
+
+export function watchDrawing(canvasId, peerId, onChange) {
+  _drawingUnsub = onValue(ref(db, `canvases/${canvasId}/drawing/${peerId}`), (snap) => {
+    onChange(snap.val());
+  });
+}
+
+export function unwatchDrawing() {
+  if (_drawingUnsub) { _drawingUnsub(); _drawingUnsub = null; }
+}
+
+export async function setClearRequest(canvasId, requesterId) {
+  await update(ref(db, `canvases/${canvasId}`), { clearRequest: requesterId });
+}
+
+export async function removeClearRequest(canvasId) {
+  await update(ref(db, `canvases/${canvasId}`), { clearRequest: null });
+}
+
+export async function clearAllStrokes(canvasId) {
+  await remove(ref(db, `canvases/${canvasId}/strokes`));
+  await remove(ref(db, `canvases/${canvasId}/drawing`));
+  await update(ref(db, `canvases/${canvasId}`), { clearRequest: null });
+}
+
+let _clearReqUnsub = null;
+
+export function watchClearRequest(canvasId, onChange) {
+  _clearReqUnsub = onValue(ref(db, `canvases/${canvasId}/clearRequest`), (snap) => {
+    onChange(snap.val());
+  });
+}
+
+export function unwatchClearRequest() {
+  if (_clearReqUnsub) { _clearReqUnsub(); _clearReqUnsub = null; }
 }
 
 export async function setCanvasBg(canvasId, color) {
   await update(ref(db, `canvases/${canvasId}`), { bg: color });
 }
 
-let _strokeUnsub = null;
+let _strokeAddUnsub = null;
+let _strokeRemoveUnsub = null;
 
-export function watchStrokes(canvasId, lastKey, onStroke) {
+export function watchStrokes(canvasId, lastKey, onStroke, onStrokeRemoved) {
   const strokesRef = ref(db, `canvases/${canvasId}/strokes`);
   const q = lastKey
     ? query(strokesRef, orderByKey(), startAfter(lastKey))
     : strokesRef;
-  _strokeUnsub = onChildAdded(q, (snap) => {
+  _strokeAddUnsub = onChildAdded(q, (snap) => {
     onStroke({ key: snap.key, data: snap.val() });
   });
+  if (onStrokeRemoved) {
+    _strokeRemoveUnsub = onChildRemoved(strokesRef, (snap) => {
+      onStrokeRemoved(snap.key);
+    });
+  }
 }
 
 export function unwatchStrokes() {
-  if (_strokeUnsub) { _strokeUnsub(); _strokeUnsub = null; }
+  if (_strokeAddUnsub) { _strokeAddUnsub(); _strokeAddUnsub = null; }
+  if (_strokeRemoveUnsub) { _strokeRemoveUnsub(); _strokeRemoveUnsub = null; }
 }
 
 export async function setCanvasPresence(canvasId, userId, present) {
-  await update(ref(db, `canvases/${canvasId}/presence`), { [userId]: present });
+  const presenceRef = ref(db, `canvases/${canvasId}/presence/${userId}`);
+  await set(presenceRef, present);
+  if (present) {
+    // If we disconnect unexpectedly (browser close, crash, network loss),
+    // Firebase server will automatically set presence to false.
+    onDisconnect(presenceRef).set(false);
+  }
 }
 
 let _presenceUnsub = null;

@@ -38,11 +38,12 @@ describe('getCanvasId', () => {
 describe('pushStroke', () => {
   test('calls push with stroke data on the strokes path', async () => {
     const { ref, push } = require('firebase/database');
-    push.mockResolvedValue();
+    push.mockResolvedValue({ key: 'stroke123' });
     const stroke = { userId: 'u1', color: '#ff0000', thickness: 0.012, tool: 'pen', points: [[0.1, 0.2]], timestamp: 1000 };
-    await pushStroke('a_b', stroke);
+    const key = await pushStroke('a_b', stroke);
     expect(ref).toHaveBeenCalledWith({}, 'canvases/a_b/strokes');
     expect(push).toHaveBeenCalledWith('mockRef', stroke);
+    expect(key).toBe('stroke123');
   });
 });
 

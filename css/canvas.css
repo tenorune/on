@@ -5,14 +5,18 @@
   position: fixed;
   inset: 0;
   z-index: 200;
-  display: none;
+  display: flex;
   flex-direction: column;
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
 }
 #canvas-screen.active {
-  display: flex;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 #draw-canvas {
@@ -64,6 +68,15 @@
 .canvas-header.dimmed .canvas-header-name,
 .canvas-header.dimmed .canvas-header-dot { opacity: 0.35; }
 
+/* Undo button — bottom left */
+.canvas-undo-btn {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  left: calc(env(safe-area-inset-left, 0px) + 12px);
+  padding: 10px;
+  cursor: pointer;
+}
+.canvas-undo-btn.disabled { opacity: 0.25; pointer-events: none; }
+
 /* Toolbox — bottom right */
 .canvas-toolbox {
   bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
@@ -76,6 +89,14 @@
   padding: 4px;
   align-items: center;
   cursor: pointer;
+  transition: opacity 0.36s ease;
+}
+.canvas-toolbox {
+  overflow: hidden;
+  transition: width 0.2s ease-out, height 0.2s ease-out;
+}
+.canvas-toolbox-collapsed {
+  transition: opacity 0.2s ease;
 }
 .canvas-toolbox-expanded {
   display: none;
@@ -112,11 +133,21 @@
 }
 .canvas-color-dot.selected { border-color: #fff; }
 
-/* Thickness row */
+/* Background color squares */
+.canvas-bg-dot {
+  border-radius: 4px !important;
+}
+
+/* Thickness row / slider */
 .canvas-thicknesses {
   display: flex;
-  gap: 10px;
   align-items: center;
+  justify-content: space-between;
+  touch-action: none;
+  cursor: pointer;
+  padding: 6px 0;
+  /* Match width of 4 color dots: 4 * 36px + 3 * 5px gap = 159px */
+  min-width: calc(4 * 36px + 3 * 5px);
 }
 .canvas-thickness-btn {
   border-radius: 50%;
@@ -128,6 +159,16 @@
   background: #e2e8f0;
   outline: 2px solid rgba(99, 102, 241, 0.5);
 }
+
+/* Clear button in expanded toolbox */
+.canvas-clear-btn {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  text-align: center;
+  padding: 4px 0;
+}
+.canvas-clear-btn:active { color: rgba(255, 255, 255, 0.7); }
 
 /* Separator line in toolbox */
 .canvas-toolbox-sep {
