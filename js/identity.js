@@ -21,7 +21,9 @@ function loadIdentity() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.userId !== 'string' || typeof parsed.code !== 'string') return null;
+    return parsed;
   } catch {
     return null;
   }

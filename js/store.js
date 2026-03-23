@@ -16,7 +16,9 @@ function getFollowing() {
   const raw = localStorage.getItem(FOLLOWING_KEY);
   if (!raw) return [];
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(e => e && typeof e.userId === 'string' && typeof e.code === 'string');
   } catch {
     return [];
   }
@@ -65,7 +67,12 @@ function updateFollowingCode(userId, newCode) {
 function getPaletteState() {
   const raw = localStorage.getItem(PALETTE_STATE_KEY);
   if (raw) {
-    try { return JSON.parse(raw); } catch { /* fall through to default */ }
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.activeSet === 'number' && parsed.sets && parsed.sets['1'] && parsed.sets['2']) {
+        return parsed;
+      }
+    } catch { /* fall through to default */ }
   }
   // Write default first
   const state = JSON.parse(JSON.stringify(DEFAULT_PALETTE_STATE));
@@ -88,7 +95,9 @@ const FAVORITES_KEY = 'statusapp_favorites';
 
 function getFavorites() {
   try {
-    return JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]');
+    const parsed = JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed;
   } catch (_) { return []; }
 }
 
