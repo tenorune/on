@@ -9,7 +9,8 @@
   "scripts": {
     "test": "jest",
     "build": "node scripts/prod.js",
-    "dev": "node scripts/dev.js"
+    "dev": "node scripts/dev.js",
+    "deploy": "node scripts/prod.js && npx firebase deploy --only hosting"
   },
   "keywords": [],
   "author": "",

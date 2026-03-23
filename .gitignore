@@ -3,7 +3,9 @@ dist/
 .superpowers/
 .env
 .env.local
+.env.production
 .firebaserc
+.firebase/
 .DS_Store
 *.log
 coverage/

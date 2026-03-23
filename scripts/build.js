@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// scripts/build.js — reads .env.local and passes Firebase config as esbuild defines
+// scripts/build.js — reads .env.local or .env.production and passes Firebase config as esbuild defines
 const { readFileSync, existsSync } = require('fs');
 const path = require('path');
 
-function loadEnv() {
-  const envPath = path.resolve(__dirname, '..', '.env.local');
+function loadEnv(filename) {
+  const envPath = path.resolve(__dirname, '..', filename);
   if (!existsSync(envPath)) return {};
   const vars = {};
   readFileSync(envPath, 'utf8').split('\n').forEach(line => {
@@ -17,7 +17,9 @@ function loadEnv() {
   return vars;
 }
 
-const env = loadEnv();
+// Use .env.production if ENV=production, otherwise .env.local
+const envFile = process.env.ENV === 'production' ? '.env.production' : '.env.local';
+const env = loadEnv(envFile);
 
 const FIREBASE_KEYS = [
   'FIREBASE_API_KEY',
@@ -34,4 +36,4 @@ FIREBASE_KEYS.forEach(key => {
   define[`process.env.${key}`] = JSON.stringify(env[key] || 'REPLACE_ME');
 });
 
-module.exports = { define };
+module.exports = { define, envFile };
