@@ -71,12 +71,12 @@
 
 | Priority | Feature |
 |---|---|
-| SHOULD | Line tool |
-| SHOULD | Shape tool (circle/rect/triangle) with sub-menu |
 | SHOULD | 6 thickness grades (currently 3) |
 | SHOULD | Canvas background picker (surface colors) |
 | SHOULD | Background change visible to both users |
 | SHOULD | Real-time mid-stroke visibility |
-| NICE | Clear canvas with mutual agreement (gesture) |
-| NICE | Undo (my strokes only, capped at 8) |
+| SHOULD | Clear canvas with mutual agreement (gesture) |
+| SHOULD | Undo (my strokes only, capped at 8) |
+| NICE | Line tool |
+| NICE | Shape tool (circle/rect/triangle) with sub-menu |
 | NICE | Shape drag-to-size with dashed preview |
