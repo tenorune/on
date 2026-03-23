@@ -13,6 +13,7 @@ import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENA
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock } from './knock.js';
 import { saveFavorite, removeHistoryDuplicatesOfSlots } from './favorites.js';
+import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
@@ -444,7 +445,20 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
       const threshold = swipeCardWidth * 0.4;
       if (dx > threshold) {
         swipeActive = false;
-        enterCallMode(entry, myUserId);
+        // If this card is glowing (someone is calling us) and we're not the caller, answer = enter canvas
+        if (li.classList.contains('call-mode') && callModeCalleeId !== entry.userId) {
+          const peerData = lastUserData.get(entry.userId);
+          const peerSurface = peerData?.paletteKey
+            ? (getPaletteByKey(peerData.paletteKey)?.theme?.surface || '#1e293b')
+            : '#1e293b';
+          const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
+          enterCallMode(entry, myUserId); // write callState so caller detects answer
+          enterCanvas(entry.userId, entry.label || entry.code, myUserId, myColor, peerSurface, () => {
+            exitCallMode(myUserId);
+          });
+        } else {
+          enterCallMode(entry, myUserId);
+        }
       } else if (dx < -threshold) {
         swipeActive = false;
         if (li.classList.contains('call-mode')) {
@@ -640,6 +654,20 @@ export function updateFolloweeRow(entry, userData, myUserId) {
       : (getComputedStyle(document.documentElement).getPropertyValue('--dot-off').trim() || '#6b7280');
     li.style.setProperty('--call-color-rgb', hexToRgb(callColor));
     li.classList.add('call-mode');
+
+    // Caller: detect when receiver answers (mutual callState — both pointing at each other)
+    if (isCallee && userData.callState?.calleeId === myUserIdRef) {
+      const screen = document.getElementById('canvas-screen');
+      if (screen && !screen.classList.contains('active')) {
+        const peerSurface = userData.paletteKey
+          ? (getPaletteByKey(userData.paletteKey)?.theme?.surface || '#1e293b')
+          : '#1e293b';
+        const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
+        enterCanvas(entry.userId, entry.label || entry.code, myUserIdRef, myColor, peerSurface, () => {
+          exitCallMode(myUserIdRef);
+        });
+      }
+    }
   } else {
     li.classList.remove('call-mode');
     li.style.removeProperty('--call-color-rgb');

@@ -139,7 +139,18 @@ async function main() {
       }
     } else if (CALL_ENABLED && getCallModeCalleeId() !== null && !userData.callState) {
       // Callee remotely cleared our callState — exit call mode
-      exitCallMode(userId);
+      const canvasScreen = document.getElementById('canvas-screen');
+      if (canvasScreen && canvasScreen.classList.contains('active')) {
+        // Peer left while on canvas — show dialog
+        import('./canvas.js').then(({ showPeerLeftDialog, exitCanvas }) => {
+          showPeerLeftDialog(canvasScreen, 'Your partner', () => {
+            exitCanvas();
+            exitCallMode(userId);
+          });
+        });
+      } else {
+        exitCallMode(userId);
+      }
     }
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);
