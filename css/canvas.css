@@ -29,7 +29,6 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 14px;
   padding: 8px 14px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   z-index: 210;
@@ -37,8 +36,8 @@
 
 /* End button — top left corner */
 .canvas-end-btn {
-  top: env(safe-area-inset-top, 12px);
-  left: 10px;
+  top: calc(env(safe-area-inset-top, 0px) + 24px);
+  left: 24px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -52,8 +51,8 @@
 
 /* Peer indicator — top right corner */
 .canvas-peer {
-  top: env(safe-area-inset-top, 12px);
-  right: 10px;
+  top: calc(env(safe-area-inset-top, 0px) + 24px);
+  right: 24px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -73,8 +72,8 @@
 
 /* Toolbox — bottom right */
 .canvas-toolbox {
-  bottom: max(24px, env(safe-area-inset-bottom, 24px));
-  right: 10px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  right: 24px;
   padding: 8px 12px;
 }
 .canvas-toolbox-collapsed {
@@ -159,7 +158,6 @@
   border-radius: 16px;
   padding: 24px 32px;
   text-align: center;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
