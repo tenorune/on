@@ -445,24 +445,20 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
       const threshold = swipeCardWidth * 0.4;
       if (dx > threshold) {
         swipeActive = false;
-        if (li.classList.contains('call-mode')) {
-          // Card is glowing — either answering a call or re-entering canvas
+        if (li.classList.contains('call-mode') && callModeCalleeId !== entry.userId) {
+          // Card is glowing and we're NOT the caller — we're the receiver answering
           const peerData = lastUserData.get(entry.userId);
           const peerSurface = peerData?.paletteKey
             ? (getPaletteByKey(peerData.paletteKey)?.theme?.surface || '#1e293b')
             : '#1e293b';
           const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
-          if (callModeCalleeId !== entry.userId) {
-            // We are the receiver — answer the call
-            callModeCalleeId = entry.userId;
-            setCallState(myUserId, entry.userId).catch(() => {});
-          }
-          // Enter (or re-enter) canvas
           const peerColor = peerData?.statusColor || '#22c55e';
+          callModeCalleeId = entry.userId;
+          setCallState(myUserId, entry.userId).catch(() => {});
           enterCanvas(entry.userId, entry.label || entry.code, myUserId, myColor, peerColor, peerSurface, () => {
             exitCallMode(myUserId);
           }).catch(err => console.error('enterCanvas failed:', err));
-        } else {
+        } else if (!li.classList.contains('call-mode')) {
           enterCallMode(entry, myUserId);
         }
       } else if (dx < -threshold) {
