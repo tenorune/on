@@ -445,17 +445,19 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
       const threshold = swipeCardWidth * 0.4;
       if (dx > threshold) {
         swipeActive = false;
-        // If this card is glowing (someone is calling us) and we're not the caller, answer = enter canvas
-        if (li.classList.contains('call-mode') && callModeCalleeId !== entry.userId) {
+        if (li.classList.contains('call-mode')) {
+          // Card is glowing — either answering a call or re-entering canvas
           const peerData = lastUserData.get(entry.userId);
           const peerSurface = peerData?.paletteKey
             ? (getPaletteByKey(peerData.paletteKey)?.theme?.surface || '#1e293b')
             : '#1e293b';
           const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
-          // Write our own callState so caller detects the answer.
-          // Don't use enterCallMode — it clears the caller's callState.
-          callModeCalleeId = entry.userId;
-          setCallState(myUserId, entry.userId).catch(() => {});
+          if (callModeCalleeId !== entry.userId) {
+            // We are the receiver — answer the call
+            callModeCalleeId = entry.userId;
+            setCallState(myUserId, entry.userId).catch(() => {});
+          }
+          // Enter (or re-enter) canvas
           enterCanvas(entry.userId, entry.label || entry.code, myUserId, myColor, peerSurface, () => {
             exitCallMode(myUserId);
           }).catch(err => console.error('enterCanvas failed:', err));

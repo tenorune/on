@@ -113,6 +113,7 @@ function buildFloatingUI(container, penColors) {
     const dot = document.createElement('div');
     dot.className = `canvas-color-dot${c === _penColor ? ' selected' : ''}`;
     dot.style.background = safeCssColor(c);
+    dot.dataset.color = c;
     dot.addEventListener('click', (e) => {
       e.stopPropagation();
       _penColor = c;
@@ -161,7 +162,7 @@ function updateToolboxState(toolbox) {
   const ring = toolbox.querySelector('#canvas-ring');
   if (ring) ring.style.background = safeCssColor(_penColor);
   toolbox.querySelectorAll('.canvas-color-dot').forEach(el => {
-    el.classList.toggle('selected', el.style.background === safeCssColor(_penColor));
+    el.classList.toggle('selected', el.dataset.color === _penColor);
   });
   toolbox.querySelectorAll('.canvas-thickness-btn').forEach((el, i) => {
     el.classList.toggle('selected', THICKNESS_VALUES[i] === _thickness);
@@ -377,13 +378,15 @@ function onPointerUp() {
 
   const stroke = {
     userId: _myUserId,
-    color: _penColor,
+    color: safeCssColor(_penColor),
     thickness: _thickness,
     tool: 'pen',
     points: _currentPoints,
     timestamp: Date.now(),
   };
 
+  // Render locally (handles taps that had no pointermove, and ensures final state)
+  renderStroke(stroke, _ctx, _canvas.width, _canvas.height);
   pushStroke(_canvasId, stroke).catch(() => {});
   _currentPoints = [];
 }
