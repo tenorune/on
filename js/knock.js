@@ -50,9 +50,11 @@ export async function initKnocks(myUserId) {
   unsubKnocks = watchKnocksAdded(myUserId, (senderId, { count, ts }) => {
     // Skip senders from the initial snapshot (handled as deferred)
     if (snapshotPending || deferredKeys.has(senderId)) return;
-    // App is backgrounded — leave knock in DB so the next initKnocks (on foreground)
-    // picks it up via getKnocks and shows it as deferred.
+    // App is backgrounded or on canvas — leave knock in DB so the next initKnocks
+    // (on foreground / canvas exit) picks it up via getKnocks and shows it as deferred.
     if (document.visibilityState !== 'visible') return;
+    const canvasScreen = document.getElementById('canvas-screen');
+    if (canvasScreen && canvasScreen.classList.contains('active')) return;
     // Knock predates this session (arrived via Firebase reconnect after getKnocks
     // already resolved with stale cached data) — treat as deferred, not live.
     if (ts < appOpenTime) {
@@ -160,10 +162,13 @@ function applyDeferredKnock(userId) {
   li.addEventListener('animationend', () => li.classList.remove('knock-deferred'), { once: true });
 }
 
-// Re-run initKnocks when the app returns to the foreground so that any knocks
-// delivered via Firebase reconnect are classified as deferred, not live.
+// Re-run initKnocks when the app returns to the foreground or exits canvas,
+// so that knocks received while backgrounded/on-canvas are shown as deferred.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && cachedUserId) {
     initKnocks(cachedUserId);
   }
+});
+document.addEventListener('canvas-exited', () => {
+  if (cachedUserId) initKnocks(cachedUserId);
 });

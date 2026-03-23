@@ -350,6 +350,9 @@ export function exitCanvas() {
   _canvasId = null;
   _peerId = null;
   _allStrokes = [];
+
+  // Notify knock system to replay any knocks received while on canvas
+  document.dispatchEvent(new CustomEvent('canvas-exited'));
 }
 
 function handleEnd() {
