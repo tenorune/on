@@ -138,19 +138,13 @@ async function main() {
         }
       }
     } else if (CALL_ENABLED && getCallModeCalleeId() !== null && !userData.callState) {
-      // Callee remotely cleared our callState — exit call mode
+      // Peer cleared our callState — exit call mode (canvas presence watcher
+      // handles the "partner left" dialog if we're on canvas)
       const canvasScreen = document.getElementById('canvas-screen');
-      if (canvasScreen && canvasScreen.classList.contains('active')) {
-        // Peer left while on canvas — show dialog
-        import('./canvas.js').then(({ showPeerLeftDialog, exitCanvas }) => {
-          showPeerLeftDialog(canvasScreen, 'Your partner', () => {
-            exitCanvas();
-            exitCallMode(userId);
-          });
-        });
-      } else {
+      if (!canvasScreen || !canvasScreen.classList.contains('active')) {
         exitCallMode(userId);
       }
+      // If on canvas, don't exit — presence watcher will show dialog and handle exit
     }
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);

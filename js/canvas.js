@@ -96,7 +96,9 @@ function buildFloatingUI(container, penColors) {
   const collapsed = document.createElement('div');
   collapsed.className = 'canvas-toolbox-collapsed';
   const penIcon = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>`;
-  collapsed.innerHTML = `${penIcon}<div class="canvas-color-ring" id="canvas-ring" style="background:${safeCssColor(_penColor)}"></div>`;
+  const thkIdx = THICKNESS_VALUES.indexOf(_thickness);
+  const thkPx = THICKNESS_PX_LABELS[thkIdx >= 0 ? thkIdx : 1];
+  collapsed.innerHTML = `${penIcon}<div class="canvas-color-ring" id="canvas-ring" style="background:${safeCssColor(_penColor)}"><div class="canvas-thickness-indicator" id="canvas-ring-thk" style="width:${thkPx}px;height:${thkPx}px"></div></div>`;
   toolbox.appendChild(collapsed);
 
   // Expanded state
@@ -158,6 +160,13 @@ function buildFloatingUI(container, penColors) {
 function updateToolboxState(toolbox) {
   const ring = toolbox.querySelector('#canvas-ring');
   if (ring) ring.style.background = safeCssColor(_penColor);
+  const thk = toolbox.querySelector('#canvas-ring-thk');
+  if (thk) {
+    const ti = THICKNESS_VALUES.indexOf(_thickness);
+    const tp = THICKNESS_PX_LABELS[ti >= 0 ? ti : 1];
+    thk.style.width = tp + 'px';
+    thk.style.height = tp + 'px';
+  }
   toolbox.querySelectorAll('.canvas-color-dot').forEach(el => {
     el.classList.toggle('selected', el.dataset.color === _penColor);
   });
@@ -271,11 +280,30 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
     _allStrokes.push(entry);
   });
 
-  // Mark self as present on canvas, watch peer presence
+  // Mark self as present, watch peer presence for leave/rejoin
   setCanvasPresence(_canvasId, _myUserId, true).catch(() => {});
+  let _peerSeenOnce = false;
   watchCanvasPresence(_canvasId, (presence) => {
-    if (_peerId && presence[_peerId] === false) {
+    if (!_peerId) return;
+    if (presence[_peerId] === true) {
+      _peerSeenOnce = true;
+      // Peer (re-)joined — undim header and dismiss any "left" dialog
+      const header = document.getElementById('canvas-header');
+      if (header) header.classList.remove('dimmed');
+      const dialog = document.querySelector('.canvas-dialog-overlay');
+      if (dialog) dialog.remove();
+    }
+    if (_peerSeenOnce && presence[_peerId] === false) {
       dimPeerIndicator();
+      // Show "partner left" dialog
+      const scr = document.getElementById('canvas-screen');
+      if (scr && scr.classList.contains('active') && !scr.querySelector('.canvas-dialog-overlay')) {
+        showPeerLeftDialog(scr, _peerName, () => {
+          const onExit = _onExit;
+          exitCanvas();
+          if (onExit) onExit();
+        });
+      }
     }
   });
 
@@ -325,9 +353,9 @@ export function exitCanvas() {
 }
 
 function handleEnd() {
+  const onExit = _onExit;
   exitCanvas();
-  // Don't call _onExit here — user stays in call mode after leaving canvas.
-  // They can exit call mode separately via swipe-left.
+  if (onExit) onExit();
 }
 
 // ─── Zoom prevention ────────────────────────────────────────────────────────
