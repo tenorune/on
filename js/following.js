@@ -7,6 +7,7 @@ import {
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
   getPaletteState, setPaletteState,
+  getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount,
 } from './store.js';
 import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
@@ -176,6 +177,7 @@ export function resetRenderedFollowees() {
 export function getCallModeCalleeId() { return callModeCalleeId; }
 
 export function enterCallMode(calleeEntry, myUserId) {
+  incrementMadeCallCount();
   // If we were being called by someone, clear their callState first
   lastUserData.forEach((userData, userId) => {
     if (userData.callState?.calleeId === myUserId) {
@@ -449,6 +451,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
         swipeActive = false;
         if (li.classList.contains('call-mode') && callModeCalleeId !== entry.userId) {
           // Card is glowing and we're NOT the caller — we're the receiver answering
+          incrementAnsweredCallCount();
           const peerData = lastUserData.get(entry.userId);
           const peerSurface = peerData?.paletteKey
             ? (getPaletteByKey(peerData.paletteKey)?.theme?.surface || '#1e293b')
