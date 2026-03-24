@@ -783,7 +783,7 @@ describe('call mode: display text during call', () => {
     initAndCaptureFollowersCallback('myUid', 'MYCODE');
   });
 
-  test('caller sees "Calling…" when madeCallCount >= 4', () => {
+  test('caller sees "Calling them…" when madeCallCount >= 4', () => {
     getMadeCallCount.mockReturnValue(4);
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
     getFollowing.mockReturnValue([entry]);
@@ -793,7 +793,7 @@ describe('call mode: display text during call', () => {
       status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#22c55e',
     }, 'myUid');
     const status = document.querySelector('[data-user-id="alice"] .person-status');
-    expect(status.textContent).toBe('Calling\u2026');
+    expect(status.textContent).toBe('Calling them\u2026');
   });
 
   test('caller sees "(swipe left to hang up)" hint when madeCallCount < 4', () => {
@@ -806,10 +806,10 @@ describe('call mode: display text during call', () => {
       status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#22c55e',
     }, 'myUid');
     const status = document.querySelector('[data-user-id="alice"] .person-status');
-    expect(status.textContent).toBe('Calling\u2026 (swipe left to hang up)');
+    expect(status.textContent).toBe('Calling them\u2026 (swipe left to hang up)');
   });
 
-  test('receiver sees "is calling you…" when answeredCallCount >= 4', () => {
+  test('receiver sees "Calling you…" when answeredCallCount >= 4', () => {
     getAnsweredCallCount.mockReturnValue(5);
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
     makeFolloweeLi('alice');
@@ -818,7 +818,7 @@ describe('call mode: display text during call', () => {
       callState: { calleeId: 'myUid', since: Date.now() },
     }, 'myUid');
     const status = document.querySelector('[data-user-id="alice"] .person-status');
-    expect(status.textContent).toBe('is calling you\u2026');
+    expect(status.textContent).toBe('Calling you\u2026');
   });
 
   test('receiver sees "(swipe right to answer)" hint when answeredCallCount < 4', () => {
@@ -830,7 +830,7 @@ describe('call mode: display text during call', () => {
       callState: { calleeId: 'myUid', since: Date.now() },
     }, 'myUid');
     const status = document.querySelector('[data-user-id="alice"] .person-status');
-    expect(status.textContent).toBe('is calling you\u2026 (swipe right to answer)');
+    expect(status.textContent).toBe('Calling you\u2026 (swipe right to answer)');
   });
 
   test('normal status text resumes after call mode ends', () => {

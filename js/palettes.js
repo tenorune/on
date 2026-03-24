@@ -1,6 +1,8 @@
 // js/palettes.js
-import { getPaletteState, setPaletteState } from './store.js';
+import { getPaletteState, setPaletteState, getFavorites } from './store.js';
 import { setStatusColor, setPaletteKey } from './db.js';
+
+let _hintTimer = null;
 
 // SVG Icons (inlined)
 // Heroicons bolt-solid (MIT) https://heroicons.com
@@ -161,6 +163,9 @@ export function resetThemeVars() {
 }
 
 export function enterPaletteMode(key, userId) {
+  if (!localStorage.getItem('statusapp_seen_theme')) {
+    localStorage.setItem('statusapp_seen_theme', '1');
+  }
   const state = getPaletteState();
   state.sets[String(state.activeSet)].activePaletteKey = key;
   setPaletteState(state);
@@ -192,6 +197,15 @@ function renderSwatchRow(userId) {
   const btn = document.createElement('button');
   btn.className = 'set-toggle-btn';
   btn.innerHTML = setNum === 1 ? ICON_BOLT : ICON_TREE;
+  // First-use pulse: bolt on Set 1, flower on Set 2 — each pulses once per icon
+  const pulseKey = setNum === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
+  if (!localStorage.getItem(pulseKey)) {
+    btn.classList.add('first-use-pulse');
+    btn.addEventListener('click', () => {
+      btn.classList.remove('first-use-pulse');
+      localStorage.setItem(pulseKey, '1');
+    }, { once: true });
+  }
   btn.addEventListener('click', () => switchSet(setNum === 1 ? 2 : 1, userId));
   row.appendChild(btn);
 
@@ -215,6 +229,31 @@ function renderSwatchRow(userId) {
       swatch.addEventListener('click', () => tapSwatch(p.key, userId));
       row.appendChild(swatch);
     });
+    // Theme hint: pulsing dotted ring on selected swatch if user has:
+    // - seen both bolt and flower icons
+    // - selected a non-default color (gone available with it)
+    // - never entered palette mode
+    if (!localStorage.getItem('statusapp_seen_theme')
+        && localStorage.getItem('statusapp_seen_bolt')
+        && localStorage.getItem('statusapp_seen_flower')
+        && localStorage.getItem('statusapp_went_avail_custom')) {
+      const selectedSwatch = row.querySelector('.swatch.selected');
+      if (selectedSwatch) selectedSwatch.classList.add('theme-hint');
+    }
+    // Dot go-hint: pulse status dot if current set is on a non-default swatch
+    const dot = document.getElementById('my-dot');
+    if (dot) {
+      const defaultKey = setNum === 1 ? 'forest' : 'volt';
+      if (savedKey !== defaultKey
+          && !localStorage.getItem('statusapp_went_avail_custom')
+          && !dot.classList.contains('available')) {
+        dot.classList.add('dot-go-hint');
+      } else {
+        dot.classList.remove('dot-go-hint');
+      }
+    }
+    // Sequential hint animation if user hasn't changed colors yet
+    startSwatchHints(row, state);
   } else {
     // Palette mode: Key Swatch at index K, complement swatches at other positions
     const keyPalette = getPaletteByKey(activePaletteKey);
@@ -270,7 +309,70 @@ function renderSwatchRow(userId) {
   document.dispatchEvent(new CustomEvent('palette-state-changed'));
 }
 
+function shouldShowHints(state) {
+  // Show if user has seen both toggle icons, hasn't gone available with custom color,
+  // and the CURRENT set is on its default
+  if (localStorage.getItem('statusapp_went_avail_custom')) return false;
+  const seenBolt = !!localStorage.getItem('statusapp_seen_bolt');
+  const seenFlower = !!localStorage.getItem('statusapp_seen_flower');
+  if (!seenBolt || !seenFlower) return false;
+  const setKey = String(state.activeSet);
+  const defaultKey = state.activeSet === 1 ? 'forest' : 'volt';
+  if (state.sets[setKey].selectedKey !== defaultKey) return false;
+  if (state.sets[setKey].activePaletteKey !== null) return false;
+  return true;
+}
+
+function startSwatchHints(row, state) {
+  stopSwatchHints();
+  if (!shouldShowHints(state)) return;
+  const swatches = Array.from(row.querySelectorAll('.swatch:not(.selected)'));
+  if (swatches.length === 0) return;
+  swatches.forEach(s => s.classList.add('hint-wave'));
+  let head = 0;
+  // Opacity curve based on distance from head: peak at 0, fading at ±1, ±2
+  const opacities = [0.3, 0.18, 0.08];
+  function updateWave() {
+    swatches.forEach((s, i) => {
+      // Circular distance
+      const dist = Math.min(
+        Math.abs(i - head),
+        swatches.length - Math.abs(i - head)
+      );
+      const opacity = dist < opacities.length ? opacities[dist] : 0;
+      s.style.boxShadow = opacity > 0
+        ? `0 0 0 3px rgba(255, 255, 255, ${opacity})`
+        : 'none';
+    });
+    head = (head + 1) % swatches.length;
+    _hintTimer = setTimeout(updateWave, 250);
+  }
+  updateWave();
+}
+
+export function applyThemeHint() {
+  if (localStorage.getItem('statusapp_seen_theme')) return;
+  if (!localStorage.getItem('statusapp_seen_bolt')) return;
+  if (!localStorage.getItem('statusapp_seen_flower')) return;
+  if (!localStorage.getItem('statusapp_went_avail_custom')) return;
+  const row = document.getElementById('swatch-row');
+  if (!row) return;
+  const selected = row.querySelector('.swatch.selected');
+  if (selected && !selected.classList.contains('theme-hint')) {
+    selected.classList.add('theme-hint');
+  }
+}
+
+function stopSwatchHints() {
+  if (_hintTimer) { clearTimeout(_hintTimer); _hintTimer = null; }
+  document.querySelectorAll('.swatch.hint-wave').forEach(s => {
+    s.classList.remove('hint-wave');
+    s.style.boxShadow = '';
+  });
+}
+
 export function tapSwatch(key, userId) {
+  stopSwatchHints();
   const state = getPaletteState();
   const setKey = String(state.activeSet);
   const currentlySelected = state.sets[setKey].selectedKey;
@@ -289,9 +391,43 @@ export function tapSwatch(key, userId) {
   setStatusColor(userId, palette.color).catch(() => {});
   applyPaletteVars(key);
   const row = document.getElementById('swatch-row');
-  row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
+  row.querySelectorAll('.swatch').forEach(s => {
+    s.classList.remove('selected');
+    s.classList.remove('theme-hint');
+  });
   const target = row.querySelector(`[data-key="${key}"]`);
-  if (target) target.classList.add('selected');
+  if (target) {
+    target.classList.add('selected');
+    // Theme hint: show pulsing dotted ring if user has seen bolt/flower,
+    // selected a non-default color, and hasn't discovered themes yet
+    if (!localStorage.getItem('statusapp_seen_theme')
+        && localStorage.getItem('statusapp_seen_bolt')
+        && localStorage.getItem('statusapp_seen_flower')
+        && localStorage.getItem('statusapp_went_avail_custom')) {
+      target.classList.add('theme-hint');
+    }
+  }
+  // Coordinate hints based on whether this is a default or non-default swatch
+  const defaultKey = state.activeSet === 1 ? 'forest' : 'volt';
+  const isNonDefault = key !== defaultKey;
+  const dot = document.getElementById('my-dot');
+  const toggleBtn = row.querySelector('.set-toggle-btn');
+
+  if (isNonDefault) {
+    // Non-default selected: start dot hint, pause set-switch hint (don't clear it)
+    if (dot && !localStorage.getItem('statusapp_went_avail_custom') && !dot.classList.contains('available')) {
+      dot.classList.add('dot-go-hint');
+    }
+    if (toggleBtn) toggleBtn.classList.remove('first-use-pulse');
+  } else {
+    // Default selected: stop dot hint, resume set-switch hint if not yet cleared
+    if (dot) dot.classList.remove('dot-go-hint');
+    const pulseKey = state.activeSet === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
+    if (toggleBtn && !localStorage.getItem(pulseKey)) {
+      toggleBtn.classList.add('first-use-pulse');
+    }
+  }
+
   document.dispatchEvent(new CustomEvent('palette-state-changed'));
 }
 

@@ -48,6 +48,20 @@ main {
   border-color: var(--my-status);
   box-shadow: 0 0 32px var(--my-glow);
 }
+.dot.first-use-pulse {
+  animation: dot-pulse 2.5s ease-in-out infinite;
+}
+@keyframes dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(107, 114, 128, 0); opacity: 0.4; }
+  50% { box-shadow: 0 0 20px 8px rgba(107, 114, 128, 0.4); opacity: 1; }
+}
+.dot.dot-go-hint {
+  animation: dot-go-pulse 2.5s ease-in-out infinite;
+}
+@keyframes dot-go-pulse {
+  0%, 100% { box-shadow: none; opacity: 1; }
+  50% { box-shadow: 0 0 12px 4px var(--my-glow); opacity: 1; }
+}
 .status-label { font-size: 1rem; font-weight: 600; color: var(--text-muted); transition: opacity 0.2s ease, color 0.3s ease; }
 .status-label.available { color: var(--my-status); }
 
@@ -484,6 +498,9 @@ main {
   border-width: 3px;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
 }
+.swatch.hint-wave {
+  transition: box-shadow 0.25s ease-in-out;
+}
 .set-toggle-btn {
   width: 22px; height: 22px; background: none; border: none;
   cursor: pointer; color: var(--text-muted); padding: 0;
@@ -497,6 +514,13 @@ main {
   .set-toggle-btn:hover { color: var(--text); background: rgba(255,255,255,0.07); }
 }
 .set-toggle-btn svg { width: 22px; height: 22px; }
+.set-toggle-btn.first-use-pulse svg {
+  animation: icon-pulse 2.5s ease-in-out infinite;
+}
+@keyframes icon-pulse {
+  0%, 100% { color: rgba(148, 163, 184, 0.4); }
+  50% { color: #ffffff; }
+}
 .swatch.key-swatch {
   border-color: transparent;
   position: relative;
@@ -508,6 +532,21 @@ main {
   content: ''; position: absolute; inset: -6px; border-radius: 50%;
   border: 1.5px dashed rgba(255,255,255,0.65);
   animation: key-spin 5s ease-out 1 forwards; pointer-events: none;
+}
+.swatch.theme-hint {
+  position: relative;
+}
+.swatch.theme-hint::after {
+  content: ''; position: absolute; inset: -6px; border-radius: 50%;
+  border: 1.5px dashed rgba(255, 255, 255, 0);
+  animation: theme-hint-blink 4s ease-in-out infinite; pointer-events: none;
+}
+@keyframes theme-hint-blink {
+  0%, 5%    { border-color: rgba(255, 255, 255, 0); }
+  10%       { border-color: rgba(255, 255, 255, 0.65); }
+  20%       { border-color: rgba(255, 255, 255, 0); }
+  30%       { border-color: rgba(255, 255, 255, 0.65); }
+  40%, 100% { border-color: rgba(255, 255, 255, 0); }
 }
 @keyframes key-spin { from { transform: rotate(0deg); } to { transform: rotate(720deg); } }
 
