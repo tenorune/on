@@ -602,7 +602,17 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   const glow  = getGlowForColor(color);
   const ms = timeRemainingMs(userData.availableUntil);
   let statusText;
-  if (isAvail) {
+  const isCallee = callModeCalleeId !== null && entry.userId === callModeCalleeId;
+  const isCallModeReceiver = !isCallee && userData.callState?.calleeId === myUserId;
+  if (isCallee) {
+    statusText = getMadeCallCount() < 4
+      ? 'Calling\u2026 (swipe left to hang up)'
+      : 'Calling\u2026';
+  } else if (isCallModeReceiver) {
+    statusText = getAnsweredCallCount() < 4
+      ? 'is calling you\u2026 (swipe right to answer)'
+      : 'is calling you\u2026';
+  } else if (isAvail) {
     if (PALETTES_ENABLED) {
       statusText = `<span class="status-available" style="color:${safeCssColor(color)}">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
     } else {
@@ -653,8 +663,6 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   }
 
   // Call mode glow — caller side (this card is our active callee) or receiver side (they called us)
-  const isCallee = callModeCalleeId !== null && entry.userId === callModeCalleeId;
-  const isCallModeReceiver = !isCallee && userData.callState?.calleeId === myUserId;
   if (isCallee || isCallModeReceiver) {
     const callColor = isAvail
       ? (userData.statusColor || '#22c55e')

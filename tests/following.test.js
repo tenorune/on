@@ -59,6 +59,10 @@ jest.mock('../js/store.js', () => ({
     },
   }),
   setPaletteState: jest.fn(),
+  getMadeCallCount: jest.fn().mockReturnValue(0),
+  incrementMadeCallCount: jest.fn(),
+  getAnsweredCallCount: jest.fn().mockReturnValue(0),
+  incrementAnsweredCallCount: jest.fn(),
 }));
 
 const { watchStatus, watchFollowers, setCallState, clearCallState } = require('../js/db.js');
