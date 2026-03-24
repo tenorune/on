@@ -10,7 +10,8 @@
     "test": "jest",
     "build": "node scripts/prod.js",
     "dev": "node scripts/dev.js",
-    "deploy": "node scripts/prod.js && npx firebase deploy --only hosting"
+    "deploy": "node scripts/prod.js && npx firebase deploy --only hosting",
+    "deploy:dev": "node scripts/dev-deploy.js"
   },
   "keywords": [],
   "author": "",
