@@ -222,9 +222,12 @@ export function exitCallMode(myUserId) {
   callModeCalleeId = null;
   clearCallState(myUserId).catch(() => {});
 
-  // Also clear peer's callState so the call is fully ended
+  // Clear peer's callState only if it still points at us
   if (prevCalleeId) {
-    clearCallState(prevCalleeId).catch(() => {});
+    const peerData = lastUserData.get(prevCalleeId);
+    if (peerData?.callState?.calleeId === myUserId) {
+      clearCallState(prevCalleeId).catch(() => {});
+    }
     const li = document.querySelector(`[data-user-id="${prevCalleeId}"]`);
     if (li) {
       li.classList.remove('call-mode');
@@ -605,13 +608,19 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   const isCallee = callModeCalleeId !== null && entry.userId === callModeCalleeId;
   const isCallModeReceiver = !isCallee && userData.callState?.calleeId === myUserId;
   if (isCallee) {
-    statusText = getMadeCallCount() < 4
-      ? 'Calling\u2026 (swipe left to hang up)'
-      : 'Calling\u2026';
+    const callText = getMadeCallCount() < 4
+      ? 'Calling them\u2026 (swipe left to hang up)'
+      : 'Calling them\u2026';
+    statusText = isAvail
+      ? `<span style="color:${safeCssColor(color)}">${callText}</span>`
+      : callText;
   } else if (isCallModeReceiver) {
-    statusText = getAnsweredCallCount() < 4
-      ? 'is calling you\u2026 (swipe right to answer)'
-      : 'is calling you\u2026';
+    const callText = getAnsweredCallCount() < 4
+      ? 'Calling you\u2026 (swipe right to answer)'
+      : 'Calling you\u2026';
+    statusText = isAvail
+      ? `<span style="color:${safeCssColor(color)}">${callText}</span>`
+      : callText;
   } else if (isAvail) {
     if (PALETTES_ENABLED) {
       statusText = `<span class="status-available" style="color:${safeCssColor(color)}">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
