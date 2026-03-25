@@ -40,10 +40,7 @@ function slotCombo(setNum) {
   const { selectedKey, activePaletteKey } = ps.sets[setKey];
   const statusPalette = getPaletteByKey(selectedKey);
   const themePalette  = activePaletteKey ? getPaletteByKey(activePaletteKey) : null;
-  const isActiveSet = ps.activeSet === setNum;
-  const statusColor = isActiveSet
-    ? getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim()
-    : (ps.sets[setKey].selectedColor || statusPalette?.color || DEFAULT_STATUS_COLOR);
+  const statusColor = ps.sets[setKey].selectedColor || statusPalette?.color || DEFAULT_STATUS_COLOR;
   return {
     statusColor,
     surface:  themePalette?.theme.surface  ?? DEFAULT_SURFACE,
@@ -175,8 +172,14 @@ function renderCollapsed(container, history) {
     `<div class="fav-collapsed"><div class="fav-collapsed-line" style="background:${bg}"></div></div>`;
   container.querySelector('.fav-collapsed').addEventListener('click', () => {
     localStorage.removeItem(COLLAPSED_KEY);
+    localStorage.setItem('statusapp_seen_strip_peek_done', '1');
     renderStrip();
   });
+
+  // Peek hint: repeats every 6s until user opens the strip
+  if (!localStorage.getItem('statusapp_seen_strip_peek_done')) {
+    peekStrip(container, history);
+  }
 
   // Swipe down from strip area or gap below it to expand
   let _swipeDownStart = null;
@@ -190,6 +193,7 @@ function renderCollapsed(container, history) {
     const endY = e.changedTouches[0].clientY;
     if (endY - _swipeDownStart > 30) {
       localStorage.removeItem(COLLAPSED_KEY);
+      localStorage.setItem('statusapp_seen_strip_peek_done', '1');
       renderStrip();
     }
     _swipeDownStart = null;
@@ -292,6 +296,83 @@ function renderExpanded(container, history) {
 }
 
 
+
+function peekStrip(container, history) {
+  const ps = getPaletteState();
+  const slot1 = slotCombo(1);
+  const slot2 = slotCombo(2);
+  const slotPills = [
+    renderPill(slot1, ps.activeSet === 1 ? 'inactive' : 'active', 'slot', 1),
+    renderPill(slot2, ps.activeSet === 2 ? 'inactive' : 'active', 'slot', 2),
+  ].join('');
+  const historyPills = history.map((c, i) => renderPill(c, 'history', 'history', i)).join('');
+
+  // Build peek strip with fixed positioning — no layout impact
+  const strip = document.createElement('div');
+  strip.className = 'fav-strip';
+  strip.style.cssText = 'pointer-events:none; border-bottom:none; margin:0;';
+  strip.innerHTML = slotPills + historyPills;
+
+  const rainbowLine = container.querySelector('.fav-collapsed-line');
+  const lineRect = rainbowLine ? rainbowLine.getBoundingClientRect() : container.getBoundingClientRect();
+
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = `position:fixed; left:0; right:0; top:${lineRect.bottom}px; overflow:hidden; max-height:0; pointer-events:none; z-index:50; -webkit-mask-image:linear-gradient(to bottom, black, transparent); mask-image:linear-gradient(to bottom, black, transparent);`;
+  wrapper.appendChild(strip);
+  document.body.appendChild(wrapper);
+
+  // Set pill widths
+  const pillEls = strip.querySelectorAll('.fav-pill');
+  const pillCount = pillEls.length;
+  const gap = 6;
+  const padding = 24;
+  const availableWidth = wrapper.clientWidth - padding;
+  const targetWidth = Math.floor((availableWidth - gap * (pillCount - 1)) / pillCount);
+  pillEls.forEach(el => { el.style.width = targetWidth + 'px'; });
+
+  // Measure full height
+  wrapper.style.maxHeight = '200px';
+  const fullHeight = strip.offsetHeight;
+  wrapper.style.maxHeight = '0';
+  const halfHeight = Math.round(fullHeight * 0.6);
+  void wrapper.offsetHeight;
+
+  const collapsedEl = container.querySelector('.fav-collapsed');
+
+  function doPeek() {
+    // Stop if strip was opened (flag cleared means user opened it)
+    if (localStorage.getItem('statusapp_seen_strip_peek_done') || !wrapper.parentNode) {
+      if (wrapper.parentNode) wrapper.remove();
+      if (collapsedEl) collapsedEl.style.opacity = '';
+      return;
+    }
+    // Snap open fast + fade in strip + fade rainbow line
+    wrapper.style.transition = 'max-height 0.15s ease-out, opacity 0.15s ease-out';
+    wrapper.style.opacity = '0.1';
+    wrapper.style.maxHeight = halfHeight + 'px';
+    requestAnimationFrame(() => {
+      wrapper.style.opacity = '0.45';
+    });
+    if (collapsedEl) {
+      collapsedEl.style.transition = 'opacity 0.15s ease-out';
+      collapsedEl.style.opacity = '0.65';
+    }
+    setTimeout(() => {
+      // Close slowly + restore rainbow
+      wrapper.style.transition = 'max-height 1s ease-in, opacity 1s ease-in';
+      wrapper.style.maxHeight = '0';
+      wrapper.style.opacity = '0';
+      if (collapsedEl) {
+        collapsedEl.style.transition = 'opacity 1s ease-in';
+        collapsedEl.style.opacity = '1';
+      }
+      // Repeat after 6s
+      setTimeout(doPeek, 6000);
+    }, 250);
+  }
+
+  setTimeout(doPeek, 3000);
+}
 
 function renderPill(combo, state, type, index) {
   return `<div class="fav-pill fav-pill--${state}" data-type="${type}" data-index="${index}">` +

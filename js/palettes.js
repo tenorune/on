@@ -174,6 +174,7 @@ export function enterPaletteMode(key, userId) {
   const palette = getPaletteByKey(key) || PALETTE_SETS[1][0];
   applyThemeVars(palette.theme);
   setPaletteKey(userId, key).catch(() => {});
+  document.dispatchEvent(new Event('my-combo-changed'));
   renderSwatchRow(userId);
 }
 
@@ -183,6 +184,7 @@ export function exitPaletteMode(userId) {
   setPaletteState(state);
   resetThemeVars();
   setPaletteKey(userId, null).catch(() => {});
+  document.dispatchEvent(new Event('my-combo-changed'));
   renderSwatchRow(userId);
 }
 
@@ -236,8 +238,6 @@ function renderSwatchRow(userId) {
     // - selected a non-default color (gone available with it)
     // - never entered palette mode
     if (!localStorage.getItem('statusapp_seen_theme')
-        && localStorage.getItem('statusapp_seen_bolt')
-        && localStorage.getItem('statusapp_seen_flower')
         && localStorage.getItem('statusapp_went_avail_custom')) {
       const selectedSwatch = row.querySelector('.swatch.selected');
       if (selectedSwatch) selectedSwatch.classList.add('theme-hint');
@@ -288,6 +288,7 @@ function renderSwatchRow(userId) {
             const st2 = getPaletteState();
             st2.sets[String(st2.activeSet)].selectedColor = keyPalette.color;
             setPaletteState(st2);
+            document.dispatchEvent(new Event('my-combo-changed'));
             document.dispatchEvent(new CustomEvent('palette-state-changed'));
           }
         });
@@ -305,6 +306,7 @@ function renderSwatchRow(userId) {
           const st = getPaletteState();
           st.sets[String(st.activeSet)].selectedColor = color;
           setPaletteState(st);
+          document.dispatchEvent(new Event('my-combo-changed'));
           document.dispatchEvent(new CustomEvent('palette-state-changed'));
         });
       }
@@ -316,12 +318,9 @@ function renderSwatchRow(userId) {
 }
 
 function shouldShowHints(state) {
-  // Show if user has seen both toggle icons, hasn't gone available with custom color,
+  // Show if user hasn't gone available with custom color
   // and the CURRENT set is on its default
   if (localStorage.getItem('statusapp_went_avail_custom')) return false;
-  const seenBolt = !!localStorage.getItem('statusapp_seen_bolt');
-  const seenFlower = !!localStorage.getItem('statusapp_seen_flower');
-  if (!seenBolt || !seenFlower) return false;
   const setKey = String(state.activeSet);
   const defaultKey = state.activeSet === 1 ? 'forest' : 'volt';
   if (state.sets[setKey].selectedKey !== defaultKey) return false;
@@ -337,7 +336,7 @@ function startSwatchHints(row, state) {
   swatches.forEach(s => s.classList.add('hint-wave'));
   let head = 0;
   // Opacity curve based on distance from head: peak at 0, fading at ±1, ±2
-  const opacities = [0.3, 0.18, 0.08];
+  const opacities = [0.5, 0.3, 0.1, 0];
   function updateWave() {
     swatches.forEach((s, i) => {
       // Circular distance
@@ -373,8 +372,6 @@ export function restoreSetSwitchPulse() {
 
 export function applyThemeHint() {
   if (localStorage.getItem('statusapp_seen_theme')) return;
-  if (!localStorage.getItem('statusapp_seen_bolt')) return;
-  if (!localStorage.getItem('statusapp_seen_flower')) return;
   if (!localStorage.getItem('statusapp_went_avail_custom')) return;
   const row = document.getElementById('swatch-row');
   if (!row) return;
@@ -410,6 +407,7 @@ export function tapSwatch(key, userId) {
   state.sets[setKey].selectedColor = palette.color;
   setPaletteState(state);
   setStatusColor(userId, palette.color).catch(() => {});
+  document.dispatchEvent(new Event('my-combo-changed'));
   applyPaletteVars(key);
   const row = document.getElementById('swatch-row');
   row.querySelectorAll('.swatch').forEach(s => {
@@ -422,8 +420,6 @@ export function tapSwatch(key, userId) {
     // Theme hint: show pulsing dotted ring if user has seen bolt/flower,
     // selected a non-default color, and hasn't discovered themes yet
     if (!localStorage.getItem('statusapp_seen_theme')
-        && localStorage.getItem('statusapp_seen_bolt')
-        && localStorage.getItem('statusapp_seen_flower')
         && localStorage.getItem('statusapp_went_avail_custom')) {
       target.classList.add('theme-hint');
     }
@@ -472,6 +468,7 @@ export function switchSet(toSet, userId) {
   document.documentElement.style.setProperty('--my-status', selectedColor);
   document.documentElement.style.setProperty('--my-glow', getGlowForColor(selectedColor));
   setStatusColor(userId, selectedColor).catch(() => {});
+  document.dispatchEvent(new Event('my-combo-changed'));
 
   if (activePaletteKey) {
     applyThemeVars(getPaletteByKey(activePaletteKey).theme);
