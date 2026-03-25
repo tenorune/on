@@ -80,6 +80,7 @@ function setupDom() {
   document.body.innerHTML = '<div id="favorites-strip"></div>';
   document.documentElement.style.setProperty('--my-status', '#22c55e');
   document.documentElement.style.setProperty('--my-glow', 'rgba(34,197,94,0.4)');
+  localStorage.setItem('statusapp_seen_theme', '1');
 }
 
 describe('saveFavorite', () => {

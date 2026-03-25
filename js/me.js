@@ -3,7 +3,7 @@ import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs } from './db
 import { getLastTimeout, setLastTimeout, getPaletteState } from './store.js';
 import { PALETTES_ENABLED } from './features.js';
 import { saveFavorite } from './favorites.js';
-import { applyThemeHint } from './palettes.js';
+import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
 
 const CHIP_VALUES = [
   { minutes: 30,  text: '30 minutes' },
@@ -201,6 +201,7 @@ function setUnavailable() {
   setTimeout(() => {
     if (PALETTES_ENABLED) {
       document.getElementById('swatch-row').classList.add('visible');
+      restoreSetSwitchPulse();
       applyThemeHint();
     }
     timeRemaining.style.display = 'none';

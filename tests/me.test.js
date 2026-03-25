@@ -1,7 +1,7 @@
 // tests/me.test.js
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
 jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), initFavoritesStrip: jest.fn() }));
-jest.mock('../js/palettes.js', () => ({ applyThemeHint: jest.fn() }));
+jest.mock('../js/palettes.js', () => ({ applyThemeHint: jest.fn(), restoreSetSwitchPulse: jest.fn() }));
 jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
   isExpired: (t) => t !== null && t !== undefined && t < Date.now(),

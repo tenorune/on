@@ -150,7 +150,7 @@ function renderStrip() {
   const container = document.getElementById('favorites-strip');
   if (!container) return;
   const history = getFavorites();
-  if (history.length === 0) {
+  if (history.length === 0 || !localStorage.getItem('statusapp_seen_theme')) {
     container.style.display = 'none';
     return;
   }
@@ -290,6 +290,7 @@ function renderExpanded(container, history) {
   });
   observer.observe(container, { childList: true });
 }
+
 
 
 function renderPill(combo, state, type, index) {

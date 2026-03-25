@@ -56,11 +56,25 @@ main {
   50% { box-shadow: 0 0 20px 8px rgba(107, 114, 128, 0.4); opacity: 1; }
 }
 .dot.dot-go-hint {
-  animation: dot-go-pulse 2.5s ease-in-out infinite;
+  animation: dot-go-glow 2.5s ease-in-out infinite;
+  position: relative;
 }
-@keyframes dot-go-pulse {
-  0%, 100% { box-shadow: none; opacity: 1; }
-  50% { box-shadow: 0 0 12px 4px var(--my-glow); opacity: 1; }
+.dot.dot-go-hint::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--my-status);
+  animation: dot-go-color 2.5s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes dot-go-glow {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 12px 4px var(--my-glow); }
+}
+@keyframes dot-go-color {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 0.6; }
 }
 .status-label { font-size: 1rem; font-weight: 600; color: var(--text-muted); transition: opacity 0.2s ease, color 0.3s ease; }
 .status-label.available { color: var(--my-status); }
@@ -112,6 +126,7 @@ main {
 
 .fav-pill-left,
 .fav-pill-right { flex: 1; }
+
 
 .fav-collapse-btn {
   background: none;
@@ -531,15 +546,19 @@ main {
 .swatch.key-swatch::after {
   content: ''; position: absolute; inset: -6px; border-radius: 50%;
   border: 1.5px dashed rgba(255,255,255,0.65);
-  animation: key-spin 5s ease-out 1 forwards; pointer-events: none;
+  pointer-events: none;
+}
+.swatch.key-swatch.key-spin::after {
+  animation: key-spin 5s ease-out 1 forwards;
 }
 .swatch.theme-hint {
   position: relative;
+  animation: theme-hint-dim 2.67s ease-in-out infinite;
 }
 .swatch.theme-hint::after {
   content: ''; position: absolute; inset: -6px; border-radius: 50%;
   border: 1.5px dashed rgba(255, 255, 255, 0);
-  animation: theme-hint-blink 4s ease-in-out infinite; pointer-events: none;
+  animation: theme-hint-blink 2.67s ease-in-out infinite; pointer-events: none;
 }
 @keyframes theme-hint-blink {
   0%, 5%    { border-color: rgba(255, 255, 255, 0); }
@@ -547,6 +566,13 @@ main {
   20%       { border-color: rgba(255, 255, 255, 0); }
   30%       { border-color: rgba(255, 255, 255, 0.65); }
   40%, 100% { border-color: rgba(255, 255, 255, 0); }
+}
+@keyframes theme-hint-dim {
+  0%, 5%    { opacity: 1; }
+  10%       { opacity: 0.5; }
+  20%       { opacity: 1; }
+  30%       { opacity: 0.5; }
+  40%, 100% { opacity: 1; }
 }
 @keyframes key-spin { from { transform: rotate(0deg); } to { transform: rotate(720deg); } }
 

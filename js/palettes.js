@@ -3,6 +3,7 @@ import { getPaletteState, setPaletteState, getFavorites } from './store.js';
 import { setStatusColor, setPaletteKey } from './db.js';
 
 let _hintTimer = null;
+let _justEnteredPaletteMode = false;
 
 // SVG Icons (inlined)
 // Heroicons bolt-solid (MIT) https://heroicons.com
@@ -163,6 +164,7 @@ export function resetThemeVars() {
 }
 
 export function enterPaletteMode(key, userId) {
+  _justEnteredPaletteMode = true;
   if (!localStorage.getItem('statusapp_seen_theme')) {
     localStorage.setItem('statusapp_seen_theme', '1');
   }
@@ -248,6 +250,8 @@ function renderSwatchRow(userId) {
           && !localStorage.getItem('statusapp_went_avail_custom')
           && !dot.classList.contains('available')) {
         dot.classList.add('dot-go-hint');
+        // Pause set-switch pulse while dot-go is active
+        if (btn) btn.classList.remove('first-use-pulse');
       } else {
         dot.classList.remove('dot-go-hint');
       }
@@ -265,6 +269,7 @@ function renderSwatchRow(userId) {
       const swatch = document.createElement('div');
       if (i === keyIdx) {
         swatch.className = 'swatch key-swatch';
+        if (_justEnteredPaletteMode) swatch.classList.add('key-spin');
         swatch.style.background = keyPalette.color;
         if (!activeColor || activeColor === keyPalette.color) swatch.classList.add('selected');
         swatch.addEventListener('click', () => {
@@ -306,6 +311,7 @@ function renderSwatchRow(userId) {
       row.appendChild(swatch);
     }
   }
+  _justEnteredPaletteMode = false;
   document.dispatchEvent(new CustomEvent('palette-state-changed'));
 }
 
@@ -348,6 +354,21 @@ function startSwatchHints(row, state) {
     _hintTimer = setTimeout(updateWave, 250);
   }
   updateWave();
+}
+
+export function restoreSetSwitchPulse() {
+  const row = document.getElementById('swatch-row');
+  if (!row) return;
+  const btn = row.querySelector('.set-toggle-btn');
+  if (!btn) return;
+  // Don't restore if dot-go-hint is active
+  const dot = document.getElementById('my-dot');
+  if (dot && dot.classList.contains('dot-go-hint')) return;
+  const state = getPaletteState();
+  const pulseKey = state.activeSet === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
+  if (!localStorage.getItem(pulseKey) && !btn.classList.contains('first-use-pulse')) {
+    btn.classList.add('first-use-pulse');
+  }
 }
 
 export function applyThemeHint() {
@@ -414,18 +435,20 @@ export function tapSwatch(key, userId) {
   const toggleBtn = row.querySelector('.set-toggle-btn');
 
   if (isNonDefault) {
-    // Non-default selected: start dot hint, pause set-switch hint (don't clear it)
+    // Non-default selected: start dot hint, pause set-switch hint while dot-go is active
     if (dot && !localStorage.getItem('statusapp_went_avail_custom') && !dot.classList.contains('available')) {
       dot.classList.add('dot-go-hint');
+      if (toggleBtn) toggleBtn.classList.remove('first-use-pulse');
     }
-    if (toggleBtn) toggleBtn.classList.remove('first-use-pulse');
   } else {
-    // Default selected: stop dot hint, resume set-switch hint if not yet cleared
+    // Default selected: stop dot hint, resume set-switch hint if not yet cleared,
+    // and restart swatch wave
     if (dot) dot.classList.remove('dot-go-hint');
     const pulseKey = state.activeSet === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
     if (toggleBtn && !localStorage.getItem(pulseKey)) {
       toggleBtn.classList.add('first-use-pulse');
     }
+    startSwatchHints(row, state);
   }
 
   document.dispatchEvent(new CustomEvent('palette-state-changed'));
