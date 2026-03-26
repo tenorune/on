@@ -94,7 +94,6 @@ main {
 
 /* ── Favorites strip ─────────────────────────────────────────────── */
 #favorites-strip {
-  display: none; /* shown by JS when favorites exist */
 }
 
 .fav-strip {

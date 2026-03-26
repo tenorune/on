@@ -147,12 +147,15 @@ function renderStrip() {
   const container = document.getElementById('favorites-strip');
   if (!container) return;
   const history = getFavorites();
+  container.style.display = 'block';
   if (history.length === 0 || !localStorage.getItem('statusapp_seen_theme')) {
-    container.style.display = 'none';
+    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0f172a';
+    container.innerHTML =
+      `<div class="fav-collapsed"><div class="fav-collapsed-line" style="background:${bgColor}"></div></div>`;
     return;
   }
-  container.style.display = 'block';
-  const collapsed = localStorage.getItem(COLLAPSED_KEY) === 'true';
+  const isFtu = !localStorage.getItem('statusapp_seen_strip_peek_done');
+  const collapsed = isFtu || localStorage.getItem(COLLAPSED_KEY) === 'true';
   if (collapsed) {
     renderCollapsed(container, history);
   } else {
@@ -334,7 +337,7 @@ function peekStrip(container, history) {
   wrapper.style.maxHeight = '200px';
   const fullHeight = strip.offsetHeight;
   wrapper.style.maxHeight = '0';
-  const halfHeight = Math.round(fullHeight * 0.6);
+  const halfHeight = Math.round(fullHeight * 0.7);
   void wrapper.offsetHeight;
 
   const collapsedEl = container.querySelector('.fav-collapsed');
@@ -344,18 +347,25 @@ function peekStrip(container, history) {
     if (localStorage.getItem('statusapp_seen_strip_peek_done') || !wrapper.parentNode) {
       if (wrapper.parentNode) wrapper.remove();
       if (collapsedEl) collapsedEl.style.opacity = '';
+      const line = collapsedEl?.querySelector('.fav-collapsed-line');
+      if (line) line.style.filter = '';
       return;
     }
     // Snap open fast + fade in strip + fade rainbow line
-    wrapper.style.transition = 'max-height 0.15s ease-out, opacity 0.15s ease-out';
+    wrapper.style.transition = 'max-height 0.1s ease-out, opacity 0.1s ease-out';
     wrapper.style.opacity = '0.1';
     wrapper.style.maxHeight = halfHeight + 'px';
     requestAnimationFrame(() => {
       wrapper.style.opacity = '0.45';
     });
+    const lineEl = collapsedEl?.querySelector('.fav-collapsed-line');
     if (collapsedEl) {
-      collapsedEl.style.transition = 'opacity 0.15s ease-out';
-      collapsedEl.style.opacity = '0.65';
+      collapsedEl.style.transition = 'opacity 0.1s ease-out';
+      collapsedEl.style.opacity = '0.3';
+    }
+    if (lineEl) {
+      lineEl.style.transition = 'filter 0.1s ease-out';
+      lineEl.style.filter = 'brightness(1.6)';
     }
     setTimeout(() => {
       // Close slowly + restore rainbow
@@ -365,6 +375,10 @@ function peekStrip(container, history) {
       if (collapsedEl) {
         collapsedEl.style.transition = 'opacity 1s ease-in';
         collapsedEl.style.opacity = '1';
+      }
+      if (lineEl) {
+        lineEl.style.transition = 'filter 1s ease-in';
+        lineEl.style.filter = 'brightness(1)';
       }
       // Repeat after 6s
       setTimeout(doPeek, 6000);
