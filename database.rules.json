@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "users": {
+      "$userId": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "codeIndex": {
+      "$code": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "canvases": {
+      "$canvasId": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "$other": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}
