@@ -83,13 +83,19 @@ Show the **welcome screen**: two buttons, no other UI.
 ```
 
 - **Tap "I'm new"**
-  1. Generate 4-word recovery code.
-  2. Derive userId via SHA-256.
-  3. Generate a 6-char share code; transactionally claim `codeIndex/{shareCode}` (same as today's `initUser`, looping on collision).
-  4. Write the initial user record to `users/{userId}`.
-  5. Save `{ userId, code, recoveryCode }` to localStorage.
-  6. Show the **recovery-code-display modal** (next subsection).
-  7. After user confirms, proceed to main UI.
+  1. Generate a 4-word recovery code (purely client-side; no derivation or Firebase write yet).
+  2. Show the **recovery-code-display modal** with the generated code.
+  3. While the modal is open, the user may:
+     - Tap **Copy** to copy the displayed code to the clipboard.
+     - Tap **Generate another** to discard the current code and generate a fresh one. The modal updates in place. No undo; the previous code is not retained. No limit on regeneration count.
+     - Tap **I've saved it** to commit.
+  4. On commit:
+     - Derive userId via SHA-256 from the displayed code.
+     - Generate a 6-char share code; transactionally claim `codeIndex/{shareCode}` (same as today's `initUser`, looping on collision).
+     - Write the initial user record to `users/{userId}`.
+     - Save `{ userId, code, recoveryCode }` to localStorage.
+     - Dismiss the modal.
+  5. Proceed to main UI.
 
 - **Tap "I have a recovery code"** → show **restore input screen** (third subsection).
 
@@ -130,16 +136,22 @@ Full-screen, replaces the normal app shell until the user makes a choice. Two la
 
 ### Recovery-code-display modal (new)
 
-Triggered once per new account, right after "I'm new" identity creation. Hard-gated: only the explicit confirm button dismisses it. Tap-outside and Escape do nothing.
+Triggered at the start of the "I'm new" flow, *before* any userId derivation or Firebase write. Hard-gated: only the explicit confirm button **I've saved it** dismisses it. Tap-outside and Escape do nothing.
 
 Content (top to bottom):
 - Title: **"This is your recovery code"**
 - The code, displayed in large monospace, e.g., `swift-river-amber-dust`
 - **[ Copy ]** button (uses same copy-to-clipboard pattern as the share-code drawer)
 - Body text: *"Save this somewhere safe. It's the only way to restore your account if you lose this browser. We can't recover it for you."*
-- Confirm button: **[ I've saved it ]**
+- **[ Generate another ]** button (ghost-btn styling, secondary action)
+- **[ I've saved it ]** button (primary-btn, the only dismissal)
 
-Only the confirm button closes the modal.
+**Button behavior:**
+- **Copy**: writes the currently-displayed code to the clipboard, brief "Copied!" confirm on the button (matching the drawer pill pattern). Modal stays open.
+- **Generate another**: generates a fresh 4-word code → updates the displayed code in place → resets the Copy button label if it was in the "Copied!" state. Modal stays open. No upper limit on regeneration count. No undo (previous codes are not retained).
+- **I've saved it**: triggers the commit sequence in Flow 1 above (derive userId, claim share code, Firebase write, localStorage save), then dismisses the modal.
+
+The regenerate affordance is only available **here**, during initial account creation. Once committed, the recovery code is permanent. The drawer pill displays the committed code with Copy only — no regeneration option.
 
 ### Restore input screen (new)
 
@@ -228,7 +240,8 @@ Test files updated correspondingly.
 
 ### Integration tests (jsdom, in `tests/app.test.js` and/or `tests/identity.test.js`)
 
-- **New-user flow:** localStorage empty → welcome screen rendered → tap "I'm new" → recovery-code modal rendered with valid-format code → tap "I've saved it" → main UI rendered → localStorage contains v2-shape identity.
+- **New-user flow:** localStorage empty → welcome screen rendered → tap "I'm new" → recovery-code modal rendered with valid-format code → tap "I've saved it" → main UI rendered → localStorage contains v2-shape identity whose `recoveryCode` matches the displayed code.
+- **Regenerate-during-creation flow:** tap "I'm new" → modal shows code A → tap "Generate another" → modal shows code B ≠ code A → tap "Generate another" again → modal shows code C, distinct from A and B → tap "I've saved it" → committed identity's `recoveryCode` is C; no Firebase writes occurred for codes A or B (assert via mock-call count).
 - **Restore flow (success):** welcome screen → tap "I have a recovery code" → restore screen rendered → enter a valid recovery code whose derived userId has a corresponding Firebase record (mocked) → main UI rendered → localStorage contains v2-shape identity for that userId.
 - **Restore flow (not found):** as above but Firebase record absent → inline error shown → localStorage unchanged → still on restore screen.
 - **Restore flow (bad input):** enter 3-word phrase, or word not in list → inline error shown → no Firebase read attempted.
