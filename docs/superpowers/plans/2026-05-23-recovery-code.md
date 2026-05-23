@@ -6,7 +6,7 @@
 
 **Architecture:** Pure client-side derivation. `userId = sha256(recoveryCode).slice(0, 32)`. No server changes, no Firebase Auth — same trust model as today. The recovery code is shown once at account creation (in a hard-gated modal) and again on demand via a pill in the code drawer. A welcome screen lets the user choose "I'm new" vs "I have a recovery code" on empty localStorage.
 
-**Tech Stack:** Vanilla JS ES modules, Web Crypto API (`crypto.subtle.digest`), jest+jsdom for tests, esbuild bundling. EFF short wordlist (1296 words) bundled as a JS array.
+**Tech Stack:** Vanilla JS ES modules, Web Crypto API (`crypto.subtle.digest`), jest+jsdom for tests, esbuild bundling. EFF long wordlist (7776 entries, public domain — filtered to 7772 pure-lowercase-ASCII words; the 4 hyphenated entries `drop-down`, `felt-tip`, `t-shirt`, `yo-yo` are dropped because they conflict with the `-` separator) bundled as a JS array.
 
 **Spec:** `docs/superpowers/specs/2026-05-23-recovery-code-design.md`.
 
@@ -16,7 +16,7 @@
 
 | File | Status | Purpose |
 |---|---|---|
-| `js/wordlist.js` | **new** | Exports `WORDLIST` array (1296 EFF short words). Pure data module. |
+| `js/wordlist.js` | **new** | Exports `WORDLIST` array (7772 filtered EFF long words). Pure data module. |
 | `js/identity.js` | **modified** | Adds `generateRecoveryCode`, `parseRecoveryCode`, `deriveUserIdFromRecoveryCode`. Replaces `generateUserId`. Updates `saveIdentity`/`loadIdentity` to v2 schema (third `recoveryCode` field). |
 | `js/app.js` | **modified** | New helpers `showWelcomeScreen`, `showRecoveryCodeModal`, `showRestoreScreen`. `ensureIdentity` rewritten. |
 | `js/mycode.js` | **modified** | Adds drawer recovery-code pill state machine. Updates `saveIdentity` call to include `recoveryCode`. |
@@ -35,27 +35,48 @@
 - Create: `js/wordlist.js`
 - Test: `tests/wordlist.test.js`
 
-The EFF short wordlist is a public-domain list of 1296 short (3–5 char) common English words. We embed it as a JS array.
+The EFF long wordlist is a public-domain list of 7776 short (3–9 char) common English words. We embed it as a JS array, after filtering out 4 hyphenated entries (`drop-down`, `felt-tip`, `t-shirt`, `yo-yo`) that would conflict with the `-` separator. Final count: **7772 words**.
 
-- [ ] **Step 1: Fetch and transform the wordlist**
+Outbound HTTP to `eff.org` is blocked in our sandboxed container; we obtain the wordlist via the `eff-diceware-passphrase` npm package, which ships the EFF long wordlist as `wordlist.json`.
 
-Run this once locally to generate the array body. The EFF file's format is `<dice-num>\t<word>\n` per line.
+- [ ] **Step 1: Obtain the wordlist via npm**
+
+Run from any directory:
 
 ```bash
-curl -s https://www.eff.org/files/2016/07/18/eff_short_wordlist_1.txt \
-  | awk '{print "  \"" $2 "\","}' > /tmp/wordlist-body.txt
+cd /tmp && npm pack eff-diceware-passphrase 2>&1 | tail -1
+tar xzf eff-diceware-passphrase-*.tgz
+```
+
+Verify:
+
+```bash
+node -e "const w = require('/tmp/package/wordlist.json'); console.log('count:', w.length);"
+```
+
+Expected: `count: 7776`. If different, STOP and reconcile before continuing.
+
+- [ ] **Step 1b: Generate the filtered array body**
+
+```bash
+node -e "
+const w = require('/tmp/package/wordlist.json');
+const filtered = w.filter(x => /^[a-z]+\$/.test(x));
+console.log('filtered count:', filtered.length);
+require('fs').writeFileSync('/tmp/wordlist-body.txt',
+  filtered.map(word => '  \"' + word + '\",').join('\n') + '\n');
+"
 wc -l /tmp/wordlist-body.txt
 ```
 
-Expected: `1296 /tmp/wordlist-body.txt`
-
-If the line count is not exactly 1296, the upstream file changed — STOP and reconcile before continuing.
+Expected: `filtered count: 7772` and `7772 /tmp/wordlist-body.txt`. If different, STOP and reconcile.
 
 - [ ] **Step 2: Write `js/wordlist.js`**
 
 ```js
-// js/wordlist.js — EFF short wordlist (1296 words, public domain)
-// Source: https://www.eff.org/dice
+// js/wordlist.js — EFF long wordlist (public domain), filtered to 7772 words
+// Source: https://www.eff.org/dice (eff_large_wordlist.txt)
+// Filter: kept only entries matching /^[a-z]+$/ (dropped: drop-down, felt-tip, t-shirt, yo-yo)
 const WORDLIST = [
   // ... paste contents of /tmp/wordlist-body.txt here ...
 ];
@@ -65,7 +86,7 @@ const WORDSET = new Set(WORDLIST);
 module.exports = { WORDLIST, WORDSET };
 ```
 
-The final line of the array must NOT have a trailing comma after the close — but the body lines from the awk command above all end in `,`. The final array close `]` is fine following a trailing comma in modern JS, so the awk output can be pasted in directly.
+Each line of the body has a trailing comma. A trailing comma after the last array element is fine in modern JS, so the body content can be pasted between the `[` and `]` directly.
 
 - [ ] **Step 3: Write the test file**
 
@@ -73,8 +94,8 @@ The final line of the array must NOT have a trailing comma after the close — b
 // tests/wordlist.test.js
 const { WORDLIST, WORDSET } = require('../js/wordlist');
 
-test('WORDLIST has exactly 1296 entries', () => {
-  expect(WORDLIST).toHaveLength(1296);
+test('WORDLIST has exactly 7772 entries', () => {
+  expect(WORDLIST).toHaveLength(7772);
 });
 
 test('WORDLIST entries are all lowercase ASCII', () => {
@@ -1573,7 +1594,7 @@ grep -i "<title>" index.html
 ls -lh dist/bundle.js
 ```
 
-Expected: title is `KnockKnock`, bundle exists, bundle size is reasonable (the wordlist adds ~10 KB).
+Expected: title is `KnockKnock`, bundle exists, bundle size is reasonable (the wordlist adds ~75 KB to the bundle).
 
 - [ ] **Step 4: If everything passes, no commit needed.** The previous commits already constitute the feature.
 
