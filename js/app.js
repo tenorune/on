@@ -50,7 +50,9 @@ async function ensureIdentity() {
       // Network error — assume valid and proceed offline
     }
     if (valid) return { identity: existing, isNew: false };
-    // Stale identity flow: localStorage exists but Firebase doesn't
+    // Stale identity flow: localStorage exists but Firebase doesn't.
+    // Dismiss splash so the user can see and interact with the screens.
+    dismissSplash();
     const choice = await showStaleScreen();
     clearIdentity();
     if (choice === 'restore') {
@@ -64,7 +66,9 @@ async function ensureIdentity() {
     return await createNewAccount();
   }
 
-  // Empty localStorage — true new user OR cleared cache
+  // Empty localStorage — true new user OR cleared cache.
+  // Dismiss splash so the user can see and interact with the welcome screen.
+  dismissSplash();
   const choice = await showWelcomeScreen();
   if (choice === 'restore') {
     const restored = await showRestoreScreen();
