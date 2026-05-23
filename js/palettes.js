@@ -454,6 +454,65 @@ export function initSwatches(userId) {
   renderSwatchRow(userId);
 }
 
+// Reconcile local paletteState with what the server has. Used by the
+// watchStatus callback in app.js so a status color or palette change made
+// on another device updates this device's picker selection as well.
+//
+// Resolution:
+// - paletteKey set (palette mode): paletteKey determines activeSet and
+//   selectedKey. selectedColor = statusColor (may be a complement, not a
+//   base color).
+// - paletteKey null (base mode): statusColor determines activeSet and
+//   selectedKey via reverse lookup in PALETTE_SETS.
+// - statusColor doesn't correspond to any known palette in base mode:
+//   leave local state alone (could be legacy / future / corrupt data).
+export function syncPaletteStateFromServer(userId, statusColor, paletteKey) {
+  if (!statusColor) return;
+
+  let foundSet = null;
+  let foundKey = null;
+
+  if (paletteKey) {
+    for (const setNum of [1, 2]) {
+      if (PALETTE_SETS[setNum].some(p => p.key === paletteKey)) {
+        foundSet = setNum;
+        foundKey = paletteKey;
+        break;
+      }
+    }
+  } else {
+    for (const setNum of [1, 2]) {
+      const palette = PALETTE_SETS[setNum].find(p => p.color === statusColor);
+      if (palette) {
+        foundSet = setNum;
+        foundKey = palette.key;
+        break;
+      }
+    }
+  }
+
+  if (foundSet === null) return;
+
+  const state = getPaletteState();
+  const setKey = String(foundSet);
+  const incomingActivePaletteKey = paletteKey ?? null;
+  const currentActivePaletteKey = state.sets[setKey].activePaletteKey ?? null;
+
+  if (state.activeSet === foundSet
+      && state.sets[setKey].selectedKey === foundKey
+      && state.sets[setKey].selectedColor === statusColor
+      && currentActivePaletteKey === incomingActivePaletteKey) {
+    return;
+  }
+
+  state.activeSet = foundSet;
+  state.sets[setKey].selectedKey = foundKey;
+  state.sets[setKey].selectedColor = statusColor;
+  state.sets[setKey].activePaletteKey = incomingActivePaletteKey;
+  setPaletteState(state);
+  renderSwatchRow(userId);
+}
+
 export function switchSet(toSet, userId) {
   const state = getPaletteState();
   state.activeSet = toSet;
