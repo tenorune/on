@@ -14,8 +14,12 @@ function generateCode() {
 
 function generateRecoveryCode() {
   const words = [];
+  const buf = new Uint32Array(4);
+  crypto.getRandomValues(buf);
   for (let i = 0; i < 4; i++) {
-    words.push(WORDLIST[Math.floor(Math.random() * WORDLIST.length)]);
+    // buf[i] is in [0, 2^32). Modulo by WORDLIST.length introduces negligible bias
+    // (WORDLIST.length = 7772 ≪ 2^32, so the bias is ~7e-7 — irrelevant at this scale).
+    words.push(WORDLIST[buf[i] % WORDLIST.length]);
   }
   return words.join('-');
 }
