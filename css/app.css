@@ -712,6 +712,9 @@ main {
 .restore-input {
   width: 100%;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: none;
+  letter-spacing: normal;
+  text-align: left;
 }
 .restore-btns { display: flex; gap: 0.5rem; }
 .restore-btns button { flex: 1; }

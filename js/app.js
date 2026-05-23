@@ -204,6 +204,11 @@ export function showRestoreScreen() {
         return;
       }
       const user = await getUser(userId);
+      if (!user) {
+        error.textContent = "No account found with that code. Check spelling, or tap Cancel to start over.";
+        error.classList.remove('hidden');
+        return;
+      }
       teardown();
       resolve({ userId, code: user.code, recoveryCode: normalized });
     }
