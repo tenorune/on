@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/dev.js — esbuild dev server with .env.local injection and LAN access
 const esbuild = require('esbuild');
-const { define } = require('./build.js');
+const { define, writeIndexHtml } = require('./build.js');
 const { networkInterfaces } = require('os');
 
 const PORT = 8080;
@@ -17,6 +17,8 @@ function getLanAddress() {
 }
 
 async function main() {
+  writeIndexHtml('On - Dev');
+
   const ctx = await esbuild.context({
     entryPoints: ['js/app.js'],
     bundle: true,

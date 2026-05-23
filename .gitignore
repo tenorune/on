@@ -1,5 +1,6 @@
 node_modules/
 dist/
+/index.html
 .superpowers/
 .env
 .env.local
