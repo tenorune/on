@@ -81,6 +81,7 @@ function setupDom() {
   document.documentElement.style.setProperty('--my-status', '#22c55e');
   document.documentElement.style.setProperty('--my-glow', 'rgba(34,197,94,0.4)');
   localStorage.setItem('statusapp_seen_theme', '1');
+  localStorage.setItem('statusapp_seen_strip_peek_done', '1');
 }
 
 describe('saveFavorite', () => {
@@ -395,9 +396,10 @@ describe('renderStrip / initFavoritesStrip', () => {
     { statusColor: '#818cf8', surface2: '#1e1b4b', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
   ];
 
-  test('strip container stays hidden when favorites array is empty', () => {
+  test('strip container shows only collapsed line (no pills) when favorites array is empty', () => {
     initFavoritesStrip('myUid');
-    expect(document.getElementById('favorites-strip').style.display).toBe('none');
+    expect(document.querySelector('.fav-collapsed')).not.toBeNull();
+    expect(document.querySelectorAll('.fav-pill')).toHaveLength(0);
   });
 
   test('strip container is shown when favorites has at least one entry', () => {
