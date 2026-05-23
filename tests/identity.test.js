@@ -1,5 +1,5 @@
 // tests/identity.test.js
-const { generateCode, generateUserId, loadIdentity, saveIdentity, clearIdentity } = require('../js/identity');
+const { generateCode, loadIdentity, saveIdentity, clearIdentity } = require('../js/identity');
 
 beforeEach(() => {
   localStorage.clear();
@@ -15,23 +15,34 @@ test('generateCode returns different values on successive calls', () => {
   expect(codes.size).toBeGreaterThan(1);
 });
 
-test('generateUserId returns a UUID-shaped string', () => {
-  const id = generateUserId();
-  expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-});
-
 test('loadIdentity returns null when localStorage is empty', () => {
   expect(loadIdentity()).toBeNull();
 });
 
-test('saveIdentity persists and loadIdentity retrieves it', () => {
-  saveIdentity('user-123', 'AB3K9X');
+test('saveIdentity persists v2 schema and loadIdentity retrieves it', () => {
+  saveIdentity('user-123', 'AB3K9X', 'swift-river-amber-dust');
   const identity = loadIdentity();
-  expect(identity).toEqual({ userId: 'user-123', code: 'AB3K9X' });
+  expect(identity).toEqual({
+    userId: 'user-123',
+    code: 'AB3K9X',
+    recoveryCode: 'swift-river-amber-dust',
+  });
 });
 
 test('clearIdentity removes the stored identity so loadIdentity returns null', () => {
-  saveIdentity('user-abc', 'XYZ123');
+  saveIdentity('user-abc', 'XYZ123', 'one-two-three-four');
   clearIdentity();
   expect(loadIdentity()).toBeNull();
+});
+
+test('loadIdentity returns null and wipes localStorage when v1-shape data is stored', () => {
+  localStorage.setItem('statusapp_identity', JSON.stringify({ userId: 'old-uid', code: 'OLD123' }));
+  expect(loadIdentity()).toBeNull();
+  expect(localStorage.getItem('statusapp_identity')).toBeNull();
+});
+
+test('loadIdentity returns null and wipes localStorage when stored value is corrupt', () => {
+  localStorage.setItem('statusapp_identity', '{bad json');
+  expect(loadIdentity()).toBeNull();
+  expect(localStorage.getItem('statusapp_identity')).toBeNull();
 });
