@@ -36,18 +36,12 @@ function parseRecoveryCode(input) {
 }
 
 async function deriveUserIdFromRecoveryCode(recoveryCode) {
-  if (typeof crypto !== 'undefined' && crypto.subtle) {
-    const encoded = new Uint8Array(Buffer.from(recoveryCode, 'utf8'));
-    const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
-    const hex = Array.from(new Uint8Array(hashBuffer))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
-    return hex.slice(0, 32);
-  }
-  // Node environment fallback (jsdom without crypto.subtle)
-  const nodeCrypto = require('crypto');
-  const hash = nodeCrypto.createHash('sha256').update(recoveryCode, 'utf8').digest('hex');
-  return hash.slice(0, 32);
+  const encoded = new TextEncoder().encode(recoveryCode);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+  const hex = Array.from(new Uint8Array(hashBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+  return hex.slice(0, 32);
 }
 
 function loadIdentity() {
