@@ -155,3 +155,49 @@ describe('showWelcomeScreen', () => {
     expect(document.getElementById('welcome-screen').classList.contains('hidden')).toBe(true);
   });
 });
+
+describe('showRecoveryCodeModal', () => {
+  let showRecoveryCodeModal;
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="recovery-modal" class="modal-overlay hidden">
+        <span id="recovery-code-text"></span>
+        <button id="recovery-rotate-btn"></button>
+        <button id="recovery-copy-btn">Copy</button>
+        <button id="recovery-saved-btn">I've saved it</button>
+      </div>`;
+    jest.resetModules();
+    ({ showRecoveryCodeModal } = require('../js/app'));
+  });
+
+  test('displays the initial code and reveals the modal', async () => {
+    const p = showRecoveryCodeModal('alpha-bravo-charlie-delta');
+    expect(document.getElementById('recovery-code-text').textContent).toBe('alpha-bravo-charlie-delta');
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(false);
+    document.getElementById('recovery-saved-btn').click();
+    expect(await p).toBe('alpha-bravo-charlie-delta');
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(true);
+  });
+
+  test('rotate (↻) updates the displayed code in place; modal stays open', async () => {
+    const p = showRecoveryCodeModal('alpha-bravo-charlie-delta');
+    const before = document.getElementById('recovery-code-text').textContent;
+    document.getElementById('recovery-rotate-btn').click();
+    const after = document.getElementById('recovery-code-text').textContent;
+    expect(after).not.toBe(before);
+    expect(after).toMatch(/^[a-z]+(?:-[a-z]+){3}$/);
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(false);
+    document.getElementById('recovery-saved-btn').click();
+    expect(await p).toBe(after);
+  });
+
+  test('committed code reflects the last shown after multiple rotates', async () => {
+    const p = showRecoveryCodeModal('alpha-bravo-charlie-delta');
+    document.getElementById('recovery-rotate-btn').click();
+    document.getElementById('recovery-rotate-btn').click();
+    document.getElementById('recovery-rotate-btn').click();
+    const finalCode = document.getElementById('recovery-code-text').textContent;
+    document.getElementById('recovery-saved-btn').click();
+    expect(await p).toBe(finalCode);
+  });
+});

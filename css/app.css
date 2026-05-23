@@ -645,6 +645,42 @@ main {
 }
 @keyframes key-spin { from { transform: rotate(0deg); } to { transform: rotate(720deg); } }
 
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 950;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+}
+.modal-overlay.hidden { display: none; }
+.modal-card {
+  background: var(--surface);
+  color: var(--text);
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  max-width: 360px;
+  width: 100%;
+  display: flex; flex-direction: column;
+  gap: 0.875rem;
+}
+.modal-card h3 { margin: 0; }
+.recovery-display {
+  display: flex; align-items: center; gap: 0.5rem;
+  background: var(--surface2);
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+}
+.recovery-code-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.05rem;
+  flex: 1;
+  word-break: break-all;
+}
+.recovery-warning {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
 /* Knock animations */
 @keyframes knock-deferred {
   0%   { box-shadow: inset 0 0 0 9999px color-mix(in srgb, var(--knock-color) 55%, transparent); }

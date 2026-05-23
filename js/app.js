@@ -1,5 +1,5 @@
 // js/app.js
-import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity } from './identity.js';
+import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity, generateRecoveryCode } from './identity.js';
 import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
@@ -92,6 +92,46 @@ export function showWelcomeScreen() {
     function onRestore() { pick('restore'); }
     newBtn.addEventListener('click', onNew);
     restoreBtn.addEventListener('click', onRestore);
+  });
+}
+
+export function showRecoveryCodeModal(initialCode) {
+  const el = document.getElementById('recovery-modal');
+  const text = document.getElementById('recovery-code-text');
+  const rotateBtn = document.getElementById('recovery-rotate-btn');
+  const copyBtn = document.getElementById('recovery-copy-btn');
+  const savedBtn = document.getElementById('recovery-saved-btn');
+
+  let current = initialCode;
+  text.textContent = current;
+  if (copyBtn) copyBtn.textContent = 'Copy';
+  el.classList.remove('hidden');
+
+  return new Promise((resolve) => {
+    function onRotate() {
+      current = generateRecoveryCode();
+      text.textContent = current;
+      if (copyBtn) copyBtn.textContent = 'Copy';
+    }
+    async function onCopy() {
+      try {
+        await navigator.clipboard?.writeText(current);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+      } catch (_) {
+        // ignore clipboard failures
+      }
+    }
+    function onSaved() {
+      rotateBtn.removeEventListener('click', onRotate);
+      copyBtn.removeEventListener('click', onCopy);
+      savedBtn.removeEventListener('click', onSaved);
+      el.classList.add('hidden');
+      resolve(current);
+    }
+    rotateBtn.addEventListener('click', onRotate);
+    copyBtn.addEventListener('click', onCopy);
+    savedBtn.addEventListener('click', onSaved);
   });
 }
 
