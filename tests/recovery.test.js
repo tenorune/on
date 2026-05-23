@@ -202,6 +202,76 @@ describe('showRecoveryCodeModal', () => {
   });
 });
 
+describe('initRecoveryPill', () => {
+  let initRecoveryPill;
+  beforeEach(() => {
+    jest.useFakeTimers();
+    document.body.innerHTML = `
+      <div id="recovery-pill-row">
+        <button id="recovery-show-pill" class="chip">Show recovery code</button>
+        <div id="recovery-revealed" class="recovery-revealed hidden">
+          <span id="drawer-recovery-code"></span>
+          <button id="drawer-recovery-copy-btn">Copy</button>
+        </div>
+      </div>`;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: jest.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
+    jest.unmock('../js/mycode.js');
+    jest.resetModules();
+    ({ initRecoveryPill } = require('../js/mycode'));
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('starts in Idle state (pill visible, revealed hidden)', () => {
+    initRecoveryPill('alpha-bravo-charlie-delta');
+    expect(document.getElementById('recovery-show-pill').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('recovery-revealed').classList.contains('hidden')).toBe(true);
+  });
+
+  test('tap pill enters Revealed: shows code and hides pill', () => {
+    initRecoveryPill('alpha-bravo-charlie-delta');
+    document.getElementById('recovery-show-pill').click();
+    expect(document.getElementById('recovery-revealed').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('recovery-show-pill').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('drawer-recovery-code').textContent).toBe('alpha-bravo-charlie-delta');
+  });
+
+  test('15s idle in Revealed returns to Idle', () => {
+    initRecoveryPill('alpha-bravo-charlie-delta');
+    document.getElementById('recovery-show-pill').click();
+    jest.advanceTimersByTime(15000);
+    expect(document.getElementById('recovery-revealed').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('recovery-show-pill').classList.contains('hidden')).toBe(false);
+  });
+
+  test('Copy enters Copied state then returns to Idle after 1.5s', async () => {
+    initRecoveryPill('alpha-bravo-charlie-delta');
+    document.getElementById('recovery-show-pill').click();
+    const copyBtn = document.getElementById('drawer-recovery-copy-btn');
+    copyBtn.click();
+    await Promise.resolve();
+    expect(copyBtn.textContent).toBe('Copied!');
+    jest.advanceTimersByTime(1500);
+    expect(document.getElementById('recovery-revealed').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('recovery-show-pill').classList.contains('hidden')).toBe(false);
+  });
+
+  test('tapping the code text in Revealed resets the 15s timer', () => {
+    initRecoveryPill('alpha-bravo-charlie-delta');
+    document.getElementById('recovery-show-pill').click();
+    jest.advanceTimersByTime(14000);
+    document.getElementById('drawer-recovery-code').click();
+    jest.advanceTimersByTime(10000); // total 24s from reveal, but timer was reset at 14s
+    expect(document.getElementById('recovery-revealed').classList.contains('hidden')).toBe(false);
+    jest.advanceTimersByTime(5000); // 15s after the reset
+    expect(document.getElementById('recovery-revealed').classList.contains('hidden')).toBe(true);
+  });
+});
+
 describe('showRestoreScreen', () => {
   let showRestoreScreen;
   let mockUserExists;

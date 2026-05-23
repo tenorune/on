@@ -723,3 +723,16 @@ main {
   .stale-btns { flex-direction: row; }
   .stale-btns button { flex: 1; }
 }
+
+.recovery-pill-row {
+  display: flex; align-items: center;
+  margin-top: 0.5rem;
+}
+.recovery-revealed {
+  display: flex; align-items: center; gap: 0.5rem;
+  background: var(--surface2);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  flex: 1;
+}
+.recovery-revealed.hidden { display: none; }
