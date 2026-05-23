@@ -53,32 +53,40 @@ async function ensureIdentity() {
     // Stale identity flow: localStorage exists but Firebase doesn't.
     // Dismiss splash so the user can see and interact with the screens.
     dismissSplash();
-    const choice = await showStaleScreen();
     clearIdentity();
+    // Loop so that cancelling the restore screen returns the user to the
+    // stale screen, not silently to the new-account flow.
+    while (true) {
+      const choice = await showStaleScreen();
+      if (choice === 'restore') {
+        const restored = await showRestoreScreen();
+        if (restored) {
+          saveIdentity(restored.userId, restored.code, restored.recoveryCode);
+          return { identity: restored, isNew: false };
+        }
+        continue;
+      }
+      return await createNewAccount();
+    }
+  }
+
+  // Empty localStorage — true new user OR cleared cache.
+  // Dismiss splash so the user can see and interact with the welcome screen.
+  dismissSplash();
+  // Loop so that cancelling the restore screen returns the user to the
+  // welcome screen, not silently into the new-account flow.
+  while (true) {
+    const choice = await showWelcomeScreen();
     if (choice === 'restore') {
       const restored = await showRestoreScreen();
       if (restored) {
         saveIdentity(restored.userId, restored.code, restored.recoveryCode);
         return { identity: restored, isNew: false };
       }
-      // User cancelled restore — fall through to new-account flow
+      continue;
     }
     return await createNewAccount();
   }
-
-  // Empty localStorage — true new user OR cleared cache.
-  // Dismiss splash so the user can see and interact with the welcome screen.
-  dismissSplash();
-  const choice = await showWelcomeScreen();
-  if (choice === 'restore') {
-    const restored = await showRestoreScreen();
-    if (restored) {
-      saveIdentity(restored.userId, restored.code, restored.recoveryCode);
-      return { identity: restored, isNew: false };
-    }
-    // User cancelled restore — fall through
-  }
-  return await createNewAccount();
 }
 
 async function createNewAccount() {
