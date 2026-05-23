@@ -7,7 +7,7 @@ import { initKnocks } from './knock.js';
 import { initCodeDrawer } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
-import { initFavoritesStrip } from './favorites.js';
+import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 
 
@@ -335,6 +335,9 @@ async function main() {
     }
     if (PALETTES_ENABLED && colorOrPaletteChanged) {
       syncPaletteStateFromServer(userId, userData.statusColor, incomingPaletteKey);
+    }
+    if (PALETTE_INTERACTIONS_ENABLED) {
+      syncFavoritesFromServer(userId, userData.favorites);
     }
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);

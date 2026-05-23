@@ -47,6 +47,7 @@ jest.mock('../js/palettes.js', () => ({
 
 jest.mock('../js/db.js', () => ({
   setStatusColor: jest.fn().mockResolvedValue(undefined),
+  setUserFavorites: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../js/store.js', () => ({
@@ -107,7 +108,7 @@ describe('saveFavorite', () => {
       }),
       getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
     }));
-    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined), setUserFavorites: jest.fn().mockResolvedValue(undefined) }));
     jest.mock('../js/store.js', () => ({
       ...jest.requireActual('../js/store.js'),
       getPaletteState: jest.fn(() => {
@@ -371,7 +372,7 @@ describe('renderStrip / initFavoritesStrip', () => {
       })[key] ?? null),
       getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
     }));
-    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined), setUserFavorites: jest.fn().mockResolvedValue(undefined) }));
     jest.mock('../js/store.js', () => ({
       ...jest.requireActual('../js/store.js'),
       getPaletteState: jest.fn(() => ({
@@ -479,7 +480,7 @@ describe('slot tap interactions', () => {
       })[key] ?? null),
       getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
     }));
-    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined), setUserFavorites: jest.fn().mockResolvedValue(undefined) }));
     jest.mock('../js/store.js', () => ({
       ...jest.requireActual('../js/store.js'),
       getPaletteState: jest.fn(() => ({
@@ -545,7 +546,7 @@ describe('history pill tap interactions', () => {
       })[key] ?? null),
       getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
     }));
-    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined), setUserFavorites: jest.fn().mockResolvedValue(undefined) }));
     jest.mock('../js/store.js', () => ({
       ...jest.requireActual('../js/store.js'),
       getPaletteState: jest.fn(() => ({
@@ -674,7 +675,7 @@ test('saveFavorite: does not save when PALETTE_INTERACTIONS_ENABLED is false', (
     getPaletteByKey: jest.fn(() => ({ color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } })),
     getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
   }));
-  jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+  jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined), setUserFavorites: jest.fn().mockResolvedValue(undefined) }));
   jest.mock('../js/store.js', () => ({
     ...jest.requireActual('../js/store.js'),
     getPaletteState: jest.fn(() => ({
@@ -712,7 +713,7 @@ describe('getAllCombos', () => {
       })[key] ?? null),
       getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
     }));
-    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined), setUserFavorites: jest.fn().mockResolvedValue(undefined) }));
     jest.mock('../js/store.js', () => ({
       ...jest.requireActual('../js/store.js'),
       getPaletteState: jest.fn(() => ({
@@ -773,7 +774,7 @@ describe('getCanvasColors', () => {
       })[key] ?? null),
       getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
     }));
-    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined), setUserFavorites: jest.fn().mockResolvedValue(undefined) }));
     jest.mock('../js/store.js', () => ({
       ...jest.requireActual('../js/store.js'),
       getPaletteState: jest.fn(() => ({
