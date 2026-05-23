@@ -201,3 +201,72 @@ describe('showRecoveryCodeModal', () => {
     expect(await p).toBe(finalCode);
   });
 });
+
+describe('showRestoreScreen', () => {
+  let showRestoreScreen;
+  let mockUserExists;
+
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="restore-screen" class="restore-screen hidden">
+        <input id="restore-input" />
+        <p id="restore-error" class="error-msg hidden"></p>
+        <button id="restore-submit-btn"></button>
+        <button id="restore-cancel-btn"></button>
+      </div>`;
+    jest.resetModules();
+    jest.mock('../js/db', () => ({
+      userExists: jest.fn(),
+      getUser: jest.fn(),
+    }));
+    mockUserExists = require('../js/db').userExists;
+    ({ showRestoreScreen } = require('../js/app'));
+  });
+
+  test('resolves null when Cancel is tapped', async () => {
+    const p = showRestoreScreen();
+    expect(document.getElementById('restore-screen').classList.contains('hidden')).toBe(false);
+    document.getElementById('restore-cancel-btn').click();
+    expect(await p).toBeNull();
+    expect(document.getElementById('restore-screen').classList.contains('hidden')).toBe(true);
+  });
+
+  test('shows error and does not resolve when input is malformed', async () => {
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = 'only-three-words';
+    document.getElementById('restore-submit-btn').click();
+    await new Promise(r => setTimeout(r, 0));
+    expect(document.getElementById('restore-error').classList.contains('hidden')).toBe(false);
+    expect(mockUserExists).not.toHaveBeenCalled();
+    document.getElementById('restore-cancel-btn').click();
+    await p;
+  });
+
+  test('shows "no account" error when userExists returns false', async () => {
+    mockUserExists.mockResolvedValue(false);
+    const { generateRecoveryCode } = require('../js/identity');
+    const code = generateRecoveryCode();
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = code;
+    document.getElementById('restore-submit-btn').click();
+    await new Promise(r => setTimeout(r, 10));
+    expect(mockUserExists).toHaveBeenCalled();
+    expect(document.getElementById('restore-error').classList.contains('hidden')).toBe(false);
+    document.getElementById('restore-cancel-btn').click();
+    await p;
+  });
+
+  test('resolves with identity when code is valid and Firebase record exists', async () => {
+    const { generateRecoveryCode, deriveUserIdFromRecoveryCode } = require('../js/identity');
+    const code = generateRecoveryCode();
+    const expectedUid = await deriveUserIdFromRecoveryCode(code);
+    mockUserExists.mockResolvedValue(true);
+    require('../js/db').getUser = jest.fn().mockResolvedValue({ code: 'XK7P2M' });
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = code;
+    document.getElementById('restore-submit-btn').click();
+    const result = await p;
+    expect(result).toEqual({ userId: expectedUid, code: 'XK7P2M', recoveryCode: code });
+    expect(document.getElementById('restore-screen').classList.contains('hidden')).toBe(true);
+  });
+});

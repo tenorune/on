@@ -1,5 +1,5 @@
 // js/app.js
-import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity, generateRecoveryCode } from './identity.js';
+import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
 import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
@@ -132,6 +132,56 @@ export function showRecoveryCodeModal(initialCode) {
     rotateBtn.addEventListener('click', onRotate);
     copyBtn.addEventListener('click', onCopy);
     savedBtn.addEventListener('click', onSaved);
+  });
+}
+
+export function showRestoreScreen() {
+  const el = document.getElementById('restore-screen');
+  const input = document.getElementById('restore-input');
+  const error = document.getElementById('restore-error');
+  const submit = document.getElementById('restore-submit-btn');
+  const cancel = document.getElementById('restore-cancel-btn');
+
+  input.value = '';
+  error.classList.add('hidden');
+  error.textContent = '';
+  el.classList.remove('hidden');
+
+  return new Promise((resolve) => {
+    async function onSubmit() {
+      const normalized = parseRecoveryCode(input.value);
+      if (!normalized) {
+        error.textContent = "That doesn't look like a recovery code — check that you entered 4 words from the list.";
+        error.classList.remove('hidden');
+        return;
+      }
+      const userId = await deriveUserIdFromRecoveryCode(normalized);
+      let exists;
+      try {
+        exists = await userExists(userId);
+      } catch (_) {
+        exists = false;
+      }
+      if (!exists) {
+        error.textContent = "No account found with that code. Check spelling, or tap Cancel to start over.";
+        error.classList.remove('hidden');
+        return;
+      }
+      const user = await getUser(userId);
+      teardown();
+      resolve({ userId, code: user.code, recoveryCode: normalized });
+    }
+    function onCancel() {
+      teardown();
+      resolve(null);
+    }
+    function teardown() {
+      submit.removeEventListener('click', onSubmit);
+      cancel.removeEventListener('click', onCancel);
+      el.classList.add('hidden');
+    }
+    submit.addEventListener('click', onSubmit);
+    cancel.addEventListener('click', onCancel);
   });
 }
 
