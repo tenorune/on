@@ -67,12 +67,21 @@ async function ensureIdentity() {
 }
 
 function showStaleScreen() {
+  const el = document.getElementById('stale-screen');
+  const continueBtn = document.getElementById('stale-continue-btn');
+  const restoreBtn = document.getElementById('stale-restore-btn');
+  el.classList.remove('hidden');
   return new Promise((resolve) => {
-    document.getElementById('stale-screen').classList.remove('hidden');
-    document.getElementById('stale-continue-btn').addEventListener('click', () => {
-      document.getElementById('stale-screen').classList.add('hidden');
-      resolve();
-    }, { once: true });
+    function pick(choice) {
+      continueBtn.removeEventListener('click', onContinue);
+      restoreBtn.removeEventListener('click', onRestore);
+      el.classList.add('hidden');
+      resolve(choice);
+    }
+    function onContinue() { pick('continue'); }
+    function onRestore() { pick('restore'); }
+    continueBtn.addEventListener('click', onContinue);
+    restoreBtn.addEventListener('click', onRestore);
   });
 }
 

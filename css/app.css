@@ -715,3 +715,11 @@ main {
 }
 .restore-btns { display: flex; gap: 0.5rem; }
 .restore-btns button { flex: 1; }
+
+.stale-btns {
+  display: flex; flex-direction: column; gap: 0.5rem;
+}
+@media (min-width: 480px) {
+  .stale-btns { flex-direction: row; }
+  .stale-btns button { flex: 1; }
+}

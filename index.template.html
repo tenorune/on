@@ -24,8 +24,11 @@
   <!-- Stale identity recovery screen -->
   <div id="stale-screen" class="stale-screen hidden">
     <div class="stale-card">
-      <p class="stale-msg">Your previous session was not found.<br>A new code has been generated for you.</p>
-      <button id="stale-continue-btn" class="primary-btn">Continue</button>
+      <p class="stale-msg">Your previous session was not found.</p>
+      <div class="stale-btns">
+        <button id="stale-continue-btn" class="primary-btn">Continue with new account</button>
+        <button id="stale-restore-btn" class="ghost-btn">I have a recovery code</button>
+      </div>
     </div>
   </div>
 
