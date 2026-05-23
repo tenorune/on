@@ -2,7 +2,7 @@
 jest.mock('../js/db.js', () => ({
   rotateCode: jest.fn(),
 }));
-jest.mock('../js/identity.js', () => ({ saveIdentity: jest.fn() }));
+jest.mock('../js/identity.js', () => ({ saveIdentity: jest.fn(), loadIdentity: jest.fn().mockReturnValue(null) }));
 
 const { rotateCode } = require('../js/db.js');
 const { saveIdentity } = require('../js/identity.js');
@@ -53,7 +53,7 @@ test('rotate success: updates code display and calls saveIdentity', async () => 
   await new Promise((resolve) => setTimeout(resolve, 600));
 
   expect(document.getElementById('my-code-display').textContent).toBe('XYZ789');
-  expect(saveIdentity).toHaveBeenCalledWith('uid1', 'XYZ789');
+  expect(saveIdentity).toHaveBeenCalledWith('uid1', 'XYZ789', '');
 });
 
 test('rotate error: shows error message and re-enables buttons', async () => {

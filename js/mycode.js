@@ -1,6 +1,6 @@
 // js/mycode.js
 import { rotateCode } from './db.js';
-import { saveIdentity } from './identity.js';
+import { saveIdentity, loadIdentity } from './identity.js';
 
 export function initCodeDrawer(myUserId, myCode) {
   let currentCode = myCode;
@@ -64,7 +64,8 @@ export function initCodeDrawer(myUserId, myCode) {
       // Code is invisible — swap text and update state
       display.textContent = newCode;
       currentCode = newCode;
-      saveIdentity(myUserId, newCode);
+      const existing = loadIdentity();
+      saveIdentity(myUserId, newCode, existing?.recoveryCode ?? '');
 
       // Create NEW badge (starts invisible via CSS opacity:0)
       const badge = document.createElement('span');
@@ -96,6 +97,9 @@ export function initCodeDrawer(myUserId, myCode) {
   function dismissRotateConfirm() {
     document.getElementById('rotate-confirm').classList.add('hidden');
   }
+
+  const existing = loadIdentity();
+  if (existing?.recoveryCode) initRecoveryPill(existing.recoveryCode);
 }
 
 async function copyText(text) {
@@ -116,4 +120,55 @@ async function copyText(text) {
   ta.select();
   document.execCommand('copy');
   ta.remove();
+}
+
+export function initRecoveryPill(recoveryCode) {
+  const pill = document.getElementById('recovery-show-pill');
+  const revealed = document.getElementById('recovery-revealed');
+  const codeText = document.getElementById('drawer-recovery-code');
+  const copyBtn = document.getElementById('drawer-recovery-copy-btn');
+  if (!pill || !revealed || !codeText || !copyBtn) return;
+
+  codeText.textContent = recoveryCode;
+
+  let idleTimer = null;
+  let copiedTimer = null;
+
+  function toIdle() {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    if (copiedTimer) { clearTimeout(copiedTimer); copiedTimer = null; }
+    copyBtn.textContent = 'Copy';
+    revealed.classList.add('hidden');
+    pill.classList.remove('hidden');
+  }
+  function startIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(toIdle, 15000);
+  }
+  function toRevealed() {
+    pill.classList.add('hidden');
+    revealed.classList.remove('hidden');
+    copyBtn.textContent = 'Copy';
+    startIdleTimer();
+  }
+
+  pill.addEventListener('click', toRevealed);
+
+  codeText.addEventListener('click', () => {
+    // Tap on code text (not Copy) resets the idle timer
+    startIdleTimer();
+  });
+
+  copyBtn.addEventListener('click', async () => {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    try {
+      await navigator.clipboard?.writeText(recoveryCode);
+    } catch (_) { /* ignore */ }
+    copyBtn.textContent = 'Copied!';
+    if (copiedTimer) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copiedTimer = null;
+      toIdle();
+    }, 1500);
+  });
 }

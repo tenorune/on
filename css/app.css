@@ -20,11 +20,15 @@
 
 html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; overscroll-behavior-y: none; }
 
+.brand-mark {
+  color: var(--text);
+  font-size: 1.25rem;
+}
+
 #splash {
   position: fixed; inset: 0; z-index: 1000;
   display: flex; align-items: center; justify-content: center;
-  background: var(--bg); color: var(--text);
-  font-size: 1.25rem;
+  background: var(--bg);
   transition: opacity 0.5s;
 }
 #splash.fading { opacity: 0; pointer-events: none; }
@@ -413,6 +417,24 @@ main {
   color: var(--text-muted);
 }
 
+/* Welcome screen */
+.welcome-screen {
+  position: fixed; inset: 0; z-index: 900;
+  background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2rem;
+  padding: 2rem;
+}
+.welcome-screen.hidden { display: none; }
+.welcome-brand { font-size: 2rem; }
+.welcome-btns {
+  display: flex; flex-direction: column; gap: 0.75rem;
+  width: 100%; max-width: 320px;
+}
+@media (min-width: 480px) {
+  .welcome-btns { flex-direction: row; max-width: 480px; }
+}
+
 /* App header */
 #app-header {
   position: sticky;
@@ -623,6 +645,42 @@ main {
 }
 @keyframes key-spin { from { transform: rotate(0deg); } to { transform: rotate(720deg); } }
 
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 950;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+}
+.modal-overlay.hidden { display: none; }
+.modal-card {
+  background: var(--surface);
+  color: var(--text);
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  max-width: 360px;
+  width: 100%;
+  display: flex; flex-direction: column;
+  gap: 0.875rem;
+}
+.modal-card h3 { margin: 0; }
+.recovery-display {
+  display: flex; align-items: center; gap: 0.5rem;
+  background: var(--surface2);
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+}
+.recovery-code-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.05rem;
+  flex: 1;
+  word-break: break-all;
+}
+.recovery-warning {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
 /* Knock animations */
 @keyframes knock-deferred {
   0%   { box-shadow: inset 0 0 0 9999px color-mix(in srgb, var(--knock-color) 55%, transparent); }
@@ -638,3 +696,46 @@ main {
 }
 .knock-deferred { animation: knock-deferred 5s ease-in-out; }
 .knock-sender   { animation: knock-sender   0.2s ease-out; }
+
+.restore-screen {
+  position: fixed; inset: 0; z-index: 900;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem;
+}
+.restore-screen.hidden { display: none; }
+.restore-card {
+  display: flex; flex-direction: column; gap: 0.75rem;
+  width: 100%; max-width: 360px;
+}
+.restore-card h3 { margin: 0; }
+.restore-input {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: none;
+  letter-spacing: normal;
+  text-align: left;
+}
+.restore-btns { display: flex; gap: 0.5rem; }
+.restore-btns button { flex: 1; }
+
+.stale-btns {
+  display: flex; flex-direction: column; gap: 0.5rem;
+}
+@media (min-width: 480px) {
+  .stale-btns { flex-direction: row; }
+  .stale-btns button { flex: 1; }
+}
+
+.recovery-pill-row {
+  display: flex; align-items: center;
+  margin-top: 0.5rem;
+}
+.recovery-revealed {
+  display: flex; align-items: center; gap: 0.5rem;
+  background: var(--surface2);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  flex: 1;
+}
+.recovery-revealed.hidden { display: none; }
