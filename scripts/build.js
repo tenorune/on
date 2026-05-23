@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // scripts/build.js — reads .env.local or .env.production and passes Firebase config as esbuild defines
-const { readFileSync, existsSync } = require('fs');
+const { readFileSync, writeFileSync, existsSync } = require('fs');
 const path = require('path');
 
 function loadEnv(filename) {
@@ -36,4 +36,17 @@ FIREBASE_KEYS.forEach(key => {
   define[`process.env.${key}`] = JSON.stringify(env[key] || 'REPLACE_ME');
 });
 
-module.exports = { define, envFile };
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function writeIndexHtml(defaultTitle) {
+  const templatePath = path.resolve(__dirname, '..', 'index.template.html');
+  const outPath = path.resolve(__dirname, '..', 'index.html');
+  const title = process.env.APP_TITLE || env.APP_TITLE || defaultTitle;
+  const template = readFileSync(templatePath, 'utf8');
+  writeFileSync(outPath, template.replace('__APP_TITLE__', escapeHtml(title)));
+  return title;
+}
+
+module.exports = { define, envFile, writeIndexHtml };
