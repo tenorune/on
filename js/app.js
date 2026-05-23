@@ -1,5 +1,5 @@
 // js/app.js
-import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
+import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
 import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
@@ -43,27 +43,54 @@ function dismissSplash() {
 async function ensureIdentity() {
   const existing = loadIdentity();
   if (existing) {
+    let valid = true;
     try {
-      const valid = await userExists(existing.userId);
-      if (!valid) {
-        clearIdentity();
-        return { identity: null, isNew: false };
-      }
+      valid = await userExists(existing.userId);
     } catch {
-      // Network error (offline) — assume valid and proceed
+      // Network error — assume valid and proceed offline
     }
-    return { identity: existing, isNew: false };
+    if (valid) return { identity: existing, isNew: false };
+    // Stale identity flow: localStorage exists but Firebase doesn't
+    const choice = await showStaleScreen();
+    clearIdentity();
+    if (choice === 'restore') {
+      const restored = await showRestoreScreen();
+      if (restored) {
+        saveIdentity(restored.userId, restored.code, restored.recoveryCode);
+        return { identity: restored, isNew: false };
+      }
+      // User cancelled restore — fall through to new-account flow
+    }
+    return await createNewAccount();
   }
 
-  let userId, code, success;
+  // Empty localStorage — true new user OR cleared cache
+  const choice = await showWelcomeScreen();
+  if (choice === 'restore') {
+    const restored = await showRestoreScreen();
+    if (restored) {
+      saveIdentity(restored.userId, restored.code, restored.recoveryCode);
+      return { identity: restored, isNew: false };
+    }
+    // User cancelled restore — fall through
+  }
+  return await createNewAccount();
+}
+
+async function createNewAccount() {
+  const initial = generateRecoveryCode();
+  const recoveryCode = await showRecoveryCodeModal(initial);
+  const userId = await deriveUserIdFromRecoveryCode(recoveryCode);
+
+  // Claim a share code transactionally; loop on collision
+  let code, success;
   do {
-    userId = generateUserId();
     code = generateCode();
     success = await initUser(userId, code);
   } while (!success);
 
-  saveIdentity(userId, code);
-  return { identity: { userId, code }, isNew: true };
+  saveIdentity(userId, code, recoveryCode);
+  return { identity: { userId, code, recoveryCode }, isNew: true };
 }
 
 function showStaleScreen() {
@@ -195,12 +222,7 @@ export function showRestoreScreen() {
 }
 
 async function main() {
-  let { identity, isNew } = await ensureIdentity();
-  if (!identity) {
-    dismissSplash();
-    await showStaleScreen();
-    ({ identity, isNew } = await ensureIdentity());
-  }
+  const { identity, isNew } = await ensureIdentity();
   const { userId, code } = identity;
 
   touchLastSeen(userId).catch(() => {});
