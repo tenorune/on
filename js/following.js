@@ -7,12 +7,13 @@ import {
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
   getPaletteState, setPaletteState,
+  getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount,
 } from './store.js';
 import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock } from './knock.js';
-import { saveFavorite, removeHistoryDuplicatesOfSlots } from './favorites.js';
+import { saveFavorite, removeHistoryDuplicatesOfSlots, getAllCombos } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
@@ -27,6 +28,8 @@ let refreshInterval = null;
 let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
 let callModeCalleeId = null;   // userId of callee while in call mode (null = not in call mode)
+let _hintAlternateTimer = null;
+let _hintAlternateShow = 'longpress'; // 'longpress' | 'swipe'
 
 function showConfirm(title, btnText, action) {
   pendingAction = action;
@@ -176,6 +179,7 @@ export function resetRenderedFollowees() {
 export function getCallModeCalleeId() { return callModeCalleeId; }
 
 export function enterCallMode(calleeEntry, myUserId) {
+  incrementMadeCallCount();
   // If we were being called by someone, clear their callState first
   lastUserData.forEach((userData, userId) => {
     if (userData.callState?.calleeId === myUserId) {
@@ -220,9 +224,12 @@ export function exitCallMode(myUserId) {
   callModeCalleeId = null;
   clearCallState(myUserId).catch(() => {});
 
-  // Also clear peer's callState so the call is fully ended
+  // Clear peer's callState only if it still points at us
   if (prevCalleeId) {
-    clearCallState(prevCalleeId).catch(() => {});
+    const peerData = lastUserData.get(prevCalleeId);
+    if (peerData?.callState?.calleeId === myUserId) {
+      clearCallState(prevCalleeId).catch(() => {});
+    }
     const li = document.querySelector(`[data-user-id="${prevCalleeId}"]`);
     if (li) {
       li.classList.remove('call-mode');
@@ -381,6 +388,11 @@ function applyAdoption(entry, myUserId) {
 }
 
 function triggerAdoption(entry, myUserId) {
+  // Clear long-press hint on first adoption
+  if (!localStorage.getItem('statusapp_seen_longpress')) {
+    localStorage.setItem('statusapp_seen_longpress', '1');
+    document.querySelectorAll('.longpress-hint').forEach(el => el.remove());
+  }
   saveFavorite(true); // save pre-adoption state; adopted state enters history on next adoption or go-available
   applyAdoption(entry, myUserId);
   removeHistoryDuplicatesOfSlots(); // if adoption didn't change anything, remove the now-duplicate pill
@@ -389,6 +401,7 @@ function triggerAdoption(entry, myUserId) {
 function createFolloweeRow(entry, myUserId, isMutual = false) {
   const li = document.createElement('li');
   li.dataset.userId = entry.userId;
+  if (isMutual) li.dataset.mutual = '1';
 
   const nameHtml = (entry.label)
     ? `<div class="person-label">${escapeHtml(entry.label)}</div>`
@@ -447,8 +460,14 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
       const threshold = swipeCardWidth * 0.4;
       if (dx > threshold) {
         swipeActive = false;
+        // Clear swipe hint on first right-swipe
+        if (!localStorage.getItem('statusapp_seen_swipe')) {
+          localStorage.setItem('statusapp_seen_swipe', '1');
+          document.querySelectorAll('.swipe-hint').forEach(el => el.remove());
+        }
         if (li.classList.contains('call-mode') && callModeCalleeId !== entry.userId) {
           // Card is glowing and we're NOT the caller — we're the receiver answering
+          incrementAnsweredCallCount();
           const peerData = lastUserData.get(entry.userId);
           const peerSurface = peerData?.paletteKey
             ? (getPaletteByKey(peerData.paletteKey)?.theme?.surface || '#1e293b')
@@ -599,7 +618,23 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   const glow  = getGlowForColor(color);
   const ms = timeRemainingMs(userData.availableUntil);
   let statusText;
-  if (isAvail) {
+  const isCallee = callModeCalleeId !== null && entry.userId === callModeCalleeId;
+  const isCallModeReceiver = !isCallee && userData.callState?.calleeId === myUserId;
+  if (isCallee) {
+    const callText = getMadeCallCount() < 4
+      ? 'Calling them\u2026 (swipe left to hang up)'
+      : 'Calling them\u2026';
+    statusText = isAvail
+      ? `<span style="color:${safeCssColor(color)}">${callText}</span>`
+      : callText;
+  } else if (isCallModeReceiver) {
+    const callText = getAnsweredCallCount() < 4
+      ? 'Calling you\u2026 (swipe right to answer)'
+      : 'Calling you\u2026';
+    statusText = isAvail
+      ? `<span style="color:${safeCssColor(color)}">${callText}</span>`
+      : callText;
+  } else if (isAvail) {
     if (PALETTES_ENABLED) {
       statusText = `<span class="status-available" style="color:${safeCssColor(color)}">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
     } else {
@@ -650,8 +685,6 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   }
 
   // Call mode glow — caller side (this card is our active callee) or receiver side (they called us)
-  const isCallee = callModeCalleeId !== null && entry.userId === callModeCalleeId;
-  const isCallModeReceiver = !isCallee && userData.callState?.calleeId === myUserId;
   if (isCallee || isCallModeReceiver) {
     const callColor = isAvail
       ? (userData.statusColor || '#22c55e')
@@ -677,6 +710,97 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     li.classList.remove('call-mode');
     li.style.removeProperty('--call-color-rgb');
   }
+
+  // Long-press hint: show when mutual's combo differs from my current combo.
+  // Only after all FTU hints cleared, not during a call.
+  const peerColor = color;
+  const peerTheme = userData.paletteKey || null;
+  const isMyCombo = getAllCombos().some(c => c.statusColor === peerColor && (c.paletteKey || null) === peerTheme);
+  const showLongpressHint = PALETTE_INTERACTIONS_ENABLED
+      && !localStorage.getItem('statusapp_seen_longpress')
+      && localStorage.getItem('statusapp_went_avail_custom')
+      && localStorage.getItem('statusapp_seen_theme')
+      && localStorage.getItem('statusapp_seen_strip_peek_done')
+      && !isCallee && !isCallModeReceiver
+      && isAvail
+      && !isMyCombo;
+  // Swipe-right call hint: same gate as long-press, first mutual only
+  const isFirstMutual = li.dataset.mutual === '1'
+      && !li.previousElementSibling?.dataset?.mutual;
+  const swipeEligible = CALL_ENABLED
+      && isFirstMutual
+      && !localStorage.getItem('statusapp_seen_swipe')
+      && localStorage.getItem('statusapp_went_avail_custom')
+      && localStorage.getItem('statusapp_seen_theme')
+      && localStorage.getItem('statusapp_seen_strip_peek_done')
+      && !isCallee && !isCallModeReceiver;
+
+  // If both hints qualify, alternate between them each animation cycle
+  const bothEligible = showLongpressHint && swipeEligible;
+  if (bothEligible) {
+    if (!_hintAlternateTimer) {
+      _hintAlternateShow = 'longpress';
+      _hintAlternateTimer = setInterval(() => {
+        _hintAlternateShow = _hintAlternateShow === 'longpress' ? 'swipe' : 'longpress';
+        // Re-evaluate by triggering cached update for all visible mutuals
+        document.querySelectorAll('[data-mutual="1"][data-user-id]').forEach(el => {
+          const userId = el.dataset.userId;
+          const cached = lastUserData.get(userId);
+          if (cached) {
+            const entry = getFollowing().find(f => f.userId === userId);
+            if (entry) updateFolloweeRow(entry, cached, myUserIdRef);
+          }
+        });
+      }, 6850);
+    }
+  } else if (_hintAlternateTimer) {
+    clearInterval(_hintAlternateTimer);
+    _hintAlternateTimer = null;
+  }
+
+  const showThisLongpress = bothEligible ? _hintAlternateShow === 'longpress' : showLongpressHint;
+  const showSwipeHint = bothEligible ? _hintAlternateShow === 'swipe' : swipeEligible;
+
+  // Apply longpress hint based on alternation
+  const existingHint = li.querySelector('.longpress-hint');
+  if (!showThisLongpress && existingHint) {
+    existingHint.remove();
+  } else if (showThisLongpress && !li.querySelector('.longpress-hint')) {
+    const hint = document.createElement('div');
+    hint.className = 'longpress-hint';
+    li.style.position = 'relative';
+    li.appendChild(hint);
+  }
+
+  const existingSwipe = li.querySelector('.swipe-hint');
+  if (showSwipeHint && !existingSwipe) {
+    const hint = document.createElement('div');
+    hint.className = 'swipe-hint';
+    li.style.position = 'relative';
+    li.appendChild(hint);
+  } else if (!showSwipeHint && existingSwipe) {
+    existingSwipe.remove();
+  }
+}
+
+/** Re-evaluate long-press hints when the user's own combo changes. */
+document.addEventListener('my-combo-changed', () => refreshLongpressHints());
+
+function refreshLongpressHints() {
+  if (localStorage.getItem('statusapp_seen_longpress')) return;
+  const myCombos = getAllCombos();
+
+  document.querySelectorAll('.longpress-hint').forEach(hint => {
+    const li = hint.closest('[data-user-id]');
+    if (!li) return;
+    const userData = lastUserData.get(li.dataset.userId);
+    if (!userData) { hint.remove(); return; }
+    const peerColor = userData.statusColor || '#22c55e';
+    const peerTheme = userData.paletteKey || null;
+    if (myCombos.some(c => c.statusColor === peerColor && (c.paletteKey || null) === peerTheme)) {
+      hint.remove();
+    }
+  });
 }
 
 function getLabelText(li) {

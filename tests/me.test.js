@@ -1,6 +1,7 @@
 // tests/me.test.js
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
 jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), initFavoritesStrip: jest.fn() }));
+jest.mock('../js/palettes.js', () => ({ applyThemeHint: jest.fn(), restoreSetSwitchPulse: jest.fn() }));
 jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
   isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
@@ -10,6 +11,7 @@ jest.mock('../js/db.js', () => ({
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(),
   setLastTimeout: jest.fn(),
+  getPaletteState: jest.fn(() => ({ activeSet: 1, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } })),
 }));
 
 const { setStatus } = require('../js/db.js');
@@ -353,6 +355,7 @@ describe('saveFavorite guard in setAvailable', () => {
     jest.mock('../js/store.js', () => ({
       getLastTimeout: jest.fn().mockReturnValue(2),
       setLastTimeout: jest.fn(),
+      getPaletteState: jest.fn(() => ({ activeSet: 1, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } })),
     }));
     jest.useFakeTimers();
     global.requestAnimationFrame = (fn) => fn();

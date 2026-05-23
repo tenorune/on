@@ -1,6 +1,9 @@
 // js/palettes.js
-import { getPaletteState, setPaletteState } from './store.js';
+import { getPaletteState, setPaletteState, getFavorites } from './store.js';
 import { setStatusColor, setPaletteKey } from './db.js';
+
+let _hintTimer = null;
+let _justEnteredPaletteMode = false;
 
 // SVG Icons (inlined)
 // Heroicons bolt-solid (MIT) https://heroicons.com
@@ -161,12 +164,17 @@ export function resetThemeVars() {
 }
 
 export function enterPaletteMode(key, userId) {
+  _justEnteredPaletteMode = true;
+  if (!localStorage.getItem('statusapp_seen_theme')) {
+    localStorage.setItem('statusapp_seen_theme', '1');
+  }
   const state = getPaletteState();
   state.sets[String(state.activeSet)].activePaletteKey = key;
   setPaletteState(state);
   const palette = getPaletteByKey(key) || PALETTE_SETS[1][0];
   applyThemeVars(palette.theme);
   setPaletteKey(userId, key).catch(() => {});
+  document.dispatchEvent(new Event('my-combo-changed'));
   renderSwatchRow(userId);
 }
 
@@ -176,6 +184,7 @@ export function exitPaletteMode(userId) {
   setPaletteState(state);
   resetThemeVars();
   setPaletteKey(userId, null).catch(() => {});
+  document.dispatchEvent(new Event('my-combo-changed'));
   renderSwatchRow(userId);
 }
 
@@ -192,6 +201,15 @@ function renderSwatchRow(userId) {
   const btn = document.createElement('button');
   btn.className = 'set-toggle-btn';
   btn.innerHTML = setNum === 1 ? ICON_BOLT : ICON_TREE;
+  // First-use pulse: bolt on Set 1, flower on Set 2 — each pulses once per icon
+  const pulseKey = setNum === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
+  if (!localStorage.getItem(pulseKey)) {
+    btn.classList.add('first-use-pulse');
+    btn.addEventListener('click', () => {
+      btn.classList.remove('first-use-pulse');
+      localStorage.setItem(pulseKey, '1');
+    }, { once: true });
+  }
   btn.addEventListener('click', () => switchSet(setNum === 1 ? 2 : 1, userId));
   row.appendChild(btn);
 
@@ -215,6 +233,31 @@ function renderSwatchRow(userId) {
       swatch.addEventListener('click', () => tapSwatch(p.key, userId));
       row.appendChild(swatch);
     });
+    // Theme hint: pulsing dotted ring on selected swatch if user has:
+    // - seen both bolt and flower icons
+    // - selected a non-default color (gone available with it)
+    // - never entered palette mode
+    if (!localStorage.getItem('statusapp_seen_theme')
+        && localStorage.getItem('statusapp_went_avail_custom')) {
+      const selectedSwatch = row.querySelector('.swatch.selected');
+      if (selectedSwatch) selectedSwatch.classList.add('theme-hint');
+    }
+    // Dot go-hint: pulse status dot if current set is on a non-default swatch
+    const dot = document.getElementById('my-dot');
+    if (dot) {
+      const defaultKey = setNum === 1 ? 'forest' : 'volt';
+      if (savedKey !== defaultKey
+          && !localStorage.getItem('statusapp_went_avail_custom')
+          && !dot.classList.contains('available')) {
+        dot.classList.add('dot-go-hint');
+        // Pause set-switch pulse while dot-go is active
+        if (btn) btn.classList.remove('first-use-pulse');
+      } else {
+        dot.classList.remove('dot-go-hint');
+      }
+    }
+    // Sequential hint animation if user hasn't changed colors yet
+    startSwatchHints(row, state);
   } else {
     // Palette mode: Key Swatch at index K, complement swatches at other positions
     const keyPalette = getPaletteByKey(activePaletteKey);
@@ -226,6 +269,7 @@ function renderSwatchRow(userId) {
       const swatch = document.createElement('div');
       if (i === keyIdx) {
         swatch.className = 'swatch key-swatch';
+        if (_justEnteredPaletteMode) swatch.classList.add('key-spin');
         swatch.style.background = keyPalette.color;
         if (!activeColor || activeColor === keyPalette.color) swatch.classList.add('selected');
         swatch.addEventListener('click', () => {
@@ -244,6 +288,7 @@ function renderSwatchRow(userId) {
             const st2 = getPaletteState();
             st2.sets[String(st2.activeSet)].selectedColor = keyPalette.color;
             setPaletteState(st2);
+            document.dispatchEvent(new Event('my-combo-changed'));
             document.dispatchEvent(new CustomEvent('palette-state-changed'));
           }
         });
@@ -261,16 +306,91 @@ function renderSwatchRow(userId) {
           const st = getPaletteState();
           st.sets[String(st.activeSet)].selectedColor = color;
           setPaletteState(st);
+          document.dispatchEvent(new Event('my-combo-changed'));
           document.dispatchEvent(new CustomEvent('palette-state-changed'));
         });
       }
       row.appendChild(swatch);
     }
   }
+  _justEnteredPaletteMode = false;
   document.dispatchEvent(new CustomEvent('palette-state-changed'));
 }
 
+function shouldShowHints(state) {
+  // Show if user hasn't gone available with custom color
+  // and the CURRENT set is on its default
+  if (localStorage.getItem('statusapp_went_avail_custom')) return false;
+  const setKey = String(state.activeSet);
+  const defaultKey = state.activeSet === 1 ? 'forest' : 'volt';
+  if (state.sets[setKey].selectedKey !== defaultKey) return false;
+  if (state.sets[setKey].activePaletteKey !== null) return false;
+  return true;
+}
+
+function startSwatchHints(row, state) {
+  stopSwatchHints();
+  if (!shouldShowHints(state)) return;
+  const swatches = Array.from(row.querySelectorAll('.swatch:not(.selected)'));
+  if (swatches.length === 0) return;
+  swatches.forEach(s => s.classList.add('hint-wave'));
+  let head = 0;
+  // Opacity curve based on distance from head: peak at 0, fading at ±1, ±2
+  const opacities = [0.5, 0.3, 0.1, 0];
+  function updateWave() {
+    swatches.forEach((s, i) => {
+      // Circular distance
+      const dist = Math.min(
+        Math.abs(i - head),
+        swatches.length - Math.abs(i - head)
+      );
+      const opacity = dist < opacities.length ? opacities[dist] : 0;
+      s.style.boxShadow = opacity > 0
+        ? `0 0 0 3px rgba(255, 255, 255, ${opacity})`
+        : 'none';
+    });
+    head = (head + 1) % swatches.length;
+    _hintTimer = setTimeout(updateWave, 250);
+  }
+  updateWave();
+}
+
+export function restoreSetSwitchPulse() {
+  const row = document.getElementById('swatch-row');
+  if (!row) return;
+  const btn = row.querySelector('.set-toggle-btn');
+  if (!btn) return;
+  // Don't restore if dot-go-hint is active
+  const dot = document.getElementById('my-dot');
+  if (dot && dot.classList.contains('dot-go-hint')) return;
+  const state = getPaletteState();
+  const pulseKey = state.activeSet === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
+  if (!localStorage.getItem(pulseKey) && !btn.classList.contains('first-use-pulse')) {
+    btn.classList.add('first-use-pulse');
+  }
+}
+
+export function applyThemeHint() {
+  if (localStorage.getItem('statusapp_seen_theme')) return;
+  if (!localStorage.getItem('statusapp_went_avail_custom')) return;
+  const row = document.getElementById('swatch-row');
+  if (!row) return;
+  const selected = row.querySelector('.swatch.selected');
+  if (selected && !selected.classList.contains('theme-hint')) {
+    selected.classList.add('theme-hint');
+  }
+}
+
+function stopSwatchHints() {
+  if (_hintTimer) { clearTimeout(_hintTimer); _hintTimer = null; }
+  document.querySelectorAll('.swatch.hint-wave').forEach(s => {
+    s.classList.remove('hint-wave');
+    s.style.boxShadow = '';
+  });
+}
+
 export function tapSwatch(key, userId) {
+  stopSwatchHints();
   const state = getPaletteState();
   const setKey = String(state.activeSet);
   const currentlySelected = state.sets[setKey].selectedKey;
@@ -287,11 +407,46 @@ export function tapSwatch(key, userId) {
   state.sets[setKey].selectedColor = palette.color;
   setPaletteState(state);
   setStatusColor(userId, palette.color).catch(() => {});
+  document.dispatchEvent(new Event('my-combo-changed'));
   applyPaletteVars(key);
   const row = document.getElementById('swatch-row');
-  row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
+  row.querySelectorAll('.swatch').forEach(s => {
+    s.classList.remove('selected');
+    s.classList.remove('theme-hint');
+  });
   const target = row.querySelector(`[data-key="${key}"]`);
-  if (target) target.classList.add('selected');
+  if (target) {
+    target.classList.add('selected');
+    // Theme hint: show pulsing dotted ring if user has seen bolt/flower,
+    // selected a non-default color, and hasn't discovered themes yet
+    if (!localStorage.getItem('statusapp_seen_theme')
+        && localStorage.getItem('statusapp_went_avail_custom')) {
+      target.classList.add('theme-hint');
+    }
+  }
+  // Coordinate hints based on whether this is a default or non-default swatch
+  const defaultKey = state.activeSet === 1 ? 'forest' : 'volt';
+  const isNonDefault = key !== defaultKey;
+  const dot = document.getElementById('my-dot');
+  const toggleBtn = row.querySelector('.set-toggle-btn');
+
+  if (isNonDefault) {
+    // Non-default selected: start dot hint, pause set-switch hint while dot-go is active
+    if (dot && !localStorage.getItem('statusapp_went_avail_custom') && !dot.classList.contains('available')) {
+      dot.classList.add('dot-go-hint');
+      if (toggleBtn) toggleBtn.classList.remove('first-use-pulse');
+    }
+  } else {
+    // Default selected: stop dot hint, resume set-switch hint if not yet cleared,
+    // and restart swatch wave
+    if (dot) dot.classList.remove('dot-go-hint');
+    const pulseKey = state.activeSet === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
+    if (toggleBtn && !localStorage.getItem(pulseKey)) {
+      toggleBtn.classList.add('first-use-pulse');
+    }
+    startSwatchHints(row, state);
+  }
+
   document.dispatchEvent(new CustomEvent('palette-state-changed'));
 }
 
@@ -313,6 +468,7 @@ export function switchSet(toSet, userId) {
   document.documentElement.style.setProperty('--my-status', selectedColor);
   document.documentElement.style.setProperty('--my-glow', getGlowForColor(selectedColor));
   setStatusColor(userId, selectedColor).catch(() => {});
+  document.dispatchEvent(new Event('my-combo-changed'));
 
   if (activePaletteKey) {
     applyThemeVars(getPaletteByKey(activePaletteKey).theme);

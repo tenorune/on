@@ -1,5 +1,5 @@
 // tests/following.test.js
-jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), removeHistoryDuplicatesOfSlots: jest.fn(), initFavoritesStrip: jest.fn() }));
+jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), removeHistoryDuplicatesOfSlots: jest.fn(), initFavoritesStrip: jest.fn(), getAllCombos: jest.fn(() => []) }));
 
 // PointerEvent polyfill for jsdom (does not implement it natively)
 if (typeof PointerEvent === 'undefined') {
@@ -59,10 +59,14 @@ jest.mock('../js/store.js', () => ({
     },
   }),
   setPaletteState: jest.fn(),
+  getMadeCallCount: jest.fn().mockReturnValue(0),
+  incrementMadeCallCount: jest.fn(),
+  getAnsweredCallCount: jest.fn().mockReturnValue(0),
+  incrementAnsweredCallCount: jest.fn(),
 }));
 
 const { watchStatus, watchFollowers, setCallState, clearCallState } = require('../js/db.js');
-const { getFollowing, updateFollowingCode } = require('../js/store.js');
+const { getFollowing, updateFollowingCode, getMadeCallCount, getAnsweredCallCount } = require('../js/store.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
   initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees,
@@ -767,6 +771,79 @@ describe('call mode: receiver-side glow via updateFolloweeRow', () => {
     }, 'myUid');
     const li = document.querySelector('[data-user-id="alice"]');
     expect(li.style.getPropertyValue('--call-color-rgb')).toBe('34, 197, 94');
+  });
+});
+
+describe('call mode: display text during call', () => {
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+    // initList resets callModeCalleeId so tests are isolated
+    initAndCaptureFollowersCallback('myUid', 'MYCODE');
+  });
+
+  test('caller sees "Calling them…" when madeCallCount >= 4', () => {
+    getMadeCallCount.mockReturnValue(4);
+    const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
+    makeFolloweeLi('alice');
+    enterCallMode(entry, 'myUid');
+    updateFolloweeRow(entry, {
+      status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#22c55e',
+    }, 'myUid');
+    const status = document.querySelector('[data-user-id="alice"] .person-status');
+    expect(status.textContent).toBe('Calling them\u2026');
+  });
+
+  test('caller sees "(swipe left to hang up)" hint when madeCallCount < 4', () => {
+    getMadeCallCount.mockReturnValue(2);
+    const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
+    makeFolloweeLi('alice');
+    enterCallMode(entry, 'myUid');
+    updateFolloweeRow(entry, {
+      status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#22c55e',
+    }, 'myUid');
+    const status = document.querySelector('[data-user-id="alice"] .person-status');
+    expect(status.textContent).toBe('Calling them\u2026 (swipe left to hang up)');
+  });
+
+  test('receiver sees "Calling you…" when answeredCallCount >= 4', () => {
+    getAnsweredCallCount.mockReturnValue(5);
+    const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    makeFolloweeLi('alice');
+    updateFolloweeRow(entry, {
+      status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6',
+      callState: { calleeId: 'myUid', since: Date.now() },
+    }, 'myUid');
+    const status = document.querySelector('[data-user-id="alice"] .person-status');
+    expect(status.textContent).toBe('Calling you\u2026');
+  });
+
+  test('receiver sees "(swipe right to answer)" hint when answeredCallCount < 4', () => {
+    getAnsweredCallCount.mockReturnValue(1);
+    const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    makeFolloweeLi('alice');
+    updateFolloweeRow(entry, {
+      status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6',
+      callState: { calleeId: 'myUid', since: Date.now() },
+    }, 'myUid');
+    const status = document.querySelector('[data-user-id="alice"] .person-status');
+    expect(status.textContent).toBe('Calling you\u2026 (swipe right to answer)');
+  });
+
+  test('normal status text resumes after call mode ends', () => {
+    const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
+    makeFolloweeLi('alice');
+    enterCallMode(entry, 'myUid');
+    exitCallMode('myUid');
+    updateFolloweeRow(entry, {
+      status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#22c55e',
+    }, 'myUid');
+    const status = document.querySelector('[data-user-id="alice"] .person-status');
+    expect(status.textContent).toContain('Available for');
   });
 });
 

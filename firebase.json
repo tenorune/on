@@ -1,4 +1,7 @@
 {
+  "database": {
+    "rules": "database.rules.json"
+  },
   "hosting": {
     "public": ".",
     "ignore": ["firebase.json", ".firebaserc", "**/.*", "**/node_modules/**", "tests/**", "scripts/**", "docs/**", "package.json", "package-lock.json", "jest.config.js", "babel.config.js", "*.md"],

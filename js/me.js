@@ -1,8 +1,9 @@
 // js/me.js
 import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs } from './db.js';
-import { getLastTimeout, setLastTimeout } from './store.js';
+import { getLastTimeout, setLastTimeout, getPaletteState } from './store.js';
 import { PALETTES_ENABLED } from './features.js';
 import { saveFavorite } from './favorites.js';
+import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
 
 const CHIP_VALUES = [
   { minutes: 30,  text: '30 minutes' },
@@ -77,6 +78,13 @@ export function initHeader(myUserId) {
 
 export function enterFirstUseMode() {
   firstUseActive = true;
+  const dot = document.getElementById('my-dot');
+  if (dot) {
+    dot.classList.add('first-use-pulse');
+    dot.addEventListener('click', () => {
+      dot.classList.remove('first-use-pulse');
+    }, { once: true });
+  }
 }
 
 export function setOwnStatusReadyCallback(fn) {
@@ -122,10 +130,18 @@ function setKnockKnock() {
 function setAvailable(availableUntil) {
   const dot = document.getElementById('my-dot');
   if (PALETTES_ENABLED && savingEnabled && !dot.classList.contains('available')) saveFavorite();
+  // Track that user went available with a non-default color (for theme hint)
+  if (PALETTES_ENABLED && !dot.classList.contains('available')) {
+    const ps = getPaletteState();
+    if (ps.sets[String(ps.activeSet)].selectedColor) {
+      localStorage.setItem('statusapp_went_avail_custom', '1');
+    }
+  }
   const label = document.getElementById('my-status-label');
   const chips = document.getElementById('header-chips');
 
   // Immediate: dot changes and old label starts fading out
+  dot.classList.remove('dot-go-hint');
   dot.classList.add('available');
   label.style.opacity = '0';
 
@@ -185,6 +201,8 @@ function setUnavailable() {
   setTimeout(() => {
     if (PALETTES_ENABLED) {
       document.getElementById('swatch-row').classList.add('visible');
+      restoreSetSwitchPulse();
+      applyThemeHint();
     }
     timeRemaining.style.display = 'none';
     timeRemaining.style.opacity = '';

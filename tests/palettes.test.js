@@ -204,7 +204,7 @@ describe('initSwatches', () => {
     initSwatches('uid1');
     const first = document.getElementById('swatch-row').firstChild;
     expect(first.tagName).toBe('BUTTON');
-    expect(first.className).toBe('set-toggle-btn');
+    expect(first.classList.contains('set-toggle-btn')).toBe(true);
   });
 
   test('toggle button shows bolt icon when in Set 1 (pointing to Electric)', () => {

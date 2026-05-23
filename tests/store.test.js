@@ -3,6 +3,7 @@ const {
   getFollowing, addFollowing, removeFollowing, isFollowing,
   getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode,
   getPalette, setPalette, getPaletteState, setPaletteState,
+  getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount,
 } = require('../js/store');
 
 beforeEach(() => {
@@ -143,4 +144,39 @@ test('setPaletteState round-trips via getPaletteState', () => {
   setPaletteState(state);
   const loaded = getPaletteState();
   expect(loaded.sets['1'].selectedKey).toBe('gold');
+});
+
+// --- Call count counters ---
+
+test('getMadeCallCount returns 0 when nothing stored', () => {
+  expect(getMadeCallCount()).toBe(0);
+});
+
+test('incrementMadeCallCount increments from 0 to 1', () => {
+  incrementMadeCallCount();
+  expect(getMadeCallCount()).toBe(1);
+});
+
+test('incrementMadeCallCount accumulates', () => {
+  incrementMadeCallCount();
+  incrementMadeCallCount();
+  incrementMadeCallCount();
+  expect(getMadeCallCount()).toBe(3);
+});
+
+test('getAnsweredCallCount returns 0 when nothing stored', () => {
+  expect(getAnsweredCallCount()).toBe(0);
+});
+
+test('incrementAnsweredCallCount increments from 0 to 1', () => {
+  incrementAnsweredCallCount();
+  expect(getAnsweredCallCount()).toBe(1);
+});
+
+test('incrementAnsweredCallCount accumulates', () => {
+  incrementAnsweredCallCount();
+  incrementAnsweredCallCount();
+  incrementAnsweredCallCount();
+  incrementAnsweredCallCount();
+  expect(getAnsweredCallCount()).toBe(4);
 });
