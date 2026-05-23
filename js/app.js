@@ -6,7 +6,7 @@ import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getC
 import { initKnocks } from './knock.js';
 import { initCodeDrawer } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
-import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars } from './palettes.js';
+import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
 import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 
@@ -315,10 +315,12 @@ async function main() {
     // Sync color/palette across devices. These updates are independent of the
     // status-text re-render below, so they must run BEFORE the early-return that
     // suppresses label animation on no-op status changes.
+    let colorOrPaletteChanged = false;
     if (userData.statusColor && userData.statusColor !== lastStatusColor) {
       lastStatusColor = userData.statusColor;
       document.documentElement.style.setProperty('--my-status', userData.statusColor);
       document.documentElement.style.setProperty('--my-glow', getGlowForColor(userData.statusColor));
+      colorOrPaletteChanged = true;
     }
     const incomingPaletteKey = userData.paletteKey ?? null;
     if (incomingPaletteKey !== lastPaletteKey) {
@@ -329,6 +331,10 @@ async function main() {
       } else {
         resetThemeVars();
       }
+      colorOrPaletteChanged = true;
+    }
+    if (PALETTES_ENABLED && colorOrPaletteChanged) {
+      syncPaletteStateFromServer(userId, userData.statusColor, incomingPaletteKey);
     }
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);
