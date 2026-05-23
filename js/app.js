@@ -76,6 +76,25 @@ function showStaleScreen() {
   });
 }
 
+export function showWelcomeScreen() {
+  const el = document.getElementById('welcome-screen');
+  const newBtn = document.getElementById('welcome-new-btn');
+  const restoreBtn = document.getElementById('welcome-restore-btn');
+  el.classList.remove('hidden');
+  return new Promise((resolve) => {
+    function pick(choice) {
+      newBtn.removeEventListener('click', onNew);
+      restoreBtn.removeEventListener('click', onRestore);
+      el.classList.add('hidden');
+      resolve(choice);
+    }
+    function onNew() { pick('new'); }
+    function onRestore() { pick('restore'); }
+    newBtn.addEventListener('click', onNew);
+    restoreBtn.addEventListener('click', onRestore);
+  });
+}
+
 async function main() {
   let { identity, isNew } = await ensureIdentity();
   if (!identity) {

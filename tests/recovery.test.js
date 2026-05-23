@@ -1,4 +1,49 @@
 // tests/recovery.test.js
+
+// Mocks required so that require('../js/app') doesn't crash on Firebase imports.
+// These do NOT mock identity.js so the real functions work for the tests above.
+jest.mock('../js/db.js', () => ({
+  initUser: jest.fn().mockResolvedValue(true),
+  watchStatus: jest.fn(),
+  isExpired: jest.fn().mockReturnValue(false),
+  writeBackExpired: jest.fn(),
+  userExists: jest.fn().mockResolvedValue(true),
+  touchLastSeen: jest.fn().mockResolvedValue(undefined),
+  setStatus: jest.fn().mockResolvedValue(undefined),
+  clearCallState: jest.fn().mockResolvedValue(undefined),
+  getUser: jest.fn().mockResolvedValue(null),
+}));
+jest.mock('../js/me.js', () => ({
+  initHeader: jest.fn(),
+  applyOwnStatus: jest.fn(),
+  enterFirstUseMode: jest.fn(),
+  setOwnStatusReadyCallback: jest.fn(),
+}));
+jest.mock('../js/following.js', () => ({
+  initList: jest.fn(),
+  setFolloweeReadyCallback: jest.fn(),
+  reEnterCallMode: jest.fn(),
+  exitCallMode: jest.fn(),
+  getCallModeCalleeId: jest.fn().mockReturnValue(null),
+}));
+jest.mock('../js/knock.js', () => ({ initKnocks: jest.fn() }));
+jest.mock('../js/mycode.js', () => ({ initCodeDrawer: jest.fn() }));
+jest.mock('../js/features.js', () => ({
+  PALETTES_ENABLED: false,
+  PALETTE_INTERACTIONS_ENABLED: false,
+  KNOCK_ENABLED: false,
+  CALL_ENABLED: false,
+}));
+jest.mock('../js/palettes.js', () => ({
+  applyPaletteVars: jest.fn(),
+  initSwatches: jest.fn(),
+}));
+jest.mock('../js/favorites.js', () => ({ initFavoritesStrip: jest.fn() }));
+jest.mock('../js/store.js', () => ({
+  getPaletteState: jest.fn(() => ({ activeSet: 1, sets: { '1': { selectedKey: 'default', activePaletteKey: 'default' } } })),
+  getFollowing: jest.fn().mockReturnValue([]),
+}));
+
 const { generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } = require('../js/identity');
 const { WORDSET } = require('../js/wordlist');
 
@@ -79,5 +124,34 @@ describe('deriveUserIdFromRecoveryCode', () => {
     const a = await deriveUserIdFromRecoveryCode('swift-river-amber-dust');
     const b = await deriveUserIdFromRecoveryCode('swift-river-amber-other');
     expect(a).not.toBe(b);
+  });
+});
+
+describe('showWelcomeScreen', () => {
+  let showWelcomeScreen;
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="welcome-screen" class="welcome-screen hidden">
+        <button id="welcome-new-btn"></button>
+        <button id="welcome-restore-btn"></button>
+      </div>`;
+    jest.resetModules();
+    ({ showWelcomeScreen } = require('../js/app'));
+  });
+
+  test('reveals the screen and resolves "new" when "I\'m new" tapped', async () => {
+    const promise = showWelcomeScreen();
+    expect(document.getElementById('welcome-screen').classList.contains('hidden')).toBe(false);
+    document.getElementById('welcome-new-btn').click();
+    const choice = await promise;
+    expect(choice).toBe('new');
+    expect(document.getElementById('welcome-screen').classList.contains('hidden')).toBe(true);
+  });
+
+  test('resolves "restore" when "I have a recovery code" tapped', async () => {
+    const promise = showWelcomeScreen();
+    document.getElementById('welcome-restore-btn').click();
+    expect(await promise).toBe('restore');
+    expect(document.getElementById('welcome-screen').classList.contains('hidden')).toBe(true);
   });
 });
