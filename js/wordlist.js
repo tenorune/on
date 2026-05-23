@@ -1,7 +1,8 @@
 // js/wordlist.js — EFF long wordlist (public domain), filtered to 7772 words
 // Source: https://www.eff.org/dice (eff_large_wordlist.txt)
 // Filter: kept only entries matching /^[a-z]+$/ (dropped: drop-down, felt-tip, t-shirt, yo-yo)
-const WORDLIST = [
+// Regenerate with: node scripts/gen-wordlist.js
+const WORDLIST = Object.freeze([
   "abacus",
   "abdomen",
   "abdominal",
@@ -7774,7 +7775,7 @@ const WORDLIST = [
   "zoologist",
   "zoology",
   "zoom",
-];
+]);
 
 const WORDSET = new Set(WORDLIST);
 

@@ -12,7 +12,7 @@ test('WORDLIST entries are all lowercase ASCII', () => {
 });
 
 test('WORDLIST entries are unique', () => {
-  expect(WORDSET.size).toBe(WORDLIST.length);
+  expect(new Set(WORDLIST).size).toBe(WORDLIST.length);
 });
 
 test('WORDSET membership matches array', () => {
