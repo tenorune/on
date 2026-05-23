@@ -671,9 +671,12 @@ main {
 }
 .recovery-code-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 1.05rem;
+  /* Scales with viewport so 4×9-char words still fit on a 320px screen */
+  font-size: clamp(0.7rem, 3vw, 0.95rem);
   flex: 1;
-  word-break: break-all;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .recovery-warning {
   margin: 0;
@@ -727,15 +730,21 @@ main {
   .stale-btns button { flex: 1; }
 }
 
+/* Recovery pill row — sibling of #code-drawer; visible only while drawer is open */
 .recovery-pill-row {
-  display: flex; align-items: center;
+  display: none;
+  align-items: center;
   margin-top: 0.5rem;
+}
+#code-drawer.open + .recovery-pill-row {
+  display: flex;
 }
 .recovery-revealed {
   display: flex; align-items: center; gap: 0.5rem;
   background: var(--surface2);
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 999px;
   flex: 1;
+  min-width: 0;
 }
 .recovery-revealed.hidden { display: none; }
