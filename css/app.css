@@ -300,7 +300,8 @@ main {
 .rotate-btn:hover:not(:disabled) { color: var(--text); }
 .rotate-btn:disabled { opacity: 0.4; cursor: default; }
 #copy-code-btn { min-width: 5rem; text-align: center; margin-left: auto; }
-#recovery-copy-btn { min-width: 5rem; text-align: center; }
+/* Modal Copy sits in a tight row; keep it content-sized so the code text has room. */
+#recovery-copy-btn { padding: 6px 10px; font-size: 12px; }
 .hint { font-size: 12px; color: var(--text-muted); }
 .new-badge {
   display: inline-block;
@@ -674,13 +675,16 @@ main {
 }
 .recovery-code-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* Scales with viewport so 4×9-char words still fit on a 320px screen */
-  font-size: clamp(0.7rem, 3vw, 0.95rem);
   flex: 1;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
 }
+/* Modal: tighter container (modal-card + recovery-display nested padding),
+   so the code font runs smaller than the drawer pill version. */
+#recovery-code-text { font-size: clamp(0.6rem, 2.3vw, 0.8rem); }
+/* Drawer pill: more horizontal room since it spans the full drawer width. */
+#drawer-recovery-code { font-size: clamp(0.7rem, 3vw, 0.95rem); }
 .recovery-warning {
   margin: 0;
   font-size: 0.875rem;
