@@ -95,6 +95,14 @@ export function initHeader(myUserId) {
     const isOpen = drawer.classList.contains('open');
     drawer.classList.toggle('open');
     mycodeChip.classList.toggle('active', !isOpen);
+    if (isOpen) {
+      // Drawer is closing — collapse the secret-phrase pill back to Idle so the
+      // user doesn't see the revealed phrase next time they open the drawer.
+      document.getElementById('recovery-revealed')?.classList.add('hidden');
+      document.getElementById('recovery-show-pill')?.classList.remove('hidden');
+      const copyBtn = document.getElementById('drawer-recovery-copy-btn');
+      if (copyBtn) copyBtn.textContent = 'Copy';
+    }
   });
 }
 

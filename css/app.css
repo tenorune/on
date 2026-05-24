@@ -737,13 +737,18 @@ main {
   .stale-btns button { flex: 1; }
 }
 
-/* Recovery pill row — sibling of #code-drawer; visible only while drawer is open */
+/* Recovery pill row — sibling of #code-drawer; visible only while drawer is open.
+   Right padding matches .drawer-inner so the Copy button aligns with the share-code
+   Copy. Left padding is 0 so the "Show secret phrase" pill aligns with the drawer
+   card's left edge. Negative margin-bottom absorbs half of #app-header's
+   padding-bottom for tighter spacing under the pill. */
 .recovery-pill-row {
   display: none;
   align-items: center;
   gap: 0.625rem;
-  margin-top: 0.5rem;
-  padding: 0 1rem;
+  margin-top: 0.25rem;
+  margin-bottom: -0.5rem;
+  padding: 0 1rem 0 0;
 }
 #code-drawer.open + .recovery-pill-row {
   display: flex;
