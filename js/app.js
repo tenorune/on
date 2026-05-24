@@ -1,7 +1,7 @@
 // js/app.js
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
 import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser } from './db.js';
-import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
+import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback, updateChipFromServer } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
@@ -341,6 +341,9 @@ async function main() {
     }
     if (userData.code) {
       updateMyCode(userData.code);
+    }
+    if (userData.lastTimeoutMinutes) {
+      updateChipFromServer(userData.lastTimeoutMinutes);
     }
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);

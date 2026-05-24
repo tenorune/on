@@ -211,6 +211,10 @@ export async function setUserFavorites(userId, favorites) {
   await update(ref(db, `users/${userId}`), { favorites });
 }
 
+export async function setLastTimeoutMinutes(userId, minutes) {
+  await update(ref(db, `users/${userId}`), { lastTimeoutMinutes: minutes });
+}
+
 export async function setPaletteKey(userId, paletteKey) {
   await update(ref(db, `users/${userId}`), { paletteKey: paletteKey ?? null });
 }
