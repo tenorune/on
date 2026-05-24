@@ -51,10 +51,12 @@ jobs:
 
       - name: Deploy hosting + database rules
         run: |
-          set -a
-          . ./.env.production
-          set +a
+          PROJECT_ID=$(grep -E '^FIREBASE_PROJECT_ID=' .env.production | head -1 | cut -d= -f2- | tr -d '\r"' )
+          if [ -z "$PROJECT_ID" ]; then
+            echo "ERROR: FIREBASE_PROJECT_ID not found in .env.production" >&2
+            exit 1
+          fi
           npx firebase deploy \
             --only hosting,database \
-            --project "$FIREBASE_PROJECT_ID" \
+            --project "$PROJECT_ID" \
             --non-interactive
