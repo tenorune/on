@@ -2,14 +2,18 @@
 import { rotateCode } from './db.js';
 import { saveIdentity, loadIdentity } from './identity.js';
 
-export function initCodeDrawer(myUserId, myCode) {
-  let currentCode = myCode;
+let _myUserId = null;
+let _currentCode = null;
 
-  document.getElementById('my-code-display').textContent = currentCode;
+export function initCodeDrawer(myUserId, myCode) {
+  _myUserId = myUserId;
+  _currentCode = myCode;
+
+  document.getElementById('my-code-display').textContent = _currentCode;
 
   document.getElementById('copy-code-btn').addEventListener('click', () => {
     const btn = document.getElementById('copy-code-btn');
-    copyText(currentCode).then(() => {
+    copyText(_currentCode).then(() => {
       btn.textContent = 'Copied!';
       setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
     });
@@ -57,15 +61,15 @@ export function initCodeDrawer(myUserId, myCode) {
 
     try {
       const [newCode] = await Promise.all([
-        rotateCode(myUserId, currentCode),
+        rotateCode(_myUserId, _currentCode),
         new Promise((r) => setTimeout(r, 500)), // ensure full fade-out completes
       ]);
 
       // Code is invisible — swap text and update state
       display.textContent = newCode;
-      currentCode = newCode;
+      _currentCode = newCode;
       const existing = loadIdentity();
-      saveIdentity(myUserId, newCode, existing?.recoveryCode ?? '');
+      saveIdentity(_myUserId, newCode, existing?.recoveryCode ?? '');
 
       // Create NEW badge (starts invisible via CSS opacity:0)
       const badge = document.createElement('span');
@@ -120,6 +124,18 @@ async function copyText(text) {
   ta.select();
   document.execCommand('copy');
   ta.remove();
+}
+
+// Called when watchStatus reports the user's code changed on another device.
+// Updates the drawer display, the in-memory current code (used by Copy and
+// rotate), and localStorage. No-op if the code matches what's already shown.
+export function updateMyCode(newCode) {
+  if (!newCode || newCode === _currentCode) return;
+  _currentCode = newCode;
+  const display = document.getElementById('my-code-display');
+  if (display) display.textContent = newCode;
+  const existing = loadIdentity();
+  if (existing) saveIdentity(existing.userId, newCode, existing.recoveryCode);
 }
 
 export function initRecoveryPill(recoveryCode) {
