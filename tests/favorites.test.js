@@ -771,6 +771,8 @@ describe('getCanvasColors', () => {
         forest: { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } },
         volt:   { color: '#aaff00', theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600' } },
         iris:   { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } },
+        coral:  { color: '#fb7185', theme: { bg: '#1a0810', surface: '#2e0f1a', surface2: '#421722' } },
+        gold:   { color: '#facc15', theme: { bg: '#1a1500', surface: '#2e2400', surface2: '#423500' } },
       })[key] ?? null),
       getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
     }));
@@ -808,5 +810,42 @@ describe('getCanvasColors', () => {
     expect(bgColors).toContain('#1e293b');  // default surface (both slots)
     expect(bgColors).toContain('#141432');  // iris surface
     expect(bgColors.length).toBe(new Set(bgColors).size);
+  });
+
+  test('pads pen colors with defaults up to 4 when user has fewer', () => {
+    // Setup: slot1 forest, slot2 volt, no history → 2 pen colors
+    require('../js/store.js').getFavorites.mockReturnValue([]);
+    initFavoritesStrip('myUid');
+    const { penColors } = getCanvasColors();
+    expect(penColors).toHaveLength(4);
+    // forest already present (slot 1) → skipped; iris and coral added.
+    expect(penColors).toEqual(['#22c55e', '#aaff00', '#818cf8', '#fb7185']);
+  });
+
+  test('does not add defaults that are already present', () => {
+    // Setup: history contains coral, gold → defaults forest (skip, slot1),
+    // iris (add). Stop at 4.
+    require('../js/store.js').getFavorites.mockReturnValue([
+      { statusColor: '#fb7185', surface: '#2e0f1a', surface2: '#421722', paletteKey: 'coral', selectedKey: 'coral', activeSet: 1 },
+      { statusColor: '#facc15', surface: '#2e2400', surface2: '#423500', paletteKey: 'gold',  selectedKey: 'gold',  activeSet: 1 },
+    ]);
+    initFavoritesStrip('myUid');
+    const { penColors } = getCanvasColors();
+    expect(penColors).toHaveLength(4);
+    expect(penColors).toEqual(['#22c55e', '#aaff00', '#fb7185', '#facc15']);
+  });
+
+  test('does not pad when user already has 4+ pen colors', () => {
+    require('../js/store.js').getFavorites.mockReturnValue([
+      { statusColor: '#3b82f6', surface: '#1e293b', surface2: '#334155', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
+      { statusColor: '#a855f7', surface: '#1e293b', surface2: '#334155', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
+      { statusColor: '#ec4899', surface: '#1e293b', surface2: '#334155', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
+    ]);
+    initFavoritesStrip('myUid');
+    const { penColors } = getCanvasColors();
+    expect(penColors).toHaveLength(5);  // slot1, slot2, plus the 3 history
+    // No defaults appended.
+    expect(penColors).not.toContain('#818cf8');
+    expect(penColors).not.toContain('#fb7185');
   });
 });

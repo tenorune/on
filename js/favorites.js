@@ -103,10 +103,29 @@ export function getAllCombos() {
   return [slotCombo(1), slotCombo(2), ...getFavorites()];
 }
 
+// Default fallback colors used when the user has fewer than 4 pen colors
+// available. Each entry is a palette key; the resolved hex comes from
+// getPaletteByKey at call time. Used in priority order: forest first.
+const CANVAS_DEFAULT_KEYS = ['forest', 'iris', 'coral', 'gold'];
+const CANVAS_PEN_TARGET = 4;
+
 export function getCanvasColors() {
   const combos = getAllCombos();
   const penColors = [...new Set(combos.map(c => c.statusColor))];
   const bgColors  = [...new Set(combos.map(c => c.surface))];
+
+  // Pad penColors up to CANVAS_PEN_TARGET (row 1 of the toolbox) with
+  // default palette colors that aren't already present.
+  if (penColors.length < CANVAS_PEN_TARGET) {
+    for (const key of CANVAS_DEFAULT_KEYS) {
+      if (penColors.length >= CANVAS_PEN_TARGET) break;
+      const palette = getPaletteByKey(key);
+      if (palette && !penColors.includes(palette.color)) {
+        penColors.push(palette.color);
+      }
+    }
+  }
+
   return { penColors, bgColors };
 }
 
