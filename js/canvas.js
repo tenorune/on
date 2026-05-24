@@ -395,6 +395,15 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
       // Mid-stroke preview — redraw everything then overlay
       clearAndRedraw(_ctx, _canvas.width, _canvas.height, _bgColor, _allStrokes);
       renderStroke(drawingData, _ctx, _canvas.width, _canvas.height);
+      // Preserve my own in-progress stroke so it doesn't flash off while the
+      // peer is drawing — _currentPoints isn't in _allStrokes until pointerup.
+      if (_isDrawing && _currentPoints.length > 0) {
+        renderStroke({
+          color: _penColor,
+          thickness: _thickness,
+          points: _currentPoints,
+        }, _ctx, _canvas.width, _canvas.height);
+      }
     }
   });
 
@@ -718,11 +727,24 @@ function onPointerMove(e) {
   const px = e.clientX - rect.left;
   const py = e.clientY - rect.top;
   const [nx, ny] = normalizePoint(px, py, _canvas.width, _canvas.height);
+
+  // Previous point in pixel coords. Stored normalized, denormalize for the canvas.
+  const prev = _currentPoints[_currentPoints.length - 1];
+  const [prevPx, prevPy] = denormalizePoint(prev[0], prev[1], _canvas.width, _canvas.height);
   _currentPoints.push([nx, ny]);
+
+  // Re-initialize context state on every segment. A concurrent peer broadcast can
+  // change strokeStyle, lineWidth, and the path's current point via renderStroke;
+  // without this we'd inherit the peer's color and draw a line from peer's last
+  // point to ours.
+  _ctx.strokeStyle = safeCssColor(_penColor);
+  _ctx.lineWidth = _thickness * _canvas.width;
+  _ctx.lineCap = 'round';
+  _ctx.lineJoin = 'round';
+  _ctx.beginPath();
+  _ctx.moveTo(prevPx, prevPy);
   _ctx.lineTo(px, py);
   _ctx.stroke();
-  _ctx.beginPath();
-  _ctx.moveTo(px, py);
 
   // Throttled live drawing broadcast
   const now = Date.now();
