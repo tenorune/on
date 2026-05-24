@@ -4,7 +4,7 @@ import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLa
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
 import { initKnocks } from './knock.js';
-import { initCodeDrawer } from './mycode.js';
+import { initCodeDrawer, updateMyCode } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
@@ -338,6 +338,9 @@ async function main() {
     }
     if (PALETTE_INTERACTIONS_ENABLED) {
       syncFavoritesFromServer(userId, userData.favorites);
+    }
+    if (userData.code) {
+      updateMyCode(userData.code);
     }
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);
