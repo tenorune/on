@@ -27,7 +27,7 @@
       <p class="stale-msg">Your previous session was not found.</p>
       <div class="stale-btns">
         <button id="stale-continue-btn" class="primary-btn">Continue with new account</button>
-        <button id="stale-restore-btn" class="ghost-btn">I have a recovery code</button>
+        <button id="stale-restore-btn" class="ghost-btn">I have a secret phrase</button>
       </div>
     </div>
   </div>
@@ -36,16 +36,16 @@
     <span class="brand-mark welcome-brand">k&#x0338;n&#x0336;o&#x0338;c&#x0335;k&#x0335; &#x0336;k&#x0338;n&#x0337;o&#x0335;c&#x0338;k&#x0335;</span>
     <div class="welcome-btns">
       <button id="welcome-new-btn" class="primary-btn">I'm new</button>
-      <button id="welcome-restore-btn" class="ghost-btn">I have a recovery code</button>
+      <button id="welcome-restore-btn" class="ghost-btn">I have a secret phrase</button>
     </div>
   </div>
 
   <div id="recovery-modal" class="modal-overlay hidden">
     <div class="modal-card">
-      <h3>This is your recovery code</h3>
+      <h3>This is your secret phrase</h3>
       <div class="recovery-display">
         <span id="recovery-code-text" class="recovery-code-text"></span>
-        <button id="recovery-rotate-btn" class="rotate-btn" title="Generate new recovery code" aria-label="Generate new recovery code">↻</button>
+        <button id="recovery-rotate-btn" class="rotate-btn" title="Generate new secret phrase" aria-label="Generate new secret phrase">↻</button>
         <button id="recovery-copy-btn" class="ghost-btn">Copy</button>
       </div>
       <p class="recovery-warning">Save this somewhere safe. It's the only way to restore your account if you lose this browser. We can't recover it for you.</p>
@@ -55,8 +55,8 @@
 
   <div id="restore-screen" class="restore-screen hidden">
     <div class="restore-card">
-      <h3>Enter your recovery code</h3>
-      <input id="restore-input" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="your-four-recovery-words" class="code-input restore-input" />
+      <h3>Enter your secret phrase</h3>
+      <input id="restore-input" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="your-four-secret-words" class="code-input restore-input" />
       <p id="restore-error" class="error-msg hidden"></p>
       <div class="restore-btns">
         <button id="restore-submit-btn" class="primary-btn">Restore</button>
@@ -75,7 +75,7 @@
         </div>
         <div id="header-chips">
           <button id="time-chip" class="chip time-chip">2 hours</button>
-          <button id="mycode-chip" class="chip">My Code</button>
+          <button id="mycode-chip" class="chip">Share code</button>
         </div>
         <div id="swatch-row" style="display:none"></div>
       </div>
@@ -92,7 +92,7 @@
       </div>
     </div>
     <div id="recovery-pill-row" class="recovery-pill-row">
-      <button id="recovery-show-pill" class="chip">Show recovery code</button>
+      <button id="recovery-show-pill" class="chip">Show secret phrase</button>
       <div id="recovery-revealed" class="recovery-revealed hidden">
         <span id="drawer-recovery-code" class="recovery-code-text"></span>
         <button id="drawer-recovery-copy-btn" class="ghost-btn">Copy</button>

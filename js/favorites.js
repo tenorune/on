@@ -348,7 +348,7 @@ function peekStrip(container, history) {
   const lineRect = rainbowLine ? rainbowLine.getBoundingClientRect() : container.getBoundingClientRect();
 
   const wrapper = document.createElement('div');
-  wrapper.style.cssText = `position:fixed; left:0; right:0; top:${lineRect.bottom}px; overflow:hidden; max-height:0; pointer-events:none; z-index:50; -webkit-mask-image:linear-gradient(to bottom, black, transparent); mask-image:linear-gradient(to bottom, black, transparent);`;
+  wrapper.style.cssText = `position:fixed; left:${lineRect.left}px; width:${lineRect.width}px; top:${lineRect.bottom}px; overflow:hidden; max-height:0; pointer-events:none; z-index:50; -webkit-mask-image:linear-gradient(to bottom, black, transparent); mask-image:linear-gradient(to bottom, black, transparent);`;
   wrapper.appendChild(strip);
   document.body.appendChild(wrapper);
 

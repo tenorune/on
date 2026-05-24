@@ -199,7 +199,7 @@ export function showRestoreScreen() {
     async function onSubmit() {
       const normalized = parseRecoveryCode(input.value);
       if (!normalized) {
-        error.textContent = "That doesn't look like a recovery code — check that you entered 4 words from the list.";
+        error.textContent = "That doesn't look like a secret phrase — check that you entered 4 words from the list.";
         error.classList.remove('hidden');
         return;
       }
@@ -211,13 +211,13 @@ export function showRestoreScreen() {
         exists = false;
       }
       if (!exists) {
-        error.textContent = "No account found with that code. Check spelling, or tap Cancel to start over.";
+        error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
         error.classList.remove('hidden');
         return;
       }
       const user = await getUser(userId);
       if (!user) {
-        error.textContent = "No account found with that code. Check spelling, or tap Cancel to start over.";
+        error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
         error.classList.remove('hidden');
         return;
       }
