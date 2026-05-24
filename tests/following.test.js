@@ -41,12 +41,16 @@ jest.mock('../js/db.js', () => ({
   clearCallState: jest.fn().mockResolvedValue(undefined),
   setStatusColor: jest.fn().mockResolvedValue(undefined),
   setPaletteKey: jest.fn().mockResolvedValue(undefined),
+  watchFollowing: jest.fn(() => jest.fn()),
+  setFollowingEntry: jest.fn().mockResolvedValue(undefined),
+  removeFollowingEntry: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
 }));
 jest.mock('../js/store.js', () => ({
   getFollowing: jest.fn(),
+  setFollowing: jest.fn(),
   addFollowing: jest.fn(),
   removeFollowing: jest.fn(),
   renameFollowing: jest.fn(),

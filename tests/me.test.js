@@ -7,6 +7,7 @@ jest.mock('../js/db.js', () => ({
   isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
   formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
   timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
+  setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(),
@@ -176,7 +177,7 @@ test('clicking time chip while available advances to next chip and calls setStat
 });
 
 test('time chip cycle wraps from last chip back to first', async () => {
-  getLastTimeout.mockReturnValue(480); // index 7 = 8 hours
+  getLastTimeout.mockReturnValue(1440); // index 10 = 24 hours (last chip)
   initHeader('uid1');
   document.getElementById('my-dot').classList.add('available');
 
@@ -351,6 +352,7 @@ describe('saveFavorite guard in setAvailable', () => {
       isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
       formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
       timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
+      setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
     }));
     jest.mock('../js/store.js', () => ({
       getLastTimeout: jest.fn().mockReturnValue(2),

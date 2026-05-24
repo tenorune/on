@@ -1,13 +1,13 @@
 // js/app.js
-import { loadIdentity, saveIdentity, generateUserId, generateCode, clearIdentity } from './identity.js';
+import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
 import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser } from './db.js';
-import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
+import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback, updateChipFromServer } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
 import { initKnocks } from './knock.js';
-import { initCodeDrawer } from './mycode.js';
+import { initCodeDrawer, updateMyCode } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
-import { applyPaletteVars, initSwatches } from './palettes.js';
-import { initFavoritesStrip } from './favorites.js';
+import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
+import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 
 
@@ -43,46 +43,203 @@ function dismissSplash() {
 async function ensureIdentity() {
   const existing = loadIdentity();
   if (existing) {
+    let valid = true;
     try {
-      const valid = await userExists(existing.userId);
-      if (!valid) {
-        clearIdentity();
-        return { identity: null, isNew: false };
-      }
+      valid = await userExists(existing.userId);
     } catch {
-      // Network error (offline) — assume valid and proceed
+      // Network error — assume valid and proceed offline
     }
-    return { identity: existing, isNew: false };
+    if (valid) return { identity: existing, isNew: false };
+    // Stale identity flow: localStorage exists but Firebase doesn't.
+    // Dismiss splash so the user can see and interact with the screens.
+    dismissSplash();
+    clearIdentity();
+    // Loop so that cancelling the restore screen returns the user to the
+    // stale screen, not silently to the new-account flow.
+    while (true) {
+      const choice = await showStaleScreen();
+      if (choice === 'restore') {
+        const restored = await showRestoreScreen();
+        if (restored) {
+          saveIdentity(restored.userId, restored.code, restored.recoveryCode);
+          return { identity: restored, isNew: false };
+        }
+        continue;
+      }
+      return await createNewAccount();
+    }
   }
 
-  let userId, code, success;
+  // Empty localStorage — true new user OR cleared cache.
+  // Dismiss splash so the user can see and interact with the welcome screen.
+  dismissSplash();
+  // Loop so that cancelling the restore screen returns the user to the
+  // welcome screen, not silently into the new-account flow.
+  while (true) {
+    const choice = await showWelcomeScreen();
+    if (choice === 'restore') {
+      const restored = await showRestoreScreen();
+      if (restored) {
+        saveIdentity(restored.userId, restored.code, restored.recoveryCode);
+        return { identity: restored, isNew: false };
+      }
+      continue;
+    }
+    return await createNewAccount();
+  }
+}
+
+async function createNewAccount() {
+  const initial = generateRecoveryCode();
+  const recoveryCode = await showRecoveryCodeModal(initial);
+  const userId = await deriveUserIdFromRecoveryCode(recoveryCode);
+
+  // Claim a share code transactionally; loop on collision
+  let code, success;
   do {
-    userId = generateUserId();
     code = generateCode();
     success = await initUser(userId, code);
   } while (!success);
 
-  saveIdentity(userId, code);
-  return { identity: { userId, code }, isNew: true };
+  saveIdentity(userId, code, recoveryCode);
+  return { identity: { userId, code, recoveryCode }, isNew: true };
 }
 
 function showStaleScreen() {
+  const el = document.getElementById('stale-screen');
+  const continueBtn = document.getElementById('stale-continue-btn');
+  const restoreBtn = document.getElementById('stale-restore-btn');
+  el.classList.remove('hidden');
   return new Promise((resolve) => {
-    document.getElementById('stale-screen').classList.remove('hidden');
-    document.getElementById('stale-continue-btn').addEventListener('click', () => {
-      document.getElementById('stale-screen').classList.add('hidden');
-      resolve();
-    }, { once: true });
+    function pick(choice) {
+      continueBtn.removeEventListener('click', onContinue);
+      restoreBtn.removeEventListener('click', onRestore);
+      el.classList.add('hidden');
+      resolve(choice);
+    }
+    function onContinue() { pick('continue'); }
+    function onRestore() { pick('restore'); }
+    continueBtn.addEventListener('click', onContinue);
+    restoreBtn.addEventListener('click', onRestore);
+  });
+}
+
+export function showWelcomeScreen() {
+  const el = document.getElementById('welcome-screen');
+  const newBtn = document.getElementById('welcome-new-btn');
+  const restoreBtn = document.getElementById('welcome-restore-btn');
+  el.classList.remove('hidden');
+  return new Promise((resolve) => {
+    function pick(choice) {
+      newBtn.removeEventListener('click', onNew);
+      restoreBtn.removeEventListener('click', onRestore);
+      el.classList.add('hidden');
+      resolve(choice);
+    }
+    function onNew() { pick('new'); }
+    function onRestore() { pick('restore'); }
+    newBtn.addEventListener('click', onNew);
+    restoreBtn.addEventListener('click', onRestore);
+  });
+}
+
+export function showRecoveryCodeModal(initialCode) {
+  const el = document.getElementById('recovery-modal');
+  const text = document.getElementById('recovery-code-text');
+  const rotateBtn = document.getElementById('recovery-rotate-btn');
+  const copyBtn = document.getElementById('recovery-copy-btn');
+  const savedBtn = document.getElementById('recovery-saved-btn');
+
+  let current = initialCode;
+  text.textContent = current;
+  if (copyBtn) copyBtn.textContent = 'Copy';
+  el.classList.remove('hidden');
+
+  return new Promise((resolve) => {
+    function onRotate() {
+      current = generateRecoveryCode();
+      text.textContent = current;
+      if (copyBtn) copyBtn.textContent = 'Copy';
+    }
+    async function onCopy() {
+      try {
+        await navigator.clipboard?.writeText(current);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+      } catch (_) {
+        // ignore clipboard failures
+      }
+    }
+    function onSaved() {
+      rotateBtn.removeEventListener('click', onRotate);
+      copyBtn.removeEventListener('click', onCopy);
+      savedBtn.removeEventListener('click', onSaved);
+      el.classList.add('hidden');
+      resolve(current);
+    }
+    rotateBtn.addEventListener('click', onRotate);
+    copyBtn.addEventListener('click', onCopy);
+    savedBtn.addEventListener('click', onSaved);
+  });
+}
+
+export function showRestoreScreen() {
+  const el = document.getElementById('restore-screen');
+  const input = document.getElementById('restore-input');
+  const error = document.getElementById('restore-error');
+  const submit = document.getElementById('restore-submit-btn');
+  const cancel = document.getElementById('restore-cancel-btn');
+
+  input.value = '';
+  error.classList.add('hidden');
+  error.textContent = '';
+  el.classList.remove('hidden');
+
+  return new Promise((resolve) => {
+    async function onSubmit() {
+      const normalized = parseRecoveryCode(input.value);
+      if (!normalized) {
+        error.textContent = "That doesn't look like a secret phrase — check that you entered 4 words from the list.";
+        error.classList.remove('hidden');
+        return;
+      }
+      const userId = await deriveUserIdFromRecoveryCode(normalized);
+      let exists;
+      try {
+        exists = await userExists(userId);
+      } catch (_) {
+        exists = false;
+      }
+      if (!exists) {
+        error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
+        error.classList.remove('hidden');
+        return;
+      }
+      const user = await getUser(userId);
+      if (!user) {
+        error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
+        error.classList.remove('hidden');
+        return;
+      }
+      teardown();
+      resolve({ userId, code: user.code, recoveryCode: normalized });
+    }
+    function onCancel() {
+      teardown();
+      resolve(null);
+    }
+    function teardown() {
+      submit.removeEventListener('click', onSubmit);
+      cancel.removeEventListener('click', onCancel);
+      el.classList.add('hidden');
+    }
+    submit.addEventListener('click', onSubmit);
+    cancel.addEventListener('click', onCancel);
   });
 }
 
 async function main() {
-  let { identity, isNew } = await ensureIdentity();
-  if (!identity) {
-    dismissSplash();
-    await showStaleScreen();
-    ({ identity, isNew } = await ensureIdentity());
-  }
+  const { identity, isNew } = await ensureIdentity();
   const { userId, code } = identity;
 
   touchLastSeen(userId).catch(() => {});
@@ -113,6 +270,8 @@ async function main() {
 
   let lastStatus = null;
   let lastAvailableUntil = null;
+  let lastStatusColor = null;
+  let lastPaletteKey = null;
   let callModeHandled = false;
   watchStatus(userId, async (userData) => {
     if (!userData) return;
@@ -151,6 +310,40 @@ async function main() {
       } else {
         exitCallMode(userId);
       }
+    }
+
+    // Sync color/palette across devices. These updates are independent of the
+    // status-text re-render below, so they must run BEFORE the early-return that
+    // suppresses label animation on no-op status changes.
+    let colorOrPaletteChanged = false;
+    if (userData.statusColor && userData.statusColor !== lastStatusColor) {
+      lastStatusColor = userData.statusColor;
+      document.documentElement.style.setProperty('--my-status', userData.statusColor);
+      document.documentElement.style.setProperty('--my-glow', getGlowForColor(userData.statusColor));
+      colorOrPaletteChanged = true;
+    }
+    const incomingPaletteKey = userData.paletteKey ?? null;
+    if (incomingPaletteKey !== lastPaletteKey) {
+      lastPaletteKey = incomingPaletteKey;
+      if (incomingPaletteKey) {
+        const palette = getPaletteByKey(incomingPaletteKey);
+        if (palette) applyThemeVars(palette.theme);
+      } else {
+        resetThemeVars();
+      }
+      colorOrPaletteChanged = true;
+    }
+    if (PALETTES_ENABLED && colorOrPaletteChanged) {
+      syncPaletteStateFromServer(userId, userData.statusColor, incomingPaletteKey);
+    }
+    if (PALETTE_INTERACTIONS_ENABLED) {
+      syncFavoritesFromServer(userId, userData.favorites);
+    }
+    if (userData.code) {
+      updateMyCode(userData.code);
+    }
+    if (userData.lastTimeoutMinutes) {
+      updateChipFromServer(userData.lastTimeoutMinutes);
     }
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);

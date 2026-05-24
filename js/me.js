@@ -1,19 +1,22 @@
 // js/me.js
-import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs } from './db.js';
+import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs, setLastTimeoutMinutes } from './db.js';
 import { getLastTimeout, setLastTimeout, getPaletteState } from './store.js';
 import { PALETTES_ENABLED } from './features.js';
 import { saveFavorite } from './favorites.js';
 import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
 
 const CHIP_VALUES = [
-  { minutes: 30,  text: '30 minutes' },
-  { minutes: 60,  text: '1 hour' },
-  { minutes: 90,  text: '1 hour 30 minutes' },
-  { minutes: 120, text: '2 hours' },
-  { minutes: 180, text: '3 hours' },
-  { minutes: 240, text: '4 hours' },
-  { minutes: 360, text: '6 hours' },
-  { minutes: 480, text: '8 hours' },
+  { minutes: 30,   text: '30 minutes' },
+  { minutes: 60,   text: '1 hour' },
+  { minutes: 90,   text: '1 hour 30 minutes' },
+  { minutes: 120,  text: '2 hours' },
+  { minutes: 180,  text: '3 hours' },
+  { minutes: 240,  text: '4 hours' },
+  { minutes: 360,  text: '6 hours' },
+  { minutes: 480,  text: '8 hours' },
+  { minutes: 720,  text: '12 hours' },
+  { minutes: 1080, text: '18 hours' },
+  { minutes: 1440, text: '24 hours' },
 ];
 
 let savingEnabled = false;
@@ -23,16 +26,32 @@ let firstUseActive = false;
 let ownStatusSignalled = false;
 let onOwnStatusReady = null;
 
-function migrateToChipIndex() {
-  let stored = getLastTimeout();
-  if (stored <= 12) stored = stored * 60;
+function chipIndexForMinutes(minutes) {
+  let m = minutes;
+  if (m <= 12) m = m * 60; // legacy: some old values were stored as hours
   let bestIndex = 0;
-  let bestDist = Math.abs(CHIP_VALUES[0].minutes - stored);
+  let bestDist = Math.abs(CHIP_VALUES[0].minutes - m);
   for (let i = 1; i < CHIP_VALUES.length; i++) {
-    const dist = Math.abs(CHIP_VALUES[i].minutes - stored);
+    const dist = Math.abs(CHIP_VALUES[i].minutes - m);
     if (dist < bestDist) { bestDist = dist; bestIndex = i; }
   }
   return bestIndex;
+}
+
+function migrateToChipIndex() {
+  return chipIndexForMinutes(getLastTimeout());
+}
+
+// Called from app.js's watchStatus when userData.lastTimeoutMinutes changes.
+// Reflects the user's chip selection from another device on this device.
+export function updateChipFromServer(minutes) {
+  if (!minutes) return;
+  const newIndex = chipIndexForMinutes(minutes);
+  if (newIndex === currentChipIndex) return;
+  currentChipIndex = newIndex;
+  const timeChip = document.getElementById('time-chip');
+  if (timeChip) timeChip.textContent = CHIP_VALUES[newIndex].text;
+  setLastTimeout(CHIP_VALUES[newIndex].minutes);
 }
 
 export function initHeader(myUserId) {
@@ -53,6 +72,8 @@ export function initHeader(myUserId) {
       const { minutes } = CHIP_VALUES[currentChipIndex];
       const availableUntil = Date.now() + minutes * 60000;
       await setStatus(myUserId, 'available', availableUntil);
+      setLastTimeout(minutes);
+      setLastTimeoutMinutes(myUserId, minutes).catch(() => {});
       setAvailable(availableUntil);
     }
   });
@@ -67,12 +88,21 @@ export function initHeader(myUserId) {
     const tr = document.getElementById('time-remaining');
     tr.textContent = '· ' + formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
     setLastTimeout(minutes);
+    setLastTimeoutMinutes(myUserId, minutes).catch(() => {});
   });
 
   mycodeChip.addEventListener('click', () => {
     const isOpen = drawer.classList.contains('open');
     drawer.classList.toggle('open');
     mycodeChip.classList.toggle('active', !isOpen);
+    if (isOpen) {
+      // Drawer is closing — collapse the secret-phrase pill back to Idle so the
+      // user doesn't see the revealed phrase next time they open the drawer.
+      document.getElementById('recovery-revealed')?.classList.add('hidden');
+      document.getElementById('recovery-show-pill')?.classList.remove('hidden');
+      const copyBtn = document.getElementById('drawer-recovery-copy-btn');
+      if (copyBtn) copyBtn.textContent = 'Copy';
+    }
   });
 }
 

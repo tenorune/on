@@ -117,6 +117,31 @@ export async function registerAsFollower(targetUserId, myUserId, myCode) {
   await set(ref(db, `users/${targetUserId}/followers/${myUserId}`), myCode);
 }
 
+// ── Following (own-side of the relationship) ─────────────────────────────────
+// Storage: users/{myUid}/following/{followeeUid} = { code, label }
+// Keyed by followee uid so per-entry updates don't disturb other entries.
+
+export function watchFollowing(myUserId, callback) {
+  const followingRef = ref(db, `users/${myUserId}/following`);
+  return onValue(followingRef, (snap) => {
+    const data = snap.val() || {};
+    // data is { followeeId: { code, label }, ... }
+    callback(Object.entries(data).map(([userId, v]) => ({
+      userId,
+      code: v?.code ?? '',
+      label: v?.label ?? '',
+    })));
+  });
+}
+
+export async function setFollowingEntry(myUserId, followeeUserId, code, label) {
+  await set(ref(db, `users/${myUserId}/following/${followeeUserId}`), { code, label: label ?? '' });
+}
+
+export async function removeFollowingEntry(myUserId, followeeUserId) {
+  await remove(ref(db, `users/${myUserId}/following/${followeeUserId}`));
+}
+
 // Called when the follower wants to stop following targetUserId.
 // Only removes the followers entry — does NOT write to revokedFollowers.
 export async function unregisterAsFollower(targetUserId, myUserId) {
@@ -180,6 +205,14 @@ export async function rotateCode(userId, oldCode) {
 
 export async function setStatusColor(userId, color) {
   await update(ref(db, `users/${userId}`), { statusColor: color });
+}
+
+export async function setUserFavorites(userId, favorites) {
+  await update(ref(db, `users/${userId}`), { favorites });
+}
+
+export async function setLastTimeoutMinutes(userId, minutes) {
+  await update(ref(db, `users/${userId}`), { lastTimeoutMinutes: minutes });
 }
 
 export async function setPaletteKey(userId, paletteKey) {

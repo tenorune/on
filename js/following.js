@@ -3,10 +3,11 @@ import {
   lookupCode, watchStatus, watchFollowers, registerAsFollower, unregisterAsFollower,
   removeFollower, isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
   formatLastSeen, setCallState, clearCallState, setStatusColor,
+  watchFollowing, setFollowingEntry, removeFollowingEntry,
 } from './db.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
-  getPaletteState, setPaletteState,
+  getPaletteState, setPaletteState, setFollowing,
   getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount,
 } from './store.js';
 import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
@@ -24,6 +25,7 @@ let onFolloweeReady = null;
 
 let latestFollowersSnapshot = [];
 let unsubFollowers = null;
+let unsubFollowing = null;
 let refreshInterval = null;
 let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
@@ -55,6 +57,7 @@ async function doConfirm() {
     lastUserData.delete(action.userId);
     await unregisterAsFollower(action.userId, action.myUserId);
     removeFollowing(action.userId);
+    removeFollowingEntry(action.myUserId, action.userId).catch(() => {});
     renderList();
   } else if (action.type === 'removeFollower') {
     await removeFollower(action.myUserId, action.userId);
@@ -111,6 +114,12 @@ export function initList(myUserId, myCode) {
   unsubFollowers = watchFollowers(myUserId, (followers) => {
     latestFollowersSnapshot = followers;
     renderList();
+  });
+
+  // Subscribe to own following list (cross-device sync of contacts)
+  if (unsubFollowing) unsubFollowing();
+  unsubFollowing = watchFollowing(myUserId, (serverFollowing) => {
+    syncFollowingFromServer(myUserId, serverFollowing);
   });
 
   // Refresh time labels every 60s
@@ -563,12 +572,51 @@ function createFollowerOnlyRow(follower, myUserId) {
   document.getElementById('people-list').appendChild(li);
 }
 
+// Reconcile local following list with server. Called from the watchFollowing
+// subscription. On first tick where the server has nothing but local has
+// entries, push local up (migration). Otherwise server wins on conflict
+// (per-entry last-write-wins is enforced naturally by the keyed write path).
+function syncFollowingFromServer(myUserId, serverFollowing) {
+  const localFollowing = getFollowing();
+
+  if (serverFollowing.length === 0 && localFollowing.length > 0) {
+    for (const entry of localFollowing) {
+      setFollowingEntry(myUserId, entry.userId, entry.code, entry.label ?? '').catch(() => {});
+    }
+    return;
+  }
+
+  // Compare as JSON strings keyed by uid (order-independent).
+  const toMap = (arr) => {
+    const m = {};
+    for (const e of arr) m[e.userId] = { code: e.code, label: e.label ?? '' };
+    return m;
+  };
+  const localJson  = JSON.stringify(toMap(localFollowing));
+  const serverJson = JSON.stringify(toMap(serverFollowing));
+  if (localJson === serverJson) return;
+
+  setFollowing(serverFollowing);
+  // Tear down watchers for followees that disappeared; new ones will be
+  // resubscribed by renderList.
+  const serverIds = new Set(serverFollowing.map(e => e.userId));
+  for (const [uid, unsub] of unsubscribers.entries()) {
+    if (!serverIds.has(uid)) {
+      unsub();
+      unsubscribers.delete(uid);
+      lastUserData.delete(uid);
+    }
+  }
+  renderList();
+}
+
 function subscribeToFollowee(entry, myUserId) {
   const unsub = watchStatus(entry.userId, (userData) => {
     if (!userData) return;
 
     if (userData.revokedFollowers && userData.revokedFollowers[myUserId]) {
       removeFollowing(entry.userId);
+      removeFollowingEntry(myUserId, entry.userId).catch(() => {});
       unsub();
       unsubscribers.delete(entry.userId);
       renderList();
@@ -584,6 +632,7 @@ function subscribeToFollowee(entry, myUserId) {
     if (userData.code && userData.code !== entry.code) {
       entry.code = userData.code;
       updateFollowingCode(entry.userId, userData.code);
+      setFollowingEntry(myUserId, entry.userId, userData.code, entry.label ?? '').catch(() => {});
       renderList();
       return;
     }
@@ -826,6 +875,7 @@ function activateRename(entry, labelEl) {
     const val = input.value.trim();
     if (!val) { cancelRename(); return; }
     renameFollowing(entry.userId, val);
+    if (myUserIdRef) setFollowingEntry(myUserIdRef, entry.userId, entry.code, val).catch(() => {});
     entry.label = val;
     editingSet.delete(entry.userId);
     labelEl.textContent = val;
@@ -888,6 +938,7 @@ async function handleAddPerson(myUserId, myCode) {
 
   await registerAsFollower(targetUserId, myUserId, myCode);
   addFollowing({ code, label, userId: targetUserId });
+  setFollowingEntry(myUserId, targetUserId, code, label).catch(() => {});
   closeAddForm();
   renderList();
   document.getElementById('add-submit-btn').disabled = false;

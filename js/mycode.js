@@ -1,15 +1,19 @@
 // js/mycode.js
 import { rotateCode } from './db.js';
-import { saveIdentity } from './identity.js';
+import { saveIdentity, loadIdentity } from './identity.js';
+
+let _myUserId = null;
+let _currentCode = null;
 
 export function initCodeDrawer(myUserId, myCode) {
-  let currentCode = myCode;
+  _myUserId = myUserId;
+  _currentCode = myCode;
 
-  document.getElementById('my-code-display').textContent = currentCode;
+  document.getElementById('my-code-display').textContent = _currentCode;
 
   document.getElementById('copy-code-btn').addEventListener('click', () => {
     const btn = document.getElementById('copy-code-btn');
-    copyText(currentCode).then(() => {
+    copyText(_currentCode).then(() => {
       btn.textContent = 'Copied!';
       setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
     });
@@ -57,14 +61,15 @@ export function initCodeDrawer(myUserId, myCode) {
 
     try {
       const [newCode] = await Promise.all([
-        rotateCode(myUserId, currentCode),
+        rotateCode(_myUserId, _currentCode),
         new Promise((r) => setTimeout(r, 500)), // ensure full fade-out completes
       ]);
 
       // Code is invisible — swap text and update state
       display.textContent = newCode;
-      currentCode = newCode;
-      saveIdentity(myUserId, newCode);
+      _currentCode = newCode;
+      const existing = loadIdentity();
+      saveIdentity(_myUserId, newCode, existing?.recoveryCode ?? '');
 
       // Create NEW badge (starts invisible via CSS opacity:0)
       const badge = document.createElement('span');
@@ -96,6 +101,9 @@ export function initCodeDrawer(myUserId, myCode) {
   function dismissRotateConfirm() {
     document.getElementById('rotate-confirm').classList.add('hidden');
   }
+
+  const existing = loadIdentity();
+  if (existing?.recoveryCode) initRecoveryPill(existing.recoveryCode);
 }
 
 async function copyText(text) {
@@ -116,4 +124,67 @@ async function copyText(text) {
   ta.select();
   document.execCommand('copy');
   ta.remove();
+}
+
+// Called when watchStatus reports the user's code changed on another device.
+// Updates the drawer display, the in-memory current code (used by Copy and
+// rotate), and localStorage. No-op if the code matches what's already shown.
+export function updateMyCode(newCode) {
+  if (!newCode || newCode === _currentCode) return;
+  _currentCode = newCode;
+  const display = document.getElementById('my-code-display');
+  if (display) display.textContent = newCode;
+  const existing = loadIdentity();
+  if (existing) saveIdentity(existing.userId, newCode, existing.recoveryCode);
+}
+
+export function initRecoveryPill(recoveryCode) {
+  const pill = document.getElementById('recovery-show-pill');
+  const revealed = document.getElementById('recovery-revealed');
+  const codeText = document.getElementById('drawer-recovery-code');
+  const copyBtn = document.getElementById('drawer-recovery-copy-btn');
+  if (!pill || !revealed || !codeText || !copyBtn) return;
+
+  codeText.textContent = recoveryCode;
+
+  let idleTimer = null;
+  let copiedTimer = null;
+
+  function toIdle() {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    if (copiedTimer) { clearTimeout(copiedTimer); copiedTimer = null; }
+    copyBtn.textContent = 'Copy';
+    revealed.classList.add('hidden');
+    pill.classList.remove('hidden');
+  }
+  function startIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(toIdle, 15000);
+  }
+  function toRevealed() {
+    pill.classList.add('hidden');
+    revealed.classList.remove('hidden');
+    copyBtn.textContent = 'Copy';
+    startIdleTimer();
+  }
+
+  pill.addEventListener('click', toRevealed);
+
+  codeText.addEventListener('click', () => {
+    // Tap on code text (not Copy) resets the idle timer
+    startIdleTimer();
+  });
+
+  copyBtn.addEventListener('click', async () => {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    try {
+      await navigator.clipboard?.writeText(recoveryCode);
+    } catch (_) { /* ignore */ }
+    copyBtn.textContent = 'Copied!';
+    if (copiedTimer) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copiedTimer = null;
+      toIdle();
+    }, 1500);
+  });
 }

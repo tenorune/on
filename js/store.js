@@ -30,6 +30,12 @@ function saveFollowing(list) {
   localStorage.setItem(FOLLOWING_KEY, JSON.stringify(list));
 }
 
+// Public bulk-replace, used by the cross-device sync path. Local mutation
+// helpers (addFollowing, removeFollowing, etc.) continue to use saveFollowing.
+function setFollowing(list) {
+  saveFollowing(list);
+}
+
 function addFollowing(entry) {
   const list = getFollowing();
   list.push(entry);
@@ -134,4 +140,4 @@ function incrementAnsweredCallCount() {
   localStorage.setItem(ANSWERED_CALL_COUNT_KEY, String(getAnsweredCallCount() + 1));
 }
 
-module.exports = { getFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode, getPalette, setPalette, getPaletteState, setPaletteState, getFavorites, setFavorites, getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount };
+module.exports = { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode, getPalette, setPalette, getPaletteState, setPaletteState, getFavorites, setFavorites, getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount };

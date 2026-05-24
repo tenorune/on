@@ -2,7 +2,7 @@
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
 import { getPaletteState, setPaletteState, getFavorites, setFavorites } from './store.js';
 import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowForColor } from './palettes.js';
-import { setStatusColor } from './db.js';
+import { setStatusColor, setUserFavorites } from './db.js';
 import { safeCssColor } from './utils.js';
 
 const MAX_HISTORY = 6;
@@ -69,6 +69,34 @@ function slotVisuallyMatches(combo, setNum) {
     && combo.selectedKey  === s.selectedKey;
 }
 
+// Persist favorites to both localStorage and Firebase. Firebase write is
+// best-effort (failures don't block local persistence).
+function writeFavorites(arr) {
+  setFavorites(arr);
+  if (_myUserId) setUserFavorites(_myUserId, arr).catch(() => {});
+}
+
+// Reconcile local favorites with what the server has. Used by app.js's
+// watchStatus callback so a favorite added/removed on another device
+// appears on this device's strip too.
+//
+// Migration: if local has entries and the server has none (first run after
+// this code ships), push local up. Otherwise the server is authoritative.
+export function syncFavoritesFromServer(myUserId, serverFavs) {
+  const localFavs = getFavorites();
+  const serverJson = serverFavs ? JSON.stringify(serverFavs) : null;
+  const localJson = JSON.stringify(localFavs);
+
+  if (!serverJson && localFavs.length > 0) {
+    setUserFavorites(myUserId, localFavs).catch(() => {});
+    return;
+  }
+  if (!serverJson) return;
+  if (serverJson === localJson) return;
+  setFavorites(serverFavs);
+  renderStrip();
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export function getAllCombos() {
@@ -89,7 +117,7 @@ export function removeHistoryDuplicatesOfSlots() {
   const slot2 = slotCombo(2);
   const cleaned = history.filter(h => !pillsLookSame(h, slot1) && !pillsLookSame(h, slot2));
   if (cleaned.length !== history.length) {
-    setFavorites(cleaned);
+    writeFavorites(cleaned);
     renderStrip();
   }
 }
@@ -101,7 +129,7 @@ export function saveFavorite(force = false) {
     _lastCommittedCombo = currentCombo;
     const history = getFavorites();
     if (!history.some(h => pillsLookSame(currentCombo, h))) {
-      setFavorites([currentCombo, ...history].slice(0, MAX_HISTORY));
+      writeFavorites([currentCombo, ...history].slice(0, MAX_HISTORY));
       renderStrip();
     }
     return;
@@ -118,7 +146,7 @@ export function saveFavorite(force = false) {
   const history = getFavorites();
   if (slotVisuallyMatches(previousCombo, 1) || slotVisuallyMatches(previousCombo, 2)) return;
   if (history.some(h => pillsLookSame(previousCombo, h))) return;
-  setFavorites([previousCombo, ...history].slice(0, MAX_HISTORY));
+  writeFavorites([previousCombo, ...history].slice(0, MAX_HISTORY));
   renderStrip();
 }
 
@@ -320,7 +348,7 @@ function peekStrip(container, history) {
   const lineRect = rainbowLine ? rainbowLine.getBoundingClientRect() : container.getBoundingClientRect();
 
   const wrapper = document.createElement('div');
-  wrapper.style.cssText = `position:fixed; left:0; right:0; top:${lineRect.bottom}px; overflow:hidden; max-height:0; pointer-events:none; z-index:50; -webkit-mask-image:linear-gradient(to bottom, black, transparent); mask-image:linear-gradient(to bottom, black, transparent);`;
+  wrapper.style.cssText = `position:fixed; left:${lineRect.left}px; width:${lineRect.width}px; top:${lineRect.bottom}px; overflow:hidden; max-height:0; pointer-events:none; z-index:50; -webkit-mask-image:linear-gradient(to bottom, black, transparent); mask-image:linear-gradient(to bottom, black, transparent);`;
   wrapper.appendChild(strip);
   document.body.appendChild(wrapper);
 
@@ -447,7 +475,7 @@ function handleHistoryTap(idx) {
     ? [oldSlot, ...newHistory].slice(0, MAX_HISTORY)
     : newHistory;
 
-  setFavorites(finalHistory);
+  writeFavorites(finalHistory);
   _lastCommittedCombo = combo; // restored combo is the new baseline
   renderStrip();
 }
