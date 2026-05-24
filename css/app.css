@@ -749,6 +749,10 @@ main {
   margin-top: 0.25rem;
   margin-bottom: -0.5rem;
   padding: 0 1rem 0 0;
+  /* Match the ghost-btn height so the row doesn't grow when the chip is
+     replaced by the revealed pill + Copy button. align-items: center then
+     pads the collapsed chip equally top and bottom. */
+  min-height: 2.5rem;
 }
 #code-drawer.open + .recovery-pill-row {
   display: flex;
