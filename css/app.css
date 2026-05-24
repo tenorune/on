@@ -737,7 +737,9 @@ main {
 .recovery-pill-row {
   display: none;
   align-items: center;
+  gap: 0.625rem;
   margin-top: 0.5rem;
+  padding: 0 1rem;
 }
 #code-drawer.open + .recovery-pill-row {
   display: flex;
@@ -751,3 +753,5 @@ main {
   min-width: 0;
 }
 .recovery-revealed.hidden { display: none; }
+#drawer-recovery-copy-btn { display: none; min-width: 5rem; text-align: center; }
+.recovery-revealed:not(.hidden) ~ #drawer-recovery-copy-btn { display: inline-block; }
