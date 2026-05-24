@@ -176,7 +176,7 @@ test('clicking time chip while available advances to next chip and calls setStat
 });
 
 test('time chip cycle wraps from last chip back to first', async () => {
-  getLastTimeout.mockReturnValue(480); // index 7 = 8 hours
+  getLastTimeout.mockReturnValue(1440); // index 10 = 24 hours (last chip)
   initHeader('uid1');
   document.getElementById('my-dot').classList.add('available');
 

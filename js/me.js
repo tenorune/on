@@ -6,14 +6,17 @@ import { saveFavorite } from './favorites.js';
 import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
 
 const CHIP_VALUES = [
-  { minutes: 30,  text: '30 minutes' },
-  { minutes: 60,  text: '1 hour' },
-  { minutes: 90,  text: '1 hour 30 minutes' },
-  { minutes: 120, text: '2 hours' },
-  { minutes: 180, text: '3 hours' },
-  { minutes: 240, text: '4 hours' },
-  { minutes: 360, text: '6 hours' },
-  { minutes: 480, text: '8 hours' },
+  { minutes: 30,   text: '30 minutes' },
+  { minutes: 60,   text: '1 hour' },
+  { minutes: 90,   text: '1 hour 30 minutes' },
+  { minutes: 120,  text: '2 hours' },
+  { minutes: 180,  text: '3 hours' },
+  { minutes: 240,  text: '4 hours' },
+  { minutes: 360,  text: '6 hours' },
+  { minutes: 480,  text: '8 hours' },
+  { minutes: 720,  text: '12 hours' },
+  { minutes: 1080, text: '18 hours' },
+  { minutes: 1440, text: '24 hours' },
 ];
 
 let savingEnabled = false;
