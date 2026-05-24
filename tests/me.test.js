@@ -7,6 +7,7 @@ jest.mock('../js/db.js', () => ({
   isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
   formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
   timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
+  setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(),
@@ -351,6 +352,7 @@ describe('saveFavorite guard in setAvailable', () => {
       isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
       formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
       timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
+      setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
     }));
     jest.mock('../js/store.js', () => ({
       getLastTimeout: jest.fn().mockReturnValue(2),
