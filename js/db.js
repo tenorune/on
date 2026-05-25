@@ -83,6 +83,8 @@ export async function initUser(userId, code) {
 // inviteIndex/{token} → { scope, ownerPath } — global lookup table.
 // Same transactional-claim pattern as codeIndex (see initUser above).
 
+// Callers are trusted to pass a well-formed ownerPath (users/{uid}/invites/{token}
+// or groups/{groupId}/invites/{token}); any non-groups/ prefix is treated as personal.
 function inferScopeFromOwnerPath(ownerPath) {
   return ownerPath.startsWith('groups/') ? 'group' : 'personal';
 }
