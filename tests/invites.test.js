@@ -337,3 +337,33 @@ describe('boot-time redemption (existing user, integration)', () => {
     expect(result.creatorUid).toBe('creator');
   });
 });
+
+describe('welcome screen invite framing', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    document.body.innerHTML = `
+      <div id="welcome-screen" class="welcome-screen hidden">
+        <p id="welcome-invite-framing" class="hidden"></p>
+        <button id="welcome-new-btn">I'm new</button>
+        <button id="welcome-restore-btn">I have a secret phrase</button>
+      </div>
+    `;
+  });
+
+  test('showWelcomeScreen without an invite hides the framing line', async () => {
+    const { showWelcomeScreen } = require('../js/app');
+    // Fire-and-forget the promise; we only care about initial DOM state.
+    showWelcomeScreen();
+    expect(document.getElementById('welcome-invite-framing').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('welcome-invite-framing').textContent).toBe('');
+  });
+
+  test('showWelcomeScreen with a creator label renders the framing text', async () => {
+    const { showWelcomeScreen } = require('../js/app');
+    showWelcomeScreen({ inviteCreatorLabel: 'Mike P.' });
+    const framing = document.getElementById('welcome-invite-framing');
+    expect(framing.classList.contains('hidden')).toBe(false);
+    expect(framing.textContent).toContain('Mike P.');
+    expect(framing.textContent).toContain('First, let');
+  });
+});

@@ -10,6 +10,7 @@ import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, apply
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl } from './invites.js';
+import { readInviteIndex, readUserInvite } from './db.js';
 
 
 let splashCounter = 0;
@@ -41,7 +42,7 @@ function dismissSplash() {
   }, { once: true });
 }
 
-async function ensureIdentity() {
+async function ensureIdentity(pendingInviteToken = null) {
   const existing = loadIdentity();
   if (existing) {
     let valid = true;
@@ -74,10 +75,12 @@ async function ensureIdentity() {
   // Empty localStorage — true new user OR cleared cache.
   // Dismiss splash so the user can see and interact with the welcome screen.
   dismissSplash();
+  // Resolve invite creator label for personalised welcome framing (no-op if no token).
+  const inviteCreatorLabel = await resolveInviteCreatorLabel(pendingInviteToken);
   // Loop so that cancelling the restore screen returns the user to the
   // welcome screen, not silently into the new-account flow.
   while (true) {
-    const choice = await showWelcomeScreen();
+    const choice = await showWelcomeScreen({ inviteCreatorLabel });
     if (choice === 'restore') {
       const restored = await showRestoreScreen();
       if (restored) {
@@ -125,10 +128,20 @@ function showStaleScreen() {
   });
 }
 
-export function showWelcomeScreen() {
+export function showWelcomeScreen({ inviteCreatorLabel = null } = {}) {
   const el = document.getElementById('welcome-screen');
   const newBtn = document.getElementById('welcome-new-btn');
   const restoreBtn = document.getElementById('welcome-restore-btn');
+  const framingEl = document.getElementById('welcome-invite-framing');
+  if (framingEl) {
+    if (inviteCreatorLabel) {
+      framingEl.textContent = `You've been invited to follow ${inviteCreatorLabel}. First, let's set up your account.`;
+      framingEl.classList.remove('hidden');
+    } else {
+      framingEl.textContent = '';
+      framingEl.classList.add('hidden');
+    }
+  }
   el.classList.remove('hidden');
   return new Promise((resolve) => {
     function pick(choice) {
@@ -272,9 +285,24 @@ function inviteFailureCopy(reason) {
   }
 }
 
+async function resolveInviteCreatorLabel(token) {
+  if (!token) return null;
+  try {
+    const indexEntry = await readInviteIndex(token);
+    if (!indexEntry || indexEntry.scope !== 'personal') return null;
+    const match = indexEntry.ownerPath.match(/^users\/([^/]+)\/invites\/([^/]+)$/);
+    if (!match) return null;
+    const invite = await readUserInvite(match[1], match[2]);
+    if (!invite || invite.revoked) return null;
+    return invite.creatorLabel || null;
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   const pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
-  const { identity, isNew } = await ensureIdentity();
+  const { identity, isNew } = await ensureIdentity(pendingInviteToken);
   const { userId, code } = identity;
 
   if (pendingInviteToken && !isNew) {
@@ -287,6 +315,18 @@ async function main() {
         clean.searchParams.delete('i');
         window.history.replaceState({}, document.title, clean.toString());
       } catch { /* no-op on unusual URLs */ }
+    }
+  }
+
+  if (pendingInviteToken && isNew) {
+    const result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+    if (result) {
+      handleInviteRedemptionResult(result);
+      try {
+        const clean = new URL(window.location.href);
+        clean.searchParams.delete('i');
+        window.history.replaceState({}, document.title, clean.toString());
+      } catch { /* no-op */ }
     }
   }
 
