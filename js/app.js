@@ -264,7 +264,7 @@ function showInviteFailureOverlay(reason) {
   const overlay = document.getElementById('invite-failure-overlay');
   const messageEl = document.getElementById('invite-failure-message');
   const continueBtn = document.getElementById('invite-failure-continue');
-  // Overlay markup is added in Task 11; until then this no-ops gracefully.
+  // Defensive: no-op if the markup is absent (e.g., a future template change).
   if (!overlay || !messageEl || !continueBtn) return;
   messageEl.textContent = inviteFailureCopy(reason);
   overlay.classList.remove('hidden');
