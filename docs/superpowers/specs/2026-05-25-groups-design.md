@@ -1,6 +1,6 @@
 # Groups — Design Specification
 
-*Date: 2026-05-25*
+*Date: 2026-05-25 (rev 2)*
 
 ## 1. Background
 
@@ -40,7 +40,7 @@ Today, every follower of a user sees the same status. If a user goes "available 
 
 The two facets of this problem:
 
-- **C (contextual identity):** the user may want to appear as "Sam" to family and "Ms. Carter" to a work group, with possibly different colors per context. Their *identity presentation* should vary by context.
+- **C (contextual identity):** the user may want to appear as "Mike" to family and "Mr. Gomez" to a work group, with possibly different colors per context. Their *identity presentation* should vary by context.
 - **A (audience scoping):** the user may want to be "available to family for 2 hours" but show as "unavailable to work-chat." Their *status content* should vary by audience.
 
 Together, C+A means: groups aren't just about scaling — they're about expressing yourself differently to different parts of your network.
@@ -57,16 +57,18 @@ These terms recur throughout the doc and are precise — please use them consist
 - **Owner** — the user who created the group. Has the most powers. Single per group.
 - **Admin** — a member with elevated permissions, granted by the owner. Multiple per group allowed. *Post-MVP role.*
 - **Member** — a regular member with no special permissions. Can see the roster, set their own status, leave.
-- **Audience** — a logical recipient of a user's status. Each user has one **followers** audience (which are their direct followers) plus one audience per group they're a member of. With 4 groups, a user has 5 audiences total.
+- **Audience** — a logical recipient of a user's status. Each user has one **followers** audience (their direct followers) plus one audience per group they're a member of. With 4 groups, a user has 5 audiences total.
 - **Direct contacts context** (often shortened to "Direct") — the existing app's main view: your direct followers/following/mutuals. The "home" context.
 - **Group context** — a separate view focused on one specific group. Shows that group's members and a status header for that group's audience.
 - **Current context** — at any moment, the user is in exactly one context (Direct or a specific group). The app's UI reflects whichever context is current.
 - **Primary status** — the status a user has chosen for their Direct context. Also serves as the broadcast default to any group whose override toggle is off.
 - **Override** — when a user has explicitly opted to give a specific audience (group or followers) a status different from their primary. Controlled per-audience by a "Set a unique status" toggle.
 - **Invite link** — a URL with a redemption token that, when tapped, performs an action (follow the link's creator, or join the link's group). Has lifecycle: TTL, redemption cap, revocation, regeneration.
-- **Personal-scope invite** — an invite link whose redemption action is "follow the creator."
-- **Group-scope invite** — an invite link whose redemption action is "join the link's group."
+- **Personal-scope invite** — an invite link whose redemption action is "follow the creator." A user has **at most one active personal-scope invite** at a time.
+- **Group-scope invite** — an invite link whose redemption action is "join the link's group." A user has **at most one active group-scope invite per group they administer** at a time.
+- **Creator label** — a name (free text) chosen by the creator of a personal-scope invite, shown to the redeemer as the human-readable identifier of who they're being invited to follow. Stored on the invite record itself.
 - **Knock-via-group-context** — when a non-mutual group co-member sends a knock to another member.
+- **Invite index** — the global `inviteIndex/{token}` lookup table that maps an invite token to the path of the invite record it belongs to. The mechanism by which a redeemer with only a URL token can find the invite to redeem.
 
 ## 4. Status model
 
@@ -123,7 +125,7 @@ A user has one or more **audiences** (followers + each group they're in). Each a
 
 - **In Direct context:** the header shows the user's primary status; the audience for that status is the user's direct followers.
 - **In a group context:** the header shows that group's status — i.e., the user's override for that group (if toggle ON) or the primary status (if toggle OFF, inherited from Direct).
-- **Group members' statuses (what other members look like):** each member's card in the group's roster shows their status *for this group's audience* — i.e., their group override if ON, otherwise their primary.
+- **Group members' statuses (what other members look like):** each member's card in the group's roster shows that member's status *for this group's audience* — i.e., their group override if ON, otherwise their primary. Override data lives on the member's record under the group (see §7), so reading another member's group-scoped status doesn't require reading their user record.
 
 ### Status durations and the time chip
 
@@ -137,7 +139,16 @@ Each user has a **display name** for each group they're in. Set at join time. Ed
 
 This is distinct from the user's share code (which doesn't change between contexts) and from the per-follower labels (which the *follower* sets for themselves to label *the user*).
 
-For instance: a user might be `XK7P2M` (share code, immutable for them), labeled by their friend Alice as "Bob" (Alice's label, visible only to Alice), and have a display name "B.J." in the Skydivers group (the user's own choice, visible to all Skydivers members).
+For instance: a user might be `XK7P2M` (share code, immutable for them), labeled by their friend Alice as "Mike" (Alice's label, visible only to Alice), and have a display name "M.P." in the Skydivers group (the user's own choice, visible to all Skydivers members).
+
+### Validation
+
+A group display name is validated the same way as the existing follow-label inputs (`add-label-input`, rename input on a follower card):
+
+- **Trimmed** (leading/trailing whitespace removed) on save.
+- **Non-empty after trim.**
+- **Max 40 characters** (`maxlength="40"` on the input element).
+- No character-class restriction beyond what the input element accepts.
 
 ### No cross-context leakage in MVP
 
@@ -170,7 +181,7 @@ A brand-new user defaults to Direct context (no group history exists yet). If a 
 The Direct context has a thin row of **group cards** at the top, above the existing Mutuals/Following/Followers sections. Each card is a small visual element with:
 
 - The group's name (small, single line).
-- Any pending indicators (e.g., an unread-knock count badge — see §11).
+- Any pending indicators (e.g., an unread-knock count badge — see §13).
 - A color/theme that reflects the user's status for that group:
   - If the override toggle is ON for this group, the card shows the override's color (so the user can see their per-group persona at a glance).
   - If the toggle is OFF, the card shows a neutral surface color (consistent with the rest of Direct context).
@@ -200,7 +211,9 @@ To switch from `Family` to `Skydivers`, the user taps the arrow back to Direct, 
 
 ### Group cards order
 
-The user's group cards are ordered by **most-recently-visited first**. This is derived from the `currentContext` history (not stored separately; the natural order falls out of which group the user last navigated to). On first launch with multiple groups, before any navigation has happened, falls back to creation order.
+The user's group cards are ordered by **most-recently-visited first.** To support this, the user's per-group enumeration record (see §7) carries an optional `lastVisited` timestamp. When the user navigates into a group context, the app writes `lastVisited: now` to their `users/{uid}/groups/{groupId}` record. The cards row sorts by that field, descending.
+
+Groups the user has never visited (e.g., just joined on another device and not yet visited on this device) fall back to ordering by `joinedAt` (read from the group-side member record).
 
 ### Collapse strategy for many groups
 
@@ -210,69 +223,106 @@ If the user is in more than 5 groups, the horizontal row of cards may stretch be
 - Collapse to a single "Groups (N)" pill that opens an expanded list on tap
 - A pinned-vs-overflow split with the user choosing which groups appear pinned
 
-## 7. Group entity (data model)
+## 7. Data model
 
-A group is a named entity with metadata, a member list, and an invite list.
+This section is the canonical schema. Where a previous draft of this spec mirrored fields between group-side and user-side records, this revision **consolidates the canonical data to a single location** and reduces the user-side record to an enumeration index. The motivation is to avoid the dual-write coordination problem and to remove a forward-compatibility blocker for the Phase B identity work (tightened `auth.uid` rules).
 
 ### Storage layout
 
 ```
 groups/{groupId}:
-  name: string                       // free text, max 40 chars, NOT unique
+  name: string                       // free text, trim, max 40 chars, NOT unique
   ownerId: userId
   createdAt: timestamp               // stored, not shown in MVP UI
   color?: string                     // post-MVP, owner-configurable
   paletteKey?: string                // post-MVP, owner-configurable
   members/{memberUid}:
-    role: 'owner' | 'admin' | 'member'  // MVP only uses 'owner' and 'member'
-    displayName: string                  // user's name in this group
+    role: 'owner' | 'admin' | 'member'   // MVP only uses 'owner' and 'member'
+    displayName: string                   // user's name in this group
     joinedAt: timestamp
-    pendingApproval?: boolean            // reserved for post-MVP gating
-  invites/{inviteId}:
-    scope: 'group'
-    token: string                      // unguessable URL-safe random
-    creatorUid: userId                 // owner or admin who made it
-    createdAt: timestamp
-    expiresAt: timestamp | null        // null = no expiry
-    redemptionCap: number | null       // null = unlimited; 1 = single-use
-    redemptionsUsed: number
-    revoked: boolean
-```
-
-User-side state additions (under `users/{uid}` in Firebase + localStorage cache):
-
-```
-users/{uid}:
-  // existing fields ...
-  groups/{groupId}:
-    role: 'owner' | 'admin' | 'member'    // mirrors the group-side record
-    displayName: string
     statusOverride?: {
-      enabled: boolean                     // the "Set a unique status" toggle
+      enabled: boolean                    // the "Set a unique status" toggle
       status?: 'available' | 'unavailable'
       availableUntil?: timestamp
-      statusColor?: string                 // optional, override of primary color
-      paletteKey?: string                  // optional
+      statusColor?: string                // optional, override of primary color
+      paletteKey?: string                 // optional
     }
+    pendingApproval?: boolean             // reserved for post-MVP gating
+  invites/{inviteId}:
+    scope: 'group'
+    token: string                       // unguessable URL-safe random
+    creatorUid: userId                  // owner or admin who made it
+    createdAt: timestamp
+    expiresAt: timestamp | null         // null = no expiry
+    redemptionCap: number | null        // null = unlimited; 1 = single-use
+    redemptionsUsed: number
+    revoked: boolean
+
+users/{uid}:
+  // existing fields ...
+  groups/{groupId}:                       // enumeration index only
+    lastVisited?: timestamp               // for group cards ordering
   currentContext: 'direct' | 'group:{groupId}'
-  pendingInvites/{groupId}:                // Phase 3
-    from: userId                            // who invited me
-    ts: timestamp
+  invites/{inviteId}:                     // personal-scope invites created by this user
+    scope: 'personal'
+    token: string
+    creatorLabel: string                  // name shown to redeemers ("follow {creatorLabel}")
+    createdAt: timestamp
+    expiresAt: timestamp | null
+    redemptionCap: number | null
+    redemptionsUsed: number
+    revoked: boolean
+
+inviteIndex/{token}:                      // global lookup: token → invite record
+  scope: 'personal' | 'group'
+  ownerPath: string                       // e.g., "users/<uid>/invites/<inviteId>"
+                                          // or   "groups/<groupId>/invites/<inviteId>"
+
+groupIdIndex/{groupId}: true              // existence lock for transactional ID allocation
+                                          // (same pattern as the existing codeIndex)
+
+pendingInvites/{inviteeUid}/{inviteId}:   // Phase 3 in-app push invites; see §10 Flow C
+  from: userId                            // the inviter
+  groupId: groupId                        // group being invited to
+  ts: timestamp
 ```
+
+### Why the canonical-location consolidation
+
+The previous draft of this spec stored `role` and `displayName` at *both* `groups/{groupId}/members/{memberUid}/...` and `users/{uid}/groups/{groupId}/...`. That created three problems:
+
+1. **Dual-write coordination.** Edits to a display name or a role would need to atomically update two paths. Firebase RTDB supports multi-path updates, but the coordination logic is error-prone (especially across kick/leave/promote paths) and easy to leave inconsistent if a write partially fails.
+2. **Phase B forward-compatibility friction.** Under a tightened rules model where only the owner of `users/$userId` can write to it, certain operations (e.g., the owner-kicks-a-member flow writing to the member's user-side record) become impossible without a Cloud Function. The honor-system MVP would work; the eventual Phase B port would force a backend service into a feature that doesn't otherwise need one.
+3. **Read-side cost is not actually saved.** The roster view already needs to subscribe to `groups/{groupId}/members/`. The user-side mirror would have been a second source of the same data, with no read-path that prefers it.
+
+By making `groups/{groupId}/members/{memberUid}/...` the single source of truth for membership facts (role, displayName, joinedAt, statusOverride) and reducing the user-side record to a thin enumeration index, the model:
+
+- Has one writer per piece of data (the member writes their own member record).
+- Stays writable under Phase B rules: `groups/{groupId}/members/{memberUid}/...` is writable when `auth.uid === $memberUid` for self-edits; owner/admin writes (kick, promote) use a separate rule path.
+- Costs one extra read at group-cards-row-render time (read `groups/{groupId}/name` per group), which is bounded by the number of groups the user is in and not a roster-size problem.
 
 ### Group ID format
 
-8-character alphanumeric random (uppercase letters + digits). Generated transactionally: a new ID is reserved in a `groupIdIndex/{groupId}` lookup table, and on collision the generator retries. This is the same pattern used today for share codes.
+8-character alphanumeric random (uppercase letters + digits). Generated transactionally: a new ID is reserved in `groupIdIndex/{groupId}` via a transaction, and on collision the generator retries. Same pattern used today for share codes (`codeIndex`).
 
 ### Group names
 
-Free text up to 40 characters. Names are **not unique** — two different owners can each create a group called "Family." This is deliberate: users typically name their groups after social roles ("Family", "Work", "Book Club") that are common in their respective contexts.
+Free text up to 40 characters (validated like display names — trim, non-empty, max 40). Names are **not unique** — two different owners can each create a group called "Family." This is deliberate: users typically name their groups after social roles ("Family", "Work", "Book Club") that are common in their respective contexts.
 
 A user could potentially be a member of multiple groups with the same name. The MVP does not address this disambiguation in the UI; both groups appear in the group cards row with identical labels. Future work could add per-user aliases or owner-name suffixes.
 
+### Invite index
+
+A global `inviteIndex/{token}` table maps every active invite's token to the path of the invite record it belongs to. This is the lookup mechanism for redemption: a redeemer arrives with only `?i={token}` in the URL and must find the invite to validate.
+
+- **Allocation.** Invite creation transactionally allocates the token in `inviteIndex/{token}` with the `ownerPath`. On collision (vanishingly rare for 128-bit tokens), retry with a new token. Same pattern as `groupIdIndex` and `codeIndex`.
+- **Resolution.** Redemption reads `inviteIndex/{token}` → gets `ownerPath` → reads the invite record at that path → validates it.
+- **Cleanup.** When an invite is revoked, the `inviteIndex` entry is removed (so a revoked token returns a quick "not found" rather than reading the revoked record). When an invite expires by TTL, the entry remains until a cleanup pass removes it; redemption-time validation will still catch the expiry. (Periodic cleanup is post-MVP; orphans are harmless in the meantime.)
+- **Why a separate index instead of putting all invites at a top-level path:** invite records carry creator/group context that's most natural to read alongside their owning entity (e.g., the group's owner viewing their own group's invites). The index is a cheap pointer table that adds one read at redemption time without restructuring the natural ownership hierarchy.
+
 ### Open / closed state
 
-The user's stories mention "Open or close a group to new members." In the MVP, this state is **derived**, not stored separately: a group is effectively "open" when at least one valid invite link exists *and* at least one member has permission to use it. When all invite links are revoked/expired/exhausted *and* no member has invite permission, the group is effectively closed.
+The user stories mention "Open or close a group to new members." In the MVP, this state is **derived**, not stored separately: a group is effectively "open" when at least one valid (non-revoked, non-expired, non-exhausted) invite link exists *and* at least one member has permission to use it. When all invite links are revoked/expired/exhausted *and* no member has invite permission, the group is effectively closed.
 
 This means owners don't need an explicit "lock the group" toggle in MVP. To stop new joins, they revoke their invite links. Post-MVP, an explicit "closed" flag could be added if a clearer UX is needed.
 
@@ -304,60 +354,131 @@ When admins exist, only the owner can promote a member to admin or demote an adm
 
 ## 9. Invite system
 
-The invite system is **one primitive with a scope discriminator.** A single "invite link" entity supports both 1:1 follow-me invitations and group-join invitations; the difference is the action performed at redemption.
+The invite system is **one primitive with a scope discriminator.** A single "invite link" entity supports both 1:1 follow-me invitations and group-join invitations; the difference is the action performed at redemption. The two scopes also **share a single modal UI pattern** — see §9.4.
 
-### Why one primitive
+### 9.1 Invite-link record
 
-A 1:1 "follow me" link and a "join my group" link share most of their behavior: a token, a TTL, a redemption cap, a revoke action, a creator. Implementing them as one primitive means one Firebase table, one lifecycle code path, one settings UI. The difference is small (what happens at redemption) and lives in a discriminator field.
+Stored under `users/{uid}/invites/{inviteId}` for personal-scope, and under `groups/{groupId}/invites/{inviteId}` for group-scope. Different paths, same general shape; personal-scope has an additional `creatorLabel`. (See §7 for the canonical schema.)
 
-### Invite-link record
+The token in each record is also registered in `inviteIndex/{token} → { scope, ownerPath }`, which is what the redeemer's URL lookup hits.
 
-Stored under `groups/{groupId}/invites/{inviteId}` for group-scope, and under `users/{uid}/invites/{inviteId}` for personal-scope. (Different paths, same shape.)
+### 9.2 Lifecycle operations
+
+All operations apply to both scopes uniformly, with one constraint difference (§9.3):
+
+- **Create.** A link is generated with optional cap (default unlimited), optional TTL (default no expiry). Token is a fresh URL-safe random string, transactionally allocated in `inviteIndex/{token}`. Resulting URL: `https://[hosting-domain]/?i={token}`.
+- **Copy.** Copy the URL to the clipboard (existing clipboard helper).
+- **Revoke.** Sets `revoked: true` on the record and removes the `inviteIndex/{token}` entry. The URL still resolves as a request, but the lookup returns "not found" and the redeemer sees a friendly error.
+- **Regenerate.** Atomic: revoke the current link (including removal from `inviteIndex`), generate a fresh token, allocate it in `inviteIndex`, write the new record with reset `redemptionsUsed: 0`. The previous URL stops working immediately.
+
+### 9.3 One-active-invite constraint
+
+To keep the UX simple and avoid invite-link sprawl, MVP enforces:
+
+- **At most one active personal-scope invite per user.** A user has either zero or one personal invite at a time. "Active" means not revoked. (Expired/capped invites also count as active until revoked or regenerated — the UI still shows them so the user can revoke or regenerate.)
+- **At most one active group-scope invite per (creator, group) pair.** Each member who can create invites (owner in MVP; admin post-MVP) has at most one invite per group they administer. Multiple admins can each have their own one.
+
+When the create button is invoked while an active invite already exists, the modal shows the existing invite instead of creating a new one. To replace it, the user uses **regenerate**, which is a single explicit operation (one tap, no confirmation needed in MVP — the act of regenerating is its own confirmation that the old link should die).
+
+### 9.4 Modal pattern (shared by personal-scope and group-scope)
+
+A **single modal component** handles invite-link management for both scopes. It has two visual states.
+
+**State A — No active invite (create state):**
 
 ```
-{
-  scope: 'personal' | 'group'
-  token: string                 // unguessable URL-safe random, ~22 chars
-  creatorUid: userId            // who made this link
-  createdAt: timestamp
-  expiresAt: timestamp | null   // null = no expiry
-  redemptionCap: number | null  // null = unlimited; 1 = single-use; N = multi-use
-  redemptionsUsed: number
-  revoked: boolean
-}
+   [ Title — see scope-specific text below ]
+
+   [ Creator label input ]      ← personal-scope only
+   ( e.g., "Mike P." )
+
+   [ Optional TTL selector ]    ← MVP: probably collapsed; post-MVP-extendable
+   [ Optional cap selector ]    ← MVP: probably collapsed; post-MVP-extendable
+
+   [ Create invite link ]   [ Cancel ]
 ```
 
-### Lifecycle operations
+**State B — Active invite exists (manage state):**
 
-- **Create.** A link is generated with optional cap, optional TTL. Token is random. Resulting URL: `https://[hosting-domain]/?i={token}`.
-- **Revoke.** Sets `revoked: true`. The link's URL still resolves, but redemption returns a friendly error.
-- **Regenerate.** Functionally: create a new link, optionally revoke the old. The old link's token is no longer valid.
-- **Cap.** Each successful redemption increments `redemptionsUsed`. When `redemptionsUsed >= redemptionCap`, redemption returns a friendly error.
-- **TTL.** If `expiresAt < now`, redemption returns a friendly error.
+```
+   [ Title — see scope-specific text below ]
 
-### Redemption flow
+   https://knockknock.app/?i={token}
 
-When a user taps an invite URL, the app extracts the token from the URL query string and validates it:
+   [ Copy ]   [ Regenerate ]   [ Revoke ]
 
-1. Token exists in the database? If not → friendly error ("This invite link isn't valid").
-2. Revoked? If so → friendly error ("This invite link has been revoked").
-3. Past `expiresAt`? If so → friendly error ("This invite link has expired").
-4. Cap reached? If so → friendly error ("This invite link is no longer accepting new joiners").
-5. All checks pass → perform the scope-specific action.
+   ( Optional metadata: "Used N times" / "Expires {date}" — MVP minimal )
 
-For **personal scope**, the action is: create a follow relationship from the redeemer to the link's creator. The link's `redemptionsUsed` is incremented. The follow is independent of any group; the link's role ends there.
+   [ Close ]
+```
 
-For **group scope**, the action is: add the redeemer to the group's member list, with default role `member`. The `redemptionsUsed` is incremented.
+**Scope-specific differences (small):**
 
-### Failure UX
+| Aspect | Personal scope | Group scope |
+|---|---|---|
+| Modal title | "Your invite link" | "Invite link for {group name}" |
+| Creator label field | Shown in State A; editable later via regenerate | Not shown (group name carries the context) |
+| Subtitle text | "People who tap this link will follow you." | "People who tap this link will join {group name}." |
+| Entry point | Code drawer (see §9.5) | Group context's settings affordance (see §9.6) |
 
-On any failure, the redeemer sees a friendly message and an offer to keep using the app normally. Specifically: a small overlay that doesn't disrupt their session, with text appropriate to the failure mode and a "Continue" button. Tapping Continue dismisses the overlay; the user's session proceeds (if they're a new user, the welcome screen appears; if existing, their Direct context appears).
+Otherwise the layout, controls, and behavior are identical. This is a deliberate convergence — implementers should build one component parameterized by scope, not two near-duplicates.
 
-### Preview content
+**Creator label editing.** For personal-scope invites, the label is set at creation and re-editable by regenerating the link (which is the only point at which the existing creator label is replaced). The label field is *not* an inline editor in State B; changing it is intentionally tied to regeneration, since a label change is essentially a different invite from the redeemer's perspective. MVP keeps this simple; post-MVP could allow in-place edit.
 
-When a user is *about* to redeem a link (or in the case of group-invites, when they're shown the welcome screen for a brand-new user), the only metadata surfaced about the group is its name. No owner name, no member count, no description. This intentionally minimal preview prevents leaking metadata to potentially-malicious link recipients.
+### 9.5 Phase 0 entry point — personal-scope invite
 
-### Pending/approval gating (post-MVP)
+The personal-scope invite is reachable from the **code drawer**, just below the existing share-code Copy button. New row:
+
+```
+   Your share code:  XK7P2M  [ Copy ]
+   Your invite link:           [ Create invite link ]   ← when no active invite
+                               [ View invite link ]     ← when an active invite exists
+```
+
+Tapping the Create / View button opens the modal in State A or State B respectively.
+
+The drawer's existing "Show recovery code" pill (from the recovery-code work) sits above or below this row — exact ordering to be settled in implementation, but the recovery-code pill stays a distinct row.
+
+### 9.6 Phase 1 entry point — group-scope invite
+
+The group-scope invite is reachable from a **group settings affordance** within a group context. The exact affordance (gear icon? long-press on the breadcrumb? "Settings" link in the group context's header area?) is an implementation detail. What matters for this design: only the owner (and post-MVP, admins) sees it, and tapping it opens the same modal pattern parameterized for group scope.
+
+### 9.7 Redemption flow
+
+When a user taps an invite URL, the app extracts `i={token}` from the URL query string and validates it via `inviteIndex`:
+
+1. `inviteIndex/{token}` exists? If not → friendly error ("This invite link isn't valid").
+2. Read `ownerPath` → load the invite record at that path.
+3. `revoked === true`? If so → friendly error ("This invite link has been revoked"). (Should be rare in practice because revoke also removes the index entry; but a record could exist in a not-yet-cleaned-up state.)
+4. Past `expiresAt`? If so → friendly error ("This invite link has expired").
+5. `redemptionsUsed >= redemptionCap`? If so → friendly error ("This invite link is no longer accepting new joiners").
+6. All checks pass → perform the scope-specific action (§9.8).
+
+### 9.8 Scope-specific redemption
+
+**Personal scope (`scope: 'personal'`):** create a follow relationship from the redeemer to the invite's owner (the user whose `users/{uid}/invites/{inviteId}` this is). Increment `redemptionsUsed`. The follow is independent of any group; the link's role ends there.
+
+**Group scope (`scope: 'group'`):** add the redeemer to the group's member list with default role `member` and the display name they provided (Flow B step 8 for new users; for existing users, the display name comes from a brief in-line prompt — see §10 Flow A note). Increment `redemptionsUsed`. Write the user-side enumeration entry at `users/{redeemerUid}/groups/{groupId}`.
+
+### 9.9 Failure UX
+
+On any failure, the redeemer sees a small overlay with text appropriate to the failure mode and a single **Continue** button. Tapping Continue dismisses the overlay. The user is then returned to:
+
+- Their **current context** (Direct or whichever group they were in) if they have an existing v2 identity.
+- The **welcome screen** if they're a brand-new user with no identity yet.
+
+Notably: an existing user who taps a busted group invite *while inside another group context* is returned to that other group context, not bounced to Direct.
+
+### 9.10 Preview content
+
+When a user is about to redeem a link (or when they're shown the welcome screen for a brand-new user redeeming a group-scope link), the only metadata surfaced is:
+
+- For group-scope: the group's **name**.
+- For personal-scope: the inviter's **creator label** (the value of the `creatorLabel` field on the invite record).
+
+No owner name, no member count, no description, no share code. This intentionally minimal preview prevents leaking metadata to potentially-malicious link recipients.
+
+### 9.11 Pending/approval gating (post-MVP)
 
 The schema's `pendingApproval` field on member records is reserved for a future feature: owners (or admins) could configure a group to require manual approval before new joiners are admitted. The flow would be:
 
@@ -378,11 +499,14 @@ Each flow is described step-by-step, with the user-visible behavior at each poin
 2. Their device's browser opens the app's URL with `?i={token}`.
 3. App boots. Detects v2 identity in localStorage. User is logged in.
 4. App detects the invite token in the URL before fully rendering the main UI.
-5. Token is validated against the database.
-6. On success: the redeemer is silently added to the group as a member. They land directly in the group's context (since `currentContext` is updated to `group:{groupId}`).
-7. No confirmation card, no toast, no banner. The user is in the group; the UI reflects it.
+5. Token is validated against `inviteIndex` and the invite record.
+6. The redeemer is asked for a display name via a small inline prompt: *"Your name in '{group name}'"* — a single text input with Continue. The input uses the same validation as add/rename labels (trim, non-empty, max 40).
+7. On Continue: the redeemer is added to the group as a member with the provided display name. `users/{uid}/groups/{groupId}` is written. `currentContext` is updated to `group:{groupId}`. They land directly in the group's context.
+8. No further confirmation card, no toast, no banner. The user is in the group; the UI reflects it.
 
-**Why silent:** the user took an explicit action (tapping the link) and intends to join. A confirmation card would be redundant. (A confirmation card *is* available as a post-MVP enhancement for users who want a friction-step before commitment.)
+**Why a name-prompt step for existing users (vs. silent join):** earlier revisions of this spec had existing-user join be fully silent. Display names are MVP-mandatory and per-group (§5), so the join has to capture one. Putting it on the join path keeps the user from landing in a group where they're displayed as their share code or as nothing. The prompt is one input, one button, designed to take 3-5 seconds.
+
+**Confirmation-card-on-existing-user-redemption** (a "Join '{group}'?" affordance before the name prompt) is a separate post-MVP enhancement.
 
 ### Flow B: brand-new user redeeming a group-scope invite link
 
@@ -402,30 +526,60 @@ Each flow is described step-by-step, with the user-visible behavior at each poin
 5. User taps `I'm new`.
 6. **Secret-phrase modal appears (unchanged from the v2 identity flow).** Generates a 4-word phrase, lets the user rotate it, copy it, save it. The phrase is the user's *personal* credential — it's not in any way tied to the group. The modal's text doesn't mention the group at all. (This is critical: making the secret phrase feel group-scoped would be a serious UX confusion.)
 7. User taps `I've saved it`.
-8. **A new step appears: "Your name in 'Family'."** Single text input plus a Continue button. The user types their per-group display name (defaulting to empty, the user must enter something).
+8. **A new step appears: "Your name in 'Family'."** Single text input plus a Continue button. Validation: trim, non-empty, max 40 (same as add-label / rename inputs).
 9. User taps Continue.
-10. The full account-creation sequence completes (secret phrase derived → userId → share code claimed → user added to the group).
+10. The full account-creation sequence completes (secret phrase derived → userId → share code claimed → user added to the group with the provided display name → `users/{uid}/groups/{groupId}` written → `currentContext` set to `group:{groupId}`).
 11. Main UI loads with the user in the Family group context.
 
-**Variation: tapping a personal-scope ("follow me") link as a brand-new user.** Same shape as the group flow, with the welcome screen adapted to say *"You've been invited to follow Alex"* instead of *"You've been invited to join 'Family'"*. No display-name step (display names are per-group; personal follows use the existing labeling system). After account creation, the redeemer is following the link's creator and lands in Direct context.
+**Variation: tapping a personal-scope ("follow me") link as a brand-new user.** Same shape as the group flow, with the welcome screen adapted to read *"You've been invited to follow {creatorLabel}"* (substituting the value from the invite record's `creatorLabel` field). No display-name step (display names are per-group; personal follows use the existing label-by-the-follower model). After account creation, the redeemer is following the link's creator and lands in Direct context.
 
 ### Flow C: existing user accepting an in-app push invite (Phase 3)
 
 This flow exists when an owner (or admin) explicitly invites a follower they already have into a group — not via a link, but as a directed in-app invitation.
 
+The pending invite is stored at the top-level path `pendingInvites/{inviteeUid}/{inviteId}` rather than under the invitee's user record. This is the **forward-compatible** location: under tightened Phase B rules, the inviter cannot write to the invitee's `users/{uid}/...` record, but the top-level mailbox can be expressed in security rules with no Cloud Function required (any authenticated user may write an invite with their own uid as `from`; only the invitee may read or delete from their own mailbox).
+
 1. **Inviter side:** Owner taps a follower's card in the group context's settings, taps "Invite to a group," picks the destination group. The invite is sent.
-2. **Database write:** A `pendingInvites/{groupId}` record is added under the invitee's user record, with the inviter's uid and a timestamp.
-3. **Invitee side:** On their next session (or in real-time via watchStatus if their app is open), they see a small inline card at the top of their main list:
+2. **Database write:** A `pendingInvites/{inviteeUid}/{inviteId}` record is added with `{ from: ownerUid, groupId, ts }`.
+3. **Invitee side:** Their app subscribes to `pendingInvites/{ownUid}/` and on real-time delivery (or next session) sees a small inline card at the top of their main list:
 
    ```
-   Bob invited you to join 'Family'.
+   {inviter label} invited you to join 'Family'.
    [Join]  [Decline]
    ```
 
+   The inviter is identified by whatever local label the invitee has for them (since they're already a follower of the inviter).
+
 4. The card persists until the user accepts, declines, or the inviter revokes it. **No TTL in MVP** — the invite waits.
-5. On `Join` → user is added to the group as a member; the card disappears; their context switches to the new group.
-6. On `Decline` → the card disappears; no group membership created; the inviter is *not* notified of the decline.
-7. **Inviter can revoke a pending invite.** If the inviter changes their mind, they can remove the pending record before the invitee acts.
+5. On `Join`:
+   - User is added to the group as a member (group-side write + user-side enumeration entry).
+   - The pending-invites record is deleted.
+   - The card disappears.
+   - The user's context switches to the new group.
+6. On `Decline`:
+   - The pending-invites record is deleted.
+   - The card disappears.
+   - No group membership is created.
+   - The inviter is not notified of the decline.
+7. **Inviter can revoke a pending invite.** Deleting the `pendingInvites/{inviteeUid}/{inviteId}` record removes the card from the invitee's app.
+
+**Phase B rules sketch** (for the implementation plan's reference, not part of MVP code):
+
+```json
+"pendingInvites": {
+  "$inviteeUid": {
+    ".read": "auth.uid === $inviteeUid",
+    "$inviteId": {
+      ".write": "auth.uid !== null && (
+        (!data.exists() && newData.child('from').val() === auth.uid)
+        || (data.exists() && (data.child('from').val() === auth.uid || auth.uid === $inviteeUid))
+      )"
+    }
+  }
+}
+```
+
+The same model works under MVP honor-system rules (which are wide-open).
 
 ### Bulk in-app invites: explicitly NOT in MVP
 
@@ -514,8 +668,15 @@ The knock is "deferred." Y's app:
 
 ### Multiple knocks
 
-- **Same knocker, multiple knocks:** the 20s timer resets each time a new knock from the same person arrives. The card stays at the top for at least 20s after the last knock.
+- **Same knocker, multiple knocks:** the 20s timer resets each time a new knock from the same person arrives. The card stays at the top for at least 20s after the last knock. If a same-person reset arrives mid-anchor-window, the card re-sorts to the top of the stack as the most-recent-knock entry.
 - **Multiple different knockers:** each gets its own 20s anchor window. They stack at the top of the list in order of most-recent-knock first.
+
+### Cross-device clearing semantics
+
+Knock state is in the database and cleared after the recipient has seen it (existing behavior). With multiple devices:
+
+- If Y sees the knock live on device A (currently in Family on device A), device A clears the knock record. Device B, which was showing the badge on the Family group card while in Direct, sees the clear via its subscription and removes the badge.
+- If Y's device A is in Family and device B is also in Family (both viewing the roster), both apps play the pulse on receipt. The first one to write the "seen / clear" record wins; the second one no-ops. (RTDB last-write-wins is fine here.)
 
 ### Applying the same float-to-top behavior to Direct context
 
@@ -543,21 +704,41 @@ This is intentionally minimal. A knock is a ping; following is a separate decisi
 
 ## 14. Cross-device sync
 
-All group-related user state syncs across the user's devices using the existing `watchStatus` subscription pattern (the same mechanism that syncs status color, palette, time-chip selection, etc. in the v2 identity work).
+Group-related state syncs across the user's devices via a combination of the existing `watchStatus` subscription pattern and per-group `watchGroupMembers` subscriptions.
 
-### State that syncs
+### What syncs via `watchStatus` (user-side state)
 
-- **Group memberships:** the user's `groups/{groupId}` sub-records (including role and display name per group).
-- **Per-group status overrides:** the toggle state plus override status, color, palette per group.
-- **Current context:** which group (or `direct`) the user is in. Set via the watchStatus callback when the user navigates.
-- **Pending in-app invites (Phase 3):** if Alice has two devices and Bob invites her to Family, both devices show the inline card; accepting on one device clears it on the other.
-- **Group cards order** (derived): naturally derived from currentContext history; not a separately-stored field but observable from history.
+The `users/{uid}/...` subtree continues to flow through the existing `watchStatus` callback. New fields:
+
+- `users/{uid}/groups/{groupId}/lastVisited` — for group cards ordering.
+- `users/{uid}/currentContext` — which context the user is in.
+- `users/{uid}/invites/{inviteId}` (personal-scope invite records).
+
+When `watchStatus` ticks, the existing pattern of `syncXFromServer(...)` helpers gains:
+
+- `syncUserGroupsFromServer(...)` — reconciles the enumeration index and lastVisited timestamps.
+- `syncCurrentContextFromServer(...)` — applies a context change (if the server-side context differs from the local one, the UI re-orients).
+- `syncPersonalInviteFromServer(...)` — refreshes the personal-scope invite record.
+
+### What syncs via per-group subscriptions
+
+The canonical membership facts live group-side (§7). The app subscribes per-group, keyed by the groups the user is enumerated into:
+
+- `watchGroupMembers(groupId, callback)` — subscribes to `groups/{groupId}/members/` for roster rendering and per-member status display.
+- `watchGroupMeta(groupId, callback)` — subscribes to `groups/{groupId}/name` (and the future color/palette fields) for the group cards row and breadcrumb.
+- `watchGroupInvites(groupId, callback)` — subscribes to `groups/{groupId}/invites/` for the invite-management modal (owner/admin only).
+
+The own-user's per-group `displayName`, `role`, and `statusOverride` all come from `watchGroupMembers` — there is no user-side mirror to keep in sync.
+
+### What syncs via the pending-invites mailbox (Phase 3)
+
+`watchPendingInvites(uid, callback)` — subscribes to `pendingInvites/{uid}/` for in-app push invite cards.
 
 ### What does NOT sync
 
 Things that are purely UI state, not user state:
 
-- Which group card is currently visually selected vs not (this is just the rendering of currentContext, which does sync).
+- Which group card is currently visually selected vs. not (this is just the rendering of currentContext, which does sync).
 - Scroll position within a context.
 - Whether the user has dismissed an ephemeral toast.
 
@@ -565,8 +746,10 @@ Things that are purely UI state, not user state:
 
 When a user opens the app on a new device for the first time after restoring identity:
 
-- watchStatus fires with the full user record on first tick.
-- All synced state is applied: group memberships are loaded, currentContext is restored (or falls back to Direct if invalid), per-group overrides are applied, pending invites are shown.
+- `watchStatus` fires with the full user record on first tick.
+- The user's enumeration index `users/{uid}/groups/` is read; for each enumerated group, `watchGroupMembers` and `watchGroupMeta` subscriptions are spun up.
+- `currentContext` is restored (or falls back to Direct if invalid).
+- Pending invites are loaded if Phase 3 is shipping.
 
 ## 15. Feature gating
 
@@ -587,6 +770,7 @@ When `GROUPS_ENABLED` is false:
 - No group context views are reachable.
 - Knock-via-group-context behavior is inactive.
 - The data model still tolerates existing group records (a user who's in groups from another device sees them once the flag is on).
+- The personal-scope invite affordance (Phase 0) still works — Phase 0 ships without `GROUPS_ENABLED` actually gating group behavior, since there are no groups yet.
 
 The existing flags continue to gate their respective features. There is no separate flag for sub-features within groups (e.g., no separate flag for per-audience status overrides, knock-via-group-context, etc.).
 
@@ -603,51 +787,80 @@ The work is broken into shippable phases, each producing a usable feature on its
 This phase ships **without groups existing.** It introduces the invite-link primitive and uses it for 1:1 follow-me invitations.
 
 What ships:
-- Invite-link primitive in Firebase (scope discriminator, token, TTL, redemption cap, revocation field, redemptions counter).
-- Lifecycle operations: create, revoke, regenerate.
-- URL parsing and redemption flow.
-- Personal-scope redemption (`scope: 'personal'`): redemption establishes a follow from redeemer → creator.
-- Brand-new user onboarding via personal-scope link (welcome screen says *"You've been invited to follow Alex"*).
-- Friendly failure messages for revoked / expired / capped links.
-- `GROUPS_ENABLED` flag is added but only gates group-scope behavior; personal links work regardless of the flag.
+
+- Invite-link primitive in Firebase (scope discriminator, token, TTL, redemption cap, revocation field, redemptions counter, creator label for personal-scope).
+- Global `inviteIndex/{token}` lookup table for redemption resolution.
+- Lifecycle operations: create, copy, revoke, regenerate.
+- **One-active-personal-invite-per-user constraint** enforced in the UI and on write.
+- **Invite modal component** (§9.4) parameterized by scope. In Phase 0, only the personal-scope parameterization is exposed.
+- **Code drawer entry point**: a row beneath the share-code Copy button, with `[ Create invite link ]` (no active invite) or `[ View invite link ]` (active invite exists). Opens the modal.
+- URL parsing and redemption flow via `inviteIndex`.
+- Personal-scope redemption: follow established.
+- Brand-new user onboarding via personal-scope link (welcome screen says *"You've been invited to follow {creatorLabel}"*).
+- Friendly failure messages for revoked / expired / capped / not-found links.
+- Failure overlay returns existing users to their current context, brand-new users to the welcome screen.
+- `GROUPS_ENABLED` flag added; only gates group-scope behavior (none in Phase 0). Personal links work regardless.
 
 What ships as a side effect: a user can now replace "exchange share codes verbally" with "share an invite link" for the 1:1 follow case. This is a useful standalone feature on its own.
 
-**Why this phase first:** validates the invite-link infrastructure before groups are layered on top. If anything's wrong with the link mechanics, it surfaces in Phase 0 where the blast radius is small.
+**Why this phase first:** validates the invite-link infrastructure (including the modal pattern and the index lookup) before groups are layered on top. If anything's wrong with the link mechanics, it surfaces in Phase 0 where the blast radius is small.
 
 ### Phase 1 — Groups minimum
 
 This phase introduces the group entity and the core group-related UI. The status model is **still single-status** in this phase — every group sees the user's primary status. Motivation B is fulfilled; C+A is not yet.
 
 What ships:
-- Group entity in Firebase (id, name, owner, member list, createdAt).
+
+- Group entity in Firebase (id, name, owner, member list, invites, createdAt).
+- Transactional `groupIdIndex/{groupId}` allocation.
 - Owner-only group operations: create, rename, delete.
-- Member notification on group deletion (a brief "'Family' has been deleted" notice in their app).
-- Group-scope invite links (uses the Phase 0 primitive with `scope: 'group:{id}'`).
-- Existing-user link redemption: silent auto-join, lands in group context.
-- New-user link redemption: α' welcome screen + secret-phrase modal + "Your name in 'Family'" display-name step.
+- **Group-deletion notification mechanism** (§16.1).
+- Group-scope invite links (reuses the Phase 0 primitive and the modal component, with the scope parameter set to group).
+- **Per-(creator, group) one-active-group-invite constraint.**
+- Existing-user link redemption (Flow A): name prompt + auto-add to group + land in group context.
+- New-user link redemption (Flow B): welcome screen + secret-phrase modal + "Your name in 'Family'" step.
 - Member operations: see roster, edit own display name, leave the group.
+- Display name validation (trim, non-empty, max 40 — matches existing label inputs).
 - Navigation infrastructure: group cards row at top of Direct context (with `+` and zero-state CTA), `←` breadcrumb in group context.
-- Persistent current-context across sessions and devices (via watchStatus pattern).
-- Cross-device sync of group memberships and display names.
-- Knock-via-group-context: pulse animation + float-to-top anchor.
+- `users/{uid}/groups/{groupId}` enumeration index with `lastVisited` writes on context navigation.
+- Persistent `currentContext` across sessions and devices (via watchStatus pattern).
+- Per-group `watchGroupMembers` and `watchGroupMeta` subscriptions wired up on group-enumeration changes.
+- Knock-via-group-context: pulse animation + 20s float-to-top anchor.
 - Float-to-top behavior also applied to direct contacts (latent issue addressed).
 - Group card indicator badge for pending knocks.
-- `GROUPS_ENABLED` flag now gates group-scope UI.
+- `GROUPS_ENABLED` flag now gates the group-scope UI.
 
 What's still missing (and added in later phases):
+
 - Per-audience status overrides (Phase 2).
 - In-app push invites (Phase 3).
 - Admin role (post-MVP).
 - Group color/palette customization (post-MVP).
+
+#### 16.1 Group-deletion notification mechanism
+
+When an owner deletes a group, members need to be notified that the group they were in no longer exists. The mechanism:
+
+1. Each member's app subscribes to `groups/{groupId}/members/{ownUid}` via `watchGroupMembers` for each group enumerated in `users/{uid}/groups/`.
+2. When the owner deletes the group, all `groups/{groupId}/...` records are removed. The member's subscription returns `null` on the next tick.
+3. The app correlates: did the user-side enumeration record still exist before this tick? Yes → this is a deletion (or kick) event, not just an absence.
+4. Distinguish deletion from kick by reading `groups/{groupId}/name` (or any group-level field). If the entire group is gone → it was deleted. If only the user's member record is gone but the group still exists → the user was kicked.
+5. In either case: the app shows a brief in-app notice (toast or modal):
+   - Deletion: *"'Family' has been deleted."*
+   - Kick: *"You've been removed from 'Family'."*
+6. The app cleans up the local state: removes the `users/{uid}/groups/{groupId}` enumeration entry, removes the group card, and (if `currentContext` was set to this group) falls back to Direct.
+
+The notice is informational — no action required from the user. Closing it dismisses it.
 
 ### Phase 2 — Per-audience status overrides
 
 This phase adds the multi-status model on top of the Phase 1 foundation. Motivation C+A is now fulfilled.
 
 What ships:
+
 - "Set a unique status" toggle per audience (each group, plus the followers audience).
 - Toggle defaults OFF; ON → audience-specific status, initial value Unavailable.
+- `statusOverride` block written to `groups/{groupId}/members/{ownUid}/statusOverride` (canonical location).
 - Header status chip in any context now controls *that context's* status (primary in Direct; override in group with toggle ON).
 - Group card visual styling reflects the user's override color/theme when override is ON; neutral when OFF.
 - Group context view shows the user's override status on their own card (if visible in the roster).
@@ -656,11 +869,13 @@ What ships:
 ### Phase 3 — In-app push invites
 
 What ships:
+
 - In-app invite flow (Flow C in §10).
 - Inviter selects a follower → picks group → invite sent.
 - Recipient sees inline card at top of main list with Join / Decline.
 - Inviter can revoke pending invites.
-- Multi-device sync of pending invites.
+- Multi-device sync of pending invites via `watchPendingInvites`.
+- Pending invites stored at `pendingInvites/{inviteeUid}/{inviteId}` (top-level mailbox, Phase-B-rules-compatible without a Cloud Function).
 
 ### Phase 4+ — Post-MVP polish
 
@@ -671,7 +886,8 @@ These items are documented but not in MVP. Rough priority order:
 - **Group color/palette semantics.** Owner-configurable between:
   - **Mode B (member uniform):** members appear in the group's color when viewed in that group's context.
   - **Mode C (default suggestion):** group's color is suggested as the default status color for new members; they can still override.
-- **Confirmation card on existing-user link redemption.** Instead of silent auto-join, show a *"Join 'Family'?"* card before adding the user.
+- **Confirmation card on existing-user link redemption.** Instead of going straight to the name prompt, show a *"Join 'Family'?"* card before adding the user.
+- **In-place edit of personal invite creator label** without requiring regenerate.
 - **Request-to-follow.** From a non-mutual co-member's card, send a follow request the target can accept or decline. Establishes 1:1 follow.
 - **Pending/approval moderation gating.** Group can be configured to require admin approval before new joiners are admitted.
 - **Bulk in-app invites.** Invite multiple followers at once.
@@ -686,14 +902,16 @@ These items are documented but not in MVP. Rough priority order:
 - **"Live members here right now" indicator.** Beyond the existing presence model.
 - **Notifications on admin actions** (rename, color change, kick).
 - **Push notifications via service worker** for in-app invites and knocks.
+- **`inviteIndex` cleanup pass** for expired-and-untouched entries.
 
 ## 17. MVP scope
 
 **MVP = Phases 0 + 1 + 2.**
 
 This delivers:
-- Invite-link primitive and 1:1 follow-me invites (Phase 0).
-- Group entity, owner-only ops, group invites, member operations, navigation, knock-via-group-context (Phase 1).
+
+- Invite-link primitive, `inviteIndex` resolution, and 1:1 follow-me invites with creator labels (Phase 0).
+- Group entity, owner-only ops, group invites, member operations, navigation, knock-via-group-context, group-deletion notifications (Phase 1).
 - Per-audience status overrides (Phase 2).
 
 Both motivations B and C+A are fulfilled. Motivation D (onboarding via link) is also served — new users join via either a personal link or a group link.
@@ -719,26 +937,36 @@ For clarity, these are explicitly NOT in scope for this design:
 - **Discoverable / public groups** — a directory you can browse. Groups remain invite-only.
 - **Group join requests without a link** — there's no "find a group and ask to join" path.
 - **Member-managed identity** — letting other members change your display name in a group.
+- **Multiple active invite links per scope-target** — the one-active-invite constraint is intentional.
 
 ## 19. Implementation considerations (notes for the implementation plan)
 
 These aren't design decisions; they're notes for whoever writes the implementation plan.
 
-- **Group ID generation:** transactional claim against `groupIdIndex/{groupId}`, retry on collision. Same pattern as `codeIndex` for share codes.
-- **Invite token format:** URL-safe random string with high entropy. Suggested: 22 chars from `base64url` (128 bits of entropy). Validated by exact match; no decoding needed.
-- **Firebase RTDB rules:** the existing rules allow any-user read/write to `users/$userId`, `codeIndex/$code`, `canvases/$canvasId`. Groups will need analogous rules for `groups/$groupId/...`. The MVP can use similarly permissive rules; a future "Phase B identity work" (documented in the v2 recovery-code spec) would tighten these to `auth.uid`-based rules.
-- **Performance of large groups:** with `members/{uid}` as a sub-record under `groups/{groupId}`, listing all members is O(n). At 100 members this is fine; at 10,000 it isn't. Defer optimization until needed.
-- **Existing canvas / call / knock code:** unchanged in MVP. Groups don't refactor them.
-- **Test infrastructure:** new Firebase reads/writes need to be mocked in the appropriate test files (`tests/following.test.js`, `tests/me.test.js`, etc.). New exports from `js/db.js` particularly need their mocks updated.
-- **Cross-device sync:** reuses the `watchStatus` callback in `js/app.js`. Each new piece of synced state adds a `syncXFromServer(...)` function called from that callback, following the pattern established by paletteState, favorites, following, and the others.
-- **Migration:** existing users have no `groups` records. The Phase 1 code must handle the empty case gracefully — `users/{uid}/groups` may not exist on read.
+- **Group ID generation.** Transactional claim against `groupIdIndex/{groupId}`, retry on collision. Same pattern as `codeIndex` for share codes.
+- **Invite token format.** URL-safe random string with high entropy. Suggested: 22 chars from `base64url` (128 bits of entropy). Validated by exact match.
+- **`inviteIndex` allocation.** Same transactional-claim pattern as `groupIdIndex` and `codeIndex`. Collision is vanishingly rare at 128 bits but the retry loop is cheap insurance.
+- **`inviteIndex` cleanup.** Revoke and regenerate paths must remove the index entry as part of the atomic operation, not as a follow-up best-effort. Expired-by-TTL entries are left in place in MVP; redemption-time validation catches them. A post-MVP cleanup pass can sweep them.
+- **Modal component reuse.** Build one component parameterized by `{ scope, ownerPath, creatorLabel? }` rather than two near-duplicates. The Phase 0 implementation should anticipate the Phase 1 group scope so the parameterization doesn't require refactoring.
+- **One-active-invite enforcement.** Should be enforced both client-side (UI prevents creating a second) and on the write transaction (read-modify-write the user/group invites collection in a transaction that fails if an active invite already exists). The transaction catches multi-device races.
+- **Firebase RTDB rules.** The existing rules allow any-user read/write to `users/$userId`, `codeIndex/$code`, `canvases/$canvasId`. Groups will need analogous rules for `groups/$groupId/...` and the new `inviteIndex`, `pendingInvites`, `groupIdIndex` paths. MVP uses permissive rules; Phase B identity work (documented in the v2 recovery-code spec) will tighten to `auth.uid`-based rules. The data layout in this revision (§7) is designed to be portable to Phase B without requiring a Cloud Function — note in particular:
+  - `groups/{groupId}/members/{memberUid}/...` member-self-write rule: `auth.uid === $memberUid`.
+  - Group-owner writes (kick, rename, delete) gated by reading the requester's role from the same path.
+  - `pendingInvites/{inviteeUid}/{inviteId}` rules sketched in §10 Flow C — inviter writes own, invitee reads own, both can delete.
+- **Group-deletion / kick detection.** See §16.1 for the algorithm. The correlation step (was-enumerated → null = transition event) is the key piece; without it, the app can't distinguish "I'm not in this group" (steady state) from "I was just removed" (event to surface).
+- **Performance of large groups.** With `members/{uid}` as a sub-record under `groups/{groupId}`, listing all members is O(n). At 100 members this is fine; at 10,000 it isn't. Defer optimization until needed.
+- **Existing canvas / call / knock code.** Unchanged in MVP. Groups don't refactor them.
+- **Test infrastructure.** New Firebase reads/writes need to be mocked in the appropriate test files. New exports from `js/db.js` particularly need their mocks updated (per the handoff: `tests/favorites.test.js`, `tests/following.test.js`, `tests/me.test.js`, `tests/mycode.test.js`).
+- **Cross-device sync.** Reuses the `watchStatus` callback for user-side state and per-group `watchGroupMembers` / `watchGroupMeta` subscriptions for canonical membership data. Each new piece of user-state adds a `syncXFromServer(...)` helper called from the watchStatus callback, following the pattern established by paletteState, favorites, following, and the others.
+- **Migration.** Existing users have no `groups` enumeration record. The Phase 1 code must handle the empty case gracefully — `users/{uid}/groups` may not exist on read.
 
 ## 20. References
 
 This design draws on patterns established in adjacent specs:
 
-- **`docs/superpowers/specs/2026-05-25-recovery-code-design.md`** — defines the v2 secret-phrase identity model that this feature builds on. Cross-device sync infrastructure assumed by this spec.
+- **`docs/superpowers/specs/2026-05-23-recovery-code-design.md`** — defines the v2 secret-phrase identity model that this feature builds on. Cross-device sync infrastructure assumed by this spec; Phase B identity work referenced by §19.
 - **`docs/superpowers/specs/2026-03-23-call-canvas-design.md`** — defines the 1:1 canvas behavior referenced in §12 ("communication primitives in groups").
 - **`js/features.js`** — current feature flags. The new `GROUPS_ENABLED` flag is added here.
+- **`js/following.js`** — `add-label-input` / rename input pattern referenced by §5 for display-name validation.
 
 End of specification.

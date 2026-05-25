@@ -24,11 +24,11 @@ This is Approach A from the design discussion (`brainstorming` thread, 2026-05-2
 ### Recovery code
 
 - **Format:** 4 random words, lowercase, separated by `-`. Example: `swift-river-amber-dust`.
-- **Wordlist:** a curated English wordlist of short (4–7 char) common words, no profanity, no homophones with other words in the list, no proper nouns. Target wordlist size and entropy:
-  - **Default choice:** EFF short wordlist (1296 words, public domain). 4 picks ≈ 41 bits entropy.
-  - **Acceptable alternative:** EFF long wordlist (7776 words, public domain). 4 picks ≈ 52 bits entropy.
-  - Either is more than sufficient for the threat model. Implementer picks one and sticks with it. The chosen wordlist is the canonical wordlist forever — changing it later means existing recovery codes might no longer parse.
-- **Wordlist storage:** bundled into the JS bundle (~10–40 KB depending on choice).
+- **Wordlist:** a curated English wordlist of short (4–7 char) common words, no profanity, no homophones with other words in the list, no proper nouns. Wordlist size and entropy options considered:
+  - EFF short wordlist (1296 words, public domain). 4 picks ≈ 41 bits entropy.
+  - EFF long wordlist (7776 words, public domain). 4 picks ≈ 52 bits entropy.
+  - Either was sufficient for the threat model. **Implementer picked the EFF long wordlist**, filtered to remove the four entries containing hyphens (`drop-down`, `felt-tip`, `t-shirt`, `yo-yo`) so dash-separated normalization is unambiguous. Final list: **7772 words**, ≈51.95 bits entropy on 4 picks. Source: `https://www.eff.org/dice` (`eff_large_wordlist.txt`). The chosen wordlist is the canonical wordlist forever — changing it later means existing recovery codes might no longer parse.
+- **Wordlist storage:** bundled into the JS bundle as `js/wordlist.js` (~40 KB).
 - **Display form:** lowercase, dash-separated. Used verbatim for storage and clipboard.
 - **Input acceptance:** case-insensitive; tokens may be separated by dashes, spaces, or commas. Normalization: lowercase + collapse separators to `-` + trim.
 - **Validation:** parse → exactly 4 tokens → each token in wordlist. If any check fails, treat input as invalid (no userId derivation, no Firebase read).
@@ -111,7 +111,7 @@ The existing `#stale-screen` already handles this case with a single "Continue" 
 [  Continue with new account  ]    [  I have a recovery code  ]
 ```
 
-- "Continue with new account" → existing behavior: clear localStorage, fall through to Flow 1 ("I'm new" path).
+- "Continue with new account" → clear localStorage and **jump directly to the recovery-code-display modal** (skipping the welcome screen). The user already declared "new account" intent by tapping this button; routing them through the welcome screen to declare it again would force a redundant second tap on "I'm new." The recovery-code-display modal is the actual meaningful step on the "I'm new" path, so we land there directly.
 - "I have a recovery code" → restore input screen.
 
 ### Flow 4 — v1 → v2 migration (clean break)
@@ -167,13 +167,17 @@ Reached from either welcome screen or stale-identity screen. Layout:
 - Inline error area, hidden by default. Used for:
   - "That doesn't look like a recovery code — check that you entered 4 words from the list."
   - "No account found with that code. Check spelling, or tap Cancel to start over."
+  - "Couldn't reach the server — check your connection and try again."
 
-On successful restore:
-1. Validate input.
+On Restore:
+1. Validate input (parse + wordlist check). On invalid → show first error; stop.
 2. Derive userId.
-3. Read `users/{userId}` from Firebase.
-4. If exists → write `{ userId, code: <fetched share code>, recoveryCode: <normalized input> }` to localStorage → proceed to main UI.
-5. If not exists → show the second error message above; no localStorage write.
+3. Read `users/{userId}` from Firebase. Three outcomes:
+   - **Read succeeds, record exists** → write `{ userId, code: <fetched share code>, recoveryCode: <normalized input> }` to localStorage → proceed to main UI.
+   - **Read succeeds, record absent** → show "No account found" error; no localStorage write.
+   - **Read fails (network error, timeout, RTDB unreachable)** → show "Couldn't reach the server" error; no localStorage write. The user remains on the restore screen with their input intact so they can retry without re-typing.
+
+**Connectivity requirement:** restore requires a live connection to RTDB. The "no account found" and "couldn't reach the server" cases must be distinguished to avoid telling a disconnected user their account doesn't exist — which would push them toward starting over and losing their identity for real. The Firebase SDK's `get()` rejects on network failure, which is the signal to surface the connectivity error rather than the not-found error.
 
 ### Stale-identity screen (modified)
 
@@ -216,8 +220,8 @@ All visual elements reuse existing tokens (`primary-btn`, `ghost-btn`, `.chip`, 
 | File | Change |
 |---|---|
 | `js/identity.js` | Add `generateRecoveryCode()`, `parseRecoveryCode(input)`, `deriveUserIdFromRecoveryCode(code)`. Existing `generateUserId()` is removed (no longer used). Save/load helpers grow to handle the new `recoveryCode` field. |
-| `js/wordlist.js` | **New.** Exports the 4096-word array (or chosen size). |
-| `js/app.js` | `ensureIdentity()` rewritten: detect v1 schema → wipe; detect empty localStorage → show welcome screen and await user choice; detect stale localStorage → show stale-screen with restore option. New helpers `showWelcomeScreen()`, `showRecoveryCodeModal()`, `showRestoreScreen()`. |
+| `js/wordlist.js` | **New.** Exports the 7772-word EFF-long-filtered wordlist as a frozen array. Generated by `scripts/gen-wordlist.js` (one-shot, idempotent). |
+| `js/app.js` | `ensureIdentity()` rewritten: detect v1 schema → wipe; detect empty localStorage → show welcome screen and await user choice; detect stale localStorage → show stale-screen with restore option. New helpers `showWelcomeScreen()`, `showRecoveryCodeModal()`, `showRestoreScreen()`. The stale-screen's "Continue with new account" path clears localStorage and calls `showRecoveryCodeModal()` directly, bypassing `showWelcomeScreen()`. |
 | `js/mycode.js` | Add recovery-code pill row to the drawer init logic; manage its three-state machine. |
 | `index.template.html` | Add markup for welcome screen, recovery-code modal, restore screen. Modify stale screen. |
 | `css/app.css` | Styles for welcome/restore screens, recovery modal, pill row state transitions (mostly opacity / text swaps; no new keyframes likely needed). Extract the existing `#splash` typographic styling into a reusable class (e.g., `.brand-mark`) so both the splash and the welcome heading share it. |
@@ -250,19 +254,27 @@ Test files updated correspondingly.
 - **Restore flow (not found):** as above but Firebase record absent → inline error shown → localStorage unchanged → still on restore screen.
 - **Restore flow (bad input):** enter 3-word phrase, or word not in list → inline error shown → no Firebase read attempted.
 - **Stale identity → restore:** localStorage has v2 identity but Firebase says no → stale-screen rendered with both buttons → tap "I have a recovery code" → restore screen rendered.
+- **Stale identity → new account (direct to modal):** stale-screen rendered → tap "Continue with new account" → recovery-code-display modal rendered directly (welcome screen is not shown in between) → localStorage was cleared as part of the transition.
 - **v1 migration:** localStorage has `{userId, code}` only (no `recoveryCode`) → on app boot, localStorage is cleared → welcome screen rendered.
 - **Drawer pill state machine:**
   - Idle → tap → Revealed
   - Revealed → wait 15s with no interaction → Idle
   - Revealed → tap Copy → button reads "Copied!" → wait 1.5s → row is back to Idle
   - Revealed → tap row (not Copy) → 15s timer resets
-- **Confirm modal hard gate:** programmatic Escape / outside-tap does not close the recovery-code modal; only the confirm button does.
+- **Confirm modal hard gate:**
+  - Programmatic Escape key does not close the recovery-code modal.
+  - Outside-tap (click on the modal overlay backdrop) does not close it.
+  - Programmatic `history.back()` / browser back-button / PWA back-gesture does not close it. The modal installs a `popstate` listener that re-pushes the history entry it owns, so navigating back is a visual no-op while the modal is open. The listener is removed only when the user taps "I've saved it" (the legitimate dismissal).
+  - Only the explicit confirm button dismisses the modal.
+- **Restore connectivity outcomes (per §Restore input screen):**
+  - Read succeeds with record → main UI rendered; localStorage written.
+  - Read succeeds with no record → "No account found" error; localStorage unchanged.
+  - Read rejects (simulate network failure via mocked `get()` rejection) → "Couldn't reach the server" error; localStorage unchanged; input value preserved in the field for retry.
 
 ### Out of test scope
 
 - Cryptographic strength of SHA-256 (Node provides this).
 - Browser clipboard API (mocked via existing patterns).
-- Network failure modes of `userExists()` during restore — current code uses optimistic offline behavior; we inherit that.
 
 ## Edge cases worth calling out
 
