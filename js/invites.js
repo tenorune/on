@@ -164,6 +164,25 @@ export async function attemptRedeemFromUrl(token, redeemerUid, redeemerCode) {
   return redeemPersonalInvite(token, redeemerUid, redeemerCode, followingSet);
 }
 
+// Looks up just the creatorLabel for a personal-scope invite. Used by the welcome
+// screen to name the inviter before the user has an identity. Returns null on any
+// failure (missing token, not in index, not personal, revoked, DB error) so the
+// caller can fall back to the generic welcome.
+export async function resolveInviteCreatorLabel(token) {
+  if (!token) return null;
+  try {
+    const indexEntry = await readInviteIndex(token);
+    if (!indexEntry || indexEntry.scope !== 'personal') return null;
+    const match = indexEntry.ownerPath.match(/^users\/([^/]+)\/invites\/([^/]+)$/);
+    if (!match) return null;
+    const invite = await readUserInvite(match[1], match[2]);
+    if (!invite || invite.revoked) return null;
+    return invite.creatorLabel || null;
+  } catch {
+    return null;
+  }
+}
+
 export function extractInviteTokenFromUrl(urlStr) {
   try {
     const url = new URL(urlStr);

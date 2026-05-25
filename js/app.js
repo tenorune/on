@@ -9,8 +9,7 @@ import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENA
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
-import { attemptRedeemFromUrl, extractInviteTokenFromUrl } from './invites.js';
-import { readInviteIndex, readUserInvite } from './db.js';
+import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInviteCreatorLabel } from './invites.js';
 
 
 let splashCounter = 0;
@@ -285,19 +284,12 @@ function inviteFailureCopy(reason) {
   }
 }
 
-async function resolveInviteCreatorLabel(token) {
-  if (!token) return null;
+function cleanInviteParamFromUrl() {
   try {
-    const indexEntry = await readInviteIndex(token);
-    if (!indexEntry || indexEntry.scope !== 'personal') return null;
-    const match = indexEntry.ownerPath.match(/^users\/([^/]+)\/invites\/([^/]+)$/);
-    if (!match) return null;
-    const invite = await readUserInvite(match[1], match[2]);
-    if (!invite || invite.revoked) return null;
-    return invite.creatorLabel || null;
-  } catch {
-    return null;
-  }
+    const clean = new URL(window.location.href);
+    clean.searchParams.delete('i');
+    window.history.replaceState({}, document.title, clean.toString());
+  } catch { /* no-op on unusual URLs */ }
 }
 
 async function main() {
@@ -305,28 +297,12 @@ async function main() {
   const { identity, isNew } = await ensureIdentity(pendingInviteToken);
   const { userId, code } = identity;
 
-  if (pendingInviteToken && !isNew) {
+  if (pendingInviteToken) {
     const result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
     if (result) {
       handleInviteRedemptionResult(result);
       // Clean the URL so a refresh doesn't re-trigger.
-      try {
-        const clean = new URL(window.location.href);
-        clean.searchParams.delete('i');
-        window.history.replaceState({}, document.title, clean.toString());
-      } catch { /* no-op on unusual URLs */ }
-    }
-  }
-
-  if (pendingInviteToken && isNew) {
-    const result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
-    if (result) {
-      handleInviteRedemptionResult(result);
-      try {
-        const clean = new URL(window.location.href);
-        clean.searchParams.delete('i');
-        window.history.replaceState({}, document.title, clean.toString());
-      } catch { /* no-op */ }
+      cleanInviteParamFromUrl();
     }
   }
 

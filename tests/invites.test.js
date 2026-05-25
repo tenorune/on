@@ -20,7 +20,7 @@ jest.mock('../js/store.js', () => ({ getFollowing: jest.fn(() => []) }));
 
 const db = require('../js/db.js');
 const store = require('../js/store.js');
-const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, redeemPersonalInvite, attemptRedeemFromUrl, extractInviteTokenFromUrl } = require('../js/invites');
+const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, redeemPersonalInvite, attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInviteCreatorLabel } = require('../js/invites');
 
 describe('generateInviteToken', () => {
   test('returns a 22-char URL-safe base64 string', () => {
@@ -335,6 +335,39 @@ describe('boot-time redemption (existing user, integration)', () => {
     const result = await attemptRedeemFromUrl('TOKEN', 'redeemer-uid', 'redeemer-code');
     expect(result.ok).toBe(true);
     expect(result.creatorUid).toBe('creator');
+  });
+});
+
+describe('resolveInviteCreatorLabel', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('returns null when token is empty', async () => {
+    expect(await resolveInviteCreatorLabel(null)).toBeNull();
+    expect(await resolveInviteCreatorLabel('')).toBeNull();
+    expect(db.readInviteIndex).not.toHaveBeenCalled();
+  });
+
+  test('returns the creator label for a valid personal invite', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({ scope: 'personal', creatorLabel: 'Mike P.', revoked: false });
+    expect(await resolveInviteCreatorLabel('T')).toBe('Mike P.');
+  });
+
+  test('returns null when the invite is revoked', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({ scope: 'personal', creatorLabel: 'Mike', revoked: true });
+    expect(await resolveInviteCreatorLabel('T')).toBeNull();
+  });
+
+  test('returns null when the scope is not personal', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G/invites/T' });
+    expect(await resolveInviteCreatorLabel('T')).toBeNull();
+    expect(db.readUserInvite).not.toHaveBeenCalled();
+  });
+
+  test('returns null when the index lookup throws', async () => {
+    db.readInviteIndex.mockRejectedValue(new Error('network down'));
+    expect(await resolveInviteCreatorLabel('T')).toBeNull();
   });
 });
 
