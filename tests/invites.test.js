@@ -102,3 +102,67 @@ describe('createPersonalInvite', () => {
     expect(db.writeUserInvite).toHaveBeenLastCalledWith('uid1', expect.any(String), expect.objectContaining({ creatorLabel: 'Mike' }));
   });
 });
+
+const { revokePersonalInvite, regeneratePersonalInvite } = require('../js/invites');
+
+describe('revokePersonalInvite', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('marks the invite revoked and releases the inviteIndex entry', async () => {
+    db.readUserInvites.mockResolvedValue({
+      ABC: { scope: 'personal', token: 'ABC', revoked: false },
+    });
+    db.setInviteRevoked.mockResolvedValue();
+    db.releaseInviteToken.mockResolvedValue();
+
+    await revokePersonalInvite('uid1');
+
+    expect(db.setInviteRevoked).toHaveBeenCalledWith('uid1', 'ABC');
+    expect(db.releaseInviteToken).toHaveBeenCalledWith('ABC');
+  });
+
+  test('no-ops when there is no active invite', async () => {
+    db.readUserInvites.mockResolvedValue({
+      ABC: { scope: 'personal', token: 'ABC', revoked: true },
+    });
+    await revokePersonalInvite('uid1');
+    expect(db.setInviteRevoked).not.toHaveBeenCalled();
+    expect(db.releaseInviteToken).not.toHaveBeenCalled();
+  });
+});
+
+describe('regeneratePersonalInvite', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('revokes the existing active invite and creates a new one', async () => {
+    db.readUserInvites
+      .mockResolvedValueOnce({ OLD: { scope: 'personal', token: 'OLD', revoked: false, creatorLabel: 'Mike' } }) // revoke read
+      .mockResolvedValueOnce({});                                                                                  // post-revoke read for create
+    db.setInviteRevoked.mockResolvedValue();
+    db.releaseInviteToken.mockResolvedValue();
+    db.claimInviteToken.mockResolvedValue(true);
+    db.writeUserInvite.mockResolvedValue();
+
+    const result = await regeneratePersonalInvite('uid1', 'Mike P.');
+
+    expect(db.setInviteRevoked).toHaveBeenCalledWith('uid1', 'OLD');
+    expect(db.releaseInviteToken).toHaveBeenCalledWith('OLD');
+    expect(db.writeUserInvite).toHaveBeenCalledWith('uid1', result.token, expect.objectContaining({
+      scope: 'personal',
+      creatorLabel: 'Mike P.',
+    }));
+    expect(result.token).not.toBe('OLD');
+  });
+
+  test('creates a new invite when no active one exists', async () => {
+    db.readUserInvites.mockResolvedValue({});
+    db.claimInviteToken.mockResolvedValue(true);
+    db.writeUserInvite.mockResolvedValue();
+
+    const result = await regeneratePersonalInvite('uid1', 'Mike');
+
+    expect(db.setInviteRevoked).not.toHaveBeenCalled();
+    expect(db.releaseInviteToken).not.toHaveBeenCalled();
+    expect(result.token).toMatch(/^[A-Za-z0-9_-]{22}$/);
+  });
+});

@@ -4,6 +4,7 @@
 
 import {
   claimInviteToken, writeUserInvite, readUserInvites,
+  setInviteRevoked, releaseInviteToken,
 } from './db.js';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -86,4 +87,19 @@ export async function createPersonalInvite(userId, creatorLabelRaw) {
   await writeUserInvite(userId, token, payload);
 
   return { token, url: buildInviteUrl(token), existing: false };
+}
+
+export async function revokePersonalInvite(userId) {
+  const collection = await readUserInvites(userId);
+  const active = findActivePersonalInvite(collection);
+  if (!active) return;
+  await setInviteRevoked(userId, active.token);
+  await releaseInviteToken(active.token);
+}
+
+export async function regeneratePersonalInvite(userId, creatorLabelRaw) {
+  // Validate label up-front so a bad label doesn't cause us to revoke first and fail second.
+  const creatorLabel = validateLabel(creatorLabelRaw);
+  await revokePersonalInvite(userId);
+  return createPersonalInvite(userId, creatorLabel);
 }
