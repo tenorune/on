@@ -3,6 +3,9 @@ const {
   userExists, touchLastSeen, rotateCode, setStatusColor, setPaletteKey,
   setCallState, clearCallState, getUser,
   claimInviteToken, releaseInviteToken, readInviteIndex,
+  readUserInvite, writeUserInvite, deleteUserInvite,
+  setInviteRevoked, incrementInviteRedemptions, getCreatorCode,
+  watchUserInvites,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -12,12 +15,13 @@ jest.mock('firebase/database', () => ({
   set: jest.fn(),
   remove: jest.fn(),
   runTransaction: jest.fn(),
+  onValue: jest.fn(),
 }));
 jest.mock('../js/firebase-config', () => ({ db: {} }));
 jest.mock('../js/identity.js', () => ({ generateCode: jest.fn() }));
 jest.mock('../js/store.js', () => ({ getFollowing: jest.fn() }));
 
-const { ref, get, update, set, remove, runTransaction } = require('firebase/database');
+const { ref, get, update, set, remove, runTransaction, onValue } = require('firebase/database');
 const { generateCode } = require('../js/identity.js');
 const { getFollowing } = require('../js/store.js');
 
@@ -229,5 +233,87 @@ describe('readInviteIndex', () => {
     get.mockResolvedValueOnce({ exists: () => false });
     const result = await readInviteIndex('NONEXISTENT');
     expect(result).toBeNull();
+  });
+});
+
+describe('readUserInvite', () => {
+  test('returns the invite record by uid + token', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ scope: 'personal', token: 'T', creatorLabel: 'Mike' }) });
+    const result = await readUserInvite('uid1', 'T');
+    expect(result).toEqual({ scope: 'personal', token: 'T', creatorLabel: 'Mike' });
+  });
+
+  test('returns null when absent', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    const result = await readUserInvite('uid1', 'NOPE');
+    expect(result).toBeNull();
+  });
+});
+
+describe('writeUserInvite', () => {
+  test('writes the full invite record at users/{uid}/invites/{token}', async () => {
+    set.mockResolvedValue();
+    const payload = { scope: 'personal', token: 'T', creatorLabel: 'Mike', createdAt: 12345, expiresAt: null, redemptionCap: null, redemptionsUsed: 0, revoked: false };
+    await writeUserInvite('uid1', 'T', payload);
+    expect(set).toHaveBeenCalledWith('mock-ref', payload);
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/invites/T');
+  });
+});
+
+describe('deleteUserInvite', () => {
+  test('removes the invite record', async () => {
+    remove.mockResolvedValue();
+    await deleteUserInvite('uid1', 'T');
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/invites/T');
+    expect(remove).toHaveBeenCalled();
+  });
+});
+
+describe('setInviteRevoked', () => {
+  test('sets revoked: true on the invite', async () => {
+    update.mockResolvedValue();
+    await setInviteRevoked('uid1', 'T');
+    expect(update).toHaveBeenCalledWith('mock-ref', { revoked: true });
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/invites/T');
+  });
+});
+
+describe('incrementInviteRedemptions', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('runs a transaction that increments redemptionsUsed by 1', async () => {
+    runTransaction.mockResolvedValue({ committed: true });
+    await incrementInviteRedemptions('uid1', 'T');
+    const handler = runTransaction.mock.calls[0][1];
+    expect(handler(3)).toBe(4);
+    expect(handler(null)).toBe(1);
+  });
+});
+
+describe('getCreatorCode', () => {
+  test('reads users/{creatorUid}/code', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => 'ABC123' });
+    const code = await getCreatorCode('uid1');
+    expect(code).toBe('ABC123');
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/code');
+  });
+
+  test('returns null when the user has no code', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    const code = await getCreatorCode('unknownUid');
+    expect(code).toBeNull();
+  });
+});
+
+describe('watchUserInvites', () => {
+  test('subscribes to users/{uid}/invites and emits the collection', () => {
+    let callback;
+    onValue.mockImplementation((_ref, cb) => { callback = cb; return () => {}; });
+    const seen = [];
+    watchUserInvites('uid1', (invites) => seen.push(invites));
+    callback({ exists: () => true, val: () => ({ T1: { scope: 'personal', revoked: false }, T2: { scope: 'personal', revoked: true } }) });
+    expect(seen[0]).toEqual({ T1: { scope: 'personal', revoked: false }, T2: { scope: 'personal', revoked: true } });
+    callback({ exists: () => false, val: () => null });
+    expect(seen[1]).toEqual({});
   });
 });

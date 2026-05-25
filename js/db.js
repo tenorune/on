@@ -107,6 +107,44 @@ export async function readInviteIndex(token) {
   return snap.exists() ? snap.val() : null;
 }
 
+// Personal invites under users/{uid}/invites/{token}.
+
+export async function readUserInvite(userId, token) {
+  const snap = await get(ref(db, `users/${userId}/invites/${token}`));
+  return snap.exists() ? snap.val() : null;
+}
+
+export async function writeUserInvite(userId, token, payload) {
+  await set(ref(db, `users/${userId}/invites/${token}`), payload);
+}
+
+export async function deleteUserInvite(userId, token) {
+  await remove(ref(db, `users/${userId}/invites/${token}`));
+}
+
+export async function setInviteRevoked(userId, token) {
+  await update(ref(db, `users/${userId}/invites/${token}`), { revoked: true });
+}
+
+export async function incrementInviteRedemptions(userId, token) {
+  const inviteRef = ref(db, `users/${userId}/invites/${token}/redemptionsUsed`);
+  await runTransaction(inviteRef, (current) => {
+    return (current || 0) + 1;
+  });
+}
+
+export async function getCreatorCode(creatorUserId) {
+  const snap = await get(ref(db, `users/${creatorUserId}/code`));
+  return snap.exists() ? snap.val() : null;
+}
+
+export function watchUserInvites(userId, callback) {
+  const invitesRef = ref(db, `users/${userId}/invites`);
+  return onValue(invitesRef, (snap) => {
+    callback(snap.exists() ? snap.val() : {});
+  });
+}
+
 // Write own status to Firebase
 export async function setStatus(userId, status, availableUntil) {
   await update(ref(db, `users/${userId}`), {

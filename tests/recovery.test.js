@@ -12,6 +12,16 @@ jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
   clearCallState: jest.fn().mockResolvedValue(undefined),
   getUser: jest.fn().mockResolvedValue(null),
+  claimInviteToken: jest.fn(),
+  releaseInviteToken: jest.fn(),
+  readInviteIndex: jest.fn(),
+  readUserInvite: jest.fn(),
+  writeUserInvite: jest.fn(),
+  deleteUserInvite: jest.fn(),
+  setInviteRevoked: jest.fn(),
+  incrementInviteRedemptions: jest.fn(),
+  getCreatorCode: jest.fn(),
+  watchUserInvites: jest.fn(() => () => {}),
 }));
 jest.mock('../js/me.js', () => ({
   initHeader: jest.fn(),

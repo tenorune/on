@@ -1,6 +1,16 @@
 // tests/mycode.test.js
 jest.mock('../js/db.js', () => ({
   rotateCode: jest.fn(),
+  claimInviteToken: jest.fn(),
+  releaseInviteToken: jest.fn(),
+  readInviteIndex: jest.fn(),
+  readUserInvite: jest.fn(),
+  writeUserInvite: jest.fn(),
+  deleteUserInvite: jest.fn(),
+  setInviteRevoked: jest.fn(),
+  incrementInviteRedemptions: jest.fn(),
+  getCreatorCode: jest.fn(),
+  watchUserInvites: jest.fn(() => () => {}),
 }));
 jest.mock('../js/identity.js', () => ({ saveIdentity: jest.fn(), loadIdentity: jest.fn().mockReturnValue(null) }));
 

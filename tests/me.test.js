@@ -8,6 +8,16 @@ jest.mock('../js/db.js', () => ({
   formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
   timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
   setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
+  claimInviteToken: jest.fn(),
+  releaseInviteToken: jest.fn(),
+  readInviteIndex: jest.fn(),
+  readUserInvite: jest.fn(),
+  writeUserInvite: jest.fn(),
+  deleteUserInvite: jest.fn(),
+  setInviteRevoked: jest.fn(),
+  incrementInviteRedemptions: jest.fn(),
+  getCreatorCode: jest.fn(),
+  watchUserInvites: jest.fn(() => () => {}),
 }));
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(),
