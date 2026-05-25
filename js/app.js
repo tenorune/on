@@ -9,6 +9,7 @@ import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENA
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
+import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInviteCreatorLabel } from './invites.js';
 
 
 let splashCounter = 0;
@@ -40,7 +41,7 @@ function dismissSplash() {
   }, { once: true });
 }
 
-async function ensureIdentity() {
+async function ensureIdentity(pendingInviteToken = null) {
   const existing = loadIdentity();
   if (existing) {
     let valid = true;
@@ -73,10 +74,12 @@ async function ensureIdentity() {
   // Empty localStorage — true new user OR cleared cache.
   // Dismiss splash so the user can see and interact with the welcome screen.
   dismissSplash();
+  // Resolve invite creator label for personalised welcome framing (no-op if no token).
+  const inviteCreatorLabel = await resolveInviteCreatorLabel(pendingInviteToken);
   // Loop so that cancelling the restore screen returns the user to the
   // welcome screen, not silently into the new-account flow.
   while (true) {
-    const choice = await showWelcomeScreen();
+    const choice = await showWelcomeScreen({ inviteCreatorLabel });
     if (choice === 'restore') {
       const restored = await showRestoreScreen();
       if (restored) {
@@ -124,10 +127,20 @@ function showStaleScreen() {
   });
 }
 
-export function showWelcomeScreen() {
+export function showWelcomeScreen({ inviteCreatorLabel = null } = {}) {
   const el = document.getElementById('welcome-screen');
   const newBtn = document.getElementById('welcome-new-btn');
   const restoreBtn = document.getElementById('welcome-restore-btn');
+  const framingEl = document.getElementById('welcome-invite-framing');
+  if (framingEl) {
+    if (inviteCreatorLabel) {
+      framingEl.textContent = `You've been invited to follow ${inviteCreatorLabel}. First, let's set up your account.`;
+      framingEl.classList.remove('hidden');
+    } else {
+      framingEl.textContent = '';
+      framingEl.classList.add('hidden');
+    }
+  }
   el.classList.remove('hidden');
   return new Promise((resolve) => {
     function pick(choice) {
@@ -238,9 +251,60 @@ export function showRestoreScreen() {
   });
 }
 
+function handleInviteRedemptionResult(result) {
+  if (result.ok) {
+    // On success, the follow is now in place. No banner — the contact will appear
+    // in the user's Following list once their watch subscriptions tick.
+    return;
+  }
+  showInviteFailureOverlay(result.reason);
+}
+
+function showInviteFailureOverlay(reason) {
+  const overlay = document.getElementById('invite-failure-overlay');
+  const messageEl = document.getElementById('invite-failure-message');
+  const continueBtn = document.getElementById('invite-failure-continue');
+  // Defensive: no-op if the markup is absent (e.g., a future template change).
+  if (!overlay || !messageEl || !continueBtn) return;
+  messageEl.textContent = inviteFailureCopy(reason);
+  overlay.classList.remove('hidden');
+  continueBtn.onclick = () => overlay.classList.add('hidden');
+}
+
+function inviteFailureCopy(reason) {
+  switch (reason) {
+    case 'not-found': return "This invite link isn't valid.";
+    case 'revoked':   return 'This invite link has been revoked.';
+    case 'expired':   return 'This invite link has expired.';
+    case 'cap':       return 'This invite link is no longer accepting new joiners.';
+    case 'self':      return "That's your own invite link.";
+    case 'already-following': return 'You already follow this person.';
+    case 'creator-missing':   return "The link's creator no longer has an account.";
+    default:          return "This invite link can't be used right now.";
+  }
+}
+
+function cleanInviteParamFromUrl() {
+  try {
+    const clean = new URL(window.location.href);
+    clean.searchParams.delete('i');
+    window.history.replaceState({}, document.title, clean.toString());
+  } catch { /* no-op on unusual URLs */ }
+}
+
 async function main() {
-  const { identity, isNew } = await ensureIdentity();
+  const pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
+  const { identity, isNew } = await ensureIdentity(pendingInviteToken);
   const { userId, code } = identity;
+
+  if (pendingInviteToken) {
+    const result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+    if (result) {
+      handleInviteRedemptionResult(result);
+      // Clean the URL so a refresh doesn't re-trigger.
+      cleanInviteParamFromUrl();
+    }
+  }
 
   touchLastSeen(userId).catch(() => {});
 

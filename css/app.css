@@ -429,6 +429,12 @@ main {
   padding: 2rem;
 }
 .welcome-screen.hidden { display: none; }
+.welcome-invite-framing {
+  font-size: 1rem;
+  text-align: center;
+  margin: 0 0 0.5rem 0;
+  color: var(--text);
+}
 .welcome-brand { font-size: 2rem; }
 .welcome-btns {
   display: flex; flex-direction: column; gap: 0.75rem;
@@ -768,3 +774,44 @@ main {
 .recovery-revealed.hidden { display: none; }
 #drawer-recovery-copy-btn { display: none; min-width: 5rem; text-align: center; }
 .recovery-revealed:not(.hidden) ~ #drawer-recovery-copy-btn { display: inline-block; }
+
+/* Invite-link modal */
+.modal-title {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.modal-subtitle {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.modal-label {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+}
+.invite-url-row {
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin: 0.5rem 0;
+  overflow-x: auto;
+}
+.invite-url {
+  font-family: monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+.modal-actions-wrap {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.modal-card-small {
+  max-width: 320px;
+}

@@ -9,3 +9,9 @@ Object.defineProperty(global, 'crypto', {
   writable: false,
   configurable: true,
 });
+
+// jsdom does not expose setImmediate; provide a Node-based polyfill so tests can
+// flush the microtask queue with `await new Promise(setImmediate)`.
+if (typeof global.setImmediate === 'undefined') {
+  global.setImmediate = (fn, ...args) => setTimeout(fn, 0, ...args);
+}

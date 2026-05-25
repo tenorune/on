@@ -34,10 +34,53 @@
   </div>
 
   <div id="welcome-screen" class="welcome-screen hidden">
+    <p id="welcome-invite-framing" class="welcome-invite-framing hidden"></p>
     <span class="brand-mark welcome-brand">k&#x0338;n&#x0336;o&#x0338;c&#x0335;k&#x0335; &#x0336;k&#x0338;n&#x0337;o&#x0335;c&#x0338;k&#x0335;</span>
     <div class="welcome-btns">
       <button id="welcome-new-btn" class="primary-btn">I'm new</button>
       <button id="welcome-restore-btn" class="ghost-btn">I have a secret phrase</button>
+    </div>
+  </div>
+
+  <div id="invite-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">
+    <div class="modal-card">
+      <h2 id="invite-modal-title" class="modal-title">Your invite link</h2>
+      <p id="invite-modal-subtitle" class="modal-subtitle"></p>
+
+      <!-- State A: create -->
+      <div id="invite-modal-create" class="hidden">
+        <label id="invite-modal-label-hint" class="modal-label" for="invite-modal-label-input">Your name on the invite</label>
+        <input id="invite-modal-label-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Mike P." />
+        <p id="invite-modal-label-error" class="error-msg hidden"></p>
+        <div class="modal-actions">
+          <button id="invite-modal-create-btn" class="primary-btn">Create invite link</button>
+          <button id="invite-modal-cancel-btn" class="ghost-btn">Cancel</button>
+        </div>
+      </div>
+
+      <!-- State B: manage -->
+      <div id="invite-modal-manage" class="hidden">
+        <div class="invite-url-row">
+          <code id="invite-modal-url" class="invite-url"></code>
+        </div>
+        <div class="modal-actions modal-actions-wrap">
+          <button id="invite-modal-copy-btn" class="ghost-btn">Copy</button>
+          <button id="invite-modal-regen-btn" class="ghost-btn">Regenerate</button>
+          <button id="invite-modal-revoke-btn" class="ghost-btn">Revoke</button>
+        </div>
+        <div class="modal-actions">
+          <button id="invite-modal-close-btn" class="primary-btn">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="invite-failure-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-card-small">
+      <p id="invite-failure-message"></p>
+      <div class="modal-actions">
+        <button id="invite-failure-continue" class="primary-btn">Continue</button>
+      </div>
     </div>
   </div>
 
@@ -89,6 +132,10 @@
           <button id="copy-code-btn" class="ghost-btn">Copy</button>
         </div>
         <p id="rotate-error-msg" class="error-msg hidden"></p>
+        <div class="drawer-row invite-row">
+          <span class="drawer-row-label">Your invite link:</span>
+          <button id="invite-link-btn" class="ghost-btn">Create invite link</button>
+        </div>
         <p class="hint">Share this so others can follow your status.</p>
       </div>
     </div>
