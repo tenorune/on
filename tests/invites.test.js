@@ -400,3 +400,41 @@ describe('welcome screen invite framing', () => {
     expect(framing.textContent).toContain('First, let');
   });
 });
+
+describe('full flow: create → redeem (integration)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    store.getFollowing.mockReturnValue([]);
+  });
+
+  test('createPersonalInvite → attemptRedeemFromUrl results in follow plumbing for the redeemer', async () => {
+    // 1. User A creates an invite.
+    db.readUserInvites.mockResolvedValue({}); // no active invites yet
+    db.claimInviteToken.mockResolvedValue(true);
+    db.writeUserInvite.mockResolvedValue();
+
+    const created = await createPersonalInvite('user-a', 'Alice');
+
+    expect(db.writeUserInvite).toHaveBeenCalledWith('user-a', created.token, expect.objectContaining({ creatorLabel: 'Alice' }));
+
+    // 2. User B taps the invite URL → token extracted.
+    const token = extractInviteTokenFromUrl(created.url);
+    expect(token).toBe(created.token);
+
+    // 3. Boot-time redemption fires for User B (existing identity, not following Alice yet).
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: `users/user-a/invites/${token}` });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token, creatorUid: 'user-a', creatorLabel: 'Alice',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    db.getCreatorCode.mockResolvedValue('AAA111');
+
+    const result = await attemptRedeemFromUrl(token, 'user-b', 'BBB222');
+    expect(result.ok).toBe(true);
+    expect(result.creatorCode).toBe('AAA111');
+    expect(result.creatorLabel).toBe('Alice');
+    expect(db.registerAsFollower).toHaveBeenCalledWith('user-a', 'user-b', 'BBB222');
+    expect(db.setFollowingEntry).toHaveBeenCalledWith('user-b', 'user-a', 'AAA111', '');
+    expect(db.incrementInviteRedemptions).toHaveBeenCalledWith('user-a', token);
+  });
+});
