@@ -262,4 +262,15 @@ describe('redeemPersonalInvite', () => {
     const result = await redeemPersonalInvite('T', 'redeemer', 'code', new Set());
     expect(result).toEqual({ ok: false, reason: 'creator-missing' });
   });
+
+  test('accepts a null alreadyFollowingSet without throwing', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'T', creatorUid: 'creator', creatorLabel: 'Mike',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    const result = await redeemPersonalInvite('T', 'redeemer', 'code', null);
+    expect(result.ok).toBe(true);
+    expect(result.creatorUid).toBe('creator');
+  });
 });

@@ -109,7 +109,9 @@ export async function regeneratePersonalInvite(userId, creatorLabelRaw) {
 // Result shapes:
 //   success: { ok: true, creatorUid, creatorCode, creatorLabel }
 //   failure: { ok: false, reason: 'not-found'|'revoked'|'expired'|'cap'|'self'|'already-following'|'creator-missing' }
-
+//
+// alreadyFollowingSet: optional Set<string> of creator UIDs the redeemer already follows.
+//   Null/undefined is treated as "not following anyone" — the function won't throw.
 export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alreadyFollowingSet) {
   if (!token || typeof token !== 'string') return { ok: false, reason: 'not-found' };
 
