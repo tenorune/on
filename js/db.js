@@ -145,6 +145,11 @@ export function watchUserInvites(userId, callback) {
   });
 }
 
+export async function readUserInvites(userId) {
+  const snap = await get(ref(db, `users/${userId}/invites`));
+  return snap.exists() ? snap.val() : {};
+}
+
 // Write own status to Firebase
 export async function setStatus(userId, status, availableUntil) {
   await update(ref(db, `users/${userId}`), {

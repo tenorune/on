@@ -5,7 +5,7 @@ const {
   claimInviteToken, releaseInviteToken, readInviteIndex,
   readUserInvite, writeUserInvite, deleteUserInvite,
   setInviteRevoked, incrementInviteRedemptions, getCreatorCode,
-  watchUserInvites,
+  watchUserInvites, readUserInvites,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -315,5 +315,19 @@ describe('watchUserInvites', () => {
     expect(seen[0]).toEqual({ T1: { scope: 'personal', revoked: false }, T2: { scope: 'personal', revoked: true } });
     callback({ exists: () => false, val: () => null });
     expect(seen[1]).toEqual({});
+  });
+});
+
+describe('readUserInvites', () => {
+  test('returns the full invites collection', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ T1: { scope: 'personal', revoked: false }, T2: { scope: 'personal', revoked: true } }) });
+    const result = await readUserInvites('uid1');
+    expect(result).toEqual({ T1: { scope: 'personal', revoked: false }, T2: { scope: 'personal', revoked: true } });
+  });
+
+  test('returns an empty object when no invites exist', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    const result = await readUserInvites('uid1');
+    expect(result).toEqual({});
   });
 });

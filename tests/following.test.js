@@ -48,6 +48,7 @@ jest.mock('../js/db.js', () => ({
   releaseInviteToken: jest.fn(),
   readInviteIndex: jest.fn(),
   readUserInvite: jest.fn(),
+  readUserInvites: jest.fn().mockResolvedValue({}),
   writeUserInvite: jest.fn(),
   deleteUserInvite: jest.fn(),
   setInviteRevoked: jest.fn(),
