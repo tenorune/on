@@ -2,6 +2,7 @@
 const {
   userExists, touchLastSeen, rotateCode, setStatusColor, setPaletteKey,
   setCallState, clearCallState, getUser,
+  claimInviteToken, releaseInviteToken, readInviteIndex,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -177,6 +178,56 @@ describe('getUser', () => {
   test('returns null when record does not exist', async () => {
     get.mockResolvedValueOnce({ exists: () => false });
     const result = await getUser('user-1');
+    expect(result).toBeNull();
+  });
+});
+
+describe('claimInviteToken', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('claims a free token transactionally and stores ownerPath', async () => {
+    runTransaction.mockResolvedValue({ committed: true });
+    const ok = await claimInviteToken('TOKEN22CHARSTRINGAAAA1', 'users/uid1/invites/TOKEN22CHARSTRINGAAAA1');
+    expect(ok).toBe(true);
+    expect(runTransaction).toHaveBeenCalledWith('mock-ref', expect.any(Function));
+    const handler = runTransaction.mock.calls[0][1];
+    expect(handler(null)).toEqual({ scope: 'personal', ownerPath: 'users/uid1/invites/TOKEN22CHARSTRINGAAAA1' });
+    expect(handler({ scope: 'personal', ownerPath: 'users/someone/invites/TOKEN22CHARSTRINGAAAA1' })).toBeUndefined();
+  });
+
+  test('returns false when the transaction does not commit', async () => {
+    runTransaction.mockResolvedValue({ committed: false });
+    const ok = await claimInviteToken('TOKEN22CHARSTRINGAAAA2', 'users/uid1/invites/TOKEN22CHARSTRINGAAAA2');
+    expect(ok).toBe(false);
+  });
+
+  test('routes scope to "group" when ownerPath starts with groups/', async () => {
+    runTransaction.mockResolvedValue({ committed: true });
+    await claimInviteToken('TOK', 'groups/G1/invites/TOK');
+    const handler = runTransaction.mock.calls[0][1];
+    expect(handler(null)).toEqual({ scope: 'group', ownerPath: 'groups/G1/invites/TOK' });
+  });
+});
+
+describe('releaseInviteToken', () => {
+  test('removes the inviteIndex entry', async () => {
+    remove.mockResolvedValue();
+    await releaseInviteToken('TOKEN');
+    expect(remove).toHaveBeenCalledWith('mock-ref');
+    expect(ref).toHaveBeenLastCalledWith({}, 'inviteIndex/TOKEN');
+  });
+});
+
+describe('readInviteIndex', () => {
+  test('returns the index entry when present', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ scope: 'personal', ownerPath: 'users/u/invites/T' }) });
+    const result = await readInviteIndex('T');
+    expect(result).toEqual({ scope: 'personal', ownerPath: 'users/u/invites/T' });
+  });
+
+  test('returns null when the entry is missing', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    const result = await readInviteIndex('NONEXISTENT');
     expect(result).toBeNull();
   });
 });

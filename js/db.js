@@ -79,6 +79,32 @@ export async function initUser(userId, code) {
   return true;
 }
 
+// ── Invites ──────────────────────────────────────────────────────────────────
+// inviteIndex/{token} → { scope, ownerPath } — global lookup table.
+// Same transactional-claim pattern as codeIndex (see initUser above).
+
+function inferScopeFromOwnerPath(ownerPath) {
+  return ownerPath.startsWith('groups/') ? 'group' : 'personal';
+}
+
+export async function claimInviteToken(token, ownerPath) {
+  const indexRef = ref(db, `inviteIndex/${token}`);
+  const result = await runTransaction(indexRef, (current) => {
+    if (current !== null) return; // abort — token already claimed
+    return { scope: inferScopeFromOwnerPath(ownerPath), ownerPath };
+  });
+  return result.committed;
+}
+
+export async function releaseInviteToken(token) {
+  await remove(ref(db, `inviteIndex/${token}`));
+}
+
+export async function readInviteIndex(token) {
+  const snap = await get(ref(db, `inviteIndex/${token}`));
+  return snap.exists() ? snap.val() : null;
+}
+
 // Write own status to Firebase
 export async function setStatus(userId, status, availableUntil) {
   await update(ref(db, `users/${userId}`), {
