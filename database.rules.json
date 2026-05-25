@@ -12,6 +12,12 @@
         ".write": true
       }
     },
+    "inviteIndex": {
+      "$token": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "canvases": {
       "$canvasId": {
         ".read": true,
