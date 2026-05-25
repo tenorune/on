@@ -185,8 +185,18 @@ describe('redeemPersonalInvite', () => {
     const result = await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set());
     expect(result).toEqual({ ok: true, creatorUid: 'creator-uid', creatorCode: 'ABC123', creatorLabel: 'Mike' });
     expect(db.registerAsFollower).toHaveBeenCalledWith('creator-uid', 'redeemer-uid', 'redeemer-code');
-    expect(db.setFollowingEntry).toHaveBeenCalledWith('redeemer-uid', 'creator-uid', 'ABC123', '');
+    expect(db.setFollowingEntry).toHaveBeenCalledWith('redeemer-uid', 'creator-uid', 'ABC123', 'Mike');
     expect(db.incrementInviteRedemptions).toHaveBeenCalledWith('creator-uid', 'TOKEN');
+  });
+
+  test('falls back to an empty follow label when the invite has no creatorLabel', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'T', creatorUid: 'creator',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    await redeemPersonalInvite('T', 'redeemer', 'code', new Set());
+    expect(db.setFollowingEntry).toHaveBeenCalledWith('redeemer', 'creator', 'ABC123', '');
   });
 
   test('returns not-found when the inviteIndex has no entry', async () => {
@@ -434,7 +444,7 @@ describe('full flow: create → redeem (integration)', () => {
     expect(result.creatorCode).toBe('AAA111');
     expect(result.creatorLabel).toBe('Alice');
     expect(db.registerAsFollower).toHaveBeenCalledWith('user-a', 'user-b', 'BBB222');
-    expect(db.setFollowingEntry).toHaveBeenCalledWith('user-b', 'user-a', 'AAA111', '');
+    expect(db.setFollowingEntry).toHaveBeenCalledWith('user-b', 'user-a', 'AAA111', 'Alice');
     expect(db.incrementInviteRedemptions).toHaveBeenCalledWith('user-a', token);
   });
 });
