@@ -59,6 +59,8 @@ export function openInviteModal({ scope, userId, activeInvite = null }) {
   document.getElementById('invite-modal-title').textContent = copy.title;
   document.getElementById('invite-modal-subtitle').textContent = copy.subtitle;
   document.getElementById('invite-modal-label-input').placeholder = copy.labelPlaceholder;
+  const labelHintEl = document.getElementById('invite-modal-label-hint');
+  if (labelHintEl) labelHintEl.textContent = copy.labelHint;
 
   hideError();
   clearListeners();
