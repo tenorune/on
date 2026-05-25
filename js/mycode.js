@@ -2,6 +2,7 @@
 import { rotateCode, watchUserInvites } from './db.js';
 import { saveIdentity, loadIdentity } from './identity.js';
 import { openInviteModal } from './inviteModal.js';
+import { buildInviteUrl } from './invites.js';
 
 let _myUserId = null;
 let _currentCode = null;
@@ -116,7 +117,7 @@ export function initCodeDrawer(myUserId, myCode) {
     let active = null;
     for (const [token, inv] of Object.entries(collection || {})) {
       if (inv && inv.scope === 'personal' && !inv.revoked) {
-        active = { token, ...inv, url: `${location.origin}/?i=${token}` };
+        active = { token, ...inv, url: buildInviteUrl(token) };
         break;
       }
     }

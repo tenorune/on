@@ -45,7 +45,7 @@ function validateLabel(raw) {
   return trimmed;
 }
 
-function buildInviteUrl(token) {
+export function buildInviteUrl(token) {
   return `${APP_URL_BASE}/?i=${token}`;
 }
 
