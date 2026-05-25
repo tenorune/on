@@ -18,7 +18,7 @@ jest.mock('../js/db.js', () => ({
 }));
 
 const db = require('../js/db.js');
-const { generateInviteToken, createPersonalInvite } = require('../js/invites');
+const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite } = require('../js/invites');
 
 describe('generateInviteToken', () => {
   test('returns a 22-char URL-safe base64 string', () => {
@@ -102,8 +102,6 @@ describe('createPersonalInvite', () => {
     expect(db.writeUserInvite).toHaveBeenLastCalledWith('uid1', expect.any(String), expect.objectContaining({ creatorLabel: 'Mike' }));
   });
 });
-
-const { revokePersonalInvite, regeneratePersonalInvite } = require('../js/invites');
 
 describe('revokePersonalInvite', () => {
   beforeEach(() => { jest.clearAllMocks(); });
