@@ -42,6 +42,48 @@
     </div>
   </div>
 
+  <div id="invite-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">
+    <div class="modal-card">
+      <h2 id="invite-modal-title" class="modal-title">Your invite link</h2>
+      <p id="invite-modal-subtitle" class="modal-subtitle"></p>
+
+      <!-- State A: create -->
+      <div id="invite-modal-create" class="hidden">
+        <label class="modal-label" for="invite-modal-label-input">Your name on the invite</label>
+        <input id="invite-modal-label-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Mike P." />
+        <p id="invite-modal-label-error" class="error-msg hidden"></p>
+        <div class="modal-actions">
+          <button id="invite-modal-create-btn" class="primary-btn">Create invite link</button>
+          <button id="invite-modal-cancel-btn" class="ghost-btn">Cancel</button>
+        </div>
+      </div>
+
+      <!-- State B: manage -->
+      <div id="invite-modal-manage" class="hidden">
+        <div class="invite-url-row">
+          <code id="invite-modal-url" class="invite-url"></code>
+        </div>
+        <div class="modal-actions modal-actions-wrap">
+          <button id="invite-modal-copy-btn" class="ghost-btn">Copy</button>
+          <button id="invite-modal-regen-btn" class="ghost-btn">Regenerate</button>
+          <button id="invite-modal-revoke-btn" class="ghost-btn">Revoke</button>
+        </div>
+        <div class="modal-actions">
+          <button id="invite-modal-close-btn" class="primary-btn">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="invite-failure-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-card-small">
+      <p id="invite-failure-message"></p>
+      <div class="modal-actions">
+        <button id="invite-failure-continue" class="primary-btn">Continue</button>
+      </div>
+    </div>
+  </div>
+
   <div id="recovery-modal" class="modal-overlay hidden">
     <div class="modal-card">
       <h3>This is your secret phrase</h3>
