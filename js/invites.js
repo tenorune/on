@@ -20,7 +20,7 @@ export function generateInviteToken() {
       out += ALPHABET[(acc >> bits) & 0x3f];
     }
   }
-  // Append the remaining bits (left-padded with zeros) if we still need a char.
+  // Flush the remaining bits: shift them to the high end of a 6-bit group (right-zero-pad per RFC 4648).
   if (out.length < 22) {
     out += ALPHABET[(acc << (6 - bits)) & 0x3f];
   }
