@@ -150,6 +150,14 @@ export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alr
 
 // Hook callable from app.js boot. Pulls the current following set from local store
 // so the already-following check is fast, then dispatches to redeem.
+//
+// Known Phase 0 limitation: getFollowing() reads localStorage, which may be stale on
+// a fresh device (Firebase → localStorage sync hasn't run yet). If a user redeems an
+// invite for someone they already follow but localStorage doesn't know about it, the
+// redeem proceeds. registerAsFollower/setFollowingEntry are idempotent (set() of the
+// same value), so the only observable effect is incrementInviteRedemptions firing
+// twice — the creator's redemption counter over-counts by 1. Acceptable for Phase 0;
+// a Firebase-authoritative guard inside redeemPersonalInvite would close the gap.
 export async function attemptRedeemFromUrl(token, redeemerUid, redeemerCode) {
   if (!token) return null;
   const followingSet = new Set(getFollowing().map((e) => e.userId));
