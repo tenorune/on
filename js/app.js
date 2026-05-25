@@ -72,10 +72,13 @@ async function ensureIdentity(pendingInviteToken = null) {
   }
 
   // Empty localStorage — true new user OR cleared cache.
+  // Resolve invite creator label BEFORE dismissing splash, so the welcome
+  // screen renders with framing already populated. resolveInviteCreatorLabel
+  // returns null synchronously when there is no pending token, so non-invite
+  // boots do not pay the round-trip cost.
+  const inviteCreatorLabel = await resolveInviteCreatorLabel(pendingInviteToken);
   // Dismiss splash so the user can see and interact with the welcome screen.
   dismissSplash();
-  // Resolve invite creator label for personalised welcome framing (no-op if no token).
-  const inviteCreatorLabel = await resolveInviteCreatorLabel(pendingInviteToken);
   // Loop so that cancelling the restore screen returns the user to the
   // welcome screen, not silently into the new-account flow.
   while (true) {

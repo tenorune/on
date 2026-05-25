@@ -141,8 +141,11 @@ export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alr
   if (!creatorCode) return { ok: false, reason: 'creator-missing' };
 
   // Create the follow relationship and persist in own following list.
+  // Use the inviter's creatorLabel as the follow's local label so the contact
+  // card shows their name rather than the share code.
+  const followLabel = invite.creatorLabel || '';
   await registerAsFollower(creatorUid, redeemerUid, redeemerCode);
-  await setFollowingEntry(redeemerUid, creatorUid, creatorCode, '');
+  await setFollowingEntry(redeemerUid, creatorUid, creatorCode, followLabel);
   await incrementInviteRedemptions(creatorUid, token);
 
   return { ok: true, creatorUid, creatorCode, creatorLabel: invite.creatorLabel || '' };
