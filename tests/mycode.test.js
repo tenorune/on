@@ -14,9 +14,13 @@ jest.mock('../js/db.js', () => ({
   watchUserInvites: jest.fn(() => () => {}),
 }));
 jest.mock('../js/identity.js', () => ({ saveIdentity: jest.fn(), loadIdentity: jest.fn().mockReturnValue(null) }));
+jest.mock('../js/inviteModal.js', () => ({
+  openInviteModal: jest.fn(),
+}));
 
-const { rotateCode } = require('../js/db.js');
+const { rotateCode, watchUserInvites } = require('../js/db.js');
 const { saveIdentity } = require('../js/identity.js');
+const { openInviteModal } = require('../js/inviteModal.js');
 const { initCodeDrawer } = require('../js/mycode.js');
 
 beforeEach(() => {
@@ -25,9 +29,11 @@ beforeEach(() => {
     <button id="rotate-code-btn" class="rotate-btn"></button>
     <button id="copy-code-btn" class="ghost-btn">Copy</button>
     <p id="rotate-error-msg" class="error-msg hidden"></p>
+    <button id="invite-link-btn" class="ghost-btn">Create invite link</button>
   `;
   Object.defineProperty(navigator, 'onLine', { get: () => true, configurable: true });
   jest.clearAllMocks();
+  watchUserInvites.mockImplementation((_uid, cb) => { cb({}); return () => {}; });
 });
 
 test('initCodeDrawer sets code display to initial code', () => {
@@ -90,4 +96,45 @@ test('copy button calls clipboard.writeText with current code', () => {
   initCodeDrawer('uid1', 'ABC123');
   document.getElementById('copy-code-btn').click();
   expect(writeText).toHaveBeenCalledWith('ABC123');
+});
+
+describe('invite-link row', () => {
+  test('initCodeDrawer shows "Create invite link" when no active invite is present', () => {
+    watchUserInvites.mockImplementation((uid, cb) => { cb({}); return () => {}; });
+    initCodeDrawer('uid1', 'ABC123');
+    expect(document.getElementById('invite-link-btn').textContent).toBe('Create invite link');
+  });
+
+  test('initCodeDrawer shows "View invite link" when an active invite exists', () => {
+    watchUserInvites.mockImplementation((uid, cb) => {
+      cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Mike' } });
+      return () => {};
+    });
+    initCodeDrawer('uid1', 'ABC123');
+    expect(document.getElementById('invite-link-btn').textContent).toBe('View invite link');
+  });
+
+  test('tapping the button opens the modal with the current invite state', () => {
+    let cb;
+    watchUserInvites.mockImplementation((uid, _cb) => { cb = _cb; return () => {}; });
+    initCodeDrawer('uid1', 'ABC123');
+    cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Mike' } });
+    document.getElementById('invite-link-btn').click();
+    expect(openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
+      scope: 'personal',
+      userId: 'uid1',
+      activeInvite: expect.objectContaining({ token: 'T1', creatorLabel: 'Mike' }),
+    }));
+  });
+
+  test('tapping the button when no active invite opens the modal in create mode', () => {
+    watchUserInvites.mockImplementation((uid, cb) => { cb({}); return () => {}; });
+    initCodeDrawer('uid1', 'ABC123');
+    document.getElementById('invite-link-btn').click();
+    expect(openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
+      scope: 'personal',
+      userId: 'uid1',
+      activeInvite: null,
+    }));
+  });
 });

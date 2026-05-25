@@ -1,6 +1,7 @@
 // js/mycode.js
-import { rotateCode } from './db.js';
+import { rotateCode, watchUserInvites } from './db.js';
 import { saveIdentity, loadIdentity } from './identity.js';
+import { openInviteModal } from './inviteModal.js';
 
 let _myUserId = null;
 let _currentCode = null;
@@ -100,6 +101,33 @@ export function initCodeDrawer(myUserId, myCode) {
 
   function dismissRotateConfirm() {
     document.getElementById('rotate-confirm').classList.add('hidden');
+  }
+
+  // --- Invite-link row ---
+  let currentActiveInvite = null;
+  const inviteBtn = document.getElementById('invite-link-btn');
+
+  function renderInviteRow() {
+    if (!inviteBtn) return;
+    inviteBtn.textContent = currentActiveInvite ? 'View invite link' : 'Create invite link';
+  }
+
+  watchUserInvites(myUserId, (collection) => {
+    let active = null;
+    for (const [token, inv] of Object.entries(collection || {})) {
+      if (inv && inv.scope === 'personal' && !inv.revoked) {
+        active = { token, ...inv, url: `${location.origin}/?i=${token}` };
+        break;
+      }
+    }
+    currentActiveInvite = active;
+    renderInviteRow();
+  });
+
+  if (inviteBtn) {
+    inviteBtn.addEventListener('click', () => {
+      openInviteModal({ scope: 'personal', userId: myUserId, activeInvite: currentActiveInvite });
+    });
   }
 
   const existing = loadIdentity();
