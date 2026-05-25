@@ -667,8 +667,11 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   const glow  = getGlowForColor(color);
   const ms = timeRemainingMs(userData.availableUntil);
   let statusText;
-  const isCallee = callModeCalleeId !== null && entry.userId === callModeCalleeId;
-  const isCallModeReceiver = !isCallee && userData.callState?.calleeId === myUserId;
+  // Both checks gated by CALL_ENABLED so a stale callState on the peer's
+  // Firebase record (e.g., a previous session left a call dangling) doesn't
+  // render call-mode UI when calls are disabled on this device.
+  const isCallee = CALL_ENABLED && callModeCalleeId !== null && entry.userId === callModeCalleeId;
+  const isCallModeReceiver = CALL_ENABLED && !isCallee && userData.callState?.calleeId === myUserId;
   if (isCallee) {
     const callText = getMadeCallCount() < 4
       ? 'Calling them\u2026 (swipe left to hang up)'
