@@ -60,15 +60,13 @@
 
       <!-- State B: manage -->
       <div id="invite-modal-manage" class="hidden">
-        <div class="invite-url-row">
-          <code id="invite-modal-url" class="invite-url"></code>
-        </div>
-        <div class="modal-actions modal-actions-wrap">
+        <div class="recovery-display">
+          <code id="invite-modal-url" class="recovery-code-text"></code>
+          <button id="invite-modal-regen-btn" class="rotate-btn" title="Generate new invite link" aria-label="Generate new invite link">↻</button>
           <button id="invite-modal-copy-btn" class="ghost-btn">Copy</button>
-          <button id="invite-modal-regen-btn" class="ghost-btn">Regenerate</button>
-          <button id="invite-modal-revoke-btn" class="ghost-btn">Revoke</button>
         </div>
         <div class="modal-actions">
+          <button id="invite-modal-revoke-btn" class="ghost-btn">Revoke</button>
           <button id="invite-modal-close-btn" class="primary-btn">Close</button>
         </div>
       </div>
