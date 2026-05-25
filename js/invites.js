@@ -16,7 +16,7 @@ const APP_URL_BASE = (typeof location !== 'undefined' && location.origin) ? loca
 
 export function generateInviteToken() {
   const bytes = new Uint8Array(16); // 128 bits
-  (globalThis.crypto || require('crypto').webcrypto).getRandomValues(bytes);
+  globalThis.crypto.getRandomValues(bytes);
   // Encode 16 bytes (128 bits) → 22 base64url chars (each char = 6 bits; 22 * 6 = 132, last 4 bits are zero-padded).
   // Use the cleaner approach: read 22 indices off ALPHABET using consecutive 6-bit windows.
   let out = '';
