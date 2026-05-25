@@ -9,6 +9,7 @@ import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENA
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
+import { attemptRedeemFromUrl, extractInviteTokenFromUrl } from './invites.js';
 
 
 let splashCounter = 0;
@@ -238,9 +239,55 @@ export function showRestoreScreen() {
   });
 }
 
+function handleInviteRedemptionResult(result) {
+  if (result.ok) {
+    // On success, the follow is now in place. No banner — the contact will appear
+    // in the user's Following list once their watch subscriptions tick.
+    return;
+  }
+  showInviteFailureOverlay(result.reason);
+}
+
+function showInviteFailureOverlay(reason) {
+  const overlay = document.getElementById('invite-failure-overlay');
+  const messageEl = document.getElementById('invite-failure-message');
+  const continueBtn = document.getElementById('invite-failure-continue');
+  if (!overlay || !messageEl || !continueBtn) return;
+  messageEl.textContent = inviteFailureCopy(reason);
+  overlay.classList.remove('hidden');
+  continueBtn.onclick = () => overlay.classList.add('hidden');
+}
+
+function inviteFailureCopy(reason) {
+  switch (reason) {
+    case 'not-found': return "This invite link isn't valid.";
+    case 'revoked':   return 'This invite link has been revoked.';
+    case 'expired':   return 'This invite link has expired.';
+    case 'cap':       return 'This invite link is no longer accepting new joiners.';
+    case 'self':      return "That's your own invite link.";
+    case 'already-following': return 'You already follow this person.';
+    case 'creator-missing':   return "The link's creator no longer has an account.";
+    default:          return "This invite link can't be used right now.";
+  }
+}
+
 async function main() {
+  const pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
   const { identity, isNew } = await ensureIdentity();
   const { userId, code } = identity;
+
+  if (pendingInviteToken && !isNew) {
+    const result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+    if (result) {
+      handleInviteRedemptionResult(result);
+      // Clean the URL so a refresh doesn't re-trigger.
+      try {
+        const clean = new URL(window.location.href);
+        clean.searchParams.delete('i');
+        window.history.replaceState({}, document.title, clean.toString());
+      } catch { /* no-op on unusual URLs */ }
+    }
+  }
 
   touchLastSeen(userId).catch(() => {});
 

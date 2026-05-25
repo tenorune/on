@@ -16,9 +16,11 @@ jest.mock('../js/db.js', () => ({
   setFollowingEntry: jest.fn().mockResolvedValue(undefined),
   lookupCode: jest.fn(),
 }));
+jest.mock('../js/store.js', () => ({ getFollowing: jest.fn(() => []) }));
 
 const db = require('../js/db.js');
-const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, redeemPersonalInvite } = require('../js/invites');
+const store = require('../js/store.js');
+const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, redeemPersonalInvite, attemptRedeemFromUrl, extractInviteTokenFromUrl } = require('../js/invites');
 
 describe('generateInviteToken', () => {
   test('returns a 22-char URL-safe base64 string', () => {
@@ -270,6 +272,67 @@ describe('redeemPersonalInvite', () => {
       revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
     });
     const result = await redeemPersonalInvite('T', 'redeemer', 'code', null);
+    expect(result.ok).toBe(true);
+    expect(result.creatorUid).toBe('creator');
+  });
+});
+
+describe('extractInviteTokenFromUrl', () => {
+  test('returns the token when ?i= is present', () => {
+    expect(extractInviteTokenFromUrl('https://app.example/?i=ABC123')).toBe('ABC123');
+  });
+
+  test('returns null when ?i= is missing', () => {
+    expect(extractInviteTokenFromUrl('https://app.example/')).toBeNull();
+  });
+
+  test('returns null on a malformed token', () => {
+    expect(extractInviteTokenFromUrl('https://app.example/?i=' + 'x'.repeat(80))).toBeNull();
+    expect(extractInviteTokenFromUrl('https://app.example/?i=has spaces')).toBeNull();
+  });
+
+  test('returns null on a non-URL input', () => {
+    expect(extractInviteTokenFromUrl('not a url')).toBeNull();
+  });
+});
+
+describe('attemptRedeemFromUrl', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    store.getFollowing.mockReturnValue([]);
+  });
+
+  test('returns null when token is null', async () => {
+    const result = await attemptRedeemFromUrl(null, 'uid', 'code');
+    expect(result).toBeNull();
+  });
+
+  test('passes the current following set as the already-following check', async () => {
+    store.getFollowing.mockReturnValue([{ userId: 'creator', code: 'X', label: '' }]);
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'T', creatorUid: 'creator', revoked: false,
+      expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    const result = await attemptRedeemFromUrl('T', 'me', 'mycode');
+    expect(result).toEqual({ ok: false, reason: 'already-following' });
+  });
+});
+
+describe('boot-time redemption (existing user, integration)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    store.getFollowing.mockReturnValue([]);
+  });
+
+  test('valid token + existing identity → success result', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/TOKEN' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator', creatorLabel: 'Mike',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    db.getCreatorCode.mockResolvedValue('ABC123');
+    const result = await attemptRedeemFromUrl('TOKEN', 'redeemer-uid', 'redeemer-code');
     expect(result.ok).toBe(true);
     expect(result.creatorUid).toBe('creator');
   });

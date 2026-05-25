@@ -8,6 +8,7 @@ import {
   readInviteIndex, readUserInvite, incrementInviteRedemptions, getCreatorCode,
   registerAsFollower, setFollowingEntry,
 } from './db.js';
+import { getFollowing } from './store.js';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 const LABEL_MAX = 40;
@@ -145,4 +146,24 @@ export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alr
   await incrementInviteRedemptions(creatorUid, token);
 
   return { ok: true, creatorUid, creatorCode, creatorLabel: invite.creatorLabel || '' };
+}
+
+// Hook callable from app.js boot. Pulls the current following set from local store
+// so the already-following check is fast, then dispatches to redeem.
+export async function attemptRedeemFromUrl(token, redeemerUid, redeemerCode) {
+  if (!token) return null;
+  const followingSet = new Set(getFollowing().map((e) => e.userId));
+  return redeemPersonalInvite(token, redeemerUid, redeemerCode, followingSet);
+}
+
+export function extractInviteTokenFromUrl(urlStr) {
+  try {
+    const url = new URL(urlStr);
+    const t = url.searchParams.get('i');
+    if (!t) return null;
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(t)) return null;
+    return t;
+  } catch {
+    return null;
+  }
 }
