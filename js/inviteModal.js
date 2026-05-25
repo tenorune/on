@@ -95,10 +95,15 @@ export function openInviteModal({ scope, userId, activeInvite = null }) {
 
   on(document.getElementById('invite-modal-cancel-btn'), 'click', () => closeModal());
 
-  // Copy
+  // Copy — match the recovery-code modal's "Copy → Copied! → Copy" feedback.
   on(document.getElementById('invite-modal-copy-btn'), 'click', async () => {
     if (!currentInvite) return;
-    try { await navigator.clipboard.writeText(currentInvite.url); } catch { /* clipboard denied */ }
+    const btn = document.getElementById('invite-modal-copy-btn');
+    try {
+      await navigator.clipboard.writeText(currentInvite.url);
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+    } catch { /* clipboard denied */ }
   });
 
   // Regenerate
@@ -108,6 +113,8 @@ export function openInviteModal({ scope, userId, activeInvite = null }) {
       const result = await regeneratePersonalInvite(userId, currentInvite.creatorLabel);
       currentInvite = { token: result.token, url: result.url, creatorLabel: currentInvite.creatorLabel };
       renderManageUrl(result.url);
+      // Reset Copy button text in case a prior copy left it on "Copied!".
+      document.getElementById('invite-modal-copy-btn').textContent = 'Copy';
     } catch (err) {
       showError(err.message || 'Could not regenerate invite. Try again.');
     }

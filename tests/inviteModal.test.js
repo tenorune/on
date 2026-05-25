@@ -76,11 +76,18 @@ describe('openInviteModal — personal scope', () => {
     expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(false);
   });
 
-  test('Copy button writes the URL to the clipboard', async () => {
+  test('Copy button writes the URL to the clipboard and flips text to Copied!', async () => {
+    jest.useFakeTimers();
     openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
-    document.getElementById('invite-modal-copy-btn').click();
-    await Promise.resolve();
+    const btn = document.getElementById('invite-modal-copy-btn');
+    btn.textContent = 'Copy';
+    btn.click();
+    await Promise.resolve(); await Promise.resolve();
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://x/?i=T');
+    expect(btn.textContent).toBe('Copied!');
+    jest.advanceTimersByTime(1500);
+    expect(btn.textContent).toBe('Copy');
+    jest.useRealTimers();
   });
 
   test('Regenerate calls regeneratePersonalInvite and refreshes the URL', async () => {
