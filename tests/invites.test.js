@@ -18,7 +18,7 @@ jest.mock('../js/db.js', () => ({
 }));
 
 const db = require('../js/db.js');
-const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite } = require('../js/invites');
+const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, redeemPersonalInvite } = require('../js/invites');
 
 describe('generateInviteToken', () => {
   test('returns a 22-char URL-safe base64 string', () => {
@@ -162,5 +162,104 @@ describe('regeneratePersonalInvite', () => {
     expect(db.setInviteRevoked).not.toHaveBeenCalled();
     expect(db.releaseInviteToken).not.toHaveBeenCalled();
     expect(result.token).toMatch(/^[A-Za-z0-9_-]{22}$/);
+  });
+});
+
+describe('redeemPersonalInvite', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    db.incrementInviteRedemptions.mockResolvedValue();
+    db.registerAsFollower.mockResolvedValue();
+    db.setFollowingEntry.mockResolvedValue();
+    db.getCreatorCode.mockResolvedValue('ABC123');
+  });
+
+  test('happy path: follows the creator and bumps redemption count', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator-uid/invites/TOKEN' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Mike',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 3,
+    });
+    const result = await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set());
+    expect(result).toEqual({ ok: true, creatorUid: 'creator-uid', creatorCode: 'ABC123', creatorLabel: 'Mike' });
+    expect(db.registerAsFollower).toHaveBeenCalledWith('creator-uid', 'redeemer-uid', 'redeemer-code');
+    expect(db.setFollowingEntry).toHaveBeenCalledWith('redeemer-uid', 'creator-uid', 'ABC123', '');
+    expect(db.incrementInviteRedemptions).toHaveBeenCalledWith('creator-uid', 'TOKEN');
+  });
+
+  test('returns not-found when the inviteIndex has no entry', async () => {
+    db.readInviteIndex.mockResolvedValue(null);
+    const result = await redeemPersonalInvite('BADTOKEN', 'redeemer-uid', 'redeemer-code', new Set());
+    expect(result).toEqual({ ok: false, reason: 'not-found' });
+    expect(db.registerAsFollower).not.toHaveBeenCalled();
+  });
+
+  test('returns not-found when the invite record is missing despite an index entry', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue(null);
+    const result = await redeemPersonalInvite('T', 'redeemer', 'code', new Set());
+    expect(result).toEqual({ ok: false, reason: 'not-found' });
+  });
+
+  test('returns revoked when the invite is revoked', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({ scope: 'personal', token: 'T', creatorUid: 'creator', revoked: true });
+    const result = await redeemPersonalInvite('T', 'redeemer', 'code', new Set());
+    expect(result).toEqual({ ok: false, reason: 'revoked' });
+  });
+
+  test('returns expired when expiresAt is in the past', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'T', creatorUid: 'creator', revoked: false,
+      expiresAt: Date.now() - 1000, redemptionCap: null, redemptionsUsed: 0,
+    });
+    const result = await redeemPersonalInvite('T', 'redeemer', 'code', new Set());
+    expect(result).toEqual({ ok: false, reason: 'expired' });
+  });
+
+  test('returns cap when redemptionsUsed >= redemptionCap', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'T', creatorUid: 'creator', revoked: false,
+      expiresAt: null, redemptionCap: 5, redemptionsUsed: 5,
+    });
+    const result = await redeemPersonalInvite('T', 'redeemer', 'code', new Set());
+    expect(result).toEqual({ ok: false, reason: 'cap' });
+  });
+
+  test('returns self when the redeemer is the creator', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/redeemer/invites/T' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'T', creatorUid: 'redeemer', revoked: false,
+      expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    const result = await redeemPersonalInvite('T', 'redeemer', 'code', new Set());
+    expect(result).toEqual({ ok: false, reason: 'self' });
+    expect(db.registerAsFollower).not.toHaveBeenCalled();
+    expect(db.incrementInviteRedemptions).not.toHaveBeenCalled();
+  });
+
+  test('returns already-following when the redeemer already follows the creator', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'T', creatorUid: 'creator', revoked: false,
+      expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    const result = await redeemPersonalInvite('T', 'redeemer', 'code', new Set(['creator']));
+    expect(result).toEqual({ ok: false, reason: 'already-following' });
+    expect(db.registerAsFollower).not.toHaveBeenCalled();
+    expect(db.incrementInviteRedemptions).not.toHaveBeenCalled();
+  });
+
+  test('returns creator-missing when getCreatorCode returns null', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'T', creatorUid: 'creator', revoked: false,
+      expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    db.getCreatorCode.mockResolvedValue(null);
+    const result = await redeemPersonalInvite('T', 'redeemer', 'code', new Set());
+    expect(result).toEqual({ ok: false, reason: 'creator-missing' });
   });
 });

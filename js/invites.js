@@ -5,6 +5,8 @@
 import {
   claimInviteToken, writeUserInvite, readUserInvites,
   setInviteRevoked, releaseInviteToken,
+  readInviteIndex, readUserInvite, incrementInviteRedemptions, getCreatorCode,
+  registerAsFollower, setFollowingEntry,
 } from './db.js';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -102,4 +104,43 @@ export async function regeneratePersonalInvite(userId, creatorLabelRaw) {
   const creatorLabel = validateLabel(creatorLabelRaw);
   await revokePersonalInvite(userId);
   return createPersonalInvite(userId, creatorLabel);
+}
+
+// Result shapes:
+//   success: { ok: true, creatorUid, creatorCode, creatorLabel }
+//   failure: { ok: false, reason: 'not-found'|'revoked'|'expired'|'cap'|'self'|'already-following'|'creator-missing' }
+
+export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alreadyFollowingSet) {
+  if (!token || typeof token !== 'string') return { ok: false, reason: 'not-found' };
+
+  const indexEntry = await readInviteIndex(token);
+  if (!indexEntry) return { ok: false, reason: 'not-found' };
+  if (indexEntry.scope !== 'personal') return { ok: false, reason: 'not-found' };
+
+  // Parse owner path: users/{uid}/invites/{token}
+  const match = indexEntry.ownerPath.match(/^users\/([^/]+)\/invites\/([^/]+)$/);
+  if (!match) return { ok: false, reason: 'not-found' };
+  const [, creatorUid] = match;
+
+  const invite = await readUserInvite(creatorUid, token);
+  if (!invite) return { ok: false, reason: 'not-found' };
+  if (invite.revoked) return { ok: false, reason: 'revoked' };
+  if (invite.expiresAt != null && invite.expiresAt < Date.now()) return { ok: false, reason: 'expired' };
+  if (invite.redemptionCap != null && (invite.redemptionsUsed || 0) >= invite.redemptionCap) {
+    return { ok: false, reason: 'cap' };
+  }
+  if (creatorUid === redeemerUid) return { ok: false, reason: 'self' };
+  if (alreadyFollowingSet && alreadyFollowingSet.has && alreadyFollowingSet.has(creatorUid)) {
+    return { ok: false, reason: 'already-following' };
+  }
+
+  const creatorCode = await getCreatorCode(creatorUid);
+  if (!creatorCode) return { ok: false, reason: 'creator-missing' };
+
+  // Create the follow relationship and persist in own following list.
+  await registerAsFollower(creatorUid, redeemerUid, redeemerCode);
+  await setFollowingEntry(redeemerUid, creatorUid, creatorCode, '');
+  await incrementInviteRedemptions(creatorUid, token);
+
+  return { ok: true, creatorUid, creatorCode, creatorLabel: invite.creatorLabel || '' };
 }
