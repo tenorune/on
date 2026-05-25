@@ -104,17 +104,25 @@ export function openInviteModal({ scope, userId, activeInvite = null }) {
   // Regenerate
   on(document.getElementById('invite-modal-regen-btn'), 'click', async () => {
     if (!currentInvite) return;
-    const result = await regeneratePersonalInvite(userId, currentInvite.creatorLabel);
-    currentInvite = { token: result.token, url: result.url, creatorLabel: currentInvite.creatorLabel };
-    renderManageUrl(result.url);
+    try {
+      const result = await regeneratePersonalInvite(userId, currentInvite.creatorLabel);
+      currentInvite = { token: result.token, url: result.url, creatorLabel: currentInvite.creatorLabel };
+      renderManageUrl(result.url);
+    } catch (err) {
+      showError(err.message || 'Could not regenerate invite. Try again.');
+    }
   });
 
   // Revoke
   on(document.getElementById('invite-modal-revoke-btn'), 'click', async () => {
-    await revokePersonalInvite(userId);
-    currentInvite = null;
-    showState('create');
-    document.getElementById('invite-modal-label-input').value = '';
+    try {
+      await revokePersonalInvite(userId);
+      currentInvite = null;
+      showState('create');
+      document.getElementById('invite-modal-label-input').value = '';
+    } catch (err) {
+      showError(err.message || 'Could not revoke invite. Try again.');
+    }
   });
 
   // Close

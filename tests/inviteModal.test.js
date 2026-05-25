@@ -15,6 +15,7 @@ function setupDom() {
         <h2 id="invite-modal-title"></h2>
         <p id="invite-modal-subtitle"></p>
         <div id="invite-modal-create" class="hidden">
+          <label id="invite-modal-label-hint"></label>
           <input id="invite-modal-label-input" type="text" maxlength="40" />
           <p id="invite-modal-label-error" class="error-msg hidden"></p>
           <button id="invite-modal-create-btn"></button>
@@ -112,5 +113,27 @@ describe('openInviteModal — personal scope', () => {
     document.getElementById('invite-modal-cancel-btn').click();
     expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
     expect(invites.createPersonalInvite).not.toHaveBeenCalled();
+  });
+
+  test('applies SCOPE_COPY.labelHint to the label element', () => {
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: null });
+    expect(document.getElementById('invite-modal-label-hint').textContent).toBe('Your name on the invite');
+  });
+
+  test('Regenerate surfaces an error when the underlying call rejects', async () => {
+    invites.regeneratePersonalInvite.mockRejectedValue(new Error('network down'));
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
+    document.getElementById('invite-modal-regen-btn').click();
+    await new Promise(setImmediate);
+    expect(document.getElementById('invite-modal-label-error').textContent).toBe('network down');
+    expect(document.getElementById('invite-modal-label-error').classList.contains('hidden')).toBe(false);
+  });
+
+  test('Revoke surfaces an error when the underlying call rejects', async () => {
+    invites.revokePersonalInvite.mockRejectedValue(new Error('boom'));
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
+    document.getElementById('invite-modal-revoke-btn').click();
+    await new Promise(setImmediate);
+    expect(document.getElementById('invite-modal-label-error').textContent).toBe('boom');
   });
 });
