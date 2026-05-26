@@ -10,6 +10,8 @@ import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, apply
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
+import { initNav, startCardsRowSubscriptions, initCardsRow, onContextChange, applyServerCurrentContext } from './groupNav.js';
+import { enterGroupContext, exitGroupContext } from './groupContext.js';
 
 
 let splashCounter = 0;
@@ -322,6 +324,14 @@ async function main() {
   initList(userId, code);
   if (KNOCK_ENABLED) initKnocks(userId);
 
+  initNav(userId);
+  initCardsRow();
+  startCardsRowSubscriptions();
+  onContextChange((ctx) => {
+    if (ctx.context === 'group') enterGroupContext(ctx.groupId, userId);
+    else exitGroupContext();
+  });
+
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
 
   if (PALETTES_ENABLED) {
@@ -412,6 +422,7 @@ async function main() {
     if (userData.lastTimeoutMinutes) {
       updateChipFromServer(userData.lastTimeoutMinutes);
     }
+    applyServerCurrentContext(userData?.currentContext || 'direct');
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);
     const effectiveStatus = expired ? 'unavailable' : userData.status;

@@ -127,73 +127,87 @@
     </div>
   </div>
 
-  <header id="app-header">
-    <div id="header-row">
-      <div id="my-dot" class="dot"></div>
-      <div id="header-text">
-        <div id="header-status-row">
-          <span id="my-status-label" class="status-label">Unavailable</span>
-          <span id="time-remaining" style="display:none"></span>
+  <div id="main-ui-direct">
+    <header id="app-header">
+      <div id="header-row">
+        <div id="my-dot" class="dot"></div>
+        <div id="header-text">
+          <div id="header-status-row">
+            <span id="my-status-label" class="status-label">Unavailable</span>
+            <span id="time-remaining" style="display:none"></span>
+          </div>
+          <div id="header-chips">
+            <button id="time-chip" class="chip time-chip">2 hours</button>
+            <button id="mycode-chip" class="chip">Share code</button>
+          </div>
+          <div id="swatch-row" style="display:none"></div>
         </div>
-        <div id="header-chips">
-          <button id="time-chip" class="chip time-chip">2 hours</button>
-          <button id="mycode-chip" class="chip">Share code</button>
+      </div>
+      <div id="code-drawer">
+        <div class="drawer-inner">
+          <div class="code-row">
+            <span id="my-code-display" class="code-display"></span>
+            <button id="rotate-code-btn" class="rotate-btn" title="Generate new code">↻</button>
+            <button id="copy-code-btn" class="ghost-btn">Copy</button>
+            <button id="invite-link-btn" class="ghost-btn">Create invite link</button>
+          </div>
+          <p id="rotate-error-msg" class="error-msg hidden"></p>
+          <p class="hint">Share this so others can follow your status.</p>
         </div>
-        <div id="swatch-row" style="display:none"></div>
       </div>
-    </div>
-    <div id="code-drawer">
-      <div class="drawer-inner">
-        <div class="code-row">
-          <span id="my-code-display" class="code-display"></span>
-          <button id="rotate-code-btn" class="rotate-btn" title="Generate new code">↻</button>
-          <button id="copy-code-btn" class="ghost-btn">Copy</button>
-          <button id="invite-link-btn" class="ghost-btn">Create invite link</button>
+      <div id="recovery-pill-row" class="recovery-pill-row">
+        <button id="recovery-show-pill" class="chip">Show secret phrase</button>
+        <div id="recovery-revealed" class="recovery-revealed hidden">
+          <span id="drawer-recovery-code" class="recovery-code-text"></span>
         </div>
-        <p id="rotate-error-msg" class="error-msg hidden"></p>
-        <p class="hint">Share this so others can follow your status.</p>
+        <button id="drawer-recovery-copy-btn" class="ghost-btn">Copy</button>
       </div>
-    </div>
-    <div id="recovery-pill-row" class="recovery-pill-row">
-      <button id="recovery-show-pill" class="chip">Show secret phrase</button>
-      <div id="recovery-revealed" class="recovery-revealed hidden">
-        <span id="drawer-recovery-code" class="recovery-code-text"></span>
-      </div>
-      <button id="drawer-recovery-copy-btn" class="ghost-btn">Copy</button>
-    </div>
-  </header>
+    </header>
 
-  <div id="favorites-strip"></div>
+    <div id="favorites-strip"></div>
 
-  <div id="canvas-screen">
-    <canvas id="draw-canvas"></canvas>
+    <div id="canvas-screen">
+      <canvas id="draw-canvas"></canvas>
+    </div>
+
+    <div id="group-cards-row" class="group-cards-row hidden">
+      <!-- Populated by groupNav.js. One .group-card per group; trailing #group-cards-plus button. -->
+    </div>
+
+    <main id="main-list">
+      <div id="offline-banner" class="offline-banner hidden">Offline — showing last known status</div>
+      <ul id="people-list" class="person-list"></ul>
+      <p id="empty-list-msg" class="hidden"></p>
+      <div id="add-person-area">
+      <button id="add-person-btn" class="add-btn">Add a person</button>
+      <div id="add-person-form">
+        <div class="add-form">
+          <label class="field-label">Code</label>
+          <input id="add-code-input" type="text" maxlength="6" placeholder="e.g. XK7P2M" class="code-input" autocomplete="off" />
+          <label class="field-label">Name (optional)</label>
+          <input id="add-label-input" type="text" maxlength="40" placeholder="e.g. Partner, Mom" class="text-input" />
+          <p id="add-error" class="error-msg hidden"></p>
+          <div style="display:flex;gap:8px">
+            <button id="add-submit-btn" class="primary-btn">Follow</button>
+            <button id="add-cancel-btn" class="ghost-btn">Cancel</button>
+          </div>
+        </div>
+      </div>
+      </div>
+    </main>
   </div>
 
-  <div id="group-cards-row" class="group-cards-row hidden">
-    <!-- Populated by groupNav.js. One .group-card per group; trailing #group-cards-plus button. -->
+  <div id="group-context-root" class="group-context-root hidden">
+    <div class="group-breadcrumb">
+      <button id="group-breadcrumb-back" class="group-breadcrumb-back" aria-label="Back to Direct">←</button>
+      <span id="group-breadcrumb-name" class="group-breadcrumb-name"></span>
+    </div>
+    <header class="group-context-header">
+      <h2 id="group-context-name" class="group-context-name"></h2>
+      <button id="group-context-settings-btn" class="ghost-btn hidden">Settings</button>
+    </header>
+    <ul id="group-roster" class="group-roster"></ul>
   </div>
-
-  <main id="main-list">
-    <div id="offline-banner" class="offline-banner hidden">Offline — showing last known status</div>
-    <ul id="people-list" class="person-list"></ul>
-    <p id="empty-list-msg" class="hidden"></p>
-    <div id="add-person-area">
-    <button id="add-person-btn" class="add-btn">Add a person</button>
-    <div id="add-person-form">
-      <div class="add-form">
-        <label class="field-label">Code</label>
-        <input id="add-code-input" type="text" maxlength="6" placeholder="e.g. XK7P2M" class="code-input" autocomplete="off" />
-        <label class="field-label">Name (optional)</label>
-        <input id="add-label-input" type="text" maxlength="40" placeholder="e.g. Partner, Mom" class="text-input" />
-        <p id="add-error" class="error-msg hidden"></p>
-        <div style="display:flex;gap:8px">
-          <button id="add-submit-btn" class="primary-btn">Follow</button>
-          <button id="add-cancel-btn" class="ghost-btn">Cancel</button>
-        </div>
-      </div>
-    </div>
-    </div>
-  </main>
 
   <script src="dist/bundle.js"></script>
 </body>
