@@ -194,6 +194,12 @@ export async function _feedSnapshotForTests(snapshot) {
 
 // ── Phase 2: per-group status overrides ──────────────────────────────────────
 
+// Note: Firebase RTDB set() strips null-valued keys on write. So a stored
+// override of { enabled:true, status:'unavailable', availableUntil:null }
+// reads back as { enabled:true, status:'unavailable' } — availableUntil is
+// undefined, not null. All readers in this codebase use `?? null` or `== null`
+// (loose) so this is accidentally correct, but be cautious about introducing
+// strict-equality (`=== null`) checks against availableUntil.
 export async function toggleStatusOverride(groupId, userId, nextEnabled) {
   if (nextEnabled) {
     await setStatusOverride(groupId, userId, {

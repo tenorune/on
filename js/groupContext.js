@@ -275,6 +275,8 @@ export function enterGroupContext(groupId, userId) {
   if (_membersUnsub) _membersUnsub();
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
+  _memberPrimaries.clear();
+  _membersOverrides = {};
   _membersUnsub = watchGroupMembers(groupId, (members) => {
     _membersOverrides = {};
     for (const [uid, m] of Object.entries(members || {})) {
@@ -312,6 +314,13 @@ export function enterGroupContext(groupId, userId) {
     _ownPrimary = data
       ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: data.statusColor || null }
       : null;
+    if (data?.lastTimeoutMinutes) {
+      const idx = chipIndexForMinutes(data.lastTimeoutMinutes);
+      const chipEl = document.getElementById('group-time-chip');
+      if (chipEl && chipEl.textContent !== CHIP_VALUES[idx].text) {
+        chipEl.textContent = CHIP_VALUES[idx].text;
+      }
+    }
     renderOwnStatusRow();
   });
   _ownOverrideUnsub = watchOwnMemberOverride(groupId, userId, (data) => {
