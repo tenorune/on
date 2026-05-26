@@ -2,7 +2,7 @@
 // Group context view: breadcrumb, header, roster. Roster + settings populated
 // in Tasks 16-17. This scaffolding handles enter/exit and the breadcrumb back.
 
-import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs, setLastTimeoutMinutes } from './db.js';
+import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs, setLastTimeoutMinutes } from './db.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
@@ -126,7 +126,13 @@ function paintRosterRow(uid) {
   const statusEl = li.querySelector('.person-status');
   if (statusEl) {
     if (isAvailable) {
-      const remaining = availableUntil ? formatTimeRemaining(timeRemainingMs(availableUntil)) : '';
+      // Mirror the Direct contacts list: fuzzy text ("nearly 18 hours",
+      // "about half an hour") rather than precise H:M. The Fuzzy helper
+      // returns "… left"; strip that suffix since we prefix with
+      // "Available for ".
+      const remaining = availableUntil
+        ? formatTimeRemainingFuzzy(timeRemainingMs(availableUntil)).replace(/ left$/, '')
+        : '';
       statusEl.textContent = remaining ? `Available for ${remaining}` : 'Available';
     } else {
       // Unavailable members deliberately render no status text in the
