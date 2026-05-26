@@ -2,7 +2,7 @@
 // Group context view: breadcrumb, header, roster. Roster + settings populated
 // in Tasks 16-17. This scaffolding handles enter/exit and the breadcrumb back.
 
-import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, removeUserGroupsEntry } from './db.js';
+import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry } from './db.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName } from './groups.js';
@@ -17,6 +17,10 @@ const _statusUnsubs = new Map(); // memberUid → unsubscribe fn
 let _currentGroupId = null;
 let _currentUserId = null;
 let _activeGroupInvite = null;
+let _ownPrimaryUnsub = null;
+let _ownOverrideUnsub = null;
+let _ownPrimary = null;  // { status, availableUntil, statusColor? } | null
+let _ownOverride = null; // { enabled, status, availableUntil, statusColor?, paletteKey? } | null
 
 function renderRoster(members, ownUserId) {
   const list = document.getElementById('group-roster');
@@ -66,6 +70,44 @@ function renderRoster(members, ownUserId) {
     }
 
     list.appendChild(li);
+  }
+}
+
+function renderOwnStatusRow() {
+  const dot = document.getElementById('group-my-dot');
+  const label = document.getElementById('group-my-status-label');
+  const timeRemaining = document.getElementById('group-time-remaining');
+  const timeChip = document.getElementById('group-time-chip');
+  const toggle = document.getElementById('group-override-toggle');
+  if (!dot || !label || !toggle) return;
+
+  const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
+  toggle.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
+
+  // Source of truth for the visible status: override when ON, else primary.
+  const source = overrideOn ? _ownOverride : _ownPrimary;
+  const status = source?.status || 'unavailable';
+  const availableUntil = source?.availableUntil ?? null;
+  const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+
+  dot.dataset.available = isAvailable ? 'true' : 'false';
+  dot.classList.toggle('available', isAvailable);
+  label.textContent = isAvailable ? 'Available' : 'Unavailable';
+
+  // Read-only mode applies the dot + chip dimming when override is OFF.
+  dot.classList.toggle('readonly', !overrideOn);
+  if (timeChip) timeChip.classList.toggle('readonly', !overrideOn);
+
+  if (timeRemaining) {
+    if (isAvailable && availableUntil) {
+      const ms = Math.max(0, availableUntil - Date.now());
+      const hours = Math.floor(ms / 3600000);
+      const minutes = Math.floor((ms % 3600000) / 60000);
+      timeRemaining.textContent = '· ' + (hours > 0 ? `${hours}h ` : '') + `${minutes}m left`;
+      timeRemaining.style.display = '';
+    } else {
+      timeRemaining.style.display = 'none';
+    }
   }
 }
 
@@ -201,6 +243,22 @@ export function enterGroupContext(groupId, userId) {
     _activeGroupInvite = active;
   });
 
+  // Subscribe to own primary status and own override under this group.
+  if (_ownPrimaryUnsub) _ownPrimaryUnsub();
+  if (_ownOverrideUnsub) _ownOverrideUnsub();
+  _ownPrimary = null;
+  _ownOverride = null;
+  _ownPrimaryUnsub = watchStatus(userId, (data) => {
+    _ownPrimary = data
+      ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: data.statusColor || null }
+      : null;
+    renderOwnStatusRow();
+  });
+  _ownOverrideUnsub = watchOwnMemberOverride(groupId, userId, (data) => {
+    _ownOverride = data || null;
+    renderOwnStatusRow();
+  });
+
   // Subscribe to group meta for the name + owner check
   _metaUnsub = watchGroupMeta(groupId, (meta) => {
     if (!meta) {
@@ -226,6 +284,10 @@ export function exitGroupContext() {
   if (_metaUnsub) { _metaUnsub(); _metaUnsub = null; }
   if (_membersUnsub) { _membersUnsub(); _membersUnsub = null; }
   if (_invitesUnsub) { _invitesUnsub(); _invitesUnsub = null; }
+  if (_ownPrimaryUnsub) { _ownPrimaryUnsub(); _ownPrimaryUnsub = null; }
+  if (_ownOverrideUnsub) { _ownOverrideUnsub(); _ownOverrideUnsub = null; }
+  _ownPrimary = null;
+  _ownOverride = null;
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
   _currentGroupId = null;
