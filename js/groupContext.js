@@ -3,6 +3,7 @@
 // in Tasks 16-17. This scaffolding handles enter/exit and the breadcrumb back.
 
 import { watchGroupMeta, watchGroupMembers, watchStatus } from './db.js';
+import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
 
 let _metaUnsub = null;
@@ -63,12 +64,12 @@ function syncStatusSubscriptions(memberUids) {
       _statusUnsubs.set(uid, watchStatus(uid, (data) => {
         const li = document.querySelector(`#group-roster [data-user-id="${uid}"]`);
         if (!li) return;
-        const available = data && data.status === 'available' && (!data.availableUntil || data.availableUntil > Date.now());
+        const available = data && data.status === 'available' && (data.availableUntil == null || data.availableUntil > Date.now());
         li.dataset.available = available ? 'true' : 'false';
         const dot = li.querySelector('.person-dot');
         if (dot) {
           dot.dataset.available = available ? 'true' : 'false';
-          if (available && data.statusColor) dot.style.background = data.statusColor;
+          if (available && data.statusColor) dot.style.background = safeCssColor(data.statusColor);
           else dot.style.background = '';
         }
       }));

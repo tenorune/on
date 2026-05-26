@@ -150,4 +150,24 @@ describe('group roster render', () => {
     exitGroupContext();
     unsubs.forEach((u) => expect(u).toHaveBeenCalled());
   });
+
+  test('removed members lose their watchStatus subscription on the next tick', () => {
+    let membersCb;
+    const unsubByUid = {};
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation((uid) => { const fn = jest.fn(); unsubByUid[uid] = fn; return fn; });
+    enterGroupContext('G1', 'me');
+    membersCb({
+      'a': { role: 'member', displayName: 'Alice', joinedAt: 1 },
+      'b': { role: 'member', displayName: 'Bob', joinedAt: 2 },
+    });
+    expect(unsubByUid.a).not.toHaveBeenCalled();
+    expect(unsubByUid.b).not.toHaveBeenCalled();
+    // Subsequent tick: Bob has left.
+    membersCb({
+      'a': { role: 'member', displayName: 'Alice', joinedAt: 1 },
+    });
+    expect(unsubByUid.a).not.toHaveBeenCalled(); // Alice's sub stays
+    expect(unsubByUid.b).toHaveBeenCalled();     // Bob's sub torn down
+  });
 });
