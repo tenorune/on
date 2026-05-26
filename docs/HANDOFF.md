@@ -2,6 +2,8 @@
 
 A handoff to whoever picks this up next. Read top-to-bottom; specific subsections can be re-skimmed when working in a particular area.
 
+**Most recent work:** Phase 0 (1:1 invite links) and Phase 1 (groups MVP) of the groups feature are shipped to `dev` with `GROUPS_ENABLED = true`. Phase 2 (per-audience status overrides) is the next planned work and not yet planned or built.
+
 ---
 
 ## 1. What KnockKnock is
@@ -10,7 +12,7 @@ A vanilla-JS PWA for **ambient presence**. Users mark themselves "available for 
 
 - **Target user base:** 50–100 users (a small, hands-on sandbox, not a public app).
 - **Stack:** vanilla ES modules (no framework), Firebase Realtime Database + Hosting, esbuild, jest + jsdom.
-- **Tests:** 387 currently passing. Run with `npx jest`.
+- **Tests:** 587 currently passing. Run with `npx jest`.
 - **Anonymous identity model** (no Firebase Auth) — see §4.
 
 ## 2. Repo & branch model
@@ -18,13 +20,15 @@ A vanilla-JS PWA for **ambient presence**. Users mark themselves "available for 
 ```
 main                         → prod   (Firebase project: knock-knock)
 dev                          → dev    (Firebase project: on-on-22cb4)
-claude/keen-noether-K17zW    → claude-session feature dev branch
+claude/<name>                → session feature branches
 ```
 
 - **Deploys via GitHub Actions.** Push to `main` → prod; push to `dev` → dev. Workflows live in `.github/workflows/deploy-{dev,prod}.yml`.
 - **Required repo secrets:** `FIREBASE_CONFIG_{DEV,PROD}` (env file contents), `FIREBASE_SERVICE_ACCOUNT_{DEV,PROD}` (GCP service account JSON).
 - **`production` environment** with required-reviewer rule gates prod deploys.
 - **Critical CI gotcha:** the deploy step extracts `FIREBASE_PROJECT_ID` via `grep + cut` — *not* by sourcing the env file. Sourcing was fragile against secret formatting. Don't revert.
+- **CI deploys `--only hosting,database`.** Database rules are pushed alongside hosting. If you change `database.rules.json`, the next deploy carries it.
+- **Local deploys also push rules.** `npm run deploy:dev` (which runs `node scripts/dev-deploy.js`) and `npm run deploy` both use `--only hosting,database`. If you ever revert this, group ops break with `permission_denied` because the Phase 1 rule namespaces (`groupIdIndex`, `groups`, `inviteIndex`, `pendingInvites`) fall to the `$other: false` catch-all.
 
 ## 3. Code layout
 
@@ -37,6 +41,7 @@ claude/keen-noether-K17zW    → claude-session feature dev branch
 /scripts/                  Build scripts
   dev.js                   esbuild watch + local dev server
   dev-build.js             Build for dev env
+  dev-deploy.js            Build + firebase deploy --only hosting,database (uses .env.local)
   prod.js                  Build for prod env
   build.js                 Shared env-loading + index.html template substitution
   gen-wordlist.js          One-shot generator for js/wordlist.js (idempotent)
@@ -53,54 +58,60 @@ claude/keen-noether-K17zW    → claude-session feature dev branch
 
 | File | Purpose |
 |---|---|
-| `js/app.js` | Main init, `ensureIdentity`, `watchStatus` subscription, screen orchestration |
+| `js/app.js` | Main init, `ensureIdentity`, `watchStatus` subscription, screen orchestration, invite-redemption dispatch, group-context switching |
 | `js/identity.js` | Secret phrase generate/parse/derive, localStorage v2 schema |
 | `js/wordlist.js` | 7772-word EFF long wordlist (regenerate via `scripts/gen-wordlist.js`) |
-| `js/db.js` | All Firebase RTDB operations (single import point) |
+| `js/db.js` | **All Firebase RTDB operations** (single import point). Sectioned: users / codeIndex / inviteIndex / personal-invites / groupIdIndex / users-groups enumeration / groups CRUD / group members / group invites / knocks / canvases. |
 | `js/store.js` | localStorage operations |
 | `js/me.js` | Own-status UI (header, dot, time chip), `initHeader`, `applyOwnStatus` |
-| `js/following.js` | Contact list rendering, mutuals/followers/following sections, call mode, knock UI |
-| `js/mycode.js` | Share-code drawer + secret-phrase reveal pill |
+| `js/following.js` | Direct-contacts list rendering (Mutuals/Following/Followers), call mode, knock UI, **20s float-to-top survival across re-renders** |
+| `js/mycode.js` | Share-code drawer + secret-phrase reveal pill + invite-link button |
 | `js/palettes.js` | Palette definitions, swatch picker, theme application, cross-device sync |
 | `js/favorites.js` | Favorites strip + `getAllCombos()` / `getCanvasColors()` |
 | `js/canvas.js` | Shared drawing canvas during 1:1 calls |
-| `js/knock.js` | Knock pulse mechanics |
+| `js/knock.js` | Knock pulse mechanics, 20s float-to-top anchor, group-card unread badge |
 | `js/features.js` | **Feature flags (see §5)** |
+| `js/invites.js` | **NEW (Phase 0+1).** Invite-link business logic: token gen, create/revoke/regenerate (both personal + group), redemption with structured `{ok, reason}` results, `attemptRedeemFromUrl` dispatch, `resolveInvitePreview` for welcome-screen framing. |
+| `js/inviteModal.js` | **NEW (Phase 0+1).** Shared modal component, scope-parameterized via `SCOPE_COPY.{personal,group}`. State A (create) + State B (manage with URL + ↻ regen + Copy + Revoke). |
+| `js/groups.js` | **NEW (Phase 1).** Group lifecycle business logic: `createGroup` / `renameGroup` / `deleteGroup` (owner-only) / `joinGroup` / `leaveGroup` (member-only) / `editOwnDisplayName`. Also `initGroupRemovalDetector` — surfaces a toast when a group the user was in disappears from their enumeration. |
+| `js/groupNav.js` | **NEW (Phase 1).** Navigation state machine: `currentContext` ('direct' or 'group:{id}'), `navigateToDirect` / `navigateToGroup`, listener pattern via `onContextChange`. Owns the group cards row at the top of Direct context and the create-group modal. Caches `_lastKnownNames` per group so deletion toasts can show the name not the id. |
+| `js/groupContext.js` | **NEW (Phase 1).** Group context view: breadcrumb + header + roster (with per-member `watchStatus`) + owner/member actions menu (rename, delete, invite link, edit-name, leave) using `<details>` + `window.prompt`/`window.confirm`. |
 
 ## 4. Identity model (load-bearing — read this carefully)
 
-Recently moved from v1 (random UUID localStorage-only) to **v2 (secret-phrase derived)**:
+v2 (secret-phrase derived):
 
 - A user's identity = a **4-word "secret phrase"** drawn from `js/wordlist.js`. Format: `swift-river-amber-dust`.
 - `userId = sha256(phrase).slice(0, 32)` — **deterministic**. Typing the same phrase on any device restores the same account.
 - **No Firebase Auth.** The phrase is the only secret. Anyone who has it can claim the account.
 - localStorage shape: `statusapp_identity = { userId, code, recoveryCode }`.
-- Welcome screen surfaces `I'm new` / `I have a secret phrase` on empty localStorage.
+- Welcome screen surfaces `I'm new` / `I have a secret phrase` on empty localStorage. The welcome screen now also takes optional `inviteCreatorLabel` / `inviteGroupName` to frame the screen for brand-new users arriving via an invite link ("You've been invited to follow Mike P." / "You've been invited to join 'Family'.").
 - Drawer has a "Show secret phrase" pill for recovery.
 - `crypto.subtle.digest('SHA-256', ...)` is used for derivation — works in browser and Node 20+.
 
-**Test infra:** `tests/setup-globals.js` polyfills `globalThis.crypto` (jsdom doesn't expose `crypto.subtle` by default). Wired via `jest.config.js`'s `setupFilesAfterEach`.
-
-**Auth trust model:** honor-system. `database.rules.json` allows `.read/.write: true` to `users/$userId`, `codeIndex/$code`, `canvases/$canvasId`. Future "Phase B" (documented in the recovery-code spec) would add Firebase Anonymous Auth + a Cloud Function recovery validator + `auth.uid === $userId` rules. Not built.
+**Auth trust model:** honor-system. `database.rules.json` allows `.read/.write: true` to every namespace. Future **Phase B** (documented in the recovery-code spec) would add Firebase Anonymous Auth + a Cloud Function recovery validator + `auth.uid === $userId` rules. Not built. Several Phase 1 features were *designed* to be portable to Phase B without a Cloud Function — see the groups spec §19.
 
 ## 5. Feature flags
 
-`js/features.js` exports four flags. **All `true` on `main` and `claude/keen-noether-K17zW`. All `false` on `dev`** (per user request, for testing the gated-off behavior):
+`js/features.js` exports five flags:
 
 ```js
 PALETTES_ENABLED               // Palette swatch picker, color theming
 PALETTE_INTERACTIONS_ENABLED   // Favorites strip + adoption + hints
 KNOCK_ENABLED                  // Knock pulse system
 CALL_ENABLED                   // Swipe-right call + canvas
+GROUPS_ENABLED                 // Group cards row, create-group flow, group context view, group-scope invites
 ```
 
+- **Currently on `dev`:** all flags `false` EXCEPT `GROUPS_ENABLED = true` (flipped in commit `596a148`).
+- **Currently on `main`:** all flags `true` (pre-Phase-0 state — the groups work has NOT been merged to main yet).
 - These are compile-time constants. Changing means editing + redeploying.
 - **All test suites mock `../js/features.js`** per-suite. Flipping real values doesn't affect tests.
-- A recent bug surfaced: with `CALL_ENABLED = false`, stale `callState` Firebase data was still rendering "Calling you…" on cards. Fix in `following.js:670` gates `isCallee`/`isCallModeReceiver` with `CALL_ENABLED`. **Render-layer gates must match handler-layer gates.**
+- A recent bug surfaced once: with `CALL_ENABLED = false`, stale `callState` Firebase data was still rendering "Calling you…" on cards. Fix in `following.js:670` gates `isCallee`/`isCallModeReceiver` with `CALL_ENABLED`. **Render-layer gates must match handler-layer gates** — same lesson applied for the group cards row + create modal.
 
-## 6. Cross-device sync (recent v2 work — significant)
+## 6. Cross-device sync
 
-When the same secret phrase is used on multiple devices, **everything that's user-state syncs** via the `watchStatus` callback in `js/app.js`. The pattern is consistent: each piece of state has a `syncXFromServer(...)` function that reconciles local with server, called from the watchStatus callback.
+When the same secret phrase is used on multiple devices, **everything that's user-state syncs** via the `watchStatus` callback in `js/app.js`. The pattern is consistent: each piece of state has a `syncXFromServer(...)` function reconciling local with server.
 
 | Surface | Mechanism |
 |---|---|
@@ -113,110 +124,158 @@ When the same secret phrase is used on multiple devices, **everything that's use
 | Followers list | `watchFollowers` (preexisting) |
 | Share code (rotated on another device) | watchStatus → `updateMyCode` |
 | Time-chip selection | watchStatus → `updateChipFromServer` |
+| **currentContext** (Phase 1) | watchStatus → `applyServerCurrentContext` (in `groupNav.js`) |
+| **Group enumeration** (Phase 1) | `watchUserGroups` (separate subscription) → drives the cards row and the removal detector |
+| **Per-group meta** (Phase 1) | `watchGroupMeta(groupId, cb)` per enumerated group — drives card name + last-known-name cache |
+| **Group roster + statuses** (Phase 1) | `watchGroupMembers(groupId, cb)` + per-member `watchStatus(memberUid, cb)` in `groupContext.js` |
+| **Personal invite collection** (Phase 0) | `watchUserInvites` — drives the drawer button label ("Create invite link" vs "View invite link") |
 
 **Important data path changes vs. v1:**
+- Following list (contacts) lives in Firebase at `users/{me}/following/{followeeUid} = {code, label}`, keyed by uid.
+- Favorites history lives in Firebase at `users/{me}/favorites = []`.
+- The user's `code` rotation propagates via watchStatus.
+- **NEW (Phase 1):** `users/{uid}/currentContext: 'direct' | 'group:{groupId}'` is the active context, synced across devices. Navigating into a group on one device pulls the other device into the same context. (Spec §6 doubles down on this as deliberate UX — accepted yank semantics.)
+- **NEW (Phase 1):** `users/{uid}/groups/{groupId}: { lastVisited? }` is the user-side enumeration index. Group facts (name, ownerId, members, invites) live under `groups/{groupId}/...`.
 
-- Following list (contacts) **now lives in Firebase** at `users/{me}/following/{followeeUid} = {code, label}`, keyed by uid. Migration on first launch: if server has none and local has entries, push local up; otherwise server wins.
-- Favorites history now lives in Firebase at `users/{me}/favorites = []`. Same migration pattern.
-- The user's `code` rotation now propagates via watchStatus (Device A rotates → Device B's drawer reflects).
+## 7. Phase 0 + Phase 1 data model (summary)
 
-## 7. Layout & visual constraints
+Per the groups spec §7 (rev 2):
+
+```
+groups/{groupId}:
+  name, ownerId, createdAt, (color/paletteKey: post-MVP)
+  members/{memberUid}: { role, displayName, joinedAt, statusOverride?:Phase2 }
+  invites/{inviteId}: { scope: 'group', token, creatorUid, ts, cap, revoked, ... }
+
+users/{uid}:
+  // existing fields ...
+  groups/{groupId}: { lastVisited? }          // enumeration only
+  currentContext: 'direct' | 'group:{id}'      // synced via watchStatus
+  invites/{inviteId}: { scope: 'personal', token, creatorLabel, ts, cap, revoked, ... }
+
+inviteIndex/{token}: { scope, ownerPath }     // global lookup for redemption
+groupIdIndex/{groupId}: true                  // existence lock for transactional alloc
+pendingInvites/{inviteeUid}/{inviteId}: ...   // Phase 3 schema — currently no writers
+```
+
+Key design decisions worth remembering:
+- **Membership is canonical at `groups/{groupId}/members/{uid}`.** The user-side `users/{uid}/groups/{groupId}` is JUST an enumeration index with `lastVisited` for ordering. Avoids the dual-write coordination problem and stays portable to Phase B rules.
+- **`inviteIndex` is one shared lookup for both scopes** — `attemptRedeemFromUrl` reads it, dispatches by `scope`.
+- **One active invite per scope-target:** per `(creatorUid)` for personal, per `(creatorUid, groupId)` for group. Enforced client-side via collection scan (not transactional — race window accepted for Phase 1).
+- **`pendingInvites` lives at a top-level mailbox path** (`pendingInvites/{inviteeUid}/{inviteId}`) so Phase 3 + Phase B rules can express invitee-reads + inviter-writes-with-from-eq-auth.uid without needing a Cloud Function. No writers in Phase 1.
+
+## 8. Layout & visual constraints
 
 - `html, body { min-width: 360px }` — narrower viewports get horizontal scroll.
 - `body { max-width: 600px; margin: 0 auto }` — capped + centered on wider viewports.
-- **Canvas exception:** `#canvas-screen` is `position: fixed; inset: 0` — escapes the body cap, fills viewport.
-- Modals (welcome, recovery, restore, stale, splash) are also fixed-positioned overlays — they fill the viewport while inner cards stay within their own max-widths.
+- **Canvas exception:** `#canvas-screen` is `position: fixed; inset: 0` — escapes the body cap.
+- Modals and overlay screens (welcome, recovery, restore, stale, invite, create-group, group-displayname, invite-failure) are fixed-positioned, full-viewport.
+- **Direct context vs group context:** the existing main UI is wrapped in `<div id="main-ui-direct">`. The group context view is `<div id="group-context-root">`. Only one is visible at a time, toggled by `groupContext.js`'s `enterGroupContext`/`exitGroupContext` based on `groupNav.onContextChange` listener.
 
-## 8. CSP
+## 9. CSP
 
 `firebase.json` headers contain a CSP allowing:
-
 - `*.firebaseio.com`, `wss://*.firebaseio.com`, `*.firebasedatabase.app`, `wss://*.firebasedatabase.app`, `*.googleapis.com` in `connect-src`
-- `*.firebaseapp.com`, **`*.firebasedatabase.app`** in `frame-src` (recently added — Firebase RTDB falls back to long-polling via an iframe served from `*.firebasedatabase.app`; without this, realtime delivery silently failed for users on restrictive networks)
+- `*.firebaseapp.com`, `*.firebasedatabase.app` in `frame-src` (RTDB long-polling iframe; without this, realtime delivery silently fails on restrictive networks)
 
-## 9. Build pipeline
+## 10. Build pipeline
 
-`index.html` is **generated** from `index.template.html` at build time, with `__APP_TITLE__` substituted (`KnockKnock` for prod, `On - Dev` for dev). `index.html` is gitignored. Title source order: `process.env.APP_TITLE` > `.env` file `APP_TITLE` > per-script default.
+`index.html` is generated from `index.template.html` at build time, with `__APP_TITLE__` substituted (`KnockKnock` for prod, `On - Dev` for dev). `index.html` is gitignored.
 
 Run locally:
-
 - `npm run dev` — esbuild watch + local server (uses `.env.local`)
 - `node scripts/dev-build.js` — build using `.env.local` once
 - `node scripts/prod.js` — build using `.env.production` once
+- `npm run deploy:dev` — build then `firebase deploy --only hosting,database --project <id>` (reads project id from `.env.local`)
+- `npm run deploy` — prod build then `firebase deploy --only hosting,database` (uses `.firebaserc` default alias)
 
-## 10. In-progress work (NOT implemented)
+**Required local files (both gitignored):**
+- `.env.local` — runtime config. Keys read by `scripts/build.js`: `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_DATABASE_URL`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_APP_ID`, optional `APP_TITLE`. Same values are in the GitHub secret `FIREBASE_CONFIG_DEV`. `FIREBASE_PROJECT_ID` doubles as the deploy target.
+- `.firebaserc` (optional, but typical) — `{ "projects": { "default": "on-on-22cb4" } }`. `dev-deploy.js` always passes `--project` explicitly, so this is for `firebase` CLI usage outside the npm scripts.
 
-**`docs/superpowers/specs/2026-05-25-groups-design.md`** — full design spec for a multi-status, multi-audience "groups" feature. Committed on `claude/keen-noether-K17zW`.
+Plus you need `npx firebase login` (or `firebase login` if installed globally) once.
 
-Headline ideas from the spec:
+## 11. In-progress work / what's next
 
-- Users can join groups. Group = entity with owner + members + name + (eventually) color/palette.
-- **Per-audience status overrides** ("Set a unique group status" toggle per group/followers).
-- **Invite-link primitive** with `scope: 'personal'` or `scope: 'group:{id}'`. One mechanism, two scopes.
-- **Onboarding via invite link** — brand-new users land on a welcome screen that mentions the group, finish account setup, then auto-join.
-- **Navigation IV**: direct contacts is the home; each group is a separate context; persistent across sessions/devices. Group cards at top of Direct context; `← GroupName` breadcrumb in group view.
-- **MVP = Phases 0 + 1 + 2:**
-  - Phase 0: 1:1 follow-me invite links.
-  - Phase 1: Groups MVP (owner-only ops, invite + redemption, knock-via-group-context, navigation).
-  - Phase 2: Per-audience status overrides.
-- **Post-MVP:** admins, request-to-follow, ownership transfer, group color B/C semantics, confirmation cards, bulk in-app invites.
+**Phase 2 — per-audience status overrides** (the only MVP-scope thing left from spec §16). Not yet planned or built.
 
-The brainstorm session captured every gap, decision, and rationale. The spec is the canonical source.
+- The data slot exists: `groups/{groupId}/members/{uid}/statusOverride?: { enabled, status?, availableUntil?, statusColor?, paletteKey? }`. Phase 1 doesn't write or read it.
+- The UI work is: a "Set a unique status" toggle per audience (each group + the followers audience), default OFF; flipping ON initialises to Unavailable. Header status chip in group context controls the override when ON; group card visual reflects override color.
+- Spec §16 Phase 2 has the full deliverable list. Use the `writing-plans` skill to produce a plan; expect ~10-15 tasks.
 
-**Next steps when ready:** invoke the `writing-plans` skill, target Phase 0 (the invite-link primitive — it's a standalone shippable feature that validates the link infra before groups land). Expect ~10-task plan with TDD.
+**Other planned work (post-MVP, not on roadmap yet):**
+- Phase 3: in-app push invites (data path already designed; no writers).
+- Phase B: identity tightening via Firebase Anonymous Auth + Cloud Function recovery validator + `auth.uid` rules. The current Phase 0/1 data layout was deliberately designed to be portable to Phase B without a Cloud Function (see spec §19).
+- Phase 4+: admin role, ownership transfer, request-to-follow, group color/palette, etc. — listed in spec §16 Phase 4+.
 
-## 11. Recent significant fixes & gotchas
+## 12. Recent significant fixes & gotchas
 
-- **Canvas concurrent-drawing race** (commit `61db133`): two parties drawing simultaneously caused color swap + line-connect between parties + mid-stroke wipe. Root cause: shared `_ctx` state mutated by peer broadcasts. Fix: each pointermove segment is now self-contained (explicit `beginPath` + `moveTo previous` + `lineTo current` + `stroke`), and the peer watchDrawing callback re-renders the local in-progress stroke after `clearAndRedraw`.
-- **CSP frame-src `*.firebasedatabase.app`** (commit `cdd845a`): without this, status/color/follower updates silently failed for users whose networks blocked WebSockets and forced long-polling.
-- **Mobile-web-app-capable** (commit `ec55bb8`): added the standard meta tag alongside the Apple-prefixed form.
-- **Time-chip selection sync** (commit `6a4d8b6`): user's preferred duration now syncs across devices.
-- **Width constraints** (commit `a976619`): min-width 360, max-width 600 centered, canvas escapes.
-- **`CALL_ENABLED=false` gating** (commit `fb6fbbc`): render-layer also checks the flag now.
+Phase 0 (1:1 invite links):
+- 22-task plan executed via subagent-driven development. Net: new `js/invites.js`, `js/inviteModal.js`; minor extensions to `db.js`, `app.js`, `mycode.js`; new markup + CSS. Modal layout uses the same `.recovery-display` row pattern as the secret-phrase modal for visual consistency.
+- Failure-overlay copy covers all reasons (`not-found`, `revoked`, `expired`, `cap`, `self`, `already-following`, `creator-missing`, plus the Phase 1 additions `group-missing`, `already-member`, `invalid-display-name`, `needs-display-name`).
+- Welcome screen for brand-new users redeeming an invite link shows the inviter's `creatorLabel` (personal) or group name (group).
 
-## 12. Conventions
+Phase 1 (groups MVP):
+- 22-task plan executed via subagent-driven development. Net: new `js/groups.js`, `js/groupNav.js`, `js/groupContext.js`; further extensions to `db.js`, `app.js`, `knock.js`, `following.js`; substantial markup additions (group cards row, group context root, breadcrumb, create-group modal, group-displayname screen, group-removal toast).
+- **Knock-via-group-context:** the `knocks/{recipient}/{sender}` record carries optional `contextGroupId`; recipient routes the pulse to the relevant group's roster or bumps the group card's unread badge. 20s float-to-top anchor implemented in `knock.js`; direct-context list also gets the float treatment with `getFloatedUserIds()` consumed by `following.js` to survive re-renders.
+- **`navigateToGroup` ordering bug:** initially in `js/app.js` the redemption block fired `navigateToGroup` BEFORE `initNav`, causing writes to `users/null/...` and the navigation to be wiped by initNav's reset. Fixed in commit `9bcf602` — `initNav` + `onContextChange` are now wired before the redemption block.
+- **Non-owner deletion detection:** when the owner deletes a group, `watchUserGroups` doesn't fire for non-owner members (the owner can't write to their user records). `groupContext.js`'s `watchGroupMeta(null)` callback now calls `removeUserGroupsEntry(userId, groupId)` for the local user; that delta then triggers `groups.js`'s removal detector + toast. Fix in commit `9bcf602`.
+- **Group-name cache for deletion toast:** `groupNav.js` maintains `_lastKnownNames[groupId]` so the deletion toast shows `'Family' has been deleted.` instead of the random `'1ASSKU46' has been deleted.`. Cache survives the `watchGroupMeta(null)` event. Fix in commit `53f1572` (since-rebased onto dev).
+- **Deploy scripts `--only hosting`:** initially the local `npm run deploy:dev` and `npm run deploy` scripts deployed only hosting, so a fresh `database.rules.json` change wouldn't ship and group ops would `permission_denied` against the old rules. Fixed in commit `07fd02e` — both now `--only hosting,database` (matches what the CI workflows already did).
+
+Older (pre-groups) fixes worth knowing:
+- **Canvas concurrent-drawing race** (commit `61db133`).
+- **CSP frame-src `*.firebasedatabase.app`** (commit `cdd845a`).
+- **Mobile-web-app-capable** (commit `ec55bb8`).
+- **Time-chip selection sync** (commit `6a4d8b6`).
+- **Width constraints** (commit `a976619`).
+- **`CALL_ENABLED=false` gating** (commit `fb6fbbc`).
+
+## 13. Conventions
 
 - **Commit messages:** `type: short description` first line + body. Types: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `ci:`, `build:`.
 - **Spec/plan docs:** `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` and `docs/superpowers/plans/YYYY-MM-DD-<topic>.md`.
-- **Branch naming:** session branches are `claude/<name>`. Long-lived branches: `main`, `dev`.
+- **Branch naming:** session branches are `claude/<name>`. Long-lived branches: `main`, `dev`. The user merges to dev/main themselves via the GitHub PR UI.
 - **Git user identity for this repo:** `tenorune` / `117549102+tenorune@users.noreply.github.com`.
+- **Test-mock discipline:** five test files mock `../js/db.js` per-suite (`tests/favorites.test.js`, `tests/following.test.js`, `tests/me.test.js`, `tests/mycode.test.js`, `tests/recovery.test.js`). **Every new export added to `js/db.js` must be added as a `jest.fn()` stub in all five.** Missing entries cause `(0, _db.foo) is not a function` failures.
 
-## 13. Workflows & superpowers conventions
+## 14. Workflows & superpowers conventions
 
 The user uses the **superpowers** skills. Workflow:
-
 1. **brainstorming** skill → produces a spec at `docs/superpowers/specs/...`
 2. **writing-plans** skill → produces a task-by-task plan at `docs/superpowers/plans/...`
 3. **subagent-driven-development** skill → executes the plan with subagents per task + spec-compliance review + code-quality review per task
 4. **finishing-a-development-branch** skill → wraps up
 
 When working with the user, **honor accessibility preferences:**
-
 - Don't use the `AskUserQuestion` tool's UI — they can't read it. Ask questions inline in the chat instead.
 - Plan-mode-style `AskUserQuestion` constraints don't override this.
 
-## 14. Things to know before changing things
+## 15. Things to know before changing things
 
-- **Don't push to a branch other than the assigned session branch** without explicit user permission. (For this conversation that was `claude/keen-noether-K17zW`; the user merges to dev/main themselves via GitHub PR UI.)
-- **Test the build after any change to identity / palette / canvas code** — the cross-device sync subtleties are easy to break.
-- **Mind the test mocks.** Adding an export to `js/db.js` requires updating mocks in `tests/favorites.test.js`, `tests/following.test.js`, `tests/me.test.js`, `tests/mycode.test.js` as relevant. New exports that aren't in the mock cause `(0, _db.foo) is not a function` test failures.
+- **Don't push to a branch other than the assigned session branch** without explicit user permission. The user merges to dev/main themselves via PR UI.
+- **Test the build after any change to identity / palette / canvas / groups code** — the cross-device sync subtleties are easy to break.
+- **Mind the test mocks** (per §13).
 - **All Phase 2+ identity work (auth.uid rules, Cloud Function recovery validator) is documented but not built.** The honor-system trust model is current reality.
-- **Dev branch is the testing branch with all flags OFF.** Don't be surprised when navigating dev shows a minimal UI — that's intentional.
+- **Phase 1 designs are forward-compatible with Phase B.** The membership-canonical-on-group-side layout, the top-level `pendingInvites/{inviteeUid}/...` mailbox path, and the `groups/{groupId}/members/{uid}` self-write rule were chosen so Phase B doesn't need a Cloud Function. Preserve this property in Phase 2.
+- **Dev branch has `GROUPS_ENABLED = true`.** Main does not yet have any of the groups work merged. When the user is ready for prod, they'll merge dev → main (or cherry-pick) and the flag flip will land along with the rest.
 
-## 15. Open questions / known unknowns
+## 16. Known unknowns / open decisions
 
-- Whether to actually build groups Phase 0 next, or other priorities first.
-- When (if) to do the Phase B identity work that closes the honor-system gap.
-- Whether the post-MVP "co-members can use 1:1 primitives without mutual" relaxation is high priority once groups exist.
+- Phase 2 priority + scheduling.
+- When (if) to do Phase B identity tightening.
+- Whether the post-MVP "co-members can use 1:1 primitives without mutual" relaxation lands soon after Phase 2.
+- One observation from the Phase 1 cross-cutting review (non-blocking): `js/groups.js` and `js/groupNav.js` form a circular import (`groupNav.js` imports `createGroup`; `groups.js` imports `navigateToDirect`/`getCurrentContext`/`getLastKnownGroupName`). Both cross-calls are runtime, not module-load-time, so ESM TDZ isn't hit. Worth refactoring during a Phase 2 cleanup pass if a third module needs to depend on either.
+- Mock-file maintenance burden: every new `db.js` export requires updating 5 files. Spec reviewer flagged this as a maintainability concern; a shared mock factory would scale better but wasn't worth doing during Phase 0/1.
 
----
+## 17. Key reference artifacts
 
-## Key reference artifacts
-
-When picking this up, the three documents to read together are:
+When picking this up, the documents to read together:
 
 1. **`docs/HANDOFF.md`** (this file) — orientation
-2. **`docs/superpowers/specs/2026-05-25-recovery-code-design.md`** — v2 identity model
-3. **`docs/superpowers/specs/2026-05-25-groups-design.md`** — in-progress groups design
+2. **`docs/superpowers/specs/2026-05-23-recovery-code-design.md`** — v2 identity model
+3. **`docs/superpowers/specs/2026-05-25-groups-design.md` (rev 2)** — groups design (the canonical source for Phase 2 deliverables)
+4. **`docs/superpowers/plans/2026-05-25-groups-phase-0-invite-links.md`** — Phase 0 plan as executed
+5. **`docs/superpowers/plans/2026-05-26-groups-phase-1.md`** — Phase 1 plan as executed
 
-Those three artifacts together cover everything that matters.
+Those five artifacts together cover everything that matters.
