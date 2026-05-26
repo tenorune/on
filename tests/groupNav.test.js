@@ -83,7 +83,7 @@ describe('groupNav state machine', () => {
   });
 });
 
-const { initCardsRow, renderCardsRow, onCreateRequested, openCreateGroupModal } = require('../js/groupNav');
+const { initCardsRow, renderCardsRow, onCreateRequested, openCreateGroupModal, getLastKnownGroupName, startCardsRowSubscriptions } = require('../js/groupNav');
 
 function setupCardsDom() {
   document.body.innerHTML = `
@@ -230,5 +230,30 @@ describe('create-group modal', () => {
     await new Promise(setImmediate);
     expect(document.getElementById('create-group-error').textContent).toBe('boom');
     expect(document.getElementById('create-group-modal').classList.contains('hidden')).toBe(false);
+  });
+});
+
+describe('getLastKnownGroupName', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupCardsDom();
+    initNav('uid1');
+  });
+
+  test('returns null for an unknown group', () => {
+    expect(getLastKnownGroupName('NOPE')).toBeNull();
+  });
+
+  test('caches the name observed from watchGroupMeta and returns it after the meta clears', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchUserGroups.mockImplementation((uid, cb) => { cb({ G1: { lastVisited: 1 } }); return () => {}; });
+    startCardsRowSubscriptions();
+    metaCb({ name: 'Family', ownerId: 'owner', createdAt: 1 });
+    expect(getLastKnownGroupName('G1')).toBe('Family');
+    // Group is now deleted; meta callback fires with null.
+    metaCb(null);
+    // The cache survives the deletion event.
+    expect(getLastKnownGroupName('G1')).toBe('Family');
   });
 });

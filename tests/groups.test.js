@@ -20,6 +20,7 @@ jest.mock('../js/db.js', () => ({
 jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
   getCurrentContext: jest.fn(() => ({ context: 'direct', groupId: null })),
+  getLastKnownGroupName: jest.fn(() => null),
 }));
 
 const db = require('../js/db.js');
@@ -237,6 +238,24 @@ describe('group removal detector', () => {
     await _feedSnapshotForTests({});
     await flushPromises();
     expect(document.getElementById('group-removal-toast-text').textContent).toMatch(/removed|Family/i);
+  });
+
+  test('deletion toast uses the cached group name when available', async () => {
+    db.readGroup.mockResolvedValue(null); // group entity gone
+    groupNav.getLastKnownGroupName.mockReturnValue('Family');
+    await _feedSnapshotForTests({ G1: true });
+    await _feedSnapshotForTests({});
+    await flushPromises();
+    expect(document.getElementById('group-removal-toast-text').textContent).toBe("'Family' has been deleted.");
+  });
+
+  test('deletion toast falls back to groupId when no cached name exists', async () => {
+    db.readGroup.mockResolvedValue(null);
+    groupNav.getLastKnownGroupName.mockReturnValue(null);
+    await _feedSnapshotForTests({ G1ABCD23: true });
+    await _feedSnapshotForTests({});
+    await flushPromises();
+    expect(document.getElementById('group-removal-toast-text').textContent).toBe("'G1ABCD23' has been deleted.");
   });
 });
 
