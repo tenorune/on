@@ -895,7 +895,7 @@ main {
   padding: 0.25rem 0.5rem;
 }
 .group-breadcrumb-name { color: var(--text-muted); }
-.group-context-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; flex-direction: column; align-items: stretch; }
+.group-context-header { display: flex; flex-direction: column; align-items: stretch; margin-bottom: 0.75rem; }
 .group-context-name { font-size: 1.25rem; font-weight: 700; margin: 0; }
 
 .group-header-row {
