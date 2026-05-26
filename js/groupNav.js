@@ -16,12 +16,14 @@ function parseContextString(s) {
 }
 
 function emit() {
-  _listeners.forEach((fn) => { try { fn(_state); } catch { /* swallow */ } });
+  const snapshot = { ..._state };
+  _listeners.forEach((fn) => { try { fn(snapshot); } catch { /* swallow */ } });
 }
 
 export function initNav(userId) {
   _myUserId = userId;
   _state = { context: 'direct', groupId: null };
+  _listeners.clear();
 }
 
 export function getCurrentContext() {
