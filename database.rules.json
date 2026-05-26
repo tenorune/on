@@ -18,6 +18,24 @@
         ".write": true
       }
     },
+    "groupIdIndex": {
+      "$groupId": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "groups": {
+      "$groupId": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "pendingInvites": {
+      "$inviteeUid": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "canvases": {
       "$canvasId": {
         ".read": true,
