@@ -85,17 +85,19 @@ function setupContextDom() {
             </div>
           </div>
         </div>
-        <h2 id="group-context-name"></h2>
-        <details id="group-context-actions">
-          <summary>Settings</summary>
-          <div class="group-actions-menu">
-            <button id="group-action-rename" class="hidden">Rename group</button>
-            <button id="group-action-invite" class="hidden">Invite link</button>
-            <button id="group-action-delete" class="hidden">Delete group</button>
-            <button id="group-action-edit-name" class="hidden">Edit my name</button>
-            <button id="group-action-leave" class="hidden">Leave group</button>
-          </div>
-        </details>
+        <div class="group-context-header-row">
+          <h2 id="group-context-name"></h2>
+          <details id="group-context-actions">
+            <summary>Settings</summary>
+            <div class="group-actions-menu">
+              <button id="group-action-rename" class="hidden">Rename group</button>
+              <button id="group-action-invite" class="hidden">Invite link</button>
+              <button id="group-action-delete" class="hidden">Delete group</button>
+              <button id="group-action-edit-name" class="hidden">Edit my name</button>
+              <button id="group-action-leave" class="hidden">Leave group</button>
+            </div>
+          </details>
+        </div>
       </header>
       <ul id="group-roster"></ul>
     </div>
@@ -298,6 +300,41 @@ describe('owner actions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     setupContextDom();
+  });
+
+  test('activating a settings option closes the Settings menu', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    const details = document.getElementById('group-context-actions');
+    details.open = true;
+    window.prompt = jest.fn(() => null);
+    document.getElementById('group-action-rename').click();
+    expect(details.open).toBe(false);
+  });
+
+  test('tapping outside the Settings menu closes it', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    const details = document.getElementById('group-context-actions');
+    details.open = true;
+    document.getElementById('group-roster').click();
+    expect(details.open).toBe(false);
+  });
+
+  test('tapping inside the Settings menu does not close it', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    const details = document.getElementById('group-context-actions');
+    details.open = true;
+    // Click on the .group-actions-menu container itself (not an action button)
+    document.querySelector('#group-context-actions .group-actions-menu').click();
+    expect(details.open).toBe(true);
   });
 
   test('Rename group prompts and calls renameGroup', () => {

@@ -38,7 +38,7 @@ body { max-width: 600px; margin: 0 auto; }
 
 /* Layout */
 main {
-  padding: 1rem;
+  padding: 0.5rem 1rem 1rem;
 }
 
 /* Dot */
@@ -812,8 +812,8 @@ main {
   display: flex;
   gap: 0.5rem;
   overflow-x: auto;
-  padding: 0.5rem 0;
-  margin-bottom: 0.5rem;
+  padding: 0.5rem 1rem 0.25rem;
+  margin-bottom: 0;
 }
 .group-card {
   flex: 0 0 auto;
@@ -896,6 +896,9 @@ main {
 }
 .group-breadcrumb-name { color: var(--text-muted); }
 .group-context-header { display: flex; flex-direction: column; align-items: stretch; margin-bottom: 0.75rem; }
+.group-context-header-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+}
 .group-context-name { font-size: 1.25rem; font-weight: 700; margin: 0; }
 
 .group-header-row {
