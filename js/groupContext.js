@@ -2,15 +2,40 @@
 // Group context view: breadcrumb, header, roster. Roster + settings populated
 // in Tasks 16-17. This scaffolding handles enter/exit and the breadcrumb back.
 
-import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs } from './db.js';
+import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs, setLastTimeoutMinutes } from './db.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          toggleStatusOverride, setOverrideStatusAvailable, setOverrideStatusUnavailable } from './groups.js';
-import { getLastTimeout } from './store.js';
+import { getLastTimeout, setLastTimeout } from './store.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge } from './knock.js';
+
+const CHIP_VALUES = [
+  { minutes: 30,   text: '30 minutes' },
+  { minutes: 60,   text: '1 hour' },
+  { minutes: 90,   text: '1 hour 30 minutes' },
+  { minutes: 120,  text: '2 hours' },
+  { minutes: 180,  text: '3 hours' },
+  { minutes: 240,  text: '4 hours' },
+  { minutes: 360,  text: '6 hours' },
+  { minutes: 480,  text: '8 hours' },
+  { minutes: 720,  text: '12 hours' },
+  { minutes: 1080, text: '18 hours' },
+  { minutes: 1440, text: '24 hours' },
+];
+function chipIndexForMinutes(minutes) {
+  let m = minutes;
+  if (m <= 12) m = m * 60;
+  let bestIndex = 0;
+  let bestDist = Math.abs(CHIP_VALUES[0].minutes - m);
+  for (let i = 1; i < CHIP_VALUES.length; i++) {
+    const dist = Math.abs(CHIP_VALUES[i].minutes - m);
+    if (dist < bestDist) { bestDist = dist; bestIndex = i; }
+  }
+  return bestIndex;
+}
 
 let _metaUnsub = null;
 let _membersUnsub = null;
@@ -294,6 +319,29 @@ export function enterGroupContext(groupId, userId) {
         const availableUntil = Date.now() + getLastTimeout() * 60000;
         setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
       }
+    });
+  }
+
+  // Wire the time chip (clone-and-replace; cycles override duration when ON+available)
+  const timeChip = document.getElementById('group-time-chip');
+  if (timeChip) {
+    timeChip.textContent = CHIP_VALUES[chipIndexForMinutes(getLastTimeout())].text;
+    const chipClone = timeChip.cloneNode(true);
+    timeChip.parentNode.replaceChild(chipClone, timeChip);
+    chipClone.addEventListener('click', () => {
+      const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
+      if (!overrideOn) return;
+      const currentlyAvailable = _ownOverride.status === 'available'
+        && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
+      if (!currentlyAvailable) return;
+      const currentIdx = chipIndexForMinutes(getLastTimeout());
+      const nextIdx = (currentIdx + 1) % CHIP_VALUES.length;
+      const { minutes, text } = CHIP_VALUES[nextIdx];
+      chipClone.textContent = text;
+      const availableUntil = Date.now() + minutes * 60000;
+      setLastTimeout(minutes);
+      setLastTimeoutMinutes(userId, minutes).catch(() => {});
+      setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
     });
   }
 

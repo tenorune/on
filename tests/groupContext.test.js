@@ -1,6 +1,7 @@
 // tests/groupContext.test.js
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(() => 120),
+  setLastTimeout: jest.fn(),
 }));
 jest.mock('../js/db.js', () => ({
   readGroup: jest.fn().mockResolvedValue(null),
@@ -10,6 +11,7 @@ jest.mock('../js/db.js', () => ({
   watchStatus: jest.fn(() => () => {}),
   watchOwnMemberOverride: jest.fn(() => () => {}),
   removeUserGroupsEntry: jest.fn().mockResolvedValue(undefined),
+  setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
   timeRemainingMs: jest.fn((availableUntil) => Math.max(0, availableUntil - Date.now())),
   formatTimeRemaining: jest.fn((ms) => {
     if (ms <= 0) return '';
@@ -494,5 +496,37 @@ describe('own status row', () => {
     document.getElementById('group-my-dot').click();
     expect(groupsModule.setOverrideStatusAvailable).not.toHaveBeenCalled();
     expect(groupsModule.setOverrideStatusUnavailable).not.toHaveBeenCalled();
+  });
+
+  test('clicking the time chip when override ON+available updates availableUntil', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+    const before = Date.now();
+    document.getElementById('group-time-chip').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalled();
+    const [, , until] = groupsModule.setOverrideStatusAvailable.mock.calls[0];
+    // Chip default cycles forward from "2 hours" (index 3) to "3 hours" (index 4).
+    expect(until).toBeGreaterThanOrEqual(before + 180 * 60000 - 2000);
+    expect(until).toBeLessThanOrEqual(Date.now() + 180 * 60000 + 2000);
+  });
+
+  test('clicking the time chip when override OFF is a no-op', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+    document.getElementById('group-time-chip').click();
+    expect(groupsModule.setOverrideStatusAvailable).not.toHaveBeenCalled();
+  });
+
+  test('clicking the time chip when override ON but unavailable is a no-op', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    document.getElementById('group-time-chip').click();
+    expect(groupsModule.setOverrideStatusAvailable).not.toHaveBeenCalled();
   });
 });
