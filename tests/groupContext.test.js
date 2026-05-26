@@ -467,7 +467,7 @@ describe('own status row', () => {
     cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
     const before = Date.now();
     document.getElementById('group-my-dot').click();
-    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalled();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(1);
     const [g, u, until] = groupsModule.setOverrideStatusAvailable.mock.calls[0];
     expect(g).toBe('G1');
     expect(u).toBe('me');
@@ -483,6 +483,7 @@ describe('own status row', () => {
     cbs.getOverrideCb()({ enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
     document.getElementById('group-my-dot').click();
     expect(groupsModule.setOverrideStatusUnavailable).toHaveBeenCalledWith('G1', 'me');
+    expect(groupsModule.setOverrideStatusUnavailable).toHaveBeenCalledTimes(1);
   });
 
   test('clicking the dot when override OFF is a no-op', () => {
