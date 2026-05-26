@@ -14,10 +14,17 @@ jest.mock('../js/db.js', () => ({
   readMembers: jest.fn().mockResolvedValue({}),
   setLastVisited: jest.fn(),
   setCurrentContext: jest.fn(),
+  watchUserGroups: jest.fn(() => () => {}),
+}));
+
+jest.mock('../js/groupNav.js', () => ({
+  navigateToDirect: jest.fn().mockResolvedValue(undefined),
+  getCurrentContext: jest.fn(() => ({ context: 'direct', groupId: null })),
 }));
 
 const db = require('../js/db.js');
-const { createGroup, renameGroup, deleteGroup, leaveGroup, joinGroup, editOwnDisplayName } = require('../js/groups');
+const groupNav = require('../js/groupNav.js');
+const { createGroup, renameGroup, deleteGroup, leaveGroup, joinGroup, editOwnDisplayName, initGroupRemovalDetector, _resetGroupRemovalDetectorForTests, _feedSnapshotForTests } = require('../js/groups');
 
 describe('createGroup', () => {
   beforeEach(() => {
@@ -183,5 +190,52 @@ describe('editOwnDisplayName', () => {
     db.setMemberDisplayName.mockResolvedValue();
     await editOwnDisplayName('G1', 'uid1', '  M. P.  ');
     expect(db.setMemberDisplayName).toHaveBeenCalledWith('G1', 'uid1', 'M. P.');
+  });
+});
+
+function setupRemovalDom() {
+  document.body.innerHTML = `
+    <div id="group-removal-toast" class="hidden">
+      <span id="group-removal-toast-text"></span>
+      <button id="group-removal-toast-dismiss"></button>
+    </div>
+  `;
+}
+
+function flushPromises() { return new Promise(setImmediate); }
+
+describe('group removal detector', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupRemovalDom();
+    _resetGroupRemovalDetectorForTests();
+  });
+
+  test('removal of an enumerated group whose record is gone → deletion toast', async () => {
+    db.readGroup.mockResolvedValue(null);
+    // Seed: previously G1+G2 enumerated; new tick: only G2 (G1 was deleted)
+    await _feedSnapshotForTests({ G1: true, G2: true });
+    await _feedSnapshotForTests({ G2: true });
+    await flushPromises();
+    expect(document.getElementById('group-removal-toast').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('group-removal-toast-text').textContent.length).toBeGreaterThan(0);
+  });
+
+  test('dismiss button hides the toast', async () => {
+    db.readGroup.mockResolvedValue(null);
+    initGroupRemovalDetector('me');
+    await _feedSnapshotForTests({ G1: true });
+    await _feedSnapshotForTests({});
+    await flushPromises();
+    document.getElementById('group-removal-toast-dismiss').click();
+    expect(document.getElementById('group-removal-toast').classList.contains('hidden')).toBe(true);
+  });
+
+  test('kick: group exists but member record gone shows the removed-from message', async () => {
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'owner', createdAt: 1 });
+    await _feedSnapshotForTests({ G1: true });
+    await _feedSnapshotForTests({});
+    await flushPromises();
+    expect(document.getElementById('group-removal-toast-text').textContent).toMatch(/removed|Family/i);
   });
 });

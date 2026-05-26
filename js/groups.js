@@ -7,7 +7,9 @@ import {
   renameGroup as dbRenameGroup, setMemberDisplayName,
   readGroup, readMember, readMembers,
   setLastVisited, setCurrentContext,
+  watchUserGroups,
 } from './db.js';
+import { navigateToDirect, getCurrentContext } from './groupNav.js';
 
 const NAME_MAX = 40;
 const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -110,4 +112,76 @@ export async function joinGroup(groupId, joinerUid, displayNameRaw) {
 export async function editOwnDisplayName(groupId, callerUid, newNameRaw) {
   const displayName = validateName(newNameRaw, 'Display name');
   await setMemberDisplayName(groupId, callerUid, displayName);
+}
+
+let _prevEnum = null;
+let _detectorUnsub = null;
+
+export function initGroupRemovalDetector(myUserId) {
+  if (_detectorUnsub) _detectorUnsub();
+  _prevEnum = null;
+  _detectorUnsub = watchUserGroups(myUserId, async (collection) => {
+    const next = collection || {};
+    if (_prevEnum === null) { _prevEnum = next; return; }
+    const removed = Object.keys(_prevEnum).filter((id) => !next[id]);
+    _prevEnum = next;
+    for (const groupId of removed) {
+      await handleGroupRemoval(myUserId, groupId);
+    }
+  });
+
+  const dismissBtn = document.getElementById('group-removal-toast-dismiss');
+  if (dismissBtn && !dismissBtn._wired) {
+    dismissBtn._wired = true;
+    dismissBtn.addEventListener('click', () => {
+      document.getElementById('group-removal-toast').classList.add('hidden');
+    });
+  }
+}
+
+async function handleGroupRemoval(myUserId, groupId) {
+  const group = await readGroup(groupId);
+  let message;
+  if (!group) message = `'${groupId}' has been deleted.`;
+  else message = `You've been removed from '${group.name}'.`;
+  showRemovalToast(message);
+
+  const cur = getCurrentContext();
+  if (cur.context === 'group' && cur.groupId === groupId) {
+    await navigateToDirect();
+  }
+}
+
+function showRemovalToast(message) {
+  const el = document.getElementById('group-removal-toast');
+  const txt = document.getElementById('group-removal-toast-text');
+  if (!el || !txt) return;
+  txt.textContent = message;
+  el.classList.remove('hidden');
+
+  // Wire dismiss button on first render
+  const dismissBtn = document.getElementById('group-removal-toast-dismiss');
+  if (dismissBtn && !dismissBtn._wired) {
+    dismissBtn._wired = true;
+    dismissBtn.addEventListener('click', () => el.classList.add('hidden'));
+  }
+}
+
+// Test helpers — exported only for tests.
+export function _resetGroupRemovalDetectorForTests() {
+  if (_detectorUnsub) _detectorUnsub();
+  _detectorUnsub = null;
+  _prevEnum = null;
+  const btn = document.getElementById('group-removal-toast-dismiss');
+  if (btn) delete btn._wired;
+}
+
+export async function _feedSnapshotForTests(snapshot) {
+  const next = snapshot || {};
+  if (_prevEnum === null) { _prevEnum = next; return; }
+  const removed = Object.keys(_prevEnum).filter((id) => !next[id]);
+  _prevEnum = next;
+  for (const groupId of removed) {
+    await handleGroupRemoval('me', groupId);
+  }
 }

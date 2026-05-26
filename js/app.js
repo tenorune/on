@@ -12,6 +12,7 @@ import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
 import { initNav, startCardsRowSubscriptions, initCardsRow, onContextChange, applyServerCurrentContext } from './groupNav.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
+import { initGroupRemovalDetector } from './groups.js';
 
 
 let splashCounter = 0;
@@ -327,6 +328,7 @@ async function main() {
   initNav(userId);
   initCardsRow();
   startCardsRowSubscriptions();
+  initGroupRemovalDetector(userId);
   onContextChange((ctx) => {
     if (ctx.context === 'group') enterGroupContext(ctx.groupId, userId);
     else exitGroupContext();
