@@ -598,3 +598,39 @@ describe('roster context-aware status', () => {
     expect(li.dataset.available).toBe('true');
   });
 });
+
+describe('Phase 2 end-to-end happy path', () => {
+  beforeEach(() => { jest.clearAllMocks(); setupContextDom(); });
+
+  test('toggle ON → dot → chip → toggle OFF flow writes the expected db calls', () => {
+    let metaCb, overrideCb, primaryCb;
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation((uid, cb) => { primaryCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    overrideCb(null);
+
+    // 1. Toggle ON
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
+    overrideCb({ enabled: true, status: 'unavailable', availableUntil: null });
+
+    // 2. Dot click — go available
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalled();
+    overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 120 * 60000 });
+
+    // 3. Time chip — cycle duration
+    document.getElementById('group-time-chip').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(2);
+
+    // 4. Toggle OFF
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenLastCalledWith('G1', 'me', false);
+    overrideCb(null);
+    expect(document.getElementById('group-override-toggle').getAttribute('aria-pressed')).toBe('false');
+    expect(document.getElementById('group-my-dot').classList.contains('readonly')).toBe(true);
+  });
+});
