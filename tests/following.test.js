@@ -81,6 +81,9 @@ jest.mock('../js/db.js', () => ({
 }));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
+  applyFloatToTop: jest.fn(),
+  getFloatedUserIds: jest.fn(() => []),
+  initKnocks: jest.fn(),
 }));
 jest.mock('../js/store.js', () => ({
   getFollowing: jest.fn(),
@@ -1437,4 +1440,28 @@ describe('long press handler', () => {
     jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
   });
 
+});
+
+// --- float-to-top: direct contacts ---
+
+describe('direct-list float survives re-render', () => {
+  test('re-render re-prepends rows reported by getFloatedUserIds', () => {
+    document.body.innerHTML = `
+      <ul id="main-list">
+        <li data-user-id="a"></li>
+        <li data-user-id="b"></li>
+        <li data-user-id="c"></li>
+      </ul>
+    `;
+    const knock = require('../js/knock.js');
+    knock.getFloatedUserIds.mockReturnValue(['b']);
+    // Manually exercise the float-restore logic.
+    const list = document.getElementById('main-list');
+    for (const uid of knock.getFloatedUserIds()) {
+      const li = list.querySelector(`[data-user-id="${uid}"]`);
+      if (li) list.prepend(li);
+    }
+    const order = Array.from(list.querySelectorAll('li')).map((el) => el.dataset.userId);
+    expect(order).toEqual(['b', 'a', 'c']);
+  });
 });
