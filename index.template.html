@@ -82,6 +82,26 @@
     </div>
   </div>
 
+  <div id="create-group-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="create-group-title">
+    <div class="modal-card">
+      <h2 id="create-group-title" class="modal-title">Create a group</h2>
+      <p class="modal-subtitle">Members of this group will see each other's status.</p>
+
+      <label class="modal-label" for="create-group-name-input">Group name</label>
+      <input id="create-group-name-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Family" />
+
+      <label class="modal-label" for="create-group-displayname-input">Your name in this group</label>
+      <input id="create-group-displayname-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Mike" />
+
+      <p id="create-group-error" class="error-msg hidden"></p>
+
+      <div class="modal-actions">
+        <button id="create-group-submit-btn" class="primary-btn">Create</button>
+        <button id="create-group-cancel-btn" class="ghost-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="recovery-modal" class="modal-overlay hidden">
     <div class="modal-card">
       <h3>This is your secret phrase</h3>

@@ -7,8 +7,12 @@ jest.mock('../js/db.js', () => ({
   readMembers: jest.fn().mockResolvedValue({}),
 }));
 jest.mock('../js/features.js', () => ({ GROUPS_ENABLED: true }));
+jest.mock('../js/groups.js', () => ({
+  createGroup: jest.fn(),
+}));
 
 const db = require('../js/db.js');
+const groups = require('../js/groups.js');
 const {
   initNav, getCurrentContext, navigateToDirect, navigateToGroup,
   onContextChange, applyServerCurrentContext,
@@ -79,7 +83,7 @@ describe('groupNav state machine', () => {
   });
 });
 
-const { initCardsRow, renderCardsRow, onCreateRequested } = require('../js/groupNav');
+const { initCardsRow, renderCardsRow, onCreateRequested, openCreateGroupModal } = require('../js/groupNav');
 
 function setupCardsDom() {
   document.body.innerHTML = `
@@ -154,5 +158,77 @@ describe('group cards row render', () => {
     onCreateRequested(() => seen.push(true));
     document.getElementById('group-cards-zero').click();
     expect(seen).toEqual([true]);
+  });
+});
+
+function setupCreateModalDom() {
+  document.body.innerHTML += `
+    <div id="create-group-modal" class="modal-overlay hidden">
+      <div class="modal-card">
+        <input id="create-group-name-input" type="text" maxlength="40" />
+        <input id="create-group-displayname-input" type="text" maxlength="40" />
+        <p id="create-group-error" class="error-msg hidden"></p>
+        <button id="create-group-submit-btn"></button>
+        <button id="create-group-cancel-btn"></button>
+      </div>
+    </div>
+  `;
+}
+
+describe('create-group modal', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupCardsDom();
+    setupCreateModalDom();
+    initNav('uid1');
+  });
+
+  test('openCreateGroupModal reveals the overlay and clears inputs', () => {
+    document.getElementById('create-group-name-input').value = 'stale';
+    document.getElementById('create-group-displayname-input').value = 'stale';
+    openCreateGroupModal();
+    expect(document.getElementById('create-group-modal').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('create-group-name-input').value).toBe('');
+    expect(document.getElementById('create-group-displayname-input').value).toBe('');
+  });
+
+  test('Cancel closes without writing', () => {
+    openCreateGroupModal();
+    document.getElementById('create-group-cancel-btn').click();
+    expect(document.getElementById('create-group-modal').classList.contains('hidden')).toBe(true);
+    expect(groups.createGroup).not.toHaveBeenCalled();
+  });
+
+  test('Submit validates: empty name shows error', async () => {
+    openCreateGroupModal();
+    document.getElementById('create-group-name-input').value = '   ';
+    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-submit-btn').click();
+    await new Promise(setImmediate);
+    expect(document.getElementById('create-group-error').classList.contains('hidden')).toBe(false);
+    expect(groups.createGroup).not.toHaveBeenCalled();
+  });
+
+  test('Submit happy path: calls createGroup, closes modal, navigates to new group', async () => {
+    groups.createGroup.mockResolvedValue({ groupId: 'G1ABCDEF', name: 'Family' });
+    openCreateGroupModal();
+    document.getElementById('create-group-name-input').value = 'Family';
+    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-submit-btn').click();
+    await new Promise(setImmediate);
+    expect(groups.createGroup).toHaveBeenCalledWith('uid1', 'Family', 'Mike');
+    expect(document.getElementById('create-group-modal').classList.contains('hidden')).toBe(true);
+    expect(db.setCurrentContext).toHaveBeenCalledWith('uid1', 'group:G1ABCDEF');
+  });
+
+  test('Submit failure: surfaces error from createGroup, stays open', async () => {
+    groups.createGroup.mockRejectedValue(new Error('boom'));
+    openCreateGroupModal();
+    document.getElementById('create-group-name-input').value = 'Family';
+    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-submit-btn').click();
+    await new Promise(setImmediate);
+    expect(document.getElementById('create-group-error').textContent).toBe('boom');
+    expect(document.getElementById('create-group-modal').classList.contains('hidden')).toBe(false);
   });
 });

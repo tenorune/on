@@ -4,6 +4,7 @@
 
 import { setCurrentContext, setLastVisited, watchUserGroups, watchGroupMeta } from './db.js';
 import { GROUPS_ENABLED } from './features.js';
+import { createGroup } from './groups.js';
 
 let _myUserId = null;
 let _state = { context: 'direct', groupId: null };
@@ -159,3 +160,66 @@ export function onCreateRequested(fn) {
 function emitCreateRequest() {
   _createListeners.forEach((fn) => { try { fn(); } catch { /* swallow */ } });
 }
+
+// ── Create group modal ───────────────────────────────────────────────────────
+
+const _createModalCleanup = [];
+
+function showCreateError(msg) {
+  const el = document.getElementById('create-group-error');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function hideCreateError() {
+  const el = document.getElementById('create-group-error');
+  if (!el) return;
+  el.textContent = '';
+  el.classList.add('hidden');
+}
+
+function closeCreateModal() {
+  document.getElementById('create-group-modal').classList.add('hidden');
+  _createModalCleanup.forEach((fn) => fn());
+  _createModalCleanup.length = 0;
+}
+
+export function openCreateGroupModal() {
+  const overlay = document.getElementById('create-group-modal');
+  if (!overlay) return;
+  const nameInput = document.getElementById('create-group-name-input');
+  const dnInput = document.getElementById('create-group-displayname-input');
+  const submit = document.getElementById('create-group-submit-btn');
+  const cancel = document.getElementById('create-group-cancel-btn');
+
+  nameInput.value = '';
+  dnInput.value = '';
+  hideCreateError();
+  overlay.classList.remove('hidden');
+
+  const onSubmit = async () => {
+    const name = (nameInput.value || '').trim();
+    const dn = (dnInput.value || '').trim();
+    if (!name || !dn) { showCreateError('Both fields are required.'); return; }
+    submit.disabled = true;
+    try {
+      const result = await createGroup(_myUserId, name, dn);
+      closeCreateModal();
+      await navigateToGroup(result.groupId);
+    } catch (err) {
+      showCreateError(err.message || 'Could not create group.');
+    } finally {
+      submit.disabled = false;
+    }
+  };
+  const onCancel = () => closeCreateModal();
+
+  submit.addEventListener('click', onSubmit);
+  cancel.addEventListener('click', onCancel);
+  _createModalCleanup.push(() => submit.removeEventListener('click', onSubmit));
+  _createModalCleanup.push(() => cancel.removeEventListener('click', onCancel));
+}
+
+// Wire the create-requested event from the cards row to this modal.
+onCreateRequested(openCreateGroupModal);
