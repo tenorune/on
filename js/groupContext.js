@@ -48,6 +48,8 @@ let _ownPrimaryUnsub = null;
 let _ownOverrideUnsub = null;
 let _ownPrimary = null;  // { status, availableUntil, statusColor? } | null
 let _ownOverride = null; // { enabled, status, availableUntil, statusColor?, paletteKey? } | null
+let _membersOverrides = {}; // uid → statusOverride | null
+const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor } | null
 
 function renderRoster(members, ownUserId) {
   const list = document.getElementById('group-roster');
@@ -100,6 +102,28 @@ function renderRoster(members, ownUserId) {
   }
 }
 
+function paintRosterRow(uid) {
+  const li = document.querySelector(`#group-roster [data-user-id="${uid}"]`);
+  if (!li) return;
+  const override = _membersOverrides[uid];
+  const primary = _memberPrimaries.get(uid) || null;
+  const overrideOn = !!(override && override.enabled === true);
+  const source = overrideOn ? override : primary;
+  const status = source?.status || 'unavailable';
+  const availableUntil = source?.availableUntil ?? null;
+  const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+  li.dataset.available = isAvailable ? 'true' : 'false';
+  const dot = li.querySelector('.person-dot');
+  if (dot) {
+    dot.dataset.available = isAvailable ? 'true' : 'false';
+    // Phase 2 color: prefer override.statusColor when present (Phase 4+ will
+    // write it), else fall through to the member's primary statusColor.
+    const color = override?.statusColor || primary?.statusColor || null;
+    if (isAvailable && color) dot.style.background = safeCssColor(color);
+    else dot.style.background = '';
+  }
+}
+
 function renderOwnStatusRow() {
   const dot = document.getElementById('group-my-dot');
   const label = document.getElementById('group-my-status-label');
@@ -149,21 +173,16 @@ function syncStatusSubscriptions(memberUids) {
     if (!memberUids.has(uid)) {
       _statusUnsubs.get(uid)();
       _statusUnsubs.delete(uid);
+      _memberPrimaries.delete(uid);
     }
   }
   for (const uid of memberUids) {
     if (!_statusUnsubs.has(uid)) {
       _statusUnsubs.set(uid, watchStatus(uid, (data) => {
-        const li = document.querySelector(`#group-roster [data-user-id="${uid}"]`);
-        if (!li) return;
-        const available = data && data.status === 'available' && (data.availableUntil == null || data.availableUntil > Date.now());
-        li.dataset.available = available ? 'true' : 'false';
-        const dot = li.querySelector('.person-dot');
-        if (dot) {
-          dot.dataset.available = available ? 'true' : 'false';
-          if (available && data.statusColor) dot.style.background = safeCssColor(data.statusColor);
-          else dot.style.background = '';
-        }
+        _memberPrimaries.set(uid, data
+          ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: data.statusColor || null }
+          : null);
+        paintRosterRow(uid);
       }));
     }
   }
@@ -257,8 +276,16 @@ export function enterGroupContext(groupId, userId) {
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
   _membersUnsub = watchGroupMembers(groupId, (members) => {
+    _membersOverrides = {};
+    for (const [uid, m] of Object.entries(members || {})) {
+      _membersOverrides[uid] = m.statusOverride || null;
+    }
     renderRoster(members, userId);
     syncStatusSubscriptions(new Set(Object.keys(members || {})));
+    // Re-paint each row to reflect the merged override+primary.
+    for (const uid of Object.keys(members || {})) {
+      paintRosterRow(uid);
+    }
   });
 
   // Subscribe to group invites so the owner-settings invite-link button can
@@ -374,6 +401,8 @@ export function exitGroupContext() {
   if (_ownOverrideUnsub) { _ownOverrideUnsub(); _ownOverrideUnsub = null; }
   _ownPrimary = null;
   _ownOverride = null;
+  _membersOverrides = {};
+  _memberPrimaries.clear();
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
   _currentGroupId = null;

@@ -533,3 +533,68 @@ describe('own status row', () => {
     expect(groupsModule.setOverrideStatusAvailable).not.toHaveBeenCalled();
   });
 });
+
+describe('roster context-aware status', () => {
+  function captureMembers() {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((g, cb) => { membersCb = cb; return () => {}; });
+    return () => membersCb;
+  }
+  function captureStatuses() {
+    const cbs = {};
+    db.watchStatus.mockImplementation((uid, cb) => { cbs[uid] = cb; return () => {}; });
+    return cbs;
+  }
+
+  beforeEach(() => { jest.clearAllMocks(); setupContextDom(); });
+
+  test('member with override.enabled uses override status not primary', () => {
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: {
+        role: 'member',
+        displayName: 'A',
+        joinedAt: 2,
+        statusOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 },
+      },
+    });
+    // uidA's primary says unavailable, but override should win.
+    statusCbs.uidA?.({ status: 'unavailable', availableUntil: null });
+    const li = document.querySelector('#group-roster [data-user-id="uidA"]');
+    expect(li.dataset.available).toBe('true');
+  });
+
+  test('member without override uses primary status', () => {
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidB: { role: 'member', displayName: 'B', joinedAt: 3 },
+    });
+    statusCbs.uidB?.({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#abcdef' });
+    const li = document.querySelector('#group-roster [data-user-id="uidB"]');
+    expect(li.dataset.available).toBe('true');
+  });
+
+  test('member with override.enabled=false ignores override and uses primary', () => {
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidC: {
+        role: 'member',
+        displayName: 'C',
+        joinedAt: 4,
+        statusOverride: { enabled: false, status: 'unavailable', availableUntil: null },
+      },
+    });
+    statusCbs.uidC?.({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+    const li = document.querySelector('#group-roster [data-user-id="uidC"]');
+    expect(li.dataset.available).toBe('true');
+  });
+});
