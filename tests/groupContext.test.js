@@ -23,6 +23,11 @@ jest.mock('../js/db.js', () => ({
     if (minutes === 0) return `${hours}h`;
     return `${hours}h ${minutes}m`;
   }),
+  formatTimeRemainingFuzzy: jest.fn((ms) => {
+    if (ms <= 0) return '';
+    const hours = ms / 3600000;
+    return `about ${Math.round(hours)} hours left`;
+  }),
 }));
 jest.mock('../js/invites.js', () => ({
   buildInviteUrl: jest.fn((token) => `https://app.example/?i=${token}`),
