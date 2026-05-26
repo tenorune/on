@@ -9,7 +9,7 @@ import {
   setLastVisited, setCurrentContext,
   watchUserGroups,
 } from './db.js';
-import { navigateToDirect, getCurrentContext } from './groupNav.js';
+import { navigateToDirect, getCurrentContext, getLastKnownGroupName } from './groupNav.js';
 
 const NAME_MAX = 40;
 const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -142,8 +142,13 @@ export function initGroupRemovalDetector(myUserId) {
 async function handleGroupRemoval(myUserId, groupId) {
   const group = await readGroup(groupId);
   let message;
-  if (!group) message = `'${groupId}' has been deleted.`;
-  else message = `You've been removed from '${group.name}'.`;
+  if (!group) {
+    // Group entity is gone; fall back to the last name we saw before deletion.
+    const cachedName = getLastKnownGroupName(groupId);
+    message = `'${cachedName || groupId}' has been deleted.`;
+  } else {
+    message = `You've been removed from '${group.name}'.`;
+  }
   showRemovalToast(message);
 
   const cur = getCurrentContext();
