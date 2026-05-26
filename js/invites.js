@@ -212,7 +212,7 @@ export async function resolveInvitePreview(token) {
       const invitesByToken = await readGroupInvites(m[1]);
       const invite = invitesByToken[m[2]];
       if (!invite || invite.revoked) return null;
-      return { scope: 'group', groupName: group.name, groupId: m[1] };
+      return { scope: 'group', groupName: group.name || null, groupId: m[1] };
     }
 
     return null;
