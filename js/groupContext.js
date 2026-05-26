@@ -379,7 +379,12 @@ export function enterGroupContext(groupId, userId) {
         renderOwnStatusRow();
         setOverrideStatusUnavailable(groupId, userId).catch(() => {});
       } else {
-        const availableUntil = Date.now() + getLastTimeout() * 60000;
+        // Read minutes via the chip-index lookup so we apply the same
+        // legacy <=12 → *60 migration that js/me.js applies. Reading
+        // getLastTimeout() raw and multiplying by 60000 treats a new-user
+        // default of "2" as 2 minutes instead of 2 hours.
+        const minutes = CHIP_VALUES[chipIndexForMinutes(getLastTimeout())].minutes;
+        const availableUntil = Date.now() + minutes * 60000;
         _ownOverride = { enabled: true, status: 'available', availableUntil };
         renderOwnStatusRow();
         setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});

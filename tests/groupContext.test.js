@@ -529,6 +529,27 @@ describe('own status row', () => {
     expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(1);
   });
 
+  test('dot click for a new-default user (getLastTimeout=2) writes a 120-minute availableUntil', () => {
+    // Regression: js/store.js's getLastTimeout returns 2 (legacy: stored as
+    // hours) for fresh accounts. The dot handler used to multiply that
+    // raw value by 60000, producing 2 minutes instead of 2 hours. Fix:
+    // route through CHIP_VALUES[chipIndexForMinutes(...)].minutes so the
+    // legacy <=12 → *60 migration applies (same as js/me.js).
+    const storeMock = require('../js/store.js');
+    storeMock.getLastTimeout.mockReturnValueOnce(2);
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    const before = Date.now();
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(1);
+    const [, , until] = groupsModule.setOverrideStatusAvailable.mock.calls[0];
+    // 120 minutes from now (2-hour default expressed in minutes), ±2s tolerance.
+    expect(until).toBeGreaterThanOrEqual(before + 120 * 60000 - 2000);
+    expect(until).toBeLessThanOrEqual(Date.now() + 120 * 60000 + 2000);
+  });
+
   test('chip click immediately after dot tap still writes available with cycled duration', () => {
     // Same race for the chip — dot tap optimistically marks override
     // available, so a follow-up chip click before Firebase ack still works.

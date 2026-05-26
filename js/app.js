@@ -342,6 +342,13 @@ async function main() {
   });
 
   if (pendingInviteToken) {
+    // Dismiss the splash before redemption: the flow may show the
+    // displayname prompt (new joiner) or a failure overlay (revoked,
+    // already-member, etc.). Splash has z-index 1000 and would otherwise
+    // sit on top of those overlays — the user couldn't dismiss it because
+    // ensureIdentity dismisses splash only on welcome / stale paths, and
+    // signalReady doesn't fire until watchStatus is set up below.
+    dismissSplash();
     let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
     if (result && result.ok === false && result.reason === 'needs-display-name') {
       // Look up the group name for the prompt.
