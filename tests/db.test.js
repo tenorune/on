@@ -591,6 +591,7 @@ describe('statusOverride helpers', () => {
   test('setStatusOverride writes an available override with timestamp', async () => {
     set.mockResolvedValue();
     await setStatusOverride('G1', 'uidA', { enabled: true, status: 'available', availableUntil: 1234 });
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uidA/statusOverride');
     expect(set).toHaveBeenCalledWith('mock-ref', { enabled: true, status: 'available', availableUntil: 1234 });
   });
 
