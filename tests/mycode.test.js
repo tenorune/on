@@ -24,6 +24,12 @@ jest.mock('../js/db.js', () => ({
   renameGroup: jest.fn(),
   deleteGroup: jest.fn(),
   watchGroupMeta: jest.fn(() => () => {}),
+  writeMember: jest.fn(),
+  readMember: jest.fn().mockResolvedValue(null),
+  readMembers: jest.fn().mockResolvedValue({}),
+  removeMember: jest.fn(),
+  setMemberDisplayName: jest.fn(),
+  watchGroupMembers: jest.fn(() => () => {}),
 }));
 jest.mock('../js/identity.js', () => ({ saveIdentity: jest.fn(), loadIdentity: jest.fn().mockReturnValue(null) }));
 jest.mock('../js/inviteModal.js', () => ({

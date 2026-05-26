@@ -231,6 +231,38 @@ export function watchGroupMeta(groupId, callback) {
   });
 }
 
+// ── Groups: members ───────────────────────────────────────────────────────────
+// groups/{groupId}/members/{memberUid}: { role, displayName, joinedAt, statusOverride? (Phase 2) }.
+
+export async function writeMember(groupId, memberUid, member) {
+  await set(ref(db, `groups/${groupId}/members/${memberUid}`), member);
+}
+
+export async function readMember(groupId, memberUid) {
+  const snap = await get(ref(db, `groups/${groupId}/members/${memberUid}`));
+  return snap.exists() ? snap.val() : null;
+}
+
+export async function readMembers(groupId) {
+  const snap = await get(ref(db, `groups/${groupId}/members`));
+  return snap.exists() ? snap.val() : {};
+}
+
+export async function removeMember(groupId, memberUid) {
+  await remove(ref(db, `groups/${groupId}/members/${memberUid}`));
+}
+
+export async function setMemberDisplayName(groupId, memberUid, displayName) {
+  await update(ref(db, `groups/${groupId}/members/${memberUid}`), { displayName });
+}
+
+export function watchGroupMembers(groupId, callback) {
+  const membersRef = ref(db, `groups/${groupId}/members`);
+  return onValue(membersRef, (snap) => {
+    callback(snap.exists() ? snap.val() : {});
+  });
+}
+
 // Write own status to Firebase
 export async function setStatus(userId, status, availableUntil) {
   await update(ref(db, `users/${userId}`), {

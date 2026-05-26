@@ -10,6 +10,7 @@ const {
   writeUserGroupsEntry, removeUserGroupsEntry, readUserGroups, watchUserGroups,
   setLastVisited, setCurrentContext,
   writeGroup, readGroup, renameGroup, deleteGroup, watchGroupMeta,
+  writeMember, readMember, readMembers, removeMember, setMemberDisplayName, watchGroupMembers,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -470,5 +471,64 @@ describe('group entity ops', () => {
     expect(seen[0]).toEqual({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
     cb({ exists: () => false });
     expect(seen[1]).toBeNull();
+  });
+});
+
+describe('group members', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('writeMember writes the full member record', async () => {
+    set.mockResolvedValue();
+    const member = { role: 'member', displayName: 'Mike P.', joinedAt: 1234 };
+    await writeMember('G1', 'uid2', member);
+    expect(set).toHaveBeenCalledWith('mock-ref', member);
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uid2');
+  });
+
+  test('readMember returns the record', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ role: 'member', displayName: 'Mike', joinedAt: 1 }) });
+    const result = await readMember('G1', 'uid2');
+    expect(result).toEqual({ role: 'member', displayName: 'Mike', joinedAt: 1 });
+  });
+
+  test('readMember returns null when missing', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    expect(await readMember('G1', 'unknownUid')).toBeNull();
+  });
+
+  test('readMembers returns the full collection', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ uid1: { role: 'owner' }, uid2: { role: 'member' } }) });
+    const result = await readMembers('G1');
+    expect(result).toEqual({ uid1: { role: 'owner' }, uid2: { role: 'member' } });
+  });
+
+  test('readMembers returns empty object on miss', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    expect(await readMembers('G1')).toEqual({});
+  });
+
+  test('removeMember removes the member record', async () => {
+    remove.mockResolvedValue();
+    await removeMember('G1', 'uid2');
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uid2');
+    expect(remove).toHaveBeenCalled();
+  });
+
+  test('setMemberDisplayName updates only the displayName field', async () => {
+    update.mockResolvedValue();
+    await setMemberDisplayName('G1', 'uid2', 'M. P.');
+    expect(update).toHaveBeenCalledWith('mock-ref', { displayName: 'M. P.' });
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uid2');
+  });
+
+  test('watchGroupMembers subscribes to the members collection', () => {
+    let cb;
+    onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });
+    const seen = [];
+    watchGroupMembers('G1', (members) => seen.push(members));
+    cb({ exists: () => true, val: () => ({ uid1: { role: 'owner', displayName: 'Alice' } }) });
+    expect(seen[0]).toEqual({ uid1: { role: 'owner', displayName: 'Alice' } });
+    cb({ exists: () => false });
+    expect(seen[1]).toEqual({});
   });
 });
