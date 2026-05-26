@@ -88,3 +88,26 @@ export async function leaveGroup(groupId, callerUid) {
   await removeMember(groupId, callerUid);
   await removeUserGroupsEntry(callerUid, groupId);
 }
+
+export async function joinGroup(groupId, joinerUid, displayNameRaw) {
+  const displayName = validateName(displayNameRaw, 'Display name');
+  const group = await readGroup(groupId);
+  if (!group) throw new Error('Group not found.');
+
+  const existing = await readMember(groupId, joinerUid);
+  const now = Date.now();
+  if (!existing) {
+    await writeMember(groupId, joinerUid, {
+      role: 'member',
+      displayName,
+      joinedAt: now,
+    });
+  }
+  // Always bump lastVisited so the group surfaces at the top of the joiner's cards row.
+  await writeUserGroupsEntry(joinerUid, groupId, { lastVisited: now });
+}
+
+export async function editOwnDisplayName(groupId, callerUid, newNameRaw) {
+  const displayName = validateName(newNameRaw, 'Display name');
+  await setMemberDisplayName(groupId, callerUid, displayName);
+}

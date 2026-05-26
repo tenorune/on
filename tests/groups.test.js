@@ -17,7 +17,7 @@ jest.mock('../js/db.js', () => ({
 }));
 
 const db = require('../js/db.js');
-const { createGroup, renameGroup, deleteGroup, leaveGroup } = require('../js/groups');
+const { createGroup, renameGroup, deleteGroup, leaveGroup, joinGroup, editOwnDisplayName } = require('../js/groups');
 
 describe('createGroup', () => {
   beforeEach(() => {
@@ -130,5 +130,58 @@ describe('leaveGroup', () => {
     await leaveGroup('G1', 'uid1');
     expect(db.removeMember).toHaveBeenCalledWith('G1', 'uid1');
     expect(db.removeUserGroupsEntry).toHaveBeenCalledWith('uid1', 'G1');
+  });
+});
+
+describe('joinGroup', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('validates the display name', async () => {
+    await expect(joinGroup('G1', 'uid2', '  ')).rejects.toThrow(/empty/i);
+    await expect(joinGroup('G1', 'uid2', 'x'.repeat(41))).rejects.toThrow(/40/);
+  });
+
+  test('refuses when the group does not exist', async () => {
+    db.readGroup.mockResolvedValue(null);
+    await expect(joinGroup('NOPE', 'uid2', 'Mike')).rejects.toThrow(/not found/i);
+  });
+
+  test('writes member record + user enumeration when joining', async () => {
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.readMember.mockResolvedValue(null);
+    db.writeMember.mockResolvedValue();
+    db.writeUserGroupsEntry.mockResolvedValue();
+    await joinGroup('G1', 'uid2', '  Mike  ');
+    expect(db.writeMember).toHaveBeenCalledWith('G1', 'uid2', expect.objectContaining({
+      role: 'member',
+      displayName: 'Mike',
+      joinedAt: expect.any(Number),
+    }));
+    expect(db.writeUserGroupsEntry).toHaveBeenCalledWith('uid2', 'G1', expect.objectContaining({
+      lastVisited: expect.any(Number),
+    }));
+  });
+
+  test('idempotent for existing members (no-op writes)', async () => {
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.readMember.mockResolvedValue({ role: 'member', displayName: 'Old', joinedAt: 10 });
+    await joinGroup('G1', 'uid2', 'Mike');
+    expect(db.writeMember).not.toHaveBeenCalled();
+    expect(db.writeUserGroupsEntry).toHaveBeenCalled(); // still bumps lastVisited
+  });
+});
+
+describe('editOwnDisplayName', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('validates the name', async () => {
+    await expect(editOwnDisplayName('G1', 'uid1', '   ')).rejects.toThrow(/empty/i);
+    await expect(editOwnDisplayName('G1', 'uid1', 'x'.repeat(41))).rejects.toThrow(/40/);
+  });
+
+  test('writes new displayName to the caller\'s member record', async () => {
+    db.setMemberDisplayName.mockResolvedValue();
+    await editOwnDisplayName('G1', 'uid1', '  M. P.  ');
+    expect(db.setMemberDisplayName).toHaveBeenCalledWith('G1', 'uid1', 'M. P.');
   });
 });
