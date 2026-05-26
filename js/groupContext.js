@@ -328,13 +328,20 @@ export function enterGroupContext(groupId, userId) {
     renderOwnStatusRow();
   });
 
-  // Wire the override toggle (replace via clone to drop any prior listener)
+  // Wire the override toggle (replace via clone to drop any prior listener).
+  // Each handler below optimistically updates _ownOverride and re-renders BEFORE
+  // awaiting Firebase, so a follow-up tap (toggle→dot, dot→chip) is not gated
+  // by the Firebase round-trip on the prior write.
   const toggle = document.getElementById('group-override-toggle');
   if (toggle) {
     const clone = toggle.cloneNode(true);
     toggle.parentNode.replaceChild(clone, toggle);
     clone.addEventListener('click', () => {
       const nextEnabled = !(_ownOverride && _ownOverride.enabled === true);
+      _ownOverride = nextEnabled
+        ? { enabled: true, status: 'unavailable', availableUntil: null }
+        : null;
+      renderOwnStatusRow();
       toggleStatusOverride(groupId, userId, nextEnabled).catch(() => {});
     });
   }
@@ -350,9 +357,13 @@ export function enterGroupContext(groupId, userId) {
       const currentlyAvailable = _ownOverride.status === 'available'
         && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
       if (currentlyAvailable) {
+        _ownOverride = { enabled: true, status: 'unavailable', availableUntil: null };
+        renderOwnStatusRow();
         setOverrideStatusUnavailable(groupId, userId).catch(() => {});
       } else {
         const availableUntil = Date.now() + getLastTimeout() * 60000;
+        _ownOverride = { enabled: true, status: 'available', availableUntil };
+        renderOwnStatusRow();
         setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
       }
     });
@@ -375,6 +386,8 @@ export function enterGroupContext(groupId, userId) {
       const { minutes, text } = CHIP_VALUES[nextIdx];
       chipClone.textContent = text;
       const availableUntil = Date.now() + minutes * 60000;
+      _ownOverride = { enabled: true, status: 'available', availableUntil };
+      renderOwnStatusRow();
       setLastTimeout(minutes);
       setLastTimeoutMinutes(userId, minutes).catch(() => {});
       setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});

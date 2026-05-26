@@ -463,6 +463,41 @@ describe('own status row', () => {
     expect(ownOverrideUnsub).toHaveBeenCalledTimes(1);
   });
 
+  test('dot click immediately after toggle ON still writes available (no Firebase-ack race)', () => {
+    // Regression: previously, the dot handler gated on _ownOverride, which
+    // was only populated by the watchOwnMemberOverride callback. A user
+    // tapping the toggle then the dot quickly would have the dot click
+    // swallowed during the Firebase round-trip window. Fix: each handler
+    // optimistically updates _ownOverride before awaiting the write.
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
+    // Do NOT fire cbs.getOverrideCb() here — simulating Firebase ack lag.
+
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(1);
+  });
+
+  test('chip click immediately after dot tap still writes available with cycled duration', () => {
+    // Same race for the chip — dot tap optimistically marks override
+    // available, so a follow-up chip click before Firebase ack still works.
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(1);
+    // Do NOT fire cbs.getOverrideCb() with the new available state.
+
+    document.getElementById('group-time-chip').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(2);
+  });
+
   test('clicking the dot when override ON and currently unavailable goes available with lastTimeoutMinutes', () => {
     const cbs = captureCallbacks();
     enterGroupContext('G1', 'me');
