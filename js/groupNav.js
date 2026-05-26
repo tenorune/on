@@ -63,6 +63,10 @@ export function applyServerCurrentContext(rawValue) {
 
 let _enumeration = {};
 let _metaByGroupId = {};
+// Names kept after meta clears, so a deletion toast can say "'Family' has been
+// deleted" instead of "'1ASSKU46' has been deleted". Never cleared — the cost
+// is one string per group the user has ever been in, negligible at Phase 1 scale.
+const _lastKnownNames = {};
 let _metaSubs = {};  // groupId → unsubscribe fn
 let _enumUnsub = null;
 const _createListeners = new Set();
@@ -97,8 +101,12 @@ function syncMetaSubs() {
   for (const groupId of wantIds) {
     if (!_metaSubs[groupId]) {
       _metaSubs[groupId] = watchGroupMeta(groupId, (meta) => {
-        if (meta) _metaByGroupId[groupId] = meta;
-        else delete _metaByGroupId[groupId];
+        if (meta) {
+          _metaByGroupId[groupId] = meta;
+          if (meta.name) _lastKnownNames[groupId] = meta.name;
+        } else {
+          delete _metaByGroupId[groupId];
+        }
         renderCardsRow(_enumeration, _metaByGroupId);
       });
     }
@@ -227,3 +235,10 @@ export function openCreateGroupModal() {
 
 // Wire the create-requested event from the cards row to this modal.
 onCreateRequested(openCreateGroupModal);
+
+// Returns the most recent name we observed for a group, or null. Used by the
+// removal-toast in groups.js so the message can read "'Family' has been deleted"
+// instead of falling back to the opaque group id.
+export function getLastKnownGroupName(groupId) {
+  return _lastKnownNames[groupId] || null;
+}
