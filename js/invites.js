@@ -187,6 +187,40 @@ function parseGroupIdFromOwnerPath(ownerPath) {
   return m ? m[1] : null;
 }
 
+// Resolves invite metadata for the pre-redemption preview. Handles both
+// personal-scope (returns { scope, label }) and group-scope (returns { scope, groupName, groupId }).
+// Returns null on any failure (missing token, revoked, DB error, etc.).
+export async function resolveInvitePreview(token) {
+  if (!token) return null;
+  try {
+    const indexEntry = await readInviteIndex(token);
+    if (!indexEntry) return null;
+
+    if (indexEntry.scope === 'personal') {
+      const m = indexEntry.ownerPath.match(/^users\/([^/]+)\/invites\/([^/]+)$/);
+      if (!m) return null;
+      const invite = await readUserInvite(m[1], m[2]);
+      if (!invite || invite.revoked) return null;
+      return { scope: 'personal', label: invite.creatorLabel || null };
+    }
+
+    if (indexEntry.scope === 'group') {
+      const m = indexEntry.ownerPath.match(/^groups\/([^/]+)\/invites\/([^/]+)$/);
+      if (!m) return null;
+      const group = await readGroup(m[1]);
+      if (!group) return null;
+      const invitesByToken = await readGroupInvites(m[1]);
+      const invite = invitesByToken[m[2]];
+      if (!invite || invite.revoked) return null;
+      return { scope: 'group', groupName: group.name, groupId: m[1] };
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // Looks up just the creatorLabel for a personal-scope invite. Used by the welcome
 // screen to name the inviter before the user has an identity. Returns null on any
 // failure (missing token, not in index, not personal, revoked, DB error) so the

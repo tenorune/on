@@ -9,7 +9,7 @@ import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENA
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
-import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInviteCreatorLabel } from './invites.js';
+import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
 
 
 let splashCounter = 0;
@@ -72,17 +72,19 @@ async function ensureIdentity(pendingInviteToken = null) {
   }
 
   // Empty localStorage — true new user OR cleared cache.
-  // Resolve invite creator label BEFORE dismissing splash, so the welcome
-  // screen renders with framing already populated. resolveInviteCreatorLabel
+  // Resolve invite preview BEFORE dismissing splash, so the welcome
+  // screen renders with framing already populated. resolveInvitePreview
   // returns null synchronously when there is no pending token, so non-invite
   // boots do not pay the round-trip cost.
-  const inviteCreatorLabel = await resolveInviteCreatorLabel(pendingInviteToken);
+  const invitePreview = await resolveInvitePreview(pendingInviteToken);
+  const inviteCreatorLabel = invitePreview?.scope === 'personal' ? invitePreview.label : null;
+  const inviteGroupName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
   // Dismiss splash so the user can see and interact with the welcome screen.
   dismissSplash();
   // Loop so that cancelling the restore screen returns the user to the
   // welcome screen, not silently into the new-account flow.
   while (true) {
-    const choice = await showWelcomeScreen({ inviteCreatorLabel });
+    const choice = await showWelcomeScreen({ inviteCreatorLabel, inviteGroupName });
     if (choice === 'restore') {
       const restored = await showRestoreScreen();
       if (restored) {
@@ -130,19 +132,17 @@ function showStaleScreen() {
   });
 }
 
-export function showWelcomeScreen({ inviteCreatorLabel = null } = {}) {
+export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName = null } = {}) {
   const el = document.getElementById('welcome-screen');
   const newBtn = document.getElementById('welcome-new-btn');
   const restoreBtn = document.getElementById('welcome-restore-btn');
   const framingEl = document.getElementById('welcome-invite-framing');
   if (framingEl) {
-    if (inviteCreatorLabel) {
-      framingEl.textContent = `You've been invited to follow ${inviteCreatorLabel}. First, let's set up your account.`;
-      framingEl.classList.remove('hidden');
-    } else {
-      framingEl.textContent = '';
-      framingEl.classList.add('hidden');
-    }
+    let text = '';
+    if (inviteCreatorLabel) text = `You've been invited to follow ${inviteCreatorLabel}. First, let's set up your account.`;
+    else if (inviteGroupName) text = `You've been invited to join '${inviteGroupName}'. First, let's set up your account.`;
+    framingEl.textContent = text;
+    framingEl.classList.toggle('hidden', !text);
   }
   el.classList.remove('hidden');
   return new Promise((resolve) => {

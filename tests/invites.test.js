@@ -392,6 +392,43 @@ describe('resolveInviteCreatorLabel', () => {
   });
 });
 
+describe('resolveInvitePreview', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('returns null for empty token', async () => {
+    const { resolveInvitePreview } = require('../js/invites');
+    expect(await resolveInvitePreview(null)).toBeNull();
+  });
+
+  test('returns personal preview with label', async () => {
+    const { resolveInvitePreview } = require('../js/invites');
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({ scope: 'personal', creatorLabel: 'Mike P.', revoked: false });
+    expect(await resolveInvitePreview('T')).toEqual({ scope: 'personal', label: 'Mike P.' });
+  });
+
+  test('returns group preview with groupName and groupId', async () => {
+    const { resolveInvitePreview } = require('../js/invites');
+    db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.readGroupInvites.mockResolvedValue({ T: { scope: 'group', revoked: false } });
+    expect(await resolveInvitePreview('T')).toEqual({ scope: 'group', groupName: 'Family', groupId: 'G1' });
+  });
+
+  test('returns null on revoked, missing, or DB error', async () => {
+    const { resolveInvitePreview } = require('../js/invites');
+    db.readInviteIndex.mockResolvedValue(null);
+    expect(await resolveInvitePreview('NOPE')).toBeNull();
+
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({ scope: 'personal', revoked: true });
+    expect(await resolveInvitePreview('T')).toBeNull();
+
+    db.readInviteIndex.mockRejectedValue(new Error('network'));
+    expect(await resolveInvitePreview('T')).toBeNull();
+  });
+});
+
 describe('welcome screen invite framing', () => {
   beforeEach(() => {
     jest.resetModules();
@@ -418,6 +455,15 @@ describe('welcome screen invite framing', () => {
     const framing = document.getElementById('welcome-invite-framing');
     expect(framing.classList.contains('hidden')).toBe(false);
     expect(framing.textContent).toContain('Mike P.');
+    expect(framing.textContent).toContain('First, let');
+  });
+
+  test('showWelcomeScreen with inviteGroupName renders the join-group framing', async () => {
+    const { showWelcomeScreen } = require('../js/app');
+    showWelcomeScreen({ inviteGroupName: 'Family' });
+    const framing = document.getElementById('welcome-invite-framing');
+    expect(framing.classList.contains('hidden')).toBe(false);
+    expect(framing.textContent).toContain("join 'Family'");
     expect(framing.textContent).toContain('First, let');
   });
 });
