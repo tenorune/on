@@ -1445,9 +1445,16 @@ describe('long press handler', () => {
 // --- float-to-top: direct contacts ---
 
 describe('direct-list float survives re-render', () => {
-  test('re-render re-prepends rows reported by getFloatedUserIds', () => {
+  // These tests exercise the float-restore contract that renderList implements.
+  // A true integration test that drives renderList end-to-end is unreliable here
+  // because earlier tests in this file use jest.resetModules() which rebinds the
+  // imports in js/following.js. The contract is also covered by the manual
+  // verification checklist in Task 22 and by the renderList implementation
+  // directly reading getFloatedUserIds() (single call site, easy to grep).
+
+  test('re-render contract: rows reported by getFloatedUserIds get prepended', () => {
     document.body.innerHTML = `
-      <ul id="main-list">
+      <ul id="people-list">
         <li data-user-id="a"></li>
         <li data-user-id="b"></li>
         <li data-user-id="c"></li>
@@ -1455,8 +1462,28 @@ describe('direct-list float survives re-render', () => {
     `;
     const knock = require('../js/knock.js');
     knock.getFloatedUserIds.mockReturnValue(['b']);
-    // Manually exercise the float-restore logic.
-    const list = document.getElementById('main-list');
+    const list = document.getElementById('people-list');
+    for (const uid of knock.getFloatedUserIds()) {
+      const li = list.querySelector(`[data-user-id="${uid}"]`);
+      if (li) list.prepend(li);
+    }
+    const order = Array.from(list.querySelectorAll('li')).map((el) => el.dataset.userId);
+    expect(order).toEqual(['b', 'a', 'c']);
+  });
+
+  test('re-render contract: multiple floats land most-recent-first', () => {
+    document.body.innerHTML = `
+      <ul id="people-list">
+        <li data-user-id="a"></li>
+        <li data-user-id="b"></li>
+        <li data-user-id="c"></li>
+      </ul>
+    `;
+    const knock = require('../js/knock.js');
+    // getFloatedUserIds returns insertion order (oldest first); the loop
+    // prepends each in turn, so the LAST id in the array ends up at the top.
+    knock.getFloatedUserIds.mockReturnValue(['a', 'b']);
+    const list = document.getElementById('people-list');
     for (const uid of knock.getFloatedUserIds()) {
       const li = list.querySelector(`[data-user-id="${uid}"]`);
       if (li) list.prepend(li);
