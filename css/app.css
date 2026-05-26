@@ -801,3 +801,55 @@ main {
 .modal-card-small {
   max-width: 320px;
 }
+.group-cards-row {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.5rem 0;
+  margin-bottom: 0.5rem;
+}
+.group-card {
+  flex: 0 0 auto;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--surface2);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  position: relative;
+  border: none;
+}
+.group-card.active { outline: 2px solid var(--accent); }
+.group-card-badge {
+  position: absolute;
+  top: -0.25rem;
+  right: -0.25rem;
+  background: var(--accent);
+  color: var(--text);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  min-width: 1.2rem;
+  text-align: center;
+}
+.group-cards-plus {
+  flex: 0 0 auto;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px dashed var(--text-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.group-cards-zero {
+  flex: 1;
+  text-align: center;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: transparent;
+  border: 1px dashed var(--text-muted);
+  color: var(--text-muted);
+  cursor: pointer;
+}

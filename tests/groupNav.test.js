@@ -2,7 +2,11 @@
 jest.mock('../js/db.js', () => ({
   setCurrentContext: jest.fn().mockResolvedValue(undefined),
   setLastVisited: jest.fn().mockResolvedValue(undefined),
+  watchUserGroups: jest.fn(),
+  watchGroupMeta: jest.fn(),
+  readMembers: jest.fn().mockResolvedValue({}),
 }));
+jest.mock('../js/features.js', () => ({ GROUPS_ENABLED: true }));
 
 const db = require('../js/db.js');
 const {
@@ -72,5 +76,83 @@ describe('groupNav state machine', () => {
   test('falls back to direct when server provides a malformed value', () => {
     applyServerCurrentContext('garbage');
     expect(getCurrentContext()).toEqual({ context: 'direct', groupId: null });
+  });
+});
+
+const { initCardsRow, renderCardsRow, onCreateRequested } = require('../js/groupNav');
+
+function setupCardsDom() {
+  document.body.innerHTML = `
+    <div id="group-cards-row" class="group-cards-row hidden"></div>
+  `;
+}
+
+describe('group cards row render', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupCardsDom();
+    initNav('uid1');
+  });
+
+  test('zero-state: empty groups → CTA visible, row visible', () => {
+    renderCardsRow({}, {});
+    const row = document.getElementById('group-cards-row');
+    expect(row.classList.contains('hidden')).toBe(false);
+    expect(row.querySelector('.group-cards-zero')).not.toBeNull();
+    expect(row.querySelector('.group-cards-zero').textContent).toMatch(/Create your first group/);
+  });
+
+  test('renders one card per enumerated group, sorted by lastVisited desc', () => {
+    const enumeration = {
+      G1: { lastVisited: 100 },
+      G2: { lastVisited: 300 },
+      G3: { lastVisited: 200 },
+    };
+    const metaByGroupId = {
+      G1: { name: 'Alpha' },
+      G2: { name: 'Bravo' },
+      G3: { name: 'Charlie' },
+    };
+    renderCardsRow(enumeration, metaByGroupId);
+    const cards = document.querySelectorAll('.group-card');
+    expect(cards.length).toBe(3);
+    expect(cards[0].textContent).toContain('Bravo');
+    expect(cards[1].textContent).toContain('Charlie');
+    expect(cards[2].textContent).toContain('Alpha');
+  });
+
+  test('renders the trailing + button after group cards', () => {
+    renderCardsRow({ G1: { lastVisited: 1 } }, { G1: { name: 'Family' } });
+    expect(document.getElementById('group-cards-plus')).not.toBeNull();
+  });
+
+  test('clicking a card calls navigateToGroup', async () => {
+    renderCardsRow({ G1: { lastVisited: 1 } }, { G1: { name: 'Family' } });
+    const card = document.querySelector('.group-card');
+    card.click();
+    await new Promise(setImmediate);
+    expect(db.setCurrentContext).toHaveBeenCalledWith('uid1', 'group:G1');
+  });
+
+  test('marks the current group card as active', () => {
+    applyServerCurrentContext('group:G1');
+    renderCardsRow({ G1: { lastVisited: 1 } }, { G1: { name: 'Family' } });
+    expect(document.querySelector('.group-card').classList.contains('active')).toBe(true);
+  });
+
+  test('+ button emits create-requested', () => {
+    renderCardsRow({ G1: { lastVisited: 1 } }, { G1: { name: 'Family' } });
+    const seen = [];
+    onCreateRequested(() => seen.push(true));
+    document.getElementById('group-cards-plus').click();
+    expect(seen).toEqual([true]);
+  });
+
+  test('zero-state CTA emits create-requested', () => {
+    renderCardsRow({}, {});
+    const seen = [];
+    onCreateRequested(() => seen.push(true));
+    document.getElementById('group-cards-zero').click();
+    expect(seen).toEqual([true]);
   });
 });
