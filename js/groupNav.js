@@ -2,7 +2,8 @@
 // Navigation state machine: currentContext + group cards row.
 // State is in-memory; writes mirror to Firebase via setCurrentContext / setLastVisited.
 
-import { setCurrentContext, setLastVisited, watchUserGroups, watchGroupMeta } from './db.js';
+import { setCurrentContext, setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, watchStatus } from './db.js';
+import { safeCssColor } from './utils.js';
 import { GROUPS_ENABLED } from './features.js';
 import { createGroup } from './groups.js';
 
@@ -69,6 +70,10 @@ let _metaByGroupId = {};
 const _lastKnownNames = {};
 let _metaSubs = {};  // groupId → unsubscribe fn
 let _enumUnsub = null;
+let _ownPrimary = null;
+let _ownPrimaryUnsub = null;
+const _overrideByGroupId = {};
+const _overrideSubs = {}; // groupId → unsubscribe
 const _createListeners = new Set();
 
 export function initCardsRow() {
@@ -81,10 +86,28 @@ export function initCardsRow() {
 
 export function startCardsRowSubscriptions() {
   if (!_myUserId || !GROUPS_ENABLED) return;
+
+  // Tear down any existing per-group subscriptions before re-subscribing.
+  for (const groupId of Object.keys(_metaSubs)) { _metaSubs[groupId](); }
+  for (const k in _metaSubs) delete _metaSubs[k];
+  for (const k in _metaByGroupId) delete _metaByGroupId[k];
+  for (const groupId of Object.keys(_overrideSubs)) { _overrideSubs[groupId](); }
+  for (const k in _overrideSubs) delete _overrideSubs[k];
+  for (const k in _overrideByGroupId) delete _overrideByGroupId[k];
+  _enumeration = {};
+  _ownPrimary = null;
+
   if (_enumUnsub) _enumUnsub();
   _enumUnsub = watchUserGroups(_myUserId, (collection) => {
     _enumeration = collection || {};
     syncMetaSubs();
+    renderCardsRow(_enumeration, _metaByGroupId);
+  });
+  if (_ownPrimaryUnsub) _ownPrimaryUnsub();
+  _ownPrimaryUnsub = watchStatus(_myUserId, (data) => {
+    _ownPrimary = data
+      ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: data.statusColor || null }
+      : null;
     renderCardsRow(_enumeration, _metaByGroupId);
   });
 }
@@ -107,6 +130,24 @@ function syncMetaSubs() {
         } else {
           delete _metaByGroupId[groupId];
         }
+        renderCardsRow(_enumeration, _metaByGroupId);
+      });
+    }
+  }
+
+  // Override-sub cleanup + setup (Phase 2)
+  for (const groupId of Object.keys(_overrideSubs)) {
+    if (!wantIds.has(groupId)) {
+      _overrideSubs[groupId]();
+      delete _overrideSubs[groupId];
+      delete _overrideByGroupId[groupId];
+    }
+  }
+  for (const groupId of wantIds) {
+    if (!_overrideSubs[groupId]) {
+      _overrideSubs[groupId] = watchOwnMemberOverride(groupId, _myUserId, (override) => {
+        if (override) _overrideByGroupId[groupId] = override;
+        else delete _overrideByGroupId[groupId];
         renderCardsRow(_enumeration, _metaByGroupId);
       });
     }
@@ -144,6 +185,13 @@ export function renderCardsRow(enumeration, metaByGroupId) {
     card.className = 'group-card';
     card.dataset.groupId = groupId;
     card.textContent = name;
+    const ov = _overrideByGroupId[groupId];
+    const overrideActive = !!(ov && ov.enabled === true && ov.status === 'available'
+      && (ov.availableUntil == null || ov.availableUntil > Date.now()));
+    if (overrideActive) {
+      const fill = ov.statusColor || _ownPrimary?.statusColor || null;
+      if (fill) card.style.background = safeCssColor(fill);
+    }
     if (_state.context === 'group' && _state.groupId === groupId) {
       card.classList.add('active');
     }
