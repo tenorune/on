@@ -447,6 +447,13 @@ main {
   .welcome-btns { flex-direction: row; max-width: 480px; }
   .welcome-btns button { flex: 1; }
 }
+.welcome-form {
+  display: flex; flex-direction: column; gap: 0.75rem;
+  width: 100%; max-width: 320px;
+}
+@media (min-width: 480px) {
+  .welcome-form { max-width: 480px; }
+}
 
 /* App header */
 #app-header {
