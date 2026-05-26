@@ -1,4 +1,7 @@
 // tests/groupContext.test.js
+jest.mock('../js/store.js', () => ({
+  getLastTimeout: jest.fn(() => 120),
+}));
 jest.mock('../js/db.js', () => ({
   readGroup: jest.fn().mockResolvedValue(null),
   watchGroupMeta: jest.fn(() => () => {}),
@@ -455,5 +458,40 @@ describe('own status row', () => {
     exitGroupContext();
     expect(ownPrimaryUnsub).toHaveBeenCalledTimes(1);
     expect(ownOverrideUnsub).toHaveBeenCalledTimes(1);
+  });
+
+  test('clicking the dot when override ON and currently unavailable goes available with lastTimeoutMinutes', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    const before = Date.now();
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalled();
+    const [g, u, until] = groupsModule.setOverrideStatusAvailable.mock.calls[0];
+    expect(g).toBe('G1');
+    expect(u).toBe('me');
+    // 120 minutes from now, ±2s tolerance for test latency.
+    expect(until).toBeGreaterThanOrEqual(before + 120 * 60000 - 2000);
+    expect(until).toBeLessThanOrEqual(Date.now() + 120 * 60000 + 2000);
+  });
+
+  test('clicking the dot when override ON and currently available goes unavailable', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusUnavailable).toHaveBeenCalledWith('G1', 'me');
+  });
+
+  test('clicking the dot when override OFF is a no-op', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusAvailable).not.toHaveBeenCalled();
+    expect(groupsModule.setOverrideStatusUnavailable).not.toHaveBeenCalled();
   });
 });

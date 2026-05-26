@@ -5,7 +5,9 @@
 import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs } from './db.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
-import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName, toggleStatusOverride } from './groups.js';
+import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
+         toggleStatusOverride, setOverrideStatusAvailable, setOverrideStatusUnavailable } from './groups.js';
+import { getLastTimeout } from './store.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge } from './knock.js';
@@ -273,6 +275,25 @@ export function enterGroupContext(groupId, userId) {
     clone.addEventListener('click', () => {
       const nextEnabled = !(_ownOverride && _ownOverride.enabled === true);
       toggleStatusOverride(groupId, userId, nextEnabled).catch(() => {});
+    });
+  }
+
+  // Wire the dot (clone-and-replace per the same pattern)
+  const dot = document.getElementById('group-my-dot');
+  if (dot) {
+    const dotClone = dot.cloneNode(true);
+    dot.parentNode.replaceChild(dotClone, dot);
+    dotClone.addEventListener('click', () => {
+      const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
+      if (!overrideOn) return;  // read-only when toggle is OFF
+      const currentlyAvailable = _ownOverride.status === 'available'
+        && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
+      if (currentlyAvailable) {
+        setOverrideStatusUnavailable(groupId, userId).catch(() => {});
+      } else {
+        const availableUntil = Date.now() + getLastTimeout() * 60000;
+        setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
+      }
     });
   }
 
