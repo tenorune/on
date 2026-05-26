@@ -26,6 +26,11 @@ jest.mock('../js/db.js', () => ({
   watchUserGroups: jest.fn(() => () => {}),
   setLastVisited: jest.fn(),
   setCurrentContext: jest.fn(),
+  writeGroup: jest.fn(),
+  readGroup: jest.fn().mockResolvedValue(null),
+  renameGroup: jest.fn(),
+  deleteGroup: jest.fn(),
+  watchGroupMeta: jest.fn(() => () => {}),
 }));
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(),

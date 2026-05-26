@@ -9,6 +9,7 @@ const {
   claimGroupId,
   writeUserGroupsEntry, removeUserGroupsEntry, readUserGroups, watchUserGroups,
   setLastVisited, setCurrentContext,
+  writeGroup, readGroup, renameGroup, deleteGroup, watchGroupMeta,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -421,5 +422,53 @@ describe('currentContext sync', () => {
     set.mockResolvedValue();
     await setCurrentContext('uid1', 'direct');
     expect(set).toHaveBeenCalledWith('mock-ref', 'direct');
+  });
+});
+
+describe('group entity ops', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('writeGroup creates the group record', async () => {
+    set.mockResolvedValue();
+    const payload = { name: 'Family', ownerId: 'uid1', createdAt: 12345 };
+    await writeGroup('G1ABCD23', payload);
+    expect(set).toHaveBeenCalledWith('mock-ref', payload);
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1ABCD23');
+  });
+
+  test('readGroup returns the record when present', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ name: 'Family', ownerId: 'uid1', createdAt: 12345 }) });
+    const result = await readGroup('G1ABCD23');
+    expect(result).toEqual({ name: 'Family', ownerId: 'uid1', createdAt: 12345 });
+  });
+
+  test('readGroup returns null when missing', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    expect(await readGroup('NOPE0001')).toBeNull();
+  });
+
+  test('renameGroup writes only the name field', async () => {
+    update.mockResolvedValue();
+    await renameGroup('G1ABCD23', 'Familia');
+    expect(update).toHaveBeenCalledWith('mock-ref', { name: 'Familia' });
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1ABCD23');
+  });
+
+  test('deleteGroup removes the entire groups/{groupId} subtree', async () => {
+    remove.mockResolvedValue();
+    await deleteGroup('G1ABCD23');
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1ABCD23');
+    expect(remove).toHaveBeenCalled();
+  });
+
+  test('watchGroupMeta subscribes to groups/{groupId} and strips members/invites for the meta-only callback', () => {
+    let cb;
+    onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });
+    const seen = [];
+    watchGroupMeta('G1ABCD23', (meta) => seen.push(meta));
+    cb({ exists: () => true, val: () => ({ name: 'Family', ownerId: 'uid1', createdAt: 1, members: { u: {} }, invites: { i: {} } }) });
+    expect(seen[0]).toEqual({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    cb({ exists: () => false });
+    expect(seen[1]).toBeNull();
   });
 });

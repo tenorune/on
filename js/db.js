@@ -193,6 +193,44 @@ export async function setCurrentContext(userId, context) {
   await set(ref(db, `users/${userId}/currentContext`), context);
 }
 
+// ── Groups: entity CRUD + meta subscription ───────────────────────────────────
+// groups/{groupId} root fields: name, ownerId, createdAt, (post-MVP: color, paletteKey).
+// Sub-collections: members/, invites/ — managed by separate helpers below.
+
+export async function writeGroup(groupId, payload) {
+  await set(ref(db, `groups/${groupId}`), payload);
+}
+
+export async function readGroup(groupId) {
+  const snap = await get(ref(db, `groups/${groupId}`));
+  return snap.exists() ? snap.val() : null;
+}
+
+export async function renameGroup(groupId, name) {
+  await update(ref(db, `groups/${groupId}`), { name });
+}
+
+export async function deleteGroup(groupId) {
+  await remove(ref(db, `groups/${groupId}`));
+}
+
+// Subscription that strips sub-collections so callers only react to meta changes
+// (name, ownerId, etc.). Members and invites are watched separately.
+const GROUP_META_FIELDS = ['name', 'ownerId', 'createdAt', 'color', 'paletteKey'];
+
+export function watchGroupMeta(groupId, callback) {
+  const groupRef = ref(db, `groups/${groupId}`);
+  return onValue(groupRef, (snap) => {
+    if (!snap.exists()) { callback(null); return; }
+    const val = snap.val() || {};
+    const meta = {};
+    for (const k of GROUP_META_FIELDS) {
+      if (val[k] !== undefined) meta[k] = val[k];
+    }
+    callback(meta);
+  });
+}
+
 // Write own status to Firebase
 export async function setStatus(userId, status, availableUntil) {
   await update(ref(db, `users/${userId}`), {
