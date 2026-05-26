@@ -48,6 +48,7 @@ const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
 const groupsModule = require('../js/groups.js');
 const inviteModal = require('../js/inviteModal.js');
+const store = require('../js/store.js');
 const { enterGroupContext, exitGroupContext } = require('../js/groupContext');
 
 function setupContextDom() {
@@ -505,11 +506,13 @@ describe('own status row', () => {
     cbs.getOverrideCb()({ enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
     const before = Date.now();
     document.getElementById('group-time-chip').click();
-    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalled();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(1);
     const [, , until] = groupsModule.setOverrideStatusAvailable.mock.calls[0];
     // Chip default cycles forward from "2 hours" (index 3) to "3 hours" (index 4).
     expect(until).toBeGreaterThanOrEqual(before + 180 * 60000 - 2000);
     expect(until).toBeLessThanOrEqual(Date.now() + 180 * 60000 + 2000);
+    expect(store.setLastTimeout).toHaveBeenCalledWith(180);
+    expect(db.setLastTimeoutMinutes).toHaveBeenCalledWith('me', 180);
   });
 
   test('clicking the time chip when override OFF is a no-op', () => {
