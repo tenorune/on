@@ -150,6 +150,49 @@ export async function readUserInvites(userId) {
   return snap.exists() ? snap.val() : {};
 }
 
+// ── Groups: user-side enumeration + ID allocation ─────────────────────────────
+// users/{uid}/groups/{groupId} is the user's per-group enumeration record.
+// In Phase 1 the only field is optional `lastVisited` (for cards-row ordering).
+// groupIdIndex/{groupId} is a global existence lock for transactional allocation.
+
+export async function claimGroupId(groupId) {
+  const indexRef = ref(db, `groupIdIndex/${groupId}`);
+  const result = await runTransaction(indexRef, (current) => {
+    if (current !== null) return; // abort — id already claimed
+    return true;
+  });
+  return result.committed;
+}
+
+export async function writeUserGroupsEntry(userId, groupId, payload) {
+  const value = payload === undefined ? true : payload;
+  await set(ref(db, `users/${userId}/groups/${groupId}`), value);
+}
+
+export async function removeUserGroupsEntry(userId, groupId) {
+  await remove(ref(db, `users/${userId}/groups/${groupId}`));
+}
+
+export async function readUserGroups(userId) {
+  const snap = await get(ref(db, `users/${userId}/groups`));
+  return snap.exists() ? snap.val() : {};
+}
+
+export function watchUserGroups(userId, callback) {
+  const groupsRef = ref(db, `users/${userId}/groups`);
+  return onValue(groupsRef, (snap) => {
+    callback(snap.exists() ? snap.val() : {});
+  });
+}
+
+export async function setLastVisited(userId, groupId, ts) {
+  await update(ref(db, `users/${userId}/groups/${groupId}`), { lastVisited: ts });
+}
+
+export async function setCurrentContext(userId, context) {
+  await set(ref(db, `users/${userId}/currentContext`), context);
+}
+
 // Write own status to Firebase
 export async function setStatus(userId, status, availableUntil) {
   await update(ref(db, `users/${userId}`), {

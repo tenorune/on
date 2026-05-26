@@ -6,6 +6,9 @@ const {
   readUserInvite, writeUserInvite, deleteUserInvite,
   setInviteRevoked, incrementInviteRedemptions, getCreatorCode,
   watchUserInvites, readUserInvites,
+  claimGroupId,
+  writeUserGroupsEntry, removeUserGroupsEntry, readUserGroups, watchUserGroups,
+  setLastVisited, setCurrentContext,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -329,5 +332,92 @@ describe('readUserInvites', () => {
     get.mockResolvedValueOnce({ exists: () => false });
     const result = await readUserInvites('uid1');
     expect(result).toEqual({});
+  });
+});
+
+describe('claimGroupId', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('claims a fresh group id transactionally', async () => {
+    runTransaction.mockResolvedValue({ committed: true });
+    const ok = await claimGroupId('G1ABCD23');
+    expect(ok).toBe(true);
+    const handler = runTransaction.mock.calls[0][1];
+    expect(handler(null)).toBe(true);
+    expect(handler(true)).toBeUndefined();
+  });
+
+  test('returns false when the transaction aborts', async () => {
+    runTransaction.mockResolvedValue({ committed: false });
+    const ok = await claimGroupId('TAKENID1');
+    expect(ok).toBe(false);
+  });
+});
+
+describe('user-side groups enumeration', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('writeUserGroupsEntry writes lastVisited (or empty object) at users/{uid}/groups/{groupId}', async () => {
+    set.mockResolvedValue();
+    await writeUserGroupsEntry('uid1', 'G1', { lastVisited: 1234 });
+    expect(set).toHaveBeenCalledWith('mock-ref', { lastVisited: 1234 });
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/groups/G1');
+  });
+
+  test('writeUserGroupsEntry with no payload writes true', async () => {
+    set.mockResolvedValue();
+    await writeUserGroupsEntry('uid1', 'G1');
+    expect(set).toHaveBeenCalledWith('mock-ref', true);
+  });
+
+  test('removeUserGroupsEntry removes the enumeration record', async () => {
+    remove.mockResolvedValue();
+    await removeUserGroupsEntry('uid1', 'G1');
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/groups/G1');
+    expect(remove).toHaveBeenCalled();
+  });
+
+  test('readUserGroups returns the collection', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ G1: { lastVisited: 10 }, G2: true }) });
+    const result = await readUserGroups('uid1');
+    expect(result).toEqual({ G1: { lastVisited: 10 }, G2: true });
+  });
+
+  test('readUserGroups returns empty object on miss', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    expect(await readUserGroups('uid1')).toEqual({});
+  });
+
+  test('watchUserGroups subscribes to users/{uid}/groups', () => {
+    let cb;
+    onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });
+    const seen = [];
+    watchUserGroups('uid1', (data) => seen.push(data));
+    cb({ exists: () => true, val: () => ({ G1: true }) });
+    expect(seen[0]).toEqual({ G1: true });
+    cb({ exists: () => false });
+    expect(seen[1]).toEqual({});
+  });
+
+  test('setLastVisited updates only the lastVisited field', async () => {
+    update.mockResolvedValue();
+    await setLastVisited('uid1', 'G1', 99999);
+    expect(update).toHaveBeenCalledWith('mock-ref', { lastVisited: 99999 });
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/groups/G1');
+  });
+});
+
+describe('currentContext sync', () => {
+  test('setCurrentContext writes users/{uid}/currentContext', async () => {
+    set.mockResolvedValue();
+    await setCurrentContext('uid1', 'group:G1');
+    expect(set).toHaveBeenCalledWith('mock-ref', 'group:G1');
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/currentContext');
+  });
+
+  test('setCurrentContext can be set to direct', async () => {
+    set.mockResolvedValue();
+    await setCurrentContext('uid1', 'direct');
+    expect(set).toHaveBeenCalledWith('mock-ref', 'direct');
   });
 });

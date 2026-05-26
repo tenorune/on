@@ -23,6 +23,13 @@ jest.mock('../js/db.js', () => ({
   incrementInviteRedemptions: jest.fn(),
   getCreatorCode: jest.fn(),
   watchUserInvites: jest.fn(() => () => {}),
+  claimGroupId: jest.fn(),
+  writeUserGroupsEntry: jest.fn(),
+  removeUserGroupsEntry: jest.fn(),
+  readUserGroups: jest.fn().mockResolvedValue({}),
+  watchUserGroups: jest.fn(() => () => {}),
+  setLastVisited: jest.fn(),
+  setCurrentContext: jest.fn(),
 }));
 jest.mock('../js/me.js', () => ({
   initHeader: jest.fn(),
