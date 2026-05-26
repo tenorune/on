@@ -239,3 +239,44 @@ describe('group removal detector', () => {
     expect(document.getElementById('group-removal-toast-text').textContent).toMatch(/removed|Family/i);
   });
 });
+
+describe('end-to-end: create group → group invite → redeem → joined', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('owner can create a group; second user can redeem its invite', async () => {
+    const { createGroup } = require('../js/groups');
+    const { createGroupInvite, redeemGroupInvite } = require('../js/invites');
+
+    db.claimGroupId.mockResolvedValue(true);
+    db.writeGroup.mockResolvedValue();
+    db.writeMember.mockResolvedValue();
+    db.writeUserGroupsEntry.mockResolvedValue();
+
+    const created = await createGroup('owner-uid', 'Family', 'Alice');
+    expect(db.writeGroup).toHaveBeenCalledWith(created.groupId, expect.objectContaining({ name: 'Family', ownerId: 'owner-uid' }));
+    expect(db.writeMember).toHaveBeenCalledWith(created.groupId, 'owner-uid', expect.objectContaining({ role: 'owner', displayName: 'Alice' }));
+
+    // Setup mocks for createGroupInvite
+    db.readGroupInvites = jest.fn().mockResolvedValueOnce({});
+    db.claimInviteToken = jest.fn().mockResolvedValue(true);
+    db.writeGroupInvite = jest.fn().mockResolvedValue();
+    const invite = await createGroupInvite('owner-uid', created.groupId);
+    expect(invite.token).toMatch(/^[A-Za-z0-9_-]{22}$/);
+
+    // Setup mocks for redeemGroupInvite
+    db.readInviteIndex = jest.fn().mockResolvedValue({ scope: 'group', ownerPath: `groups/${created.groupId}/invites/${invite.token}` });
+    db.readGroup = jest.fn().mockResolvedValue({ name: 'Family', ownerId: 'owner-uid', createdAt: 1 });
+    db.readGroupInvites = jest.fn().mockResolvedValue({
+      [invite.token]: { scope: 'group', token: invite.token, creatorUid: 'owner-uid', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    });
+    db.readMember = jest.fn().mockResolvedValue(null);
+    db.incrementGroupInviteRedemptions = jest.fn().mockResolvedValue();
+    db.writeMember.mockResolvedValue();
+    db.writeUserGroupsEntry.mockResolvedValue();
+
+    const redemption = await redeemGroupInvite(invite.token, 'redeemer-uid', 'Mike');
+    expect(redemption).toEqual({ ok: true, groupId: created.groupId, groupName: 'Family' });
+  });
+});
