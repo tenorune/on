@@ -5,6 +5,8 @@
 import { watchGroupMeta, watchGroupMembers, watchStatus } from './db.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
+import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName } from './groups.js';
+import { openInviteModal } from './inviteModal.js';
 
 let _metaUnsub = null;
 let _membersUnsub = null;
@@ -77,6 +79,62 @@ function syncStatusSubscriptions(memberUids) {
   }
 }
 
+function wireActions(groupId, userId, isOwner, groupName) {
+  const ids = ['group-action-rename', 'group-action-invite', 'group-action-delete', 'group-action-edit-name', 'group-action-leave'];
+
+  // Clone-and-replace each button to drop any previous listeners
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const clone = el.cloneNode(true);
+    el.parentNode.replaceChild(clone, el);
+  }
+
+  // Visibility
+  document.getElementById('group-action-rename').classList.toggle('hidden', !isOwner);
+  document.getElementById('group-action-invite').classList.toggle('hidden', !isOwner);
+  document.getElementById('group-action-delete').classList.toggle('hidden', !isOwner);
+  document.getElementById('group-action-edit-name').classList.remove('hidden');
+  document.getElementById('group-action-leave').classList.toggle('hidden', isOwner);
+
+  // Handlers
+  document.getElementById('group-action-rename').addEventListener('click', async () => {
+    const next = window.prompt('New group name', groupName || '');
+    if (next == null) return;
+    const trimmed = next.trim();
+    if (!trimmed) return;
+    try { await renameGroup(groupId, userId, trimmed); } catch (e) { window.alert(e.message); }
+  });
+
+  document.getElementById('group-action-invite').addEventListener('click', () => {
+    openInviteModal({ scope: 'group', userId, groupId, groupName: groupName || groupId });
+  });
+
+  document.getElementById('group-action-delete').addEventListener('click', async () => {
+    if (!window.confirm(`Delete '${groupName || 'this group'}'? This cannot be undone.`)) return;
+    try {
+      await deleteGroup(groupId, userId);
+      await navigateToDirect();
+    } catch (e) { window.alert(e.message); }
+  });
+
+  document.getElementById('group-action-edit-name').addEventListener('click', async () => {
+    const next = window.prompt('Your name in this group', '');
+    if (next == null) return;
+    const trimmed = next.trim();
+    if (!trimmed) return;
+    try { await editOwnDisplayName(groupId, userId, trimmed); } catch (e) { window.alert(e.message); }
+  });
+
+  document.getElementById('group-action-leave').addEventListener('click', async () => {
+    if (!window.confirm(`Leave '${groupName || 'this group'}'?`)) return;
+    try {
+      await leaveGroup(groupId, userId);
+      await navigateToDirect();
+    } catch (e) { window.alert(e.message); }
+  });
+}
+
 export function enterGroupContext(groupId, userId) {
   if (_metaUnsub) _metaUnsub();
   _currentGroupId = groupId;
@@ -112,11 +170,8 @@ export function enterGroupContext(groupId, userId) {
     if (nameEl) nameEl.textContent = meta.name || '';
     if (crumbEl) crumbEl.textContent = meta.name || '';
 
-    const settings = document.getElementById('group-context-settings-btn');
-    if (settings) {
-      if (meta.ownerId === _currentUserId) settings.classList.remove('hidden');
-      else settings.classList.add('hidden');
-    }
+    const isOwner = meta.ownerId === userId;
+    wireActions(groupId, userId, isOwner, meta.name);
   });
 }
 

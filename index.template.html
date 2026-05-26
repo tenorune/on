@@ -204,7 +204,16 @@
     </div>
     <header class="group-context-header">
       <h2 id="group-context-name" class="group-context-name"></h2>
-      <button id="group-context-settings-btn" class="ghost-btn hidden">Settings</button>
+      <details id="group-context-actions" class="group-context-actions">
+        <summary>Settings</summary>
+        <div class="group-actions-menu">
+          <button id="group-action-rename" class="ghost-btn hidden">Rename group</button>
+          <button id="group-action-invite" class="ghost-btn hidden">Invite link</button>
+          <button id="group-action-delete" class="ghost-btn hidden">Delete group</button>
+          <button id="group-action-edit-name" class="ghost-btn hidden">Edit my name</button>
+          <button id="group-action-leave" class="ghost-btn hidden">Leave group</button>
+        </div>
+      </details>
     </header>
     <ul id="group-roster" class="group-roster"></ul>
   </div>

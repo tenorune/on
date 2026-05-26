@@ -9,9 +9,20 @@ jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
   getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
 }));
+jest.mock('../js/groups.js', () => ({
+  renameGroup: jest.fn().mockResolvedValue(undefined),
+  deleteGroup: jest.fn().mockResolvedValue(undefined),
+  leaveGroup: jest.fn().mockResolvedValue(undefined),
+  editOwnDisplayName: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../js/inviteModal.js', () => ({
+  openInviteModal: jest.fn(),
+}));
 
 const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
+const groupsModule = require('../js/groups.js');
+const inviteModal = require('../js/inviteModal.js');
 const { enterGroupContext, exitGroupContext } = require('../js/groupContext');
 
 function setupContextDom() {
@@ -24,7 +35,16 @@ function setupContextDom() {
       </div>
       <header class="group-context-header">
         <h2 id="group-context-name"></h2>
-        <button id="group-context-settings-btn" class="hidden">Settings</button>
+        <details id="group-context-actions">
+          <summary>Settings</summary>
+          <div class="group-actions-menu">
+            <button id="group-action-rename" class="hidden">Rename group</button>
+            <button id="group-action-invite" class="hidden">Invite link</button>
+            <button id="group-action-delete" class="hidden">Delete group</button>
+            <button id="group-action-edit-name" class="hidden">Edit my name</button>
+            <button id="group-action-leave" class="hidden">Leave group</button>
+          </div>
+        </details>
       </header>
       <ul id="group-roster"></ul>
     </div>
@@ -52,20 +72,28 @@ describe('groupContext scaffolding', () => {
     expect(document.getElementById('group-context-name').textContent).toBe('Family');
   });
 
-  test('shows the Settings button when the caller is the owner', () => {
+  test('shows owner-only action buttons when caller is the owner', () => {
     let metaCb;
     db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
-    expect(document.getElementById('group-context-settings-btn').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('group-action-rename').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('group-action-invite').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('group-action-delete').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('group-action-edit-name').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('group-action-leave').classList.contains('hidden')).toBe(true);
   });
 
-  test('keeps Settings hidden when the caller is not the owner', () => {
+  test('shows member-only action buttons when caller is a non-owner member', () => {
     let metaCb;
     db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
-    expect(document.getElementById('group-context-settings-btn').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('group-action-rename').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('group-action-invite').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('group-action-delete').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('group-action-edit-name').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('group-action-leave').classList.contains('hidden')).toBe(false);
   });
 
   test('breadcrumb back button calls navigateToDirect', () => {
@@ -169,5 +197,73 @@ describe('group roster render', () => {
     });
     expect(unsubByUid.a).not.toHaveBeenCalled(); // Alice's sub stays
     expect(unsubByUid.b).toHaveBeenCalled();     // Bob's sub torn down
+  });
+});
+
+describe('owner actions', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+  });
+
+  test('Rename group prompts and calls renameGroup', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    window.prompt = jest.fn(() => '  Familia  ');
+    document.getElementById('group-action-rename').click();
+    expect(groupsModule.renameGroup).toHaveBeenCalledWith('G1', 'me', 'Familia');
+  });
+
+  test('Delete group confirms and calls deleteGroup', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    window.confirm = jest.fn(() => true);
+    document.getElementById('group-action-delete').click();
+    expect(groupsModule.deleteGroup).toHaveBeenCalledWith('G1', 'me');
+  });
+
+  test('Invite link opens the modal with group scope', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    document.getElementById('group-action-invite').click();
+    expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
+      scope: 'group',
+      userId: 'me',
+      groupId: 'G1',
+      groupName: 'Family',
+    }));
+  });
+});
+
+describe('member actions', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+  });
+
+  test('Edit my name prompts and calls editOwnDisplayName', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
+    window.prompt = jest.fn(() => '  M. P.  ');
+    document.getElementById('group-action-edit-name').click();
+    expect(groupsModule.editOwnDisplayName).toHaveBeenCalledWith('G1', 'me', 'M. P.');
+  });
+
+  test('Leave group confirms and calls leaveGroup', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
+    window.confirm = jest.fn(() => true);
+    document.getElementById('group-action-leave').click();
+    expect(groupsModule.leaveGroup).toHaveBeenCalledWith('G1', 'me');
   });
 });
