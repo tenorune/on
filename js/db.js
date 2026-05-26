@@ -263,6 +263,28 @@ export function watchGroupMembers(groupId, callback) {
   });
 }
 
+// ── Phase 2: per-group status overrides ──────────────────────────────────────
+// Canonical location: groups/{groupId}/members/{memberUid}/statusOverride.
+// Writes are member-self-write (the user writes only to their own member
+// record); same trust model as displayName edits.
+
+export async function setStatusOverride(groupId, memberUid, override) {
+  const overrideRef = ref(db, `groups/${groupId}/members/${memberUid}/statusOverride`);
+  await set(overrideRef, override);
+}
+
+export async function clearStatusOverride(groupId, memberUid) {
+  const overrideRef = ref(db, `groups/${groupId}/members/${memberUid}/statusOverride`);
+  await remove(overrideRef);
+}
+
+export function watchOwnMemberOverride(groupId, memberUid, callback) {
+  const overrideRef = ref(db, `groups/${groupId}/members/${memberUid}/statusOverride`);
+  return onValue(overrideRef, (snap) => {
+    callback(snap.exists() ? snap.val() : null);
+  });
+}
+
 // ── Groups: invites ───────────────────────────────────────────────────────────
 
 export async function writeGroupInvite(groupId, token, payload) {
