@@ -3,6 +3,9 @@ jest.mock('../js/invites.js', () => ({
   createPersonalInvite: jest.fn(),
   regeneratePersonalInvite: jest.fn(),
   revokePersonalInvite: jest.fn(),
+  createGroupInvite: jest.fn(),
+  regenerateGroupInvite: jest.fn(),
+  revokeGroupInvite: jest.fn(),
 }));
 
 const invites = require('../js/invites.js');
@@ -142,5 +145,63 @@ describe('openInviteModal — personal scope', () => {
     document.getElementById('invite-modal-revoke-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('invite-modal-label-error').textContent).toBe('boom');
+  });
+});
+
+describe('openInviteModal — group scope', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupDom();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: jest.fn().mockResolvedValue(undefined) },
+    });
+  });
+
+  test('throws when groupId or groupName is missing', () => {
+    expect(() => openInviteModal({ scope: 'group', userId: 'uid1' })).toThrow(/groupId.*groupName/);
+  });
+
+  test('renders title and subtitle with the group name interpolated', () => {
+    openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+    expect(document.getElementById('invite-modal-title').textContent).toBe('Invite link for Family');
+    expect(document.getElementById('invite-modal-subtitle').textContent).toContain('Family');
+  });
+
+  test('hides the label input for group scope', () => {
+    openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+    expect(document.getElementById('invite-modal-label-input').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('invite-modal-label-hint').classList.contains('hidden')).toBe(true);
+  });
+
+  test('Create button calls createGroupInvite(userId, groupId)', async () => {
+    invites.createGroupInvite.mockResolvedValue({ token: 'NEW', url: 'https://x/?i=NEW', existing: false });
+    openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+    document.getElementById('invite-modal-create-btn').click();
+    await new Promise(setImmediate);
+    expect(invites.createGroupInvite).toHaveBeenCalledWith('uid1', 'G1');
+    expect(document.getElementById('invite-modal-url').textContent).toBe('https://x/?i=NEW');
+  });
+
+  test('Regenerate calls regenerateGroupInvite(userId, groupId)', async () => {
+    invites.regenerateGroupInvite.mockResolvedValue({ token: 'NEW2', url: 'https://x/?i=NEW2', existing: false });
+    openInviteModal({
+      scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
+      activeInvite: { token: 'T', url: 'https://x/?i=T', scope: 'group' },
+    });
+    document.getElementById('invite-modal-regen-btn').click();
+    await new Promise(setImmediate);
+    expect(invites.regenerateGroupInvite).toHaveBeenCalledWith('uid1', 'G1');
+  });
+
+  test('Revoke calls revokeGroupInvite(userId, groupId)', async () => {
+    invites.revokeGroupInvite.mockResolvedValue();
+    openInviteModal({
+      scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
+      activeInvite: { token: 'T', url: 'https://x/?i=T', scope: 'group' },
+    });
+    document.getElementById('invite-modal-revoke-btn').click();
+    await new Promise(setImmediate);
+    expect(invites.revokeGroupInvite).toHaveBeenCalledWith('uid1', 'G1');
   });
 });
