@@ -5,7 +5,7 @@
 import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs } from './db.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
-import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName } from './groups.js';
+import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName, toggleStatusOverride } from './groups.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge } from './knock.js';
@@ -264,6 +264,17 @@ export function enterGroupContext(groupId, userId) {
     _ownOverride = data || null;
     renderOwnStatusRow();
   });
+
+  // Wire the override toggle (replace via clone to drop any prior listener)
+  const toggle = document.getElementById('group-override-toggle');
+  if (toggle) {
+    const clone = toggle.cloneNode(true);
+    toggle.parentNode.replaceChild(clone, toggle);
+    clone.addEventListener('click', () => {
+      const nextEnabled = !(_ownOverride && _ownOverride.enabled === true);
+      toggleStatusOverride(groupId, userId, nextEnabled).catch(() => {});
+    });
+  }
 
   // Subscribe to group meta for the name + owner check
   _metaUnsub = watchGroupMeta(groupId, (meta) => {

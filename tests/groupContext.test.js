@@ -31,6 +31,9 @@ jest.mock('../js/groups.js', () => ({
   deleteGroup: jest.fn().mockResolvedValue(undefined),
   leaveGroup: jest.fn().mockResolvedValue(undefined),
   editOwnDisplayName: jest.fn().mockResolvedValue(undefined),
+  toggleStatusOverride: jest.fn().mockResolvedValue(undefined),
+  setOverrideStatusAvailable: jest.fn().mockResolvedValue(undefined),
+  setOverrideStatusUnavailable: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),
@@ -411,6 +414,24 @@ describe('own status row', () => {
     cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
     expect(document.getElementById('group-my-dot').classList.contains('readonly')).toBe(false);
     expect(document.getElementById('group-time-chip').classList.contains('readonly')).toBe(false);
+  });
+
+  test('clicking the toggle when OFF calls toggleStatusOverride with true', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
+  });
+
+  test('clicking the toggle when ON calls toggleStatusOverride with false', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', false);
   });
 
   test('exitGroupContext tears down own primary and override subscriptions', () => {
