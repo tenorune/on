@@ -3,8 +3,12 @@ jest.mock('../js/db.js', () => ({
   readGroup: jest.fn().mockResolvedValue(null),
   watchGroupMeta: jest.fn(() => () => {}),
   watchGroupMembers: jest.fn(() => () => {}),
+  watchGroupInvites: jest.fn(() => () => {}),
   watchStatus: jest.fn(() => () => {}),
   removeUserGroupsEntry: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../js/invites.js', () => ({
+  buildInviteUrl: jest.fn((token) => `https://app.example/?i=${token}`),
 }));
 jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
@@ -246,6 +250,53 @@ describe('owner actions', () => {
       userId: 'me',
       groupId: 'G1',
       groupName: 'Family',
+    }));
+  });
+
+  test('Invite link passes activeInvite when an unrevoked group invite exists', () => {
+    let metaCb, invitesCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupInvites.mockImplementation((groupId, cb) => { invitesCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    invitesCb({
+      tok1: { scope: 'group', token: 'tok1', creatorUid: 'me', createdAt: 2, revoked: false },
+    });
+    document.getElementById('group-action-invite').click();
+    expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
+      scope: 'group',
+      activeInvite: expect.objectContaining({
+        token: 'tok1',
+        url: expect.stringContaining('tok1'),
+      }),
+    }));
+  });
+
+  test('Invite link passes activeInvite=null when no invites exist', () => {
+    let metaCb, invitesCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupInvites.mockImplementation((groupId, cb) => { invitesCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    invitesCb({});
+    document.getElementById('group-action-invite').click();
+    expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
+      activeInvite: null,
+    }));
+  });
+
+  test('Invite link ignores revoked invites', () => {
+    let metaCb, invitesCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupInvites.mockImplementation((groupId, cb) => { invitesCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    invitesCb({
+      gone: { scope: 'group', token: 'gone', revoked: true },
+    });
+    document.getElementById('group-action-invite').click();
+    expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
+      activeInvite: null,
     }));
   });
 });

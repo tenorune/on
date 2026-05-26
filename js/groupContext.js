@@ -2,18 +2,21 @@
 // Group context view: breadcrumb, header, roster. Roster + settings populated
 // in Tasks 16-17. This scaffolding handles enter/exit and the breadcrumb back.
 
-import { watchGroupMeta, watchGroupMembers, watchStatus, removeUserGroupsEntry } from './db.js';
+import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, removeUserGroupsEntry } from './db.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName } from './groups.js';
 import { openInviteModal } from './inviteModal.js';
+import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge } from './knock.js';
 
 let _metaUnsub = null;
 let _membersUnsub = null;
+let _invitesUnsub = null;
 const _statusUnsubs = new Map(); // memberUid → unsubscribe fn
 let _currentGroupId = null;
 let _currentUserId = null;
+let _activeGroupInvite = null;
 
 function renderRoster(members, ownUserId) {
   const list = document.getElementById('group-roster');
@@ -119,7 +122,13 @@ function wireActions(groupId, userId, isOwner, groupName) {
   });
 
   document.getElementById('group-action-invite').addEventListener('click', () => {
-    openInviteModal({ scope: 'group', userId, groupId, groupName: groupName || groupId });
+    openInviteModal({
+      scope: 'group',
+      userId,
+      groupId,
+      groupName: groupName || groupId,
+      activeInvite: _activeGroupInvite,
+    });
   });
 
   document.getElementById('group-action-delete').addEventListener('click', async () => {
@@ -177,6 +186,21 @@ export function enterGroupContext(groupId, userId) {
     syncStatusSubscriptions(new Set(Object.keys(members || {})));
   });
 
+  // Subscribe to group invites so the owner-settings invite-link button can
+  // open the modal in 'manage' state when an active invite already exists.
+  if (_invitesUnsub) _invitesUnsub();
+  _activeGroupInvite = null;
+  _invitesUnsub = watchGroupInvites(groupId, (collection) => {
+    let active = null;
+    for (const [token, inv] of Object.entries(collection || {})) {
+      if (inv && !inv.revoked) {
+        active = { token, ...inv, url: buildInviteUrl(token) };
+        break;
+      }
+    }
+    _activeGroupInvite = active;
+  });
+
   // Subscribe to group meta for the name + owner check
   _metaUnsub = watchGroupMeta(groupId, (meta) => {
     if (!meta) {
@@ -201,10 +225,12 @@ export function enterGroupContext(groupId, userId) {
 export function exitGroupContext() {
   if (_metaUnsub) { _metaUnsub(); _metaUnsub = null; }
   if (_membersUnsub) { _membersUnsub(); _membersUnsub = null; }
+  if (_invitesUnsub) { _invitesUnsub(); _invitesUnsub = null; }
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
   _currentGroupId = null;
   _currentUserId = null;
+  _activeGroupInvite = null;
   const root = document.getElementById('group-context-root');
   const direct = document.getElementById('main-ui-direct');
   if (root) root.classList.add('hidden');
