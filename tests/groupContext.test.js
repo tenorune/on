@@ -7,6 +7,17 @@ jest.mock('../js/db.js', () => ({
   watchStatus: jest.fn(() => () => {}),
   watchOwnMemberOverride: jest.fn(() => () => {}),
   removeUserGroupsEntry: jest.fn().mockResolvedValue(undefined),
+  timeRemainingMs: jest.fn((availableUntil) => Math.max(0, availableUntil - Date.now())),
+  formatTimeRemaining: jest.fn((ms) => {
+    if (ms <= 0) return '';
+    if (ms < 60000) return '< 1m';
+    const totalMinutes = Math.floor(ms / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes}m`;
+    if (minutes === 0) return `${hours}h`;
+    return `${hours}h ${minutes}m`;
+  }),
 }));
 jest.mock('../js/invites.js', () => ({
   buildInviteUrl: jest.fn((token) => `https://app.example/?i=${token}`),
@@ -400,5 +411,16 @@ describe('own status row', () => {
     cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
     expect(document.getElementById('group-my-dot').classList.contains('readonly')).toBe(false);
     expect(document.getElementById('group-time-chip').classList.contains('readonly')).toBe(false);
+  });
+
+  test('exitGroupContext tears down own primary and override subscriptions', () => {
+    const ownPrimaryUnsub = jest.fn();
+    const ownOverrideUnsub = jest.fn();
+    db.watchStatus.mockImplementation(() => ownPrimaryUnsub);
+    db.watchOwnMemberOverride.mockImplementation(() => ownOverrideUnsub);
+    enterGroupContext('G1', 'me');
+    exitGroupContext();
+    expect(ownPrimaryUnsub).toHaveBeenCalledTimes(1);
+    expect(ownOverrideUnsub).toHaveBeenCalledTimes(1);
   });
 });

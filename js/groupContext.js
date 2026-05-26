@@ -2,7 +2,7 @@
 // Group context view: breadcrumb, header, roster. Roster + settings populated
 // in Tasks 16-17. This scaffolding handles enter/exit and the breadcrumb back.
 
-import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry } from './db.js';
+import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs } from './db.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName } from './groups.js';
@@ -92,6 +92,9 @@ function renderOwnStatusRow() {
 
   dot.dataset.available = isAvailable ? 'true' : 'false';
   dot.classList.toggle('available', isAvailable);
+  const color = source?.statusColor || null;
+  if (isAvailable && color) dot.style.background = safeCssColor(color);
+  else dot.style.background = '';
   label.textContent = isAvailable ? 'Available' : 'Unavailable';
 
   // Read-only mode applies the dot + chip dimming when override is OFF.
@@ -99,12 +102,15 @@ function renderOwnStatusRow() {
   if (timeChip) timeChip.classList.toggle('readonly', !overrideOn);
 
   if (timeRemaining) {
+    // null availableUntil means open-ended; no countdown to show
     if (isAvailable && availableUntil) {
-      const ms = Math.max(0, availableUntil - Date.now());
-      const hours = Math.floor(ms / 3600000);
-      const minutes = Math.floor((ms % 3600000) / 60000);
-      timeRemaining.textContent = '· ' + (hours > 0 ? `${hours}h ` : '') + `${minutes}m left`;
-      timeRemaining.style.display = '';
+      const formatted = formatTimeRemaining(timeRemainingMs(availableUntil));
+      if (formatted) {
+        timeRemaining.textContent = '· ' + formatted + ' left';
+        timeRemaining.style.display = '';
+      } else {
+        timeRemaining.style.display = 'none';
+      }
     } else {
       timeRemaining.style.display = 'none';
     }
