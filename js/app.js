@@ -9,7 +9,10 @@ import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENA
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
-import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInviteCreatorLabel } from './invites.js';
+import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
+import { initNav, startCardsRowSubscriptions, initCardsRow, onContextChange, applyServerCurrentContext, navigateToGroup } from './groupNav.js';
+import { enterGroupContext, exitGroupContext } from './groupContext.js';
+import { initGroupRemovalDetector } from './groups.js';
 
 
 let splashCounter = 0;
@@ -72,17 +75,19 @@ async function ensureIdentity(pendingInviteToken = null) {
   }
 
   // Empty localStorage — true new user OR cleared cache.
-  // Resolve invite creator label BEFORE dismissing splash, so the welcome
-  // screen renders with framing already populated. resolveInviteCreatorLabel
+  // Resolve invite preview BEFORE dismissing splash, so the welcome
+  // screen renders with framing already populated. resolveInvitePreview
   // returns null synchronously when there is no pending token, so non-invite
   // boots do not pay the round-trip cost.
-  const inviteCreatorLabel = await resolveInviteCreatorLabel(pendingInviteToken);
+  const invitePreview = await resolveInvitePreview(pendingInviteToken);
+  const inviteCreatorLabel = invitePreview?.scope === 'personal' ? invitePreview.label : null;
+  const inviteGroupName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
   // Dismiss splash so the user can see and interact with the welcome screen.
   dismissSplash();
   // Loop so that cancelling the restore screen returns the user to the
   // welcome screen, not silently into the new-account flow.
   while (true) {
-    const choice = await showWelcomeScreen({ inviteCreatorLabel });
+    const choice = await showWelcomeScreen({ inviteCreatorLabel, inviteGroupName });
     if (choice === 'restore') {
       const restored = await showRestoreScreen();
       if (restored) {
@@ -130,19 +135,17 @@ function showStaleScreen() {
   });
 }
 
-export function showWelcomeScreen({ inviteCreatorLabel = null } = {}) {
+export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName = null } = {}) {
   const el = document.getElementById('welcome-screen');
   const newBtn = document.getElementById('welcome-new-btn');
   const restoreBtn = document.getElementById('welcome-restore-btn');
   const framingEl = document.getElementById('welcome-invite-framing');
   if (framingEl) {
-    if (inviteCreatorLabel) {
-      framingEl.textContent = `You've been invited to follow ${inviteCreatorLabel}. First, let's set up your account.`;
-      framingEl.classList.remove('hidden');
-    } else {
-      framingEl.textContent = '';
-      framingEl.classList.add('hidden');
-    }
+    let text = '';
+    if (inviteCreatorLabel) text = `You've been invited to follow ${inviteCreatorLabel}. First, let's set up your account.`;
+    else if (inviteGroupName) text = `You've been invited to join '${inviteGroupName}'. First, let's set up your account.`;
+    framingEl.textContent = text;
+    framingEl.classList.toggle('hidden', !text);
   }
   el.classList.remove('hidden');
   return new Promise((resolve) => {
@@ -254,6 +257,32 @@ export function showRestoreScreen() {
   });
 }
 
+function showGroupDisplayNamePrompt(groupName) {
+  const screen = document.getElementById('group-displayname-screen');
+  const framing = document.getElementById('group-displayname-framing');
+  const input = document.getElementById('group-displayname-input');
+  const errEl = document.getElementById('group-displayname-error');
+  const submit = document.getElementById('group-displayname-submit-btn');
+
+  framing.textContent = `Your name in '${groupName}'`;
+  errEl.textContent = '';
+  errEl.classList.add('hidden');
+  input.value = '';
+  screen.classList.remove('hidden');
+
+  return new Promise((resolve) => {
+    function onSubmit() {
+      const trimmed = (input.value || '').trim();
+      if (!trimmed) { errEl.textContent = 'Please enter a name.'; errEl.classList.remove('hidden'); return; }
+      if (trimmed.length > 40) { errEl.textContent = 'Name must be at most 40 characters.'; errEl.classList.remove('hidden'); return; }
+      submit.removeEventListener('click', onSubmit);
+      screen.classList.add('hidden');
+      resolve(trimmed);
+    }
+    submit.addEventListener('click', onSubmit);
+  });
+}
+
 function handleInviteRedemptionResult(result) {
   if (result.ok) {
     // On success, the follow is now in place. No banner — the contact will appear
@@ -283,6 +312,9 @@ function inviteFailureCopy(reason) {
     case 'self':      return "That's your own invite link.";
     case 'already-following': return 'You already follow this person.';
     case 'creator-missing':   return "The link's creator no longer has an account.";
+    case 'group-missing':     return "That group no longer exists.";
+    case 'already-member':    return "You're already in that group.";
+    case 'invalid-display-name': return 'Please choose a different display name.';
     default:          return "This invite link can't be used right now.";
   }
 }
@@ -300,12 +332,31 @@ async function main() {
   const { identity, isNew } = await ensureIdentity(pendingInviteToken);
   const { userId, code } = identity;
 
+  // Wire navigation BEFORE the invite-redemption block, otherwise navigateToGroup
+  // writes to users/null/... (because initNav hasn't set the local userId yet) AND
+  // its state change gets wiped by initNav's reset-to-direct that follows.
+  initNav(userId);
+  onContextChange((ctx) => {
+    if (ctx.context === 'group') enterGroupContext(ctx.groupId, userId);
+    else exitGroupContext();
+  });
+
   if (pendingInviteToken) {
-    const result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+    let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+    if (result && result.ok === false && result.reason === 'needs-display-name') {
+      // Look up the group name for the prompt.
+      const preview = await resolveInvitePreview(pendingInviteToken);
+      const groupName = preview?.scope === 'group' ? preview.groupName : 'this group';
+      const displayName = await showGroupDisplayNamePrompt(groupName);
+      result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, { displayName });
+    }
     if (result) {
       handleInviteRedemptionResult(result);
       // Clean the URL so a refresh doesn't re-trigger.
       cleanInviteParamFromUrl();
+      if (result.ok && result.groupId) {
+        await navigateToGroup(result.groupId);
+      }
     }
   }
 
@@ -321,6 +372,10 @@ async function main() {
   }
   initList(userId, code);
   if (KNOCK_ENABLED) initKnocks(userId);
+
+  initCardsRow();
+  startCardsRowSubscriptions();
+  initGroupRemovalDetector(userId);
 
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
 
@@ -412,6 +467,7 @@ async function main() {
     if (userData.lastTimeoutMinutes) {
       updateChipFromServer(userData.lastTimeoutMinutes);
     }
+    applyServerCurrentContext(userData?.currentContext || 'direct');
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);
     const effectiveStatus = expired ? 'unavailable' : userData.status;

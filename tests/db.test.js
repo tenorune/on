@@ -6,6 +6,12 @@ const {
   readUserInvite, writeUserInvite, deleteUserInvite,
   setInviteRevoked, incrementInviteRedemptions, getCreatorCode,
   watchUserInvites, readUserInvites,
+  claimGroupId,
+  writeUserGroupsEntry, removeUserGroupsEntry, readUserGroups, watchUserGroups,
+  setLastVisited, setCurrentContext,
+  writeGroup, readGroup, renameGroup, deleteGroup, watchGroupMeta,
+  writeMember, readMember, readMembers, removeMember, setMemberDisplayName, watchGroupMembers,
+  writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions, watchGroupInvites,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -329,5 +335,244 @@ describe('readUserInvites', () => {
     get.mockResolvedValueOnce({ exists: () => false });
     const result = await readUserInvites('uid1');
     expect(result).toEqual({});
+  });
+});
+
+describe('claimGroupId', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('claims a fresh group id transactionally', async () => {
+    runTransaction.mockResolvedValue({ committed: true });
+    const ok = await claimGroupId('G1ABCD23');
+    expect(ok).toBe(true);
+    const handler = runTransaction.mock.calls[0][1];
+    expect(handler(null)).toBe(true);
+    expect(handler(true)).toBeUndefined();
+  });
+
+  test('returns false when the transaction aborts', async () => {
+    runTransaction.mockResolvedValue({ committed: false });
+    const ok = await claimGroupId('TAKENID1');
+    expect(ok).toBe(false);
+  });
+});
+
+describe('user-side groups enumeration', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('writeUserGroupsEntry writes lastVisited (or empty object) at users/{uid}/groups/{groupId}', async () => {
+    set.mockResolvedValue();
+    await writeUserGroupsEntry('uid1', 'G1', { lastVisited: 1234 });
+    expect(set).toHaveBeenCalledWith('mock-ref', { lastVisited: 1234 });
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/groups/G1');
+  });
+
+  test('writeUserGroupsEntry with no payload writes true', async () => {
+    set.mockResolvedValue();
+    await writeUserGroupsEntry('uid1', 'G1');
+    expect(set).toHaveBeenCalledWith('mock-ref', true);
+  });
+
+  test('removeUserGroupsEntry removes the enumeration record', async () => {
+    remove.mockResolvedValue();
+    await removeUserGroupsEntry('uid1', 'G1');
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/groups/G1');
+    expect(remove).toHaveBeenCalled();
+  });
+
+  test('readUserGroups returns the collection', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ G1: { lastVisited: 10 }, G2: true }) });
+    const result = await readUserGroups('uid1');
+    expect(result).toEqual({ G1: { lastVisited: 10 }, G2: true });
+  });
+
+  test('readUserGroups returns empty object on miss', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    expect(await readUserGroups('uid1')).toEqual({});
+  });
+
+  test('watchUserGroups subscribes to users/{uid}/groups', () => {
+    let cb;
+    onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });
+    const seen = [];
+    watchUserGroups('uid1', (data) => seen.push(data));
+    cb({ exists: () => true, val: () => ({ G1: true }) });
+    expect(seen[0]).toEqual({ G1: true });
+    cb({ exists: () => false });
+    expect(seen[1]).toEqual({});
+  });
+
+  test('setLastVisited updates only the lastVisited field', async () => {
+    update.mockResolvedValue();
+    await setLastVisited('uid1', 'G1', 99999);
+    expect(update).toHaveBeenCalledWith('mock-ref', { lastVisited: 99999 });
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/groups/G1');
+  });
+});
+
+describe('currentContext sync', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('setCurrentContext writes users/{uid}/currentContext', async () => {
+    set.mockResolvedValue();
+    await setCurrentContext('uid1', 'group:G1');
+    expect(set).toHaveBeenCalledWith('mock-ref', 'group:G1');
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/currentContext');
+  });
+
+  test('setCurrentContext can be set to direct', async () => {
+    set.mockResolvedValue();
+    await setCurrentContext('uid1', 'direct');
+    expect(set).toHaveBeenCalledWith('mock-ref', 'direct');
+  });
+});
+
+describe('group entity ops', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('writeGroup creates the group record', async () => {
+    set.mockResolvedValue();
+    const payload = { name: 'Family', ownerId: 'uid1', createdAt: 12345 };
+    await writeGroup('G1ABCD23', payload);
+    expect(set).toHaveBeenCalledWith('mock-ref', payload);
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1ABCD23');
+  });
+
+  test('readGroup returns the record when present', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ name: 'Family', ownerId: 'uid1', createdAt: 12345 }) });
+    const result = await readGroup('G1ABCD23');
+    expect(result).toEqual({ name: 'Family', ownerId: 'uid1', createdAt: 12345 });
+  });
+
+  test('readGroup returns null when missing', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    expect(await readGroup('NOPE0001')).toBeNull();
+  });
+
+  test('renameGroup writes only the name field', async () => {
+    update.mockResolvedValue();
+    await renameGroup('G1ABCD23', 'Familia');
+    expect(update).toHaveBeenCalledWith('mock-ref', { name: 'Familia' });
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1ABCD23');
+  });
+
+  test('deleteGroup removes the entire groups/{groupId} subtree', async () => {
+    remove.mockResolvedValue();
+    await deleteGroup('G1ABCD23');
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1ABCD23');
+    expect(remove).toHaveBeenCalled();
+  });
+
+  test('watchGroupMeta subscribes to groups/{groupId} and strips members/invites for the meta-only callback', () => {
+    let cb;
+    onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });
+    const seen = [];
+    watchGroupMeta('G1ABCD23', (meta) => seen.push(meta));
+    cb({ exists: () => true, val: () => ({ name: 'Family', ownerId: 'uid1', createdAt: 1, members: { u: {} }, invites: { i: {} } }) });
+    expect(seen[0]).toEqual({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    cb({ exists: () => false });
+    expect(seen[1]).toBeNull();
+  });
+});
+
+describe('group members', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('writeMember writes the full member record', async () => {
+    set.mockResolvedValue();
+    const member = { role: 'member', displayName: 'Mike P.', joinedAt: 1234 };
+    await writeMember('G1', 'uid2', member);
+    expect(set).toHaveBeenCalledWith('mock-ref', member);
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uid2');
+  });
+
+  test('readMember returns the record', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ role: 'member', displayName: 'Mike', joinedAt: 1 }) });
+    const result = await readMember('G1', 'uid2');
+    expect(result).toEqual({ role: 'member', displayName: 'Mike', joinedAt: 1 });
+  });
+
+  test('readMember returns null when missing', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    expect(await readMember('G1', 'unknownUid')).toBeNull();
+  });
+
+  test('readMembers returns the full collection', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ uid1: { role: 'owner' }, uid2: { role: 'member' } }) });
+    const result = await readMembers('G1');
+    expect(result).toEqual({ uid1: { role: 'owner' }, uid2: { role: 'member' } });
+  });
+
+  test('readMembers returns empty object on miss', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    expect(await readMembers('G1')).toEqual({});
+  });
+
+  test('removeMember removes the member record', async () => {
+    remove.mockResolvedValue();
+    await removeMember('G1', 'uid2');
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uid2');
+    expect(remove).toHaveBeenCalled();
+  });
+
+  test('setMemberDisplayName updates only the displayName field', async () => {
+    update.mockResolvedValue();
+    await setMemberDisplayName('G1', 'uid2', 'M. P.');
+    expect(update).toHaveBeenCalledWith('mock-ref', { displayName: 'M. P.' });
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uid2');
+  });
+
+  test('watchGroupMembers subscribes to the members collection', () => {
+    let cb;
+    onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });
+    const seen = [];
+    watchGroupMembers('G1', (members) => seen.push(members));
+    cb({ exists: () => true, val: () => ({ uid1: { role: 'owner', displayName: 'Alice' } }) });
+    expect(seen[0]).toEqual({ uid1: { role: 'owner', displayName: 'Alice' } });
+    cb({ exists: () => false });
+    expect(seen[1]).toEqual({});
+  });
+});
+
+describe('group invite ops', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('writeGroupInvite writes at groups/{groupId}/invites/{token}', async () => {
+    set.mockResolvedValue();
+    const payload = { scope: 'group', token: 'T', creatorUid: 'uid1', createdAt: 1, expiresAt: null, redemptionCap: null, redemptionsUsed: 0, revoked: false };
+    await writeGroupInvite('G1', 'T', payload);
+    expect(set).toHaveBeenCalledWith('mock-ref', payload);
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/invites/T');
+  });
+
+  test('readGroupInvites returns the full collection', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ T1: { scope: 'group', creatorUid: 'uid1', revoked: false } }) });
+    expect(await readGroupInvites('G1')).toEqual({ T1: { scope: 'group', creatorUid: 'uid1', revoked: false } });
+  });
+
+  test('setGroupInviteRevoked marks revoked', async () => {
+    update.mockResolvedValue();
+    await setGroupInviteRevoked('G1', 'T');
+    expect(update).toHaveBeenCalledWith('mock-ref', { revoked: true });
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/invites/T');
+  });
+
+  test('incrementGroupInviteRedemptions transactionally bumps the counter', async () => {
+    runTransaction.mockResolvedValue({ committed: true });
+    await incrementGroupInviteRedemptions('G1', 'T');
+    const handler = runTransaction.mock.calls[0][1];
+    expect(handler(3)).toBe(4);
+    expect(handler(null)).toBe(1);
+  });
+
+  test('watchGroupInvites subscribes to the collection', () => {
+    let cb;
+    onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });
+    const seen = [];
+    watchGroupInvites('G1', (invites) => seen.push(invites));
+    cb({ exists: () => true, val: () => ({ T: { scope: 'group', revoked: false } }) });
+    expect(seen[0]).toEqual({ T: { scope: 'group', revoked: false } });
+    cb({ exists: () => false });
+    expect(seen[1]).toEqual({});
   });
 });

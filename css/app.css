@@ -801,3 +801,116 @@ main {
 .modal-card-small {
   max-width: 320px;
 }
+.group-cards-row {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.5rem 0;
+  margin-bottom: 0.5rem;
+}
+.group-card {
+  flex: 0 0 auto;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--surface2);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  position: relative;
+  border: none;
+}
+.group-card.active { outline: 2px solid var(--accent); }
+.group-card-badge {
+  position: absolute;
+  top: -0.25rem;
+  right: -0.25rem;
+  background: var(--accent);
+  color: var(--text);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  min-width: 1.2rem;
+  text-align: center;
+}
+.group-cards-plus {
+  flex: 0 0 auto;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px dashed var(--text-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.group-cards-zero {
+  flex: 1;
+  text-align: center;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: transparent;
+  border: 1px dashed var(--text-muted);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+/* Group context view */
+.group-context-actions { position: relative; }
+.group-context-actions summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.9rem;
+  list-style: none;
+}
+.group-context-actions summary::-webkit-details-marker { display: none; }
+.group-actions-menu {
+  position: absolute;
+  right: 0;
+  margin-top: 0.5rem;
+  background: var(--surface2);
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  z-index: 5;
+}
+
+/* Group context view */
+.group-context-root { padding: 0.75rem; }
+.group-breadcrumb { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+.group-breadcrumb-back {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+}
+.group-breadcrumb-name { color: var(--text-muted); }
+.group-context-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+.group-context-name { font-size: 1.25rem; font-weight: 700; margin: 0; }
+.group-roster { list-style: none; padding: 0; margin: 0; }
+.group-roster-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.25rem; }
+.role-badge { color: var(--text-muted); font-size: 0.85rem; font-weight: normal; }
+
+/* Group removal toast */
+.group-removal-toast {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface2);
+  color: var(--text);
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  z-index: 100;
+  max-width: calc(100vw - 2rem);
+}
+.group-removal-toast.hidden {
+  display: none;
+}

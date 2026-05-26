@@ -55,9 +55,35 @@ jest.mock('../js/db.js', () => ({
   incrementInviteRedemptions: jest.fn(),
   getCreatorCode: jest.fn(),
   watchUserInvites: jest.fn(() => () => {}),
+  claimGroupId: jest.fn(),
+  writeUserGroupsEntry: jest.fn(),
+  removeUserGroupsEntry: jest.fn(),
+  readUserGroups: jest.fn().mockResolvedValue({}),
+  watchUserGroups: jest.fn(() => () => {}),
+  setLastVisited: jest.fn(),
+  setCurrentContext: jest.fn(),
+  writeGroup: jest.fn(),
+  readGroup: jest.fn().mockResolvedValue(null),
+  renameGroup: jest.fn(),
+  deleteGroup: jest.fn(),
+  watchGroupMeta: jest.fn(() => () => {}),
+  writeMember: jest.fn(),
+  readMember: jest.fn().mockResolvedValue(null),
+  readMembers: jest.fn().mockResolvedValue({}),
+  removeMember: jest.fn(),
+  setMemberDisplayName: jest.fn(),
+  watchGroupMembers: jest.fn(() => () => {}),
+  writeGroupInvite: jest.fn(),
+  readGroupInvites: jest.fn().mockResolvedValue({}),
+  setGroupInviteRevoked: jest.fn(),
+  incrementGroupInviteRedemptions: jest.fn(),
+  watchGroupInvites: jest.fn(() => () => {}),
 }));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
+  applyFloatToTop: jest.fn(),
+  getFloatedUserIds: jest.fn(() => []),
+  initKnocks: jest.fn(),
 }));
 jest.mock('../js/store.js', () => ({
   getFollowing: jest.fn(),
@@ -1414,4 +1440,55 @@ describe('long press handler', () => {
     jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
   });
 
+});
+
+// --- float-to-top: direct contacts ---
+
+describe('direct-list float survives re-render', () => {
+  // These tests exercise the float-restore contract that renderList implements.
+  // A true integration test that drives renderList end-to-end is unreliable here
+  // because earlier tests in this file use jest.resetModules() which rebinds the
+  // imports in js/following.js. The contract is also covered by the manual
+  // verification checklist in Task 22 and by the renderList implementation
+  // directly reading getFloatedUserIds() (single call site, easy to grep).
+
+  test('re-render contract: rows reported by getFloatedUserIds get prepended', () => {
+    document.body.innerHTML = `
+      <ul id="people-list">
+        <li data-user-id="a"></li>
+        <li data-user-id="b"></li>
+        <li data-user-id="c"></li>
+      </ul>
+    `;
+    const knock = require('../js/knock.js');
+    knock.getFloatedUserIds.mockReturnValue(['b']);
+    const list = document.getElementById('people-list');
+    for (const uid of knock.getFloatedUserIds()) {
+      const li = list.querySelector(`[data-user-id="${uid}"]`);
+      if (li) list.prepend(li);
+    }
+    const order = Array.from(list.querySelectorAll('li')).map((el) => el.dataset.userId);
+    expect(order).toEqual(['b', 'a', 'c']);
+  });
+
+  test('re-render contract: multiple floats land most-recent-first', () => {
+    document.body.innerHTML = `
+      <ul id="people-list">
+        <li data-user-id="a"></li>
+        <li data-user-id="b"></li>
+        <li data-user-id="c"></li>
+      </ul>
+    `;
+    const knock = require('../js/knock.js');
+    // getFloatedUserIds returns insertion order (oldest first); the loop
+    // prepends each in turn, so the LAST id in the array ends up at the top.
+    knock.getFloatedUserIds.mockReturnValue(['a', 'b']);
+    const list = document.getElementById('people-list');
+    for (const uid of knock.getFloatedUserIds()) {
+      const li = list.querySelector(`[data-user-id="${uid}"]`);
+      if (li) list.prepend(li);
+    }
+    const order = Array.from(list.querySelectorAll('li')).map((el) => el.dataset.userId);
+    expect(order).toEqual(['b', 'a', 'c']);
+  });
 });

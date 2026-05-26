@@ -13,7 +13,7 @@ import {
 import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
-import { sendKnock } from './knock.js';
+import { sendKnock, getFloatedUserIds } from './knock.js';
 import { saveFavorite, removeHistoryDuplicatesOfSlots, getAllCombos } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 
@@ -346,6 +346,13 @@ function renderList() {
   appendSection('Followers', sortFollowerOnly(followerOnly), (follower) => {
     createFollowerOnlyRow(follower, myUserId);
   });
+
+  // Re-prepend any rows still in their float window so a coincident re-sort
+  // doesn't lose the float-to-top position.
+  for (const uid of getFloatedUserIds()) {
+    const li = list.querySelector(`[data-user-id="${uid}"]`);
+    if (li) list.prepend(li);
+  }
 }
 
 function applyAdoption(entry, myUserId) {

@@ -1,8 +1,11 @@
 // js/inviteModal.js
 // Shared invite-link modal component. Parameterized by scope.
-// Phase 0 wires only scope='personal'. Phase 1 will wire scope='group'.
+// Wires both scope='personal' (Phase 0) and scope='group' (Phase 1).
 
-import { createPersonalInvite, regeneratePersonalInvite, revokePersonalInvite } from './invites.js';
+import {
+  createPersonalInvite, regeneratePersonalInvite, revokePersonalInvite,
+  createGroupInvite, regenerateGroupInvite, revokeGroupInvite,
+} from './invites.js';
 
 const SCOPE_COPY = {
   personal: {
@@ -10,8 +13,13 @@ const SCOPE_COPY = {
     subtitle: 'People who tap this link will follow you.',
     labelHint: 'Your name on the invite',
     labelPlaceholder: 'e.g. Mike P.',
+    needsLabel: true,
   },
-  // group scope copy added in Phase 1
+  group: {
+    title: 'Invite link for {groupName}',
+    subtitle: 'People who tap this link will join {groupName}.',
+    needsLabel: false,
+  },
 };
 
 let cleanupFns = [];
@@ -52,15 +60,28 @@ function closeModal() {
   clearListeners();
 }
 
-export function openInviteModal({ scope, userId, activeInvite = null }) {
+export function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null }) {
   const copy = SCOPE_COPY[scope];
   if (!copy) throw new Error(`Unknown scope: ${scope}`);
+  if (scope === 'group' && (!groupId || !groupName)) {
+    throw new Error('Group scope requires groupId and groupName.');
+  }
 
-  document.getElementById('invite-modal-title').textContent = copy.title;
-  document.getElementById('invite-modal-subtitle').textContent = copy.subtitle;
-  document.getElementById('invite-modal-label-input').placeholder = copy.labelPlaceholder;
+  const title = copy.title.replace('{groupName}', groupName || '');
+  const subtitle = copy.subtitle.replace('{groupName}', groupName || '');
+  document.getElementById('invite-modal-title').textContent = title;
+  document.getElementById('invite-modal-subtitle').textContent = subtitle;
+
+  // Show the label input only for scopes that need it.
   const labelHintEl = document.getElementById('invite-modal-label-hint');
-  if (labelHintEl) labelHintEl.textContent = copy.labelHint;
+  const labelInputEl = document.getElementById('invite-modal-label-input');
+  if (copy.needsLabel) {
+    if (labelHintEl) { labelHintEl.textContent = copy.labelHint; labelHintEl.classList.remove('hidden'); }
+    if (labelInputEl) { labelInputEl.classList.remove('hidden'); labelInputEl.placeholder = copy.labelPlaceholder; }
+  } else {
+    if (labelHintEl) labelHintEl.classList.add('hidden');
+    if (labelInputEl) labelInputEl.classList.add('hidden');
+  }
 
   hideError();
   clearListeners();
@@ -73,19 +94,27 @@ export function openInviteModal({ scope, userId, activeInvite = null }) {
     renderManageUrl(currentInvite.url);
   } else {
     showState('create');
-    document.getElementById('invite-modal-label-input').value = '';
+    if (labelInputEl) labelInputEl.value = '';
   }
 
-  // Create
+  // Create handler — branch by scope. hideError() runs before the await so a
+  // stale error from a previous attempt doesn't linger across the round-trip.
   on(document.getElementById('invite-modal-create-btn'), 'click', async () => {
-    const raw = document.getElementById('invite-modal-label-input').value;
-    const trimmed = (raw || '').trim();
-    if (!trimmed) { showError('Please enter a name.'); return; }
-    if (trimmed.length > 40) { showError('Name must be at most 40 characters.'); return; }
-    hideError();
     try {
-      const result = await createPersonalInvite(userId, trimmed);
-      currentInvite = { token: result.token, url: result.url, creatorLabel: trimmed };
+      let result;
+      if (scope === 'personal') {
+        const raw = labelInputEl.value;
+        const trimmed = (raw || '').trim();
+        if (!trimmed) { showError('Please enter a name.'); return; }
+        if (trimmed.length > 40) { showError('Name must be at most 40 characters.'); return; }
+        hideError();
+        result = await createPersonalInvite(userId, trimmed);
+        currentInvite = { token: result.token, url: result.url, scope, creatorLabel: trimmed };
+      } else {
+        hideError();
+        result = await createGroupInvite(userId, groupId);
+        currentInvite = { token: result.token, url: result.url, scope, groupId, groupName };
+      }
       showState('manage');
       renderManageUrl(result.url);
     } catch (err) {
@@ -95,7 +124,7 @@ export function openInviteModal({ scope, userId, activeInvite = null }) {
 
   on(document.getElementById('invite-modal-cancel-btn'), 'click', () => closeModal());
 
-  // Copy — match the recovery-code modal's "Copy → Copied! → Copy" feedback.
+  // Copy — unchanged from Phase 0
   on(document.getElementById('invite-modal-copy-btn'), 'click', async () => {
     if (!currentInvite) return;
     const btn = document.getElementById('invite-modal-copy-btn');
@@ -106,32 +135,33 @@ export function openInviteModal({ scope, userId, activeInvite = null }) {
     } catch { /* clipboard denied */ }
   });
 
-  // Regenerate
+  // Regenerate — branch by scope
   on(document.getElementById('invite-modal-regen-btn'), 'click', async () => {
     if (!currentInvite) return;
     try {
-      const result = await regeneratePersonalInvite(userId, currentInvite.creatorLabel);
-      currentInvite = { token: result.token, url: result.url, creatorLabel: currentInvite.creatorLabel };
+      const result = scope === 'personal'
+        ? await regeneratePersonalInvite(userId, currentInvite.creatorLabel)
+        : await regenerateGroupInvite(userId, groupId);
+      currentInvite = { ...currentInvite, token: result.token, url: result.url };
       renderManageUrl(result.url);
-      // Reset Copy button text in case a prior copy left it on "Copied!".
       document.getElementById('invite-modal-copy-btn').textContent = 'Copy';
     } catch (err) {
       showError(err.message || 'Could not regenerate invite. Try again.');
     }
   });
 
-  // Revoke
+  // Revoke — branch by scope
   on(document.getElementById('invite-modal-revoke-btn'), 'click', async () => {
     try {
-      await revokePersonalInvite(userId);
+      if (scope === 'personal') await revokePersonalInvite(userId);
+      else await revokeGroupInvite(userId, groupId);
       currentInvite = null;
       showState('create');
-      document.getElementById('invite-modal-label-input').value = '';
+      if (labelInputEl) labelInputEl.value = '';
     } catch (err) {
       showError(err.message || 'Could not revoke invite. Try again.');
     }
   });
 
-  // Close
   on(document.getElementById('invite-modal-close-btn'), 'click', () => closeModal());
 }

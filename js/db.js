@@ -150,6 +150,146 @@ export async function readUserInvites(userId) {
   return snap.exists() ? snap.val() : {};
 }
 
+// ── Groups: user-side enumeration + ID allocation ─────────────────────────────
+// users/{uid}/groups/{groupId} is the user's per-group enumeration record.
+// In Phase 1 the only field is optional `lastVisited` (for cards-row ordering).
+// groupIdIndex/{groupId} is a global existence lock for transactional allocation.
+
+export async function claimGroupId(groupId) {
+  const indexRef = ref(db, `groupIdIndex/${groupId}`);
+  const result = await runTransaction(indexRef, (current) => {
+    if (current !== null) return; // abort — id already claimed
+    return true;
+  });
+  return result.committed;
+}
+
+export async function writeUserGroupsEntry(userId, groupId, payload) {
+  const value = payload === undefined ? true : payload;
+  await set(ref(db, `users/${userId}/groups/${groupId}`), value);
+}
+
+export async function removeUserGroupsEntry(userId, groupId) {
+  await remove(ref(db, `users/${userId}/groups/${groupId}`));
+}
+
+export async function readUserGroups(userId) {
+  const snap = await get(ref(db, `users/${userId}/groups`));
+  return snap.exists() ? snap.val() : {};
+}
+
+export function watchUserGroups(userId, callback) {
+  const groupsRef = ref(db, `users/${userId}/groups`);
+  return onValue(groupsRef, (snap) => {
+    callback(snap.exists() ? snap.val() : {});
+  });
+}
+
+export async function setLastVisited(userId, groupId, ts) {
+  await update(ref(db, `users/${userId}/groups/${groupId}`), { lastVisited: ts });
+}
+
+export async function setCurrentContext(userId, context) {
+  await set(ref(db, `users/${userId}/currentContext`), context);
+}
+
+// ── Groups: entity CRUD + meta subscription ───────────────────────────────────
+// groups/{groupId} root fields: name, ownerId, createdAt, (post-MVP: color, paletteKey).
+// Sub-collections: members/, invites/ — managed by separate helpers below.
+
+export async function writeGroup(groupId, payload) {
+  await set(ref(db, `groups/${groupId}`), payload);
+}
+
+export async function readGroup(groupId) {
+  const snap = await get(ref(db, `groups/${groupId}`));
+  return snap.exists() ? snap.val() : null;
+}
+
+export async function renameGroup(groupId, name) {
+  await update(ref(db, `groups/${groupId}`), { name });
+}
+
+export async function deleteGroup(groupId) {
+  await remove(ref(db, `groups/${groupId}`));
+}
+
+// Subscription that strips sub-collections so callers only react to meta changes
+// (name, ownerId, etc.). Members and invites are watched separately.
+const GROUP_META_FIELDS = ['name', 'ownerId', 'createdAt', 'color', 'paletteKey'];
+
+export function watchGroupMeta(groupId, callback) {
+  const groupRef = ref(db, `groups/${groupId}`);
+  return onValue(groupRef, (snap) => {
+    if (!snap.exists()) { callback(null); return; }
+    const val = snap.val() || {};
+    const meta = {};
+    for (const k of GROUP_META_FIELDS) {
+      if (val[k] !== undefined) meta[k] = val[k];
+    }
+    callback(meta);
+  });
+}
+
+// ── Groups: members ───────────────────────────────────────────────────────────
+// groups/{groupId}/members/{memberUid}: { role, displayName, joinedAt, statusOverride? (Phase 2) }.
+
+export async function writeMember(groupId, memberUid, member) {
+  await set(ref(db, `groups/${groupId}/members/${memberUid}`), member);
+}
+
+export async function readMember(groupId, memberUid) {
+  const snap = await get(ref(db, `groups/${groupId}/members/${memberUid}`));
+  return snap.exists() ? snap.val() : null;
+}
+
+export async function readMembers(groupId) {
+  const snap = await get(ref(db, `groups/${groupId}/members`));
+  return snap.exists() ? snap.val() : {};
+}
+
+export async function removeMember(groupId, memberUid) {
+  await remove(ref(db, `groups/${groupId}/members/${memberUid}`));
+}
+
+export async function setMemberDisplayName(groupId, memberUid, displayName) {
+  await update(ref(db, `groups/${groupId}/members/${memberUid}`), { displayName });
+}
+
+export function watchGroupMembers(groupId, callback) {
+  const membersRef = ref(db, `groups/${groupId}/members`);
+  return onValue(membersRef, (snap) => {
+    callback(snap.exists() ? snap.val() : {});
+  });
+}
+
+// ── Groups: invites ───────────────────────────────────────────────────────────
+
+export async function writeGroupInvite(groupId, token, payload) {
+  await set(ref(db, `groups/${groupId}/invites/${token}`), payload);
+}
+
+export async function readGroupInvites(groupId) {
+  const snap = await get(ref(db, `groups/${groupId}/invites`));
+  return snap.exists() ? snap.val() : {};
+}
+
+export async function setGroupInviteRevoked(groupId, token) {
+  await update(ref(db, `groups/${groupId}/invites/${token}`), { revoked: true });
+}
+
+export async function incrementGroupInviteRedemptions(groupId, token) {
+  const inviteRef = ref(db, `groups/${groupId}/invites/${token}/redemptionsUsed`);
+  await runTransaction(inviteRef, (current) => (current || 0) + 1);
+}
+
+export function watchGroupInvites(groupId, callback) {
+  const invitesRef = ref(db, `groups/${groupId}/invites`);
+  return onValue(invitesRef, (snap) => {
+    callback(snap.exists() ? snap.val() : {});
+  });
+}
+
 // Write own status to Firebase
 export async function setStatus(userId, status, availableUntil) {
   await update(ref(db, `users/${userId}`), {
@@ -308,12 +448,20 @@ export async function getUser(userId) {
 
 // Write a knock from sender to recipient (capped at 5).
 // runTransaction: null → {count:1,ts}, count<5 → increment, count>=5 → abort.
-export async function writeKnock(recipientId, senderId) {
+// opts.contextGroupId — optional group surface context carried with the knock.
+export async function writeKnock(recipientId, senderId, opts = {}) {
   const knockRef = ref(db, `users/${recipientId}/knocks/${senderId}`);
   await runTransaction(knockRef, (current) => {
-    if (current === null) return { count: 1, ts: Date.now() };
+    if (current === null) {
+      const next = { count: 1, ts: Date.now() };
+      if (opts.contextGroupId) next.contextGroupId = opts.contextGroupId;
+      return next;
+    }
     if (current.count >= 5) return; // abort
-    return { count: current.count + 1, ts: Date.now() };
+    const next = { count: current.count + 1, ts: Date.now() };
+    if (opts.contextGroupId) next.contextGroupId = opts.contextGroupId;
+    else if (current.contextGroupId) next.contextGroupId = current.contextGroupId;
+    return next;
   });
 }
 

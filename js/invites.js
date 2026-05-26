@@ -7,8 +7,11 @@ import {
   setInviteRevoked, releaseInviteToken,
   readInviteIndex, readUserInvite, incrementInviteRedemptions, getCreatorCode,
   registerAsFollower, setFollowingEntry,
+  writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions,
+  readGroup, readMember,
 } from './db.js';
 import { getFollowing } from './store.js';
+import { joinGroup } from './groups.js';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 const LABEL_MAX = 40;
@@ -161,10 +164,61 @@ export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alr
 // same value), so the only observable effect is incrementInviteRedemptions firing
 // twice — the creator's redemption counter over-counts by 1. Acceptable for Phase 0;
 // a Firebase-authoritative guard inside redeemPersonalInvite would close the gap.
-export async function attemptRedeemFromUrl(token, redeemerUid, redeemerCode) {
+export async function attemptRedeemFromUrl(token, redeemerUid, redeemerCode, opts = {}) {
   if (!token) return null;
-  const followingSet = new Set(getFollowing().map((e) => e.userId));
-  return redeemPersonalInvite(token, redeemerUid, redeemerCode, followingSet);
+  const indexEntry = await readInviteIndex(token);
+  if (!indexEntry) return { ok: false, reason: 'not-found' };
+
+  if (indexEntry.scope === 'personal') {
+    const followingSet = new Set(getFollowing().map((e) => e.userId));
+    return redeemPersonalInvite(token, redeemerUid, redeemerCode, followingSet);
+  }
+  if (indexEntry.scope === 'group') {
+    if (!opts.displayName) {
+      return { ok: false, reason: 'needs-display-name', groupId: parseGroupIdFromOwnerPath(indexEntry.ownerPath) };
+    }
+    return redeemGroupInvite(token, redeemerUid, opts.displayName);
+  }
+  return { ok: false, reason: 'not-found' };
+}
+
+function parseGroupIdFromOwnerPath(ownerPath) {
+  const m = ownerPath.match(/^groups\/([^/]+)\/invites\/[^/]+$/);
+  return m ? m[1] : null;
+}
+
+// Resolves invite metadata for the pre-redemption preview. Handles both
+// personal-scope (returns { scope, label }) and group-scope (returns { scope, groupName, groupId }).
+// Returns null on any failure (missing token, revoked, DB error, etc.).
+export async function resolveInvitePreview(token) {
+  if (!token) return null;
+  try {
+    const indexEntry = await readInviteIndex(token);
+    if (!indexEntry) return null;
+
+    if (indexEntry.scope === 'personal') {
+      const m = indexEntry.ownerPath.match(/^users\/([^/]+)\/invites\/([^/]+)$/);
+      if (!m) return null;
+      const invite = await readUserInvite(m[1], m[2]);
+      if (!invite || invite.revoked) return null;
+      return { scope: 'personal', label: invite.creatorLabel || null };
+    }
+
+    if (indexEntry.scope === 'group') {
+      const m = indexEntry.ownerPath.match(/^groups\/([^/]+)\/invites\/([^/]+)$/);
+      if (!m) return null;
+      const group = await readGroup(m[1]);
+      if (!group) return null;
+      const invitesByToken = await readGroupInvites(m[1]);
+      const invite = invitesByToken[m[2]];
+      if (!invite || invite.revoked) return null;
+      return { scope: 'group', groupName: group.name || null, groupId: m[1] };
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // Looks up just the creatorLabel for a personal-scope invite. Used by the welcome
@@ -196,4 +250,97 @@ export function extractInviteTokenFromUrl(urlStr) {
   } catch {
     return null;
   }
+}
+
+function findActiveGroupInviteForCreator(collection, creatorUid) {
+  for (const [token, inv] of Object.entries(collection || {})) {
+    if (inv && inv.scope === 'group' && inv.creatorUid === creatorUid && !inv.revoked) {
+      return { token, ...inv };
+    }
+  }
+  return null;
+}
+
+export async function createGroupInvite(creatorUid, groupId) {
+  const collection = await readGroupInvites(groupId);
+  const existing = findActiveGroupInviteForCreator(collection, creatorUid);
+  if (existing) {
+    return { token: existing.token, url: buildInviteUrl(existing.token), existing: true };
+  }
+
+  let token;
+  let claimed = false;
+  for (let attempt = 0; attempt < 8 && !claimed; attempt += 1) {
+    token = generateInviteToken();
+    claimed = await claimInviteToken(token, `groups/${groupId}/invites/${token}`);
+  }
+  if (!claimed) throw new Error('Could not allocate an invite token. Try again.');
+
+  const now = Date.now();
+  await writeGroupInvite(groupId, token, {
+    scope: 'group',
+    token,
+    creatorUid,
+    createdAt: now,
+    expiresAt: null,
+    redemptionCap: null,
+    redemptionsUsed: 0,
+    revoked: false,
+  });
+  return { token, url: buildInviteUrl(token), existing: false };
+}
+
+export async function revokeGroupInvite(creatorUid, groupId) {
+  const collection = await readGroupInvites(groupId);
+  const active = findActiveGroupInviteForCreator(collection, creatorUid);
+  if (!active) return;
+  await setGroupInviteRevoked(groupId, active.token);
+  await releaseInviteToken(active.token);
+}
+
+export async function regenerateGroupInvite(creatorUid, groupId) {
+  await revokeGroupInvite(creatorUid, groupId);
+  return createGroupInvite(creatorUid, groupId);
+}
+
+export async function redeemGroupInvite(token, redeemerUid, displayName) {
+  if (!token || typeof token !== 'string') return { ok: false, reason: 'not-found' };
+
+  const indexEntry = await readInviteIndex(token);
+  if (!indexEntry) return { ok: false, reason: 'not-found' };
+  if (indexEntry.scope !== 'group') return { ok: false, reason: 'not-found' };
+
+  const match = indexEntry.ownerPath.match(/^groups\/([^/]+)\/invites\/([^/]+)$/);
+  if (!match) return { ok: false, reason: 'not-found' };
+  const [, groupId] = match;
+
+  const group = await readGroup(groupId);
+  if (!group) return { ok: false, reason: 'group-missing' };
+
+  const invitesByToken = await readGroupInvites(groupId);
+  const invite = invitesByToken[token];
+  if (!invite) return { ok: false, reason: 'not-found' };
+  if (invite.revoked) return { ok: false, reason: 'revoked' };
+  if (invite.expiresAt != null && invite.expiresAt < Date.now()) return { ok: false, reason: 'expired' };
+  if (invite.redemptionCap != null && (invite.redemptionsUsed || 0) >= invite.redemptionCap) {
+    return { ok: false, reason: 'cap' };
+  }
+
+  const existingMember = await readMember(groupId, redeemerUid);
+  if (existingMember) {
+    return { ok: false, reason: 'already-member', groupId, groupName: group.name };
+  }
+
+  // joinGroup validates displayName (throws on empty / too-long) and throws
+  // 'Group not found.' if the group is deleted in the window since our guard.
+  // Surface either as a structured result so callers always get { ok, reason }.
+  try {
+    await joinGroup(groupId, redeemerUid, displayName);
+  } catch (err) {
+    if (/not found/i.test(err.message || '')) return { ok: false, reason: 'group-missing' };
+    return { ok: false, reason: 'invalid-display-name', message: err.message || 'Invalid display name.' };
+  }
+  await incrementGroupInviteRedemptions(groupId, token);
+
+  return { ok: true, groupId, groupName: group.name };
 }
