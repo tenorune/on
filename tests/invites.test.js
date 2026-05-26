@@ -713,3 +713,17 @@ describe('attemptRedeemFromUrl scope dispatch', () => {
     expect(result).toEqual({ ok: true, groupId: 'G1', groupName: 'Family' });
   });
 });
+
+describe('group-scope new-user flow integration (light)', () => {
+  test('attemptRedeemFromUrl with displayName succeeds for new user joining a group', async () => {
+    jest.clearAllMocks();
+    db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'owner', createdAt: 1 });
+    db.readGroupInvites.mockResolvedValue({
+      T: { scope: 'group', token: 'T', creatorUid: 'owner', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    });
+    db.readMember.mockResolvedValue(null);
+    const result = await attemptRedeemFromUrl('T', 'new-user', 'code', { displayName: 'Mike' });
+    expect(result).toEqual({ ok: true, groupId: 'G1', groupName: 'Family' });
+  });
+});

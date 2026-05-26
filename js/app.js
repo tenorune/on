@@ -257,6 +257,32 @@ export function showRestoreScreen() {
   });
 }
 
+function showGroupDisplayNamePrompt(groupName) {
+  const screen = document.getElementById('group-displayname-screen');
+  const framing = document.getElementById('group-displayname-framing');
+  const input = document.getElementById('group-displayname-input');
+  const errEl = document.getElementById('group-displayname-error');
+  const submit = document.getElementById('group-displayname-submit-btn');
+
+  framing.textContent = `Your name in '${groupName}'`;
+  errEl.textContent = '';
+  errEl.classList.add('hidden');
+  input.value = '';
+  screen.classList.remove('hidden');
+
+  return new Promise((resolve) => {
+    function onSubmit() {
+      const trimmed = (input.value || '').trim();
+      if (!trimmed) { errEl.textContent = 'Please enter a name.'; errEl.classList.remove('hidden'); return; }
+      if (trimmed.length > 40) { errEl.textContent = 'Name must be at most 40 characters.'; errEl.classList.remove('hidden'); return; }
+      submit.removeEventListener('click', onSubmit);
+      screen.classList.add('hidden');
+      resolve(trimmed);
+    }
+    submit.addEventListener('click', onSubmit);
+  });
+}
+
 function handleInviteRedemptionResult(result) {
   if (result.ok) {
     // On success, the follow is now in place. No banner — the contact will appear
@@ -286,6 +312,9 @@ function inviteFailureCopy(reason) {
     case 'self':      return "That's your own invite link.";
     case 'already-following': return 'You already follow this person.';
     case 'creator-missing':   return "The link's creator no longer has an account.";
+    case 'group-missing':     return "That group no longer exists.";
+    case 'already-member':    return "You're already in that group.";
+    case 'invalid-display-name': return 'Please choose a different display name.';
     default:          return "This invite link can't be used right now.";
   }
 }
@@ -304,11 +333,22 @@ async function main() {
   const { userId, code } = identity;
 
   if (pendingInviteToken) {
-    const result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+    let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+    if (result && result.ok === false && result.reason === 'needs-display-name') {
+      // Look up the group name for the prompt.
+      const preview = await resolveInvitePreview(pendingInviteToken);
+      const groupName = preview?.scope === 'group' ? preview.groupName : 'this group';
+      const displayName = await showGroupDisplayNamePrompt(groupName);
+      result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, { displayName });
+    }
     if (result) {
       handleInviteRedemptionResult(result);
       // Clean the URL so a refresh doesn't re-trigger.
       cleanInviteParamFromUrl();
+      if (result.ok && result.groupId) {
+        const { navigateToGroup } = await import('./groupNav.js');
+        await navigateToGroup(result.groupId);
+      }
     }
   }
 
