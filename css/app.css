@@ -855,6 +855,7 @@ main {
 }
 
 /* Group context view */
+.group-context-actions { position: relative; }
 .group-context-actions summary {
   cursor: pointer;
   color: var(--text);
