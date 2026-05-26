@@ -465,6 +465,9 @@ describe('own status row', () => {
     cbs.getPrimaryCb()({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#abcdef' });
     expect(document.getElementById('group-my-status-label').textContent).toBe('Available');
     expect(document.getElementById('group-my-dot').dataset.available).toBe('true');
+    // The label gets the .available class so CSS picks up var(--my-status)
+    // for the text color, matching Direct context behavior.
+    expect(document.getElementById('group-my-status-label').classList.contains('available')).toBe(true);
   });
 
   test('renders override status when override.enabled is true', () => {

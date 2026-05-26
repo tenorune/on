@@ -106,7 +106,8 @@ test('applyOwnStatus available: time-remaining is visible with time text', () =>
   jest.advanceTimersByTime(250);
   const el = document.getElementById('time-remaining');
   expect(el.style.display).not.toBe('none');
-  expect(el.textContent).toMatch(/^· .+ left$/);
+  // The · separator is rendered via CSS ::before, not in the textContent.
+  expect(el.textContent).toMatch(/^.+ left$/);
 });
 
 test('applyOwnStatus available: header-chips opacity set to 1 (rAF is synchronous in tests)', () => {

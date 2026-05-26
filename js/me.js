@@ -86,7 +86,7 @@ export function initHeader(myUserId) {
     const availableUntil = Date.now() + minutes * 60000;
     await setStatus(myUserId, 'available', availableUntil);
     const tr = document.getElementById('time-remaining');
-    tr.textContent = '· ' + formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
+    tr.textContent = formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
     setLastTimeout(minutes);
     setLastTimeoutMinutes(myUserId, minutes).catch(() => {});
   });
@@ -185,7 +185,7 @@ function setAvailable(availableUntil) {
     const timeRemaining = document.getElementById('time-remaining');
     label.classList.add('available');
     label.textContent = 'Available';
-    timeRemaining.textContent = '· ' + formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
+    timeRemaining.textContent = formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
     timeRemaining.style.opacity = '0';
     timeRemaining.style.display = '';
     chips.style.pointerEvents = 'auto';
@@ -202,7 +202,7 @@ function setAvailable(availableUntil) {
     if (ms <= 0) {
       setUnavailable();
     } else {
-      document.getElementById('time-remaining').textContent = '· ' + formatTimeRemaining(ms) + ' left';
+      document.getElementById('time-remaining').textContent = formatTimeRemaining(ms) + ' left';
     }
   }, 30000);
 }
