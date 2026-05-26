@@ -8,6 +8,7 @@ import {
   readGroup, readMember, readMembers,
   setLastVisited, setCurrentContext,
   watchUserGroups,
+  setStatusOverride, clearStatusOverride,
 } from './db.js';
 import { navigateToDirect, getCurrentContext, getLastKnownGroupName } from './groupNav.js';
 
@@ -189,4 +190,40 @@ export async function _feedSnapshotForTests(snapshot) {
   for (const groupId of removed) {
     await handleGroupRemoval('me', groupId);
   }
+}
+
+// ── Phase 2: per-group status overrides ──────────────────────────────────────
+
+// Note: Firebase RTDB set() strips null-valued keys on write. So a stored
+// override of { enabled:true, status:'unavailable', availableUntil:null }
+// reads back as { enabled:true, status:'unavailable' } — availableUntil is
+// undefined, not null. All readers in this codebase use `?? null` or `== null`
+// (loose) so this is accidentally correct, but be cautious about introducing
+// strict-equality (`=== null`) checks against availableUntil.
+export async function toggleStatusOverride(groupId, userId, nextEnabled) {
+  if (nextEnabled) {
+    await setStatusOverride(groupId, userId, {
+      enabled: true,
+      status: 'unavailable',
+      availableUntil: null,
+    });
+  } else {
+    await clearStatusOverride(groupId, userId);
+  }
+}
+
+export async function setOverrideStatusAvailable(groupId, userId, availableUntil) {
+  await setStatusOverride(groupId, userId, {
+    enabled: true,
+    status: 'available',
+    availableUntil,
+  });
+}
+
+export async function setOverrideStatusUnavailable(groupId, userId) {
+  await setStatusOverride(groupId, userId, {
+    enabled: true,
+    status: 'unavailable',
+    availableUntil: null,
+  });
 }

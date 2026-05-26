@@ -15,6 +15,8 @@ jest.mock('../js/db.js', () => ({
   setLastVisited: jest.fn(),
   setCurrentContext: jest.fn(),
   watchUserGroups: jest.fn(() => () => {}),
+  setStatusOverride: jest.fn(),
+  clearStatusOverride: jest.fn(),
 }));
 
 jest.mock('../js/groupNav.js', () => ({
@@ -25,7 +27,7 @@ jest.mock('../js/groupNav.js', () => ({
 
 const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
-const { createGroup, renameGroup, deleteGroup, leaveGroup, joinGroup, editOwnDisplayName, initGroupRemovalDetector, _resetGroupRemovalDetectorForTests, _feedSnapshotForTests } = require('../js/groups');
+const { createGroup, renameGroup, deleteGroup, leaveGroup, joinGroup, editOwnDisplayName, initGroupRemovalDetector, _resetGroupRemovalDetectorForTests, _feedSnapshotForTests, toggleStatusOverride, setOverrideStatusAvailable, setOverrideStatusUnavailable } = require('../js/groups');
 
 describe('createGroup', () => {
   beforeEach(() => {
@@ -256,6 +258,56 @@ describe('group removal detector', () => {
     await _feedSnapshotForTests({});
     await flushPromises();
     expect(document.getElementById('group-removal-toast-text').textContent).toBe("'G1ABCD23' has been deleted.");
+  });
+});
+
+describe('toggleStatusOverride', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('enables the override with status=unavailable and availableUntil=null', async () => {
+    db.setStatusOverride.mockResolvedValue(undefined);
+    await toggleStatusOverride('G1', 'uidA', true);
+    expect(db.setStatusOverride).toHaveBeenCalledWith('G1', 'uidA', {
+      enabled: true,
+      status: 'unavailable',
+      availableUntil: null,
+    });
+    expect(db.clearStatusOverride).not.toHaveBeenCalled();
+  });
+
+  test('disables by clearing the entire override record', async () => {
+    db.clearStatusOverride.mockResolvedValue(undefined);
+    await toggleStatusOverride('G1', 'uidA', false);
+    expect(db.clearStatusOverride).toHaveBeenCalledWith('G1', 'uidA');
+    expect(db.setStatusOverride).not.toHaveBeenCalled();
+  });
+});
+
+describe('setOverrideStatusAvailable', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('writes enabled=true, status=available, and the given availableUntil', async () => {
+    db.setStatusOverride.mockResolvedValue(undefined);
+    await setOverrideStatusAvailable('G1', 'uidA', 12345);
+    expect(db.setStatusOverride).toHaveBeenCalledWith('G1', 'uidA', {
+      enabled: true,
+      status: 'available',
+      availableUntil: 12345,
+    });
+  });
+});
+
+describe('setOverrideStatusUnavailable', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('writes enabled=true, status=unavailable, availableUntil=null', async () => {
+    db.setStatusOverride.mockResolvedValue(undefined);
+    await setOverrideStatusUnavailable('G1', 'uidA');
+    expect(db.setStatusOverride).toHaveBeenCalledWith('G1', 'uidA', {
+      enabled: true,
+      status: 'unavailable',
+      availableUntil: null,
+    });
   });
 });
 

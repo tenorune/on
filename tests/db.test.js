@@ -12,6 +12,7 @@ const {
   writeGroup, readGroup, renameGroup, deleteGroup, watchGroupMeta,
   writeMember, readMember, readMembers, removeMember, setMemberDisplayName, watchGroupMembers,
   writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions, watchGroupInvites,
+  setStatusOverride, clearStatusOverride, watchOwnMemberOverride,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -574,5 +575,42 @@ describe('group invite ops', () => {
     expect(seen[0]).toEqual({ T: { scope: 'group', revoked: false } });
     cb({ exists: () => false });
     expect(seen[1]).toEqual({});
+  });
+});
+
+describe('statusOverride helpers', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('setStatusOverride writes the sub-object at groups/{groupId}/members/{uid}/statusOverride', async () => {
+    set.mockResolvedValue();
+    await setStatusOverride('G1', 'uidA', { enabled: true, status: 'unavailable', availableUntil: null });
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uidA/statusOverride');
+    expect(set).toHaveBeenCalledWith('mock-ref', { enabled: true, status: 'unavailable', availableUntil: null });
+  });
+
+  test('setStatusOverride writes an available override with timestamp', async () => {
+    set.mockResolvedValue();
+    await setStatusOverride('G1', 'uidA', { enabled: true, status: 'available', availableUntil: 1234 });
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uidA/statusOverride');
+    expect(set).toHaveBeenCalledWith('mock-ref', { enabled: true, status: 'available', availableUntil: 1234 });
+  });
+
+  test('clearStatusOverride removes the sub-object', async () => {
+    remove.mockResolvedValue();
+    await clearStatusOverride('G1', 'uidA');
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uidA/statusOverride');
+    expect(remove).toHaveBeenCalledWith('mock-ref');
+  });
+
+  test('watchOwnMemberOverride subscribes to the override sub-object', () => {
+    let cb;
+    onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });
+    const seen = [];
+    watchOwnMemberOverride('G1', 'uidA', (data) => seen.push(data));
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uidA/statusOverride');
+    cb({ exists: () => true, val: () => ({ enabled: true, status: 'available', availableUntil: 99 }) });
+    expect(seen[0]).toEqual({ enabled: true, status: 'available', availableUntil: 99 });
+    cb({ exists: () => false });
+    expect(seen[1]).toBeNull();
   });
 });

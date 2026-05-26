@@ -2,7 +2,7 @@
 
 A handoff to whoever picks this up next. Read top-to-bottom; specific subsections can be re-skimmed when working in a particular area.
 
-**Most recent work:** Phase 0 (1:1 invite links) and Phase 1 (groups MVP) of the groups feature are shipped to `dev` with `GROUPS_ENABLED = true`. Phase 2 (per-audience status overrides) is the next planned work and not yet planned or built.
+**Most recent work:** Phase 0 (1:1 invite links), Phase 1 (groups MVP), and Phase 2 (per-group status overrides) of the groups feature are shipped to `dev` with `GROUPS_ENABLED = true`. MVP is now complete per spec §17. Phase 3 (in-app push invites) is the next planned work and not yet planned or built.
 
 ---
 
@@ -12,7 +12,7 @@ A vanilla-JS PWA for **ambient presence**. Users mark themselves "available for 
 
 - **Target user base:** 50–100 users (a small, hands-on sandbox, not a public app).
 - **Stack:** vanilla ES modules (no framework), Firebase Realtime Database + Hosting, esbuild, jest + jsdom.
-- **Tests:** 587 currently passing. Run with `npx jest`.
+- **Tests:** 620 currently passing. Run with `npx jest`.
 - **Anonymous identity model** (no Firebase Auth) — see §4.
 
 ## 2. Repo & branch model
@@ -127,6 +127,7 @@ When the same secret phrase is used on multiple devices, **everything that's use
 | **currentContext** (Phase 1) | watchStatus → `applyServerCurrentContext` (in `groupNav.js`) |
 | **Group enumeration** (Phase 1) | `watchUserGroups` (separate subscription) → drives the cards row and the removal detector |
 | **Per-group meta** (Phase 1) | `watchGroupMeta(groupId, cb)` per enumerated group — drives card name + last-known-name cache |
+| **Own per-group status override** (Phase 2) | `watchOwnMemberOverride(groupId, ownUid)` per enumerated group — drives card color and the group-context status row |
 | **Group roster + statuses** (Phase 1) | `watchGroupMembers(groupId, cb)` + per-member `watchStatus(memberUid, cb)` in `groupContext.js` |
 | **Personal invite collection** (Phase 0) | `watchUserInvites` — drives the drawer button label ("Create invite link" vs "View invite link") |
 
@@ -197,16 +198,22 @@ Plus you need `npx firebase login` (or `firebase login` if installed globally) o
 
 ## 11. In-progress work / what's next
 
-**Phase 2 — per-audience status overrides** (the only MVP-scope thing left from spec §16). Not yet planned or built.
+**Phase 3 — in-app push invites** (spec §16 Phase 3, Flow C in spec §10). Not yet planned or built.
 
-- The data slot exists: `groups/{groupId}/members/{uid}/statusOverride?: { enabled, status?, availableUntil?, statusColor?, paletteKey? }`. Phase 1 doesn't write or read it.
-- The UI work is: a "Set a unique status" toggle per audience (each group + the followers audience), default OFF; flipping ON initialises to Unavailable. Header status chip in group context controls the override when ON; group card visual reflects override color.
-- Spec §16 Phase 2 has the full deliverable list. Use the `writing-plans` skill to produce a plan; expect ~10-15 tasks.
+- The data path is already designed and the security rules are in place: `pendingInvites/{inviteeUid}/{inviteId}` (top-level mailbox, forward-compatible with Phase B without a Cloud Function).
+- Phase 3 adds writers and the receiving UI (the inline card at the top of Direct's contact list with Join / Decline).
+- Spec §16 Phase 3 has the deliverable list. Use the `writing-plans` skill to produce a plan.
+
+**Phase 2 — per-group status overrides** (now shipped on dev):
+
+- Spec scope locked to per-**group** overrides only — the spec's symmetric "followers audience" override was dropped from Phase 2 because the primary status IS the followers' view.
+- Per-audience color picker also deferred to Phase 4+; the `statusOverride.statusColor` and `paletteKey` schema slots are preserved (forward-compat) but not written by Phase 2.
+- New code: own status row + override toggle inside the group-context header; group cards reflect own-override color when ON+available (primary statusColor as the Phase 2 fill); roster renders each member's context-appropriate status.
+- New db.js exports: `setStatusOverride`, `clearStatusOverride`, `watchOwnMemberOverride`. New groups.js exports: `toggleStatusOverride`, `setOverrideStatusAvailable`, `setOverrideStatusUnavailable`.
 
 **Other planned work (post-MVP, not on roadmap yet):**
-- Phase 3: in-app push invites (data path already designed; no writers).
-- Phase B: identity tightening via Firebase Anonymous Auth + Cloud Function recovery validator + `auth.uid` rules. The current Phase 0/1 data layout was deliberately designed to be portable to Phase B without a Cloud Function (see spec §19).
-- Phase 4+: admin role, ownership transfer, request-to-follow, group color/palette, etc. — listed in spec §16 Phase 4+.
+- Phase B: identity tightening via Firebase Anonymous Auth + Cloud Function recovery validator + `auth.uid` rules. The current Phase 0/1/2 data layout was deliberately designed to be portable to Phase B without a Cloud Function (see spec §19).
+- Phase 4+: admin role, ownership transfer, request-to-follow, group color/palette, per-audience color picker, etc. — listed in spec §16 Phase 4+.
 
 ## 12. Recent significant fixes & gotchas
 
@@ -259,10 +266,11 @@ When working with the user, **honor accessibility preferences:**
 - **All Phase 2+ identity work (auth.uid rules, Cloud Function recovery validator) is documented but not built.** The honor-system trust model is current reality.
 - **Phase 1 designs are forward-compatible with Phase B.** The membership-canonical-on-group-side layout, the top-level `pendingInvites/{inviteeUid}/...` mailbox path, and the `groups/{groupId}/members/{uid}` self-write rule were chosen so Phase B doesn't need a Cloud Function. Preserve this property in Phase 2.
 - **Dev branch has `GROUPS_ENABLED = true`.** Main does not yet have any of the groups work merged. When the user is ready for prod, they'll merge dev → main (or cherry-pick) and the flag flip will land along with the rest.
+- **Phase 2 designs preserve `statusColor` / `paletteKey` slots in `statusOverride` for Phase 4+.** Don't remove these from the schema; Phase 4+ will start writing them. Toggle OFF currently clears the whole override record; Phase 4+ will need to revisit that to preserve color/palette slots across toggle.
 
 ## 16. Known unknowns / open decisions
 
-- Phase 2 priority + scheduling.
+- Phase 3 priority + scheduling (in-app push invites).
 - When (if) to do Phase B identity tightening.
 - Whether the post-MVP "co-members can use 1:1 primitives without mutual" relaxation lands soon after Phase 2.
 - One observation from the Phase 1 cross-cutting review (non-blocking): `js/groups.js` and `js/groupNav.js` form a circular import (`groupNav.js` imports `createGroup`; `groups.js` imports `navigateToDirect`/`getCurrentContext`/`getLastKnownGroupName`). Both cross-calls are runtime, not module-load-time, so ESM TDZ isn't hit. Worth refactoring during a Phase 2 cleanup pass if a third module needs to depend on either.
@@ -277,5 +285,6 @@ When picking this up, the documents to read together:
 3. **`docs/superpowers/specs/2026-05-25-groups-design.md` (rev 2)** — groups design (the canonical source for Phase 2 deliverables)
 4. **`docs/superpowers/plans/2026-05-25-groups-phase-0-invite-links.md`** — Phase 0 plan as executed
 5. **`docs/superpowers/plans/2026-05-26-groups-phase-1.md`** — Phase 1 plan as executed
+6. **`docs/superpowers/plans/2026-05-27-groups-phase-2-status-overrides.md`** — Phase 2 plan as executed
 
-Those five artifacts together cover everything that matters.
+Those six artifacts together cover everything that matters.

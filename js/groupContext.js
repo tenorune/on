@@ -2,13 +2,40 @@
 // Group context view: breadcrumb, header, roster. Roster + settings populated
 // in Tasks 16-17. This scaffolding handles enter/exit and the breadcrumb back.
 
-import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, removeUserGroupsEntry } from './db.js';
+import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs, setLastTimeoutMinutes } from './db.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
-import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName } from './groups.js';
+import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
+         toggleStatusOverride, setOverrideStatusAvailable, setOverrideStatusUnavailable } from './groups.js';
+import { getLastTimeout, setLastTimeout } from './store.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge } from './knock.js';
+
+const CHIP_VALUES = [
+  { minutes: 30,   text: '30 minutes' },
+  { minutes: 60,   text: '1 hour' },
+  { minutes: 90,   text: '1 hour 30 minutes' },
+  { minutes: 120,  text: '2 hours' },
+  { minutes: 180,  text: '3 hours' },
+  { minutes: 240,  text: '4 hours' },
+  { minutes: 360,  text: '6 hours' },
+  { minutes: 480,  text: '8 hours' },
+  { minutes: 720,  text: '12 hours' },
+  { minutes: 1080, text: '18 hours' },
+  { minutes: 1440, text: '24 hours' },
+];
+function chipIndexForMinutes(minutes) {
+  let m = minutes;
+  if (m <= 12) m = m * 60;
+  let bestIndex = 0;
+  let bestDist = Math.abs(CHIP_VALUES[0].minutes - m);
+  for (let i = 1; i < CHIP_VALUES.length; i++) {
+    const dist = Math.abs(CHIP_VALUES[i].minutes - m);
+    if (dist < bestDist) { bestDist = dist; bestIndex = i; }
+  }
+  return bestIndex;
+}
 
 let _metaUnsub = null;
 let _membersUnsub = null;
@@ -17,6 +44,12 @@ const _statusUnsubs = new Map(); // memberUid → unsubscribe fn
 let _currentGroupId = null;
 let _currentUserId = null;
 let _activeGroupInvite = null;
+let _ownPrimaryUnsub = null;
+let _ownOverrideUnsub = null;
+let _ownPrimary = null;  // { status, availableUntil, statusColor? } | null
+let _ownOverride = null; // { enabled, status, availableUntil, statusColor?, paletteKey? } | null
+let _membersOverrides = {}; // uid → statusOverride | null
+const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor } | null
 
 function renderRoster(members, ownUserId) {
   const list = document.getElementById('group-roster');
@@ -69,26 +102,87 @@ function renderRoster(members, ownUserId) {
   }
 }
 
+function paintRosterRow(uid) {
+  const li = document.querySelector(`#group-roster [data-user-id="${uid}"]`);
+  if (!li) return;
+  const override = _membersOverrides[uid];
+  const primary = _memberPrimaries.get(uid) || null;
+  const overrideOn = !!(override && override.enabled === true);
+  const source = overrideOn ? override : primary;
+  const status = source?.status || 'unavailable';
+  const availableUntil = source?.availableUntil ?? null;
+  const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+  li.dataset.available = isAvailable ? 'true' : 'false';
+  const dot = li.querySelector('.person-dot');
+  if (dot) {
+    dot.dataset.available = isAvailable ? 'true' : 'false';
+    // Phase 2 color: prefer override.statusColor when present (Phase 4+ will
+    // write it), else fall through to the member's primary statusColor.
+    const color = override?.statusColor || primary?.statusColor || null;
+    if (isAvailable && color) dot.style.background = safeCssColor(color);
+    else dot.style.background = '';
+  }
+}
+
+function renderOwnStatusRow() {
+  const dot = document.getElementById('group-my-dot');
+  const label = document.getElementById('group-my-status-label');
+  const timeRemaining = document.getElementById('group-time-remaining');
+  const timeChip = document.getElementById('group-time-chip');
+  const toggle = document.getElementById('group-override-toggle');
+  if (!dot || !label || !toggle) return;
+
+  const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
+  toggle.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
+
+  // Source of truth for the visible status: override when ON, else primary.
+  const source = overrideOn ? _ownOverride : _ownPrimary;
+  const status = source?.status || 'unavailable';
+  const availableUntil = source?.availableUntil ?? null;
+  const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+
+  dot.dataset.available = isAvailable ? 'true' : 'false';
+  dot.classList.toggle('available', isAvailable);
+  const color = source?.statusColor || null;
+  if (isAvailable && color) dot.style.background = safeCssColor(color);
+  else dot.style.background = '';
+  label.textContent = isAvailable ? 'Available' : 'Unavailable';
+
+  // Read-only mode applies the dot + chip dimming when override is OFF.
+  dot.classList.toggle('readonly', !overrideOn);
+  if (timeChip) timeChip.classList.toggle('readonly', !overrideOn);
+
+  if (timeRemaining) {
+    // null availableUntil means open-ended; no countdown to show
+    if (isAvailable && availableUntil) {
+      const formatted = formatTimeRemaining(timeRemainingMs(availableUntil));
+      if (formatted) {
+        timeRemaining.textContent = '· ' + formatted + ' left';
+        timeRemaining.style.display = '';
+      } else {
+        timeRemaining.style.display = 'none';
+      }
+    } else {
+      timeRemaining.style.display = 'none';
+    }
+  }
+}
+
 function syncStatusSubscriptions(memberUids) {
   for (const uid of Array.from(_statusUnsubs.keys())) {
     if (!memberUids.has(uid)) {
       _statusUnsubs.get(uid)();
       _statusUnsubs.delete(uid);
+      _memberPrimaries.delete(uid);
     }
   }
   for (const uid of memberUids) {
     if (!_statusUnsubs.has(uid)) {
       _statusUnsubs.set(uid, watchStatus(uid, (data) => {
-        const li = document.querySelector(`#group-roster [data-user-id="${uid}"]`);
-        if (!li) return;
-        const available = data && data.status === 'available' && (data.availableUntil == null || data.availableUntil > Date.now());
-        li.dataset.available = available ? 'true' : 'false';
-        const dot = li.querySelector('.person-dot');
-        if (dot) {
-          dot.dataset.available = available ? 'true' : 'false';
-          if (available && data.statusColor) dot.style.background = safeCssColor(data.statusColor);
-          else dot.style.background = '';
-        }
+        _memberPrimaries.set(uid, data
+          ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: data.statusColor || null }
+          : null);
+        paintRosterRow(uid);
       }));
     }
   }
@@ -181,9 +275,19 @@ export function enterGroupContext(groupId, userId) {
   if (_membersUnsub) _membersUnsub();
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
+  _memberPrimaries.clear();
+  _membersOverrides = {};
   _membersUnsub = watchGroupMembers(groupId, (members) => {
+    _membersOverrides = {};
+    for (const [uid, m] of Object.entries(members || {})) {
+      _membersOverrides[uid] = m.statusOverride || null;
+    }
     renderRoster(members, userId);
     syncStatusSubscriptions(new Set(Object.keys(members || {})));
+    // Re-paint each row to reflect the merged override+primary.
+    for (const uid of Object.keys(members || {})) {
+      paintRosterRow(uid);
+    }
   });
 
   // Subscribe to group invites so the owner-settings invite-link button can
@@ -200,6 +304,82 @@ export function enterGroupContext(groupId, userId) {
     }
     _activeGroupInvite = active;
   });
+
+  // Subscribe to own primary status and own override under this group.
+  if (_ownPrimaryUnsub) _ownPrimaryUnsub();
+  if (_ownOverrideUnsub) _ownOverrideUnsub();
+  _ownPrimary = null;
+  _ownOverride = null;
+  _ownPrimaryUnsub = watchStatus(userId, (data) => {
+    _ownPrimary = data
+      ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: data.statusColor || null }
+      : null;
+    if (data?.lastTimeoutMinutes) {
+      const idx = chipIndexForMinutes(data.lastTimeoutMinutes);
+      const chipEl = document.getElementById('group-time-chip');
+      if (chipEl && chipEl.textContent !== CHIP_VALUES[idx].text) {
+        chipEl.textContent = CHIP_VALUES[idx].text;
+      }
+    }
+    renderOwnStatusRow();
+  });
+  _ownOverrideUnsub = watchOwnMemberOverride(groupId, userId, (data) => {
+    _ownOverride = data || null;
+    renderOwnStatusRow();
+  });
+
+  // Wire the override toggle (replace via clone to drop any prior listener)
+  const toggle = document.getElementById('group-override-toggle');
+  if (toggle) {
+    const clone = toggle.cloneNode(true);
+    toggle.parentNode.replaceChild(clone, toggle);
+    clone.addEventListener('click', () => {
+      const nextEnabled = !(_ownOverride && _ownOverride.enabled === true);
+      toggleStatusOverride(groupId, userId, nextEnabled).catch(() => {});
+    });
+  }
+
+  // Wire the dot (clone-and-replace per the same pattern)
+  const dot = document.getElementById('group-my-dot');
+  if (dot) {
+    const dotClone = dot.cloneNode(true);
+    dot.parentNode.replaceChild(dotClone, dot);
+    dotClone.addEventListener('click', () => {
+      const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
+      if (!overrideOn) return;  // read-only when toggle is OFF
+      const currentlyAvailable = _ownOverride.status === 'available'
+        && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
+      if (currentlyAvailable) {
+        setOverrideStatusUnavailable(groupId, userId).catch(() => {});
+      } else {
+        const availableUntil = Date.now() + getLastTimeout() * 60000;
+        setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
+      }
+    });
+  }
+
+  // Wire the time chip (clone-and-replace; cycles override duration when ON+available)
+  const timeChip = document.getElementById('group-time-chip');
+  if (timeChip) {
+    timeChip.textContent = CHIP_VALUES[chipIndexForMinutes(getLastTimeout())].text;
+    const chipClone = timeChip.cloneNode(true);
+    timeChip.parentNode.replaceChild(chipClone, timeChip);
+    chipClone.addEventListener('click', () => {
+      const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
+      if (!overrideOn) return;
+      const currentlyAvailable = _ownOverride.status === 'available'
+        && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
+      if (!currentlyAvailable) return;
+      const currentIdx = chipIndexForMinutes(getLastTimeout());
+      const nextIdx = (currentIdx + 1) % CHIP_VALUES.length;
+      const { minutes, text } = CHIP_VALUES[nextIdx];
+      chipClone.textContent = text;
+      const availableUntil = Date.now() + minutes * 60000;
+      setLastTimeout(minutes);
+      setLastTimeoutMinutes(userId, minutes).catch(() => {});
+      setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
+    });
+  }
 
   // Subscribe to group meta for the name + owner check
   _metaUnsub = watchGroupMeta(groupId, (meta) => {
@@ -226,6 +406,12 @@ export function exitGroupContext() {
   if (_metaUnsub) { _metaUnsub(); _metaUnsub = null; }
   if (_membersUnsub) { _membersUnsub(); _membersUnsub = null; }
   if (_invitesUnsub) { _invitesUnsub(); _invitesUnsub = null; }
+  if (_ownPrimaryUnsub) { _ownPrimaryUnsub(); _ownPrimaryUnsub = null; }
+  if (_ownOverrideUnsub) { _ownOverrideUnsub(); _ownOverrideUnsub = null; }
+  _ownPrimary = null;
+  _ownOverride = null;
+  _membersOverrides = {};
+  _memberPrimaries.clear();
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
   _currentGroupId = null;

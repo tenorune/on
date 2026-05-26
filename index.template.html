@@ -212,6 +212,19 @@
       <span id="group-breadcrumb-name" class="group-breadcrumb-name"></span>
     </div>
     <header class="group-context-header">
+      <div id="group-header-row" class="group-header-row">
+        <div id="group-my-dot" class="dot" data-available="false"></div>
+        <div class="group-header-text">
+          <div class="group-header-status-row">
+            <span id="group-my-status-label" class="status-label">Unavailable</span>
+            <span id="group-time-remaining" style="display:none"></span>
+          </div>
+          <div class="group-header-chips">
+            <button id="group-time-chip" class="chip time-chip">2 hours</button>
+            <button id="group-override-toggle" class="chip override-toggle" aria-pressed="false">Set a unique status</button>
+          </div>
+        </div>
+      </div>
       <h2 id="group-context-name" class="group-context-name"></h2>
       <details id="group-context-actions" class="group-context-actions">
         <summary>Settings</summary>

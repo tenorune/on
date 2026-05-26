@@ -1,11 +1,28 @@
 // tests/groupContext.test.js
+jest.mock('../js/store.js', () => ({
+  getLastTimeout: jest.fn(() => 120),
+  setLastTimeout: jest.fn(),
+}));
 jest.mock('../js/db.js', () => ({
   readGroup: jest.fn().mockResolvedValue(null),
   watchGroupMeta: jest.fn(() => () => {}),
   watchGroupMembers: jest.fn(() => () => {}),
   watchGroupInvites: jest.fn(() => () => {}),
   watchStatus: jest.fn(() => () => {}),
+  watchOwnMemberOverride: jest.fn(() => () => {}),
   removeUserGroupsEntry: jest.fn().mockResolvedValue(undefined),
+  setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
+  timeRemainingMs: jest.fn((availableUntil) => Math.max(0, availableUntil - Date.now())),
+  formatTimeRemaining: jest.fn((ms) => {
+    if (ms <= 0) return '';
+    if (ms < 60000) return '< 1m';
+    const totalMinutes = Math.floor(ms / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes}m`;
+    if (minutes === 0) return `${hours}h`;
+    return `${hours}h ${minutes}m`;
+  }),
 }));
 jest.mock('../js/invites.js', () => ({
   buildInviteUrl: jest.fn((token) => `https://app.example/?i=${token}`),
@@ -19,6 +36,9 @@ jest.mock('../js/groups.js', () => ({
   deleteGroup: jest.fn().mockResolvedValue(undefined),
   leaveGroup: jest.fn().mockResolvedValue(undefined),
   editOwnDisplayName: jest.fn().mockResolvedValue(undefined),
+  toggleStatusOverride: jest.fn().mockResolvedValue(undefined),
+  setOverrideStatusAvailable: jest.fn().mockResolvedValue(undefined),
+  setOverrideStatusUnavailable: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),
@@ -28,6 +48,7 @@ const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
 const groupsModule = require('../js/groups.js');
 const inviteModal = require('../js/inviteModal.js');
+const store = require('../js/store.js');
 const { enterGroupContext, exitGroupContext } = require('../js/groupContext');
 
 function setupContextDom() {
@@ -39,6 +60,19 @@ function setupContextDom() {
         <span id="group-breadcrumb-name"></span>
       </div>
       <header class="group-context-header">
+        <div id="group-header-row">
+          <div id="group-my-dot" class="dot" data-available="false"></div>
+          <div class="group-header-text">
+            <div class="group-header-status-row">
+              <span id="group-my-status-label" class="status-label">Unavailable</span>
+              <span id="group-time-remaining" style="display:none"></span>
+            </div>
+            <div class="group-header-chips">
+              <button id="group-time-chip" class="chip time-chip">2 hours</button>
+              <button id="group-override-toggle" class="chip override-toggle" aria-pressed="false">Set a unique status</button>
+            </div>
+          </div>
+        </div>
         <h2 id="group-context-name"></h2>
         <details id="group-context-actions">
           <summary>Settings</summary>
@@ -325,5 +359,278 @@ describe('member actions', () => {
     window.confirm = jest.fn(() => true);
     document.getElementById('group-action-leave').click();
     expect(groupsModule.leaveGroup).toHaveBeenCalledWith('G1', 'me');
+  });
+});
+
+describe('own status row', () => {
+  function captureCallbacks() {
+    let metaCb, primaryCb, overrideCb;
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation((uid, cb) => { primaryCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    return { getMetaCb: () => metaCb, getPrimaryCb: () => primaryCb, getOverrideCb: () => overrideCb };
+  }
+
+  beforeEach(() => { jest.clearAllMocks(); setupContextDom(); });
+
+  test('renders primary status when override is null', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+    cbs.getPrimaryCb()({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#abcdef' });
+    expect(document.getElementById('group-my-status-label').textContent).toBe('Available');
+    expect(document.getElementById('group-my-dot').dataset.available).toBe('true');
+  });
+
+  test('renders override status when override.enabled is true', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getPrimaryCb()({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    expect(document.getElementById('group-my-status-label').textContent).toBe('Unavailable');
+    expect(document.getElementById('group-my-dot').dataset.available).toBe('false');
+  });
+
+  test('toggle pill reflects override.enabled', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    expect(document.getElementById('group-override-toggle').getAttribute('aria-pressed')).toBe('true');
+    cbs.getOverrideCb()(null);
+    expect(document.getElementById('group-override-toggle').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  test('dot and time chip get readonly class when override is OFF', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+    cbs.getPrimaryCb()({ status: 'unavailable', availableUntil: null });
+    expect(document.getElementById('group-my-dot').classList.contains('readonly')).toBe(true);
+    expect(document.getElementById('group-time-chip').classList.contains('readonly')).toBe(true);
+  });
+
+  test('dot and time chip lose readonly class when override is ON', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    expect(document.getElementById('group-my-dot').classList.contains('readonly')).toBe(false);
+    expect(document.getElementById('group-time-chip').classList.contains('readonly')).toBe(false);
+  });
+
+  test('clicking the toggle when OFF calls toggleStatusOverride with true', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledTimes(1);
+  });
+
+  test('clicking the toggle when ON calls toggleStatusOverride with false', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', false);
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledTimes(1);
+  });
+
+  test('re-entering the context does not double-wire the toggle', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getOverrideCb()(null);
+    enterGroupContext('G1', 'me');
+    cbs.getOverrideCb()(null);
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledTimes(1);
+  });
+
+  test('exitGroupContext tears down own primary and override subscriptions', () => {
+    const ownPrimaryUnsub = jest.fn();
+    const ownOverrideUnsub = jest.fn();
+    db.watchStatus.mockImplementation(() => ownPrimaryUnsub);
+    db.watchOwnMemberOverride.mockImplementation(() => ownOverrideUnsub);
+    enterGroupContext('G1', 'me');
+    exitGroupContext();
+    expect(ownPrimaryUnsub).toHaveBeenCalledTimes(1);
+    expect(ownOverrideUnsub).toHaveBeenCalledTimes(1);
+  });
+
+  test('clicking the dot when override ON and currently unavailable goes available with lastTimeoutMinutes', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    const before = Date.now();
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(1);
+    const [g, u, until] = groupsModule.setOverrideStatusAvailable.mock.calls[0];
+    expect(g).toBe('G1');
+    expect(u).toBe('me');
+    // 120 minutes from now, ±2s tolerance for test latency.
+    expect(until).toBeGreaterThanOrEqual(before + 120 * 60000 - 2000);
+    expect(until).toBeLessThanOrEqual(Date.now() + 120 * 60000 + 2000);
+  });
+
+  test('clicking the dot when override ON and currently available goes unavailable', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusUnavailable).toHaveBeenCalledWith('G1', 'me');
+    expect(groupsModule.setOverrideStatusUnavailable).toHaveBeenCalledTimes(1);
+  });
+
+  test('clicking the dot when override OFF is a no-op', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusAvailable).not.toHaveBeenCalled();
+    expect(groupsModule.setOverrideStatusUnavailable).not.toHaveBeenCalled();
+  });
+
+  test('clicking the time chip when override ON+available updates availableUntil', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+    const before = Date.now();
+    document.getElementById('group-time-chip').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(1);
+    const [, , until] = groupsModule.setOverrideStatusAvailable.mock.calls[0];
+    // Chip default cycles forward from "2 hours" (index 3) to "3 hours" (index 4).
+    expect(until).toBeGreaterThanOrEqual(before + 180 * 60000 - 2000);
+    expect(until).toBeLessThanOrEqual(Date.now() + 180 * 60000 + 2000);
+    expect(store.setLastTimeout).toHaveBeenCalledWith(180);
+    expect(db.setLastTimeoutMinutes).toHaveBeenCalledWith('me', 180);
+  });
+
+  test('clicking the time chip when override OFF is a no-op', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+    document.getElementById('group-time-chip').click();
+    expect(groupsModule.setOverrideStatusAvailable).not.toHaveBeenCalled();
+  });
+
+  test('clicking the time chip when override ON but unavailable is a no-op', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    document.getElementById('group-time-chip').click();
+    expect(groupsModule.setOverrideStatusAvailable).not.toHaveBeenCalled();
+  });
+});
+
+describe('roster context-aware status', () => {
+  function captureMembers() {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((g, cb) => { membersCb = cb; return () => {}; });
+    return () => membersCb;
+  }
+  function captureStatuses() {
+    const cbs = {};
+    db.watchStatus.mockImplementation((uid, cb) => { cbs[uid] = cb; return () => {}; });
+    return cbs;
+  }
+
+  beforeEach(() => { jest.clearAllMocks(); setupContextDom(); });
+
+  test('member with override.enabled uses override status not primary', () => {
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: {
+        role: 'member',
+        displayName: 'A',
+        joinedAt: 2,
+        statusOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 },
+      },
+    });
+    // uidA's primary says unavailable, but override should win.
+    statusCbs.uidA?.({ status: 'unavailable', availableUntil: null });
+    const li = document.querySelector('#group-roster [data-user-id="uidA"]');
+    expect(li.dataset.available).toBe('true');
+  });
+
+  test('member without override uses primary status', () => {
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidB: { role: 'member', displayName: 'B', joinedAt: 3 },
+    });
+    statusCbs.uidB?.({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#abcdef' });
+    const li = document.querySelector('#group-roster [data-user-id="uidB"]');
+    expect(li.dataset.available).toBe('true');
+  });
+
+  test('member with override.enabled=false ignores override and uses primary', () => {
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidC: {
+        role: 'member',
+        displayName: 'C',
+        joinedAt: 4,
+        statusOverride: { enabled: false, status: 'unavailable', availableUntil: null },
+      },
+    });
+    statusCbs.uidC?.({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+    const li = document.querySelector('#group-roster [data-user-id="uidC"]');
+    expect(li.dataset.available).toBe('true');
+  });
+});
+
+describe('Phase 2 end-to-end happy path', () => {
+  beforeEach(() => { jest.clearAllMocks(); setupContextDom(); });
+
+  test('toggle ON → dot → chip → toggle OFF flow writes the expected db calls', () => {
+    let metaCb, overrideCb, primaryCb;
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation((uid, cb) => { primaryCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    overrideCb(null);
+
+    // 1. Toggle ON
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
+    overrideCb({ enabled: true, status: 'unavailable', availableUntil: null });
+
+    // 2. Dot click — go available
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalled();
+    overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 120 * 60000 });
+
+    // 3. Time chip — cycle duration
+    document.getElementById('group-time-chip').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(2);
+
+    // 4. Toggle OFF
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenLastCalledWith('G1', 'me', false);
+    overrideCb(null);
+    expect(document.getElementById('group-override-toggle').getAttribute('aria-pressed')).toBe('false');
+    expect(document.getElementById('group-my-dot').classList.contains('readonly')).toBe(true);
   });
 });
