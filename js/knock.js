@@ -41,6 +41,9 @@ export async function initKnocks(myUserId) {
   if (unsubKnocks) { unsubKnocks(); unsubKnocks = null; }
   pulseMap.forEach(({ timerId }) => { if (timerId) clearTimeout(timerId); });
   pulseMap = new Map();
+  floatTimers.forEach(({ timerId }) => { if (timerId) clearTimeout(timerId); });
+  floatTimers.clear();
+  groupBadgeCounts.clear();
 
   const appOpenTime = Date.now();
 
