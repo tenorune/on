@@ -51,6 +51,7 @@ let _ownPrimary = null;  // { status, availableUntil, statusColor? } | null
 let _ownOverride = null; // { enabled, status, availableUntil, statusColor?, paletteKey? } | null
 let _membersOverrides = {}; // uid → statusOverride | null
 const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor } | null
+let _settingsOutsideHandler = null;
 
 function renderRoster(members, ownUserId) {
   const list = document.getElementById('group-roster');
@@ -206,6 +207,28 @@ function syncStatusSubscriptions(memberUids) {
   }
 }
 
+function closeSettingsMenu() {
+  const details = document.getElementById('group-context-actions');
+  if (details) details.open = false;
+}
+
+function installSettingsOutsideHandler() {
+  if (_settingsOutsideHandler) return;
+  _settingsOutsideHandler = (e) => {
+    const details = document.getElementById('group-context-actions');
+    if (!details || !details.open) return;
+    if (details.contains(e.target)) return;
+    details.open = false;
+  };
+  document.addEventListener('click', _settingsOutsideHandler);
+}
+
+function uninstallSettingsOutsideHandler() {
+  if (!_settingsOutsideHandler) return;
+  document.removeEventListener('click', _settingsOutsideHandler);
+  _settingsOutsideHandler = null;
+}
+
 function wireActions(groupId, userId, isOwner, groupName) {
   const ids = ['group-action-rename', 'group-action-invite', 'group-action-delete', 'group-action-edit-name', 'group-action-leave'];
 
@@ -224,8 +247,10 @@ function wireActions(groupId, userId, isOwner, groupName) {
   document.getElementById('group-action-edit-name').classList.remove('hidden');
   document.getElementById('group-action-leave').classList.toggle('hidden', isOwner);
 
-  // Handlers
+  // Handlers. Each handler closes the Settings details menu on activation
+  // so the user doesn't have to tap Settings again to dismiss it.
   document.getElementById('group-action-rename').addEventListener('click', async () => {
+    closeSettingsMenu();
     const next = window.prompt('New group name', groupName || '');
     if (next == null) return;
     const trimmed = next.trim();
@@ -234,6 +259,7 @@ function wireActions(groupId, userId, isOwner, groupName) {
   });
 
   document.getElementById('group-action-invite').addEventListener('click', () => {
+    closeSettingsMenu();
     openInviteModal({
       scope: 'group',
       userId,
@@ -244,6 +270,7 @@ function wireActions(groupId, userId, isOwner, groupName) {
   });
 
   document.getElementById('group-action-delete').addEventListener('click', async () => {
+    closeSettingsMenu();
     if (!window.confirm(`Delete '${groupName || 'this group'}'? This cannot be undone.`)) return;
     try {
       await deleteGroup(groupId, userId);
@@ -252,6 +279,7 @@ function wireActions(groupId, userId, isOwner, groupName) {
   });
 
   document.getElementById('group-action-edit-name').addEventListener('click', async () => {
+    closeSettingsMenu();
     const next = window.prompt('Your name in this group', '');
     if (next == null) return;
     const trimmed = next.trim();
@@ -260,6 +288,7 @@ function wireActions(groupId, userId, isOwner, groupName) {
   });
 
   document.getElementById('group-action-leave').addEventListener('click', async () => {
+    closeSettingsMenu();
     if (!window.confirm(`Leave '${groupName || 'this group'}'?`)) return;
     try {
       await leaveGroup(groupId, userId);
@@ -288,6 +317,9 @@ export function enterGroupContext(groupId, userId) {
 
   // Clear any pending unread-knock badge for this group
   clearGroupCardBadge(groupId);
+
+  // Dismiss the Settings details menu when the user taps anywhere outside it.
+  installSettingsOutsideHandler();
 
   // Subscribe to group members for the roster
   if (_membersUnsub) _membersUnsub();
@@ -453,6 +485,8 @@ export function exitGroupContext() {
   _currentGroupId = null;
   _currentUserId = null;
   _activeGroupInvite = null;
+  closeSettingsMenu();
+  uninstallSettingsOutsideHandler();
   const root = document.getElementById('group-context-root');
   const direct = document.getElementById('main-ui-direct');
   if (root) root.classList.add('hidden');
