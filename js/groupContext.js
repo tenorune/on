@@ -166,6 +166,11 @@ function renderOwnStatusRow() {
   if (isAvailable && color) dot.style.background = safeCssColor(color);
   else dot.style.background = '';
   label.textContent = isAvailable ? 'Available' : 'Unavailable';
+  // Color the "Available" label using --my-status so it matches the Direct
+  // header (.status-label.available rule), regardless of which color is
+  // active. Phase 4+ per-audience color picker will override --my-status
+  // locally if it ships separate group palette state.
+  label.classList.toggle('available', isAvailable);
 
   // Read-only mode applies the dot + chip dimming when override is OFF.
   dot.classList.toggle('readonly', !overrideOn);
@@ -176,7 +181,7 @@ function renderOwnStatusRow() {
     if (isAvailable && availableUntil) {
       const formatted = formatTimeRemaining(timeRemainingMs(availableUntil));
       if (formatted) {
-        timeRemaining.textContent = '· ' + formatted + ' left';
+        timeRemaining.textContent = formatted + ' left';
         timeRemaining.style.display = '';
       } else {
         timeRemaining.style.display = 'none';
