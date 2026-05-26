@@ -1,6 +1,6 @@
 // js/inviteModal.js
 // Shared invite-link modal component. Parameterized by scope.
-// Phase 0 wires only scope='personal'. Phase 1 will wire scope='group'.
+// Wires both scope='personal' (Phase 0) and scope='group' (Phase 1).
 
 import {
   createPersonalInvite, regeneratePersonalInvite, revokePersonalInvite,
@@ -97,7 +97,8 @@ export function openInviteModal({ scope, userId, activeInvite = null, groupId = 
     if (labelInputEl) labelInputEl.value = '';
   }
 
-  // Create handler — branch by scope
+  // Create handler — branch by scope. hideError() runs before the await so a
+  // stale error from a previous attempt doesn't linger across the round-trip.
   on(document.getElementById('invite-modal-create-btn'), 'click', async () => {
     try {
       let result;
@@ -106,13 +107,14 @@ export function openInviteModal({ scope, userId, activeInvite = null, groupId = 
         const trimmed = (raw || '').trim();
         if (!trimmed) { showError('Please enter a name.'); return; }
         if (trimmed.length > 40) { showError('Name must be at most 40 characters.'); return; }
+        hideError();
         result = await createPersonalInvite(userId, trimmed);
         currentInvite = { token: result.token, url: result.url, scope, creatorLabel: trimmed };
       } else {
+        hideError();
         result = await createGroupInvite(userId, groupId);
         currentInvite = { token: result.token, url: result.url, scope, groupId, groupName };
       }
-      hideError();
       showState('manage');
       renderManageUrl(result.url);
     } catch (err) {
