@@ -10,7 +10,7 @@ import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, apply
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
-import { initNav, startCardsRowSubscriptions, initCardsRow, onContextChange, applyServerCurrentContext } from './groupNav.js';
+import { initNav, startCardsRowSubscriptions, initCardsRow, onContextChange, applyServerCurrentContext, navigateToGroup } from './groupNav.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector } from './groups.js';
 
@@ -346,7 +346,6 @@ async function main() {
       // Clean the URL so a refresh doesn't re-trigger.
       cleanInviteParamFromUrl();
       if (result.ok && result.groupId) {
-        const { navigateToGroup } = await import('./groupNav.js');
         await navigateToGroup(result.groupId);
       }
     }
