@@ -43,6 +43,13 @@ jest.mock('../js/groups.js', () => ({
 jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),
 }));
+jest.mock('../js/knock.js', () => ({
+  sendKnock: jest.fn(),
+  clearGroupCardBadge: jest.fn(),
+}));
+jest.mock('../js/features.js', () => ({
+  KNOCK_ENABLED: true,
+}));
 
 const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
@@ -163,7 +170,7 @@ describe('group roster render', () => {
     setupContextDom();
   });
 
-  test('renders one li per member, with own card first', () => {
+  test('renders one li per member, alphabetical, excluding the current user', () => {
     let membersCb;
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
@@ -173,10 +180,10 @@ describe('group roster render', () => {
       'b':  { role: 'owner',  displayName: 'Bob',     joinedAt: 0 },
     });
     const items = document.querySelectorAll('#group-roster li');
-    expect(items.length).toBe(3);
-    expect(items[0].dataset.userId).toBe('me');
-    expect(items[1].textContent).toContain('Alice');
-    expect(items[2].textContent).toContain('Bob');
+    expect(items.length).toBe(2);
+    expect(document.querySelector('#group-roster [data-user-id="me"]')).toBeNull();
+    expect(items[0].textContent).toContain('Alice');
+    expect(items[1].textContent).toContain('Bob');
   });
 
   test('roster does not render an (owner) badge', () => {
@@ -224,6 +231,41 @@ describe('group roster render', () => {
     membersCb({ 'a': { role: 'member', displayName: 'Alice', joinedAt: 1 } });
     exitGroupContext();
     unsubs.forEach((u) => expect(u).toHaveBeenCalled());
+  });
+
+  test('clicking a member row sends a knock with the current group id (KNOCK_ENABLED)', () => {
+    const knock = require('../js/knock.js');
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    document.querySelector('#group-roster [data-user-id="a"]').click();
+    expect(knock.sendKnock).toHaveBeenCalledWith('a', 'me', undefined, expect.objectContaining({ contextGroupId: 'G1' }));
+  });
+
+  test('available member shows "Available for ..." status text', () => {
+    let membersCb;
+    const statusCbs = {};
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    statusCbs.a({ status: 'available', availableUntil: Date.now() + 90 * 60000 });
+    const statusEl = document.querySelector('#group-roster [data-user-id="a"] .person-status');
+    expect(statusEl).not.toBeNull();
+    expect(statusEl.textContent).toMatch(/Available for /);
+  });
+
+  test('unavailable member shows no status text (just the dot)', () => {
+    let membersCb;
+    const statusCbs = {};
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    statusCbs.a({ status: 'unavailable', availableUntil: null });
+    const statusEl = document.querySelector('#group-roster [data-user-id="a"] .person-status');
+    expect(statusEl.textContent).toBe('');
   });
 
   test('removed members lose their watchStatus subscription on the next tick', () => {

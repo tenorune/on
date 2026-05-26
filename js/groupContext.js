@@ -11,6 +11,7 @@ import { getLastTimeout, setLastTimeout } from './store.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge } from './knock.js';
+import { KNOCK_ENABLED } from './features.js';
 
 const CHIP_VALUES = [
   { minutes: 30,   text: '30 minutes' },
@@ -56,10 +57,10 @@ function renderRoster(members, ownUserId) {
   if (!list) return;
   list.innerHTML = '';
 
-  const entries = Object.entries(members || {});
-  entries.sort(([uidA, a], [uidB, b]) => {
-    if (uidA === ownUserId) return -1;
-    if (uidB === ownUserId) return 1;
+  // Own user is represented by the status row in the group-context header.
+  // Don't duplicate them in the roster.
+  const entries = Object.entries(members || {}).filter(([uid]) => uid !== ownUserId);
+  entries.sort(([, a], [, b]) => {
     const nameA = (a.displayName || '').toLowerCase();
     const nameB = (b.displayName || '').toLowerCase();
     return nameA.localeCompare(nameB);
@@ -75,21 +76,26 @@ function renderRoster(members, ownUserId) {
     dot.className = 'person-dot';
     dot.dataset.available = 'false';
 
+    const info = document.createElement('div');
+    info.className = 'person-info';
+
     const label = document.createElement('span');
     label.className = 'person-label';
     label.textContent = member.displayName || uid;
+    info.appendChild(label);
+
+    const status = document.createElement('div');
+    status.className = 'person-status';
+    info.appendChild(status);
 
     li.appendChild(dot);
-    li.appendChild(label);
+    li.appendChild(info);
 
-    if (uid !== ownUserId) {
-      const knockBtn = document.createElement('button');
-      knockBtn.className = 'ghost-btn knock-btn';
-      knockBtn.textContent = 'Knock';
-      knockBtn.addEventListener('click', () => {
+    if (KNOCK_ENABLED) {
+      li.classList.add('knockable');
+      li.addEventListener('click', () => {
         sendKnock(uid, ownUserId, undefined, { contextGroupId: getCurrentGroupId() });
       });
-      li.appendChild(knockBtn);
     }
 
     list.appendChild(li);
@@ -116,6 +122,17 @@ function paintRosterRow(uid) {
     const color = override?.statusColor || primary?.statusColor || null;
     if (isAvailable && color) dot.style.background = safeCssColor(color);
     else dot.style.background = '';
+  }
+  const statusEl = li.querySelector('.person-status');
+  if (statusEl) {
+    if (isAvailable) {
+      const remaining = availableUntil ? formatTimeRemaining(timeRemainingMs(availableUntil)) : '';
+      statusEl.textContent = remaining ? `Available for ${remaining}` : 'Available';
+    } else {
+      // Unavailable members deliberately render no status text in the
+      // group-context roster — the absent green dot already conveys it.
+      statusEl.textContent = '';
+    }
   }
 }
 

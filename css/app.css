@@ -918,8 +918,15 @@ main {
 #group-my-dot.readonly { cursor: default; opacity: 0.7; }
 #group-time-chip.readonly { cursor: default; opacity: 0.5; pointer-events: none; }
 
-.group-roster { list-style: none; padding: 0; margin: 0; }
-.group-roster-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.25rem; }
+.group-roster { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.group-roster-row {
+  display: flex; align-items: center; gap: 0.75rem;
+  background: var(--surface); border-radius: 10px;
+  padding: 0.625rem 0.875rem;
+  border-left: 3px solid transparent;
+}
+.group-roster-row.knockable { cursor: pointer; }
+.group-roster-row.knockable:active { background: var(--surface2); }
 .role-badge { color: var(--text-muted); font-size: 0.85rem; font-weight: normal; }
 
 /* Group removal toast */
