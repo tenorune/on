@@ -188,6 +188,9 @@ function closeCreateModal() {
 export function openCreateGroupModal() {
   const overlay = document.getElementById('create-group-modal');
   if (!overlay) return;
+  // Guard against double-open: if the modal is already showing, don't re-wire
+  // listeners (the cleanup array would accumulate stale handlers).
+  if (!overlay.classList.contains('hidden')) return;
   const nameInput = document.getElementById('create-group-name-input');
   const dnInput = document.getElementById('create-group-displayname-input');
   const submit = document.getElementById('create-group-submit-btn');
@@ -197,6 +200,7 @@ export function openCreateGroupModal() {
   dnInput.value = '';
   hideCreateError();
   overlay.classList.remove('hidden');
+  if (nameInput.focus) nameInput.focus();
 
   const onSubmit = async () => {
     const name = (nameInput.value || '').trim();
