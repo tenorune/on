@@ -408,6 +408,8 @@ describe('user-side groups enumeration', () => {
 });
 
 describe('currentContext sync', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
   test('setCurrentContext writes users/{uid}/currentContext', async () => {
     set.mockResolvedValue();
     await setCurrentContext('uid1', 'group:G1');
