@@ -332,6 +332,15 @@ async function main() {
   const { identity, isNew } = await ensureIdentity(pendingInviteToken);
   const { userId, code } = identity;
 
+  // Wire navigation BEFORE the invite-redemption block, otherwise navigateToGroup
+  // writes to users/null/... (because initNav hasn't set the local userId yet) AND
+  // its state change gets wiped by initNav's reset-to-direct that follows.
+  initNav(userId);
+  onContextChange((ctx) => {
+    if (ctx.context === 'group') enterGroupContext(ctx.groupId, userId);
+    else exitGroupContext();
+  });
+
   if (pendingInviteToken) {
     let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
     if (result && result.ok === false && result.reason === 'needs-display-name') {
@@ -364,14 +373,9 @@ async function main() {
   initList(userId, code);
   if (KNOCK_ENABLED) initKnocks(userId);
 
-  initNav(userId);
   initCardsRow();
   startCardsRowSubscriptions();
   initGroupRemovalDetector(userId);
-  onContextChange((ctx) => {
-    if (ctx.context === 'group') enterGroupContext(ctx.groupId, userId);
-    else exitGroupContext();
-  });
 
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
 

@@ -4,6 +4,7 @@ jest.mock('../js/db.js', () => ({
   watchGroupMeta: jest.fn(() => () => {}),
   watchGroupMembers: jest.fn(() => () => {}),
   watchStatus: jest.fn(() => () => {}),
+  removeUserGroupsEntry: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
@@ -107,6 +108,14 @@ describe('groupContext scaffolding', () => {
     exitGroupContext();
     expect(document.getElementById('group-context-root').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('main-ui-direct').classList.contains('hidden')).toBe(false);
+  });
+
+  test('watchGroupMeta returning null (owner deleted group) clears the local enumeration entry', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb(null); // group entity was deleted
+    expect(db.removeUserGroupsEntry).toHaveBeenCalledWith('me', 'G1');
   });
 });
 

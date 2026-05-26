@@ -2,7 +2,7 @@
 // Group context view: breadcrumb, header, roster. Roster + settings populated
 // in Tasks 16-17. This scaffolding handles enter/exit and the breadcrumb back.
 
-import { watchGroupMeta, watchGroupMembers, watchStatus } from './db.js';
+import { watchGroupMeta, watchGroupMembers, watchStatus, removeUserGroupsEntry } from './db.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName } from './groups.js';
@@ -179,7 +179,15 @@ export function enterGroupContext(groupId, userId) {
 
   // Subscribe to group meta for the name + owner check
   _metaUnsub = watchGroupMeta(groupId, (meta) => {
-    if (!meta) return; // deletion handled in Task 18
+    if (!meta) {
+      // Group entity was deleted. Non-owner members never had their
+      // users/{uid}/groups/{groupId} entry cleared by the owner (the
+      // owner has no permission to write to other users' records).
+      // Clear it locally; the watchUserGroups delta in groups.js then
+      // surfaces the "deleted" toast and navigates back to Direct.
+      removeUserGroupsEntry(userId, groupId).catch(() => {});
+      return;
+    }
     const nameEl = document.getElementById('group-context-name');
     const crumbEl = document.getElementById('group-breadcrumb-name');
     if (nameEl) nameEl.textContent = meta.name || '';
