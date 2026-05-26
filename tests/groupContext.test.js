@@ -423,6 +423,7 @@ describe('own status row', () => {
     cbs.getOverrideCb()(null);
     document.getElementById('group-override-toggle').click();
     expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledTimes(1);
   });
 
   test('clicking the toggle when ON calls toggleStatusOverride with false', () => {
@@ -432,6 +433,17 @@ describe('own status row', () => {
     cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
     document.getElementById('group-override-toggle').click();
     expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', false);
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledTimes(1);
+  });
+
+  test('re-entering the context does not double-wire the toggle', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getOverrideCb()(null);
+    enterGroupContext('G1', 'me');
+    cbs.getOverrideCb()(null);
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledTimes(1);
   });
 
   test('exitGroupContext tears down own primary and override subscriptions', () => {
