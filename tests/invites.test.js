@@ -15,6 +15,13 @@ jest.mock('../js/db.js', () => ({
   registerAsFollower: jest.fn().mockResolvedValue(undefined),
   setFollowingEntry: jest.fn().mockResolvedValue(undefined),
   lookupCode: jest.fn(),
+  writeGroupInvite: jest.fn(),
+  readGroupInvites: jest.fn().mockResolvedValue({}),
+  setGroupInviteRevoked: jest.fn(),
+  incrementGroupInviteRedemptions: jest.fn(),
+  watchGroupInvites: jest.fn(() => () => {}),
+  readGroup: jest.fn().mockResolvedValue(null),
+  readMember: jest.fn().mockResolvedValue(null),
 }));
 jest.mock('../js/store.js', () => ({ getFollowing: jest.fn(() => []) }));
 
@@ -408,6 +415,93 @@ describe('welcome screen invite framing', () => {
     expect(framing.classList.contains('hidden')).toBe(false);
     expect(framing.textContent).toContain('Mike P.');
     expect(framing.textContent).toContain('First, let');
+  });
+});
+
+const { createGroupInvite, revokeGroupInvite, regenerateGroupInvite } = require('../js/invites');
+
+describe('createGroupInvite', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    db.claimInviteToken.mockResolvedValue(true);
+    db.writeGroupInvite.mockResolvedValue();
+  });
+
+  test('creates a new group invite when none exists for this (creator, group)', async () => {
+    db.readGroupInvites.mockResolvedValue({});
+    const result = await createGroupInvite('uid1', 'G1');
+    expect(result).toMatchObject({
+      token: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/),
+      url: expect.stringContaining('?i='),
+    });
+    expect(db.claimInviteToken).toHaveBeenCalledWith(result.token, `groups/G1/invites/${result.token}`);
+    expect(db.writeGroupInvite).toHaveBeenCalledWith('G1', result.token, expect.objectContaining({
+      scope: 'group',
+      token: result.token,
+      creatorUid: 'uid1',
+      createdAt: expect.any(Number),
+      expiresAt: null,
+      redemptionCap: null,
+      redemptionsUsed: 0,
+      revoked: false,
+    }));
+  });
+
+  test('returns the existing active invite for this creator + group', async () => {
+    db.readGroupInvites.mockResolvedValue({
+      EXISTING22CHARSTRINGAA: { scope: 'group', token: 'EXISTING22CHARSTRINGAA', creatorUid: 'uid1', revoked: false },
+    });
+    const result = await createGroupInvite('uid1', 'G1');
+    expect(result.token).toBe('EXISTING22CHARSTRINGAA');
+    expect(db.claimInviteToken).not.toHaveBeenCalled();
+  });
+
+  test("ignores other creators' invites when checking the constraint", async () => {
+    db.readGroupInvites.mockResolvedValue({
+      OTHER22CHARSTRINGAAAAA: { scope: 'group', token: 'OTHER22CHARSTRINGAAAAA', creatorUid: 'someoneElse', revoked: false },
+    });
+    const result = await createGroupInvite('uid1', 'G1');
+    expect(db.claimInviteToken).toHaveBeenCalled();
+    expect(result.token).not.toBe('OTHER22CHARSTRINGAAAAA');
+  });
+});
+
+describe('revokeGroupInvite', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test("marks the caller's active invite revoked + releases inviteIndex", async () => {
+    db.readGroupInvites.mockResolvedValue({
+      ABC: { scope: 'group', token: 'ABC', creatorUid: 'uid1', revoked: false },
+    });
+    db.setGroupInviteRevoked.mockResolvedValue();
+    db.releaseInviteToken.mockResolvedValue();
+    await revokeGroupInvite('uid1', 'G1');
+    expect(db.setGroupInviteRevoked).toHaveBeenCalledWith('G1', 'ABC');
+    expect(db.releaseInviteToken).toHaveBeenCalledWith('ABC');
+  });
+
+  test('no-ops when caller has no active invite for this group', async () => {
+    db.readGroupInvites.mockResolvedValue({
+      ABC: { scope: 'group', token: 'ABC', creatorUid: 'someoneElse', revoked: false },
+    });
+    await revokeGroupInvite('uid1', 'G1');
+    expect(db.setGroupInviteRevoked).not.toHaveBeenCalled();
+  });
+});
+
+describe('regenerateGroupInvite', () => {
+  test('revoke + create with empty pre-revoke', async () => {
+    db.readGroupInvites
+      .mockResolvedValueOnce({ OLD: { scope: 'group', token: 'OLD', creatorUid: 'uid1', revoked: false } })
+      .mockResolvedValueOnce({});
+    db.setGroupInviteRevoked.mockResolvedValue();
+    db.releaseInviteToken.mockResolvedValue();
+    db.claimInviteToken.mockResolvedValue(true);
+    db.writeGroupInvite.mockResolvedValue();
+    const result = await regenerateGroupInvite('uid1', 'G1');
+    expect(db.setGroupInviteRevoked).toHaveBeenCalledWith('G1', 'OLD');
+    expect(db.releaseInviteToken).toHaveBeenCalledWith('OLD');
+    expect(result.token).not.toBe('OLD');
   });
 });
 

@@ -7,6 +7,7 @@ import {
   setInviteRevoked, releaseInviteToken,
   readInviteIndex, readUserInvite, incrementInviteRedemptions, getCreatorCode,
   registerAsFollower, setFollowingEntry,
+  writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions,
 } from './db.js';
 import { getFollowing } from './store.js';
 
@@ -196,4 +197,55 @@ export function extractInviteTokenFromUrl(urlStr) {
   } catch {
     return null;
   }
+}
+
+function findActiveGroupInviteForCreator(collection, creatorUid) {
+  for (const [token, inv] of Object.entries(collection || {})) {
+    if (inv && inv.scope === 'group' && inv.creatorUid === creatorUid && !inv.revoked) {
+      return { token, ...inv };
+    }
+  }
+  return null;
+}
+
+export async function createGroupInvite(creatorUid, groupId) {
+  const collection = await readGroupInvites(groupId);
+  const existing = findActiveGroupInviteForCreator(collection, creatorUid);
+  if (existing) {
+    return { token: existing.token, url: buildInviteUrl(existing.token), existing: true };
+  }
+
+  let token;
+  let claimed = false;
+  for (let attempt = 0; attempt < 8 && !claimed; attempt += 1) {
+    token = generateInviteToken();
+    claimed = await claimInviteToken(token, `groups/${groupId}/invites/${token}`);
+  }
+  if (!claimed) throw new Error('Could not allocate an invite token. Try again.');
+
+  const now = Date.now();
+  await writeGroupInvite(groupId, token, {
+    scope: 'group',
+    token,
+    creatorUid,
+    createdAt: now,
+    expiresAt: null,
+    redemptionCap: null,
+    redemptionsUsed: 0,
+    revoked: false,
+  });
+  return { token, url: buildInviteUrl(token), existing: false };
+}
+
+export async function revokeGroupInvite(creatorUid, groupId) {
+  const collection = await readGroupInvites(groupId);
+  const active = findActiveGroupInviteForCreator(collection, creatorUid);
+  if (!active) return;
+  await setGroupInviteRevoked(groupId, active.token);
+  await releaseInviteToken(active.token);
+}
+
+export async function regenerateGroupInvite(creatorUid, groupId) {
+  await revokeGroupInvite(creatorUid, groupId);
+  return createGroupInvite(creatorUid, groupId);
 }

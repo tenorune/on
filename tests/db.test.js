@@ -11,6 +11,7 @@ const {
   setLastVisited, setCurrentContext,
   writeGroup, readGroup, renameGroup, deleteGroup, watchGroupMeta,
   writeMember, readMember, readMembers, removeMember, setMemberDisplayName, watchGroupMembers,
+  writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions, watchGroupInvites,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -528,6 +529,49 @@ describe('group members', () => {
     watchGroupMembers('G1', (members) => seen.push(members));
     cb({ exists: () => true, val: () => ({ uid1: { role: 'owner', displayName: 'Alice' } }) });
     expect(seen[0]).toEqual({ uid1: { role: 'owner', displayName: 'Alice' } });
+    cb({ exists: () => false });
+    expect(seen[1]).toEqual({});
+  });
+});
+
+describe('group invite ops', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('writeGroupInvite writes at groups/{groupId}/invites/{token}', async () => {
+    set.mockResolvedValue();
+    const payload = { scope: 'group', token: 'T', creatorUid: 'uid1', createdAt: 1, expiresAt: null, redemptionCap: null, redemptionsUsed: 0, revoked: false };
+    await writeGroupInvite('G1', 'T', payload);
+    expect(set).toHaveBeenCalledWith('mock-ref', payload);
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/invites/T');
+  });
+
+  test('readGroupInvites returns the full collection', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ T1: { scope: 'group', creatorUid: 'uid1', revoked: false } }) });
+    expect(await readGroupInvites('G1')).toEqual({ T1: { scope: 'group', creatorUid: 'uid1', revoked: false } });
+  });
+
+  test('setGroupInviteRevoked marks revoked', async () => {
+    update.mockResolvedValue();
+    await setGroupInviteRevoked('G1', 'T');
+    expect(update).toHaveBeenCalledWith('mock-ref', { revoked: true });
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/invites/T');
+  });
+
+  test('incrementGroupInviteRedemptions transactionally bumps the counter', async () => {
+    runTransaction.mockResolvedValue({ committed: true });
+    await incrementGroupInviteRedemptions('G1', 'T');
+    const handler = runTransaction.mock.calls[0][1];
+    expect(handler(3)).toBe(4);
+    expect(handler(null)).toBe(1);
+  });
+
+  test('watchGroupInvites subscribes to the collection', () => {
+    let cb;
+    onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });
+    const seen = [];
+    watchGroupInvites('G1', (invites) => seen.push(invites));
+    cb({ exists: () => true, val: () => ({ T: { scope: 'group', revoked: false } }) });
+    expect(seen[0]).toEqual({ T: { scope: 'group', revoked: false } });
     cb({ exists: () => false });
     expect(seen[1]).toEqual({});
   });

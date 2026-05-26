@@ -263,6 +263,33 @@ export function watchGroupMembers(groupId, callback) {
   });
 }
 
+// ── Groups: invites ───────────────────────────────────────────────────────────
+
+export async function writeGroupInvite(groupId, token, payload) {
+  await set(ref(db, `groups/${groupId}/invites/${token}`), payload);
+}
+
+export async function readGroupInvites(groupId) {
+  const snap = await get(ref(db, `groups/${groupId}/invites`));
+  return snap.exists() ? snap.val() : {};
+}
+
+export async function setGroupInviteRevoked(groupId, token) {
+  await update(ref(db, `groups/${groupId}/invites/${token}`), { revoked: true });
+}
+
+export async function incrementGroupInviteRedemptions(groupId, token) {
+  const inviteRef = ref(db, `groups/${groupId}/invites/${token}/redemptionsUsed`);
+  await runTransaction(inviteRef, (current) => (current || 0) + 1);
+}
+
+export function watchGroupInvites(groupId, callback) {
+  const invitesRef = ref(db, `groups/${groupId}/invites`);
+  return onValue(invitesRef, (snap) => {
+    callback(snap.exists() ? snap.val() : {});
+  });
+}
+
 // Write own status to Firebase
 export async function setStatus(userId, status, availableUntil) {
   await update(ref(db, `users/${userId}`), {
