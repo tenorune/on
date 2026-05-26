@@ -51,3 +51,40 @@ export async function createGroup(ownerUid, nameRaw, ownerDisplayNameRaw) {
 
   return { groupId, name };
 }
+
+async function requireOwner(groupId, callerUid) {
+  const group = await readGroup(groupId);
+  if (!group) return null;
+  if (group.ownerId !== callerUid) throw new Error('Only the owner can do that.');
+  return group;
+}
+
+async function refuseOwner(groupId, callerUid) {
+  const group = await readGroup(groupId);
+  if (!group) return null;
+  if (group.ownerId === callerUid) throw new Error('The owner cannot leave the group. Delete it instead.');
+  return group;
+}
+
+export async function renameGroup(groupId, callerUid, newNameRaw) {
+  const name = validateName(newNameRaw, 'Group name');
+  const group = await requireOwner(groupId, callerUid);
+  if (!group) return;
+  await dbRenameGroup(groupId, name);
+}
+
+export async function deleteGroup(groupId, callerUid) {
+  const group = await requireOwner(groupId, callerUid);
+  if (!group) return;
+  await dbDeleteGroup(groupId);
+  await removeUserGroupsEntry(callerUid, groupId);
+  // Members' own enumeration entries are cleaned up by their own apps' deletion-detection
+  // mechanism (Task 18); we cannot reach into their user records from here.
+}
+
+export async function leaveGroup(groupId, callerUid) {
+  const group = await refuseOwner(groupId, callerUid);
+  if (!group) return;
+  await removeMember(groupId, callerUid);
+  await removeUserGroupsEntry(callerUid, groupId);
+}

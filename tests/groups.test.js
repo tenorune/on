@@ -17,7 +17,7 @@ jest.mock('../js/db.js', () => ({
 }));
 
 const db = require('../js/db.js');
-const { createGroup } = require('../js/groups');
+const { createGroup, renameGroup, deleteGroup, leaveGroup } = require('../js/groups');
 
 describe('createGroup', () => {
   beforeEach(() => {
@@ -67,5 +67,68 @@ describe('createGroup', () => {
   test('throws after exhausting retry budget', async () => {
     db.claimGroupId.mockResolvedValue(false);
     await expect(createGroup('uid1', 'Family', 'Mike')).rejects.toThrow(/allocate/i);
+  });
+});
+
+describe('renameGroup', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('validates new name', async () => {
+    await expect(renameGroup('G1', 'uid1', '   ')).rejects.toThrow(/empty/i);
+    await expect(renameGroup('G1', 'uid1', 'x'.repeat(41))).rejects.toThrow(/40/);
+  });
+
+  test('refuses when caller is not the owner', async () => {
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
+    await expect(renameGroup('G1', 'uid1', 'New')).rejects.toThrow(/owner/i);
+  });
+
+  test('writes new name when caller is the owner', async () => {
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.renameGroup.mockResolvedValue();
+    await renameGroup('G1', 'uid1', '  Familia  ');
+    expect(db.renameGroup).toHaveBeenCalledWith('G1', 'Familia');
+  });
+});
+
+describe('deleteGroup', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('refuses when caller is not the owner', async () => {
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
+    await expect(deleteGroup('G1', 'uid1')).rejects.toThrow(/owner/i);
+  });
+
+  test('removes the group and the owner\'s enumeration entry when owner deletes', async () => {
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.deleteGroup.mockResolvedValue();
+    db.removeUserGroupsEntry.mockResolvedValue();
+    await deleteGroup('G1', 'uid1');
+    expect(db.deleteGroup).toHaveBeenCalledWith('G1');
+    expect(db.removeUserGroupsEntry).toHaveBeenCalledWith('uid1', 'G1');
+  });
+
+  test('no-ops gracefully when the group is already gone', async () => {
+    db.readGroup.mockResolvedValue(null);
+    await deleteGroup('G1', 'uid1');
+    expect(db.deleteGroup).not.toHaveBeenCalled();
+  });
+});
+
+describe('leaveGroup', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('refuses when caller is the owner (must delete instead)', async () => {
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    await expect(leaveGroup('G1', 'uid1')).rejects.toThrow(/owner/i);
+  });
+
+  test('removes the member record and the user-side enumeration when member leaves', async () => {
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
+    db.removeMember.mockResolvedValue();
+    db.removeUserGroupsEntry.mockResolvedValue();
+    await leaveGroup('G1', 'uid1');
+    expect(db.removeMember).toHaveBeenCalledWith('G1', 'uid1');
+    expect(db.removeUserGroupsEntry).toHaveBeenCalledWith('uid1', 'G1');
   });
 });
