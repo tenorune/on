@@ -297,7 +297,15 @@ export async function redeemGroupInvite(token, redeemerUid, displayName) {
     return { ok: false, reason: 'already-member', groupId, groupName: group.name };
   }
 
-  await joinGroup(groupId, redeemerUid, displayName);
+  // joinGroup validates displayName (throws on empty / too-long) and throws
+  // 'Group not found.' if the group is deleted in the window since our guard.
+  // Surface either as a structured result so callers always get { ok, reason }.
+  try {
+    await joinGroup(groupId, redeemerUid, displayName);
+  } catch (err) {
+    if (/not found/i.test(err.message || '')) return { ok: false, reason: 'group-missing' };
+    return { ok: false, reason: 'invalid-display-name', message: err.message || 'Invalid display name.' };
+  }
   await incrementGroupInviteRedemptions(groupId, token);
 
   return { ok: true, groupId, groupName: group.name };

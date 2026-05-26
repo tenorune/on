@@ -607,6 +607,32 @@ describe('redeemGroupInvite', () => {
     db.readGroup.mockResolvedValue(null);
     expect(await redeemGroupInvite('T', 'redeemer', 'Mike')).toEqual({ ok: false, reason: 'group-missing' });
   });
+
+  test('returns invalid-display-name when joinGroup rejects a bad name', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.readGroupInvites.mockResolvedValue({
+      T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    });
+    db.readMember.mockResolvedValue(null);
+    groups.joinGroup.mockRejectedValueOnce(new Error('Display name cannot be empty.'));
+    const result = await redeemGroupInvite('T', 'redeemer', '   ');
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('invalid-display-name');
+    expect(result.message).toMatch(/empty/i);
+    expect(db.incrementGroupInviteRedemptions).not.toHaveBeenCalled();
+  });
+
+  test('returns group-missing when joinGroup throws Group not found (TOCTOU race)', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.readGroupInvites.mockResolvedValue({
+      T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    });
+    db.readMember.mockResolvedValue(null);
+    groups.joinGroup.mockRejectedValueOnce(new Error('Group not found.'));
+    expect(await redeemGroupInvite('T', 'redeemer', 'Mike')).toEqual({ ok: false, reason: 'group-missing' });
+  });
 });
 
 describe('attemptRedeemFromUrl scope dispatch', () => {
