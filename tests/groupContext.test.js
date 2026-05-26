@@ -179,14 +179,14 @@ describe('group roster render', () => {
     expect(items[2].textContent).toContain('Bob');
   });
 
-  test('owner gets the (owner) badge', () => {
+  test('roster does not render an (owner) badge', () => {
     let membersCb;
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     membersCb({
       'b': { role: 'owner', displayName: 'Bob', joinedAt: 0 },
     });
-    expect(document.querySelector('#group-roster li').textContent).toContain('(owner)');
+    expect(document.querySelector('#group-roster li').textContent).not.toContain('owner');
   });
 
   test('each member gets a watchStatus subscription', () => {
@@ -600,6 +600,11 @@ describe('roster context-aware status', () => {
     statusCbs.uidA?.({ status: 'unavailable', availableUntil: null });
     const li = document.querySelector('#group-roster [data-user-id="uidA"]');
     expect(li.dataset.available).toBe('true');
+    // Regression: the CSS rule for the green available dot is .person-dot.available
+    // (class), not [data-available="true"]. Without the class toggle the dot stays
+    // grey even when isAvailable is true — only masked when a statusColor inline
+    // background happens to be set.
+    expect(li.querySelector('.person-dot').classList.contains('available')).toBe(true);
   });
 
   test('member without override uses primary status', () => {

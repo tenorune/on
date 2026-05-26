@@ -78,12 +78,6 @@ function renderRoster(members, ownUserId) {
     const label = document.createElement('span');
     label.className = 'person-label';
     label.textContent = member.displayName || uid;
-    if (member.role === 'owner') {
-      const badge = document.createElement('span');
-      badge.className = 'role-badge';
-      badge.textContent = ' (owner)';
-      label.appendChild(badge);
-    }
 
     li.appendChild(dot);
     li.appendChild(label);
@@ -116,6 +110,7 @@ function paintRosterRow(uid) {
   const dot = li.querySelector('.person-dot');
   if (dot) {
     dot.dataset.available = isAvailable ? 'true' : 'false';
+    dot.classList.toggle('available', isAvailable);
     // Phase 2 color: prefer override.statusColor when present (Phase 4+ will
     // write it), else fall through to the member's primary statusColor.
     const color = override?.statusColor || primary?.statusColor || null;
