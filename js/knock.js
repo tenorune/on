@@ -1,5 +1,6 @@
 // js/knock.js
 import { writeKnock, getKnocks, watchKnocksAdded, clearKnock } from './db.js';
+import { getCurrentContext } from './groupNav.js';
 
 // Module-level state — reset by initKnocks on each call
 let debounceMap = new Map();   // recipientId → last knock timestamp
@@ -12,7 +13,7 @@ const INTENSITY_STEP = 0.4;
 let pulseMap = new Map();      // senderId → { intensity: number, timerId: number | null }
 
 // Send a knock to recipientId. Guards: debounce (300ms). Flash fires only after debounce passes.
-export function sendKnock(recipientId, senderId, statusColor) {
+export function sendKnock(recipientId, senderId, statusColor, opts = {}) {
   const now = Date.now();
   if (now - (debounceMap.get(recipientId) ?? 0) < 300) return;
   debounceMap.set(recipientId, now);
@@ -26,7 +27,7 @@ export function sendKnock(recipientId, senderId, statusColor) {
     li.addEventListener('animationend', () => li.classList.remove('knock-sender'), { once: true });
   }
 
-  writeKnock(recipientId, senderId);
+  writeKnock(recipientId, senderId, opts);
 }
 
 // Initialize knock state and start listening. Call after initList so DOM exists.
@@ -47,7 +48,10 @@ export async function initKnocks(myUserId) {
   //    that arrive during the snapshot fetch. Events arriving while snapshotPending
   //    is true are held until deferredKeys is populated; senders in deferredKeys
   //    are then skipped (they will be handled by the deferred batch).
-  unsubKnocks = watchKnocksAdded(myUserId, (senderId, { count, ts }) => {
+  unsubKnocks = watchKnocksAdded(myUserId, (senderId, payload) => {
+    const count = payload.count;
+    const ts = payload.ts;
+    const contextGroupId = payload.contextGroupId || null;
     // Skip senders from the initial snapshot (handled as deferred)
     if (snapshotPending || deferredKeys.has(senderId)) return;
     // App is backgrounded or on canvas — leave knock in DB so the next initKnocks
@@ -62,7 +66,13 @@ export async function initKnocks(myUserId) {
       clearKnock(myUserId, senderId).catch(() => {});
       return;
     }
-    applyLiveKnock(senderId, count);
+    const li = findKnockTargetCard(senderId, contextGroupId);
+    if (!li) {
+      if (contextGroupId) bumpGroupCardBadge(contextGroupId);
+      return;
+    }
+    applyLiveKnock(senderId, count, li);
+    applyFloatToTop(li);
     clearKnock(myUserId, senderId).catch(() => {});
   });
 
@@ -97,7 +107,11 @@ export async function initKnocks(myUserId) {
   deferredKeys.clear();
 
   // 7. Trigger all deferred animations simultaneously
-  toAnimate.forEach(userId => applyDeferredKnock(userId));
+  toAnimate.forEach(userId => {
+    applyDeferredKnock(userId);
+    const li = document.querySelector(`[data-user-id="${userId}"]`);
+    if (li) applyFloatToTop(li);
+  });
 }
 
 // Returns the color to use for knock animations on this card.
@@ -123,8 +137,8 @@ export function colorToRgba(color, alpha) {
   return `rgba(34, 197, 94, ${alpha})`; // fallback: green
 }
 
-function applyLiveKnock(senderId, count) {
-  const li = document.querySelector(`[data-user-id="${senderId}"]`);
+function applyLiveKnock(senderId, count, li) {
+  if (!li) li = document.querySelector(`[data-user-id="${senderId}"]`);
   if (!li) return;
 
   const color = getKnockColor(li);
@@ -160,6 +174,88 @@ function applyDeferredKnock(userId) {
   li.style.setProperty('--knock-color', getKnockColor(li));
   li.classList.add('knock-deferred');
   li.addEventListener('animationend', () => li.classList.remove('knock-deferred'), { once: true });
+}
+
+// ── Float-to-top ─────────────────────────────────────────────────────────────
+
+const FLOAT_MS = 20000;
+const floatTimers = new Map(); // userId → { timerId, originalParent, originalSibling }
+
+export function applyFloatToTop(li) {
+  if (!li) return;
+  const list = li.parentNode;
+  if (!list) return;
+  const userId = li.dataset.userId;
+  if (floatTimers.has(userId)) {
+    clearTimeout(floatTimers.get(userId).timerId);
+  } else {
+    floatTimers.set(userId, {
+      originalParent: list,
+      originalSibling: li.nextSibling,
+      timerId: null,
+    });
+  }
+  list.prepend(li);
+  const timerId = setTimeout(() => restoreFromFloat(userId), FLOAT_MS);
+  floatTimers.get(userId).timerId = timerId;
+}
+
+function restoreFromFloat(userId) {
+  const entry = floatTimers.get(userId);
+  if (!entry) return;
+  const li = document.querySelector(`[data-user-id="${userId}"]`);
+  if (li && entry.originalParent) {
+    entry.originalParent.insertBefore(li, entry.originalSibling || null);
+  }
+  floatTimers.delete(userId);
+}
+
+export function getFloatedUserIds() {
+  return Array.from(floatTimers.keys());
+}
+
+// ── Group card badge ──────────────────────────────────────────────────────────
+
+const groupBadgeCounts = new Map();
+
+export function bumpGroupCardBadge(groupId) {
+  const current = (groupBadgeCounts.get(groupId) || 0) + 1;
+  groupBadgeCounts.set(groupId, current);
+  renderGroupBadge(groupId, current);
+}
+
+export function clearGroupCardBadge(groupId) {
+  groupBadgeCounts.delete(groupId);
+  renderGroupBadge(groupId, 0);
+}
+
+function renderGroupBadge(groupId, count) {
+  const card = document.querySelector(`.group-card[data-group-id="${groupId}"]`);
+  if (!card) return;
+  let badge = card.querySelector('.group-card-badge');
+  if (count > 0) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'group-card-badge';
+      card.appendChild(badge);
+    }
+    badge.textContent = String(count);
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+// ── Context-aware knock target lookup ────────────────────────────────────────
+
+function findKnockTargetCard(senderId, contextGroupId) {
+  if (contextGroupId) {
+    const cur = getCurrentContext();
+    if (cur.context === 'group' && cur.groupId === contextGroupId) {
+      return document.querySelector(`#group-roster [data-user-id="${senderId}"]`);
+    }
+    return null; // recipient is in a different context; caller bumps the badge
+  }
+  return document.querySelector(`[data-user-id="${senderId}"]`);
 }
 
 // Re-run initKnocks when the app returns to the foreground or exits canvas,

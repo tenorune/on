@@ -448,12 +448,20 @@ export async function getUser(userId) {
 
 // Write a knock from sender to recipient (capped at 5).
 // runTransaction: null → {count:1,ts}, count<5 → increment, count>=5 → abort.
-export async function writeKnock(recipientId, senderId) {
+// opts.contextGroupId — optional group surface context carried with the knock.
+export async function writeKnock(recipientId, senderId, opts = {}) {
   const knockRef = ref(db, `users/${recipientId}/knocks/${senderId}`);
   await runTransaction(knockRef, (current) => {
-    if (current === null) return { count: 1, ts: Date.now() };
+    if (current === null) {
+      const next = { count: 1, ts: Date.now() };
+      if (opts.contextGroupId) next.contextGroupId = opts.contextGroupId;
+      return next;
+    }
     if (current.count >= 5) return; // abort
-    return { count: current.count + 1, ts: Date.now() };
+    const next = { count: current.count + 1, ts: Date.now() };
+    if (opts.contextGroupId) next.contextGroupId = opts.contextGroupId;
+    else if (current.contextGroupId) next.contextGroupId = current.contextGroupId;
+    return next;
   });
 }
 

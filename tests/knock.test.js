@@ -16,6 +16,9 @@ beforeEach(() => {
   }));
   jest.mock('../js/store.js', () => ({}));
   jest.mock('../js/firebase-config.js', () => ({ db: {} }));
+  jest.mock('../js/groupNav.js', () => ({
+    getCurrentContext: jest.fn(() => ({ context: 'direct', groupId: null })),
+  }));
   ({ sendKnock, initKnocks, colorToRgba } = require('../js/knock.js'));
   // Re-bind db mocks to fresh instances created after resetModules
   const db = require('../js/db.js');
@@ -55,7 +58,7 @@ describe('sendKnock: debounce', () => {
     writeKnock.mockClear();
     jest.advanceTimersByTime(300);
     sendKnock('u1', 'me');
-    expect(writeKnock).toHaveBeenCalledWith('u1', 'me');
+    expect(writeKnock).toHaveBeenCalledWith('u1', 'me', {});
   });
 
   test('debounce map persists across re-renders (module-level, userId string key)', () => {
@@ -120,7 +123,7 @@ describe('sendKnock: writeKnock call', () => {
   test('calls writeKnock after debounce passes', () => {
     makeLi('u1');
     sendKnock('u1', 'me');
-    expect(writeKnock).toHaveBeenCalledWith('u1', 'me');
+    expect(writeKnock).toHaveBeenCalledWith('u1', 'me', {});
   });
 });
 
@@ -299,7 +302,7 @@ describe('initKnocks: state reset', () => {
     jest.advanceTimersByTime(0);
     sendKnock('u1', 'me');
     // After reset, debounce map is cleared so knock should go through
-    expect(writeKnock).toHaveBeenCalledWith('u1', 'me');
+    expect(writeKnock).toHaveBeenCalledWith('u1', 'me', {});
   });
 });
 
@@ -325,7 +328,7 @@ describe('visibilitychange re-init', () => {
 
     // Debounce map is cleared synchronously — knock should fire again immediately
     sendKnock('u1', 'me');
-    expect(writeKnock).toHaveBeenCalledWith('u1', 'me');
+    expect(writeKnock).toHaveBeenCalledWith('u1', 'me', {});
   });
 });
 
@@ -566,5 +569,107 @@ describe('colorToRgba', () => {
 
   test('alpha=0 produces correct decay target', () => {
     expect(colorToRgba('#22c55e', 0)).toBe('rgba(34, 197, 94, 0)');
+  });
+});
+
+// --- float-to-top + group-card badge (Task 20) ---
+
+describe('float-to-top', () => {
+  let applyFloatToTop;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ KNOCK_ENABLED: true, PALETTES_ENABLED: false }));
+    jest.mock('../js/db.js', () => ({
+      writeKnock: jest.fn(),
+      getKnocks: jest.fn(),
+      watchKnocksAdded: jest.fn(),
+      clearKnock: jest.fn(),
+    }));
+    jest.mock('../js/store.js', () => ({}));
+    jest.mock('../js/firebase-config.js', () => ({ db: {} }));
+    jest.mock('../js/groupNav.js', () => ({
+      getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
+    }));
+    ({ applyFloatToTop } = require('../js/knock.js'));
+
+    document.body.innerHTML = `
+      <ul id="list">
+        <li data-user-id="a">A</li>
+        <li data-user-id="b">B</li>
+        <li data-user-id="c">C</li>
+      </ul>
+    `;
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  test('floats the targeted row to top', () => {
+    const li = document.querySelector('[data-user-id="b"]');
+    applyFloatToTop(li);
+    const order = Array.from(document.querySelectorAll('#list li')).map((el) => el.dataset.userId);
+    expect(order).toEqual(['b', 'a', 'c']);
+  });
+
+  test('restores the row to its original position after 20s', () => {
+    const li = document.querySelector('[data-user-id="b"]');
+    applyFloatToTop(li);
+    jest.advanceTimersByTime(20000);
+    const order = Array.from(document.querySelectorAll('#list li')).map((el) => el.dataset.userId);
+    expect(order).toEqual(['a', 'b', 'c']);
+  });
+
+  test('repeated float resets the 20s timer', () => {
+    const li = document.querySelector('[data-user-id="b"]');
+    applyFloatToTop(li);
+    jest.advanceTimersByTime(15000);
+    applyFloatToTop(li);
+    jest.advanceTimersByTime(15000);
+    const order = Array.from(document.querySelectorAll('#list li')).map((el) => el.dataset.userId);
+    expect(order).toEqual(['b', 'a', 'c']);
+  });
+});
+
+describe('group-card badge', () => {
+  let bumpGroupCardBadge, clearGroupCardBadge;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ KNOCK_ENABLED: true, PALETTES_ENABLED: false }));
+    jest.mock('../js/db.js', () => ({
+      writeKnock: jest.fn(),
+      getKnocks: jest.fn(),
+      watchKnocksAdded: jest.fn(),
+      clearKnock: jest.fn(),
+    }));
+    jest.mock('../js/store.js', () => ({}));
+    jest.mock('../js/firebase-config.js', () => ({ db: {} }));
+    jest.mock('../js/groupNav.js', () => ({
+      getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
+    }));
+    ({ bumpGroupCardBadge, clearGroupCardBadge } = require('../js/knock.js'));
+
+    document.body.innerHTML = `<button class="group-card" data-group-id="G1"></button>`;
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  test('bumpGroupCardBadge adds a badge with the count', () => {
+    bumpGroupCardBadge('G1');
+    expect(document.querySelector('.group-card[data-group-id="G1"] .group-card-badge').textContent).toBe('1');
+    bumpGroupCardBadge('G1');
+    expect(document.querySelector('.group-card[data-group-id="G1"] .group-card-badge').textContent).toBe('2');
+  });
+
+  test('clearGroupCardBadge removes the badge', () => {
+    bumpGroupCardBadge('G1');
+    clearGroupCardBadge('G1');
+    expect(document.querySelector('.group-card[data-group-id="G1"] .group-card-badge')).toBeNull();
   });
 });

@@ -7,6 +7,7 @@ import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName } from './groups.js';
 import { openInviteModal } from './inviteModal.js';
+import { sendKnock, clearGroupCardBadge } from './knock.js';
 
 let _metaUnsub = null;
 let _membersUnsub = null;
@@ -50,6 +51,17 @@ function renderRoster(members, ownUserId) {
 
     li.appendChild(dot);
     li.appendChild(label);
+
+    if (uid !== ownUserId) {
+      const knockBtn = document.createElement('button');
+      knockBtn.className = 'ghost-btn knock-btn';
+      knockBtn.textContent = 'Knock';
+      knockBtn.addEventListener('click', () => {
+        sendKnock(uid, ownUserId, undefined, { contextGroupId: getCurrentGroupId() });
+      });
+      li.appendChild(knockBtn);
+    }
+
     list.appendChild(li);
   }
 }
@@ -152,6 +164,9 @@ export function enterGroupContext(groupId, userId) {
     back.parentNode.replaceChild(clone, back);
     clone.addEventListener('click', () => navigateToDirect());
   }
+
+  // Clear any pending unread-knock badge for this group
+  clearGroupCardBadge(groupId);
 
   // Subscribe to group members for the roster
   if (_membersUnsub) _membersUnsub();
