@@ -1,6 +1,9 @@
 // js/groupContext.js
-// Group context view: breadcrumb, header, roster. Roster + settings populated
-// in Tasks 16-17. This scaffolding handles enter/exit and the breadcrumb back.
+// Group context view: own-status header band + roster.
+// The group name and back-to-Direct affordance live in the persistent nav row
+// (js/groupNav.js), not in this view. This module handles enter/exit, the
+// own-status row, the chain-icon override toggle (installed into the nav row's
+// slot), and the member roster.
 
 import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs, setLastTimeoutMinutes } from './db.js';
 import { safeCssColor } from './utils.js';
@@ -329,14 +332,6 @@ export function enterGroupContext(groupId, userId) {
   if (root) root.classList.remove('hidden');
   if (direct) direct.classList.add('hidden');
 
-  // Wire the breadcrumb back button (replace via clone to drop any prior listener)
-  const back = document.getElementById('group-breadcrumb-back');
-  if (back) {
-    const clone = back.cloneNode(true);
-    back.parentNode.replaceChild(clone, back);
-    clone.addEventListener('click', () => navigateToDirect());
-  }
-
   // Clear any pending unread-knock badge for this group
   clearGroupCardBadge(groupId);
 
@@ -484,11 +479,6 @@ export function enterGroupContext(groupId, userId) {
       removeUserGroupsEntry(userId, groupId).catch(() => {});
       return;
     }
-    const nameEl = document.getElementById('group-context-name');
-    const crumbEl = document.getElementById('group-breadcrumb-name');
-    if (nameEl) nameEl.textContent = meta.name || '';
-    if (crumbEl) crumbEl.textContent = meta.name || '';
-
     const isOwner = meta.ownerId === userId;
     wireActions(groupId, userId, isOwner, meta.name);
   });
