@@ -51,6 +51,7 @@ jest.mock('../js/inviteModal.js', () => ({
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
   clearGroupCardBadge: jest.fn(),
+  drainPendingKnocks: jest.fn(),
 }));
 jest.mock('../js/features.js', () => ({
   KNOCK_ENABLED: true,

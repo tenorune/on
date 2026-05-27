@@ -11,6 +11,8 @@ let cachedUserId = null;       // stored so the visibility handler can re-call i
 
 const INTENSITY_STEP = 0.4;
 let pulseMap = new Map();      // senderId → { intensity: number, timerId: number | null }
+let pendingByGroup = new Map(); // groupId → Set<senderId>: knocks received while user
+                                 // wasn't in the right group context; drained on enter.
 
 // Send a knock to recipientId. Guards: debounce (300ms). Flash fires only after debounce passes.
 export function sendKnock(recipientId, senderId, statusColor, opts = {}) {
@@ -41,6 +43,7 @@ export async function initKnocks(myUserId) {
   if (unsubKnocks) { unsubKnocks(); unsubKnocks = null; }
   pulseMap.forEach(({ timerId }) => { if (timerId) clearTimeout(timerId); });
   pulseMap = new Map();
+  pendingByGroup = new Map();
   floatTimers.forEach(({ timerId }) => { if (timerId) clearTimeout(timerId); });
   floatTimers.clear();
   groupBadgeCounts.clear();
@@ -74,11 +77,19 @@ export async function initKnocks(myUserId) {
     }
     const li = findKnockTargetCard(senderId, contextGroupId);
     if (!li) {
-      if (contextGroupId) bumpGroupCardBadge(contextGroupId);
+      if (contextGroupId) {
+        bumpGroupCardBadge(contextGroupId);
+        // Stash so the animation replays when the user enters this group.
+        if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
+        pendingByGroup.get(contextGroupId).add(senderId);
+      }
       return;
     }
     applyLiveKnock(senderId, count, li);
     applyFloatToTop(li);
+    // Bring the prepended li into view in group context — without this, a
+    // user scrolled down in a long roster misses the float-to-top entirely.
+    if (contextGroupId) window.scrollTo({ top: 0, behavior: 'smooth' });
     clearKnock(myUserId, senderId).catch(() => {});
   });
 
@@ -113,12 +124,45 @@ export async function initKnocks(myUserId) {
   // 6. Clear deferredKeys — live listener now processes all senders normally
   deferredKeys.clear();
 
-  // 7. Trigger all deferred animations simultaneously
+  // 7. Trigger all deferred animations simultaneously. For group-scoped
+  //    knocks where the user isn't currently in that group context,
+  //    findKnockTargetCard returns null — stash so drainPendingKnocks can
+  //    replay the animation when they navigate to the group.
   toAnimate.forEach(({ senderId, contextGroupId }) => {
-    applyDeferredKnock(senderId, contextGroupId);
     const li = findKnockTargetCard(senderId, contextGroupId);
-    if (li) applyFloatToTop(li);
+    if (li) {
+      applyDeferredKnock(senderId, contextGroupId);
+      applyFloatToTop(li);
+    } else if (contextGroupId) {
+      if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
+      pendingByGroup.get(contextGroupId).add(senderId);
+      bumpGroupCardBadge(contextGroupId);
+    }
   });
+}
+
+/**
+ * Replay queued knocks for a group the moment the user enters its context.
+ * Each pending sender gets the deferred-knock animation + float-to-top
+ * applied. Called from groupContext.enterGroupContext after the roster
+ * has rendered (so findKnockTargetCard can resolve the li).
+ */
+export function drainPendingKnocks(groupId) {
+  const set = pendingByGroup.get(groupId);
+  if (!set || set.size === 0) return;
+  // Take a snapshot then clear so re-entry doesn't double-animate.
+  const senderIds = Array.from(set);
+  pendingByGroup.delete(groupId);
+  if (!cachedUserId) return;
+  senderIds.forEach((senderId) => {
+    const li = findKnockTargetCard(senderId, groupId);
+    if (!li) return; // still not in DOM (race) — drop silently
+    applyDeferredKnock(senderId, groupId);
+    applyFloatToTop(li);
+    clearKnock(cachedUserId, senderId).catch(() => {});
+  });
+  // Bring the prepended items into view.
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // Returns the color to use for knock animations on this card.
