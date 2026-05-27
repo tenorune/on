@@ -481,20 +481,24 @@ main {
 .nav-row::-webkit-scrollbar { display: none; }
 .nav-row.hidden { display: none; }
 .nav-current {
+  position: sticky;
+  left: 0;
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--text);
-  background: transparent;
+  background: var(--surface);
   border: none;
   cursor: default;
   padding: 0.25rem 0.5rem;
   flex-shrink: 0;
 }
 .nav-back {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
   font-size: 0.9rem;
   font-weight: normal;
   color: var(--text-muted);
-  background: transparent;
   border: none;
   cursor: pointer;
   padding: 0.25rem 0.5rem;

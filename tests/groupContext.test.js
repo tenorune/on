@@ -669,6 +669,34 @@ describe('chain-icon override toggle', () => {
     document.getElementById('group-my-dot').click();
     expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalled();
   });
+
+  test('end-to-end: toggle ON → dot → chip → toggle OFF flow with chain icon', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getPrimaryCb()({ status: 'unavailable', availableUntil: null });
+    cbs.getOverrideCb()(null);
+
+    // 1. Toggle ON via chain icon
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+
+    // 2. Dot click — go available
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalled();
+    cbs.getOverrideCb()({ enabled: true, status: 'available', availableUntil: Date.now() + 120 * 60000 });
+
+    // 3. Time chip — cycle duration (writes another available with new timestamp)
+    document.getElementById('group-time-chip').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(2);
+
+    // 4. Toggle OFF via chain icon
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenLastCalledWith('G1', 'me', false);
+    cbs.getOverrideCb()(null);
+    expect(document.getElementById('group-override-toggle').getAttribute('aria-pressed')).toBe('false');
+  });
 });
 
 describe('roster context-aware status', () => {

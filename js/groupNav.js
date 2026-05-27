@@ -231,7 +231,7 @@ function renderNavRowGroupMode(row) {
   back.addEventListener('click', () => navigateToDirect());
   row.appendChild(back);
 
-  // Placeholder slot for the chain-icon override toggle. Task 6 fills this in.
+  // Slot for the chain-icon override toggle; filled by groupContext.enterGroupContext().
   const toggleSlot = document.createElement('span');
   toggleSlot.id = 'group-override-toggle-slot';
   row.appendChild(toggleSlot);
