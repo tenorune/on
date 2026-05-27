@@ -546,10 +546,12 @@ main {
   color: var(--accent);
 }
 
-#header-row {
+#header-row,
+.group-header-row {
   display: flex;
   align-items: center;
   gap: 0.875rem;
+  min-height: 3rem;
 }
 
 #header-text {
@@ -928,8 +930,6 @@ main {
 .group-context-actions { position: relative; }
 .group-context-actions summary {
   cursor: pointer;
-  color: var(--text);
-  font-size: 0.9rem;
   list-style: none;
 }
 .group-context-actions summary::-webkit-details-marker { display: none; }
@@ -956,11 +956,6 @@ main {
 }
 .group-context-name { font-size: 1.25rem; font-weight: 700; margin: 0; }
 
-.group-header-row {
-  display: flex;
-  align-items: center;
-  gap: 0.875rem;
-}
 .group-header-text { flex: 1; display: grid; }
 .group-header-status-row {
   display: flex;
