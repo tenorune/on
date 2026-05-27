@@ -258,7 +258,7 @@ describe('renderNavRow — Direct mode', () => {
     setupNavDom();
   });
 
-  test('Direct context with no groups renders Direct + plus only', () => {
+  test('Direct context with no groups renders the plus only (no Direct label)', () => {
     db.watchUserGroups.mockImplementation(() => () => {});
     db.watchGroupMeta.mockImplementation(() => () => {});
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
@@ -267,15 +267,14 @@ describe('renderNavRow — Direct mode', () => {
     initNavRow();
     startCardsRowSubscriptions();
     const row = document.getElementById('nav-row');
-    const items = row.querySelectorAll('.nav-current, .group-card, .group-cards-plus');
-    expect(items.length).toBe(2);
-    expect(items[0].classList.contains('nav-current')).toBe(true);
-    expect(items[0].textContent).toBe('Direct');
-    expect(items[1].classList.contains('group-cards-plus')).toBe(true);
-    expect(items[1].textContent).toBe('+');
+    expect(row.querySelector('.nav-current')).toBeNull();
+    const items = row.querySelectorAll('.group-card, .group-cards-plus');
+    expect(items.length).toBe(1);
+    expect(items[0].classList.contains('group-cards-plus')).toBe(true);
+    expect(items[0].textContent).toBe('+');
   });
 
-  test('Direct context with two groups renders Direct + lastVisited order + plus', () => {
+  test('Direct context with two groups renders groups (lastVisited order) + plus, no Direct label', () => {
     let enumCb;
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     const metaCbs = {};
@@ -289,15 +288,15 @@ describe('renderNavRow — Direct mode', () => {
     metaCbs.G1({ name: 'Work', ownerId: 'me', createdAt: 1 });
     metaCbs.G2({ name: 'Family', ownerId: 'me', createdAt: 2 });
     const row = document.getElementById('nav-row');
-    const items = row.querySelectorAll('.nav-current, .group-card, .group-cards-plus');
-    expect(items.length).toBe(4);
-    expect(items[0].textContent).toBe('Direct');
+    expect(row.querySelector('.nav-current')).toBeNull();
+    const items = row.querySelectorAll('.group-card, .group-cards-plus');
+    expect(items.length).toBe(3);
     // G2 has higher lastVisited, comes before G1.
-    expect(items[1].textContent).toBe('Family');
-    expect(items[1].dataset.groupId).toBe('G2');
-    expect(items[2].textContent).toBe('Work');
-    expect(items[2].dataset.groupId).toBe('G1');
-    expect(items[3].textContent).toBe('+');
+    expect(items[0].textContent).toBe('Family');
+    expect(items[0].dataset.groupId).toBe('G2');
+    expect(items[1].textContent).toBe('Work');
+    expect(items[1].dataset.groupId).toBe('G1');
+    expect(items[2].textContent).toBe('+');
   });
 
   test('Tapping a group card navigates to that group', () => {
@@ -331,17 +330,17 @@ describe('renderNavRow — Direct mode', () => {
     expect(handler).toHaveBeenCalled();
   });
 
-  test('Tapping Direct in Direct context is a no-op (no setCurrentContext call)', () => {
+  test('Direct context does not render the "Direct" nav-current label', () => {
     db.watchUserGroups.mockImplementation(() => () => {});
     db.watchGroupMeta.mockImplementation(() => () => {});
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
     db.watchStatus.mockImplementation(() => () => {});
-    db.setCurrentContext.mockResolvedValue(undefined);
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
-    document.querySelector('.nav-current').click();
-    expect(db.setCurrentContext).not.toHaveBeenCalled();
+    // "Direct" is the implicit context — the nav row signals it via the absence
+    // of a back-link and current-group label. No label needed.
+    expect(document.querySelector('#nav-row .nav-current')).toBeNull();
   });
 });
 
