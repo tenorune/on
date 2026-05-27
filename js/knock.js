@@ -62,10 +62,13 @@ export async function initKnocks(myUserId) {
     if (document.visibilityState !== 'visible') return;
     const canvasScreen = document.getElementById('canvas-screen');
     if (canvasScreen && canvasScreen.classList.contains('active')) return;
-    // Knock predates this session (arrived via Firebase reconnect after getKnocks
-    // already resolved with stale cached data) — treat as deferred, not live.
-    if (ts < appOpenTime) {
-      applyDeferredKnock(senderId);
+    // Stale-knock check: only knocks that are clearly older than "this
+    // session" should fall to the deferred path. Tolerate up to 60s of
+    // clock skew between sender and recipient — without this, a fresh
+    // cross-device knock can be misclassified as deferred when the
+    // sender's clock runs a few seconds behind the recipient's.
+    if (ts < appOpenTime - 60000) {
+      applyDeferredKnock(senderId, contextGroupId);
       clearKnock(myUserId, senderId).catch(() => {});
       return;
     }
@@ -95,10 +98,11 @@ export async function initKnocks(myUserId) {
   const toDelete = [];
   const toAnimate = [];
 
-  Object.entries(snapshot.val()).forEach(([senderId, { ts }]) => {
+  Object.entries(snapshot.val()).forEach(([senderId, payload]) => {
     toDelete.push(senderId);
+    const ts = payload?.ts ?? 0;
     if (ts >= appOpenTime - 24 * 60 * 60 * 1000) {
-      toAnimate.push(senderId);
+      toAnimate.push({ senderId, contextGroupId: payload?.contextGroupId || null });
     }
     // Older-than-24h: added to toDelete but not toAnimate (silent delete)
   });
@@ -110,9 +114,9 @@ export async function initKnocks(myUserId) {
   deferredKeys.clear();
 
   // 7. Trigger all deferred animations simultaneously
-  toAnimate.forEach(userId => {
-    applyDeferredKnock(userId);
-    const li = document.querySelector(`[data-user-id="${userId}"]`);
+  toAnimate.forEach(({ senderId, contextGroupId }) => {
+    applyDeferredKnock(senderId, contextGroupId);
+    const li = findKnockTargetCard(senderId, contextGroupId);
     if (li) applyFloatToTop(li);
   });
 }
@@ -170,8 +174,12 @@ function applyLiveKnock(senderId, count, li) {
   pulseMap.set(senderId, { intensity: newIntensity, timerId });
 }
 
-function applyDeferredKnock(userId) {
-  const li = document.querySelector(`[data-user-id="${userId}"]`);
+function applyDeferredKnock(userId, contextGroupId) {
+  // Route through findKnockTargetCard so a deferred knock that carries a
+  // contextGroupId animates the right element (the group-roster li) instead
+  // of the global-first match (which can land on a hidden Direct contact li
+  // when the recipient is currently in group context).
+  const li = findKnockTargetCard(userId, contextGroupId || null);
   if (!li) return; // not in DOM — skip silently
 
   li.style.setProperty('--knock-color', getKnockColor(li));
