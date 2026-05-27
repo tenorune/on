@@ -194,13 +194,20 @@ function renderNavRowDirectMode(row) {
     card.className = 'group-card';
     card.dataset.groupId = groupId;
     card.textContent = name;
+
+    // Effective-status indicator: prefer override (when enabled), else primary.
     const ov = _overrideByGroupId[groupId];
-    const overrideActive = !!(ov && ov.enabled === true && ov.status === 'available'
-      && (ov.availableUntil == null || ov.availableUntil > Date.now()));
-    if (overrideActive) {
-      const fill = ov.statusColor || _ownPrimary?.statusColor || null;
-      if (fill) card.style.background = safeCssColor(fill);
+    const overrideOn = !!(ov && ov.enabled === true);
+    const source = overrideOn ? ov : _ownPrimary;
+    const isAvailable = source?.status === 'available'
+      && (source.availableUntil == null || source.availableUntil > Date.now());
+    if (isAvailable) {
+      const color = source.statusColor || '#22c55e';
+      card.style.borderColor = safeCssColor(color);
+    } else {
+      card.classList.add('greyed');
     }
+
     card.addEventListener('click', () => navigateToGroup(groupId));
     row.appendChild(card);
   }

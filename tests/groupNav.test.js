@@ -208,7 +208,7 @@ describe('group cards own-override color reflection', () => {
     expect(card.style.background).toBe('');
   });
 
-  test('card with override.enabled=true and status=available shows primary statusColor', () => {
+  test('card with override.enabled=true and status=available shows border (falls back to forest green when override has no statusColor)', () => {
     let enumCb, metaCb, overrideCb, statusCb;
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
@@ -221,8 +221,9 @@ describe('group cards own-override color reflection', () => {
     statusCb({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#11aaff' });
     overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
     const card = document.querySelector('#nav-row .group-card');
-    // Phase 2 uses primary statusColor as the effective override fill.
-    expect(card.style.background).toMatch(/#11aaff|rgb\(17,\s*170,\s*255\)/i);
+    // Override wins; override has no statusColor so falls back to forest green (#22c55e).
+    expect(card.style.borderColor).toMatch(/#22c55e|rgb\(34,\s*197,\s*94\)/i);
+    expect(card.style.background).toBe('');
   });
 
   test('card with override.enabled=true but status=unavailable has no inline color', () => {
@@ -340,5 +341,94 @@ describe('renderNavRow — Direct mode', () => {
     startCardsRowSubscriptions();
     document.querySelector('.nav-current').click();
     expect(db.setCurrentContext).not.toHaveBeenCalled();
+  });
+});
+
+describe('Direct nav per-group status indicator', () => {
+  beforeEach(() => { jest.clearAllMocks(); setupNavDom(); });
+
+  test('card with effective available status shows a colored border (primary)', () => {
+    let enumCb, metaCb, statusCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    statusCb({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#11aaff' });
+    const card = document.querySelector('.group-card[data-group-id="G1"]');
+    expect(card.style.borderColor).toMatch(/#11aaff|rgb\(17,\s*170,\s*255\)/i);
+    expect(card.classList.contains('greyed')).toBe(false);
+  });
+
+  test('card with effective available status and no statusColor falls back to forest green', () => {
+    let enumCb, metaCb, statusCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    statusCb({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+    const card = document.querySelector('.group-card[data-group-id="G1"]');
+    expect(card.style.borderColor).toMatch(/#22c55e|rgb\(34,\s*197,\s*94\)/i);
+  });
+
+  test('card with override enabled+available uses override color over primary', () => {
+    let enumCb, metaCb, overrideCb, statusCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    statusCb({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#ff0000' });
+    overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 30 * 60 * 1000, statusColor: '#00ff00' });
+    const card = document.querySelector('.group-card[data-group-id="G1"]');
+    expect(card.style.borderColor).toMatch(/#00ff00|rgb\(0,\s*255,\s*0\)/i);
+  });
+
+  test('card with effective unavailable status has no border and greyed class', () => {
+    let enumCb, metaCb, statusCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    statusCb({ status: 'unavailable', availableUntil: null });
+    const card = document.querySelector('.group-card[data-group-id="G1"]');
+    expect(card.style.borderColor).toBe('');
+    expect(card.classList.contains('greyed')).toBe(true);
+  });
+
+  test('card with override enabled+unavailable has no border and greyed (override masks available primary)', () => {
+    let enumCb, metaCb, overrideCb, statusCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    statusCb({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#ff0000' });
+    overrideCb({ enabled: true, status: 'unavailable', availableUntil: null });
+    const card = document.querySelector('.group-card[data-group-id="G1"]');
+    expect(card.style.borderColor).toBe('');
+    expect(card.classList.contains('greyed')).toBe(true);
   });
 });
