@@ -421,19 +421,24 @@ export function enterGroupContext(groupId, userId) {
     chipClone.addEventListener('click', () => {
       const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
       if (!overrideOn) return;
-      const currentlyAvailable = _ownOverride.status === 'available'
-        && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
-      if (!currentlyAvailable) return;
+      // Cycle the default duration regardless of whether the user is currently
+      // available. If they're available, also push the new availableUntil to
+      // the override. If they're unavailable, the new default applies the next
+      // time they tap the dot to go available.
       const currentIdx = chipIndexForMinutes(getLastTimeout());
       const nextIdx = (currentIdx + 1) % CHIP_VALUES.length;
       const { minutes, text } = CHIP_VALUES[nextIdx];
       chipClone.textContent = text;
-      const availableUntil = Date.now() + minutes * 60000;
-      _ownOverride = { enabled: true, status: 'available', availableUntil };
-      renderOwnStatusRow();
       setLastTimeout(minutes);
       setLastTimeoutMinutes(userId, minutes).catch(() => {});
-      setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
+      const currentlyAvailable = _ownOverride.status === 'available'
+        && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
+      if (currentlyAvailable) {
+        const availableUntil = Date.now() + minutes * 60000;
+        _ownOverride = { enabled: true, status: 'available', availableUntil };
+        renderOwnStatusRow();
+        setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
+      }
     });
   }
 
@@ -477,3 +482,14 @@ export function exitGroupContext() {
 }
 
 export function getCurrentGroupId() { return _currentGroupId; }
+
+/**
+ * Apply an optimistic override update from elsewhere (e.g. the chain-icon
+ * toggle in groupNav.js, which lives outside this module's DOM scope but
+ * needs to keep _ownOverride in sync so the dot/chip click handlers here
+ * see the latest state before Firebase round-trips back).
+ */
+export function applyOptimisticOverride(override) {
+  _ownOverride = override || null;
+  renderOwnStatusRow();
+}

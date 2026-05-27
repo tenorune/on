@@ -6,6 +6,7 @@ import { setCurrentContext, setLastVisited, watchUserGroups, watchGroupMeta, wat
 import { safeCssColor } from './utils.js';
 import { GROUPS_ENABLED } from './features.js';
 import { createGroup, toggleStatusOverride } from './groups.js';
+import { applyOptimisticOverride } from './groupContext.js';
 
 let _myUserId = null;
 let _state = { context: 'direct', groupId: null };
@@ -247,10 +248,15 @@ function renderNavRowGroupMode(row) {
     const nextEnabled = !overrideOn;
     // Optimistic local update so the click feels instant and a follow-up tap
     // on the in-context dot/chip isn't gated by Firebase ack (bb4107d pattern).
-    _overrideByGroupId[groupId] = nextEnabled
+    const nextState = nextEnabled
       ? { enabled: true, status: 'unavailable', availableUntil: null }
       : null;
+    _overrideByGroupId[groupId] = nextState;
     renderNavRow();
+    // Push the same optimistic update into groupContext so its dot/chip
+    // handlers see the new state immediately (otherwise they read a stale
+    // _ownOverride and silently no-op until Firebase round-trips back).
+    applyOptimisticOverride(nextState);
     toggleStatusOverride(groupId, _myUserId, nextEnabled).catch(() => {});
   });
   row.appendChild(toggle);
