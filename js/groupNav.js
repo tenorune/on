@@ -226,45 +226,53 @@ function renderNavRowGroupMode(row) {
   const override = _overrideByGroupId[groupId];
   const overrideOn = !!(override && override.enabled === true);
 
-  const back = document.createElement('button');
-  back.className = 'nav-back';
-  back.textContent = 'Direct';
-  back.addEventListener('click', () => navigateToDirect());
-  row.appendChild(back);
+  // Group name on the left, large/bold, fills available space; truncates with
+  // ellipsis when the row is too narrow to fit override + Direct on the right.
+  const current = document.createElement('span');
+  current.className = 'nav-current nav-current-truncate';
+  current.textContent = name;
+  current.style.flex = '1';
+  current.style.minWidth = '0';
+  row.appendChild(current);
 
-  // Chain-icon equivalent override toggle, rendered inline. Inverted semantics:
-  // ○ (open circle) = override OFF (user linked to primary). ⊘ (circle-slash) =
-  // override ON (user has a unique status here). Unicode text — guaranteed to
-  // render in any system font.
+  // Override toggle on the right, immediately before the Direct card.
+  //   =   override OFF (linked to primary — Direct status equals group status)
+  //   ≠   override ON  (independent — Direct status not-equal to group status)
   const toggle = document.createElement('button');
   toggle.id = 'group-override-toggle';
   toggle.type = 'button';
-  toggle.textContent = overrideOn ? '⊘' : '○';
+  toggle.textContent = overrideOn ? '≠' : '=';
   toggle.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
   toggle.setAttribute('aria-label', overrideOn
     ? 'Stop using a unique status for this group'
     : 'Set a unique status for this group');
   toggle.addEventListener('click', () => {
     const nextEnabled = !overrideOn;
-    // Optimistic local update so the click feels instant and a follow-up tap
-    // on the in-context dot/chip isn't gated by Firebase ack (bb4107d pattern).
     const nextState = nextEnabled
       ? { enabled: true, status: 'unavailable', availableUntil: null }
       : null;
     _overrideByGroupId[groupId] = nextState;
     renderNavRow();
-    // Push the same optimistic update into groupContext so its dot/chip
-    // handlers see the new state immediately (otherwise they read a stale
-    // _ownOverride and silently no-op until Firebase round-trips back).
     applyOptimisticOverride(nextState);
     toggleStatusOverride(groupId, _myUserId, nextEnabled).catch(() => {});
   });
   row.appendChild(toggle);
 
-  const current = document.createElement('span');
-  current.className = 'nav-current nav-current-truncate';
-  current.textContent = name;
-  row.appendChild(current);
+  // "Direct" card on the far right, styled like a group card. The border color
+  // reflects the user's primary status (the audience Direct represents).
+  const directCard = document.createElement('button');
+  directCard.className = 'group-card';
+  directCard.dataset.nav = 'direct';
+  directCard.textContent = 'Direct';
+  const primaryAvailable = _ownPrimary?.status === 'available'
+    && (_ownPrimary.availableUntil == null || _ownPrimary.availableUntil > Date.now());
+  if (primaryAvailable) {
+    directCard.style.borderColor = safeCssColor(_ownPrimary.statusColor || '#22c55e');
+  } else {
+    directCard.classList.add('greyed');
+  }
+  directCard.addEventListener('click', () => navigateToDirect());
+  row.appendChild(directCard);
 }
 
 export function onCreateRequested(fn) {

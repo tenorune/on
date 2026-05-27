@@ -49,6 +49,10 @@ export async function createGroup(ownerUid, nameRaw, ownerDisplayNameRaw) {
     role: 'owner',
     displayName: ownerDisplayName,
     joinedAt: now,
+    // Default override ON so a newly-created group doesn't auto-broadcast
+    // the owner's primary status. They opt in by tapping the dot or
+    // turning the override off via the nav toggle.
+    statusOverride: { enabled: true, status: 'unavailable', availableUntil: null },
   });
   await writeUserGroupsEntry(ownerUid, groupId, { lastVisited: now });
 
@@ -104,6 +108,10 @@ export async function joinGroup(groupId, joinerUid, displayNameRaw) {
       role: 'member',
       displayName,
       joinedAt: now,
+      // Default override ON so the joiner doesn't auto-broadcast their
+      // primary status to the group. They opt in by tapping the dot or
+      // turning the override off via the nav toggle.
+      statusOverride: { enabled: true, status: 'unavailable', availableUntil: null },
     });
   }
   // Always bump lastVisited so the group surfaces at the top of the joiner's cards row.

@@ -455,7 +455,7 @@ describe('Direct nav per-group status indicator', () => {
 describe('renderNavRow — group mode', () => {
   beforeEach(() => { jest.clearAllMocks(); setupNavDom(); });
 
-  test('group mode renders Direct (back) + chain icon + group name', () => {
+  test('group mode renders group name (left) + override toggle + Direct card (right)', () => {
     let enumCb, metaCb;
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
@@ -470,20 +470,23 @@ describe('renderNavRow — group mode', () => {
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     navigateToGroup('G1');
     const row = document.getElementById('nav-row');
-    expect(row.querySelector('.nav-back')).not.toBeNull();
-    expect(row.querySelector('.nav-back').textContent).toBe('Direct');
-    // Chain-icon override toggle is part of the group-mode render (not a
-    // separate install handoff). Should be present immediately.
-    const toggle = row.querySelector('#group-override-toggle');
-    expect(toggle).not.toBeNull();
-    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    // Group name on the left (flex: 1 fills available space, truncates on overflow).
     const current = row.querySelector('.nav-current');
     expect(current).not.toBeNull();
     expect(current.textContent).toBe('Family');
     expect(current.classList.contains('nav-current-truncate')).toBe(true);
+    // Override toggle in the middle, "=" for OFF, aria-pressed=false.
+    const toggle = row.querySelector('#group-override-toggle');
+    expect(toggle).not.toBeNull();
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(toggle.textContent).toBe('=');
+    // Direct card on the right, styled like a group card.
+    const direct = row.querySelector('.group-card[data-nav="direct"]');
+    expect(direct).not.toBeNull();
+    expect(direct.textContent).toBe('Direct');
   });
 
-  test('chain icon reflects override.enabled via aria-pressed', () => {
+  test('override toggle reflects override.enabled via aria-pressed and ≠ glyph', () => {
     let enumCb, metaCb, overrideCb;
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
@@ -500,7 +503,27 @@ describe('renderNavRow — group mode', () => {
     navigateToGroup('G1');
     const toggle = document.querySelector('#group-override-toggle');
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
-    expect(toggle.textContent).toBe('⊘');
+    expect(toggle.textContent).toBe('≠');
+  });
+
+  test('Direct card border reflects primary statusColor when available; greyed when not', () => {
+    let enumCb, metaCb, statusCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    db.setCurrentContext.mockResolvedValue(undefined);
+    db.setLastVisited.mockResolvedValue(undefined);
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    statusCb({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#11aaff' });
+    navigateToGroup('G1');
+    const direct = document.querySelector('.group-card[data-nav="direct"]');
+    expect(direct.style.borderColor).toMatch(/#11aaff|rgb\(17,\s*170,\s*255\)/i);
+    expect(direct.classList.contains('greyed')).toBe(false);
   });
 
   test('tapping the chain icon calls toggleStatusOverride with inverted state', () => {
@@ -521,7 +544,7 @@ describe('renderNavRow — group mode', () => {
     expect(groups.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
   });
 
-  test('Tapping Direct back-link in group mode navigates to Direct', () => {
+  test('Tapping the Direct card in group mode navigates to Direct', () => {
     let enumCb, metaCb;
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
@@ -535,7 +558,7 @@ describe('renderNavRow — group mode', () => {
     enumCb({ G1: { lastVisited: 1 } });
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     navigateToGroup('G1');
-    document.querySelector('.nav-back').click();
+    document.querySelector('.group-card[data-nav="direct"]').click();
     expect(db.setCurrentContext).toHaveBeenCalledWith('me', 'direct');
   });
 });
