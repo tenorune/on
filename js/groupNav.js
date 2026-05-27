@@ -202,7 +202,7 @@ function renderNavRowDirectMode(row) {
     const isAvailable = source?.status === 'available'
       && (source.availableUntil == null || source.availableUntil > Date.now());
     if (isAvailable) {
-      const color = source.statusColor || '#22c55e';
+      const color = ov?.statusColor || _ownPrimary?.statusColor || '#22c55e';
       card.style.borderColor = safeCssColor(color);
     } else {
       card.classList.add('greyed');

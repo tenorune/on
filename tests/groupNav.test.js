@@ -208,7 +208,7 @@ describe('group cards own-override color reflection', () => {
     expect(card.style.background).toBe('');
   });
 
-  test('card with override.enabled=true and status=available shows border (falls back to forest green when override has no statusColor)', () => {
+  test('card with override.enabled=true and status=available shows border (falls back to primary statusColor when override has no statusColor)', () => {
     let enumCb, metaCb, overrideCb, statusCb;
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
@@ -221,8 +221,8 @@ describe('group cards own-override color reflection', () => {
     statusCb({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#11aaff' });
     overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
     const card = document.querySelector('#nav-row .group-card');
-    // Override wins; override has no statusColor so falls back to forest green (#22c55e).
-    expect(card.style.borderColor).toMatch(/#22c55e|rgb\(34,\s*197,\s*94\)/i);
+    // Override wins for availability; override has no statusColor so falls back to primary (#11aaff).
+    expect(card.style.borderColor).toMatch(/#11aaff|rgb\(17,\s*170,\s*255\)/i);
     expect(card.style.background).toBe('');
   });
 
@@ -430,5 +430,24 @@ describe('Direct nav per-group status indicator', () => {
     const card = document.querySelector('.group-card[data-group-id="G1"]');
     expect(card.style.borderColor).toBe('');
     expect(card.classList.contains('greyed')).toBe(true);
+  });
+
+  test('card with override enabled+available but no override statusColor falls back to primary statusColor', () => {
+    let enumCb, metaCb, overrideCb, statusCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    statusCb({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#11aaff' });
+    overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 30 * 60 * 1000 });
+    // Phase 2 reality: override.statusColor isn't written. The Direct nav card
+    // should still show the user's primary color, not the forest-green fallback.
+    const card = document.querySelector('.group-card[data-group-id="G1"]');
+    expect(card.style.borderColor).toMatch(/#11aaff|rgb\(17,\s*170,\s*255\)/i);
   });
 });
