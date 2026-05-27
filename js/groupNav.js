@@ -174,11 +174,9 @@ function renderNavRow() {
 }
 
 function renderNavRowDirectMode(row) {
-  const current = document.createElement('button');
-  current.className = 'nav-current';
-  current.textContent = 'Direct';
-  current.addEventListener('click', () => { /* no-op — already in Direct */ });
-  row.appendChild(current);
+  // "Direct" is the implicit current context — no label needed in the nav.
+  // The groups + create-group button stand in for navigation; tapping a card
+  // moves to that group, the persistent nav itself signals where you are.
 
   const groupIds = Object.keys(_enumeration);
   const sorted = groupIds.slice().sort((a, b) => {
