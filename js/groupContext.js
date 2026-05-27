@@ -9,7 +9,7 @@ import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watc
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
-         toggleStatusOverride, setOverrideStatusAvailable, setOverrideStatusUnavailable } from './groups.js';
+         setOverrideStatusAvailable, setOverrideStatusUnavailable } from './groups.js';
 import { getLastTimeout, setLastTimeout } from './store.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
@@ -17,13 +17,6 @@ import { sendKnock, clearGroupCardBadge } from './knock.js';
 import { KNOCK_ENABLED } from './features.js';
 
 // Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
-// Override-toggle icon. Inverted semantics per spec: a complete circle means
-// override OFF (linked to primary status); a circle with a diagonal slash means
-// override ON (status is "broken off" from the primary, unique to this group).
-// Width/height attributes are inline so the SVG renders even when the CSS isn't
-// applied (or fails to override an inline-element default size).
-const SVG_LINK = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="8"/></svg>';
-const SVG_LINK_OFF = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="8"/><line x1="4" y1="4" x2="16" y2="16"/></svg>';
 
 const CHIP_VALUES = [
   { minutes: 30,   text: '30 minutes' },
@@ -202,19 +195,6 @@ function renderOwnStatusRow() {
       timeRemaining.style.display = 'none';
     }
   }
-}
-
-function renderOverrideToggleIcon() {
-  const btn = document.getElementById('group-override-toggle');
-  if (!btn) return;
-  const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
-  // Inverted semantics per spec: solid chain = override OFF (linked to primary);
-  // broken chain = override ON (status independent for this group).
-  btn.innerHTML = overrideOn ? SVG_LINK_OFF : SVG_LINK;
-  btn.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
-  btn.setAttribute('aria-label', overrideOn
-    ? 'Stop using a unique status for this group'
-    : 'Set a unique status for this group');
 }
 
 function syncStatusSubscriptions(memberUids) {
@@ -398,27 +378,11 @@ export function enterGroupContext(groupId, userId) {
   _ownOverrideUnsub = watchOwnMemberOverride(groupId, userId, (data) => {
     _ownOverride = data || null;
     renderOwnStatusRow();
-    renderOverrideToggleIcon();
   });
 
-  // Install the chain icon button in the nav row's override-toggle slot.
-  const slot = document.getElementById('group-override-toggle-slot');
-  if (slot) {
-    slot.innerHTML = '<button id="group-override-toggle" type="button"></button>';
-    const btn = document.getElementById('group-override-toggle');
-    btn.addEventListener('click', () => {
-      const nextEnabled = !(_ownOverride && _ownOverride.enabled === true);
-      // Optimistic update — mirror commit bb4107d's pattern so a follow-up
-      // dot/chip tap isn't gated on Firebase ack.
-      _ownOverride = nextEnabled
-        ? { enabled: true, status: 'unavailable', availableUntil: null }
-        : null;
-      renderOwnStatusRow();
-      renderOverrideToggleIcon();
-      toggleStatusOverride(groupId, userId, nextEnabled).catch(() => {});
-    });
-    renderOverrideToggleIcon();
-  }
+  // The chain-icon override toggle lives in the nav row and is fully owned by
+  // js/groupNav.js (rendered into the row each time renderNavRow fires). No
+  // install handoff here.
 
   // Wire the dot (clone-and-replace per the same pattern)
   const dot = document.getElementById('group-my-dot');
@@ -497,8 +461,6 @@ export function exitGroupContext() {
   if (_ownOverrideUnsub) { _ownOverrideUnsub(); _ownOverrideUnsub = null; }
   _ownPrimary = null;
   _ownOverride = null;
-  const slot = document.getElementById('group-override-toggle-slot');
-  if (slot) slot.innerHTML = '';
   _membersOverrides = {};
   _memberPrimaries.clear();
   _statusUnsubs.forEach((fn) => fn());

@@ -537,15 +537,13 @@ main {
   border: none;
   color: var(--text);
   cursor: pointer;
-  padding: 0.25rem;
-  display: inline-flex;
-  align-items: center;
+  padding: 0.25rem 0.5rem;
+  font-size: 1.25rem;
+  line-height: 1;
   flex-shrink: 0;
 }
-#group-override-toggle svg {
-  width: 20px;
-  height: 20px;
-  display: block;
+#group-override-toggle[aria-pressed="true"] {
+  color: var(--accent);
 }
 
 #header-row {

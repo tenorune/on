@@ -5,7 +5,7 @@
 import { setCurrentContext, setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, watchStatus } from './db.js';
 import { safeCssColor } from './utils.js';
 import { GROUPS_ENABLED } from './features.js';
-import { createGroup } from './groups.js';
+import { createGroup, toggleStatusOverride } from './groups.js';
 
 let _myUserId = null;
 let _state = { context: 'direct', groupId: null };
@@ -224,6 +224,8 @@ function renderNavRowGroupMode(row) {
   const groupId = _state.groupId;
   const meta = _metaByGroupId[groupId];
   const name = meta?.name || _lastKnownNames[groupId] || groupId;
+  const override = _overrideByGroupId[groupId];
+  const overrideOn = !!(override && override.enabled === true);
 
   const back = document.createElement('button');
   back.className = 'nav-back';
@@ -231,10 +233,29 @@ function renderNavRowGroupMode(row) {
   back.addEventListener('click', () => navigateToDirect());
   row.appendChild(back);
 
-  // Slot for the chain-icon override toggle; filled by groupContext.enterGroupContext().
-  const toggleSlot = document.createElement('span');
-  toggleSlot.id = 'group-override-toggle-slot';
-  row.appendChild(toggleSlot);
+  // Chain-icon equivalent override toggle, rendered inline. Inverted semantics:
+  // ○ (open circle) = override OFF (user linked to primary). ⊘ (circle-slash) =
+  // override ON (user has a unique status here). Unicode text — guaranteed to
+  // render in any system font.
+  const toggle = document.createElement('button');
+  toggle.id = 'group-override-toggle';
+  toggle.type = 'button';
+  toggle.textContent = overrideOn ? '⊘' : '○';
+  toggle.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
+  toggle.setAttribute('aria-label', overrideOn
+    ? 'Stop using a unique status for this group'
+    : 'Set a unique status for this group');
+  toggle.addEventListener('click', () => {
+    const nextEnabled = !overrideOn;
+    // Optimistic local update so the click feels instant and a follow-up tap
+    // on the in-context dot/chip isn't gated by Firebase ack (bb4107d pattern).
+    _overrideByGroupId[groupId] = nextEnabled
+      ? { enabled: true, status: 'unavailable', availableUntil: null }
+      : null;
+    renderNavRow();
+    toggleStatusOverride(groupId, _myUserId, nextEnabled).catch(() => {});
+  });
+  row.appendChild(toggle);
 
   const current = document.createElement('span');
   current.className = 'nav-current nav-current-truncate';
