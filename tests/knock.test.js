@@ -801,7 +801,7 @@ describe('drainPendingKnocks', () => {
     await initKnocks('bob');
 
     liveCb('ann', { count: 1, ts: Date.now(), contextGroupId: 'G1' });
-    expect(window.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 0 }));
+    expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
   });
 });
 

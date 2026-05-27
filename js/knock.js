@@ -89,7 +89,13 @@ export async function initKnocks(myUserId) {
     applyFloatToTop(li);
     // Bring the prepended li into view in group context — without this, a
     // user scrolled down in a long roster misses the float-to-top entirely.
-    if (contextGroupId) window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Instant scroll with positional args (the {behavior:'smooth'} variant
+    // was unreliable after a same-tick DOM mutation on some platforms).
+    if (contextGroupId) {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    }
     clearKnock(myUserId, senderId).catch(() => {});
   });
 
@@ -161,8 +167,11 @@ export function drainPendingKnocks(groupId) {
     applyFloatToTop(li);
     clearKnock(cachedUserId, senderId).catch(() => {});
   });
-  // Bring the prepended items into view.
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  // Bring the prepended items into view. Belt + suspenders against scroll
+  // containers that don't respond to window.scrollTo on every platform.
+  window.scrollTo(0, 0);
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
 }
 
 // Returns the color to use for knock animations on this card.
