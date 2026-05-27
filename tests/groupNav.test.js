@@ -85,87 +85,13 @@ describe('groupNav state machine', () => {
   });
 });
 
-const { initCardsRow, renderCardsRow, onCreateRequested, openCreateGroupModal, getLastKnownGroupName, startCardsRowSubscriptions } = require('../js/groupNav');
-
-function setupCardsDom() {
-  document.body.innerHTML = `
-    <div id="group-cards-row" class="group-cards-row hidden"></div>
-  `;
-}
-
-describe('group cards row render', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    setupCardsDom();
-    initNav('uid1');
-  });
-
-  test('zero-state: empty groups → CTA visible, row visible', () => {
-    renderCardsRow({}, {});
-    const row = document.getElementById('group-cards-row');
-    expect(row.classList.contains('hidden')).toBe(false);
-    expect(row.querySelector('.group-cards-zero')).not.toBeNull();
-    expect(row.querySelector('.group-cards-zero').textContent).toMatch(/Create your first group/);
-  });
-
-  test('renders one card per enumerated group, sorted by lastVisited desc', () => {
-    const enumeration = {
-      G1: { lastVisited: 100 },
-      G2: { lastVisited: 300 },
-      G3: { lastVisited: 200 },
-    };
-    const metaByGroupId = {
-      G1: { name: 'Alpha' },
-      G2: { name: 'Bravo' },
-      G3: { name: 'Charlie' },
-    };
-    renderCardsRow(enumeration, metaByGroupId);
-    const cards = document.querySelectorAll('.group-card');
-    expect(cards.length).toBe(3);
-    expect(cards[0].textContent).toContain('Bravo');
-    expect(cards[1].textContent).toContain('Charlie');
-    expect(cards[2].textContent).toContain('Alpha');
-  });
-
-  test('renders the trailing + button after group cards', () => {
-    renderCardsRow({ G1: { lastVisited: 1 } }, { G1: { name: 'Family' } });
-    expect(document.getElementById('group-cards-plus')).not.toBeNull();
-  });
-
-  test('clicking a card calls navigateToGroup', async () => {
-    renderCardsRow({ G1: { lastVisited: 1 } }, { G1: { name: 'Family' } });
-    const card = document.querySelector('.group-card');
-    card.click();
-    await new Promise(setImmediate);
-    expect(db.setCurrentContext).toHaveBeenCalledWith('uid1', 'group:G1');
-  });
-
-  test('marks the current group card as active', () => {
-    applyServerCurrentContext('group:G1');
-    renderCardsRow({ G1: { lastVisited: 1 } }, { G1: { name: 'Family' } });
-    expect(document.querySelector('.group-card').classList.contains('active')).toBe(true);
-  });
-
-  test('+ button emits create-requested', () => {
-    renderCardsRow({ G1: { lastVisited: 1 } }, { G1: { name: 'Family' } });
-    const seen = [];
-    onCreateRequested(() => seen.push(true));
-    document.getElementById('group-cards-plus').click();
-    expect(seen).toEqual([true]);
-  });
-
-  test('zero-state CTA emits create-requested', () => {
-    renderCardsRow({}, {});
-    const seen = [];
-    onCreateRequested(() => seen.push(true));
-    document.getElementById('group-cards-zero').click();
-    expect(seen).toEqual([true]);
-  });
-});
+const { initNavRow, onCreateRequested, openCreateGroupModal, getLastKnownGroupName, startCardsRowSubscriptions } = require('../js/groupNav');
 
 function setupCreateModalDom() {
-  document.body.innerHTML += `
-    <div id="create-group-modal" class="modal-overlay hidden">
+  // Replace the bare #create-group-modal placeholder (from setupNavDom) with
+  // the full modal markup so inputs and buttons are accessible to tests.
+  const existing = document.getElementById('create-group-modal');
+  const markup = `<div id="create-group-modal" class="modal-overlay hidden">
       <div class="modal-card">
         <input id="create-group-name-input" type="text" maxlength="40" />
         <input id="create-group-displayname-input" type="text" maxlength="40" />
@@ -173,14 +99,18 @@ function setupCreateModalDom() {
         <button id="create-group-submit-btn"></button>
         <button id="create-group-cancel-btn"></button>
       </div>
-    </div>
-  `;
+    </div>`;
+  if (existing) {
+    existing.outerHTML = markup;
+  } else {
+    document.body.innerHTML += markup;
+  }
 }
 
 describe('create-group modal', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    setupCardsDom();
+    setupNavDom();
     setupCreateModalDom();
     initNav('uid1');
   });
@@ -238,7 +168,7 @@ describe('create-group modal', () => {
 describe('getLastKnownGroupName', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    setupCardsDom();
+    setupNavDom();
     initNav('uid1');
   });
 
@@ -261,13 +191,7 @@ describe('getLastKnownGroupName', () => {
 });
 
 describe('group cards own-override color reflection', () => {
-  function setupCardsDom() {
-    document.body.innerHTML = `
-      <div id="group-cards-row"></div>
-      <div id="create-group-modal" class="hidden"></div>
-    `;
-  }
-  beforeEach(() => { jest.clearAllMocks(); setupCardsDom(); });
+  beforeEach(() => { jest.clearAllMocks(); setupNavDom(); });
 
   test('card without active override has no inline color', () => {
     let enumCb, metaCb, overrideCb, statusCb;
@@ -280,7 +204,7 @@ describe('group cards own-override color reflection', () => {
     enumCb({ G1: { lastVisited: 1 } });
     metaCb({ name: 'Family', ownerId: 'someone', createdAt: 1 });
     overrideCb(null);
-    const card = document.querySelector('#group-cards-row .group-card');
+    const card = document.querySelector('#nav-row .group-card');
     expect(card.style.background).toBe('');
   });
 
@@ -296,7 +220,7 @@ describe('group cards own-override color reflection', () => {
     metaCb({ name: 'Family', ownerId: 'someone', createdAt: 1 });
     statusCb({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#11aaff' });
     overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
-    const card = document.querySelector('#group-cards-row .group-card');
+    const card = document.querySelector('#nav-row .group-card');
     // Phase 2 uses primary statusColor as the effective override fill.
     expect(card.style.background).toMatch(/#11aaff|rgb\(17,\s*170,\s*255\)/i);
   });
@@ -312,7 +236,109 @@ describe('group cards own-override color reflection', () => {
     enumCb({ G1: { lastVisited: 1 } });
     metaCb({ name: 'Family', ownerId: 'someone', createdAt: 1 });
     overrideCb({ enabled: true, status: 'unavailable', availableUntil: null });
-    const card = document.querySelector('#group-cards-row .group-card');
+    const card = document.querySelector('#nav-row .group-card');
     expect(card.style.background).toBe('');
+  });
+});
+
+function setupNavDom() {
+  document.body.innerHTML = `
+    <div id="nav-row" class="nav-row hidden"></div>
+    <div id="main-ui-direct"></div>
+    <div id="group-context-root" class="hidden"></div>
+    <div id="create-group-modal" class="hidden"></div>
+  `;
+}
+
+describe('renderNavRow — Direct mode', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupNavDom();
+  });
+
+  test('Direct context with no groups renders Direct + plus only', () => {
+    db.watchUserGroups.mockImplementation(() => () => {});
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation(() => () => {});
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    const row = document.getElementById('nav-row');
+    const items = row.querySelectorAll('.nav-current, .group-card, .group-cards-plus');
+    expect(items.length).toBe(2);
+    expect(items[0].classList.contains('nav-current')).toBe(true);
+    expect(items[0].textContent).toBe('Direct');
+    expect(items[1].classList.contains('group-cards-plus')).toBe(true);
+    expect(items[1].textContent).toBe('+');
+  });
+
+  test('Direct context with two groups renders Direct + lastVisited order + plus', () => {
+    let enumCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    const metaCbs = {};
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCbs[groupId] = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation(() => () => {});
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 100 }, G2: { lastVisited: 200 } });
+    metaCbs.G1({ name: 'Work', ownerId: 'me', createdAt: 1 });
+    metaCbs.G2({ name: 'Family', ownerId: 'me', createdAt: 2 });
+    const row = document.getElementById('nav-row');
+    const items = row.querySelectorAll('.nav-current, .group-card, .group-cards-plus');
+    expect(items.length).toBe(4);
+    expect(items[0].textContent).toBe('Direct');
+    // G2 has higher lastVisited, comes before G1.
+    expect(items[1].textContent).toBe('Family');
+    expect(items[1].dataset.groupId).toBe('G2');
+    expect(items[2].textContent).toBe('Work');
+    expect(items[2].dataset.groupId).toBe('G1');
+    expect(items[3].textContent).toBe('+');
+  });
+
+  test('Tapping a group card navigates to that group', () => {
+    let enumCb, metaCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation(() => () => {});
+    db.setCurrentContext.mockResolvedValue(undefined);
+    db.setLastVisited.mockResolvedValue(undefined);
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    document.querySelector('.group-card[data-group-id="G1"]').click();
+    expect(db.setCurrentContext).toHaveBeenCalledWith('me', 'group:G1');
+  });
+
+  test('Tapping the + button emits a create-group request', () => {
+    db.watchUserGroups.mockImplementation(() => () => {});
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation(() => () => {});
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    const handler = jest.fn();
+    onCreateRequested(handler);
+    document.querySelector('.group-cards-plus').click();
+    expect(handler).toHaveBeenCalled();
+  });
+
+  test('Tapping Direct in Direct context is a no-op (no setCurrentContext call)', () => {
+    db.watchUserGroups.mockImplementation(() => () => {});
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation(() => () => {});
+    db.setCurrentContext.mockResolvedValue(undefined);
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    document.querySelector('.nav-current').click();
+    expect(db.setCurrentContext).not.toHaveBeenCalled();
   });
 });

@@ -76,12 +76,14 @@ const _overrideByGroupId = {};
 const _overrideSubs = {}; // groupId → unsubscribe
 const _createListeners = new Set();
 
-export function initCardsRow() {
-  const row = document.getElementById('group-cards-row');
+export function initNavRow() {
+  const row = document.getElementById('nav-row');
   if (!row) return;
   if (!GROUPS_ENABLED) { row.classList.add('hidden'); return; }
   row.classList.remove('hidden');
-  renderCardsRow(_enumeration, _metaByGroupId);
+  renderNavRow();
+  // Re-render whenever the active context changes.
+  onContextChange(() => renderNavRow());
 }
 
 export function startCardsRowSubscriptions() {
@@ -101,15 +103,18 @@ export function startCardsRowSubscriptions() {
   _enumUnsub = watchUserGroups(_myUserId, (collection) => {
     _enumeration = collection || {};
     syncMetaSubs();
-    renderCardsRow(_enumeration, _metaByGroupId);
+    renderNavRow();
   });
   if (_ownPrimaryUnsub) _ownPrimaryUnsub();
   _ownPrimaryUnsub = watchStatus(_myUserId, (data) => {
     _ownPrimary = data
       ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: data.statusColor || null }
       : null;
-    renderCardsRow(_enumeration, _metaByGroupId);
+    renderNavRow();
   });
+  // Re-render immediately to reflect the freshly cleared state (e.g. after
+  // switching users or resetting subscriptions during tests).
+  renderNavRow();
 }
 
 function syncMetaSubs() {
@@ -130,7 +135,7 @@ function syncMetaSubs() {
         } else {
           delete _metaByGroupId[groupId];
         }
-        renderCardsRow(_enumeration, _metaByGroupId);
+        renderNavRow();
       });
     }
   }
@@ -148,38 +153,42 @@ function syncMetaSubs() {
       _overrideSubs[groupId] = watchOwnMemberOverride(groupId, _myUserId, (override) => {
         if (override) _overrideByGroupId[groupId] = override;
         else delete _overrideByGroupId[groupId];
-        renderCardsRow(_enumeration, _metaByGroupId);
+        renderNavRow();
       });
     }
   }
 }
 
-export function renderCardsRow(enumeration, metaByGroupId) {
-  const row = document.getElementById('group-cards-row');
+export function renderNavRow() {
+  const row = document.getElementById('nav-row');
   if (!row) return;
+  if (!GROUPS_ENABLED) { row.classList.add('hidden'); return; }
   row.classList.remove('hidden');
   row.innerHTML = '';
 
-  const groupIds = Object.keys(enumeration);
-
-  if (groupIds.length === 0) {
-    const cta = document.createElement('button');
-    cta.id = 'group-cards-zero';
-    cta.className = 'group-cards-zero';
-    cta.textContent = 'Create your first group';
-    cta.addEventListener('click', () => emitCreateRequest());
-    row.appendChild(cta);
-    return;
+  if (_state.context === 'group') {
+    renderNavRowGroupMode(row);
+  } else {
+    renderNavRowDirectMode(row);
   }
+}
 
+function renderNavRowDirectMode(row) {
+  const current = document.createElement('button');
+  current.className = 'nav-current';
+  current.textContent = 'Direct';
+  current.addEventListener('click', () => { /* no-op — already in Direct */ });
+  row.appendChild(current);
+
+  const groupIds = Object.keys(_enumeration);
   const sorted = groupIds.slice().sort((a, b) => {
-    const va = enumeration[a]?.lastVisited ?? 0;
-    const vb = enumeration[b]?.lastVisited ?? 0;
+    const va = _enumeration[a]?.lastVisited ?? 0;
+    const vb = _enumeration[b]?.lastVisited ?? 0;
     return vb - va;
   });
 
   for (const groupId of sorted) {
-    const meta = metaByGroupId[groupId];
+    const meta = _metaByGroupId[groupId];
     const name = meta?.name || groupId;
     const card = document.createElement('button');
     card.className = 'group-card';
@@ -192,20 +201,38 @@ export function renderCardsRow(enumeration, metaByGroupId) {
       const fill = ov.statusColor || _ownPrimary?.statusColor || null;
       if (fill) card.style.background = safeCssColor(fill);
     }
-    if (_state.context === 'group' && _state.groupId === groupId) {
-      card.classList.add('active');
-    }
     card.addEventListener('click', () => navigateToGroup(groupId));
     row.appendChild(card);
   }
 
   const plus = document.createElement('button');
-  plus.id = 'group-cards-plus';
   plus.className = 'group-cards-plus';
   plus.textContent = '+';
   plus.title = 'Create a new group';
   plus.addEventListener('click', () => emitCreateRequest());
   row.appendChild(plus);
+}
+
+function renderNavRowGroupMode(row) {
+  const groupId = _state.groupId;
+  const meta = _metaByGroupId[groupId];
+  const name = meta?.name || _lastKnownNames[groupId] || groupId;
+
+  const back = document.createElement('button');
+  back.className = 'nav-back';
+  back.textContent = 'Direct';
+  back.addEventListener('click', () => navigateToDirect());
+  row.appendChild(back);
+
+  // Placeholder slot for the chain-icon override toggle. Task 6 fills this in.
+  const toggleSlot = document.createElement('span');
+  toggleSlot.id = 'group-override-toggle-slot';
+  row.appendChild(toggleSlot);
+
+  const current = document.createElement('span');
+  current.className = 'nav-current nav-current-truncate';
+  current.textContent = name;
+  row.appendChild(current);
 }
 
 export function onCreateRequested(fn) {
