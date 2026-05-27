@@ -10,7 +10,7 @@ import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, apply
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
-import { initNav, startCardsRowSubscriptions, initCardsRow, onContextChange, applyServerCurrentContext, navigateToGroup } from './groupNav.js';
+import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup } from './groupNav.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector } from './groups.js';
 
@@ -336,6 +336,10 @@ async function main() {
   // writes to users/null/... (because initNav hasn't set the local userId yet) AND
   // its state change gets wiped by initNav's reset-to-direct that follows.
   initNav(userId);
+  initNavRow();  // Must register its onContextChange listener BEFORE the
+                 // enterGroupContext listener below, so renderNavRow runs first
+                 // on each emit and creates #group-override-toggle-slot before
+                 // enterGroupContext looks for it.
   onContextChange((ctx) => {
     if (ctx.context === 'group') enterGroupContext(ctx.groupId, userId);
     else exitGroupContext();
@@ -380,7 +384,6 @@ async function main() {
   initList(userId, code);
   if (KNOCK_ENABLED) initKnocks(userId);
 
-  initCardsRow();
   startCardsRowSubscriptions();
   initGroupRemovalDetector(userId);
 

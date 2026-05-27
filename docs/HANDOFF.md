@@ -2,7 +2,7 @@
 
 A handoff to whoever picks this up next. Read top-to-bottom; specific subsections can be re-skimmed when working in a particular area.
 
-**Most recent work:** Phase 0 (1:1 invite links), Phase 1 (groups MVP), and Phase 2 (per-group status overrides) of the groups feature are shipped to `dev` with `GROUPS_ENABLED = true`. MVP is now complete per spec §17. Phase 3 (in-app push invites) is the next planned work and not yet planned or built.
+**Most recent work:** Phases 0–2 of the groups feature shipped to `dev` with `GROUPS_ENABLED = true`. The nav redesign (sticky persistent nav row across contexts, chain-icon override toggle) shipped on top of Phase 2. MVP is complete per spec §17. Phase 3 (in-app push invites) is the next planned work and not yet planned or built.
 
 ---
 
@@ -74,8 +74,8 @@ claude/<name>                → session feature branches
 | `js/invites.js` | **NEW (Phase 0+1).** Invite-link business logic: token gen, create/revoke/regenerate (both personal + group), redemption with structured `{ok, reason}` results, `attemptRedeemFromUrl` dispatch, `resolveInvitePreview` for welcome-screen framing. |
 | `js/inviteModal.js` | **NEW (Phase 0+1).** Shared modal component, scope-parameterized via `SCOPE_COPY.{personal,group}`. State A (create) + State B (manage with URL + ↻ regen + Copy + Revoke). |
 | `js/groups.js` | **NEW (Phase 1).** Group lifecycle business logic: `createGroup` / `renameGroup` / `deleteGroup` (owner-only) / `joinGroup` / `leaveGroup` (member-only) / `editOwnDisplayName`. Also `initGroupRemovalDetector` — surfaces a toast when a group the user was in disappears from their enumeration. |
-| `js/groupNav.js` | **NEW (Phase 1).** Navigation state machine: `currentContext` ('direct' or 'group:{id}'), `navigateToDirect` / `navigateToGroup`, listener pattern via `onContextChange`. Owns the group cards row at the top of Direct context and the create-group modal. Caches `_lastKnownNames` per group so deletion toasts can show the name not the id. |
-| `js/groupContext.js` | **NEW (Phase 1).** Group context view: breadcrumb + header + roster (with per-member `watchStatus`) + owner/member actions menu (rename, delete, invite link, edit-name, leave) using `<details>` + `window.prompt`/`window.confirm`. |
+| `js/groupNav.js` | **NEW (Phase 1).** Navigation state machine: `currentContext` ('direct' or 'group:{id}'), `navigateToDirect` / `navigateToGroup`, listener pattern via `onContextChange`. Persistent nav row (Direct + groups + plus in Direct context; Direct back-link + chain-icon override-toggle slot + group name in group context) and the create-group modal. Caches `_lastKnownNames` per group so deletion toasts can show the name not the id. |
+| `js/groupContext.js` | **NEW (Phase 1).** Group context view: header + roster (with per-member `watchStatus`) + owner/member actions menu (rename, delete, invite link, edit-name, leave) using `<details>` + `window.prompt`/`window.confirm`. Override toggle is rendered as an inline-SVG chain icon installed into the nav row's #group-override-toggle-slot at enter time (solid chain = override OFF; broken chain = override ON). |
 
 ## 4. Identity model (load-bearing — read this carefully)
 
@@ -171,7 +171,7 @@ Key design decisions worth remembering:
 - `body { max-width: 600px; margin: 0 auto }` — capped + centered on wider viewports.
 - **Canvas exception:** `#canvas-screen` is `position: fixed; inset: 0` — escapes the body cap.
 - Modals and overlay screens (welcome, recovery, restore, stale, invite, create-group, group-displayname, invite-failure) are fixed-positioned, full-viewport.
-- **Direct context vs group context:** the existing main UI is wrapped in `<div id="main-ui-direct">`. The group context view is `<div id="group-context-root">`. Only one is visible at a time, toggled by `groupContext.js`'s `enterGroupContext`/`exitGroupContext` based on `groupNav.onContextChange` listener.
+- **Direct context vs group context:** the existing main UI is wrapped in `<div id="main-ui-direct">`. The group context view is `<div id="group-context-root">`. A sticky `<div id="nav-row">` (top-level, above both) is hidden by `.hidden` class until `initNavRow` runs. Only one of `#main-ui-direct` / `#group-context-root` is visible at a time, toggled by `groupContext.js`'s `enterGroupContext`/`exitGroupContext` based on `groupNav.onContextChange` listener; the nav row re-renders independently via its own internal `onContextChange` listener registered in `initNavRow`.
 
 ## 9. CSP
 
@@ -197,6 +197,15 @@ Run locally:
 Plus you need `npx firebase login` (or `firebase login` if installed globally) once.
 
 ## 11. In-progress work / what's next
+
+**Nav redesign (post-Phase-2) — shipped on dev:**
+
+- Persistent sticky `#nav-row` replaces the old `#group-cards-row` strip that used to sit above the contact list.
+- In Direct context: `Direct` (large/bold via `.nav-current`) + each group (`.group-card`) + `+`. Each group's card shows a status-colored border when the user is effectively available in that group; greyed name + no border when unavailable. Forest-green fallback (`#22c55e`) when no `statusColor` is set.
+- In group context: `Direct` (`.nav-back`, smaller/unbold) + chain-icon override toggle + group name (`.nav-current.nav-current-truncate`, large/bold).
+- Override toggle moved from a pill in the chip row to an inline-SVG chain icon in the nav. Inverted semantics: solid chain = override OFF (linked to primary); broken chain = override ON.
+- Group context body lost its h2 group name, its breadcrumb back button, and the override-toggle pill. Settings became a chip in the chip row alongside the time chip.
+- Spec: `docs/superpowers/specs/2026-05-28-nav-redesign-design.md`. Plan: `docs/superpowers/plans/2026-05-28-nav-redesign.md`.
 
 **Phase 3 — in-app push invites** (spec §16 Phase 3, Flow C in spec §10). Not yet planned or built.
 
@@ -286,5 +295,6 @@ When picking this up, the documents to read together:
 4. **`docs/superpowers/plans/2026-05-25-groups-phase-0-invite-links.md`** — Phase 0 plan as executed
 5. **`docs/superpowers/plans/2026-05-26-groups-phase-1.md`** — Phase 1 plan as executed
 6. **`docs/superpowers/plans/2026-05-27-groups-phase-2-status-overrides.md`** — Phase 2 plan as executed
+7. **`docs/superpowers/specs/2026-05-28-nav-redesign-design.md`** + **`docs/superpowers/plans/2026-05-28-nav-redesign.md`** — Nav redesign as shipped
 
-Those six artifacts together cover everything that matters.
+Those seven artifacts together cover everything that matters.
