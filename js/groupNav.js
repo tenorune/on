@@ -366,3 +366,11 @@ onCreateRequested(openCreateGroupModal);
 export function getLastKnownGroupName(groupId) {
   return _lastKnownNames[groupId] || null;
 }
+
+// Prime the lastKnownName cache before navigateToGroup runs. Used by the
+// invite-redemption flow so the nav row shows the group name immediately
+// instead of briefly flashing the random groupId while watchGroupMeta is
+// still in-flight.
+export function setLastKnownGroupName(groupId, name) {
+  if (groupId && name) _lastKnownNames[groupId] = name;
+}

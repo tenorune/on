@@ -10,7 +10,7 @@ import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, apply
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
-import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup } from './groupNav.js';
+import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, setLastKnownGroupName } from './groupNav.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector } from './groups.js';
 
@@ -353,11 +353,19 @@ async function main() {
     // ensureIdentity dismisses splash only on welcome / stale paths, and
     // signalReady doesn't fire until watchStatus is set up below.
     dismissSplash();
+    // Hide #main-ui-direct for the entirety of the redemption flow so the
+    // empty Direct view doesn't flash between the recovery-code modal
+    // closing and the displayname prompt opening, or between the
+    // displayname submit and navigateToGroup landing.
+    const directEl = document.getElementById('main-ui-direct');
+    if (directEl) directEl.classList.add('hidden');
+    let landedInGroup = false;
     let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+    let invitePreview = null;
     if (result && result.ok === false && result.reason === 'needs-display-name') {
       // Look up the group name for the prompt.
-      const preview = await resolveInvitePreview(pendingInviteToken);
-      const groupName = preview?.scope === 'group' ? preview.groupName : 'this group';
+      invitePreview = await resolveInvitePreview(pendingInviteToken);
+      const groupName = invitePreview?.scope === 'group' ? invitePreview.groupName : 'this group';
       const displayName = await showGroupDisplayNamePrompt(groupName);
       result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, { displayName });
     }
@@ -366,9 +374,18 @@ async function main() {
       // Clean the URL so a refresh doesn't re-trigger.
       cleanInviteParamFromUrl();
       if (result.ok && result.groupId) {
+        // Prime the nav-row name cache so the group context shows "Family"
+        // immediately rather than flashing the random groupId for the
+        // round-trip until watchGroupMeta resolves with the name.
+        const knownName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
+        if (knownName) setLastKnownGroupName(result.groupId, knownName);
         await navigateToGroup(result.groupId);
+        landedInGroup = true;
       }
     }
+    // If we didn't end up in a group context (personal invite, failure,
+    // etc.), restore the Direct view so the user has somewhere to land.
+    if (!landedInGroup && directEl) directEl.classList.remove('hidden');
   }
 
   touchLastSeen(userId).catch(() => {});
