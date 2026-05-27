@@ -355,15 +355,30 @@ describe('live listener: visibility and timestamp guards', () => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   });
 
-  test('knock with ts before appOpenTime is shown as deferred, not live', async () => {
+  test('knock with ts clearly before appOpenTime is shown as deferred, not live', async () => {
     const fire = await setupLiveListener();
     const li = makeLi('alice');
-    // ts well before session start — simulates reconnect delivering a pre-existing knock
-    fire('alice', { count: 1, ts: Date.now() - 60_000 });
+    // ts ~5 min before session start — well outside the 60s clock-skew
+    // tolerance, so this simulates reconnect delivering a genuinely
+    // pre-existing knock (not a fresh cross-device knock with skew).
+    fire('alice', { count: 1, ts: Date.now() - 5 * 60_000 });
     expect(li.classList.contains('knock-deferred')).toBe(true);
     expect(clearKnock).toHaveBeenCalledWith('myUid', 'alice');
     // Should NOT have applied a live pulse (no boxShadow transition set)
     expect(li.style.transition).not.toContain('box-shadow 2s');
+  });
+
+  test('knock with ts within 60s clock-skew window is treated as live, not deferred', async () => {
+    // Regression: prior to the clock-skew tolerance, fresh cross-device
+    // knocks where the sender's clock was a few seconds behind the
+    // recipient's were misclassified as deferred — landing on a hidden
+    // Direct contact li (global selector) and never floating to the top.
+    const fire = await setupLiveListener();
+    const li = makeLi('alice');
+    fire('alice', { count: 1, ts: Date.now() - 30_000 }); // 30s of skew
+    // Live pulse, NOT deferred:
+    expect(li.classList.contains('knock-deferred')).toBe(false);
+    expect(li.style.transition).toContain('box-shadow 2s');
   });
 });
 
@@ -414,6 +429,37 @@ describe('live knock pulse: color', () => {
     // colorToRgba('#6b7280', 0) = rgba(107, 114, 128, 0)
     expect(li.style.transition).toBe('box-shadow 2s ease-out');
     expect(li.style.boxShadow).toBe('inset 0 0 0 9999px rgba(107, 114, 128, 0)');
+  });
+
+  test('live knock with contextGroupId targets the group-roster li when recipient is in that group', async () => {
+    const { getCurrentContext } = require('../js/groupNav.js');
+    getCurrentContext.mockReturnValue({ context: 'group', groupId: 'G1' });
+
+    // Replicate the production roster shape: an <li> inside #group-roster
+    // (which is itself inside #group-context-root).
+    const root = document.createElement('div');
+    root.id = 'group-context-root';
+    const list = document.createElement('ul');
+    list.id = 'group-roster';
+    const li = document.createElement('li');
+    li.dataset.userId = 'alice';
+    li.dataset.available = 'true';
+    const dot = document.createElement('div');
+    dot.className = 'person-dot';
+    dot.style.background = '#11aaff';
+    li.appendChild(dot);
+    list.appendChild(li);
+    root.appendChild(list);
+    document.body.appendChild(root);
+
+    const fire = await setupLive();
+    fire('alice', { count: 1, ts: Date.now(), contextGroupId: 'G1' });
+
+    // Should animate the group-roster li (pulse + decay).
+    expect(li.style.transition).toBe('box-shadow 2s ease-out');
+    expect(li.style.boxShadow).toMatch(/inset 0 0 0 9999px rgba\(17, 170, 255, 0\)/);
+    // Should also be prepended (float to top).
+    expect(list.firstElementChild).toBe(li);
   });
 });
 
