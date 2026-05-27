@@ -13,7 +13,7 @@ import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
 import { getLastTimeout, setLastTimeout } from './store.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
-import { sendKnock, clearGroupCardBadge } from './knock.js';
+import { sendKnock, clearGroupCardBadge, drainPendingKnocks } from './knock.js';
 import { KNOCK_ENABLED } from './features.js';
 
 // Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
@@ -329,6 +329,7 @@ export function enterGroupContext(groupId, userId) {
   _statusUnsubs.clear();
   _memberPrimaries.clear();
   _membersOverrides = {};
+  let drainedKnocksOnEntry = false;
   _membersUnsub = watchGroupMembers(groupId, (members) => {
     _membersOverrides = {};
     for (const [uid, m] of Object.entries(members || {})) {
@@ -339,6 +340,13 @@ export function enterGroupContext(groupId, userId) {
     // Re-paint each row to reflect the merged override+primary.
     for (const uid of Object.keys(members || {})) {
       paintRosterRow(uid);
+    }
+    // Replay any knocks that arrived while the user wasn't in this group.
+    // Wait for the first members tick so the roster lis exist before drain
+    // tries to look them up; one-shot per enterGroupContext call.
+    if (!drainedKnocksOnEntry) {
+      drainedKnocksOnEntry = true;
+      drainPendingKnocks(groupId);
     }
   });
 

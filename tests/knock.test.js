@@ -680,6 +680,131 @@ describe('float-to-top', () => {
   });
 });
 
+describe('drainPendingKnocks', () => {
+  let initKnocks, sendKnock, drainPendingKnocks, watchKnocksAdded, getKnocks, clearKnock, writeKnock;
+  let mockGetCurrentContext;
+
+  beforeEach(async () => {
+    jest.resetModules();
+    document.body.innerHTML = '';
+    jest.useFakeTimers();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    jest.mock('../js/features.js', () => ({ KNOCK_ENABLED: true, PALETTES_ENABLED: false }));
+    jest.mock('../js/db.js', () => ({
+      writeKnock: jest.fn().mockResolvedValue(),
+      getKnocks: jest.fn(),
+      watchKnocksAdded: jest.fn(() => jest.fn()),
+      clearKnock: jest.fn().mockResolvedValue(),
+    }));
+    jest.mock('../js/store.js', () => ({}));
+    jest.mock('../js/firebase-config.js', () => ({ db: {} }));
+    mockGetCurrentContext = jest.fn(() => ({ context: 'direct', groupId: null }));
+    jest.mock('../js/groupNav.js', () => ({ getCurrentContext: mockGetCurrentContext }));
+    ({ initKnocks, sendKnock, drainPendingKnocks } = require('../js/knock.js'));
+    const db = require('../js/db.js');
+    watchKnocksAdded = db.watchKnocksAdded;
+    getKnocks = db.getKnocks;
+    clearKnock = db.clearKnock;
+    writeKnock = db.writeKnock;
+    window.scrollTo = jest.fn();
+  });
+
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('a live knock with contextGroupId in a non-matching context stashes and drains on entry', async () => {
+    // Bob is in Direct context when Ann sends a knock with contextGroupId=G1.
+    let liveCb;
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockImplementation((_uid, cb) => { liveCb = cb; return jest.fn(); });
+    await initKnocks('bob');
+    // Live knock arrives — Bob is still in Direct.
+    liveCb('ann', { count: 1, ts: Date.now(), contextGroupId: 'G1' });
+
+    // Set up the group roster as it would appear after Bob navigates into G1.
+    const root = document.createElement('div');
+    root.id = 'group-context-root';
+    const list = document.createElement('ul');
+    list.id = 'group-roster';
+    const annLi = document.createElement('li');
+    annLi.dataset.userId = 'ann';
+    annLi.dataset.available = 'false';
+    const dot = document.createElement('div');
+    dot.className = 'person-dot';
+    annLi.appendChild(dot);
+    list.appendChild(annLi);
+    root.appendChild(list);
+    document.body.appendChild(root);
+    mockGetCurrentContext.mockReturnValue({ context: 'group', groupId: 'G1' });
+
+    drainPendingKnocks('G1');
+
+    // The drain should have:
+    // - Applied the .knock-deferred CSS animation to Ann's li.
+    // - Prepended Ann's li (float-to-top — already first since it's the only li, but verify).
+    // - Cleared the knock from Firebase.
+    // - Scrolled to top.
+    expect(annLi.classList.contains('knock-deferred')).toBe(true);
+    expect(list.firstElementChild).toBe(annLi);
+    expect(clearKnock).toHaveBeenCalledWith('bob', 'ann');
+    expect(window.scrollTo).toHaveBeenCalled();
+  });
+
+  test('drainPendingKnocks is idempotent: calling twice does not double-animate', async () => {
+    let liveCb;
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockImplementation((_uid, cb) => { liveCb = cb; return jest.fn(); });
+    await initKnocks('bob');
+    liveCb('ann', { count: 1, ts: Date.now(), contextGroupId: 'G1' });
+
+    const root = document.createElement('div');
+    root.id = 'group-context-root';
+    const list = document.createElement('ul');
+    list.id = 'group-roster';
+    const annLi = document.createElement('li');
+    annLi.dataset.userId = 'ann';
+    annLi.dataset.available = 'false';
+    const dot = document.createElement('div');
+    dot.className = 'person-dot';
+    annLi.appendChild(dot);
+    list.appendChild(annLi);
+    root.appendChild(list);
+    document.body.appendChild(root);
+    mockGetCurrentContext.mockReturnValue({ context: 'group', groupId: 'G1' });
+
+    drainPendingKnocks('G1');
+    expect(clearKnock).toHaveBeenCalledTimes(1);
+    // Second drain is a no-op since the stash was cleared.
+    drainPendingKnocks('G1');
+    expect(clearKnock).toHaveBeenCalledTimes(1);
+  });
+
+  test('live knock with contextGroupId AND matching current context scrolls to top', async () => {
+    let liveCb;
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockImplementation((_uid, cb) => { liveCb = cb; return jest.fn(); });
+
+    // Bob is already in G1 — set up roster + context before initKnocks fires.
+    const root = document.createElement('div');
+    root.id = 'group-context-root';
+    const list = document.createElement('ul');
+    list.id = 'group-roster';
+    const annLi = document.createElement('li');
+    annLi.dataset.userId = 'ann';
+    annLi.dataset.available = 'true';
+    const dot = document.createElement('div');
+    dot.className = 'person-dot';
+    annLi.appendChild(dot);
+    list.appendChild(annLi);
+    root.appendChild(list);
+    document.body.appendChild(root);
+    mockGetCurrentContext.mockReturnValue({ context: 'group', groupId: 'G1' });
+    await initKnocks('bob');
+
+    liveCb('ann', { count: 1, ts: Date.now(), contextGroupId: 'G1' });
+    expect(window.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 0 }));
+  });
+});
+
 describe('group-card badge', () => {
   let bumpGroupCardBadge, clearGroupCardBadge;
 
