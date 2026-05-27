@@ -11,6 +11,7 @@ jest.mock('../js/db.js', () => ({
 jest.mock('../js/features.js', () => ({ GROUPS_ENABLED: true }));
 jest.mock('../js/groups.js', () => ({
   createGroup: jest.fn(),
+  toggleStatusOverride: jest.fn().mockResolvedValue(undefined),
 }));
 
 const db = require('../js/db.js');
@@ -455,7 +456,7 @@ describe('Direct nav per-group status indicator', () => {
 describe('renderNavRow — group mode', () => {
   beforeEach(() => { jest.clearAllMocks(); setupNavDom(); });
 
-  test('group mode renders Direct (back) + chain icon slot + group name', () => {
+  test('group mode renders Direct (back) + chain icon + group name', () => {
     let enumCb, metaCb;
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
@@ -472,11 +473,53 @@ describe('renderNavRow — group mode', () => {
     const row = document.getElementById('nav-row');
     expect(row.querySelector('.nav-back')).not.toBeNull();
     expect(row.querySelector('.nav-back').textContent).toBe('Direct');
-    expect(row.querySelector('#group-override-toggle-slot')).not.toBeNull();
+    // Chain-icon override toggle is part of the group-mode render (not a
+    // separate install handoff). Should be present immediately.
+    const toggle = row.querySelector('#group-override-toggle');
+    expect(toggle).not.toBeNull();
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
     const current = row.querySelector('.nav-current');
     expect(current).not.toBeNull();
     expect(current.textContent).toBe('Family');
     expect(current.classList.contains('nav-current-truncate')).toBe(true);
+  });
+
+  test('chain icon reflects override.enabled via aria-pressed', () => {
+    let enumCb, metaCb, overrideCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation(() => () => {});
+    db.setCurrentContext.mockResolvedValue(undefined);
+    db.setLastVisited.mockResolvedValue(undefined);
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    overrideCb({ enabled: true, status: 'unavailable', availableUntil: null });
+    navigateToGroup('G1');
+    const toggle = document.querySelector('#group-override-toggle');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(toggle.textContent).toBe('⊘');
+  });
+
+  test('tapping the chain icon calls toggleStatusOverride with inverted state', () => {
+    let enumCb, metaCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation(() => () => {});
+    db.setCurrentContext.mockResolvedValue(undefined);
+    db.setLastVisited.mockResolvedValue(undefined);
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    navigateToGroup('G1');
+    document.querySelector('#group-override-toggle').click();
+    expect(groups.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
   });
 
   test('Tapping Direct back-link in group mode navigates to Direct', () => {
