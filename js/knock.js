@@ -238,7 +238,7 @@ function applyDeferredKnock(userId, contextGroupId) {
 // ── Float-to-top ─────────────────────────────────────────────────────────────
 
 const FLOAT_MS = 20000;
-const floatTimers = new Map(); // userId → { timerId, originalParent, originalSibling }
+const floatTimers = new Map(); // userId → { timerId, originalParent, originalSibling, startedAt }
 
 export function applyFloatToTop(li) {
   if (!li) return;
@@ -252,8 +252,11 @@ export function applyFloatToTop(li) {
       originalParent: list,
       originalSibling: li.nextSibling,
       timerId: null,
+      startedAt: Date.now(),
     });
   }
+  // Refresh startedAt on every prepend so a re-knock extends the float.
+  floatTimers.get(userId).startedAt = Date.now();
   list.prepend(li);
   const timerId = setTimeout(() => restoreFromFloat(userId), FLOAT_MS);
   floatTimers.get(userId).timerId = timerId;
@@ -320,9 +323,24 @@ function findKnockTargetCard(senderId, contextGroupId) {
 // Re-run initKnocks when the app returns to the foreground or exits canvas,
 // so that knocks received while backgrounded/on-canvas are shown as deferred.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && cachedUserId) {
-    initKnocks(cachedUserId);
-  }
+  if (document.visibilityState !== 'visible') return;
+  // Drain any floats whose 20s deadline elapsed while the tab was hidden.
+  // setTimeout is throttled (or frozen) in background tabs, so the natural
+  // timer can fire much later than FLOAT_MS or not at all — without this,
+  // the floated li stays stuck at the top of the list when the user returns.
+  // Process in two passes (collect then mutate) to avoid mutating the Map
+  // during iteration.
+  const now = Date.now();
+  const toRestore = [];
+  floatTimers.forEach((entry, userId) => {
+    if (now - (entry.startedAt || 0) >= FLOAT_MS) toRestore.push(userId);
+  });
+  toRestore.forEach((userId) => {
+    const entry = floatTimers.get(userId);
+    if (entry?.timerId) clearTimeout(entry.timerId);
+    restoreFromFloat(userId);
+  });
+  if (cachedUserId) initKnocks(cachedUserId);
 });
 document.addEventListener('canvas-exited', () => {
   if (cachedUserId) initKnocks(cachedUserId);

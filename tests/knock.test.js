@@ -330,6 +330,42 @@ describe('visibilitychange re-init', () => {
     sendKnock('u1', 'me');
     expect(writeKnock).toHaveBeenCalledWith('u1', 'me', {});
   });
+
+  test('becoming visible restores a li whose float deadline elapsed while hidden', async () => {
+    // setTimeout in a hidden tab is throttled; the 20s float timer may not
+    // have fired yet when the user returns. The visibility handler should
+    // drain expired floats so the floated li returns to its sorted position
+    // instead of staying stuck at the top.
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockReturnValue(jest.fn());
+    await initKnocks('myUid');
+    const { applyFloatToTop } = require('../js/knock.js');
+
+    // Build a roster with one li that will be floated, plus another li
+    // BEFORE it (so the float visibly moves it to the top).
+    const list = document.createElement('ul');
+    const before = document.createElement('li');
+    before.dataset.userId = 'first';
+    list.appendChild(before);
+    const target = document.createElement('li');
+    target.dataset.userId = 'second';
+    list.appendChild(target);
+    document.body.appendChild(list);
+
+    applyFloatToTop(target);
+    expect(list.firstElementChild).toBe(target); // floated to top
+
+    // Advance time past the 20s float deadline WITHOUT firing the timer
+    // (simulates background throttling — the timer is registered but the
+    // browser hasn't run it yet).
+    jest.setSystemTime(Date.now() + 21_000);
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    // Drain should have restored target to its original position (after `before`).
+    expect(list.firstElementChild).toBe(before);
+    expect(list.lastElementChild).toBe(target);
+  });
 });
 
 // --- live listener background / reconnect guards ---
