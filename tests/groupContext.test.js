@@ -603,6 +603,74 @@ describe('own status row', () => {
   });
 });
 
+describe('chain-icon override toggle', () => {
+  function captureCallbacks() {
+    let metaCb, primaryCb, overrideCb;
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation((uid, cb) => { primaryCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    return { getMetaCb: () => metaCb, getPrimaryCb: () => primaryCb, getOverrideCb: () => overrideCb };
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+    // The nav row hosts the toggle slot the chain icon lives in.
+    document.getElementById('nav-row').innerHTML =
+      '<span id="group-override-toggle-slot"></span>';
+  });
+
+  test('enterGroupContext installs a chain-icon button in the toggle slot', () => {
+    enterGroupContext('G1', 'me');
+    const slot = document.getElementById('group-override-toggle-slot');
+    const btn = slot.querySelector('#group-override-toggle');
+    expect(btn).not.toBeNull();
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    expect(btn.getAttribute('aria-label')).toMatch(/Set a unique status/i);
+  });
+
+  test('chain icon reflects override.enabled=true via aria-pressed=true', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    const btn = document.getElementById('group-override-toggle');
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+    expect(btn.getAttribute('aria-label')).toMatch(/Stop using a unique status/i);
+  });
+
+  test('tapping the chain icon calls toggleStatusOverride with the inverted state', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
+  });
+
+  test('tapping the chain icon when override is ON calls toggleStatusOverride with false', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    document.getElementById('group-override-toggle').click();
+    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', false);
+  });
+
+  test('chain icon click optimistically updates _ownOverride so dot click can fire immediately', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+    // 1. Tap toggle ON; do NOT fire override callback (simulating Firebase ack lag).
+    document.getElementById('group-override-toggle').click();
+    // 2. Immediately tap the dot. With the optimistic update, the dot handler
+    //    should see override.enabled === true and write the available state.
+    document.getElementById('group-my-dot').click();
+    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalled();
+  });
+});
+
 describe('roster context-aware status', () => {
   function captureMembers() {
     let membersCb;

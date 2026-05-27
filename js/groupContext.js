@@ -13,6 +13,10 @@ import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge } from './knock.js';
 import { KNOCK_ENABLED } from './features.js';
 
+// Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
+const SVG_LINK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 15l6 -6"/><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464"/><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463"/></svg>';
+const SVG_LINK_OFF = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 15l3 -3"/><path d="M14 8l1.45 -1.485a4.973 4.973 0 0 1 6.998 .035a4.973 4.973 0 0 1 0 6.93l-2.45 2.52"/><path d="M16 12l-1.55 1.553a4.97 4.97 0 0 0 -1.45 3.5a4.97 4.97 0 0 0 1.45 3.502a4.973 4.973 0 0 0 6.998 -.035"/><path d="M3 3l18 18"/></svg>';
+
 const CHIP_VALUES = [
   { minutes: 30,   text: '30 minutes' },
   { minutes: 60,   text: '1 hour' },
@@ -190,6 +194,19 @@ function renderOwnStatusRow() {
       timeRemaining.style.display = 'none';
     }
   }
+}
+
+function renderOverrideToggleIcon() {
+  const btn = document.getElementById('group-override-toggle');
+  if (!btn) return;
+  const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
+  // Inverted semantics per spec: solid chain = override OFF (linked to primary);
+  // broken chain = override ON (status independent for this group).
+  btn.innerHTML = overrideOn ? SVG_LINK_OFF : SVG_LINK;
+  btn.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
+  btn.setAttribute('aria-label', overrideOn
+    ? 'Stop using a unique status for this group'
+    : 'Set a unique status for this group');
 }
 
 function syncStatusSubscriptions(memberUids) {
@@ -381,24 +398,26 @@ export function enterGroupContext(groupId, userId) {
   _ownOverrideUnsub = watchOwnMemberOverride(groupId, userId, (data) => {
     _ownOverride = data || null;
     renderOwnStatusRow();
+    renderOverrideToggleIcon();
   });
 
-  // Wire the override toggle (replace via clone to drop any prior listener).
-  // Each handler below optimistically updates _ownOverride and re-renders BEFORE
-  // awaiting Firebase, so a follow-up tap (toggle→dot, dot→chip) is not gated
-  // by the Firebase round-trip on the prior write.
-  const toggle = document.getElementById('group-override-toggle');
-  if (toggle) {
-    const clone = toggle.cloneNode(true);
-    toggle.parentNode.replaceChild(clone, toggle);
-    clone.addEventListener('click', () => {
+  // Install the chain icon button in the nav row's override-toggle slot.
+  const slot = document.getElementById('group-override-toggle-slot');
+  if (slot) {
+    slot.innerHTML = '<button id="group-override-toggle" type="button"></button>';
+    const btn = document.getElementById('group-override-toggle');
+    btn.addEventListener('click', () => {
       const nextEnabled = !(_ownOverride && _ownOverride.enabled === true);
+      // Optimistic update — mirror commit bb4107d's pattern so a follow-up
+      // dot/chip tap isn't gated on Firebase ack.
       _ownOverride = nextEnabled
         ? { enabled: true, status: 'unavailable', availableUntil: null }
         : null;
       renderOwnStatusRow();
+      renderOverrideToggleIcon();
       toggleStatusOverride(groupId, userId, nextEnabled).catch(() => {});
     });
+    renderOverrideToggleIcon();
   }
 
   // Wire the dot (clone-and-replace per the same pattern)
@@ -483,6 +502,8 @@ export function exitGroupContext() {
   if (_ownOverrideUnsub) { _ownOverrideUnsub(); _ownOverrideUnsub = null; }
   _ownPrimary = null;
   _ownOverride = null;
+  const slot = document.getElementById('group-override-toggle-slot');
+  if (slot) slot.innerHTML = '';
   _membersOverrides = {};
   _memberPrimaries.clear();
   _statusUnsubs.forEach((fn) => fn());
