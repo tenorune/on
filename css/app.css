@@ -480,6 +480,17 @@ main {
 }
 .nav-row::-webkit-scrollbar { display: none; }
 .nav-row.hidden { display: none; }
+/* Lock every direct child of .nav-row to the same min-height so the nav row
+   has the same overall height in Direct context (where .group-card is the
+   tallest item) and group context (where .nav-back / chain icon / .nav-current
+   are the tallest items). Without this, switching contexts shifts the body
+   content by a few px because the items have different natural heights. */
+.nav-row > * {
+  min-height: 2.125rem;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+}
 .nav-current {
   position: sticky;
   left: 0;
