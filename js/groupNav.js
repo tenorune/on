@@ -159,7 +159,7 @@ function syncMetaSubs() {
   }
 }
 
-export function renderNavRow() {
+function renderNavRow() {
   const row = document.getElementById('nav-row');
   if (!row) return;
   if (!GROUPS_ENABLED) { row.classList.add('hidden'); return; }
