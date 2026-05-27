@@ -201,30 +201,25 @@ function applyLiveKnock(senderId, count, li) {
   if (!li) li = document.querySelector(`[data-user-id="${senderId}"]`);
   if (!li) return;
 
-  const color = getKnockColor(li);
-  const current = pulseMap.get(senderId) ?? { intensity: 0, timerId: null };
-  if (current.timerId) clearTimeout(current.timerId);
+  // Use the same CSS-keyframe approach as .knock-deferred — the previous
+  // imperative transition (set boxShadow → reflow → set new boxShadow with
+  // transition) was unreliable when followed on the same tick by a
+  // list.prepend and a scrollTo (the layout/paint sequence ate the initial
+  // intensity frame, so users saw no pulse). A keyframe animation is
+  // declarative: the browser commits both endpoints and animates regardless
+  // of concurrent DOM mutations.
+  li.style.setProperty('--knock-color', getKnockColor(li));
+  li.classList.remove('knock-live');
+  void li.offsetHeight; // restart the animation cleanly if a prior is still mid-flight
+  li.classList.add('knock-live');
+  const onEnd = () => { li.classList.remove('knock-live'); };
+  li.addEventListener('animationend', onEnd, { once: true });
 
-  const newIntensity = Math.min(1, current.intensity + count * INTENSITY_STEP);
-
-  // Instant rise (no transition)
-  // Use inset box-shadow instead of background-color so the pulse overlays without
-  // conflicting with the palette card background set by updateFolloweeRow.
-  li.style.transition = 'none';
-  li.style.boxShadow = `inset 0 0 0 9999px ${colorToRgba(color, newIntensity)}`;
-  void li.offsetHeight; // force reflow
-
-  // Begin 2s decay
-  li.style.transition = 'box-shadow 2s ease-out';
-  li.style.boxShadow = `inset 0 0 0 9999px ${colorToRgba(color, 0)}`;
-
-  const timerId = setTimeout(() => {
-    li.style.transition = '';
-    li.style.boxShadow = '';
-    pulseMap.delete(senderId);
-  }, 2100);
-
-  pulseMap.set(senderId, { intensity: newIntensity, timerId });
+  // Intensity stacking from rapid repeat knocks is dropped — the keyframe
+  // animation is one-shot; multiple knocks within the window re-trigger
+  // the full animation rather than accumulating opacity. pulseMap kept
+  // only to satisfy the legacy reset path in initKnocks.
+  pulseMap.set(senderId, { intensity: 1, timerId: null });
 }
 
 function applyDeferredKnock(userId, contextGroupId) {

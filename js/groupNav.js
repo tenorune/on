@@ -2,7 +2,7 @@
 // Navigation state machine: currentContext + group cards row.
 // State is in-memory; writes mirror to Firebase via setCurrentContext / setLastVisited.
 
-import { setCurrentContext, setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, watchStatus } from './db.js';
+import { setCurrentContext, setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, watchStatus, removeUserGroupsEntry } from './db.js';
 import { safeCssColor } from './utils.js';
 import { GROUPS_ENABLED } from './features.js';
 import { createGroup, toggleStatusOverride } from './groups.js';
@@ -134,7 +134,16 @@ function syncMetaSubs() {
           _metaByGroupId[groupId] = meta;
           if (meta.name) _lastKnownNames[groupId] = meta.name;
         } else {
+          // Group entity deleted by its owner. Non-owner members never had
+          // their users/{uid}/groups/{groupId} entry cleared by the owner
+          // (the owner can't write to other users' records). Clear it
+          // locally — the watchUserGroups delta then drops the card from
+          // the nav and tears down our meta + override subs via
+          // syncMetaSubs's cleanup loops.
           delete _metaByGroupId[groupId];
+          if (_myUserId && _enumeration[groupId] !== undefined) {
+            removeUserGroupsEntry(_myUserId, groupId).catch(() => {});
+          }
         }
         renderNavRow();
       });

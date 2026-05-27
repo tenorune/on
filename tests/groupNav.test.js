@@ -7,6 +7,7 @@ jest.mock('../js/db.js', () => ({
   readMembers: jest.fn().mockResolvedValue({}),
   watchOwnMemberOverride: jest.fn(() => () => {}),
   watchStatus: jest.fn(() => () => {}),
+  removeUserGroupsEntry: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/features.js', () => ({ GROUPS_ENABLED: true }));
 jest.mock('../js/groups.js', () => ({
