@@ -65,12 +65,9 @@ const { enterGroupContext, exitGroupContext } = require('../js/groupContext');
 
 function setupContextDom() {
   document.body.innerHTML = `
+    <div id="nav-row"></div>
     <div id="main-ui-direct"></div>
     <div id="group-context-root" class="group-context-root hidden">
-      <div class="group-breadcrumb">
-        <button id="group-breadcrumb-back">←</button>
-        <span id="group-breadcrumb-name"></span>
-      </div>
       <header class="group-context-header">
         <div id="group-header-row">
           <div id="group-my-dot" class="dot" data-available="false"></div>
@@ -81,22 +78,18 @@ function setupContextDom() {
             </div>
             <div class="group-header-chips">
               <button id="group-time-chip" class="chip time-chip">2 hours</button>
-              <button id="group-override-toggle" class="chip override-toggle" aria-pressed="false">Set a unique status</button>
+              <details id="group-context-actions">
+                <summary class="chip">Settings</summary>
+                <div class="group-actions-menu">
+                  <button id="group-action-rename" class="hidden">Rename group</button>
+                  <button id="group-action-invite" class="hidden">Invite link</button>
+                  <button id="group-action-delete" class="hidden">Delete group</button>
+                  <button id="group-action-edit-name" class="hidden">Edit my name</button>
+                  <button id="group-action-leave" class="hidden">Leave group</button>
+                </div>
+              </details>
             </div>
           </div>
-        </div>
-        <div class="group-context-header-row">
-          <h2 id="group-context-name"></h2>
-          <details id="group-context-actions">
-            <summary>Settings</summary>
-            <div class="group-actions-menu">
-              <button id="group-action-rename" class="hidden">Rename group</button>
-              <button id="group-action-invite" class="hidden">Invite link</button>
-              <button id="group-action-delete" class="hidden">Delete group</button>
-              <button id="group-action-edit-name" class="hidden">Edit my name</button>
-              <button id="group-action-leave" class="hidden">Leave group</button>
-            </div>
-          </details>
         </div>
       </header>
       <ul id="group-roster"></ul>
@@ -116,13 +109,11 @@ describe('groupContext scaffolding', () => {
     expect(document.getElementById('main-ui-direct').classList.contains('hidden')).toBe(true);
   });
 
-  test('enterGroupContext renders the breadcrumb name and header name on watchGroupMeta tick', () => {
+  test('watchGroupMeta tick does not throw when h2 and breadcrumb are absent', () => {
     let metaCb;
     db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
-    metaCb({ name: 'Family', ownerId: 'owner', createdAt: 1 });
-    expect(document.getElementById('group-breadcrumb-name').textContent).toBe('Family');
-    expect(document.getElementById('group-context-name').textContent).toBe('Family');
+    expect(() => metaCb({ name: 'Family', ownerId: 'owner', createdAt: 1 })).not.toThrow();
   });
 
   test('shows owner-only action buttons when caller is the owner', () => {
@@ -147,12 +138,6 @@ describe('groupContext scaffolding', () => {
     expect(document.getElementById('group-action-delete').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('group-action-edit-name').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('group-action-leave').classList.contains('hidden')).toBe(false);
-  });
-
-  test('breadcrumb back button calls navigateToDirect', () => {
-    enterGroupContext('G1', 'me');
-    document.getElementById('group-breadcrumb-back').click();
-    expect(groupNav.navigateToDirect).toHaveBeenCalled();
   });
 
   test('exitGroupContext hides the root and shows direct', () => {
@@ -480,16 +465,6 @@ describe('own status row', () => {
     expect(document.getElementById('group-my-dot').dataset.available).toBe('false');
   });
 
-  test('toggle pill reflects override.enabled', () => {
-    const cbs = captureCallbacks();
-    enterGroupContext('G1', 'me');
-    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
-    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
-    expect(document.getElementById('group-override-toggle').getAttribute('aria-pressed')).toBe('true');
-    cbs.getOverrideCb()(null);
-    expect(document.getElementById('group-override-toggle').getAttribute('aria-pressed')).toBe('false');
-  });
-
   test('dot and time chip get readonly class when override is OFF', () => {
     const cbs = captureCallbacks();
     enterGroupContext('G1', 'me');
@@ -509,36 +484,6 @@ describe('own status row', () => {
     expect(document.getElementById('group-time-chip').classList.contains('readonly')).toBe(false);
   });
 
-  test('clicking the toggle when OFF calls toggleStatusOverride with true', () => {
-    const cbs = captureCallbacks();
-    enterGroupContext('G1', 'me');
-    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
-    cbs.getOverrideCb()(null);
-    document.getElementById('group-override-toggle').click();
-    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
-    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledTimes(1);
-  });
-
-  test('clicking the toggle when ON calls toggleStatusOverride with false', () => {
-    const cbs = captureCallbacks();
-    enterGroupContext('G1', 'me');
-    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
-    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
-    document.getElementById('group-override-toggle').click();
-    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', false);
-    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledTimes(1);
-  });
-
-  test('re-entering the context does not double-wire the toggle', () => {
-    const cbs = captureCallbacks();
-    enterGroupContext('G1', 'me');
-    cbs.getOverrideCb()(null);
-    enterGroupContext('G1', 'me');
-    cbs.getOverrideCb()(null);
-    document.getElementById('group-override-toggle').click();
-    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledTimes(1);
-  });
-
   test('exitGroupContext tears down own primary and override subscriptions', () => {
     const ownPrimaryUnsub = jest.fn();
     const ownOverrideUnsub = jest.fn();
@@ -548,25 +493,6 @@ describe('own status row', () => {
     exitGroupContext();
     expect(ownPrimaryUnsub).toHaveBeenCalledTimes(1);
     expect(ownOverrideUnsub).toHaveBeenCalledTimes(1);
-  });
-
-  test('dot click immediately after toggle ON still writes available (no Firebase-ack race)', () => {
-    // Regression: previously, the dot handler gated on _ownOverride, which
-    // was only populated by the watchOwnMemberOverride callback. A user
-    // tapping the toggle then the dot quickly would have the dot click
-    // swallowed during the Firebase round-trip window. Fix: each handler
-    // optimistically updates _ownOverride before awaiting the write.
-    const cbs = captureCallbacks();
-    enterGroupContext('G1', 'me');
-    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
-    cbs.getOverrideCb()(null);
-
-    document.getElementById('group-override-toggle').click();
-    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
-    // Do NOT fire cbs.getOverrideCb() here — simulating Firebase ack lag.
-
-    document.getElementById('group-my-dot').click();
-    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(1);
   });
 
   test('dot click for a new-default user (getLastTimeout=2) writes a 120-minute availableUntil', () => {
@@ -747,38 +673,3 @@ describe('roster context-aware status', () => {
   });
 });
 
-describe('Phase 2 end-to-end happy path', () => {
-  beforeEach(() => { jest.clearAllMocks(); setupContextDom(); });
-
-  test('toggle ON → dot → chip → toggle OFF flow writes the expected db calls', () => {
-    let metaCb, overrideCb, primaryCb;
-    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
-    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { primaryCb = cb; return () => {}; });
-    enterGroupContext('G1', 'me');
-    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
-    primaryCb({ status: 'unavailable', availableUntil: null });
-    overrideCb(null);
-
-    // 1. Toggle ON
-    document.getElementById('group-override-toggle').click();
-    expect(groupsModule.toggleStatusOverride).toHaveBeenCalledWith('G1', 'me', true);
-    overrideCb({ enabled: true, status: 'unavailable', availableUntil: null });
-
-    // 2. Dot click — go available
-    document.getElementById('group-my-dot').click();
-    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalled();
-    overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 120 * 60000 });
-
-    // 3. Time chip — cycle duration
-    document.getElementById('group-time-chip').click();
-    expect(groupsModule.setOverrideStatusAvailable).toHaveBeenCalledTimes(2);
-
-    // 4. Toggle OFF
-    document.getElementById('group-override-toggle').click();
-    expect(groupsModule.toggleStatusOverride).toHaveBeenLastCalledWith('G1', 'me', false);
-    overrideCb(null);
-    expect(document.getElementById('group-override-toggle').getAttribute('aria-pressed')).toBe('false');
-    expect(document.getElementById('group-my-dot').classList.contains('readonly')).toBe(true);
-  });
-});

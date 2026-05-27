@@ -149,10 +149,10 @@ function renderOwnStatusRow() {
   const timeRemaining = document.getElementById('group-time-remaining');
   const timeChip = document.getElementById('group-time-chip');
   const toggle = document.getElementById('group-override-toggle');
-  if (!dot || !label || !toggle) return;
+  if (!dot || !label) return;
 
   const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
-  toggle.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
+  if (toggle) toggle.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
 
   // Source of truth for the visible status: override when ON, else primary.
   const source = overrideOn ? _ownOverride : _ownPrimary;

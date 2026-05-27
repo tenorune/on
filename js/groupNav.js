@@ -41,16 +41,16 @@ export function onContextChange(fn) {
 export async function navigateToDirect() {
   if (_state.context === 'direct') return;
   _state = { context: 'direct', groupId: null };
+  emit(); // render immediately before Firebase round-trip
   await setCurrentContext(_myUserId, 'direct');
-  emit();
 }
 
 export async function navigateToGroup(groupId) {
   if (_state.context === 'group' && _state.groupId === groupId) return;
   _state = { context: 'group', groupId };
+  emit(); // render immediately before Firebase round-trip
   await setCurrentContext(_myUserId, `group:${groupId}`);
   await setLastVisited(_myUserId, groupId, Date.now());
-  emit();
 }
 
 export function applyServerCurrentContext(rawValue) {

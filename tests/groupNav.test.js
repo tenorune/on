@@ -451,3 +451,49 @@ describe('Direct nav per-group status indicator', () => {
     expect(card.style.borderColor).toMatch(/#11aaff|rgb\(17,\s*170,\s*255\)/i);
   });
 });
+
+describe('renderNavRow — group mode', () => {
+  beforeEach(() => { jest.clearAllMocks(); setupNavDom(); });
+
+  test('group mode renders Direct (back) + chain icon slot + group name', () => {
+    let enumCb, metaCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation(() => () => {});
+    db.setCurrentContext.mockResolvedValue(undefined);
+    db.setLastVisited.mockResolvedValue(undefined);
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    navigateToGroup('G1');
+    const row = document.getElementById('nav-row');
+    expect(row.querySelector('.nav-back')).not.toBeNull();
+    expect(row.querySelector('.nav-back').textContent).toBe('Direct');
+    expect(row.querySelector('#group-override-toggle-slot')).not.toBeNull();
+    const current = row.querySelector('.nav-current');
+    expect(current).not.toBeNull();
+    expect(current.textContent).toBe('Family');
+    expect(current.classList.contains('nav-current-truncate')).toBe(true);
+  });
+
+  test('Tapping Direct back-link in group mode navigates to Direct', () => {
+    let enumCb, metaCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation(() => () => {});
+    db.setCurrentContext.mockResolvedValue(undefined);
+    db.setLastVisited.mockResolvedValue(undefined);
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    navigateToGroup('G1');
+    document.querySelector('.nav-back').click();
+    expect(db.setCurrentContext).toHaveBeenCalledWith('me', 'direct');
+  });
+});
