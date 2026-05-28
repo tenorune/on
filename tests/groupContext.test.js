@@ -662,6 +662,39 @@ describe('own status row', () => {
     expect(document.querySelectorAll('#group-swatch-row .set-toggle-btn').length).toBe(1);
   });
 
+  test('Set 1 has forest preselected by default for a brand-new group', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    const selected = document.querySelector('#group-swatch-row .swatch.selected');
+    expect(selected).not.toBeNull();
+    expect(selected.dataset.paletteKey).toBe('forest');
+  });
+
+  test('Set 2 has volt preselected by default after toggling sets', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    document.querySelector('#group-swatch-row .set-toggle-btn').click();
+    const selected = document.querySelector('#group-swatch-row .swatch.selected');
+    expect(selected).not.toBeNull();
+    expect(selected.dataset.paletteKey).toBe('volt');
+  });
+
+  test('set-toggle writes the target set\'s selectedColor to the override', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    document.querySelector('#group-swatch-row .set-toggle-btn').click();
+    expect(groupsModule.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me', {
+      statusColor: '#aaff00', // volt
+      paletteKey: null,
+    });
+  });
+
   test('set-toggle swaps the visible set; both default to base mode', () => {
     const cbs = captureCallbacks();
     enterGroupContext('G1', 'me');
@@ -836,6 +869,28 @@ describe('roster context-aware status', () => {
     statusCbs.uidB?.({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#abcdef' });
     const li = document.querySelector('#group-roster [data-user-id="uidB"]');
     expect(li.dataset.available).toBe('true');
+  });
+
+  test('available member with statusColor but no paletteKey has fuzzy time in statusColor', () => {
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidC: { role: 'member', displayName: 'C', joinedAt: 4 },
+    });
+    statusCbs.uidC?.({
+      status: 'available',
+      availableUntil: Date.now() + 60 * 60 * 1000,
+      statusColor: '#3b82f6', // ocean — non-default
+      // No paletteKey set.
+    });
+    const span = document.querySelector('#group-roster [data-user-id="uidC"] .status-available');
+    expect(span).not.toBeNull();
+    // Inline color attribute on the span carries the statusColor — without
+    // this, the .status-available CSS rule's var(--green) wins and the
+    // fuzzy time renders forest green for every non-themed member.
+    expect(span.getAttribute('style')).toMatch(/color:\s*#3b82f6/i);
   });
 
   test('member with override.enabled=false ignores override and uses primary', () => {
