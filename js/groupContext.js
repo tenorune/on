@@ -778,6 +778,20 @@ export function enterGroupContext(groupId, userId) {
   _ownOverrideUnsub = watchOwnMemberOverride(groupId, userId, (data) => {
     _ownOverride = data || null;
     syncGroupPaletteStateFromOverride();
+    // Seed override.statusColor the first time we see an enabled override
+    // with no statusColor — "override ON = independent", and applyEffective-
+    // Palette intentionally won't fall back to primary, so without a seed
+    // the dot renders against --my-status (the user's Direct color). Use
+    // whatever swatch the picker is currently showing as selected for the
+    // active set (defaults: forest for Set 1, volt for Set 2).
+    if (PALETTES_ENABLED && _ownOverride && _ownOverride.enabled === true && !_ownOverride.statusColor) {
+      const state = getGroupPaletteState(groupId);
+      const seed = state.sets[String(state.activeSet)]?.selectedColor || null;
+      if (seed) {
+        _ownOverride = { ..._ownOverride, statusColor: seed };
+        setOverrideAppearance(groupId, userId, { statusColor: seed }).catch(() => {});
+      }
+    }
     applyEffectivePalette();
     renderOwnStatusRow();
   });
@@ -797,7 +811,11 @@ export function enterGroupContext(groupId, userId) {
       const currentlyAvailable = _ownOverride.status === 'available'
         && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
       if (currentlyAvailable) {
-        _ownOverride = { enabled: true, status: 'unavailable', availableUntil: null };
+        // Spread instead of replace — otherwise the optimistic update
+        // strips statusColor + paletteKey until the watch echo restores
+        // them, and the dot briefly falls back to --my-status (i.e. the
+        // user's Direct color).
+        _ownOverride = { ..._ownOverride, status: 'unavailable', availableUntil: null };
         renderOwnStatusRow();
         setOverrideStatusUnavailable(groupId, userId).catch(() => {});
       } else {
@@ -807,7 +825,9 @@ export function enterGroupContext(groupId, userId) {
         // default of "2" as 2 minutes instead of 2 hours.
         const minutes = CHIP_VALUES[chipIndexForMinutes(getLastTimeout())].minutes;
         const availableUntil = Date.now() + minutes * 60000;
-        _ownOverride = { enabled: true, status: 'available', availableUntil };
+        // Spread preserves statusColor/paletteKey across the optimistic
+        // update — see the unavailable branch above for why.
+        _ownOverride = { ..._ownOverride, status: 'available', availableUntil };
         renderOwnStatusRow();
         setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
       }
@@ -837,7 +857,9 @@ export function enterGroupContext(groupId, userId) {
         && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
       if (currentlyAvailable) {
         const availableUntil = Date.now() + minutes * 60000;
-        _ownOverride = { enabled: true, status: 'available', availableUntil };
+        // Spread preserves statusColor/paletteKey across the optimistic
+        // update.
+        _ownOverride = { ..._ownOverride, status: 'available', availableUntil };
         renderOwnStatusRow();
         setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
       }

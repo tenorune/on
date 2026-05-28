@@ -4,6 +4,7 @@ import { getPaletteState, setPaletteState, getFavorites, setFavorites } from './
 import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowForColor } from './palettes.js';
 import { setStatusColor, setUserFavorites } from './db.js';
 import { safeCssColor } from './utils.js';
+import { getCurrentContext, onContextChange } from './groupNav.js';
 
 const MAX_HISTORY = 6;
 const DEFAULT_STATUS_COLOR = '#22c55e';  // default green (forest primary)
@@ -185,6 +186,19 @@ export function initFavoritesStrip(myUserId) {
   _myUserId = myUserId;
   _lastCommittedCombo = buildCombo();
   document.addEventListener('palette-state-changed', onPaletteStateChanged);
+  // Snap any in-flight peek-strip animation closed the moment the user
+  // moves into a group context — doPeek's gate handles subsequent ticks,
+  // but a wrapper already mid-animation would otherwise float over the
+  // group view for up to ~1.3s.
+  onContextChange((ctx) => {
+    if (ctx.context !== 'direct') {
+      document.querySelectorAll('.fav-peek-wrapper').forEach((el) => {
+        el.style.transition = '';
+        el.style.maxHeight = '0';
+        el.style.opacity = '0';
+      });
+    }
+  });
   renderStrip();
 }
 
@@ -367,6 +381,10 @@ function peekStrip(container, history) {
   const lineRect = rainbowLine ? rainbowLine.getBoundingClientRect() : container.getBoundingClientRect();
 
   const wrapper = document.createElement('div');
+  // Class lets a context-change listener find + collapse this wrapper
+  // immediately when the user navigates from Direct into a group, so a
+  // peek mid-animation doesn't bleed into the group view.
+  wrapper.className = 'fav-peek-wrapper';
   wrapper.style.cssText = `position:fixed; left:${lineRect.left}px; width:${lineRect.width}px; top:${lineRect.bottom}px; overflow:hidden; max-height:0; pointer-events:none; z-index:50; -webkit-mask-image:linear-gradient(to bottom, black, transparent); mask-image:linear-gradient(to bottom, black, transparent);`;
   wrapper.appendChild(strip);
   document.body.appendChild(wrapper);
@@ -396,6 +414,18 @@ function peekStrip(container, history) {
       if (collapsedEl) collapsedEl.style.opacity = '';
       const line = collapsedEl?.querySelector('.fav-collapsed-line');
       if (line) line.style.filter = '';
+      return;
+    }
+    // Suppress the hint while the user is in group context — the
+    // favorites strip itself lives inside #main-ui-direct and is hidden,
+    // but the peek wrapper is body-level so it'd otherwise float over
+    // the group view. Force-collapse the wrapper and reschedule; when
+    // the user navigates back to Direct, the next tick fires normally.
+    if (getCurrentContext().context !== 'direct') {
+      wrapper.style.transition = '';
+      wrapper.style.maxHeight = '0';
+      wrapper.style.opacity = '0';
+      setTimeout(doPeek, 6000);
       return;
     }
     // Snap open fast + fade in strip + fade rainbow line
