@@ -1,6 +1,6 @@
 // js/app.js
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
-import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser, setCurrentContext } from './db.js';
+import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser, setCurrentContext, readGroup } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback, updateChipFromServer } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
 import { initKnocks } from './knock.js';
@@ -410,6 +410,41 @@ async function main() {
       if (directEl) directEl.classList.remove('hidden');
       if (navRowEl) navRowEl.classList.remove('hidden');
     }
+  } else if (!isNew) {
+    // Returning user (no pending invite). Pre-resolve the user's last
+    // currentContext from Firebase BEFORE any visible paint. Without
+    // this, initNav defaults _state to 'direct', the end-of-main reveal
+    // shows #main-ui-direct, and the first watchStatus tick then yanks
+    // the user into 'group:X' — producing the documented sequence of
+    // Direct flash → group context with the backend groupId → group
+    // context with the real name once watchGroupMeta lands. Hiding the
+    // direct shell + nav row across the prefetch keeps the screen empty
+    // until we know where we're landing.
+    const directEl = document.getElementById('main-ui-direct');
+    const navRowEl = document.getElementById('nav-row');
+    if (directEl) directEl.classList.add('hidden');
+    if (navRowEl) navRowEl.classList.add('hidden');
+    try {
+      const userData = await getUser(userId);
+      const cc = userData?.currentContext;
+      if (typeof cc === 'string' && cc.startsWith('group:')) {
+        const groupId = cc.slice(6);
+        const groupData = await readGroup(groupId);
+        if (groupData?.name) {
+          // Prime the nav-row name cache so the group nav renders the
+          // real name on its first emit, not the groupId.
+          setLastKnownGroupName(groupId, groupData.name);
+          // navigateToGroup runs emit() synchronously: renderNavRow
+          // unhides #nav-row and renders group mode; the onContextChange
+          // listener registered above reveals #group-context-root.
+          await navigateToGroup(groupId);
+        }
+      }
+    } catch (_) {
+      // Network / read failure — fall through to direct context. The
+      // end-of-main reveal block below unhides #main-ui-direct +
+      // #nav-row.
+    }
   }
 
   touchLastSeen(userId).catch(() => {});
@@ -437,6 +472,12 @@ async function main() {
   if (getCurrentContext().context !== 'group') {
     const directEl = document.getElementById('main-ui-direct');
     if (directEl) directEl.classList.remove('hidden');
+    // Returning-user prefetch block above hides #nav-row when the prior
+    // currentContext was a group but we couldn't navigate (no group, no
+    // name, or read failure); restore it here so direct-context users
+    // still get their nav.
+    const navRowEl = document.getElementById('nav-row');
+    if (navRowEl) navRowEl.classList.remove('hidden');
   }
 
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
