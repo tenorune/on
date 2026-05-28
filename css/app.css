@@ -470,19 +470,17 @@ main {
   top: 0;
   z-index: 101;
   background: var(--surface);
-  padding: 0.5rem 1rem;
+  /* 0.75rem (12px) vertical padding gives a knock-pending chip's outset
+     halo (call-pulse pattern: 1.5px solid ring + up-to-24px blur) room
+     to breathe above/below the chips. The overflow-x: auto clipping
+     still cuts off horizontally past the row edge, but the inset ring
+     in the knock-pending keyframe carries the visibility there. */
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--surface2);
   display: flex;
   align-items: center;
   gap: 0.5rem;
   overflow-x: auto;
-  /* overflow-x:auto would normally also clip overflow-y (browsers force
-     any non-visible overflow value on one axis to behave as clip/auto on
-     the other), which clips the call-pulse halo above/below the chips.
-     `overflow-clip-margin: 16px` lets the box-shadow extend a bit beyond
-     the row in modern browsers; the existing 0.5rem padding takes care
-     of the rest. */
-  overflow-clip-margin: 16px;
   scrollbar-width: none;
 }
 .nav-row::-webkit-scrollbar { display: none; }
@@ -969,18 +967,34 @@ main {
   min-width: 1.2rem;
   text-align: center;
 }
-/* Deferred-knock indicator on a nav chip — reuses the existing call-pulse
-   keyframe so the visual matches a calling card exactly. The chip itself
-   carries the `--call-color-rgb` (set inline by groupNav.js when the
-   chip's effective status color is known) so the pulse takes that color
-   rather than the global --accent. */
+/* Deferred-knock indicator on a nav chip — same outset call-pulse halo
+   plus a matching inset ring so the glow stays visible even when the
+   nav-row's `overflow-x: auto` clips the outset shadow vertically.
+   Color is the chip's effective in-group status color, set inline as
+   --call-color-rgb by groupNav.js. */
+@keyframes knock-pending-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1.5px rgba(var(--call-color-rgb), 0.3),
+      0 0 14px rgba(var(--call-color-rgb), 0.15),
+      inset 0 0 0 2px rgba(var(--call-color-rgb), 0.3),
+      inset 0 0 10px rgba(var(--call-color-rgb), 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1.5px rgba(var(--call-color-rgb), 1.0),
+      0 0 24px rgba(var(--call-color-rgb), 0.65),
+      inset 0 0 0 2px rgba(var(--call-color-rgb), 1.0),
+      inset 0 0 16px rgba(var(--call-color-rgb), 0.6);
+  }
+}
 .group-card.knock-pending::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  animation: call-pulse 3s ease-in-out infinite;
+  animation: knock-pending-pulse 3s ease-in-out infinite;
 }
 
 /* Group context view */
