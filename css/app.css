@@ -476,6 +476,13 @@ main {
   align-items: center;
   gap: 0.5rem;
   overflow-x: auto;
+  /* overflow-x:auto would normally also clip overflow-y (browsers force
+     any non-visible overflow value on one axis to behave as clip/auto on
+     the other), which clips the call-pulse halo above/below the chips.
+     `overflow-clip-margin: 16px` lets the box-shadow extend a bit beyond
+     the row in modern browsers; the existing 0.5rem padding takes care
+     of the rest. */
+  overflow-clip-margin: 16px;
   scrollbar-width: none;
 }
 .nav-row::-webkit-scrollbar { display: none; }
@@ -962,22 +969,18 @@ main {
   min-width: 1.2rem;
   text-align: center;
 }
-/* Deferred-knock indicator on a nav chip — same call-pulse pattern but
-   on a separate keyframe so it stays in --accent regardless of whether
-   the chip itself carries a call-mode. Renders as a pulsing halo around
-   the chip via the ::after pseudo (the chip already has position:
-   relative). */
-@keyframes knock-pending-pulse {
-  0%, 100% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 14px color-mix(in srgb, var(--accent) 15%, transparent); }
-  50%      { box-shadow: 0 0 0 1.5px var(--accent), 0 0 24px color-mix(in srgb, var(--accent) 65%, transparent); }
-}
+/* Deferred-knock indicator on a nav chip — reuses the existing call-pulse
+   keyframe so the visual matches a calling card exactly. The chip itself
+   carries the `--call-color-rgb` (set inline by groupNav.js when the
+   chip's effective status color is known) so the pulse takes that color
+   rather than the global --accent. */
 .group-card.knock-pending::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  animation: knock-pending-pulse 3s ease-in-out infinite;
+  animation: call-pulse 3s ease-in-out infinite;
 }
 
 /* Group context view */

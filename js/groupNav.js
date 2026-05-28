@@ -3,7 +3,7 @@
 // State is in-memory; writes mirror to Firebase via setCurrentContext / setLastVisited.
 
 import { setCurrentContext, setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, watchStatus, removeUserGroupsEntry } from './db.js';
-import { safeCssColor } from './utils.js';
+import { safeCssColor, hexToRgb } from './utils.js';
 import { GROUPS_ENABLED } from './features.js';
 import { createGroup, toggleStatusOverride } from './groups.js';
 import { applyOptimisticOverride } from './groupContext.js';
@@ -232,12 +232,16 @@ function renderNavRowDirectMode(row) {
     const source = overrideOn ? ov : _ownPrimary;
     const isAvailable = source?.status === 'available'
       && (source.availableUntil == null || source.availableUntil > Date.now());
+    // Effective in-group color drives both the border (when available) and
+    // the deferred-knock pulse color (set as --call-color-rgb so the pulse
+    // takes the chip's group identity, not the global accent).
+    const effectiveColor = source?.statusColor || '#22c55e';
     if (isAvailable) {
-      const color = source?.statusColor || '#22c55e';
-      card.style.borderColor = safeCssColor(color);
+      card.style.borderColor = safeCssColor(effectiveColor);
     } else {
       card.classList.add('greyed');
     }
+    card.style.setProperty('--call-color-rgb', hexToRgb(effectiveColor));
 
     card.addEventListener('click', () => navigateToGroup(groupId));
     applyBadgeIfNonZero(card, getGroupBadgeCount(groupId));
@@ -305,11 +309,16 @@ function renderNavRowGroupMode(row) {
   directCard.textContent = 'Direct';
   const primaryAvailable = _ownPrimary?.status === 'available'
     && (_ownPrimary.availableUntil == null || _ownPrimary.availableUntil > Date.now());
+  const directColor = _ownPrimary?.statusColor || '#22c55e';
   if (primaryAvailable) {
-    directCard.style.borderColor = safeCssColor(_ownPrimary.statusColor || '#22c55e');
+    directCard.style.borderColor = safeCssColor(directColor);
   } else {
     directCard.classList.add('greyed');
   }
+  // Drive the deferred-knock pulse color from the primary (Direct =
+  // primary's audience), set even when greyed so a queued knock pulses
+  // even on an unavailable Direct chip.
+  directCard.style.setProperty('--call-color-rgb', hexToRgb(directColor));
   directCard.addEventListener('click', () => navigateToDirect());
   applyBadgeIfNonZero(directCard, getDirectBadgeCount());
   row.appendChild(directCard);
