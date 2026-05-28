@@ -140,14 +140,17 @@ function paintRosterRow(uid) {
   const override = _membersOverrides[uid];
   const primary = _memberPrimaries.get(uid) || null;
   const overrideOn = !!(override && override.enabled === true);
-  // Effective values: when the member has an active override for this group,
-  // its statusColor / paletteKey win — that's the whole point of per-group
-  // overrides. Otherwise we fall back to the member's primary user record.
+  // Effective values: override-on means "independent in this group" — pull
+  // every field (status/availableUntil/color/paletteKey) exclusively from
+  // the override. No per-field fall-through to primary, otherwise a member
+  // who chose to not theme their group card (override.paletteKey null)
+  // would still pick up their Direct theme. Override-off: primary wins
+  // for every field (the group is linked to Direct).
   const status = overrideOn ? (override.status || 'unavailable') : (primary?.status || 'unavailable');
   const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
   const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
-  const color = (overrideOn ? override.statusColor : null) || primary?.statusColor || null;
-  const paletteKey = (overrideOn ? override.paletteKey : null) || primary?.paletteKey || null;
+  const color = overrideOn ? (override.statusColor || null) : (primary?.statusColor || null);
+  const paletteKey = overrideOn ? (override.paletteKey || null) : (primary?.paletteKey || null);
   const palette = PALETTES_ENABLED && paletteKey ? getPaletteByKey(paletteKey) : null;
   li.dataset.available = isAvailable ? 'true' : 'false';
   const dot = li.querySelector('.person-dot');
@@ -515,15 +518,20 @@ function renderGroupSwatchRow() {
 }
 
 // Apply the user's effective palette/theme to the document root vars while
-// in group context. Effective values use override-first then primary-second
-// for each of (statusColor, paletteKey) so a group-only color pick (base
-// mode — no override.paletteKey) inherits the user's Direct theme rather
-// than resetting it.
+// in group context. Override ON means "independent in this group" — values
+// come exclusively from the override (statusColor + paletteKey), with no
+// fall-through to the Direct primary. Otherwise a Direct theme change
+// would leak into a group the user is deliberately presenting differently
+// to. Override OFF: primary wins (the group is linked to Direct).
 function applyEffectivePalette() {
   if (!PALETTES_ENABLED) return;
   const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
-  const effectiveColor = (overrideOn ? _ownOverride.statusColor : null) || _ownPrimary?.statusColor || null;
-  const effectiveKey = (overrideOn ? _ownOverride.paletteKey : null) || _ownPrimary?.paletteKey || null;
+  const effectiveColor = overrideOn
+    ? (_ownOverride.statusColor || null)
+    : (_ownPrimary?.statusColor || null);
+  const effectiveKey = overrideOn
+    ? (_ownOverride.paletteKey || null)
+    : (_ownPrimary?.paletteKey || null);
   if (effectiveKey) {
     const palette = getPaletteByKey(effectiveKey);
     if (palette) {

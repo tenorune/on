@@ -910,5 +910,41 @@ describe('roster context-aware status', () => {
     const li = document.querySelector('#group-roster [data-user-id="uidC"]');
     expect(li.dataset.available).toBe('true');
   });
+
+  test('member with override.enabled=true but no paletteKey does NOT inherit their Direct paletteKey', () => {
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidD: {
+        role: 'member',
+        displayName: 'D',
+        joinedAt: 5,
+        statusOverride: {
+          enabled: true,
+          status: 'available',
+          availableUntil: Date.now() + 60 * 60 * 1000,
+          statusColor: '#3b82f6', // override color only — no paletteKey
+        },
+      },
+    });
+    // D's PRIMARY has ocean paletteKey + statusColor. That's their Direct
+    // theme — but override is ON in this group with no per-group paletteKey,
+    // so the card must NOT take on ocean's theme. "Override ON = independent
+    // in this group."
+    statusCbs.uidD?.({
+      status: 'available',
+      availableUntil: Date.now() + 60 * 60 * 1000,
+      statusColor: '#3b82f6',
+      paletteKey: 'ocean',
+    });
+    const li = document.querySelector('#group-roster [data-user-id="uidD"]');
+    // No palette surface bg / no theme-tinted text — the card stays as the
+    // default surface. The border-left still gets the override.statusColor.
+    expect(li.style.background).toBe('');
+    const statusEl = li.querySelector('.person-status');
+    expect(statusEl.style.color).toBe('');
+  });
 });
 
