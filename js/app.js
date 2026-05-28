@@ -1,6 +1,6 @@
 // js/app.js
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
-import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser } from './db.js';
+import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser, setCurrentContext } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback, updateChipFromServer } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
 import { initKnocks } from './knock.js';
@@ -392,6 +392,14 @@ async function main() {
         if (knownName) setLastKnownGroupName(result.groupId, knownName);
         await navigateToGroup(result.groupId);
         landedInGroup = true;
+      } else if (result.ok) {
+        // Personal-invite success: the new contact lives in Direct, so we must
+        // land the user in Direct context. Without this, an existing user who
+        // last had currentContext='group:X' gets yanked into that group by the
+        // watchStatus tick below — and never sees the new follow. initNav set
+        // _state locally to 'direct' already; force-write 'direct' to the
+        // server so applyServerCurrentContext doesn't override us.
+        await setCurrentContext(userId, 'direct');
       }
     }
     // If we didn't end up in a group context (personal invite, failure,
