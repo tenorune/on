@@ -340,24 +340,52 @@ export function openCreateGroupModal() {
     const dn = (dnInput.value || '').trim();
     if (!name || !dn) { showCreateError('Both fields are required.'); return; }
     submit.disabled = true;
+    // Hide #nav-row + #main-ui-direct synchronously so the watchUserGroups
+    // tick triggered by createGroup's writes can't briefly flash the new
+    // group card with its backend code as the name (renderNavRow's Direct
+    // mode pulls from _metaByGroupId which is empty until watchGroupMeta
+    // fires). Also keeps the optimistic-seed window below invisible.
+    const navRowEl = document.getElementById('nav-row');
+    const directEl = document.getElementById('main-ui-direct');
+    if (navRowEl) navRowEl.classList.add('hidden');
+    if (directEl) directEl.classList.add('hidden');
+    let result;
     try {
-      const result = await createGroup(_myUserId, name, dn);
-      closeCreateModal();
-      await navigateToGroup(result.groupId);
-      // Inviting people is almost always the next thing a creator wants
-      // to do — surface the invite modal in "create" state so they can
-      // generate a link without hunting through the Settings menu.
-      openInviteModal({
-        scope: 'group',
-        userId: _myUserId,
-        groupId: result.groupId,
-        groupName: name,
-      });
+      result = await createGroup(_myUserId, name, dn);
     } catch (err) {
       showCreateError(err.message || 'Could not create group.');
-    } finally {
+      if (navRowEl) navRowEl.classList.remove('hidden');
+      if (directEl) directEl.classList.remove('hidden');
       submit.disabled = false;
+      return;
     }
+    closeCreateModal();
+    // Seed local caches with the values createGroup just wrote so the
+    // first emit's renderNavRow paints the correct group name + override-
+    // ON toggle without waiting for watchGroupMeta + watchOwnMemberOverride
+    // ticks to round-trip. Same idea as the invite-redemption flow's
+    // setLastKnownGroupName prime.
+    _lastKnownNames[result.groupId] = name;
+    _overrideByGroupId[result.groupId] = {
+      enabled: true,
+      status: 'unavailable',
+      availableUntil: null,
+    };
+    // navigateToGroup runs emit() synchronously (renderNavRow +
+    // enterGroupContext); apply the optimistic override to repaint the
+    // own-status row that enterGroupContext just reset, and open the invite
+    // modal — all before the await yields, so the first paint shows the
+    // group context + invite modal together with no intermediate states.
+    const navPromise = navigateToGroup(result.groupId);
+    applyOptimisticOverride({ enabled: true, status: 'unavailable', availableUntil: null });
+    openInviteModal({
+      scope: 'group',
+      userId: _myUserId,
+      groupId: result.groupId,
+      groupName: name,
+    });
+    await navPromise;
+    submit.disabled = false;
   };
   const onCancel = () => closeCreateModal();
 
