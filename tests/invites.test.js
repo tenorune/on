@@ -611,7 +611,10 @@ describe('redeemGroupInvite', () => {
 
     const result = await redeemGroupInvite('TOKEN', 'redeemer-uid', 'Mike');
     expect(result).toEqual({ ok: true, groupId: 'G1', groupName: 'Family' });
-    expect(groups.joinGroup).toHaveBeenCalledWith('G1', 'redeemer-uid', 'Mike');
+    expect(groups.joinGroup).toHaveBeenCalledWith('G1', 'redeemer-uid', 'Mike', expect.objectContaining({
+      group: expect.objectContaining({ name: 'Family' }),
+      existing: null,
+    }));
     expect(db.incrementGroupInviteRedemptions).toHaveBeenCalledWith('G1', 'TOKEN');
   });
 
@@ -698,8 +701,18 @@ describe('attemptRedeemFromUrl scope dispatch', () => {
 
   test('returns needs-display-name for group scope when displayName is missing', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'u', createdAt: 1 });
     const result = await attemptRedeemFromUrl('T', 'me', 'mycode');
-    expect(result).toEqual({ ok: false, reason: 'needs-display-name', groupId: 'G1' });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'needs-display-name',
+      groupId: 'G1',
+      groupName: 'Family',
+      cache: {
+        indexEntry: { scope: 'group', ownerPath: 'groups/G1/invites/T' },
+        group: { name: 'Family', ownerId: 'u', createdAt: 1 },
+      },
+    });
   });
 
   test('dispatches to group redemption when displayName is provided', async () => {
@@ -711,6 +724,29 @@ describe('attemptRedeemFromUrl scope dispatch', () => {
     db.readMember.mockResolvedValue(null);
     const result = await attemptRedeemFromUrl('T', 'me', 'mycode', { displayName: 'Mike' });
     expect(result).toEqual({ ok: true, groupId: 'G1', groupName: 'Family' });
+  });
+
+  test('forwarding cache from needs-display-name response skips duplicate index + group reads', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.readGroupInvites.mockResolvedValue({
+      T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    });
+    db.readMember.mockResolvedValue(null);
+
+    const first = await attemptRedeemFromUrl('T', 'me', 'mycode');
+    expect(first.reason).toBe('needs-display-name');
+    expect(db.readInviteIndex).toHaveBeenCalledTimes(1);
+    expect(db.readGroup).toHaveBeenCalledTimes(1);
+
+    const second = await attemptRedeemFromUrl('T', 'me', 'mycode', { displayName: 'Mike', cache: first.cache });
+    expect(second.ok).toBe(true);
+    // Index + group records came from the cache; no additional reads.
+    expect(db.readInviteIndex).toHaveBeenCalledTimes(1);
+    expect(db.readGroup).toHaveBeenCalledTimes(1);
+    // The second call still has to read invites + membership, but only once.
+    expect(db.readGroupInvites).toHaveBeenCalledTimes(1);
+    expect(db.readMember).toHaveBeenCalledTimes(1);
   });
 });
 

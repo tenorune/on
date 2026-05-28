@@ -164,9 +164,15 @@ export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alr
 // same value), so the only observable effect is incrementInviteRedemptions firing
 // twice — the creator's redemption counter over-counts by 1. Acceptable for Phase 0;
 // a Firebase-authoritative guard inside redeemPersonalInvite would close the gap.
+// `opts.cache` is an opaque hint object returned from a prior `attemptRedeemFromUrl`
+// (or a prior `resolveInvitePreview`-like fetcher) that holds already-fetched
+// indexEntry/group records. When the new-user group-redemption flow calls this
+// twice — once to discover that displayName is needed, once after the prompt —
+// passing `cache` back on the second call skips duplicate index/group reads.
 export async function attemptRedeemFromUrl(token, redeemerUid, redeemerCode, opts = {}) {
   if (!token) return null;
-  const indexEntry = await readInviteIndex(token);
+  const cache = opts.cache || {};
+  const indexEntry = cache.indexEntry !== undefined ? cache.indexEntry : await readInviteIndex(token);
   if (!indexEntry) return { ok: false, reason: 'not-found' };
 
   if (indexEntry.scope === 'personal') {
@@ -174,10 +180,24 @@ export async function attemptRedeemFromUrl(token, redeemerUid, redeemerCode, opt
     return redeemPersonalInvite(token, redeemerUid, redeemerCode, followingSet);
   }
   if (indexEntry.scope === 'group') {
+    const groupId = parseGroupIdFromOwnerPath(indexEntry.ownerPath);
     if (!opts.displayName) {
-      return { ok: false, reason: 'needs-display-name', groupId: parseGroupIdFromOwnerPath(indexEntry.ownerPath) };
+      // Preview the group name now so the caller can populate the displayname
+      // prompt without a separate resolveInvitePreview round trip. Bundle the
+      // already-fetched records into `cache` so the post-prompt call can
+      // reuse them.
+      const group = cache.group !== undefined
+        ? cache.group
+        : (groupId ? await readGroup(groupId) : null);
+      return {
+        ok: false,
+        reason: 'needs-display-name',
+        groupId,
+        groupName: group?.name || null,
+        cache: { indexEntry, group },
+      };
     }
-    return redeemGroupInvite(token, redeemerUid, opts.displayName);
+    return redeemGroupInvite(token, redeemerUid, opts.displayName, { cache: { indexEntry, group: cache.group } });
   }
   return { ok: false, reason: 'not-found' };
 }
@@ -207,9 +227,12 @@ export async function resolveInvitePreview(token) {
     if (indexEntry.scope === 'group') {
       const m = indexEntry.ownerPath.match(/^groups\/([^/]+)\/invites\/([^/]+)$/);
       if (!m) return null;
-      const group = await readGroup(m[1]);
+      // Independent reads — fire in parallel.
+      const [group, invitesByToken] = await Promise.all([
+        readGroup(m[1]),
+        readGroupInvites(m[1]),
+      ]);
       if (!group) return null;
-      const invitesByToken = await readGroupInvites(m[1]);
       const invite = invitesByToken[m[2]];
       if (!invite || invite.revoked) return null;
       return { scope: 'group', groupName: group.name || null, groupId: m[1] };
@@ -303,10 +326,14 @@ export async function regenerateGroupInvite(creatorUid, groupId) {
   return createGroupInvite(creatorUid, groupId);
 }
 
-export async function redeemGroupInvite(token, redeemerUid, displayName) {
+// `opts.cache` mirrors `attemptRedeemFromUrl`'s cache: pre-fetched indexEntry
+// and group records, plumbed forward so the post-prompt redemption skips the
+// reads the pre-prompt preview already paid for.
+export async function redeemGroupInvite(token, redeemerUid, displayName, opts = {}) {
   if (!token || typeof token !== 'string') return { ok: false, reason: 'not-found' };
+  const cache = opts.cache || {};
 
-  const indexEntry = await readInviteIndex(token);
+  const indexEntry = cache.indexEntry !== undefined ? cache.indexEntry : await readInviteIndex(token);
   if (!indexEntry) return { ok: false, reason: 'not-found' };
   if (indexEntry.scope !== 'group') return { ok: false, reason: 'not-found' };
 
@@ -314,10 +341,16 @@ export async function redeemGroupInvite(token, redeemerUid, displayName) {
   if (!match) return { ok: false, reason: 'not-found' };
   const [, groupId] = match;
 
-  const group = await readGroup(groupId);
+  // Parallelize the remaining independent reads: group record (if not cached),
+  // group invites, and the redeemer's current membership row. All three are
+  // independent — sequencing them costs round trips for no reason.
+  const [group, invitesByToken, existingMember] = await Promise.all([
+    cache.group !== undefined ? Promise.resolve(cache.group) : readGroup(groupId),
+    readGroupInvites(groupId),
+    readMember(groupId, redeemerUid),
+  ]);
   if (!group) return { ok: false, reason: 'group-missing' };
 
-  const invitesByToken = await readGroupInvites(groupId);
   const invite = invitesByToken[token];
   if (!invite) return { ok: false, reason: 'not-found' };
   if (invite.revoked) return { ok: false, reason: 'revoked' };
@@ -325,8 +358,6 @@ export async function redeemGroupInvite(token, redeemerUid, displayName) {
   if (invite.redemptionCap != null && (invite.redemptionsUsed || 0) >= invite.redemptionCap) {
     return { ok: false, reason: 'cap' };
   }
-
-  const existingMember = await readMember(groupId, redeemerUid);
   if (existingMember) {
     return { ok: false, reason: 'already-member', groupId, groupName: group.name };
   }
@@ -334,8 +365,9 @@ export async function redeemGroupInvite(token, redeemerUid, displayName) {
   // joinGroup validates displayName (throws on empty / too-long) and throws
   // 'Group not found.' if the group is deleted in the window since our guard.
   // Surface either as a structured result so callers always get { ok, reason }.
+  // Pass `group` + `existing` so joinGroup doesn't re-read what we just fetched.
   try {
-    await joinGroup(groupId, redeemerUid, displayName);
+    await joinGroup(groupId, redeemerUid, displayName, { group, existing: existingMember });
   } catch (err) {
     if (/not found/i.test(err.message || '')) return { ok: false, reason: 'group-missing' };
     return { ok: false, reason: 'invalid-display-name', message: err.message || 'Invalid display name.' };
