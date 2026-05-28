@@ -962,6 +962,23 @@ main {
   min-width: 1.2rem;
   text-align: center;
 }
+/* Deferred-knock indicator on a nav chip — same call-pulse pattern but
+   on a separate keyframe so it stays in --accent regardless of whether
+   the chip itself carries a call-mode. Renders as a pulsing halo around
+   the chip via the ::after pseudo (the chip already has position:
+   relative). */
+@keyframes knock-pending-pulse {
+  0%, 100% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 14px color-mix(in srgb, var(--accent) 15%, transparent); }
+  50%      { box-shadow: 0 0 0 1.5px var(--accent), 0 0 24px color-mix(in srgb, var(--accent) 65%, transparent); }
+}
+.group-card.knock-pending::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: knock-pending-pulse 3s ease-in-out infinite;
+}
 
 /* Group context view */
 .group-context-actions { position: relative; }

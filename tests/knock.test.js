@@ -829,17 +829,18 @@ describe('group-card badge', () => {
     document.body.innerHTML = '';
   });
 
-  test('bumpGroupCardBadge adds a badge with the count', () => {
+  test('bumpGroupCardBadge adds the knock-pending pulse class', () => {
     bumpGroupCardBadge('G1');
-    expect(document.querySelector('.group-card[data-group-id="G1"] .group-card-badge').textContent).toBe('1');
+    expect(document.querySelector('.group-card[data-group-id="G1"]').classList.contains('knock-pending')).toBe(true);
+    // Subsequent bumps stay pending (count still > 0).
     bumpGroupCardBadge('G1');
-    expect(document.querySelector('.group-card[data-group-id="G1"] .group-card-badge').textContent).toBe('2');
+    expect(document.querySelector('.group-card[data-group-id="G1"]').classList.contains('knock-pending')).toBe(true);
   });
 
-  test('clearGroupCardBadge removes the badge', () => {
+  test('clearGroupCardBadge removes the knock-pending pulse class', () => {
     bumpGroupCardBadge('G1');
     clearGroupCardBadge('G1');
-    expect(document.querySelector('.group-card[data-group-id="G1"] .group-card-badge')).toBeNull();
+    expect(document.querySelector('.group-card[data-group-id="G1"]').classList.contains('knock-pending')).toBe(false);
   });
 });
 
@@ -867,19 +868,19 @@ describe('direct-card badge', () => {
 
   afterEach(() => { document.body.innerHTML = ''; });
 
-  test('bumpDirectBadge appends a badge to the Direct chip and increments the count', () => {
+  test('bumpDirectBadge adds the knock-pending pulse to the Direct chip and tracks the count', () => {
     bumpDirectBadge();
-    expect(document.querySelector('.group-card[data-nav="direct"] .group-card-badge').textContent).toBe('1');
+    expect(document.querySelector('.group-card[data-nav="direct"]').classList.contains('knock-pending')).toBe(true);
     expect(getDirectBadgeCount()).toBe(1);
     bumpDirectBadge();
-    expect(document.querySelector('.group-card[data-nav="direct"] .group-card-badge').textContent).toBe('2');
+    expect(document.querySelector('.group-card[data-nav="direct"]').classList.contains('knock-pending')).toBe(true);
     expect(getDirectBadgeCount()).toBe(2);
   });
 
-  test('clearDirectBadge removes the badge + resets the count', () => {
+  test('clearDirectBadge removes the pulse + resets the count', () => {
     bumpDirectBadge();
     clearDirectBadge();
-    expect(document.querySelector('.group-card[data-nav="direct"] .group-card-badge')).toBeNull();
+    expect(document.querySelector('.group-card[data-nav="direct"]').classList.contains('knock-pending')).toBe(false);
     expect(getDirectBadgeCount()).toBe(0);
   });
 });
@@ -972,7 +973,7 @@ describe('Direct-knock pending stash (live listener)', () => {
     // ts inside the 60s clock-skew window so the listener treats it as live.
     liveCb('alice', { count: 1, ts: Date.now() });
     expect(getDirectBadgeCount()).toBe(1);
-    expect(document.querySelector('.group-card[data-nav="direct"] .group-card-badge').textContent).toBe('1');
+    expect(document.querySelector('.group-card[data-nav="direct"]').classList.contains('knock-pending')).toBe(true);
     // alice's li is not animated (knock is deferred for Direct context).
     expect(document.querySelector('[data-user-id="alice"]').classList.contains('knock-live')).toBe(false);
     // Knock stays in DB so drainPendingDirectKnocks can replay + clear it on entry.
