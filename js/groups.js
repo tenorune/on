@@ -248,13 +248,14 @@ export async function setOverrideStatusUnavailable(groupId, userId) {
   });
 }
 
-// Used by the group-context palette picker. Writes just the appearance
-// fields without touching enabled/status/availableUntil; supports user
-// picking a different color/palette without disturbing the override's
-// current presence state.
-export async function setOverrideAppearance(groupId, userId, { statusColor, paletteKey }) {
-  await mergeStatusOverride(groupId, userId, {
-    statusColor: statusColor ?? null,
-    paletteKey: paletteKey ?? null,
-  });
+// Used by the group-context palette picker. Writes only the keys the caller
+// passes (using `in` rather than value-presence) so a single-field write —
+// e.g. `{ statusColor: '#abc' }` for a complement-color tap — doesn't
+// accidentally null out paletteKey. Pass null explicitly to remove a field.
+export async function setOverrideAppearance(groupId, userId, fields) {
+  const update = {};
+  if ('statusColor' in fields) update.statusColor = fields.statusColor;
+  if ('paletteKey' in fields) update.paletteKey = fields.paletteKey;
+  if (Object.keys(update).length === 0) return;
+  await mergeStatusOverride(groupId, userId, update);
 }
