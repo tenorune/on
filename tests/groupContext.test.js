@@ -473,6 +473,12 @@ describe('member actions', () => {
   });
 });
 
+// localStorage isolation: the group-context palette picker stores activeSet +
+// isPaletteMode per group in localStorage. Without resetting, the set-toggle
+// test leaves activeSet=2 in storage and the next test starts looking at the
+// wrong set.
+beforeEach(() => { try { localStorage.clear(); } catch {} });
+
 describe('own status row', () => {
   function captureCallbacks() {
     let metaCb, primaryCb, overrideCb;
@@ -651,8 +657,62 @@ describe('own status row', () => {
     cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
     expect(document.getElementById('group-swatch-row').style.display).toBe('');
     expect(document.querySelector('#group-context-root .group-header-chips').style.display).toBe('none');
-    // 16 swatches (2 sets × 8 palettes).
-    expect(document.querySelectorAll('#group-swatch-row .swatch').length).toBe(16);
+    // 8 swatches (active set only) + 1 set-toggle button.
+    expect(document.querySelectorAll('#group-swatch-row .swatch').length).toBe(8);
+    expect(document.querySelectorAll('#group-swatch-row .set-toggle-btn').length).toBe(1);
+  });
+
+  test('set-toggle swaps the visible set; both default to base mode', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    // First swatch is the Set 1 default (forest).
+    expect(document.querySelectorAll('#group-swatch-row .swatch')[0].dataset.paletteKey).toBe('forest');
+    document.querySelector('#group-swatch-row .set-toggle-btn').click();
+    // After toggle, first swatch is the Set 2 default (volt).
+    expect(document.querySelectorAll('#group-swatch-row .swatch')[0].dataset.paletteKey).toBe('volt');
+  });
+
+  test('second tap on a selected swatch enters palette mode (key + 7 complements)', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    // Set ocean as the current pick so it shows as selected; second tap should switch to palette mode.
+    cbs.getOverrideCb()({
+      enabled: true,
+      status: 'unavailable',
+      availableUntil: null,
+      statusColor: '#3b82f6',
+      paletteKey: 'ocean',
+    });
+    const oceanSwatch = document.querySelector('#group-swatch-row .swatch[data-palette-key="ocean"]');
+    oceanSwatch.click();
+    // After entering palette mode: 1 key swatch (ocean) + 7 complement swatches.
+    expect(document.querySelectorAll('#group-swatch-row .swatch').length).toBe(8);
+    expect(document.querySelectorAll('#group-swatch-row .key-swatch').length).toBe(1);
+  });
+
+  test('palette-mode complement click writes the complement color but keeps paletteKey', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({
+      enabled: true,
+      status: 'unavailable',
+      availableUntil: null,
+      statusColor: '#3b82f6',
+      paletteKey: 'ocean',
+    });
+    // Enter palette mode via second tap.
+    document.querySelector('#group-swatch-row .swatch[data-palette-key="ocean"]').click();
+    // Click the first complement (after the key swatch).
+    const swatches = document.querySelectorAll('#group-swatch-row .swatch');
+    swatches[1].click();
+    expect(groupsModule.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me', {
+      statusColor: '#06b6d4', // ocean's first complement
+      paletteKey: 'ocean',
+    });
   });
 
   test('group swatch row is hidden when override is ON but status is available', () => {
