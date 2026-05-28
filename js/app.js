@@ -10,7 +10,7 @@ import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, apply
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
-import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, setLastKnownGroupName } from './groupNav.js';
+import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector } from './groups.js';
 
@@ -403,6 +403,17 @@ async function main() {
 
   startCardsRowSubscriptions();
   initGroupRemovalDetector(userId);
+
+  // #main-ui-direct starts hidden (markup default) so the welcome / restore /
+  // recovery-code / displayname overlays render against a clean dark body
+  // bg instead of having the empty Direct shell bleed through their
+  // semi-transparent backdrops. Reveal it now — unless we navigated into a
+  // group during the invite-redemption block above, in which case
+  // enterGroupContext already toggled the visibility correctly.
+  if (getCurrentContext().context !== 'group') {
+    const directEl = document.getElementById('main-ui-direct');
+    if (directEl) directEl.classList.remove('hidden');
+  }
 
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
 
