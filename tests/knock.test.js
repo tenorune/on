@@ -100,21 +100,31 @@ describe('sendKnock: flash', () => {
     expect(li.classList.contains('knock-sender')).toBe(false);
   });
 
-  test('statusColor defaults to #22c55e when available and absent', () => {
+  test('falls back to #22c55e when available recipient has no inline dot bg', () => {
     const li = makeLi('u1');
     sendKnock('u1', 'me');
     expect(li.style.getPropertyValue('--knock-color')).toBe('#22c55e');
   });
 
-  test('statusColor is applied as --knock-color when available and provided', () => {
+  test('uses recipient\'s actual dot color as the flash color when available', () => {
+    // Regression: caller-passed statusColor was the previous source of truth,
+    // but groupContext.js's sendKnock passes undefined — so the group flash
+    // always defaulted to forest green. Source the color from the recipient
+    // dot instead (same source as the receiver-side deferred + live pulses)
+    // so Direct + group end up identical without each caller having to know.
     const li = makeLi('u1');
-    sendKnock('u1', 'me', '#f43f5e');
-    expect(li.style.getPropertyValue('--knock-color')).toBe('#f43f5e');
+    const dot = document.createElement('span');
+    dot.className = 'person-dot';
+    dot.style.background = '#f43f5e';
+    li.appendChild(dot);
+    sendKnock('u1', 'me');
+    // jsdom normalizes the inline background to rgb() — match either form.
+    expect(li.style.getPropertyValue('--knock-color')).toMatch(/#f43f5e|rgb\(244,\s*63,\s*94\)/i);
   });
 
   test('uses grey (#6b7280 fallback) when recipient is unavailable', () => {
     const li = makeLi('u1', { available: false });
-    sendKnock('u1', 'me', '#f43f5e'); // statusColor ignored when unavailable
+    sendKnock('u1', 'me', '#f43f5e'); // statusColor param ignored — color comes from li
     // jsdom has no CSS vars so getKnockColor returns the '#6b7280' fallback
     expect(li.style.getPropertyValue('--knock-color')).toBe('#6b7280');
   });

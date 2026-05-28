@@ -23,11 +23,16 @@ export function sendKnock(recipientId, senderId, statusColor, opts = {}) {
   if (now - (debounceMap.get(recipientId) ?? 0) < 300) return;
   debounceMap.set(recipientId, now);
 
-  const li = document.querySelector(`[data-user-id="${recipientId}"]`);
+  // Resolve the li in the current context — same scoping as the deferred /
+  // live pulse handlers, so a group knock animates the group-roster row and
+  // a Direct knock animates the Direct contact row (not whichever
+  // [data-user-id] match the global selector hits first). The flash color
+  // is sourced from the recipient's dot via getKnockColor, mirroring how
+  // the receiver-side pulses pick their color — Direct + group then look
+  // identical without depending on each caller to forward statusColor.
+  const li = findKnockTargetCard(recipientId, opts.contextGroupId || null);
   if (li) {
-    // Use the recipient's current status color; fall back to grey when Unavailable
-    const color = li.dataset.available === 'true' ? (statusColor || '#22c55e') : getKnockColor(li);
-    li.style.setProperty('--knock-color', color);
+    li.style.setProperty('--knock-color', getKnockColor(li));
     li.classList.add('knock-sender');
     li.addEventListener('animationend', () => li.classList.remove('knock-sender'), { once: true });
   }
@@ -162,8 +167,9 @@ export async function initKnocks(myUserId) {
   toAnimate.forEach(({ senderId, contextGroupId }) => {
     const li = findKnockTargetCard(senderId, contextGroupId);
     if (li) {
-      applyDeferredKnock(senderId, contextGroupId);
+      // Move first, animate second — see drainPendingKnocks for the rationale.
       applyFloatToTop(li);
+      applyDeferredKnock(senderId, contextGroupId);
     } else if (contextGroupId) {
       if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
       pendingByGroup.get(contextGroupId).add(senderId);
@@ -189,8 +195,9 @@ export function drainPendingDirectKnocks() {
   senderIds.forEach((senderId) => {
     const li = document.querySelector(`#main-ui-direct [data-user-id="${senderId}"]`);
     if (!li) return;
-    applyDeferredKnock(senderId, null);
+    // Move first, animate second — see drainPendingKnocks for the rationale.
     applyFloatToTop(li);
+    applyDeferredKnock(senderId, null);
     clearKnock(cachedUserId, senderId).catch(() => {});
   });
   if (senderIds.length) {
@@ -216,8 +223,12 @@ export function drainPendingKnocks(groupId) {
   senderIds.forEach((senderId) => {
     const li = findKnockTargetCard(senderId, groupId);
     if (!li) return; // still not in DOM (race) — drop silently
-    applyDeferredKnock(senderId, groupId);
+    // Move first so the animation class lands on the li at its final position
+    // — moving an animating node interrupts the keyframe playback on some
+    // browsers, especially when paired with the same-tick reflow trick
+    // inside applyDeferredKnock.
     applyFloatToTop(li);
+    applyDeferredKnock(senderId, groupId);
     clearKnock(cachedUserId, senderId).catch(() => {});
   });
   // Bring the prepended items into view. Belt + suspenders against scroll
@@ -284,6 +295,13 @@ function applyDeferredKnock(userId, contextGroupId) {
   if (!li) return; // not in DOM — skip silently
 
   li.style.setProperty('--knock-color', getKnockColor(li));
+  // Same reflow trick as applyLiveKnock: without it, drainPendingKnocks
+  // firing in the same sync batch as renderRoster (entering a group with a
+  // queued deferred knock) leaves the browser with no committed "initial
+  // state" before the class is added. The keyframe animation never starts
+  // and the user sees the float-to-top but no pulse.
+  li.classList.remove('knock-deferred');
+  void li.offsetHeight;
   li.classList.add('knock-deferred');
   li.addEventListener('animationend', () => li.classList.remove('knock-deferred'), { once: true });
 }
