@@ -77,6 +77,12 @@ let _ownPrimaryUnsub = null;
 const _overrideByGroupId = {};
 const _overrideSubs = {}; // groupId → unsubscribe
 const _createListeners = new Set();
+// When true, renderNavRow is a no-op and won't touch the row's .hidden class.
+// Used by openCreateGroupModal's onSubmit to keep #nav-row hidden across the
+// createGroup → seed → navigateToGroup transition, so the watchUserGroups tick
+// fired by createGroup's writes can't unhide the row and flash the new card
+// with its backend code as the name.
+let _suspendRenderNavRow = false;
 
 export function initNavRow() {
   const row = document.getElementById('nav-row');
@@ -173,6 +179,7 @@ function syncMetaSubs() {
 function renderNavRow() {
   const row = document.getElementById('nav-row');
   if (!row) return;
+  if (_suspendRenderNavRow) return;
   if (!GROUPS_ENABLED) { row.classList.add('hidden'); return; }
   row.classList.remove('hidden');
   row.innerHTML = '';
@@ -349,11 +356,17 @@ export function openCreateGroupModal() {
     const directEl = document.getElementById('main-ui-direct');
     if (navRowEl) navRowEl.classList.add('hidden');
     if (directEl) directEl.classList.add('hidden');
+    // Suspend renderNavRow so the watchUserGroups callback fired during
+    // createGroup's writes can't un-hide #nav-row mid-flight. We clear the
+    // flag right before navigateToGroup's emit so the group-mode render
+    // goes through.
+    _suspendRenderNavRow = true;
     let result;
     try {
       result = await createGroup(_myUserId, name, dn);
     } catch (err) {
       showCreateError(err.message || 'Could not create group.');
+      _suspendRenderNavRow = false;
       if (navRowEl) navRowEl.classList.remove('hidden');
       if (directEl) directEl.classList.remove('hidden');
       submit.disabled = false;
@@ -371,6 +384,9 @@ export function openCreateGroupModal() {
       status: 'unavailable',
       availableUntil: null,
     };
+    // Re-enable renderNavRow so the next emit (inside navigateToGroup)
+    // paints the group-mode nav with our seeded data.
+    _suspendRenderNavRow = false;
     // navigateToGroup runs emit() synchronously (renderNavRow +
     // enterGroupContext); apply the optimistic override to repaint the
     // own-status row that enterGroupContext just reset, and open the invite
