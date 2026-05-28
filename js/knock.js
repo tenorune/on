@@ -23,11 +23,16 @@ export function sendKnock(recipientId, senderId, statusColor, opts = {}) {
   if (now - (debounceMap.get(recipientId) ?? 0) < 300) return;
   debounceMap.set(recipientId, now);
 
-  const li = document.querySelector(`[data-user-id="${recipientId}"]`);
+  // Resolve the li in the current context — same scoping as the deferred /
+  // live pulse handlers, so a group knock animates the group-roster row and
+  // a Direct knock animates the Direct contact row (not whichever
+  // [data-user-id] match the global selector hits first). The flash color
+  // is sourced from the recipient's dot via getKnockColor, mirroring how
+  // the receiver-side pulses pick their color — Direct + group then look
+  // identical without depending on each caller to forward statusColor.
+  const li = findKnockTargetCard(recipientId, opts.contextGroupId || null);
   if (li) {
-    // Use the recipient's current status color; fall back to grey when Unavailable
-    const color = li.dataset.available === 'true' ? (statusColor || '#22c55e') : getKnockColor(li);
-    li.style.setProperty('--knock-color', color);
+    li.style.setProperty('--knock-color', getKnockColor(li));
     li.classList.add('knock-sender');
     li.addEventListener('animationend', () => li.classList.remove('knock-sender'), { once: true });
   }
