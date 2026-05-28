@@ -8,6 +8,18 @@ import { GROUPS_ENABLED } from './features.js';
 import { createGroup, toggleStatusOverride } from './groups.js';
 import { applyOptimisticOverride } from './groupContext.js';
 import { openInviteModal } from './inviteModal.js';
+import { getGroupBadgeCount, getDirectBadgeCount } from './knock.js';
+
+// Restore a knock-badge on a chip after renderNavRow re-creates it.
+// Without this, navigating between contexts wipes the badge DOM even
+// though the count is still tracked in knock.js.
+function applyBadgeIfNonZero(card, count) {
+  if (count <= 0) return;
+  const badge = document.createElement('span');
+  badge.className = 'group-card-badge';
+  badge.textContent = String(count);
+  card.appendChild(badge);
+}
 
 let _myUserId = null;
 let _state = { context: 'direct', groupId: null };
@@ -230,6 +242,7 @@ function renderNavRowDirectMode(row) {
     }
 
     card.addEventListener('click', () => navigateToGroup(groupId));
+    applyBadgeIfNonZero(card, getGroupBadgeCount(groupId));
     row.appendChild(card);
   }
 
@@ -300,6 +313,7 @@ function renderNavRowGroupMode(row) {
     directCard.classList.add('greyed');
   }
   directCard.addEventListener('click', () => navigateToDirect());
+  applyBadgeIfNonZero(directCard, getDirectBadgeCount());
   row.appendChild(directCard);
 }
 

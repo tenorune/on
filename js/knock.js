@@ -1,6 +1,6 @@
 // js/knock.js
 import { writeKnock, getKnocks, watchKnocksAdded, clearKnock } from './db.js';
-import { getCurrentContext } from './groupNav.js';
+import { getCurrentContext, onContextChange } from './groupNav.js';
 
 // Module-level state — reset by initKnocks on each call
 let debounceMap = new Map();   // recipientId → last knock timestamp
@@ -8,11 +8,14 @@ let deferredKeys = new Set();  // senderIds from snapshot; blocks live listener 
 let snapshotPending = false;   // true while waiting for getKnocks to resolve
 let unsubKnocks = null;
 let cachedUserId = null;       // stored so the visibility handler can re-call initKnocks
+let contextSubInitialized = false;
 
 const INTENSITY_STEP = 0.4;
 let pulseMap = new Map();      // senderId → { intensity: number, timerId: number | null }
 let pendingByGroup = new Map(); // groupId → Set<senderId>: knocks received while user
                                  // wasn't in the right group context; drained on enter.
+let pendingDirect = new Set();  // senderIds for Direct-scope knocks received while
+                                 // user wasn't in Direct context; drained on entry.
 
 // Send a knock to recipientId. Guards: debounce (300ms). Flash fires only after debounce passes.
 export function sendKnock(recipientId, senderId, statusColor, opts = {}) {
@@ -44,9 +47,24 @@ export async function initKnocks(myUserId) {
   pulseMap.forEach(({ timerId }) => { if (timerId) clearTimeout(timerId); });
   pulseMap = new Map();
   pendingByGroup = new Map();
+  pendingDirect = new Set();
   floatTimers.forEach(({ timerId }) => { if (timerId) clearTimeout(timerId); });
   floatTimers.clear();
   groupBadgeCounts.clear();
+  directBadgeCount = 0;
+  // Register the context-change listener once per page lifetime so we can
+  // drain pending Direct knocks + clear the Direct badge the moment the
+  // user enters Direct context. Group-side drain still happens inside
+  // groupContext.enterGroupContext (after the roster is rendered).
+  if (!contextSubInitialized) {
+    contextSubInitialized = true;
+    onContextChange((ctx) => {
+      if (ctx.context === 'direct') {
+        clearDirectBadge();
+        drainPendingDirectKnocks();
+      }
+    });
+  }
 
   const appOpenTime = Date.now();
 
@@ -82,7 +100,14 @@ export async function initKnocks(myUserId) {
         // Stash so the animation replays when the user enters this group.
         if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
         pendingByGroup.get(contextGroupId).add(senderId);
+      } else {
+        // Direct-scope knock arrived while the user is in a group context.
+        // Stash + badge on the Direct chip; drain on context entry.
+        pendingDirect.add(senderId);
+        bumpDirectBadge();
       }
+      // Knock stays in DB on purpose — drainPendingKnocks /
+      // drainPendingDirectKnocks clear it after replaying the animation.
       return;
     }
     applyLiveKnock(senderId, count, li);
@@ -143,8 +168,36 @@ export async function initKnocks(myUserId) {
       if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
       pendingByGroup.get(contextGroupId).add(senderId);
       bumpGroupCardBadge(contextGroupId);
+    } else {
+      // Direct knock + user is currently in a group context. Stash so the
+      // animation replays when they return to Direct; flag the chip too.
+      pendingDirect.add(senderId);
+      bumpDirectBadge();
     }
   });
+}
+
+/**
+ * Replay queued Direct-scope knocks when the user enters Direct context.
+ * Counterpart to drainPendingKnocks(groupId).
+ */
+export function drainPendingDirectKnocks() {
+  if (pendingDirect.size === 0) return;
+  const senderIds = Array.from(pendingDirect);
+  pendingDirect.clear();
+  if (!cachedUserId) return;
+  senderIds.forEach((senderId) => {
+    const li = document.querySelector(`#main-ui-direct [data-user-id="${senderId}"]`);
+    if (!li) return;
+    applyDeferredKnock(senderId, null);
+    applyFloatToTop(li);
+    clearKnock(cachedUserId, senderId).catch(() => {});
+  });
+  if (senderIds.length) {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }
 }
 
 /**
@@ -257,7 +310,15 @@ export function applyFloatToTop(li) {
   }
   // Refresh startedAt on every prepend so a re-knock extends the float.
   floatTimers.get(userId).startedAt = Date.now();
-  list.prepend(li);
+  // Don't let the floated li land above section labels (e.g. "Mutuals" in
+  // Direct's contact list). Insert right after the first section label if
+  // one exists; otherwise prepend (group roster, no labels).
+  const firstLabel = list.querySelector('.list-section-label');
+  if (firstLabel) {
+    list.insertBefore(li, firstLabel.nextSibling);
+  } else {
+    list.prepend(li);
+  }
   const timerId = setTimeout(() => restoreFromFloat(userId), FLOAT_MS);
   floatTimers.get(userId).timerId = timerId;
 }
@@ -276,9 +337,10 @@ export function getFloatedUserIds() {
   return Array.from(floatTimers.keys());
 }
 
-// ── Group card badge ──────────────────────────────────────────────────────────
+// ── Group / Direct card badges ───────────────────────────────────────────────
 
 const groupBadgeCounts = new Map();
+let directBadgeCount = 0;
 
 export function bumpGroupCardBadge(groupId) {
   const current = (groupBadgeCounts.get(groupId) || 0) + 1;
@@ -289,6 +351,13 @@ export function bumpGroupCardBadge(groupId) {
 export function clearGroupCardBadge(groupId) {
   groupBadgeCounts.delete(groupId);
   renderGroupBadge(groupId, 0);
+}
+
+// Exposed for renderNavRow to re-apply the badge on each re-render —
+// without this, navigating between contexts wipes the badge DOM even
+// though the count is still non-zero in memory.
+export function getGroupBadgeCount(groupId) {
+  return groupBadgeCounts.get(groupId) || 0;
 }
 
 function renderGroupBadge(groupId, count) {
@@ -307,17 +376,52 @@ function renderGroupBadge(groupId, count) {
   }
 }
 
+export function bumpDirectBadge() {
+  directBadgeCount += 1;
+  renderDirectBadge(directBadgeCount);
+}
+
+export function clearDirectBadge() {
+  directBadgeCount = 0;
+  renderDirectBadge(0);
+}
+
+export function getDirectBadgeCount() {
+  return directBadgeCount;
+}
+
+function renderDirectBadge(count) {
+  const card = document.querySelector('.group-card[data-nav="direct"]');
+  if (!card) return;
+  let badge = card.querySelector('.group-card-badge');
+  if (count > 0) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'group-card-badge';
+      card.appendChild(badge);
+    }
+    badge.textContent = String(count);
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
 // ── Context-aware knock target lookup ────────────────────────────────────────
 
 function findKnockTargetCard(senderId, contextGroupId) {
+  const cur = getCurrentContext();
   if (contextGroupId) {
-    const cur = getCurrentContext();
     if (cur.context === 'group' && cur.groupId === contextGroupId) {
       return document.querySelector(`#group-roster [data-user-id="${senderId}"]`);
     }
     return null; // recipient is in a different context; caller bumps the badge
   }
-  return document.querySelector(`[data-user-id="${senderId}"]`);
+  // Direct-scope knock — only animate when the user is actually viewing
+  // Direct. Otherwise the live/deferred handler routes through the Direct-
+  // badge + pendingDirect path instead. Scope the lookup to #main-ui-direct
+  // so a group-roster row with the same userId doesn't accidentally match.
+  if (cur.context !== 'direct') return null;
+  return document.querySelector(`#main-ui-direct [data-user-id="${senderId}"]`);
 }
 
 // Re-run initKnocks when the app returns to the foreground or exits canvas,

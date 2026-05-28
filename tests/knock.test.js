@@ -18,6 +18,7 @@ beforeEach(() => {
   jest.mock('../js/firebase-config.js', () => ({ db: {} }));
   jest.mock('../js/groupNav.js', () => ({
     getCurrentContext: jest.fn(() => ({ context: 'direct', groupId: null })),
+    onContextChange: jest.fn(() => () => {}),
   }));
   ({ sendKnock, initKnocks, colorToRgba } = require('../js/knock.js'));
   // Re-bind db mocks to fresh instances created after resetModules
@@ -36,7 +37,15 @@ function makeLi(userId, { available = true } = {}) {
   const li = document.createElement('li');
   li.dataset.userId = userId;
   li.dataset.available = String(available);
-  document.body.appendChild(li);
+  // Wrap in #main-ui-direct so findKnockTargetCard's Direct-scoped query
+  // resolves the li in the default direct-context test setup.
+  let host = document.getElementById('main-ui-direct');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'main-ui-direct';
+    document.body.appendChild(host);
+  }
+  host.appendChild(li);
   return li;
 }
 
@@ -601,6 +610,7 @@ describe('float-to-top', () => {
     jest.mock('../js/firebase-config.js', () => ({ db: {} }));
     jest.mock('../js/groupNav.js', () => ({
       getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
+      onContextChange: jest.fn(() => () => {}),
     }));
     ({ applyFloatToTop } = require('../js/knock.js'));
 
@@ -663,7 +673,10 @@ describe('drainPendingKnocks', () => {
     jest.mock('../js/store.js', () => ({}));
     jest.mock('../js/firebase-config.js', () => ({ db: {} }));
     mockGetCurrentContext = jest.fn(() => ({ context: 'direct', groupId: null }));
-    jest.mock('../js/groupNav.js', () => ({ getCurrentContext: mockGetCurrentContext }));
+    jest.mock('../js/groupNav.js', () => ({
+      getCurrentContext: mockGetCurrentContext,
+      onContextChange: jest.fn(() => () => {}),
+    }));
     ({ initKnocks, sendKnock, drainPendingKnocks } = require('../js/knock.js'));
     const db = require('../js/db.js');
     watchKnocksAdded = db.watchKnocksAdded;
@@ -785,6 +798,7 @@ describe('group-card badge', () => {
     jest.mock('../js/firebase-config.js', () => ({ db: {} }));
     jest.mock('../js/groupNav.js', () => ({
       getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
+      onContextChange: jest.fn(() => () => {}),
     }));
     ({ bumpGroupCardBadge, clearGroupCardBadge } = require('../js/knock.js'));
 
@@ -806,5 +820,142 @@ describe('group-card badge', () => {
     bumpGroupCardBadge('G1');
     clearGroupCardBadge('G1');
     expect(document.querySelector('.group-card[data-group-id="G1"] .group-card-badge')).toBeNull();
+  });
+});
+
+describe('direct-card badge', () => {
+  let bumpDirectBadge, clearDirectBadge, getDirectBadgeCount;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ KNOCK_ENABLED: true, PALETTES_ENABLED: false }));
+    jest.mock('../js/db.js', () => ({
+      writeKnock: jest.fn(),
+      getKnocks: jest.fn(),
+      watchKnocksAdded: jest.fn(),
+      clearKnock: jest.fn(),
+    }));
+    jest.mock('../js/store.js', () => ({}));
+    jest.mock('../js/firebase-config.js', () => ({ db: {} }));
+    jest.mock('../js/groupNav.js', () => ({
+      getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
+      onContextChange: jest.fn(() => () => {}),
+    }));
+    ({ bumpDirectBadge, clearDirectBadge, getDirectBadgeCount } = require('../js/knock.js'));
+    document.body.innerHTML = `<button class="group-card" data-nav="direct"></button>`;
+  });
+
+  afterEach(() => { document.body.innerHTML = ''; });
+
+  test('bumpDirectBadge appends a badge to the Direct chip and increments the count', () => {
+    bumpDirectBadge();
+    expect(document.querySelector('.group-card[data-nav="direct"] .group-card-badge').textContent).toBe('1');
+    expect(getDirectBadgeCount()).toBe(1);
+    bumpDirectBadge();
+    expect(document.querySelector('.group-card[data-nav="direct"] .group-card-badge').textContent).toBe('2');
+    expect(getDirectBadgeCount()).toBe(2);
+  });
+
+  test('clearDirectBadge removes the badge + resets the count', () => {
+    bumpDirectBadge();
+    clearDirectBadge();
+    expect(document.querySelector('.group-card[data-nav="direct"] .group-card-badge')).toBeNull();
+    expect(getDirectBadgeCount()).toBe(0);
+  });
+});
+
+describe('applyFloatToTop section-label handling', () => {
+  let applyFloatToTop;
+  beforeEach(() => {
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ KNOCK_ENABLED: true, PALETTES_ENABLED: false }));
+    jest.mock('../js/db.js', () => ({
+      writeKnock: jest.fn(),
+      getKnocks: jest.fn(),
+      watchKnocksAdded: jest.fn(),
+      clearKnock: jest.fn(),
+    }));
+    jest.mock('../js/store.js', () => ({}));
+    jest.mock('../js/firebase-config.js', () => ({ db: {} }));
+    jest.mock('../js/groupNav.js', () => ({
+      getCurrentContext: jest.fn(() => ({ context: 'direct', groupId: null })),
+      onContextChange: jest.fn(() => () => {}),
+    }));
+    ({ applyFloatToTop } = require('../js/knock.js'));
+  });
+  afterEach(() => { document.body.innerHTML = ''; });
+
+  test('inserts AFTER the first .list-section-label, not at position 0', () => {
+    // Direct context contact-list shape: section labels + member rows.
+    document.body.innerHTML = `
+      <ul id="people-list">
+        <li class="list-section-label">Mutuals</li>
+        <li data-user-id="alice"></li>
+        <li data-user-id="bob"></li>
+        <li class="list-section-label">Following</li>
+        <li data-user-id="carol"></li>
+      </ul>`;
+    const carolLi = document.querySelector('[data-user-id="carol"]');
+    applyFloatToTop(carolLi);
+    const list = document.getElementById('people-list');
+    // After float: Mutuals label, carol (floated), alice, bob, Following, ...
+    expect(list.children[0].textContent).toBe('Mutuals');
+    expect(list.children[1].dataset.userId).toBe('carol');
+    expect(list.children[2].dataset.userId).toBe('alice');
+  });
+
+  test('prepends when there is no section label (group roster shape)', () => {
+    document.body.innerHTML = `
+      <ul id="group-roster">
+        <li data-user-id="alice"></li>
+        <li data-user-id="bob"></li>
+      </ul>`;
+    const bobLi = document.querySelector('[data-user-id="bob"]');
+    applyFloatToTop(bobLi);
+    const list = document.getElementById('group-roster');
+    expect(list.children[0].dataset.userId).toBe('bob');
+    expect(list.children[1].dataset.userId).toBe('alice');
+  });
+});
+
+describe('Direct-knock pending stash (live listener)', () => {
+  let initKnocks, getDirectBadgeCount;
+  let liveCb;
+  let mockGetCurrentContext;
+  let writeKnock, getKnocks, watchKnocksAdded, clearKnock;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ KNOCK_ENABLED: true, PALETTES_ENABLED: false }));
+    jest.mock('../js/db.js', () => ({
+      writeKnock: jest.fn(),
+      getKnocks: jest.fn().mockResolvedValue({ exists: () => false }),
+      watchKnocksAdded: jest.fn((uid, cb) => { liveCb = cb; return () => {}; }),
+      clearKnock: jest.fn().mockResolvedValue(undefined),
+    }));
+    jest.mock('../js/store.js', () => ({}));
+    jest.mock('../js/firebase-config.js', () => ({ db: {} }));
+    mockGetCurrentContext = jest.fn(() => ({ context: 'group', groupId: 'G1' }));
+    jest.mock('../js/groupNav.js', () => ({
+      getCurrentContext: mockGetCurrentContext,
+      onContextChange: jest.fn(() => () => {}),
+    }));
+    ({ initKnocks, getDirectBadgeCount } = require('../js/knock.js'));
+    ({ writeKnock, getKnocks, watchKnocksAdded, clearKnock } = require('../js/db.js'));
+    document.body.innerHTML = `
+      <button class="group-card" data-nav="direct"></button>
+      <div id="main-ui-direct"><ul id="people-list"><li data-user-id="alice"></li></ul></div>`;
+  });
+
+  test('Direct-scope live knock while in group context: bumps Direct badge, stashes, does NOT clearKnock', async () => {
+    await initKnocks('me');
+    // ts inside the 60s clock-skew window so the listener treats it as live.
+    liveCb('alice', { count: 1, ts: Date.now() });
+    expect(getDirectBadgeCount()).toBe(1);
+    expect(document.querySelector('.group-card[data-nav="direct"] .group-card-badge').textContent).toBe('1');
+    // alice's li is not animated (knock is deferred for Direct context).
+    expect(document.querySelector('[data-user-id="alice"]').classList.contains('knock-live')).toBe(false);
+    // Knock stays in DB so drainPendingDirectKnocks can replay + clear it on entry.
+    expect(clearKnock).not.toHaveBeenCalled();
   });
 });
