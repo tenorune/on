@@ -162,8 +162,9 @@ export async function initKnocks(myUserId) {
   toAnimate.forEach(({ senderId, contextGroupId }) => {
     const li = findKnockTargetCard(senderId, contextGroupId);
     if (li) {
-      applyDeferredKnock(senderId, contextGroupId);
+      // Move first, animate second — see drainPendingKnocks for the rationale.
       applyFloatToTop(li);
+      applyDeferredKnock(senderId, contextGroupId);
     } else if (contextGroupId) {
       if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
       pendingByGroup.get(contextGroupId).add(senderId);
@@ -189,8 +190,9 @@ export function drainPendingDirectKnocks() {
   senderIds.forEach((senderId) => {
     const li = document.querySelector(`#main-ui-direct [data-user-id="${senderId}"]`);
     if (!li) return;
-    applyDeferredKnock(senderId, null);
+    // Move first, animate second — see drainPendingKnocks for the rationale.
     applyFloatToTop(li);
+    applyDeferredKnock(senderId, null);
     clearKnock(cachedUserId, senderId).catch(() => {});
   });
   if (senderIds.length) {
@@ -216,8 +218,12 @@ export function drainPendingKnocks(groupId) {
   senderIds.forEach((senderId) => {
     const li = findKnockTargetCard(senderId, groupId);
     if (!li) return; // still not in DOM (race) — drop silently
-    applyDeferredKnock(senderId, groupId);
+    // Move first so the animation class lands on the li at its final position
+    // — moving an animating node interrupts the keyframe playback on some
+    // browsers, especially when paired with the same-tick reflow trick
+    // inside applyDeferredKnock.
     applyFloatToTop(li);
+    applyDeferredKnock(senderId, groupId);
     clearKnock(cachedUserId, senderId).catch(() => {});
   });
   // Bring the prepended items into view. Belt + suspenders against scroll
@@ -284,6 +290,13 @@ function applyDeferredKnock(userId, contextGroupId) {
   if (!li) return; // not in DOM — skip silently
 
   li.style.setProperty('--knock-color', getKnockColor(li));
+  // Same reflow trick as applyLiveKnock: without it, drainPendingKnocks
+  // firing in the same sync batch as renderRoster (entering a group with a
+  // queued deferred knock) leaves the browser with no committed "initial
+  // state" before the class is added. The keyframe animation never starts
+  // and the user sees the float-to-top but no pulse.
+  li.classList.remove('knock-deferred');
+  void li.offsetHeight;
   li.classList.add('knock-deferred');
   li.addEventListener('animationend', () => li.classList.remove('knock-deferred'), { once: true });
 }
