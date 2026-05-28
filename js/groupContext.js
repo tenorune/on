@@ -9,13 +9,14 @@ import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watc
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
-         setOverrideStatusAvailable, setOverrideStatusUnavailable } from './groups.js';
+         setOverrideStatusAvailable, setOverrideStatusUnavailable,
+         setOverrideAppearance } from './groups.js';
 import { getLastTimeout, setLastTimeout } from './store.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
 import { KNOCK_ENABLED, PALETTES_ENABLED } from './features.js';
-import { getPaletteByKey, getGlowForColor } from './palettes.js';
+import { getPaletteByKey, getGlowForColor, PALETTE_SETS } from './palettes.js';
 
 // Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
 
@@ -252,6 +253,58 @@ function renderOwnStatusRow() {
       }
     } else {
       timeRemaining.style.display = 'none';
+    }
+  }
+
+  // Visibility: in Direct, when the user is Unavailable, #header-chips fades
+  // out and #swatch-row fades in. Mirror that here for the group context —
+  // when the user has an active override and is Unavailable, hide the
+  // chip row and reveal the group swatch row. With override OFF, leave the
+  // chip row visible (read-only) so the user can still reach Settings.
+  const swatchRow = document.getElementById('group-swatch-row');
+  const chipsContainer = document.querySelector('#group-context-root .group-header-chips');
+  const showSwatch = PALETTES_ENABLED && overrideOn && !isAvailable;
+  if (chipsContainer) chipsContainer.style.display = showSwatch ? 'none' : '';
+  if (swatchRow) {
+    swatchRow.style.display = showSwatch ? '' : 'none';
+    if (showSwatch) renderGroupSwatchRow();
+  }
+}
+
+// Group-context palette picker. Simpler than Direct's #swatch-row: no
+// set-toggle button, no palette-mode complement view — just the 16 base
+// palette colors as a single row of swatches. Clicking writes
+// statusColor + paletteKey to the user's group override (without touching
+// enabled/status/availableUntil) via setOverrideAppearance, so the picker
+// can be used freely without flipping presence state.
+function renderGroupSwatchRow() {
+  if (!PALETTES_ENABLED) return;
+  const row = document.getElementById('group-swatch-row');
+  if (!row) return;
+  if (!_currentGroupId || !_currentUserId) return;
+  row.innerHTML = '';
+  const currentPaletteKey = _ownOverride?.paletteKey || null;
+  const currentColor = _ownOverride?.statusColor || null;
+  for (const setNum of [1, 2]) {
+    for (const palette of PALETTE_SETS[setNum]) {
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
+      swatch.className = 'swatch group-swatch';
+      swatch.style.background = palette.color;
+      swatch.dataset.paletteKey = palette.key;
+      // Prefer paletteKey match; fall back to color match for legacy data
+      // where only statusColor was written (the appearance writers always
+      // write both now).
+      const selected = currentPaletteKey === palette.key
+        || (!currentPaletteKey && currentColor === palette.color);
+      if (selected) swatch.classList.add('selected');
+      swatch.addEventListener('click', () => {
+        setOverrideAppearance(_currentGroupId, _currentUserId, {
+          statusColor: palette.color,
+          paletteKey: palette.key,
+        }).catch(() => {});
+      });
+      row.appendChild(swatch);
     }
   }
 }

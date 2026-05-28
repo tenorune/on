@@ -84,6 +84,7 @@ jest.mock('../js/db.js', () => ({
   watchGroupInvites: jest.fn(() => () => {}),
   setStatusOverride: jest.fn().mockResolvedValue(undefined),
   clearStatusOverride: jest.fn().mockResolvedValue(undefined),
+  mergeStatusOverride: jest.fn().mockResolvedValue(undefined),
   watchOwnMemberOverride: jest.fn(() => () => {}),
 }));
 

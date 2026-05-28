@@ -278,6 +278,16 @@ export async function clearStatusOverride(groupId, memberUid) {
   await remove(overrideRef);
 }
 
+// Merge-update individual fields of a member's statusOverride sub-object
+// without disturbing the others. Use this anywhere we want to flip just
+// `enabled` or write just `statusColor`/`paletteKey`; the leftovers (e.g.
+// the user's saved palette) persist across the change. Pass `null` to
+// remove a field (RTDB drops null-valued keys from update writes).
+export async function mergeStatusOverride(groupId, memberUid, fields) {
+  const overrideRef = ref(db, `groups/${groupId}/members/${memberUid}/statusOverride`);
+  await update(overrideRef, fields);
+}
+
 export function watchOwnMemberOverride(groupId, memberUid, callback) {
   const overrideRef = ref(db, `groups/${groupId}/members/${memberUid}/statusOverride`);
   return onValue(overrideRef, (snap) => {

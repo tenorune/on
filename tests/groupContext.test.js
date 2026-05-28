@@ -44,6 +44,7 @@ jest.mock('../js/groups.js', () => ({
   toggleStatusOverride: jest.fn().mockResolvedValue(undefined),
   setOverrideStatusAvailable: jest.fn().mockResolvedValue(undefined),
   setOverrideStatusUnavailable: jest.fn().mockResolvedValue(undefined),
+  setOverrideAppearance: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),
@@ -56,6 +57,7 @@ jest.mock('../js/knock.js', () => ({
 }));
 jest.mock('../js/features.js', () => ({
   KNOCK_ENABLED: true,
+  PALETTES_ENABLED: true,
 }));
 
 const db = require('../js/db.js');
@@ -91,6 +93,7 @@ function setupContextDom() {
                 </div>
               </details>
             </div>
+            <div id="group-swatch-row" class="group-swatch-row" style="display:none"></div>
           </div>
         </div>
       </header>
@@ -639,6 +642,66 @@ describe('own status row', () => {
     cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
     document.getElementById('group-time-chip').click();
     expect(groupsModule.setOverrideStatusAvailable).not.toHaveBeenCalled();
+  });
+
+  test('group swatch row is visible when override is ON and status is unavailable', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    expect(document.getElementById('group-swatch-row').style.display).toBe('');
+    expect(document.querySelector('#group-context-root .group-header-chips').style.display).toBe('none');
+    // 16 swatches (2 sets × 8 palettes).
+    expect(document.querySelectorAll('#group-swatch-row .swatch').length).toBe(16);
+  });
+
+  test('group swatch row is hidden when override is ON but status is available', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'available', availableUntil: Date.now() + 60000 });
+    expect(document.getElementById('group-swatch-row').style.display).toBe('none');
+    expect(document.querySelector('#group-context-root .group-header-chips').style.display).toBe('');
+  });
+
+  test('group swatch row is hidden when override is OFF (read-only chips remain)', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+    cbs.getPrimaryCb()({ status: 'unavailable', availableUntil: null });
+    expect(document.getElementById('group-swatch-row').style.display).toBe('none');
+    expect(document.querySelector('#group-context-root .group-header-chips').style.display).toBe('');
+  });
+
+  test('clicking a swatch writes statusColor + paletteKey via setOverrideAppearance', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    const swatches = document.querySelectorAll('#group-swatch-row .swatch');
+    // Pick the second swatch (ocean).
+    swatches[1].click();
+    expect(groupsModule.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me', {
+      statusColor: '#3b82f6',
+      paletteKey: 'ocean',
+    });
+  });
+
+  test('the selected swatch reflects the current override.paletteKey', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({
+      enabled: true,
+      status: 'unavailable',
+      availableUntil: null,
+      statusColor: '#3b82f6',
+      paletteKey: 'ocean',
+    });
+    const selected = document.querySelector('#group-swatch-row .swatch.selected');
+    expect(selected).not.toBeNull();
+    expect(selected.dataset.paletteKey).toBe('ocean');
   });
 });
 
