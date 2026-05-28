@@ -7,6 +7,7 @@ import { safeCssColor } from './utils.js';
 import { GROUPS_ENABLED } from './features.js';
 import { createGroup, toggleStatusOverride } from './groups.js';
 import { applyOptimisticOverride } from './groupContext.js';
+import { openInviteModal } from './inviteModal.js';
 
 let _myUserId = null;
 let _state = { context: 'direct', groupId: null };
@@ -343,6 +344,15 @@ export function openCreateGroupModal() {
       const result = await createGroup(_myUserId, name, dn);
       closeCreateModal();
       await navigateToGroup(result.groupId);
+      // Inviting people is almost always the next thing a creator wants
+      // to do — surface the invite modal in "create" state so they can
+      // generate a link without hunting through the Settings menu.
+      openInviteModal({
+        scope: 'group',
+        userId: _myUserId,
+        groupId: result.groupId,
+        groupName: name,
+      });
     } catch (err) {
       showCreateError(err.message || 'Could not create group.');
     } finally {

@@ -14,9 +14,13 @@ jest.mock('../js/groups.js', () => ({
   createGroup: jest.fn(),
   toggleStatusOverride: jest.fn().mockResolvedValue(undefined),
 }));
+jest.mock('../js/inviteModal.js', () => ({
+  openInviteModal: jest.fn(),
+}));
 
 const db = require('../js/db.js');
 const groups = require('../js/groups.js');
+const inviteModal = require('../js/inviteModal.js');
 const {
   initNav, getCurrentContext, navigateToDirect, navigateToGroup,
   onContextChange, applyServerCurrentContext,
@@ -153,6 +157,21 @@ describe('create-group modal', () => {
     expect(groups.createGroup).toHaveBeenCalledWith('uid1', 'Family', 'Mike');
     expect(document.getElementById('create-group-modal').classList.contains('hidden')).toBe(true);
     expect(db.setCurrentContext).toHaveBeenCalledWith('uid1', 'group:G1ABCDEF');
+  });
+
+  test('Submit happy path also opens the invite modal in create state for the new group', async () => {
+    groups.createGroup.mockResolvedValue({ groupId: 'G1ABCDEF', name: 'Family' });
+    openCreateGroupModal();
+    document.getElementById('create-group-name-input').value = 'Family';
+    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-submit-btn').click();
+    await new Promise(setImmediate);
+    expect(inviteModal.openInviteModal).toHaveBeenCalledWith({
+      scope: 'group',
+      userId: 'uid1',
+      groupId: 'G1ABCDEF',
+      groupName: 'Family',
+    });
   });
 
   test('Submit failure: surfaces error from createGroup, stays open', async () => {
