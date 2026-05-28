@@ -386,17 +386,14 @@ export function getGroupBadgeCount(groupId) {
 function renderGroupBadge(groupId, count) {
   const card = document.querySelector(`.group-card[data-group-id="${groupId}"]`);
   if (!card) return;
-  let badge = card.querySelector('.group-card-badge');
-  if (count > 0) {
-    if (!badge) {
-      badge = document.createElement('span');
-      badge.className = 'group-card-badge';
-      card.appendChild(badge);
-    }
-    badge.textContent = String(count);
-  } else if (badge) {
-    badge.remove();
-  }
+  // Visual indicator is a pulsing halo (CSS .group-card.knock-pending::after)
+  // rather than a numeric badge — count is kept in memory only so renders
+  // after a context change can restore the class.
+  card.classList.toggle('knock-pending', count > 0);
+  // Remove any legacy numeric badge if a previous version of the renderer
+  // left one in the DOM.
+  const oldBadge = card.querySelector('.group-card-badge');
+  if (oldBadge) oldBadge.remove();
 }
 
 export function bumpDirectBadge() {
@@ -416,17 +413,10 @@ export function getDirectBadgeCount() {
 function renderDirectBadge(count) {
   const card = document.querySelector('.group-card[data-nav="direct"]');
   if (!card) return;
-  let badge = card.querySelector('.group-card-badge');
-  if (count > 0) {
-    if (!badge) {
-      badge = document.createElement('span');
-      badge.className = 'group-card-badge';
-      card.appendChild(badge);
-    }
-    badge.textContent = String(count);
-  } else if (badge) {
-    badge.remove();
-  }
+  // Pulsing halo (CSS) rather than numeric badge — see renderGroupBadge.
+  card.classList.toggle('knock-pending', count > 0);
+  const oldBadge = card.querySelector('.group-card-badge');
+  if (oldBadge) oldBadge.remove();
 }
 
 // ── Context-aware knock target lookup ────────────────────────────────────────

@@ -10,15 +10,13 @@ import { applyOptimisticOverride } from './groupContext.js';
 import { openInviteModal } from './inviteModal.js';
 import { getGroupBadgeCount, getDirectBadgeCount } from './knock.js';
 
-// Restore a knock-badge on a chip after renderNavRow re-creates it.
-// Without this, navigating between contexts wipes the badge DOM even
-// though the count is still tracked in knock.js.
+// Restore the deferred-knock indicator on a chip after renderNavRow
+// re-creates it. The indicator is a pulsing halo (CSS class), driven by a
+// non-zero count tracked in knock.js — without this restore, navigating
+// between contexts wipes the class even though the count is still
+// non-zero in memory.
 function applyBadgeIfNonZero(card, count) {
-  if (count <= 0) return;
-  const badge = document.createElement('span');
-  badge.className = 'group-card-badge';
-  badge.textContent = String(count);
-  card.appendChild(badge);
+  card.classList.toggle('knock-pending', count > 0);
 }
 
 let _myUserId = null;
