@@ -353,12 +353,16 @@ async function main() {
     // ensureIdentity dismisses splash only on welcome / stale paths, and
     // signalReady doesn't fire until watchStatus is set up below.
     dismissSplash();
-    // Hide #main-ui-direct for the entirety of the redemption flow so the
-    // empty Direct view doesn't flash between the recovery-code modal
-    // closing and the displayname prompt opening, or between the
-    // displayname submit and navigateToGroup landing.
+    // Hide #main-ui-direct AND #nav-row for the entirety of the redemption
+    // flow so neither the empty Direct view nor the empty nav row flashes
+    // between the recovery-code modal closing and the displayname prompt
+    // opening, or between the displayname submit and navigateToGroup landing.
+    // initNavRow above synchronously removed .hidden on #nav-row; re-hide it
+    // here, before the first await yields to the paint.
     const directEl = document.getElementById('main-ui-direct');
     if (directEl) directEl.classList.add('hidden');
+    const navRowEl = document.getElementById('nav-row');
+    if (navRowEl) navRowEl.classList.add('hidden');
     let landedInGroup = false;
     let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
     let invitePreview = null;
@@ -384,8 +388,13 @@ async function main() {
       }
     }
     // If we didn't end up in a group context (personal invite, failure,
-    // etc.), restore the Direct view so the user has somewhere to land.
-    if (!landedInGroup && directEl) directEl.classList.remove('hidden');
+    // etc.), restore the Direct view AND the nav row so the user has
+    // somewhere to land. The landed-in-group case re-shows the nav row
+    // automatically via navigateToGroup's emit() → renderNavRow chain.
+    if (!landedInGroup) {
+      if (directEl) directEl.classList.remove('hidden');
+      if (navRowEl) navRowEl.classList.remove('hidden');
+    }
   }
 
   touchLastSeen(userId).catch(() => {});

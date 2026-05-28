@@ -2,7 +2,13 @@
 
 A handoff to whoever picks this up next. Read top-to-bottom; specific subsections can be re-skimmed when working in a particular area.
 
-**Most recent work:** Phases 0–2 of the groups feature shipped to `dev` with `GROUPS_ENABLED = true`. The nav redesign (sticky persistent nav row across contexts, chain-icon override toggle) shipped on top of Phase 2. MVP is complete per spec §17. Phase 3 (in-app push invites) is the next planned work and not yet planned or built.
+**Most recent work:** Phases 0–2 of the groups feature shipped to `dev` with `GROUPS_ENABLED = true`. The nav redesign (sticky persistent nav row across contexts, override toggle as `=/≠`, "Direct" rendered as a group-card on the right in group context, default override-ON on group creation/join) shipped on top of Phase 2 and went through an extensive bug-fix cycle from manual testing. MVP is complete per spec §17.
+
+**Two known unfixed bugs at the time of this handoff** — read §16 before touching either area:
+1. **GitHub issue #64** — knock float-to-top does not restore when the user returns to the tab. A `0098631` fix attempt was committed but did NOT actually fix it in production.
+2. **Nav-row flash before group-displayname prompt** during new-user invite redemption. The `b8bf19e` + `7ff015f` fixes suppressed three other first-use flashes but missed this one. Not yet fixed.
+
+**Phase 3 (in-app push invites)** is the next planned feature work and not yet planned or built.
 
 ---
 
@@ -12,7 +18,7 @@ A vanilla-JS PWA for **ambient presence**. Users mark themselves "available for 
 
 - **Target user base:** 50–100 users (a small, hands-on sandbox, not a public app).
 - **Stack:** vanilla ES modules (no framework), Firebase Realtime Database + Hosting, esbuild, jest + jsdom.
-- **Tests:** 620 currently passing. Run with `npx jest`.
+- **Tests:** 634 currently passing. Run with `npx jest`.
 - **Anonymous identity model** (no Firebase Auth) — see §4.
 
 ## 2. Repo & branch model
@@ -58,7 +64,7 @@ claude/<name>                → session feature branches
 
 | File | Purpose |
 |---|---|
-| `js/app.js` | Main init, `ensureIdentity`, `watchStatus` subscription, screen orchestration, invite-redemption dispatch, group-context switching |
+| `js/app.js` | Main init, `ensureIdentity`, `watchStatus` subscription, screen orchestration, invite-redemption dispatch, group-context switching. **`initNavRow()` must be called BEFORE the `onContextChange(enterGroupContext)` registration** — otherwise the override toggle never installs (commit `ba77271`). The redemption block primes `setLastKnownGroupName(groupId, knownName)` before `navigateToGroup` so the nav shows the real group name from the first paint. `#main-ui-direct` starts hidden in markup and is revealed at the end of `main()` only if the current context is not a group (commit `7ff015f`). |
 | `js/identity.js` | Secret phrase generate/parse/derive, localStorage v2 schema |
 | `js/wordlist.js` | 7772-word EFF long wordlist (regenerate via `scripts/gen-wordlist.js`) |
 | `js/db.js` | **All Firebase RTDB operations** (single import point). Sectioned: users / codeIndex / inviteIndex / personal-invites / groupIdIndex / users-groups enumeration / groups CRUD / group members / group invites / knocks / canvases. |
@@ -69,13 +75,13 @@ claude/<name>                → session feature branches
 | `js/palettes.js` | Palette definitions, swatch picker, theme application, cross-device sync |
 | `js/favorites.js` | Favorites strip + `getAllCombos()` / `getCanvasColors()` |
 | `js/canvas.js` | Shared drawing canvas during 1:1 calls |
-| `js/knock.js` | Knock pulse mechanics, 20s float-to-top anchor, group-card unread badge |
+| `js/knock.js` | Knock pulse mechanics, 20s float-to-top anchor, group-card unread badge. Live pulse uses the `.knock-live` CSS keyframe class (NOT inline-style transitions — those got eaten by same-tick prepend + scroll). 60s clock-skew tolerance on the deferred check (`ts < appOpenTime - 60000`). `pendingByGroup` Map holds knocks received while the user wasn't in the relevant group context; `drainPendingKnocks(groupId)` replays them on enter. Scroll-to-top on knock receipt uses non-smooth, multi-target writes (`window.scrollTo`, `documentElement.scrollTop`, `body.scrollTop`). **`floatTimers` entries track `startedAt`** and the visibilitychange handler drains expired entries — but in practice this fix does NOT work in production; see issue #64 in §16. |
 | `js/features.js` | **Feature flags (see §5)** |
 | `js/invites.js` | **NEW (Phase 0+1).** Invite-link business logic: token gen, create/revoke/regenerate (both personal + group), redemption with structured `{ok, reason}` results, `attemptRedeemFromUrl` dispatch, `resolveInvitePreview` for welcome-screen framing. |
 | `js/inviteModal.js` | **NEW (Phase 0+1).** Shared modal component, scope-parameterized via `SCOPE_COPY.{personal,group}`. State A (create) + State B (manage with URL + ↻ regen + Copy + Revoke). |
 | `js/groups.js` | **NEW (Phase 1).** Group lifecycle business logic: `createGroup` / `renameGroup` / `deleteGroup` (owner-only) / `joinGroup` / `leaveGroup` (member-only) / `editOwnDisplayName`. Also `initGroupRemovalDetector` — surfaces a toast when a group the user was in disappears from their enumeration. |
-| `js/groupNav.js` | **NEW (Phase 1).** Navigation state machine: `currentContext` ('direct' or 'group:{id}'), `navigateToDirect` / `navigateToGroup`, listener pattern via `onContextChange`. Persistent nav row (Direct + groups + plus in Direct context; Direct back-link + chain-icon override-toggle slot + group name in group context) and the create-group modal. Caches `_lastKnownNames` per group so deletion toasts can show the name not the id. |
-| `js/groupContext.js` | **NEW (Phase 1).** Group context view: header + roster (with per-member `watchStatus`) + owner/member actions menu (rename, delete, invite link, edit-name, leave) using `<details>` + `window.prompt`/`window.confirm`. Override toggle is rendered as an inline-SVG chain icon installed into the nav row's #group-override-toggle-slot at enter time (solid chain = override OFF; broken chain = override ON). |
+| `js/groupNav.js` | **NEW (Phase 1, rewritten in nav redesign).** Navigation state machine: `currentContext` ('direct' or 'group:{id}'), `navigateToDirect` / `navigateToGroup`, listener pattern via `onContextChange`. Persistent sticky nav row. **Direct context:** large-bold "Direct" + each group as `.group-card` (status-colored border when effectively available; greyed when not) + `+`. **Group context:** small-unbold "Direct" back-link on the LEFT + group name (flex:1, large-bold, truncating) + override toggle (`=` for OFF, `≠` for ON) + "Direct" rendered as a `.group-card` on the RIGHT with the user's primary-status color as border. **Override toggle is owned here**, not in groupContext.js (was consolidated in `fd7c432`); click handler optimistically updates `_overrideByGroupId[groupId]` AND calls `applyOptimisticOverride` cross-module to keep groupContext's `_ownOverride` in sync before the Firebase ack. Caches `_lastKnownNames` per group so deletion toasts can show the name not the id. `setLastKnownGroupName(groupId, name)` primes the cache before `navigateToGroup` so first paint shows the real name. `syncMetaSubs` calls `removeUserGroupsEntry(_myUserId, groupId)` on null meta so a deleted group disappears from the nav immediately. `navigateToGroup` / `navigateToDirect` emit synchronously BEFORE any Firebase awaits. Also owns the create-group modal. |
+| `js/groupContext.js` | **NEW (Phase 1).** Group context view: own status row at the top (dot + label + time-remaining + time chip + Settings `<details>` chip with rename/delete/invite/edit-name/leave actions) + roster (per-member `watchStatus`). Hosts the `_ownOverride` / `_ownPrimary` / `_membersOverrides` / `_memberPrimaries` state and exports **`applyOptimisticOverride(override)`** for cross-module sync from groupNav's toggle click. `paintRosterRow` combines override + primary and sets the `.available` class on the dot (not just `dataset.available`). Time chip uses `getLastTimeout() → chipIndexForMinutes` lookup to avoid the legacy `2 → 2 minutes` migration bug; chip cycles even when the user is currently unavailable (the `currentlyAvailable` gate was dropped in `05935e8`). The current user is **not** rendered in the roster. Settings menu auto-dismisses on outside-tap and on option-activation. |
 
 ## 4. Identity model (load-bearing — read this carefully)
 
@@ -171,7 +177,8 @@ Key design decisions worth remembering:
 - `body { max-width: 600px; margin: 0 auto }` — capped + centered on wider viewports.
 - **Canvas exception:** `#canvas-screen` is `position: fixed; inset: 0` — escapes the body cap.
 - Modals and overlay screens (welcome, recovery, restore, stale, invite, create-group, group-displayname, invite-failure) are fixed-positioned, full-viewport.
-- **Direct context vs group context:** the existing main UI is wrapped in `<div id="main-ui-direct">`. The group context view is `<div id="group-context-root">`. A sticky `<div id="nav-row">` (top-level, above both) is hidden by `.hidden` class until `initNavRow` runs. Only one of `#main-ui-direct` / `#group-context-root` is visible at a time, toggled by `groupContext.js`'s `enterGroupContext`/`exitGroupContext` based on `groupNav.onContextChange` listener; the nav row re-renders independently via its own internal `onContextChange` listener registered in `initNavRow`.
+- **Direct context vs group context:** the existing main UI is wrapped in `<div id="main-ui-direct">`. The group context view is `<div id="group-context-root">`. A sticky `<div id="nav-row">` (top-level, above both) is hidden by `.hidden` class until `initNavRow` runs. Only one of `#main-ui-direct` / `#group-context-root` is visible at a time, toggled by `groupContext.js`'s `enterGroupContext`/`exitGroupContext` based on `groupNav.onContextChange` listener; the nav row re-renders independently via its own internal `onContextChange` listener registered in `initNavRow`. **`#main-ui-direct` starts hidden in markup** and is revealed at the end of `main()` only if the current context is not a group — this prevents the empty Availability shell from flashing behind the secret-phrase modal on first use (commit `7ff015f`).
+- **Nav row height parity:** `.nav-row > *` is locked to `height: 2.5rem` so the row height stays identical across Direct and group contexts. The `.group-context-header` surface band mirrors `#app-header` so elements don't appear to shift when switching contexts.
 
 ## 9. CSP
 
@@ -198,13 +205,16 @@ Plus you need `npx firebase login` (or `firebase login` if installed globally) o
 
 ## 11. In-progress work / what's next
 
-**Nav redesign (post-Phase-2) — shipped on dev:**
+**Nav redesign (post-Phase-2) — shipped on dev (with extensive follow-up fixes):**
 
 - Persistent sticky `#nav-row` replaces the old `#group-cards-row` strip that used to sit above the contact list.
-- In Direct context: `Direct` (large/bold via `.nav-current`) + each group (`.group-card`) + `+`. Each group's card shows a status-colored border when the user is effectively available in that group; greyed name + no border when unavailable. Forest-green fallback (`#22c55e`) when no `statusColor` is set.
-- In group context: `Direct` (`.nav-back`, smaller/unbold) + chain-icon override toggle + group name (`.nav-current.nav-current-truncate`, large/bold).
-- Override toggle moved from a pill in the chip row to an inline-SVG chain icon in the nav. Inverted semantics: solid chain = override OFF (linked to primary); broken chain = override ON.
-- Group context body lost its h2 group name, its breadcrumb back button, and the override-toggle pill. Settings became a chip in the chip row alongside the time chip.
+- **Direct context:** each group as `.group-card` + `+`. The "Direct" label itself was dropped from this context (commit `d67b3c6`). Each group's card shows a status-colored border when the user is effectively available in that group; greyed name + no border when unavailable. Forest-green fallback (`#22c55e`) when no `statusColor` is set.
+- **Group context:** `Direct` back-link on the LEFT (small/unbold) + group name (flex:1, large/bold, truncating) + override toggle + `Direct` rendered as a `.group-card` on the RIGHT styled like a group with the user's primary statusColor as border.
+- **Override toggle:** Unicode `=` (OFF, linked to primary) / `≠` (ON, distinct from primary). Earlier iterations tried Tabler SVG chain icons (`ba77271`) then a simple circle (`56746e5`) — both failed to render reliably. The Unicode glyphs were the final choice (`fd7c432`, glyphs swapped to `=/≠` in `4d40fcf`).
+- **Default override-ON on group creation/join** (commit `4d40fcf`): both `createGroup` and `joinGroup` write `statusOverride: { enabled: true, status: 'unavailable', availableUntil: null }` so a new member is private-by-default in the group.
+- Group context body lost its h2 group name, its breadcrumb back button, and the override-toggle pill. Settings became a chip in the chip row alongside the time chip (auto-dismisses on outside-tap + option-activation).
+- **Override toggle ownership consolidation** (commit `fd7c432`): the toggle is owned by `groupNav.js`, not handed off to `groupContext.js` via a slot. Cross-module state sync is via the exported `applyOptimisticOverride(override)` from `groupContext.js` — `groupNav` calls it after each toggle click so the group-context render reflects the new state before Firebase ack.
+- **Init ordering**: `initNavRow()` must run BEFORE the `onContextChange(enterGroupContext)` registration in `app.js`. Otherwise on emit, `enterGroupContext` fires first and the nav-row DOM isn't ready (commit `ba77271`).
 - Spec: `docs/superpowers/specs/2026-05-28-nav-redesign-design.md`. Plan: `docs/superpowers/plans/2026-05-28-nav-redesign.md`.
 
 **Phase 3 — in-app push invites** (spec §16 Phase 3, Flow C in spec §10). Not yet planned or built.
@@ -238,6 +248,17 @@ Phase 1 (groups MVP):
 - **Non-owner deletion detection:** when the owner deletes a group, `watchUserGroups` doesn't fire for non-owner members (the owner can't write to their user records). `groupContext.js`'s `watchGroupMeta(null)` callback now calls `removeUserGroupsEntry(userId, groupId)` for the local user; that delta then triggers `groups.js`'s removal detector + toast. Fix in commit `9bcf602`.
 - **Group-name cache for deletion toast:** `groupNav.js` maintains `_lastKnownNames[groupId]` so the deletion toast shows `'Family' has been deleted.` instead of the random `'1ASSKU46' has been deleted.`. Cache survives the `watchGroupMeta(null)` event. Fix in commit `53f1572` (since-rebased onto dev).
 - **Deploy scripts `--only hosting`:** initially the local `npm run deploy:dev` and `npm run deploy` scripts deployed only hosting, so a fresh `database.rules.json` change wouldn't ship and group ops would `permission_denied` against the old rules. Fixed in commit `07fd02e` — both now `--only hosting,database` (matches what the CI workflows already did).
+
+Post-nav-redesign fix cycle (all on dev):
+- **Color fallback chain** (commit `8a3d7f6` — in summary, see commit messages): Direct nav's group-card border uses `ov?.statusColor || _ownPrimary?.statusColor || '#22c55e'`. An earlier implementation collapsed the chain and lost the primary fallback when override was ON with no `statusColor`.
+- **Time chip stuck when override ON** (commit `05935e8`): a `currentlyAvailable` early-return blocked the chip from cycling. Dropped the gate; chip now cycles regardless of available state, writes available even when not currently available.
+- **Cross-module override desync** (commit `05935e8`): chain icon updated `_overrideByGroupId` but `groupContext._ownOverride` stayed stale until Firebase ack. Fixed via `applyOptimisticOverride` export.
+- **Knock-receive double bug** (commit `ae6e9fc`): clock-skew misclassified live knocks as deferred (`ts < appOpenTime`); `applyDeferredKnock` used a global selector that landed on the hidden Direct contact `<li>`. Fixed with 60s tolerance + context-aware `findKnockTargetCard`.
+- **Scroll-to-top on knock didn't work** (commits `1b86be8`, `e456a51`): `behavior: 'smooth'` was unreliable post-DOM-mutation. Dropped smooth and write all three scroll targets (`window`, `documentElement`, `body`).
+- **Live pulse animation didn't display** (commit `8c642bf`): imperative transition (`set boxShadow → reflow → set new boxShadow`) was eaten by the same-tick prepend + scroll. Switched to `.knock-live` CSS keyframe class.
+- **Group lingered in nav after owner deleted it** (commit `8c642bf`): `syncMetaSubs` now calls `removeUserGroupsEntry` on null meta.
+- **First-use UX flashes** in invite redemption (commits `b8bf19e`, `7ff015f`): hidden `#main-ui-direct` during redemption + `setLastKnownGroupName` before `navigateToGroup`; `#main-ui-direct` starts hidden in markup, revealed at end of `main()`.
+- **Group-context availability section parity** (commits `20eb680`, `904d175`, `3f2718e`, `ae17000`): pixel-aligned to Direct context after several rounds (chip sizes, band height, nav-row child height).
 
 Older (pre-groups) fixes worth knowing:
 - **Canvas concurrent-drawing race** (commit `61db133`).
@@ -276,9 +297,19 @@ When working with the user, **honor accessibility preferences:**
 - **Phase 1 designs are forward-compatible with Phase B.** The membership-canonical-on-group-side layout, the top-level `pendingInvites/{inviteeUid}/...` mailbox path, and the `groups/{groupId}/members/{uid}` self-write rule were chosen so Phase B doesn't need a Cloud Function. Preserve this property in Phase 2.
 - **Dev branch has `GROUPS_ENABLED = true`.** Main does not yet have any of the groups work merged. When the user is ready for prod, they'll merge dev → main (or cherry-pick) and the flag flip will land along with the rest.
 - **Phase 2 designs preserve `statusColor` / `paletteKey` slots in `statusOverride` for Phase 4+.** Don't remove these from the schema; Phase 4+ will start writing them. Toggle OFF currently clears the whole override record; Phase 4+ will need to revisit that to preserve color/palette slots across toggle.
+- **Optimistic-update + cross-module sync pattern (load-bearing).** Both groupNav and groupContext have their own copies of own-override state. When one mutates it (the chain icon click), it must call the other's optimistic-apply API (`applyOptimisticOverride` exported from groupContext) so the other module's render reflects the new state before Firebase acks. Don't add a third holder of this state without wiring it into the same propagation.
+- **Knock pulse uses a CSS keyframe class, not inline-style transitions.** Imperative `el.style.boxShadow = ...` + reflow + new value gets eaten by same-tick DOM prepend + scrollTo. Add new pulse-like animations as `@keyframes` + class toggles, mirroring `.knock-live` and `.knock-deferred`.
+- **`#main-ui-direct` starts hidden in markup.** It's revealed at the end of `main()` only if the current context isn't a group. Don't change the markup default without also revisiting the first-use UX flashes (§12 post-nav-redesign fixes).
 
-## 16. Known unknowns / open decisions
+## 16. Known unknowns / open decisions / open bugs
 
+**Open bugs (active):**
+- **GitHub issue #64 — float-to-top doesn't restore on tab return.** https://github.com/tenorune/on/issues/64. When a knock recipient sees the knock and then leaves the browser / switches tabs while the knocker's name is still floated at the top, on return the name stays floated past the 20s deadline and doesn't snap back. Commit `0098631` attempted a fix (track `startedAt` per floatTimer entry and drain on `visibilitychange`) but the user verified it does NOT work in production. Hypotheses worth checking: (a) stale `originalSibling` after a `watchGroupMembers`-triggered `renderRoster` while the page was hidden; (b) `visibilitychange` not firing on iOS Safari / BFCache; (c) `renderRoster` wiping the floated `<li>` so the restoration path can't find the right element. User chose to file the issue rather than continue debugging; pick this up when there's appetite.
+
+**Recently fixed (on session branch, awaiting dev merge):**
+- **Nav-row flash before group-displayname prompt during new-user invite redemption.** Fixed by extending the same `add('hidden')` / restore-if-`!landedInGroup` pattern that already protects `#main-ui-direct` to also cover `#nav-row` in the invite-redemption block of `app.js`. The landed-in-group case needs no explicit restore because `navigateToGroup`'s `emit()` → `renderNavRow()` chain removes `.hidden` synchronously when group mode renders.
+
+**Open decisions:**
 - Phase 3 priority + scheduling (in-app push invites).
 - When (if) to do Phase B identity tightening.
 - Whether the post-MVP "co-members can use 1:1 primitives without mutual" relaxation lands soon after Phase 2.
