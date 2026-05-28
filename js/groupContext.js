@@ -140,14 +140,17 @@ function paintRosterRow(uid) {
   const override = _membersOverrides[uid];
   const primary = _memberPrimaries.get(uid) || null;
   const overrideOn = !!(override && override.enabled === true);
-  // Effective values: when the member has an active override for this group,
-  // its statusColor / paletteKey win — that's the whole point of per-group
-  // overrides. Otherwise we fall back to the member's primary user record.
+  // Effective values: override-on means "independent in this group" — pull
+  // every field (status/availableUntil/color/paletteKey) exclusively from
+  // the override. No per-field fall-through to primary, otherwise a member
+  // who chose to not theme their group card (override.paletteKey null)
+  // would still pick up their Direct theme. Override-off: primary wins
+  // for every field (the group is linked to Direct).
   const status = overrideOn ? (override.status || 'unavailable') : (primary?.status || 'unavailable');
   const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
   const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
-  const color = (overrideOn ? override.statusColor : null) || primary?.statusColor || null;
-  const paletteKey = (overrideOn ? override.paletteKey : null) || primary?.paletteKey || null;
+  const color = overrideOn ? (override.statusColor || null) : (primary?.statusColor || null);
+  const paletteKey = overrideOn ? (override.paletteKey || null) : (primary?.paletteKey || null);
   const palette = PALETTES_ENABLED && paletteKey ? getPaletteByKey(paletteKey) : null;
   li.dataset.available = isAvailable ? 'true' : 'false';
   const dot = li.querySelector('.person-dot');
@@ -176,12 +179,19 @@ function paintRosterRow(uid) {
       // "about half an hour") rather than precise H:M. The Fuzzy helper
       // returns "… left"; strip that suffix since we prefix with
       // "Available for ". Wrap in .status-available so the palette color
-      // can apply per-card (mirrors following.js's pattern).
+      // can apply per-card (mirrors following.js's pattern). Inline the
+      // statusColor in the span so a member with statusColor but no
+      // paletteKey still gets the right text color — without the inline
+      // style, the CSS rule (.status-available → var(--green)) wins and
+      // the fuzzy time renders forest green.
       const remaining = availableUntil
         ? formatTimeRemainingFuzzy(timeRemainingMs(availableUntil)).replace(/ left$/, '')
         : '';
       const text = remaining ? `Available for ${remaining}` : 'Available';
-      statusEl.innerHTML = `<span class="status-available">${text}</span>`;
+      const inlineColor = color ? safeCssColor(color) : '';
+      statusEl.innerHTML = inlineColor
+        ? `<span class="status-available" style="color:${inlineColor}">${text}</span>`
+        : `<span class="status-available">${text}</span>`;
     } else {
       // Unavailable members deliberately render no status text in the
       // group-context roster — the absent green dot already conveys it.
@@ -197,8 +207,13 @@ function paintRosterRow(uid) {
     li.style.borderLeftColor = palette.color;
     if (statusEl) {
       statusEl.style.color = palette.theme.textMuted;
-      const availableSpan = statusEl.querySelector('.status-available');
-      if (availableSpan) availableSpan.style.color = palette.color;
+      // .status-available's inline color (set in the innerHTML above) is
+      // the member's statusColor — deliberately NOT overridden to
+      // palette.color here. "Fuzzy time follows status color, not theme":
+      // a member in palette mode with a complement-color statusColor
+      // shows the complement, and a base-mode member with statusColor
+      // but no paletteKey shows their statusColor instead of forest
+      // green (the .status-available CSS default).
     }
   } else {
     li.style.background = '';
@@ -273,18 +288,91 @@ function renderOwnStatusRow() {
 
 // Per-group palette UI state (which set is active, are we in palette mode).
 // Stored locally — these are view-state, not part of the override schema.
+// Per-group palette UI state — mirrors Direct's paletteState shape so each
+// set tracks its own selection. Defaults: Set 1 starts on forest, Set 2 on
+// volt — same as Direct (palettes.js's PALETTE_SETS[1][0] / [2][0]). Without
+// the per-set defaults, toggling to Set 2 the first time would leave no
+// swatch highlighted and going Available would keep Set 1's color.
+function defaultGroupPaletteState() {
+  return {
+    activeSet: 1,
+    sets: {
+      '1': { selectedKey: PALETTE_SETS[1][0].key, selectedColor: PALETTE_SETS[1][0].color, activePaletteKey: null },
+      '2': { selectedKey: PALETTE_SETS[2][0].key, selectedColor: PALETTE_SETS[2][0].color, activePaletteKey: null },
+    },
+  };
+}
+
 function getGroupPaletteState(groupId) {
+  const def = defaultGroupPaletteState();
   try {
     const raw = localStorage.getItem(`statusapp_group_palette_${groupId}`);
-    if (raw) return { activeSet: 1, ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        activeSet: parsed.activeSet || def.activeSet,
+        sets: {
+          '1': { ...def.sets['1'], ...(parsed.sets?.['1'] || {}) },
+          '2': { ...def.sets['2'], ...(parsed.sets?.['2'] || {}) },
+        },
+      };
+    }
   } catch { /* ignore parse errors */ }
-  return { activeSet: 1 };
+  return def;
 }
 
 function setGroupPaletteState(groupId, state) {
   try {
     localStorage.setItem(`statusapp_group_palette_${groupId}`, JSON.stringify(state));
   } catch { /* ignore quota errors */ }
+}
+
+// Reconcile per-set local state with the override snapshot. Runs whenever
+// watchOwnMemberOverride fires (cross-device sync) and on enter so the
+// picker reflects the server-side override's set + selection.
+function syncGroupPaletteStateFromOverride() {
+  if (!_currentGroupId) return;
+  const state = getGroupPaletteState(_currentGroupId);
+  const overrideColor = _ownOverride?.statusColor || null;
+  const overrideKey = _ownOverride?.paletteKey || null;
+
+  if (overrideKey) {
+    for (const setNum of [1, 2]) {
+      if (PALETTE_SETS[setNum].some((p) => p.key === overrideKey)) {
+        state.activeSet = setNum;
+        const sk = String(setNum);
+        state.sets[sk].activePaletteKey = overrideKey;
+        state.sets[sk].selectedKey = overrideKey;
+        if (overrideColor) state.sets[sk].selectedColor = overrideColor;
+        break;
+      }
+    }
+  } else if (overrideColor) {
+    // Base-mode pick (no paletteKey). Lock to whichever set the color
+    // belongs to; if it's a complement (not a base color in either set),
+    // leave activeSet but update the active set's selectedColor + clear
+    // activePaletteKey.
+    let matched = false;
+    for (const setNum of [1, 2]) {
+      const m = PALETTE_SETS[setNum].find((p) => p.color === overrideColor);
+      if (m) {
+        state.activeSet = setNum;
+        const sk = String(setNum);
+        state.sets[sk].selectedKey = m.key;
+        state.sets[sk].selectedColor = m.color;
+        state.sets[sk].activePaletteKey = null;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      const sk = String(state.activeSet);
+      state.sets[sk].selectedColor = overrideColor;
+      state.sets[sk].activePaletteKey = null;
+    }
+  }
+
+  setGroupPaletteState(_currentGroupId, state);
 }
 
 // Group-context palette picker. Matches Direct's #swatch-row UX:
@@ -308,45 +396,39 @@ function renderGroupSwatchRow() {
   row.innerHTML = '';
 
   const state = getGroupPaletteState(_currentGroupId);
-  const currentPaletteKey = _ownOverride?.paletteKey || null;
-  const currentColor = _ownOverride?.statusColor || null;
-  // Mode is derived from override.paletteKey, not stored locally: paletteKey
-  // set ⟺ palette mode. activeSet is the override's set when in palette
-  // mode, otherwise the user-selected set from localStorage.
-  let activeSet = state.activeSet;
-  if (currentPaletteKey) {
-    for (const setNum of [1, 2]) {
-      if (PALETTE_SETS[setNum].some((p) => p.key === currentPaletteKey)) {
-        activeSet = setNum;
-        break;
-      }
-    }
-  }
-  const isPaletteMode = !!currentPaletteKey;
+  const activeSet = state.activeSet;
+  const setData = state.sets[String(activeSet)];
+  const isPaletteMode = !!setData.activePaletteKey;
+  const selectedKey = setData.selectedKey;
+  const currentColor = _ownOverride?.statusColor || setData.selectedColor;
 
-  // Set-toggle button (bolt = Set 1 / tree = Set 2). Toggling exits any
-  // active palette mode (its paletteKey was for the OLD set).
+  // Set-toggle button (bolt = Set 1 / tree = Set 2). Switching writes the
+  // TARGET set's saved selectedColor + activePaletteKey to the override so
+  // the user's effective color follows the active set immediately (matches
+  // Direct's switchSet behavior — without this, toggling and then going
+  // Available would broadcast the *previous* set's color).
   const toggleBtn = document.createElement('button');
   toggleBtn.type = 'button';
   toggleBtn.className = 'set-toggle-btn';
   toggleBtn.innerHTML = activeSet === 1 ? ICON_BOLT : ICON_TREE;
   toggleBtn.addEventListener('click', () => {
     const nextSet = activeSet === 1 ? 2 : 1;
-    setGroupPaletteState(_currentGroupId, { activeSet: nextSet });
-    if (currentPaletteKey) {
-      // Exit palette mode. Keep statusColor untouched — the user picked it
-      // intentionally, and following.js's renderers will fall back to
-      // primary.paletteKey for theming.
-      _ownOverride = { ..._ownOverride, paletteKey: null };
-      setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: null }).catch(() => {});
-    }
+    const nextSetData = state.sets[String(nextSet)];
+    const newState = { ...state, activeSet: nextSet };
+    setGroupPaletteState(_currentGroupId, newState);
+    const fields = {
+      statusColor: nextSetData.selectedColor,
+      paletteKey: nextSetData.activePaletteKey || null,
+    };
+    _ownOverride = { ..._ownOverride, ...fields };
+    setOverrideAppearance(_currentGroupId, _currentUserId, fields).catch(() => {});
     applyEffectivePalette();
     renderGroupSwatchRow();
   });
   row.appendChild(toggleBtn);
 
   if (isPaletteMode) {
-    const palette = getPaletteByKey(currentPaletteKey);
+    const palette = getPaletteByKey(setData.activePaletteKey);
     if (!palette) return;
     const keyIdx = PALETTE_SETS[activeSet].findIndex((p) => p.key === palette.key);
     const complements = palette.complements;
@@ -361,22 +443,24 @@ function renderGroupSwatchRow() {
         const keySelected = currentColor === palette.color;
         if (keySelected) swatch.classList.add('selected');
         swatch.addEventListener('click', () => {
+          const newState = getGroupPaletteState(_currentGroupId);
+          const sk = String(newState.activeSet);
           if (keySelected) {
-            // Exit palette mode — clear paletteKey only, keep statusColor
-            // so the user doesn't lose their pick. Optimistic local update
-            // so the re-render reflects base mode without waiting on the
-            // Firebase echo.
+            // Exit palette mode for this set. Don't change statusColor —
+            // the user's pick survives, theme reverts to primary.
+            newState.sets[sk].activePaletteKey = null;
+            setGroupPaletteState(_currentGroupId, newState);
             _ownOverride = { ..._ownOverride, paletteKey: null };
             setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: null }).catch(() => {});
-            applyEffectivePalette();
-            renderGroupSwatchRow();
           } else {
             // Reset statusColor to the palette's base color.
+            newState.sets[sk].selectedColor = palette.color;
+            setGroupPaletteState(_currentGroupId, newState);
             _ownOverride = { ..._ownOverride, statusColor: palette.color };
             setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: palette.color }).catch(() => {});
-            applyEffectivePalette();
-            renderGroupSwatchRow();
           }
+          applyEffectivePalette();
+          renderGroupSwatchRow();
         });
       } else {
         const complementColor = complements[ci++];
@@ -384,6 +468,9 @@ function renderGroupSwatchRow() {
         swatch.style.background = complementColor;
         if (currentColor === complementColor) swatch.classList.add('selected');
         swatch.addEventListener('click', () => {
+          const newState = getGroupPaletteState(_currentGroupId);
+          newState.sets[String(newState.activeSet)].selectedColor = complementColor;
+          setGroupPaletteState(_currentGroupId, newState);
           _ownOverride = { ..._ownOverride, statusColor: complementColor };
           setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: complementColor }).catch(() => {});
           applyEffectivePalette();
@@ -393,25 +480,32 @@ function renderGroupSwatchRow() {
       row.appendChild(swatch);
     }
   } else {
-    // Base mode: 8 swatches in the active set. First tap writes only
-    // statusColor (paletteKey stays null → theme inherits from primary).
-    // Second tap on the selected swatch promotes to palette mode by
-    // writing paletteKey.
+    // Base mode: 8 swatches in the active set. Selection follows the per-set
+    // selectedKey (defaults: forest for Set 1, volt for Set 2). First tap
+    // writes only statusColor; second tap on the selected swatch promotes
+    // to palette mode by writing paletteKey.
     for (const palette of PALETTE_SETS[activeSet]) {
       const swatch = document.createElement('button');
       swatch.type = 'button';
       swatch.className = 'swatch group-swatch';
       swatch.style.background = palette.color;
       swatch.dataset.paletteKey = palette.key;
-      const selected = currentColor === palette.color;
+      const selected = palette.key === selectedKey;
       if (selected) swatch.classList.add('selected');
       swatch.addEventListener('click', () => {
+        const newState = getGroupPaletteState(_currentGroupId);
+        const sk = String(newState.activeSet);
         if (selected) {
           // Promote to palette mode for this palette.
+          newState.sets[sk].activePaletteKey = palette.key;
+          setGroupPaletteState(_currentGroupId, newState);
           _ownOverride = { ..._ownOverride, paletteKey: palette.key };
           setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: palette.key }).catch(() => {});
         } else {
           // Color-only change. Don't touch paletteKey.
+          newState.sets[sk].selectedKey = palette.key;
+          newState.sets[sk].selectedColor = palette.color;
+          setGroupPaletteState(_currentGroupId, newState);
           _ownOverride = { ..._ownOverride, statusColor: palette.color };
           setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: palette.color }).catch(() => {});
         }
@@ -424,15 +518,20 @@ function renderGroupSwatchRow() {
 }
 
 // Apply the user's effective palette/theme to the document root vars while
-// in group context. Effective values use override-first then primary-second
-// for each of (statusColor, paletteKey) so a group-only color pick (base
-// mode — no override.paletteKey) inherits the user's Direct theme rather
-// than resetting it.
+// in group context. Override ON means "independent in this group" — values
+// come exclusively from the override (statusColor + paletteKey), with no
+// fall-through to the Direct primary. Otherwise a Direct theme change
+// would leak into a group the user is deliberately presenting differently
+// to. Override OFF: primary wins (the group is linked to Direct).
 function applyEffectivePalette() {
   if (!PALETTES_ENABLED) return;
   const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
-  const effectiveColor = (overrideOn ? _ownOverride.statusColor : null) || _ownPrimary?.statusColor || null;
-  const effectiveKey = (overrideOn ? _ownOverride.paletteKey : null) || _ownPrimary?.paletteKey || null;
+  const effectiveColor = overrideOn
+    ? (_ownOverride.statusColor || null)
+    : (_ownPrimary?.statusColor || null);
+  const effectiveKey = overrideOn
+    ? (_ownOverride.paletteKey || null)
+    : (_ownPrimary?.paletteKey || null);
   if (effectiveKey) {
     const palette = getPaletteByKey(effectiveKey);
     if (palette) {
@@ -678,6 +777,7 @@ export function enterGroupContext(groupId, userId) {
   });
   _ownOverrideUnsub = watchOwnMemberOverride(groupId, userId, (data) => {
     _ownOverride = data || null;
+    syncGroupPaletteStateFromOverride();
     applyEffectivePalette();
     renderOwnStatusRow();
   });
