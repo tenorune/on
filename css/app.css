@@ -710,7 +710,18 @@ main {
   gap: 6px;
   margin-top: 0.5rem;
   align-items: center;
+  /* Overlap with .group-header-chips in the same grid cell so swapping
+     visibility (override-on + Unavailable) doesn't collapse the header's
+     height — matches how Direct's #swatch-row overlaps #header-chips
+     (same grid-row: 2, grid-column: 1). */
+  grid-row: 2;
+  grid-column: 1;
+  align-self: start;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
 }
+.group-swatch-row.visible { opacity: 1; pointer-events: auto; }
 .group-swatch-row .swatch {
   background: transparent;
   padding: 0;

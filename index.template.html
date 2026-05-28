@@ -231,9 +231,12 @@
           </div>
           <!-- Per-group palette picker. Populated by groupContext.js; visible
                only when override is ON and the user's group status is
-               Unavailable (replacing the chip row above, mirroring how
-               #swatch-row replaces #header-chips in Direct). -->
-          <div id="group-swatch-row" class="group-swatch-row" style="display:none"></div>
+               Unavailable (mirrors how #swatch-row replaces #header-chips
+               in Direct). Initial hidden state is the CSS default
+               (.group-swatch-row { opacity: 0 }); no inline display:none
+               so the chip + swatch overlap in the same grid cell and
+               the header height stays constant. -->
+          <div id="group-swatch-row" class="group-swatch-row"></div>
         </div>
       </div>
     </header>

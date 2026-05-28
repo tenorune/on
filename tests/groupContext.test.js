@@ -100,7 +100,7 @@ function setupContextDom() {
                 </div>
               </details>
             </div>
-            <div id="group-swatch-row" class="group-swatch-row" style="display:none"></div>
+            <div id="group-swatch-row" class="group-swatch-row"></div>
           </div>
         </div>
       </header>
@@ -742,8 +742,11 @@ describe('own status row', () => {
     enterGroupContext('G1', 'me');
     cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
     cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
-    expect(document.getElementById('group-swatch-row').style.display).toBe('');
-    expect(document.querySelector('#group-context-root .group-header-chips').style.display).toBe('none');
+    // Visibility is now opacity-based (.visible on swatch row, inline opacity:0
+    // on chips) so the chip+swatch overlap in the same grid cell and the
+    // header height stays constant — like Direct's #swatch-row / #header-chips.
+    expect(document.getElementById('group-swatch-row').classList.contains('visible')).toBe(true);
+    expect(document.querySelector('#group-context-root .group-header-chips').style.opacity).toBe('0');
     // 8 swatches (active set only) + 1 set-toggle button.
     expect(document.querySelectorAll('#group-swatch-row .swatch').length).toBe(8);
     expect(document.querySelectorAll('#group-swatch-row .set-toggle-btn').length).toBe(1);
@@ -863,8 +866,8 @@ describe('own status row', () => {
     enterGroupContext('G1', 'me');
     cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
     cbs.getOverrideCb()({ enabled: true, status: 'available', availableUntil: Date.now() + 60000 });
-    expect(document.getElementById('group-swatch-row').style.display).toBe('none');
-    expect(document.querySelector('#group-context-root .group-header-chips').style.display).toBe('');
+    expect(document.getElementById('group-swatch-row').classList.contains('visible')).toBe(false);
+    expect(document.querySelector('#group-context-root .group-header-chips').style.opacity).toBe('');
   });
 
   test('group swatch row is hidden when override is OFF (read-only chips remain)', () => {
@@ -873,8 +876,8 @@ describe('own status row', () => {
     cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
     cbs.getOverrideCb()(null);
     cbs.getPrimaryCb()({ status: 'unavailable', availableUntil: null });
-    expect(document.getElementById('group-swatch-row').style.display).toBe('none');
-    expect(document.querySelector('#group-context-root .group-header-chips').style.display).toBe('');
+    expect(document.getElementById('group-swatch-row').classList.contains('visible')).toBe(false);
+    expect(document.querySelector('#group-context-root .group-header-chips').style.opacity).toBe('');
   });
 
   test('base-mode click writes only statusColor — paletteKey is left alone so the theme stays', () => {
