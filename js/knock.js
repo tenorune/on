@@ -167,9 +167,10 @@ export async function initKnocks(myUserId) {
   toAnimate.forEach(({ senderId, contextGroupId }) => {
     const li = findKnockTargetCard(senderId, contextGroupId);
     if (li) {
-      // Move first, animate second — see drainPendingKnocks for the rationale.
+      // Move first, animate next frame — see drainPendingKnocks for the
+      // rationale.
       applyFloatToTop(li);
-      applyDeferredKnock(senderId, contextGroupId);
+      requestAnimationFrame(() => applyDeferredKnock(senderId, contextGroupId));
     } else if (contextGroupId) {
       if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
       pendingByGroup.get(contextGroupId).add(senderId);
@@ -195,9 +196,11 @@ export function drainPendingDirectKnocks() {
   senderIds.forEach((senderId) => {
     const li = document.querySelector(`#main-ui-direct [data-user-id="${senderId}"]`);
     if (!li) return;
-    // Move first, animate second — see drainPendingKnocks for the rationale.
+    // Move first, animate next frame — see drainPendingKnocks for the
+    // rationale (real browsers swallow the keyframe start when class is
+    // added in the same sync batch as the DOM move).
     applyFloatToTop(li);
-    applyDeferredKnock(senderId, null);
+    requestAnimationFrame(() => applyDeferredKnock(senderId, null));
     clearKnock(cachedUserId, senderId).catch(() => {});
   });
   if (senderIds.length) {
@@ -223,12 +226,14 @@ export function drainPendingKnocks(groupId) {
   senderIds.forEach((senderId) => {
     const li = findKnockTargetCard(senderId, groupId);
     if (!li) return; // still not in DOM (race) — drop silently
-    // Move first so the animation class lands on the li at its final position
-    // — moving an animating node interrupts the keyframe playback on some
-    // browsers, especially when paired with the same-tick reflow trick
-    // inside applyDeferredKnock.
+    // Move first so the animation class lands on the li at its final
+    // position. Defer the animation one frame via requestAnimationFrame —
+    // without it, drainPendingKnocks fires inside the same sync batch as
+    // renderRoster + paintRosterRow + applyFloatToTop, and real browsers
+    // (Chromium/Safari) swallow the keyframe start on the freshly-mutated
+    // li. JSDOM doesn't run animations so unit tests don't surface this.
     applyFloatToTop(li);
-    applyDeferredKnock(senderId, groupId);
+    requestAnimationFrame(() => applyDeferredKnock(senderId, groupId));
     clearKnock(cachedUserId, senderId).catch(() => {});
   });
   // Bring the prepended items into view. Belt + suspenders against scroll
