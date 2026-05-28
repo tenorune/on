@@ -614,3 +614,19 @@ describe('statusOverride helpers', () => {
     expect(seen[1]).toBeNull();
   });
 });
+
+describe('registerAsFollower', () => {
+  const { registerAsFollower } = require('../js/db');
+  test('writes the followers entry and clears any prior revokedFollowers flag', async () => {
+    set.mockResolvedValue();
+    remove.mockResolvedValue();
+    ref.mockClear();
+    await registerAsFollower('targetUid', 'meUid', 'ABC123');
+    // Both writes happen — followers/me set to my code, revokedFollowers/me cleared.
+    const refPaths = ref.mock.calls.map((args) => args[1]);
+    expect(refPaths).toContain('users/targetUid/followers/meUid');
+    expect(refPaths).toContain('users/targetUid/revokedFollowers/meUid');
+    expect(set).toHaveBeenCalledWith('mock-ref', 'ABC123');
+    expect(remove).toHaveBeenCalledWith('mock-ref');
+  });
+});

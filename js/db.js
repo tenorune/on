@@ -347,7 +347,15 @@ export function watchFollowers(myUserId, callback) {
 
 // Called when user A follows user B: registers A in B's followers
 export async function registerAsFollower(targetUserId, myUserId, myCode) {
-  await set(ref(db, `users/${targetUserId}/followers/${myUserId}`), myCode);
+  // Clear any prior revocation in parallel with the followers write. Without
+  // the clear, if the target had previously revoked us, our subscribeToFollowee's
+  // watchStatus(target) tick would see a stale revokedFollowers[me]=true and
+  // auto-unfollow us — making re-following impossible (the entry appears
+  // briefly, then disappears, leaving two-way "followers" with no mutuals).
+  await Promise.all([
+    set(ref(db, `users/${targetUserId}/followers/${myUserId}`), myCode),
+    remove(ref(db, `users/${targetUserId}/revokedFollowers/${myUserId}`)),
+  ]);
 }
 
 // ── Following (own-side of the relationship) ─────────────────────────────────
