@@ -2,6 +2,13 @@
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(() => 120),
   setLastTimeout: jest.fn(),
+  getPaletteState: jest.fn(() => ({
+    activeSet: 1,
+    sets: {
+      '1': { selectedKey: 'forest', activePaletteKey: null },
+      '2': { selectedKey: 'volt', activePaletteKey: null },
+    },
+  })),
 }));
 jest.mock('../js/db.js', () => ({
   readGroup: jest.fn().mockResolvedValue(null),
@@ -541,6 +548,34 @@ describe('own status row', () => {
     exitGroupContext();
     expect(ownPrimaryUnsub).toHaveBeenCalledTimes(1);
     expect(ownOverrideUnsub).toHaveBeenCalledTimes(1);
+  });
+
+  test('exit restores --my-status to the Direct paletteState color, not the group override\'s color', () => {
+    // Regression: user picks orange in group with override ON, navigates
+    // back to Direct, observes Direct's dot/border is now orange (leaked
+    // from the group). restorePrimaryPalette was only setting --my-status
+    // when _ownPrimary.statusColor was truthy — but a fresh user who never
+    // picked a swatch in Direct has primary.statusColor=null, so the
+    // override's orange stayed stuck on document root after exit.
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    // Fresh user — primary has no statusColor or paletteKey.
+    cbs.getPrimaryCb()({ status: 'unavailable', availableUntil: null });
+    // Override has orange (the user's group pick).
+    cbs.getOverrideCb()({
+      enabled: true,
+      status: 'available',
+      availableUntil: Date.now() + 60 * 60 * 1000,
+      statusColor: '#f97316', // ember
+    });
+    // applyEffectivePalette would have set --my-status to ember while in
+    // the group. Confirm + then exit.
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#f97316');
+    exitGroupContext();
+    // After exit, root must show the Direct color — which for a fresh user
+    // is the paletteState's selectedKey ('forest' → #22c55e).
+    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#22c55e');
   });
 
   test('dot click for a new-default user (getLastTimeout=2) writes a 120-minute availableUntil', () => {

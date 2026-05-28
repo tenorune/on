@@ -11,7 +11,7 @@ import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
          setOverrideAppearance } from './groups.js';
-import { getLastTimeout, setLastTimeout } from './store.js';
+import { getLastTimeout, setLastTimeout, getPaletteState } from './store.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
@@ -517,6 +517,37 @@ function renderGroupSwatchRow() {
   }
 }
 
+// The user's "Direct color" semantically comes from either the server-side
+// user record (statusColor field) or — for a fresh user who hasn't picked a
+// swatch in Direct yet — the local paletteState's currently-selected key.
+// app.js's boot path calls applyPaletteVars(selectedKey), so for a brand-new
+// user --my-status starts at the paletteState's selected color (forest by
+// default), NOT null. Mirror that fallback here so restorePrimaryPalette and
+// applyEffectivePalette don't leave the override's color stuck on root when
+// _ownPrimary.statusColor happens to be null.
+function getDirectPrimaryStatusColor() {
+  if (_ownPrimary?.statusColor) return _ownPrimary.statusColor;
+  try {
+    const ps = getPaletteState();
+    const sk = String(ps.activeSet);
+    const selectedKey = ps.sets[sk]?.selectedKey;
+    if (selectedKey) {
+      const palette = getPaletteByKey(selectedKey);
+      if (palette) return palette.color;
+    }
+  } catch { /* paletteState unreadable — fall through */ }
+  return null;
+}
+
+function getDirectPrimaryPaletteKey() {
+  if (_ownPrimary?.paletteKey) return _ownPrimary.paletteKey;
+  try {
+    const ps = getPaletteState();
+    const sk = String(ps.activeSet);
+    return ps.sets[sk]?.activePaletteKey || null;
+  } catch { return null; }
+}
+
 // Apply the user's effective palette/theme to the document root vars while
 // in group context. Override ON means "independent in this group" — values
 // come exclusively from the override (statusColor + paletteKey), with no
@@ -528,10 +559,10 @@ function applyEffectivePalette() {
   const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
   const effectiveColor = overrideOn
     ? (_ownOverride.statusColor || null)
-    : (_ownPrimary?.statusColor || null);
+    : getDirectPrimaryStatusColor();
   const effectiveKey = overrideOn
     ? (_ownOverride.paletteKey || null)
-    : (_ownPrimary?.paletteKey || null);
+    : getDirectPrimaryPaletteKey();
   if (effectiveKey) {
     const palette = getPaletteByKey(effectiveKey);
     if (palette) {
@@ -554,8 +585,12 @@ function applyEffectivePalette() {
 // last-known primary state from watchStatus.
 function restorePrimaryPalette() {
   if (!PALETTES_ENABLED) return;
-  const primaryKey = _ownPrimary?.paletteKey || null;
-  const primaryColor = _ownPrimary?.statusColor || null;
+  // Same helpers as applyEffectivePalette — for a fresh user who never wrote
+  // statusColor to their record, fall back to the local paletteState's
+  // selected color so we don't leave the group's --my-status (e.g. orange)
+  // stuck on root when the user navigates back to Direct.
+  const primaryKey = getDirectPrimaryPaletteKey();
+  const primaryColor = getDirectPrimaryStatusColor();
   if (primaryKey) {
     const palette = getPaletteByKey(primaryKey);
     if (palette) {
