@@ -276,9 +276,9 @@ function renderOwnStatusRow() {
 function getGroupPaletteState(groupId) {
   try {
     const raw = localStorage.getItem(`statusapp_group_palette_${groupId}`);
-    if (raw) return { activeSet: 1, isPaletteMode: false, ...JSON.parse(raw) };
+    if (raw) return { activeSet: 1, ...JSON.parse(raw) };
   } catch { /* ignore parse errors */ }
-  return { activeSet: 1, isPaletteMode: false };
+  return { activeSet: 1 };
 }
 
 function setGroupPaletteState(groupId, state) {
@@ -287,12 +287,19 @@ function setGroupPaletteState(groupId, state) {
   } catch { /* ignore quota errors */ }
 }
 
-// Group-context palette picker. Mirrors Direct's #swatch-row layout: a set-
-// toggle button (bolt/tree) followed by 8 swatches in the currently-active
-// set. Tapping a selected swatch a second time enters palette mode — the key
-// swatch plus 7 complement colors of that palette. Clicks write
-// statusColor + paletteKey to the user's group override via
-// setOverrideAppearance (status/availableUntil/enabled untouched).
+// Group-context palette picker. Matches Direct's #swatch-row UX:
+// - Base mode: tapping an unselected swatch writes only statusColor — the
+//   user's effective theme stays as their Direct palette (or whichever
+//   override palette was active before). A second tap on the same selected
+//   swatch enters palette mode for that palette, which is what writes
+//   paletteKey (and so applies the theme).
+// - Palette mode: the key swatch sits at the same index it occupied in
+//   the base-mode set, with the 7 complements filling the other slots so
+//   the row's visual layout stays stable across the mode change. Tapping
+//   the selected key exits palette mode (clears paletteKey, returns to the
+//   primary theme). Tapping the key when a complement is active resets
+//   statusColor to the palette's base color. Tapping a complement just
+//   updates statusColor — paletteKey stays so the theme is preserved.
 function renderGroupSwatchRow() {
   if (!PALETTES_ENABLED) return;
   const row = document.getElementById('group-swatch-row');
@@ -301,94 +308,115 @@ function renderGroupSwatchRow() {
   row.innerHTML = '';
 
   const state = getGroupPaletteState(_currentGroupId);
-  const activeSet = state.activeSet;
-  const isPaletteMode = state.isPaletteMode;
   const currentPaletteKey = _ownOverride?.paletteKey || null;
   const currentColor = _ownOverride?.statusColor || null;
+  // Mode is derived from override.paletteKey, not stored locally: paletteKey
+  // set ⟺ palette mode. activeSet is the override's set when in palette
+  // mode, otherwise the user-selected set from localStorage.
+  let activeSet = state.activeSet;
+  if (currentPaletteKey) {
+    for (const setNum of [1, 2]) {
+      if (PALETTE_SETS[setNum].some((p) => p.key === currentPaletteKey)) {
+        activeSet = setNum;
+        break;
+      }
+    }
+  }
+  const isPaletteMode = !!currentPaletteKey;
 
-  // Set-toggle button (bolt = Set 1 / tree = Set 2). Switching sets exits
-  // palette mode — entering palette mode is tied to a specific palette in
-  // the previous set.
+  // Set-toggle button (bolt = Set 1 / tree = Set 2). Toggling exits any
+  // active palette mode (its paletteKey was for the OLD set).
   const toggleBtn = document.createElement('button');
   toggleBtn.type = 'button';
   toggleBtn.className = 'set-toggle-btn';
   toggleBtn.innerHTML = activeSet === 1 ? ICON_BOLT : ICON_TREE;
   toggleBtn.addEventListener('click', () => {
-    setGroupPaletteState(_currentGroupId, {
-      activeSet: activeSet === 1 ? 2 : 1,
-      isPaletteMode: false,
-    });
+    const nextSet = activeSet === 1 ? 2 : 1;
+    setGroupPaletteState(_currentGroupId, { activeSet: nextSet });
+    if (currentPaletteKey) {
+      // Exit palette mode. Keep statusColor untouched — the user picked it
+      // intentionally, and following.js's renderers will fall back to
+      // primary.paletteKey for theming.
+      _ownOverride = { ..._ownOverride, paletteKey: null };
+      setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: null }).catch(() => {});
+    }
+    applyEffectivePalette();
     renderGroupSwatchRow();
   });
   row.appendChild(toggleBtn);
 
-  if (isPaletteMode && currentPaletteKey) {
-    // Palette mode: render the key swatch + 7 complement swatches of the
-    // currently-chosen palette. Tapping the selected key swatch exits palette
-    // mode; tapping the key swatch when not selected resets statusColor to
-    // the palette's base color. Tapping a complement keeps the paletteKey
-    // and just updates statusColor.
+  if (isPaletteMode) {
     const palette = getPaletteByKey(currentPaletteKey);
-    if (palette) {
-      const keySelected = currentColor === palette.color;
-      const keySwatch = document.createElement('button');
-      keySwatch.type = 'button';
-      keySwatch.className = 'swatch key-swatch group-swatch';
-      keySwatch.style.background = palette.color;
-      keySwatch.dataset.paletteKey = palette.key;
-      if (keySelected) keySwatch.classList.add('selected');
-      keySwatch.addEventListener('click', () => {
-        if (keySelected) {
-          setGroupPaletteState(_currentGroupId, { ...state, isPaletteMode: false });
-          renderGroupSwatchRow();
-        } else {
-          setOverrideAppearance(_currentGroupId, _currentUserId, {
-            statusColor: palette.color,
-            paletteKey: palette.key,
-          }).catch(() => {});
-        }
-      });
-      row.appendChild(keySwatch);
-
-      for (const complementColor of palette.complements) {
-        const comp = document.createElement('button');
-        comp.type = 'button';
-        comp.className = 'swatch group-swatch';
-        comp.style.background = complementColor;
-        if (currentColor === complementColor) comp.classList.add('selected');
-        comp.addEventListener('click', () => {
-          setOverrideAppearance(_currentGroupId, _currentUserId, {
-            statusColor: complementColor,
-            paletteKey: palette.key,
-          }).catch(() => {});
+    if (!palette) return;
+    const keyIdx = PALETTE_SETS[activeSet].findIndex((p) => p.key === palette.key);
+    const complements = palette.complements;
+    let ci = 0;
+    for (let i = 0; i < 8; i++) {
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
+      if (i === keyIdx) {
+        swatch.className = 'swatch key-swatch group-swatch';
+        swatch.style.background = palette.color;
+        swatch.dataset.paletteKey = palette.key;
+        const keySelected = currentColor === palette.color;
+        if (keySelected) swatch.classList.add('selected');
+        swatch.addEventListener('click', () => {
+          if (keySelected) {
+            // Exit palette mode — clear paletteKey only, keep statusColor
+            // so the user doesn't lose their pick. Optimistic local update
+            // so the re-render reflects base mode without waiting on the
+            // Firebase echo.
+            _ownOverride = { ..._ownOverride, paletteKey: null };
+            setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: null }).catch(() => {});
+            applyEffectivePalette();
+            renderGroupSwatchRow();
+          } else {
+            // Reset statusColor to the palette's base color.
+            _ownOverride = { ..._ownOverride, statusColor: palette.color };
+            setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: palette.color }).catch(() => {});
+            applyEffectivePalette();
+            renderGroupSwatchRow();
+          }
         });
-        row.appendChild(comp);
+      } else {
+        const complementColor = complements[ci++];
+        swatch.className = 'swatch group-swatch';
+        swatch.style.background = complementColor;
+        if (currentColor === complementColor) swatch.classList.add('selected');
+        swatch.addEventListener('click', () => {
+          _ownOverride = { ..._ownOverride, statusColor: complementColor };
+          setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: complementColor }).catch(() => {});
+          applyEffectivePalette();
+          renderGroupSwatchRow();
+        });
       }
+      row.appendChild(swatch);
     }
   } else {
-    // Base mode: 8 swatches in the active set.
+    // Base mode: 8 swatches in the active set. First tap writes only
+    // statusColor (paletteKey stays null → theme inherits from primary).
+    // Second tap on the selected swatch promotes to palette mode by
+    // writing paletteKey.
     for (const palette of PALETTE_SETS[activeSet]) {
       const swatch = document.createElement('button');
       swatch.type = 'button';
       swatch.className = 'swatch group-swatch';
       swatch.style.background = palette.color;
       swatch.dataset.paletteKey = palette.key;
-      // Prefer paletteKey match; fall back to color match for legacy data
-      // where only statusColor was written.
-      const selected = currentPaletteKey === palette.key
-        || (!currentPaletteKey && currentColor === palette.color);
+      const selected = currentColor === palette.color;
       if (selected) swatch.classList.add('selected');
       swatch.addEventListener('click', () => {
-        if (swatch.classList.contains('selected')) {
-          // Second tap on selected → enter palette mode.
-          setGroupPaletteState(_currentGroupId, { activeSet, isPaletteMode: true });
-          renderGroupSwatchRow();
+        if (selected) {
+          // Promote to palette mode for this palette.
+          _ownOverride = { ..._ownOverride, paletteKey: palette.key };
+          setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: palette.key }).catch(() => {});
         } else {
-          setOverrideAppearance(_currentGroupId, _currentUserId, {
-            statusColor: palette.color,
-            paletteKey: palette.key,
-          }).catch(() => {});
+          // Color-only change. Don't touch paletteKey.
+          _ownOverride = { ..._ownOverride, statusColor: palette.color };
+          setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: palette.color }).catch(() => {});
         }
+        applyEffectivePalette();
+        renderGroupSwatchRow();
       });
       row.appendChild(swatch);
     }
@@ -396,28 +424,29 @@ function renderGroupSwatchRow() {
 }
 
 // Apply the user's effective palette/theme to the document root vars while
-// in group context. When override is ON and has its own paletteKey, that
-// theme wins; otherwise primary's theme stays in effect (no-op — app.js's
-// watchStatus has already applied it). Called on every override change and
-// after the primary watch fires too, since the latest writer wins.
+// in group context. Effective values use override-first then primary-second
+// for each of (statusColor, paletteKey) so a group-only color pick (base
+// mode — no override.paletteKey) inherits the user's Direct theme rather
+// than resetting it.
 function applyEffectivePalette() {
   if (!PALETTES_ENABLED) return;
   const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
-  const overrideKey = overrideOn ? (_ownOverride.paletteKey || null) : null;
-  const overrideColor = overrideOn ? (_ownOverride.statusColor || null) : null;
-  // No override appearance → leave primary's theme in place (app.js already
-  // wrote it to root + localStorage).
-  if (!overrideKey && !overrideColor) return;
-  if (overrideKey) {
-    const palette = getPaletteByKey(overrideKey);
+  const effectiveColor = (overrideOn ? _ownOverride.statusColor : null) || _ownPrimary?.statusColor || null;
+  const effectiveKey = (overrideOn ? _ownOverride.paletteKey : null) || _ownPrimary?.paletteKey || null;
+  if (effectiveKey) {
+    const palette = getPaletteByKey(effectiveKey);
     if (palette) {
-      applyPaletteVars(overrideKey);
+      applyPaletteVars(effectiveKey);
       applyThemeVars(palette.theme);
+    } else {
+      resetThemeVars();
     }
+  } else {
+    resetThemeVars();
   }
-  if (overrideColor) {
-    document.documentElement.style.setProperty('--my-status', overrideColor);
-    document.documentElement.style.setProperty('--my-glow', getGlowForColor(overrideColor));
+  if (effectiveColor) {
+    document.documentElement.style.setProperty('--my-status', effectiveColor);
+    document.documentElement.style.setProperty('--my-glow', getGlowForColor(effectiveColor));
   }
 }
 
@@ -640,6 +669,11 @@ export function enterGroupContext(groupId, userId) {
         chipEl.textContent = CHIP_VALUES[idx].text;
       }
     }
+    // Re-apply effective theme: a primary-side palette change (e.g. another
+    // device picked a different Direct theme) would otherwise have been
+    // written to root by app.js's watchStatus, clobbering our group-context
+    // override theme.
+    applyEffectivePalette();
     renderOwnStatusRow();
   });
   _ownOverrideUnsub = watchOwnMemberOverride(groupId, userId, (data) => {

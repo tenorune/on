@@ -674,29 +674,31 @@ describe('own status row', () => {
     expect(document.querySelectorAll('#group-swatch-row .swatch')[0].dataset.paletteKey).toBe('volt');
   });
 
-  test('second tap on a selected swatch enters palette mode (key + 7 complements)', () => {
+  test('second tap on a selected swatch enters palette mode (key + 7 complements) by writing paletteKey only', () => {
     const cbs = captureCallbacks();
     enterGroupContext('G1', 'me');
     cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
-    // Set ocean as the current pick so it shows as selected; second tap should switch to palette mode.
+    // Pick ocean in base mode (statusColor only; paletteKey absent so we're
+    // still base mode — matches Direct: first tap = color only).
     cbs.getOverrideCb()({
       enabled: true,
       status: 'unavailable',
       availableUntil: null,
       statusColor: '#3b82f6',
-      paletteKey: 'ocean',
     });
     const oceanSwatch = document.querySelector('#group-swatch-row .swatch[data-palette-key="ocean"]');
     oceanSwatch.click();
-    // After entering palette mode: 1 key swatch (ocean) + 7 complement swatches.
-    expect(document.querySelectorAll('#group-swatch-row .swatch').length).toBe(8);
-    expect(document.querySelectorAll('#group-swatch-row .key-swatch').length).toBe(1);
+    // Second tap promotes to palette mode by writing paletteKey only.
+    expect(groupsModule.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me', {
+      paletteKey: 'ocean',
+    });
   });
 
-  test('palette-mode complement click writes the complement color but keeps paletteKey', () => {
+  test('palette-mode complement click writes only statusColor (paletteKey preserved by omission)', () => {
     const cbs = captureCallbacks();
     enterGroupContext('G1', 'me');
     cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    // Open already in palette mode for ocean.
     cbs.getOverrideCb()({
       enabled: true,
       status: 'unavailable',
@@ -704,14 +706,35 @@ describe('own status row', () => {
       statusColor: '#3b82f6',
       paletteKey: 'ocean',
     });
-    // Enter palette mode via second tap.
-    document.querySelector('#group-swatch-row .swatch[data-palette-key="ocean"]').click();
-    // Click the first complement (after the key swatch).
+    // Ocean's base-set index is 1; in palette mode the key swatch stays at
+    // slot 1, complements fill slots 0 + 2..7. Click slot 0 (first complement).
     const swatches = document.querySelectorAll('#group-swatch-row .swatch');
-    swatches[1].click();
+    swatches[0].click();
     expect(groupsModule.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me', {
       statusColor: '#06b6d4', // ocean's first complement
-      paletteKey: 'ocean',
+    });
+  });
+
+  test('palette-mode key swatch stays at the index it occupied in base mode', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    // Open in palette mode for ember (Set 1 index 3).
+    cbs.getOverrideCb()({
+      enabled: true,
+      status: 'unavailable',
+      availableUntil: null,
+      statusColor: '#f97316',
+      paletteKey: 'ember',
+    });
+    const swatches = document.querySelectorAll('#group-swatch-row .swatch');
+    expect(swatches.length).toBe(8);
+    // ember is at base index 3 — key swatch should be at the same slot.
+    expect(swatches[3].classList.contains('key-swatch')).toBe(true);
+    expect(swatches[3].dataset.paletteKey).toBe('ember');
+    // None of the other slots are the key swatch.
+    [0, 1, 2, 4, 5, 6, 7].forEach((i) => {
+      expect(swatches[i].classList.contains('key-swatch')).toBe(false);
     });
   });
 
@@ -734,7 +757,7 @@ describe('own status row', () => {
     expect(document.querySelector('#group-context-root .group-header-chips').style.display).toBe('');
   });
 
-  test('clicking a swatch writes statusColor + paletteKey via setOverrideAppearance', () => {
+  test('base-mode click writes only statusColor — paletteKey is left alone so the theme stays', () => {
     const cbs = captureCallbacks();
     enterGroupContext('G1', 'me');
     cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
@@ -744,7 +767,6 @@ describe('own status row', () => {
     swatches[1].click();
     expect(groupsModule.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me', {
       statusColor: '#3b82f6',
-      paletteKey: 'ocean',
     });
   });
 
