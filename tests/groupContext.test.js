@@ -596,6 +596,58 @@ describe('own status row', () => {
     expect(until).toBeLessThanOrEqual(Date.now() + 120 * 60000 + 2000);
   });
 
+  test('dot click going Available keeps the override\'s statusColor on the optimistic update', () => {
+    // Regression: the dot handler used to do
+    //   _ownOverride = { enabled: true, status: 'available', availableUntil }
+    // which wiped statusColor/paletteKey until the watch echo restored them.
+    // The dot briefly fell back to the user's Direct color (via --my-status).
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({
+      enabled: true,
+      status: 'unavailable',
+      availableUntil: null,
+      statusColor: '#3b82f6', // ocean
+    });
+    document.getElementById('group-my-dot').click();
+    // The dot should still be painted with the override's statusColor —
+    // not cleared to '' (which would defer to --my-status and the user's
+    // Direct color).
+    const dot = document.getElementById('group-my-dot');
+    expect(dot.style.background).not.toBe('');
+    expect(dot.style.background.toLowerCase()).toMatch(/3b82f6|59,\s*130,\s*246/);
+  });
+
+  test('first override-ON tick with no statusColor seeds it from the picker\'s current selection', () => {
+    // Regression: a fresh user who flips override ON via the chain icon but
+    // hasn't opened the picker yet would have override.statusColor=null. The
+    // dot then fell back to --my-status (their Direct color). Per the
+    // user-stated "override ON = independent" principle, seed the override
+    // with the picker's currently-selected color (forest by default for
+    // Set 1) so subsequent Direct theme changes don't leak in.
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'unavailable', availableUntil: null });
+    expect(groupsModule.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me', {
+      statusColor: '#22c55e', // forest (Set 1 index 0 default)
+    });
+  });
+
+  test('first override-ON tick with an existing statusColor does NOT re-seed', () => {
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({
+      enabled: true,
+      status: 'unavailable',
+      availableUntil: null,
+      statusColor: '#3b82f6', // ocean
+    });
+    expect(groupsModule.setOverrideAppearance).not.toHaveBeenCalled();
+  });
+
   test('clicking the dot when override ON and currently available goes unavailable', () => {
     const cbs = captureCallbacks();
     enterGroupContext('G1', 'me');

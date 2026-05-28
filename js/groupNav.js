@@ -265,9 +265,15 @@ function renderNavRowGroupMode(row) {
     : 'Set a unique status for this group');
   toggle.addEventListener('click', () => {
     const nextEnabled = !overrideOn;
+    // Preserve any existing statusColor/paletteKey across the toggle so the
+    // optimistic update matches what mergeStatusOverride leaves on the
+    // server. Without the spread, _ownOverride briefly has no statusColor
+    // and the user's group dot falls back to --my-status (their Direct
+    // color) until the watch echo restores the field.
+    const existing = _overrideByGroupId[groupId] || {};
     const nextState = nextEnabled
-      ? { enabled: true, status: 'unavailable', availableUntil: null }
-      : null;
+      ? { ...existing, enabled: true, status: 'unavailable', availableUntil: null }
+      : { ...existing, enabled: false, status: null, availableUntil: null };
     _overrideByGroupId[groupId] = nextState;
     renderNavRow();
     applyOptimisticOverride(nextState);
