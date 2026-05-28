@@ -52,6 +52,7 @@ jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
   clearGroupCardBadge: jest.fn(),
   drainPendingKnocks: jest.fn(),
+  getFloatedUserIds: jest.fn(() => []),
 }));
 jest.mock('../js/features.js', () => ({
   KNOCK_ENABLED: true,
@@ -259,6 +260,28 @@ describe('group roster render', () => {
     statusCbs.a({ status: 'unavailable', availableUntil: null });
     const statusEl = document.querySelector('#group-roster [data-user-id="a"] .person-status');
     expect(statusEl.textContent).toBe('');
+  });
+
+  test('available members sort to the top of the roster', () => {
+    let membersCb;
+    const statusCbs = {};
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({
+      a: { role: 'member', displayName: 'Alice',   joinedAt: 1 },
+      b: { role: 'member', displayName: 'Bob',     joinedAt: 2 },
+      c: { role: 'member', displayName: 'Carol',   joinedAt: 3 },
+    });
+    // Mark only Bob available; Alice and Carol stay unavailable.
+    statusCbs.b({ status: 'available', availableUntil: Date.now() + 60000 });
+    statusCbs.a({ status: 'unavailable', availableUntil: null });
+    statusCbs.c({ status: 'unavailable', availableUntil: null });
+    const items = document.querySelectorAll('#group-roster li');
+    // Bob (available) first; Alice and Carol follow in alphabetical order.
+    expect(items[0].dataset.userId).toBe('b');
+    expect(items[1].dataset.userId).toBe('a');
+    expect(items[2].dataset.userId).toBe('c');
   });
 
   test('removed members lose their watchStatus subscription on the next tick', () => {

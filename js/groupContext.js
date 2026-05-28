@@ -13,7 +13,7 @@ import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
 import { getLastTimeout, setLastTimeout } from './store.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
-import { sendKnock, clearGroupCardBadge, drainPendingKnocks } from './knock.js';
+import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
 import { KNOCK_ENABLED } from './features.js';
 
 // Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
@@ -57,6 +57,28 @@ let _ownOverride = null; // { enabled, status, availableUntil, statusColor?, pal
 let _membersOverrides = {}; // uid → statusOverride | null
 const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor } | null
 let _settingsOutsideHandler = null;
+
+// Reorder the existing roster `<li>` nodes so available members come first,
+// alphabetical within each (available / unavailable) bucket. Rows currently
+// being floated by a knock animation (knock.js prepends them) stay at the top
+// regardless of availability — knock visuals own that slot for 20s.
+function reorderRosterByAvailability() {
+  const list = document.getElementById('group-roster');
+  if (!list) return;
+  const floatedSet = new Set(getFloatedUserIds());
+  const rows = Array.from(list.children);
+  const floated = rows.filter((r) => floatedSet.has(r.dataset.userId));
+  const others = rows.filter((r) => !floatedSet.has(r.dataset.userId));
+  others.sort((a, b) => {
+    const aAvail = a.dataset.available === 'true';
+    const bAvail = b.dataset.available === 'true';
+    if (aAvail !== bAvail) return aAvail ? -1 : 1;
+    const aName = (a.querySelector('.person-label')?.textContent || '').toLowerCase();
+    const bName = (b.querySelector('.person-label')?.textContent || '').toLowerCase();
+    return aName.localeCompare(bName);
+  });
+  for (const row of floated.concat(others)) list.appendChild(row);
+}
 
 function renderRoster(members, ownUserId) {
   const list = document.getElementById('group-roster');
@@ -106,6 +128,7 @@ function renderRoster(members, ownUserId) {
 
     list.appendChild(li);
   }
+  reorderRosterByAvailability();
 }
 
 function paintRosterRow(uid) {
@@ -146,6 +169,7 @@ function paintRosterRow(uid) {
       statusEl.textContent = '';
     }
   }
+  reorderRosterByAvailability();
 }
 
 function renderOwnStatusRow() {
