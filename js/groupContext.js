@@ -276,12 +276,18 @@ function renderOwnStatusRow() {
   // when the user has an active override and is Unavailable, hide the
   // chip row and reveal the group swatch row. With override OFF, leave the
   // chip row visible (read-only) so the user can still reach Settings.
+  // Toggle visibility via opacity (NOT display:none) so the chip row and
+  // swatch row keep co-occupying the same grid cell — the header height
+  // stays constant across Available / Unavailable just like in Direct.
   const swatchRow = document.getElementById('group-swatch-row');
   const chipsContainer = document.querySelector('#group-context-root .group-header-chips');
   const showSwatch = PALETTES_ENABLED && overrideOn && !isAvailable;
-  if (chipsContainer) chipsContainer.style.display = showSwatch ? 'none' : '';
+  if (chipsContainer) {
+    chipsContainer.style.opacity = showSwatch ? '0' : '';
+    chipsContainer.style.pointerEvents = showSwatch ? 'none' : '';
+  }
   if (swatchRow) {
-    swatchRow.style.display = showSwatch ? '' : 'none';
+    swatchRow.classList.toggle('visible', showSwatch);
     if (showSwatch) renderGroupSwatchRow();
   }
 }
