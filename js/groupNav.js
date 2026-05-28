@@ -211,14 +211,19 @@ function renderNavRowDirectMode(row) {
     card.dataset.groupId = groupId;
     card.textContent = name;
 
-    // Effective-status indicator: prefer override (when enabled), else primary.
+    // Effective-status indicator: when override is enabled the group's chip
+    // reflects the override (independent), otherwise it mirrors Direct
+    // (primary). No per-field mixing — override.statusColor is preserved
+    // across toggling enabled off (for restore-on-re-enable), but reading
+    // it while enabled=false would leak the group's last pick into the
+    // chip after the user turned the override off.
     const ov = _overrideByGroupId[groupId];
     const overrideOn = !!(ov && ov.enabled === true);
     const source = overrideOn ? ov : _ownPrimary;
     const isAvailable = source?.status === 'available'
       && (source.availableUntil == null || source.availableUntil > Date.now());
     if (isAvailable) {
-      const color = ov?.statusColor || _ownPrimary?.statusColor || '#22c55e';
+      const color = source?.statusColor || '#22c55e';
       card.style.borderColor = safeCssColor(color);
     } else {
       card.classList.add('greyed');

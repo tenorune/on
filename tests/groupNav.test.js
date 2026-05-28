@@ -229,7 +229,7 @@ describe('group cards own-override color reflection', () => {
     expect(card.style.background).toBe('');
   });
 
-  test('card with override.enabled=true and status=available shows border (falls back to primary statusColor when override has no statusColor)', () => {
+  test('card with override.enabled=true uses override.statusColor (does NOT inherit primary)', () => {
     let enumCb, metaCb, overrideCb, statusCb;
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
@@ -240,11 +240,43 @@ describe('group cards own-override color reflection', () => {
     enumCb({ G1: { lastVisited: 1 } });
     metaCb({ name: 'Family', ownerId: 'someone', createdAt: 1 });
     statusCb({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#11aaff' });
-    overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+    overrideCb({
+      enabled: true,
+      status: 'available',
+      availableUntil: Date.now() + 60 * 60 * 1000,
+      statusColor: '#ff7700',
+    });
     const card = document.querySelector('#nav-row .group-card');
-    // Override wins for availability; override has no statusColor so falls back to primary (#11aaff).
-    expect(card.style.borderColor).toMatch(/#11aaff|rgb\(17,\s*170,\s*255\)/i);
+    // Override-ON is independent — chip uses override's #ff7700, not primary's #11aaff.
+    expect(card.style.borderColor).toMatch(/#ff7700|rgb\(255,\s*119,\s*0\)/i);
     expect(card.style.background).toBe('');
+  });
+
+  test('card with override.enabled=false ignores preserved override.statusColor and mirrors primary', () => {
+    // Regression: user picks orange in a group (override.statusColor=ff7700),
+    // then turns the override OFF. The picked color is preserved on the
+    // override record so re-enabling restores it — but while disabled, the
+    // chip in Direct's nav must mirror Direct (the user's primary color),
+    // not the stale override color. Before the fix, the chip border kept
+    // showing orange even with override.enabled=false.
+    let enumCb, metaCb, overrideCb, statusCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'someone', createdAt: 1 });
+    statusCb({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#11aaff' });
+    overrideCb({
+      enabled: false,
+      status: null,
+      availableUntil: null,
+      statusColor: '#ff7700', // preserved from a prior pick, but override is OFF
+    });
+    const card = document.querySelector('#nav-row .group-card');
+    expect(card.style.borderColor).toMatch(/#11aaff|rgb\(17,\s*170,\s*255\)/i);
   });
 
   test('card with override.enabled=true but status=unavailable has no inline color', () => {
@@ -452,7 +484,7 @@ describe('Direct nav per-group status indicator', () => {
     expect(card.classList.contains('greyed')).toBe(true);
   });
 
-  test('card with override enabled+available but no override statusColor falls back to primary statusColor', () => {
+  test('card with override enabled+available but no override statusColor falls back to default green (not primary)', () => {
     let enumCb, metaCb, overrideCb, statusCb;
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
@@ -465,10 +497,14 @@ describe('Direct nav per-group status indicator', () => {
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     statusCb({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000, statusColor: '#11aaff' });
     overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 30 * 60 * 1000 });
-    // Phase 2 reality: override.statusColor isn't written. The Direct nav card
-    // should still show the user's primary color, not the forest-green fallback.
+    // Override is ON — chip is independent of primary. Without a per-group
+    // statusColor (the seed-on-first-tick in groupContext would normally
+    // populate this when the user enters the group context for the first
+    // time), the chip falls back to default forest #22c55e — NOT primary's
+    // #11aaff. That'd be the leak the override-ON-is-independent principle
+    // forbids.
     const card = document.querySelector('.group-card[data-group-id="G1"]');
-    expect(card.style.borderColor).toMatch(/#11aaff|rgb\(17,\s*170,\s*255\)/i);
+    expect(card.style.borderColor).toMatch(/#22c55e|rgb\(34,\s*197,\s*94\)/i);
   });
 });
 
