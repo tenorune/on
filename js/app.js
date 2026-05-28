@@ -365,13 +365,20 @@ async function main() {
     if (navRowEl) navRowEl.classList.add('hidden');
     let landedInGroup = false;
     let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
-    let invitePreview = null;
+    // Captured from the needs-display-name response so we can prime
+    // setLastKnownGroupName even on the success path (where the second
+    // attemptRedeemFromUrl call returns its own groupName too).
+    let previewGroupName = null;
     if (result && result.ok === false && result.reason === 'needs-display-name') {
-      // Look up the group name for the prompt.
-      invitePreview = await resolveInvitePreview(pendingInviteToken);
-      const groupName = invitePreview?.scope === 'group' ? invitePreview.groupName : 'this group';
-      const displayName = await showGroupDisplayNamePrompt(groupName);
-      result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, { displayName });
+      previewGroupName = result.groupName;
+      const promptName = previewGroupName || 'this group';
+      const displayName = await showGroupDisplayNamePrompt(promptName);
+      // Pass the cache forward so the second call doesn't re-fetch the
+      // invite index + group record.
+      result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {
+        displayName,
+        cache: result.cache,
+      });
     }
     if (result) {
       handleInviteRedemptionResult(result);
@@ -381,7 +388,7 @@ async function main() {
         // Prime the nav-row name cache so the group context shows "Family"
         // immediately rather than flashing the random groupId for the
         // round-trip until watchGroupMeta resolves with the name.
-        const knownName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
+        const knownName = result.groupName || previewGroupName || null;
         if (knownName) setLastKnownGroupName(result.groupId, knownName);
         await navigateToGroup(result.groupId);
         landedInGroup = true;

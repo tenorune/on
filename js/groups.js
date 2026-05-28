@@ -96,12 +96,16 @@ export async function leaveGroup(groupId, callerUid) {
   await removeUserGroupsEntry(callerUid, groupId);
 }
 
-export async function joinGroup(groupId, joinerUid, displayNameRaw) {
+export async function joinGroup(groupId, joinerUid, displayNameRaw, opts = {}) {
   const displayName = validateName(displayNameRaw, 'Display name');
-  const group = await readGroup(groupId);
+  // Allow callers that have already fetched these (e.g. redeemGroupInvite) to
+  // skip the duplicate reads. Use `in` so explicit `undefined` falls back to a
+  // read, but explicit `null` (meaning "we checked and the row is absent")
+  // skips the read.
+  const group = ('group' in opts) ? opts.group : await readGroup(groupId);
   if (!group) throw new Error('Group not found.');
 
-  const existing = await readMember(groupId, joinerUid);
+  const existing = ('existing' in opts) ? opts.existing : await readMember(groupId, joinerUid);
   const now = Date.now();
   if (!existing) {
     await writeMember(groupId, joinerUid, {

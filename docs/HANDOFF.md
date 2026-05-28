@@ -18,7 +18,7 @@ A vanilla-JS PWA for **ambient presence**. Users mark themselves "available for 
 
 - **Target user base:** 50–100 users (a small, hands-on sandbox, not a public app).
 - **Stack:** vanilla ES modules (no framework), Firebase Realtime Database + Hosting, esbuild, jest + jsdom.
-- **Tests:** 634 currently passing. Run with `npx jest`.
+- **Tests:** 635 currently passing. Run with `npx jest`.
 - **Anonymous identity model** (no Firebase Auth) — see §4.
 
 ## 2. Repo & branch model
@@ -308,6 +308,7 @@ When working with the user, **honor accessibility preferences:**
 
 **Recently fixed (on session branch, awaiting dev merge):**
 - **Nav-row flash before group-displayname prompt during new-user invite redemption.** Fixed by extending the same `add('hidden')` / restore-if-`!landedInGroup` pattern that already protects `#main-ui-direct` to also cover `#nav-row` in the invite-redemption block of `app.js`. The landed-in-group case needs no explicit restore because `navigateToGroup`'s `emit()` → `renderNavRow()` chain removes `.hidden` synchronously when group mode renders.
+- **FTU new-user group-invite redemption latency cut roughly in half.** Pause 1 (between "I've saved it" and the displayname prompt) dropped from ~5 serial Firebase RTTs to ~2 by (a) returning `groupName` from `attemptRedeemFromUrl`'s `needs-display-name` response so app.js skips a separate `resolveInvitePreview` call, and (b) bundling the fetched `indexEntry` + `group` records into a `cache` field on the response. Pause 2 (between name submit and group context paint) dropped from ~10 serial RTTs to ~5 by (c) forwarding that `cache` to the second `attemptRedeemFromUrl` call so `redeemGroupInvite` skips duplicate `readInviteIndex` + `readGroup` reads, (d) `Promise.all`-ing the remaining independent reads inside `redeemGroupInvite` (`readGroupInvites` + `readMember`), and (e) passing pre-fetched `group` + `existing` records to `joinGroup` via a new opts arg so its defensive reads short-circuit. New regression test in `tests/invites.test.js` asserts the cache forwarding actually skips the second-call reads.
 
 **Open decisions:**
 - Phase 3 priority + scheduling (in-app push invites).
