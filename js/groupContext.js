@@ -9,12 +9,14 @@ import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watc
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
-         setOverrideStatusAvailable, setOverrideStatusUnavailable } from './groups.js';
+         setOverrideStatusAvailable, setOverrideStatusUnavailable,
+         setOverrideAppearance } from './groups.js';
 import { getLastTimeout, setLastTimeout } from './store.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
-import { KNOCK_ENABLED } from './features.js';
+import { KNOCK_ENABLED, PALETTES_ENABLED } from './features.js';
+import { getPaletteByKey, getGlowForColor, PALETTE_SETS } from './palettes.js';
 
 // Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
 
@@ -56,7 +58,7 @@ let _ownPrimary = null;  // { status, availableUntil, statusColor? } | null
 let _ownOverride = null; // { enabled, status, availableUntil, statusColor?, paletteKey? } | null
 let _ownDisplayName = null; // string | null — own member displayName from watchGroupMembers, used to pre-fill the Edit-my-name prompt
 let _membersOverrides = {}; // uid → statusOverride | null
-const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor } | null
+const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor, paletteKey } | null
 let _settingsOutsideHandler = null;
 
 // Reorder the existing roster `<li>` nodes so available members come first,
@@ -138,20 +140,34 @@ function paintRosterRow(uid) {
   const override = _membersOverrides[uid];
   const primary = _memberPrimaries.get(uid) || null;
   const overrideOn = !!(override && override.enabled === true);
-  const source = overrideOn ? override : primary;
-  const status = source?.status || 'unavailable';
-  const availableUntil = source?.availableUntil ?? null;
+  // Effective values: when the member has an active override for this group,
+  // its statusColor / paletteKey win — that's the whole point of per-group
+  // overrides. Otherwise we fall back to the member's primary user record.
+  const status = overrideOn ? (override.status || 'unavailable') : (primary?.status || 'unavailable');
+  const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
   const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+  const color = (overrideOn ? override.statusColor : null) || primary?.statusColor || null;
+  const paletteKey = (overrideOn ? override.paletteKey : null) || primary?.paletteKey || null;
+  const palette = PALETTES_ENABLED && paletteKey ? getPaletteByKey(paletteKey) : null;
   li.dataset.available = isAvailable ? 'true' : 'false';
   const dot = li.querySelector('.person-dot');
   if (dot) {
     dot.dataset.available = isAvailable ? 'true' : 'false';
     dot.classList.toggle('available', isAvailable);
-    // Phase 2 color: prefer override.statusColor when present (Phase 4+ will
-    // write it), else fall through to the member's primary statusColor.
-    const color = override?.statusColor || primary?.statusColor || null;
-    if (isAvailable && color) dot.style.background = safeCssColor(color);
-    else dot.style.background = '';
+    if (isAvailable && color && PALETTES_ENABLED) {
+      const safe = safeCssColor(color);
+      dot.style.background = safe;
+      dot.style.borderColor = safe;
+      dot.style.boxShadow = `0 0 10px ${safeCssColor(getGlowForColor(color))}`;
+    } else if (isAvailable && color) {
+      dot.style.background = safeCssColor(color);
+      dot.style.borderColor = '';
+      dot.style.boxShadow = '';
+    } else {
+      dot.style.background = '';
+      dot.style.borderColor = '';
+      dot.style.boxShadow = '';
+    }
   }
   const statusEl = li.querySelector('.person-status');
   if (statusEl) {
@@ -159,16 +175,35 @@ function paintRosterRow(uid) {
       // Mirror the Direct contacts list: fuzzy text ("nearly 18 hours",
       // "about half an hour") rather than precise H:M. The Fuzzy helper
       // returns "… left"; strip that suffix since we prefix with
-      // "Available for ".
+      // "Available for ". Wrap in .status-available so the palette color
+      // can apply per-card (mirrors following.js's pattern).
       const remaining = availableUntil
         ? formatTimeRemainingFuzzy(timeRemainingMs(availableUntil)).replace(/ left$/, '')
         : '';
-      statusEl.textContent = remaining ? `Available for ${remaining}` : 'Available';
+      const text = remaining ? `Available for ${remaining}` : 'Available';
+      statusEl.innerHTML = `<span class="status-available">${text}</span>`;
     } else {
       // Unavailable members deliberately render no status text in the
       // group-context roster — the absent green dot already conveys it.
-      statusEl.textContent = '';
+      statusEl.innerHTML = '';
     }
+  }
+  // Card-level theming (mirrors following.js:726-744): when the member has a
+  // palette and is available, color the card surface + border-left + status
+  // text. Otherwise just border-left in statusColor (or clear when
+  // unavailable). All inline styles so a re-paint can clear them cleanly.
+  if (PALETTES_ENABLED && palette && isAvailable) {
+    li.style.background = palette.theme.surface;
+    li.style.borderLeftColor = palette.color;
+    if (statusEl) {
+      statusEl.style.color = palette.theme.textMuted;
+      const availableSpan = statusEl.querySelector('.status-available');
+      if (availableSpan) availableSpan.style.color = palette.color;
+    }
+  } else {
+    li.style.background = '';
+    li.style.borderLeftColor = isAvailable && color ? safeCssColor(color) : '';
+    if (statusEl) statusEl.style.color = '';
   }
   reorderRosterByAvailability();
 }
@@ -220,6 +255,58 @@ function renderOwnStatusRow() {
       timeRemaining.style.display = 'none';
     }
   }
+
+  // Visibility: in Direct, when the user is Unavailable, #header-chips fades
+  // out and #swatch-row fades in. Mirror that here for the group context —
+  // when the user has an active override and is Unavailable, hide the
+  // chip row and reveal the group swatch row. With override OFF, leave the
+  // chip row visible (read-only) so the user can still reach Settings.
+  const swatchRow = document.getElementById('group-swatch-row');
+  const chipsContainer = document.querySelector('#group-context-root .group-header-chips');
+  const showSwatch = PALETTES_ENABLED && overrideOn && !isAvailable;
+  if (chipsContainer) chipsContainer.style.display = showSwatch ? 'none' : '';
+  if (swatchRow) {
+    swatchRow.style.display = showSwatch ? '' : 'none';
+    if (showSwatch) renderGroupSwatchRow();
+  }
+}
+
+// Group-context palette picker. Simpler than Direct's #swatch-row: no
+// set-toggle button, no palette-mode complement view — just the 16 base
+// palette colors as a single row of swatches. Clicking writes
+// statusColor + paletteKey to the user's group override (without touching
+// enabled/status/availableUntil) via setOverrideAppearance, so the picker
+// can be used freely without flipping presence state.
+function renderGroupSwatchRow() {
+  if (!PALETTES_ENABLED) return;
+  const row = document.getElementById('group-swatch-row');
+  if (!row) return;
+  if (!_currentGroupId || !_currentUserId) return;
+  row.innerHTML = '';
+  const currentPaletteKey = _ownOverride?.paletteKey || null;
+  const currentColor = _ownOverride?.statusColor || null;
+  for (const setNum of [1, 2]) {
+    for (const palette of PALETTE_SETS[setNum]) {
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
+      swatch.className = 'swatch group-swatch';
+      swatch.style.background = palette.color;
+      swatch.dataset.paletteKey = palette.key;
+      // Prefer paletteKey match; fall back to color match for legacy data
+      // where only statusColor was written (the appearance writers always
+      // write both now).
+      const selected = currentPaletteKey === palette.key
+        || (!currentPaletteKey && currentColor === palette.color);
+      if (selected) swatch.classList.add('selected');
+      swatch.addEventListener('click', () => {
+        setOverrideAppearance(_currentGroupId, _currentUserId, {
+          statusColor: palette.color,
+          paletteKey: palette.key,
+        }).catch(() => {});
+      });
+      row.appendChild(swatch);
+    }
+  }
 }
 
 function syncStatusSubscriptions(memberUids) {
@@ -234,7 +321,12 @@ function syncStatusSubscriptions(memberUids) {
     if (!_statusUnsubs.has(uid)) {
       _statusUnsubs.set(uid, watchStatus(uid, (data) => {
         _memberPrimaries.set(uid, data
-          ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: data.statusColor || null }
+          ? {
+              status: data.status,
+              availableUntil: data.availableUntil ?? null,
+              statusColor: data.statusColor || null,
+              paletteKey: data.paletteKey || null,
+            }
           : null);
         paintRosterRow(uid);
       }));

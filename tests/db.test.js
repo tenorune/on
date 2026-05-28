@@ -602,6 +602,14 @@ describe('statusOverride helpers', () => {
     expect(remove).toHaveBeenCalledWith('mock-ref');
   });
 
+  test('mergeStatusOverride uses update so unspecified fields survive', async () => {
+    const { mergeStatusOverride } = require('../js/db');
+    update.mockResolvedValue();
+    await mergeStatusOverride('G1', 'uidA', { enabled: false, status: null, availableUntil: null });
+    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uidA/statusOverride');
+    expect(update).toHaveBeenCalledWith('mock-ref', { enabled: false, status: null, availableUntil: null });
+  });
+
   test('watchOwnMemberOverride subscribes to the override sub-object', () => {
     let cb;
     onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });

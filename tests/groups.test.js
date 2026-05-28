@@ -17,6 +17,7 @@ jest.mock('../js/db.js', () => ({
   watchUserGroups: jest.fn(() => () => {}),
   setStatusOverride: jest.fn(),
   clearStatusOverride: jest.fn(),
+  mergeStatusOverride: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../js/groupNav.js', () => ({
@@ -270,32 +271,35 @@ describe('group removal detector', () => {
 describe('toggleStatusOverride', () => {
   beforeEach(() => { jest.clearAllMocks(); });
 
-  test('enables the override with status=unavailable and availableUntil=null', async () => {
-    db.setStatusOverride.mockResolvedValue(undefined);
+  test('enables the override with status=unavailable and availableUntil=null, merging so appearance survives', async () => {
     await toggleStatusOverride('G1', 'uidA', true);
-    expect(db.setStatusOverride).toHaveBeenCalledWith('G1', 'uidA', {
+    expect(db.mergeStatusOverride).toHaveBeenCalledWith('G1', 'uidA', {
       enabled: true,
       status: 'unavailable',
       availableUntil: null,
     });
+    expect(db.setStatusOverride).not.toHaveBeenCalled();
     expect(db.clearStatusOverride).not.toHaveBeenCalled();
   });
 
-  test('disables by clearing the entire override record', async () => {
-    db.clearStatusOverride.mockResolvedValue(undefined);
+  test('disables by merging enabled=false + clearing status/availableUntil; preserves appearance', async () => {
     await toggleStatusOverride('G1', 'uidA', false);
-    expect(db.clearStatusOverride).toHaveBeenCalledWith('G1', 'uidA');
+    expect(db.mergeStatusOverride).toHaveBeenCalledWith('G1', 'uidA', {
+      enabled: false,
+      status: null,
+      availableUntil: null,
+    });
     expect(db.setStatusOverride).not.toHaveBeenCalled();
+    expect(db.clearStatusOverride).not.toHaveBeenCalled();
   });
 });
 
 describe('setOverrideStatusAvailable', () => {
   beforeEach(() => { jest.clearAllMocks(); });
 
-  test('writes enabled=true, status=available, and the given availableUntil', async () => {
-    db.setStatusOverride.mockResolvedValue(undefined);
+  test('merges enabled=true, status=available, and the given availableUntil', async () => {
     await setOverrideStatusAvailable('G1', 'uidA', 12345);
-    expect(db.setStatusOverride).toHaveBeenCalledWith('G1', 'uidA', {
+    expect(db.mergeStatusOverride).toHaveBeenCalledWith('G1', 'uidA', {
       enabled: true,
       status: 'available',
       availableUntil: 12345,
@@ -306,10 +310,9 @@ describe('setOverrideStatusAvailable', () => {
 describe('setOverrideStatusUnavailable', () => {
   beforeEach(() => { jest.clearAllMocks(); });
 
-  test('writes enabled=true, status=unavailable, availableUntil=null', async () => {
-    db.setStatusOverride.mockResolvedValue(undefined);
+  test('merges enabled=true, status=unavailable, availableUntil=null', async () => {
     await setOverrideStatusUnavailable('G1', 'uidA');
-    expect(db.setStatusOverride).toHaveBeenCalledWith('G1', 'uidA', {
+    expect(db.mergeStatusOverride).toHaveBeenCalledWith('G1', 'uidA', {
       enabled: true,
       status: 'unavailable',
       availableUntil: null,

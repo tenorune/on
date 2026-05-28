@@ -696,6 +696,20 @@ main {
   opacity: 1;
   pointer-events: auto;
 }
+/* Group-context palette picker. Allow wrapping (16 swatches on one row gets
+   wide on narrow viewports). Drop the .swatch button styles' default and
+   anchor to the same .swatch sizing below. */
+.group-swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 0.5rem;
+  align-items: center;
+}
+.group-swatch-row .swatch {
+  background: transparent;
+  padding: 0;
+}
 .swatch {
   width: 22px; height: 22px; border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.12);

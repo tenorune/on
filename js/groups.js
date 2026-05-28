@@ -8,7 +8,7 @@ import {
   readGroup, readMember, readMembers,
   setLastVisited, setCurrentContext,
   watchUserGroups,
-  setStatusOverride, clearStatusOverride,
+  setStatusOverride, mergeStatusOverride,
 } from './db.js';
 import { navigateToDirect, getCurrentContext, getLastKnownGroupName } from './groupNav.js';
 
@@ -212,20 +212,28 @@ export async function _feedSnapshotForTests(snapshot) {
 // undefined, not null. All readers in this codebase use `?? null` or `== null`
 // (loose) so this is accidentally correct, but be cautious about introducing
 // strict-equality (`=== null`) checks against availableUntil.
+// All four override mutators below merge into the existing record so the
+// user's chosen statusColor + paletteKey persist across enable/disable and
+// available/unavailable changes. RTDB drops null-valued keys from update()
+// writes — that's how we clear status/availableUntil when toggling off.
 export async function toggleStatusOverride(groupId, userId, nextEnabled) {
   if (nextEnabled) {
-    await setStatusOverride(groupId, userId, {
+    await mergeStatusOverride(groupId, userId, {
       enabled: true,
       status: 'unavailable',
       availableUntil: null,
     });
   } else {
-    await clearStatusOverride(groupId, userId);
+    await mergeStatusOverride(groupId, userId, {
+      enabled: false,
+      status: null,
+      availableUntil: null,
+    });
   }
 }
 
 export async function setOverrideStatusAvailable(groupId, userId, availableUntil) {
-  await setStatusOverride(groupId, userId, {
+  await mergeStatusOverride(groupId, userId, {
     enabled: true,
     status: 'available',
     availableUntil,
@@ -233,9 +241,20 @@ export async function setOverrideStatusAvailable(groupId, userId, availableUntil
 }
 
 export async function setOverrideStatusUnavailable(groupId, userId) {
-  await setStatusOverride(groupId, userId, {
+  await mergeStatusOverride(groupId, userId, {
     enabled: true,
     status: 'unavailable',
     availableUntil: null,
+  });
+}
+
+// Used by the group-context palette picker. Writes just the appearance
+// fields without touching enabled/status/availableUntil; supports user
+// picking a different color/palette without disturbing the override's
+// current presence state.
+export async function setOverrideAppearance(groupId, userId, { statusColor, paletteKey }) {
+  await mergeStatusOverride(groupId, userId, {
+    statusColor: statusColor ?? null,
+    paletteKey: paletteKey ?? null,
   });
 }
