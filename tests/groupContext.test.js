@@ -444,6 +444,21 @@ describe('member actions', () => {
     expect(groupsModule.editOwnDisplayName).toHaveBeenCalledWith('G1', 'me', 'M. P.');
   });
 
+  test('Edit my name pre-fills the prompt with the user\'s current group displayName', () => {
+    let metaCb; let membersCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
+    membersCb({
+      me: { role: 'member', displayName: 'Mike P.', joinedAt: 1 },
+      a:  { role: 'member', displayName: 'Alice',   joinedAt: 2 },
+    });
+    window.prompt = jest.fn(() => null);
+    document.getElementById('group-action-edit-name').click();
+    expect(window.prompt).toHaveBeenCalledWith('Your name in this group', 'Mike P.');
+  });
+
   test('Leave group confirms and calls leaveGroup', () => {
     let metaCb;
     db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });

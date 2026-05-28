@@ -54,6 +54,7 @@ let _ownPrimaryUnsub = null;
 let _ownOverrideUnsub = null;
 let _ownPrimary = null;  // { status, availableUntil, statusColor? } | null
 let _ownOverride = null; // { enabled, status, availableUntil, statusColor?, paletteKey? } | null
+let _ownDisplayName = null; // string | null — own member displayName from watchGroupMembers, used to pre-fill the Edit-my-name prompt
 let _membersOverrides = {}; // uid → statusOverride | null
 const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor } | null
 let _settingsOutsideHandler = null;
@@ -314,7 +315,7 @@ function wireActions(groupId, userId, isOwner, groupName) {
 
   document.getElementById('group-action-edit-name').addEventListener('click', async () => {
     closeSettingsMenu();
-    const next = window.prompt('Your name in this group', '');
+    const next = window.prompt('Your name in this group', _ownDisplayName || '');
     if (next == null) return;
     const trimmed = next.trim();
     if (!trimmed) return;
@@ -359,6 +360,7 @@ export function enterGroupContext(groupId, userId) {
     for (const [uid, m] of Object.entries(members || {})) {
       _membersOverrides[uid] = m.statusOverride || null;
     }
+    _ownDisplayName = members?.[userId]?.displayName || null;
     renderRoster(members, userId);
     syncStatusSubscriptions(new Set(Object.keys(members || {})));
     // Re-paint each row to reflect the merged override+primary.
@@ -499,6 +501,7 @@ export function exitGroupContext() {
   _ownPrimary = null;
   _ownOverride = null;
   _membersOverrides = {};
+  _ownDisplayName = null;
   _memberPrimaries.clear();
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
