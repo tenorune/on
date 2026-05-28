@@ -6,6 +6,12 @@ let sendKnock, initKnocks, colorToRgba;
 
 beforeEach(() => {
   jest.useFakeTimers();
+  // Knock-deferred animations are deferred via requestAnimationFrame in
+  // production so the keyframe class lands after any same-tick paint /
+  // DOM mutations settle. Tests run rAF synchronously so existing
+  // assertions about post-drain state still hold without each test having
+  // to flush timers.
+  global.requestAnimationFrame = (fn) => { fn(); return 0; };
   jest.resetModules();
   jest.mock('../js/features.js', () => ({ KNOCK_ENABLED: true, PALETTES_ENABLED: false }));
   jest.mock('../js/db.js', () => ({
@@ -672,6 +678,10 @@ describe('drainPendingKnocks', () => {
     jest.resetModules();
     document.body.innerHTML = '';
     jest.useFakeTimers();
+    // Knock-deferred animations defer via rAF in production. Run rAF
+    // synchronously here so the drain test can assert post-drain DOM state
+    // without flushing timers.
+    global.requestAnimationFrame = (fn) => { fn(); return 0; };
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
     jest.mock('../js/features.js', () => ({ KNOCK_ENABLED: true, PALETTES_ENABLED: false }));
     jest.mock('../js/db.js', () => ({
