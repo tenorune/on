@@ -958,7 +958,7 @@ main {
 .group-context-actions summary::-webkit-details-marker { display: none; }
 .group-actions-menu {
   position: absolute;
-  right: 0;
+  left: 0;
   margin-top: 0.5rem;
   background: var(--surface2);
   border-radius: 0.5rem;
@@ -967,6 +967,13 @@ main {
   flex-direction: column;
   gap: 0.25rem;
   z-index: 5;
+}
+/* Keep each option label on a single line when there's room — the buttons'
+   intrinsic width already fits short labels; nowrap stops "Edit my name" /
+   "Invite link" wrapping when the menu's column width is forced narrower. */
+.group-actions-menu .ghost-btn {
+  white-space: nowrap;
+  text-align: left;
 }
 
 /* Group context view */
