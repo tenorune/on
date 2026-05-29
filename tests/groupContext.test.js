@@ -1273,7 +1273,7 @@ describe('group-context long-press adoption', () => {
       { statusColor: '#aa00ff', paletteKey: 'volt' });
   });
 
-  test('source falls back to primary when override is disabled or missing color', () => {
+  test('source falls back to primary when source member has no override', () => {
     db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
@@ -1318,7 +1318,7 @@ describe('group-context long-press adoption', () => {
   });
 
   test('marks longpress hint seen on first adoption', () => {
-    prefs.isHintSeen.mockReturnValue(false);
+    // prefs.isHintSeen defaults to false via the module-level jest.mock factory.
     db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
