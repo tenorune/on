@@ -62,51 +62,29 @@ jest.mock('../js/favorites.js', () => ({
 jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),
 }));
-jest.mock('../js/prefs.js', () => {
-  // Re-export store functions for palette/timeout getters to ensure consistency
-  // with existing tests that rely on store.js behavior.
-  const store = require('../js/store.js');
-
-  return {
-    isHintSeen: jest.fn(() => false),
-    markHintSeen: jest.fn(),
-    getGroupPaletteState: jest.fn((groupId) => {
-      const DEFAULT_GROUP_PALETTE_STATE = {
-        activeSet: 1,
-        sets: {
-          '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
-          '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
-        },
-      };
-      const GROUP_PALETTE_LS = (gid) => `statusapp_group_palette_${gid}`;
-      try {
-        const raw = global.localStorage.getItem(GROUP_PALETTE_LS(groupId));
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          return {
-            activeSet: parsed.activeSet || DEFAULT_GROUP_PALETTE_STATE.activeSet,
-            sets: {
-              '1': { ...DEFAULT_GROUP_PALETTE_STATE.sets['1'], ...(parsed.sets?.['1'] || {}) },
-              '2': { ...DEFAULT_GROUP_PALETTE_STATE.sets['2'], ...(parsed.sets?.['2'] || {}) },
-            },
-          };
-        }
-      } catch {}
-      return JSON.parse(JSON.stringify(DEFAULT_GROUP_PALETTE_STATE));
-    }),
-    setGroupPaletteState: jest.fn((groupId, state) => {
-      const GROUP_PALETTE_LS = (gid) => `statusapp_group_palette_${gid}`;
-      try {
-        global.localStorage.setItem(GROUP_PALETTE_LS(groupId), JSON.stringify(state));
-      } catch {}
-    }),
-    getPaletteState: store.getPaletteState,
-    getLastTimeout: store.getLastTimeout,
-    setLastTimeout: store.setLastTimeout,
-    getGroupChipMinutes: store.getGroupChipMinutes,
-    setGroupChipMinutes: store.setGroupChipMinutes,
-  };
-});
+jest.mock('../js/prefs.js', () => ({
+  isHintSeen: jest.fn(() => false),
+  markHintSeen: jest.fn(),
+  getGroupPaletteState: jest.fn(() => ({
+    activeSet: 1,
+    sets: {
+      '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+      '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+    },
+  })),
+  setGroupPaletteState: jest.fn(),
+  getPaletteState: jest.fn(() => ({
+    activeSet: 1,
+    sets: {
+      '1': { selectedKey: 'forest', activePaletteKey: null },
+      '2': { selectedKey: 'volt', activePaletteKey: null },
+    },
+  })),
+  getLastTimeout: jest.fn(() => 120),
+  setLastTimeout: jest.fn(),
+  getGroupChipMinutes: jest.fn(() => null),
+  setGroupChipMinutes: jest.fn(),
+}));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
   clearGroupCardBadge: jest.fn(),
@@ -122,6 +100,7 @@ const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
 const groupsModule = require('../js/groups.js');
 const inviteModal = require('../js/inviteModal.js');
+const prefs = require('../js/prefs.js');
 const store = require('../js/store.js');
 const { enterGroupContext, exitGroupContext } = require('../js/groupContext');
 
@@ -546,7 +525,26 @@ describe('own status row', () => {
     return { getMetaCb: () => metaCb, getPrimaryCb: () => primaryCb, getOverrideCb: () => overrideCb };
   }
 
-  beforeEach(() => { jest.clearAllMocks(); setupContextDom(); });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+    // Set up stateful mocks for getGroupPaletteState / setGroupPaletteState
+    // so set-toggle tests can mutate and read state.
+    const prefsStore = {};
+    const prefs = require('../js/prefs.js');
+    prefs.getGroupPaletteState.mockImplementation((groupId) => {
+      return prefsStore[groupId] || {
+        activeSet: 1,
+        sets: {
+          '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+          '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+        },
+      };
+    });
+    prefs.setGroupPaletteState.mockImplementation((groupId, state) => {
+      prefsStore[groupId] = state;
+    });
+  });
 
   test('renders primary status when override is null', () => {
     const cbs = captureCallbacks();
@@ -768,8 +766,8 @@ describe('own status row', () => {
     expect(until).toBeLessThanOrEqual(Date.now() + 180 * 60000 + 2000);
     // Chip cycle is now per-group (no leak into Direct's getLastTimeout /
     // setLastTimeoutMinutes anymore).
-    expect(store.setGroupChipMinutes).toHaveBeenCalledWith('G1', 180);
-    expect(store.setLastTimeout).not.toHaveBeenCalled();
+    expect(prefs.setGroupChipMinutes).toHaveBeenCalledWith('G1', 180);
+    expect(prefs.setLastTimeout).not.toHaveBeenCalled();
   });
 
   test('clicking the time chip when override OFF is a no-op', () => {
