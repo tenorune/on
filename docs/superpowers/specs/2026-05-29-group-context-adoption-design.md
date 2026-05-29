@@ -6,7 +6,7 @@
 
 Bring the Direct-context long-press-to-adopt-color/theme gesture to the group-context roster, scoped per-group. A user in a group can press-and-hold any other member's roster row to adopt that member's effective-in-this-group color and palette as their own override for **this group only**. Direct context and every other group are untouched.
 
-This is the first writer for the `statusOverride.statusColor` / `statusOverride.paletteKey` slots that were schema-reserved in Phase 2.
+This is a **new writer** of the `statusOverride.statusColor` / `statusOverride.paletteKey` slots that the per-group palette picker already writes via `setOverrideAppearance` in `js/groups.js`. Adoption integrates with that existing API, not a new schema population.
 
 ## Scope decisions (locked)
 
@@ -16,7 +16,7 @@ This is the first writer for the `statusOverride.statusColor` / `statusOverride.
   - If the source has their own override ON in this group with `statusColor`/`paletteKey` set, those win.
   - Else fall back to the source's broadcast `users/{srcUid}/{statusColor, paletteKey}`.
   - Else fall back to forest `#22c55e` and `null` paletteKey — same chain as Direct.
-- **Write target:** `groups/{groupId}/members/{myUid}/statusOverride.{statusColor, paletteKey}` via `mergeStatusOverride`. The user's broadcast `users/{myUid}/{statusColor, paletteKey}` is **not** touched.
+- **Write target:** `groups/{groupId}/members/{myUid}/statusOverride.{statusColor, paletteKey}` via the existing **`setOverrideAppearance(groupId, userId, { statusColor, paletteKey })`** API in `js/groups.js`. The user's broadcast `users/{myUid}/{statusColor, paletteKey}` is **not** touched. (Same API the per-group palette picker already uses; consistency over a second direct `mergeStatusOverride` call site.)
 - **Picker mirroring:** the per-group palette picker's `userPrefs/{myUid}/perGroup/{groupId}/paletteState` is updated to reflect the adopted combo, using the same set-resolution logic Direct uses (`PALETTE_SETS[1|2].find(p => p.color === ...)`). A picker tap after adoption wins (last-write-wins, no special handling).
 - **Favorites:** group adoption pushes to the same favorites list Direct uses. (The favorites×context refinement is post-MVP.)
 - **Hint flag:** the existing `statusapp_seen_longpress` (a.k.a. prefs `longpress`) covers both contexts. First group-context adoption marks it seen. Hints are not surfaced *in* group context in this spec (no group roster equivalent of the inline "long-press to adopt color" hint) — the cross-context hint refinement is post-MVP.
@@ -65,7 +65,7 @@ else
 
 ### Writes (single transaction conceptually, two atomic ops)
 
-1. **Override merge** — `mergeStatusOverride(groupId, myUid, { statusColor: adoptedColor, paletteKey: adoptedPaletteKey })`. RTDB `update()` semantics preserve `enabled`/`status`/`availableUntil` untouched.
+1. **Override merge** — `setOverrideAppearance(groupId, myUid, { statusColor: adoptedColor, paletteKey: adoptedPaletteKey })`. Goes through `mergeStatusOverride` internally; RTDB `update()` semantics preserve `enabled`/`status`/`availableUntil` untouched. Same API the per-group palette picker uses for its own writes — adoption is just a multi-field write through the same path.
 2. **Picker mirror** — recompute the per-group palette state shape and call `setGroupPaletteState(groupId, newState)`. The shape mirrors what Direct does:
    - If `adoptedPaletteKey` is set, find which set it belongs to (`PALETTE_SETS[1].some(...) ? 1 : 2`), set `activeSet`, set `sets[set].selectedKey = adoptedPaletteKey`, `sets[set].selectedColor = adoptedColor`, `sets[set].activePaletteKey = adoptedPaletteKey`.
    - Else if `adoptedColor` matches a known palette key color in either set, snap to that set and base mode.
@@ -117,11 +117,11 @@ This mirrors Direct's existing long-press gesture in `js/following.js` — the i
 | Per-group palette picker state | `watchUserPrefs(myUid)` → `prefs.syncFromServer` → `group-palette-state-synced` | Yes |
 | Adopter's own effective render | `applyOptimisticOverride` + paint chain | Yes (existing override toggle path) |
 
-No new subscriptions. One new writer (`mergeStatusOverride` with `{statusColor, paletteKey}`). Picker mirror uses the existing `setGroupPaletteState` setter.
+No new subscriptions. No new db.js exports. Adoption writes through the existing `setOverrideAppearance` (which the per-group palette picker already uses) and the existing `setGroupPaletteState` for the picker mirror.
 
 ## Schema
 
-No schema changes. The Phase 2 `statusOverride` already has `statusColor` and `paletteKey` slots reserved (per the groups spec §13 and HANDOFF §15). This is the first code path to populate them.
+No schema changes. The per-group palette picker already populates `statusOverride.statusColor` and `statusOverride.paletteKey` via `setOverrideAppearance` (see `js/groupContext.js` swatch / set-toggle / palette-mode / complement-color call sites). Adoption is a second writer that goes through the same API.
 
 ```
 groups/{groupId}/members/{myUid}/statusOverride:
@@ -156,8 +156,9 @@ groups/{groupId}/members/{myUid}/statusOverride:
 
 | Module | Change |
 |---|---|
-| `js/groupContext.js` | Add long-press gesture installer on roster row construction. Resolve source. Build the new override + new per-group palette state. Call `applyOptimisticOverride`, `setGroupPaletteState`, `mergeStatusOverride`, `saveFavorite(true)`, `markHintSeen('longpress')`. Add `.adopted-from` class for visual flash. |
-| `js/db.js` | No changes — `mergeStatusOverride` already exists. |
+| `js/groupContext.js` | Add long-press gesture installer on roster row construction. Resolve source. Build the new override + new per-group palette state. Call `applyOptimisticOverride`, `setGroupPaletteState`, `setOverrideAppearance`, `saveFavorite(true)`, `markHintSeen('longpress')`. Add `.adopted-from` class for visual flash. |
+| `js/groups.js` | No changes — `setOverrideAppearance` already exists and supports a multi-field write. |
+| `js/db.js` | No changes — `mergeStatusOverride` already exists (called via `setOverrideAppearance`). |
 | `js/prefs.js` | No changes — `setGroupPaletteState` already exists. |
 | `js/groupNav.js` | No changes — `applyOptimisticOverride` is already exported from `groupContext.js` for cross-module use. |
 | `js/following.js` | No changes — Direct adoption path stays as-is. |
@@ -166,7 +167,7 @@ groups/{groupId}/members/{myUid}/statusOverride:
 
 ## Tests
 
-- `tests/groupContext.test.js`: long-press fires adoption when override is ON; no-op when OFF; resolves source via override-then-primary-then-fallback chain; writes correct `mergeStatusOverride` payload; mirrors picker state via `setGroupPaletteState`; pushes pre-adoption combo to favorites; marks `longpress` hint seen; respects feature flags.
+- `tests/groupContext.test.js`: long-press fires adoption when override is ON; no-op when OFF; resolves source via override-then-primary-then-fallback chain; writes correct `setOverrideAppearance({ statusColor, paletteKey })` payload; mirrors picker state via `setGroupPaletteState`; pushes pre-adoption combo to favorites; marks `longpress` hint seen; respects feature flags.
 - `tests/groupContext.test.js`: gesture arbitration — short-press fires knock, long-press fires adopt, movement beyond threshold cancels both.
 - Existing `tests/groupContext.test.js` roster paint coverage already exercises the receive-side rendering — no new tests needed there.
 
