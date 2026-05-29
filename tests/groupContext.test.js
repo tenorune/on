@@ -1250,5 +1250,93 @@ describe('group-context long-press adoption', () => {
     expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
       { statusColor: '#aaff00', paletteKey: 'volt' });
   });
+
+  test('source uses override.statusColor when override is enabled', () => {
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
+      return () => {};
+    });
+    db.watchGroupMembers.mockImplementation((_gid, cb) => {
+      cb({ src: { displayName: 'Alice', statusOverride: { enabled: true, statusColor: '#aa00ff', paletteKey: 'volt' } } });
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((uid, cb) => {
+      cb({ statusColor: '#000', paletteKey: 'forest' });   // primary, but override wins
+      return () => {};
+    });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
+      { statusColor: '#aa00ff', paletteKey: 'volt' });
+  });
+
+  test('source falls back to primary when override is disabled or missing color', () => {
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
+      return () => {};
+    });
+    db.watchGroupMembers.mockImplementation((_gid, cb) => {
+      cb({ src: { displayName: 'Alice' } });   // no override
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((uid, cb) => {
+      cb({ statusColor: '#abcdef', paletteKey: 'forest' });
+      return () => {};
+    });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
+      { statusColor: '#abcdef', paletteKey: 'forest' });
+  });
+
+  test('source falls back to forest #22c55e when neither override nor primary has a color', () => {
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
+      return () => {};
+    });
+    db.watchGroupMembers.mockImplementation((_gid, cb) => {
+      cb({ src: { displayName: 'Alice' } });
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((uid, cb) => {
+      cb({});   // no statusColor, no paletteKey
+      return () => {};
+    });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
+      { statusColor: '#22c55e', paletteKey: null });
+  });
+
+  test('marks longpress hint seen on first adoption', () => {
+    prefs.isHintSeen.mockReturnValue(false);
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
+      return () => {};
+    });
+    db.watchGroupMembers.mockImplementation((_gid, cb) => {
+      cb({ src: { displayName: 'Alice' } });
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((uid, cb) => {
+      cb({ statusColor: '#abc', paletteKey: null });
+      return () => {};
+    });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(prefs.markHintSeen).toHaveBeenCalledWith('longpress');
+  });
 });
 
