@@ -6,6 +6,12 @@
         ".write": true
       }
     },
+    "userPrefs": {
+      "$userId": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "codeIndex": {
       "$code": {
         ".read": true,
