@@ -59,6 +59,19 @@ function setLastTimeout(n) {
   localStorage.setItem(TIMEOUT_KEY, String(n));
 }
 
+// Per-group chip default (the time chip's "go available for N" pick). Stored
+// locally per device — no Firebase sync yet; that lands with the userPrefs
+// migration. Returns null when the user hasn't picked a per-group default;
+// callers fall through to getLastTimeout() (Direct's default).
+function getGroupChipMinutes(groupId) {
+  const raw = localStorage.getItem(`statusapp_group_chip_${groupId}`);
+  return raw ? parseInt(raw, 10) : null;
+}
+
+function setGroupChipMinutes(groupId, minutes) {
+  localStorage.setItem(`statusapp_group_chip_${groupId}`, String(minutes));
+}
+
 function renameFollowing(userId, newLabel) {
   const list = getFollowing().map((e) =>
     e.userId === userId ? { ...e, label: newLabel } : e
@@ -140,4 +153,4 @@ function incrementAnsweredCallCount() {
   localStorage.setItem(ANSWERED_CALL_COUNT_KEY, String(getAnsweredCallCount() + 1));
 }
 
-module.exports = { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode, getPalette, setPalette, getPaletteState, setPaletteState, getFavorites, setFavorites, getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount };
+module.exports = { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, renameFollowing, updateFollowingCode, getPalette, setPalette, getPaletteState, setPaletteState, getFavorites, setFavorites, getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount };
