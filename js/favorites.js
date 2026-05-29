@@ -9,6 +9,7 @@ import { getCurrentContext, onContextChange } from './groupNav.js';
 import { markHintSeen, isFavoritesCollapsed, setFavoritesCollapsed } from './prefs.js';
 
 const MAX_HISTORY = 6;
+const MAX_FAVORITES = 8;
 const DEFAULT_STATUS_COLOR = '#22c55e';  // default green (forest primary)
 const DEFAULT_SURFACE  = '#1e293b';      // default slate card bg (--surface)
 const DEFAULT_SURFACE2 = '#334155';      // default slate pill bg (--surface2)
@@ -168,6 +169,20 @@ export function saveCustomCombo(combo) {
   const history = getFavorites();
   if (history.some(h => pillsLookSame(combo, h))) return;
   writeFavorites([combo, ...history].slice(0, MAX_HISTORY));
+  renderStrip();
+}
+
+// Single writer for the new model. Pushes a caller-supplied combo to the
+// head of the favorites strip, with head-only dedupe and cap-at-8. Used
+// by going-active (Direct + group) and by long-press adoption (Direct +
+// group). Replaces saveFavorite and saveCustomCombo; both will be removed
+// in a follow-up cleanup task once all callers are migrated.
+export function saveCombo(combo) {
+  if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
+  if (!combo) return;
+  const history = getFavorites();
+  if (history.length && pillsLookSame(history[0], combo)) return; // head-only dedupe
+  writeFavorites([combo, ...history].slice(0, MAX_FAVORITES));
   renderStrip();
 }
 

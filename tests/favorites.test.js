@@ -960,3 +960,115 @@ describe('saveCustomCombo', () => {
     expect(off.setFavorites).not.toHaveBeenCalled();
   });
 });
+
+describe('saveCombo', () => {
+  let saveCombo;
+  let store;
+
+  beforeEach(() => {
+    setupDom();
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
+    jest.mock('../js/palettes.js', () => ({
+      ...jest.requireActual('../js/palettes.js'),
+      switchSet: jest.fn(),
+      enterPaletteMode: jest.fn(),
+      exitPaletteMode: jest.fn(),
+      getPaletteByKey: jest.fn(() => null),
+      getGlowForColor: jest.fn(() => '#000'),
+    }));
+    jest.mock('../js/db.js', () => ({
+      setStatusColor: jest.fn().mockResolvedValue(undefined),
+      setUserFavorites: jest.fn().mockResolvedValue(undefined),
+    }));
+    jest.mock('../js/store.js', () => ({
+      ...jest.requireActual('../js/store.js'),
+      getPaletteState: jest.fn(() => ({
+        activeSet: 1,
+        sets: { '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#22c55e' },
+                '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' } },
+      })),
+      setPaletteState: jest.fn(),
+      getFavorites: jest.fn(() => []),
+      setFavorites: jest.fn(),
+    }));
+    store = require('../js/store.js');
+    ({ saveCombo } = require('../js/favorites.js'));
+  });
+
+  test('pushes combo to empty history', () => {
+    const combo = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
+                    paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
+    saveCombo(combo);
+    expect(store.setFavorites).toHaveBeenCalledTimes(1);
+    expect(store.setFavorites.mock.calls[0][0][0]).toEqual(combo);
+  });
+
+  test('prepends combo to non-empty history', () => {
+    const existing = { statusColor: '#000000', surface: '#111', surface2: '#222',
+                       paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+    const incoming = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
+                       paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
+    store.getFavorites.mockReturnValueOnce([existing]);
+    saveCombo(incoming);
+    const written = store.setFavorites.mock.calls[0][0];
+    expect(written[0]).toEqual(incoming);
+    expect(written[1]).toEqual(existing);
+  });
+
+  test('head-only dedupe: suppresses push when incoming matches head', () => {
+    const combo = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
+                    paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
+    store.getFavorites.mockReturnValueOnce([combo]);
+    saveCombo(combo);
+    expect(store.setFavorites).not.toHaveBeenCalled();
+  });
+
+  test('does NOT dedupe against non-head positions (deeper duplicates allowed)', () => {
+    const other = { statusColor: '#aabbcc', surface: '#000', surface2: '#000',
+                    paletteKey: null, selectedKey: 'volt', activeSet: 2 };
+    const combo = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
+                    paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
+    // combo is at slot 2; head is `other` — dedupe should NOT fire.
+    store.getFavorites.mockReturnValueOnce([other, combo]);
+    saveCombo(combo);
+    expect(store.setFavorites).toHaveBeenCalledTimes(1);
+    const written = store.setFavorites.mock.calls[0][0];
+    expect(written[0]).toEqual(combo);
+    expect(written.length).toBe(3); // [combo, other, combo]
+  });
+
+  test('drops oldest when history is full (cap at 8)', () => {
+    const full = Array.from({ length: 8 }, (_, i) => ({
+      statusColor: `#00000${i}`, surface: '#111', surface2: '#222',
+      paletteKey: null, selectedKey: 'forest', activeSet: 1,
+    }));
+    const incoming = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
+                       paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
+    store.getFavorites.mockReturnValueOnce(full);
+    saveCombo(incoming);
+    const written = store.setFavorites.mock.calls[0][0];
+    expect(written.length).toBe(8);
+    expect(written[0]).toEqual(incoming);
+    expect(written[7]).toEqual(full[6]); // last full entry pushed off
+  });
+
+  test('null combo is a no-op', () => {
+    saveCombo(null);
+    expect(store.setFavorites).not.toHaveBeenCalled();
+  });
+
+  test('feature flags off → no-op', () => {
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: false, PALETTE_INTERACTIONS_ENABLED: false }));
+    jest.mock('../js/store.js', () => ({
+      ...jest.requireActual('../js/store.js'),
+      getFavorites: jest.fn(() => []),
+      setFavorites: jest.fn(),
+    }));
+    const off = require('../js/store.js');
+    const { saveCombo: gated } = require('../js/favorites.js');
+    gated({ statusColor: '#fff', surface: '#000', surface2: '#000', paletteKey: null, selectedKey: 'forest', activeSet: 1 });
+    expect(off.setFavorites).not.toHaveBeenCalled();
+  });
+});
