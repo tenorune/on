@@ -18,7 +18,7 @@ import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock, getFloatedUserIds } from './knock.js';
-import { saveFavorite, removeHistoryDuplicatesOfSlots, getAllCombos } from './favorites.js';
+import { saveCombo, getAllCombos } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
@@ -421,9 +421,24 @@ function triggerAdoption(entry, myUserId) {
     markHintSeen('longpress');
     document.querySelectorAll('.longpress-hint').forEach(el => el.remove());
   }
-  saveFavorite(true); // save pre-adoption state; adopted state enters history on next adoption or go-available
+  // Build the adopted combo from the source's broadcast state and push to
+  // favorites BEFORE applying the adoption (the apply mutates picker state).
+  const targetData = lastUserData.get(entry.userId);
+  const adoptedColor = targetData?.statusColor || '#22c55e';
+  const adoptedPaletteKey = targetData?.paletteKey ?? null;
+  // Resolve surface colors from the palette (matches the standard combo shape).
+  const adoptedPalette = adoptedPaletteKey ? getPaletteByKey(adoptedPaletteKey) : null;
+  const adoptedCombo = {
+    statusColor: adoptedColor,
+    surface:  adoptedPalette?.theme?.surface  ?? '#1e293b',
+    surface2: adoptedPalette?.theme?.surface2 ?? '#334155',
+    paletteKey: adoptedPaletteKey,
+    selectedKey: adoptedPaletteKey ?? 'forest', // best-guess selectedKey
+    activeSet: adoptedPaletteKey && PALETTE_SETS[2].some(p => p.key === adoptedPaletteKey) ? 2 : 1,
+  };
+  saveCombo(adoptedCombo);
   applyAdoption(entry, myUserId);
-  removeHistoryDuplicatesOfSlots(); // if adoption didn't change anything, remove the now-duplicate pill
+  // (removeHistoryDuplicatesOfSlots call from here is GONE — slots no longer exist.)
 }
 
 function createFolloweeRow(entry, myUserId, isMutual = false) {
