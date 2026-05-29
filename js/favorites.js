@@ -23,7 +23,7 @@ let _prevPillCount = 0;
 
 // ─── Combo building ──────────────────────────────────────────────────────────
 
-export function buildCombo() {
+export function buildDirectCombo() {
   const ps = getPaletteState();
   const activeSetKey = String(ps.activeSet);
   const { selectedKey, activePaletteKey } = ps.sets[activeSetKey];
@@ -133,7 +133,7 @@ export function removeHistoryDuplicatesOfSlots() {
 
 export function saveFavorite(force = false) {
   if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
-  const currentCombo = buildCombo();
+  const currentCombo = buildDirectCombo();
   if (force) {
     _lastCommittedCombo = currentCombo;
     const history = getFavorites();
@@ -200,7 +200,7 @@ function onPaletteStateChanged() {
 
 export function initFavoritesStrip(myUserId) {
   _myUserId = myUserId;
-  _lastCommittedCombo = buildCombo();
+  _lastCommittedCombo = buildDirectCombo();
   document.addEventListener('palette-state-changed', onPaletteStateChanged);
   // Snap any in-flight peek-strip animation closed the moment the user
   // moves into a group context — doPeek's gate handles subsequent ticks,

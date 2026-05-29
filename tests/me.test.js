@@ -1,6 +1,6 @@
 // tests/me.test.js
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
-jest.mock('../js/favorites.js', () => ({ saveCombo: jest.fn(), buildCombo: jest.fn(() => ({})), initFavoritesStrip: jest.fn() }));
+jest.mock('../js/favorites.js', () => ({ saveCombo: jest.fn(), buildDirectCombo: jest.fn(() => ({})), initFavoritesStrip: jest.fn() }));
 jest.mock('../js/palettes.js', () => ({ applyThemeHint: jest.fn(), restoreSetSwitchPulse: jest.fn() }));
 jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
@@ -387,7 +387,7 @@ describe('saveCombo guard in setAvailable', () => {
   beforeEach(() => {
     jest.resetModules();
     jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
-    jest.mock('../js/favorites.js', () => ({ saveCombo: jest.fn(), buildCombo: jest.fn(() => ({})), initFavoritesStrip: jest.fn() }));
+    jest.mock('../js/favorites.js', () => ({ saveCombo: jest.fn(), buildDirectCombo: jest.fn(() => ({})), initFavoritesStrip: jest.fn() }));
     jest.mock('../js/db.js', () => ({
       setStatus: jest.fn().mockResolvedValue(undefined),
       isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
@@ -424,5 +424,6 @@ describe('saveCombo guard in setAvailable', () => {
     applyOwnStatus('unavailable', null);
     applyOwnStatus('available', Date.now() + 7200000);
     expect(saveComboMock).toHaveBeenCalledTimes(1);
+    expect(saveComboMock).toHaveBeenCalledWith({}); // buildDirectCombo mock returns {}
   });
 });
