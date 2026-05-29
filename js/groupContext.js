@@ -291,7 +291,17 @@ function renderOwnStatusRow() {
 
   // Read-only mode applies the dot + chip dimming when override is OFF.
   dot.classList.toggle('readonly', !overrideOn);
-  if (timeChip) timeChip.classList.toggle('readonly', !overrideOn);
+  if (timeChip) {
+    timeChip.classList.toggle('readonly', !overrideOn);
+    // Chip text mirrors the same source-of-truth as the dot/label. With
+    // override ON, show the per-group chip default (fall back to Direct's
+    // for fresh groups). With override OFF, show Direct's chip default —
+    // that's what fellow members see, so the user's own view should match.
+    const effectiveMinutes = overrideOn
+      ? (getGroupChipMinutes(_currentGroupId) ?? getLastTimeout())
+      : getLastTimeout();
+    timeChip.textContent = CHIP_VALUES[chipIndexForMinutes(effectiveMinutes)].text;
+  }
 
   if (timeRemaining) {
     // null availableUntil means open-ended; no countdown to show
@@ -745,11 +755,23 @@ function installGroupSyncListeners() {
   document.addEventListener('group-chip-minutes-synced', (e) => {
     if (!_currentGroupId) return;
     if (e.detail?.groupId !== _currentGroupId) return;
+    // Only re-render the chip from this event when override is ON — when
+    // override is OFF the chip mirrors Direct's value, not the per-group one.
+    if (!_ownOverride?.enabled) return;
     const minutes = e.detail.minutes;
     const idx = chipIndexForMinutes(minutes);
     if (idx < 0) return;
     const chipEl = document.getElementById('group-time-chip');
     if (chipEl) chipEl.textContent = CHIP_VALUES[idx].text;
+  });
+  // When override is OFF, the group chip mirrors Direct's chip default.
+  // Direct-side chip changes (local user toggle in me.js, or a sibling
+  // device's setLastTimeout that arrives via watchUserPrefs) need to
+  // refresh the read-only group chip too.
+  document.addEventListener('last-timeout-synced', () => {
+    if (!_currentGroupId) return;
+    if (_ownOverride?.enabled) return; // chip is showing the per-group value
+    renderOwnStatusRow();
   });
 }
 
