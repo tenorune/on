@@ -1,0 +1,102 @@
+// js/prefs.js
+//
+// Centralizes the localStorage cache + Firebase sync for cross-device user
+// preferences. Reads stay synchronous (localStorage). Writes go through here
+// so they hit both localStorage (immediate, for same-tab reads) and the
+// userPrefs/{uid}/ subtree (cross-device sync). The boot path subscribes
+// watchUserPrefs and forwards each tick to syncFromServer, which repopulates
+// the localStorage cache from server state.
+//
+// Modules other than this one + store.js generally read localStorage inline.
+// To make a piece of state syncable: add a getter (defaults to localStorage),
+// add a setter (writes both layers), handle it in syncFromServer.
+
+import { mergeUserPrefs } from './db.js';
+
+let _myUserId = null;
+
+export function initPrefs(userId) {
+  _myUserId = userId;
+}
+
+// ── Hints ────────────────────────────────────────────────────────────────────
+// Maps short hint name → localStorage key it currently lives under. New code
+// should use the short name; the localStorage key shape is preserved so any
+// inline `localStorage.getItem('statusapp_seen_*')` reads scattered through
+// the codebase keep working without touching them.
+const HINT_KEYS = {
+  bolt:        'statusapp_seen_bolt',
+  flower:      'statusapp_seen_flower',
+  theme:       'statusapp_seen_theme',
+  stripPeek:   'statusapp_seen_strip_peek_done',
+  longpress:   'statusapp_seen_longpress',
+  swipe:       'statusapp_seen_swipe',
+  customAvail: 'statusapp_went_avail_custom',
+};
+
+export function isHintSeen(name) {
+  const key = HINT_KEYS[name];
+  return key ? localStorage.getItem(key) === '1' : false;
+}
+
+export function markHintSeen(name) {
+  const key = HINT_KEYS[name];
+  if (!key) return;
+  if (localStorage.getItem(key) === '1') return; // idempotent — skip the write
+  localStorage.setItem(key, '1');
+  if (_myUserId) mergeUserPrefs(_myUserId, { [`hints/${name}`]: true }).catch(() => {});
+}
+
+// ── Call counters (drive the "(swipe right to answer)" hints in
+//    following.js — both gate at 4) ─────────────────────────────────────────
+const MADE_CALL_KEY = 'statusapp_made_call_count';
+const ANSWERED_CALL_KEY = 'statusapp_answered_call_count';
+
+export function getMadeCallCount() {
+  return parseInt(localStorage.getItem(MADE_CALL_KEY) || '0', 10);
+}
+
+export function incrementMadeCallCount() {
+  const next = getMadeCallCount() + 1;
+  localStorage.setItem(MADE_CALL_KEY, String(next));
+  if (_myUserId) mergeUserPrefs(_myUserId, { madeCallCount: next }).catch(() => {});
+}
+
+export function getAnsweredCallCount() {
+  return parseInt(localStorage.getItem(ANSWERED_CALL_KEY) || '0', 10);
+}
+
+export function incrementAnsweredCallCount() {
+  const next = getAnsweredCallCount() + 1;
+  localStorage.setItem(ANSWERED_CALL_KEY, String(next));
+  if (_myUserId) mergeUserPrefs(_myUserId, { answeredCallCount: next }).catch(() => {});
+}
+
+// ── Watch reconciliation ─────────────────────────────────────────────────────
+// Called by app.js's watchUserPrefs subscription each time the server snapshot
+// changes. Populates the localStorage cache so subsequent synchronous reads
+// see the synced state. Server wins on conflict; the wipe-friendly migration
+// means there's no first-time push-up of pre-existing local state.
+export function syncFromServer(serverPrefs) {
+  if (!serverPrefs) return;
+  // Hints
+  if (serverPrefs.hints) {
+    for (const [name, seen] of Object.entries(serverPrefs.hints)) {
+      const key = HINT_KEYS[name];
+      if (key && seen) localStorage.setItem(key, '1');
+    }
+  }
+  // Counters (server's larger value wins — both devices may have incremented)
+  if (typeof serverPrefs.madeCallCount === 'number') {
+    const local = getMadeCallCount();
+    if (serverPrefs.madeCallCount > local) {
+      localStorage.setItem(MADE_CALL_KEY, String(serverPrefs.madeCallCount));
+    }
+  }
+  if (typeof serverPrefs.answeredCallCount === 'number') {
+    const local = getAnsweredCallCount();
+    if (serverPrefs.answeredCallCount > local) {
+      localStorage.setItem(ANSWERED_CALL_KEY, String(serverPrefs.answeredCallCount));
+    }
+  }
+}

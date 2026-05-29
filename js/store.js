@@ -137,20 +137,7 @@ function setPalette(key) {
   localStorage.setItem('statusapp_palette', key);
 }
 
-function getMadeCallCount() {
-  return parseInt(localStorage.getItem(MADE_CALL_COUNT_KEY) || '0', 10);
-}
+// Call-counter helpers moved to js/prefs.js — they now sync via userPrefs/
+// instead of staying device-local.
 
-function incrementMadeCallCount() {
-  localStorage.setItem(MADE_CALL_COUNT_KEY, String(getMadeCallCount() + 1));
-}
-
-function getAnsweredCallCount() {
-  return parseInt(localStorage.getItem(ANSWERED_CALL_COUNT_KEY) || '0', 10);
-}
-
-function incrementAnsweredCallCount() {
-  localStorage.setItem(ANSWERED_CALL_COUNT_KEY, String(getAnsweredCallCount() + 1));
-}
-
-module.exports = { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, renameFollowing, updateFollowingCode, getPalette, setPalette, getPaletteState, setPaletteState, getFavorites, setFavorites, getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount };
+module.exports = { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, renameFollowing, updateFollowingCode, getPalette, setPalette, getPaletteState, setPaletteState, getFavorites, setFavorites };

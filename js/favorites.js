@@ -5,6 +5,7 @@ import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowF
 import { setStatusColor, setUserFavorites } from './db.js';
 import { safeCssColor } from './utils.js';
 import { getCurrentContext, onContextChange } from './groupNav.js';
+import { markHintSeen } from './prefs.js';
 
 const MAX_HISTORY = 6;
 const DEFAULT_STATUS_COLOR = '#22c55e';  // default green (forest primary)
@@ -236,7 +237,7 @@ function renderCollapsed(container, history) {
     `<div class="fav-collapsed"><div class="fav-collapsed-line" style="background:${bg}"></div></div>`;
   container.querySelector('.fav-collapsed').addEventListener('click', () => {
     localStorage.removeItem(COLLAPSED_KEY);
-    localStorage.setItem('statusapp_seen_strip_peek_done', '1');
+    markHintSeen('stripPeek');
     renderStrip();
   });
 
@@ -257,7 +258,7 @@ function renderCollapsed(container, history) {
     const endY = e.changedTouches[0].clientY;
     if (endY - _swipeDownStart > 30) {
       localStorage.removeItem(COLLAPSED_KEY);
-      localStorage.setItem('statusapp_seen_strip_peek_done', '1');
+      markHintSeen('stripPeek');
       renderStrip();
     }
     _swipeDownStart = null;

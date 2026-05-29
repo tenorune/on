@@ -10,6 +10,8 @@ import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, apply
 import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
+import { initPrefs, syncFromServer as syncPrefsFromServer } from './prefs.js';
+import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector } from './groups.js';
@@ -448,6 +450,16 @@ async function main() {
   }
 
   touchLastSeen(userId).catch(() => {});
+
+  // Cross-device user-preferences sync. initPrefs makes the prefs module
+  // aware of who's writing; the watchUserPrefs subscription reconciles
+  // local cache with server on every change. Writes throughout the app
+  // (markHintSeen, incrementMadeCallCount, etc.) go through prefs.js so
+  // they hit both localStorage and userPrefs/{uid}/ in Firebase.
+  initPrefs(userId);
+  watchUserPrefs(userId, (serverPrefs) => {
+    syncPrefsFromServer(serverPrefs);
+  });
 
   initCodeDrawer(userId, code);
   initHeader(userId);

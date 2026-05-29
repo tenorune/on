@@ -1,6 +1,7 @@
 // js/palettes.js
 import { getPaletteState, setPaletteState, getFavorites } from './store.js';
 import { setStatusColor, setPaletteKey } from './db.js';
+import { isHintSeen, markHintSeen } from './prefs.js';
 
 let _hintTimer = null;
 let _justEnteredPaletteMode = false;
@@ -165,8 +166,8 @@ export function resetThemeVars() {
 
 export function enterPaletteMode(key, userId) {
   _justEnteredPaletteMode = true;
-  if (!localStorage.getItem('statusapp_seen_theme')) {
-    localStorage.setItem('statusapp_seen_theme', '1');
+  if (!isHintSeen('theme')) {
+    markHintSeen('theme');
   }
   const state = getPaletteState();
   state.sets[String(state.activeSet)].activePaletteKey = key;
@@ -202,12 +203,12 @@ function renderSwatchRow(userId) {
   btn.className = 'set-toggle-btn';
   btn.innerHTML = setNum === 1 ? ICON_BOLT : ICON_TREE;
   // First-use pulse: bolt on Set 1, flower on Set 2 — each pulses once per icon
-  const pulseKey = setNum === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
-  if (!localStorage.getItem(pulseKey)) {
+  const hintName = setNum === 1 ? 'bolt' : 'flower';
+  if (!isHintSeen(hintName)) {
     btn.classList.add('first-use-pulse');
     btn.addEventListener('click', () => {
       btn.classList.remove('first-use-pulse');
-      localStorage.setItem(pulseKey, '1');
+      markHintSeen(hintName);
     }, { once: true });
   }
   btn.addEventListener('click', () => switchSet(setNum === 1 ? 2 : 1, userId));

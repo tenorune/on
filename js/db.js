@@ -356,6 +356,39 @@ export function watchFollowers(myUserId, callback) {
 }
 
 // Called when user A follows user B: registers A in B's followers
+// ── User preferences (cross-device sync) ────────────────────────────────────
+// All user-private state that needs to sync across devices lives under
+// `userPrefs/{uid}/` — deliberately NOT under `users/{uid}/` so it doesn't
+// get echoed to every follower's watchStatus tick. The schema is:
+//   userPrefs/{uid}/
+//     hints/ { bolt, flower, theme, stripPeek, longpress, swipe, customAvail }
+//     madeCallCount, answeredCallCount
+//     favoritesCollapsed
+//     lastTimeoutMinutes                          ← Direct's chip default
+//     currentContext                              ← (planned, post-foundation)
+//     favorites/ [...]                            ← (planned, post-foundation)
+//     paletteState/direct/                        ← (planned, post-foundation)
+//     perGroup/{groupId}/
+//       paletteState/                             ← (planned, post-foundation)
+//       lastTimeoutMinutes                        ← per-group chip default
+//
+// Reads on the consumer side use localStorage (the cache populated by
+// watchUserPrefs's tick); writes call mergeUserPrefs so multi-leaf updates
+// land in a single RTDB op.
+export function watchUserPrefs(userId, callback) {
+  const prefsRef = ref(db, `userPrefs/${userId}`);
+  return onValue(prefsRef, (snap) => {
+    callback(snap.exists() ? snap.val() : null);
+  });
+}
+
+// `fields` is a flat object keyed by slash-separated paths relative to
+// userPrefs/{uid}, e.g. { 'hints/bolt': true, 'lastTimeoutMinutes': 30 }.
+// RTDB's update() applies multi-path keys atomically.
+export async function mergeUserPrefs(userId, fields) {
+  await update(ref(db, `userPrefs/${userId}`), fields);
+}
+
 export async function registerAsFollower(targetUserId, myUserId, myCode) {
   // Clear any prior revocation BEFORE writing the followers entry — not in
   // parallel. The receiving end's watchStatus tick can fire on either

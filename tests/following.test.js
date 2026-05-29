@@ -81,6 +81,8 @@ jest.mock('../js/db.js', () => ({
   setStatusOverride: jest.fn().mockResolvedValue(undefined),
   clearStatusOverride: jest.fn().mockResolvedValue(undefined),
   mergeStatusOverride: jest.fn().mockResolvedValue(undefined),
+  mergeUserPrefs: jest.fn().mockResolvedValue(undefined),
+  watchUserPrefs: jest.fn(() => () => {}),
   watchOwnMemberOverride: jest.fn(() => () => {}),
 }));
 jest.mock('../js/knock.js', () => ({
@@ -104,6 +106,10 @@ jest.mock('../js/store.js', () => ({
     },
   }),
   setPaletteState: jest.fn(),
+}));
+jest.mock('../js/prefs.js', () => ({
+  isHintSeen: jest.fn(() => false),
+  markHintSeen: jest.fn(),
   getMadeCallCount: jest.fn().mockReturnValue(0),
   incrementMadeCallCount: jest.fn(),
   getAnsweredCallCount: jest.fn().mockReturnValue(0),
@@ -111,7 +117,8 @@ jest.mock('../js/store.js', () => ({
 }));
 
 const { watchStatus, watchFollowers, setCallState, clearCallState } = require('../js/db.js');
-const { getFollowing, updateFollowingCode, getMadeCallCount, getAnsweredCallCount } = require('../js/store.js');
+const { getFollowing, updateFollowingCode } = require('../js/store.js');
+const { getMadeCallCount, getAnsweredCallCount } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
   initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees,

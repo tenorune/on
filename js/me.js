@@ -4,6 +4,7 @@ import { getLastTimeout, setLastTimeout, getPaletteState } from './store.js';
 import { PALETTES_ENABLED } from './features.js';
 import { saveFavorite } from './favorites.js';
 import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
+import { markHintSeen } from './prefs.js';
 
 const CHIP_VALUES = [
   { minutes: 30,   text: '30 minutes' },
@@ -164,7 +165,7 @@ function setAvailable(availableUntil) {
   if (PALETTES_ENABLED && !dot.classList.contains('available')) {
     const ps = getPaletteState();
     if (ps.sets[String(ps.activeSet)].selectedColor) {
-      localStorage.setItem('statusapp_went_avail_custom', '1');
+      markHintSeen('customAvail');
     }
   }
   const label = document.getElementById('my-status-label');
