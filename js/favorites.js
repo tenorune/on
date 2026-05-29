@@ -6,6 +6,7 @@ import { setStatusColor } from './db.js';
 import { getFavorites, setFavorites, markHintSeen, isFavoritesCollapsed, setFavoritesCollapsed } from './prefs.js';
 import { safeCssColor } from './utils.js';
 import { getCurrentContext, onContextChange } from './groupNav.js';
+import { applyAdoptedComboInGroup } from './groupContext.js';
 
 const MAX_FAVORITES = 8;
 const DEFAULT_STATUS_COLOR = '#22c55e';  // default green (forest primary)
@@ -115,45 +116,57 @@ export function saveCombo(combo) {
 
 export function initFavoritesStrip(myUserId) {
   _myUserId = myUserId;
-  // Snap any in-flight peek-strip animation closed the moment the user
-  // moves into a group context — doPeek's gate handles subsequent ticks,
-  // but a wrapper already mid-animation would otherwise float over the
-  // group view for up to ~1.3s.
-  onContextChange((ctx) => {
-    if (ctx.context !== 'direct') {
-      document.querySelectorAll('.fav-peek-wrapper').forEach((el) => {
-        el.style.transition = '';
-        el.style.maxHeight = '0';
-        el.style.opacity = '0';
-      });
-    }
+  // Re-render on context change so the now-active context's strip is
+  // populated and any peek animation re-attaches to the visible container.
+  // Also tears down any in-flight peek belonging to the previous context
+  // (renderCollapsed's MutationObserver cleans up its own listeners).
+  onContextChange(() => {
+    document.querySelectorAll('.fav-peek-wrapper').forEach((el) => {
+      el.style.transition = '';
+      el.style.maxHeight = '0';
+      el.style.opacity = '0';
+    });
+    renderStrip();
   });
   renderStrip();
 }
 
 // ─── Rendering ───────────────────────────────────────────────────────────────
 
+// The strip lives in two DOM locations — `#favorites-strip` inside
+// #main-ui-direct and `#group-favorites-strip` inside #group-context-root.
+// Both render the same content; only the one in the active context is
+// visible (the other's parent has the .hidden class). Pills installed in
+// each container get their own click handlers; the handler dispatches by
+// whichever context is active at click time.
+const STRIP_CONTAINERS = [
+  { id: 'favorites-strip',       homeContext: 'direct' },
+  { id: 'group-favorites-strip', homeContext: 'group'  },
+];
+
 function renderStrip() {
-  const container = document.getElementById('favorites-strip');
-  if (!container) return;
   const history = getFavorites();
-  container.style.display = 'block';
-  if (history.length === 0 || !localStorage.getItem('statusapp_seen_theme')) {
-    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0f172a';
-    container.innerHTML =
-      `<div class="fav-collapsed"><div class="fav-collapsed-line" style="background:${bgColor}"></div></div>`;
-    return;
-  }
-  const isFtu = !localStorage.getItem('statusapp_seen_strip_peek_done');
-  const collapsed = isFtu || isFavoritesCollapsed();
-  if (collapsed) {
-    renderCollapsed(container, history);
-  } else {
-    renderExpanded(container, history);
+  for (const { id, homeContext } of STRIP_CONTAINERS) {
+    const container = document.getElementById(id);
+    if (!container) continue;
+    container.style.display = 'block';
+    if (history.length === 0 || !localStorage.getItem('statusapp_seen_theme')) {
+      const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0f172a';
+      container.innerHTML =
+        `<div class="fav-collapsed"><div class="fav-collapsed-line" style="background:${bgColor}"></div></div>`;
+      continue;
+    }
+    const isFtu = !localStorage.getItem('statusapp_seen_strip_peek_done');
+    const collapsed = isFtu || isFavoritesCollapsed();
+    if (collapsed) {
+      renderCollapsed(container, history, homeContext);
+    } else {
+      renderExpanded(container, history);
+    }
   }
 }
 
-function renderCollapsed(container, history) {
+function renderCollapsed(container, history, homeContext = 'direct') {
   const allColors = history.map(c => c.statusColor);
   const n = allColors.length;
   const bg = n <= 1
@@ -167,9 +180,13 @@ function renderCollapsed(container, history) {
     renderStrip();
   });
 
-  // Peek hint: repeats every 6s until user opens the strip
-  if (!localStorage.getItem('statusapp_seen_strip_peek_done')) {
-    peekStrip(container, history);
+  // Peek hint: repeats every 6s until user opens the strip. Only attach
+  // the peek to the container whose home context matches the active
+  // context — otherwise the body-level peek wrapper would float over
+  // the wrong view.
+  if (!localStorage.getItem('statusapp_seen_strip_peek_done') &&
+      getCurrentContext().context === homeContext) {
+    peekStrip(container, history, homeContext);
   }
 
   // Swipe down from strip area or gap below it to expand
@@ -274,7 +291,7 @@ function renderExpanded(container, history) {
 
 
 
-function peekStrip(container, history) {
+function peekStrip(container, history, homeContext = 'direct') {
   const historyPills = history.map((c, i) => renderPill(c, 'history', 'history', i)).join('');
 
   // Build peek strip with fixed positioning — no layout impact
@@ -322,12 +339,11 @@ function peekStrip(container, history) {
       if (line) line.style.filter = '';
       return;
     }
-    // Suppress the hint while the user is in group context — the
-    // favorites strip itself lives inside #main-ui-direct and is hidden,
-    // but the peek wrapper is body-level so it'd otherwise float over
-    // the group view. Force-collapse the wrapper and reschedule; when
-    // the user navigates back to Direct, the next tick fires normally.
-    if (getCurrentContext().context !== 'direct') {
+    // Suppress the hint when the active context doesn't match this
+    // peek's home context — the peek wrapper is body-level so it'd
+    // otherwise float over the wrong view. Force-collapse and
+    // reschedule; the next tick fires normally when context matches.
+    if (getCurrentContext().context !== homeContext) {
       wrapper.style.transition = '';
       wrapper.style.maxHeight = '0';
       wrapper.style.opacity = '0';
@@ -383,7 +399,17 @@ function handleHistoryTap(idx) {
   const combo = getFavorites()[idx];
   if (!combo) return;
 
-  // Restore picker state to reflect this combo.
+  // Dispatch by active context. In group context, the equivalent of
+  // "restore the picker to this combo" is "apply this combo to the
+  // group's statusOverride + per-group paletteState" — the same code
+  // path as long-press group adoption from a roster member, sourced
+  // from the pill instead. In Direct, restore the live picker state.
+  if (getCurrentContext().context === 'group') {
+    applyAdoptedComboInGroup(combo.statusColor, combo.paletteKey ?? null);
+    return;
+  }
+
+  // Direct: restore picker state to reflect this combo.
   const state = JSON.parse(JSON.stringify(getPaletteState()));
   state.sets[String(combo.activeSet)].selectedKey = combo.selectedKey;
   state.sets[String(combo.activeSet)].selectedColor = combo.statusColor;

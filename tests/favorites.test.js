@@ -567,3 +567,129 @@ describe('saveCombo', () => {
     expect(off.setFavorites).not.toHaveBeenCalled();
   });
 });
+
+describe('strip available in both contexts', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    document.body.innerHTML =
+      '<div id="favorites-strip"></div><div id="group-favorites-strip"></div>';
+    document.documentElement.style.setProperty('--my-status', '#22c55e');
+    document.documentElement.style.setProperty('--my-glow', 'rgba(34,197,94,0.4)');
+    localStorage.setItem('statusapp_seen_theme', '1');
+    localStorage.setItem('statusapp_seen_strip_peek_done', '1');
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
+    jest.mock('../js/palettes.js', () => ({
+      ...jest.requireActual('../js/palettes.js'),
+      switchSet: jest.fn(),
+      enterPaletteMode: jest.fn(),
+      exitPaletteMode: jest.fn(),
+      getPaletteByKey: jest.fn(() => null),
+      getGlowForColor: jest.fn(() => 'rgba(0,0,0,0.4)'),
+    }));
+    jest.mock('../js/db.js', () => ({
+      setStatusColor: jest.fn().mockResolvedValue(undefined),
+      setUserFavorites: jest.fn().mockResolvedValue(undefined),
+    }));
+    jest.mock('../js/store.js', () => ({
+      ...jest.requireActual('../js/store.js'),
+      getPaletteState: jest.fn(() => ({
+        activeSet: 1,
+        sets: { '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#22c55e' },
+                '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' } },
+      })),
+      setPaletteState: jest.fn(),
+      getFavorites: jest.fn(() => [
+        { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
+          paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 },
+      ]),
+      setFavorites: jest.fn(),
+    }));
+  });
+
+  test('renderStrip writes pills into both #favorites-strip and #group-favorites-strip', () => {
+    const { initFavoritesStrip } = require('../js/favorites.js');
+    initFavoritesStrip('myUid');
+    setFavoritesCollapsed_(false); // use the non-collapsed path
+    const direct = document.querySelectorAll('#favorites-strip .fav-pill');
+    const group  = document.querySelectorAll('#group-favorites-strip .fav-pill');
+    expect(direct.length).toBe(1);
+    expect(group.length).toBe(1);
+  });
+
+  test('tapping a pill in Direct context restores picker state (existing path)', () => {
+    const palettes = require('../js/palettes.js');
+    const db = require('../js/db.js');
+    const { initFavoritesStrip } = require('../js/favorites.js');
+    initFavoritesStrip('myUid');
+    setFavoritesCollapsed_(false);
+    const directPill = document.querySelector('#favorites-strip .fav-pill[data-type="history"]');
+    directPill.click();
+    expect(palettes.switchSet).toHaveBeenCalled();
+    expect(db.setStatusColor).toHaveBeenCalledWith('myUid', '#ff00aa');
+  });
+
+  test('tapping a pill in group context calls applyAdoptedComboInGroup, NOT Direct path', () => {
+    jest.resetModules();
+    document.body.innerHTML =
+      '<div id="favorites-strip"></div><div id="group-favorites-strip"></div>';
+    localStorage.setItem('statusapp_seen_theme', '1');
+    localStorage.setItem('statusapp_seen_strip_peek_done', '1');
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
+    jest.mock('../js/palettes.js', () => ({
+      ...jest.requireActual('../js/palettes.js'),
+      switchSet: jest.fn(),
+      enterPaletteMode: jest.fn(),
+      exitPaletteMode: jest.fn(),
+      getPaletteByKey: jest.fn(() => null),
+      getGlowForColor: jest.fn(() => 'rgba(0,0,0,0.4)'),
+    }));
+    jest.mock('../js/db.js', () => ({
+      setStatusColor: jest.fn().mockResolvedValue(undefined),
+      setUserFavorites: jest.fn().mockResolvedValue(undefined),
+    }));
+    jest.mock('../js/store.js', () => ({
+      ...jest.requireActual('../js/store.js'),
+      getPaletteState: jest.fn(() => ({
+        activeSet: 1,
+        sets: { '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#22c55e' },
+                '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' } },
+      })),
+      setPaletteState: jest.fn(),
+      getFavorites: jest.fn(() => [
+        { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
+          paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 },
+      ]),
+      setFavorites: jest.fn(),
+    }));
+    jest.mock('../js/groupContext.js', () => ({
+      applyAdoptedComboInGroup: jest.fn(),
+    }));
+    jest.mock('../js/groupNav.js', () => ({
+      getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
+      onContextChange: jest.fn(),
+    }));
+    const palettes = require('../js/palettes.js');
+    const db = require('../js/db.js');
+    const { initFavoritesStrip } = require('../js/favorites.js');
+    initFavoritesStrip('myUid');
+    setFavoritesCollapsed_(false);
+    const groupPill = document.querySelector('#group-favorites-strip .fav-pill[data-type="history"]');
+    groupPill.click();
+    const groupContextMock = require('../js/groupContext.js');
+    expect(groupContextMock.applyAdoptedComboInGroup).toHaveBeenCalledWith('#ff00aa', 'forest');
+    expect(palettes.switchSet).not.toHaveBeenCalled();
+    expect(db.setStatusColor).not.toHaveBeenCalled();
+  });
+});
+
+// Helper: flip collapsed state and re-render. Used by the cross-context
+// strip tests above; the existing collapsed/expanded toggling is tested
+// elsewhere.
+function setFavoritesCollapsed_(value) {
+  if (value) localStorage.setItem('statusapp_favorites_collapsed', '1');
+  else localStorage.removeItem('statusapp_favorites_collapsed');
+  // Re-render by re-initing — this is hackier than calling renderStrip
+  // directly (not exported), but tests only need the post-render DOM.
+  const { initFavoritesStrip } = require('../js/favorites.js');
+  initFavoritesStrip('myUid');
+}
