@@ -44,6 +44,7 @@ jest.mock('../js/invites.js', () => ({
 jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
   getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
+  applyOptimisticAppearance: jest.fn(),
 }));
 jest.mock('../js/groups.js', () => ({
   renameGroup: jest.fn().mockResolvedValue(undefined),
@@ -55,9 +56,57 @@ jest.mock('../js/groups.js', () => ({
   setOverrideStatusUnavailable: jest.fn().mockResolvedValue(undefined),
   setOverrideAppearance: jest.fn().mockResolvedValue(undefined),
 }));
+jest.mock('../js/favorites.js', () => ({
+  saveCustomCombo: jest.fn(),
+}));
 jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),
 }));
+jest.mock('../js/prefs.js', () => {
+  // Re-export store functions for palette/timeout getters to ensure consistency
+  // with existing tests that rely on store.js behavior.
+  const store = require('../js/store.js');
+
+  return {
+    isHintSeen: jest.fn(() => false),
+    markHintSeen: jest.fn(),
+    getGroupPaletteState: jest.fn((groupId) => {
+      const DEFAULT_GROUP_PALETTE_STATE = {
+        activeSet: 1,
+        sets: {
+          '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+          '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+        },
+      };
+      const GROUP_PALETTE_LS = (gid) => `statusapp_group_palette_${gid}`;
+      try {
+        const raw = global.localStorage.getItem(GROUP_PALETTE_LS(groupId));
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return {
+            activeSet: parsed.activeSet || DEFAULT_GROUP_PALETTE_STATE.activeSet,
+            sets: {
+              '1': { ...DEFAULT_GROUP_PALETTE_STATE.sets['1'], ...(parsed.sets?.['1'] || {}) },
+              '2': { ...DEFAULT_GROUP_PALETTE_STATE.sets['2'], ...(parsed.sets?.['2'] || {}) },
+            },
+          };
+        }
+      } catch {}
+      return JSON.parse(JSON.stringify(DEFAULT_GROUP_PALETTE_STATE));
+    }),
+    setGroupPaletteState: jest.fn((groupId, state) => {
+      const GROUP_PALETTE_LS = (gid) => `statusapp_group_palette_${gid}`;
+      try {
+        global.localStorage.setItem(GROUP_PALETTE_LS(groupId), JSON.stringify(state));
+      } catch {}
+    }),
+    getPaletteState: store.getPaletteState,
+    getLastTimeout: store.getLastTimeout,
+    setLastTimeout: store.setLastTimeout,
+    getGroupChipMinutes: store.getGroupChipMinutes,
+    setGroupChipMinutes: store.setGroupChipMinutes,
+  };
+});
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
   clearGroupCardBadge: jest.fn(),
