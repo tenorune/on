@@ -1,7 +1,7 @@
 // js/palettes.js
-import { getPaletteState, setPaletteState, getFavorites } from './store.js';
+import { getFavorites } from './store.js';
 import { setStatusColor, setPaletteKey } from './db.js';
-import { isHintSeen, markHintSeen } from './prefs.js';
+import { isHintSeen, markHintSeen, getPaletteState, setPaletteState } from './prefs.js';
 
 let _hintTimer = null;
 let _justEnteredPaletteMode = false;
@@ -453,6 +453,8 @@ export function tapSwatch(key, userId) {
 
 export function initSwatches(userId) {
   renderSwatchRow(userId);
+  // Re-render whenever userPrefs sync echoes a sibling-device pick.
+  document.addEventListener('palette-state-synced', () => renderSwatchRow(userId));
 }
 
 // Reconcile local paletteState with what the server has. Used by the

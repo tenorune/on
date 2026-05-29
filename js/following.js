@@ -7,11 +7,12 @@ import {
 } from './db.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
-  getPaletteState, setPaletteState, setFollowing,
+  setFollowing,
 } from './store.js';
 import {
   isHintSeen, markHintSeen,
   getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount,
+  getPaletteState, setPaletteState,
 } from './prefs.js';
 import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';

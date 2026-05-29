@@ -5,13 +5,15 @@ import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowF
 import { setStatusColor, setUserFavorites } from './db.js';
 import { safeCssColor } from './utils.js';
 import { getCurrentContext, onContextChange } from './groupNav.js';
-import { markHintSeen } from './prefs.js';
+import { markHintSeen, isFavoritesCollapsed, setFavoritesCollapsed } from './prefs.js';
 
 const MAX_HISTORY = 6;
 const DEFAULT_STATUS_COLOR = '#22c55e';  // default green (forest primary)
 const DEFAULT_SURFACE  = '#1e293b';      // default slate card bg (--surface)
 const DEFAULT_SURFACE2 = '#334155';      // default slate pill bg (--surface2)
-const COLLAPSED_KEY = 'statusapp_favorites_collapsed';
+// Favorites-strip collapsed/expanded state now lives in prefs.js
+// (statusapp_favorites_collapsed in localStorage + userPrefs/{uid}/
+// favoritesCollapsed in Firebase).
 
 let _myUserId = null;
 let _lastCommittedCombo = null;
@@ -217,7 +219,7 @@ function renderStrip() {
     return;
   }
   const isFtu = !localStorage.getItem('statusapp_seen_strip_peek_done');
-  const collapsed = isFtu || localStorage.getItem(COLLAPSED_KEY) === 'true';
+  const collapsed = isFtu || isFavoritesCollapsed();
   if (collapsed) {
     renderCollapsed(container, history);
   } else {
@@ -236,7 +238,7 @@ function renderCollapsed(container, history) {
   container.innerHTML =
     `<div class="fav-collapsed"><div class="fav-collapsed-line" style="background:${bg}"></div></div>`;
   container.querySelector('.fav-collapsed').addEventListener('click', () => {
-    localStorage.removeItem(COLLAPSED_KEY);
+    setFavoritesCollapsed(false);
     markHintSeen('stripPeek');
     renderStrip();
   });
@@ -257,7 +259,7 @@ function renderCollapsed(container, history) {
     if (_swipeDownStart === null) return;
     const endY = e.changedTouches[0].clientY;
     if (endY - _swipeDownStart > 30) {
-      localStorage.removeItem(COLLAPSED_KEY);
+      setFavoritesCollapsed(false);
       markHintSeen('stripPeek');
       renderStrip();
     }
@@ -326,7 +328,7 @@ function renderExpanded(container, history) {
     el.addEventListener('click', () => handleHistoryTap(parseInt(el.dataset.index)));
   });
   container.querySelector('.fav-collapse-btn').addEventListener('click', () => {
-    localStorage.setItem(COLLAPSED_KEY, 'true');
+    setFavoritesCollapsed(true);
     renderStrip();
   });
 
@@ -341,7 +343,7 @@ function renderExpanded(container, history) {
     if (_swipeTouchStart === null) return;
     const endY = e.changedTouches[0].clientY;
     if (_swipeTouchStart - endY > 30) {
-      localStorage.setItem(COLLAPSED_KEY, 'true');
+      setFavoritesCollapsed(true);
       renderStrip();
     }
     _swipeTouchStart = null;

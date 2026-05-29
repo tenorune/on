@@ -114,6 +114,14 @@ jest.mock('../js/prefs.js', () => ({
   incrementMadeCallCount: jest.fn(),
   getAnsweredCallCount: jest.fn().mockReturnValue(0),
   incrementAnsweredCallCount: jest.fn(),
+  getPaletteState: jest.fn().mockReturnValue({
+    activeSet: 1,
+    sets: {
+      '1': { selectedKey: 'forest', activePaletteKey: null },
+      '2': { selectedKey: 'volt',   activePaletteKey: null },
+    },
+  }),
+  setPaletteState: jest.fn(),
 }));
 
 const { watchStatus, watchFollowers, setCallState, clearCallState } = require('../js/db.js');

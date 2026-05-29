@@ -11,7 +11,8 @@ import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
          setOverrideAppearance } from './groups.js';
-import { getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, getPaletteState } from './store.js';
+import { getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes } from './store.js';
+import { getPaletteState, getGroupPaletteState, setGroupPaletteState } from './prefs.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
@@ -294,44 +295,9 @@ function renderOwnStatusRow() {
 
 // Per-group palette UI state (which set is active, are we in palette mode).
 // Stored locally — these are view-state, not part of the override schema.
-// Per-group palette UI state — mirrors Direct's paletteState shape so each
-// set tracks its own selection. Defaults: Set 1 starts on forest, Set 2 on
-// volt — same as Direct (palettes.js's PALETTE_SETS[1][0] / [2][0]). Without
-// the per-set defaults, toggling to Set 2 the first time would leave no
-// swatch highlighted and going Available would keep Set 1's color.
-function defaultGroupPaletteState() {
-  return {
-    activeSet: 1,
-    sets: {
-      '1': { selectedKey: PALETTE_SETS[1][0].key, selectedColor: PALETTE_SETS[1][0].color, activePaletteKey: null },
-      '2': { selectedKey: PALETTE_SETS[2][0].key, selectedColor: PALETTE_SETS[2][0].color, activePaletteKey: null },
-    },
-  };
-}
-
-function getGroupPaletteState(groupId) {
-  const def = defaultGroupPaletteState();
-  try {
-    const raw = localStorage.getItem(`statusapp_group_palette_${groupId}`);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return {
-        activeSet: parsed.activeSet || def.activeSet,
-        sets: {
-          '1': { ...def.sets['1'], ...(parsed.sets?.['1'] || {}) },
-          '2': { ...def.sets['2'], ...(parsed.sets?.['2'] || {}) },
-        },
-      };
-    }
-  } catch { /* ignore parse errors */ }
-  return def;
-}
-
-function setGroupPaletteState(groupId, state) {
-  try {
-    localStorage.setItem(`statusapp_group_palette_${groupId}`, JSON.stringify(state));
-  } catch { /* ignore quota errors */ }
-}
+// Per-group palette UI state lives in prefs.js (synced via
+// userPrefs/{uid}/perGroup/{groupId}/paletteState). Re-imported here under the
+// same names so this file's internal references don't change.
 
 // Reconcile per-set local state with the override snapshot. Runs whenever
 // watchOwnMemberOverride fires (cross-device sync) and on enter so the
@@ -729,10 +695,24 @@ function wireActions(groupId, userId, isOwner, groupName) {
   });
 }
 
+// Listener registered once at module load; re-renders the group swatch row
+// when a sibling device updates this group's paletteState via userPrefs sync.
+let _groupPaletteSyncListenerInstalled = false;
+function installGroupPaletteSyncListener() {
+  if (_groupPaletteSyncListenerInstalled) return;
+  _groupPaletteSyncListenerInstalled = true;
+  document.addEventListener('group-palette-state-synced', (e) => {
+    if (!_currentGroupId) return;
+    if (e.detail?.groupId !== _currentGroupId) return;
+    renderGroupSwatchRow();
+  });
+}
+
 export function enterGroupContext(groupId, userId) {
   if (_metaUnsub) _metaUnsub();
   _currentGroupId = groupId;
   _currentUserId = userId;
+  installGroupPaletteSyncListener();
 
   const root = document.getElementById('group-context-root');
   const direct = document.getElementById('main-ui-direct');

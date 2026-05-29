@@ -12,6 +12,10 @@
 // add a setter (writes both layers), handle it in syncFromServer.
 
 import { mergeUserPrefs } from './db.js';
+import {
+  getPaletteState as storeGetPaletteState,
+  setPaletteState as storeSetPaletteState,
+} from './store.js';
 
 let _myUserId = null;
 
@@ -72,6 +76,73 @@ export function incrementAnsweredCallCount() {
   if (_myUserId) mergeUserPrefs(_myUserId, { answeredCallCount: next }).catch(() => {});
 }
 
+// ── Favorites strip collapsed/expanded ──────────────────────────────────────
+const COLLAPSED_KEY = 'statusapp_favorites_collapsed';
+
+export function isFavoritesCollapsed() {
+  return localStorage.getItem(COLLAPSED_KEY) === '1';
+}
+
+export function setFavoritesCollapsed(value) {
+  const want = value ? '1' : null;
+  const have = localStorage.getItem(COLLAPSED_KEY);
+  if (want === have) return; // no-op write
+  if (value) localStorage.setItem(COLLAPSED_KEY, '1');
+  else localStorage.removeItem(COLLAPSED_KEY);
+  if (_myUserId) mergeUserPrefs(_myUserId, { favoritesCollapsed: !!value }).catch(() => {});
+}
+
+// ── Palette state ───────────────────────────────────────────────────────────
+// Direct: re-exports the store.js getter for read paths that don't care about
+// sync. setPaletteState writes localStorage AND fires a Firebase update so the
+// other device's swatch row catches up.
+export function getPaletteState() {
+  return storeGetPaletteState();
+}
+
+export function setPaletteState(state) {
+  storeSetPaletteState(state);
+  if (_myUserId) mergeUserPrefs(_myUserId, { 'paletteState/direct': state }).catch(() => {});
+}
+
+// Per-group palette state (was inline in groupContext.js). Keyed shape:
+//   userPrefs/{uid}/perGroup/{groupId}/paletteState
+const GROUP_PALETTE_LS = (groupId) => `statusapp_group_palette_${groupId}`;
+const DEFAULT_GROUP_PALETTE_STATE = {
+  activeSet: 1,
+  sets: {
+    '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+    '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+  },
+};
+
+export function getGroupPaletteState(groupId) {
+  try {
+    const raw = localStorage.getItem(GROUP_PALETTE_LS(groupId));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        activeSet: parsed.activeSet || DEFAULT_GROUP_PALETTE_STATE.activeSet,
+        sets: {
+          '1': { ...DEFAULT_GROUP_PALETTE_STATE.sets['1'], ...(parsed.sets?.['1'] || {}) },
+          '2': { ...DEFAULT_GROUP_PALETTE_STATE.sets['2'], ...(parsed.sets?.['2'] || {}) },
+        },
+      };
+    }
+  } catch { /* ignore parse errors */ }
+  // Return a fresh copy so callers don't mutate the default object.
+  return JSON.parse(JSON.stringify(DEFAULT_GROUP_PALETTE_STATE));
+}
+
+export function setGroupPaletteState(groupId, state) {
+  try {
+    localStorage.setItem(GROUP_PALETTE_LS(groupId), JSON.stringify(state));
+  } catch { /* ignore quota errors */ }
+  if (_myUserId) {
+    mergeUserPrefs(_myUserId, { [`perGroup/${groupId}/paletteState`]: state }).catch(() => {});
+  }
+}
+
 // ── Watch reconciliation ─────────────────────────────────────────────────────
 // Called by app.js's watchUserPrefs subscription each time the server snapshot
 // changes. Populates the localStorage cache so subsequent synchronous reads
@@ -97,6 +168,29 @@ export function syncFromServer(serverPrefs) {
     const local = getAnsweredCallCount();
     if (serverPrefs.answeredCallCount > local) {
       localStorage.setItem(ANSWERED_CALL_KEY, String(serverPrefs.answeredCallCount));
+    }
+  }
+  // Favorites strip collapsed/expanded
+  if (typeof serverPrefs.favoritesCollapsed === 'boolean') {
+    if (serverPrefs.favoritesCollapsed) localStorage.setItem(COLLAPSED_KEY, '1');
+    else localStorage.removeItem(COLLAPSED_KEY);
+  }
+  // Direct palette state
+  if (serverPrefs.paletteState?.direct) {
+    storeSetPaletteState(serverPrefs.paletteState.direct);
+    document.dispatchEvent(new CustomEvent('palette-state-synced'));
+  }
+  // Per-group palette states
+  if (serverPrefs.perGroup) {
+    for (const [groupId, groupBundle] of Object.entries(serverPrefs.perGroup)) {
+      if (groupBundle?.paletteState) {
+        try {
+          localStorage.setItem(GROUP_PALETTE_LS(groupId), JSON.stringify(groupBundle.paletteState));
+        } catch { /* ignore quota */ }
+        document.dispatchEvent(new CustomEvent('group-palette-state-synced', {
+          detail: { groupId },
+        }));
+      }
     }
   }
 }
