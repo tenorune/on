@@ -23,7 +23,7 @@ let _prevPillCount = 0;
 
 // ─── Combo building ──────────────────────────────────────────────────────────
 
-function buildCombo() {
+export function buildCombo() {
   const ps = getPaletteState();
   const activeSetKey = String(ps.activeSet);
   const { selectedKey, activePaletteKey } = ps.sets[activeSetKey];

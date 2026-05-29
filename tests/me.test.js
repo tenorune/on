@@ -1,6 +1,6 @@
 // tests/me.test.js
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
-jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), initFavoritesStrip: jest.fn() }));
+jest.mock('../js/favorites.js', () => ({ saveCombo: jest.fn(), buildCombo: jest.fn(() => ({})), initFavoritesStrip: jest.fn() }));
 jest.mock('../js/palettes.js', () => ({ applyThemeHint: jest.fn(), restoreSetSwitchPulse: jest.fn() }));
 jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
@@ -381,13 +381,13 @@ describe('setOwnStatusReadyCallback', () => {
   });
 });
 
-describe('saveFavorite guard in setAvailable', () => {
-  let applyOwnStatus, saveFavoriteMock;
+describe('saveCombo guard in setAvailable', () => {
+  let applyOwnStatus, saveComboMock;
 
   beforeEach(() => {
     jest.resetModules();
     jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
-    jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), initFavoritesStrip: jest.fn() }));
+    jest.mock('../js/favorites.js', () => ({ saveCombo: jest.fn(), buildCombo: jest.fn(() => ({})), initFavoritesStrip: jest.fn() }));
     jest.mock('../js/db.js', () => ({
       setStatus: jest.fn().mockResolvedValue(undefined),
       isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
@@ -404,25 +404,25 @@ describe('saveFavorite guard in setAvailable', () => {
     global.requestAnimationFrame = (fn) => fn();
     makeFixture();
     ({ applyOwnStatus } = require('../js/me.js'));
-    saveFavoriteMock = require('../js/favorites.js').saveFavorite;
+    saveComboMock = require('../js/favorites.js').saveCombo;
   });
 
   afterEach(() => {
     jest.useRealTimers();
   });
 
-  test('saveFavorite does NOT fire during page-load restore of available status', () => {
+  test('saveCombo does NOT fire during page-load restore of available status', () => {
     // Fresh module: savingEnabled starts false. applyOwnStatus with available is the
-    // page-load restore path — saveFavorite must not fire here.
+    // page-load restore path — saveCombo must not fire here.
     applyOwnStatus('available', Date.now() + 7200000);
-    expect(saveFavoriteMock).not.toHaveBeenCalled();
+    expect(saveComboMock).not.toHaveBeenCalled();
   });
 
-  test('saveFavorite fires when applyOwnStatus sets available after prior status call', () => {
+  test('saveCombo fires when applyOwnStatus sets available after prior status call', () => {
     // applyOwnStatus(unavailable) → sets savingEnabled = true, then
-    // applyOwnStatus(available) → setAvailable → saveFavorite fires.
+    // applyOwnStatus(available) → setAvailable → saveCombo fires.
     applyOwnStatus('unavailable', null);
     applyOwnStatus('available', Date.now() + 7200000);
-    expect(saveFavoriteMock).toHaveBeenCalledTimes(1);
+    expect(saveComboMock).toHaveBeenCalledTimes(1);
   });
 });
