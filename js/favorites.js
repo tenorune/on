@@ -257,9 +257,7 @@ function renderStrip() {
 }
 
 function renderCollapsed(container, history) {
-  const slot1 = slotCombo(1);
-  const slot2 = slotCombo(2);
-  const allColors = [slot1.statusColor, slot2.statusColor, ...history.map(c => c.statusColor)];
+  const allColors = history.map(c => c.statusColor);
   const n = allColors.length;
   const bg = n <= 1
     ? (allColors[0] ?? 'transparent')
@@ -309,26 +307,17 @@ function renderCollapsed(container, history) {
 }
 
 function renderExpanded(container, history) {
-  const ps = getPaletteState();
-  const slot1 = slotCombo(1);
-  const slot2 = slotCombo(2);
-
-  const slotPills = [
-    renderPill(slot1, ps.activeSet === 1 ? 'inactive' : 'active', 'slot', 1),
-    renderPill(slot2, ps.activeSet === 2 ? 'inactive' : 'active', 'slot', 2),
-  ].join('');
-  const historyPills = history
+  const pills = history
     .map((c, i) => renderPill(c, 'history', 'history', i))
     .join('');
-
   container.innerHTML =
-    `<div class="fav-strip">${slotPills}${historyPills}` +
+    `<div class="fav-strip">${pills}` +
     `<button class="fav-collapse-btn" aria-label="Collapse">▲</button></div>`;
 
   // Animate pill width when pill count changes
   const strip = container.querySelector('.fav-strip');
-  const pills = container.querySelectorAll('.fav-pill');
-  const pillCount = pills.length;
+  const pillEls = container.querySelectorAll('.fav-pill');
+  const pillCount = pillEls.length;
   const collapseBtn = container.querySelector('.fav-collapse-btn');
   const gap = 6; // matches CSS gap
   const padding = 24; // matches CSS padding (12px each side)
@@ -337,22 +326,18 @@ function renderExpanded(container, history) {
   const targetWidth = Math.floor((availableWidth - gap * (pillCount - 1)) / pillCount);
 
   if (_prevPillCount > 0 && pillCount > _prevPillCount) {
-    // Animate from old size to new size
     const oldWidth = Math.floor((availableWidth - gap * (_prevPillCount - 1)) / _prevPillCount);
-    pills.forEach(el => { el.style.width = oldWidth + 'px'; });
+    pillEls.forEach(el => { el.style.width = oldWidth + 'px'; });
     requestAnimationFrame(() => {
-      pills.forEach(el => { el.style.width = targetWidth + 'px'; });
+      pillEls.forEach(el => { el.style.width = targetWidth + 'px'; });
     });
   } else {
-    pills.forEach(el => { el.style.width = targetWidth + 'px'; });
+    pillEls.forEach(el => { el.style.width = targetWidth + 'px'; });
   }
   _prevPillCount = pillCount;
 
-  container.querySelectorAll('.fav-pill[data-type="slot"]').forEach(el => {
-    if (parseInt(el.dataset.index) !== ps.activeSet) {
-      el.addEventListener('click', () => handleSlotTap(parseInt(el.dataset.index)));
-    }
-  });
+  // History pill click handlers — no more slot-pill loop, no more
+  // ps/activeSet check.
   container.querySelectorAll('.fav-pill[data-type="history"]').forEach(el => {
     el.addEventListener('click', () => handleHistoryTap(parseInt(el.dataset.index)));
   });

@@ -449,29 +449,18 @@ describe('renderStrip / initFavoritesStrip', () => {
     expect(document.getElementById('favorites-strip').style.display).not.toBe('none');
   });
 
-  test('renders slot 1 pill with forest color and slot 2 pill with volt color', () => {
-    mocks.getFavorites.mockReturnValue(ONE_ENTRY);
-    initFavoritesStrip('myUid');
-    const pills = document.querySelectorAll('.fav-pill[data-type="slot"]');
-    expect(pills).toHaveLength(2);
-    expect(pills[0].querySelector('.fav-pill-left').style.background).toBe('rgb(34, 197, 94)');
-    expect(pills[1].querySelector('.fav-pill-left').style.background).toBe('rgb(170, 255, 0)');
-  });
-
-  test('active slot (Set 1 active) has fav-pill--inactive class, slot 2 has fav-pill--active', () => {
-    mocks.getFavorites.mockReturnValue(ONE_ENTRY);
-    initFavoritesStrip('myUid');
-    const pills = document.querySelectorAll('.fav-pill[data-type="slot"]');
-    expect(pills[0].classList.contains('fav-pill--inactive')).toBe(true);
-    expect(pills[1].classList.contains('fav-pill--active')).toBe(true);
-  });
-
   test('renders history pills with correct left color', () => {
-    mocks.getFavorites.mockReturnValue(ONE_ENTRY);
+    // History has 2 entries → expect exactly 2 pills (no slot pills).
+    const history = [
+      { statusColor: '#ff00aa', surface: '#111', surface2: '#222', paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 },
+      { statusColor: '#00ffaa', surface: '#111', surface2: '#222', paletteKey: 'volt',   selectedKey: 'volt',   activeSet: 2 },
+    ];
+    mocks.getFavorites.mockReturnValue(history);
     initFavoritesStrip('myUid');
-    const historyPills = document.querySelectorAll('.fav-pill[data-type="history"]');
-    expect(historyPills).toHaveLength(1);
-    expect(historyPills[0].querySelector('.fav-pill-left').style.background).toBe('rgb(129, 140, 248)');
+    const pills = document.querySelectorAll('.fav-pill');
+    expect(pills.length).toBe(2);
+    expect(pills[0].querySelector('.fav-pill-left').style.background).toContain('rgb(255, 0, 170)');
+    expect(pills[1].querySelector('.fav-pill-left').style.background).toContain('rgb(0, 255, 170)');
   });
 
   test('collapsed state: renders .fav-collapsed gradient line when collapsed', () => {
@@ -503,59 +492,6 @@ describe('renderStrip / initFavoritesStrip', () => {
   });
 });
 
-describe('slot tap interactions', () => {
-  let initFavoritesStrip, localMocks;
-
-  beforeEach(() => {
-    setupDom();
-    jest.resetModules();
-    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
-    jest.mock('../js/palettes.js', () => ({
-      ...jest.requireActual('../js/palettes.js'),
-      switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
-      getPaletteByKey: jest.fn(key => ({
-        forest: { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } },
-        volt:   { color: '#aaff00', theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600' } },
-        iris:   { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } },
-      })[key] ?? null),
-      getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
-    }));
-    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined), setUserFavorites: jest.fn().mockResolvedValue(undefined) }));
-    jest.mock('../js/store.js', () => ({
-      ...jest.requireActual('../js/store.js'),
-      getPaletteState: jest.fn(() => ({
-        activeSet: 1,
-        sets: {
-          '1': { selectedKey: 'forest', activePaletteKey: null },
-          '2': { selectedKey: 'volt',   activePaletteKey: null },
-        },
-      })),
-      setPaletteState: jest.fn(),
-      getFavorites: jest.fn(() => [
-        { statusColor: '#818cf8', surface2: '#1e1b4b', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
-      ]),
-      setFavorites: jest.fn(),
-    }));
-    localMocks = {
-      switchSet: require('../js/palettes.js').switchSet,
-    };
-    ({ initFavoritesStrip } = require('../js/favorites.js'));
-  });
-
-  test('tapping active slot (slot 1 when Set 1 is active) is a no-op', () => {
-    initFavoritesStrip('myUid');
-    const slot1Pill = document.querySelector('.fav-pill[data-type="slot"][data-index="1"]');
-    slot1Pill.click();
-    expect(localMocks.switchSet).not.toHaveBeenCalled();
-  });
-
-  test('tapping inactive slot (slot 2) calls switchSet with 2', () => {
-    initFavoritesStrip('myUid');
-    const slot2Pill = document.querySelector('.fav-pill[data-type="slot"][data-index="2"]');
-    slot2Pill.click();
-    expect(localMocks.switchSet).toHaveBeenCalledWith(2, 'myUid');
-  });
-});
 
 describe('history pill tap interactions (adopt-only)', () => {
   let tapHistoryPill, localMocks;
