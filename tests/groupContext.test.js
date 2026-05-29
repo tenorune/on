@@ -1042,3 +1042,44 @@ describe('roster context-aware status', () => {
   });
 });
 
+describe('buildGroupCombo', () => {
+  let buildGroupCombo;
+
+  beforeEach(() => {
+    jest.resetModules();
+    ({ buildGroupCombo } = require('../js/groupContext.js'));
+  });
+
+  test('prefers override.statusColor + override.paletteKey when override is enabled', () => {
+    const combo = buildGroupCombo({
+      ownOverride: { enabled: true, statusColor: '#ff00aa', paletteKey: 'forest' },
+      ownPrimary:  { statusColor: '#000', paletteKey: 'volt' },
+      paletteState: { activeSet: 2, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } },
+    });
+    expect(combo.statusColor).toBe('#ff00aa');
+    expect(combo.paletteKey).toBe('forest');
+    expect(combo.activeSet).toBe(2);
+    expect(combo.selectedKey).toBe('volt');
+  });
+
+  test('falls back to primary when override.statusColor is missing', () => {
+    const combo = buildGroupCombo({
+      ownOverride: { enabled: true, statusColor: null, paletteKey: null },
+      ownPrimary:  { statusColor: '#abc123', paletteKey: 'volt' },
+      paletteState: { activeSet: 1, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } },
+    });
+    expect(combo.statusColor).toBe('#abc123');
+    expect(combo.paletteKey).toBe('volt');
+  });
+
+  test('falls back to forest #22c55e when neither override nor primary has a color', () => {
+    const combo = buildGroupCombo({
+      ownOverride: null,
+      ownPrimary: null,
+      paletteState: { activeSet: 1, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } },
+    });
+    expect(combo.statusColor).toBe('#22c55e');
+    expect(combo.paletteKey).toBe(null);
+  });
+});
+

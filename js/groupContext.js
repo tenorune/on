@@ -960,3 +960,29 @@ export function applyOptimisticOverride(override) {
   _ownOverride = override || null;
   renderOwnStatusRow();
 }
+
+// Pure helper. Resolves the user's current group-effective combo into the
+// shape favorites.js expects. Used by adoption to push the pre-adoption
+// combo to history before mutating the override.
+export function buildGroupCombo({ ownOverride, ownPrimary, paletteState }) {
+  const overrideOn = !!ownOverride?.enabled;
+  const statusColor =
+    (overrideOn && ownOverride?.statusColor) ||
+    ownPrimary?.statusColor ||
+    '#22c55e';
+  const paletteKey =
+    (overrideOn && ownOverride?.paletteKey != null ? ownOverride.paletteKey : null) ??
+    (ownPrimary?.paletteKey ?? null);
+  const palette = paletteKey ? getPaletteByKey(paletteKey) : null;
+  const activeSet = paletteState?.activeSet ?? 1;
+  const activeSetKey = String(activeSet);
+  const selectedKey = paletteState?.sets?.[activeSetKey]?.selectedKey ?? 'forest';
+  return {
+    statusColor,
+    surface:  palette?.theme?.surface  ?? null,
+    surface2: palette?.theme?.surface2 ?? null,
+    paletteKey,
+    selectedKey,
+    activeSet,
+  };
+}
