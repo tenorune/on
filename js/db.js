@@ -412,11 +412,14 @@ export async function registerAsFollower(targetUserId, myUserId, myCode) {
 }
 
 // ── Following (own-side of the relationship) ─────────────────────────────────
-// Storage: users/{myUid}/following/{followeeUid} = { code, label }
+// Storage: userPrefs/{myUid}/following/{followeeUid} = { code, label }
 // Keyed by followee uid so per-entry updates don't disturb other entries.
+// Sits under userPrefs/ (not users/) because following is purely private —
+// nobody else needs to read your own following list, so putting it under
+// the broadcast-to-followees user record was wasteful per-tick bandwidth.
 
 export function watchFollowing(myUserId, callback) {
-  const followingRef = ref(db, `users/${myUserId}/following`);
+  const followingRef = ref(db, `userPrefs/${myUserId}/following`);
   return onValue(followingRef, (snap) => {
     const data = snap.val() || {};
     // data is { followeeId: { code, label }, ... }
@@ -429,11 +432,11 @@ export function watchFollowing(myUserId, callback) {
 }
 
 export async function setFollowingEntry(myUserId, followeeUserId, code, label) {
-  await set(ref(db, `users/${myUserId}/following/${followeeUserId}`), { code, label: label ?? '' });
+  await set(ref(db, `userPrefs/${myUserId}/following/${followeeUserId}`), { code, label: label ?? '' });
 }
 
 export async function removeFollowingEntry(myUserId, followeeUserId) {
-  await remove(ref(db, `users/${myUserId}/following/${followeeUserId}`));
+  await remove(ref(db, `userPrefs/${myUserId}/following/${followeeUserId}`));
 }
 
 // Called when the follower wants to stop following targetUserId.
