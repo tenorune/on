@@ -1,7 +1,7 @@
 // js/app.js
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
 import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser, setCurrentContext, readGroup } from './db.js';
-import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback, updateChipFromServer } from './me.js';
+import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
@@ -580,9 +580,10 @@ async function main() {
     if (userData.code) {
       updateMyCode(userData.code);
     }
-    if (userData.lastTimeoutMinutes) {
-      updateChipFromServer(userData.lastTimeoutMinutes);
-    }
+    // Chip-default cross-device sync now lands via watchUserPrefs →
+    // prefs.syncFromServer → 'last-timeout-synced' event, which me.js's
+    // initHeader listener picks up. The legacy users/{uid}/lastTimeoutMinutes
+    // field is no longer read.
     applyServerCurrentContext(userData?.currentContext || 'direct');
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);

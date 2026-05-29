@@ -17,6 +17,10 @@ import {
   setPaletteState as storeSetPaletteState,
   getFavorites as storeGetFavorites,
   setFavorites as storeSetFavorites,
+  getLastTimeout as storeGetLastTimeout,
+  setLastTimeout as storeSetLastTimeout,
+  getGroupChipMinutes as storeGetGroupChipMinutes,
+  setGroupChipMinutes as storeSetGroupChipMinutes,
 } from './store.js';
 
 let _myUserId = null;
@@ -158,6 +162,30 @@ export function setFavorites(arr) {
   if (_myUserId) mergeUserPrefs(_myUserId, { favorites: arr }).catch(() => {});
 }
 
+// ── lastTimeoutMinutes (Direct chip default + per-group chip default) ──────
+// The user's preferred default for the "go available for N" chip. Direct's
+// value used to live at users/{uid}/lastTimeoutMinutes; per-group was
+// localStorage-only until this migration. Both now sync via userPrefs/.
+export function getLastTimeout() {
+  return storeGetLastTimeout();
+}
+
+export function setLastTimeout(n) {
+  storeSetLastTimeout(n);
+  if (_myUserId) mergeUserPrefs(_myUserId, { lastTimeoutMinutes: n }).catch(() => {});
+}
+
+export function getGroupChipMinutes(groupId) {
+  return storeGetGroupChipMinutes(groupId);
+}
+
+export function setGroupChipMinutes(groupId, minutes) {
+  storeSetGroupChipMinutes(groupId, minutes);
+  if (_myUserId) {
+    mergeUserPrefs(_myUserId, { [`perGroup/${groupId}/lastTimeoutMinutes`]: minutes }).catch(() => {});
+  }
+}
+
 // ── Watch reconciliation ─────────────────────────────────────────────────────
 // Called by app.js's watchUserPrefs subscription each time the server snapshot
 // changes. Populates the localStorage cache so subsequent synchronous reads
@@ -204,7 +232,14 @@ export function syncFromServer(serverPrefs) {
     storeSetFavorites(favs);
     document.dispatchEvent(new CustomEvent('favorites-synced'));
   }
-  // Per-group palette states
+  // Direct chip default
+  if (typeof serverPrefs.lastTimeoutMinutes === 'number') {
+    storeSetLastTimeout(serverPrefs.lastTimeoutMinutes);
+    document.dispatchEvent(new CustomEvent('last-timeout-synced', {
+      detail: { minutes: serverPrefs.lastTimeoutMinutes },
+    }));
+  }
+  // Per-group state (palette state + per-group chip default)
   if (serverPrefs.perGroup) {
     for (const [groupId, groupBundle] of Object.entries(serverPrefs.perGroup)) {
       if (groupBundle?.paletteState) {
@@ -213,6 +248,12 @@ export function syncFromServer(serverPrefs) {
         } catch { /* ignore quota */ }
         document.dispatchEvent(new CustomEvent('group-palette-state-synced', {
           detail: { groupId },
+        }));
+      }
+      if (typeof groupBundle?.lastTimeoutMinutes === 'number') {
+        storeSetGroupChipMinutes(groupId, groupBundle.lastTimeoutMinutes);
+        document.dispatchEvent(new CustomEvent('group-chip-minutes-synced', {
+          detail: { groupId, minutes: groupBundle.lastTimeoutMinutes },
         }));
       }
     }

@@ -11,8 +11,12 @@ import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
          setOverrideAppearance } from './groups.js';
-import { getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes } from './store.js';
-import { getPaletteState, getGroupPaletteState, setGroupPaletteState } from './prefs.js';
+import {
+  getPaletteState,
+  getLastTimeout, setLastTimeout,
+  getGroupChipMinutes, setGroupChipMinutes,
+  getGroupPaletteState, setGroupPaletteState,
+} from './prefs.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
@@ -695,16 +699,25 @@ function wireActions(groupId, userId, isOwner, groupName) {
   });
 }
 
-// Listener registered once at module load; re-renders the group swatch row
-// when a sibling device updates this group's paletteState via userPrefs sync.
-let _groupPaletteSyncListenerInstalled = false;
-function installGroupPaletteSyncListener() {
-  if (_groupPaletteSyncListenerInstalled) return;
-  _groupPaletteSyncListenerInstalled = true;
+// Listeners registered once at module load; react to sibling-device
+// userPrefs sync ticks affecting this group while it's visible.
+let _groupSyncListenersInstalled = false;
+function installGroupSyncListeners() {
+  if (_groupSyncListenersInstalled) return;
+  _groupSyncListenersInstalled = true;
   document.addEventListener('group-palette-state-synced', (e) => {
     if (!_currentGroupId) return;
     if (e.detail?.groupId !== _currentGroupId) return;
     renderGroupSwatchRow();
+  });
+  document.addEventListener('group-chip-minutes-synced', (e) => {
+    if (!_currentGroupId) return;
+    if (e.detail?.groupId !== _currentGroupId) return;
+    const minutes = e.detail.minutes;
+    const idx = chipIndexForMinutes(minutes);
+    if (idx < 0) return;
+    const chipEl = document.getElementById('group-time-chip');
+    if (chipEl) chipEl.textContent = CHIP_VALUES[idx].text;
   });
 }
 
@@ -712,7 +725,7 @@ export function enterGroupContext(groupId, userId) {
   if (_metaUnsub) _metaUnsub();
   _currentGroupId = groupId;
   _currentUserId = userId;
-  installGroupPaletteSyncListener();
+  installGroupSyncListeners();
 
   const root = document.getElementById('group-context-root');
   const direct = document.getElementById('main-ui-direct');
