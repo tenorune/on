@@ -1,9 +1,10 @@
 // js/me.js
-import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs, setLastTimeoutMinutes } from './db.js';
-import { getLastTimeout, setLastTimeout, getPaletteState } from './store.js';
+import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs } from './db.js';
+import { getPaletteState } from './store.js';
 import { PALETTES_ENABLED } from './features.js';
 import { saveFavorite } from './favorites.js';
 import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
+import { markHintSeen, getLastTimeout, setLastTimeout } from './prefs.js';
 
 const CHIP_VALUES = [
   { minutes: 30,   text: '30 minutes' },
@@ -56,6 +57,11 @@ export function updateChipFromServer(minutes) {
 
 export function initHeader(myUserId) {
   ownStatusSignalled = false;
+  // Sibling-device chip pick echoes through userPrefs → 'last-timeout-synced';
+  // update the Direct chip text to match.
+  document.addEventListener('last-timeout-synced', (e) => {
+    if (typeof e.detail?.minutes === 'number') updateChipFromServer(e.detail.minutes);
+  });
   const dot = document.getElementById('my-dot');
   const timeChip = document.getElementById('time-chip');
   const mycodeChip = document.getElementById('mycode-chip');
@@ -72,8 +78,9 @@ export function initHeader(myUserId) {
       const { minutes } = CHIP_VALUES[currentChipIndex];
       const availableUntil = Date.now() + minutes * 60000;
       await setStatus(myUserId, 'available', availableUntil);
+      // prefs.setLastTimeout writes both localStorage AND
+      // userPrefs/{uid}/lastTimeoutMinutes.
       setLastTimeout(minutes);
-      setLastTimeoutMinutes(myUserId, minutes).catch(() => {});
       setAvailable(availableUntil);
     }
   });
@@ -88,7 +95,6 @@ export function initHeader(myUserId) {
     const tr = document.getElementById('time-remaining');
     tr.textContent = formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
     setLastTimeout(minutes);
-    setLastTimeoutMinutes(myUserId, minutes).catch(() => {});
   });
 
   mycodeChip.addEventListener('click', () => {
@@ -164,7 +170,7 @@ function setAvailable(availableUntil) {
   if (PALETTES_ENABLED && !dot.classList.contains('available')) {
     const ps = getPaletteState();
     if (ps.sets[String(ps.activeSet)].selectedColor) {
-      localStorage.setItem('statusapp_went_avail_custom', '1');
+      markHintSeen('customAvail');
     }
   }
   const label = document.getElementById('my-status-label');

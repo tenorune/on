@@ -7,9 +7,13 @@ import {
 } from './db.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
-  getPaletteState, setPaletteState, setFollowing,
-  getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount,
+  setFollowing,
 } from './store.js';
+import {
+  isHintSeen, markHintSeen,
+  getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount,
+  getPaletteState, setPaletteState,
+} from './prefs.js';
 import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
@@ -413,8 +417,8 @@ function applyAdoption(entry, myUserId) {
 
 function triggerAdoption(entry, myUserId) {
   // Clear long-press hint on first adoption
-  if (!localStorage.getItem('statusapp_seen_longpress')) {
-    localStorage.setItem('statusapp_seen_longpress', '1');
+  if (!isHintSeen('longpress')) {
+    markHintSeen('longpress');
     document.querySelectorAll('.longpress-hint').forEach(el => el.remove());
   }
   saveFavorite(true); // save pre-adoption state; adopted state enters history on next adoption or go-available
@@ -485,8 +489,8 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
       if (dx > threshold) {
         swipeActive = false;
         // Clear swipe hint on first right-swipe
-        if (!localStorage.getItem('statusapp_seen_swipe')) {
-          localStorage.setItem('statusapp_seen_swipe', '1');
+        if (!isHintSeen('swipe')) {
+          markHintSeen('swipe');
           document.querySelectorAll('.swipe-hint').forEach(el => el.remove());
         }
         if (li.classList.contains('call-mode') && callModeCalleeId !== entry.userId) {

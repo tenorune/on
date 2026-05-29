@@ -85,6 +85,8 @@ jest.mock('../js/db.js', () => ({
   setStatusOverride: jest.fn().mockResolvedValue(undefined),
   clearStatusOverride: jest.fn().mockResolvedValue(undefined),
   mergeStatusOverride: jest.fn().mockResolvedValue(undefined),
+  mergeUserPrefs: jest.fn().mockResolvedValue(undefined),
+  watchUserPrefs: jest.fn(() => () => {}),
   watchOwnMemberOverride: jest.fn(() => () => {}),
 }));
 
@@ -473,7 +475,7 @@ describe('renderStrip / initFavoritesStrip', () => {
   });
 
   test('collapsed state: renders .fav-collapsed gradient line when collapsed', () => {
-    localStorage.setItem('statusapp_favorites_collapsed', 'true');
+    localStorage.setItem('statusapp_favorites_collapsed', '1');
     mocks.getFavorites.mockReturnValue(ONE_ENTRY);
     initFavoritesStrip('myUid');
     expect(document.querySelector('.fav-collapsed')).not.toBeNull();
@@ -485,13 +487,13 @@ describe('renderStrip / initFavoritesStrip', () => {
     mocks.getFavorites.mockReturnValue(ONE_ENTRY);
     initFavoritesStrip('myUid');
     document.querySelector('.fav-collapse-btn').click();
-    expect(localStorage.getItem('statusapp_favorites_collapsed')).toBe('true');
+    expect(localStorage.getItem('statusapp_favorites_collapsed')).toBe('1');
     expect(document.querySelector('.fav-collapsed')).not.toBeNull();
     localStorage.removeItem('statusapp_favorites_collapsed');
   });
 
   test('clicking collapsed line removes collapsed state and re-renders expanded', () => {
-    localStorage.setItem('statusapp_favorites_collapsed', 'true');
+    localStorage.setItem('statusapp_favorites_collapsed', '1');
     mocks.getFavorites.mockReturnValue(ONE_ENTRY);
     initFavoritesStrip('myUid');
     document.querySelector('.fav-collapsed').click();

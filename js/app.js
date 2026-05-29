@@ -1,15 +1,17 @@
 // js/app.js
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
-import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser, setCurrentContext, readGroup } from './db.js';
-import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback, updateChipFromServer } from './me.js';
+import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser, getUserPrefs, readGroup } from './db.js';
+import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
-import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
+import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
+import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext } from './prefs.js';
+import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector } from './groups.js';
@@ -396,10 +398,10 @@ async function main() {
         // Personal-invite success: the new contact lives in Direct, so we must
         // land the user in Direct context. Without this, an existing user who
         // last had currentContext='group:X' gets yanked into that group by the
-        // watchStatus tick below — and never sees the new follow. initNav set
-        // _state locally to 'direct' already; force-write 'direct' to the
-        // server so applyServerCurrentContext doesn't override us.
-        await setCurrentContext(userId, 'direct');
+        // watchUserPrefs tick below — and never sees the new follow. initNav set
+        // _state locally to 'direct' already; force-write 'direct' to userPrefs
+        // so the sync echo doesn't override us.
+        setPrefsCurrentContext('direct');
       }
     }
     // If we didn't end up in a group context (personal invite, failure,
@@ -425,8 +427,9 @@ async function main() {
     if (directEl) directEl.classList.add('hidden');
     if (navRowEl) navRowEl.classList.add('hidden');
     try {
-      const userData = await getUser(userId);
-      const cc = userData?.currentContext;
+      // currentContext lives in userPrefs/{uid}/ after the migration.
+      const prefsSnap = await getUserPrefs(userId);
+      const cc = prefsSnap?.currentContext;
       if (typeof cc === 'string' && cc.startsWith('group:')) {
         const groupId = cc.slice(6);
         const groupData = await readGroup(groupId);
@@ -448,6 +451,22 @@ async function main() {
   }
 
   touchLastSeen(userId).catch(() => {});
+
+  // Cross-device user-preferences sync. initPrefs makes the prefs module
+  // aware of who's writing; the watchUserPrefs subscription reconciles
+  // local cache with server on every change. Writes throughout the app
+  // (markHintSeen, incrementMadeCallCount, etc.) go through prefs.js so
+  // they hit both localStorage and userPrefs/{uid}/ in Firebase.
+  initPrefs(userId);
+  watchUserPrefs(userId, (serverPrefs) => {
+    syncPrefsFromServer(serverPrefs);
+  });
+  // currentContext changes from sibling devices arrive as a
+  // 'current-context-synced' CustomEvent; forward into groupNav so the
+  // active context flips just like the old watchStatus-driven path used to.
+  document.addEventListener('current-context-synced', (e) => {
+    applyServerCurrentContext(e.detail?.currentContext || 'direct');
+  });
 
   initCodeDrawer(userId, code);
   initHeader(userId);
@@ -561,16 +580,18 @@ async function main() {
     if (PALETTES_ENABLED && colorOrPaletteChanged) {
       syncPaletteStateFromServer(userId, userData.statusColor, incomingPaletteKey);
     }
-    if (PALETTE_INTERACTIONS_ENABLED) {
-      syncFavoritesFromServer(userId, userData.favorites);
-    }
+    // Favorites cross-device sync now lands via watchUserPrefs →
+    // prefs.syncFromServer (the legacy users/{uid}/favorites field is
+    // ignored after this migration; userPrefs/{uid}/favorites is the
+    // source of truth).
     if (userData.code) {
       updateMyCode(userData.code);
     }
-    if (userData.lastTimeoutMinutes) {
-      updateChipFromServer(userData.lastTimeoutMinutes);
-    }
-    applyServerCurrentContext(userData?.currentContext || 'direct');
+    // Chip-default cross-device sync now lands via watchUserPrefs →
+    // prefs.syncFromServer → 'last-timeout-synced' event, which me.js's
+    // initHeader listener picks up. The legacy users/{uid}/lastTimeoutMinutes
+    // field is no longer read. currentContext is read from userPrefs too
+    // (via the 'current-context-synced' event wired below).
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);
     const effectiveStatus = expired ? 'unavailable' : userData.status;

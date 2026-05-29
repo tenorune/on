@@ -2,7 +2,8 @@
 // Navigation state machine: currentContext + group cards row.
 // State is in-memory; writes mirror to Firebase via setCurrentContext / setLastVisited.
 
-import { setCurrentContext, setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, watchStatus, removeUserGroupsEntry } from './db.js';
+import { setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, watchStatus, removeUserGroupsEntry } from './db.js';
+import { setCurrentContext } from './prefs.js';
 import { safeCssColor, hexToRgb } from './utils.js';
 import { GROUPS_ENABLED } from './features.js';
 import { createGroup, toggleStatusOverride } from './groups.js';
@@ -54,14 +55,16 @@ export async function navigateToDirect() {
   if (_state.context === 'direct') return;
   _state = { context: 'direct', groupId: null };
   emit(); // render immediately before Firebase round-trip
-  await setCurrentContext(_myUserId, 'direct');
+  // setCurrentContext (prefs.js) writes both localStorage and
+  // userPrefs/{uid}/currentContext.
+  setCurrentContext('direct');
 }
 
 export async function navigateToGroup(groupId) {
   if (_state.context === 'group' && _state.groupId === groupId) return;
   _state = { context: 'group', groupId };
   emit(); // render immediately before Firebase round-trip
-  await setCurrentContext(_myUserId, `group:${groupId}`);
+  setCurrentContext(`group:${groupId}`);
   await setLastVisited(_myUserId, groupId, Date.now());
 }
 
