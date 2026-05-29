@@ -917,6 +917,14 @@ export function enterGroupContext(groupId, userId) {
         // update — see the unavailable branch above for why.
         _ownOverride = { ..._ownOverride, status: 'available', availableUntil };
         renderOwnStatusRow();
+        // Push the going-active combo to favorites — this is a real
+        // unavailable→available transition with the user's committed
+        // group-effective color + palette.
+        saveCombo(buildGroupCombo({
+          ownOverride: _ownOverride,
+          ownPrimary: _ownPrimary,
+          paletteState: getGroupPaletteState(groupId),
+        }));
         setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
       }
     });

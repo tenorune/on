@@ -1350,3 +1350,70 @@ describe('group-context long-press adoption', () => {
   });
 });
 
+describe('group-context dot-tap to go available', () => {
+  const db = require('../js/db.js');
+  const groups = require('../js/groups.js');
+  const favorites = require('../js/favorites.js');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    exitGroupContext();
+  });
+
+  test('dot-tap going available with override ON pushes the going-active combo to favorites', () => {
+    db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#ff00aa', paletteKey: 'forest' });
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+
+    const dot = document.getElementById('group-my-dot');
+    dot.click();
+
+    expect(groups.setOverrideStatusAvailable).toHaveBeenCalled();
+    expect(favorites.saveCombo).toHaveBeenCalledWith(expect.objectContaining({
+      statusColor: '#ff00aa',
+      paletteKey: 'forest',
+    }));
+  });
+
+  test('dot-tap going UNavailable with override ON does NOT push to favorites', () => {
+    db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa', paletteKey: 'forest' });
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+
+    const dot = document.getElementById('group-my-dot');
+    dot.click();
+
+    expect(groups.setOverrideStatusUnavailable).toHaveBeenCalled();
+    expect(favorites.saveCombo).not.toHaveBeenCalled();
+  });
+
+  test('chip cycle while available does NOT push to favorites', () => {
+    db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa', paletteKey: 'forest' });
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+
+    const chip = document.getElementById('group-time-chip');
+    chip.click();
+    // Chip cycle updates availableUntil but combo is unchanged — not a transition.
+    expect(favorites.saveCombo).not.toHaveBeenCalled();
+  });
+});
+
