@@ -158,6 +158,19 @@ export function saveFavorite(force = false) {
   renderStrip();
 }
 
+// Force-push a caller-supplied combo to the favorites history. Used by
+// group-context adoption, where the relevant "previous combo" is the
+// group-effective combo (not Direct's paletteState that buildCombo reads).
+// Same dedupe + cap semantics as the force branch of saveFavorite.
+export function saveCustomCombo(combo) {
+  if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
+  if (!combo) return;
+  const history = getFavorites();
+  if (history.some(h => pillsLookSame(combo, h))) return;
+  writeFavorites([combo, ...history].slice(0, MAX_HISTORY));
+  renderStrip();
+}
+
 function onPaletteStateChanged() {
   // When the active set changes (via Bolt/Flower toggle), update the committed
   // baseline to the new set so saveFavorite saves the correct "previous" combo.

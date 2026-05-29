@@ -889,3 +889,69 @@ describe('getCanvasColors', () => {
     expect(penColors).not.toContain('#fb7185');
   });
 });
+
+describe('saveCustomCombo', () => {
+  let saveCustomCombo;
+  let store;
+
+  beforeEach(() => {
+    setupDom();
+    jest.resetModules();
+    // Re-apply the same mock pattern the existing saveFavorite suite uses
+    // (favorites.js → prefs.js → store.js; mocking store.js catches the chain).
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
+    jest.mock('../js/palettes.js', () => ({
+      ...jest.requireActual('../js/palettes.js'),
+      switchSet: jest.fn(),
+      enterPaletteMode: jest.fn(),
+      exitPaletteMode: jest.fn(),
+      getPaletteByKey: jest.fn(() => null),
+      getGlowForColor: jest.fn(() => '#000'),
+    }));
+    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/store.js', () => ({
+      ...jest.requireActual('../js/store.js'),
+      getPaletteState: jest.fn(() => ({
+        activeSet: 1,
+        sets: { '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#22c55e' },
+                '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' } },
+      })),
+      setPaletteState: jest.fn(),
+      getFavorites: jest.fn(() => []),
+      setFavorites: jest.fn(),
+    }));
+    store = require('../js/store.js');
+    ({ saveCustomCombo } = require('../js/favorites.js'));
+  });
+
+  test('pushes the supplied combo to history (no dedupe match)', () => {
+    const combo = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
+                    paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
+    saveCustomCombo(combo);
+    expect(store.setFavorites).toHaveBeenCalledTimes(1);
+    const written = store.setFavorites.mock.calls[0][0];
+    expect(written[0]).toEqual(combo);
+  });
+
+  test('does not push when an equivalent combo is already at the head of history', () => {
+    const combo = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
+                    paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
+    store.getFavorites.mockReturnValueOnce([combo]);
+    saveCustomCombo(combo);
+    expect(store.setFavorites).not.toHaveBeenCalled();
+  });
+
+  test('is a no-op when feature flags are off', () => {
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: false, PALETTE_INTERACTIONS_ENABLED: false }));
+    jest.mock('../js/store.js', () => ({
+      ...jest.requireActual('../js/store.js'),
+      getFavorites: jest.fn(() => []),
+      setFavorites: jest.fn(),
+    }));
+    const off = require('../js/store.js');
+    const { saveCustomCombo: gated } = require('../js/favorites.js');
+    gated({ statusColor: '#fff', surface: '#000', surface2: '#000', paletteKey: null, selectedKey: 'forest', activeSet: 1 });
+    expect(off.setFavorites).not.toHaveBeenCalled();
+  });
+});
