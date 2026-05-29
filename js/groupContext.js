@@ -18,7 +18,7 @@ import {
   getGroupPaletteState, setGroupPaletteState,
   isHintSeen, markHintSeen,
 } from './prefs.js';
-import { saveCombo } from './favorites.js';
+import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
@@ -1041,15 +1041,7 @@ function triggerGroupAdoption(srcUid, ownUid) {
   }
 
   // 2. Push the adopted combo to favorites.
-  const adoptedCombo = {
-    statusColor: adoptedColor,
-    surface:  adoptedPaletteKey ? (getPaletteByKey(adoptedPaletteKey)?.theme?.surface  ?? '#1e293b') : '#1e293b',
-    surface2: adoptedPaletteKey ? (getPaletteByKey(adoptedPaletteKey)?.theme?.surface2 ?? '#334155') : '#334155',
-    paletteKey: adoptedPaletteKey,
-    selectedKey: adoptedPaletteKey ?? 'forest',
-    activeSet: adoptedPaletteKey && PALETTE_SETS[2].some(p => p.key === adoptedPaletteKey) ? 2 : 1,
-  };
-  saveCombo(adoptedCombo);
+  saveCombo(buildAdoptedCombo(adoptedColor, adoptedPaletteKey));
 
   // 3. Optimistic local mutation.
   const newOverride = { ..._ownOverride, statusColor: adoptedColor, paletteKey: adoptedPaletteKey };

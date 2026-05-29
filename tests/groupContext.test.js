@@ -58,6 +58,14 @@ jest.mock('../js/groups.js', () => ({
 }));
 jest.mock('../js/favorites.js', () => ({
   saveCombo: jest.fn(),
+  buildAdoptedCombo: jest.fn((statusColor, paletteKey) => ({
+    statusColor: statusColor || '#22c55e',
+    surface: '#1e293b',
+    surface2: '#334155',
+    paletteKey: paletteKey ?? null,
+    selectedKey: paletteKey ?? 'forest',
+    activeSet: 1,
+  })),
 }));
 jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),

@@ -1,7 +1,7 @@
 // js/favorites.js
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
 import { getPaletteState, setPaletteState } from './store.js';
-import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowForColor } from './palettes.js';
+import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowForColor, PALETTE_SETS } from './palettes.js';
 import { setStatusColor } from './db.js';
 import { getFavorites, setFavorites } from './prefs.js';
 import { safeCssColor } from './utils.js';
@@ -22,6 +22,22 @@ let _lastCommittedCombo = null;
 let _prevPillCount = 0;
 
 // ─── Combo building ──────────────────────────────────────────────────────────
+
+// Build a combo from a (statusColor, paletteKey) pair — used by long-press
+// adoption call sites in both Direct (following.js) and group context
+// (groupContext.js). Mirrors buildDirectCombo's shape so saveCombo treats
+// both kinds of pushes identically.
+export function buildAdoptedCombo(statusColor, paletteKey) {
+  const palette = paletteKey ? getPaletteByKey(paletteKey) : null;
+  return {
+    statusColor: statusColor || '#22c55e',
+    surface:  palette?.theme?.surface  ?? '#1e293b',
+    surface2: palette?.theme?.surface2 ?? '#334155',
+    paletteKey: paletteKey ?? null,
+    selectedKey: paletteKey ?? 'forest',
+    activeSet: paletteKey && PALETTE_SETS[2].some(p => p.key === paletteKey) ? 2 : 1,
+  };
+}
 
 export function buildDirectCombo() {
   const ps = getPaletteState();

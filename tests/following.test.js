@@ -1,5 +1,17 @@
 // tests/following.test.js
-jest.mock('../js/favorites.js', () => ({ saveCombo: jest.fn(), initFavoritesStrip: jest.fn(), getAllCombos: jest.fn(() => []) }));
+jest.mock('../js/favorites.js', () => ({
+  saveCombo: jest.fn(),
+  initFavoritesStrip: jest.fn(),
+  getAllCombos: jest.fn(() => []),
+  buildAdoptedCombo: jest.fn((statusColor, paletteKey) => ({
+    statusColor: statusColor || '#22c55e',
+    surface: '#1e293b',
+    surface2: '#334155',
+    paletteKey: paletteKey ?? null,
+    selectedKey: paletteKey ?? 'forest',
+    activeSet: 1,
+  })),
+}));
 
 // PointerEvent polyfill for jsdom (does not implement it natively)
 if (typeof PointerEvent === 'undefined') {
