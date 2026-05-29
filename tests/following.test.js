@@ -1304,8 +1304,8 @@ describe('applyAdoption', () => {
     expect(saveCombo).toHaveBeenCalledTimes(1);
     // Adopted combo has the source's statusColor + paletteKey.
     expect(saveCombo).toHaveBeenCalledWith(expect.objectContaining({
-      statusColor: expect.any(String),
-      paletteKey: expect.anything(), // could be string or null
+      statusColor: '#f59e0b',
+      paletteKey: 'ember',
     }));
   });
 
