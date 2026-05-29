@@ -1062,14 +1062,18 @@ describe('buildGroupCombo', () => {
     expect(combo.selectedKey).toBe('volt');
   });
 
-  test('falls back to primary when override.statusColor is missing', () => {
+  test('statusColor falls back to primary; paletteKey does NOT fall back when override is enabled', () => {
+    // statusColor: paintRosterRow uses (override || primary || fallback), so fall-through is correct.
+    // paletteKey:  paintRosterRow's override path is (override.paletteKey || null) — when override is
+    //              enabled but paletteKey is null, render shows no palette. Match that here so the
+    //              saved combo reflects what the user actually saw.
     const combo = buildGroupCombo({
       ownOverride: { enabled: true, statusColor: null, paletteKey: null },
       ownPrimary:  { statusColor: '#abc123', paletteKey: 'volt' },
       paletteState: { activeSet: 1, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } },
     });
     expect(combo.statusColor).toBe('#abc123');
-    expect(combo.paletteKey).toBe('volt');
+    expect(combo.paletteKey).toBe(null);
   });
 
   test('falls back to forest #22c55e when neither override nor primary has a color', () => {

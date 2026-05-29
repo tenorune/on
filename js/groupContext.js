@@ -970,9 +970,13 @@ export function buildGroupCombo({ ownOverride, ownPrimary, paletteState }) {
     (overrideOn && ownOverride?.statusColor) ||
     ownPrimary?.statusColor ||
     '#22c55e';
-  const paletteKey =
-    (overrideOn && ownOverride?.paletteKey != null ? ownOverride.paletteKey : null) ??
-    (ownPrimary?.paletteKey ?? null);
+  // Mirrors paintRosterRow's resolution: when override is enabled, the override
+  // is authoritative — override.paletteKey of null/missing means "no palette",
+  // NOT "fall through to primary." Otherwise the combo we save here wouldn't
+  // match what the user was actually seeing in the group.
+  const paletteKey = overrideOn
+    ? (ownOverride?.paletteKey || null)
+    : (ownPrimary?.paletteKey || null);
   const palette = paletteKey ? getPaletteByKey(paletteKey) : null;
   const activeSet = paletteState?.activeSet ?? 1;
   const activeSetKey = String(activeSet);
