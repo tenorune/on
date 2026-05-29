@@ -1,5 +1,17 @@
 // tests/following.test.js
-jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), removeHistoryDuplicatesOfSlots: jest.fn(), initFavoritesStrip: jest.fn(), getAllCombos: jest.fn(() => []) }));
+jest.mock('../js/favorites.js', () => ({
+  saveCombo: jest.fn(),
+  initFavoritesStrip: jest.fn(),
+  getAllCombos: jest.fn(() => []),
+  buildAdoptedCombo: jest.fn((statusColor, paletteKey) => ({
+    statusColor: statusColor || '#22c55e',
+    surface: '#1e293b',
+    surface2: '#334155',
+    paletteKey: paletteKey ?? null,
+    selectedKey: paletteKey ?? 'forest',
+    activeSet: 1,
+  })),
+}));
 
 // PointerEvent polyfill for jsdom (does not implement it natively)
 if (typeof PointerEvent === 'undefined') {
@@ -1298,22 +1310,15 @@ describe('applyAdoption', () => {
     expect(li.classList.contains('adopted-from')).toBe(true);
   });
 
-  test('calls saveFavorite(true) once before adoption — adopted state enters history on next adoption or go-available', () => {
-    const { saveFavorite } = require('../js/favorites.js');
+  test('calls saveCombo once after adoption with the adopted combo', () => {
+    const { saveCombo } = require('../js/favorites.js');
     triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b', paletteKey: 'ember' });
-    expect(saveFavorite).toHaveBeenCalledTimes(1);
-    expect(saveFavorite).toHaveBeenCalledWith(true);
-  });
-
-  test('calls removeHistoryDuplicatesOfSlots after adoption to clean up same-combo duplicates', () => {
-    const { saveFavorite, removeHistoryDuplicatesOfSlots } = require('../js/favorites.js');
-    triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b', paletteKey: 'ember' });
-    expect(saveFavorite).toHaveBeenCalledTimes(1);
-    expect(removeHistoryDuplicatesOfSlots).toHaveBeenCalledTimes(1);
-    // cleanup must happen AFTER adoption
-    const saveOrder = saveFavorite.mock.invocationCallOrder[0];
-    const cleanupOrder = removeHistoryDuplicatesOfSlots.mock.invocationCallOrder[0];
-    expect(cleanupOrder).toBeGreaterThan(saveOrder);
+    expect(saveCombo).toHaveBeenCalledTimes(1);
+    // Adopted combo has the source's statusColor + paletteKey.
+    expect(saveCombo).toHaveBeenCalledWith(expect.objectContaining({
+      statusColor: '#f59e0b',
+      paletteKey: 'ember',
+    }));
   });
 
 });

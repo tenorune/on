@@ -18,7 +18,7 @@ import {
   getGroupPaletteState, setGroupPaletteState,
   isHintSeen, markHintSeen,
 } from './prefs.js';
-import { saveCustomCombo } from './favorites.js';
+import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
@@ -917,6 +917,14 @@ export function enterGroupContext(groupId, userId) {
         // update — see the unavailable branch above for why.
         _ownOverride = { ..._ownOverride, status: 'available', availableUntil };
         renderOwnStatusRow();
+        // Push the going-active combo to favorites — this is a real
+        // unavailable→available transition with the user's committed
+        // group-effective color + palette.
+        saveCombo(buildGroupCombo({
+          ownOverride: _ownOverride,
+          ownPrimary: _ownPrimary,
+          paletteState: getGroupPaletteState(groupId),
+        }));
         setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
       }
     });
@@ -1040,13 +1048,8 @@ function triggerGroupAdoption(srcUid, ownUid) {
     adoptedPaletteKey = srcPrimary?.paletteKey ?? null;
   }
 
-  // 2. Pre-adoption favorites push (group-effective combo).
-  const preCombo = buildGroupCombo({
-    ownOverride:  _ownOverride,
-    ownPrimary:   _ownPrimary,
-    paletteState: getGroupPaletteState(groupId),
-  });
-  saveCustomCombo(preCombo);
+  // 2. Push the adopted combo to favorites.
+  saveCombo(buildAdoptedCombo(adoptedColor, adoptedPaletteKey));
 
   // 3. Optimistic local mutation.
   const newOverride = { ..._ownOverride, statusColor: adoptedColor, paletteKey: adoptedPaletteKey };
@@ -1119,8 +1122,8 @@ export function buildGroupCombo({ ownOverride, ownPrimary, paletteState }) {
   const selectedKey = paletteState?.sets?.[activeSetKey]?.selectedKey ?? 'forest';
   return {
     statusColor,
-    surface:  palette?.theme?.surface  ?? null,
-    surface2: palette?.theme?.surface2 ?? null,
+    surface:  palette?.theme?.surface  ?? '#1e293b',
+    surface2: palette?.theme?.surface2 ?? '#334155',
     paletteKey,
     selectedKey,
     activeSet,

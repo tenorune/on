@@ -2,7 +2,7 @@
 import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs } from './db.js';
 import { getPaletteState } from './store.js';
 import { PALETTES_ENABLED } from './features.js';
-import { saveFavorite } from './favorites.js';
+import { saveCombo, buildDirectCombo } from './favorites.js';
 import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
 import { markHintSeen, getLastTimeout, setLastTimeout } from './prefs.js';
 
@@ -165,7 +165,7 @@ function setKnockKnock() {
 
 function setAvailable(availableUntil) {
   const dot = document.getElementById('my-dot');
-  if (PALETTES_ENABLED && savingEnabled && !dot.classList.contains('available')) saveFavorite();
+  if (PALETTES_ENABLED && savingEnabled && !dot.classList.contains('available')) saveCombo(buildDirectCombo());
   // Track that user went available with a non-default color (for theme hint)
   if (PALETTES_ENABLED && !dot.classList.contains('available')) {
     const ps = getPaletteState();

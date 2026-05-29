@@ -18,7 +18,7 @@ import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock, getFloatedUserIds } from './knock.js';
-import { saveFavorite, removeHistoryDuplicatesOfSlots, getAllCombos } from './favorites.js';
+import { saveCombo, getAllCombos, buildAdoptedCombo } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
@@ -421,9 +421,15 @@ function triggerAdoption(entry, myUserId) {
     markHintSeen('longpress');
     document.querySelectorAll('.longpress-hint').forEach(el => el.remove());
   }
-  saveFavorite(true); // save pre-adoption state; adopted state enters history on next adoption or go-available
+  // Build the adopted combo from the source's broadcast state and push to
+  // favorites BEFORE applying the adoption (the apply mutates picker state).
+  const targetData = lastUserData.get(entry.userId);
+  const adoptedCombo = buildAdoptedCombo(
+    targetData?.statusColor,
+    targetData?.paletteKey ?? null,
+  );
+  saveCombo(adoptedCombo);
   applyAdoption(entry, myUserId);
-  removeHistoryDuplicatesOfSlots(); // if adoption didn't change anything, remove the now-duplicate pill
 }
 
 function createFolloweeRow(entry, myUserId, isMutual = false) {
