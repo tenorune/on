@@ -95,13 +95,7 @@ main {
 }
 
 /* Long-press palette adoption indicator */
-.adopted-from {
-  animation: adopt-flash 800ms ease-out forwards;
-}
-@keyframes adopt-flash {
-  0%   { background-color: rgba(59, 130, 246, 0.25); }
-  100% { background-color: transparent; }
-}
+.adopted-from {}
 
 /* ── Favorites strip ─────────────────────────────────────────────── */
 #favorites-strip {
