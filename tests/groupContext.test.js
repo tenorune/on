@@ -1236,5 +1236,19 @@ describe('group-context long-press adoption', () => {
     expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
     expect(knock.sendKnock).toHaveBeenCalled();
   });
+
+  test('source with paletteKey but no statusColor adopts the palette key color', () => {
+    setupRoster({
+      ownOverrideEnabled: true,
+      members: { src: { displayName: 'Alice',
+                        statusOverride: { enabled: true, statusColor: null, paletteKey: 'volt' } } },
+    });
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    // 'volt' palette's key color is #aaff00 (defined in PALETTE_SETS).
+    expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
+      { statusColor: '#aaff00', paletteKey: 'volt' });
+  });
 });
 

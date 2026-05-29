@@ -1005,6 +1005,14 @@ function triggerGroupAdoption(srcUid, ownUid) {
   if (srcOverride?.enabled && srcOverride.statusColor) {
     adoptedColor      = srcOverride.statusColor;
     adoptedPaletteKey = srcOverride.paletteKey ?? null;
+  } else if (srcOverride?.enabled && srcOverride.paletteKey) {
+    // paletteKey-only override: derive color from the palette's key color.
+    // Mirrors what the source row actually renders (paintRosterRow falls
+    // through to palette.color when override.statusColor is missing).
+    const p = PALETTE_SETS[1].find(x => x.key === srcOverride.paletteKey)
+           || PALETTE_SETS[2].find(x => x.key === srcOverride.paletteKey);
+    adoptedColor      = p?.color ?? '#22c55e';
+    adoptedPaletteKey = srcOverride.paletteKey;
   } else {
     adoptedColor      = srcPrimary?.statusColor ?? '#22c55e';
     adoptedPaletteKey = srcPrimary?.paletteKey ?? null;
