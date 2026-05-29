@@ -1050,7 +1050,7 @@ describe('saveCombo', () => {
     const written = store.setFavorites.mock.calls[0][0];
     expect(written.length).toBe(8);
     expect(written[0]).toEqual(incoming);
-    expect(written[7]).toEqual(full[6]); // last full entry pushed off
+    expect(written[7]).toEqual(full[6]); // full[7] (the oldest) was dropped; full[6] is the new tail
   });
 
   test('null combo is a no-op', () => {
