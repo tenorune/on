@@ -26,7 +26,7 @@ const groups = require('../js/groups.js');
 const inviteModal = require('../js/inviteModal.js');
 const {
   initNav, getCurrentContext, navigateToDirect, navigateToGroup,
-  onContextChange, applyServerCurrentContext,
+  onContextChange, applyServerCurrentContext, applyOptimisticAppearance,
 } = require('../js/groupNav');
 
 describe('groupNav state machine', () => {
@@ -613,5 +613,62 @@ describe('renderNavRow — group mode', () => {
     navigateToGroup('G1');
     document.querySelector('.group-card[data-nav="direct"]').click();
     expect(prefs.setCurrentContext).toHaveBeenCalledWith('direct');
+  });
+});
+
+describe('applyOptimisticAppearance', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="nav-row"></div>';
+    jest.clearAllMocks();
+  });
+
+  test('merges statusColor + paletteKey into the internal cache and re-renders the nav row', () => {
+    db.watchUserGroups.mockImplementation((_uid, cb) => {
+      cb({ G1: { lastVisited: 1 } });
+      return () => {};
+    });
+    db.watchGroupMeta.mockImplementation((_gid, cb) => {
+      cb({ name: 'Family', ownerId: 'me' });
+      return () => {};
+    });
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000 });
+      return () => {};
+    });
+    initNav('me');
+    require('../js/groupNav').initNavRow();
+    require('../js/groupNav').startCardsRowSubscriptions();
+
+    applyOptimisticAppearance('G1', { statusColor: '#ff00aa', paletteKey: 'forest' });
+
+    const card = document.querySelector('#nav-row [data-group-id="G1"]');
+    expect(card).not.toBeNull();
+    expect(card.style.borderColor).toBe('rgb(255, 0, 170)');
+  });
+
+  test('preserves enabled/status/availableUntil from the existing override entry', () => {
+    db.watchUserGroups.mockImplementation((_uid, cb) => {
+      cb({ G1: { lastVisited: 1 } });
+      return () => {};
+    });
+    db.watchGroupMeta.mockImplementation((_gid, cb) => {
+      cb({ name: 'Family', ownerId: 'me' });
+      return () => {};
+    });
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'available', availableUntil: 9999999999999, statusColor: '#000000' });
+      return () => {};
+    });
+    initNav('me');
+    require('../js/groupNav').initNavRow();
+    require('../js/groupNav').startCardsRowSubscriptions();
+
+    applyOptimisticAppearance('G1', { statusColor: '#ff00aa', paletteKey: 'forest' });
+
+    const card = document.querySelector('#nav-row [data-group-id="G1"]');
+    expect(card.style.borderColor).toBe('rgb(255, 0, 170)');
+    // The group card should remain bordered (i.e. "effectively available" is preserved
+    // because enabled/status/availableUntil were not clobbered).
+    expect(card.style.borderStyle).not.toBe('none');
   });
 });
