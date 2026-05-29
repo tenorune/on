@@ -2,6 +2,8 @@
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(() => 120),
   setLastTimeout: jest.fn(),
+  getGroupChipMinutes: jest.fn(() => null),
+  setGroupChipMinutes: jest.fn(),
   getPaletteState: jest.fn(() => ({
     activeSet: 1,
     sets: {
@@ -715,8 +717,10 @@ describe('own status row', () => {
     // Chip default cycles forward from "2 hours" (index 3) to "3 hours" (index 4).
     expect(until).toBeGreaterThanOrEqual(before + 180 * 60000 - 2000);
     expect(until).toBeLessThanOrEqual(Date.now() + 180 * 60000 + 2000);
-    expect(store.setLastTimeout).toHaveBeenCalledWith(180);
-    expect(db.setLastTimeoutMinutes).toHaveBeenCalledWith('me', 180);
+    // Chip cycle is now per-group (no leak into Direct's getLastTimeout /
+    // setLastTimeoutMinutes anymore).
+    expect(store.setGroupChipMinutes).toHaveBeenCalledWith('G1', 180);
+    expect(store.setLastTimeout).not.toHaveBeenCalled();
   });
 
   test('clicking the time chip when override OFF is a no-op', () => {

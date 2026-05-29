@@ -5,13 +5,13 @@
 // own-status row, the chain-icon override toggle (installed into the nav row's
 // slot), and the member roster.
 
-import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs, setLastTimeoutMinutes } from './db.js';
+import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs } from './db.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
          setOverrideAppearance } from './groups.js';
-import { getLastTimeout, setLastTimeout, getPaletteState } from './store.js';
+import { getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, getPaletteState } from './store.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
@@ -802,13 +802,10 @@ export function enterGroupContext(groupId, userId) {
           paletteKey: data.paletteKey || null,
         }
       : null;
-    if (data?.lastTimeoutMinutes) {
-      const idx = chipIndexForMinutes(data.lastTimeoutMinutes);
-      const chipEl = document.getElementById('group-time-chip');
-      if (chipEl && chipEl.textContent !== CHIP_VALUES[idx].text) {
-        chipEl.textContent = CHIP_VALUES[idx].text;
-      }
-    }
+    // Per-group chip default is local-only for now (statusapp_group_chip_${groupId})
+    // — it was previously synced through users/{uid}/lastTimeoutMinutes, which
+    // leaked the group chip pick into Direct (and vice versa). Cross-device sync
+    // of the per-group chip lands with the userPrefs/ migration.
     // Re-apply effective theme: a primary-side palette change (e.g. another
     // device picked a different Direct theme) would otherwise have been
     // written to root by app.js's watchStatus, clobbering our group-context
@@ -864,7 +861,10 @@ export function enterGroupContext(groupId, userId) {
         // legacy <=12 → *60 migration that js/me.js applies. Reading
         // getLastTimeout() raw and multiplying by 60000 treats a new-user
         // default of "2" as 2 minutes instead of 2 hours.
-        const minutes = CHIP_VALUES[chipIndexForMinutes(getLastTimeout())].minutes;
+        // Use the per-group chip default if set; fall back to Direct's so a
+        // fresh group still has a sensible "go available for N" duration.
+        const baseMinutes = getGroupChipMinutes(groupId) ?? getLastTimeout();
+        const minutes = CHIP_VALUES[chipIndexForMinutes(baseMinutes)].minutes;
         const availableUntil = Date.now() + minutes * 60000;
         // Spread preserves statusColor/paletteKey across the optimistic
         // update — see the unavailable branch above for why.
@@ -875,10 +875,14 @@ export function enterGroupContext(groupId, userId) {
     });
   }
 
-  // Wire the time chip (clone-and-replace; cycles override duration when ON+available)
+  // Wire the time chip (clone-and-replace; cycles override duration when ON+available).
+  // The chip's default duration is per-group (statusapp_group_chip_${groupId}) so
+  // cycling it doesn't leak into Direct's chip and vice versa. Fall back to
+  // getLastTimeout() (Direct's default) for groups the user hasn't touched.
   const timeChip = document.getElementById('group-time-chip');
   if (timeChip) {
-    timeChip.textContent = CHIP_VALUES[chipIndexForMinutes(getLastTimeout())].text;
+    const initMinutes = getGroupChipMinutes(groupId) ?? getLastTimeout();
+    timeChip.textContent = CHIP_VALUES[chipIndexForMinutes(initMinutes)].text;
     const chipClone = timeChip.cloneNode(true);
     timeChip.parentNode.replaceChild(chipClone, timeChip);
     chipClone.addEventListener('click', () => {
@@ -888,12 +892,12 @@ export function enterGroupContext(groupId, userId) {
       // available. If they're available, also push the new availableUntil to
       // the override. If they're unavailable, the new default applies the next
       // time they tap the dot to go available.
-      const currentIdx = chipIndexForMinutes(getLastTimeout());
+      const currentMinutes = getGroupChipMinutes(groupId) ?? getLastTimeout();
+      const currentIdx = chipIndexForMinutes(currentMinutes);
       const nextIdx = (currentIdx + 1) % CHIP_VALUES.length;
       const { minutes, text } = CHIP_VALUES[nextIdx];
       chipClone.textContent = text;
-      setLastTimeout(minutes);
-      setLastTimeoutMinutes(userId, minutes).catch(() => {});
+      setGroupChipMinutes(groupId, minutes);
       const currentlyAvailable = _ownOverride.status === 'available'
         && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
       if (currentlyAvailable) {
