@@ -57,7 +57,7 @@ jest.mock('../js/groups.js', () => ({
   setOverrideAppearance: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/favorites.js', () => ({
-  saveCustomCombo: jest.fn(),
+  saveCombo: jest.fn(),
 }));
 jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),
@@ -1192,7 +1192,7 @@ describe('group-context long-press adoption', () => {
     jest.advanceTimersByTime(600);
     expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
     expect(groupNav.applyOptimisticAppearance).not.toHaveBeenCalled();
-    expect(favorites.saveCustomCombo).not.toHaveBeenCalled();
+    expect(favorites.saveCombo).not.toHaveBeenCalled();
   });
 
   test('long-press triggers adoption when this group override is ON', () => {
@@ -1207,7 +1207,9 @@ describe('group-context long-press adoption', () => {
       expect.objectContaining({ statusColor: '#ff00aa', paletteKey: 'forest' }));
     expect(groupNav.applyOptimisticAppearance).toHaveBeenCalledWith('G1',
       expect.objectContaining({ statusColor: '#ff00aa', paletteKey: 'forest' }));
-    expect(favorites.saveCustomCombo).toHaveBeenCalled();
+    expect(favorites.saveCombo).toHaveBeenCalledWith(expect.objectContaining({
+      statusColor: '#ff00aa', paletteKey: 'forest',
+    }));
   });
 
   test('movement > 8px cancels the long-press', () => {
