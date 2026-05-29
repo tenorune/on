@@ -1122,8 +1122,8 @@ export function buildGroupCombo({ ownOverride, ownPrimary, paletteState }) {
   const selectedKey = paletteState?.sets?.[activeSetKey]?.selectedKey ?? 'forest';
   return {
     statusColor,
-    surface:  palette?.theme?.surface  ?? null,
-    surface2: palette?.theme?.surface2 ?? null,
+    surface:  palette?.theme?.surface  ?? '#1e293b',
+    surface2: palette?.theme?.surface2 ?? '#334155',
     paletteKey,
     selectedKey,
     activeSet,

@@ -3,10 +3,9 @@ import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
 import { getPaletteState, setPaletteState } from './store.js';
 import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowForColor, PALETTE_SETS } from './palettes.js';
 import { setStatusColor } from './db.js';
-import { getFavorites, setFavorites } from './prefs.js';
+import { getFavorites, setFavorites, markHintSeen, isFavoritesCollapsed, setFavoritesCollapsed } from './prefs.js';
 import { safeCssColor } from './utils.js';
 import { getCurrentContext, onContextChange } from './groupNav.js';
-import { markHintSeen, isFavoritesCollapsed, setFavoritesCollapsed } from './prefs.js';
 
 const MAX_FAVORITES = 8;
 const DEFAULT_STATUS_COLOR = '#22c55e';  // default green (forest primary)
