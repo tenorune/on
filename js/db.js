@@ -382,6 +382,14 @@ export function watchUserPrefs(userId, callback) {
   });
 }
 
+// One-shot read of the userPrefs subtree. Used at boot to pre-resolve the
+// user's last currentContext before any UI paints, so a returning group-
+// context user doesn't see a Direct flash before watchUserPrefs catches up.
+export async function getUserPrefs(userId) {
+  const snap = await get(ref(db, `userPrefs/${userId}`));
+  return snap.exists() ? snap.val() : null;
+}
+
 // `fields` is a flat object keyed by slash-separated paths relative to
 // userPrefs/{uid}, e.g. { 'hints/bolt': true, 'lastTimeoutMinutes': 30 }.
 // RTDB's update() applies multi-path keys atomically.

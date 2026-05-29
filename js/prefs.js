@@ -186,6 +186,23 @@ export function setGroupChipMinutes(groupId, minutes) {
   }
 }
 
+// ── currentContext ('direct' | 'group:{groupId}') ──────────────────────────
+// Moved from users/{uid}/currentContext to userPrefs/{uid}/currentContext.
+// Localstorage cache key is kept so any inline fallback reads keep working.
+const CURRENT_CONTEXT_KEY = 'statusapp_current_context';
+
+export function getCurrentContextCached() {
+  return localStorage.getItem(CURRENT_CONTEXT_KEY) || 'direct';
+}
+
+export function setCurrentContext(value) {
+  const v = value || 'direct';
+  if (localStorage.getItem(CURRENT_CONTEXT_KEY) !== v) {
+    localStorage.setItem(CURRENT_CONTEXT_KEY, v);
+  }
+  if (_myUserId) mergeUserPrefs(_myUserId, { currentContext: v }).catch(() => {});
+}
+
 // ── Watch reconciliation ─────────────────────────────────────────────────────
 // Called by app.js's watchUserPrefs subscription each time the server snapshot
 // changes. Populates the localStorage cache so subsequent synchronous reads
@@ -231,6 +248,13 @@ export function syncFromServer(serverPrefs) {
       : Object.values(serverPrefs.favorites);
     storeSetFavorites(favs);
     document.dispatchEvent(new CustomEvent('favorites-synced'));
+  }
+  // currentContext
+  if (typeof serverPrefs.currentContext === 'string') {
+    localStorage.setItem(CURRENT_CONTEXT_KEY, serverPrefs.currentContext);
+    document.dispatchEvent(new CustomEvent('current-context-synced', {
+      detail: { currentContext: serverPrefs.currentContext },
+    }));
   }
   // Direct chip default
   if (typeof serverPrefs.lastTimeoutMinutes === 'number') {

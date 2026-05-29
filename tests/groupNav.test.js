@@ -1,6 +1,5 @@
 // tests/groupNav.test.js
 jest.mock('../js/db.js', () => ({
-  setCurrentContext: jest.fn().mockResolvedValue(undefined),
   setLastVisited: jest.fn().mockResolvedValue(undefined),
   watchUserGroups: jest.fn(),
   watchGroupMeta: jest.fn(),
@@ -8,6 +7,9 @@ jest.mock('../js/db.js', () => ({
   watchOwnMemberOverride: jest.fn(() => () => {}),
   watchStatus: jest.fn(() => () => {}),
   removeUserGroupsEntry: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../js/prefs.js', () => ({
+  setCurrentContext: jest.fn(),
 }));
 jest.mock('../js/features.js', () => ({ GROUPS_ENABLED: true }));
 jest.mock('../js/groups.js', () => ({
@@ -19,6 +21,7 @@ jest.mock('../js/inviteModal.js', () => ({
 }));
 
 const db = require('../js/db.js');
+const prefs = require('../js/prefs.js');
 const groups = require('../js/groups.js');
 const inviteModal = require('../js/inviteModal.js');
 const {
@@ -41,7 +44,7 @@ describe('groupNav state machine', () => {
     onContextChange((ctx) => seen.push(ctx));
     await navigateToGroup('G1');
     expect(getCurrentContext()).toEqual({ context: 'group', groupId: 'G1' });
-    expect(db.setCurrentContext).toHaveBeenCalledWith('uid1', 'group:G1');
+    expect(prefs.setCurrentContext).toHaveBeenCalledWith('group:G1');
     expect(db.setLastVisited).toHaveBeenCalledWith('uid1', 'G1', expect.any(Number));
     expect(seen[seen.length - 1]).toEqual({ context: 'group', groupId: 'G1' });
   });
@@ -52,15 +55,15 @@ describe('groupNav state machine', () => {
     onContextChange((ctx) => seen.push(ctx));
     await navigateToDirect();
     expect(getCurrentContext()).toEqual({ context: 'direct', groupId: null });
-    expect(db.setCurrentContext).toHaveBeenCalledWith('uid1', 'direct');
+    expect(prefs.setCurrentContext).toHaveBeenCalledWith('direct');
     expect(seen[seen.length - 1]).toEqual({ context: 'direct', groupId: null });
   });
 
   test('navigation is idempotent: same context twice does not double-write', async () => {
     await navigateToGroup('G1');
-    db.setCurrentContext.mockClear();
+    prefs.setCurrentContext.mockClear();
     await navigateToGroup('G1');
-    expect(db.setCurrentContext).not.toHaveBeenCalled();
+    expect(prefs.setCurrentContext).not.toHaveBeenCalled();
   });
 
   test('applyServerCurrentContext updates local state without round-tripping to Firebase', () => {
@@ -68,7 +71,7 @@ describe('groupNav state machine', () => {
     onContextChange((ctx) => seen.push(ctx));
     applyServerCurrentContext('group:G2');
     expect(getCurrentContext()).toEqual({ context: 'group', groupId: 'G2' });
-    expect(db.setCurrentContext).not.toHaveBeenCalled();
+    expect(prefs.setCurrentContext).not.toHaveBeenCalled();
     expect(seen[seen.length - 1]).toEqual({ context: 'group', groupId: 'G2' });
   });
 
@@ -156,7 +159,7 @@ describe('create-group modal', () => {
     await new Promise(setImmediate);
     expect(groups.createGroup).toHaveBeenCalledWith('uid1', 'Family', 'Mike');
     expect(document.getElementById('create-group-modal').classList.contains('hidden')).toBe(true);
-    expect(db.setCurrentContext).toHaveBeenCalledWith('uid1', 'group:G1ABCDEF');
+    expect(prefs.setCurrentContext).toHaveBeenCalledWith('group:G1ABCDEF');
   });
 
   test('Submit happy path also opens the invite modal in create state for the new group', async () => {
@@ -357,7 +360,6 @@ describe('renderNavRow — Direct mode', () => {
     db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
     db.watchStatus.mockImplementation(() => () => {});
-    db.setCurrentContext.mockResolvedValue(undefined);
     db.setLastVisited.mockResolvedValue(undefined);
     initNav('me');
     initNavRow();
@@ -365,7 +367,7 @@ describe('renderNavRow — Direct mode', () => {
     enumCb({ G1: { lastVisited: 1 } });
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     document.querySelector('.group-card[data-group-id="G1"]').click();
-    expect(db.setCurrentContext).toHaveBeenCalledWith('me', 'group:G1');
+    expect(prefs.setCurrentContext).toHaveBeenCalledWith('group:G1');
   });
 
   test('Tapping the + button emits a create-group request', () => {
@@ -517,7 +519,6 @@ describe('renderNavRow — group mode', () => {
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
     db.watchStatus.mockImplementation(() => () => {});
-    db.setCurrentContext.mockResolvedValue(undefined);
     db.setLastVisited.mockResolvedValue(undefined);
     initNav('me');
     initNavRow();
@@ -548,7 +549,6 @@ describe('renderNavRow — group mode', () => {
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
     db.watchStatus.mockImplementation(() => () => {});
-    db.setCurrentContext.mockResolvedValue(undefined);
     db.setLastVisited.mockResolvedValue(undefined);
     initNav('me');
     initNavRow();
@@ -568,7 +568,6 @@ describe('renderNavRow — group mode', () => {
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
     db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
-    db.setCurrentContext.mockResolvedValue(undefined);
     db.setLastVisited.mockResolvedValue(undefined);
     initNav('me');
     initNavRow();
@@ -588,7 +587,6 @@ describe('renderNavRow — group mode', () => {
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
     db.watchStatus.mockImplementation(() => () => {});
-    db.setCurrentContext.mockResolvedValue(undefined);
     db.setLastVisited.mockResolvedValue(undefined);
     initNav('me');
     initNavRow();
@@ -606,7 +604,6 @@ describe('renderNavRow — group mode', () => {
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
     db.watchStatus.mockImplementation(() => () => {});
-    db.setCurrentContext.mockResolvedValue(undefined);
     db.setLastVisited.mockResolvedValue(undefined);
     initNav('me');
     initNavRow();
@@ -615,6 +612,6 @@ describe('renderNavRow — group mode', () => {
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     navigateToGroup('G1');
     document.querySelector('.group-card[data-nav="direct"]').click();
-    expect(db.setCurrentContext).toHaveBeenCalledWith('me', 'direct');
+    expect(prefs.setCurrentContext).toHaveBeenCalledWith('direct');
   });
 });
