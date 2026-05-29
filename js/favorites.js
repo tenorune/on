@@ -1,8 +1,9 @@
 // js/favorites.js
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
-import { getPaletteState, setPaletteState, getFavorites, setFavorites } from './store.js';
+import { getPaletteState, setPaletteState } from './store.js';
 import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowForColor } from './palettes.js';
-import { setStatusColor, setUserFavorites } from './db.js';
+import { setStatusColor } from './db.js';
+import { getFavorites, setFavorites } from './prefs.js';
 import { safeCssColor } from './utils.js';
 import { getCurrentContext, onContextChange } from './groupNav.js';
 import { markHintSeen, isFavoritesCollapsed, setFavoritesCollapsed } from './prefs.js';
@@ -73,32 +74,16 @@ function slotVisuallyMatches(combo, setNum) {
     && combo.selectedKey  === s.selectedKey;
 }
 
-// Persist favorites to both localStorage and Firebase. Firebase write is
-// best-effort (failures don't block local persistence).
+// Persist favorites. setFavorites (prefs.js) writes both localStorage and
+// userPrefs/{uid}/favorites in Firebase.
 function writeFavorites(arr) {
   setFavorites(arr);
-  if (_myUserId) setUserFavorites(_myUserId, arr).catch(() => {});
 }
 
-// Reconcile local favorites with what the server has. Used by app.js's
-// watchStatus callback so a favorite added/removed on another device
-// appears on this device's strip too.
-//
-// Migration: if local has entries and the server has none (first run after
-// this code ships), push local up. Otherwise the server is authoritative.
-export function syncFavoritesFromServer(myUserId, serverFavs) {
-  const localFavs = getFavorites();
-  const serverJson = serverFavs ? JSON.stringify(serverFavs) : null;
-  const localJson = JSON.stringify(localFavs);
-
-  if (!serverJson && localFavs.length > 0) {
-    setUserFavorites(myUserId, localFavs).catch(() => {});
-    return;
-  }
-  if (!serverJson) return;
-  if (serverJson === localJson) return;
-  setFavorites(serverFavs);
-  renderStrip();
+// Re-render the strip when a sibling device's favorites sync echoes back
+// through watchUserPrefs → prefs.syncFromServer.
+if (typeof document !== 'undefined') {
+  document.addEventListener('favorites-synced', () => renderStrip());
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────

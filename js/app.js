@@ -7,7 +7,7 @@ import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
-import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
+import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
 import { initPrefs, syncFromServer as syncPrefsFromServer } from './prefs.js';
@@ -573,9 +573,10 @@ async function main() {
     if (PALETTES_ENABLED && colorOrPaletteChanged) {
       syncPaletteStateFromServer(userId, userData.statusColor, incomingPaletteKey);
     }
-    if (PALETTE_INTERACTIONS_ENABLED) {
-      syncFavoritesFromServer(userId, userData.favorites);
-    }
+    // Favorites cross-device sync now lands via watchUserPrefs →
+    // prefs.syncFromServer (the legacy users/{uid}/favorites field is
+    // ignored after this migration; userPrefs/{uid}/favorites is the
+    // source of truth).
     if (userData.code) {
       updateMyCode(userData.code);
     }

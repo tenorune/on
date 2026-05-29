@@ -15,6 +15,8 @@ import { mergeUserPrefs } from './db.js';
 import {
   getPaletteState as storeGetPaletteState,
   setPaletteState as storeSetPaletteState,
+  getFavorites as storeGetFavorites,
+  setFavorites as storeSetFavorites,
 } from './store.js';
 
 let _myUserId = null;
@@ -143,6 +145,19 @@ export function setGroupPaletteState(groupId, state) {
   }
 }
 
+// ── Favorites (the user's history of saved palette combos) ──────────────────
+// Source of truth for cross-device sync moved from users/{uid}/favorites to
+// userPrefs/{uid}/favorites in this migration. Wipe-friendly: any pre-
+// existing favorites on the old path are abandoned, not migrated.
+export function getFavorites() {
+  return storeGetFavorites();
+}
+
+export function setFavorites(arr) {
+  storeSetFavorites(arr);
+  if (_myUserId) mergeUserPrefs(_myUserId, { favorites: arr }).catch(() => {});
+}
+
 // ── Watch reconciliation ─────────────────────────────────────────────────────
 // Called by app.js's watchUserPrefs subscription each time the server snapshot
 // changes. Populates the localStorage cache so subsequent synchronous reads
@@ -179,6 +194,15 @@ export function syncFromServer(serverPrefs) {
   if (serverPrefs.paletteState?.direct) {
     storeSetPaletteState(serverPrefs.paletteState.direct);
     document.dispatchEvent(new CustomEvent('palette-state-synced'));
+  }
+  // Favorites (array of palette combos). RTDB may return the array as a
+  // keyed object if any entries are missing or non-sequential; normalize.
+  if (serverPrefs.favorites != null) {
+    const favs = Array.isArray(serverPrefs.favorites)
+      ? serverPrefs.favorites
+      : Object.values(serverPrefs.favorites);
+    storeSetFavorites(favs);
+    document.dispatchEvent(new CustomEvent('favorites-synced'));
   }
   // Per-group palette states
   if (serverPrefs.perGroup) {
