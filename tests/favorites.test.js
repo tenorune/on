@@ -908,7 +908,10 @@ describe('saveCustomCombo', () => {
       getPaletteByKey: jest.fn(() => null),
       getGlowForColor: jest.fn(() => '#000'),
     }));
-    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/db.js', () => ({
+      setStatusColor: jest.fn().mockResolvedValue(undefined),
+      setUserFavorites: jest.fn().mockResolvedValue(undefined),
+    }));
     jest.mock('../js/store.js', () => ({
       ...jest.requireActual('../js/store.js'),
       getPaletteState: jest.fn(() => ({
@@ -933,10 +936,12 @@ describe('saveCustomCombo', () => {
     expect(written[0]).toEqual(combo);
   });
 
-  test('does not push when an equivalent combo is already at the head of history', () => {
+  test('does not push when an equivalent combo exists anywhere in history', () => {
     const combo = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
                     paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
-    store.getFavorites.mockReturnValueOnce([combo]);
+    const other = { statusColor: '#aabbcc', surface: '#000', surface2: '#000',
+                    paletteKey: null, selectedKey: 'volt', activeSet: 2 };
+    store.getFavorites.mockReturnValueOnce([other, combo]); // combo at non-head position
     saveCustomCombo(combo);
     expect(store.setFavorites).not.toHaveBeenCalled();
   });
