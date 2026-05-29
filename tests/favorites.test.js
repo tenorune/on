@@ -125,274 +125,6 @@ function setupDom() {
   localStorage.setItem('statusapp_seen_strip_peek_done', '1');
 }
 
-describe('saveFavorite', () => {
-  let saveFavorite;
-
-  beforeEach(() => {
-    setupDom();
-    jest.resetModules();
-    // Re-apply mocks after resetModules
-    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
-    jest.mock('../js/palettes.js', () => ({
-      ...jest.requireActual('../js/palettes.js'),
-      switchSet: jest.fn(),
-      enterPaletteMode: jest.fn(),
-      exitPaletteMode: jest.fn(),
-      getPaletteByKey: jest.fn((key) => {
-        const palettes = {
-          forest: { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } },
-          volt: { color: '#aaff00', theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600' } },
-          iris: { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } },
-        };
-        return palettes[key] ?? null;
-      }),
-      getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
-    }));
-    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined), setUserFavorites: jest.fn().mockResolvedValue(undefined) }));
-    jest.mock('../js/store.js', () => ({
-      ...jest.requireActual('../js/store.js'),
-      getPaletteState: jest.fn(() => {
-        return {
-          activeSet: 1,
-          sets: {
-            '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#818cf8' },
-            '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' },
-          },
-        };
-      }),
-      setPaletteState: jest.fn(),
-      getFavorites: jest.fn(() => []),
-      setFavorites: jest.fn(),
-    }));
-    ({ saveFavorite } = require('../js/favorites.js'));
-  });
-
-  test('does NOT save when selectedColor is absent (user made no explicit color choice)', () => {
-    require('../js/store.js').getPaletteState.mockReturnValue({
-      activeSet: 1,
-      sets: {
-        '1': { selectedKey: 'forest', activePaletteKey: null },
-        '2': { selectedKey: 'volt',   activePaletteKey: null },
-      },
-    });
-    saveFavorite();
-    const { setFavorites } = require('../js/store.js');
-    expect(setFavorites).not.toHaveBeenCalled();
-  });
-
-  test('does NOT save on Set 2 when selectedColor is absent', () => {
-    require('../js/store.js').getPaletteState.mockReturnValue({
-      activeSet: 2,
-      sets: {
-        '1': { selectedKey: 'forest', activePaletteKey: null },
-        '2': { selectedKey: 'volt',   activePaletteKey: null },
-      },
-    });
-    document.documentElement.style.setProperty('--my-status', '#aaff00');
-    saveFavorite();
-    expect(require('../js/store.js').setFavorites).not.toHaveBeenCalled();
-  });
-
-  test('force=true saves even when active slot matches (adoption path)', () => {
-    // Active slot always mirrors buildCombo, so non-forced saves are always blocked by slot dedup.
-    // force=true (used by adoption) bypasses all dedup checks.
-    document.documentElement.style.setProperty('--my-status', '#818cf8');
-    saveFavorite(true);
-    const { setFavorites } = require('../js/store.js');
-    expect(setFavorites).toHaveBeenCalledWith([
-      expect.objectContaining({
-        statusColor: '#818cf8',
-        selectedKey: 'forest',
-        activeSet: 1,
-      }),
-    ]);
-  });
-
-  test('prepends to existing history (force=true)', () => {
-    document.documentElement.style.setProperty('--my-status', '#818cf8');
-    const existing = [{ statusColor: '#3b82f6', surface2: '#334155', paletteKey: null, selectedKey: 'ocean', activeSet: 1 }];
-    require('../js/store.js').getFavorites.mockReturnValue(existing);
-    saveFavorite(true);
-    const { setFavorites } = require('../js/store.js');
-    const saved = setFavorites.mock.calls.at(-1)[0];
-    expect(saved[0].statusColor).toBe('#818cf8');
-    expect(saved[1]).toEqual(existing[0]);
-  });
-
-  test('drops oldest entry when history reaches 6 (force=true)', () => {
-    document.documentElement.style.setProperty('--my-status', '#818cf8');
-    const full = Array.from({ length: 6 }, (_, i) => ({
-      statusColor: `#${String(i).padStart(6, '0')}`,
-      surface2: '#334155', paletteKey: null, selectedKey: 'ocean', activeSet: 1,
-    }));
-    require('../js/store.js').getFavorites.mockReturnValue(full);
-    saveFavorite(true);
-    const { setFavorites } = require('../js/store.js');
-    const saved = setFavorites.mock.calls.at(-1)[0];
-    expect(saved).toHaveLength(6);
-    expect(saved[0].statusColor).toBe('#818cf8');
-    expect(saved[5]).toEqual(full[4]); // last old entry is full[4], full[5] dropped
-  });
-
-  test('combo surface2 uses palette theme.surface2 when paletteKey is set (force=true)', () => {
-    require('../js/store.js').getPaletteState.mockReturnValue({
-      activeSet: 1,
-      sets: {
-        '1': { selectedKey: 'forest', activePaletteKey: 'iris', selectedColor: '#818cf8' },
-        '2': { selectedKey: 'volt',   activePaletteKey: null,   selectedColor: '#aaff00' },
-      },
-    });
-    document.documentElement.style.setProperty('--my-status', '#818cf8');
-    saveFavorite(true);
-    const { setFavorites } = require('../js/store.js');
-    const saved = setFavorites.mock.calls.at(-1)[0][0];
-    expect(saved.surface2).toBe('#1d1d47'); // iris theme.surface2
-    expect(saved.paletteKey).toBe('iris');
-  });
-
-  test('combo surface2 defaults to #334155 when paletteKey is null (force=true)', () => {
-    document.documentElement.style.setProperty('--my-status', '#818cf8');
-    saveFavorite(true);
-    const { setFavorites } = require('../js/store.js');
-    const saved = setFavorites.mock.calls.at(-1)[0][0];
-    expect(saved.surface2).toBe('#334155');
-  });
-
-  test('combo includes surface from palette theme when paletteKey is set (force=true)', () => {
-    require('../js/store.js').getPaletteState.mockReturnValue({
-      activeSet: 1,
-      sets: {
-        '1': { selectedKey: 'forest', activePaletteKey: 'iris', selectedColor: '#818cf8' },
-        '2': { selectedKey: 'volt', activePaletteKey: null, selectedColor: '#aaff00' },
-      },
-    });
-    document.documentElement.style.setProperty('--my-status', '#818cf8');
-    saveFavorite(true);
-    const { setFavorites } = require('../js/store.js');
-    const saved = setFavorites.mock.calls.at(-1)[0][0];
-    expect(saved.surface).toBe('#141432');   // iris theme.surface
-    expect(saved.surface2).toBe('#1d1d47');  // iris theme.surface2
-  });
-
-  test('combo includes default surface when paletteKey is null (force=true)', () => {
-    document.documentElement.style.setProperty('--my-status', '#818cf8');
-    saveFavorite(true);
-    const { setFavorites } = require('../js/store.js');
-    const saved = setFavorites.mock.calls.at(-1)[0][0];
-    expect(saved.surface).toBe('#1e293b');   // DEFAULT_SURFACE
-    expect(saved.surface2).toBe('#334155');  // DEFAULT_SURFACE2
-  });
-
-  test('force=true skips save when combo already exists in history (dedup)', () => {
-    document.documentElement.style.setProperty('--my-status', '#818cf8');
-    const existing = [{ statusColor: '#818cf8', surface2: '#334155', paletteKey: null, selectedKey: 'forest', activeSet: 1 }];
-    require('../js/store.js').getFavorites.mockReturnValue(existing);
-    saveFavorite(true);
-    const { setFavorites } = require('../js/store.js');
-    expect(setFavorites).not.toHaveBeenCalled();
-  });
-
-  test('force=true saves even when combo matches active slot (adoption path)', () => {
-    // Default state: --my-status = '#22c55e' = forest = slot 1 — force bypasses slot dedup
-    saveFavorite(true);
-    const { setFavorites } = require('../js/store.js');
-    expect(setFavorites).toHaveBeenCalledWith([
-      expect.objectContaining({ statusColor: '#22c55e', selectedKey: 'forest', activeSet: 1 }),
-    ]);
-  });
-
-  test('non-forced: saves PREVIOUS combo (Apple) when user commits new combo (Banana)', () => {
-    // Commit Apple as the last known state via force=true (simulates prior "go available")
-    document.documentElement.style.setProperty('--my-status', '#22c55e');
-    require('../js/store.js').getPaletteState.mockReturnValue({
-      activeSet: 1,
-      sets: {
-        '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#22c55e' },
-        '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' },
-      },
-    });
-    saveFavorite(true); // sets _lastCommittedCombo = Apple; adds Apple to history
-    const { setFavorites } = require('../js/store.js');
-    setFavorites.mockClear();
-    // Clear Apple from history so dedup doesn't block
-    require('../js/store.js').getFavorites.mockReturnValue([]);
-
-    // Now change to Banana = iris
-    document.documentElement.style.setProperty('--my-status', '#818cf8');
-    require('../js/store.js').getPaletteState.mockReturnValue({
-      activeSet: 1,
-      sets: {
-        '1': { selectedKey: 'iris', activePaletteKey: null, selectedColor: '#818cf8' },
-        '2': { selectedKey: 'volt', activePaletteKey: null, selectedColor: '#aaff00' },
-      },
-    });
-
-    saveFavorite(); // non-forced: should save Apple (previous), not Banana (current)
-    expect(setFavorites).toHaveBeenCalledTimes(1);
-    expect(setFavorites).toHaveBeenCalledWith([
-      expect.objectContaining({ statusColor: '#22c55e', selectedKey: 'forest', activeSet: 1 }),
-    ]);
-  });
-
-  test('non-forced: no save when current combo == previous (no change)', () => {
-    // Commit Apple, then call non-forced with same state → no save
-    saveFavorite(true); // sets _lastCommittedCombo = current (forest, #22c55e per beforeEach)
-    const { setFavorites } = require('../js/store.js');
-    setFavorites.mockClear();
-    saveFavorite(); // same state, no change
-    expect(setFavorites).not.toHaveBeenCalled();
-  });
-
-  test('non-forced: no save when previous combo already in any history slot', () => {
-    // Set _lastCommitted to Apple via force=true, keep Apple in history
-    document.documentElement.style.setProperty('--my-status', '#22c55e');
-    require('../js/store.js').getPaletteState.mockReturnValue({
-      activeSet: 1,
-      sets: {
-        '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#22c55e' },
-        '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' },
-      },
-    });
-    saveFavorite(true); // saves Apple, _lastCommitted = Apple
-    // Apple is at history[1] (not [0]) — dedup still catches it via pillsLookSame
-    require('../js/store.js').getFavorites.mockReturnValue([
-      { statusColor: '#3b82f6', surface2: '#334155', paletteKey: null, selectedKey: 'ocean', activeSet: 1 },
-      { statusColor: '#22c55e', surface2: '#334155', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
-    ]);
-    const { setFavorites } = require('../js/store.js');
-    setFavorites.mockClear();
-
-    // Change to Banana
-    document.documentElement.style.setProperty('--my-status', '#818cf8');
-    require('../js/store.js').getPaletteState.mockReturnValue({
-      activeSet: 1,
-      sets: {
-        '1': { selectedKey: 'iris', activePaletteKey: null, selectedColor: '#818cf8' },
-        '2': { selectedKey: 'volt', activePaletteKey: null, selectedColor: '#aaff00' },
-      },
-    });
-    saveFavorite(); // Apple is in history[1] → dedup catches it, no duplicate
-    expect(setFavorites).not.toHaveBeenCalled();
-  });
-
-  test('force=true skips save when pill looks the same (different selectedKey, same visual)', () => {
-    document.documentElement.style.setProperty('--my-status', '#818cf8');
-    // History has a combo with same statusColor and surface2 but different selectedKey
-    const existing = [{ statusColor: '#818cf8', surface2: '#334155', paletteKey: null, selectedKey: 'ocean', activeSet: 2 }];
-    require('../js/store.js').getFavorites.mockReturnValue(existing);
-    saveFavorite(true);
-    const { setFavorites } = require('../js/store.js');
-    expect(setFavorites).not.toHaveBeenCalled();
-  });
-
-  test('non-forced: no save when _lastCommittedCombo not yet set (no init or prior force)', () => {
-    // Fresh module, _lastCommittedCombo = null, selectedColor IS set (beforeEach default)
-    // previousCombo is null → return without saving
-    saveFavorite();
-    const { setFavorites } = require('../js/store.js');
-    expect(setFavorites).not.toHaveBeenCalled();
-  });
-});
 
 describe('renderStrip / initFavoritesStrip', () => {
   let initFavoritesStrip;
@@ -601,93 +333,29 @@ describe('history pill tap interactions (adopt-only)', () => {
   });
 });
 
-test('saveFavorite: does not save when PALETTE_INTERACTIONS_ENABLED is false', () => {
-  jest.resetModules();
-  jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: false }));
-  jest.mock('../js/palettes.js', () => ({
-    ...jest.requireActual('../js/palettes.js'),
-    getPaletteByKey: jest.fn(() => ({ color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } })),
-    getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
-  }));
-  jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined), setUserFavorites: jest.fn().mockResolvedValue(undefined) }));
-  jest.mock('../js/store.js', () => ({
-    ...jest.requireActual('../js/store.js'),
-    getPaletteState: jest.fn(() => ({
-      activeSet: 1,
-      sets: {
-        '1': { selectedKey: 'forest', activePaletteKey: null },
-        '2': { selectedKey: 'volt', activePaletteKey: null },
-      },
-    })),
-    setPaletteState: jest.fn(),
-    getFavorites: jest.fn(() => []),
-    setFavorites: jest.fn(),
-  }));
-  const { saveFavorite: sf } = require('../js/favorites.js');
-  sf();
-  const { setFavorites } = require('../js/store.js');
-  expect(setFavorites).not.toHaveBeenCalled();
-  // No restore needed.
-});
 
 describe('getAllCombos', () => {
-  let getAllCombos, initFavoritesStrip;
-
+  let getAllCombos;
   beforeEach(() => {
     setupDom();
     jest.resetModules();
     jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
-    jest.mock('../js/palettes.js', () => ({
-      ...jest.requireActual('../js/palettes.js'),
-      switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
-      getPaletteByKey: jest.fn(key => ({
-        forest: { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } },
-        volt:   { color: '#aaff00', theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600' } },
-        iris:   { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } },
-      })[key] ?? null),
-      getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
-    }));
-    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined), setUserFavorites: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/db.js', () => ({}));
     jest.mock('../js/store.js', () => ({
       ...jest.requireActual('../js/store.js'),
-      getPaletteState: jest.fn(() => ({
-        activeSet: 1,
-        sets: {
-          '1': { selectedKey: 'forest', activePaletteKey: null },
-          '2': { selectedKey: 'volt',   activePaletteKey: null },
-        },
-      })),
-      setPaletteState: jest.fn(),
       getFavorites: jest.fn(() => [
-        { statusColor: '#818cf8', surface: '#141432', surface2: '#1d1d47', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
+        { statusColor: '#abc', surface: '#000', surface2: '#000', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
+        { statusColor: '#def', surface: '#000', surface2: '#000', paletteKey: null, selectedKey: 'volt',   activeSet: 2 },
       ]),
-      setFavorites: jest.fn(),
     }));
-    ({ getAllCombos, initFavoritesStrip } = require('../js/favorites.js'));
+    ({ getAllCombos } = require('../js/favorites.js'));
   });
 
-  test('returns slot 1, slot 2, then history combos', () => {
-    initFavoritesStrip('myUid');
+  test('returns the favorites array directly', () => {
     const combos = getAllCombos();
-    expect(combos).toHaveLength(3);
-    expect(combos[0].activeSet).toBe(1);
-    expect(combos[1].activeSet).toBe(2);
-    expect(combos[2].paletteKey).toBe('iris');
-  });
-
-  test('all combos have surface and surface2 fields', () => {
-    initFavoritesStrip('myUid');
-    const combos = getAllCombos();
-    combos.forEach(c => {
-      expect(c.surface).toBeDefined();
-      expect(c.surface2).toBeDefined();
-    });
-  });
-
-  test('returns only 2 combos when history is empty', () => {
-    require('../js/store.js').getFavorites.mockReturnValue([]);
-    initFavoritesStrip('myUid');
-    expect(getAllCombos()).toHaveLength(2);
+    expect(combos.length).toBe(2);
+    expect(combos[0].statusColor).toBe('#abc');
+    expect(combos[1].statusColor).toBe('#def');
   });
 });
 
@@ -723,6 +391,8 @@ describe('getCanvasColors', () => {
       setPaletteState: jest.fn(),
       getFavorites: jest.fn(() => [
         { statusColor: '#818cf8', surface: '#141432', surface2: '#1d1d47', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
+        { statusColor: '#22c55e', surface: '#0f2e18', surface2: '#184226', paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 },
+        { statusColor: '#aaff00', surface: '#192500', surface2: '#243600', paletteKey: 'volt', selectedKey: 'volt', activeSet: 2 },
       ]),
       setFavorites: jest.fn(),
     }));
@@ -732,33 +402,32 @@ describe('getCanvasColors', () => {
   test('returns deduplicated pen colors', () => {
     initFavoritesStrip('myUid');
     const { penColors } = getCanvasColors();
+    expect(penColors).toContain('#818cf8');
     expect(penColors).toContain('#22c55e');
     expect(penColors).toContain('#aaff00');
-    expect(penColors).toContain('#818cf8');
     expect(penColors.length).toBe(new Set(penColors).size);
   });
 
   test('returns deduplicated bg colors', () => {
     initFavoritesStrip('myUid');
     const { bgColors } = getCanvasColors();
-    expect(bgColors).toContain('#1e293b');  // default surface (both slots)
     expect(bgColors).toContain('#141432');  // iris surface
+    expect(bgColors).toContain('#0f2e18');  // forest surface
     expect(bgColors.length).toBe(new Set(bgColors).size);
   });
 
   test('pads pen colors with defaults up to 4 when user has fewer', () => {
-    // Setup: slot1 forest, slot2 volt, no history → 2 pen colors
+    // Setup: no history → 0 pen colors; defaults fill up to 4.
     require('../js/store.js').getFavorites.mockReturnValue([]);
     initFavoritesStrip('myUid');
     const { penColors } = getCanvasColors();
     expect(penColors).toHaveLength(4);
-    // forest already present (slot 1) → skipped; iris and coral added.
-    expect(penColors).toEqual(['#22c55e', '#aaff00', '#818cf8', '#fb7185']);
+    // CANVAS_DEFAULT_KEYS = ['forest', 'iris', 'coral', 'gold'] → all four added.
+    expect(penColors).toEqual(['#22c55e', '#818cf8', '#fb7185', '#facc15']);
   });
 
   test('does not add defaults that are already present', () => {
-    // Setup: history contains coral, gold → defaults forest (skip, slot1),
-    // iris (add). Stop at 4.
+    // Setup: history contains coral and gold — forest and iris still added to reach 4.
     require('../js/store.js').getFavorites.mockReturnValue([
       { statusColor: '#fb7185', surface: '#2e0f1a', surface2: '#421722', paletteKey: 'coral', selectedKey: 'coral', activeSet: 1 },
       { statusColor: '#facc15', surface: '#2e2400', surface2: '#423500', paletteKey: 'gold',  selectedKey: 'gold',  activeSet: 1 },
@@ -766,7 +435,9 @@ describe('getCanvasColors', () => {
     initFavoritesStrip('myUid');
     const { penColors } = getCanvasColors();
     expect(penColors).toHaveLength(4);
-    expect(penColors).toEqual(['#22c55e', '#aaff00', '#fb7185', '#facc15']);
+    // coral + gold in history; pad with forest, skip coral (dup), skip gold (dup?
+    // wait: forest first → add; iris next → add; coral → skip; gold → skip. Done at 4.
+    expect(penColors).toEqual(['#fb7185', '#facc15', '#22c55e', '#818cf8']);
   });
 
   test('does not pad when user already has 4+ pen colors', () => {
@@ -774,86 +445,17 @@ describe('getCanvasColors', () => {
       { statusColor: '#3b82f6', surface: '#1e293b', surface2: '#334155', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
       { statusColor: '#a855f7', surface: '#1e293b', surface2: '#334155', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
       { statusColor: '#ec4899', surface: '#1e293b', surface2: '#334155', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
+      { statusColor: '#f97316', surface: '#1e293b', surface2: '#334155', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
     ]);
     initFavoritesStrip('myUid');
     const { penColors } = getCanvasColors();
-    expect(penColors).toHaveLength(5);  // slot1, slot2, plus the 3 history
+    expect(penColors).toHaveLength(4);  // exactly 4 from history, no defaults added
     // No defaults appended.
+    expect(penColors).not.toContain('#22c55e');
     expect(penColors).not.toContain('#818cf8');
-    expect(penColors).not.toContain('#fb7185');
   });
 });
 
-describe('saveCustomCombo', () => {
-  let saveCustomCombo;
-  let store;
-
-  beforeEach(() => {
-    setupDom();
-    jest.resetModules();
-    // Re-apply the same mock pattern the existing saveFavorite suite uses
-    // (favorites.js → prefs.js → store.js; mocking store.js catches the chain).
-    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
-    jest.mock('../js/palettes.js', () => ({
-      ...jest.requireActual('../js/palettes.js'),
-      switchSet: jest.fn(),
-      enterPaletteMode: jest.fn(),
-      exitPaletteMode: jest.fn(),
-      getPaletteByKey: jest.fn(() => null),
-      getGlowForColor: jest.fn(() => '#000'),
-    }));
-    jest.mock('../js/db.js', () => ({
-      setStatusColor: jest.fn().mockResolvedValue(undefined),
-      setUserFavorites: jest.fn().mockResolvedValue(undefined),
-    }));
-    jest.mock('../js/store.js', () => ({
-      ...jest.requireActual('../js/store.js'),
-      getPaletteState: jest.fn(() => ({
-        activeSet: 1,
-        sets: { '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#22c55e' },
-                '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' } },
-      })),
-      setPaletteState: jest.fn(),
-      getFavorites: jest.fn(() => []),
-      setFavorites: jest.fn(),
-    }));
-    store = require('../js/store.js');
-    ({ saveCustomCombo } = require('../js/favorites.js'));
-  });
-
-  test('pushes the supplied combo to history (no dedupe match)', () => {
-    const combo = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
-                    paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
-    saveCustomCombo(combo);
-    expect(store.setFavorites).toHaveBeenCalledTimes(1);
-    const written = store.setFavorites.mock.calls[0][0];
-    expect(written[0]).toEqual(combo);
-  });
-
-  test('does not push when an equivalent combo exists anywhere in history', () => {
-    const combo = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
-                    paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
-    const other = { statusColor: '#aabbcc', surface: '#000', surface2: '#000',
-                    paletteKey: null, selectedKey: 'volt', activeSet: 2 };
-    store.getFavorites.mockReturnValueOnce([other, combo]); // combo at non-head position
-    saveCustomCombo(combo);
-    expect(store.setFavorites).not.toHaveBeenCalled();
-  });
-
-  test('is a no-op when feature flags are off', () => {
-    jest.resetModules();
-    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: false, PALETTE_INTERACTIONS_ENABLED: false }));
-    jest.mock('../js/store.js', () => ({
-      ...jest.requireActual('../js/store.js'),
-      getFavorites: jest.fn(() => []),
-      setFavorites: jest.fn(),
-    }));
-    const off = require('../js/store.js');
-    const { saveCustomCombo: gated } = require('../js/favorites.js');
-    gated({ statusColor: '#fff', surface: '#000', surface2: '#000', paletteKey: null, selectedKey: 'forest', activeSet: 1 });
-    expect(off.setFavorites).not.toHaveBeenCalled();
-  });
-});
 
 describe('saveCombo', () => {
   let saveCombo;

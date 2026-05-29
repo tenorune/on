@@ -8,7 +8,6 @@ import { safeCssColor } from './utils.js';
 import { getCurrentContext, onContextChange } from './groupNav.js';
 import { markHintSeen, isFavoritesCollapsed, setFavoritesCollapsed } from './prefs.js';
 
-const MAX_HISTORY = 6;
 const MAX_FAVORITES = 8;
 const DEFAULT_STATUS_COLOR = '#22c55e';  // default green (forest primary)
 const DEFAULT_SURFACE  = '#1e293b';      // default slate card bg (--surface)
@@ -18,7 +17,6 @@ const DEFAULT_SURFACE2 = '#334155';      // default slate pill bg (--surface2)
 // favoritesCollapsed in Firebase).
 
 let _myUserId = null;
-let _lastCommittedCombo = null;
 let _prevPillCount = 0;
 
 // ─── Combo building ──────────────────────────────────────────────────────────
@@ -56,39 +54,8 @@ export function buildDirectCombo() {
   };
 }
 
-function slotCombo(setNum) {
-  const ps = getPaletteState();
-  const setKey = String(setNum);
-  const { selectedKey, activePaletteKey } = ps.sets[setKey];
-  const statusPalette = getPaletteByKey(selectedKey);
-  const themePalette  = activePaletteKey ? getPaletteByKey(activePaletteKey) : null;
-  const statusColor = ps.sets[setKey].selectedColor || statusPalette?.color || DEFAULT_STATUS_COLOR;
-  return {
-    statusColor,
-    surface:  themePalette?.theme.surface  ?? DEFAULT_SURFACE,
-    surface2: themePalette?.theme.surface2 ?? DEFAULT_SURFACE2,
-    paletteKey: activePaletteKey,
-    selectedKey,
-    activeSet: setNum,
-  };
-}
-
-function combosMatch(a, b) {
-  return a.statusColor === b.statusColor
-    && a.paletteKey === b.paletteKey
-    && a.selectedKey === b.selectedKey
-    && a.activeSet   === b.activeSet;
-}
-
 function pillsLookSame(a, b) {
   return a.statusColor === b.statusColor && a.surface2 === b.surface2;
-}
-
-function slotVisuallyMatches(combo, setNum) {
-  const s = slotCombo(setNum);
-  return combo.statusColor === s.statusColor
-    && combo.paletteKey   === s.paletteKey
-    && combo.selectedKey  === s.selectedKey;
 }
 
 // Persist favorites. setFavorites (prefs.js) writes both localStorage and
@@ -106,7 +73,7 @@ if (typeof document !== 'undefined') {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export function getAllCombos() {
-  return [slotCombo(1), slotCombo(2), ...getFavorites()];
+  return getFavorites();
 }
 
 // Default fallback colors used when the user has fewer than 4 pen colors
@@ -135,64 +102,9 @@ export function getCanvasColors() {
   return { penColors, bgColors };
 }
 
-export function removeHistoryDuplicatesOfSlots() {
-  if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
-  const history = getFavorites();
-  const slot1 = slotCombo(1);
-  const slot2 = slotCombo(2);
-  const cleaned = history.filter(h => !pillsLookSame(h, slot1) && !pillsLookSame(h, slot2));
-  if (cleaned.length !== history.length) {
-    writeFavorites(cleaned);
-    renderStrip();
-  }
-}
-
-export function saveFavorite(force = false) {
-  if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
-  const currentCombo = buildDirectCombo();
-  if (force) {
-    _lastCommittedCombo = currentCombo;
-    const history = getFavorites();
-    if (!history.some(h => pillsLookSame(currentCombo, h))) {
-      writeFavorites([currentCombo, ...history].slice(0, MAX_HISTORY));
-      renderStrip();
-    }
-    return;
-  }
-  // Non-forced (going available): push the PREVIOUS combo to history, not the current one.
-  // The current combo is already visible in a slot; what needs saving is what it replaced.
-  const ps = getPaletteState();
-  const activeSetKey = String(ps.activeSet);
-  if (!ps.sets[activeSetKey].selectedColor) return; // no explicit color choice made
-  const previousCombo = _lastCommittedCombo;
-  _lastCommittedCombo = currentCombo;
-  if (!previousCombo) return; // no prior committed state to push
-  if (combosMatch(currentCombo, previousCombo)) return; // nothing changed
-  const history = getFavorites();
-  if (slotVisuallyMatches(previousCombo, 1) || slotVisuallyMatches(previousCombo, 2)) return;
-  if (history.some(h => pillsLookSame(previousCombo, h))) return;
-  writeFavorites([previousCombo, ...history].slice(0, MAX_HISTORY));
-  renderStrip();
-}
-
-// Force-push a caller-supplied combo to the favorites history. Used by
-// group-context adoption, where the relevant "previous combo" is the
-// group-effective combo (not Direct's paletteState that buildCombo reads).
-// Same dedupe + cap semantics as the force branch of saveFavorite.
-export function saveCustomCombo(combo) {
-  if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
-  if (!combo) return;
-  const history = getFavorites();
-  if (history.some(h => pillsLookSame(combo, h))) return;
-  writeFavorites([combo, ...history].slice(0, MAX_HISTORY));
-  renderStrip();
-}
-
-// Single writer for the new model. Pushes a caller-supplied combo to the
-// head of the favorites strip, with head-only dedupe and cap-at-8. Used
-// by going-active (Direct + group) and by long-press adoption (Direct +
-// group). Replaces saveFavorite and saveCustomCombo; both will be removed
-// in a follow-up cleanup task once all callers are migrated.
+// Single writer. Pushes a caller-supplied combo to the head of the favorites
+// strip, with head-only dedupe and cap-at-8. Used by going-active (Direct +
+// group) and by long-press adoption (Direct + group).
 export function saveCombo(combo) {
   if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
   if (!combo) return;
@@ -202,22 +114,8 @@ export function saveCombo(combo) {
   renderStrip();
 }
 
-function onPaletteStateChanged() {
-  // When the active set changes (via Bolt/Flower toggle), update the committed
-  // baseline to the new set so saveFavorite saves the correct "previous" combo.
-  if (_lastCommittedCombo) {
-    const ps = getPaletteState();
-    if (ps.activeSet !== _lastCommittedCombo.activeSet) {
-      _lastCommittedCombo = slotCombo(ps.activeSet);
-    }
-  }
-  renderStrip();
-}
-
 export function initFavoritesStrip(myUserId) {
   _myUserId = myUserId;
-  _lastCommittedCombo = buildDirectCombo();
-  document.addEventListener('palette-state-changed', onPaletteStateChanged);
   // Snap any in-flight peek-strip animation closed the moment the user
   // moves into a group context — doPeek's gate handles subsequent ticks,
   // but a wrapper already mid-animation would otherwise float over the
@@ -336,8 +234,7 @@ function renderExpanded(container, history) {
   }
   _prevPillCount = pillCount;
 
-  // History pill click handlers — no more slot-pill loop, no more
-  // ps/activeSet check.
+  // History pill click handlers
   container.querySelectorAll('.fav-pill[data-type="history"]').forEach(el => {
     el.addEventListener('click', () => handleHistoryTap(parseInt(el.dataset.index)));
   });
@@ -379,20 +276,13 @@ function renderExpanded(container, history) {
 
 
 function peekStrip(container, history) {
-  const ps = getPaletteState();
-  const slot1 = slotCombo(1);
-  const slot2 = slotCombo(2);
-  const slotPills = [
-    renderPill(slot1, ps.activeSet === 1 ? 'inactive' : 'active', 'slot', 1),
-    renderPill(slot2, ps.activeSet === 2 ? 'inactive' : 'active', 'slot', 2),
-  ].join('');
   const historyPills = history.map((c, i) => renderPill(c, 'history', 'history', i)).join('');
 
   // Build peek strip with fixed positioning — no layout impact
   const strip = document.createElement('div');
   strip.className = 'fav-strip';
   strip.style.cssText = 'pointer-events:none; border-bottom:none; margin:0;';
-  strip.innerHTML = slotPills + historyPills;
+  strip.innerHTML = historyPills;
 
   const rainbowLine = container.querySelector('.fav-collapsed-line');
   const lineRect = rainbowLine ? rainbowLine.getBoundingClientRect() : container.getBoundingClientRect();
@@ -488,15 +378,7 @@ function renderPill(combo, state, type, index) {
     `<div class="fav-pill-right" style="background:${safeCssColor(combo.surface2)}"></div></div>`;
 }
 
-// ─── Interaction handlers (filled in Task 5) ────────────────────────────────
-
-function handleSlotTap(slotNum) {
-  const ps = getPaletteState();
-  if (ps.activeSet === slotNum) return;
-  _lastCommittedCombo = slotCombo(slotNum); // new active slot's baseline before any edits
-  switchSet(slotNum, _myUserId);
-  renderStrip();
-}
+// ─── Interaction handlers ────────────────────────────────────────────────────
 
 function handleHistoryTap(idx) {
   const combo = getFavorites()[idx];
@@ -521,5 +403,5 @@ function handleHistoryTap(idx) {
   document.documentElement.style.setProperty('--my-status', combo.statusColor);
   document.documentElement.style.setProperty('--my-glow', getGlowForColor(combo.statusColor));
 
-  // No history mutation, no slot swap, no _lastCommittedCombo update.
+  // No history mutation.
 }
