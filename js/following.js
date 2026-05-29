@@ -430,7 +430,6 @@ function triggerAdoption(entry, myUserId) {
   );
   saveCombo(adoptedCombo);
   applyAdoption(entry, myUserId);
-  // (removeHistoryDuplicatesOfSlots call from here is GONE — slots no longer exist.)
 }
 
 function createFolloweeRow(entry, myUserId, isMutual = false) {

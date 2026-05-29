@@ -435,8 +435,7 @@ describe('getCanvasColors', () => {
     initFavoritesStrip('myUid');
     const { penColors } = getCanvasColors();
     expect(penColors).toHaveLength(4);
-    // coral + gold in history; pad with forest, skip coral (dup), skip gold (dup?
-    // wait: forest first → add; iris next → add; coral → skip; gold → skip. Done at 4.
+    // History has coral + gold; padded with forest + iris up to minimum 4.
     expect(penColors).toEqual(['#fb7185', '#facc15', '#22c55e', '#818cf8']);
   });
 
