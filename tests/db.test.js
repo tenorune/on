@@ -625,16 +625,22 @@ describe('statusOverride helpers', () => {
 
 describe('registerAsFollower', () => {
   const { registerAsFollower } = require('../js/db');
-  test('writes the followers entry and clears any prior revokedFollowers flag', async () => {
+  test('writes the followers entry and clears any prior revokedFollowers flag, in that order', async () => {
     set.mockResolvedValue();
     remove.mockResolvedValue();
     ref.mockClear();
     await registerAsFollower('targetUid', 'meUid', 'ABC123');
-    // Both writes happen — followers/me set to my code, revokedFollowers/me cleared.
+    // Both writes happen — revokedFollowers/me cleared, followers/me set.
     const refPaths = ref.mock.calls.map((args) => args[1]);
     expect(refPaths).toContain('users/targetUid/followers/meUid');
     expect(refPaths).toContain('users/targetUid/revokedFollowers/meUid');
     expect(set).toHaveBeenCalledWith('mock-ref', 'ABC123');
     expect(remove).toHaveBeenCalledWith('mock-ref');
+    // Order: revokedFollowers clear must precede the followers write so a
+    // subscriber's watchStatus tick can't echo the followers update with the
+    // revocation still set (which would trigger the auto-unfollow check).
+    const revokeIdx = refPaths.indexOf('users/targetUid/revokedFollowers/meUid');
+    const followersIdx = refPaths.indexOf('users/targetUid/followers/meUid');
+    expect(revokeIdx).toBeLessThan(followersIdx);
   });
 });

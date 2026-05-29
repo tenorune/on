@@ -348,10 +348,18 @@ function renderList() {
   });
 
   // Re-prepend any rows still in their float window so a coincident re-sort
-  // doesn't lose the float-to-top position.
+  // doesn't lose the float-to-top position. Same section-label awareness as
+  // applyFloatToTop (otherwise a floated mutual lands above the "Mutuals"
+  // label when renderList re-builds the list).
+  const firstLabel = list.querySelector('.list-section-label');
   for (const uid of getFloatedUserIds()) {
     const li = list.querySelector(`[data-user-id="${uid}"]`);
-    if (li) list.prepend(li);
+    if (!li) continue;
+    if (firstLabel) {
+      list.insertBefore(li, firstLabel.nextSibling);
+    } else {
+      list.prepend(li);
+    }
   }
 }
 
