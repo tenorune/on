@@ -94,7 +94,18 @@ jest.mock('../js/knock.js', () => ({
 jest.mock('../js/features.js', () => ({
   KNOCK_ENABLED: true,
   PALETTES_ENABLED: true,
+  PALETTE_INTERACTIONS_ENABLED: true,
 }));
+
+// PointerEvent polyfill for jsdom (does not implement it natively)
+if (typeof PointerEvent === 'undefined') {
+  global.PointerEvent = class PointerEvent extends MouseEvent {
+    constructor(type, params = {}) {
+      super(type, params);
+      this.pointerId = params.pointerId ?? 0;
+    }
+  };
+}
 
 const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
@@ -1131,6 +1142,99 @@ describe('buildGroupCombo', () => {
     });
     expect(combo.statusColor).toBe('#22c55e');
     expect(combo.paletteKey).toBe(null);
+  });
+});
+
+describe('group-context long-press adoption', () => {
+  const db = require('../js/db.js');
+  const groups = require('../js/groups.js');
+  const groupNav = require('../js/groupNav.js');
+  const favorites = require('../js/favorites.js');
+  const knock = require('../js/knock.js');
+  const prefs = require('../js/prefs.js');
+
+  function setupRoster({ ownOverrideEnabled, members }) {
+    db.watchGroupMembers.mockImplementation((_gid, cb) => {
+      cb(members);
+      return () => {};
+    });
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb(ownOverrideEnabled
+        ? { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' }
+        : { enabled: false, status: null });
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((uid, cb) => {
+      cb({ status: 'available', statusColor: '#ff00aa', paletteKey: 'forest' });
+      return () => {};
+    });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    exitGroupContext();
+  });
+
+  test('long-press is a no-op when this group override is OFF', () => {
+    setupRoster({
+      ownOverrideEnabled: false,
+      members: { src: { displayName: 'Alice' } },
+    });
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
+    expect(groupNav.applyOptimisticAppearance).not.toHaveBeenCalled();
+    expect(favorites.saveCustomCombo).not.toHaveBeenCalled();
+  });
+
+  test('long-press triggers adoption when this group override is ON', () => {
+    setupRoster({
+      ownOverrideEnabled: true,
+      members: { src: { displayName: 'Alice' } },
+    });
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
+      expect.objectContaining({ statusColor: '#ff00aa', paletteKey: 'forest' }));
+    expect(groupNav.applyOptimisticAppearance).toHaveBeenCalledWith('G1',
+      expect.objectContaining({ statusColor: '#ff00aa', paletteKey: 'forest' }));
+    expect(favorites.saveCustomCombo).toHaveBeenCalled();
+  });
+
+  test('movement > 8px cancels the long-press', () => {
+    setupRoster({
+      ownOverrideEnabled: true,
+      members: { src: { displayName: 'Alice' } },
+    });
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    li.dispatchEvent(new PointerEvent('pointermove', { clientX: 20, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
+  });
+
+  test('short tap (pointerup before timer) fires knock, not adopt', () => {
+    setupRoster({
+      ownOverrideEnabled: true,
+      members: { src: { displayName: 'Alice' } },
+    });
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(200);
+    li.dispatchEvent(new PointerEvent('pointerup', { clientX: 0, clientY: 0 }));
+    li.click();
+    jest.advanceTimersByTime(400);
+    expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
+    expect(knock.sendKnock).toHaveBeenCalled();
   });
 });
 
