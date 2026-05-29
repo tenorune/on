@@ -204,6 +204,21 @@ function renderNavRow() {
   }
 }
 
+// Optimistically merge appearance fields (statusColor / paletteKey) into the
+// per-group override cache and re-render the nav row. Symmetric counterpart
+// to applyOptimisticOverride (which goes groupNav → groupContext); this one
+// lets groupContext push appearance changes back into groupNav before the
+// Firebase ack so the Direct nav-row group-card border stays in sync.
+export function applyOptimisticAppearance(groupId, fields) {
+  if (!groupId || !fields) return;
+  const existing = _overrideByGroupId[groupId] || {};
+  const next = { ...existing };
+  if ('statusColor' in fields) next.statusColor = fields.statusColor;
+  if ('paletteKey'  in fields) next.paletteKey  = fields.paletteKey;
+  _overrideByGroupId[groupId] = next;
+  renderNavRow();
+}
+
 function renderNavRowDirectMode(row) {
   // "Direct" is the implicit current context — no label needed in the nav.
   // The groups + create-group button stand in for navigation; tapping a card

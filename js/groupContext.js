@@ -7,7 +7,7 @@
 
 import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs } from './db.js';
 import { safeCssColor } from './utils.js';
-import { navigateToDirect } from './groupNav.js';
+import { navigateToDirect, applyOptimisticAppearance } from './groupNav.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
          setOverrideAppearance } from './groups.js';
@@ -16,11 +16,13 @@ import {
   getLastTimeout, setLastTimeout,
   getGroupChipMinutes, setGroupChipMinutes,
   getGroupPaletteState, setGroupPaletteState,
+  isHintSeen, markHintSeen,
 } from './prefs.js';
+import { saveCustomCombo } from './favorites.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
-import { KNOCK_ENABLED, PALETTES_ENABLED } from './features.js';
+import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
 import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, ICON_BOLT, ICON_TREE } from './palettes.js';
 
 // Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
@@ -132,6 +134,36 @@ function renderRoster(members, ownUserId) {
       li.addEventListener('click', () => {
         sendKnock(uid, ownUserId, undefined, { contextGroupId: getCurrentGroupId() });
       });
+    }
+
+    if (PALETTES_ENABLED && PALETTE_INTERACTIONS_ENABLED && uid !== ownUserId) {
+      let pressTimer = null;
+      let pressStartX, pressStartY;
+      let suppressNextClick = false;
+
+      li.addEventListener('pointerdown', (e) => {
+        if (!_ownOverride?.enabled) return;
+        clearTimeout(pressTimer); pressTimer = null;
+        pressStartX = e.clientX;
+        pressStartY = e.clientY;
+        pressTimer = setTimeout(() => {
+          pressTimer = null;
+          suppressNextClick = true;
+          triggerGroupAdoption(uid, ownUserId);
+        }, 500);
+      });
+      li.addEventListener('pointermove', (e) => {
+        if (pressTimer && (Math.abs(e.clientX - pressStartX) > 8 ||
+                           Math.abs(e.clientY - pressStartY) > 8)) {
+          clearTimeout(pressTimer); pressTimer = null;
+        }
+      });
+      ['pointerup', 'pointercancel'].forEach(ev =>
+        li.addEventListener(ev, () => { clearTimeout(pressTimer); pressTimer = null; })
+      );
+      li.addEventListener('click', (e) => {
+        if (suppressNextClick) { suppressNextClick = false; e.stopImmediatePropagation(); }
+      }, true);
     }
 
     list.appendChild(li);
@@ -959,4 +991,116 @@ export function getCurrentGroupId() { return _currentGroupId; }
 export function applyOptimisticOverride(override) {
   _ownOverride = override || null;
   renderOwnStatusRow();
+}
+
+function triggerGroupAdoption(srcUid, ownUid) {
+  const groupId = _currentGroupId;
+  if (!groupId || !_ownOverride?.enabled) return;
+
+  // 1. Source resolution: override-then-primary-then-forest-fallback.
+  // _membersOverrides is a plain object keyed by uid; _memberPrimaries is a Map.
+  const srcOverride = _membersOverrides?.[srcUid] || null;
+  const srcPrimary  = _memberPrimaries?.get(srcUid) || null;
+  let adoptedColor, adoptedPaletteKey;
+  if (srcOverride?.enabled && srcOverride.statusColor) {
+    adoptedColor      = srcOverride.statusColor;
+    adoptedPaletteKey = srcOverride.paletteKey ?? null;
+  } else if (srcOverride?.enabled && srcOverride.paletteKey) {
+    // paletteKey-only override: derive color from the palette's key color.
+    // Mirrors what the source row actually renders (paintRosterRow falls
+    // through to palette.color when override.statusColor is missing).
+    const p = PALETTE_SETS[1].find(x => x.key === srcOverride.paletteKey)
+           || PALETTE_SETS[2].find(x => x.key === srcOverride.paletteKey);
+    adoptedColor      = p?.color ?? '#22c55e';
+    adoptedPaletteKey = srcOverride.paletteKey;
+  } else {
+    adoptedColor      = srcPrimary?.statusColor ?? '#22c55e';
+    adoptedPaletteKey = srcPrimary?.paletteKey ?? null;
+  }
+
+  // 2. Pre-adoption favorites push (group-effective combo).
+  const preCombo = buildGroupCombo({
+    ownOverride:  _ownOverride,
+    ownPrimary:   _ownPrimary,
+    paletteState: getGroupPaletteState(groupId),
+  });
+  saveCustomCombo(preCombo);
+
+  // 3. Optimistic local mutation.
+  const newOverride = { ..._ownOverride, statusColor: adoptedColor, paletteKey: adoptedPaletteKey };
+  applyOptimisticOverride(newOverride);   // _ownOverride + renderOwnStatusRow
+  applyEffectivePalette();                // CSS vars in group context
+  applyOptimisticAppearance(groupId, { statusColor: adoptedColor, paletteKey: adoptedPaletteKey });
+
+  // 4. Picker mirror.
+  const state = getGroupPaletteState(groupId);
+  const setKey = String(state.activeSet);
+  if (adoptedPaletteKey) {
+    const setNum = PALETTE_SETS[2].some(p => p.key === adoptedPaletteKey) ? 2 : 1;
+    const tgtKey = String(setNum);
+    state.activeSet = setNum;
+    state.sets[tgtKey].selectedKey       = adoptedPaletteKey;
+    state.sets[tgtKey].selectedColor     = adoptedColor;
+    state.sets[tgtKey].activePaletteKey  = adoptedPaletteKey;
+  } else {
+    let matched = null;
+    for (const sn of ['1', '2']) {
+      const found = PALETTE_SETS[Number(sn)].find(p => p.color === adoptedColor);
+      if (found) { matched = { set: sn, key: found.key }; break; }
+    }
+    if (matched) {
+      state.activeSet = Number(matched.set);
+      state.sets[matched.set].selectedKey      = matched.key;
+      state.sets[matched.set].selectedColor    = adoptedColor;
+      state.sets[matched.set].activePaletteKey = null;
+    } else {
+      state.sets[setKey].selectedColor    = adoptedColor;
+      state.sets[setKey].activePaletteKey = null;
+    }
+  }
+  setGroupPaletteState(groupId, state);
+
+  // 5. Firebase write (fire-and-forget).
+  setOverrideAppearance(groupId, ownUid, { statusColor: adoptedColor, paletteKey: adoptedPaletteKey })
+    .catch(() => {});
+
+  // 6. Hint flag.
+  if (!isHintSeen('longpress')) markHintSeen('longpress');
+
+  // 7. Visual flash on the source row.
+  const srcLi = document.querySelector(`#group-roster li[data-user-id="${srcUid}"]`);
+  if (srcLi) {
+    srcLi.classList.add('adopted-from');
+    setTimeout(() => srcLi.classList.remove('adopted-from'), 800);
+  }
+}
+
+// Pure helper. Resolves the user's current group-effective combo into the
+// shape favorites.js expects. Used by adoption to push the pre-adoption
+// combo to history before mutating the override.
+export function buildGroupCombo({ ownOverride, ownPrimary, paletteState }) {
+  const overrideOn = !!ownOverride?.enabled;
+  const statusColor =
+    (overrideOn && ownOverride?.statusColor) ||
+    ownPrimary?.statusColor ||
+    '#22c55e';
+  // Mirrors paintRosterRow's resolution: when override is enabled, the override
+  // is authoritative — override.paletteKey of null/missing means "no palette",
+  // NOT "fall through to primary." Otherwise the combo we save here wouldn't
+  // match what the user was actually seeing in the group.
+  const paletteKey = overrideOn
+    ? (ownOverride?.paletteKey || null)
+    : (ownPrimary?.paletteKey || null);
+  const palette = paletteKey ? getPaletteByKey(paletteKey) : null;
+  const activeSet = paletteState?.activeSet ?? 1;
+  const activeSetKey = String(activeSet);
+  const selectedKey = paletteState?.sets?.[activeSetKey]?.selectedKey ?? 'forest';
+  return {
+    statusColor,
+    surface:  palette?.theme?.surface  ?? null,
+    surface2: palette?.theme?.surface2 ?? null,
+    paletteKey,
+    selectedKey,
+    activeSet,
+  };
 }

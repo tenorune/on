@@ -44,6 +44,7 @@ jest.mock('../js/invites.js', () => ({
 jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
   getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
+  applyOptimisticAppearance: jest.fn(),
 }));
 jest.mock('../js/groups.js', () => ({
   renameGroup: jest.fn().mockResolvedValue(undefined),
@@ -55,8 +56,34 @@ jest.mock('../js/groups.js', () => ({
   setOverrideStatusUnavailable: jest.fn().mockResolvedValue(undefined),
   setOverrideAppearance: jest.fn().mockResolvedValue(undefined),
 }));
+jest.mock('../js/favorites.js', () => ({
+  saveCustomCombo: jest.fn(),
+}));
 jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),
+}));
+jest.mock('../js/prefs.js', () => ({
+  isHintSeen: jest.fn(() => false),
+  markHintSeen: jest.fn(),
+  getGroupPaletteState: jest.fn(() => ({
+    activeSet: 1,
+    sets: {
+      '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+      '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+    },
+  })),
+  setGroupPaletteState: jest.fn(),
+  getPaletteState: jest.fn(() => ({
+    activeSet: 1,
+    sets: {
+      '1': { selectedKey: 'forest', activePaletteKey: null },
+      '2': { selectedKey: 'volt', activePaletteKey: null },
+    },
+  })),
+  getLastTimeout: jest.fn(() => 120),
+  setLastTimeout: jest.fn(),
+  getGroupChipMinutes: jest.fn(() => null),
+  setGroupChipMinutes: jest.fn(),
 }));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
@@ -67,12 +94,24 @@ jest.mock('../js/knock.js', () => ({
 jest.mock('../js/features.js', () => ({
   KNOCK_ENABLED: true,
   PALETTES_ENABLED: true,
+  PALETTE_INTERACTIONS_ENABLED: true,
 }));
+
+// PointerEvent polyfill for jsdom (does not implement it natively)
+if (typeof PointerEvent === 'undefined') {
+  global.PointerEvent = class PointerEvent extends MouseEvent {
+    constructor(type, params = {}) {
+      super(type, params);
+      this.pointerId = params.pointerId ?? 0;
+    }
+  };
+}
 
 const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
 const groupsModule = require('../js/groups.js');
 const inviteModal = require('../js/inviteModal.js');
+const prefs = require('../js/prefs.js');
 const store = require('../js/store.js');
 const { enterGroupContext, exitGroupContext } = require('../js/groupContext');
 
@@ -497,7 +536,26 @@ describe('own status row', () => {
     return { getMetaCb: () => metaCb, getPrimaryCb: () => primaryCb, getOverrideCb: () => overrideCb };
   }
 
-  beforeEach(() => { jest.clearAllMocks(); setupContextDom(); });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+    // Set up stateful mocks for getGroupPaletteState / setGroupPaletteState
+    // so set-toggle tests can mutate and read state.
+    const prefsStore = {};
+    const prefs = require('../js/prefs.js');
+    prefs.getGroupPaletteState.mockImplementation((groupId) => {
+      return prefsStore[groupId] || {
+        activeSet: 1,
+        sets: {
+          '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+          '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+        },
+      };
+    });
+    prefs.setGroupPaletteState.mockImplementation((groupId, state) => {
+      prefsStore[groupId] = state;
+    });
+  });
 
   test('renders primary status when override is null', () => {
     const cbs = captureCallbacks();
@@ -719,8 +777,8 @@ describe('own status row', () => {
     expect(until).toBeLessThanOrEqual(Date.now() + 180 * 60000 + 2000);
     // Chip cycle is now per-group (no leak into Direct's getLastTimeout /
     // setLastTimeoutMinutes anymore).
-    expect(store.setGroupChipMinutes).toHaveBeenCalledWith('G1', 180);
-    expect(store.setLastTimeout).not.toHaveBeenCalled();
+    expect(prefs.setGroupChipMinutes).toHaveBeenCalledWith('G1', 180);
+    expect(prefs.setLastTimeout).not.toHaveBeenCalled();
   });
 
   test('clicking the time chip when override OFF is a no-op', () => {
@@ -1039,6 +1097,246 @@ describe('roster context-aware status', () => {
     expect(li.style.background).toBe('');
     const statusEl = li.querySelector('.person-status');
     expect(statusEl.style.color).toBe('');
+  });
+});
+
+describe('buildGroupCombo', () => {
+  let buildGroupCombo;
+
+  beforeEach(() => {
+    jest.resetModules();
+    ({ buildGroupCombo } = require('../js/groupContext.js'));
+  });
+
+  test('prefers override.statusColor + override.paletteKey when override is enabled', () => {
+    const combo = buildGroupCombo({
+      ownOverride: { enabled: true, statusColor: '#ff00aa', paletteKey: 'forest' },
+      ownPrimary:  { statusColor: '#000', paletteKey: 'volt' },
+      paletteState: { activeSet: 2, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } },
+    });
+    expect(combo.statusColor).toBe('#ff00aa');
+    expect(combo.paletteKey).toBe('forest');
+    expect(combo.activeSet).toBe(2);
+    expect(combo.selectedKey).toBe('volt');
+  });
+
+  test('statusColor falls back to primary; paletteKey does NOT fall back when override is enabled', () => {
+    // statusColor: paintRosterRow uses (override || primary || fallback), so fall-through is correct.
+    // paletteKey:  paintRosterRow's override path is (override.paletteKey || null) — when override is
+    //              enabled but paletteKey is null, render shows no palette. Match that here so the
+    //              saved combo reflects what the user actually saw.
+    const combo = buildGroupCombo({
+      ownOverride: { enabled: true, statusColor: null, paletteKey: null },
+      ownPrimary:  { statusColor: '#abc123', paletteKey: 'volt' },
+      paletteState: { activeSet: 1, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } },
+    });
+    expect(combo.statusColor).toBe('#abc123');
+    expect(combo.paletteKey).toBe(null);
+  });
+
+  test('falls back to forest #22c55e when neither override nor primary has a color', () => {
+    const combo = buildGroupCombo({
+      ownOverride: null,
+      ownPrimary: null,
+      paletteState: { activeSet: 1, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } },
+    });
+    expect(combo.statusColor).toBe('#22c55e');
+    expect(combo.paletteKey).toBe(null);
+  });
+});
+
+describe('group-context long-press adoption', () => {
+  const db = require('../js/db.js');
+  const groups = require('../js/groups.js');
+  const groupNav = require('../js/groupNav.js');
+  const favorites = require('../js/favorites.js');
+  const knock = require('../js/knock.js');
+  const prefs = require('../js/prefs.js');
+
+  function setupRoster({ ownOverrideEnabled, members }) {
+    db.watchGroupMembers.mockImplementation((_gid, cb) => {
+      cb(members);
+      return () => {};
+    });
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb(ownOverrideEnabled
+        ? { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' }
+        : { enabled: false, status: null });
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((uid, cb) => {
+      cb({ status: 'available', statusColor: '#ff00aa', paletteKey: 'forest' });
+      return () => {};
+    });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    exitGroupContext();
+  });
+
+  test('long-press is a no-op when this group override is OFF', () => {
+    setupRoster({
+      ownOverrideEnabled: false,
+      members: { src: { displayName: 'Alice' } },
+    });
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
+    expect(groupNav.applyOptimisticAppearance).not.toHaveBeenCalled();
+    expect(favorites.saveCustomCombo).not.toHaveBeenCalled();
+  });
+
+  test('long-press triggers adoption when this group override is ON', () => {
+    setupRoster({
+      ownOverrideEnabled: true,
+      members: { src: { displayName: 'Alice' } },
+    });
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
+      expect.objectContaining({ statusColor: '#ff00aa', paletteKey: 'forest' }));
+    expect(groupNav.applyOptimisticAppearance).toHaveBeenCalledWith('G1',
+      expect.objectContaining({ statusColor: '#ff00aa', paletteKey: 'forest' }));
+    expect(favorites.saveCustomCombo).toHaveBeenCalled();
+  });
+
+  test('movement > 8px cancels the long-press', () => {
+    setupRoster({
+      ownOverrideEnabled: true,
+      members: { src: { displayName: 'Alice' } },
+    });
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    li.dispatchEvent(new PointerEvent('pointermove', { clientX: 20, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
+  });
+
+  test('short tap (pointerup before timer) fires knock, not adopt', () => {
+    setupRoster({
+      ownOverrideEnabled: true,
+      members: { src: { displayName: 'Alice' } },
+    });
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(200);
+    li.dispatchEvent(new PointerEvent('pointerup', { clientX: 0, clientY: 0 }));
+    li.click();
+    jest.advanceTimersByTime(400);
+    expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
+    expect(knock.sendKnock).toHaveBeenCalled();
+  });
+
+  test('source with paletteKey but no statusColor adopts the palette key color', () => {
+    setupRoster({
+      ownOverrideEnabled: true,
+      members: { src: { displayName: 'Alice',
+                        statusOverride: { enabled: true, statusColor: null, paletteKey: 'volt' } } },
+    });
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    // 'volt' palette's key color is #aaff00 (defined in PALETTE_SETS).
+    expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
+      { statusColor: '#aaff00', paletteKey: 'volt' });
+  });
+
+  test('source uses override.statusColor when override is enabled', () => {
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
+      return () => {};
+    });
+    db.watchGroupMembers.mockImplementation((_gid, cb) => {
+      cb({ src: { displayName: 'Alice', statusOverride: { enabled: true, statusColor: '#aa00ff', paletteKey: 'volt' } } });
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((uid, cb) => {
+      cb({ statusColor: '#000', paletteKey: 'forest' });   // primary, but override wins
+      return () => {};
+    });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
+      { statusColor: '#aa00ff', paletteKey: 'volt' });
+  });
+
+  test('source falls back to primary when source member has no override', () => {
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
+      return () => {};
+    });
+    db.watchGroupMembers.mockImplementation((_gid, cb) => {
+      cb({ src: { displayName: 'Alice' } });   // no override
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((uid, cb) => {
+      cb({ statusColor: '#abcdef', paletteKey: 'forest' });
+      return () => {};
+    });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
+      { statusColor: '#abcdef', paletteKey: 'forest' });
+  });
+
+  test('source falls back to forest #22c55e when neither override nor primary has a color', () => {
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
+      return () => {};
+    });
+    db.watchGroupMembers.mockImplementation((_gid, cb) => {
+      cb({ src: { displayName: 'Alice' } });
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((uid, cb) => {
+      cb({});   // no statusColor, no paletteKey
+      return () => {};
+    });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
+      { statusColor: '#22c55e', paletteKey: null });
+  });
+
+  test('marks longpress hint seen on first adoption', () => {
+    // prefs.isHintSeen defaults to false via the module-level jest.mock factory.
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
+      return () => {};
+    });
+    db.watchGroupMembers.mockImplementation((_gid, cb) => {
+      cb({ src: { displayName: 'Alice' } });
+      return () => {};
+    });
+    db.watchStatus.mockImplementation((uid, cb) => {
+      cb({ statusColor: '#abc', paletteKey: null });
+      return () => {};
+    });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(prefs.markHintSeen).toHaveBeenCalledWith('longpress');
   });
 });
 
