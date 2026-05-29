@@ -4,9 +4,11 @@ A handoff to whoever picks this up next. Read top-to-bottom; specific subsection
 
 **Most recent work:** Phases 0–2 of the groups feature shipped to `dev` with `GROUPS_ENABLED = true`. The nav redesign (sticky persistent nav row across contexts, override toggle as `=/≠`, "Direct" rendered as a group-card on the right in group context, default override-ON on group creation/join) shipped on top of Phase 2 and went through an extensive bug-fix cycle from manual testing. MVP is complete per spec §17.
 
+**In-flight session branch (NOT yet merged to dev):** `claude/wonderful-heisenberg-fRek8` is **38 commits ahead of `origin/dev`**. Work on it includes (a) **per-group status color + palette picker** — each member's roster card adopts that member's color/palette, base/palette modes, with the picker per-set and forest/volt defaults; (b) **deferred-knock pulsing halo** replacing the numeric badge, plus a knock-pending halo on group cards (call-pulse keyframe, inset+outset, group's own color); (c) **fixes**: re-following a previously-revoked follower works again (sequential remove→set fixes a `Promise.all` race in `registerAsFollower`), floated knock sender stays under the Mutuals label (the float-preservation loop in `following.js` was bypassing the section-label fix via raw `prepend`), group-context availability section height stays constant across Available/Unavailable, group color leaks into Direct fixed in several spots; (d) **userPrefs migration** — large multi-commit migration moving all private user state out of the broadcast `users/{uid}/...` subtree into a new top-level `userPrefs/{uid}/...` subtree (see new §6.5). New module `js/prefs.js` is the central preferences store. 671 tests pass. **Dev RTDB MUST be wiped from the Firebase console before merging this branch to dev** — the userPrefs migration is wipe-friendly (no migration path); existing data on the old paths will be abandoned, not moved.
+
 **Two known unfixed bugs at the time of this handoff** — read §16 before touching either area:
-1. **GitHub issue #64** — knock float-to-top does not restore when the user returns to the tab. A `0098631` fix attempt was committed but did NOT actually fix it in production.
-2. **Nav-row flash before group-displayname prompt** during new-user invite redemption. The `b8bf19e` + `7ff015f` fixes suppressed three other first-use flashes but missed this one. Not yet fixed.
+1. **GitHub issue #64** — knock float-to-top does not restore when the user returns to the tab. A `0098631` fix attempt was committed but did NOT actually fix it in production. Note: the session-branch float-below-section-label fix (`4189610`, `48f9477`) is a *different* float bug — issue #64 is still open.
+2. **Nav-row flash before group-displayname prompt** during new-user invite redemption. Fixed on the session branch in commit `96a187c` — extended the `add('hidden')` / restore-if-`!landedInGroup` pattern to also cover `#nav-row`. Will ship to dev when the session branch is merged.
 
 **Phase 3 (in-app push invites)** is the next planned feature work and not yet planned or built.
 
@@ -67,8 +69,9 @@ claude/<name>                → session feature branches
 | `js/app.js` | Main init, `ensureIdentity`, `watchStatus` subscription, screen orchestration, invite-redemption dispatch, group-context switching. **`initNavRow()` must be called BEFORE the `onContextChange(enterGroupContext)` registration** — otherwise the override toggle never installs (commit `ba77271`). The redemption block primes `setLastKnownGroupName(groupId, knownName)` before `navigateToGroup` so the nav shows the real group name from the first paint. `#main-ui-direct` starts hidden in markup and is revealed at the end of `main()` only if the current context is not a group (commit `7ff015f`). |
 | `js/identity.js` | Secret phrase generate/parse/derive, localStorage v2 schema |
 | `js/wordlist.js` | 7772-word EFF long wordlist (regenerate via `scripts/gen-wordlist.js`) |
-| `js/db.js` | **All Firebase RTDB operations** (single import point). Sectioned: users / codeIndex / inviteIndex / personal-invites / groupIdIndex / users-groups enumeration / groups CRUD / group members / group invites / knocks / canvases. |
-| `js/store.js` | localStorage operations |
+| `js/db.js` | **All Firebase RTDB operations** (single import point). Sectioned: users / codeIndex / inviteIndex / personal-invites / groupIdIndex / users-groups enumeration / groups CRUD / group members / group invites / knocks / canvases / **userPrefs** (new). Following CRUD (`watchFollowing` / `setFollowingEntry` / `removeFollowingEntry`) now lives at `userPrefs/{uid}/following/...` not `users/{uid}/following/...` (session branch, commit `08c739f`). |
+| `js/store.js` | localStorage operations. Call-counter helpers were moved out to `js/prefs.js` during the userPrefs migration; group-chip per-group LS helpers (`getGroupChipMinutes` / `setGroupChipMinutes` for `statusapp_group_chip_{groupId}`) were added so per-group chip selection doesn't leak into the Direct default. |
+| `js/prefs.js` | **NEW (session branch).** Central preferences store. Reads stay synchronous via localStorage cache; writes go through here so they hit both localStorage AND `userPrefs/{uid}/...` via `mergeUserPrefs`. Exports: `initPrefs`, hint API (`isHintSeen` / `markHintSeen` keyed by short names mapped via `HINT_KEYS`), call counters (`getMadeCallCount` / `incrementMadeCallCount` / `getAnsweredCallCount` / `incrementAnsweredCallCount`), favorites-collapsed (`isFavoritesCollapsed` / `setFavoritesCollapsed`), palette state (`getPaletteState` / `setPaletteState`, wrapping store.js), per-group palette state (`getGroupPaletteState(groupId)` / `setGroupPaletteState(groupId, state)`), favorites (`getFavorites` / `setFavorites`), chip minutes (`getLastTimeout` / `setLastTimeout` Direct + `getGroupChipMinutes` / `setGroupChipMinutes` per-group), context (`getCurrentContextCached` / `setCurrentContext`), and `syncFromServer(serverPrefs)` called from app.js's `watchUserPrefs` subscription. `syncFromServer` dispatches CustomEvents (`palette-state-synced`, `group-palette-state-synced`, `favorites-synced`, `last-timeout-synced`, `group-chip-minutes-synced`, `current-context-synced`) so other modules can re-render without prefs.js importing them. |
 | `js/me.js` | Own-status UI (header, dot, time chip), `initHeader`, `applyOwnStatus` |
 | `js/following.js` | Direct-contacts list rendering (Mutuals/Following/Followers), call mode, knock UI, **20s float-to-top survival across re-renders** |
 | `js/mycode.js` | Share-code drawer + secret-phrase reveal pill + invite-link button |
@@ -117,32 +120,67 @@ GROUPS_ENABLED                 // Group cards row, create-group flow, group cont
 
 ## 6. Cross-device sync
 
-When the same secret phrase is used on multiple devices, **everything that's user-state syncs** via the `watchStatus` callback in `js/app.js`. The pattern is consistent: each piece of state has a `syncXFromServer(...)` function reconciling local with server.
+When the same secret phrase is used on multiple devices, **everything that's user-state syncs**. There are two subscription paths, by design:
+
+- **`watchStatus(myUid, cb)`** in `js/app.js` — drives the broadcast-shaped subtree `users/{uid}/...` (status, availableUntil, statusColor, paletteKey, code, callState, followers, ...). Every follower's `watchStatus(otherUid, cb)` reads this same subtree, so anything here goes out to every follower on every tick. Keep this subtree lean.
+- **`watchUserPrefs(myUid, cb)`** in `js/app.js` (session branch) — drives the private subtree `userPrefs/{uid}/...`. Only the owner reads it; followers don't subscribe to it. New private state belongs here.
+
+The pattern in each callback is the same: a `syncXFromServer(...)` function reconciling local with server.
 
 | Surface | Mechanism |
 |---|---|
 | Status / availability / availableUntil | watchStatus → `applyOwnStatus` |
 | Dot color (`--my-status` CSS var) | watchStatus → direct setProperty |
 | Theme variables | watchStatus → `applyThemeVars` / `resetThemeVars` |
-| Swatch picker state | watchStatus → `syncPaletteStateFromServer` |
-| Favorites history | watchStatus → `syncFavoritesFromServer` |
-| Following list (contacts) | `watchFollowing` (separate subscription) → `syncFollowingFromServer` |
-| Followers list | `watchFollowers` (preexisting) |
 | Share code (rotated on another device) | watchStatus → `updateMyCode` |
-| Time-chip selection | watchStatus → `updateChipFromServer` |
-| **currentContext** (Phase 1) | watchStatus → `applyServerCurrentContext` (in `groupNav.js`) |
+| Followers list | `watchFollowers` (separate subscription) |
+| **Following list (contacts)** | `watchFollowing` (separate subscription, now at `userPrefs/{uid}/following`) → `syncFollowingFromServer` |
 | **Group enumeration** (Phase 1) | `watchUserGroups` (separate subscription) → drives the cards row and the removal detector |
 | **Per-group meta** (Phase 1) | `watchGroupMeta(groupId, cb)` per enumerated group — drives card name + last-known-name cache |
 | **Own per-group status override** (Phase 2) | `watchOwnMemberOverride(groupId, ownUid)` per enumerated group — drives card color and the group-context status row |
 | **Group roster + statuses** (Phase 1) | `watchGroupMembers(groupId, cb)` + per-member `watchStatus(memberUid, cb)` in `groupContext.js` |
 | **Personal invite collection** (Phase 0) | `watchUserInvites` — drives the drawer button label ("Create invite link" vs "View invite link") |
+| **All userPrefs** (session branch) | `watchUserPrefs(uid, cb)` → `prefs.syncFromServer` → CustomEvents → per-module re-render. Covers: hints, call counters, favoritesCollapsed, palette state (direct + per-group), favorites history, lastTimeoutMinutes (direct + per-group), currentContext. See §6.5. |
 
 **Important data path changes vs. v1:**
-- Following list (contacts) lives in Firebase at `users/{me}/following/{followeeUid} = {code, label}`, keyed by uid.
-- Favorites history lives in Firebase at `users/{me}/favorites = []`.
 - The user's `code` rotation propagates via watchStatus.
-- **NEW (Phase 1):** `users/{uid}/currentContext: 'direct' | 'group:{groupId}'` is the active context, synced across devices. Navigating into a group on one device pulls the other device into the same context. (Spec §6 doubles down on this as deliberate UX — accepted yank semantics.)
 - **NEW (Phase 1):** `users/{uid}/groups/{groupId}: { lastVisited? }` is the user-side enumeration index. Group facts (name, ownerId, members, invites) live under `groups/{groupId}/...`.
+
+**Important data path changes on the session branch (NOT yet on dev):**
+- Following list (contacts) moved from `users/{me}/following/...` → `userPrefs/{me}/following/...` (commit `08c739f`).
+- Favorites history moved from `users/{me}/favorites` → `userPrefs/{me}/favorites` (commit `3b7f994`).
+- `currentContext` moved from `users/{uid}/currentContext` → `userPrefs/{uid}/currentContext` (commit `8d463c8`). Still synced across devices; navigating into a group on one device still pulls the other device in (accepted yank semantics per spec §6).
+- `lastTimeoutMinutes` (Direct chip default) moved from `users/{uid}/lastTimeoutMinutes` → `userPrefs/{uid}/lastTimeoutMinutes`. Per-group chip default added at `userPrefs/{uid}/perGroup/{groupId}/lastTimeoutMinutes` (commit `18d8d29`, after `a1459f7` fixed the leak between them at the localStorage layer).
+- Direct paletteState + per-group paletteState + favoritesCollapsed are now at `userPrefs/{uid}/paletteState/direct`, `userPrefs/{uid}/perGroup/{groupId}/paletteState`, `userPrefs/{uid}/favoritesCollapsed` (commit `0173950`).
+- Hints + call counters now sync at `userPrefs/{uid}/hints/{name}: true` and `userPrefs/{uid}/{madeCallCount,answeredCallCount}` (commit `55815d4`).
+
+## 6.5. userPrefs schema (session branch)
+
+The `userPrefs/{uid}/` subtree was introduced in the session branch's multi-commit migration to keep private user state out of the broadcast `users/{uid}/...` subtree (every follower's `watchStatus` was pulling this on every tick).
+
+```
+userPrefs/{uid}:
+  hints/{name}: true                            // 'bolt' | 'flower' | 'theme' | 'stripPeek' | 'longpress' | 'swipe' | 'customAvail'
+  madeCallCount: <number>                       // server max-wins
+  answeredCallCount: <number>                   // server max-wins
+  favoritesCollapsed: <bool>                    // strip collapsed/expanded
+  paletteState/direct: { ... }                  // Direct context swatch picker state
+  favorites: [<combo>, ...]                     // Direct favorites history
+  lastTimeoutMinutes: <number>                  // Direct chip default
+  currentContext: 'direct' | 'group:{groupId}'  // active context, synced device-to-device
+  following/{followeeUid}: { code, label }      // own-side following list
+  perGroup/{groupId}:
+    paletteState: { activeSet, sets: { 1: {...}, 2: {...} } }
+    lastTimeoutMinutes: <number>                // per-group chip default
+```
+
+What stays in `users/{uid}/`: everything followers need to see (status, statusColor, paletteKey, availableUntil, code, callState, followers/, revokedFollowers/) plus the Phase 1 group enumeration (`groups/{groupId}`) and the personal-invite collection (`invites/{inviteId}`).
+
+Sync wiring:
+- `mergeUserPrefs(uid, fields)` in `db.js` is the multi-path atomic write helper (used by every `prefs.set*`).
+- `watchUserPrefs(uid, cb)` is the one subscription that drives all prefs reconciliation. Wired in `app.js` `main()` after `initPrefs(uid)`.
+- `prefs.syncFromServer(serverPrefs)` does the localStorage repopulation and dispatches CustomEvents for UI re-render — modules listen via `document.addEventListener('palette-state-synced', ...)` etc. instead of being imported by prefs.js (avoids circular imports).
+- Wipe-friendly migration: no first-time push-up of pre-existing local state. **Dev RTDB must be wiped from the Firebase console before this branch is merged to dev** so existing data on the old paths doesn't shadow the new ones.
 
 ## 7. Phase 0 + Phase 1 data model (summary)
 
@@ -202,6 +240,42 @@ Run locally:
 - `.firebaserc` (optional, but typical) — `{ "projects": { "default": "on-on-22cb4" } }`. `dev-deploy.js` always passes `--project` explicitly, so this is for `firebase` CLI usage outside the npm scripts.
 
 Plus you need `npx firebase login` (or `firebase login` if installed globally) once.
+
+## 10.5. Session branch (`claude/wonderful-heisenberg-fRek8`) — what's on it
+
+38 commits ahead of `origin/dev`. Broadly three buckets:
+
+**Per-group color + palette picker** (multiple commits, oldest `adf87b9` → newest `a8ee9a8`):
+- Member roster cards adopt that member's statusColor + palette theme.
+- Group context gets a per-group palette picker with a set toggle (sets `1` + `2`) and base/palette modes. Per-group palette state shape: `{ activeSet, sets: { '1': { selectedKey, selectedColor, activePaletteKey }, '2': {...} } }`. Defaults: set 1 = forest/`#22c55e`, set 2 = volt/`#aaff00`.
+- "Self-theming" for the user's own row inside the group context view.
+- Fix cycle for leaks: group color into Direct (`e1bf947`, `c1e3805`, `a652396`), Direct paletteKey into group override-ON (`a8ee9a8`), favorites strip peek hint into group context (`6d4124d`).
+
+**Deferred-knock pulsing halo + knock-pending halo on group cards** (commits `6682b03`, `041251e`, `9fac7b5`, `b977236`, plus `d30b6dc` `5409f4b` `df7e405` `48f9477`):
+- Numeric badge replaced with a CSS-keyframe pulsing halo using the `call-pulse` keyframe pattern. Reuses inset+outset box-shadow so the glow shows both inside and outside the chip.
+- Group-card knock-pending halo (`@keyframes knock-pending-pulse`) shows the recipient there's a deferred knock waiting in a group they're not currently in.
+- Animations defer one frame so they actually play (`5409f4b`); sender flash color matches the recipient's dot in group context too (`df7e405`).
+- `nav-row > *` vertical padding bumped 0.5rem → 0.75rem so the outset glow has room.
+
+**Direct-context knock + re-follow fixes** (commit `4189610`):
+- Floated knock sender now stays under the Mutuals section label. The float-preservation loop in `following.js:354` was bypassing the earlier `applyFloatToTop` section-label fix via raw `list.prepend(li)`. Added the same `insertBefore(firstLabel.nextSibling)` logic.
+- Re-following a previously-revoked follower works again. Root cause: `Promise.all` race in `registerAsFollower` where remove + set could land in either order, causing the new entry to be wiped by a late remove. Fixed by making them sequential.
+- Standalone fix `02723e3` covers the re-following case after revoke as well.
+
+**The userPrefs migration** (commits `55815d4` → `08c739f`, 6 commits): see §6.5.
+
+**Other smaller fixes & polish on this branch:**
+- `b016553` / `08c5380` smooth the Create-group → group-context transition (suspend renderNavRow during the transition).
+- `26bc473` auto-opens the invite modal after group create; reorders + restyles Settings.
+- `d087693` pre-fills Edit-my-name; tightens Create-a-group modal copy.
+- `9a1143b` personal-invite redeem lands in Direct (not the previous group); roster sorts available members to the top.
+- `153a42d` recovery modal uses the welcome-screen bg (not modal-overlay).
+- `2900938` FTU group-invite redemption latency cut roughly in half — see commit body for the prefetch + cache plumbing.
+- `99326f6` enlarges the override toggle ~1.5x.
+- `96a187c` suppresses the nav-row flash before the group-displayname prompt during new-user invite redemption (the second of the two "known unfixed bugs" from the previous handoff).
+- `bb1f96f` restore lands directly in last group context without flashes.
+
+Status: tests pass (671), build is clean. Ready for the user to merge to dev via PR. **Before merge: wipe dev RTDB from Firebase console** (§6.5).
 
 ## 11. In-progress work / what's next
 
@@ -300,22 +374,31 @@ When working with the user, **honor accessibility preferences:**
 - **Optimistic-update + cross-module sync pattern (load-bearing).** Both groupNav and groupContext have their own copies of own-override state. When one mutates it (the chain icon click), it must call the other's optimistic-apply API (`applyOptimisticOverride` exported from groupContext) so the other module's render reflects the new state before Firebase acks. Don't add a third holder of this state without wiring it into the same propagation.
 - **Knock pulse uses a CSS keyframe class, not inline-style transitions.** Imperative `el.style.boxShadow = ...` + reflow + new value gets eaten by same-tick DOM prepend + scrollTo. Add new pulse-like animations as `@keyframes` + class toggles, mirroring `.knock-live` and `.knock-deferred`.
 - **`#main-ui-direct` starts hidden in markup.** It's revealed at the end of `main()` only if the current context isn't a group. Don't change the markup default without also revisiting the first-use UX flashes (§12 post-nav-redesign fixes).
+- **`users/{uid}/` vs `userPrefs/{uid}/` split (session branch).** New private user state goes in `userPrefs/{uid}/...` via `js/prefs.js` (which calls `mergeUserPrefs`). Only put something in `users/{uid}/...` if followers genuinely need to see it on every status tick — otherwise it's wasted bandwidth across every follower's `watchStatus`. When adding a new pref, follow the existing pattern: localStorage cache for sync reads, setter writes both layers, handler in `prefs.syncFromServer`, CustomEvent for cross-module re-render.
+- **Don't import UI modules from `js/prefs.js`.** Cross-module re-renders go through CustomEvents (`palette-state-synced`, `favorites-synced`, `last-timeout-synced`, etc.). This avoids circular imports between prefs.js and the modules that own each surface.
+- **Dev RTDB wipe is required before merging the session branch to dev.** The userPrefs migration is wipe-friendly — there is no migration path from the old `users/{uid}/...` paths. Existing favorites, following, currentContext, lastTimeoutMinutes on the old paths will simply be abandoned.
 
 ## 16. Known unknowns / open decisions / open bugs
 
 **Open bugs (active):**
-- **GitHub issue #64 — float-to-top doesn't restore on tab return.** https://github.com/tenorune/on/issues/64. When a knock recipient sees the knock and then leaves the browser / switches tabs while the knocker's name is still floated at the top, on return the name stays floated past the 20s deadline and doesn't snap back. Commit `0098631` attempted a fix (track `startedAt` per floatTimer entry and drain on `visibilitychange`) but the user verified it does NOT work in production. Hypotheses worth checking: (a) stale `originalSibling` after a `watchGroupMembers`-triggered `renderRoster` while the page was hidden; (b) `visibilitychange` not firing on iOS Safari / BFCache; (c) `renderRoster` wiping the floated `<li>` so the restoration path can't find the right element. User chose to file the issue rather than continue debugging; pick this up when there's appetite.
+- **GitHub issue #64 — float-to-top doesn't restore on tab return.** https://github.com/tenorune/on/issues/64. When a knock recipient sees the knock and then leaves the browser / switches tabs while the knocker's name is still floated at the top, on return the name stays floated past the 20s deadline and doesn't snap back. Commit `0098631` attempted a fix (track `startedAt` per floatTimer entry and drain on `visibilitychange`) but the user verified it does NOT work in production. Hypotheses worth checking: (a) stale `originalSibling` after a `watchGroupMembers`-triggered `renderRoster` while the page was hidden; (b) `visibilitychange` not firing on iOS Safari / BFCache; (c) `renderRoster` wiping the floated `<li>` so the restoration path can't find the right element. The session-branch fix `4189610` is a *different* bug (sender appearing above the section label) and does NOT resolve #64. User chose to file the issue rather than continue debugging; pick this up when there's appetite.
 
-**Recently fixed (on session branch, awaiting dev merge):**
-- **Nav-row flash before group-displayname prompt during new-user invite redemption.** Fixed by extending the same `add('hidden')` / restore-if-`!landedInGroup` pattern that already protects `#main-ui-direct` to also cover `#nav-row` in the invite-redemption block of `app.js`. The landed-in-group case needs no explicit restore because `navigateToGroup`'s `emit()` → `renderNavRow()` chain removes `.hidden` synchronously when group mode renders.
-- **FTU new-user group-invite redemption latency cut roughly in half.** Pause 1 (between "I've saved it" and the displayname prompt) dropped from ~5 serial Firebase RTTs to ~2 by (a) returning `groupName` from `attemptRedeemFromUrl`'s `needs-display-name` response so app.js skips a separate `resolveInvitePreview` call, and (b) bundling the fetched `indexEntry` + `group` records into a `cache` field on the response. Pause 2 (between name submit and group context paint) dropped from ~10 serial RTTs to ~5 by (c) forwarding that `cache` to the second `attemptRedeemFromUrl` call so `redeemGroupInvite` skips duplicate `readInviteIndex` + `readGroup` reads, (d) `Promise.all`-ing the remaining independent reads inside `redeemGroupInvite` (`readGroupInvites` + `readMember`), and (e) passing pre-fetched `group` + `existing` records to `joinGroup` via a new opts arg so its defensive reads short-circuit. New regression test in `tests/invites.test.js` asserts the cache forwarding actually skips the second-call reads.
+**Fixed on the session branch, awaiting dev merge:**
+- **Nav-row flash before group-displayname prompt during new-user invite redemption** (commit `96a187c`).
+- **FTU new-user group-invite redemption latency cut roughly in half** (commit `2900938`). Pause 1 dropped from ~5 serial Firebase RTTs to ~2; Pause 2 from ~10 to ~5. Prefetched `indexEntry` + `group` records are bundled into a `cache` field on the redemption response and forwarded into the second `attemptRedeemFromUrl` call; `redeemGroupInvite` short-circuits its duplicate reads and `Promise.all`s the rest; `joinGroup` takes prefetched records via a new opts arg. Regression test in `tests/invites.test.js`.
+- **Re-following a previously-revoked follower** (commit `02723e3` + `4189610`).
+- **Floated knock sender appearing above the Mutuals label** (commit `4189610`).
+- **Group-context availability section height** (commit `b977236`).
+- **Knock-pending halo visibility** (commit `9fac7b5`, after the `041251e` color fix).
+- **Per-group chip default leaking into the Direct default** (commit `a1459f7`, prerequisite for the userPrefs migration that followed).
 
 **Open decisions:**
 - Phase 3 priority + scheduling (in-app push invites).
 - When (if) to do Phase B identity tightening.
 - Whether the post-MVP "co-members can use 1:1 primitives without mutual" relaxation lands soon after Phase 2.
 - One observation from the Phase 1 cross-cutting review (non-blocking): `js/groups.js` and `js/groupNav.js` form a circular import (`groupNav.js` imports `createGroup`; `groups.js` imports `navigateToDirect`/`getCurrentContext`/`getLastKnownGroupName`). Both cross-calls are runtime, not module-load-time, so ESM TDZ isn't hit. Worth refactoring during a Phase 2 cleanup pass if a third module needs to depend on either.
-- Mock-file maintenance burden: every new `db.js` export requires updating 5 files. Spec reviewer flagged this as a maintainability concern; a shared mock factory would scale better but wasn't worth doing during Phase 0/1.
+- Mock-file maintenance burden: every new `db.js` export requires updating 5 files. Spec reviewer flagged this as a maintainability concern; a shared mock factory would scale better but wasn't worth doing during Phase 0/1. The userPrefs migration on the session branch added two more exports (`watchUserPrefs`, `mergeUserPrefs`) and re-confirmed the cost — both had to be stubbed across all 5 db-mocking test files.
+- `database.rules.json` does NOT yet have explicit rules for the new `userPrefs/{uid}/...` namespace (the honor-system `.read/.write: true` catch-all still applies). When Phase B lands, the rule should be `auth.uid === $uid` for both read and write — even more strict than `users/{uid}/...`, since nothing else needs to read it.
 
 ## 17. Key reference artifacts
 
