@@ -1023,6 +1023,59 @@ export function applyOptimisticOverride(override) {
   renderOwnStatusRow();
 }
 
+/**
+ * Apply an adopted (statusColor, paletteKey) pair to this group's state.
+ * Performs the optimistic UI update, picker mirror, and fire-and-forget
+ * Firebase write — but does NOT push to favorites or mark hints (those
+ * are caller-specific concerns). Used by long-press group adoption and
+ * by favorites-strip pill taps in group context.
+ *
+ * Caller must ensure override is currently enabled (otherwise this is a
+ * silent no-op).
+ */
+export function applyAdoptedComboInGroup(adoptedColor, adoptedPaletteKey) {
+  const groupId = _currentGroupId;
+  if (!groupId || !_ownOverride?.enabled || !_currentUserId) return;
+
+  // Optimistic local mutation.
+  const newOverride = { ..._ownOverride, statusColor: adoptedColor, paletteKey: adoptedPaletteKey };
+  applyOptimisticOverride(newOverride);   // _ownOverride + renderOwnStatusRow
+  applyEffectivePalette();                // CSS vars in group context
+  applyOptimisticAppearance(groupId, { statusColor: adoptedColor, paletteKey: adoptedPaletteKey });
+
+  // Picker mirror.
+  const state = getGroupPaletteState(groupId);
+  const setKey = String(state.activeSet);
+  if (adoptedPaletteKey) {
+    const setNum = PALETTE_SETS[2].some(p => p.key === adoptedPaletteKey) ? 2 : 1;
+    const tgtKey = String(setNum);
+    state.activeSet = setNum;
+    state.sets[tgtKey].selectedKey       = adoptedPaletteKey;
+    state.sets[tgtKey].selectedColor     = adoptedColor;
+    state.sets[tgtKey].activePaletteKey  = adoptedPaletteKey;
+  } else {
+    let matched = null;
+    for (const sn of ['1', '2']) {
+      const found = PALETTE_SETS[Number(sn)].find(p => p.color === adoptedColor);
+      if (found) { matched = { set: sn, key: found.key }; break; }
+    }
+    if (matched) {
+      state.activeSet = Number(matched.set);
+      state.sets[matched.set].selectedKey      = matched.key;
+      state.sets[matched.set].selectedColor    = adoptedColor;
+      state.sets[matched.set].activePaletteKey = null;
+    } else {
+      state.sets[setKey].selectedColor    = adoptedColor;
+      state.sets[setKey].activePaletteKey = null;
+    }
+  }
+  setGroupPaletteState(groupId, state);
+
+  // Firebase write (fire-and-forget).
+  setOverrideAppearance(groupId, _currentUserId, { statusColor: adoptedColor, paletteKey: adoptedPaletteKey })
+    .catch(() => {});
+}
+
 function triggerGroupAdoption(srcUid, ownUid) {
   const groupId = _currentGroupId;
   if (!groupId || !_ownOverride?.enabled) return;
@@ -1051,43 +1104,8 @@ function triggerGroupAdoption(srcUid, ownUid) {
   // 2. Push the adopted combo to favorites.
   saveCombo(buildAdoptedCombo(adoptedColor, adoptedPaletteKey));
 
-  // 3. Optimistic local mutation.
-  const newOverride = { ..._ownOverride, statusColor: adoptedColor, paletteKey: adoptedPaletteKey };
-  applyOptimisticOverride(newOverride);   // _ownOverride + renderOwnStatusRow
-  applyEffectivePalette();                // CSS vars in group context
-  applyOptimisticAppearance(groupId, { statusColor: adoptedColor, paletteKey: adoptedPaletteKey });
-
-  // 4. Picker mirror.
-  const state = getGroupPaletteState(groupId);
-  const setKey = String(state.activeSet);
-  if (adoptedPaletteKey) {
-    const setNum = PALETTE_SETS[2].some(p => p.key === adoptedPaletteKey) ? 2 : 1;
-    const tgtKey = String(setNum);
-    state.activeSet = setNum;
-    state.sets[tgtKey].selectedKey       = adoptedPaletteKey;
-    state.sets[tgtKey].selectedColor     = adoptedColor;
-    state.sets[tgtKey].activePaletteKey  = adoptedPaletteKey;
-  } else {
-    let matched = null;
-    for (const sn of ['1', '2']) {
-      const found = PALETTE_SETS[Number(sn)].find(p => p.color === adoptedColor);
-      if (found) { matched = { set: sn, key: found.key }; break; }
-    }
-    if (matched) {
-      state.activeSet = Number(matched.set);
-      state.sets[matched.set].selectedKey      = matched.key;
-      state.sets[matched.set].selectedColor    = adoptedColor;
-      state.sets[matched.set].activePaletteKey = null;
-    } else {
-      state.sets[setKey].selectedColor    = adoptedColor;
-      state.sets[setKey].activePaletteKey = null;
-    }
-  }
-  setGroupPaletteState(groupId, state);
-
-  // 5. Firebase write (fire-and-forget).
-  setOverrideAppearance(groupId, ownUid, { statusColor: adoptedColor, paletteKey: adoptedPaletteKey })
-    .catch(() => {});
+  // 3-5. Apply the combo to this group's state.
+  applyAdoptedComboInGroup(adoptedColor, adoptedPaletteKey);
 
   // 6. Hint flag.
   if (!isHintSeen('longpress')) markHintSeen('longpress');

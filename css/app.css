@@ -98,7 +98,7 @@ main {
 .adopted-from {}
 
 /* ── Favorites strip ─────────────────────────────────────────────── */
-#favorites-strip {
+#favorites-strip, #group-favorites-strip {
 }
 
 .fav-strip {
