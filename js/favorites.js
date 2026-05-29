@@ -514,49 +514,27 @@ function handleSlotTap(slotNum) {
 }
 
 function handleHistoryTap(idx) {
-  const history = getFavorites();
-  const combo = history[idx];
+  const combo = getFavorites()[idx];
   if (!combo) return;
 
-  // Snapshot the slot being overwritten BEFORE mutating state.
-  // When the pill targets a different set, the TARGET set is what changes — capture it.
-  const ps = getPaletteState();
-  const oldSlot = slotCombo(combo.activeSet);
-
-  // Step 0: restore selectedKey + selectedColor so switchSet highlights the right
-  // swatch and slotCombo reads the correct color when this set becomes inactive.
-  const state = JSON.parse(JSON.stringify(ps));
+  // Restore picker state to reflect this combo.
+  const state = JSON.parse(JSON.stringify(getPaletteState()));
   state.sets[String(combo.activeSet)].selectedKey = combo.selectedKey;
   state.sets[String(combo.activeSet)].selectedColor = combo.statusColor;
   setPaletteState(state);
 
-  // Step 1: switchSet (also calls setStatusColor internally — step 3 overrides)
+  // Switch set + apply palette/theme.
   switchSet(combo.activeSet, _myUserId);
-
-  // Step 2: apply or clear palette theme
   if (combo.paletteKey) {
     enterPaletteMode(combo.paletteKey, _myUserId);
   } else {
     exitPaletteMode(_myUserId);
   }
 
-  // Step 3: apply canonical status color (overrides what switchSet wrote)
+  // Apply canonical status color (overrides what switchSet wrote).
   setStatusColor(_myUserId, combo.statusColor).catch(() => {});
   document.documentElement.style.setProperty('--my-status', combo.statusColor);
   document.documentElement.style.setProperty('--my-glow', getGlowForColor(combo.statusColor));
 
-  // Step 4: remove pill from history
-  const newHistory = history.filter((_, i) => i !== idx);
-
-  // Step 5: prepend old slot — dedup against new slot state
-  const newSlot1 = slotCombo(1);
-  const newSlot2 = slotCombo(2);
-  const shouldPrepend = !combosMatch(oldSlot, newSlot1) && !combosMatch(oldSlot, newSlot2);
-  const finalHistory = shouldPrepend
-    ? [oldSlot, ...newHistory].slice(0, MAX_HISTORY)
-    : newHistory;
-
-  writeFavorites(finalHistory);
-  _lastCommittedCombo = combo; // restored combo is the new baseline
-  renderStrip();
+  // No history mutation, no slot swap, no _lastCommittedCombo update.
 }

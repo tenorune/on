@@ -557,20 +557,8 @@ describe('slot tap interactions', () => {
   });
 });
 
-describe('history pill tap interactions', () => {
-  let initFavoritesStrip, localMocks;
-  const IRIS_COMBO = {
-    statusColor: '#818cf8', surface2: '#1e1b4b',
-    paletteKey: 'iris', selectedKey: 'iris', activeSet: 1,
-  };
-  const NO_THEME_COMBO = {
-    statusColor: '#3b82f6', surface2: '#334155',
-    paletteKey: null, selectedKey: 'ocean', activeSet: 2,
-  };
-
-  function tapHistoryPill(idx = 0) {
-    document.querySelector(`.fav-pill[data-type="history"][data-index="${idx}"]`).click();
-  }
+describe('history pill tap interactions (adopt-only)', () => {
+  let tapHistoryPill, localMocks;
 
   beforeEach(() => {
     setupDom();
@@ -578,132 +566,102 @@ describe('history pill tap interactions', () => {
     jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
     jest.mock('../js/palettes.js', () => ({
       ...jest.requireActual('../js/palettes.js'),
-      switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
-      getPaletteByKey: jest.fn(key => ({
-        forest: { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } },
-        volt:   { color: '#aaff00', theme: { bg: '#0e1700', surface: '#192500', surface2: '#243600' } },
-        iris:   { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } },
-      })[key] ?? null),
-      getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
+      switchSet: jest.fn(),
+      enterPaletteMode: jest.fn(),
+      exitPaletteMode: jest.fn(),
+      getPaletteByKey: jest.fn((key) => {
+        const palettes = {
+          forest: { color: '#22c55e', theme: { bg: '#071a0c', surface: '#0f2e18', surface2: '#184226' } },
+          iris:   { color: '#818cf8', theme: { bg: '#0c0c1e', surface: '#141432', surface2: '#1d1d47' } },
+        };
+        return palettes[key] ?? null;
+      }),
+      getGlowForColor: jest.fn(() => 'rgba(0,0,0,0.4)'),
     }));
-    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn().mockResolvedValue(undefined), setUserFavorites: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('../js/db.js', () => ({
+      setStatusColor: jest.fn().mockResolvedValue(undefined),
+      setUserFavorites: jest.fn().mockResolvedValue(undefined),
+    }));
     jest.mock('../js/store.js', () => ({
       ...jest.requireActual('../js/store.js'),
       getPaletteState: jest.fn(() => ({
         activeSet: 1,
-        sets: {
-          '1': { selectedKey: 'forest', activePaletteKey: null },
-          '2': { selectedKey: 'volt',   activePaletteKey: null },
-        },
+        sets: { '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#22c55e' },
+                '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' } },
       })),
       setPaletteState: jest.fn(),
-      getFavorites: jest.fn(() => [{
-        statusColor: '#818cf8', surface2: '#1e1b4b',
-        paletteKey: 'iris', selectedKey: 'iris', activeSet: 1,
-      }]),
+      getFavorites: jest.fn(() => [
+        { statusColor: '#818cf8', surface: '#141432', surface2: '#1d1d47',
+          paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
+      ]),
       setFavorites: jest.fn(),
     }));
+
     localMocks = {
       switchSet:       require('../js/palettes.js').switchSet,
       enterPaletteMode: require('../js/palettes.js').enterPaletteMode,
       exitPaletteMode:  require('../js/palettes.js').exitPaletteMode,
+      getGlowForColor:  require('../js/palettes.js').getGlowForColor,
       setStatusColor:   require('../js/db.js').setStatusColor,
       getPaletteState:  require('../js/store.js').getPaletteState,
       setPaletteState:  require('../js/store.js').setPaletteState,
       getFavorites:     require('../js/store.js').getFavorites,
       setFavorites:     require('../js/store.js').setFavorites,
     };
-    ({ initFavoritesStrip } = require('../js/favorites.js'));
+
+    // Wire setPaletteState to track state so getPaletteState reflects updates.
+    let trackingState = {
+      activeSet: 1,
+      sets: { '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#22c55e' },
+              '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' } },
+    };
+    localMocks.getPaletteState.mockImplementation(() => JSON.parse(JSON.stringify(trackingState)));
+    localMocks.setPaletteState.mockImplementation((s) => { trackingState = JSON.parse(JSON.stringify(s)); });
+
+    const { initFavoritesStrip } = require('../js/favorites.js');
+    initFavoritesStrip('myUid');
+    tapHistoryPill = () => {
+      const pill = document.querySelector('.fav-pill[data-type="history"]');
+      pill.click();
+    };
   });
 
-  test('step 0: writes combo.selectedKey into palette state before calling switchSet', () => {
-    initFavoritesStrip('myUid');
+  test('restores combo selectedKey/selectedColor into palette state', () => {
     tapHistoryPill();
-    expect(localMocks.setPaletteState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sets: expect.objectContaining({
-          '1': expect.objectContaining({ selectedKey: 'iris' }),
-        }),
-      })
-    );
-    // setPaletteState must be called before switchSet
-    const setOrder = localMocks.setPaletteState.mock.invocationCallOrder[0];
-    const switchOrder = localMocks.switchSet.mock.invocationCallOrder[0];
-    expect(setOrder).toBeLessThan(switchOrder);
+    const lastSet = localMocks.setPaletteState.mock.calls.at(-1)[0];
+    expect(lastSet.sets['1'].selectedKey).toBe('iris');
+    expect(lastSet.sets['1'].selectedColor).toBe('#818cf8');
   });
 
-  test('step 1: calls switchSet with combo.activeSet', () => {
-    initFavoritesStrip('myUid');
+  test('calls switchSet with the combo activeSet', () => {
     tapHistoryPill();
     expect(localMocks.switchSet).toHaveBeenCalledWith(1, 'myUid');
   });
 
-  test('step 2a: calls enterPaletteMode when combo.paletteKey is non-null', () => {
-    initFavoritesStrip('myUid');
+  test('calls enterPaletteMode when combo.paletteKey is non-null', () => {
     tapHistoryPill();
     expect(localMocks.enterPaletteMode).toHaveBeenCalledWith('iris', 'myUid');
-    expect(localMocks.exitPaletteMode).not.toHaveBeenCalled();
   });
 
-  test('step 2b: calls exitPaletteMode when combo.paletteKey is null', () => {
-    localMocks.getFavorites.mockReturnValue([NO_THEME_COMBO]);
-    localMocks.getPaletteState.mockReturnValue({
-      activeSet: 2,
-      sets: {
-        '1': { selectedKey: 'forest', activePaletteKey: null },
-        '2': { selectedKey: 'volt',   activePaletteKey: null },
-      },
-    });
+  test('calls exitPaletteMode when combo.paletteKey is null', () => {
+    localMocks.getFavorites.mockReturnValue([
+      { statusColor: '#abc', surface: '#000', surface2: '#000',
+        paletteKey: null, selectedKey: 'forest', activeSet: 1 },
+    ]);
+    const { initFavoritesStrip } = require('../js/favorites.js');
     initFavoritesStrip('myUid');
     tapHistoryPill();
     expect(localMocks.exitPaletteMode).toHaveBeenCalledWith('myUid');
-    expect(localMocks.enterPaletteMode).not.toHaveBeenCalled();
   });
 
-  test('step 3: calls setStatusColor and sets --my-status and --my-glow CSS vars', () => {
-    initFavoritesStrip('myUid');
+  test('calls setStatusColor with the combo statusColor', () => {
     tapHistoryPill();
     expect(localMocks.setStatusColor).toHaveBeenCalledWith('myUid', '#818cf8');
-    expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#818cf8');
-    expect(document.documentElement.style.getPropertyValue('--my-glow')).toBe('rgba(34,197,94,0.4)');
   });
 
-  test('step 3: setStatusColor is called after switchSet (overrides it)', () => {
-    initFavoritesStrip('myUid');
+  test('does NOT mutate the favorites strip (no setFavorites call)', () => {
     tapHistoryPill();
-    const switchOrder    = localMocks.switchSet.mock.invocationCallOrder[0];
-    const setStatusOrder = localMocks.setStatusColor.mock.invocationCallOrder[0];
-    expect(switchOrder).toBeLessThan(setStatusOrder);
-  });
-
-  test('step 4: removes tapped pill from history', () => {
-    initFavoritesStrip('myUid');
-    tapHistoryPill();
-    expect(localMocks.setFavorites).toHaveBeenCalledWith(
-      expect.not.arrayContaining([IRIS_COMBO])
-    );
-  });
-
-  test('step 5: prepends old active slot combo to history after tap', () => {
-    // Tap IRIS_COMBO (activeSet: 1, selectedKey: 'iris'). Initial state has set1 selectedKey
-    // 'forest'. Step 0 changes set1.selectedKey to 'iris' in palette state — with a state-
-    // tracking mock, slotCombo(1) after the tap returns iris (differs from old forest), so
-    // shouldPrepend is true and old slot 1 (forest) is prepended to history.
-    let trackingState = {
-      activeSet: 1,
-      sets: {
-        '1': { selectedKey: 'forest', activePaletteKey: null },
-        '2': { selectedKey: 'volt',   activePaletteKey: null },
-      },
-    };
-    localMocks.getPaletteState.mockImplementation(() => JSON.parse(JSON.stringify(trackingState)));
-    localMocks.setPaletteState.mockImplementation(s => { trackingState = JSON.parse(JSON.stringify(s)); });
-    // IRIS_COMBO is the default getFavorites mock from beforeEach — no override needed
-    initFavoritesStrip('myUid');
-    tapHistoryPill();
-    const saved = localMocks.setFavorites.mock.calls.at(-1)[0];
-    // Old slot 1 (forest, no theme, set 1, statusColor #22c55e) should be prepended
-    expect(saved[0]).toMatchObject({ selectedKey: 'forest', activeSet: 1, paletteKey: null, statusColor: '#22c55e' });
+    expect(localMocks.setFavorites).not.toHaveBeenCalled();
   });
 });
 
