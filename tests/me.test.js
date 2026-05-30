@@ -339,6 +339,27 @@ describe('first-use state', () => {
     jest.advanceTimersByTime(250);
     expect(document.getElementById('header-chips').style.opacity).not.toBe('0');
   });
+
+  test('enterFirstUseMode pulses both Direct and group dots when both exist', () => {
+    // Add the group dot to the fixture.
+    const groupDot = document.createElement('div');
+    groupDot.id = 'group-my-dot';
+    document.body.appendChild(groupDot);
+    enterFirstUseMode();
+    expect(document.getElementById('my-dot').classList.contains('first-use-pulse')).toBe(true);
+    expect(document.getElementById('group-my-dot').classList.contains('first-use-pulse')).toBe(true);
+  });
+
+  test('clicking either dot clears the pulse from BOTH dots', () => {
+    const groupDot = document.createElement('div');
+    groupDot.id = 'group-my-dot';
+    document.body.appendChild(groupDot);
+    enterFirstUseMode();
+    // Click the group dot.
+    document.getElementById('group-my-dot').click();
+    expect(document.getElementById('my-dot').classList.contains('first-use-pulse')).toBe(false);
+    expect(document.getElementById('group-my-dot').classList.contains('first-use-pulse')).toBe(false);
+  });
 });
 
 describe('setOwnStatusReadyCallback', () => {

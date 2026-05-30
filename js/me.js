@@ -114,12 +114,14 @@ export function initHeader(myUserId) {
 
 export function enterFirstUseMode() {
   firstUseActive = true;
-  const dot = document.getElementById('my-dot');
-  if (dot) {
+  const directDot = document.getElementById('my-dot');
+  const groupDot = document.getElementById('group-my-dot');
+  const dots = [directDot, groupDot].filter(Boolean);
+  if (dots.length === 0) return;
+  const clearAll = () => dots.forEach((d) => d.classList.remove('first-use-pulse'));
+  for (const dot of dots) {
     dot.classList.add('first-use-pulse');
-    dot.addEventListener('click', () => {
-      dot.classList.remove('first-use-pulse');
-    }, { once: true });
+    dot.addEventListener('click', clearAll, { once: true });
   }
 }
 

@@ -257,6 +257,35 @@ function paintRosterRow(uid) {
     li.style.borderLeftColor = isAvailable && color ? safeCssColor(color) : '';
     if (statusEl) statusEl.style.color = '';
   }
+  // FTU longpress hint pulse — mirrors following.js's pattern. Shows the
+  // ".longpress-hint" text on each available member whose combo differs
+  // from the user's current group-effective combo. Gated on:
+  // (a) PALETTE_INTERACTIONS_ENABLED
+  // (b) the rest of the FTU chain has progressed (customAvail + theme +
+  //     stripPeek all marked seen)
+  // (c) override is ON for this group — otherwise long-press is a no-op
+  // (d) member is available
+  // (e) member's combo differs from user's (no point adopting your own combo)
+  // (f) longpress hint not yet seen
+  if (PALETTE_INTERACTIONS_ENABLED) {
+    const showHint = !isHintSeen('longpress')
+      && isHintSeen('customAvail')
+      && isHintSeen('theme')
+      && isHintSeen('stripPeek')
+      && _ownOverride?.enabled === true
+      && isAvailable
+      && (color !== (_ownOverride?.statusColor || null) || paletteKey !== (_ownOverride?.paletteKey || null));
+    const existing = li.querySelector('.longpress-hint');
+    if (!showHint && existing) {
+      existing.remove();
+    } else if (showHint && !existing) {
+      const hint = document.createElement('div');
+      hint.className = 'longpress-hint';
+      li.style.position = 'relative';
+      li.appendChild(hint);
+    }
+  }
+
   reorderRosterByAvailability();
 }
 
@@ -429,6 +458,17 @@ function renderGroupSwatchRow() {
   toggleBtn.type = 'button';
   toggleBtn.className = 'set-toggle-btn';
   toggleBtn.innerHTML = activeSet === 1 ? ICON_BOLT : ICON_TREE;
+  // FTU hint pulse — same logic as Direct's #swatch-row set-toggle. The hint
+  // is set-specific (bolt vs flower), and the persistent flag is shared with
+  // Direct so clearing it in either context clears it everywhere.
+  const hintName = activeSet === 1 ? 'bolt' : 'flower';
+  if (!isHintSeen(hintName)) {
+    toggleBtn.classList.add('first-use-pulse');
+    toggleBtn.addEventListener('click', () => {
+      toggleBtn.classList.remove('first-use-pulse');
+      markHintSeen(hintName);
+    }, { once: true });
+  }
   toggleBtn.addEventListener('click', () => {
     const nextSet = activeSet === 1 ? 2 : 1;
     const nextSetData = state.sets[String(nextSet)];
@@ -519,6 +559,9 @@ function renderGroupSwatchRow() {
           setGroupPaletteState(_currentGroupId, newState);
           _ownOverride = { ..._ownOverride, paletteKey: palette.key };
           setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: palette.key }).catch(() => {});
+          // Mirror palettes.enterPaletteMode — entering palette mode clears
+          // the theme hint regardless of which picker the user used.
+          if (!isHintSeen('theme')) markHintSeen('theme');
         } else {
           // Color-only change. Don't touch paletteKey.
           newState.sets[sk].selectedKey = palette.key;
@@ -879,6 +922,10 @@ export function enterGroupContext(groupId, userId) {
     }
     applyEffectivePalette();
     renderOwnStatusRow();
+    // Re-paint roster rows: the FTU longpress hint compares each member's
+    // combo against _ownOverride, so a change here needs to re-evaluate the
+    // show/hide for every row.
+    for (const uid of _memberPrimaries.keys()) paintRosterRow(uid);
   });
 
   // The chain-icon override toggle lives in the nav row and is fully owned by
@@ -925,6 +972,15 @@ export function enterGroupContext(groupId, userId) {
           ownPrimary: _ownPrimary,
           paletteState: getGroupPaletteState(groupId),
         }));
+        // Mirror me.js: going active with the user demonstrably engaged
+        // with the picker (entered palette mode or picked a non-default
+        // selectedKey) is "non-default color" for hint-chain purposes.
+        const gps = getGroupPaletteState(groupId);
+        const sk = String(gps.activeSet);
+        const defaultKey = gps.activeSet === 1 ? 'forest' : 'volt';
+        if (gps.sets[sk].activePaletteKey != null || gps.sets[sk].selectedKey !== defaultKey) {
+          markHintSeen('customAvail');
+        }
         setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
       }
     });
