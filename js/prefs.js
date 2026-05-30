@@ -203,6 +203,23 @@ export function setCurrentContext(value) {
   if (_myUserId) mergeUserPrefs(_myUserId, { currentContext: v }).catch(() => {});
 }
 
+// Dedupe a favorites array by visual identity (statusColor + surface2)
+// before persisting. Inlined here (rather than imported from favorites.js)
+// to keep prefs.js free of the favorites.js → prefs.js → favorites.js
+// import cycle. The favorites.js dedupe path (saveCombo + dedupeCombos)
+// uses the same key — they must stay in sync.
+function dedupeServerFavorites(arr) {
+  const seen = [];
+  const out = [];
+  for (const c of arr || []) {
+    if (!c) continue;
+    if (seen.some(s => s.statusColor === c.statusColor && s.surface2 === c.surface2)) continue;
+    seen.push(c);
+    out.push(c);
+  }
+  return out;
+}
+
 // ── Watch reconciliation ─────────────────────────────────────────────────────
 // Called by app.js's watchUserPrefs subscription each time the server snapshot
 // changes. Populates the localStorage cache so subsequent synchronous reads
@@ -242,11 +259,14 @@ export function syncFromServer(serverPrefs) {
   }
   // Favorites (array of palette combos). RTDB may return the array as a
   // keyed object if any entries are missing or non-sequential; normalize.
+  // Also dedupe — legacy data from before saveCombo's dedupe logic
+  // shipped (or sibling-device writes that raced) may contain duplicates
+  // by (statusColor, surface2).
   if (serverPrefs.favorites != null) {
-    const favs = Array.isArray(serverPrefs.favorites)
+    const raw = Array.isArray(serverPrefs.favorites)
       ? serverPrefs.favorites
       : Object.values(serverPrefs.favorites);
-    storeSetFavorites(favs);
+    storeSetFavorites(dedupeServerFavorites(raw));
     document.dispatchEvent(new CustomEvent('favorites-synced'));
   }
   // currentContext
