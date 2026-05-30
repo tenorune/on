@@ -109,8 +109,13 @@ export function saveCombo(combo) {
   if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
   if (!combo) return;
   const history = getFavorites();
-  if (history.length && pillsLookSame(history[0], combo)) return; // head-only dedupe
-  writeFavorites([combo, ...history].slice(0, MAX_FAVORITES));
+  // Whole-array dedupe: if the incoming combo matches any existing entry
+  // (statusColor + surface2 — see pillsLookSame), remove that entry before
+  // prepending the new one. The fast-path for "matches head" returns
+  // early to avoid a redundant Firebase write + re-render.
+  if (history.length && pillsLookSame(history[0], combo)) return;
+  const filtered = history.filter(h => !pillsLookSame(h, combo));
+  writeFavorites([combo, ...filtered].slice(0, MAX_FAVORITES));
   renderStrip();
 }
 
