@@ -1417,3 +1417,113 @@ describe('group-context dot-tap to go available', () => {
   });
 });
 
+describe('group-context FTU hints', () => {
+  const db = require('../js/db.js');
+  const prefs = require('../js/prefs.js');
+
+  function seedRoster({ ownOverride, members = {}, memberStatus = {} }) {
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => { cb(ownOverride); return () => {}; });
+    db.watchGroupMembers.mockImplementation((_gid, cb) => { cb(members); return () => {}; });
+    db.watchStatus.mockImplementation((uid, cb) => { cb(memberStatus[uid] ?? {}); return () => {}; });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+  }
+
+  beforeEach(() => { jest.clearAllMocks(); });
+  afterEach(() => { exitGroupContext(); });
+
+  test('group set-toggle button has first-use-pulse when bolt hint unseen', () => {
+    prefs.isHintSeen.mockImplementation((name) => name !== 'bolt');
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' } });
+    const toggle = document.querySelector('#group-swatch-row .set-toggle-btn');
+    expect(toggle).not.toBeNull();
+    expect(toggle.classList.contains('first-use-pulse')).toBe(true);
+  });
+
+  test('clicking the group set-toggle marks bolt seen and clears pulse', () => {
+    prefs.isHintSeen.mockImplementation((name) => name !== 'bolt');
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' } });
+    const toggle = document.querySelector('#group-swatch-row .set-toggle-btn');
+    toggle.click();
+    expect(prefs.markHintSeen).toHaveBeenCalledWith('bolt');
+  });
+
+  test('group go-active marks customAvail when user has picked a non-default palette', () => {
+    prefs.isHintSeen.mockImplementation(() => false);
+    // getGroupPaletteState returns a NON-default selectedKey
+    prefs.getGroupPaletteState.mockImplementation(() => ({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'iris', selectedColor: '#818cf8', activePaletteKey: 'iris' },
+        '2': { selectedKey: 'volt', selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    }));
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' } });
+    const dot = document.getElementById('group-my-dot');
+    dot.click();
+    expect(prefs.markHintSeen).toHaveBeenCalledWith('customAvail');
+  });
+
+  test('group go-active does NOT mark customAvail when picker is still on default', () => {
+    prefs.isHintSeen.mockImplementation(() => false);
+    // Defaults: forest in set 1, volt in set 2, no activePaletteKey.
+    prefs.getGroupPaletteState.mockImplementation(() => ({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+        '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    }));
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' } });
+    const dot = document.getElementById('group-my-dot');
+    dot.click();
+    expect(prefs.markHintSeen).not.toHaveBeenCalledWith('customAvail');
+  });
+
+  test('roster member shows .longpress-hint when FTU chain is complete + override ON + combo differs', () => {
+    // FTU chain progressed past stripPeek, longpress NOT yet seen.
+    prefs.isHintSeen.mockImplementation((name) => name !== 'longpress');
+    seedRoster({
+      ownOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#22c55e', paletteKey: 'forest' },
+      members: { alice: { displayName: 'Alice', statusOverride: null } },
+      memberStatus: { alice: { status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00', paletteKey: 'volt' } },
+    });
+    const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
+    expect(aliceLi).not.toBeNull();
+    expect(aliceLi.querySelector('.longpress-hint')).not.toBeNull();
+  });
+
+  test('roster does NOT show .longpress-hint when override is OFF', () => {
+    prefs.isHintSeen.mockImplementation((name) => name !== 'longpress');
+    seedRoster({
+      ownOverride: { enabled: false, status: null, availableUntil: null },
+      members: { alice: { displayName: 'Alice', statusOverride: null } },
+      memberStatus: { alice: { status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00' } },
+    });
+    const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
+    expect(aliceLi.querySelector('.longpress-hint')).toBeNull();
+  });
+
+  test('roster does NOT show .longpress-hint when member combo matches user combo', () => {
+    prefs.isHintSeen.mockImplementation((name) => name !== 'longpress');
+    seedRoster({
+      ownOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00', paletteKey: 'volt' },
+      members: { alice: { displayName: 'Alice', statusOverride: null } },
+      memberStatus: { alice: { status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00', paletteKey: 'volt' } },
+    });
+    const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
+    expect(aliceLi.querySelector('.longpress-hint')).toBeNull();
+  });
+
+  test('roster does NOT show .longpress-hint when longpress already seen', () => {
+    prefs.isHintSeen.mockImplementation(() => true); // EVERYTHING seen including longpress
+    seedRoster({
+      ownOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#22c55e', paletteKey: 'forest' },
+      members: { alice: { displayName: 'Alice', statusOverride: null } },
+      memberStatus: { alice: { status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00', paletteKey: 'volt' } },
+    });
+    const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
+    expect(aliceLi.querySelector('.longpress-hint')).toBeNull();
+  });
+});
+
