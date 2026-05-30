@@ -1570,6 +1570,38 @@ describe('group-context FTU hints', () => {
     expect(dot.classList.contains('dot-go-hint')).toBe(false);
   });
 
+  test('group swatch row gets .hint-wave on unselected swatches when on default + customAvail unseen', () => {
+    prefs.isHintSeen.mockImplementation(() => false);
+    prefs.getGroupPaletteState.mockImplementation(() => ({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+        '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    }));
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' } });
+    // group swatch row visible (override ON + unavailable).
+    const swatches = document.querySelectorAll('#group-swatch-row .swatch.hint-wave');
+    expect(swatches.length).toBeGreaterThan(0);
+  });
+
+  test('group swatch row does NOT get .hint-wave when customAvail already seen', () => {
+    // shouldShowHints in palettes.js reads localStorage directly (not the
+    // prefs mock), so set the legacy key to simulate "customAvail seen".
+    localStorage.setItem('statusapp_went_avail_custom', '1');
+    prefs.isHintSeen.mockImplementation(() => true);
+    prefs.getGroupPaletteState.mockImplementation(() => ({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+        '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    }));
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' } });
+    const swatches = document.querySelectorAll('#group-swatch-row .swatch.hint-wave');
+    expect(swatches.length).toBe(0);
+  });
+
   test('group dot does NOT get dot-go-hint when override is OFF', () => {
     prefs.isHintSeen.mockImplementation((name) => name !== 'customAvail');
     prefs.getGroupPaletteState.mockImplementation(() => ({

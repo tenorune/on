@@ -23,7 +23,7 @@ import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
 import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
-import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, ICON_BOLT, ICON_TREE } from './palettes.js';
+import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, ICON_BOLT, ICON_TREE, startSwatchHints } from './palettes.js';
 
 // Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
 
@@ -581,6 +581,11 @@ function renderGroupSwatchRow() {
     }
   }
   paintGroupDotGoHint();
+  // Rolling wave attractor across the unselected swatches — mirrors
+  // palettes.js's startSwatchHints for #swatch-row. The function
+  // internally gates on shouldShowHints (customAvail unseen + active
+  // set on its default), so it's safe to call unconditionally here.
+  startSwatchHints(row, getGroupPaletteState(_currentGroupId));
 }
 
 // Pulse #group-my-dot to nudge the user toward going-active after they've

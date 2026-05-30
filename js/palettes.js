@@ -329,7 +329,7 @@ function shouldShowHints(state) {
   return true;
 }
 
-function startSwatchHints(row, state) {
+export function startSwatchHints(row, state) {
   stopSwatchHints();
   if (!shouldShowHints(state)) return;
   const swatches = Array.from(row.querySelectorAll('.swatch:not(.selected)'));
