@@ -1585,6 +1585,33 @@ describe('group-context FTU hints', () => {
     expect(swatches.length).toBeGreaterThan(0);
   });
 
+  test('promoting a group swatch to palette mode plays the key-spin animation once', () => {
+    prefs.isHintSeen.mockImplementation(() => false);
+    // Start with palette mode ON (so key-swatch is rendered). The promote
+    // happens by tapping the selected key-swatch when it's the default base
+    // mode — but a cleaner trigger is to tap a non-selected base-mode swatch
+    // then verify the next render of palette mode shows key-spin. For this
+    // test we set up palette mode directly and trigger via a re-promote.
+    let state = {
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+        '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    };
+    prefs.getGroupPaletteState.mockImplementation(() => JSON.parse(JSON.stringify(state)));
+    prefs.setGroupPaletteState.mockImplementation((_gid, s) => { state = JSON.parse(JSON.stringify(s)); });
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' } });
+    // In base mode (no activePaletteKey), the selected swatch is forest.
+    // Tapping it promotes to palette mode for forest.
+    const selectedSwatch = document.querySelector('#group-swatch-row .swatch.selected');
+    expect(selectedSwatch).not.toBeNull();
+    selectedSwatch.click();
+    // Now in palette mode → key-swatch is rendered with key-spin.
+    const keySpin = document.querySelector('#group-swatch-row .swatch.key-swatch.key-spin');
+    expect(keySpin).not.toBeNull();
+  });
+
   test('group swatch row does NOT get .hint-wave when customAvail already seen', () => {
     // shouldShowHints in palettes.js reads localStorage directly (not the
     // prefs mock), so set the legacy key to simulate "customAvail seen".

@@ -67,6 +67,7 @@ let _ownDisplayName = null; // string | null — own member displayName from wat
 let _membersOverrides = {}; // uid → statusOverride | null
 const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor, paletteKey } | null
 let _settingsOutsideHandler = null;
+let _justEnteredGroupPaletteMode = false; // one-shot flag for key-spin hint on next renderGroupSwatchRow
 
 // Reorder the existing roster `<li>` nodes so available members come first,
 // alphabetical within each (available / unavailable) bucket. Rows currently
@@ -500,6 +501,7 @@ function renderGroupSwatchRow() {
       swatch.type = 'button';
       if (i === keyIdx) {
         swatch.className = 'swatch key-swatch group-swatch';
+        if (_justEnteredGroupPaletteMode) swatch.classList.add('key-spin');
         swatch.style.background = palette.color;
         swatch.dataset.paletteKey = palette.key;
         const keySelected = currentColor === palette.color;
@@ -566,6 +568,9 @@ function renderGroupSwatchRow() {
           // Mirror palettes.enterPaletteMode — entering palette mode clears
           // the theme hint regardless of which picker the user used.
           if (!isHintSeen('theme')) markHintSeen('theme');
+          // One-shot key-spin animation on the key swatch the next time
+          // renderGroupSwatchRow runs (mirrors palettes.enterPaletteMode).
+          _justEnteredGroupPaletteMode = true;
         } else {
           // Color-only change. Don't touch paletteKey.
           newState.sets[sk].selectedKey = palette.key;
@@ -586,6 +591,9 @@ function renderGroupSwatchRow() {
   // internally gates on shouldShowHints (customAvail unseen + active
   // set on its default), so it's safe to call unconditionally here.
   startSwatchHints(row, getGroupPaletteState(_currentGroupId));
+  // Consume the one-shot key-spin flag — the animation plays once per
+  // promote-to-palette-mode event.
+  _justEnteredGroupPaletteMode = false;
 }
 
 // Pulse #group-my-dot to nudge the user toward going-active after they've
