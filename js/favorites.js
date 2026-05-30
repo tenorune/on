@@ -102,15 +102,38 @@ export function getCanvasColors() {
   return { penColors, bgColors };
 }
 
+// Drop duplicates from a combo array, preserving the first occurrence of
+// each (statusColor, surface2) pair. Used by saveCombo to clean up legacy
+// data that pre-dates the dedupe logic, and by prefs.syncFromServer for
+// the same reason on server-sourced arrays.
+export function dedupeCombos(arr) {
+  const seen = [];
+  const out = [];
+  for (const c of arr || []) {
+    if (!c) continue;
+    if (seen.some(s => pillsLookSame(s, c))) continue;
+    seen.push(c);
+    out.push(c);
+  }
+  return out;
+}
+
 // Single writer. Pushes a caller-supplied combo to the head of the favorites
-// strip, with head-only dedupe and cap-at-8. Used by going-active (Direct +
+// strip, with whole-array dedupe and cap-at-8. Used by going-active (Direct +
 // group) and by long-press adoption (Direct + group).
 export function saveCombo(combo) {
   if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
   if (!combo) return;
   const history = getFavorites();
-  if (history.length && pillsLookSame(history[0], combo)) return; // head-only dedupe
-  writeFavorites([combo, ...history].slice(0, MAX_FAVORITES));
+  // Fast path: incoming matches the existing head AND history has no
+  // deeper duplicates → no write needed.
+  const headMatches = history.length && pillsLookSame(history[0], combo);
+  const cleanHistory = dedupeCombos(history);
+  if (headMatches && cleanHistory.length === history.length) return;
+  // Otherwise prepend the incoming combo (or its already-deduped equivalent
+  // from cleanHistory's head) and rewrite the array cleanly.
+  const withoutMatch = cleanHistory.filter(h => !pillsLookSame(h, combo));
+  writeFavorites([combo, ...withoutMatch].slice(0, MAX_FAVORITES));
   renderStrip();
 }
 

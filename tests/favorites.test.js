@@ -511,7 +511,7 @@ describe('saveCombo', () => {
     expect(written[1]).toEqual(existing);
   });
 
-  test('head-only dedupe: suppresses push when incoming matches head', () => {
+  test('head dedupe: suppresses push (no Firebase write) when incoming matches head', () => {
     const combo = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
                     paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
     store.getFavorites.mockReturnValueOnce([combo]);
@@ -519,18 +519,77 @@ describe('saveCombo', () => {
     expect(store.setFavorites).not.toHaveBeenCalled();
   });
 
-  test('does NOT dedupe against non-head positions (deeper duplicates allowed)', () => {
+  test('deeper duplicate: existing entry is removed and incoming becomes the new head', () => {
     const other = { statusColor: '#aabbcc', surface: '#000', surface2: '#000',
                     paletteKey: null, selectedKey: 'volt', activeSet: 2 };
     const combo = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
                     paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
-    // combo is at slot 2; head is `other` — dedupe should NOT fire.
+    // combo is at slot 2; head is `other` — the existing combo entry
+    // should be removed and the incoming combo prepended.
     store.getFavorites.mockReturnValueOnce([other, combo]);
     saveCombo(combo);
     expect(store.setFavorites).toHaveBeenCalledTimes(1);
     const written = store.setFavorites.mock.calls[0][0];
+    expect(written.length).toBe(2); // [combo, other] — duplicate collapsed
     expect(written[0]).toEqual(combo);
-    expect(written.length).toBe(3); // [combo, other, combo]
+    expect(written[1]).toEqual(other);
+  });
+
+  test('cleans pre-existing duplicates in history on next save', () => {
+    // History was polluted (e.g. by a sibling-device race or pre-fix code).
+    // Two B entries exist. Pushing a brand-new combo C should not only
+    // prepend C but also collapse the duplicate B.
+    const a = { statusColor: '#a00000', surface2: '#aaa', paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+    const b1 = { statusColor: '#b00000', surface2: '#bbb', paletteKey: null, selectedKey: 'volt', activeSet: 2 };
+    const b2 = { statusColor: '#b00000', surface2: '#bbb', paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
+    const c  = { statusColor: '#c00000', surface2: '#ccc', paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+    store.getFavorites.mockReturnValueOnce([a, b1, b2]);
+    saveCombo(c);
+    const written = store.setFavorites.mock.calls[0][0];
+    expect(written.length).toBe(3);     // [c, a, b1] — b2 collapsed into b1's slot
+    expect(written[0]).toEqual(c);
+    expect(written[1]).toEqual(a);
+    expect(written[2]).toEqual(b1);
+  });
+
+  test('head-match fast path skips write only when history has no other duplicates', () => {
+    // Head matches the incoming combo. If the rest of history is clean,
+    // no write is needed.
+    const combo = { statusColor: '#ff00aa', surface2: '#222', paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
+    const other = { statusColor: '#000', surface2: '#000', paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+    store.getFavorites.mockReturnValueOnce([combo, other]);
+    saveCombo(combo);
+    expect(store.setFavorites).not.toHaveBeenCalled();
+  });
+
+  test('head-match still rewrites when deeper duplicate exists', () => {
+    // Head matches incoming, but a stale duplicate of the same combo sits
+    // deeper in the array — write through to clean it up.
+    const combo = { statusColor: '#ff00aa', surface2: '#222', paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
+    const other = { statusColor: '#000', surface2: '#000', paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+    const stale = { statusColor: '#ff00aa', surface2: '#222', paletteKey: null, selectedKey: 'volt', activeSet: 2 };
+    store.getFavorites.mockReturnValueOnce([combo, other, stale]);
+    saveCombo(combo);
+    expect(store.setFavorites).toHaveBeenCalledTimes(1);
+    const written = store.setFavorites.mock.calls[0][0];
+    expect(written.length).toBe(2);   // [combo, other] — stale collapsed
+    expect(written[0]).toEqual(combo);
+    expect(written[1]).toEqual(other);
+  });
+
+  test('visual dedupe by pillsLookSame: same statusColor + surface2 collapse even if other fields differ', () => {
+    const stored = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
+                     paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
+    const incoming = { statusColor: '#ff00aa', surface: '#xyz', surface2: '#222', // same statusColor + surface2
+                       paletteKey: 'volt', selectedKey: 'volt', activeSet: 2 };
+    const other = { statusColor: '#000', surface: '#000', surface2: '#000',
+                    paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+    store.getFavorites.mockReturnValueOnce([other, stored]);
+    saveCombo(incoming);
+    const written = store.setFavorites.mock.calls[0][0];
+    expect(written.length).toBe(2); // stored collapsed even though paletteKey differs
+    expect(written[0]).toEqual(incoming);
+    expect(written[1]).toEqual(other);
   });
 
   test('drops oldest when history is full (cap at 8)', () => {

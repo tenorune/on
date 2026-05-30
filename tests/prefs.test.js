@@ -101,3 +101,29 @@ test('syncFromServer ignores null payload', () => {
   syncFromServer(null);
   expect(localStorage.getItem('statusapp_seen_bolt')).toBeNull();
 });
+
+test('syncFromServer dedupes favorites by (statusColor, surface2) before persisting', () => {
+  const FAVS_KEY = 'statusapp_favorites';
+  const a1 = { statusColor: '#ff00aa', surface2: '#222', paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
+  const b  = { statusColor: '#000000', surface2: '#000', paletteKey: null,     selectedKey: 'forest', activeSet: 1 };
+  const a2 = { statusColor: '#ff00aa', surface2: '#222', paletteKey: null,     selectedKey: 'volt',   activeSet: 2 };
+  syncFromServer({ favorites: [a1, b, a2] });
+  const stored = JSON.parse(localStorage.getItem(FAVS_KEY));
+  expect(stored.length).toBe(2);
+  expect(stored[0]).toEqual(a1);
+  expect(stored[1]).toEqual(b);
+});
+
+test('syncFromServer dedupes keyed-object favorites payload (RTDB sparse-array case)', () => {
+  const FAVS_KEY = 'statusapp_favorites';
+  // RTDB sometimes returns arrays as objects keyed by index.
+  const payload = {
+    favorites: {
+      '0': { statusColor: '#abc', surface2: '#111', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
+      '1': { statusColor: '#abc', surface2: '#111', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
+    },
+  };
+  syncFromServer(payload);
+  const stored = JSON.parse(localStorage.getItem(FAVS_KEY));
+  expect(stored.length).toBe(1);
+});
