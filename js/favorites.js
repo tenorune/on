@@ -55,7 +55,13 @@ export function buildDirectCombo() {
 }
 
 function pillsLookSame(a, b) {
-  return a.statusColor === b.statusColor && a.surface2 === b.surface2;
+  // Dedupe by dot color alone. Matches the canvas's pen-color dedupe
+  // (new Set(combos.map(c => c.statusColor))) — a strip pill and a
+  // canvas pen with the same color should always be the same entry.
+  // Earlier this also compared surface2, but that treated "forest in
+  // base mode" and "forest in palette mode" as distinct — visible to
+  // the user as duplicate green dots.
+  return a.statusColor === b.statusColor;
 }
 
 // Persist favorites. setFavorites (prefs.js) writes both localStorage and

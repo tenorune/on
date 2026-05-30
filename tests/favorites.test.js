@@ -535,17 +535,20 @@ describe('saveCombo', () => {
     expect(written[1]).toEqual(other);
   });
 
-  test('visual dedupe by pillsLookSame: same statusColor + surface2 collapse even if other fields differ', () => {
+  test('visual dedupe by pillsLookSame: same statusColor collapses regardless of other fields', () => {
+    // statusColor matches, every other field differs (surface2, paletteKey,
+    // selectedKey, activeSet) — the "forest base mode vs forest palette mode"
+    // pattern that used to leave two visually-identical-dot pills in the strip.
     const stored = { statusColor: '#ff00aa', surface: '#111', surface2: '#222',
                      paletteKey: 'forest', selectedKey: 'forest', activeSet: 1 };
-    const incoming = { statusColor: '#ff00aa', surface: '#xyz', surface2: '#222', // same statusColor + surface2
-                       paletteKey: 'volt', selectedKey: 'volt', activeSet: 2 };
+    const incoming = { statusColor: '#ff00aa', surface: '#xyz', surface2: '#999',
+                       paletteKey: null, selectedKey: 'volt', activeSet: 2 };
     const other = { statusColor: '#000', surface: '#000', surface2: '#000',
                     paletteKey: null, selectedKey: 'forest', activeSet: 1 };
     store.getFavorites.mockReturnValueOnce([other, stored]);
     saveCombo(incoming);
     const written = store.setFavorites.mock.calls[0][0];
-    expect(written.length).toBe(2); // stored collapsed even though paletteKey differs
+    expect(written.length).toBe(2); // stored collapsed even though surface2 + paletteKey differ
     expect(written[0]).toEqual(incoming);
     expect(written[1]).toEqual(other);
   });
