@@ -366,6 +366,10 @@ function renderOwnStatusRow() {
     swatchRow.classList.toggle('visible', showSwatch);
     if (showSwatch) renderGroupSwatchRow();
   }
+  // Always re-evaluate the dot-go-hint — renderGroupSwatchRow already
+  // calls this internally, but it only runs when the swatch row is
+  // visible. We need to clear the hint on go-available transitions too.
+  paintGroupDotGoHint();
 }
 
 // Per-group palette UI state (which set is active, are we in palette mode).
@@ -576,6 +580,34 @@ function renderGroupSwatchRow() {
       row.appendChild(swatch);
     }
   }
+  paintGroupDotGoHint();
+}
+
+// Pulse #group-my-dot to nudge the user toward going-active after they've
+// picked a non-default per-group swatch. Mirrors palettes.js's dot-go-hint
+// for #my-dot. Gated on:
+//   (a) user picked a non-default swatch in the active set (selectedKey
+//       differs from the set's default OR activePaletteKey is set)
+//   (b) the FTU customAvail flag isn't yet seen
+//   (c) the group dot is currently unavailable (no nudge if already active)
+//   (d) override is ON (otherwise the dot isn't "the user's group dot")
+function paintGroupDotGoHint() {
+  const dot = document.getElementById('group-my-dot');
+  if (!dot) return;
+  if (!_currentGroupId || !PALETTES_ENABLED) {
+    dot.classList.remove('dot-go-hint');
+    return;
+  }
+  const gps = getGroupPaletteState(_currentGroupId);
+  const sk = String(gps.activeSet);
+  const defaultKey = gps.activeSet === 1 ? 'forest' : 'volt';
+  const nonDefault = gps.sets[sk].activePaletteKey != null || gps.sets[sk].selectedKey !== defaultKey;
+  const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
+  const status = overrideOn ? _ownOverride?.status : _ownPrimary?.status;
+  const availableUntil = overrideOn ? _ownOverride?.availableUntil : _ownPrimary?.availableUntil;
+  const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+  const shouldHint = nonDefault && overrideOn && !isAvailable && !isHintSeen('customAvail');
+  dot.classList.toggle('dot-go-hint', shouldHint);
 }
 
 // The user's "Direct color" semantically comes from either the server-side

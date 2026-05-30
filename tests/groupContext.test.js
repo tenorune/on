@@ -1525,5 +1525,63 @@ describe('group-context FTU hints', () => {
     const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
     expect(aliceLi.querySelector('.longpress-hint')).toBeNull();
   });
+
+  test('group dot gets dot-go-hint when user has picked a non-default swatch and is unavailable', () => {
+    prefs.isHintSeen.mockImplementation((name) => name !== 'customAvail');
+    prefs.getGroupPaletteState.mockImplementation(() => ({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'iris', selectedColor: '#818cf8', activePaletteKey: null },
+        '2': { selectedKey: 'volt', selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    }));
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#818cf8' } });
+    const dot = document.getElementById('group-my-dot');
+    expect(dot.classList.contains('dot-go-hint')).toBe(true);
+  });
+
+  test('group dot does NOT get dot-go-hint when user is on the default swatch', () => {
+    prefs.isHintSeen.mockImplementation((name) => name !== 'customAvail');
+    prefs.getGroupPaletteState.mockImplementation(() => ({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+        '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    }));
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' } });
+    const dot = document.getElementById('group-my-dot');
+    expect(dot.classList.contains('dot-go-hint')).toBe(false);
+  });
+
+  test('group dot loses dot-go-hint when user goes available', () => {
+    prefs.isHintSeen.mockImplementation((name) => name !== 'customAvail');
+    prefs.getGroupPaletteState.mockImplementation(() => ({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'iris', selectedColor: '#818cf8', activePaletteKey: null },
+        '2': { selectedKey: 'volt', selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    }));
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#818cf8' } });
+    const dot = document.getElementById('group-my-dot');
+    expect(dot.classList.contains('dot-go-hint')).toBe(true);
+    dot.click();
+    expect(dot.classList.contains('dot-go-hint')).toBe(false);
+  });
+
+  test('group dot does NOT get dot-go-hint when override is OFF', () => {
+    prefs.isHintSeen.mockImplementation((name) => name !== 'customAvail');
+    prefs.getGroupPaletteState.mockImplementation(() => ({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'iris', selectedColor: '#818cf8', activePaletteKey: null },
+        '2': { selectedKey: 'volt', selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    }));
+    seedRoster({ ownOverride: { enabled: false, status: null, availableUntil: null } });
+    const dot = document.getElementById('group-my-dot');
+    expect(dot.classList.contains('dot-go-hint')).toBe(false);
+  });
 });
 
