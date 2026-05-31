@@ -795,10 +795,10 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   const peerTheme = userData.paletteKey || null;
   const isMyCombo = getFavorites().some(c => c.statusColor === peerColor && (c.paletteKey || null) === peerTheme);
   const showLongpressHint = PALETTE_INTERACTIONS_ENABLED
-      && !localStorage.getItem('statusapp_seen_longpress')
-      && localStorage.getItem('statusapp_went_avail_custom')
-      && localStorage.getItem('statusapp_seen_theme')
-      && localStorage.getItem('statusapp_seen_strip_peek_done')
+      && !isHintSeen('longpress')
+      && isHintSeen('customAvail')
+      && isHintSeen('theme')
+      && isHintSeen('stripPeek')
       && !isCallee && !isCallModeReceiver
       && isAvail
       && !isMyCombo;
@@ -807,10 +807,10 @@ export function updateFolloweeRow(entry, userData, myUserId) {
       && !li.previousElementSibling?.dataset?.mutual;
   const swipeEligible = CALL_ENABLED
       && isFirstMutual
-      && !localStorage.getItem('statusapp_seen_swipe')
-      && localStorage.getItem('statusapp_went_avail_custom')
-      && localStorage.getItem('statusapp_seen_theme')
-      && localStorage.getItem('statusapp_seen_strip_peek_done')
+      && !isHintSeen('swipe')
+      && isHintSeen('customAvail')
+      && isHintSeen('theme')
+      && isHintSeen('stripPeek')
       && !isCallee && !isCallModeReceiver;
 
   // If both hints qualify, alternate between them each animation cycle
@@ -865,7 +865,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
 document.addEventListener('my-combo-changed', () => refreshLongpressHints());
 
 function refreshLongpressHints() {
-  if (localStorage.getItem('statusapp_seen_longpress')) return;
+  if (isHintSeen('longpress')) return;
   const myCombos = getFavorites();
 
   document.querySelectorAll('.longpress-hint').forEach(hint => {

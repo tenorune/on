@@ -30,10 +30,9 @@ export function initPrefs(userId) {
 }
 
 // ── Hints ────────────────────────────────────────────────────────────────────
-// Maps short hint name → localStorage key it currently lives under. New code
-// should use the short name; the localStorage key shape is preserved so any
-// inline `localStorage.getItem('statusapp_seen_*')` reads scattered through
-// the codebase keep working without touching them.
+// Maps short hint name → localStorage key it lives under. Always read/write
+// via isHintSeen/markHintSeen; do not access these keys directly. The legacy
+// localStorage shape is preserved so existing stored flags carry forward.
 const HINT_KEYS = {
   bolt:        'statusapp_seen_bolt',
   flower:      'statusapp_seen_flower',

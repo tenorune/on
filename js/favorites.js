@@ -3,7 +3,7 @@ import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
 import { getPaletteState, setPaletteState } from './store.js';
 import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowForColor, PALETTE_SETS } from './palettes.js';
 import { setStatusColor } from './db.js';
-import { getFavorites, setFavorites, markHintSeen, isFavoritesCollapsed, setFavoritesCollapsed } from './prefs.js';
+import { getFavorites, setFavorites, isHintSeen, markHintSeen, isFavoritesCollapsed, setFavoritesCollapsed } from './prefs.js';
 import { safeCssColor } from './utils.js';
 import { getCurrentContext, onContextChange } from './groupNav.js';
 import { applyAdoptedComboInGroup } from './groupContext.js';
@@ -182,13 +182,13 @@ function renderStrip() {
     const container = document.getElementById(id);
     if (!container) continue;
     container.style.display = 'block';
-    if (history.length === 0 || !localStorage.getItem('statusapp_seen_theme')) {
+    if (history.length === 0 || !isHintSeen('theme')) {
       const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0f172a';
       container.innerHTML =
         `<div class="fav-collapsed"><div class="fav-collapsed-line" style="background:${bgColor}"></div></div>`;
       continue;
     }
-    const isFtu = !localStorage.getItem('statusapp_seen_strip_peek_done');
+    const isFtu = !isHintSeen('stripPeek');
     const collapsed = isFtu || isFavoritesCollapsed();
     if (collapsed) {
       renderCollapsed(container, history, homeContext);
@@ -216,7 +216,7 @@ function renderCollapsed(container, history, homeContext = 'direct') {
   // the peek to the container whose home context matches the active
   // context — otherwise the body-level peek wrapper would float over
   // the wrong view.
-  if (!localStorage.getItem('statusapp_seen_strip_peek_done') &&
+  if (!isHintSeen('stripPeek') &&
       getCurrentContext().context === homeContext) {
     peekStrip(container, history, homeContext);
   }
@@ -364,7 +364,7 @@ function peekStrip(container, history, homeContext = 'direct') {
 
   function doPeek() {
     // Stop if strip was opened (flag cleared means user opened it)
-    if (localStorage.getItem('statusapp_seen_strip_peek_done') || !wrapper.parentNode) {
+    if (isHintSeen('stripPeek') || !wrapper.parentNode) {
       if (wrapper.parentNode) wrapper.remove();
       if (collapsedEl) collapsedEl.style.opacity = '';
       const line = collapsedEl?.querySelector('.fav-collapsed-line');
