@@ -14,13 +14,15 @@
 import { isHintSeen } from './prefs.js';
 
 // Rolling wave attractor across unselected swatches in either swatch row.
-// Stays visible until the user picks a non-default color in either set OR
-// goes Available with a custom color.
+// Per-set: shows on the active set while that set's selectedKey is its
+// default. Switching sets continues to nudge until the user picks a non-
+// default swatch in the now-active set. Going Available with a custom color
+// hides the wave everywhere.
 export function shouldShowSwatchWave(paletteState) {
   if (isHintSeen('customAvail')) return false;
-  if (paletteState.sets['1'].selectedKey !== 'forest') return false;
-  if (paletteState.sets['2'].selectedKey !== 'volt') return false;
-  return true;
+  const activeSet = paletteState.activeSet;
+  const defaultKey = activeSet === 1 ? 'forest' : 'volt';
+  return paletteState.sets[String(activeSet)].selectedKey === defaultKey;
 }
 
 // Pulsing dotted ring on the currently-selected swatch, nudging the user to

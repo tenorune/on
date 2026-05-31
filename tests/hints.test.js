@@ -20,20 +20,33 @@ const defaultState = () => ({
 beforeEach(() => { localStorage.clear(); });
 
 describe('shouldShowSwatchWave', () => {
-  test('true when both sets default and customAvail unseen', () => {
+  test('true when active set has default selectedKey and customAvail unseen', () => {
     expect(shouldShowSwatchWave(defaultState())).toBe(true);
   });
   test('false once customAvail is seen', () => {
     localStorage.setItem('statusapp_went_avail_custom', '1');
     expect(shouldShowSwatchWave(defaultState())).toBe(false);
   });
-  test('false when Set 1 selectedKey is non-default', () => {
+  test('false when the active set has a non-default selectedKey', () => {
     const s = defaultState();
     s.sets['1'].selectedKey = 'iris';
     expect(shouldShowSwatchWave(s)).toBe(false);
   });
-  test('false when Set 2 selectedKey is non-default', () => {
+  test('still true on Set 1 when Set 2 has a non-default selectedKey', () => {
+    // Per-set: a non-default pick in Set 2 should not stop Set 1's wave.
     const s = defaultState();
+    s.sets['2'].selectedKey = 'ember';
+    expect(shouldShowSwatchWave(s)).toBe(true);
+  });
+  test('still true on Set 2 when Set 1 has a non-default selectedKey', () => {
+    const s = defaultState();
+    s.activeSet = 2;
+    s.sets['1'].selectedKey = 'iris';
+    expect(shouldShowSwatchWave(s)).toBe(true);
+  });
+  test('false when active set 2 has a non-default selectedKey', () => {
+    const s = defaultState();
+    s.activeSet = 2;
     s.sets['2'].selectedKey = 'ember';
     expect(shouldShowSwatchWave(s)).toBe(false);
   });
