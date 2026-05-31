@@ -3,7 +3,14 @@ import { getFavorites } from './store.js';
 import { setStatusColor, setPaletteKey } from './db.js';
 import { isHintSeen, markHintSeen, getPaletteState, setPaletteState } from './prefs.js';
 
-let _hintTimer = null;
+// Per-row wave timers. The wave needs to run independently on Direct's
+// #swatch-row and a group context's #group-swatch-row — using a single
+// module-global timer (the previous design) meant whichever row last called
+// startSwatchHints would stopSwatchHints() the other row, stripping its
+// .hint-wave class and freezing the wave. Symptom: navigate from Direct
+// to a group, the Direct wave stops; navigate back, it doesn't restart
+// because nothing re-renders Direct's row on a context switch.
+const _hintTimersByRow = new Map();
 // Timestamp (Date.now) of the most recent enterPaletteMode call, or null if
 // the spin window has elapsed. Tracked as a timestamp rather than a bool
 // because setPaletteState writes to userPrefs and Firebase echoes back ~100-
@@ -351,7 +358,7 @@ function shouldShowHints(state) {
 }
 
 export function startSwatchHints(row, state) {
-  stopSwatchHints();
+  stopSwatchHintsFor(row);
   if (!shouldShowHints(state)) return;
   const swatches = Array.from(row.querySelectorAll('.swatch:not(.selected)'));
   if (swatches.length === 0) return;
@@ -372,7 +379,7 @@ export function startSwatchHints(row, state) {
         : 'none';
     });
     head = (head + 1) % swatches.length;
-    _hintTimer = setTimeout(updateWave, 250);
+    _hintTimersByRow.set(row, setTimeout(updateWave, 250));
   }
   updateWave();
 }
@@ -403,8 +410,20 @@ export function applyThemeHint() {
   }
 }
 
+function stopSwatchHintsFor(row) {
+  const t = _hintTimersByRow.get(row);
+  if (t) clearTimeout(t);
+  _hintTimersByRow.delete(row);
+  row.querySelectorAll('.swatch.hint-wave').forEach(s => {
+    s.classList.remove('hint-wave');
+    s.style.boxShadow = '';
+  });
+}
+
 function stopSwatchHints() {
-  if (_hintTimer) { clearTimeout(_hintTimer); _hintTimer = null; }
+  for (const row of [..._hintTimersByRow.keys()]) stopSwatchHintsFor(row);
+  // Legacy safety net: also strip the class from any row we never registered
+  // (e.g. rows that called the old global startSwatchHints before this fix).
   document.querySelectorAll('.swatch.hint-wave').forEach(s => {
     s.classList.remove('hint-wave');
     s.style.boxShadow = '';

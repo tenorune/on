@@ -26,6 +26,7 @@ const {
   applyThemeVars, resetThemeVars,
   tapSwatch, initSwatches, switchSet,
   enterPaletteMode, exitPaletteMode,
+  startSwatchHints,
 } = require('../js/palettes.js');
 const { setStatusColor } = require('../js/db.js');
 const { getPaletteState, setPaletteState } = require('../js/store.js');
@@ -424,6 +425,37 @@ describe('enterPaletteMode', () => {
     // after creation.
     document.dispatchEvent(new CustomEvent('palette-state-synced'));
     expect(document.querySelector('.key-swatch.key-spin')).not.toBeNull();
+  });
+});
+
+describe('startSwatchHints — independent per-row wave', () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="swatch-row"></div>
+      <div id="group-swatch-row"></div>
+    `;
+    // Seed both rows with a few unselected swatches so .hint-wave has targets.
+    for (const id of ['swatch-row', 'group-swatch-row']) {
+      const row = document.getElementById(id);
+      for (let i = 0; i < 3; i++) {
+        const s = document.createElement('div');
+        s.className = 'swatch';
+        row.appendChild(s);
+      }
+    }
+  });
+
+  test('starting the group wave does NOT strip hint-wave from the Direct row', () => {
+    const directRow = document.getElementById('swatch-row');
+    const groupRow = document.getElementById('group-swatch-row');
+    const state = JSON.parse(JSON.stringify(DEFAULT_PALETTE_STATE));
+    startSwatchHints(directRow, state);
+    expect(directRow.querySelectorAll('.swatch.hint-wave').length).toBeGreaterThan(0);
+    // Now start group's wave — the previous design's shared _hintTimer +
+    // global stopSwatchHints() would clear Direct's class here.
+    startSwatchHints(groupRow, state);
+    expect(directRow.querySelectorAll('.swatch.hint-wave').length).toBeGreaterThan(0);
+    expect(groupRow.querySelectorAll('.swatch.hint-wave').length).toBeGreaterThan(0);
   });
 });
 
