@@ -774,6 +774,7 @@ main {
 }
 .swatch.key-swatch.key-spin::after {
   animation: key-spin 5s ease-out 1 forwards;
+  animation-delay: var(--key-spin-delay, 0ms);
 }
 .swatch.theme-hint {
   position: relative;

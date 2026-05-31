@@ -409,6 +409,22 @@ describe('enterPaletteMode', () => {
     enterPaletteMode('ember', 'uid1');
     expect(setPaletteKey).toHaveBeenCalledWith('uid1', 'ember');
   });
+
+  test('key-spin survives a re-render within the 5s window (palette-state-synced echo)', () => {
+    const paletteModeState = {
+      ...JSON.parse(JSON.stringify(mockState)),
+      sets: { '1': { selectedKey: 'ember', activePaletteKey: 'ember' }, '2': { selectedKey: 'volt', activePaletteKey: null } },
+    };
+    getPaletteState.mockReturnValue(paletteModeState);
+    enterPaletteMode('ember', 'uid1');
+    expect(document.querySelector('.key-swatch.key-spin')).not.toBeNull();
+    // Simulate the userPrefs echo dispatching palette-state-synced, which
+    // triggers another renderSwatchRow. Without the timestamp-based fix the
+    // new key swatch would lack .key-spin and the animation would die ~100ms
+    // after creation.
+    document.dispatchEvent(new CustomEvent('palette-state-synced'));
+    expect(document.querySelector('.key-swatch.key-spin')).not.toBeNull();
+  });
 });
 
 describe('exitPaletteMode', () => {

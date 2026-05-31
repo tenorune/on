@@ -68,7 +68,15 @@ let _ownDisplayName = null; // string | null — own member displayName from wat
 let _membersOverrides = {}; // uid → statusOverride | null
 const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor, paletteKey } | null
 let _settingsOutsideHandler = null;
-let _justEnteredGroupPaletteMode = false; // one-shot flag for key-spin hint on next renderGroupSwatchRow
+// Timestamp of the most recent group palette-mode entry, or null. Tracked as
+// a timestamp (not a one-shot bool) because setOverrideAppearance writes to
+// RTDB and watchOwnMemberOverride echoes back ~100-300ms later, calling
+// renderOwnStatusRow → renderGroupSwatchRow and destroying the just-rendered
+// key-spin element. The timestamp lets each subsequent render within the 5s
+// window re-apply .key-spin with a CSS --key-spin-delay so the animation
+// resumes mid-flight rather than restarting from 0deg.
+const KEY_SPIN_MS = 5000;
+let _groupPaletteEnterAt = null;
 
 // Reorder the existing roster `<li>` nodes so available members come first,
 // alphabetical within each (available / unavailable) bucket. Rows currently
@@ -502,7 +510,15 @@ function renderGroupSwatchRow() {
       swatch.type = 'button';
       if (i === keyIdx) {
         swatch.className = 'swatch key-swatch group-swatch';
-        if (_justEnteredGroupPaletteMode) swatch.classList.add('key-spin');
+        if (_groupPaletteEnterAt != null) {
+          const elapsed = Date.now() - _groupPaletteEnterAt;
+          if (elapsed < KEY_SPIN_MS) {
+            swatch.classList.add('key-spin');
+            if (elapsed > 0) swatch.style.setProperty('--key-spin-delay', `-${elapsed}ms`);
+          } else {
+            _groupPaletteEnterAt = null;
+          }
+        }
         swatch.style.background = palette.color;
         swatch.dataset.paletteKey = palette.key;
         const keySelected = currentColor === palette.color;
@@ -569,9 +585,9 @@ function renderGroupSwatchRow() {
           // Mirror palettes.enterPaletteMode — entering palette mode clears
           // the theme hint regardless of which picker the user used.
           if (!isHintSeen('theme')) markHintSeen('theme');
-          // One-shot key-spin animation on the key swatch the next time
-          // renderGroupSwatchRow runs (mirrors palettes.enterPaletteMode).
-          _justEnteredGroupPaletteMode = true;
+          // Timestamp the entry so the key-spin animation survives the
+          // setOverrideAppearance echo's re-render (mirrors palettes.enterPaletteMode).
+          _groupPaletteEnterAt = Date.now();
         } else {
           // Color-only change. Don't touch paletteKey.
           newState.sets[sk].selectedKey = palette.key;
@@ -585,6 +601,13 @@ function renderGroupSwatchRow() {
       });
       row.appendChild(swatch);
     }
+    // Theme hint: pulsing dotted ring on the selected swatch once the user
+    // has gone Available with a custom color but hasn't yet entered palette
+    // mode anywhere — mirrors palettes.js's base-mode theme-hint logic.
+    if (!isHintSeen('theme') && isHintSeen('customAvail')) {
+      const selectedSwatch = row.querySelector('.swatch.selected');
+      if (selectedSwatch) selectedSwatch.classList.add('theme-hint');
+    }
   }
   paintGroupDotGoHint();
   // Rolling wave attractor across the unselected swatches — mirrors
@@ -593,9 +616,6 @@ function renderGroupSwatchRow() {
   // sets on their default selectedKey), so it's safe to call
   // unconditionally here.
   startSwatchHints(row, getGroupPaletteState(_currentGroupId));
-  // Consume the one-shot key-spin flag — the animation plays once per
-  // promote-to-palette-mode event.
-  _justEnteredGroupPaletteMode = false;
 }
 
 // Pulse #group-my-dot to nudge the user toward going-active after they've

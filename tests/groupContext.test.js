@@ -1654,6 +1654,83 @@ describe('group-context FTU hints', () => {
     expect(swatches.length).toBe(0);
   });
 
+  test('key-spin survives a subsequent re-render within the 5s animation window', () => {
+    prefs.isHintSeen.mockImplementation(() => false);
+    let state = {
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+        '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    };
+    prefs.getGroupPaletteState.mockImplementation(() => JSON.parse(JSON.stringify(state)));
+    prefs.setGroupPaletteState.mockImplementation((_gid, s) => { state = JSON.parse(JSON.stringify(s)); });
+    // Capture the override callback so we can replay the RTDB echo manually.
+    let overrideCb;
+    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+      overrideCb = cb;
+      cb({ enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' });
+      return () => {};
+    });
+    db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
+    db.watchStatus.mockImplementation((_uid, cb) => { cb({}); return () => {}; });
+    setupContextDom();
+    enterGroupContext('G1', 'me');
+    // Promote to palette mode by tapping the selected base swatch.
+    const selectedSwatch = document.querySelector('#group-swatch-row .swatch.selected');
+    selectedSwatch.click();
+    expect(document.querySelector('#group-swatch-row .swatch.key-swatch.key-spin')).not.toBeNull();
+    // Simulate the setOverrideAppearance echo arriving: the override
+    // callback fires again, triggering renderOwnStatusRow → renderGroupSwatchRow.
+    // Without the timestamp-based fix, the second render would create a new
+    // key swatch without .key-spin and the animation would die.
+    overrideCb({ enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e', paletteKey: 'forest' });
+    expect(document.querySelector('#group-swatch-row .swatch.key-swatch.key-spin')).not.toBeNull();
+  });
+
+  test('group base-mode swatch row gets theme-hint on selected when customAvail seen and theme unseen', () => {
+    prefs.isHintSeen.mockImplementation((name) => name === 'customAvail');
+    prefs.getGroupPaletteState.mockImplementation(() => ({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+        '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    }));
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' } });
+    const selected = document.querySelector('#group-swatch-row .swatch.selected');
+    expect(selected).not.toBeNull();
+    expect(selected.classList.contains('theme-hint')).toBe(true);
+  });
+
+  test('group base-mode swatch row does NOT get theme-hint when theme already seen', () => {
+    prefs.isHintSeen.mockImplementation(() => true); // customAvail AND theme both seen
+    prefs.getGroupPaletteState.mockImplementation(() => ({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+        '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    }));
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' } });
+    const selected = document.querySelector('#group-swatch-row .swatch.selected');
+    expect(selected.classList.contains('theme-hint')).toBe(false);
+  });
+
+  test('group base-mode swatch row does NOT get theme-hint when customAvail not seen', () => {
+    prefs.isHintSeen.mockImplementation(() => false);
+    prefs.getGroupPaletteState.mockImplementation(() => ({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', selectedColor: '#22c55e', activePaletteKey: null },
+        '2': { selectedKey: 'volt',   selectedColor: '#aaff00', activePaletteKey: null },
+      },
+    }));
+    seedRoster({ ownOverride: { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' } });
+    const selected = document.querySelector('#group-swatch-row .swatch.selected');
+    expect(selected.classList.contains('theme-hint')).toBe(false);
+  });
+
   test('group dot does NOT get dot-go-hint when override is OFF', () => {
     prefs.isHintSeen.mockImplementation((name) => name !== 'customAvail');
     prefs.getGroupPaletteState.mockImplementation(() => ({
