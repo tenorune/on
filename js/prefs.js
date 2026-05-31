@@ -158,9 +158,6 @@ export function getFavorites() {
 }
 
 export function setFavorites(arr) {
-  console.log('[FAV] prefs.setFavorites called with', arr?.length, 'entries:',
-    JSON.stringify(arr?.map(c => ({ sc: c?.statusColor, s2: c?.surface2 }))));
-  console.trace('[FAV] prefs.setFavorites call site');
   storeSetFavorites(arr);
   if (_myUserId) mergeUserPrefs(_myUserId, { favorites: arr }).catch(() => {});
 }
@@ -269,13 +266,8 @@ export function syncFromServer(serverPrefs) {
     const raw = Array.isArray(serverPrefs.favorites)
       ? serverPrefs.favorites
       : Object.values(serverPrefs.favorites);
-    const deduped = dedupeServerFavorites(raw);
-    console.log('[FAV] syncFromServer.favorites branch firing. raw:', raw.length, 'deduped:', deduped.length,
-      JSON.stringify(deduped.map(c => ({ sc: c?.statusColor, s2: c?.surface2 }))));
-    storeSetFavorites(deduped);
+    storeSetFavorites(dedupeServerFavorites(raw));
     document.dispatchEvent(new CustomEvent('favorites-synced'));
-  } else {
-    console.log('[FAV] syncFromServer.favorites branch SKIPPED (favorites is null/undefined in serverPrefs)');
   }
   // currentContext
   if (typeof serverPrefs.currentContext === 'string') {
