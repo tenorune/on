@@ -4,7 +4,17 @@ import { setStatusColor, setPaletteKey } from './db.js';
 import { isHintSeen, markHintSeen, getPaletteState, setPaletteState } from './prefs.js';
 
 let _hintTimer = null;
-let _justEnteredPaletteMode = false;
+// Timestamp (Date.now) of the most recent enterPaletteMode call, or null if
+// the spin window has elapsed. Tracked as a timestamp rather than a bool
+// because setPaletteState writes to userPrefs and Firebase echoes back ~100-
+// 300ms later, re-rendering the swatch row and destroying the key swatch
+// element. A boolean flag would be consumed on the first render and the
+// re-render would create a fresh key swatch with no animation. The timestamp
+// lets renderSwatchRow re-apply .key-spin to each new key swatch within the
+// 5s animation window, with --key-spin-delay so the animation continues
+// mid-flight rather than restarting from 0deg.
+const KEY_SPIN_MS = 5000;
+let _paletteEnterAt = null;
 
 // SVG Icons (inlined)
 // Heroicons bolt-solid (MIT) https://heroicons.com
@@ -165,7 +175,7 @@ export function resetThemeVars() {
 }
 
 export function enterPaletteMode(key, userId) {
-  _justEnteredPaletteMode = true;
+  _paletteEnterAt = Date.now();
   if (!isHintSeen('theme')) {
     markHintSeen('theme');
   }
@@ -270,7 +280,17 @@ function renderSwatchRow(userId) {
       const swatch = document.createElement('div');
       if (i === keyIdx) {
         swatch.className = 'swatch key-swatch';
-        if (_justEnteredPaletteMode) swatch.classList.add('key-spin');
+        if (_paletteEnterAt != null) {
+          const elapsed = Date.now() - _paletteEnterAt;
+          if (elapsed < KEY_SPIN_MS) {
+            swatch.classList.add('key-spin');
+            // Resume the CSS animation mid-flight on re-renders triggered by
+            // the userPrefs echo; without this the new element starts at 0deg.
+            if (elapsed > 0) swatch.style.setProperty('--key-spin-delay', `-${elapsed}ms`);
+          } else {
+            _paletteEnterAt = null;
+          }
+        }
         swatch.style.background = keyPalette.color;
         if (!activeColor || activeColor === keyPalette.color) swatch.classList.add('selected');
         swatch.addEventListener('click', () => {
@@ -314,7 +334,6 @@ function renderSwatchRow(userId) {
       row.appendChild(swatch);
     }
   }
-  _justEnteredPaletteMode = false;
   document.dispatchEvent(new CustomEvent('palette-state-changed'));
 }
 
