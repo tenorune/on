@@ -544,7 +544,7 @@ describe('group members', () => {
 
   test('writeMember writes the full member record', async () => {
     set.mockResolvedValue();
-    const member = { role: 'member', displayName: 'Mike P.', joinedAt: 1234 };
+    const member = { role: 'member', displayName: 'Alex K.', joinedAt: 1234 };
     await writeMember('G1', 'uid2', member);
     expect(set).toHaveBeenCalledWith('mock-ref', member);
     expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uid2');
@@ -1732,8 +1732,8 @@ describe('resolveInvitePreview', () => {
 
   test('returns personal preview with label', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
-    db.readUserInvite.mockResolvedValue({ scope: 'personal', creatorLabel: 'Mike P.', revoked: false });
-    expect(await resolveInvitePreview('T')).toEqual({ scope: 'personal', label: 'Mike P.' });
+    db.readUserInvite.mockResolvedValue({ scope: 'personal', creatorLabel: 'Alex K.', revoked: false });
+    expect(await resolveInvitePreview('T')).toEqual({ scope: 'personal', label: 'Alex K.' });
   });
 
   test('returns group preview with groupName and groupId', async () => {
@@ -1907,7 +1907,7 @@ const SCOPE_COPY = {
     title: 'Your invite link',
     subtitle: 'People who tap this link will follow you.',
     labelHint: 'Your name on the invite',
-    labelPlaceholder: 'e.g. Mike P.',
+    labelPlaceholder: 'e.g. Alex K.',
     needsLabel: true,
   },
   group: {

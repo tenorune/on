@@ -94,7 +94,7 @@ v2 (secret-phrase derived):
 - `userId = sha256(phrase).slice(0, 32)` — **deterministic**. Typing the same phrase on any device restores the same account.
 - **No Firebase Auth.** The phrase is the only secret. Anyone who has it can claim the account.
 - localStorage shape: `statusapp_identity = { userId, code, recoveryCode }`.
-- Welcome screen surfaces `I'm new` / `I have a secret phrase` on empty localStorage. The welcome screen now also takes optional `inviteCreatorLabel` / `inviteGroupName` to frame the screen for brand-new users arriving via an invite link ("You've been invited to follow Mike P." / "You've been invited to join 'Family'.").
+- Welcome screen surfaces `I'm new` / `I have a secret phrase` on empty localStorage. The welcome screen now also takes optional `inviteCreatorLabel` / `inviteGroupName` to frame the screen for brand-new users arriving via an invite link ("You've been invited to follow Alex K." / "You've been invited to join 'Family'.").
 - Drawer has a "Show secret phrase" pill for recovery.
 - `crypto.subtle.digest('SHA-256', ...)` is used for derivation — works in browser and Node 20+.
 

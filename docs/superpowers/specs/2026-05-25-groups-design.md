@@ -423,7 +423,7 @@ A **single modal component** handles invite-link management for both scopes. Int
 
    [ Section 1 — Link ]
      If no active invite:
-       [ Creator label input ]   ( e.g., "Mike P." )
+       [ Creator label input ]   ( e.g., "Alex K." )
        [ Create invite link ]
      If active invite:
        https://knockknock.app/?i={token}

@@ -641,14 +641,14 @@ describe('createPersonalInvite', () => {
     db.claimInviteToken.mockResolvedValue(true);
     db.writeUserInvite.mockResolvedValue();
 
-    const result = await createPersonalInvite('uid1', 'Mike P.');
+    const result = await createPersonalInvite('uid1', 'Alex K.');
 
     expect(result).toMatchObject({ token: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/), url: expect.stringContaining('?i=') });
     expect(db.claimInviteToken).toHaveBeenCalledWith(result.token, `users/uid1/invites/${result.token}`);
     expect(db.writeUserInvite).toHaveBeenCalledWith('uid1', result.token, expect.objectContaining({
       scope: 'personal',
       token: result.token,
-      creatorLabel: 'Mike P.',
+      creatorLabel: 'Alex K.',
       creatorUid: 'uid1',
       createdAt: expect.any(Number),
       expiresAt: null,
@@ -868,13 +868,13 @@ describe('regeneratePersonalInvite', () => {
     db.claimInviteToken.mockResolvedValue(true);
     db.writeUserInvite.mockResolvedValue();
 
-    const result = await regeneratePersonalInvite('uid1', 'Mike P.');
+    const result = await regeneratePersonalInvite('uid1', 'Alex K.');
 
     expect(db.setInviteRevoked).toHaveBeenCalledWith('uid1', 'OLD');
     expect(db.releaseInviteToken).toHaveBeenCalledWith('OLD');
     expect(db.writeUserInvite).toHaveBeenCalledWith('uid1', result.token, expect.objectContaining({
       scope: 'personal',
-      creatorLabel: 'Mike P.',
+      creatorLabel: 'Alex K.',
     }));
     expect(result.token).not.toBe('OLD');
   });
@@ -1388,7 +1388,7 @@ URL is cleaned via history.replaceState so a refresh doesn't re-trigger."
 
 ## Task 9: `app.js` + welcome variation — brand-new user via personal-scope link
 
-A brand-new user (empty localStorage) arriving via `?i={token}` for a valid personal-scope invite sees a welcome screen that names the inviter (*"You've been invited to follow Mike P."*) instead of the generic welcome. After they finish secret-phrase setup and identity creation, the redemption fires automatically.
+A brand-new user (empty localStorage) arriving via `?i={token}` for a valid personal-scope invite sees a welcome screen that names the inviter (*"You've been invited to follow Alex K."*) instead of the generic welcome. After they finish secret-phrase setup and identity creation, the redemption fires automatically.
 
 The implementation extends `showWelcomeScreen` to accept an optional invite-framing parameter. The current signature is `showWelcomeScreen()` returning a `'new' | 'restore'` choice; we extend it to `showWelcomeScreen({ inviteCreatorLabel } = {})`.
 
@@ -1530,10 +1530,10 @@ describe('welcome screen invite framing', () => {
 
   test('showWelcomeScreen with a creator label renders the framing text', async () => {
     const { showWelcomeScreen } = require('../js/app');
-    showWelcomeScreen({ inviteCreatorLabel: 'Mike P.' });
+    showWelcomeScreen({ inviteCreatorLabel: 'Alex K.' });
     const framing = document.getElementById('welcome-invite-framing');
     expect(framing.classList.contains('hidden')).toBe(false);
-    expect(framing.textContent).toContain('Mike P.');
+    expect(framing.textContent).toContain('Alex K.');
     expect(framing.textContent).toContain('First, let');
   });
 });
@@ -1587,7 +1587,7 @@ In `index.template.html`, add (near the existing modal blocks such as the recove
     <!-- State A: create -->
     <div id="invite-modal-create" class="hidden">
       <label class="modal-label" for="invite-modal-label-input">Your name on the invite</label>
-      <input id="invite-modal-label-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Mike P." />
+      <input id="invite-modal-label-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Alex K." />
       <p id="invite-modal-label-error" class="error-msg hidden"></p>
       <div class="modal-actions">
         <button id="invite-modal-create-btn" class="primary-btn">Create invite link</button>
@@ -1732,10 +1732,10 @@ describe('openInviteModal — personal scope', () => {
     expect(document.getElementById('invite-modal-label-error').classList.contains('hidden')).toBe(false);
     expect(invites.createPersonalInvite).not.toHaveBeenCalled();
 
-    document.getElementById('invite-modal-label-input').value = 'Mike P.';
+    document.getElementById('invite-modal-label-input').value = 'Alex K.';
     document.getElementById('invite-modal-create-btn').click();
     await new Promise(setImmediate);
-    expect(invites.createPersonalInvite).toHaveBeenCalledWith('uid1', 'Mike P.');
+    expect(invites.createPersonalInvite).toHaveBeenCalledWith('uid1', 'Alex K.');
     // Modal transitions to Manage state with the new URL.
     expect(document.getElementById('invite-modal-url').textContent).toBe('https://x/?i=NEW');
     expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(false);
@@ -1804,7 +1804,7 @@ const SCOPE_COPY = {
     title: 'Your invite link',
     subtitle: 'People who tap this link will follow you.',
     labelHint: 'Your name on the invite',
-    labelPlaceholder: 'e.g. Mike P.',
+    labelPlaceholder: 'e.g. Alex K.',
   },
   // group scope copy added in Phase 1
 };

@@ -12,7 +12,7 @@ const SCOPE_COPY = {
     title: 'Your invite link',
     subtitle: 'People who tap this link will follow you.',
     labelHint: 'Your name on the invite',
-    labelPlaceholder: 'e.g. Mike P.',
+    labelPlaceholder: 'e.g. Alex K.',
     needsLabel: true,
   },
   group: {
