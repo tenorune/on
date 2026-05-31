@@ -9,6 +9,7 @@ import {
   setLastVisited, setCurrentContext,
   watchUserGroups,
   setStatusOverride, mergeStatusOverride,
+  readPendingInviteesForGroup, deletePendingInvite,
 } from './db.js';
 import { navigateToDirect, getCurrentContext, getLastKnownGroupName } from './groupNav.js';
 
@@ -84,6 +85,13 @@ export async function renameGroup(groupId, callerUid, newNameRaw) {
 export async function deleteGroup(groupId, callerUid) {
   const group = await requireOwner(groupId, callerUid);
   if (!group) return;
+  // Sweep pending invites for this group BEFORE the entity itself is gone,
+  // so any concurrent Join attempt against a stale invite sees the group
+  // missing and silently dismisses (see Inbox accept flow, Task 11).
+  const pendingInvitees = await readPendingInviteesForGroup(groupId);
+  await Promise.all(pendingInvitees.map((inviteeUid) =>
+    deletePendingInvite(inviteeUid, groupId)
+  ));
   await dbDeleteGroup(groupId);
   await removeUserGroupsEntry(callerUid, groupId);
   // Members' own enumeration entries are cleaned up by their own apps' deletion-detection

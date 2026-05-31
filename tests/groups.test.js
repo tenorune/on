@@ -131,6 +131,21 @@ describe('deleteGroup', () => {
     await deleteGroup('G1', 'uid1');
     expect(db.deleteGroup).not.toHaveBeenCalled();
   });
+
+  test('deleteGroup sweeps pending invites for the group', async () => {
+    const { readGroup, deleteGroup: dbDeleteGroup, removeUserGroupsEntry,
+            readPendingInviteesForGroup, deletePendingInvite } = require('../js/db.js');
+    readGroup.mockResolvedValueOnce({ ownerId: 'me', name: 'Family', createdAt: 1 });
+    readPendingInviteesForGroup.mockResolvedValueOnce(['inviteeA', 'inviteeB']);
+
+    await deleteGroup('G1', 'me');
+
+    expect(readPendingInviteesForGroup).toHaveBeenCalledWith('G1');
+    expect(deletePendingInvite).toHaveBeenCalledWith('inviteeA', 'G1');
+    expect(deletePendingInvite).toHaveBeenCalledWith('inviteeB', 'G1');
+    expect(dbDeleteGroup).toHaveBeenCalledWith('G1');
+    expect(removeUserGroupsEntry).toHaveBeenCalledWith('me', 'G1');
+  });
 });
 
 describe('leaveGroup', () => {
