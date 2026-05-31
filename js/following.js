@@ -16,6 +16,7 @@ import {
   getFavorites,
 } from './prefs.js';
 import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
+import { isLongpressHintEligible, isSwipeHintEligible } from './hints.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock, getFloatedUserIds } from './knock.js';
@@ -795,10 +796,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   const peerTheme = userData.paletteKey || null;
   const isMyCombo = getFavorites().some(c => c.statusColor === peerColor && (c.paletteKey || null) === peerTheme);
   const showLongpressHint = PALETTE_INTERACTIONS_ENABLED
-      && !isHintSeen('longpress')
-      && isHintSeen('customAvail')
-      && isHintSeen('theme')
-      && isHintSeen('stripPeek')
+      && isLongpressHintEligible()
       && !isCallee && !isCallModeReceiver
       && isAvail
       && !isMyCombo;
@@ -807,10 +805,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
       && !li.previousElementSibling?.dataset?.mutual;
   const swipeEligible = CALL_ENABLED
       && isFirstMutual
-      && !isHintSeen('swipe')
-      && isHintSeen('customAvail')
-      && isHintSeen('theme')
-      && isHintSeen('stripPeek')
+      && isSwipeHintEligible()
       && !isCallee && !isCallModeReceiver;
 
   // If both hints qualify, alternate between them each animation cycle
