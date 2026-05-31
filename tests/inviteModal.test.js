@@ -22,14 +22,12 @@ function setupDom() {
           <input id="invite-modal-label-input" type="text" maxlength="40" />
           <p id="invite-modal-label-error" class="error-msg hidden"></p>
           <button id="invite-modal-create-btn"></button>
-          <button id="invite-modal-cancel-btn"></button>
         </div>
         <div id="invite-modal-manage" class="hidden">
           <code id="invite-modal-url"></code>
           <button id="invite-modal-copy-btn"></button>
           <button id="invite-modal-regen-btn"></button>
           <button id="invite-modal-revoke-btn"></button>
-          <button id="invite-modal-close-btn"></button>
         </div>
       </div>
     </div>
@@ -112,15 +110,15 @@ describe('openInviteModal — personal scope', () => {
     expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(true);
   });
 
-  test('Close button hides the modal', () => {
+  test('overlay tap (Manage state) hides the modal', () => {
     openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
-    document.getElementById('invite-modal-close-btn').click();
+    document.getElementById('invite-modal').click();
     expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
   });
 
-  test('Cancel button (Create state) hides the modal without writing', () => {
+  test('overlay tap (Create state) hides the modal without writing', () => {
     openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: null });
-    document.getElementById('invite-modal-cancel-btn').click();
+    document.getElementById('invite-modal').click();
     expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
     expect(invites.createPersonalInvite).not.toHaveBeenCalled();
   });
@@ -203,5 +201,69 @@ describe('openInviteModal — group scope', () => {
     document.getElementById('invite-modal-revoke-btn').click();
     await new Promise(setImmediate);
     expect(invites.revokeGroupInvite).toHaveBeenCalledWith('uid1', 'G1');
+  });
+});
+
+describe('openInviteModal — overlay dismiss', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: jest.fn().mockResolvedValue(undefined) },
+    });
+  });
+
+  test('clicking the modal overlay (outside the card) dismisses the modal', () => {
+    document.body.innerHTML = `
+      <div id="invite-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+          <h2 id="invite-modal-title"></h2>
+          <p id="invite-modal-subtitle"></p>
+          <p id="invite-modal-label-error" class="hidden"></p>
+          <label id="invite-modal-label-hint"></label>
+          <input id="invite-modal-label-input" type="text" />
+          <div id="invite-modal-create">
+            <button id="invite-modal-create-btn"></button>
+          </div>
+          <div id="invite-modal-manage">
+            <code id="invite-modal-url"></code>
+            <button id="invite-modal-copy-btn"></button>
+            <button id="invite-modal-regen-btn"></button>
+            <button id="invite-modal-revoke-btn"></button>
+          </div>
+        </div>
+      </div>
+    `;
+    openInviteModal({ scope: 'personal', userId: 'u1' });
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
+    // Click the overlay (the modal-overlay element itself, not the card)
+    document.getElementById('invite-modal').click();
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
+  });
+
+  test('clicking inside the modal card does NOT dismiss', () => {
+    document.body.innerHTML = `
+      <div id="invite-modal" class="modal-overlay hidden">
+        <div class="modal-card" id="card">
+          <h2 id="invite-modal-title"></h2>
+          <p id="invite-modal-subtitle"></p>
+          <p id="invite-modal-label-error" class="hidden"></p>
+          <label id="invite-modal-label-hint"></label>
+          <input id="invite-modal-label-input" type="text" />
+          <div id="invite-modal-create">
+            <button id="invite-modal-create-btn"></button>
+          </div>
+          <div id="invite-modal-manage">
+            <code id="invite-modal-url"></code>
+            <button id="invite-modal-copy-btn"></button>
+            <button id="invite-modal-regen-btn"></button>
+            <button id="invite-modal-revoke-btn"></button>
+          </div>
+        </div>
+      </div>
+    `;
+    openInviteModal({ scope: 'personal', userId: 'u1' });
+    document.getElementById('card').click();
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
   });
 });

@@ -122,8 +122,6 @@ export function openInviteModal({ scope, userId, activeInvite = null, groupId = 
     }
   });
 
-  on(document.getElementById('invite-modal-cancel-btn'), 'click', () => closeModal());
-
   // Copy — unchanged from Phase 0
   on(document.getElementById('invite-modal-copy-btn'), 'click', async () => {
     if (!currentInvite) return;
@@ -163,5 +161,9 @@ export function openInviteModal({ scope, userId, activeInvite = null, groupId = 
     }
   });
 
-  on(document.getElementById('invite-modal-close-btn'), 'click', () => closeModal());
+  // Dismiss on tap-outside (overlay click, but not card click).
+  const overlay = document.getElementById('invite-modal');
+  on(overlay, 'click', (e) => {
+    if (e.target === overlay) closeModal();
+  });
 }
