@@ -64,7 +64,7 @@ describe('createGroup', () => {
       joinedAt: expect.any(Number),
       // Override defaults ON so a newly-created group doesn't auto-broadcast
       // the owner's primary status.
-      statusOverride: { enabled: true, status: 'unavailable', availableUntil: null },
+      statusOverride: { enabled: true, status: 'available', availableUntil: expect.any(Number) },
     }));
     expect(db.writeUserGroupsEntry).toHaveBeenCalledWith('uid1', result.groupId, expect.objectContaining({
       lastVisited: expect.any(Number),
@@ -172,7 +172,7 @@ describe('joinGroup', () => {
       joinedAt: expect.any(Number),
       // Override defaults ON so the joiner doesn't auto-broadcast their
       // primary status to the group.
-      statusOverride: { enabled: true, status: 'unavailable', availableUntil: null },
+      statusOverride: { enabled: true, status: 'available', availableUntil: expect.any(Number) },
     }));
     expect(db.writeUserGroupsEntry).toHaveBeenCalledWith('uid2', 'G1', expect.objectContaining({
       lastVisited: expect.any(Number),
