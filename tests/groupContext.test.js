@@ -104,6 +104,9 @@ jest.mock('../js/features.js', () => ({
   PALETTES_ENABLED: true,
   PALETTE_INTERACTIONS_ENABLED: true,
 }));
+jest.mock('../js/me.js', () => ({
+  clearFirstUsePulse: jest.fn(),
+}));
 
 // PointerEvent polyfill for jsdom (does not implement it natively)
 if (typeof PointerEvent === 'undefined') {
@@ -769,6 +772,28 @@ describe('own status row', () => {
     document.getElementById('group-my-dot').click();
     expect(groupsModule.setOverrideStatusAvailable).not.toHaveBeenCalled();
     expect(groupsModule.setOverrideStatusUnavailable).not.toHaveBeenCalled();
+  });
+
+  test('clicking the group dot clears the FTU first-use-pulse', () => {
+    const me = require('../js/me.js');
+    me.clearFirstUsePulse.mockClear();
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()({ enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+    document.getElementById('group-my-dot').click();
+    expect(me.clearFirstUsePulse).toHaveBeenCalled();
+  });
+
+  test('clicking the group dot in read-only mode (override OFF) still clears the FTU pulse', () => {
+    const me = require('../js/me.js');
+    me.clearFirstUsePulse.mockClear();
+    const cbs = captureCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getOverrideCb()(null);
+    document.getElementById('group-my-dot').click();
+    expect(me.clearFirstUsePulse).toHaveBeenCalled();
   });
 
   test('clicking the time chip when override ON+available updates availableUntil', () => {
