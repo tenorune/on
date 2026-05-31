@@ -127,3 +127,25 @@ test('syncFromServer dedupes keyed-object favorites payload (RTDB sparse-array c
   const stored = JSON.parse(localStorage.getItem(FAVS_KEY));
   expect(stored.length).toBe(1);
 });
+
+test('syncFromServer preserves local-only entries at the head (pending-write race)', () => {
+  const FAVS_KEY = 'statusapp_favorites';
+  const justWritten = { statusColor: '#f43f5e', surface2: '#334155',
+                        paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+  const existing1 = { statusColor: '#22c55e', surface2: '#334155',
+                      paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+  const existing2 = { statusColor: '#818cf8', surface2: '#334155',
+                      paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+  // Local has the just-written entry (saveCombo just put it at the head)
+  // plus two older entries.
+  localStorage.setItem(FAVS_KEY, JSON.stringify([justWritten, existing1, existing2]));
+  // Server snapshot still has only the two older entries (the just-written
+  // mergeUserPrefs write hasn't been committed yet, but an UNRELATED write
+  // — e.g. madeCallCount — triggered a watchUserPrefs echo).
+  syncFromServer({ favorites: [existing1, existing2] });
+  const stored = JSON.parse(localStorage.getItem(FAVS_KEY));
+  expect(stored.length).toBe(3);
+  expect(stored[0]).toEqual(justWritten);   // pending local write preserved
+  expect(stored[1]).toEqual(existing1);
+  expect(stored[2]).toEqual(existing2);
+});

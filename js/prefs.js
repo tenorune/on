@@ -158,11 +158,6 @@ export function getFavorites() {
 }
 
 export function setFavorites(arr) {
-  // eslint-disable-next-line no-console
-  console.log('[FAV] prefs.setFavorites — writing', arr?.length, 'entries',
-    arr?.map(c => c?.statusColor).join(','));
-  // eslint-disable-next-line no-console
-  console.trace('[FAV] setFavorites call site');
   storeSetFavorites(arr);
   if (_myUserId) mergeUserPrefs(_myUserId, { favorites: arr }).catch(() => {});
 }
@@ -271,15 +266,19 @@ export function syncFromServer(serverPrefs) {
     const raw = Array.isArray(serverPrefs.favorites)
       ? serverPrefs.favorites
       : Object.values(serverPrefs.favorites);
-    const deduped = dedupeServerFavorites(raw);
-    // eslint-disable-next-line no-console
-    console.log('[FAV] syncFromServer.favorites firing — raw', raw.length, 'deduped', deduped.length,
-      'colors:', deduped.map(c => c?.statusColor).join(','));
-    storeSetFavorites(deduped);
+    const serverDeduped = dedupeServerFavorites(raw);
+    // Merge instead of overwrite. Any local entry not present in the
+    // server payload is a pending saveCombo write that hasn't been
+    // committed to Firebase yet — preserve it at the head so a stale
+    // watchUserPrefs echo (e.g. triggered by an unrelated madeCallCount
+    // write that fires before our favorites write is committed) doesn't
+    // wipe the user's most-recent commit.
+    const local = storeGetFavorites();
+    const localOnly = local.filter(l => !serverDeduped.some(s =>
+      s && l && s.statusColor === l.statusColor && s.surface2 === l.surface2));
+    const merged = [...localOnly, ...serverDeduped].slice(0, 8);
+    storeSetFavorites(merged);
     document.dispatchEvent(new CustomEvent('favorites-synced'));
-  } else if (serverPrefs && Object.keys(serverPrefs).length > 0) {
-    // eslint-disable-next-line no-console
-    console.log('[FAV] syncFromServer SKIPPED favorites branch (favorites null/undefined in snapshot)');
   }
   // currentContext
   if (typeof serverPrefs.currentContext === 'string') {

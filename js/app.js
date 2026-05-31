@@ -562,8 +562,6 @@ async function main() {
     let colorOrPaletteChanged = false;
     if (userData.statusColor && userData.statusColor !== lastStatusColor) {
       lastStatusColor = userData.statusColor;
-      // eslint-disable-next-line no-console
-      console.log('[MS] app.js watchStatus echo →', userData.statusColor);
       document.documentElement.style.setProperty('--my-status', userData.statusColor);
       document.documentElement.style.setProperty('--my-glow', getGlowForColor(userData.statusColor));
       colorOrPaletteChanged = true;
