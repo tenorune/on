@@ -506,8 +506,15 @@ async function main() {
     const paletteState = getPaletteState();
     const activeSetKey = String(paletteState.activeSet);
     const { selectedKey, activePaletteKey } = paletteState.sets[activeSetKey];
-    // Apply status color vars before first paint
-    applyPaletteVars(selectedKey);
+    // Apply status color vars before first paint — but only when landing in
+    // Direct context. In a group context, the override owns --my-status via
+    // groupContext.applyEffectivePalette; writing the Direct picker color
+    // here would clobber any override color set during the async
+    // enterGroupContext path above (which can fire Firebase callbacks during
+    // the `await navigateToGroup` that runs before we reach this point).
+    if (getCurrentContext().context === 'direct') {
+      applyPaletteVars(selectedKey);
+    }
     initSwatches(userId);
     if (PALETTE_INTERACTIONS_ENABLED) initFavoritesStrip(userId);
   }
@@ -559,21 +566,34 @@ async function main() {
     // Sync color/palette across devices. These updates are independent of the
     // status-text re-render below, so they must run BEFORE the early-return that
     // suppresses label animation on no-op status changes.
+    //
+    // The --my-status / --my-glow / theme-var writes are scoped to Direct
+    // context. In a group context the override owns those vars (set by
+    // groupContext.applyEffectivePalette on the override callback). Without
+    // this gate, an unrelated primary echo would clobber the override color
+    // — and on a fresh boot where the override callback fires before this
+    // one, the final --my-status ends up at the user's Direct picker color
+    // even though they're Available in the group with override on.
+    const inDirectCtx = getCurrentContext().context === 'direct';
     let colorOrPaletteChanged = false;
     if (userData.statusColor && userData.statusColor !== lastStatusColor) {
       lastStatusColor = userData.statusColor;
-      document.documentElement.style.setProperty('--my-status', userData.statusColor);
-      document.documentElement.style.setProperty('--my-glow', getGlowForColor(userData.statusColor));
+      if (inDirectCtx) {
+        document.documentElement.style.setProperty('--my-status', userData.statusColor);
+        document.documentElement.style.setProperty('--my-glow', getGlowForColor(userData.statusColor));
+      }
       colorOrPaletteChanged = true;
     }
     const incomingPaletteKey = userData.paletteKey ?? null;
     if (incomingPaletteKey !== lastPaletteKey) {
       lastPaletteKey = incomingPaletteKey;
-      if (incomingPaletteKey) {
-        const palette = getPaletteByKey(incomingPaletteKey);
-        if (palette) applyThemeVars(palette.theme);
-      } else {
-        resetThemeVars();
+      if (inDirectCtx) {
+        if (incomingPaletteKey) {
+          const palette = getPaletteByKey(incomingPaletteKey);
+          if (palette) applyThemeVars(palette.theme);
+        } else {
+          resetThemeVars();
+        }
       }
       colorOrPaletteChanged = true;
     }
