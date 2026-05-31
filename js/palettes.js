@@ -134,6 +134,8 @@ export function getGlowForColor(hex) {
 
 export function applyPaletteVars(key) {
   const p = getPaletteByKey(key) || PALETTE_SETS[1][0]; // forest fallback
+  // eslint-disable-next-line no-console
+  console.log('[MS] palettes.applyPaletteVars →', p.color, '(key=', key, ')');
   document.documentElement.style.setProperty('--my-status', p.color);
   document.documentElement.style.setProperty('--my-glow', p.glow);
 }
@@ -302,6 +304,8 @@ function renderSwatchRow(userId) {
           // Change status color; keep palette mode and theme active
           row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
           swatch.classList.add('selected');
+          // eslint-disable-next-line no-console
+          console.log('[MS] palettes.complement-swatch click →', color);
           document.documentElement.style.setProperty('--my-status', color);
           setStatusColor(userId, color).catch(() => {});
           const st = getPaletteState();
@@ -527,6 +531,8 @@ export function switchSet(toSet, userId) {
   const palette = getPaletteByKey(selectedKey) || PALETTE_SETS[1][0];
 
   const selectedColor = state.sets[targetSetKey].selectedColor || palette.color;
+  // eslint-disable-next-line no-console
+  console.log('[MS] palettes.switchSet →', selectedColor, '(set=', toSet, ')');
   document.documentElement.style.setProperty('--my-status', selectedColor);
   document.documentElement.style.setProperty('--my-glow', getGlowForColor(selectedColor));
   setStatusColor(userId, selectedColor).catch(() => {});

@@ -372,6 +372,8 @@ function applyAdoption(entry, myUserId) {
 
   // Set CSS vars first so renderStrip reads the correct color when palette-state-changed fires
   if (targetData?.statusColor) {
+    // eslint-disable-next-line no-console
+    console.log('[MS] following.applyAdoption →', targetData.statusColor);
     document.documentElement.style.setProperty('--my-status', targetData.statusColor);
     document.documentElement.style.setProperty('--my-glow', getGlowForColor(targetData.statusColor));
   }
@@ -494,6 +496,10 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
       const threshold = swipeCardWidth * 0.4;
       if (dx > threshold) {
         swipeActive = false;
+        // eslint-disable-next-line no-console
+        console.log('[USER] swipe-right threshold crossed on', entry.userId,
+          '— call-mode?', li.classList.contains('call-mode'),
+          'amCaller?', callModeCalleeId === entry.userId);
         // Clear swipe hint on first right-swipe
         if (!isHintSeen('swipe')) {
           markHintSeen('swipe');

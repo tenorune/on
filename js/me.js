@@ -71,6 +71,8 @@ export function initHeader(myUserId) {
   timeChip.textContent = CHIP_VALUES[currentChipIndex].text;
 
   dot.addEventListener('click', async () => {
+    // eslint-disable-next-line no-console
+    console.log('[USER] Direct dot click — currently available?', dot.classList.contains('available'));
     if (dot.classList.contains('available')) {
       await setStatus(myUserId, 'unavailable', null);
       setUnavailable();
@@ -87,6 +89,8 @@ export function initHeader(myUserId) {
 
   timeChip.addEventListener('click', async () => {
     if (!document.getElementById('my-dot').classList.contains('available')) return;
+    // eslint-disable-next-line no-console
+    console.log('[USER] Direct chip click — cycling');
     currentChipIndex = (currentChipIndex + 1) % CHIP_VALUES.length;
     const { minutes, text } = CHIP_VALUES[currentChipIndex];
     timeChip.textContent = text;

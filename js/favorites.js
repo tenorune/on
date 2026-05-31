@@ -459,6 +459,8 @@ function handleHistoryTap(idx) {
 
   // Apply canonical status color (overrides what switchSet wrote).
   setStatusColor(_myUserId, combo.statusColor).catch(() => {});
+  // eslint-disable-next-line no-console
+  console.log('[MS] favorites.handleHistoryTap →', combo.statusColor);
   document.documentElement.style.setProperty('--my-status', combo.statusColor);
   document.documentElement.style.setProperty('--my-glow', getGlowForColor(combo.statusColor));
 

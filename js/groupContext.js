@@ -681,6 +681,8 @@ function applyEffectivePalette() {
     resetThemeVars();
   }
   if (effectiveColor) {
+    // eslint-disable-next-line no-console
+    console.log('[MS] groupContext.applyEffectivePalette →', effectiveColor);
     document.documentElement.style.setProperty('--my-status', effectiveColor);
     document.documentElement.style.setProperty('--my-glow', getGlowForColor(effectiveColor));
   }
@@ -709,6 +711,8 @@ function restorePrimaryPalette() {
     resetThemeVars();
   }
   if (primaryColor) {
+    // eslint-disable-next-line no-console
+    console.log('[MS] groupContext.restorePrimaryPalette →', primaryColor);
     document.documentElement.style.setProperty('--my-status', primaryColor);
     document.documentElement.style.setProperty('--my-glow', getGlowForColor(primaryColor));
   }
