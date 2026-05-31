@@ -112,16 +112,24 @@ export function initHeader(myUserId) {
   });
 }
 
+// Strips the FTU pulse from both dots. Idempotent; safe to call when neither
+// dot is wearing the class. Exposed so groupContext.js can re-install its own
+// once-listener after the cloneNode-replace that wipes any handler we attach
+// here.
+export function clearFirstUsePulse() {
+  document.getElementById('my-dot')?.classList.remove('first-use-pulse');
+  document.getElementById('group-my-dot')?.classList.remove('first-use-pulse');
+}
+
 export function enterFirstUseMode() {
   firstUseActive = true;
   const directDot = document.getElementById('my-dot');
   const groupDot = document.getElementById('group-my-dot');
   const dots = [directDot, groupDot].filter(Boolean);
   if (dots.length === 0) return;
-  const clearAll = () => dots.forEach((d) => d.classList.remove('first-use-pulse'));
   for (const dot of dots) {
     dot.classList.add('first-use-pulse');
-    dot.addEventListener('click', clearAll, { once: true });
+    dot.addEventListener('click', clearFirstUsePulse, { once: true });
   }
 }
 

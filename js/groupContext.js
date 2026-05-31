@@ -24,6 +24,7 @@ import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
 import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
 import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, ICON_BOLT, ICON_TREE, startSwatchHints } from './palettes.js';
+import { clearFirstUsePulse } from './me.js';
 
 // Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
 
@@ -983,6 +984,10 @@ export function enterGroupContext(groupId, userId) {
   if (dot) {
     const dotClone = dot.cloneNode(true);
     dot.parentNode.replaceChild(dotClone, dot);
+    // The clone-and-replace above wipes any FTU once-listener me.js installed.
+    // Re-install so tapping the group dot terminates the first-use pulse — same
+    // contract as the Direct dot.
+    dotClone.addEventListener('click', clearFirstUsePulse, { once: true });
     dotClone.addEventListener('click', () => {
       const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
       if (!overrideOn) return;  // read-only when toggle is OFF
