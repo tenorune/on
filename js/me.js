@@ -1,9 +1,10 @@
 // js/me.js
-import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs, setLastTimeoutMinutes } from './db.js';
-import { getLastTimeout, setLastTimeout, getPaletteState } from './store.js';
+import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs } from './db.js';
+import { getPaletteState } from './store.js';
 import { PALETTES_ENABLED } from './features.js';
-import { saveFavorite } from './favorites.js';
+import { saveCombo, buildDirectCombo } from './favorites.js';
 import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
+import { markHintSeen, getLastTimeout, setLastTimeout } from './prefs.js';
 
 const CHIP_VALUES = [
   { minutes: 30,   text: '30 minutes' },
@@ -56,6 +57,11 @@ export function updateChipFromServer(minutes) {
 
 export function initHeader(myUserId) {
   ownStatusSignalled = false;
+  // Sibling-device chip pick echoes through userPrefs → 'last-timeout-synced';
+  // update the Direct chip text to match.
+  document.addEventListener('last-timeout-synced', (e) => {
+    if (typeof e.detail?.minutes === 'number') updateChipFromServer(e.detail.minutes);
+  });
   const dot = document.getElementById('my-dot');
   const timeChip = document.getElementById('time-chip');
   const mycodeChip = document.getElementById('mycode-chip');
@@ -72,8 +78,9 @@ export function initHeader(myUserId) {
       const { minutes } = CHIP_VALUES[currentChipIndex];
       const availableUntil = Date.now() + minutes * 60000;
       await setStatus(myUserId, 'available', availableUntil);
+      // prefs.setLastTimeout writes both localStorage AND
+      // userPrefs/{uid}/lastTimeoutMinutes.
       setLastTimeout(minutes);
-      setLastTimeoutMinutes(myUserId, minutes).catch(() => {});
       setAvailable(availableUntil);
     }
   });
@@ -86,9 +93,8 @@ export function initHeader(myUserId) {
     const availableUntil = Date.now() + minutes * 60000;
     await setStatus(myUserId, 'available', availableUntil);
     const tr = document.getElementById('time-remaining');
-    tr.textContent = '· ' + formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
+    tr.textContent = formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
     setLastTimeout(minutes);
-    setLastTimeoutMinutes(myUserId, minutes).catch(() => {});
   });
 
   mycodeChip.addEventListener('click', () => {
@@ -106,14 +112,24 @@ export function initHeader(myUserId) {
   });
 }
 
+// Strips the FTU pulse from both dots. Idempotent; safe to call when neither
+// dot is wearing the class. Exposed so groupContext.js can re-install its own
+// once-listener after the cloneNode-replace that wipes any handler we attach
+// here.
+export function clearFirstUsePulse() {
+  document.getElementById('my-dot')?.classList.remove('first-use-pulse');
+  document.getElementById('group-my-dot')?.classList.remove('first-use-pulse');
+}
+
 export function enterFirstUseMode() {
   firstUseActive = true;
-  const dot = document.getElementById('my-dot');
-  if (dot) {
+  const directDot = document.getElementById('my-dot');
+  const groupDot = document.getElementById('group-my-dot');
+  const dots = [directDot, groupDot].filter(Boolean);
+  if (dots.length === 0) return;
+  for (const dot of dots) {
     dot.classList.add('first-use-pulse');
-    dot.addEventListener('click', () => {
-      dot.classList.remove('first-use-pulse');
-    }, { once: true });
+    dot.addEventListener('click', clearFirstUsePulse, { once: true });
   }
 }
 
@@ -159,12 +175,12 @@ function setKnockKnock() {
 
 function setAvailable(availableUntil) {
   const dot = document.getElementById('my-dot');
-  if (PALETTES_ENABLED && savingEnabled && !dot.classList.contains('available')) saveFavorite();
+  if (PALETTES_ENABLED && savingEnabled && !dot.classList.contains('available')) saveCombo(buildDirectCombo());
   // Track that user went available with a non-default color (for theme hint)
   if (PALETTES_ENABLED && !dot.classList.contains('available')) {
     const ps = getPaletteState();
     if (ps.sets[String(ps.activeSet)].selectedColor) {
-      localStorage.setItem('statusapp_went_avail_custom', '1');
+      markHintSeen('customAvail');
     }
   }
   const label = document.getElementById('my-status-label');
@@ -185,7 +201,7 @@ function setAvailable(availableUntil) {
     const timeRemaining = document.getElementById('time-remaining');
     label.classList.add('available');
     label.textContent = 'Available';
-    timeRemaining.textContent = '· ' + formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
+    timeRemaining.textContent = formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
     timeRemaining.style.opacity = '0';
     timeRemaining.style.display = '';
     chips.style.pointerEvents = 'auto';
@@ -202,7 +218,7 @@ function setAvailable(availableUntil) {
     if (ms <= 0) {
       setUnavailable();
     } else {
-      document.getElementById('time-remaining').textContent = '· ' + formatTimeRemaining(ms) + ' left';
+      document.getElementById('time-remaining').textContent = formatTimeRemaining(ms) + ' left';
     }
   }, 30000);
 }

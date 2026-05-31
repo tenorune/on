@@ -38,7 +38,7 @@ body { max-width: 600px; margin: 0 auto; }
 
 /* Layout */
 main {
-  padding: 1rem;
+  padding: 0.5rem 1rem 1rem;
 }
 
 /* Dot */
@@ -98,7 +98,7 @@ main {
 .adopted-from {}
 
 /* ── Favorites strip ─────────────────────────────────────────────── */
-#favorites-strip {
+#favorites-strip, #group-favorites-strip {
 }
 
 .fav-strip {
@@ -287,9 +287,12 @@ main {
 .code-row {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  column-gap: 0.625rem;
+  row-gap: 0.5rem;
   margin-bottom: 0.5rem;
+  flex-wrap: wrap;
 }
+#invite-link-btn { white-space: nowrap; }
 .code-display { font-size: 1.5rem; font-weight: 700; letter-spacing: 0.375rem; color: var(--text); transition: opacity 0.5s; }
 .code-display.fading { opacity: 0; }
 .rotate-btn {
@@ -429,6 +432,12 @@ main {
   padding: 2rem;
 }
 .welcome-screen.hidden { display: none; }
+.welcome-invite-framing {
+  font-size: 1rem;
+  text-align: center;
+  margin: 0.5rem 0;
+  color: var(--text);
+}
 .welcome-brand { font-size: 2rem; }
 .welcome-btns {
   display: flex; flex-direction: column; gap: 0.75rem;
@@ -438,21 +447,129 @@ main {
   .welcome-btns { flex-direction: row; max-width: 480px; }
   .welcome-btns button { flex: 1; }
 }
+.welcome-form {
+  display: flex; flex-direction: column; gap: 0.75rem;
+  width: 100%; max-width: 320px;
+}
+@media (min-width: 480px) {
+  .welcome-form { max-width: 480px; }
+}
 
 /* App header */
 #app-header {
   position: sticky;
-  top: 0;
+  top: 3rem;
   z-index: 100;
   background: var(--surface);
   padding: 1rem;
   border-bottom: 1px solid var(--surface2);
 }
 
-#header-row {
+.nav-row {
+  position: sticky;
+  top: 0;
+  z-index: 101;
+  background: var(--surface);
+  /* 0.75rem (12px) vertical padding gives a knock-pending chip's outset
+     halo (call-pulse pattern: 1.5px solid ring + up-to-24px blur) room
+     to breathe above/below the chips. The overflow-x: auto clipping
+     still cuts off horizontally past the row edge, but the inset ring
+     in the knock-pending keyframe carries the visibility there. */
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--surface2);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nav-row::-webkit-scrollbar { display: none; }
+.nav-row.hidden { display: none; }
+/* Lock every direct child of .nav-row to a fixed height so the nav row
+   has the same overall height in Direct (where .group-card with padding +
+   border is the tallest item, ~40px) and group context (where .nav-back /
+   chain icon / .nav-current are all ~25-28px naturally). Without this,
+   switching contexts shifts the body content by several px. height (not
+   just min-height) forces ALL items to the same box size, since border-box
+   alone wouldn't shrink .group-card to match the smaller items. */
+.nav-row > * {
+  height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+.nav-current {
+  position: sticky;
+  left: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface);
+  border: none;
+  cursor: default;
+  padding: 0.25rem 0.5rem;
+  flex-shrink: 0;
+}
+.nav-back {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+  font-size: 0.9rem;
+  font-weight: normal;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  flex-shrink: 0;
+}
+.nav-back:hover { color: var(--text); }
+.nav-current-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  min-width: 0;
+}
+.nav-row .group-card {
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 2px solid transparent;
+}
+.nav-row .group-card.greyed {
+  color: var(--text-muted);
+}
+.nav-row .group-cards-plus {
+  flex: 0 0 auto;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px dashed var(--text-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+#group-override-toggle {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  font-size: 1.875rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+#group-override-toggle[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+#header-row,
+.group-header-row {
   display: flex;
   align-items: center;
   gap: 0.875rem;
+  min-height: 3rem;
 }
 
 #header-text {
@@ -468,10 +585,19 @@ main {
   grid-row: 1;
 }
 
-#time-remaining {
+#time-remaining,
+#group-time-remaining {
   color: var(--text-muted);
   font-size: 0.875rem;
   transition: opacity 0.25s ease;
+}
+/* Render the · separator as a pseudo so the spacing on both sides of it
+   matches the flex gap on the left — keeps the dot visually centered
+   between "Available" and the time string. */
+#time-remaining:not(:empty)::before,
+#group-time-remaining:not(:empty)::before {
+  content: '·';
+  margin-right: 0.375rem;
 }
 
 /* Chips */
@@ -575,6 +701,31 @@ main {
   opacity: 1;
   pointer-events: auto;
 }
+/* Group-context palette picker. Allow wrapping (16 swatches on one row gets
+   wide on narrow viewports). Drop the .swatch button styles' default and
+   anchor to the same .swatch sizing below. */
+.group-swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 0.5rem;
+  align-items: center;
+  /* Overlap with .group-header-chips in the same grid cell so swapping
+     visibility (override-on + Unavailable) doesn't collapse the header's
+     height — matches how Direct's #swatch-row overlaps #header-chips
+     (same grid-row: 2, grid-column: 1). */
+  grid-row: 2;
+  grid-column: 1;
+  align-self: start;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.group-swatch-row.visible { opacity: 1; pointer-events: auto; }
+.group-swatch-row .swatch {
+  background: transparent;
+  padding: 0;
+}
 .swatch {
   width: 22px; height: 22px; border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.12);
@@ -623,6 +774,7 @@ main {
 }
 .swatch.key-swatch.key-spin::after {
   animation: key-spin 5s ease-out 1 forwards;
+  animation-delay: var(--key-spin-delay, 0ms);
 }
 .swatch.theme-hint {
   position: relative;
@@ -704,8 +856,13 @@ main {
   0%   { background-color: var(--knock-color); }
   100% { background-color: transparent; }
 }
+@keyframes knock-live {
+  0%   { box-shadow: inset 0 0 0 9999px color-mix(in srgb, var(--knock-color) 55%, transparent); }
+  100% { box-shadow: inset 0 0 0 9999px color-mix(in srgb, var(--knock-color) 0%,  transparent); }
+}
 .knock-deferred { animation: knock-deferred 5s ease-in-out; }
 .knock-sender   { animation: knock-sender   0.2s ease-out; }
+.knock-live     { animation: knock-live     2s ease-out; }
 
 .restore-screen {
   position: fixed; inset: 0; z-index: 900;
@@ -768,3 +925,191 @@ main {
 .recovery-revealed.hidden { display: none; }
 #drawer-recovery-copy-btn { display: none; min-width: 5rem; text-align: center; }
 .recovery-revealed:not(.hidden) ~ #drawer-recovery-copy-btn { display: inline-block; }
+
+/* Invite-link modal */
+.modal-title {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.modal-subtitle {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.modal-label {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+}
+/* Tighten the label→input spacing in the create-group modal: the modal-card
+   flex gap (0.875rem) sits between every pair of children, including
+   label+input pairs, making them feel disconnected. Negative margin-top on
+   each input cancels the gap so only the label's own margin-bottom remains. */
+#create-group-modal .modal-label + .text-input { margin-top: -0.75rem; }
+.modal-card-small {
+  max-width: 320px;
+}
+.group-card {
+  flex: 0 0 auto;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--surface2);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  position: relative;
+  border: none;
+}
+.group-card.active { outline: 2px solid var(--accent); }
+.group-card-badge {
+  position: absolute;
+  top: -0.25rem;
+  right: -0.25rem;
+  background: var(--accent);
+  color: var(--text);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  min-width: 1.2rem;
+  text-align: center;
+}
+/* Deferred-knock indicator on a nav chip — same outset call-pulse halo
+   plus a matching inset ring so the glow stays visible even when the
+   nav-row's `overflow-x: auto` clips the outset shadow vertically.
+   Color is the chip's effective in-group status color, set inline as
+   --call-color-rgb by groupNav.js. */
+@keyframes knock-pending-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1.5px rgba(var(--call-color-rgb), 0.3),
+      0 0 14px rgba(var(--call-color-rgb), 0.15),
+      inset 0 0 0 2px rgba(var(--call-color-rgb), 0.3),
+      inset 0 0 10px rgba(var(--call-color-rgb), 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1.5px rgba(var(--call-color-rgb), 1.0),
+      0 0 24px rgba(var(--call-color-rgb), 0.65),
+      inset 0 0 0 2px rgba(var(--call-color-rgb), 1.0),
+      inset 0 0 16px rgba(var(--call-color-rgb), 0.6);
+  }
+}
+.group-card.knock-pending::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: knock-pending-pulse 3s ease-in-out infinite;
+}
+
+/* Group context view */
+.group-context-actions { position: relative; }
+.group-context-actions summary {
+  cursor: pointer;
+  list-style: none;
+}
+.group-context-actions summary::-webkit-details-marker { display: none; }
+.group-actions-menu {
+  position: absolute;
+  left: 0;
+  margin-top: 0.5rem;
+  background: var(--surface2);
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  z-index: 5;
+}
+/* Keep each option label on a single line when there's room — the buttons'
+   intrinsic width already fits short labels; nowrap stops "Edit my name" /
+   "Invite link" wrapping when the menu's column width is forced narrower. */
+.group-actions-menu .ghost-btn {
+  white-space: nowrap;
+  text-align: left;
+}
+
+/* Group context view */
+.group-context-root { padding: 0; }
+.group-context-header {
+  background: var(--surface);
+  padding: 1rem;
+  border-bottom: 1px solid var(--surface2);
+  margin-bottom: 0;
+}
+.group-context-name { font-size: 1.25rem; font-weight: 700; margin: 0; }
+
+.group-header-text { flex: 1; display: grid; }
+.group-header-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 1rem;
+  grid-row: 1;
+}
+.group-header-chips {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+  grid-row: 2;
+  grid-column: 1;
+}
+
+/* Override toggle pill states */
+.override-toggle[aria-pressed="true"] {
+  background: var(--accent); color: white; border-color: var(--accent);
+}
+.override-toggle[aria-pressed="false"] {
+  background: var(--surface); color: var(--text-muted);
+}
+
+/* Read-only mode: when override is OFF, the dot + time chip are not interactive */
+#group-my-dot.readonly { cursor: default; opacity: 0.7; }
+#group-time-chip.readonly { cursor: default; opacity: 0.5; pointer-events: none; }
+
+.group-roster {
+  list-style: none;
+  padding: 0.5rem 1rem 1rem;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.group-roster-row {
+  display: flex; align-items: center; gap: 0.75rem;
+  background: var(--surface); border-radius: 10px;
+  padding: 0.75rem 0.875rem;
+  border-left: 3px solid transparent;
+}
+.group-roster-row.knockable { cursor: pointer; }
+.group-roster-row.knockable:active { background: var(--surface2); }
+.role-badge { color: var(--text-muted); font-size: 0.85rem; font-weight: normal; }
+
+/* Group removal toast */
+.group-removal-toast {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface2);
+  color: var(--text);
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  z-index: 100;
+  max-width: calc(100vw - 2rem);
+}
+.group-removal-toast.hidden {
+  display: none;
+}

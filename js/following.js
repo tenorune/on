@@ -7,14 +7,20 @@ import {
 } from './db.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
-  getPaletteState, setPaletteState, setFollowing,
-  getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount,
+  setFollowing,
 } from './store.js';
+import {
+  isHintSeen, markHintSeen,
+  getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount,
+  getPaletteState, setPaletteState,
+  getFavorites,
+} from './prefs.js';
 import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
+import { isLongpressHintEligible, isSwipeHintEligible } from './hints.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
-import { sendKnock } from './knock.js';
-import { saveFavorite, removeHistoryDuplicatesOfSlots, getAllCombos } from './favorites.js';
+import { sendKnock, getFloatedUserIds } from './knock.js';
+import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
@@ -346,6 +352,21 @@ function renderList() {
   appendSection('Followers', sortFollowerOnly(followerOnly), (follower) => {
     createFollowerOnlyRow(follower, myUserId);
   });
+
+  // Re-prepend any rows still in their float window so a coincident re-sort
+  // doesn't lose the float-to-top position. Same section-label awareness as
+  // applyFloatToTop (otherwise a floated mutual lands above the "Mutuals"
+  // label when renderList re-builds the list).
+  const firstLabel = list.querySelector('.list-section-label');
+  for (const uid of getFloatedUserIds()) {
+    const li = list.querySelector(`[data-user-id="${uid}"]`);
+    if (!li) continue;
+    if (firstLabel) {
+      list.insertBefore(li, firstLabel.nextSibling);
+    } else {
+      list.prepend(li);
+    }
+  }
 }
 
 function applyAdoption(entry, myUserId) {
@@ -398,13 +419,19 @@ function applyAdoption(entry, myUserId) {
 
 function triggerAdoption(entry, myUserId) {
   // Clear long-press hint on first adoption
-  if (!localStorage.getItem('statusapp_seen_longpress')) {
-    localStorage.setItem('statusapp_seen_longpress', '1');
+  if (!isHintSeen('longpress')) {
+    markHintSeen('longpress');
     document.querySelectorAll('.longpress-hint').forEach(el => el.remove());
   }
-  saveFavorite(true); // save pre-adoption state; adopted state enters history on next adoption or go-available
+  // Build the adopted combo from the source's broadcast state and push to
+  // favorites BEFORE applying the adoption (the apply mutates picker state).
+  const targetData = lastUserData.get(entry.userId);
+  const adoptedCombo = buildAdoptedCombo(
+    targetData?.statusColor,
+    targetData?.paletteKey ?? null,
+  );
+  saveCombo(adoptedCombo);
   applyAdoption(entry, myUserId);
-  removeHistoryDuplicatesOfSlots(); // if adoption didn't change anything, remove the now-duplicate pill
 }
 
 function createFolloweeRow(entry, myUserId, isMutual = false) {
@@ -470,8 +497,8 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
       if (dx > threshold) {
         swipeActive = false;
         // Clear swipe hint on first right-swipe
-        if (!localStorage.getItem('statusapp_seen_swipe')) {
-          localStorage.setItem('statusapp_seen_swipe', '1');
+        if (!isHintSeen('swipe')) {
+          markHintSeen('swipe');
           document.querySelectorAll('.swipe-hint').forEach(el => el.remove());
         }
         if (li.classList.contains('call-mode') && callModeCalleeId !== entry.userId) {
@@ -667,8 +694,11 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   const glow  = getGlowForColor(color);
   const ms = timeRemainingMs(userData.availableUntil);
   let statusText;
-  const isCallee = callModeCalleeId !== null && entry.userId === callModeCalleeId;
-  const isCallModeReceiver = !isCallee && userData.callState?.calleeId === myUserId;
+  // Both checks gated by CALL_ENABLED so a stale callState on the peer's
+  // Firebase record (e.g., a previous session left a call dangling) doesn't
+  // render call-mode UI when calls are disabled on this device.
+  const isCallee = CALL_ENABLED && callModeCalleeId !== null && entry.userId === callModeCalleeId;
+  const isCallModeReceiver = CALL_ENABLED && !isCallee && userData.callState?.calleeId === myUserId;
   if (isCallee) {
     const callText = getMadeCallCount() < 4
       ? 'Calling them\u2026 (swipe left to hang up)'
@@ -764,12 +794,9 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   // Only after all FTU hints cleared, not during a call.
   const peerColor = color;
   const peerTheme = userData.paletteKey || null;
-  const isMyCombo = getAllCombos().some(c => c.statusColor === peerColor && (c.paletteKey || null) === peerTheme);
+  const isMyCombo = getFavorites().some(c => c.statusColor === peerColor && (c.paletteKey || null) === peerTheme);
   const showLongpressHint = PALETTE_INTERACTIONS_ENABLED
-      && !localStorage.getItem('statusapp_seen_longpress')
-      && localStorage.getItem('statusapp_went_avail_custom')
-      && localStorage.getItem('statusapp_seen_theme')
-      && localStorage.getItem('statusapp_seen_strip_peek_done')
+      && isLongpressHintEligible()
       && !isCallee && !isCallModeReceiver
       && isAvail
       && !isMyCombo;
@@ -778,10 +805,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
       && !li.previousElementSibling?.dataset?.mutual;
   const swipeEligible = CALL_ENABLED
       && isFirstMutual
-      && !localStorage.getItem('statusapp_seen_swipe')
-      && localStorage.getItem('statusapp_went_avail_custom')
-      && localStorage.getItem('statusapp_seen_theme')
-      && localStorage.getItem('statusapp_seen_strip_peek_done')
+      && isSwipeHintEligible()
       && !isCallee && !isCallModeReceiver;
 
   // If both hints qualify, alternate between them each animation cycle
@@ -836,8 +860,8 @@ export function updateFolloweeRow(entry, userData, myUserId) {
 document.addEventListener('my-combo-changed', () => refreshLongpressHints());
 
 function refreshLongpressHints() {
-  if (localStorage.getItem('statusapp_seen_longpress')) return;
-  const myCombos = getAllCombos();
+  if (isHintSeen('longpress')) return;
+  const myCombos = getFavorites();
 
   document.querySelectorAll('.longpress-hint').forEach(hint => {
     const li = hint.closest('[data-user-id]');

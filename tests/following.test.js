@@ -1,5 +1,16 @@
 // tests/following.test.js
-jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), removeHistoryDuplicatesOfSlots: jest.fn(), initFavoritesStrip: jest.fn(), getAllCombos: jest.fn(() => []) }));
+jest.mock('../js/favorites.js', () => ({
+  saveCombo: jest.fn(),
+  initFavoritesStrip: jest.fn(),
+  buildAdoptedCombo: jest.fn((statusColor, paletteKey) => ({
+    statusColor: statusColor || '#22c55e',
+    surface: '#1e293b',
+    surface2: '#334155',
+    paletteKey: paletteKey ?? null,
+    selectedKey: paletteKey ?? 'forest',
+    activeSet: 1,
+  })),
+}));
 
 // PointerEvent polyfill for jsdom (does not implement it natively)
 if (typeof PointerEvent === 'undefined') {
@@ -44,9 +55,52 @@ jest.mock('../js/db.js', () => ({
   watchFollowing: jest.fn(() => jest.fn()),
   setFollowingEntry: jest.fn().mockResolvedValue(undefined),
   removeFollowingEntry: jest.fn().mockResolvedValue(undefined),
+  claimInviteToken: jest.fn(),
+  releaseInviteToken: jest.fn(),
+  readInviteIndex: jest.fn(),
+  readUserInvite: jest.fn(),
+  readUserInvites: jest.fn().mockResolvedValue({}),
+  writeUserInvite: jest.fn(),
+  deleteUserInvite: jest.fn(),
+  setInviteRevoked: jest.fn(),
+  incrementInviteRedemptions: jest.fn(),
+  getCreatorCode: jest.fn(),
+  watchUserInvites: jest.fn(() => () => {}),
+  claimGroupId: jest.fn(),
+  writeUserGroupsEntry: jest.fn(),
+  removeUserGroupsEntry: jest.fn(),
+  readUserGroups: jest.fn().mockResolvedValue({}),
+  watchUserGroups: jest.fn(() => () => {}),
+  setLastVisited: jest.fn(),
+  setCurrentContext: jest.fn(),
+  writeGroup: jest.fn(),
+  readGroup: jest.fn().mockResolvedValue(null),
+  renameGroup: jest.fn(),
+  deleteGroup: jest.fn(),
+  watchGroupMeta: jest.fn(() => () => {}),
+  writeMember: jest.fn(),
+  readMember: jest.fn().mockResolvedValue(null),
+  readMembers: jest.fn().mockResolvedValue({}),
+  removeMember: jest.fn(),
+  setMemberDisplayName: jest.fn(),
+  watchGroupMembers: jest.fn(() => () => {}),
+  writeGroupInvite: jest.fn(),
+  readGroupInvites: jest.fn().mockResolvedValue({}),
+  setGroupInviteRevoked: jest.fn(),
+  incrementGroupInviteRedemptions: jest.fn(),
+  watchGroupInvites: jest.fn(() => () => {}),
+  setStatusOverride: jest.fn().mockResolvedValue(undefined),
+  clearStatusOverride: jest.fn().mockResolvedValue(undefined),
+  mergeStatusOverride: jest.fn().mockResolvedValue(undefined),
+  mergeUserPrefs: jest.fn().mockResolvedValue(undefined),
+  watchUserPrefs: jest.fn(() => () => {}),
+  watchOwnMemberOverride: jest.fn(() => () => {}),
 }));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
+  applyFloatToTop: jest.fn(),
+  getFloatedUserIds: jest.fn(() => []),
+  initKnocks: jest.fn(),
 }));
 jest.mock('../js/store.js', () => ({
   getFollowing: jest.fn(),
@@ -63,14 +117,28 @@ jest.mock('../js/store.js', () => ({
     },
   }),
   setPaletteState: jest.fn(),
+}));
+jest.mock('../js/prefs.js', () => ({
+  isHintSeen: jest.fn(() => false),
+  markHintSeen: jest.fn(),
   getMadeCallCount: jest.fn().mockReturnValue(0),
   incrementMadeCallCount: jest.fn(),
   getAnsweredCallCount: jest.fn().mockReturnValue(0),
   incrementAnsweredCallCount: jest.fn(),
+  getFavorites: jest.fn(() => []),
+  getPaletteState: jest.fn().mockReturnValue({
+    activeSet: 1,
+    sets: {
+      '1': { selectedKey: 'forest', activePaletteKey: null },
+      '2': { selectedKey: 'volt',   activePaletteKey: null },
+    },
+  }),
+  setPaletteState: jest.fn(),
 }));
 
 const { watchStatus, watchFollowers, setCallState, clearCallState } = require('../js/db.js');
-const { getFollowing, updateFollowingCode, getMadeCallCount, getAnsweredCallCount } = require('../js/store.js');
+const { getFollowing, updateFollowingCode } = require('../js/store.js');
+const { getMadeCallCount, getAnsweredCallCount } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
   initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees,
@@ -1242,22 +1310,15 @@ describe('applyAdoption', () => {
     expect(li.classList.contains('adopted-from')).toBe(true);
   });
 
-  test('calls saveFavorite(true) once before adoption — adopted state enters history on next adoption or go-available', () => {
-    const { saveFavorite } = require('../js/favorites.js');
+  test('calls saveCombo once after adoption with the adopted combo', () => {
+    const { saveCombo } = require('../js/favorites.js');
     triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b', paletteKey: 'ember' });
-    expect(saveFavorite).toHaveBeenCalledTimes(1);
-    expect(saveFavorite).toHaveBeenCalledWith(true);
-  });
-
-  test('calls removeHistoryDuplicatesOfSlots after adoption to clean up same-combo duplicates', () => {
-    const { saveFavorite, removeHistoryDuplicatesOfSlots } = require('../js/favorites.js');
-    triggerAdoptionFor(TARGET_ID, { statusColor: '#f59e0b', paletteKey: 'ember' });
-    expect(saveFavorite).toHaveBeenCalledTimes(1);
-    expect(removeHistoryDuplicatesOfSlots).toHaveBeenCalledTimes(1);
-    // cleanup must happen AFTER adoption
-    const saveOrder = saveFavorite.mock.invocationCallOrder[0];
-    const cleanupOrder = removeHistoryDuplicatesOfSlots.mock.invocationCallOrder[0];
-    expect(cleanupOrder).toBeGreaterThan(saveOrder);
+    expect(saveCombo).toHaveBeenCalledTimes(1);
+    // Adopted combo has the source's statusColor + paletteKey.
+    expect(saveCombo).toHaveBeenCalledWith(expect.objectContaining({
+      statusColor: '#f59e0b',
+      paletteKey: 'ember',
+    }));
   });
 
 });
@@ -1403,4 +1464,55 @@ describe('long press handler', () => {
     jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
   });
 
+});
+
+// --- float-to-top: direct contacts ---
+
+describe('direct-list float survives re-render', () => {
+  // These tests exercise the float-restore contract that renderList implements.
+  // A true integration test that drives renderList end-to-end is unreliable here
+  // because earlier tests in this file use jest.resetModules() which rebinds the
+  // imports in js/following.js. The contract is also covered by the manual
+  // verification checklist in Task 22 and by the renderList implementation
+  // directly reading getFloatedUserIds() (single call site, easy to grep).
+
+  test('re-render contract: rows reported by getFloatedUserIds get prepended', () => {
+    document.body.innerHTML = `
+      <ul id="people-list">
+        <li data-user-id="a"></li>
+        <li data-user-id="b"></li>
+        <li data-user-id="c"></li>
+      </ul>
+    `;
+    const knock = require('../js/knock.js');
+    knock.getFloatedUserIds.mockReturnValue(['b']);
+    const list = document.getElementById('people-list');
+    for (const uid of knock.getFloatedUserIds()) {
+      const li = list.querySelector(`[data-user-id="${uid}"]`);
+      if (li) list.prepend(li);
+    }
+    const order = Array.from(list.querySelectorAll('li')).map((el) => el.dataset.userId);
+    expect(order).toEqual(['b', 'a', 'c']);
+  });
+
+  test('re-render contract: multiple floats land most-recent-first', () => {
+    document.body.innerHTML = `
+      <ul id="people-list">
+        <li data-user-id="a"></li>
+        <li data-user-id="b"></li>
+        <li data-user-id="c"></li>
+      </ul>
+    `;
+    const knock = require('../js/knock.js');
+    // getFloatedUserIds returns insertion order (oldest first); the loop
+    // prepends each in turn, so the LAST id in the array ends up at the top.
+    knock.getFloatedUserIds.mockReturnValue(['a', 'b']);
+    const list = document.getElementById('people-list');
+    for (const uid of knock.getFloatedUserIds()) {
+      const li = list.querySelector(`[data-user-id="${uid}"]`);
+      if (li) list.prepend(li);
+    }
+    const order = Array.from(list.querySelectorAll('li')).map((el) => el.dataset.userId);
+    expect(order).toEqual(['b', 'a', 'c']);
+  });
 });

@@ -1,9 +1,31 @@
 // js/palettes.js
-import { getPaletteState, setPaletteState, getFavorites } from './store.js';
+import { getFavorites } from './store.js';
 import { setStatusColor, setPaletteKey } from './db.js';
+import { isHintSeen, markHintSeen, getPaletteState, setPaletteState } from './prefs.js';
+import {
+  shouldShowSwatchWave, shouldShowThemeHint, shouldShowDotGoHint,
+  shouldShowSetTogglePulse,
+} from './hints.js';
 
-let _hintTimer = null;
-let _justEnteredPaletteMode = false;
+// Per-row wave timers. The wave needs to run independently on Direct's
+// #swatch-row and a group context's #group-swatch-row — using a single
+// module-global timer (the previous design) meant whichever row last called
+// startSwatchHints would stopSwatchHints() the other row, stripping its
+// .hint-wave class and freezing the wave. Symptom: navigate from Direct
+// to a group, the Direct wave stops; navigate back, it doesn't restart
+// because nothing re-renders Direct's row on a context switch.
+const _hintTimersByRow = new Map();
+// Timestamp (Date.now) of the most recent enterPaletteMode call, or null if
+// the spin window has elapsed. Tracked as a timestamp rather than a bool
+// because setPaletteState writes to userPrefs and Firebase echoes back ~100-
+// 300ms later, re-rendering the swatch row and destroying the key swatch
+// element. A boolean flag would be consumed on the first render and the
+// re-render would create a fresh key swatch with no animation. The timestamp
+// lets renderSwatchRow re-apply .key-spin to each new key swatch within the
+// 5s animation window, with --key-spin-delay so the animation continues
+// mid-flight rather than restarting from 0deg.
+const KEY_SPIN_MS = 5000;
+let _paletteEnterAt = null;
 
 // SVG Icons (inlined)
 // Heroicons bolt-solid (MIT) https://heroicons.com
@@ -164,9 +186,9 @@ export function resetThemeVars() {
 }
 
 export function enterPaletteMode(key, userId) {
-  _justEnteredPaletteMode = true;
-  if (!localStorage.getItem('statusapp_seen_theme')) {
-    localStorage.setItem('statusapp_seen_theme', '1');
+  _paletteEnterAt = Date.now();
+  if (!isHintSeen('theme')) {
+    markHintSeen('theme');
   }
   const state = getPaletteState();
   state.sets[String(state.activeSet)].activePaletteKey = key;
@@ -202,12 +224,12 @@ function renderSwatchRow(userId) {
   btn.className = 'set-toggle-btn';
   btn.innerHTML = setNum === 1 ? ICON_BOLT : ICON_TREE;
   // First-use pulse: bolt on Set 1, flower on Set 2 — each pulses once per icon
-  const pulseKey = setNum === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
-  if (!localStorage.getItem(pulseKey)) {
+  const hintName = setNum === 1 ? 'bolt' : 'flower';
+  if (shouldShowSetTogglePulse(setNum)) {
     btn.classList.add('first-use-pulse');
     btn.addEventListener('click', () => {
       btn.classList.remove('first-use-pulse');
-      localStorage.setItem(pulseKey, '1');
+      markHintSeen(hintName);
     }, { once: true });
   }
   btn.addEventListener('click', () => switchSet(setNum === 1 ? 2 : 1, userId));
@@ -237,8 +259,7 @@ function renderSwatchRow(userId) {
     // - seen both bolt and flower icons
     // - selected a non-default color (gone available with it)
     // - never entered palette mode
-    if (!localStorage.getItem('statusapp_seen_theme')
-        && localStorage.getItem('statusapp_went_avail_custom')) {
+    if (shouldShowThemeHint()) {
       const selectedSwatch = row.querySelector('.swatch.selected');
       if (selectedSwatch) selectedSwatch.classList.add('theme-hint');
     }
@@ -246,9 +267,10 @@ function renderSwatchRow(userId) {
     const dot = document.getElementById('my-dot');
     if (dot) {
       const defaultKey = setNum === 1 ? 'forest' : 'volt';
-      if (savedKey !== defaultKey
-          && !localStorage.getItem('statusapp_went_avail_custom')
-          && !dot.classList.contains('available')) {
+      if (shouldShowDotGoHint({
+        isNonDefault: savedKey !== defaultKey,
+        dotAvailable: dot.classList.contains('available'),
+      })) {
         dot.classList.add('dot-go-hint');
         // Pause set-switch pulse while dot-go is active
         if (btn) btn.classList.remove('first-use-pulse');
@@ -269,7 +291,17 @@ function renderSwatchRow(userId) {
       const swatch = document.createElement('div');
       if (i === keyIdx) {
         swatch.className = 'swatch key-swatch';
-        if (_justEnteredPaletteMode) swatch.classList.add('key-spin');
+        if (_paletteEnterAt != null) {
+          const elapsed = Date.now() - _paletteEnterAt;
+          if (elapsed < KEY_SPIN_MS) {
+            swatch.classList.add('key-spin');
+            // Resume the CSS animation mid-flight on re-renders triggered by
+            // the userPrefs echo; without this the new element starts at 0deg.
+            if (elapsed > 0) swatch.style.setProperty('--key-spin-delay', `-${elapsed}ms`);
+          } else {
+            _paletteEnterAt = null;
+          }
+        }
         swatch.style.background = keyPalette.color;
         if (!activeColor || activeColor === keyPalette.color) swatch.classList.add('selected');
         swatch.addEventListener('click', () => {
@@ -313,24 +345,12 @@ function renderSwatchRow(userId) {
       row.appendChild(swatch);
     }
   }
-  _justEnteredPaletteMode = false;
   document.dispatchEvent(new CustomEvent('palette-state-changed'));
 }
 
-function shouldShowHints(state) {
-  // Show if user hasn't gone available with custom color
-  // and the CURRENT set is on its default
-  if (localStorage.getItem('statusapp_went_avail_custom')) return false;
-  const setKey = String(state.activeSet);
-  const defaultKey = state.activeSet === 1 ? 'forest' : 'volt';
-  if (state.sets[setKey].selectedKey !== defaultKey) return false;
-  if (state.sets[setKey].activePaletteKey !== null) return false;
-  return true;
-}
-
-function startSwatchHints(row, state) {
-  stopSwatchHints();
-  if (!shouldShowHints(state)) return;
+export function startSwatchHints(row, state) {
+  stopSwatchHintsFor(row);
+  if (!shouldShowSwatchWave(state)) return;
   const swatches = Array.from(row.querySelectorAll('.swatch:not(.selected)'));
   if (swatches.length === 0) return;
   swatches.forEach(s => s.classList.add('hint-wave'));
@@ -350,7 +370,7 @@ function startSwatchHints(row, state) {
         : 'none';
     });
     head = (head + 1) % swatches.length;
-    _hintTimer = setTimeout(updateWave, 250);
+    _hintTimersByRow.set(row, setTimeout(updateWave, 250));
   }
   updateWave();
 }
@@ -364,15 +384,13 @@ export function restoreSetSwitchPulse() {
   const dot = document.getElementById('my-dot');
   if (dot && dot.classList.contains('dot-go-hint')) return;
   const state = getPaletteState();
-  const pulseKey = state.activeSet === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
-  if (!localStorage.getItem(pulseKey) && !btn.classList.contains('first-use-pulse')) {
+  if (shouldShowSetTogglePulse(state.activeSet) && !btn.classList.contains('first-use-pulse')) {
     btn.classList.add('first-use-pulse');
   }
 }
 
 export function applyThemeHint() {
-  if (localStorage.getItem('statusapp_seen_theme')) return;
-  if (!localStorage.getItem('statusapp_went_avail_custom')) return;
+  if (!shouldShowThemeHint()) return;
   const row = document.getElementById('swatch-row');
   if (!row) return;
   const selected = row.querySelector('.swatch.selected');
@@ -381,8 +399,20 @@ export function applyThemeHint() {
   }
 }
 
+function stopSwatchHintsFor(row) {
+  const t = _hintTimersByRow.get(row);
+  if (t) clearTimeout(t);
+  _hintTimersByRow.delete(row);
+  row.querySelectorAll('.swatch.hint-wave').forEach(s => {
+    s.classList.remove('hint-wave');
+    s.style.boxShadow = '';
+  });
+}
+
 function stopSwatchHints() {
-  if (_hintTimer) { clearTimeout(_hintTimer); _hintTimer = null; }
+  for (const row of [..._hintTimersByRow.keys()]) stopSwatchHintsFor(row);
+  // Legacy safety net: also strip the class from any row we never registered
+  // (e.g. rows that called the old global startSwatchHints before this fix).
   document.querySelectorAll('.swatch.hint-wave').forEach(s => {
     s.classList.remove('hint-wave');
     s.style.boxShadow = '';
@@ -419,8 +449,7 @@ export function tapSwatch(key, userId) {
     target.classList.add('selected');
     // Theme hint: show pulsing dotted ring if user has seen bolt/flower,
     // selected a non-default color, and hasn't discovered themes yet
-    if (!localStorage.getItem('statusapp_seen_theme')
-        && localStorage.getItem('statusapp_went_avail_custom')) {
+    if (shouldShowThemeHint()) {
       target.classList.add('theme-hint');
     }
   }
@@ -432,7 +461,7 @@ export function tapSwatch(key, userId) {
 
   if (isNonDefault) {
     // Non-default selected: start dot hint, pause set-switch hint while dot-go is active
-    if (dot && !localStorage.getItem('statusapp_went_avail_custom') && !dot.classList.contains('available')) {
+    if (dot && shouldShowDotGoHint({ isNonDefault: true, dotAvailable: dot.classList.contains('available') })) {
       dot.classList.add('dot-go-hint');
       if (toggleBtn) toggleBtn.classList.remove('first-use-pulse');
     }
@@ -440,8 +469,7 @@ export function tapSwatch(key, userId) {
     // Default selected: stop dot hint, resume set-switch hint if not yet cleared,
     // and restart swatch wave
     if (dot) dot.classList.remove('dot-go-hint');
-    const pulseKey = state.activeSet === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
-    if (toggleBtn && !localStorage.getItem(pulseKey)) {
+    if (toggleBtn && shouldShowSetTogglePulse(state.activeSet)) {
       toggleBtn.classList.add('first-use-pulse');
     }
     startSwatchHints(row, state);
@@ -452,6 +480,8 @@ export function tapSwatch(key, userId) {
 
 export function initSwatches(userId) {
   renderSwatchRow(userId);
+  // Re-render whenever userPrefs sync echoes a sibling-device pick.
+  document.addEventListener('palette-state-synced', () => renderSwatchRow(userId));
 }
 
 // Reconcile local paletteState with what the server has. Used by the

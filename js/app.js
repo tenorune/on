@@ -1,14 +1,20 @@
 // js/app.js
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
-import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser } from './db.js';
-import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback, updateChipFromServer } from './me.js';
+import { initUser, watchStatus, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser, getUserPrefs, readGroup } from './db.js';
+import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
-import { initFavoritesStrip, syncFavoritesFromServer } from './favorites.js';
+import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
+import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
+import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext } from './prefs.js';
+import { watchUserPrefs } from './db.js';
+import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
+import { enterGroupContext, exitGroupContext } from './groupContext.js';
+import { initGroupRemovalDetector } from './groups.js';
 
 
 let splashCounter = 0;
@@ -40,7 +46,7 @@ function dismissSplash() {
   }, { once: true });
 }
 
-async function ensureIdentity() {
+async function ensureIdentity(pendingInviteToken = null) {
   const existing = loadIdentity();
   if (existing) {
     let valid = true;
@@ -71,12 +77,19 @@ async function ensureIdentity() {
   }
 
   // Empty localStorage — true new user OR cleared cache.
+  // Resolve invite preview BEFORE dismissing splash, so the welcome
+  // screen renders with framing already populated. resolveInvitePreview
+  // returns null synchronously when there is no pending token, so non-invite
+  // boots do not pay the round-trip cost.
+  const invitePreview = await resolveInvitePreview(pendingInviteToken);
+  const inviteCreatorLabel = invitePreview?.scope === 'personal' ? invitePreview.label : null;
+  const inviteGroupName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
   // Dismiss splash so the user can see and interact with the welcome screen.
   dismissSplash();
   // Loop so that cancelling the restore screen returns the user to the
   // welcome screen, not silently into the new-account flow.
   while (true) {
-    const choice = await showWelcomeScreen();
+    const choice = await showWelcomeScreen({ inviteCreatorLabel, inviteGroupName });
     if (choice === 'restore') {
       const restored = await showRestoreScreen();
       if (restored) {
@@ -124,10 +137,18 @@ function showStaleScreen() {
   });
 }
 
-export function showWelcomeScreen() {
+export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName = null } = {}) {
   const el = document.getElementById('welcome-screen');
   const newBtn = document.getElementById('welcome-new-btn');
   const restoreBtn = document.getElementById('welcome-restore-btn');
+  const framingEl = document.getElementById('welcome-invite-framing');
+  if (framingEl) {
+    let text = '';
+    if (inviteCreatorLabel) text = `You've been invited to follow ${inviteCreatorLabel}. First, let's set up your account.`;
+    else if (inviteGroupName) text = `You've been invited to join '${inviteGroupName}'. First, let's set up your account.`;
+    framingEl.textContent = text;
+    framingEl.classList.toggle('hidden', !text);
+  }
   el.classList.remove('hidden');
   return new Promise((resolve) => {
     function pick(choice) {
@@ -238,11 +259,214 @@ export function showRestoreScreen() {
   });
 }
 
+function showGroupDisplayNamePrompt(groupName) {
+  const screen = document.getElementById('group-displayname-screen');
+  const framing = document.getElementById('group-displayname-framing');
+  const input = document.getElementById('group-displayname-input');
+  const errEl = document.getElementById('group-displayname-error');
+  const submit = document.getElementById('group-displayname-submit-btn');
+
+  framing.textContent = `Your name in '${groupName}'`;
+  errEl.textContent = '';
+  errEl.classList.add('hidden');
+  input.value = '';
+  screen.classList.remove('hidden');
+
+  return new Promise((resolve) => {
+    function onSubmit() {
+      const trimmed = (input.value || '').trim();
+      if (!trimmed) { errEl.textContent = 'Please enter a name.'; errEl.classList.remove('hidden'); return; }
+      if (trimmed.length > 40) { errEl.textContent = 'Name must be at most 40 characters.'; errEl.classList.remove('hidden'); return; }
+      submit.removeEventListener('click', onSubmit);
+      screen.classList.add('hidden');
+      resolve(trimmed);
+    }
+    submit.addEventListener('click', onSubmit);
+  });
+}
+
+function handleInviteRedemptionResult(result) {
+  if (result.ok) {
+    // On success, the follow is now in place. No banner — the contact will appear
+    // in the user's Following list once their watch subscriptions tick.
+    return;
+  }
+  showInviteFailureOverlay(result.reason);
+}
+
+function showInviteFailureOverlay(reason) {
+  const overlay = document.getElementById('invite-failure-overlay');
+  const messageEl = document.getElementById('invite-failure-message');
+  const continueBtn = document.getElementById('invite-failure-continue');
+  // Defensive: no-op if the markup is absent (e.g., a future template change).
+  if (!overlay || !messageEl || !continueBtn) return;
+  messageEl.textContent = inviteFailureCopy(reason);
+  overlay.classList.remove('hidden');
+  continueBtn.onclick = () => overlay.classList.add('hidden');
+}
+
+function inviteFailureCopy(reason) {
+  switch (reason) {
+    case 'not-found': return "This invite link isn't valid.";
+    case 'revoked':   return 'This invite link has been revoked.';
+    case 'expired':   return 'This invite link has expired.';
+    case 'cap':       return 'This invite link is no longer accepting new joiners.';
+    case 'self':      return "That's your own invite link.";
+    case 'already-following': return 'You already follow this person.';
+    case 'creator-missing':   return "The link's creator no longer has an account.";
+    case 'group-missing':     return "That group no longer exists.";
+    case 'already-member':    return "You're already in that group.";
+    case 'invalid-display-name': return 'Please choose a different display name.';
+    default:          return "This invite link can't be used right now.";
+  }
+}
+
+function cleanInviteParamFromUrl() {
+  try {
+    const clean = new URL(window.location.href);
+    clean.searchParams.delete('i');
+    window.history.replaceState({}, document.title, clean.toString());
+  } catch { /* no-op on unusual URLs */ }
+}
+
 async function main() {
-  const { identity, isNew } = await ensureIdentity();
+  const pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
+  const { identity, isNew } = await ensureIdentity(pendingInviteToken);
   const { userId, code } = identity;
 
+  // Wire navigation BEFORE the invite-redemption block, otherwise navigateToGroup
+  // writes to users/null/... (because initNav hasn't set the local userId yet) AND
+  // its state change gets wiped by initNav's reset-to-direct that follows.
+  initNav(userId);
+  initNavRow();  // Must register its onContextChange listener BEFORE the
+                 // enterGroupContext listener below, so renderNavRow runs first
+                 // on each emit and creates #group-override-toggle-slot before
+                 // enterGroupContext looks for it.
+  onContextChange((ctx) => {
+    if (ctx.context === 'group') enterGroupContext(ctx.groupId, userId);
+    else exitGroupContext();
+  });
+
+  if (pendingInviteToken) {
+    // Dismiss the splash before redemption: the flow may show the
+    // displayname prompt (new joiner) or a failure overlay (revoked,
+    // already-member, etc.). Splash has z-index 1000 and would otherwise
+    // sit on top of those overlays — the user couldn't dismiss it because
+    // ensureIdentity dismisses splash only on welcome / stale paths, and
+    // signalReady doesn't fire until watchStatus is set up below.
+    dismissSplash();
+    // Hide #main-ui-direct AND #nav-row for the entirety of the redemption
+    // flow so neither the empty Direct view nor the empty nav row flashes
+    // between the recovery-code modal closing and the displayname prompt
+    // opening, or between the displayname submit and navigateToGroup landing.
+    // initNavRow above synchronously removed .hidden on #nav-row; re-hide it
+    // here, before the first await yields to the paint.
+    const directEl = document.getElementById('main-ui-direct');
+    if (directEl) directEl.classList.add('hidden');
+    const navRowEl = document.getElementById('nav-row');
+    if (navRowEl) navRowEl.classList.add('hidden');
+    let landedInGroup = false;
+    let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+    // Captured from the needs-display-name response so we can prime
+    // setLastKnownGroupName even on the success path (where the second
+    // attemptRedeemFromUrl call returns its own groupName too).
+    let previewGroupName = null;
+    if (result && result.ok === false && result.reason === 'needs-display-name') {
+      previewGroupName = result.groupName;
+      const promptName = previewGroupName || 'this group';
+      const displayName = await showGroupDisplayNamePrompt(promptName);
+      // Pass the cache forward so the second call doesn't re-fetch the
+      // invite index + group record.
+      result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {
+        displayName,
+        cache: result.cache,
+      });
+    }
+    if (result) {
+      handleInviteRedemptionResult(result);
+      // Clean the URL so a refresh doesn't re-trigger.
+      cleanInviteParamFromUrl();
+      if (result.ok && result.groupId) {
+        // Prime the nav-row name cache so the group context shows "Family"
+        // immediately rather than flashing the random groupId for the
+        // round-trip until watchGroupMeta resolves with the name.
+        const knownName = result.groupName || previewGroupName || null;
+        if (knownName) setLastKnownGroupName(result.groupId, knownName);
+        await navigateToGroup(result.groupId);
+        landedInGroup = true;
+      } else if (result.ok) {
+        // Personal-invite success: the new contact lives in Direct, so we must
+        // land the user in Direct context. Without this, an existing user who
+        // last had currentContext='group:X' gets yanked into that group by the
+        // watchUserPrefs tick below — and never sees the new follow. initNav set
+        // _state locally to 'direct' already; force-write 'direct' to userPrefs
+        // so the sync echo doesn't override us.
+        setPrefsCurrentContext('direct');
+      }
+    }
+    // If we didn't end up in a group context (personal invite, failure,
+    // etc.), restore the Direct view AND the nav row so the user has
+    // somewhere to land. The landed-in-group case re-shows the nav row
+    // automatically via navigateToGroup's emit() → renderNavRow chain.
+    if (!landedInGroup) {
+      if (directEl) directEl.classList.remove('hidden');
+      if (navRowEl) navRowEl.classList.remove('hidden');
+    }
+  } else if (!isNew) {
+    // Returning user (no pending invite). Pre-resolve the user's last
+    // currentContext from Firebase BEFORE any visible paint. Without
+    // this, initNav defaults _state to 'direct', the end-of-main reveal
+    // shows #main-ui-direct, and the first watchStatus tick then yanks
+    // the user into 'group:X' — producing the documented sequence of
+    // Direct flash → group context with the backend groupId → group
+    // context with the real name once watchGroupMeta lands. Hiding the
+    // direct shell + nav row across the prefetch keeps the screen empty
+    // until we know where we're landing.
+    const directEl = document.getElementById('main-ui-direct');
+    const navRowEl = document.getElementById('nav-row');
+    if (directEl) directEl.classList.add('hidden');
+    if (navRowEl) navRowEl.classList.add('hidden');
+    try {
+      // currentContext lives in userPrefs/{uid}/ after the migration.
+      const prefsSnap = await getUserPrefs(userId);
+      const cc = prefsSnap?.currentContext;
+      if (typeof cc === 'string' && cc.startsWith('group:')) {
+        const groupId = cc.slice(6);
+        const groupData = await readGroup(groupId);
+        if (groupData?.name) {
+          // Prime the nav-row name cache so the group nav renders the
+          // real name on its first emit, not the groupId.
+          setLastKnownGroupName(groupId, groupData.name);
+          // navigateToGroup runs emit() synchronously: renderNavRow
+          // unhides #nav-row and renders group mode; the onContextChange
+          // listener registered above reveals #group-context-root.
+          await navigateToGroup(groupId);
+        }
+      }
+    } catch (_) {
+      // Network / read failure — fall through to direct context. The
+      // end-of-main reveal block below unhides #main-ui-direct +
+      // #nav-row.
+    }
+  }
+
   touchLastSeen(userId).catch(() => {});
+
+  // Cross-device user-preferences sync. initPrefs makes the prefs module
+  // aware of who's writing; the watchUserPrefs subscription reconciles
+  // local cache with server on every change. Writes throughout the app
+  // (markHintSeen, incrementMadeCallCount, etc.) go through prefs.js so
+  // they hit both localStorage and userPrefs/{uid}/ in Firebase.
+  initPrefs(userId);
+  watchUserPrefs(userId, (serverPrefs) => {
+    syncPrefsFromServer(serverPrefs);
+  });
+  // currentContext changes from sibling devices arrive as a
+  // 'current-context-synced' CustomEvent; forward into groupNav so the
+  // active context flips just like the old watchStatus-driven path used to.
+  document.addEventListener('current-context-synced', (e) => {
+    applyServerCurrentContext(e.detail?.currentContext || 'direct');
+  });
 
   initCodeDrawer(userId, code);
   initHeader(userId);
@@ -254,6 +478,26 @@ async function main() {
   }
   initList(userId, code);
   if (KNOCK_ENABLED) initKnocks(userId);
+
+  startCardsRowSubscriptions();
+  initGroupRemovalDetector(userId);
+
+  // #main-ui-direct starts hidden (markup default) so the welcome / restore /
+  // recovery-code / displayname overlays render against a clean dark body
+  // bg instead of having the empty Direct shell bleed through their
+  // semi-transparent backdrops. Reveal it now — unless we navigated into a
+  // group during the invite-redemption block above, in which case
+  // enterGroupContext already toggled the visibility correctly.
+  if (getCurrentContext().context !== 'group') {
+    const directEl = document.getElementById('main-ui-direct');
+    if (directEl) directEl.classList.remove('hidden');
+    // Returning-user prefetch block above hides #nav-row when the prior
+    // currentContext was a group but we couldn't navigate (no group, no
+    // name, or read failure); restore it here so direct-context users
+    // still get their nav.
+    const navRowEl = document.getElementById('nav-row');
+    if (navRowEl) navRowEl.classList.remove('hidden');
+  }
 
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
 
@@ -336,15 +580,18 @@ async function main() {
     if (PALETTES_ENABLED && colorOrPaletteChanged) {
       syncPaletteStateFromServer(userId, userData.statusColor, incomingPaletteKey);
     }
-    if (PALETTE_INTERACTIONS_ENABLED) {
-      syncFavoritesFromServer(userId, userData.favorites);
-    }
+    // Favorites cross-device sync now lands via watchUserPrefs →
+    // prefs.syncFromServer (the legacy users/{uid}/favorites field is
+    // ignored after this migration; userPrefs/{uid}/favorites is the
+    // source of truth).
     if (userData.code) {
       updateMyCode(userData.code);
     }
-    if (userData.lastTimeoutMinutes) {
-      updateChipFromServer(userData.lastTimeoutMinutes);
-    }
+    // Chip-default cross-device sync now lands via watchUserPrefs →
+    // prefs.syncFromServer → 'last-timeout-synced' event, which me.js's
+    // initHeader listener picks up. The legacy users/{uid}/lastTimeoutMinutes
+    // field is no longer read. currentContext is read from userPrefs too
+    // (via the 'current-context-synced' event wired below).
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);
     const effectiveStatus = expired ? 'unavailable' : userData.status;

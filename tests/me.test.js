@@ -1,6 +1,6 @@
 // tests/me.test.js
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
-jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), initFavoritesStrip: jest.fn() }));
+jest.mock('../js/favorites.js', () => ({ saveCombo: jest.fn(), buildDirectCombo: jest.fn(() => ({})), initFavoritesStrip: jest.fn() }));
 jest.mock('../js/palettes.js', () => ({ applyThemeHint: jest.fn(), restoreSetSwitchPulse: jest.fn() }));
 jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
@@ -8,6 +8,46 @@ jest.mock('../js/db.js', () => ({
   formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
   timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
   setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
+  claimInviteToken: jest.fn(),
+  releaseInviteToken: jest.fn(),
+  readInviteIndex: jest.fn(),
+  readUserInvite: jest.fn(),
+  readUserInvites: jest.fn().mockResolvedValue({}),
+  writeUserInvite: jest.fn(),
+  deleteUserInvite: jest.fn(),
+  setInviteRevoked: jest.fn(),
+  incrementInviteRedemptions: jest.fn(),
+  getCreatorCode: jest.fn(),
+  watchUserInvites: jest.fn(() => () => {}),
+  claimGroupId: jest.fn(),
+  writeUserGroupsEntry: jest.fn(),
+  removeUserGroupsEntry: jest.fn(),
+  readUserGroups: jest.fn().mockResolvedValue({}),
+  watchUserGroups: jest.fn(() => () => {}),
+  setLastVisited: jest.fn(),
+  setCurrentContext: jest.fn(),
+  writeGroup: jest.fn(),
+  readGroup: jest.fn().mockResolvedValue(null),
+  renameGroup: jest.fn(),
+  deleteGroup: jest.fn(),
+  watchGroupMeta: jest.fn(() => () => {}),
+  writeMember: jest.fn(),
+  readMember: jest.fn().mockResolvedValue(null),
+  readMembers: jest.fn().mockResolvedValue({}),
+  removeMember: jest.fn(),
+  setMemberDisplayName: jest.fn(),
+  watchGroupMembers: jest.fn(() => () => {}),
+  writeGroupInvite: jest.fn(),
+  readGroupInvites: jest.fn().mockResolvedValue({}),
+  setGroupInviteRevoked: jest.fn(),
+  incrementGroupInviteRedemptions: jest.fn(),
+  watchGroupInvites: jest.fn(() => () => {}),
+  setStatusOverride: jest.fn().mockResolvedValue(undefined),
+  clearStatusOverride: jest.fn().mockResolvedValue(undefined),
+  mergeStatusOverride: jest.fn().mockResolvedValue(undefined),
+  mergeUserPrefs: jest.fn().mockResolvedValue(undefined),
+  watchUserPrefs: jest.fn(() => () => {}),
+  watchOwnMemberOverride: jest.fn(() => () => {}),
 }));
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(),
@@ -69,7 +109,8 @@ test('applyOwnStatus available: time-remaining is visible with time text', () =>
   jest.advanceTimersByTime(250);
   const el = document.getElementById('time-remaining');
   expect(el.style.display).not.toBe('none');
-  expect(el.textContent).toMatch(/^· .+ left$/);
+  // The · separator is rendered via CSS ::before, not in the textContent.
+  expect(el.textContent).toMatch(/^.+ left$/);
 });
 
 test('applyOwnStatus available: header-chips opacity set to 1 (rAF is synchronous in tests)', () => {
@@ -298,6 +339,27 @@ describe('first-use state', () => {
     jest.advanceTimersByTime(250);
     expect(document.getElementById('header-chips').style.opacity).not.toBe('0');
   });
+
+  test('enterFirstUseMode pulses both Direct and group dots when both exist', () => {
+    // Add the group dot to the fixture.
+    const groupDot = document.createElement('div');
+    groupDot.id = 'group-my-dot';
+    document.body.appendChild(groupDot);
+    enterFirstUseMode();
+    expect(document.getElementById('my-dot').classList.contains('first-use-pulse')).toBe(true);
+    expect(document.getElementById('group-my-dot').classList.contains('first-use-pulse')).toBe(true);
+  });
+
+  test('clicking either dot clears the pulse from BOTH dots', () => {
+    const groupDot = document.createElement('div');
+    groupDot.id = 'group-my-dot';
+    document.body.appendChild(groupDot);
+    enterFirstUseMode();
+    // Click the group dot.
+    document.getElementById('group-my-dot').click();
+    expect(document.getElementById('my-dot').classList.contains('first-use-pulse')).toBe(false);
+    expect(document.getElementById('group-my-dot').classList.contains('first-use-pulse')).toBe(false);
+  });
 });
 
 describe('setOwnStatusReadyCallback', () => {
@@ -340,13 +402,13 @@ describe('setOwnStatusReadyCallback', () => {
   });
 });
 
-describe('saveFavorite guard in setAvailable', () => {
-  let applyOwnStatus, saveFavoriteMock;
+describe('saveCombo guard in setAvailable', () => {
+  let applyOwnStatus, saveComboMock;
 
   beforeEach(() => {
     jest.resetModules();
     jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true }));
-    jest.mock('../js/favorites.js', () => ({ saveFavorite: jest.fn(), initFavoritesStrip: jest.fn() }));
+    jest.mock('../js/favorites.js', () => ({ saveCombo: jest.fn(), buildDirectCombo: jest.fn(() => ({})), initFavoritesStrip: jest.fn() }));
     jest.mock('../js/db.js', () => ({
       setStatus: jest.fn().mockResolvedValue(undefined),
       isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
@@ -363,25 +425,26 @@ describe('saveFavorite guard in setAvailable', () => {
     global.requestAnimationFrame = (fn) => fn();
     makeFixture();
     ({ applyOwnStatus } = require('../js/me.js'));
-    saveFavoriteMock = require('../js/favorites.js').saveFavorite;
+    saveComboMock = require('../js/favorites.js').saveCombo;
   });
 
   afterEach(() => {
     jest.useRealTimers();
   });
 
-  test('saveFavorite does NOT fire during page-load restore of available status', () => {
+  test('saveCombo does NOT fire during page-load restore of available status', () => {
     // Fresh module: savingEnabled starts false. applyOwnStatus with available is the
-    // page-load restore path — saveFavorite must not fire here.
+    // page-load restore path — saveCombo must not fire here.
     applyOwnStatus('available', Date.now() + 7200000);
-    expect(saveFavoriteMock).not.toHaveBeenCalled();
+    expect(saveComboMock).not.toHaveBeenCalled();
   });
 
-  test('saveFavorite fires when applyOwnStatus sets available after prior status call', () => {
+  test('saveCombo fires when applyOwnStatus sets available after prior status call', () => {
     // applyOwnStatus(unavailable) → sets savingEnabled = true, then
-    // applyOwnStatus(available) → setAvailable → saveFavorite fires.
+    // applyOwnStatus(available) → setAvailable → saveCombo fires.
     applyOwnStatus('unavailable', null);
     applyOwnStatus('available', Date.now() + 7200000);
-    expect(saveFavoriteMock).toHaveBeenCalledTimes(1);
+    expect(saveComboMock).toHaveBeenCalledTimes(1);
+    expect(saveComboMock).toHaveBeenCalledWith({}); // buildDirectCombo mock returns {}
   });
 });

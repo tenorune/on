@@ -23,5 +23,5 @@ if (!projectId) {
 // Build with dev config
 execSync('node scripts/dev-build.js', { stdio: 'inherit' });
 
-// Deploy to dev project
-execSync(`npx firebase deploy --only hosting --project ${projectId}`, { stdio: 'inherit' });
+// Deploy to dev project (hosting + database rules)
+execSync(`npx firebase deploy --only hosting,database --project ${projectId}`, { stdio: 'inherit' });

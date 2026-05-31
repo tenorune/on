@@ -6,8 +6,38 @@
         ".write": true
       }
     },
+    "userPrefs": {
+      "$userId": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "codeIndex": {
       "$code": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "inviteIndex": {
+      "$token": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "groupIdIndex": {
+      "$groupId": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "groups": {
+      "$groupId": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "pendingInvites": {
+      "$inviteeUid": {
         ".read": true,
         ".write": true
       }
