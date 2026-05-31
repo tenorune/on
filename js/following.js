@@ -13,12 +13,13 @@ import {
   isHintSeen, markHintSeen,
   getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount,
   getPaletteState, setPaletteState,
+  getFavorites,
 } from './prefs.js';
 import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock, getFloatedUserIds } from './knock.js';
-import { saveCombo, getAllCombos, buildAdoptedCombo } from './favorites.js';
+import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
@@ -792,7 +793,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   // Only after all FTU hints cleared, not during a call.
   const peerColor = color;
   const peerTheme = userData.paletteKey || null;
-  const isMyCombo = getAllCombos().some(c => c.statusColor === peerColor && (c.paletteKey || null) === peerTheme);
+  const isMyCombo = getFavorites().some(c => c.statusColor === peerColor && (c.paletteKey || null) === peerTheme);
   const showLongpressHint = PALETTE_INTERACTIONS_ENABLED
       && !localStorage.getItem('statusapp_seen_longpress')
       && localStorage.getItem('statusapp_went_avail_custom')
@@ -865,7 +866,7 @@ document.addEventListener('my-combo-changed', () => refreshLongpressHints());
 
 function refreshLongpressHints() {
   if (localStorage.getItem('statusapp_seen_longpress')) return;
-  const myCombos = getAllCombos();
+  const myCombos = getFavorites();
 
   document.querySelectorAll('.longpress-hint').forEach(hint => {
     const li = hint.closest('[data-user-id]');

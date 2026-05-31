@@ -72,33 +72,42 @@ if (typeof document !== 'undefined') {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function getAllCombos() {
-  return getFavorites();
-}
-
 // Default fallback colors used when the user has fewer than 4 pen colors
 // available. Each entry is a palette key; the resolved hex comes from
 // getPaletteByKey at call time. Used in priority order: forest first.
 const CANVAS_DEFAULT_KEYS = ['forest', 'iris', 'coral', 'gold'];
 const CANVAS_PEN_TARGET = 4;
 
+// Pen and bg color lists for the call canvas's color picker rows.
+//
+// Note on dedupe semantics — the strip dedupes favorites by the tuple
+// (statusColor, surface2). The canvas dedupes pens by statusColor alone
+// and bgs by surface alone — so two strip pills with the same dot color
+// but different palette themes (forest base vs forest palette mode)
+// collapse to one canvas pen color. The Sets below earn their keep
+// even though favorites is itself deduped at the write boundary.
 export function getCanvasColors() {
-  const combos = getAllCombos();
-  const penColors = [...new Set(combos.map(c => c.statusColor))];
-  const bgColors  = [...new Set(combos.map(c => c.surface))];
-
-  // Pad penColors up to CANVAS_PEN_TARGET (row 1 of the toolbox) with
-  // default palette colors that aren't already present.
+  const favs = getFavorites();
+  const penSeen = new Set();
+  const bgSeen = new Set();
+  const penColors = [];
+  const bgColors = [];
+  for (const c of favs) {
+    if (!penSeen.has(c.statusColor)) { penSeen.add(c.statusColor); penColors.push(c.statusColor); }
+    if (!bgSeen.has(c.surface))      { bgSeen.add(c.surface);      bgColors.push(c.surface); }
+  }
+  // Pad penColors up to CANVAS_PEN_TARGET with default palette colors
+  // that aren't already present.
   if (penColors.length < CANVAS_PEN_TARGET) {
     for (const key of CANVAS_DEFAULT_KEYS) {
       if (penColors.length >= CANVAS_PEN_TARGET) break;
       const palette = getPaletteByKey(key);
-      if (palette && !penColors.includes(palette.color)) {
+      if (palette && !penSeen.has(palette.color)) {
+        penSeen.add(palette.color);
         penColors.push(palette.color);
       }
     }
   }
-
   return { penColors, bgColors };
 }
 
