@@ -588,8 +588,9 @@ function renderGroupSwatchRow() {
   paintGroupDotGoHint();
   // Rolling wave attractor across the unselected swatches — mirrors
   // palettes.js's startSwatchHints for #swatch-row. The function
-  // internally gates on shouldShowHints (customAvail unseen + active
-  // set on its default), so it's safe to call unconditionally here.
+  // internally gates on shouldShowHints (customAvail unseen + both
+  // sets on their default selectedKey), so it's safe to call
+  // unconditionally here.
   startSwatchHints(row, getGroupPaletteState(_currentGroupId));
   // Consume the one-shot key-spin flag — the animation plays once per
   // promote-to-palette-mode event.

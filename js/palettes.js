@@ -319,13 +319,15 @@ function renderSwatchRow(userId) {
 }
 
 function shouldShowHints(state) {
-  // Show if user hasn't gone available with custom color
-  // and the CURRENT set is on its default
+  // Show until either set has a non-default selectedKey, or the user has
+  // gone available with a custom color. Hiding only when the active set
+  // is non-default (the previous behavior) meant tapping the set-toggle
+  // could pause the hint even though the user hadn't yet picked anything;
+  // the intent is to keep nudging until they pick a non-default color
+  // swatch in EITHER set.
   if (localStorage.getItem('statusapp_went_avail_custom')) return false;
-  const setKey = String(state.activeSet);
-  const defaultKey = state.activeSet === 1 ? 'forest' : 'volt';
-  if (state.sets[setKey].selectedKey !== defaultKey) return false;
-  if (state.sets[setKey].activePaletteKey !== null) return false;
+  if (state.sets['1'].selectedKey !== 'forest') return false;
+  if (state.sets['2'].selectedKey !== 'volt') return false;
   return true;
 }
 
