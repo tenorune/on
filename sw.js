@@ -1,5 +1,10 @@
 // sw.js
-const CACHE = 'knockknock';
+// Bump CACHE on every prod deploy that ships shell-asset changes (index.html,
+// css/app.css, dist/bundle.js). The byte-change forces browsers to fire
+// install → fetch fresh SHELL → activate purges the old cache. Without a
+// bump, an identical sw.js means no install event, so existing PWA users
+// keep serving cached old shell until a manual hard-refresh.
+const CACHE = 'knockknock-v2';
 const SHELL = ['/', '/index.html', '/css/app.css', '/dist/bundle.js', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
