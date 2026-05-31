@@ -281,10 +281,15 @@ inviteIndex/{token}:                      // global lookup: token → invite rec
 groupIdIndex/{groupId}: true              // existence lock for transactional ID allocation
                                           // (same pattern as the existing codeIndex)
 
-pendingInvites/{inviteeUid}/{inviteId}:   // Phase 3 in-app push invites; see §10 Flow C
-  from: userId                            // the inviter
-  groupId: groupId                        // group being invited to
+pendingInvites/{inviteeUid}/{groupId}:   // Phase 3 in-app push invites; see §10 Flow C
+  from: userId                            // the inviter (owner)
   ts: timestamp
+                                          // Keyed by groupId (not a random
+                                          // inviteId) so re-inviting the same
+                                          // person to the same group is a
+                                          // natural overwrite — no duplicate
+                                          // entries, no race window between
+                                          // read-check and write.
 ```
 
 ### Why the canonical-location consolidation
@@ -382,48 +387,67 @@ When the create button is invoked while an active invite already exists, the mod
 
 ### 9.4 Modal pattern (shared by personal-scope and group-scope)
 
-A **single modal component** handles invite-link management for both scopes. It has two visual states.
+A **single modal component** handles invite-link management for both scopes. Internally it adapts to whether an active invite exists; from the user's perspective there is one modal with one set of always-present sections that fill in differently based on state.
 
-**State A — No active invite (create state):**
-
-```
-   [ Title — see scope-specific text below ]
-
-   [ Creator label input ]      ← personal-scope only
-   ( e.g., "Mike P." )
-
-   [ Optional TTL selector ]    ← MVP: probably collapsed; post-MVP-extendable
-   [ Optional cap selector ]    ← MVP: probably collapsed; post-MVP-extendable
-
-   [ Create invite link ]   [ Cancel ]
-```
-
-**State B — Active invite exists (manage state):**
+**Modal layout (group scope, both states):**
 
 ```
-   [ Title — see scope-specific text below ]
+   [ Title: "Invite to {group name}" ]
 
-   https://knockknock.app/?i={token}
+   [ Section 1 — Link ]
+     If no active invite:
+       [ Create invite link ]
+     If active invite:
+       https://knockknock.app/?i={token}
+       [ Copy ]   [ Regenerate ]   [ Revoke ]
+       ( Optional metadata: "Used N times" / "Expires {date}" — MVP minimal )
 
-   [ Copy ]   [ Regenerate ]   [ Revoke ]
-
-   ( Optional metadata: "Used N times" / "Expires {date}" — MVP minimal )
-
-   [ Close ]
+   [ Section 2 — In-app invites (Phase 3, group scope only) ]
+     "Invite specific people directly into the group."
+     [ Invite ]   ← sends to all currently selected
+     ┌─────────────────────────────────────────────────┐
+     │ Scrollable list, mutuals first, then non-mutual │
+     │ followers. Each row: avatar dot + label-or-code │
+     │ + selection-state indicator. Tap to toggle.     │
+     │ Rows already in the group are excluded.         │
+     │ Rows with pending invite show an "Invited" pill │
+     │ in place of the selection indicator; tap "Invited"
+     │ to un-invite (revokes the pending record).      │
+     └─────────────────────────────────────────────────┘
 ```
+
+**Modal layout (personal scope, both states):**
+
+```
+   [ Title: "Your invite link" ]
+
+   [ Section 1 — Link ]
+     If no active invite:
+       [ Creator label input ]   ( e.g., "Mike P." )
+       [ Create invite link ]
+     If active invite:
+       https://knockknock.app/?i={token}
+       [ Copy ]   [ Regenerate ]   [ Revoke ]
+
+   ( No Section 2. Personal scope has no in-app push-invite affordance;
+     bridging to a 1:1 follow is post-MVP, see §11. )
+```
+
+**Dismiss.** Both modals dismiss by tapping outside the card (the overlay area). No Cancel / Close button. This is consistent with the rest of the app's modal UX and removes the bottom-of-modal action ambiguity.
 
 **Scope-specific differences (small):**
 
 | Aspect | Personal scope | Group scope |
 |---|---|---|
-| Modal title | "Your invite link" | "Invite link for {group name}" |
-| Creator label field | Shown in State A; editable later via regenerate | Not shown (group name carries the context) |
+| Modal title | "Your invite link" | "Invite to {group name}" |
+| Creator label field | Shown when no active invite; editable later via regenerate | Not shown (group name carries the context) |
 | Subtitle text | "People who tap this link will follow you." | "People who tap this link will join {group name}." |
-| Entry point | Code drawer (see §9.5) | Group context's settings affordance (see §9.6) |
+| Section 2 (in-app picker) | Not present | Present in both link states; see §10 Flow C |
+| Entry points | Code drawer (see §9.5) | Group settings "Invite" + roster "+ Invite to group" row (see §9.6 + §10 Flow C) |
 
-Otherwise the layout, controls, and behavior are identical. This is a deliberate convergence — implementers should build one component parameterized by scope, not two near-duplicates.
+Implementers should build one component parameterized by scope, not two near-duplicates.
 
-**Creator label editing.** For personal-scope invites, the label is set at creation and re-editable by regenerating the link (which is the only point at which the existing creator label is replaced). The label field is *not* an inline editor in State B; changing it is intentionally tied to regeneration, since a label change is essentially a different invite from the redeemer's perspective. MVP keeps this simple; post-MVP could allow in-place edit.
+**Creator label editing.** For personal-scope invites, the label is set at creation and re-editable by regenerating the link (which is the only point at which the existing creator label is replaced). The label field is *not* an inline editor in the manage view; changing it is intentionally tied to regeneration, since a label change is essentially a different invite from the redeemer's perspective. MVP keeps this simple; post-MVP could allow in-place edit.
 
 ### 9.5 Phase 0 entry point — personal-scope invite
 
@@ -535,33 +559,77 @@ Each flow is described step-by-step, with the user-visible behavior at each poin
 
 ### Flow C: existing user accepting an in-app push invite (Phase 3)
 
-This flow exists when an owner (or admin) explicitly invites a follower they already have into a group — not via a link, but as a directed in-app invitation.
+This flow exists when an owner explicitly invites someone who follows them into a group — not via a link, but as a directed in-app invitation. MVP is **owner-only**; admin-issued invites are post-MVP (the role itself is post-MVP).
 
-The pending invite is stored at the top-level path `pendingInvites/{inviteeUid}/{inviteId}` rather than under the invitee's user record. This is the **forward-compatible** location: under tightened Phase B rules, the inviter cannot write to the invitee's `users/{uid}/...` record, but the top-level mailbox can be expressed in security rules with no Cloud Function required (any authenticated user may write an invite with their own uid as `from`; only the invitee may read or delete from their own mailbox).
+The pending invite is stored at the top-level path `pendingInvites/{inviteeUid}/{groupId}` rather than under the invitee's user record. This is the **forward-compatible** location: under tightened Phase B rules, the inviter cannot write to the invitee's `users/{uid}/...` record, but the top-level mailbox can be expressed in security rules with no Cloud Function required (any authenticated user may write an invite with their own uid as `from`; only the invitee may read or delete from their own mailbox). The `{groupId}` key (not a random `inviteId`) makes resending naturally idempotent.
 
-1. **Inviter side:** Owner taps a follower's card in the group context's settings, taps "Invite to a group," picks the destination group. The invite is sent.
-2. **Database write:** A `pendingInvites/{inviteeUid}/{inviteId}` record is added with `{ from: ownerUid, groupId, ts }`.
-3. **Invitee side:** Their app subscribes to `pendingInvites/{ownUid}/` and on real-time delivery (or next session) sees a small inline card at the top of their main list:
+#### Inviter side
+
+**Two entry points, both opening the same invite modal:**
+
+1. **Group settings → "Invite"** — the existing "Invite link" menu item is renamed "Invite" and opens the invite modal. The modal title becomes "Invite to {group name}."
+2. **Group roster → "+ Invite to group" row** — a new affordance pinned at the top of every group's roster, styled the same as Direct's "Add a person" button. Tapping it opens the same invite modal.
+
+**The unified invite modal** (described in §9.4) shows:
+
+- The link section (create OR show + copy / regenerate / revoke).
+- The **in-app picker section** below:
+  - Brief framing text: *"Invite specific people directly into the group."*
+  - An **Invite** button that sends to all currently selected rows.
+  - A scrollable list:
+    - **Mutuals first**, displayed by the inviter's local label for them.
+    - **Then non-mutual followers**, displayed by their share code (mirrors what the inviter sees in Direct for non-mutual followers — no display label exists for them).
+    - Each row has an avatar dot + label-or-code + selection indicator. Tap to toggle selected/unselected.
+  - **Filters applied at render time:**
+    - Followers who are already members of this group are excluded.
+    - Followers who already have a pending invite for this group show an "Invited" pill instead of a selection indicator. Tap the "Invited" pill to un-invite (deletes the pending record).
+
+**Tapping the Invite button:**
+
+- For each currently-selected row, writes `pendingInvites/{inviteeUid}/{groupId} = { from: ownerUid, ts: Date.now() }`.
+- Each selected row flips in-place to the "Invited" state. The modal stays open. No toast.
+- An un-invite (tap "Invited") deletes the pending record and the row flips back to selectable.
+
+**Dismiss the modal by tapping outside** (no Cancel / Close button — see §9.4).
+
+#### Invitee side — the Inbox
+
+On the receiving end the invitee's app subscribes to `pendingInvites/{ownUid}/` via `watchPendingInvites`. Invites surface as an **Inbox** element in the nav row:
+
+- **Inbox is a nav-row button**, same shape and border as the "+" create-group affordance, positioned **before** the first group card (or before the "+" when the user is in no groups).
+- **Inbox is hidden when there are zero pending invites.** It appears the moment the first invite arrives and disappears when the last one is accepted, declined, or revoked.
+- Tapping Inbox opens a modal listing **all** pending invites:
 
    ```
-   {inviter label} invited you to join 'Family'.
-   [Join]  [Decline]
+   ┌─────────────────────────────────────────────────┐
+   │ {inviter A label} invited you to join 'Family'. │
+   │                              [Join]  [Decline]  │
+   │ ─────────────────────────────────────────────── │
+   │ {inviter B label} invited you to join 'Work'.   │
+   │                              [Join]  [Decline]  │
+   │ ─────────────────────────────────────────────── │
+   │ ...                                             │
+   └─────────────────────────────────────────────────┘
    ```
 
-   The inviter is identified by whatever local label the invitee has for them (since they're already a follower of the inviter).
+  - The inviter is identified by the local label the invitee has for them (they are already a follower of the inviter, so they have a label).
+  - The modal dismisses on tap-outside.
+  - **On `Join`:** the invitee is added to the group (member record + user-side enumeration entry), the pending record is deleted, the row disappears from the modal. The app navigates the user into the new group. If this was the last pending invite, the modal closes and the Inbox button disappears from the nav row.
+  - **On `Decline`:** the pending record is deleted, the row disappears. The inviter is **not** notified of the decline. If this was the last pending invite, the modal closes and the Inbox button disappears.
+- **No TTL in MVP** — invites wait until accepted, declined, or revoked.
 
-4. The card persists until the user accepts, declines, or the inviter revokes it. **No TTL in MVP** — the invite waits.
-5. On `Join`:
-   - User is added to the group as a member (group-side write + user-side enumeration entry).
-   - The pending-invites record is deleted.
-   - The card disappears.
-   - The user's context switches to the new group.
-6. On `Decline`:
-   - The pending-invites record is deleted.
-   - The card disappears.
-   - No group membership is created.
-   - The inviter is not notified of the decline.
-7. **Inviter can revoke a pending invite.** Deleting the `pendingInvites/{inviteeUid}/{inviteId}` record removes the card from the invitee's app.
+#### Cleanup races
+
+- **Invitee joined the group via link before tapping Join:** the Join handler reads group membership first; if the invitee is already a member, it silently deletes the pending record and dismisses the row.
+- **Inviter's picker shows someone who just joined via link:** picker filtering is at render time. If the picker is open and the join echoes through `watchGroupMembers`, the row updates in place to be excluded on the next picker render.
+- **Group deleted with pending invites outstanding:** `deleteGroup` sweeps `pendingInvites/*/{groupId}` as part of the delete operation. Each affected invitee's Inbox updates via `watchPendingInvites` and the row disappears.
+- **Inviter revoked a pending invite from another device:** the invitee's `watchPendingInvites` callback fires on the deletion; the Inbox row disappears in real time. If the invitee had the Inbox modal open and was about to tap Join, they see the row vanish — acceptable, no error needed.
+
+#### Inviter-side "what have I sent?"
+
+There is **no inviter-side view of pending sent invites in MVP.** Tracked separately in [#124](https://github.com/tenorune/on/issues/124) — adding a mirror at `userPrefs/{ownerUid}/sentInvites/{groupId}/{inviteeUid}` so the owner can see and revoke their sent invites from any device.
+
+In MVP, an owner who wants to revoke must do it from the same modal session in which they sent the invite (the "Invited" pill is right there in the picker). A device switch loses that affordance until the issue is addressed.
 
 **Phase B rules sketch** (for the implementation plan's reference, not part of MVP code):
 
@@ -569,7 +637,7 @@ The pending invite is stored at the top-level path `pendingInvites/{inviteeUid}/
 "pendingInvites": {
   "$inviteeUid": {
     ".read": "auth.uid === $inviteeUid",
-    "$inviteId": {
+    "$groupId": {
       ".write": "auth.uid !== null && (
         (!data.exists() && newData.child('from').val() === auth.uid)
         || (data.exists() && (data.child('from').val() === auth.uid || auth.uid === $inviteeUid))
@@ -581,9 +649,9 @@ The pending invite is stored at the top-level path `pendingInvites/{inviteeUid}/
 
 The same model works under MVP honor-system rules (which are wide-open).
 
-### Bulk in-app invites: explicitly NOT in MVP
+### Bulk in-app invites
 
-The MVP supports inviting one follower at a time via in-app push (Flow C). Inviting many at once via the in-app affordance is post-MVP. However, **bulk-via-link** is implicitly supported in MVP: one invite link with `redemptionCap: null` (unlimited) can be redeemed by many users, achieving the same outcome.
+The Phase 3 picker is **multi-select** (toggle multiple rows, tap Invite once), which covers the common case of inviting several followers at once. A more elaborate "bulk" affordance — group-wide tag/segment selection, search-and-select across many followers, etc. — is post-MVP. **Bulk-via-link** is also available: one invite link with `redemptionCap: null` (unlimited) can be redeemed by many users.
 
 ## 11. Bridging: group → 1:1 follow (post-MVP)
 
@@ -732,7 +800,7 @@ The own-user's per-group `displayName`, `role`, and `statusOverride` all come fr
 
 ### What syncs via the pending-invites mailbox (Phase 3)
 
-`watchPendingInvites(uid, callback)` — subscribes to `pendingInvites/{uid}/` for in-app push invite cards.
+`watchPendingInvites(uid, callback)` — subscribes to `pendingInvites/{uid}/` for the invitee's Inbox. Each child key is a `groupId` (deterministic, one entry per (invitee, group) pair). The callback receives a map of `groupId → { from, ts }` records.
 
 ### What does NOT sync
 
@@ -871,11 +939,27 @@ What ships:
 What ships:
 
 - In-app invite flow (Flow C in §10).
-- Inviter selects a follower → picks group → invite sent.
-- Recipient sees inline card at top of main list with Join / Decline.
-- Inviter can revoke pending invites.
-- Multi-device sync of pending invites via `watchPendingInvites`.
-- Pending invites stored at `pendingInvites/{inviteeUid}/{inviteId}` (top-level mailbox, Phase-B-rules-compatible without a Cloud Function).
+- **Inviter-side:**
+  - Group settings "Invite link" menu item renamed to "Invite."
+  - New "+ Invite to group" row pinned at the top of every group's roster, styled like Direct's "Add a person" button.
+  - Both entry points open the unified invite modal (§9.4).
+  - The modal's in-app picker section lists mutuals (by local label) then non-mutual followers (by share code), excludes current group members, and lets the inviter multi-select and send with one tap. Already-invited rows show an "Invited" pill that un-invites on tap.
+  - Owner-only in MVP.
+- **Invitee-side:**
+  - New "Inbox" element in the nav row, same shape as "+", positioned before the first group card (or before "+" when no groups exist).
+  - Inbox is hidden when there are zero pending invites.
+  - Tapping Inbox opens a modal that lists all pending invites with per-row Join / Decline.
+  - On Join: user is added to the group and navigated into it. On Decline: pending record is deleted, inviter not notified.
+- Multi-device sync via `watchPendingInvites`.
+- Pending invites stored at `pendingInvites/{inviteeUid}/{groupId}` — deterministic key for natural dedup; top-level mailbox is Phase-B-rules-compatible without a Cloud Function.
+- `deleteGroup` sweeps `pendingInvites/*/{groupId}` to clean up orphaned invites.
+
+What does **not** ship in this phase (tracked separately):
+
+- Inviter-side "sent invites" view + cross-device revoke — [#124](https://github.com/tenorune/on/issues/124).
+- Admin role activation (admin-issued invites) — Phase 4+.
+- Bulk in-app invites to many followers in one action — Phase 4+. (The picker is multi-select, which covers the common case.)
+- Push notifications when an invite arrives — Phase 4+.
 
 ### Phase 4+ — Post-MVP polish
 
@@ -890,7 +974,7 @@ These items are documented but not in MVP. Rough priority order:
 - **In-place edit of personal invite creator label** without requiring regenerate.
 - **Request-to-follow.** From a non-mutual co-member's card, send a follow request the target can accept or decline. Establishes 1:1 follow.
 - **Pending/approval moderation gating.** Group can be configured to require admin approval before new joiners are admitted.
-- **Bulk in-app invites.** Invite multiple followers at once.
+- **Advanced bulk-invite affordances.** Search across followers, tag/segment selection, etc. (The Phase 3 multi-select picker handles the common case.)
 - **Cross-referencing display names.** Optionally let users surface their per-group names to followers.
 - **Co-member 1:1 primitives without mutual.** Widening of the eligibility check for knock/call/canvas/palette adoption (still gated by existing flags).
 - **Group name disambiguation UI.** When a user is in multiple groups with the same name.
@@ -906,17 +990,18 @@ These items are documented but not in MVP. Rough priority order:
 
 ## 17. MVP scope
 
-**MVP = Phases 0 + 1 + 2.**
+**MVP = Phases 0 + 1 + 2 + 3.**
 
 This delivers:
 
 - Invite-link primitive, `inviteIndex` resolution, and 1:1 follow-me invites with creator labels (Phase 0).
 - Group entity, owner-only ops, group invites, member operations, navigation, knock-via-group-context, group-deletion notifications (Phase 1).
 - Per-audience status overrides (Phase 2).
+- In-app push invites with the unified invite modal, Inbox nav element, and pending-invite mailbox (Phase 3).
 
-Both motivations B and C+A are fulfilled. Motivation D (onboarding via link) is also served — new users join via either a personal link or a group link.
+Both motivations B and C+A are fulfilled. Motivation D (onboarding via link) is also served — new users join via either a personal link or a group link. Section 11 (request-to-follow from a group) remains post-MVP.
 
-Phase 3 (in-app invites) and Phase 4+ (post-MVP polish) ship after.
+Phase 4+ (post-MVP polish) ships after.
 
 ### Why include Phase 2 in MVP
 
@@ -952,7 +1037,7 @@ These aren't design decisions; they're notes for whoever writes the implementati
 - **Firebase RTDB rules.** The existing rules allow any-user read/write to `users/$userId`, `codeIndex/$code`, `canvases/$canvasId`. Groups will need analogous rules for `groups/$groupId/...` and the new `inviteIndex`, `pendingInvites`, `groupIdIndex` paths. MVP uses permissive rules; Phase B identity work (documented in the v2 recovery-code spec) will tighten to `auth.uid`-based rules. The data layout in this revision (§7) is designed to be portable to Phase B without requiring a Cloud Function — note in particular:
   - `groups/{groupId}/members/{memberUid}/...` member-self-write rule: `auth.uid === $memberUid`.
   - Group-owner writes (kick, rename, delete) gated by reading the requester's role from the same path.
-  - `pendingInvites/{inviteeUid}/{inviteId}` rules sketched in §10 Flow C — inviter writes own, invitee reads own, both can delete.
+  - `pendingInvites/{inviteeUid}/{groupId}` rules sketched in §10 Flow C — inviter writes own, invitee reads own, both can delete.
 - **Group-deletion / kick detection.** See §16.1 for the algorithm. The correlation step (was-enumerated → null = transition event) is the key piece; without it, the app can't distinguish "I'm not in this group" (steady state) from "I was just removed" (event to surface).
 - **Performance of large groups.** With `members/{uid}` as a sub-record under `groups/{groupId}`, listing all members is O(n). At 100 members this is fine; at 10,000 it isn't. Defer optimization until needed.
 - **Existing canvas / call / knock code.** Unchanged in MVP. Groups don't refactor them.
