@@ -2,6 +2,10 @@
 jest.mock('../js/db.js', () => ({
   setStatusColor: jest.fn().mockResolvedValue(undefined),
   setPaletteKey: jest.fn().mockResolvedValue(undefined),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 
 const DEFAULT_PALETTE_STATE = {

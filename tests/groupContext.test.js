@@ -37,6 +37,10 @@ jest.mock('../js/db.js', () => ({
     const hours = ms / 3600000;
     return `about ${Math.round(hours)} hours left`;
   }),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('../js/invites.js', () => ({
   buildInviteUrl: jest.fn((token) => `https://app.example/?i=${token}`),

@@ -2,6 +2,10 @@
 jest.mock('../js/db.js', () => ({
   mergeUserPrefs: jest.fn().mockResolvedValue(undefined),
   watchUserPrefs: jest.fn(() => () => {}),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 
 const {

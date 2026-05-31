@@ -7,6 +7,10 @@ jest.mock('../js/db.js', () => ({
   watchOwnMemberOverride: jest.fn(() => () => {}),
   watchStatus: jest.fn(() => () => {}),
   removeUserGroupsEntry: jest.fn().mockResolvedValue(undefined),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('../js/prefs.js', () => ({
   setCurrentContext: jest.fn(),

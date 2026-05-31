@@ -48,6 +48,10 @@ jest.mock('../js/palettes.js', () => ({
 jest.mock('../js/db.js', () => ({
   setStatusColor: jest.fn().mockResolvedValue(undefined),
   setUserFavorites: jest.fn().mockResolvedValue(undefined),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
   claimInviteToken: jest.fn(),
   releaseInviteToken: jest.fn(),
   readInviteIndex: jest.fn(),

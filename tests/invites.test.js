@@ -22,6 +22,10 @@ jest.mock('../js/db.js', () => ({
   watchGroupInvites: jest.fn(() => () => {}),
   readGroup: jest.fn().mockResolvedValue(null),
   readMember: jest.fn().mockResolvedValue(null),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('../js/store.js', () => ({ getFollowing: jest.fn(() => []) }));
 jest.mock('../js/groups.js', () => ({

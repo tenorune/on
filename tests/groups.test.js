@@ -18,6 +18,10 @@ jest.mock('../js/db.js', () => ({
   setStatusOverride: jest.fn(),
   clearStatusOverride: jest.fn(),
   mergeStatusOverride: jest.fn().mockResolvedValue(undefined),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock('../js/groupNav.js', () => ({
