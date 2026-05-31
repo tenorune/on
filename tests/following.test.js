@@ -2,7 +2,6 @@
 jest.mock('../js/favorites.js', () => ({
   saveCombo: jest.fn(),
   initFavoritesStrip: jest.fn(),
-  getAllCombos: jest.fn(() => []),
   buildAdoptedCombo: jest.fn((statusColor, paletteKey) => ({
     statusColor: statusColor || '#22c55e',
     surface: '#1e293b',
@@ -126,6 +125,7 @@ jest.mock('../js/prefs.js', () => ({
   incrementMadeCallCount: jest.fn(),
   getAnsweredCallCount: jest.fn().mockReturnValue(0),
   incrementAnsweredCallCount: jest.fn(),
+  getFavorites: jest.fn(() => []),
   getPaletteState: jest.fn().mockReturnValue({
     activeSet: 1,
     sets: {

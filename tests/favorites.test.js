@@ -334,30 +334,6 @@ describe('history pill tap interactions (adopt-only)', () => {
 });
 
 
-describe('getAllCombos', () => {
-  let getAllCombos;
-  beforeEach(() => {
-    setupDom();
-    jest.resetModules();
-    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
-    jest.mock('../js/db.js', () => ({}));
-    jest.mock('../js/store.js', () => ({
-      ...jest.requireActual('../js/store.js'),
-      getFavorites: jest.fn(() => [
-        { statusColor: '#abc', surface: '#000', surface2: '#000', paletteKey: null, selectedKey: 'forest', activeSet: 1 },
-        { statusColor: '#def', surface: '#000', surface2: '#000', paletteKey: null, selectedKey: 'volt',   activeSet: 2 },
-      ]),
-    }));
-    ({ getAllCombos } = require('../js/favorites.js'));
-  });
-
-  test('returns the favorites array directly', () => {
-    const combos = getAllCombos();
-    expect(combos.length).toBe(2);
-    expect(combos[0].statusColor).toBe('#abc');
-    expect(combos[1].statusColor).toBe('#def');
-  });
-});
 
 describe('getCanvasColors', () => {
   let getCanvasColors, initFavoritesStrip;
