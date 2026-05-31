@@ -506,8 +506,15 @@ async function main() {
     const paletteState = getPaletteState();
     const activeSetKey = String(paletteState.activeSet);
     const { selectedKey, activePaletteKey } = paletteState.sets[activeSetKey];
-    // Apply status color vars before first paint
-    applyPaletteVars(selectedKey);
+    // Apply status color vars before first paint — but only when landing in
+    // Direct context. In a group context, the override owns --my-status via
+    // groupContext.applyEffectivePalette; writing the Direct picker color
+    // here would clobber any override color set during the async
+    // enterGroupContext path above (which can fire Firebase callbacks during
+    // the `await navigateToGroup` that runs before we reach this point).
+    if (getCurrentContext().context === 'direct') {
+      applyPaletteVars(selectedKey);
+    }
     initSwatches(userId);
     if (PALETTE_INTERACTIONS_ENABLED) initFavoritesStrip(userId);
   }
