@@ -24,6 +24,10 @@ import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
 import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
 import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, ICON_BOLT, ICON_TREE, startSwatchHints } from './palettes.js';
+import {
+  shouldShowThemeHint, shouldShowDotGoHint, shouldShowSetTogglePulse,
+  isLongpressHintEligible,
+} from './hints.js';
 import { clearFirstUsePulse } from './me.js';
 
 // Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
@@ -278,10 +282,7 @@ function paintRosterRow(uid) {
   // (e) member's combo differs from user's (no point adopting your own combo)
   // (f) longpress hint not yet seen
   if (PALETTE_INTERACTIONS_ENABLED) {
-    const showHint = !isHintSeen('longpress')
-      && isHintSeen('customAvail')
-      && isHintSeen('theme')
-      && isHintSeen('stripPeek')
+    const showHint = isLongpressHintEligible()
       && _ownOverride?.enabled === true
       && isAvailable
       && (color !== (_ownOverride?.statusColor || null) || paletteKey !== (_ownOverride?.paletteKey || null));
@@ -476,7 +477,7 @@ function renderGroupSwatchRow() {
   // is set-specific (bolt vs flower), and the persistent flag is shared with
   // Direct so clearing it in either context clears it everywhere.
   const hintName = activeSet === 1 ? 'bolt' : 'flower';
-  if (!isHintSeen(hintName)) {
+  if (shouldShowSetTogglePulse(activeSet)) {
     toggleBtn.classList.add('first-use-pulse');
     toggleBtn.addEventListener('click', () => {
       toggleBtn.classList.remove('first-use-pulse');
@@ -604,17 +605,15 @@ function renderGroupSwatchRow() {
     // Theme hint: pulsing dotted ring on the selected swatch once the user
     // has gone Available with a custom color but hasn't yet entered palette
     // mode anywhere — mirrors palettes.js's base-mode theme-hint logic.
-    if (!isHintSeen('theme') && isHintSeen('customAvail')) {
+    if (shouldShowThemeHint()) {
       const selectedSwatch = row.querySelector('.swatch.selected');
       if (selectedSwatch) selectedSwatch.classList.add('theme-hint');
     }
   }
   paintGroupDotGoHint();
   // Rolling wave attractor across the unselected swatches — mirrors
-  // palettes.js's startSwatchHints for #swatch-row. The function
-  // internally gates on shouldShowHints (customAvail unseen + both
-  // sets on their default selectedKey), so it's safe to call
-  // unconditionally here.
+  // palettes.js's startSwatchHints for #swatch-row. The function internally
+  // gates on hints.shouldShowSwatchWave, so it's safe to call unconditionally.
   startSwatchHints(row, getGroupPaletteState(_currentGroupId));
 }
 
@@ -636,12 +635,14 @@ function paintGroupDotGoHint() {
   const gps = getGroupPaletteState(_currentGroupId);
   const sk = String(gps.activeSet);
   const defaultKey = gps.activeSet === 1 ? 'forest' : 'volt';
-  const nonDefault = gps.sets[sk].activePaletteKey != null || gps.sets[sk].selectedKey !== defaultKey;
+  const isNonDefault = gps.sets[sk].activePaletteKey != null || gps.sets[sk].selectedKey !== defaultKey;
   const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
   const status = overrideOn ? _ownOverride?.status : _ownPrimary?.status;
   const availableUntil = overrideOn ? _ownOverride?.availableUntil : _ownPrimary?.availableUntil;
   const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
-  const shouldHint = nonDefault && overrideOn && !isAvailable && !isHintSeen('customAvail');
+  // overrideOn is the group-context-specific guard — without override ON the
+  // group dot is read-only, so nudging the user to tap it is wrong.
+  const shouldHint = overrideOn && shouldShowDotGoHint({ isNonDefault, dotAvailable: isAvailable });
   dot.classList.toggle('dot-go-hint', shouldHint);
 }
 
