@@ -122,14 +122,25 @@ export function dedupeCombos(arr) {
 // strip, with whole-array dedupe and cap-at-8. Used by going-active (Direct +
 // group) and by long-press adoption (Direct + group).
 export function saveCombo(combo) {
+  // eslint-disable-next-line no-console
+  console.log('[FAV] saveCombo entry — combo sc=', combo?.statusColor, 's2=', combo?.surface2);
+  // eslint-disable-next-line no-console
+  console.trace('[FAV] saveCombo call site');
   if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
   if (!combo) return;
   const history = getFavorites();
+  // eslint-disable-next-line no-console
+  console.log('[FAV] saveCombo before write — history', history.length, 'colors:',
+    history.map(c => c?.statusColor).join(','));
   // Fast path: incoming matches the existing head AND history has no
   // deeper duplicates → no write needed.
   const headMatches = history.length && pillsLookSame(history[0], combo);
   const cleanHistory = dedupeCombos(history);
-  if (headMatches && cleanHistory.length === history.length) return;
+  if (headMatches && cleanHistory.length === history.length) {
+    // eslint-disable-next-line no-console
+    console.log('[FAV] saveCombo fast-path skip — head matches, history is clean');
+    return;
+  }
   // Otherwise prepend the incoming combo (or its already-deduped equivalent
   // from cleanHistory's head) and rewrite the array cleanly.
   const withoutMatch = cleanHistory.filter(h => !pillsLookSame(h, combo));

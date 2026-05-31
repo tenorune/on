@@ -158,6 +158,11 @@ export function getFavorites() {
 }
 
 export function setFavorites(arr) {
+  // eslint-disable-next-line no-console
+  console.log('[FAV] prefs.setFavorites — writing', arr?.length, 'entries',
+    arr?.map(c => c?.statusColor).join(','));
+  // eslint-disable-next-line no-console
+  console.trace('[FAV] setFavorites call site');
   storeSetFavorites(arr);
   if (_myUserId) mergeUserPrefs(_myUserId, { favorites: arr }).catch(() => {});
 }
@@ -266,8 +271,15 @@ export function syncFromServer(serverPrefs) {
     const raw = Array.isArray(serverPrefs.favorites)
       ? serverPrefs.favorites
       : Object.values(serverPrefs.favorites);
-    storeSetFavorites(dedupeServerFavorites(raw));
+    const deduped = dedupeServerFavorites(raw);
+    // eslint-disable-next-line no-console
+    console.log('[FAV] syncFromServer.favorites firing — raw', raw.length, 'deduped', deduped.length,
+      'colors:', deduped.map(c => c?.statusColor).join(','));
+    storeSetFavorites(deduped);
     document.dispatchEvent(new CustomEvent('favorites-synced'));
+  } else if (serverPrefs && Object.keys(serverPrefs).length > 0) {
+    // eslint-disable-next-line no-console
+    console.log('[FAV] syncFromServer SKIPPED favorites branch (favorites null/undefined in snapshot)');
   }
   // currentContext
   if (typeof serverPrefs.currentContext === 'string') {
