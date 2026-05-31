@@ -255,8 +255,8 @@ function renderSwatchRow(userId) {
     // - seen both bolt and flower icons
     // - selected a non-default color (gone available with it)
     // - never entered palette mode
-    if (!localStorage.getItem('statusapp_seen_theme')
-        && localStorage.getItem('statusapp_went_avail_custom')) {
+    if (!isHintSeen('theme')
+        && isHintSeen('customAvail')) {
       const selectedSwatch = row.querySelector('.swatch.selected');
       if (selectedSwatch) selectedSwatch.classList.add('theme-hint');
     }
@@ -265,7 +265,7 @@ function renderSwatchRow(userId) {
     if (dot) {
       const defaultKey = setNum === 1 ? 'forest' : 'volt';
       if (savedKey !== defaultKey
-          && !localStorage.getItem('statusapp_went_avail_custom')
+          && !isHintSeen('customAvail')
           && !dot.classList.contains('available')) {
         dot.classList.add('dot-go-hint');
         // Pause set-switch pulse while dot-go is active
@@ -351,7 +351,7 @@ function shouldShowHints(state) {
   // could pause the hint even though the user hadn't yet picked anything;
   // the intent is to keep nudging until they pick a non-default color
   // swatch in EITHER set.
-  if (localStorage.getItem('statusapp_went_avail_custom')) return false;
+  if (isHintSeen('customAvail')) return false;
   if (state.sets['1'].selectedKey !== 'forest') return false;
   if (state.sets['2'].selectedKey !== 'volt') return false;
   return true;
@@ -393,15 +393,15 @@ export function restoreSetSwitchPulse() {
   const dot = document.getElementById('my-dot');
   if (dot && dot.classList.contains('dot-go-hint')) return;
   const state = getPaletteState();
-  const pulseKey = state.activeSet === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
-  if (!localStorage.getItem(pulseKey) && !btn.classList.contains('first-use-pulse')) {
+  const hintName = state.activeSet === 1 ? 'bolt' : 'flower';
+  if (!isHintSeen(hintName) && !btn.classList.contains('first-use-pulse')) {
     btn.classList.add('first-use-pulse');
   }
 }
 
 export function applyThemeHint() {
-  if (localStorage.getItem('statusapp_seen_theme')) return;
-  if (!localStorage.getItem('statusapp_went_avail_custom')) return;
+  if (isHintSeen('theme')) return;
+  if (!isHintSeen('customAvail')) return;
   const row = document.getElementById('swatch-row');
   if (!row) return;
   const selected = row.querySelector('.swatch.selected');
@@ -460,8 +460,8 @@ export function tapSwatch(key, userId) {
     target.classList.add('selected');
     // Theme hint: show pulsing dotted ring if user has seen bolt/flower,
     // selected a non-default color, and hasn't discovered themes yet
-    if (!localStorage.getItem('statusapp_seen_theme')
-        && localStorage.getItem('statusapp_went_avail_custom')) {
+    if (!isHintSeen('theme')
+        && isHintSeen('customAvail')) {
       target.classList.add('theme-hint');
     }
   }
@@ -473,7 +473,7 @@ export function tapSwatch(key, userId) {
 
   if (isNonDefault) {
     // Non-default selected: start dot hint, pause set-switch hint while dot-go is active
-    if (dot && !localStorage.getItem('statusapp_went_avail_custom') && !dot.classList.contains('available')) {
+    if (dot && !isHintSeen('customAvail') && !dot.classList.contains('available')) {
       dot.classList.add('dot-go-hint');
       if (toggleBtn) toggleBtn.classList.remove('first-use-pulse');
     }
@@ -481,8 +481,8 @@ export function tapSwatch(key, userId) {
     // Default selected: stop dot hint, resume set-switch hint if not yet cleared,
     // and restart swatch wave
     if (dot) dot.classList.remove('dot-go-hint');
-    const pulseKey = state.activeSet === 1 ? 'statusapp_seen_bolt' : 'statusapp_seen_flower';
-    if (toggleBtn && !localStorage.getItem(pulseKey)) {
+    const hintName = state.activeSet === 1 ? 'bolt' : 'flower';
+    if (toggleBtn && !isHintSeen(hintName)) {
       toggleBtn.classList.add('first-use-pulse');
     }
     startSwatchHints(row, state);
