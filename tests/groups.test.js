@@ -146,6 +146,28 @@ describe('deleteGroup', () => {
     expect(dbDeleteGroup).toHaveBeenCalledWith('G1');
     expect(removeUserGroupsEntry).toHaveBeenCalledWith('me', 'G1');
   });
+
+  test('deleteGroup sweeps pending invites BEFORE deleting the group entity', async () => {
+    const { readGroup, deleteGroup: dbDeleteGroup,
+            readPendingInviteesForGroup, deletePendingInvite } = require('../js/db.js');
+
+    const callOrder = [];
+    readGroup.mockResolvedValueOnce({ ownerId: 'me', name: 'Family', createdAt: 1 });
+    readPendingInviteesForGroup.mockResolvedValueOnce(['inviteeA', 'inviteeB']);
+    deletePendingInvite.mockImplementation((uid) => {
+      callOrder.push(`deletePendingInvite:${uid}`);
+      return Promise.resolve();
+    });
+    dbDeleteGroup.mockImplementation((gid) => {
+      callOrder.push(`dbDeleteGroup:${gid}`);
+      return Promise.resolve();
+    });
+
+    await deleteGroup('G1', 'me');
+
+    expect(callOrder.indexOf('deletePendingInvite:inviteeA')).toBeLessThan(callOrder.indexOf('dbDeleteGroup:G1'));
+    expect(callOrder.indexOf('deletePendingInvite:inviteeB')).toBeLessThan(callOrder.indexOf('dbDeleteGroup:G1'));
+  });
 });
 
 describe('leaveGroup', () => {
