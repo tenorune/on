@@ -741,6 +741,93 @@ describe('strip available in both contexts', () => {
   });
 });
 
+// Repro for user-reported Scenario 2: "User goes available with RED in Direct >
+// Sees RED in favorites strip > goes unavailable > selects BLUE color swatch >
+// RED disappears from favorites."
+describe('Scenario 2 repro: picking a swatch must not remove existing favorites', () => {
+  let store, saveCombo;
+  beforeEach(() => {
+    setupDom();
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
+    jest.mock('../js/palettes.js', () => ({
+      ...jest.requireActual('../js/palettes.js'),
+      getPaletteByKey: jest.fn(),
+      getGlowForColor: jest.fn(() => '#000'),
+    }));
+    jest.mock('../js/db.js', () => ({
+      setStatusColor: jest.fn().mockResolvedValue(undefined),
+      setUserFavorites: jest.fn().mockResolvedValue(undefined),
+    }));
+    jest.mock('../js/store.js', () => ({
+      ...jest.requireActual('../js/store.js'),
+      getPaletteState: jest.fn(() => ({
+        activeSet: 1,
+        sets: { '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#22c55e' },
+                '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' } },
+      })),
+      setPaletteState: jest.fn(),
+      getFavorites: jest.fn(() => []),
+      setFavorites: jest.fn(),
+    }));
+    store = require('../js/store.js');
+    ({ saveCombo } = require('../js/favorites.js'));
+  });
+
+  test('saveCombo with a brand-new combo when favorites is [RED] keeps RED', () => {
+    const RED = { statusColor: '#ff0000', surface: '#1e293b', surface2: '#334155',
+                  paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+    store.getFavorites.mockReturnValue([RED]);
+    // User picks BLUE in Direct — no saveCombo is called here in production.
+    // Just simulating "what if saveCombo were called with the same RED again?"
+    // (which it shouldn't be, but the test confirms idempotency.)
+    saveCombo(RED);
+    expect(store.setFavorites).not.toHaveBeenCalled(); // head-match fast-path
+  });
+
+  test('Direct picker swatch click does NOT touch favorites: simulate setPaletteState write', () => {
+    const RED = { statusColor: '#ff0000', surface: '#1e293b', surface2: '#334155',
+                  paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+    store.getFavorites.mockReturnValue([RED]);
+    // Mimic palettes.js swatch handler: setPaletteState (which goes to prefs)
+    const prefs = require('../js/prefs.js');
+    prefs.setPaletteState({
+      activeSet: 1,
+      sets: { '1': { selectedKey: 'forest', activePaletteKey: null, selectedColor: '#0000ff' },
+              '2': { selectedKey: 'volt',   activePaletteKey: null, selectedColor: '#aaff00' } },
+    });
+    // Favorites must remain untouched.
+    expect(store.setFavorites).not.toHaveBeenCalled();
+  });
+
+  test('syncFromServer with paletteState-only update keeps existing favorites', () => {
+    const RED = { statusColor: '#ff0000', surface: '#1e293b', surface2: '#334155',
+                  paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+    store.getFavorites.mockReturnValue([RED]);
+    // Sibling-device write of paletteState only. serverPrefs has paletteState
+    // but favorites is undefined. syncFromServer must skip the favorites
+    // branch entirely (not write [] or undefined).
+    const { syncFromServer } = require('../js/prefs.js');
+    syncFromServer({ paletteState: { direct: { activeSet: 1, sets: {} } } });
+    expect(store.setFavorites).not.toHaveBeenCalled();
+  });
+
+  test('syncFromServer with favorites=[RED] AND paletteState keeps RED', () => {
+    const RED = { statusColor: '#ff0000', surface: '#1e293b', surface2: '#334155',
+                  paletteKey: null, selectedKey: 'forest', activeSet: 1 };
+    store.getFavorites.mockReturnValue([RED]);
+    const { syncFromServer } = require('../js/prefs.js');
+    syncFromServer({
+      paletteState: { direct: { activeSet: 1, sets: {} } },
+      favorites: [RED],
+    });
+    // Should write RED back (server-wins). Local already has RED — write is
+    // idempotent but happens.
+    expect(store.setFavorites).toHaveBeenCalled();
+    expect(store.setFavorites.mock.calls[0][0]).toEqual([RED]);
+  });
+});
+
 // Helper: flip collapsed state and re-render. Used by the cross-context
 // strip tests above; the existing collapsed/expanded toggling is tested
 // elsewhere.

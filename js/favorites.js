@@ -122,18 +122,34 @@ export function dedupeCombos(arr) {
 // strip, with whole-array dedupe and cap-at-8. Used by going-active (Direct +
 // group) and by long-press adoption (Direct + group).
 export function saveCombo(combo) {
-  if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
-  if (!combo) return;
+  console.log('[FAV] saveCombo called with combo sc=', combo?.statusColor, 's2=', combo?.surface2);
+  console.trace('[FAV] saveCombo call site');
+  if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) {
+    console.log('[FAV] saveCombo skipped — feature flags off');
+    return;
+  }
+  if (!combo) {
+    console.log('[FAV] saveCombo skipped — null combo');
+    return;
+  }
   const history = getFavorites();
+  console.log('[FAV] saveCombo current history:', history.length, 'entries:',
+    JSON.stringify(history.map(c => ({ sc: c?.statusColor, s2: c?.surface2 }))));
   // Fast path: incoming matches the existing head AND history has no
   // deeper duplicates → no write needed.
   const headMatches = history.length && pillsLookSame(history[0], combo);
   const cleanHistory = dedupeCombos(history);
-  if (headMatches && cleanHistory.length === history.length) return;
+  if (headMatches && cleanHistory.length === history.length) {
+    console.log('[FAV] saveCombo fast-path: head matches and history is clean — no write');
+    return;
+  }
   // Otherwise prepend the incoming combo (or its already-deduped equivalent
   // from cleanHistory's head) and rewrite the array cleanly.
   const withoutMatch = cleanHistory.filter(h => !pillsLookSame(h, combo));
-  writeFavorites([combo, ...withoutMatch].slice(0, MAX_FAVORITES));
+  const next = [combo, ...withoutMatch].slice(0, MAX_FAVORITES);
+  console.log('[FAV] saveCombo writing:', next.length, 'entries:',
+    JSON.stringify(next.map(c => ({ sc: c?.statusColor, s2: c?.surface2 }))));
+  writeFavorites(next);
   renderStrip();
 }
 
