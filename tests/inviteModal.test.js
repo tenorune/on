@@ -294,3 +294,73 @@ describe('openInviteModal — overlay dismiss', () => {
     expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
   });
 });
+
+describe('openInviteModal — Section 2 (in-app picker)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: jest.fn().mockResolvedValue(undefined) },
+    });
+  });
+
+  test('Section 2 (in-app picker) renders when scope is group', () => {
+    document.body.innerHTML = `
+      <div id="invite-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+          <h2 id="invite-modal-title"></h2>
+          <p id="invite-modal-subtitle"></p>
+          <p id="invite-modal-label-error" class="hidden"></p>
+          <label id="invite-modal-label-hint"></label>
+          <input id="invite-modal-label-input" type="text" />
+          <div id="invite-modal-create">
+            <button id="invite-modal-create-btn"></button>
+          </div>
+          <div id="invite-modal-manage">
+            <code id="invite-modal-url"></code>
+            <button id="invite-modal-copy-btn"></button>
+            <button id="invite-modal-regen-btn"></button>
+            <button id="invite-modal-revoke-btn"></button>
+          </div>
+          <div id="invite-modal-picker" class="hidden">
+            <p id="invite-modal-picker-framing"></p>
+            <button id="invite-modal-picker-send-btn"></button>
+            <ul id="invite-modal-picker-list"></ul>
+          </div>
+        </div>
+      </div>
+    `;
+    openInviteModal({ scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family' });
+    expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(false);
+  });
+
+  test('Section 2 (in-app picker) is hidden when scope is personal', () => {
+    document.body.innerHTML = `
+      <div id="invite-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+          <h2 id="invite-modal-title"></h2>
+          <p id="invite-modal-subtitle"></p>
+          <p id="invite-modal-label-error" class="hidden"></p>
+          <label id="invite-modal-label-hint"></label>
+          <input id="invite-modal-label-input" type="text" />
+          <div id="invite-modal-create">
+            <button id="invite-modal-create-btn"></button>
+          </div>
+          <div id="invite-modal-manage">
+            <code id="invite-modal-url"></code>
+            <button id="invite-modal-copy-btn"></button>
+            <button id="invite-modal-regen-btn"></button>
+            <button id="invite-modal-revoke-btn"></button>
+          </div>
+          <div id="invite-modal-picker" class="hidden">
+            <p id="invite-modal-picker-framing"></p>
+            <button id="invite-modal-picker-send-btn"></button>
+            <ul id="invite-modal-picker-list"></ul>
+          </div>
+        </div>
+      </div>
+    `;
+    openInviteModal({ scope: 'personal', userId: 'u1' });
+    expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(true);
+  });
+});

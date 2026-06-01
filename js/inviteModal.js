@@ -83,6 +83,12 @@ export function openInviteModal({ scope, userId, activeInvite = null, groupId = 
     if (labelInputEl) labelInputEl.classList.add('hidden');
   }
 
+  // Section 2 (in-app picker) — group scope only.
+  const pickerEl = document.getElementById('invite-modal-picker');
+  if (pickerEl) {
+    pickerEl.classList.toggle('hidden', scope !== 'group');
+  }
+
   hideError();
   clearListeners();
   document.getElementById('invite-modal').classList.remove('hidden');
