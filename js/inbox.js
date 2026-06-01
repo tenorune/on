@@ -113,6 +113,14 @@ function buildInboxRow({ groupId, inviterLabel, groupName }) {
 
 async function handleJoin(groupId, groupName) {
   if (!_myUid) return;
+  // Double-tap guard: disable the Join button on first click so a second
+  // click can't open the displayName prompt twice.
+  const row = document.querySelector(`.inbox-row[data-group-id="${groupId}"]`);
+  const joinBtn = row?.querySelector('.inbox-join-btn');
+  if (joinBtn) {
+    if (joinBtn.disabled) return;
+    joinBtn.disabled = true;
+  }
   // Race protection: check membership and group existence in parallel.
   const [existingMember, group] = await Promise.all([
     readMember(groupId, _myUid),
@@ -150,5 +158,13 @@ function installOverlayHandlerOnce() {
     const modal = document.getElementById('inbox-modal');
     if (!modal || modal.classList.contains('hidden')) return;
     if (e.target === modal) closeInboxModal();
+  });
+  // Escape-to-dismiss for keyboard users — the modal has aria-modal="true",
+  // which traps focus, so without this there is no keyboard path out.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const modal = document.getElementById('inbox-modal');
+    if (!modal || modal.classList.contains('hidden')) return;
+    closeInboxModal();
   });
 }

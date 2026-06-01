@@ -181,7 +181,7 @@ describe('openInviteModal — group scope', () => {
 
   test('renders title and subtitle with the group name interpolated', async () => {
     await openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
-    expect(document.getElementById('invite-modal-title').textContent).toBe('Invite link for Family');
+    expect(document.getElementById('invite-modal-title').textContent).toBe('Invite to Family');
     expect(document.getElementById('invite-modal-subtitle').textContent).toContain('Family');
   });
 

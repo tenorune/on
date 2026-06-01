@@ -18,7 +18,7 @@ const SCOPE_COPY = {
     needsLabel: true,
   },
   group: {
-    title: 'Invite link for {groupName}',
+    title: 'Invite to {groupName}',
     subtitle: 'People who tap this link will join {groupName}.',
     needsLabel: false,
   },
