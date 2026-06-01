@@ -111,6 +111,10 @@ jest.mock('../js/features.js', () => ({
 jest.mock('../js/me.js', () => ({
   clearFirstUsePulse: jest.fn(),
 }));
+jest.mock('../js/following.js', () => ({
+  getCurrentFollowersMap: jest.fn(() => ({})),
+  getCurrentMutuals: jest.fn(() => []),
+}));
 
 // PointerEvent polyfill for jsdom (does not implement it natively)
 if (typeof PointerEvent === 'undefined') {
@@ -149,7 +153,7 @@ function setupContextDom() {
                 <summary class="chip">Settings</summary>
                 <div class="group-actions-menu">
                   <button id="group-action-rename" class="hidden">Rename group</button>
-                  <button id="group-action-invite" class="hidden">Invite link</button>
+                  <button id="group-action-invite" class="hidden">Invite</button>
                   <button id="group-action-delete" class="hidden">Delete group</button>
                   <button id="group-action-edit-name" class="hidden">Edit my name</button>
                   <button id="group-action-leave" class="hidden">Leave group</button>
@@ -1747,6 +1751,19 @@ describe('group-context FTU hints', () => {
     seedRoster({ ownOverride: { enabled: false, status: null, availableUntil: null } });
     const dot = document.getElementById('group-my-dot');
     expect(dot.classList.contains('dot-go-hint')).toBe(false);
+  });
+});
+
+describe('Phase 3 renames', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+  });
+
+  test('group settings button reads "Invite" (Phase 3 rename from "Invite link")', () => {
+    setupContextDom();
+    const btn = document.getElementById('group-action-invite');
+    expect(btn.textContent).toBe('Invite');
   });
 });
 

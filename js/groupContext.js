@@ -20,6 +20,7 @@ import {
 } from './prefs.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { openInviteModal } from './inviteModal.js';
+import { getCurrentFollowersMap, getCurrentMutuals } from './following.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
 import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
@@ -821,6 +822,9 @@ function wireActions(groupId, userId, isOwner, groupName) {
       groupId,
       groupName: groupName || groupId,
       activeInvite: _activeGroupInvite,
+      followers: getCurrentFollowersMap(),
+      mutuals: getCurrentMutuals(),
+      currentMemberUids: new Set(Object.keys(_membersOverrides || {})),
     });
   });
 

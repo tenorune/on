@@ -193,6 +193,24 @@ export function resetRenderedFollowees() {
 
 export function getCallModeCalleeId() { return callModeCalleeId; }
 
+// Snapshot accessor for callers that need the current followers + mutuals
+// without setting up their own subscription. Currently used by the Phase 3
+// invite picker.
+export function getCurrentFollowersMap() {
+  if (!latestFollowersSnapshot) return {};
+  // Snapshot is an array of { userId, code }; convert to a map.
+  const out = {};
+  for (const f of latestFollowersSnapshot) out[f.userId] = f.code;
+  return out;
+}
+
+export function getCurrentMutuals() {
+  const followers = getCurrentFollowersMap();
+  return getFollowing()
+    .filter((f) => followers[f.userId])
+    .map((f) => ({ userId: f.userId, label: f.label, code: f.code }));
+}
+
 export function enterCallMode(calleeEntry, myUserId) {
   incrementMadeCallCount();
   // If we were being called by someone, clear their callState first
