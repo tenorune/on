@@ -15,6 +15,7 @@ import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector } from './groups.js';
+import { initInbox } from './inbox.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 
 
@@ -457,6 +458,7 @@ async function main() {
 
   startCardsRowSubscriptions();
   initGroupRemovalDetector(userId);
+  initInbox(userId);
 
   // #main-ui-direct starts hidden (markup default) so the welcome / restore /
   // recovery-code / displayname overlays render against a clean dark body
