@@ -6,6 +6,8 @@ import {
   createPersonalInvite, regeneratePersonalInvite, revokePersonalInvite,
   createGroupInvite, regenerateGroupInvite, revokeGroupInvite,
 } from './invites.js';
+import { readPendingInviteesForGroup } from './db.js';
+import { renderInvitePicker } from './invitePicker.js';
 
 const SCOPE_COPY = {
   personal: {
@@ -45,12 +47,14 @@ function renderManageUrl(url) {
 
 function hideError() {
   const errEl = document.getElementById('invite-modal-label-error');
+  if (!errEl) return;
   errEl.classList.add('hidden');
   errEl.textContent = '';
 }
 
 function showError(msg) {
   const errEl = document.getElementById('invite-modal-label-error');
+  if (!errEl) return;
   errEl.classList.remove('hidden');
   errEl.textContent = msg;
 }
@@ -60,7 +64,7 @@ function closeModal() {
   clearListeners();
 }
 
-export function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null }) {
+export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, mutuals = [], currentMemberUids = new Set() }) {
   const copy = SCOPE_COPY[scope];
   if (!copy) throw new Error(`Unknown scope: ${scope}`);
   if (scope === 'group' && (!groupId || !groupName)) {
@@ -87,6 +91,19 @@ export function openInviteModal({ scope, userId, activeInvite = null, groupId = 
   const pickerEl = document.getElementById('invite-modal-picker');
   if (pickerEl) {
     pickerEl.classList.toggle('hidden', scope !== 'group');
+  }
+
+  // Section 2 — populate the picker for group scope only.
+  if (scope === 'group') {
+    const pendingInvitees = await readPendingInviteesForGroup(groupId);
+    renderInvitePicker({
+      inviterUid: userId,
+      groupId,
+      followers,
+      mutuals,
+      currentMemberUids,
+      pendingInviteeUids: new Set(pendingInvitees),
+    });
   }
 
   hideError();

@@ -8,6 +8,20 @@ jest.mock('../js/invites.js', () => ({
   revokeGroupInvite: jest.fn(),
 }));
 
+jest.mock('../js/db.js', () => ({
+  createPersonalInvite: jest.fn(),
+  regeneratePersonalInvite: jest.fn(),
+  revokePersonalInvite: jest.fn(),
+  createGroupInvite: jest.fn(),
+  regenerateGroupInvite: jest.fn(),
+  revokeGroupInvite: jest.fn(),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock('../js/invitePicker.js', () => ({
+  renderInvitePicker: jest.fn(),
+}));
+
 const invites = require('../js/invites.js');
 const { openInviteModal } = require('../js/inviteModal');
 
@@ -28,6 +42,11 @@ function setupDom() {
           <button id="invite-modal-copy-btn"></button>
           <button id="invite-modal-regen-btn"></button>
           <button id="invite-modal-revoke-btn"></button>
+        </div>
+        <div id="invite-modal-picker" class="hidden">
+          <p id="invite-modal-picker-framing"></p>
+          <button id="invite-modal-picker-send-btn"></button>
+          <ul id="invite-modal-picker-list"></ul>
         </div>
       </div>
     </div>
@@ -156,25 +175,25 @@ describe('openInviteModal — group scope', () => {
     });
   });
 
-  test('throws when groupId or groupName is missing', () => {
-    expect(() => openInviteModal({ scope: 'group', userId: 'uid1' })).toThrow(/groupId.*groupName/);
+  test('throws when groupId or groupName is missing', async () => {
+    await expect(openInviteModal({ scope: 'group', userId: 'uid1' })).rejects.toThrow(/groupId.*groupName/);
   });
 
-  test('renders title and subtitle with the group name interpolated', () => {
-    openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+  test('renders title and subtitle with the group name interpolated', async () => {
+    await openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
     expect(document.getElementById('invite-modal-title').textContent).toBe('Invite link for Family');
     expect(document.getElementById('invite-modal-subtitle').textContent).toContain('Family');
   });
 
-  test('hides the label input for group scope', () => {
-    openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+  test('hides the label input for group scope', async () => {
+    await openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
     expect(document.getElementById('invite-modal-label-input').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('invite-modal-label-hint').classList.contains('hidden')).toBe(true);
   });
 
   test('Create button calls createGroupInvite(userId, groupId)', async () => {
     invites.createGroupInvite.mockResolvedValue({ token: 'NEW', url: 'https://x/?i=NEW', existing: false });
-    openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+    await openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
     document.getElementById('invite-modal-create-btn').click();
     await new Promise(setImmediate);
     expect(invites.createGroupInvite).toHaveBeenCalledWith('uid1', 'G1');
@@ -183,7 +202,7 @@ describe('openInviteModal — group scope', () => {
 
   test('Regenerate calls regenerateGroupInvite(userId, groupId)', async () => {
     invites.regenerateGroupInvite.mockResolvedValue({ token: 'NEW2', url: 'https://x/?i=NEW2', existing: false });
-    openInviteModal({
+    await openInviteModal({
       scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
       activeInvite: { token: 'T', url: 'https://x/?i=T', scope: 'group' },
     });
@@ -194,7 +213,7 @@ describe('openInviteModal — group scope', () => {
 
   test('Revoke calls revokeGroupInvite(userId, groupId)', async () => {
     invites.revokeGroupInvite.mockResolvedValue();
-    openInviteModal({
+    await openInviteModal({
       scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
       activeInvite: { token: 'T', url: 'https://x/?i=T', scope: 'group' },
     });
@@ -295,6 +314,62 @@ describe('openInviteModal — overlay dismiss', () => {
   });
 });
 
+test('openInviteModal in group scope calls renderInvitePicker with the supplied data', async () => {
+  jest.resetModules();
+  const renderInvitePickerMock = jest.fn();
+  jest.doMock('../js/invitePicker.js', () => ({ renderInvitePicker: renderInvitePickerMock }));
+  jest.doMock('../js/db.js', () => ({
+    createPersonalInvite: jest.fn(),
+    regeneratePersonalInvite: jest.fn(),
+    revokePersonalInvite: jest.fn(),
+    createGroupInvite: jest.fn(),
+    regenerateGroupInvite: jest.fn(),
+    revokeGroupInvite: jest.fn(),
+    readPendingInviteesForGroup: jest.fn().mockResolvedValue(['existingInvitee']),
+  }));
+  const { openInviteModal } = require('../js/inviteModal.js');
+  document.body.innerHTML = `
+    <div id="invite-modal" class="modal-overlay hidden">
+      <div class="modal-card">
+        <h2 id="invite-modal-title"></h2>
+        <p id="invite-modal-subtitle"></p>
+        <p id="invite-modal-label-error" class="hidden"></p>
+        <label id="invite-modal-label-hint"></label>
+        <input id="invite-modal-label-input" type="text" />
+        <div id="invite-modal-create">
+          <button id="invite-modal-create-btn"></button>
+        </div>
+        <div id="invite-modal-manage">
+          <code id="invite-modal-url"></code>
+          <button id="invite-modal-copy-btn"></button>
+          <button id="invite-modal-regen-btn"></button>
+          <button id="invite-modal-revoke-btn"></button>
+        </div>
+        <div id="invite-modal-picker" class="hidden">
+          <p id="invite-modal-picker-framing"></p>
+          <button id="invite-modal-picker-send-btn"></button>
+          <ul id="invite-modal-picker-list"></ul>
+        </div>
+      </div>
+    </div>
+  `;
+  await openInviteModal({
+    scope: 'group',
+    userId: 'me',
+    groupId: 'G1',
+    groupName: 'Family',
+    followers: { uA: 'codeA' },
+    mutuals: [],
+    currentMemberUids: new Set(['someoneElse']),
+  });
+  expect(renderInvitePickerMock).toHaveBeenCalledTimes(1);
+  const call = renderInvitePickerMock.mock.calls[0][0];
+  expect(call.inviterUid).toBe('me');
+  expect(call.groupId).toBe('G1');
+  expect(call.followers).toEqual({ uA: 'codeA' });
+  expect(call.pendingInviteeUids.has('existingInvitee')).toBe(true);
+});
+
 describe('openInviteModal — Section 2 (in-app picker)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -304,7 +379,7 @@ describe('openInviteModal — Section 2 (in-app picker)', () => {
     });
   });
 
-  test('Section 2 (in-app picker) renders when scope is group', () => {
+  test('Section 2 (in-app picker) renders when scope is group', async () => {
     document.body.innerHTML = `
       <div id="invite-modal" class="modal-overlay hidden">
         <div class="modal-card">
@@ -330,7 +405,7 @@ describe('openInviteModal — Section 2 (in-app picker)', () => {
         </div>
       </div>
     `;
-    openInviteModal({ scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family' });
+    await openInviteModal({ scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family' });
     expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(false);
   });
 
