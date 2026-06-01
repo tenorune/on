@@ -266,4 +266,31 @@ describe('openInviteModal — overlay dismiss', () => {
     document.getElementById('card').click();
     expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
   });
+
+  test('pressing Escape dismisses the modal', () => {
+    document.body.innerHTML = `
+      <div id="invite-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+          <h2 id="invite-modal-title"></h2>
+          <p id="invite-modal-subtitle"></p>
+          <p id="invite-modal-label-error" class="hidden"></p>
+          <label id="invite-modal-label-hint"></label>
+          <input id="invite-modal-label-input" type="text" />
+          <div id="invite-modal-create">
+            <button id="invite-modal-create-btn"></button>
+          </div>
+          <div id="invite-modal-manage">
+            <code id="invite-modal-url"></code>
+            <button id="invite-modal-copy-btn"></button>
+            <button id="invite-modal-regen-btn"></button>
+            <button id="invite-modal-revoke-btn"></button>
+          </div>
+        </div>
+      </div>
+    `;
+    openInviteModal({ scope: 'personal', userId: 'u1' });
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
+  });
 });

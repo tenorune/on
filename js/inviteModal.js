@@ -166,4 +166,9 @@ export function openInviteModal({ scope, userId, activeInvite = null, groupId = 
   on(overlay, 'click', (e) => {
     if (e.target === overlay) closeModal();
   });
+  // Escape-to-dismiss for keyboard users — the modal has aria-modal="true",
+  // which traps focus, so without this there is no keyboard path out.
+  on(document, 'keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+  });
 }
