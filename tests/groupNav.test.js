@@ -7,9 +7,16 @@ jest.mock('../js/db.js', () => ({
   watchOwnMemberOverride: jest.fn(() => () => {}),
   watchStatus: jest.fn(() => () => {}),
   removeUserGroupsEntry: jest.fn().mockResolvedValue(undefined),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('../js/prefs.js', () => ({
   setCurrentContext: jest.fn(),
+}));
+jest.mock('../js/inbox.js', () => ({
+  renderInboxNavSlot: jest.fn(),
 }));
 jest.mock('../js/features.js', () => ({ GROUPS_ENABLED: true }));
 jest.mock('../js/groups.js', () => ({
@@ -143,7 +150,7 @@ describe('create-group modal', () => {
   test('Submit validates: empty name shows error', async () => {
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = '   ';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('create-group-error').classList.contains('hidden')).toBe(false);
@@ -154,10 +161,10 @@ describe('create-group modal', () => {
     groups.createGroup.mockResolvedValue({ groupId: 'G1ABCDEF', name: 'Family' });
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = 'Family';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
-    expect(groups.createGroup).toHaveBeenCalledWith('uid1', 'Family', 'Mike');
+    expect(groups.createGroup).toHaveBeenCalledWith('uid1', 'Family', 'Alex');
     expect(document.getElementById('create-group-modal').classList.contains('hidden')).toBe(true);
     expect(prefs.setCurrentContext).toHaveBeenCalledWith('group:G1ABCDEF');
   });
@@ -166,7 +173,7 @@ describe('create-group modal', () => {
     groups.createGroup.mockResolvedValue({ groupId: 'G1ABCDEF', name: 'Family' });
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = 'Family';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
     expect(inviteModal.openInviteModal).toHaveBeenCalledWith({
@@ -181,7 +188,7 @@ describe('create-group modal', () => {
     groups.createGroup.mockRejectedValue(new Error('boom'));
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = 'Family';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('create-group-error').textContent).toBe('boom');
@@ -395,6 +402,21 @@ describe('renderNavRow — Direct mode', () => {
     // "Direct" is the implicit context — the nav row signals it via the absence
     // of a back-link and current-group label. No label needed.
     expect(document.querySelector('#nav-row .nav-current')).toBeNull();
+  });
+
+  test('renderNavRowDirectMode injects an inbox slot before the group cards', () => {
+    db.watchUserGroups.mockImplementation(() => () => {});
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation(() => () => {});
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    const row = document.getElementById('nav-row');
+    const slot = row.querySelector('#nav-row-inbox-slot');
+    expect(slot).not.toBeNull();
+    // The slot is the first child of #nav-row (before any .group-card or .group-cards-plus).
+    expect(row.firstElementChild).toBe(slot);
   });
 });
 

@@ -15,6 +15,8 @@ import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector } from './groups.js';
+import { initInbox } from './inbox.js';
+import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 
 
 let splashCounter = 0;
@@ -259,31 +261,6 @@ export function showRestoreScreen() {
   });
 }
 
-function showGroupDisplayNamePrompt(groupName) {
-  const screen = document.getElementById('group-displayname-screen');
-  const framing = document.getElementById('group-displayname-framing');
-  const input = document.getElementById('group-displayname-input');
-  const errEl = document.getElementById('group-displayname-error');
-  const submit = document.getElementById('group-displayname-submit-btn');
-
-  framing.textContent = `Your name in '${groupName}'`;
-  errEl.textContent = '';
-  errEl.classList.add('hidden');
-  input.value = '';
-  screen.classList.remove('hidden');
-
-  return new Promise((resolve) => {
-    function onSubmit() {
-      const trimmed = (input.value || '').trim();
-      if (!trimmed) { errEl.textContent = 'Please enter a name.'; errEl.classList.remove('hidden'); return; }
-      if (trimmed.length > 40) { errEl.textContent = 'Name must be at most 40 characters.'; errEl.classList.remove('hidden'); return; }
-      submit.removeEventListener('click', onSubmit);
-      screen.classList.add('hidden');
-      resolve(trimmed);
-    }
-    submit.addEventListener('click', onSubmit);
-  });
-}
 
 function handleInviteRedemptionResult(result) {
   if (result.ok) {
@@ -481,6 +458,7 @@ async function main() {
 
   startCardsRowSubscriptions();
   initGroupRemovalDetector(userId);
+  initInbox(userId);
 
   // #main-ui-direct starts hidden (markup default) so the welcome / restore /
   // recovery-code / displayname overlays render against a clean dark body

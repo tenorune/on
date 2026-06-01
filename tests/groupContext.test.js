@@ -37,6 +37,10 @@ jest.mock('../js/db.js', () => ({
     const hours = ms / 3600000;
     return `about ${Math.round(hours)} hours left`;
   }),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('../js/invites.js', () => ({
   buildInviteUrl: jest.fn((token) => `https://app.example/?i=${token}`),
@@ -107,6 +111,10 @@ jest.mock('../js/features.js', () => ({
 jest.mock('../js/me.js', () => ({
   clearFirstUsePulse: jest.fn(),
 }));
+jest.mock('../js/following.js', () => ({
+  getCurrentFollowersMap: jest.fn(() => ({})),
+  getCurrentMutuals: jest.fn(() => []),
+}));
 
 // PointerEvent polyfill for jsdom (does not implement it natively)
 if (typeof PointerEvent === 'undefined') {
@@ -145,7 +153,7 @@ function setupContextDom() {
                 <summary class="chip">Settings</summary>
                 <div class="group-actions-menu">
                   <button id="group-action-rename" class="hidden">Rename group</button>
-                  <button id="group-action-invite" class="hidden">Invite link</button>
+                  <button id="group-action-invite" class="hidden">Invite</button>
                   <button id="group-action-delete" class="hidden">Delete group</button>
                   <button id="group-action-edit-name" class="hidden">Edit my name</button>
                   <button id="group-action-leave" class="hidden">Leave group</button>
@@ -365,6 +373,43 @@ describe('group roster render', () => {
     expect(unsubByUid.a).not.toHaveBeenCalled(); // Alice's sub stays
     expect(unsubByUid.b).toHaveBeenCalled();     // Bob's sub torn down
   });
+
+  function captureRosterCallbacks() {
+    let metaCb, membersCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    return { getMetaCb: () => metaCb, getMembersCb: () => membersCb };
+  }
+
+  test('group roster shows "+ Invite to group" row for the owner', () => {
+    const cbs = captureRosterCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getMembersCb()({ me: { displayName: 'Me', role: 'owner', joinedAt: 1 } });
+    const row = document.getElementById('group-roster-invite-row');
+    expect(row).not.toBeNull();
+  });
+
+  test('group roster does NOT show "+ Invite to group" row for non-owner members', () => {
+    const cbs = captureRosterCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
+    cbs.getMembersCb()({ me: { displayName: 'Me', role: 'member', joinedAt: 1 } });
+    const row = document.getElementById('group-roster-invite-row');
+    expect(row).toBeNull();
+  });
+
+  test('clicking the roster invite row opens the invite modal in group scope', () => {
+    const cbs = captureRosterCallbacks();
+    const inviteModalMock = require('../js/inviteModal.js');
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getMembersCb()({ me: { displayName: 'Me', role: 'owner', joinedAt: 1 } });
+    document.getElementById('group-roster-invite-row').querySelector('button').click();
+    expect(inviteModalMock.openInviteModal).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'group', groupId: 'G1', groupName: 'Family' })
+    );
+  });
 });
 
 describe('owner actions', () => {
@@ -513,12 +558,12 @@ describe('member actions', () => {
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
     membersCb({
-      me: { role: 'member', displayName: 'Mike P.', joinedAt: 1 },
+      me: { role: 'member', displayName: 'Alex K.', joinedAt: 1 },
       a:  { role: 'member', displayName: 'Alice',   joinedAt: 2 },
     });
     window.prompt = jest.fn(() => null);
     document.getElementById('group-action-edit-name').click();
-    expect(window.prompt).toHaveBeenCalledWith('Your name in this group', 'Mike P.');
+    expect(window.prompt).toHaveBeenCalledWith('Your name in this group', 'Alex K.');
   });
 
   test('Leave group confirms and calls leaveGroup', () => {
@@ -1743,6 +1788,19 @@ describe('group-context FTU hints', () => {
     seedRoster({ ownOverride: { enabled: false, status: null, availableUntil: null } });
     const dot = document.getElementById('group-my-dot');
     expect(dot.classList.contains('dot-go-hint')).toBe(false);
+  });
+});
+
+describe('Phase 3 renames', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+  });
+
+  test('group settings button reads "Invite" (Phase 3 rename from "Invite link")', () => {
+    setupContextDom();
+    const btn = document.getElementById('group-action-invite');
+    expect(btn.textContent).toBe('Invite');
   });
 });
 

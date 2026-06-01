@@ -41,6 +41,10 @@ jest.mock('../js/db.js', () => ({
   mergeUserPrefs: jest.fn().mockResolvedValue(undefined),
   watchUserPrefs: jest.fn(() => () => {}),
   watchOwnMemberOverride: jest.fn(() => () => {}),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('../js/identity.js', () => ({ saveIdentity: jest.fn(), loadIdentity: jest.fn().mockReturnValue(null) }));
 jest.mock('../js/inviteModal.js', () => ({
@@ -136,7 +140,7 @@ describe('invite-link row', () => {
 
   test('initCodeDrawer shows "View invite link" when an active invite exists', () => {
     watchUserInvites.mockImplementation((uid, cb) => {
-      cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Mike' } });
+      cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Alex' } });
       return () => {};
     });
     initCodeDrawer('uid1', 'ABC123');
@@ -147,12 +151,12 @@ describe('invite-link row', () => {
     let cb;
     watchUserInvites.mockImplementation((uid, _cb) => { cb = _cb; return () => {}; });
     initCodeDrawer('uid1', 'ABC123');
-    cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Mike' } });
+    cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Alex' } });
     document.getElementById('invite-link-btn').click();
     expect(openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
       scope: 'personal',
       userId: 'uid1',
-      activeInvite: expect.objectContaining({ token: 'T1', creatorLabel: 'Mike' }),
+      activeInvite: expect.objectContaining({ token: 'T1', creatorLabel: 'Alex' }),
     }));
   });
 

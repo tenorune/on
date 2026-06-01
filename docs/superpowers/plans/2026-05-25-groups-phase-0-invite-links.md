@@ -391,9 +391,9 @@ Append these tests:
 ```js
 describe('readUserInvite', () => {
   test('returns the invite record by uid + token', async () => {
-    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ scope: 'personal', token: 'T', creatorLabel: 'Mike' }) });
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ scope: 'personal', token: 'T', creatorLabel: 'Alex' }) });
     const result = await readUserInvite('uid1', 'T');
-    expect(result).toEqual({ scope: 'personal', token: 'T', creatorLabel: 'Mike' });
+    expect(result).toEqual({ scope: 'personal', token: 'T', creatorLabel: 'Alex' });
   });
 
   test('returns null when absent', async () => {
@@ -406,7 +406,7 @@ describe('readUserInvite', () => {
 describe('writeUserInvite', () => {
   test('writes the full invite record at users/{uid}/invites/{token}', async () => {
     set.mockResolvedValue();
-    const payload = { scope: 'personal', token: 'T', creatorLabel: 'Mike', createdAt: 12345, expiresAt: null, redemptionCap: null, redemptionsUsed: 0, revoked: false };
+    const payload = { scope: 'personal', token: 'T', creatorLabel: 'Alex', createdAt: 12345, expiresAt: null, redemptionCap: null, redemptionsUsed: 0, revoked: false };
     await writeUserInvite('uid1', 'T', payload);
     expect(set).toHaveBeenCalledWith('mock-ref', payload);
     expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/invites/T');
@@ -641,14 +641,14 @@ describe('createPersonalInvite', () => {
     db.claimInviteToken.mockResolvedValue(true);
     db.writeUserInvite.mockResolvedValue();
 
-    const result = await createPersonalInvite('uid1', 'Mike P.');
+    const result = await createPersonalInvite('uid1', 'Alex K.');
 
     expect(result).toMatchObject({ token: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/), url: expect.stringContaining('?i=') });
     expect(db.claimInviteToken).toHaveBeenCalledWith(result.token, `users/uid1/invites/${result.token}`);
     expect(db.writeUserInvite).toHaveBeenCalledWith('uid1', result.token, expect.objectContaining({
       scope: 'personal',
       token: result.token,
-      creatorLabel: 'Mike P.',
+      creatorLabel: 'Alex K.',
       creatorUid: 'uid1',
       createdAt: expect.any(Number),
       expiresAt: null,
@@ -674,7 +674,7 @@ describe('createPersonalInvite', () => {
     });
     db.claimInviteToken.mockResolvedValue(true);
     db.writeUserInvite.mockResolvedValue();
-    const result = await createPersonalInvite('uid1', 'Mike');
+    const result = await createPersonalInvite('uid1', 'Alex');
     expect(result.token).not.toBe('OLD22CHARSTRINGAAAAAAA');
     expect(db.claimInviteToken).toHaveBeenCalled();
   });
@@ -683,7 +683,7 @@ describe('createPersonalInvite', () => {
     db.readUserInvites = jest.fn().mockResolvedValue({});
     db.claimInviteToken.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     db.writeUserInvite.mockResolvedValue();
-    const result = await createPersonalInvite('uid1', 'Mike');
+    const result = await createPersonalInvite('uid1', 'Alex');
     expect(db.claimInviteToken).toHaveBeenCalledTimes(2);
     expect(result.token).toMatch(/^[A-Za-z0-9_-]{22}$/);
   });
@@ -696,8 +696,8 @@ describe('createPersonalInvite', () => {
     await expect(createPersonalInvite('uid1', '   ')).rejects.toThrow(/empty/i);
     await expect(createPersonalInvite('uid1', 'x'.repeat(41))).rejects.toThrow(/40/);
 
-    await createPersonalInvite('uid1', '  Mike  ');
-    expect(db.writeUserInvite).toHaveBeenLastCalledWith('uid1', expect.any(String), expect.objectContaining({ creatorLabel: 'Mike' }));
+    await createPersonalInvite('uid1', '  Alex  ');
+    expect(db.writeUserInvite).toHaveBeenLastCalledWith('uid1', expect.any(String), expect.objectContaining({ creatorLabel: 'Alex' }));
   });
 });
 ```
@@ -861,20 +861,20 @@ describe('regeneratePersonalInvite', () => {
 
   test('revokes the existing active invite and creates a new one', async () => {
     db.readUserInvites = jest.fn()
-      .mockResolvedValueOnce({ OLD: { scope: 'personal', token: 'OLD', revoked: false, creatorLabel: 'Mike' } }) // revoke read
+      .mockResolvedValueOnce({ OLD: { scope: 'personal', token: 'OLD', revoked: false, creatorLabel: 'Alex' } }) // revoke read
       .mockResolvedValueOnce({});                                                                                  // post-revoke read for create
     db.setInviteRevoked.mockResolvedValue();
     db.releaseInviteToken.mockResolvedValue();
     db.claimInviteToken.mockResolvedValue(true);
     db.writeUserInvite.mockResolvedValue();
 
-    const result = await regeneratePersonalInvite('uid1', 'Mike P.');
+    const result = await regeneratePersonalInvite('uid1', 'Alex K.');
 
     expect(db.setInviteRevoked).toHaveBeenCalledWith('uid1', 'OLD');
     expect(db.releaseInviteToken).toHaveBeenCalledWith('OLD');
     expect(db.writeUserInvite).toHaveBeenCalledWith('uid1', result.token, expect.objectContaining({
       scope: 'personal',
-      creatorLabel: 'Mike P.',
+      creatorLabel: 'Alex K.',
     }));
     expect(result.token).not.toBe('OLD');
   });
@@ -884,7 +884,7 @@ describe('regeneratePersonalInvite', () => {
     db.claimInviteToken.mockResolvedValue(true);
     db.writeUserInvite.mockResolvedValue();
 
-    const result = await regeneratePersonalInvite('uid1', 'Mike');
+    const result = await regeneratePersonalInvite('uid1', 'Alex');
 
     expect(db.setInviteRevoked).not.toHaveBeenCalled();
     expect(db.releaseInviteToken).not.toHaveBeenCalled();
@@ -978,11 +978,11 @@ describe('redeemPersonalInvite', () => {
   test('happy path: follows the creator and bumps redemption count', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator-uid/invites/TOKEN' });
     db.readUserInvite.mockResolvedValue({
-      scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Mike',
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Alex',
       revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 3,
     });
     const result = await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set());
-    expect(result).toEqual({ ok: true, creatorUid: 'creator-uid', creatorCode: 'ABC123', creatorLabel: 'Mike' });
+    expect(result).toEqual({ ok: true, creatorUid: 'creator-uid', creatorCode: 'ABC123', creatorLabel: 'Alex' });
     expect(db.registerAsFollower).toHaveBeenCalledWith('creator-uid', 'redeemer-uid', 'redeemer-code');
     expect(db.setFollowingEntry).toHaveBeenCalledWith('redeemer-uid', 'creator-uid', 'ABC123', '');
     expect(db.incrementInviteRedemptions).toHaveBeenCalledWith('creator-uid', 'TOKEN');
@@ -1349,7 +1349,7 @@ describe('boot-time redemption (existing user, integration)', () => {
     // pattern; here we just verify the success copy path.
     db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/TOKEN' });
     db.readUserInvite.mockResolvedValue({
-      scope: 'personal', token: 'TOKEN', creatorUid: 'creator', creatorLabel: 'Mike',
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator', creatorLabel: 'Alex',
       revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
     });
     db.getCreatorCode.mockResolvedValue('ABC123');
@@ -1388,7 +1388,7 @@ URL is cleaned via history.replaceState so a refresh doesn't re-trigger."
 
 ## Task 9: `app.js` + welcome variation — brand-new user via personal-scope link
 
-A brand-new user (empty localStorage) arriving via `?i={token}` for a valid personal-scope invite sees a welcome screen that names the inviter (*"You've been invited to follow Mike P."*) instead of the generic welcome. After they finish secret-phrase setup and identity creation, the redemption fires automatically.
+A brand-new user (empty localStorage) arriving via `?i={token}` for a valid personal-scope invite sees a welcome screen that names the inviter (*"You've been invited to follow Alex K."*) instead of the generic welcome. After they finish secret-phrase setup and identity creation, the redemption fires automatically.
 
 The implementation extends `showWelcomeScreen` to accept an optional invite-framing parameter. The current signature is `showWelcomeScreen()` returning a `'new' | 'restore'` choice; we extend it to `showWelcomeScreen({ inviteCreatorLabel } = {})`.
 
@@ -1530,10 +1530,10 @@ describe('welcome screen invite framing', () => {
 
   test('showWelcomeScreen with a creator label renders the framing text', async () => {
     const { showWelcomeScreen } = require('../js/app');
-    showWelcomeScreen({ inviteCreatorLabel: 'Mike P.' });
+    showWelcomeScreen({ inviteCreatorLabel: 'Alex K.' });
     const framing = document.getElementById('welcome-invite-framing');
     expect(framing.classList.contains('hidden')).toBe(false);
-    expect(framing.textContent).toContain('Mike P.');
+    expect(framing.textContent).toContain('Alex K.');
     expect(framing.textContent).toContain('First, let');
   });
 });
@@ -1587,7 +1587,7 @@ In `index.template.html`, add (near the existing modal blocks such as the recove
     <!-- State A: create -->
     <div id="invite-modal-create" class="hidden">
       <label class="modal-label" for="invite-modal-label-input">Your name on the invite</label>
-      <input id="invite-modal-label-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Mike P." />
+      <input id="invite-modal-label-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Alex K." />
       <p id="invite-modal-label-error" class="error-msg hidden"></p>
       <div class="modal-actions">
         <button id="invite-modal-create-btn" class="primary-btn">Create invite link</button>
@@ -1716,7 +1716,7 @@ describe('openInviteModal — personal scope', () => {
   });
 
   test('renders State B (manage) when an active invite is supplied', () => {
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'TOKEN', creatorLabel: 'Mike', url: 'https://x/?i=TOKEN' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'TOKEN', creatorLabel: 'Alex', url: 'https://x/?i=TOKEN' } });
     expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('invite-modal-url').textContent).toBe('https://x/?i=TOKEN');
@@ -1732,17 +1732,17 @@ describe('openInviteModal — personal scope', () => {
     expect(document.getElementById('invite-modal-label-error').classList.contains('hidden')).toBe(false);
     expect(invites.createPersonalInvite).not.toHaveBeenCalled();
 
-    document.getElementById('invite-modal-label-input').value = 'Mike P.';
+    document.getElementById('invite-modal-label-input').value = 'Alex K.';
     document.getElementById('invite-modal-create-btn').click();
     await new Promise(setImmediate);
-    expect(invites.createPersonalInvite).toHaveBeenCalledWith('uid1', 'Mike P.');
+    expect(invites.createPersonalInvite).toHaveBeenCalledWith('uid1', 'Alex K.');
     // Modal transitions to Manage state with the new URL.
     expect(document.getElementById('invite-modal-url').textContent).toBe('https://x/?i=NEW');
     expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(false);
   });
 
   test('Copy button writes the URL to the clipboard', async () => {
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
     document.getElementById('invite-modal-copy-btn').click();
     await Promise.resolve();
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://x/?i=T');
@@ -1750,16 +1750,16 @@ describe('openInviteModal — personal scope', () => {
 
   test('Regenerate calls regeneratePersonalInvite and refreshes the URL', async () => {
     invites.regeneratePersonalInvite.mockResolvedValue({ token: 'NEW2', url: 'https://x/?i=NEW2', existing: false });
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
     document.getElementById('invite-modal-regen-btn').click();
     await new Promise(setImmediate);
-    expect(invites.regeneratePersonalInvite).toHaveBeenCalledWith('uid1', 'Mike');
+    expect(invites.regeneratePersonalInvite).toHaveBeenCalledWith('uid1', 'Alex');
     expect(document.getElementById('invite-modal-url').textContent).toBe('https://x/?i=NEW2');
   });
 
   test('Revoke calls revokePersonalInvite and transitions to Create state', async () => {
     invites.revokePersonalInvite.mockResolvedValue();
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
     document.getElementById('invite-modal-revoke-btn').click();
     await new Promise(setImmediate);
     expect(invites.revokePersonalInvite).toHaveBeenCalledWith('uid1');
@@ -1768,7 +1768,7 @@ describe('openInviteModal — personal scope', () => {
   });
 
   test('Close button hides the modal', () => {
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
     document.getElementById('invite-modal-close-btn').click();
     expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
   });
@@ -1804,7 +1804,7 @@ const SCOPE_COPY = {
     title: 'Your invite link',
     subtitle: 'People who tap this link will follow you.',
     labelHint: 'Your name on the invite',
-    labelPlaceholder: 'e.g. Mike P.',
+    labelPlaceholder: 'e.g. Alex K.',
   },
   // group scope copy added in Phase 1
 };
@@ -2006,7 +2006,7 @@ describe('invite-link row', () => {
 
   test('initCodeDrawer shows "View invite link" when an active invite exists', () => {
     watchUserInvites.mockImplementation((uid, cb) => {
-      cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Mike' } });
+      cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Alex' } });
       return () => {};
     });
     initCodeDrawer('uid1', 'ABC123');
@@ -2017,12 +2017,12 @@ describe('invite-link row', () => {
     let cb;
     watchUserInvites.mockImplementation((uid, _cb) => { cb = _cb; return () => {}; });
     initCodeDrawer('uid1', 'ABC123');
-    cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Mike' } });
+    cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Alex' } });
     document.getElementById('invite-link-btn').click();
     expect(openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
       scope: 'personal',
       userId: 'uid1',
-      activeInvite: expect.objectContaining({ token: 'T1', creatorLabel: 'Mike' }),
+      activeInvite: expect.objectContaining({ token: 'T1', creatorLabel: 'Alex' }),
     }));
   });
 
