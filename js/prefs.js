@@ -21,7 +21,13 @@ import {
   setLastTimeout as storeSetLastTimeout,
   getGroupChipMinutes as storeGetGroupChipMinutes,
   setGroupChipMinutes as storeSetGroupChipMinutes,
+  getFollowing as storeGetFollowing,
 } from './store.js';
+
+// Re-export for modules (e.g. inbox.js) that import following data via prefs.
+export function getFollowing() {
+  return storeGetFollowing();
+}
 
 let _myUserId = null;
 
