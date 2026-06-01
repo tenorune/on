@@ -15,6 +15,9 @@ jest.mock('../js/db.js', () => ({
 jest.mock('../js/prefs.js', () => ({
   setCurrentContext: jest.fn(),
 }));
+jest.mock('../js/inbox.js', () => ({
+  renderInboxNavSlot: jest.fn(),
+}));
 jest.mock('../js/features.js', () => ({ GROUPS_ENABLED: true }));
 jest.mock('../js/groups.js', () => ({
   createGroup: jest.fn(),
@@ -399,6 +402,21 @@ describe('renderNavRow — Direct mode', () => {
     // "Direct" is the implicit context — the nav row signals it via the absence
     // of a back-link and current-group label. No label needed.
     expect(document.querySelector('#nav-row .nav-current')).toBeNull();
+  });
+
+  test('renderNavRowDirectMode injects an inbox slot before the group cards', () => {
+    db.watchUserGroups.mockImplementation(() => () => {});
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation(() => () => {});
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    const row = document.getElementById('nav-row');
+    const slot = row.querySelector('#nav-row-inbox-slot');
+    expect(slot).not.toBeNull();
+    // The slot is the first child of #nav-row (before any .group-card or .group-cards-plus).
+    expect(row.firstElementChild).toBe(slot);
   });
 });
 
