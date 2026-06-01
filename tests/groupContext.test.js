@@ -373,6 +373,43 @@ describe('group roster render', () => {
     expect(unsubByUid.a).not.toHaveBeenCalled(); // Alice's sub stays
     expect(unsubByUid.b).toHaveBeenCalled();     // Bob's sub torn down
   });
+
+  function captureRosterCallbacks() {
+    let metaCb, membersCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    return { getMetaCb: () => metaCb, getMembersCb: () => membersCb };
+  }
+
+  test('group roster shows "+ Invite to group" row for the owner', () => {
+    const cbs = captureRosterCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getMembersCb()({ me: { displayName: 'Me', role: 'owner', joinedAt: 1 } });
+    const row = document.getElementById('group-roster-invite-row');
+    expect(row).not.toBeNull();
+  });
+
+  test('group roster does NOT show "+ Invite to group" row for non-owner members', () => {
+    const cbs = captureRosterCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
+    cbs.getMembersCb()({ me: { displayName: 'Me', role: 'member', joinedAt: 1 } });
+    const row = document.getElementById('group-roster-invite-row');
+    expect(row).toBeNull();
+  });
+
+  test('clicking the roster invite row opens the invite modal in group scope', () => {
+    const cbs = captureRosterCallbacks();
+    const inviteModalMock = require('../js/inviteModal.js');
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getMembersCb()({ me: { displayName: 'Me', role: 'owner', joinedAt: 1 } });
+    document.getElementById('group-roster-invite-row').querySelector('button').click();
+    expect(inviteModalMock.openInviteModal).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'group', groupId: 'G1', groupName: 'Family' })
+    );
+  });
 });
 
 describe('owner actions', () => {

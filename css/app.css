@@ -1113,3 +1113,16 @@ main {
 .group-removal-toast.hidden {
   display: none;
 }
+
+.roster-invite-row { list-style: none; padding: 0; margin: 0 0 0.5rem 0; }
+.roster-invite-row .add-btn {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px dashed var(--text-muted);
+  color: var(--text-muted);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.roster-invite-row .add-btn:hover { color: var(--text); border-color: var(--text); }

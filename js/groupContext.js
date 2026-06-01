@@ -73,6 +73,9 @@ let _ownDisplayName = null; // string | null — own member displayName from wat
 let _membersOverrides = {}; // uid → statusOverride | null
 const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor, paletteKey } | null
 let _settingsOutsideHandler = null;
+let _groupOwnerId = null;  // ownerId from watchGroupMeta — used by renderRoster owner check
+let _groupName = null;     // group name from watchGroupMeta — used by roster invite row
+let _lastMembers = null;   // last members snapshot — allows re-render when meta arrives after members
 // Timestamp of the most recent group palette-mode entry, or null. Tracked as
 // a timestamp (not a one-shot bool) because setOverrideAppearance writes to
 // RTDB and watchOwnMemberOverride echoes back ~100-300ms later, calling
@@ -92,8 +95,11 @@ function reorderRosterByAvailability() {
   if (!list) return;
   const floatedSet = new Set(getFloatedUserIds());
   const rows = Array.from(list.children);
-  const floated = rows.filter((r) => floatedSet.has(r.dataset.userId));
-  const others = rows.filter((r) => !floatedSet.has(r.dataset.userId));
+  // The owner-only invite row is pinned at the top; exclude it from sorting.
+  const inviteRow = rows.find((r) => r.id === 'group-roster-invite-row');
+  const memberRows = rows.filter((r) => r.id !== 'group-roster-invite-row');
+  const floated = memberRows.filter((r) => floatedSet.has(r.dataset.userId));
+  const others = memberRows.filter((r) => !floatedSet.has(r.dataset.userId));
   others.sort((a, b) => {
     const aAvail = a.dataset.available === 'true';
     const bAvail = b.dataset.available === 'true';
@@ -102,6 +108,8 @@ function reorderRosterByAvailability() {
     const bName = (b.querySelector('.person-label')?.textContent || '').toLowerCase();
     return aName.localeCompare(bName);
   });
+  // Re-insert in order: invite row (if present) first, then floated, then others.
+  if (inviteRow) list.insertBefore(inviteRow, list.firstChild);
   for (const row of floated.concat(others)) list.appendChild(row);
 }
 
@@ -109,6 +117,35 @@ function renderRoster(members, ownUserId) {
   const list = document.getElementById('group-roster');
   if (!list) return;
   list.innerHTML = '';
+
+  // Owner-only "+ Invite to group" row pinned at the top of the roster.
+  // The owner check reads from _groupOwnerId, captured by the watchGroupMeta
+  // callback. If meta hasn't arrived yet, the row is hidden; it'll appear on
+  // the next render after meta lands.
+  const isOwner = _groupOwnerId !== null && _groupOwnerId === ownUserId;
+  if (isOwner) {
+    const inviteRow = document.createElement('li');
+    inviteRow.id = 'group-roster-invite-row';
+    inviteRow.className = 'roster-invite-row';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'add-btn';
+    btn.textContent = '+ Invite to group';
+    btn.addEventListener('click', () => {
+      openInviteModal({
+        scope: 'group',
+        userId: ownUserId,
+        groupId: _currentGroupId,
+        groupName: _groupName || _currentGroupId,
+        activeInvite: _activeGroupInvite,
+        followers: getCurrentFollowersMap(),
+        mutuals: getCurrentMutuals(),
+        currentMemberUids: new Set(Object.keys(members || {})),
+      });
+    });
+    inviteRow.appendChild(btn);
+    list.appendChild(inviteRow);
+  }
 
   // Own user is represented by the status row in the group-context header.
   // Don't duplicate them in the roster.
@@ -913,8 +950,12 @@ export function enterGroupContext(groupId, userId) {
   _statusUnsubs.clear();
   _memberPrimaries.clear();
   _membersOverrides = {};
+  _lastMembers = null;
+  _groupOwnerId = null;
+  _groupName = null;
   let drainedKnocksOnEntry = false;
   _membersUnsub = watchGroupMembers(groupId, (members) => {
+    _lastMembers = members;
     _membersOverrides = {};
     for (const [uid, m] of Object.entries(members || {})) {
       _membersOverrides[uid] = m.statusOverride || null;
@@ -1109,8 +1150,13 @@ export function enterGroupContext(groupId, userId) {
       removeUserGroupsEntry(userId, groupId).catch(() => {});
       return;
     }
+    _groupOwnerId = meta.ownerId || null;
+    _groupName = meta.name || null;
     const isOwner = meta.ownerId === userId;
     wireActions(groupId, userId, isOwner, meta.name);
+    // Re-render the roster so the owner-only invite row appears even if the
+    // members callback fired before meta (race condition on first load).
+    if (_lastMembers !== null) renderRoster(_lastMembers, userId);
   });
 }
 
@@ -1134,6 +1180,9 @@ export function exitGroupContext() {
   _currentGroupId = null;
   _currentUserId = null;
   _activeGroupInvite = null;
+  _groupOwnerId = null;
+  _groupName = null;
+  _lastMembers = null;
   closeSettingsMenu();
   uninstallSettingsOutsideHandler();
   const root = document.getElementById('group-context-root');
