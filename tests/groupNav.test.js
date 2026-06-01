@@ -147,7 +147,7 @@ describe('create-group modal', () => {
   test('Submit validates: empty name shows error', async () => {
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = '   ';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('create-group-error').classList.contains('hidden')).toBe(false);
@@ -158,10 +158,10 @@ describe('create-group modal', () => {
     groups.createGroup.mockResolvedValue({ groupId: 'G1ABCDEF', name: 'Family' });
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = 'Family';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
-    expect(groups.createGroup).toHaveBeenCalledWith('uid1', 'Family', 'Mike');
+    expect(groups.createGroup).toHaveBeenCalledWith('uid1', 'Family', 'Alex');
     expect(document.getElementById('create-group-modal').classList.contains('hidden')).toBe(true);
     expect(prefs.setCurrentContext).toHaveBeenCalledWith('group:G1ABCDEF');
   });
@@ -170,7 +170,7 @@ describe('create-group modal', () => {
     groups.createGroup.mockResolvedValue({ groupId: 'G1ABCDEF', name: 'Family' });
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = 'Family';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
     expect(inviteModal.openInviteModal).toHaveBeenCalledWith({
@@ -185,7 +185,7 @@ describe('create-group modal', () => {
     groups.createGroup.mockRejectedValue(new Error('boom'));
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = 'Family';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('create-group-error').textContent).toBe('boom');

@@ -1972,4 +1972,4 @@ No commit if nothing changed. If the smoke test surfaces a bug, fix it in a foll
 - [ ] Race handling: Inbox accept checks `readMember` for existing membership (Task 11); also handles deleted-group case (Task 11).
 - [ ] deleteGroup sweep wired (Task 3); rule for sweep index added (Task 4).
 - [ ] All new `db.js` exports stubbed in every db-mocking test file (Task 2).
-- [ ] No `Mike P.` or other real-name placeholder introduced anywhere — use `Alex K.` / generic names for any new example strings.
+- [ ] No `Alex K.` or other real-name placeholder introduced anywhere — use `Alex K.` / generic names for any new example strings.

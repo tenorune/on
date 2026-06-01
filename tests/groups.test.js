@@ -44,8 +44,8 @@ describe('createGroup', () => {
   });
 
   test('validates name: trim, non-empty, max 40 chars', async () => {
-    await expect(createGroup('uid1', '  ', 'Mike')).rejects.toThrow(/empty/i);
-    await expect(createGroup('uid1', 'x'.repeat(41), 'Mike')).rejects.toThrow(/40/);
+    await expect(createGroup('uid1', '  ', 'Alex')).rejects.toThrow(/empty/i);
+    await expect(createGroup('uid1', 'x'.repeat(41), 'Alex')).rejects.toThrow(/40/);
   });
 
   test('validates owner displayName: trim, non-empty, max 40 chars', async () => {
@@ -54,7 +54,7 @@ describe('createGroup', () => {
   });
 
   test('happy path: claims id, writes group, writes owner member, writes user enumeration', async () => {
-    const result = await createGroup('uid1', '  Family  ', '  Mike  ');
+    const result = await createGroup('uid1', '  Family  ', '  Alex  ');
     expect(result).toMatchObject({ groupId: expect.stringMatching(/^[A-Z0-9]{8}$/) });
     expect(db.claimGroupId).toHaveBeenCalledWith(result.groupId);
     expect(db.writeGroup).toHaveBeenCalledWith(result.groupId, expect.objectContaining({
@@ -64,7 +64,7 @@ describe('createGroup', () => {
     }));
     expect(db.writeMember).toHaveBeenCalledWith(result.groupId, 'uid1', expect.objectContaining({
       role: 'owner',
-      displayName: 'Mike',
+      displayName: 'Alex',
       joinedAt: expect.any(Number),
       // Override defaults ON so a newly-created group doesn't auto-broadcast
       // the owner's primary status.
@@ -77,14 +77,14 @@ describe('createGroup', () => {
 
   test('retries on group-id collision', async () => {
     db.claimGroupId.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-    const result = await createGroup('uid1', 'Family', 'Mike');
+    const result = await createGroup('uid1', 'Family', 'Alex');
     expect(db.claimGroupId).toHaveBeenCalledTimes(2);
     expect(result.groupId).toMatch(/^[A-Z0-9]{8}$/);
   });
 
   test('throws after exhausting retry budget', async () => {
     db.claimGroupId.mockResolvedValue(false);
-    await expect(createGroup('uid1', 'Family', 'Mike')).rejects.toThrow(/allocate/i);
+    await expect(createGroup('uid1', 'Family', 'Alex')).rejects.toThrow(/allocate/i);
   });
 });
 
@@ -198,7 +198,7 @@ describe('joinGroup', () => {
 
   test('refuses when the group does not exist', async () => {
     db.readGroup.mockResolvedValue(null);
-    await expect(joinGroup('NOPE', 'uid2', 'Mike')).rejects.toThrow(/not found/i);
+    await expect(joinGroup('NOPE', 'uid2', 'Alex')).rejects.toThrow(/not found/i);
   });
 
   test('writes member record + user enumeration when joining', async () => {
@@ -206,10 +206,10 @@ describe('joinGroup', () => {
     db.readMember.mockResolvedValue(null);
     db.writeMember.mockResolvedValue();
     db.writeUserGroupsEntry.mockResolvedValue();
-    await joinGroup('G1', 'uid2', '  Mike  ');
+    await joinGroup('G1', 'uid2', '  Alex  ');
     expect(db.writeMember).toHaveBeenCalledWith('G1', 'uid2', expect.objectContaining({
       role: 'member',
-      displayName: 'Mike',
+      displayName: 'Alex',
       joinedAt: expect.any(Number),
       // Override defaults ON so the joiner doesn't auto-broadcast their
       // primary status to the group.
@@ -223,7 +223,7 @@ describe('joinGroup', () => {
   test('idempotent for existing members (no-op writes)', async () => {
     db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
     db.readMember.mockResolvedValue({ role: 'member', displayName: 'Old', joinedAt: 10 });
-    await joinGroup('G1', 'uid2', 'Mike');
+    await joinGroup('G1', 'uid2', 'Alex');
     expect(db.writeMember).not.toHaveBeenCalled();
     expect(db.writeUserGroupsEntry).toHaveBeenCalled(); // still bumps lastVisited
   });
@@ -397,7 +397,7 @@ describe('end-to-end: create group → group invite → redeem → joined', () =
     db.writeMember.mockResolvedValue();
     db.writeUserGroupsEntry.mockResolvedValue();
 
-    const redemption = await redeemGroupInvite(invite.token, 'redeemer-uid', 'Mike');
+    const redemption = await redeemGroupInvite(invite.token, 'redeemer-uid', 'Alex');
     expect(redemption).toEqual({ ok: true, groupId: created.groupId, groupName: 'Family' });
   });
 });

@@ -53,7 +53,7 @@ describe('openInviteModal — personal scope', () => {
   });
 
   test('renders State B (manage) when an active invite is supplied', () => {
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'TOKEN', creatorLabel: 'Mike', url: 'https://x/?i=TOKEN' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'TOKEN', creatorLabel: 'Alex', url: 'https://x/?i=TOKEN' } });
     expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('invite-modal-url').textContent).toBe('https://x/?i=TOKEN');
@@ -69,17 +69,17 @@ describe('openInviteModal — personal scope', () => {
     expect(document.getElementById('invite-modal-label-error').classList.contains('hidden')).toBe(false);
     expect(invites.createPersonalInvite).not.toHaveBeenCalled();
 
-    document.getElementById('invite-modal-label-input').value = 'Mike P.';
+    document.getElementById('invite-modal-label-input').value = 'Alex K.';
     document.getElementById('invite-modal-create-btn').click();
     await new Promise(setImmediate);
-    expect(invites.createPersonalInvite).toHaveBeenCalledWith('uid1', 'Mike P.');
+    expect(invites.createPersonalInvite).toHaveBeenCalledWith('uid1', 'Alex K.');
     expect(document.getElementById('invite-modal-url').textContent).toBe('https://x/?i=NEW');
     expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(false);
   });
 
   test('Copy button writes the URL to the clipboard and flips text to Copied!', async () => {
     jest.useFakeTimers();
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
     const btn = document.getElementById('invite-modal-copy-btn');
     btn.textContent = 'Copy';
     btn.click();
@@ -93,16 +93,16 @@ describe('openInviteModal — personal scope', () => {
 
   test('Regenerate calls regeneratePersonalInvite and refreshes the URL', async () => {
     invites.regeneratePersonalInvite.mockResolvedValue({ token: 'NEW2', url: 'https://x/?i=NEW2', existing: false });
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
     document.getElementById('invite-modal-regen-btn').click();
     await new Promise(setImmediate);
-    expect(invites.regeneratePersonalInvite).toHaveBeenCalledWith('uid1', 'Mike');
+    expect(invites.regeneratePersonalInvite).toHaveBeenCalledWith('uid1', 'Alex');
     expect(document.getElementById('invite-modal-url').textContent).toBe('https://x/?i=NEW2');
   });
 
   test('Revoke calls revokePersonalInvite and transitions to Create state', async () => {
     invites.revokePersonalInvite.mockResolvedValue();
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
     document.getElementById('invite-modal-revoke-btn').click();
     await new Promise(setImmediate);
     expect(invites.revokePersonalInvite).toHaveBeenCalledWith('uid1');
@@ -111,7 +111,7 @@ describe('openInviteModal — personal scope', () => {
   });
 
   test('overlay tap (Manage state) hides the modal', () => {
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
     document.getElementById('invite-modal').click();
     expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
   });
@@ -130,7 +130,7 @@ describe('openInviteModal — personal scope', () => {
 
   test('Regenerate surfaces an error when the underlying call rejects', async () => {
     invites.regeneratePersonalInvite.mockRejectedValue(new Error('network down'));
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
     document.getElementById('invite-modal-regen-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('invite-modal-label-error').textContent).toBe('network down');
@@ -139,7 +139,7 @@ describe('openInviteModal — personal scope', () => {
 
   test('Revoke surfaces an error when the underlying call rejects', async () => {
     invites.revokePersonalInvite.mockRejectedValue(new Error('boom'));
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Mike', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
     document.getElementById('invite-modal-revoke-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('invite-modal-label-error').textContent).toBe('boom');

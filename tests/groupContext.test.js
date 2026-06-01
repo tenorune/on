@@ -517,12 +517,12 @@ describe('member actions', () => {
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
     membersCb({
-      me: { role: 'member', displayName: 'Mike P.', joinedAt: 1 },
+      me: { role: 'member', displayName: 'Alex K.', joinedAt: 1 },
       a:  { role: 'member', displayName: 'Alice',   joinedAt: 2 },
     });
     window.prompt = jest.fn(() => null);
     document.getElementById('group-action-edit-name').click();
-    expect(window.prompt).toHaveBeenCalledWith('Your name in this group', 'Mike P.');
+    expect(window.prompt).toHaveBeenCalledWith('Your name in this group', 'Alex K.');
   });
 
   test('Leave group confirms and calls leaveGroup', () => {

@@ -40,7 +40,7 @@ Today, every follower of a user sees the same status. If a user goes "available 
 
 The two facets of this problem:
 
-- **C (contextual identity):** the user may want to appear as "Mike" to family and "Mr. Gomez" to a work group, with possibly different colors per context. Their *identity presentation* should vary by context.
+- **C (contextual identity):** the user may want to appear as "Alex" to family and "Mr. Gomez" to a work group, with possibly different colors per context. Their *identity presentation* should vary by context.
 - **A (audience scoping):** the user may want to be "available to family for 2 hours" but show as "unavailable to work-chat." Their *status content* should vary by audience.
 
 Together, C+A means: groups aren't just about scaling — they're about expressing yourself differently to different parts of your network.
@@ -139,7 +139,7 @@ Each user has a **display name** for each group they're in. Set at join time. Ed
 
 This is distinct from the user's share code (which doesn't change between contexts) and from the per-follower labels (which the *follower* sets for themselves to label *the user*).
 
-For instance: a user might be `XK7P2M` (share code, immutable for them), labeled by their friend Alice as "Mike" (Alice's label, visible only to Alice), and have a display name "M.P." in the Skydivers group (the user's own choice, visible to all Skydivers members).
+For instance: a user might be `XK7P2M` (share code, immutable for them), labeled by their friend Alice as "Alex" (Alice's label, visible only to Alice), and have a display name "M.P." in the Skydivers group (the user's own choice, visible to all Skydivers members).
 
 ### Validation
 

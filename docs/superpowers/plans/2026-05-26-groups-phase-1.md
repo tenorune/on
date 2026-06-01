@@ -551,9 +551,9 @@ describe('group members', () => {
   });
 
   test('readMember returns the record', async () => {
-    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ role: 'member', displayName: 'Mike', joinedAt: 1 }) });
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ role: 'member', displayName: 'Alex', joinedAt: 1 }) });
     const result = await readMember('G1', 'uid2');
-    expect(result).toEqual({ role: 'member', displayName: 'Mike', joinedAt: 1 });
+    expect(result).toEqual({ role: 'member', displayName: 'Alex', joinedAt: 1 });
   });
 
   test('readMember returns null when missing', async () => {
@@ -731,8 +731,8 @@ describe('createGroup', () => {
   });
 
   test('validates name: trim, non-empty, max 40 chars', async () => {
-    await expect(createGroup('uid1', '  ', 'Mike')).rejects.toThrow(/empty/i);
-    await expect(createGroup('uid1', 'x'.repeat(41), 'Mike')).rejects.toThrow(/40/);
+    await expect(createGroup('uid1', '  ', 'Alex')).rejects.toThrow(/empty/i);
+    await expect(createGroup('uid1', 'x'.repeat(41), 'Alex')).rejects.toThrow(/40/);
   });
 
   test('validates owner displayName: trim, non-empty, max 40 chars', async () => {
@@ -741,7 +741,7 @@ describe('createGroup', () => {
   });
 
   test('happy path: claims id, writes group, writes owner member, writes user enumeration', async () => {
-    const result = await createGroup('uid1', '  Family  ', '  Mike  ');
+    const result = await createGroup('uid1', '  Family  ', '  Alex  ');
     expect(result).toMatchObject({ groupId: expect.stringMatching(/^[A-Z0-9]{8}$/) });
     expect(db.claimGroupId).toHaveBeenCalledWith(result.groupId);
     expect(db.writeGroup).toHaveBeenCalledWith(result.groupId, expect.objectContaining({
@@ -751,7 +751,7 @@ describe('createGroup', () => {
     }));
     expect(db.writeMember).toHaveBeenCalledWith(result.groupId, 'uid1', expect.objectContaining({
       role: 'owner',
-      displayName: 'Mike',
+      displayName: 'Alex',
       joinedAt: expect.any(Number),
     }));
     expect(db.writeUserGroupsEntry).toHaveBeenCalledWith('uid1', result.groupId, expect.objectContaining({
@@ -761,14 +761,14 @@ describe('createGroup', () => {
 
   test('retries on group-id collision', async () => {
     db.claimGroupId.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-    const result = await createGroup('uid1', 'Family', 'Mike');
+    const result = await createGroup('uid1', 'Family', 'Alex');
     expect(db.claimGroupId).toHaveBeenCalledTimes(2);
     expect(result.groupId).toMatch(/^[A-Z0-9]{8}$/);
   });
 
   test('throws after exhausting retry budget', async () => {
     db.claimGroupId.mockResolvedValue(false);
-    await expect(createGroup('uid1', 'Family', 'Mike')).rejects.toThrow(/allocate/i);
+    await expect(createGroup('uid1', 'Family', 'Alex')).rejects.toThrow(/allocate/i);
   });
 });
 ```
@@ -1039,7 +1039,7 @@ describe('joinGroup', () => {
 
   test('refuses when the group does not exist', async () => {
     db.readGroup.mockResolvedValue(null);
-    await expect(joinGroup('NOPE', 'uid2', 'Mike')).rejects.toThrow(/not found/i);
+    await expect(joinGroup('NOPE', 'uid2', 'Alex')).rejects.toThrow(/not found/i);
   });
 
   test('writes member record + user enumeration when joining', async () => {
@@ -1047,10 +1047,10 @@ describe('joinGroup', () => {
     db.readMember.mockResolvedValue(null);
     db.writeMember.mockResolvedValue();
     db.writeUserGroupsEntry.mockResolvedValue();
-    await joinGroup('G1', 'uid2', '  Mike  ');
+    await joinGroup('G1', 'uid2', '  Alex  ');
     expect(db.writeMember).toHaveBeenCalledWith('G1', 'uid2', expect.objectContaining({
       role: 'member',
-      displayName: 'Mike',
+      displayName: 'Alex',
       joinedAt: expect.any(Number),
     }));
     expect(db.writeUserGroupsEntry).toHaveBeenCalledWith('uid2', 'G1', expect.objectContaining({
@@ -1061,7 +1061,7 @@ describe('joinGroup', () => {
   test('idempotent for existing members (no-op writes)', async () => {
     db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
     db.readMember.mockResolvedValue({ role: 'member', displayName: 'Old', joinedAt: 10 });
-    await joinGroup('G1', 'uid2', 'Mike');
+    await joinGroup('G1', 'uid2', 'Alex');
     expect(db.writeMember).not.toHaveBeenCalled();
     expect(db.writeUserGroupsEntry).toHaveBeenCalled(); // still bumps lastVisited
   });
@@ -1514,20 +1514,20 @@ describe('redeemGroupInvite', () => {
       TOKEN: { scope: 'group', token: 'TOKEN', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
     });
 
-    const result = await redeemGroupInvite('TOKEN', 'redeemer-uid', 'Mike');
+    const result = await redeemGroupInvite('TOKEN', 'redeemer-uid', 'Alex');
     expect(result).toEqual({ ok: true, groupId: 'G1', groupName: 'Family' });
-    expect(groups.joinGroup).toHaveBeenCalledWith('G1', 'redeemer-uid', 'Mike');
+    expect(groups.joinGroup).toHaveBeenCalledWith('G1', 'redeemer-uid', 'Alex');
     expect(db.incrementGroupInviteRedemptions).toHaveBeenCalledWith('G1', 'TOKEN');
   });
 
   test('returns not-found when the index lookup is empty', async () => {
     db.readInviteIndex.mockResolvedValue(null);
-    expect(await redeemGroupInvite('BAD', 'redeemer', 'Mike')).toEqual({ ok: false, reason: 'not-found' });
+    expect(await redeemGroupInvite('BAD', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'not-found' });
   });
 
   test('returns not-found when scope is personal', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/u/invites/T' });
-    expect(await redeemGroupInvite('T', 'redeemer', 'Mike')).toEqual({ ok: false, reason: 'not-found' });
+    expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'not-found' });
   });
 
   test('returns revoked / expired / cap as appropriate', async () => {
@@ -1535,13 +1535,13 @@ describe('redeemGroupInvite', () => {
     db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
 
     db.readGroupInvites.mockResolvedValueOnce({ T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: true } });
-    expect(await redeemGroupInvite('T', 'redeemer', 'Mike')).toEqual({ ok: false, reason: 'revoked' });
+    expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'revoked' });
 
     db.readGroupInvites.mockResolvedValueOnce({ T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: Date.now() - 1000 } });
-    expect(await redeemGroupInvite('T', 'redeemer', 'Mike')).toEqual({ ok: false, reason: 'expired' });
+    expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'expired' });
 
     db.readGroupInvites.mockResolvedValueOnce({ T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: 5, redemptionsUsed: 5 } });
-    expect(await redeemGroupInvite('T', 'redeemer', 'Mike')).toEqual({ ok: false, reason: 'cap' });
+    expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'cap' });
   });
 
   test('returns already-member when the redeemer is already in the group', async () => {
@@ -1549,14 +1549,14 @@ describe('redeemGroupInvite', () => {
     db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
     db.readGroupInvites.mockResolvedValue({ T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 } });
     db.readMember.mockResolvedValue({ role: 'member', displayName: 'Existing', joinedAt: 1 });
-    expect(await redeemGroupInvite('T', 'redeemer', 'Mike')).toEqual({ ok: false, reason: 'already-member', groupId: 'G1', groupName: 'Family' });
+    expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'already-member', groupId: 'G1', groupName: 'Family' });
     expect(groups.joinGroup).not.toHaveBeenCalled();
   });
 
   test('returns group-missing when the group record is gone', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
     db.readGroup.mockResolvedValue(null);
-    expect(await redeemGroupInvite('T', 'redeemer', 'Mike')).toEqual({ ok: false, reason: 'group-missing' });
+    expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'group-missing' });
   });
 });
 ```
@@ -1655,7 +1655,7 @@ describe('attemptRedeemFromUrl scope dispatch', () => {
   test('dispatches to personal when scope is personal', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
     db.readUserInvite.mockResolvedValue({
-      scope: 'personal', token: 'T', creatorUid: 'creator', creatorLabel: 'Mike',
+      scope: 'personal', token: 'T', creatorUid: 'creator', creatorLabel: 'Alex',
       revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
     });
     db.getCreatorCode.mockResolvedValue('ABC123');
@@ -1677,7 +1677,7 @@ describe('attemptRedeemFromUrl scope dispatch', () => {
       T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
     });
     db.readMember.mockResolvedValue(null);
-    const result = await attemptRedeemFromUrl('T', 'me', 'mycode', { displayName: 'Mike' });
+    const result = await attemptRedeemFromUrl('T', 'me', 'mycode', { displayName: 'Alex' });
     expect(result).toEqual({ ok: true, groupId: 'G1', groupName: 'Family' });
   });
 });
@@ -2647,7 +2647,7 @@ In `index.template.html`:
     <input id="create-group-name-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Family" />
 
     <label class="modal-label" for="create-group-displayname-input">Your name in this group</label>
-    <input id="create-group-displayname-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Mike" />
+    <input id="create-group-displayname-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Alex" />
 
     <p id="create-group-error" class="error-msg hidden"></p>
 
@@ -2712,7 +2712,7 @@ describe('create-group modal', () => {
   test('Submit validates: empty name shows error', async () => {
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = '   ';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('create-group-error').classList.contains('hidden')).toBe(false);
@@ -2723,10 +2723,10 @@ describe('create-group modal', () => {
     groups.createGroup.mockResolvedValue({ groupId: 'G1ABCDEF', name: 'Family' });
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = 'Family';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
-    expect(groups.createGroup).toHaveBeenCalledWith('uid1', 'Family', 'Mike');
+    expect(groups.createGroup).toHaveBeenCalledWith('uid1', 'Family', 'Alex');
     expect(document.getElementById('create-group-modal').classList.contains('hidden')).toBe(true);
     expect(db.setCurrentContext).toHaveBeenCalledWith('uid1', 'group:G1ABCDEF');
   });
@@ -2735,7 +2735,7 @@ describe('create-group modal', () => {
     groups.createGroup.mockRejectedValue(new Error('boom'));
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = 'Family';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('create-group-error').textContent).toBe('boom');
@@ -3956,7 +3956,7 @@ describe('group-scope new-user flow integration (light)', () => {
       T: { scope: 'group', token: 'T', creatorUid: 'owner', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
     });
     db.readMember.mockResolvedValue(null);
-    const result = await attemptRedeemFromUrl('T', 'new-user', 'code', { displayName: 'Mike' });
+    const result = await attemptRedeemFromUrl('T', 'new-user', 'code', { displayName: 'Alex' });
     expect(result).toEqual({ ok: true, groupId: 'G1', groupName: 'Family' });
   });
 });
@@ -4427,7 +4427,7 @@ describe('end-to-end: create group → group invite → redeem → joined', () =
     db.readMember = jest.fn().mockResolvedValue(null);
     db.incrementGroupInviteRedemptions = jest.fn().mockResolvedValue();
 
-    const redemption = await redeemGroupInvite(invite.token, 'redeemer-uid', 'Mike');
+    const redemption = await redeemGroupInvite(invite.token, 'redeemer-uid', 'Alex');
     expect(redemption).toEqual({ ok: true, groupId: created.groupId, groupName: 'Family' });
   });
 });
