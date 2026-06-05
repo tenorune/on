@@ -1,1 +1,49 @@
-// functions/index.js — RTDB-triggered presence notifiers (wired in later tasks).
+// functions/index.js — RTDB-triggered presence notifiers.
+import { initializeApp } from 'firebase-admin/app';
+import { getDatabase } from 'firebase-admin/database';
+import { getMessaging } from 'firebase-admin/messaging';
+import { onValueCreated, onValueWritten, onValueUpdated } from 'firebase-functions/v2/database';
+import { handleKnock, handleCall, handleAvailability } from './notifier.js';
+
+initializeApp();
+
+function makeDeps() {
+  const db = getDatabase();
+  return {
+    now: () => Date.now(),
+    getVal: async (path) => (await db.ref(path).get()).val(),
+    update: async (path, obj) => { await db.ref(path).update(obj); },
+    send: async (tokens, message, data) => {
+      const res = await getMessaging().sendEachForMulticast({
+        tokens,
+        notification: { title: message.title, body: message.body },
+        data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+      });
+      const failedTokens = [];
+      res.responses.forEach((r, i) => {
+        if (!r.success && r.error &&
+            /registration-token-not-registered|invalid-registration-token/.test(r.error.code || '')) {
+          failedTokens.push(tokens[i]);
+        }
+      });
+      return { failedTokens };
+    },
+  };
+}
+
+export const onKnock = onValueCreated('/users/{recipientId}/knocks/{senderId}', (event) => {
+  return handleKnock(makeDeps(), event.params.recipientId, event.params.senderId, event.data.val());
+});
+
+export const onCall = onValueWritten('/users/{callerId}/callState', (event) => {
+  const after = event.data.after.val();
+  const before = event.data.before.val();
+  // Only on a newly-started call (callState appears or changes callee).
+  if (!after || !after.calleeId) return null;
+  if (before && before.calleeId === after.calleeId) return null;
+  return handleCall(makeDeps(), event.params.callerId, after);
+});
+
+export const onAvailability = onValueUpdated('/users/{uid}', (event) => {
+  return handleAvailability(makeDeps(), event.params.uid, event.data.before.val(), event.data.after.val());
+});
