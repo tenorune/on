@@ -302,6 +302,7 @@ Touching `sw.js` (a shell asset) → **recommend** a `CACHE` bump at deploy (cur
 - `database.rules.json` structure: confirm `notifierState` deny + `userPrefs` posture.
 - FCM-on-Safari delivery verification (else raw VAPID fallback).
 - CI workflow edits for the `functions` deploy target.
+- Deploying `functions` requires the CI service accounts (`FIREBASE_SERVICE_ACCOUNT_{DEV,PROD}`) to have **Cloud Functions Admin**, **Service Account User**, and **Cloud Build / Artifact Registry** IAM roles, plus the **FIREBASE_VAPID_KEY** present in `FIREBASE_CONFIG_{DEV,PROD}`. One-time setup outside this repo.
 
 ---
 
