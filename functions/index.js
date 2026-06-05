@@ -16,8 +16,15 @@ function makeDeps() {
     send: async (tokens, message, data) => {
       const res = await getMessaging().sendEachForMulticast({
         tokens,
-        notification: { title: message.title, body: message.body },
-        data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+        // Data-only message (no `notification` block): the service worker fully
+        // controls display via showNotification, so a focused client can suppress
+        // the toast (foreground de-dupe). A `notification` block would make the
+        // browser auto-display and defeat that. The SW reads these flat keys.
+        data: {
+          title: message.title || '',
+          body: message.body || '',
+          ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+        },
       });
       const failedTokens = [];
       res.responses.forEach((r, i) => {

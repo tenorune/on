@@ -472,6 +472,13 @@ async function main() {
         onMessage(messaging, () => { /* foreground: in-app UI already reflects it; no OS toast */ });
       });
     });
+    // Deep-link routing: the SW postMessages a clicked notification to the focused
+    // client (sw.js notificationclick). Route group notifications into that group.
+    navigator.serviceWorker?.addEventListener('message', (e) => {
+      if (e.data?.kind !== 'notification-click') return;
+      const gid = e.data.data?.contextGroupId;
+      if (gid) navigateToGroup(gid);
+    });
   }
 
   // currentContext changes from sibling devices arrive as a

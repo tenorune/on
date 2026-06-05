@@ -313,3 +313,37 @@ Touching `sw.js` (a shell asset) → **recommend** a `CACHE` bump at deploy (cur
 - Availability option **(c)** — notify on availability in any shared context, with a
   context label.
 - Promotion of `presence-core` to a network API (Rung 2/3) if a concrete consumer appears.
+
+---
+
+## 13. Final-review outcome & pre-flag-on checklist
+
+Implemented across two plans (client + server). The final holistic review confirmed strong
+spec fidelity and that the feature is **safe to merge dark** (functions no-op with zero
+registered tokens; all UI + token writes gated behind `NOTIFICATIONS_ENABLED = false`).
+The following were raised; status noted.
+
+**Fixed during review:**
+- Server now sends a **data-only** FCM message (no `notification` block) so the SW controls
+  display and foreground de-dupe works, with flat keys matching the SW's read (`functions/index.js`).
+- `notificationclick` deep-link routing is wired: the SW postMessages the focused client and
+  `app.js` routes group notifications via `navigateToGroup` (`js/app.js`, gated).
+- Two latent test-mock breakages (recovery + invites loading `app.js`, which now imports
+  `firebase-config.js` directly) fixed; root/functions Jest toolchains isolated.
+
+**MUST verify before flipping `NOTIFICATIONS_ENABLED = true` (blockers):**
+- **Live FCM web delivery against the raw `sw.js` `push` listener.** We use a single raw-push
+  service worker (not FCM's `onBackgroundMessage`). FCM may wrap the web payload; verify the
+  SW receives the data-only flat keys we send. If not, adopt FCM's SW SDK `onBackgroundMessage`
+  **or** switch to raw VAPID Web Push (the documented fallback) so the SW reads exactly the JSON
+  sent. Confirm delivery on macOS Safari 16+ and an installed iOS PWA specifically.
+
+**Should-fix before any real traffic (non-blocking for dark merge):**
+- **Narrow the availability trigger.** `onValueUpdated('/users/{uid}')` fires on every
+  descendant write (knocks, callState, lastSeen, …) and only then no-ops via `becameAvailable`.
+  Functionally correct, but it's the invocation-cost blow-up §4/§11 anticipated. Trigger on a
+  narrower path (e.g. `/users/{uid}/availableUntil`) and read sibling `status` in the handler.
+- **First-ever go-available won't notify** (`onValueUpdated` doesn't fire on node creation).
+  Edge case; new users have no followers yet. Use `onValueWritten` if it matters.
+- **Cooldown stamp is consumed even if all sends fail** (`notifier.js` stamps before fan-out).
+  Low impact at the 5-min window.
