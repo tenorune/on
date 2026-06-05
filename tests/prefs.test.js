@@ -10,6 +10,7 @@ const {
   getMadeCallCount, incrementMadeCallCount,
   getAnsweredCallCount, incrementAnsweredCallCount,
   syncFromServer,
+  getNotifyPrefs, setNotifyPref,
 } = require('../js/prefs.js');
 
 beforeEach(() => {
@@ -148,4 +149,31 @@ test('syncFromServer preserves local-only entries at the head (pending-write rac
   expect(stored[0]).toEqual(justWritten);   // pending local write preserved
   expect(stored[1]).toEqual(existing1);
   expect(stored[2]).toEqual(existing2);
+});
+
+describe('notify prefs', () => {
+  beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); initPrefs('me123'); });
+
+  test('default is all-off for an unknown target', () => {
+    expect(getNotifyPrefs('alex')).toEqual({ knock: false, call: false, availability: false });
+  });
+
+  test('setNotifyPref updates the local cache synchronously', () => {
+    setNotifyPref('alex', 'knock', true);
+    expect(getNotifyPrefs('alex')).toEqual({ knock: true, call: false, availability: false });
+  });
+
+  test('setNotifyPref writes the single field to userPrefs/notify/{target}/{type}', () => {
+    setNotifyPref('alex', 'availability', true);
+    expect(mergeUserPrefs).toHaveBeenCalledWith('me123', { 'notify/alex/availability': true });
+  });
+
+  test('syncFromServer repopulates the cache and dispatches notify-prefs-synced', () => {
+    const handler = jest.fn();
+    document.addEventListener('notify-prefs-synced', handler);
+    syncFromServer({ notify: { bea: { knock: true, call: false, availability: true } } });
+    expect(getNotifyPrefs('bea')).toEqual({ knock: true, call: false, availability: true });
+    expect(handler).toHaveBeenCalled();
+    document.removeEventListener('notify-prefs-synced', handler);
+  });
 });

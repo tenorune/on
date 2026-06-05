@@ -41,6 +41,7 @@ const HINT_KEYS = {
   longpress:   'statusapp_seen_longpress',
   swipe:       'statusapp_seen_swipe',
   customAvail: 'statusapp_went_avail_custom',
+  notifyPromo: 'statusapp_seen_notify_promo',
 };
 
 export function isHintSeen(name) {
@@ -219,6 +220,31 @@ function dedupeServerFavorites(arr) {
   return out;
 }
 
+// ── Per-person notification preferences ──────────────────────────────────────
+// Cached as a single JSON map in localStorage so reads stay synchronous.
+// Writes hit userPrefs/{uid}/notify/{targetUid}/{type} via mergeUserPrefs.
+const NOTIFY_KEY = 'statusapp_notify_prefs';
+
+function readNotifyCache() {
+  try { return JSON.parse(localStorage.getItem(NOTIFY_KEY)) || {}; }
+  catch { return {}; }
+}
+function writeNotifyCache(map) {
+  try { localStorage.setItem(NOTIFY_KEY, JSON.stringify(map)); } catch { /* quota */ }
+}
+
+export function getNotifyPrefs(targetUid) {
+  const t = readNotifyCache()[targetUid] || {};
+  return { knock: !!t.knock, call: !!t.call, availability: !!t.availability };
+}
+
+export function setNotifyPref(targetUid, type, on) {
+  const map = readNotifyCache();
+  map[targetUid] = { ...getNotifyPrefs(targetUid), [type]: !!on };
+  writeNotifyCache(map);
+  if (_myUserId) mergeUserPrefs(_myUserId, { [`notify/${targetUid}/${type}`]: !!on }).catch(() => {});
+}
+
 // ── Watch reconciliation ─────────────────────────────────────────────────────
 // Called by app.js's watchUserPrefs subscription each time the server snapshot
 // changes. Populates the localStorage cache so subsequent synchronous reads
@@ -311,5 +337,16 @@ export function syncFromServer(serverPrefs) {
         }));
       }
     }
+  }
+  // Notification preferences (per-person knock/call/availability)
+  if (serverPrefs.notify && typeof serverPrefs.notify === 'object') {
+    const map = readNotifyCache();
+    for (const [targetUid, prefs] of Object.entries(serverPrefs.notify)) {
+      map[targetUid] = {
+        knock: !!prefs?.knock, call: !!prefs?.call, availability: !!prefs?.availability,
+      };
+    }
+    writeNotifyCache(map);
+    document.dispatchEvent(new CustomEvent('notify-prefs-synced'));
   }
 }
