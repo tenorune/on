@@ -3,6 +3,7 @@ import { NOTIFICATIONS_ENABLED } from './features.js';
 import { isHintSeen, markHintSeen, addPushToken } from './prefs.js';
 import { detectNotifyCapability, guidanceCopyFor } from './installGuidance.js';
 import { getMessagingIfSupported } from './firebase-config.js';
+import { getToken } from 'firebase/messaging';
 
 const PROMO_HINT = 'notifyPromo';
 
@@ -16,8 +17,6 @@ export function shouldShowPromo({ enabled, hintSeen, engaged, capState, permissi
   if (capState === 'unsupported') return false;
   return true; // 'supported' | 'needs-install-ios' | 'ios-use-safari'
 }
-
-import { getToken } from 'firebase/messaging';
 
 const VAPID_KEY = process.env.FIREBASE_VAPID_KEY;
 
