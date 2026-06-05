@@ -30,3 +30,31 @@ test('shown for an engaged, unseen, supported, ungranted user', () => {
 test('shown for iOS-install state (install nudge counts)', () => {
   expect(shouldShowPromo({ enabled: true, hintSeen: false, engaged: true, capState: 'needs-install-ios', permission: 'default' })).toBe(true);
 });
+
+const { requestPermissionAndRegister } = require('../js/notifyPrompt.js');
+const { addPushToken } = require('../js/prefs.js');
+const { getMessagingIfSupported } = require('../js/firebase-config.js');
+const { getToken } = require('firebase/messaging');
+
+describe('requestPermissionAndRegister', () => {
+  beforeEach(() => {
+    addPushToken.mockClear(); getToken.mockReset(); getMessagingIfSupported.mockReset();
+    global.Notification = { requestPermission: jest.fn().mockResolvedValue('granted') };
+    global.navigator.serviceWorker = { ready: Promise.resolve({ id: 'reg' }) };
+  });
+
+  test('grants, fetches a token, and registers it', async () => {
+    getMessagingIfSupported.mockResolvedValue({});
+    getToken.mockResolvedValue('tok-xyz');
+    const ok = await requestPermissionAndRegister();
+    expect(ok).toBe(true);
+    expect(addPushToken).toHaveBeenCalledWith('tok-xyz');
+  });
+
+  test('returns false and registers nothing when permission denied', async () => {
+    global.Notification.requestPermission.mockResolvedValue('denied');
+    const ok = await requestPermissionAndRegister();
+    expect(ok).toBe(false);
+    expect(addPushToken).not.toHaveBeenCalled();
+  });
+});
