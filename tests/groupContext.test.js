@@ -103,7 +103,10 @@ jest.mock('../js/features.js', () => ({
   KNOCK_ENABLED: true,
   PALETTES_ENABLED: true,
   PALETTE_INTERACTIONS_ENABLED: true,
+  NOTIFICATIONS_ENABLED: true,
 }));
+jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn() }));
+jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
 jest.mock('../js/me.js', () => ({
   clearFirstUsePulse: jest.fn(),
 }));
@@ -125,6 +128,16 @@ const inviteModal = require('../js/inviteModal.js');
 const prefs = require('../js/prefs.js');
 const store = require('../js/store.js');
 const { enterGroupContext, exitGroupContext } = require('../js/groupContext');
+const { createNotifyBell } = require('../js/notifyBell.js');
+
+// Default implementation: return a real button so li.appendChild doesn't throw.
+beforeEach(() => {
+  createNotifyBell.mockImplementation(() => {
+    const b = document.createElement('button');
+    b.className = 'notify-bell';
+    return b;
+  });
+});
 
 function setupContextDom() {
   document.body.innerHTML = `
@@ -1743,6 +1756,31 @@ describe('group-context FTU hints', () => {
     seedRoster({ ownOverride: { enabled: false, status: null, availableUntil: null } });
     const dot = document.getElementById('group-my-dot');
     expect(dot.classList.contains('dot-go-hint')).toBe(false);
+  });
+});
+
+// --- notification bell on roster rows ---
+
+describe('notification bell on roster rows', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+  });
+
+  test('renders a notification bell on each roster member when NOTIFICATIONS_ENABLED', () => {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ bea: { role: 'member', displayName: 'Bea', joinedAt: 1 } });
+
+    const li = document.querySelector('#group-roster [data-user-id="bea"]');
+    expect(li.querySelector('.notify-bell')).not.toBeNull();
+    expect(createNotifyBell).toHaveBeenCalledWith('bea', expect.any(Object));
   });
 });
 

@@ -22,7 +22,9 @@ import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
-import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
+import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
+import { createNotifyBell } from './notifyBell.js';
+import { requestPermissionAndRegister } from './notifyPrompt.js';
 import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, ICON_BOLT, ICON_TREE, startSwatchHints } from './palettes.js';
 import {
   shouldShowThemeHint, shouldShowDotGoHint, shouldShowSetTogglePulse,
@@ -142,6 +144,13 @@ function renderRoster(members, ownUserId) {
 
     li.appendChild(dot);
     li.appendChild(info);
+
+    if (NOTIFICATIONS_ENABLED && uid !== ownUserId) {
+      const bell = createNotifyBell(uid, {
+        onNeedPermission: () => { requestPermissionAndRegister().catch(() => {}); },
+      });
+      li.appendChild(bell);
+    }
 
     if (KNOCK_ENABLED) {
       li.classList.add('knockable');
