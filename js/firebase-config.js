@@ -1,6 +1,7 @@
 // js/firebase-config.js
 import { initializeApp } from 'firebase/app';
 import { getDatabase } from 'firebase/database';
+import { getMessaging, isSupported } from 'firebase/messaging';
 
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
@@ -12,5 +13,16 @@ const firebaseConfig = {
   appId: process.env.FIREBASE_APP_ID,
 };
 
-const app = initializeApp(firebaseConfig);
+export const app = initializeApp(firebaseConfig);
 export const db = getDatabase(app);
+
+let _messaging = null;
+// Returns a Messaging instance, or null where unsupported (e.g. iOS Safari tab).
+export async function getMessagingIfSupported() {
+  try {
+    if (_messaging) return _messaging;
+    if (!(await isSupported())) return null;
+    _messaging = getMessaging(app);
+    return _messaging;
+  } catch { return null; }
+}

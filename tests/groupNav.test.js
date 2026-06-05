@@ -1,4 +1,5 @@
 // tests/groupNav.test.js
+jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
 jest.mock('../js/db.js', () => ({
   setLastVisited: jest.fn().mockResolvedValue(undefined),
   watchUserGroups: jest.fn(),

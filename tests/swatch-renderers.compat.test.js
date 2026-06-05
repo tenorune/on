@@ -1,4 +1,5 @@
 // tests/swatch-renderers.compat.test.js
+jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
 // Cross-renderer compatibility test.
 //
 // The Direct (#swatch-row) and Group (#group-swatch-row) swatch pickers are

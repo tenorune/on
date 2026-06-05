@@ -5,7 +5,9 @@ import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallbac
 import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
-import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
+import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
+import { initNotifyPrompt } from './notifyPrompt.js';
+import { getMessagingIfSupported } from './firebase-config.js';
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
 import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
@@ -461,6 +463,24 @@ async function main() {
   watchUserPrefs(userId, (serverPrefs) => {
     syncPrefsFromServer(serverPrefs);
   });
+
+  if (NOTIFICATIONS_ENABLED) {
+    initNotifyPrompt(userId);
+    getMessagingIfSupported().then((messaging) => {
+      if (!messaging) return;
+      import('firebase/messaging').then(({ onMessage }) => {
+        onMessage(messaging, () => { /* foreground: in-app UI already reflects it; no OS toast */ });
+      });
+    });
+    // Deep-link routing: the SW postMessages a clicked notification to the focused
+    // client (sw.js notificationclick). Route group notifications into that group.
+    navigator.serviceWorker?.addEventListener('message', (e) => {
+      if (e.data?.kind !== 'notification-click') return;
+      const gid = e.data.data?.contextGroupId;
+      if (gid) navigateToGroup(gid);
+    });
+  }
+
   // currentContext changes from sibling devices arrive as a
   // 'current-context-synced' CustomEvent; forward into groupNav so the
   // active context flips just like the old watchStatus-driven path used to.
@@ -631,7 +651,9 @@ async function main() {
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(console.error);
+    navigator.serviceWorker.register('/sw.js').then((reg) => {
+      window.__swRegistration = reg;
+    }).catch(console.error);
   }
 }
 

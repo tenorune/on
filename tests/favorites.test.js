@@ -1,4 +1,5 @@
 // tests/favorites.test.js
+jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
 
 // ─── Store helpers ──────────────────────────────────────────────────────────
 // These tests use the REAL store implementation with jsdom localStorage.
