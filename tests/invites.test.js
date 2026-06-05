@@ -1,5 +1,6 @@
 // tests/invites.test.js
 jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
+jest.mock('../js/firebase-config.js', () => ({ db: {}, getMessagingIfSupported: jest.fn() }));
 jest.mock('../js/db.js', () => ({
   claimInviteToken: jest.fn(),
   releaseInviteToken: jest.fn(),
