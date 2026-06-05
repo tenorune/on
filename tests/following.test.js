@@ -22,7 +22,9 @@ if (typeof PointerEvent === 'undefined') {
   };
 }
 
-jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
+jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true, NOTIFICATIONS_ENABLED: true }));
+jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn() }));
+jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
 jest.mock('../js/palettes.js', () => ({
   ...jest.requireActual('../js/palettes.js'),
   getPaletteByKey: jest.fn(),
@@ -144,6 +146,17 @@ const {
   initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees,
   enterCallMode, exitCallMode, getCallModeCalleeId, reEnterCallMode,
 } = require('../js/following.js');
+const { createNotifyBell } = require('../js/notifyBell.js');
+
+// Default implementation: return a real button so li.appendChild doesn't throw.
+// Individual test suites may override via mockImplementation in their beforeEach.
+beforeEach(() => {
+  createNotifyBell.mockImplementation(() => {
+    const b = document.createElement('button');
+    b.className = 'notify-bell';
+    return b;
+  });
+});
 
 function setupDom() {
   document.body.innerHTML = `
@@ -1514,5 +1527,33 @@ describe('direct-list float survives re-render', () => {
     }
     const order = Array.from(list.querySelectorAll('li')).map((el) => el.dataset.userId);
     expect(order).toEqual(['b', 'a', 'c']);
+  });
+});
+
+// --- notification bell on contact rows ---
+
+describe('notification bell on contact rows', () => {
+  const { createNotifyBell } = require('../js/notifyBell.js');
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+  });
+
+  test('renders a notification bell on a contact row when NOTIFICATIONS_ENABLED', () => {
+    getFollowing.mockReturnValue([
+      { userId: 'alex', code: 'alex-code', label: 'Alex K.' },
+    ]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'alex', code: 'alex-code' }]); // mutual row
+
+    const li = document.querySelector('#people-list li[data-user-id="alex"]');
+    expect(createNotifyBell).toHaveBeenCalledWith('alex', expect.any(Object));
+    expect(li.querySelector('.notify-bell')).not.toBeNull();
   });
 });
