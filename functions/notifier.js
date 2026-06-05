@@ -40,3 +40,20 @@ export async function handleCall(deps, callerId, callState) {
   const name = await resolveName(deps, calleeId, callerId);
   await sendToUser(deps, calleeId, buildMessage('call', name), { type: 'call', targetUid: callerId });
 }
+
+export async function handleAvailability(deps, uid, beforeNode, afterNode) {
+  const now = deps.now();
+  if (!becameAvailable(beforeNode, afterNode, now)) return;
+  const lastTs = await deps.getVal(`notifierState/availability/${uid}`);
+  if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) return;
+  await deps.update('notifierState/availability', { [uid]: now });
+
+  const followers = await deps.getVal(`users/${uid}/followers`);
+  const followerIds = followers ? Object.keys(followers) : [];
+  for (const fid of followerIds) {
+    const prefs = await deps.getVal(`userPrefs/${fid}/notify/${uid}`);
+    if (!wantsAvailability(prefs)) continue;
+    const name = await resolveName(deps, fid, uid);
+    await sendToUser(deps, fid, buildMessage('availability', name), { type: 'availability', targetUid: uid });
+  }
+}

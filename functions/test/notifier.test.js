@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { sendToUser, resolveName, handleKnock, handleCall } from '../notifier.js';
+import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability } from '../notifier.js';
 
 function makeDeps(overrides = {}) {
   const store = overrides.store || {};
@@ -87,6 +87,37 @@ describe('handleCall', () => {
   test('does nothing when callee did not opt in', async () => {
     const deps = makeDeps({ store: { 'userPrefs/callee/notify/caller': { call: false } } });
     await handleCall(deps, 'caller', { calleeId: 'callee', since: 1 });
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+});
+
+const off = { status: 'unavailable', availableUntil: null };
+const on = { status: 'available', availableUntil: 9_999_999_999 };
+
+describe('handleAvailability', () => {
+  test('on false→true, notifies opted-in followers and stamps cooldown', async () => {
+    const deps = makeDeps({ store: {
+      'users/star/followers': { f1: 'code1', f2: 'code2' },
+      'userPrefs/f1/notify/star': { availability: true },
+      'userPrefs/f2/notify/star': { availability: false },
+      'userPrefs/f1/following/star': { label: 'Bea' },
+      'userPrefs/f1/pushTokens': { tokF1: {} },
+      'notifierState/availability/star': null,
+    }});
+    await handleAvailability(deps, 'star', off, on);
+    expect(deps.send).toHaveBeenCalledTimes(1);
+    expect(deps.send).toHaveBeenCalledWith(['tokF1'],
+      { title: 'Bea is available', body: '' }, { type: 'availability', targetUid: 'star' });
+    expect(deps.update).toHaveBeenCalledWith('notifierState/availability', { star: 1000 });
+  });
+  test('no notify when not a transition (re-up)', async () => {
+    const deps = makeDeps();
+    await handleAvailability(deps, 'star', on, on);
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('debounce: skip if within cooldown of last fire', async () => {
+    const deps = makeDeps({ store: { 'notifierState/availability/star': 999 } }); // now=1000, cooldown 5min
+    await handleAvailability(deps, 'star', off, on);
     expect(deps.send).not.toHaveBeenCalled();
   });
 });
