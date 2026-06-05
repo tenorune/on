@@ -43,3 +43,16 @@ test('iOS Safari installed (standalone, Push API present) → supported', () => 
   setStandalone(true);
   expect(detectNotifyCapability().state).toBe('supported');
 });
+
+const { guidanceCopyFor } = require('../js/installGuidance.js');
+
+test('guidanceCopyFor maps each state to a non-empty message', () => {
+  expect(guidanceCopyFor('needs-install-ios').body).toMatch(/Home Screen/i);
+  expect(guidanceCopyFor('ios-use-safari').body).toMatch(/Safari/i);
+  expect(guidanceCopyFor('denied').body).toMatch(/settings/i);
+});
+
+test('iOS install copy includes the secret-phrase reminder flag', () => {
+  expect(guidanceCopyFor('needs-install-ios').remindPhrase).toBe(true);
+  expect(guidanceCopyFor('denied').remindPhrase).toBe(false);
+});

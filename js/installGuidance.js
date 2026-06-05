@@ -31,3 +31,30 @@ export function detectNotifyCapability() {
   if (isIos() && !isStandalone()) return { state: 'needs-install-ios', supported: false };
   return { state: 'unsupported', supported: false };
 }
+
+const COPY = {
+  'needs-install-ios': {
+    title: 'Add to Home Screen',
+    body: 'On iPhone, notifications need the app on your Home Screen. Tap the Share button, then "Add to Home Screen."',
+    remindPhrase: true,
+  },
+  'ios-use-safari': {
+    title: 'Open in Safari',
+    body: 'On iPhone, notifications only work from Safari. Open this app in Safari, then tap Share → "Add to Home Screen."',
+    remindPhrase: true,
+  },
+  'denied': {
+    title: 'Notifications are blocked',
+    body: 'Notifications are turned off for this site. Re-enable them in your browser settings to use them here.',
+    remindPhrase: false,
+  },
+  'unsupported': {
+    title: 'Notifications unavailable',
+    body: 'This browser doesn’t support web notifications.',
+    remindPhrase: false,
+  },
+};
+
+export function guidanceCopyFor(state) {
+  return COPY[state] || COPY.unsupported;
+}
