@@ -1,4 +1,5 @@
 // tests/mycode.test.js
+jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
 jest.mock('../js/db.js', () => ({
   rotateCode: jest.fn(),
   claimInviteToken: jest.fn(),

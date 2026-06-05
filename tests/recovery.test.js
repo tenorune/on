@@ -1,4 +1,5 @@
 // tests/recovery.test.js
+jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
 
 // Mocks required so that require('../js/app') doesn't crash on Firebase imports.
 // These do NOT mock identity.js so the real functions work for the tests above.
