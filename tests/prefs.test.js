@@ -177,3 +177,23 @@ describe('notify prefs', () => {
     document.removeEventListener('notify-prefs-synced', handler);
   });
 });
+
+const { addPushToken, removePushToken, getRegisteredPushToken } = require('../js/prefs.js');
+
+describe('push tokens', () => {
+  beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); initPrefs('me123'); });
+
+  test('addPushToken writes the token record and records it locally', () => {
+    addPushToken('tok-abc');
+    expect(mergeUserPrefs).toHaveBeenCalledWith('me123',
+      expect.objectContaining({ 'pushTokens/tok-abc': expect.objectContaining({ createdAt: expect.any(Number) }) }));
+    expect(getRegisteredPushToken()).toBe('tok-abc');
+  });
+
+  test('removePushToken nulls the path and clears the local record', () => {
+    addPushToken('tok-abc'); mergeUserPrefs.mockClear();
+    removePushToken('tok-abc');
+    expect(mergeUserPrefs).toHaveBeenCalledWith('me123', { 'pushTokens/tok-abc': null });
+    expect(getRegisteredPushToken()).toBe(null);
+  });
+});

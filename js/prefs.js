@@ -245,6 +245,29 @@ export function setNotifyPref(targetUid, type, on) {
   if (_myUserId) mergeUserPrefs(_myUserId, { [`notify/${targetUid}/${type}`]: !!on }).catch(() => {});
 }
 
+// ── Push-token registry ──────────────────────────────────────────────────────
+const PUSH_TOKEN_KEY = 'statusapp_push_token';
+
+export function getRegisteredPushToken() {
+  return localStorage.getItem(PUSH_TOKEN_KEY) || null;
+}
+
+export function addPushToken(token) {
+  if (!token) return;
+  try { localStorage.setItem(PUSH_TOKEN_KEY, token); } catch { /* quota */ }
+  if (_myUserId) {
+    mergeUserPrefs(_myUserId, {
+      [`pushTokens/${token}`]: { createdAt: Date.now(), ua: navigator.userAgent || '' },
+    }).catch(() => {});
+  }
+}
+
+export function removePushToken(token) {
+  if (!token) return;
+  if (localStorage.getItem(PUSH_TOKEN_KEY) === token) localStorage.removeItem(PUSH_TOKEN_KEY);
+  if (_myUserId) mergeUserPrefs(_myUserId, { [`pushTokens/${token}`]: null }).catch(() => {});
+}
+
 // ── Watch reconciliation ─────────────────────────────────────────────────────
 // Called by app.js's watchUserPrefs subscription each time the server snapshot
 // changes. Populates the localStorage cache so subsequent synchronous reads
