@@ -36,3 +36,51 @@ export async function requestPermissionAndRegister() {
 }
 
 export function dismissPromoForever() { markHintSeen(PROMO_HINT); }
+
+let _engaged = false;
+export function markEngaged() { _engaged = true; maybeShowBanner(); }
+
+let _userId = null;
+export function initNotifyPrompt(userId) {
+  _userId = userId;
+  // Engagement = second session onward (avoid first-ever-load nag).
+  const k = 'statusapp_session_seen';
+  if (localStorage.getItem(k) === '1') _engaged = true; else localStorage.setItem(k, '1');
+  maybeShowBanner();
+}
+
+function maybeShowBanner() {
+  const cap = detectNotifyCapability();
+  const permission = (typeof Notification !== 'undefined' && Notification.permission) || 'default';
+  const show = shouldShowPromo({
+    enabled: NOTIFICATIONS_ENABLED, hintSeen: isHintSeen(PROMO_HINT),
+    engaged: _engaged, capState: cap.state, permission,
+  });
+  const banner = document.getElementById('notify-promo');
+  if (!banner) return;
+  if (!show) { banner.classList.add('hidden'); return; }
+  renderBanner(banner, cap.state);
+  banner.classList.remove('hidden');
+}
+
+function renderBanner(banner, capState) {
+  const textEl = banner.querySelector('#notify-promo-text');
+  const actionEl = banner.querySelector('#notify-promo-action');
+  if (capState === 'supported') {
+    textEl.textContent = 'Get notified about knocks, calls, and people coming online.';
+    actionEl.textContent = 'Enable';
+    actionEl.classList.remove('hidden');
+    actionEl.onclick = async () => {
+      const ok = await requestPermissionAndRegister();
+      if (ok) banner.classList.add('hidden');
+    };
+  } else {
+    const copy = guidanceCopyFor(capState);
+    textEl.textContent = copy.body;
+    actionEl.classList.add('hidden');
+  }
+  banner.querySelector('#notify-promo-dismiss').onclick = () => {
+    dismissPromoForever();
+    banner.classList.add('hidden');
+  };
+}
