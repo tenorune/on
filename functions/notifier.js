@@ -31,3 +31,12 @@ export async function handleKnock(deps, recipientId, senderId, record) {
   if (record && record.contextGroupId) data.contextGroupId = record.contextGroupId;
   await sendToUser(deps, recipientId, buildMessage('knock', name), data);
 }
+
+export async function handleCall(deps, callerId, callState) {
+  if (!callState || !callState.calleeId) return;
+  const calleeId = callState.calleeId;
+  const prefs = await deps.getVal(`userPrefs/${calleeId}/notify/${callerId}`);
+  if (!wantsCall(prefs)) return;
+  const name = await resolveName(deps, calleeId, callerId);
+  await sendToUser(deps, calleeId, buildMessage('call', name), { type: 'call', targetUid: callerId });
+}

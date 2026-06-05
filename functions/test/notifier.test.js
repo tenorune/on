@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { sendToUser, resolveName, handleKnock } from '../notifier.js';
+import { sendToUser, resolveName, handleKnock, handleCall } from '../notifier.js';
 
 function makeDeps(overrides = {}) {
   const store = overrides.store || {};
@@ -62,6 +62,31 @@ describe('handleKnock', () => {
   test('does nothing when not opted in', async () => {
     const deps = makeDeps({ store: { 'userPrefs/rcpt/notify/sndr': { knock: false } } });
     await handleKnock(deps, 'rcpt', 'sndr', { count: 1, ts: 1 });
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleCall', () => {
+  test('notifies the callee when they opted in for the caller', async () => {
+    const deps = makeDeps({ store: {
+      'userPrefs/callee/notify/caller': { call: true },
+      'userPrefs/callee/following/caller': { label: 'Alex K.' },
+      'userPrefs/callee/pushTokens': { tokA: {} },
+    }});
+    await handleCall(deps, 'caller', { calleeId: 'callee', since: 1 });
+    expect(deps.send).toHaveBeenCalledWith(['tokA'],
+      { title: 'Alex K. is calling', body: '' },
+      { type: 'call', targetUid: 'caller' });
+  });
+  test('does nothing when callState cleared (null) or no calleeId', async () => {
+    const deps = makeDeps();
+    await handleCall(deps, 'caller', null);
+    await handleCall(deps, 'caller', { since: 1 });
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('does nothing when callee did not opt in', async () => {
+    const deps = makeDeps({ store: { 'userPrefs/callee/notify/caller': { call: false } } });
+    await handleCall(deps, 'caller', { calleeId: 'callee', since: 1 });
     expect(deps.send).not.toHaveBeenCalled();
   });
 });
