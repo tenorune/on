@@ -331,12 +331,15 @@ The following were raised; status noted.
 - Two latent test-mock breakages (recovery + invites loading `app.js`, which now imports
   `firebase-config.js` directly) fixed; root/functions Jest toolchains isolated.
 
-**MUST verify before flipping `NOTIFICATIONS_ENABLED = true` (blockers):**
-- **Live FCM web delivery against the raw `sw.js` `push` listener.** We use a single raw-push
-  service worker (not FCM's `onBackgroundMessage`). FCM may wrap the web payload; verify the
-  SW receives the data-only flat keys we send. If not, adopt FCM's SW SDK `onBackgroundMessage`
-  **or** switch to raw VAPID Web Push (the documented fallback) so the SW reads exactly the JSON
-  sent. Confirm delivery on macOS Safari 16+ and an installed iOS PWA specifically.
+**RESOLVED — verified live on dev (`NOTIFICATIONS_ENABLED = true`):**
+- **Live FCM web delivery works against the raw `sw.js` `push` listener** — no `onBackgroundMessage`
+  SDK or VAPID-direct fallback needed. Confirmed on an installed iOS PWA: knocks, calls, and
+  availability all deliver. **One fix was required:** FCM wraps data messages, so the SW must read
+  the fields from `payload.data` (not the top level) — without it iOS showed a generic
+  "KnockKnock" title. Fixed in `sw.js` (reads `payload.data`, falls back to top level for raw
+  Web Push); titles now render correctly.
+- Availability gating (off→on transition + ~5-min per-target cooldown) confirmed working and
+  intentionally kept as-is (anti-spam).
 
 **Should-fix before any real traffic (non-blocking for dark merge):**
 - **Narrow the availability trigger.** `onValueUpdated('/users/{uid}')` fires on every
