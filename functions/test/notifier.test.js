@@ -91,12 +91,12 @@ describe('handleCall', () => {
   });
 });
 
-const off = { status: 'unavailable', availableUntil: null };
-const on = { status: 'available', availableUntil: 9_999_999_999 };
+const FUTURE = 9_999_999_999; // >> now (1000)
 
-describe('handleAvailability', () => {
-  test('on false→true, notifies opted-in followers and stamps cooldown', async () => {
+describe('handleAvailability (narrowed: availableUntil before/after + status read)', () => {
+  test('on availableUntil null→future with available status, notifies opted-in followers and stamps cooldown', async () => {
     const deps = makeDeps({ store: {
+      'users/star/status': 'available',
       'users/star/followers': { f1: 'code1', f2: 'code2' },
       'userPrefs/f1/notify/star': { availability: true },
       'userPrefs/f2/notify/star': { availability: false },
@@ -104,20 +104,54 @@ describe('handleAvailability', () => {
       'userPrefs/f1/pushTokens': { tokF1: {} },
       'notifierState/availability/star': null,
     }});
-    await handleAvailability(deps, 'star', off, on);
+    await handleAvailability(deps, 'star', null, FUTURE);
     expect(deps.send).toHaveBeenCalledTimes(1);
     expect(deps.send).toHaveBeenCalledWith(['tokF1'],
       { title: 'Bea is available', body: '' }, { type: 'availability', targetUid: 'star' });
     expect(deps.update).toHaveBeenCalledWith('notifierState/availability', { star: 1000 });
   });
-  test('no notify when not a transition (re-up)', async () => {
-    const deps = makeDeps();
-    await handleAvailability(deps, 'star', on, on);
+  test('no notify on re-up (availableUntil future→future)', async () => {
+    const deps = makeDeps({ store: { 'users/star/status': 'available' } });
+    await handleAvailability(deps, 'star', FUTURE - 1, FUTURE);
     expect(deps.send).not.toHaveBeenCalled();
+    expect(deps.update).not.toHaveBeenCalled();
   });
   test('debounce: skip if within cooldown of last fire', async () => {
-    const deps = makeDeps({ store: { 'notifierState/availability/star': 999 } }); // now=1000, cooldown 5min
-    await handleAvailability(deps, 'star', off, on);
+    const deps = makeDeps({ store: {
+      'users/star/status': 'available',
+      'notifierState/availability/star': 999, // now=1000, cooldown 5min
+    }});
+    await handleAvailability(deps, 'star', null, FUTURE);
     expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('does NOT stamp the cooldown when nothing was delivered (no tokens)', async () => {
+    const deps = makeDeps({ store: {
+      'users/star/status': 'available',
+      'users/star/followers': { f1: 'code1' },
+      'userPrefs/f1/notify/star': { availability: true },
+      // f1 has no pushTokens → nothing delivered
+      'notifierState/availability/star': null,
+    }});
+    await handleAvailability(deps, 'star', null, FUTURE);
+    expect(deps.send).not.toHaveBeenCalled();
+    expect(deps.update).not.toHaveBeenCalledWith('notifierState/availability', expect.anything());
+  });
+  test('one follower send failure does not abort the fan-out; stamps on any success', async () => {
+    const deps = makeDeps({ store: {
+      'users/star/status': 'available',
+      'users/star/followers': { f1: 'c1', f2: 'c2' },
+      'userPrefs/f1/notify/star': { availability: true },
+      'userPrefs/f2/notify/star': { availability: true },
+      'userPrefs/f1/pushTokens': { tokF1: {} },
+      'userPrefs/f2/pushTokens': { tokF2: {} },
+      'notifierState/availability/star': null,
+    }});
+    deps.send = jest.fn(async (tokens) => {
+      if (tokens[0] === 'tokF1') throw new Error('fcm down');
+      return { failedTokens: [] };
+    });
+    await handleAvailability(deps, 'star', null, FUTURE);
+    expect(deps.send).toHaveBeenCalledTimes(2); // both attempted despite f1 throwing
+    expect(deps.update).toHaveBeenCalledWith('notifierState/availability', { star: 1000 });
   });
 });

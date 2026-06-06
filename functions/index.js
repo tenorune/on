@@ -2,7 +2,7 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
 import { getMessaging } from 'firebase-admin/messaging';
-import { onValueCreated, onValueWritten, onValueUpdated } from 'firebase-functions/v2/database';
+import { onValueCreated, onValueWritten } from 'firebase-functions/v2/database';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { handleKnock, handleCall, handleAvailability } from './notifier.js';
 
@@ -59,6 +59,10 @@ export const onCall = onValueWritten('/users/{callerId}/callState', (event) => {
   return handleCall(makeDeps(), event.params.callerId, after);
 });
 
-export const onAvailability = onValueUpdated('/users/{uid}', (event) => {
+// Narrowed to the availability field so we're not invoked on every knock /
+// callState / lastSeen write to the user node. onValueWritten covers create
+// (going available from null), update (re-up), and delete (going offline);
+// the handler reads the sibling `status` to confirm.
+export const onAvailability = onValueWritten('/users/{uid}/availableUntil', (event) => {
   return handleAvailability(makeDeps(), event.params.uid, event.data.before.val(), event.data.after.val());
 });
