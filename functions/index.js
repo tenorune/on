@@ -6,10 +6,12 @@ import { onValueCreated, onValueWritten, onValueUpdated } from 'firebase-functio
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { handleKnock, handleCall, handleAvailability } from './notifier.js';
 
-// Pin all functions to the RTDB's region (europe-west1). A 2nd-gen RTDB trigger
-// MUST run in the same region as the database instance, and we keep all compute
-// in the EU (no US region).
-setGlobalOptions({ region: 'europe-west1' });
+// Pin all functions to the RTDB's region. A 2nd-gen RTDB trigger MUST run in the
+// same region as the database instance. Region is per-project config: the Firebase
+// CLI auto-loads functions/.env.<projectId> at deploy (based on --project), so each
+// environment sets FUNCTIONS_REGION to match its own RTDB. Defaults to the dev
+// region (europe-west1). See functions/.env.example.
+setGlobalOptions({ region: process.env.FUNCTIONS_REGION || 'europe-west1' });
 
 initializeApp();
 
