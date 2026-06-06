@@ -1,15 +1,18 @@
 // functions/presence-core.js — pure, dependency-free decision logic.
 
-export function isExpired(availableUntil, now) {
-  return availableUntil != null && availableUntil < now;
+// A valid (numeric, future) availableUntil. null/absent/expired are all "not future".
+export function isFutureMs(v, now) {
+  return typeof v === 'number' && v > now;
 }
 
-export function isAvailable(node, now) {
-  return !!node && node.status === 'available' && !isExpired(node.availableUntil, now);
-}
-
-export function becameAvailable(before, after, now) {
-  return !isAvailable(before, now) && isAvailable(after, now);
+// Availability "turned on" — the narrowed trigger watches users/{uid}/availableUntil,
+// so we reason from its before/after value plus the current status. Fires only when
+// availableUntil goes from not-future (null/absent/expired) to future AND status is
+// 'available'. (Going unavailable always clears availableUntil to null, so a real
+// off→on always changes availableUntil.) Assumes available state always carries a
+// future availableUntil — true for the app's timed-availability model.
+export function availabilityTurnedOn(beforeAU, afterAU, status, now) {
+  return status === 'available' && isFutureMs(afterAU, now) && !isFutureMs(beforeAU, now);
 }
 
 export function withinCooldown(lastTs, now, cooldownMs) {

@@ -1,18 +1,20 @@
 // functions/notifier.js — delivery + per-event handlers. Deps are injected.
-import { wantsKnock, wantsCall, wantsAvailability, becameAvailable, withinCooldown, buildMessage } from './presence-core.js';
+import { wantsKnock, wantsCall, wantsAvailability, availabilityTurnedOn, withinCooldown, buildMessage } from './presence-core.js';
 
 const AVAIL_COOLDOWN_MS = 5 * 60 * 1000;
 
 export async function sendToUser(deps, uid, message, data) {
   const tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
   const tokens = tokensMap ? Object.keys(tokensMap) : [];
-  if (tokens.length === 0) return;
+  if (tokens.length === 0) return false;
   const { failedTokens } = await deps.send(tokens, message, data);
   if (failedTokens && failedTokens.length) {
     const nulls = {};
     for (const t of failedTokens) nulls[t] = null;
     await deps.update(`userPrefs/${uid}/pushTokens`, nulls);
   }
+  // Delivered if at least one token wasn't rejected.
+  return (failedTokens?.length || 0) < tokens.length;
 }
 
 export async function resolveName(deps, viewerUid, targetUid) {
@@ -41,19 +43,27 @@ export async function handleCall(deps, callerId, callState) {
   await sendToUser(deps, calleeId, buildMessage('call', name), { type: 'call', targetUid: callerId });
 }
 
-export async function handleAvailability(deps, uid, beforeNode, afterNode) {
+// Triggered on a write to users/{uid}/availableUntil (before/after are that value).
+export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   const now = deps.now();
-  if (!becameAvailable(beforeNode, afterNode, now)) return;
+  const status = await deps.getVal(`users/${uid}/status`);
+  if (!availabilityTurnedOn(beforeAU, afterAU, status, now)) return;
   const lastTs = await deps.getVal(`notifierState/availability/${uid}`);
   if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) return;
-  await deps.update('notifierState/availability', { [uid]: now });
 
   const followers = await deps.getVal(`users/${uid}/followers`);
   const followerIds = followers ? Object.keys(followers) : [];
+  let delivered = 0;
   for (const fid of followerIds) {
     const prefs = await deps.getVal(`userPrefs/${fid}/notify/${uid}`);
     if (!wantsAvailability(prefs)) continue;
     const name = await resolveName(deps, fid, uid);
-    await sendToUser(deps, fid, buildMessage('availability', name), { type: 'availability', targetUid: uid });
+    try {
+      if (await sendToUser(deps, fid, buildMessage('availability', name), { type: 'availability', targetUid: uid })) {
+        delivered++;
+      }
+    } catch { /* this follower's send failed — keep notifying the rest */ }
   }
+  // Only consume the cooldown if a notification actually went out.
+  if (delivered > 0) await deps.update('notifierState/availability', { [uid]: now });
 }

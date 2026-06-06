@@ -1,28 +1,29 @@
 import {
-  isExpired, isAvailable, becameAvailable, withinCooldown,
+  withinCooldown, isFutureMs, availabilityTurnedOn,
   wantsKnock, wantsCall, wantsAvailability, buildMessage,
 } from '../presence-core.js';
 
 const NOW = 1_000_000;
 
-describe('availability', () => {
-  test('isExpired: null is never expired; past ms is expired', () => {
-    expect(isExpired(null, NOW)).toBe(false);
-    expect(isExpired(NOW - 1, NOW)).toBe(true);
-    expect(isExpired(NOW + 1, NOW)).toBe(false);
+describe('availability transition (narrowed: availableUntil + status)', () => {
+  test('isFutureMs: true only for a numeric ms strictly in the future', () => {
+    expect(isFutureMs(NOW + 5, NOW)).toBe(true);
+    expect(isFutureMs(NOW - 5, NOW)).toBe(false);
+    expect(isFutureMs(NOW, NOW)).toBe(false);
+    expect(isFutureMs(null, NOW)).toBe(false);
+    expect(isFutureMs(undefined, NOW)).toBe(false);
   });
-  test('isAvailable requires status available and a non-expired window', () => {
-    expect(isAvailable({ status: 'available', availableUntil: NOW + 5 }, NOW)).toBe(true);
-    expect(isAvailable({ status: 'available', availableUntil: NOW - 5 }, NOW)).toBe(false);
-    expect(isAvailable({ status: 'unavailable', availableUntil: NOW + 5 }, NOW)).toBe(false);
-    expect(isAvailable(null, NOW)).toBe(false);
-  });
-  test('becameAvailable only on a false→true transition', () => {
-    const off = { status: 'unavailable', availableUntil: null };
-    const on = { status: 'available', availableUntil: NOW + 5 };
-    expect(becameAvailable(off, on, NOW)).toBe(true);
-    expect(becameAvailable(on, on, NOW)).toBe(false); // re-up
-    expect(becameAvailable(on, off, NOW)).toBe(false); // going offline
+  test('availabilityTurnedOn: fires only on invalid→future availableUntil with available status', () => {
+    // going available: availableUntil absent/null → future, status available
+    expect(availabilityTurnedOn(null, NOW + 5, 'available', NOW)).toBe(true);
+    // re-up: future → future (already was available) → no
+    expect(availabilityTurnedOn(NOW + 1, NOW + 5, 'available', NOW)).toBe(false);
+    // going offline: → null → no
+    expect(availabilityTurnedOn(NOW + 5, null, 'available', NOW)).toBe(false);
+    // status not available → no
+    expect(availabilityTurnedOn(null, NOW + 5, 'unavailable', NOW)).toBe(false);
+    // renew after lazy expiry: expired(past) → future, status available → yes
+    expect(availabilityTurnedOn(NOW - 100, NOW + 5, 'available', NOW)).toBe(true);
   });
 });
 
