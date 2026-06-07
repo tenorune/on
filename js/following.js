@@ -19,7 +19,7 @@ import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { isLongpressHintEligible, isSwipeHintEligible } from './hints.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { createNotifyBell } from './notifyBell.js';
-import { requestPermissionAndRegister } from './notifyPrompt.js';
+import { ensureNotificationsReady } from './notifyPrompt.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock, getFloatedUserIds } from './knock.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
@@ -571,7 +571,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
 
   if (NOTIFICATIONS_ENABLED) {
     const bell = createNotifyBell(entry.userId, {
-      onNeedPermission: () => { requestPermissionAndRegister().catch(() => {}); },
+      onNeedPermission: () => { ensureNotificationsReady().catch(() => {}); },
     });
     li.appendChild(bell);
   }
