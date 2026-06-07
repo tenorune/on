@@ -24,7 +24,7 @@ if (typeof PointerEvent === 'undefined') {
 
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true, NOTIFICATIONS_ENABLED: true }));
 jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn() }));
-jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
+jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
 jest.mock('../js/palettes.js', () => ({
   ...jest.requireActual('../js/palettes.js'),
   getPaletteByKey: jest.fn(),

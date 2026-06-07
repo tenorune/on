@@ -24,7 +24,7 @@ import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
 import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { createNotifyBell } from './notifyBell.js';
-import { requestPermissionAndRegister } from './notifyPrompt.js';
+import { ensureNotificationsReady } from './notifyPrompt.js';
 import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, ICON_BOLT, ICON_TREE, startSwatchHints } from './palettes.js';
 import {
   shouldShowThemeHint, shouldShowDotGoHint, shouldShowSetTogglePulse,
@@ -147,7 +147,7 @@ function renderRoster(members, ownUserId) {
 
     if (NOTIFICATIONS_ENABLED && uid !== ownUserId) {
       const bell = createNotifyBell(uid, {
-        onNeedPermission: () => { requestPermissionAndRegister().catch(() => {}); },
+        onNeedPermission: () => { ensureNotificationsReady().catch(() => {}); },
       });
       li.appendChild(bell);
     }

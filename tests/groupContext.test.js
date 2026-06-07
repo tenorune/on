@@ -106,7 +106,7 @@ jest.mock('../js/features.js', () => ({
   NOTIFICATIONS_ENABLED: true,
 }));
 jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn() }));
-jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
+jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
 jest.mock('../js/me.js', () => ({
   clearFirstUsePulse: jest.fn(),
 }));
