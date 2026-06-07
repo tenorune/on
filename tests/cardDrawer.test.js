@@ -1,5 +1,5 @@
 // tests/cardDrawer.test.js
-const { createCardDrawer, isCardDrawerOpen } = require('../js/cardDrawer.js');
+const { createCardDrawer, isCardDrawerOpen, closeCardDrawer } = require('../js/cardDrawer.js');
 
 function makeAction(label) {
   const b = document.createElement('button');
@@ -8,7 +8,10 @@ function makeAction(label) {
   return b;
 }
 
-beforeEach(() => { document.body.innerHTML = ''; });
+beforeEach(() => {
+  closeCardDrawer();           // reset singleton left open by a prior test
+  document.body.innerHTML = '';
+});
 
 test('createCardDrawer returns an ellipsis toggle button', () => {
   const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: makeAction('b') }]);

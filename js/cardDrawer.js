@@ -13,11 +13,10 @@ export function isCardDrawerOpen() {
 export function closeCardDrawer() {
   if (!_open) return;
   const { slice, cleanup } = _open;
-  const wasInDom = slice.isConnected;
   cleanup();
   slice.remove();
   _open = null;
-  if (wasInDom) document.dispatchEvent(new CustomEvent('card-drawer-close'));
+  document.dispatchEvent(new CustomEvent('card-drawer-close'));
 }
 
 function openDrawer(ellipsis, actions) {
