@@ -51,6 +51,27 @@ test('opening a second drawer closes the first (singleton)', () => {
   expect(document.querySelector('.card-drawer .act-c')).not.toBeNull();
 });
 
+test('a closesDrawer action closes the drawer, and only once across reopens', () => {
+  const action = makeAction('x');
+  const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: action, closesDrawer: true }]);
+  document.body.appendChild(ellipsis);
+  const closed = jest.fn();
+  document.addEventListener('card-drawer-close', closed);
+
+  ellipsis.click();                 // open
+  action.dispatchEvent(new MouseEvent('click', { bubbles: true })); // closes
+  expect(isCardDrawerOpen()).toBe(false);
+  expect(closed).toHaveBeenCalledTimes(1);
+
+  ellipsis.click();                 // reopen
+  action.dispatchEvent(new MouseEvent('click', { bubbles: true })); // closes again
+  expect(isCardDrawerOpen()).toBe(false);
+  // One close per actual close — not 1 then 3 (which is what listener accumulation would produce)
+  expect(closed).toHaveBeenCalledTimes(2);
+
+  document.removeEventListener('card-drawer-close', closed);
+});
+
 test('open dispatches card-drawer-open, close dispatches card-drawer-close', () => {
   const opened = jest.fn();
   const closed = jest.fn();

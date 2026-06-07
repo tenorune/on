@@ -27,8 +27,7 @@ function openDrawer(ellipsis, actions) {
   slice.addEventListener('click', (e) => e.stopPropagation());
   slice.addEventListener('pointerdown', (e) => e.stopPropagation());
 
-  for (const { el, closesDrawer } of actions) {
-    if (closesDrawer) el.addEventListener('click', () => closeCardDrawer());
+  for (const { el } of actions) {
     slice.appendChild(el);
   }
 
@@ -47,6 +46,10 @@ export function createCardDrawer(actions) {
   ellipsis.className = 'card-drawer-toggle';
   ellipsis.setAttribute('aria-label', 'More actions');
   ellipsis.textContent = '⋮'; // unicode vertical ellipsis U+22EE
+
+  for (const { el, closesDrawer } of actions) {
+    if (closesDrawer) el.addEventListener('click', () => closeCardDrawer());
+  }
 
   ellipsis.addEventListener('click', (e) => {
     e.stopPropagation();
