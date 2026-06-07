@@ -3,7 +3,7 @@
   "description": "Presence-notification Cloud Functions",
   "type": "module",
   "main": "index.js",
-  "engines": { "node": "20" },
+  "engines": { "node": "22" },
   "scripts": {
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.js --passWithNoTests"
   },
