@@ -26,6 +26,7 @@ beforeEach(() => {
     getCurrentContext: jest.fn(() => ({ context: 'direct', groupId: null })),
     onContextChange: jest.fn(() => () => {}),
   }));
+  jest.mock('../js/cardDrawer.js', () => ({ isCardDrawerOpen: jest.fn(() => false) }));
   ({ sendKnock, initKnocks, colorToRgba } = require('../js/knock.js'));
   // Re-bind db mocks to fresh instances created after resetModules
   const db = require('../js/db.js');
@@ -440,6 +441,23 @@ describe('live listener: visibility and timestamp guards', () => {
     // Live pulse, NOT deferred:
     expect(li.classList.contains('knock-deferred')).toBe(false);
     expect(li.classList.contains('knock-live')).toBe(true);
+  });
+
+  test('a live knock is ignored (left in DB) while a card drawer is open', async () => {
+    const { isCardDrawerOpen } = require('../js/cardDrawer.js');
+    isCardDrawerOpen.mockReturnValue(true);
+    const { clearKnock } = require('../js/db.js');
+
+    const fire = await setupLiveListener();
+    const li = makeLi('alex');
+
+    fire('alex', { count: 1, ts: Date.now() });
+
+    expect(li.classList.contains('knock-live')).toBe(false);
+    expect(clearKnock).not.toHaveBeenCalled();
+
+    // Reset so the mock doesn't leak to other tests
+    isCardDrawerOpen.mockReturnValue(false);
   });
 });
 
