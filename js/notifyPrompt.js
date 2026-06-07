@@ -1,6 +1,6 @@
 // js/notifyPrompt.js
 import { NOTIFICATIONS_ENABLED } from './features.js';
-import { isHintSeen, markHintSeen, addPushToken } from './prefs.js';
+import { isHintSeen, markHintSeen, addPushToken, removePushToken, getRegisteredPushToken } from './prefs.js';
 import { detectNotifyCapability, guidanceCopyFor } from './installGuidance.js';
 import { getMessagingIfSupported } from './firebase-config.js';
 import { getToken } from 'firebase/messaging';
@@ -36,6 +36,24 @@ export async function requestPermissionAndRegister() {
 }
 
 export function dismissPromoForever() { markHintSeen(PROMO_HINT); }
+
+// Self-heal the server-side FCM token on app load. Permission/token state drifts
+// (especially on iOS), and the client otherwise only registers a token on
+// toggle-on — leaving the server with a stale/absent token and no recovery short
+// of a reinstall. When permission is already granted, fetch the device's current
+// token and reconcile: drop a rotated old token, then (re-)register the current
+// one (idempotent — also heals a token the server pruned while still valid).
+export async function refreshPushToken() {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const messaging = await getMessagingIfSupported();
+  if (!messaging) return;
+  const registration = await navigator.serviceWorker.ready;
+  const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: registration });
+  if (!token) return;
+  const prev = getRegisteredPushToken();
+  if (prev && prev !== token) removePushToken(prev);
+  addPushToken(token);
+}
 
 let _engaged = false;
 export function markEngaged() { _engaged = true; maybeShowBanner(); }

@@ -3,6 +3,8 @@ jest.mock('../js/prefs.js', () => ({
   isHintSeen: jest.fn(() => false),
   markHintSeen: jest.fn(),
   addPushToken: jest.fn(),
+  removePushToken: jest.fn(),
+  getRegisteredPushToken: jest.fn(),
 }));
 jest.mock('../js/firebase-config.js', () => ({ getMessagingIfSupported: jest.fn() }));
 jest.mock('firebase/messaging', () => ({ getToken: jest.fn() }));
@@ -55,6 +57,42 @@ describe('requestPermissionAndRegister', () => {
     global.Notification.requestPermission.mockResolvedValue('denied');
     const ok = await requestPermissionAndRegister();
     expect(ok).toBe(false);
+    expect(addPushToken).not.toHaveBeenCalled();
+  });
+});
+
+const { refreshPushToken } = require('../js/notifyPrompt.js');
+const { getRegisteredPushToken, removePushToken } = require('../js/prefs.js');
+
+describe('refreshPushToken', () => {
+  beforeEach(() => {
+    addPushToken.mockClear(); removePushToken.mockClear(); getRegisteredPushToken.mockReset();
+    getToken.mockReset(); getMessagingIfSupported.mockReset();
+    global.Notification = { permission: 'granted' };
+    global.navigator.serviceWorker = { ready: Promise.resolve({ id: 'reg' }) };
+    getMessagingIfSupported.mockResolvedValue({});
+  });
+
+  test('re-registers the current token (self-heal) when permission granted', async () => {
+    getRegisteredPushToken.mockReturnValue('tok-A');
+    getToken.mockResolvedValue('tok-A'); // unchanged
+    await refreshPushToken();
+    expect(addPushToken).toHaveBeenCalledWith('tok-A');
+    expect(removePushToken).not.toHaveBeenCalled();
+  });
+
+  test('swaps a rotated token: removes old, adds new', async () => {
+    getRegisteredPushToken.mockReturnValue('tok-OLD');
+    getToken.mockResolvedValue('tok-NEW');
+    await refreshPushToken();
+    expect(removePushToken).toHaveBeenCalledWith('tok-OLD');
+    expect(addPushToken).toHaveBeenCalledWith('tok-NEW');
+  });
+
+  test('no-op when permission is not granted', async () => {
+    global.Notification = { permission: 'default' };
+    await refreshPushToken();
+    expect(getToken).not.toHaveBeenCalled();
     expect(addPushToken).not.toHaveBeenCalled();
   });
 });

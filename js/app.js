@@ -6,7 +6,7 @@ import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getC
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
-import { initNotifyPrompt } from './notifyPrompt.js';
+import { initNotifyPrompt, refreshPushToken } from './notifyPrompt.js';
 import { getMessagingIfSupported } from './firebase-config.js';
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
 import { initFavoritesStrip } from './favorites.js';
@@ -466,6 +466,8 @@ async function main() {
 
   if (NOTIFICATIONS_ENABLED) {
     initNotifyPrompt(userId);
+    // Self-heal a drifted/stale FCM token on load (no-op unless already granted).
+    refreshPushToken().catch(() => {});
     getMessagingIfSupported().then((messaging) => {
       if (!messaging) return;
       import('firebase/messaging').then(({ onMessage }) => {
