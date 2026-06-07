@@ -48,6 +48,20 @@ The bell's interaction now depends on how many notification types it offers:
 This is a standalone change to `notifyBell.js` and is correct independent of the
 drawer.
 
+### Bell icon — new monochrome, theme-shaded glyph
+
+Replace the emoji bell (`🔔`) with a single-color SVG bell, inlined into the
+button as `<svg fill="currentColor">` (the supplied `notification-bell` path,
+`viewBox="0 0 122.88 122.83"`). The button sets `color: var(--text-muted)`, so
+the glyph inherits the **same per-palette muted color as the Remove `×`** — no
+per-theme code. (`--text-muted` is rewritten per palette by `palettes.js:168`
+and reset to `#94a3b8` at `:182`; each of the 16 palettes defines its own
+`textMuted`.)
+
+On/off state stays **monochrome via opacity** (off = `0.45`, on = `1`), matching
+the existing `.notify-bell` / `.notify-bell.active` rules. No color change
+between states, no active-color accent.
+
 ### Drawer ⟷ popover layering
 
 When the bell lives inside a drawer and offers a popover (mutual cards):
@@ -98,6 +112,7 @@ terminal actions).
 
 - **`notifyBell.js`** — add the one-type direct-toggle path; keep the popover
   path for multi-type. Popover positioning supports the drawer-aligned case.
+  Swap the emoji bell for the inline monochrome SVG (`fill="currentColor"`).
 - **New card-drawer module** (shared, e.g. `js/cardDrawer.js`) — renders the
   `⋮`, owns open/close, the slide animation, and the singleton open-drawer state.
   Exposes whether a drawer is currently open (for the global gesture/event gate).
@@ -113,6 +128,8 @@ terminal actions).
 
 - Drawer appears only at ≥2 right-side actions; follower/group cards stay inline.
 - One-type bell toggles directly; multi-type bell opens popover.
+- Bell renders the inline SVG with `fill="currentColor"`; color follows
+  `--text-muted` across palettes; on/off differs only by opacity.
 - Layered dismissal: outside-popover closes popover only; outside-drawer closes
   both.
 - Global gate: gestures suppressed while a drawer is open; re-enabled on close.
