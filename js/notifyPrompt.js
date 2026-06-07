@@ -55,6 +55,28 @@ export async function refreshPushToken() {
   addPushToken(token);
 }
 
+// Explicitly show the promo banner for a capability state, bypassing the
+// engagement/dismissal gating used by the passive promo — the user just asked
+// for notifications, so we always show how to get them.
+function showBannerForState(capState) {
+  const banner = document.getElementById('notify-promo');
+  if (!banner) return;
+  renderBanner(banner, capState);
+  banner.classList.remove('hidden');
+}
+
+// Called when a user turns a per-person bell on. Always gives feedback: prompts
+// when push is available, otherwise (or on denial) surfaces the right guidance.
+export async function ensureNotificationsReady() {
+  const cap = detectNotifyCapability();
+  if (cap.state === 'supported') {
+    const ok = await requestPermissionAndRegister();
+    if (!ok) showBannerForState(detectNotifyCapability().state);
+    return;
+  }
+  showBannerForState(cap.state);
+}
+
 let _engaged = false;
 export function markEngaged() { _engaged = true; maybeShowBanner(); }
 

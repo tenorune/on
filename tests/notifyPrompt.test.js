@@ -8,6 +8,10 @@ jest.mock('../js/prefs.js', () => ({
 }));
 jest.mock('../js/firebase-config.js', () => ({ getMessagingIfSupported: jest.fn() }));
 jest.mock('firebase/messaging', () => ({ getToken: jest.fn() }));
+jest.mock('../js/installGuidance.js', () => ({
+  detectNotifyCapability: jest.fn(),
+  guidanceCopyFor: jest.fn((s) => ({ body: `copy-for-${s}` })),
+}));
 
 const { shouldShowPromo } = require('../js/notifyPrompt.js');
 
@@ -94,5 +98,65 @@ describe('refreshPushToken', () => {
     await refreshPushToken();
     expect(getToken).not.toHaveBeenCalled();
     expect(addPushToken).not.toHaveBeenCalled();
+  });
+});
+
+const { ensureNotificationsReady } = require('../js/notifyPrompt.js');
+const { detectNotifyCapability } = require('../js/installGuidance.js');
+
+function mountBanner() {
+  document.body.innerHTML =
+    '<div id="notify-promo" class="notify-promo hidden">' +
+    '<span id="notify-promo-text"></span>' +
+    '<button id="notify-promo-action" class="primary-btn hidden"></button>' +
+    '<button id="notify-promo-dismiss"></button></div>';
+}
+
+describe('ensureNotificationsReady', () => {
+  beforeEach(() => {
+    addPushToken.mockClear(); getToken.mockReset(); getMessagingIfSupported.mockReset();
+    detectNotifyCapability.mockReset();
+    mountBanner();
+    global.Notification = { permission: 'default', requestPermission: jest.fn().mockResolvedValue('granted') };
+    global.navigator.serviceWorker = { ready: Promise.resolve({ id: 'reg' }) };
+    getMessagingIfSupported.mockResolvedValue({});
+    getToken.mockResolvedValue('tok-1');
+  });
+
+  test('supported → runs the permission/register flow, no banner', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'supported', supported: true });
+    await ensureNotificationsReady();
+    expect(addPushToken).toHaveBeenCalledWith('tok-1');
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
+  });
+
+  test('already denied → shows blocked banner, no permission request, no token', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'denied', supported: false });
+    await ensureNotificationsReady();
+    expect(global.Notification.requestPermission).not.toHaveBeenCalled();
+    expect(addPushToken).not.toHaveBeenCalled();
+    const banner = document.getElementById('notify-promo');
+    expect(banner.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('notify-promo-text').textContent).toBe('copy-for-denied');
+  });
+
+  test('needs-install (iOS) → shows install-guidance banner', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'needs-install-ios', supported: false });
+    await ensureNotificationsReady();
+    expect(addPushToken).not.toHaveBeenCalled();
+    const banner = document.getElementById('notify-promo');
+    expect(banner.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('notify-promo-text').textContent).toBe('copy-for-needs-install-ios');
+  });
+
+  test('supported but the user denies the prompt → shows blocked banner', async () => {
+    detectNotifyCapability
+      .mockReturnValueOnce({ state: 'supported', supported: true })
+      .mockReturnValueOnce({ state: 'denied', supported: false });
+    global.Notification.requestPermission = jest.fn().mockResolvedValue('denied');
+    await ensureNotificationsReady();
+    expect(addPushToken).not.toHaveBeenCalled();
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('notify-promo-text').textContent).toBe('copy-for-denied');
   });
 });
