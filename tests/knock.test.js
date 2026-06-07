@@ -394,6 +394,42 @@ describe('visibilitychange re-init', () => {
   });
 });
 
+// --- card-drawer-close replay ---
+
+describe('card-drawer-close replay', () => {
+  test('dispatching card-drawer-close causes initKnocks to re-run and animate a deferred knock', async () => {
+    const ts = Date.now() - 1000; // 1 second ago — within 24h, will be deferred
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockReturnValue(jest.fn());
+    clearKnock.mockResolvedValue();
+
+    // Initial call to cache the userId inside the module
+    await initKnocks('myUid');
+
+    // Now seed a deferred knock for alice so the replay picks it up
+    const li = makeLi('alice');
+    getKnocks.mockResolvedValue({
+      exists: () => true,
+      val: () => ({ alice: { count: 1, ts } }),
+    });
+
+    // Trigger replay via card-drawer-close (mirrors the visibilitychange replay path).
+    // The event handler calls initKnocks() internally; we need to flush all
+    // microtasks it enqueues (getKnocks is a resolved promise, so one tick per
+    // await inside initKnocks). Using a zero-delay timer flush is the safest
+    // way to drain an unknown number of microtask continuations.
+    document.dispatchEvent(new Event('card-drawer-close'));
+
+    // Drain all pending microtasks by awaiting a chain long enough to let the
+    // internal getKnocks().then() chain settle.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+
+    // The deferred knock should have been animated on alice's li
+    expect(li.classList.contains('knock-deferred')).toBe(true);
+    expect(clearKnock).toHaveBeenCalledWith('myUid', 'alice');
+  });
+});
+
 // --- live listener background / reconnect guards ---
 
 describe('live listener: visibility and timestamp guards', () => {
@@ -455,9 +491,6 @@ describe('live listener: visibility and timestamp guards', () => {
 
     expect(li.classList.contains('knock-live')).toBe(false);
     expect(clearKnock).not.toHaveBeenCalled();
-
-    // Reset so the mock doesn't leak to other tests
-    isCardDrawerOpen.mockReturnValue(false);
   });
 });
 
