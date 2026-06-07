@@ -35,8 +35,28 @@ function openDrawer(ellipsis, actions) {
   // Trigger the slide-in transition on the next frame.
   requestAnimationFrame(() => slice.classList.add('open'));
 
-  _open = { slice, ellipsis, cleanup: () => {} };
+  const onOutside = (e) => {
+    if (slice.contains(e.target) || ellipsis.contains(e.target)) return;
+    closeCardDrawer();
+  };
+  const onKey = (e) => { if (e.key === 'Escape') closeCardDrawer(); };
+  const onScroll = () => closeCardDrawer();
+
+  const cleanup = () => {
+    document.removeEventListener('click', onOutside, true);
+    document.removeEventListener('keydown', onKey);
+    document.removeEventListener('scroll', onScroll, true);
+  };
+
+  _open = { slice, ellipsis, cleanup };
   document.dispatchEvent(new CustomEvent('card-drawer-open'));
+
+  // Register AFTER dispatch and on capture phase so the opening click (which
+  // already called stopPropagation on the ellipsis) cannot immediately re-close.
+  // scroll is captured (true) because scroll events don't bubble.
+  document.addEventListener('click', onOutside, true);
+  document.addEventListener('keydown', onKey);
+  document.addEventListener('scroll', onScroll, true);
 }
 
 export function createCardDrawer(actions) {

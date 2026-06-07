@@ -86,3 +86,48 @@ test('open dispatches card-drawer-open, close dispatches card-drawer-close', () 
   document.removeEventListener('card-drawer-open', opened);
   document.removeEventListener('card-drawer-close', closed);
 });
+
+test('tapping outside the drawer closes it', () => {
+  const outside = document.createElement('div');
+  const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: makeAction('b') }]);
+  document.body.append(ellipsis, outside);
+  ellipsis.click();
+  outside.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  expect(isCardDrawerOpen()).toBe(false);
+});
+
+test('clicking inside the slice does NOT close the drawer', () => {
+  const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: makeAction('b') }]);
+  document.body.appendChild(ellipsis);
+  ellipsis.click();
+  document.querySelector('.act-a').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  expect(isCardDrawerOpen()).toBe(true);
+});
+
+test('Escape closes the drawer', () => {
+  const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: makeAction('b') }]);
+  document.body.appendChild(ellipsis);
+  ellipsis.click();
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  expect(isCardDrawerOpen()).toBe(false);
+});
+
+test('scrolling closes the drawer', () => {
+  const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: makeAction('b') }]);
+  document.body.appendChild(ellipsis);
+  ellipsis.click();
+  document.dispatchEvent(new Event('scroll'));
+  expect(isCardDrawerOpen()).toBe(false);
+});
+
+test('dismissal listeners are torn down after close (no lingering handlers)', () => {
+  const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: makeAction('b') }]);
+  document.body.appendChild(ellipsis);
+  ellipsis.click();
+  document.dispatchEvent(new Event('scroll')); // closes
+  const closedAgain = jest.fn();
+  document.addEventListener('card-drawer-close', closedAgain);
+  document.dispatchEvent(new Event('scroll')); // nothing open — must NOT fire close
+  expect(closedAgain).not.toHaveBeenCalled();
+  document.removeEventListener('card-drawer-close', closedAgain);
+});
