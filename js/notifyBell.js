@@ -19,6 +19,10 @@ function closeOpenPopover() {
   if (_outsideHandler) { document.removeEventListener('click', _outsideHandler); _outsideHandler = null; }
 }
 
+// When the surrounding card drawer closes (Escape/scroll/outside-tap), tear
+// down any popover we opened inside it so module state doesn't go stale.
+document.addEventListener('card-drawer-close', () => closeOpenPopover());
+
 function paintBell(bell, targetUid, typeKeys) {
   const p = getNotifyPrefs(targetUid);
   bell.classList.toggle('active', typeKeys.some((t) => p[t]));

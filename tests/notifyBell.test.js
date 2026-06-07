@@ -121,3 +121,12 @@ test('clicking a single-type bell dismisses another bell\'s open popover', () =>
   single.click(); // single-type direct toggle — must close the orphaned popover
   expect(document.querySelector('.notify-popover')).toBeNull();
 });
+
+test('open popover closes when a card-drawer-close event fires', () => {
+  const bell = createNotifyBell('alex', { types: ['knock', 'availability'] });
+  document.body.appendChild(bell);
+  bell.click();
+  expect(document.querySelector('.notify-popover')).not.toBeNull();
+  document.dispatchEvent(new CustomEvent('card-drawer-close'));
+  expect(document.querySelector('.notify-popover')).toBeNull();
+});
