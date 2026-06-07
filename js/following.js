@@ -19,6 +19,7 @@ import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { isLongpressHintEligible, isSwipeHintEligible } from './hints.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { createNotifyBell } from './notifyBell.js';
+import { createCardDrawer, isCardDrawerOpen } from './cardDrawer.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock, getFloatedUserIds } from './knock.js';
@@ -450,11 +451,14 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     <div class="person-info">
       ${nameHtml}
       <div class="person-status">Unavailable</div>
-    </div>
-    <button class="unfollow-btn" title="Unfollow">×</button>`;
+    </div>`;
 
   const displayName = entry.label || entry.code;
-  li.querySelector('.unfollow-btn').addEventListener('click', () => {
+  const unfollowBtn = document.createElement('button');
+  unfollowBtn.className = 'unfollow-btn';
+  unfollowBtn.title = 'Unfollow';
+  unfollowBtn.textContent = '×';
+  unfollowBtn.addEventListener('click', () => {
     showConfirm(`Unfollow ${displayName}?`, 'Unfollow', {
       type: 'unfollow',
       userId: entry.userId,
@@ -468,10 +472,9 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
 
   if (KNOCK_ENABLED && isMutual) {
     const labelEl = li.querySelector('.person-label');
-    const unfollowBtnEl = li.querySelector('.unfollow-btn');
     li.addEventListener('click', (e) => {
+      if (isCardDrawerOpen()) return;
       if (labelEl.contains(e.target)) return;
-      if (unfollowBtnEl.contains(e.target)) return;
       const statusColor = lastUserData.get(entry.userId)?.statusColor;
       sendKnock(entry.userId, myUserId, statusColor);
     });
@@ -569,6 +572,10 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     }, true);
   }
 
+  // Assemble right-side actions. >=2 -> collapse behind a tool drawer; exactly
+  // one -> inline. Bell is non-terminal (keeps the drawer open); unfollow is
+  // terminal (closes it; the confirm overlay then covers the card).
+  const actions = [];
   if (NOTIFICATIONS_ENABLED) {
     // Knock/Call are mutual-only interactions; non-mutual (Following) contacts
     // get availability only. (Followers use createFollowerOnlyRow — no bell.)
@@ -576,7 +583,14 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
       types: isMutual ? ['knock', 'call', 'availability'] : ['availability'],
       onNeedPermission: () => { ensureNotificationsReady().catch(() => {}); },
     });
-    li.appendChild(bell);
+    actions.push({ el: bell, closesDrawer: false });
+  }
+  actions.push({ el: unfollowBtn, closesDrawer: true });
+
+  if (actions.length >= 2) {
+    li.appendChild(createCardDrawer(actions));
+  } else {
+    li.appendChild(actions[0].el);
   }
 
   document.getElementById('people-list').appendChild(li);

@@ -394,6 +394,7 @@ describe('confirm dialog', () => {
     fire([]); // u1 is following-only
 
     const li = document.querySelector('[data-user-id="u1"]');
+    li.querySelector('.card-drawer-toggle').click();
     li.querySelector('.unfollow-btn').click();
 
     expect(document.getElementById('unfollow-confirm-title').textContent).toBe('Unfollow Alice?');
@@ -728,9 +729,10 @@ describe('knock click handler on mutual rows', () => {
     expect(sendKnock).not.toHaveBeenCalled();
   });
 
-  test('tapping unfollow-btn skips knock', () => {
+  test('tapping unfollow inside the drawer does not knock', () => {
     const li = setupMutualWithKnock();
     sendKnock.mockClear();
+    li.querySelector('.card-drawer-toggle').click();
     li.querySelector('.unfollow-btn').click();
     expect(sendKnock).not.toHaveBeenCalled();
   });
@@ -1555,6 +1557,7 @@ describe('notification bell on contact rows', () => {
     const li = document.querySelector('#people-list li[data-user-id="alex"]');
     expect(createNotifyBell).toHaveBeenCalledWith('alex',
       expect.objectContaining({ types: ['knock', 'call', 'availability'] }));
+    li.querySelector('.card-drawer-toggle').click();
     expect(li.querySelector('.notify-bell')).not.toBeNull();
   });
 
@@ -1567,5 +1570,46 @@ describe('notification bell on contact rows', () => {
 
     expect(createNotifyBell).toHaveBeenCalledWith('bea',
       expect.objectContaining({ types: ['availability'] }));
+  });
+});
+
+// --- tool drawer on contact rows ---
+
+describe('tool drawer on contact rows', () => {
+  const { createNotifyBell } = require('../js/notifyBell.js');
+  function mountMutual(userId = 'alex') {
+    setupDom();
+    jest.clearAllMocks();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+    getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
+    watchStatus.mockReturnValue(jest.fn());
+    watchFollowers.mockImplementation((_uid, cb) => { cb([{ userId, code: 'ABC123' }]); return jest.fn(); });
+    initList('myUid', 'MYCODE');
+    return document.querySelector(`[data-user-id="${userId}"]`);
+  }
+
+  test('mutual row shows a drawer toggle, not inline unfollow/bell', () => {
+    const li = mountMutual();
+    expect(li.querySelector('.card-drawer-toggle')).not.toBeNull();
+    expect(li.querySelector('.unfollow-btn')).toBeNull();
+    expect(li.querySelector('.notify-bell')).toBeNull();
+  });
+
+  test('opening the drawer reveals unfollow and bell', () => {
+    const li = mountMutual();
+    li.querySelector('.card-drawer-toggle').click();
+    expect(li.querySelector('.card-drawer .unfollow-btn')).not.toBeNull();
+    expect(li.querySelector('.card-drawer .notify-bell')).not.toBeNull();
+  });
+
+  test('tapping unfollow inside the drawer opens the confirm dialog', () => {
+    const li = mountMutual();
+    li.querySelector('.card-drawer-toggle').click();
+    li.querySelector('.unfollow-btn').click();
+    expect(document.querySelector('.confirm-overlay')).not.toBeNull();
   });
 });
