@@ -40,7 +40,7 @@ function openDrawer(ellipsis, actions) {
     closeCardDrawer();
   };
   const onKey = (e) => { if (e.key === 'Escape') closeCardDrawer(); };
-  const onScroll = () => closeCardDrawer();
+  const onScroll = closeCardDrawer;
 
   const cleanup = () => {
     document.removeEventListener('click', onOutside, true);
@@ -51,9 +51,10 @@ function openDrawer(ellipsis, actions) {
   _open = { slice, ellipsis, cleanup };
   document.dispatchEvent(new CustomEvent('card-drawer-open'));
 
-  // Register AFTER dispatch and on capture phase so the opening click (which
-  // already called stopPropagation on the ellipsis) cannot immediately re-close.
-  // scroll is captured (true) because scroll events don't bubble.
+  // Register AFTER dispatch so the synchronous opening click cannot immediately
+  // re-close: the listener does not exist yet when that click fires. Capture
+  // phase (true) so taps are seen before any stopPropagation inside the slice;
+  // scroll is captured because scroll events don't bubble.
   document.addEventListener('click', onOutside, true);
   document.addEventListener('keydown', onKey);
   document.addEventListener('scroll', onScroll, true);
