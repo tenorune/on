@@ -40,6 +40,9 @@ export function createNotifyBell(targetUid, { types, onNeedPermission } = {}) {
     // If the stored popover is no longer in the DOM (e.g. parent reset), clear state first.
     if (_openPopover && !document.contains(_openPopover)) { _openPopover = null; }
 
+    if (_openPopover && _openPopover.dataset.target === targetUid) { closeOpenPopover(); return; }
+    closeOpenPopover();
+
     // Single-type bell: the bell IS the toggle — no popover.
     if (shown.length === 1) {
       const type = shown[0].type;
@@ -49,9 +52,6 @@ export function createNotifyBell(targetUid, { types, onNeedPermission } = {}) {
       if (next && typeof onNeedPermission === 'function') onNeedPermission();
       return;
     }
-
-    if (_openPopover && _openPopover.dataset.target === targetUid) { closeOpenPopover(); return; }
-    closeOpenPopover();
 
     const popover = document.createElement('div');
     popover.className = 'notify-popover';

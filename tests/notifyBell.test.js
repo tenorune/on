@@ -9,6 +9,7 @@ const { getNotifyPrefs, setNotifyPref } = require('../js/prefs.js');
 beforeEach(() => {
   document.body.innerHTML = '';
   getNotifyPrefs.mockReturnValue({ knock: false, call: false, availability: false });
+  getNotifyPrefs.mockClear();
   setNotifyPref.mockClear();
 });
 
@@ -109,4 +110,14 @@ test('multi-type bell still opens the popover', () => {
   document.body.appendChild(bell);
   bell.click();
   expect(document.querySelector('.notify-popover')).not.toBeNull();
+});
+
+test('clicking a single-type bell dismisses another bell\'s open popover', () => {
+  const multi = createNotifyBell('alex', { types: ['knock', 'availability'] });
+  const single = createNotifyBell('sam', { types: ['availability'] });
+  document.body.append(multi, single);
+  multi.click(); // opens popover
+  expect(document.querySelector('.notify-popover')).not.toBeNull();
+  single.click(); // single-type direct toggle — must close the orphaned popover
+  expect(document.querySelector('.notify-popover')).toBeNull();
 });
