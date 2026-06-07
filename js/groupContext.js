@@ -146,7 +146,10 @@ function renderRoster(members, ownUserId) {
     li.appendChild(info);
 
     if (NOTIFICATIONS_ENABLED && uid !== ownUserId) {
+      // Group context has no Call feature; you can knock members and see their
+      // availability — so no Call toggle.
       const bell = createNotifyBell(uid, {
+        types: ['knock', 'availability'],
         onNeedPermission: () => { ensureNotificationsReady().catch(() => {}); },
       });
       li.appendChild(bell);

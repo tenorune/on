@@ -1780,7 +1780,8 @@ describe('notification bell on roster rows', () => {
 
     const li = document.querySelector('#group-roster [data-user-id="bea"]');
     expect(li.querySelector('.notify-bell')).not.toBeNull();
-    expect(createNotifyBell).toHaveBeenCalledWith('bea', expect.any(Object));
+    expect(createNotifyBell).toHaveBeenCalledWith('bea',
+      expect.objectContaining({ types: ['knock', 'availability'] }));
   });
 });
 
