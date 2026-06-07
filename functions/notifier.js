@@ -6,8 +6,10 @@ const AVAIL_COOLDOWN_MS = 5 * 60 * 1000;
 export async function sendToUser(deps, uid, message, data) {
   const tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
   const tokens = tokensMap ? Object.keys(tokensMap) : [];
+  console.log(`[notify] sendToUser uid=${uid} tokens=${tokens.length} title="${message.title}"`);
   if (tokens.length === 0) return false;
   const { failedTokens } = await deps.send(tokens, message, data);
+  console.log(`[notify] sendToUser uid=${uid} result failed=${(failedTokens || []).length}/${tokens.length}`);
   if (failedTokens && failedTokens.length) {
     const nulls = {};
     for (const t of failedTokens) nulls[t] = null;
@@ -26,8 +28,9 @@ export async function resolveName(deps, viewerUid, targetUid) {
 }
 
 export async function handleKnock(deps, recipientId, senderId, record) {
+  console.log(`[notify] onKnock fired recipient=${recipientId} sender=${senderId}`);
   const prefs = await deps.getVal(`userPrefs/${recipientId}/notify/${senderId}`);
-  if (!wantsKnock(prefs)) return;
+  if (!wantsKnock(prefs)) { console.log(`[notify] onKnock skip: not opted in pref=${JSON.stringify(prefs)}`); return; }
   const name = await resolveName(deps, recipientId, senderId);
   const data = { type: 'knock', targetUid: senderId };
   if (record && record.contextGroupId) data.contextGroupId = record.contextGroupId;
@@ -35,10 +38,11 @@ export async function handleKnock(deps, recipientId, senderId, record) {
 }
 
 export async function handleCall(deps, callerId, callState) {
-  if (!callState || !callState.calleeId) return;
+  if (!callState || !callState.calleeId) { console.log(`[notify] onCall skip: no calleeId caller=${callerId}`); return; }
   const calleeId = callState.calleeId;
+  console.log(`[notify] onCall fired caller=${callerId} callee=${calleeId}`);
   const prefs = await deps.getVal(`userPrefs/${calleeId}/notify/${callerId}`);
-  if (!wantsCall(prefs)) return;
+  if (!wantsCall(prefs)) { console.log(`[notify] onCall skip: not opted in pref=${JSON.stringify(prefs)}`); return; }
   const name = await resolveName(deps, calleeId, callerId);
   await sendToUser(deps, calleeId, buildMessage('call', name), { type: 'call', targetUid: callerId });
 }
@@ -47,9 +51,10 @@ export async function handleCall(deps, callerId, callState) {
 export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   const now = deps.now();
   const status = await deps.getVal(`users/${uid}/status`);
-  if (!availabilityTurnedOn(beforeAU, afterAU, status, now)) return;
+  console.log(`[notify] onAvailability fired uid=${uid} before=${beforeAU} after=${afterAU} status=${status}`);
+  if (!availabilityTurnedOn(beforeAU, afterAU, status, now)) { console.log(`[notify] onAvailability skip: not a turn-on`); return; }
   const lastTs = await deps.getVal(`notifierState/availability/${uid}`);
-  if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) return;
+  if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) { console.log(`[notify] onAvailability skip: within cooldown`); return; }
 
   const followers = await deps.getVal(`users/${uid}/followers`);
   const followerIds = followers ? Object.keys(followers) : [];

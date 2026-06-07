@@ -34,11 +34,14 @@ function makeDeps() {
           ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
         },
       });
+      console.log(`[notify] FCM send: success=${res.successCount} failure=${res.failureCount}`);
       const failedTokens = [];
       res.responses.forEach((r, i) => {
-        if (!r.success && r.error &&
-            /registration-token-not-registered|invalid-registration-token/.test(r.error.code || '')) {
-          failedTokens.push(tokens[i]);
+        if (!r.success) {
+          console.error(`[notify] FCM error token[${i}]: ${r.error?.code || ''} ${r.error?.message || ''}`);
+          if (/registration-token-not-registered|invalid-registration-token/.test(r.error?.code || '')) {
+            failedTokens.push(tokens[i]);
+          }
         }
       });
       return { failedTokens };
