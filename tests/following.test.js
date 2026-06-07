@@ -702,6 +702,7 @@ describe('subscribeToFollowee: field-change guard', () => {
 
 describe('knock click handler on mutual rows', () => {
   const { sendKnock } = require('../js/knock.js');
+  const { isCardDrawerOpen } = require('../js/cardDrawer.js');
 
   function setupMutualWithKnock(userId = 'u1') {
     setupDom();
@@ -735,6 +736,17 @@ describe('knock click handler on mutual rows', () => {
     li.querySelector('.card-drawer-toggle').click();
     li.querySelector('.unfollow-btn').click();
     expect(sendKnock).not.toHaveBeenCalled();
+  });
+
+  test('tapping the card body to dismiss an open drawer does not knock (C1)', () => {
+    const li = setupMutualWithKnock();
+    sendKnock.mockClear();
+    li.querySelector('.card-drawer-toggle').click(); // open the drawer
+    expect(isCardDrawerOpen()).toBe(true);
+    // Tap the li body itself (NOT inside .card-drawer) to dismiss.
+    li.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(sendKnock).not.toHaveBeenCalled();
+    expect(isCardDrawerOpen()).toBe(false); // dismissed
   });
 });
 
@@ -1611,5 +1623,29 @@ describe('tool drawer on contact rows', () => {
     li.querySelector('.card-drawer-toggle').click();
     li.querySelector('.unfollow-btn').click();
     expect(document.querySelector('.confirm-overlay')).not.toBeNull();
+  });
+
+  function mountFollowingOnly(userId = 'alex') {
+    setupDom();
+    jest.clearAllMocks();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+    getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
+    watchStatus.mockReturnValue(jest.fn());
+    // No followers → not mutual (Following-only row).
+    watchFollowers.mockImplementation((_uid, cb) => { cb([]); return jest.fn(); });
+    initList('myUid', 'MYCODE');
+    return document.querySelector(`[data-user-id="${userId}"]`);
+  }
+
+  test('following-only (non-mutual) row also gets a drawer toggle, not inline actions', () => {
+    const li = mountFollowingOnly();
+    expect(li.dataset.mutual).toBeUndefined();
+    expect(li.querySelector('.card-drawer-toggle')).not.toBeNull();
+    expect(li.querySelector('.unfollow-btn')).toBeNull();
+    expect(li.querySelector('.notify-bell')).toBeNull();
   });
 });

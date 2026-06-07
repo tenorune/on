@@ -37,6 +37,17 @@ function openDrawer(ellipsis, actions) {
 
   const onOutside = (e) => {
     if (slice.contains(e.target) || ellipsis.contains(e.target)) return;
+    // A tap on a *different* card's toggle must reach that toggle's own click
+    // handler (it manages the singleton itself by closing us then opening). Only
+    // close here; do not consume, or the other drawer would never open.
+    if (e.target.closest && e.target.closest('.card-drawer-toggle')) {
+      closeCardDrawer();
+      return;
+    }
+    // Consume the dismiss tap: while the drawer is open, an outside tap only
+    // closes it — it must not also trigger card interactions (knock/call) or
+    // open another card's drawer.
+    e.stopPropagation();
     closeCardDrawer();
   };
   const onKey = (e) => { if (e.key === 'Escape') closeCardDrawer(); };
@@ -71,6 +82,10 @@ export function createCardDrawer(actions) {
   for (const { el, closesDrawer } of actions) {
     if (closesDrawer) el.addEventListener('click', () => closeCardDrawer());
   }
+
+  // The card's swipe-to-call gesture is armed on a li-level pointerdown; stop
+  // pointerdown here so tapping the toggle never arms it (mirrors the slice).
+  ellipsis.addEventListener('pointerdown', (e) => e.stopPropagation());
 
   ellipsis.addEventListener('click', (e) => {
     e.stopPropagation();

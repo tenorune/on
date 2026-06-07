@@ -96,12 +96,37 @@ test('tapping outside the drawer closes it', () => {
   expect(isCardDrawerOpen()).toBe(false);
 });
 
+test('an outside tap that dismisses the drawer is consumed (stopPropagation)', () => {
+  const parent = document.createElement('div');
+  const body = document.createElement('div'); // card body, outside slice+ellipsis
+  const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: makeAction('b') }]);
+  parent.append(ellipsis, body);
+  document.body.appendChild(parent);
+  const onParentClick = jest.fn();
+  parent.addEventListener('click', onParentClick); // bubble phase
+  ellipsis.click(); // open
+  body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  expect(isCardDrawerOpen()).toBe(false);   // dismissed
+  expect(onParentClick).not.toHaveBeenCalled(); // consumed
+});
+
 test('clicking inside the slice does NOT close the drawer', () => {
   const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: makeAction('b') }]);
   document.body.appendChild(ellipsis);
   ellipsis.click();
   document.querySelector('.act-a').dispatchEvent(new MouseEvent('click', { bubbles: true }));
   expect(isCardDrawerOpen()).toBe(true);
+});
+
+test('a pointerdown on the ellipsis does not bubble to card-level handlers', () => {
+  const parent = document.createElement('div');
+  const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: makeAction('b') }]);
+  parent.appendChild(ellipsis);
+  document.body.appendChild(parent);
+  const onParentPointerDown = jest.fn();
+  parent.addEventListener('pointerdown', onParentPointerDown); // bubble phase
+  ellipsis.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+  expect(onParentPointerDown).not.toHaveBeenCalled(); // propagation stopped
 });
 
 test('Escape closes the drawer', () => {

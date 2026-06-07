@@ -458,7 +458,10 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
   unfollowBtn.className = 'unfollow-btn';
   unfollowBtn.title = 'Unfollow';
   unfollowBtn.textContent = '×';
-  unfollowBtn.addEventListener('click', () => {
+  unfollowBtn.addEventListener('click', (e) => {
+    // Stop the tap bubbling to the li-level knock handler in both the inline
+    // (flag-off) and in-slice paths.
+    e.stopPropagation();
     showConfirm(`Unfollow ${displayName}?`, 'Unfollow', {
       type: 'unfollow',
       userId: entry.userId,
