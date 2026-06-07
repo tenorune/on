@@ -49,3 +49,25 @@ test('bell shows active state when any pref is on', () => {
   const bell = createNotifyBell('alex', {});
   expect(bell.classList.contains('active')).toBe(true);
 });
+
+test('renders only the switches in the types list', () => {
+  const bell = createNotifyBell('alex', { types: ['availability'] });
+  document.body.appendChild(bell);
+  bell.click();
+  const switches = [...document.querySelectorAll('.notify-switch')].map((s) => s.dataset.type);
+  expect(switches).toEqual(['availability']);
+});
+
+test('defaults to all three types when types omitted', () => {
+  const bell = createNotifyBell('alex', {});
+  document.body.appendChild(bell);
+  bell.click();
+  const switches = [...document.querySelectorAll('.notify-switch')].map((s) => s.dataset.type);
+  expect(switches).toEqual(['knock', 'call', 'availability']);
+});
+
+test('active-state counts only visible types', () => {
+  getNotifyPrefs.mockReturnValue({ knock: true, call: false, availability: false });
+  const bell = createNotifyBell('alex', { types: ['availability'] });
+  expect(bell.classList.contains('active')).toBe(false);
+});

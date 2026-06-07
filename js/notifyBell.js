@@ -17,18 +17,21 @@ function closeOpenPopover() {
   if (_outsideHandler) { document.removeEventListener('click', _outsideHandler); _outsideHandler = null; }
 }
 
-function paintBell(bell, targetUid) {
+function paintBell(bell, targetUid, typeKeys) {
   const p = getNotifyPrefs(targetUid);
-  bell.classList.toggle('active', p.knock || p.call || p.availability);
+  bell.classList.toggle('active', typeKeys.some((t) => p[t]));
 }
 
-export function createNotifyBell(targetUid, { onNeedPermission } = {}) {
+export function createNotifyBell(targetUid, { types, onNeedPermission } = {}) {
+  const shown = (types && types.length) ? TYPES.filter((t) => types.includes(t.type)) : TYPES;
+  const typeKeys = shown.map((t) => t.type);
+
   const bell = document.createElement('button');
   bell.className = 'notify-bell';
   bell.type = 'button';
   bell.setAttribute('aria-label', 'Notification settings');
   bell.textContent = '\u{1F514}'; // 🔔
-  paintBell(bell, targetUid);
+  paintBell(bell, targetUid, typeKeys);
 
   bell.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -41,7 +44,7 @@ export function createNotifyBell(targetUid, { onNeedPermission } = {}) {
     popover.className = 'notify-popover';
     popover.dataset.target = targetUid;
     const prefs = getNotifyPrefs(targetUid);
-    for (const { type, label } of TYPES) {
+    for (const { type, label } of shown) {
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'notify-switch';
@@ -56,7 +59,7 @@ export function createNotifyBell(targetUid, { onNeedPermission } = {}) {
         setNotifyPref(targetUid, type, next);
         row.setAttribute('aria-checked', String(next));
         row.classList.toggle('on', next);
-        paintBell(bell, targetUid);
+        paintBell(bell, targetUid, typeKeys);
         if (next && typeof onNeedPermission === 'function') onNeedPermission();
       });
       popover.appendChild(row);
@@ -72,6 +75,6 @@ export function createNotifyBell(targetUid, { onNeedPermission } = {}) {
     document.addEventListener('click', _outsideHandler);
   });
 
-  document.addEventListener('notify-prefs-synced', () => paintBell(bell, targetUid));
+  document.addEventListener('notify-prefs-synced', () => paintBell(bell, targetUid, typeKeys));
   return bell;
 }
