@@ -124,6 +124,7 @@ function showStaleScreen() {
   const el = document.getElementById('stale-screen');
   const continueBtn = document.getElementById('stale-continue-btn');
   const restoreBtn = document.getElementById('stale-restore-btn');
+  if (!el) return new Promise(() => {}); // not mounted (e.g. partial DOM under test) — stay inert
   el.classList.remove('hidden');
   return new Promise((resolve) => {
     function pick(choice) {
@@ -144,6 +145,7 @@ export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName =
   const newBtn = document.getElementById('welcome-new-btn');
   const restoreBtn = document.getElementById('welcome-restore-btn');
   const framingEl = document.getElementById('welcome-invite-framing');
+  if (!el) return new Promise(() => {}); // not mounted (e.g. partial DOM under test) — stay inert
   if (framingEl) {
     let text = '';
     if (inviteCreatorLabel) text = `You've been invited to follow ${inviteCreatorLabel}. First, let's set up your account.`;
@@ -172,6 +174,7 @@ export function showRecoveryCodeModal(initialCode) {
   const rotateBtn = document.getElementById('recovery-rotate-btn');
   const copyBtn = document.getElementById('recovery-copy-btn');
   const savedBtn = document.getElementById('recovery-saved-btn');
+  if (!el) return new Promise(() => {}); // not mounted (e.g. partial DOM under test) — stay inert
 
   let current = initialCode;
   text.textContent = current;
@@ -212,6 +215,7 @@ export function showRestoreScreen() {
   const error = document.getElementById('restore-error');
   const submit = document.getElementById('restore-submit-btn');
   const cancel = document.getElementById('restore-cancel-btn');
+  if (!el) return new Promise(() => {}); // not mounted (e.g. partial DOM under test) — stay inert
 
   input.value = '';
   error.classList.add('hidden');
