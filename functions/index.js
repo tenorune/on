@@ -34,7 +34,6 @@ function makeDeps() {
           ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
         },
       });
-      console.log(`[notify] FCM send: success=${res.successCount} failure=${res.failureCount}`);
       const failedTokens = [];
       res.responses.forEach((r, i) => {
         if (!r.success) {
