@@ -487,6 +487,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     let swipeStartX = 0, swipeStartY = 0, swipeCardWidth = 0, swipeActive = false;
 
     li.addEventListener('pointerdown', (e) => {
+      if (isCardDrawerOpen()) return;
       if (e.target.closest('.unfollow-btn, .person-label')) return;
       swipeStartX = e.clientX;
       swipeStartY = e.clientY;
@@ -552,6 +553,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     let suppressNextClick = false;
 
     li.addEventListener('pointerdown', (e) => {
+      if (isCardDrawerOpen()) return;
       clearTimeout(pressTimer); pressTimer = null;
       pressStartX = e.clientX;
       pressStartY = e.clientY;

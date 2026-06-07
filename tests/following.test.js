@@ -1648,4 +1648,27 @@ describe('tool drawer on contact rows', () => {
     expect(li.querySelector('.unfollow-btn')).toBeNull();
     expect(li.querySelector('.notify-bell')).toBeNull();
   });
+
+  test('call swipe is suppressed while a drawer is open', () => {
+    const { setCallState } = require('../js/db.js');
+    const li = mountMutual();
+    li.querySelector('.card-drawer-toggle').click(); // open drawer
+    setCallState.mockClear();
+    const w = 300;
+    jest.spyOn(li, 'getBoundingClientRect').mockReturnValue({ width: w });
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0, pointerId: 1, bubbles: true }));
+    li.dispatchEvent(new PointerEvent('pointermove', { clientX: w, clientY: 0, pointerId: 1, bubbles: true }));
+    expect(li.classList.contains('call-mode')).toBe(false);
+  });
+
+  test('long-press adoption is suppressed while a drawer is open', () => {
+    jest.useFakeTimers();
+    const li = mountMutual();
+    li.querySelector('.card-drawer-toggle').click(); // open drawer
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0, pointerId: 1, bubbles: true }));
+    jest.advanceTimersByTime(600);
+    // If suppressed, the long-press timer body never runs, so no adoption side effects.
+    expect(li.classList.contains('adopting')).toBe(false);
+    jest.useRealTimers();
+  });
 });
