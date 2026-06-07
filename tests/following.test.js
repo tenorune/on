@@ -1545,7 +1545,7 @@ describe('notification bell on contact rows', () => {
     });
   });
 
-  test('renders a notification bell on a contact row when NOTIFICATIONS_ENABLED', () => {
+  test('mutual contact gets a bell with all three types', () => {
     getFollowing.mockReturnValue([
       { userId: 'alex', code: 'alex-code', label: 'Alex K.' },
     ]);
@@ -1553,7 +1553,19 @@ describe('notification bell on contact rows', () => {
     fire([{ userId: 'alex', code: 'alex-code' }]); // mutual row
 
     const li = document.querySelector('#people-list li[data-user-id="alex"]');
-    expect(createNotifyBell).toHaveBeenCalledWith('alex', expect.any(Object));
+    expect(createNotifyBell).toHaveBeenCalledWith('alex',
+      expect.objectContaining({ types: ['knock', 'call', 'availability'] }));
     expect(li.querySelector('.notify-bell')).not.toBeNull();
+  });
+
+  test('non-mutual Following contact gets availability-only', () => {
+    getFollowing.mockReturnValue([
+      { userId: 'bea', code: 'bea-code', label: 'Bea' },
+    ]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([]); // no followers → Following-only row
+
+    expect(createNotifyBell).toHaveBeenCalledWith('bea',
+      expect.objectContaining({ types: ['availability'] }));
   });
 });

@@ -570,7 +570,10 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
   }
 
   if (NOTIFICATIONS_ENABLED) {
+    // Knock/Call are mutual-only interactions; non-mutual (Following) contacts
+    // get availability only. (Followers use createFollowerOnlyRow — no bell.)
     const bell = createNotifyBell(entry.userId, {
+      types: isMutual ? ['knock', 'call', 'availability'] : ['availability'],
       onNeedPermission: () => { ensureNotificationsReady().catch(() => {}); },
     });
     li.appendChild(bell);
