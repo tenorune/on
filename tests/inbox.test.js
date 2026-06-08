@@ -101,6 +101,27 @@ describe('Inbox', () => {
     expect(groupNav.navigateToGroup).toHaveBeenCalledWith('G1');
   });
 
+  test('Join surfaces an error and keeps the pending invite when joinGroup fails', async () => {
+    let cb;
+    db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
+    db.readGroup.mockResolvedValue({ name: 'Family' });
+    groups.joinGroup.mockRejectedValueOnce(new Error('Network down'));
+    window.alert = jest.fn();
+    initInbox('me');
+    cb({ G1: { from: 'uOwner1', ts: 1 } });
+    await openInboxModal();
+    const joinBtn = document.querySelector('#inbox-modal-list .inbox-row[data-group-id="G1"] .inbox-join-btn');
+    joinBtn.click();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(groups.joinGroup).toHaveBeenCalled();
+    // On failure: don't delete the pending invite or navigate (so the Inbox row
+    // stays for a retry), surface the error, and re-enable the Join button.
+    expect(db.deletePendingInvite).not.toHaveBeenCalled();
+    expect(groupNav.navigateToGroup).not.toHaveBeenCalled();
+    expect(window.alert).toHaveBeenCalledWith('Network down');
+    expect(joinBtn.disabled).toBe(false);
+  });
+
   test('Join on a row where the user is already a member silently dismisses (no prompt, no joinGroup)', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });

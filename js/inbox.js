@@ -139,7 +139,17 @@ async function handleJoin(groupId, groupName) {
   // Prompt for the invitee's per-group display name (mirrors Flow A/B).
   closeInboxModal();
   const displayName = await showGroupDisplayNamePrompt(groupName);
-  await joinGroup(groupId, _myUid, displayName);
+  try {
+    await joinGroup(groupId, _myUid, displayName);
+  } catch (e) {
+    // Join failed — a network error, or the group was deleted in the race
+    // window after our existence check. Leave the pending invite in place so the
+    // Inbox row stays (re-opening re-renders a fresh, enabled Join), re-enable
+    // the captured button, and surface the error rather than swallowing it.
+    if (joinBtn) joinBtn.disabled = false;
+    window.alert(e.message || 'Could not join this group. Please try again.');
+    return;
+  }
   await Promise.all([
     deletePendingInvite(_myUid, groupId),
     navigateToGroup(groupId),
