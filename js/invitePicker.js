@@ -31,7 +31,10 @@ export function renderInvitePicker({
   const mutualLookup = new Map(mutuals.map((m) => [m.userId, m.label]));
   const mutualEntries = mutuals
     .filter((m) => followers[m.userId] && !currentMemberUids.has(m.userId) && m.userId !== inviterUid)
-    .map((m) => ({ uid: m.userId, displayName: m.label }))
+    // A mutual with no custom label falls back to their share code (the value in
+    // the followers map, which the filter above guarantees is present) so the
+    // row is never blank.
+    .map((m) => ({ uid: m.userId, displayName: m.label || followers[m.userId] }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
   const nonMutualEntries = Object.entries(followers)
