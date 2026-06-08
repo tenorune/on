@@ -270,6 +270,7 @@ main {
   background: var(--accent); color: white; border: none; padding: 13px;
   border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer;
 }
+.primary-btn:disabled { opacity: 0.45; cursor: default; }
 .ghost-btn {
   background: var(--surface); color: var(--text-muted); border: 1px solid var(--surface2);
   padding: 10px; border-radius: 10px; font-size: 13px; cursor: pointer;
@@ -1193,8 +1194,13 @@ main {
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
-.invite-picker-row:hover { background: rgba(255,255,255,0.04); }
+/* Hover only on real-hover (mouse) devices — on touch, :hover sticks after a
+   tap and reads as the row still being highlighted after deselect. */
+@media (hover: hover) {
+  .invite-picker-row:hover { background: rgba(255,255,255,0.04); }
+}
 .invite-picker-row.selected { background: rgba(99,102,241,0.18); }
 .invite-picker-dot {
   width: 8px; height: 8px; border-radius: 50%;
