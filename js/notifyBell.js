@@ -25,6 +25,13 @@ function closeOpenPopover() {
   }
 }
 
+// True while a bell popover is on screen. Callers (e.g. the group roster) treat
+// it as a modal: a tap on a row while it's open just dismisses the popover and
+// must not knock or arm long-press adoption.
+export function isNotifyPopoverOpen() {
+  return _openPopover != null && document.contains(_openPopover);
+}
+
 // Anchor the popover just under the bell with its right edge aligned, in
 // viewport coordinates. The popover is rendered at <body> (a portal) so no
 // card/slice overflow, transform, or stacking context can clip it — the cause

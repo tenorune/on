@@ -23,7 +23,7 @@ import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
 import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
-import { createNotifyBell } from './notifyBell.js';
+import { createNotifyBell, isNotifyPopoverOpen } from './notifyBell.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
 import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, ICON_BOLT, ICON_TREE, startSwatchHints } from './palettes.js';
 import {
@@ -157,15 +157,30 @@ function renderRoster(members, ownUserId) {
 
     if (KNOCK_ENABLED) {
       li.classList.add('knockable');
+      // A tap drives a knock UNLESS it belongs to the per-member notification
+      // bell or its (body-portaled) popover, or a popover is open and owns the
+      // screen like a modal. Shared by the knock itself AND the press-feedback
+      // highlight below, so neither the colored knock flash nor the row's
+      // "pressable" highlight ever fires for a bell tap or behind a popover.
+      const knockBlocked = (e) =>
+        e.target.closest('.notify-bell') ||
+        e.target.closest('.notify-popover') ||
+        isNotifyPopoverOpen();
       li.addEventListener('click', (e) => {
-        // The per-member notification bell lives inside this row. It stops its
-        // own click propagation, but guard here too so a bell tap can never
-        // knock even if that propagation is defeated (stale shell, synthetic
-        // events, the body-portaled popover). Taps on the bell or its popover
-        // manage notification prefs only — never a knock.
-        if (e.target.closest('.notify-bell') || e.target.closest('.notify-popover')) return;
+        if (knockBlocked(e)) return;
         sendKnock(uid, ownUserId, undefined, { contextGroupId: getCurrentGroupId() });
       });
+      // Press highlight is JS-driven (not CSS :active) so it can honour the same
+      // guard — a CSS :active on the row would flash even when the bell inside it
+      // is pressed, which reads as a (phantom) knock.
+      const clearPress = () => li.classList.remove('knock-pressing');
+      li.addEventListener('pointerdown', (e) => {
+        if (knockBlocked(e)) return;
+        li.classList.add('knock-pressing');
+      });
+      li.addEventListener('pointerup', clearPress);
+      li.addEventListener('pointercancel', clearPress);
+      li.addEventListener('pointerleave', clearPress);
     }
 
     if (PALETTES_ENABLED && PALETTE_INTERACTIONS_ENABLED && uid !== ownUserId) {
@@ -179,6 +194,9 @@ function renderRoster(members, ownUserId) {
         // pointerdown). Without this, holding the bell would adopt the member's
         // palette.
         if (e.target.closest('.notify-bell')) return;
+        // Don't arm long-press adoption behind an open bell popover — the press
+        // belongs to dismissing that modal, not adopting a member's palette.
+        if (isNotifyPopoverOpen()) return;
         if (!_ownOverride?.enabled) return;
         clearTimeout(pressTimer); pressTimer = null;
         pressStartX = e.clientX;
