@@ -2,7 +2,7 @@
 // scripts/prod.js — production build with .env.production config
 process.env.ENV = 'production';
 const esbuild = require('esbuild');
-const { define, envFile, writeIndexHtml } = require('./build.js');
+const { define, envFile, writeIndexHtml, writeServiceWorker } = require('./build.js');
 
 esbuild.buildSync({
   entryPoints: ['js/app.js'],
@@ -12,4 +12,5 @@ esbuild.buildSync({
 });
 
 const title = writeIndexHtml('KnockKnock');
-console.log(`Build complete: dist/bundle.js + index.html (title: "${title}", using ${envFile})`);
+const cache = writeServiceWorker();
+console.log(`Build complete: dist/bundle.js + index.html (title: "${title}") + sw.js (${cache}), using ${envFile}`);
