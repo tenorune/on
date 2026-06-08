@@ -48,6 +48,23 @@ function dismissSplash() {
   }, { once: true });
 }
 
+// Bring the splash back after it was dismissed to show the welcome/restore
+// screens. A just-restored account has real groups + contacts that load
+// asynchronously; without re-arming, main() skips the `if (!splashDone)` splash
+// setup and the post-restore reveal lets the user watch the nav row resolve
+// from group code-names + default border colors into real names/overrides (and
+// the empty Direct view fill in) — the exact "watch the UI figure itself out"
+// flash a normal reload avoids by keeping the splash up until ready. The early
+// dismiss's fade has long finished (the user spent seconds on the restore
+// screen), so there's no pending transitionend listener to fight.
+function rearmSplash() {
+  splashDone = false;
+  const el = document.getElementById('splash');
+  if (!el) return;
+  el.classList.remove('fading');
+  el.style.display = '';
+}
+
 async function ensureIdentity(pendingInviteToken = null) {
   const existing = loadIdentity();
   if (existing) {
@@ -70,6 +87,9 @@ async function ensureIdentity(pendingInviteToken = null) {
         const restored = await showRestoreScreen();
         if (restored) {
           saveIdentity(restored.userId, restored.code, restored.recoveryCode);
+          // Re-show the splash so the user doesn't watch their groups + contacts
+          // resolve from scratch after restoring.
+          rearmSplash();
           return { identity: restored, isNew: false };
         }
         continue;
@@ -96,6 +116,9 @@ async function ensureIdentity(pendingInviteToken = null) {
       const restored = await showRestoreScreen();
       if (restored) {
         saveIdentity(restored.userId, restored.code, restored.recoveryCode);
+        // Re-show the splash so the user doesn't watch their groups + contacts
+        // resolve from scratch after restoring.
+        rearmSplash();
         return { identity: restored, isNew: false };
       }
       continue;
