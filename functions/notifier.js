@@ -1,5 +1,5 @@
 // functions/notifier.js — delivery + per-event handlers. Deps are injected.
-import { wantsKnock, wantsCall, wantsAvailability, availabilityTurnedOn, withinCooldown, buildMessage } from './presence-core.js';
+import { wantsKnock, wantsCall, wantsAvailability, availabilityTurnedOn, withinCooldown, buildMessage, effectiveAvailable } from './presence-core.js';
 
 const AVAIL_COOLDOWN_MS = 5 * 60 * 1000;
 
@@ -74,6 +74,20 @@ export async function notifyGroupAvailability(deps, groupId, memberUid, now) {
     } catch { /* one co-member's send failed — keep notifying the rest */ }
   }
   if (delivered > 0) await deps.update(`notifierState/groupAvailability/${groupId}`, { [memberUid]: now });
+}
+
+// Triggered on a write to groups/{g}/members/{uid}/statusOverride. Notifies when
+// the member's EFFECTIVE in-group availability flips off→on. `before == null`
+// means the member just joined (first override write) — not a "became available"
+// event, so we skip it to avoid a blast on every new member.
+export async function handleGroupOverrideChange(deps, groupId, memberUid, before, after) {
+  if (before == null) return;
+  const now = deps.now();
+  const status = await deps.getVal(`users/${memberUid}/status`);
+  const primaryAU = await deps.getVal(`users/${memberUid}/availableUntil`);
+  const wasOn = effectiveAvailable(before, status, primaryAU, now);
+  const isOn = effectiveAvailable(after, status, primaryAU, now);
+  if (isOn && !wasOn) await notifyGroupAvailability(deps, groupId, memberUid, now);
 }
 
 export async function handleCall(deps, callerId, callState) {

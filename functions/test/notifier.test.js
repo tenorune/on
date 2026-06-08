@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability } from '../notifier.js';
+import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange } from '../notifier.js';
 
 function makeDeps(overrides = {}) {
   const store = overrides.store || {};
@@ -223,5 +223,47 @@ describe('notifyGroupAvailability', () => {
     const deps = makeDeps({ store: groupStore({ 'userPrefs/co1/pushTokens': null }) });
     await notifyGroupAvailability(deps, 'g1', 'm', 1000);
     expect(deps.update).not.toHaveBeenCalledWith('notifierState/groupAvailability/g1', expect.anything());
+  });
+});
+
+describe('handleGroupOverrideChange', () => {
+  const AVAIL = { enabled: true, status: 'available', availableUntil: FUTURE };
+  const UNAVAIL = { enabled: true, status: 'unavailable', availableUntil: null };
+  function store(extra = {}) {
+    return {
+      'groups/g1/name': 'Divers',
+      'groups/g1/members/m/displayName': 'Bobby',
+      'groups/g1/members': { m: {}, co1: {} },
+      'userPrefs/co1/notify/m': { availability: true },
+      'userPrefs/co1/pushTokens': { tokCo1: {} },
+      'notifierState/groupAvailability/g1/m': null,
+      ...extra,
+    };
+  }
+  test('override flips unavailable→available → notifies', async () => {
+    const deps = makeDeps({ store: store() });
+    await handleGroupOverrideChange(deps, 'g1', 'm', UNAVAIL, AVAIL);
+    expect(deps.send).toHaveBeenCalledWith(['tokCo1'],
+      { title: 'Bobby is available in Divers', body: '' },
+      { type: 'availability', targetUid: 'm', contextGroupId: 'g1' });
+  });
+  test('appearance-only change (still available) → no send', async () => {
+    const deps = makeDeps({ store: store() });
+    await handleGroupOverrideChange(deps, 'g1', 'm',
+      { ...AVAIL, statusColor: '#111' }, { ...AVAIL, statusColor: '#222' });
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('before == null (member just joined) → no send', async () => {
+    const deps = makeDeps({ store: store() });
+    await handleGroupOverrideChange(deps, 'g1', 'm', null, AVAIL);
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('override turned OFF but primary is available → effective on → notifies', async () => {
+    const deps = makeDeps({ store: store({
+      'users/m/status': 'available',
+      'users/m/availableUntil': FUTURE,
+    }) });
+    await handleGroupOverrideChange(deps, 'g1', 'm', UNAVAIL, { enabled: false });
+    expect(deps.send).toHaveBeenCalledTimes(1);
   });
 });
