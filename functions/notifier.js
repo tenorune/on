@@ -104,22 +104,33 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   const now = deps.now();
   const status = await deps.getVal(`users/${uid}/status`);
   if (!availabilityTurnedOn(beforeAU, afterAU, status, now)) return;
-  const lastTs = await deps.getVal(`notifierState/availability/${uid}`);
-  if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) return;
 
-  const followers = await deps.getVal(`users/${uid}/followers`);
-  const followerIds = followers ? Object.keys(followers) : [];
-  let delivered = 0;
-  for (const fid of followerIds) {
-    const prefs = await deps.getVal(`userPrefs/${fid}/notify/${uid}`);
-    if (!wantsAvailability(prefs)) continue;
-    const name = await resolveName(deps, fid, uid);
-    try {
-      if (await sendToUser(deps, fid, buildMessage('availability', name), { type: 'availability', targetUid: uid })) {
-        delivered++;
-      }
-    } catch { /* this follower's send failed — keep notifying the rest */ }
+  // Direct followers — own per-uid cooldown.
+  const lastTs = await deps.getVal(`notifierState/availability/${uid}`);
+  if (!withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) {
+    const followers = await deps.getVal(`users/${uid}/followers`);
+    const followerIds = followers ? Object.keys(followers) : [];
+    let delivered = 0;
+    for (const fid of followerIds) {
+      const prefs = await deps.getVal(`userPrefs/${fid}/notify/${uid}`);
+      if (!wantsAvailability(prefs)) continue;
+      const name = await resolveName(deps, fid, uid);
+      try {
+        if (await sendToUser(deps, fid, buildMessage('availability', name), { type: 'availability', targetUid: uid })) {
+          delivered++;
+        }
+      } catch { /* this follower's send failed — keep notifying the rest */ }
+    }
+    if (delivered > 0) await deps.update('notifierState/availability', { [uid]: now });
   }
-  // Only consume the cooldown if a notification actually went out.
-  if (delivered > 0) await deps.update('notifierState/availability', { [uid]: now });
+
+  // Group co-members — only for groups where this member's override is OFF, so the
+  // group is showing their primary. Override-ON groups are driven by onMemberOverride.
+  const groups = await deps.getVal(`users/${uid}/groups`);
+  const groupIds = groups ? Object.keys(groups) : [];
+  for (const groupId of groupIds) {
+    const override = await deps.getVal(`groups/${groupId}/members/${uid}/statusOverride`);
+    if (override && override.enabled === true) continue;
+    await notifyGroupAvailability(deps, groupId, uid, now);
+  }
 }

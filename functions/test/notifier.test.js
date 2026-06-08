@@ -267,3 +267,53 @@ describe('handleGroupOverrideChange', () => {
     expect(deps.send).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('handleAvailability → group co-members (primary path)', () => {
+  test('notifies co-members of override-OFF groups, skips override-ON groups', async () => {
+    const deps = makeDeps({ store: {
+      'users/star/status': 'available',
+      'users/star/availableUntil': FUTURE,
+      'users/star/followers': null,
+      'users/star/groups': { gOff: true, gOn: true },
+      // gOff: override disabled → group shows primary → notify
+      'groups/gOff/members/star/statusOverride': { enabled: false },
+      'groups/gOff/name': 'OffGroup',
+      'groups/gOff/members/star/displayName': 'Star',
+      'groups/gOff/members': { star: {}, a: {} },
+      'userPrefs/a/notify/star': { availability: true },
+      'userPrefs/a/pushTokens': { tokA: {} },
+      'notifierState/groupAvailability/gOff/star': null,
+      // gOn: override enabled → handled by onMemberOverride, not the primary path
+      'groups/gOn/members/star/statusOverride': { enabled: true, status: 'available', availableUntil: FUTURE },
+      'groups/gOn/members': { star: {}, b: {} },
+      'userPrefs/b/notify/star': { availability: true },
+      'userPrefs/b/pushTokens': { tokB: {} },
+      'notifierState/availability/star': null,
+    }});
+    await handleAvailability(deps, 'star', null, FUTURE);
+    expect(deps.send).toHaveBeenCalledTimes(1);
+    expect(deps.send).toHaveBeenCalledWith(['tokA'],
+      { title: 'Star is available in OffGroup', body: '' },
+      { type: 'availability', targetUid: 'star', contextGroupId: 'gOff' });
+  });
+  test('group fan-out runs even when the Direct cooldown is active', async () => {
+    const deps = makeDeps({ store: {
+      'users/star/status': 'available',
+      'users/star/availableUntil': FUTURE,
+      'users/star/groups': { gOff: true },
+      'groups/gOff/members/star/statusOverride': null, // absent → treated as off
+      'groups/gOff/name': 'OffGroup',
+      'groups/gOff/members/star/displayName': 'Star',
+      'groups/gOff/members': { star: {}, a: {} },
+      'userPrefs/a/notify/star': { availability: true },
+      'userPrefs/a/pushTokens': { tokA: {} },
+      'notifierState/availability/star': 999, // Direct within cooldown (now=1000)
+      'notifierState/groupAvailability/gOff/star': null,
+    }});
+    await handleAvailability(deps, 'star', null, FUTURE);
+    expect(deps.send).toHaveBeenCalledTimes(1); // group send, despite Direct cooldown
+    expect(deps.send).toHaveBeenCalledWith(['tokA'],
+      { title: 'Star is available in OffGroup', body: '' },
+      { type: 'availability', targetUid: 'star', contextGroupId: 'gOff' });
+  });
+});
