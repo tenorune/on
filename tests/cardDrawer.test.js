@@ -32,12 +32,22 @@ test('clicking the ellipsis opens a drawer slice containing the actions', () => 
   expect(isCardDrawerOpen()).toBe(true);
 });
 
-test('clicking the ellipsis again closes the drawer', () => {
+test('the slice is wrapped in a clip layer so it slides from the card edge', () => {
+  const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: makeAction('b') }]);
+  document.body.appendChild(ellipsis);
+  ellipsis.click();
+  const clip = document.querySelector('.card-drawer-clip');
+  expect(clip).not.toBeNull();
+  expect(clip.querySelector('.card-drawer')).not.toBeNull();
+});
+
+test('clicking the ellipsis again closes the drawer (removes the clip layer)', () => {
   const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: makeAction('b') }]);
   document.body.appendChild(ellipsis);
   ellipsis.click();
   ellipsis.click();
   expect(document.querySelector('.card-drawer')).toBeNull();
+  expect(document.querySelector('.card-drawer-clip')).toBeNull();
   expect(isCardDrawerOpen()).toBe(false);
 });
 
