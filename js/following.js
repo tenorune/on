@@ -19,6 +19,7 @@ import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { isLongpressHintEligible, isSwipeHintEligible } from './hints.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { createNotifyBell } from './notifyBell.js';
+import { createCardDrawer, isCardDrawerOpen, closeCardDrawer } from './cardDrawer.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock, getFloatedUserIds } from './knock.js';
@@ -258,6 +259,10 @@ export function exitCallMode(myUserId) {
 }
 
 function renderList() {
+  // A drawer open on a row about to be wiped would leak its document listeners
+  // and strand isCardDrawerOpen()=true (gestures + knock/call deferral stuck).
+  // Closing first dispatches card-drawer-close, flushing that state.
+  closeCardDrawer();
   const myUserId = myUserIdRef;
   const following = getFollowing();
   const followerIds = new Set(latestFollowersSnapshot.map(f => f.userId));
@@ -450,11 +455,17 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     <div class="person-info">
       ${nameHtml}
       <div class="person-status">Unavailable</div>
-    </div>
-    <button class="unfollow-btn" title="Unfollow">×</button>`;
+    </div>`;
 
   const displayName = entry.label || entry.code;
-  li.querySelector('.unfollow-btn').addEventListener('click', () => {
+  const unfollowBtn = document.createElement('button');
+  unfollowBtn.className = 'unfollow-btn';
+  unfollowBtn.title = 'Unfollow';
+  unfollowBtn.textContent = '×';
+  unfollowBtn.addEventListener('click', (e) => {
+    // Stop the tap bubbling to the li-level knock handler in both the inline
+    // (flag-off) and in-slice paths.
+    e.stopPropagation();
     showConfirm(`Unfollow ${displayName}?`, 'Unfollow', {
       type: 'unfollow',
       userId: entry.userId,
@@ -468,10 +479,9 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
 
   if (KNOCK_ENABLED && isMutual) {
     const labelEl = li.querySelector('.person-label');
-    const unfollowBtnEl = li.querySelector('.unfollow-btn');
     li.addEventListener('click', (e) => {
+      if (isCardDrawerOpen()) return;
       if (labelEl.contains(e.target)) return;
-      if (unfollowBtnEl.contains(e.target)) return;
       const statusColor = lastUserData.get(entry.userId)?.statusColor;
       sendKnock(entry.userId, myUserId, statusColor);
     });
@@ -481,6 +491,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     let swipeStartX = 0, swipeStartY = 0, swipeCardWidth = 0, swipeActive = false;
 
     li.addEventListener('pointerdown', (e) => {
+      if (isCardDrawerOpen()) return;
       if (e.target.closest('.unfollow-btn, .person-label')) return;
       swipeStartX = e.clientX;
       swipeStartY = e.clientY;
@@ -546,6 +557,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     let suppressNextClick = false;
 
     li.addEventListener('pointerdown', (e) => {
+      if (isCardDrawerOpen()) return;
       clearTimeout(pressTimer); pressTimer = null;
       pressStartX = e.clientX;
       pressStartY = e.clientY;
@@ -569,6 +581,10 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     }, true);
   }
 
+  // Assemble right-side actions. >=2 -> collapse behind a tool drawer; exactly
+  // one -> inline. Bell is non-terminal (keeps the drawer open); unfollow is
+  // terminal (closes it; the confirm overlay then covers the card).
+  const actions = [];
   if (NOTIFICATIONS_ENABLED) {
     // Knock/Call are mutual-only interactions; non-mutual (Following) contacts
     // get availability only. (Followers use createFollowerOnlyRow — no bell.)
@@ -576,7 +592,14 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
       types: isMutual ? ['knock', 'call', 'availability'] : ['availability'],
       onNeedPermission: () => { ensureNotificationsReady().catch(() => {}); },
     });
-    li.appendChild(bell);
+    actions.push({ el: bell, closesDrawer: false });
+  }
+  actions.push({ el: unfollowBtn, closesDrawer: true });
+
+  if (actions.length >= 2) {
+    li.appendChild(createCardDrawer(actions));
+  } else {
+    li.appendChild(actions[0].el);
   }
 
   document.getElementById('people-list').appendChild(li);
@@ -701,6 +724,8 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   const li = document.querySelector(`[data-user-id="${entry.userId}"]`);
   if (!li) return;
 
+  lastUserData.set(entry.userId, userData);
+
   const isAvail = userData.status === 'available' && !isExpired(userData.availableUntil);
   const color = userData.statusColor || '#22c55e';
   const glow  = getGlowForColor(color);
@@ -710,7 +735,9 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   // Firebase record (e.g., a previous session left a call dangling) doesn't
   // render call-mode UI when calls are disabled on this device.
   const isCallee = CALL_ENABLED && callModeCalleeId !== null && entry.userId === callModeCalleeId;
-  const isCallModeReceiver = CALL_ENABLED && !isCallee && userData.callState?.calleeId === myUserId;
+  const isCallModeReceiver = CALL_ENABLED && !isCallee
+    && userData.callState?.calleeId === myUserId
+    && !isCardDrawerOpen();
   if (isCallee) {
     const callText = getMadeCallCount() < 4
       ? 'Calling them\u2026 (swipe left to hang up)'
@@ -867,6 +894,22 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     existingSwipe.remove();
   }
 }
+
+// On drawer close, reconcile deferred receiver-side call-mode against the
+// latest known state — but ONLY for rows that actually have an incoming call
+// cached. Re-rendering unrelated rows would recompute isFirstMutual swipe-hint
+// positions and could clobber an in-progress rename. A call cancelled while the
+// drawer was open is no longer an incoming call here, so it's correctly skipped
+// (its row never entered call-mode while deferred).
+document.addEventListener('card-drawer-close', () => {
+  renderedFollowees.forEach((userId) => {
+    if (editingSet.has(userId)) return;
+    const data = lastUserData.get(userId);
+    if (!data || data.callState?.calleeId !== myUserIdRef) return;
+    const entry = getFollowing().find((f) => f.userId === userId);
+    if (entry) updateFolloweeRow(entry, data, myUserIdRef);
+  });
+});
 
 /** Re-evaluate long-press hints when the user's own combo changes. */
 document.addEventListener('my-combo-changed', () => refreshLongpressHints());

@@ -1,6 +1,7 @@
 // js/knock.js
 import { writeKnock, getKnocks, watchKnocksAdded, clearKnock } from './db.js';
 import { getCurrentContext, onContextChange } from './groupNav.js';
+import { isCardDrawerOpen } from './cardDrawer.js';
 
 // Module-level state — reset by initKnocks on each call
 let debounceMap = new Map();   // recipientId → last knock timestamp
@@ -86,6 +87,9 @@ export async function initKnocks(myUserId) {
     // App is backgrounded or on canvas — leave knock in DB so the next initKnocks
     // (on foreground / canvas exit) picks it up via getKnocks and shows it as deferred.
     if (document.visibilityState !== 'visible') return;
+    // A tool drawer is open — defer like the backgrounded case: leave the knock
+    // in the DB so the card-drawer-close replay (initKnocks) shows it.
+    if (isCardDrawerOpen()) return;
     const canvasScreen = document.getElementById('canvas-screen');
     if (canvasScreen && canvasScreen.classList.contains('active')) return;
     // Stale-knock check: only knocks that are clearly older than "this
@@ -460,5 +464,8 @@ document.addEventListener('visibilitychange', () => {
   if (cachedUserId) initKnocks(cachedUserId);
 });
 document.addEventListener('canvas-exited', () => {
+  if (cachedUserId) initKnocks(cachedUserId);
+});
+document.addEventListener('card-drawer-close', () => {
   if (cachedUserId) initKnocks(cachedUserId);
 });

@@ -394,6 +394,7 @@ describe('confirm dialog', () => {
     fire([]); // u1 is following-only
 
     const li = document.querySelector('[data-user-id="u1"]');
+    li.querySelector('.card-drawer-toggle').click();
     li.querySelector('.unfollow-btn').click();
 
     expect(document.getElementById('unfollow-confirm-title').textContent).toBe('Unfollow Alice?');
@@ -701,6 +702,7 @@ describe('subscribeToFollowee: field-change guard', () => {
 
 describe('knock click handler on mutual rows', () => {
   const { sendKnock } = require('../js/knock.js');
+  const { isCardDrawerOpen } = require('../js/cardDrawer.js');
 
   function setupMutualWithKnock(userId = 'u1') {
     setupDom();
@@ -728,11 +730,23 @@ describe('knock click handler on mutual rows', () => {
     expect(sendKnock).not.toHaveBeenCalled();
   });
 
-  test('tapping unfollow-btn skips knock', () => {
+  test('tapping unfollow inside the drawer does not knock', () => {
     const li = setupMutualWithKnock();
     sendKnock.mockClear();
+    li.querySelector('.card-drawer-toggle').click();
     li.querySelector('.unfollow-btn').click();
     expect(sendKnock).not.toHaveBeenCalled();
+  });
+
+  test('tapping the card body to dismiss an open drawer does not knock (C1)', () => {
+    const li = setupMutualWithKnock();
+    sendKnock.mockClear();
+    li.querySelector('.card-drawer-toggle').click(); // open the drawer
+    expect(isCardDrawerOpen()).toBe(true);
+    // Tap the li body itself (NOT inside .card-drawer) to dismiss.
+    li.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(sendKnock).not.toHaveBeenCalled();
+    expect(isCardDrawerOpen()).toBe(false); // dismissed
   });
 });
 
@@ -856,6 +870,72 @@ describe('call mode: receiver-side glow via updateFolloweeRow', () => {
     }, 'myUid');
     const li = document.querySelector('[data-user-id="alice"]');
     expect(li.style.getPropertyValue('--call-color-rgb')).toBe('34, 197, 94');
+  });
+});
+
+describe('call deferral while a drawer is open', () => {
+  const { createCardDrawer } = require('../js/cardDrawer.js');
+  const CALL = { status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6', callState: { calleeId: 'myUid', since: Date.now() } };
+  const NOCALL = { status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6' };
+  const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+
+  function openADrawer() {
+    const ellipsis = createCardDrawer([{ el: document.createElement('button') }, { el: document.createElement('button') }]);
+    document.body.appendChild(ellipsis);
+    ellipsis.click(); // isCardDrawerOpen() is now true
+    return ellipsis;
+  }
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+    // initList sets the module-level myUserIdRef used by the reconcile listener.
+    // No-op watchers so it does not render or clear our manually built rows.
+    watchFollowers.mockReturnValue(jest.fn());
+    watchStatus.mockReturnValue(jest.fn());
+    initList('myUid', 'MYCODE');
+    resetRenderedFollowees();
+    getFollowing.mockReturnValue([entry]);
+  });
+
+  test('incoming call does NOT enter call-mode while a drawer is open', () => {
+    makeFolloweeLi('alice');
+    openADrawer();
+    updateFolloweeRow(entry, CALL, 'myUid');
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(false);
+  });
+
+  test('closing the drawer applies a still-live call', () => {
+    makeFolloweeLi('alice');
+    const ellipsis = openADrawer();
+    updateFolloweeRow(entry, CALL, 'myUid');  // deferred; caches CALL in lastUserData
+    ellipsis.click(); // close the real drawer -> fires card-drawer-close, reconcile runs
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(true);
+  });
+
+  test('a call cancelled during the open window is not replayed on close', () => {
+    makeFolloweeLi('alice');
+    const ellipsis = openADrawer();
+    updateFolloweeRow(entry, CALL, 'myUid');    // call arrives (deferred)
+    updateFolloweeRow(entry, NOCALL, 'myUid');  // caller hangs up (caches NOCALL)
+    ellipsis.click(); // close the real drawer -> fires card-drawer-close, reconcile runs
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(false);
+  });
+
+  test('drawer close does not re-render rows without an incoming call', () => {
+    const li = makeFolloweeLi('alice');
+    // Prime lastUserData + renderedFollowees with a NON-call state for alice.
+    updateFolloweeRow(entry, NOCALL, 'myUid');
+    // Put a sentinel in the status element that a re-render would clobber.
+    const statusEl = li.querySelector('.person-status');
+    statusEl.innerHTML = 'SENTINEL';
+    const ellipsis = openADrawer();
+    ellipsis.click(); // close the real drawer -> fires card-drawer-close
+    expect(document.querySelector('[data-user-id="alice"] .person-status').innerHTML).toBe('SENTINEL');
   });
 });
 
@@ -1410,6 +1490,16 @@ describe('long press handler', () => {
     expect(setStatusColor).not.toHaveBeenCalled();
   });
 
+  test('long-press is suppressed while a card drawer is open', () => {
+    const li = setupForLongPress(); // mutual row with statusColor '#f59e0b'
+    li.querySelector('.card-drawer-toggle').click(); // open the drawer
+    const { setStatusColor } = require('../js/db.js');
+    setStatusColor.mockClear();
+    press(li);
+    jest.advanceTimersByTime(500);
+    expect(setStatusColor).not.toHaveBeenCalled();
+  });
+
   test('target has no statusColor — CSS vars unchanged, setStatusColor not called', () => {
     const { setStatusColor } = require('../js/db.js');
     const li = setupForLongPress({ paletteKey: 'ember' }); // no statusColor
@@ -1555,6 +1645,7 @@ describe('notification bell on contact rows', () => {
     const li = document.querySelector('#people-list li[data-user-id="alex"]');
     expect(createNotifyBell).toHaveBeenCalledWith('alex',
       expect.objectContaining({ types: ['knock', 'call', 'availability'] }));
+    li.querySelector('.card-drawer-toggle').click();
     expect(li.querySelector('.notify-bell')).not.toBeNull();
   });
 
@@ -1567,5 +1658,115 @@ describe('notification bell on contact rows', () => {
 
     expect(createNotifyBell).toHaveBeenCalledWith('bea',
       expect.objectContaining({ types: ['availability'] }));
+  });
+});
+
+// --- tool drawer on contact rows ---
+
+describe('tool drawer on contact rows', () => {
+  const { createNotifyBell } = require('../js/notifyBell.js');
+  // Captured at describe-evaluation time (before any jest.resetModules() in later
+  // tests would create a fresh registry), so this shares the same module instance
+  // as the top-level require of following.js and cardDrawer.js.
+  const { isCardDrawerOpen } = require('../js/cardDrawer.js');
+  function mountMutual(userId = 'alex') {
+    setupDom();
+    jest.clearAllMocks();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+    getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
+    watchStatus.mockReturnValue(jest.fn());
+    watchFollowers.mockImplementation((_uid, cb) => { cb([{ userId, code: 'ABC123' }]); return jest.fn(); });
+    initList('myUid', 'MYCODE');
+    return document.querySelector(`[data-user-id="${userId}"]`);
+  }
+
+  test('mutual row shows a drawer toggle, not inline unfollow/bell', () => {
+    const li = mountMutual();
+    expect(li.querySelector('.card-drawer-toggle')).not.toBeNull();
+    expect(li.querySelector('.unfollow-btn')).toBeNull();
+    expect(li.querySelector('.notify-bell')).toBeNull();
+  });
+
+  test('opening the drawer reveals unfollow and bell', () => {
+    const li = mountMutual();
+    li.querySelector('.card-drawer-toggle').click();
+    expect(li.querySelector('.card-drawer .unfollow-btn')).not.toBeNull();
+    expect(li.querySelector('.card-drawer .notify-bell')).not.toBeNull();
+  });
+
+  test('tapping unfollow inside the drawer opens the confirm dialog', () => {
+    const li = mountMutual();
+    li.querySelector('.card-drawer-toggle').click();
+    li.querySelector('.unfollow-btn').click();
+    expect(document.querySelector('.confirm-overlay')).not.toBeNull();
+  });
+
+  function mountFollowingOnly(userId = 'alex') {
+    setupDom();
+    jest.clearAllMocks();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+    getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
+    watchStatus.mockReturnValue(jest.fn());
+    // No followers → not mutual (Following-only row).
+    watchFollowers.mockImplementation((_uid, cb) => { cb([]); return jest.fn(); });
+    initList('myUid', 'MYCODE');
+    return document.querySelector(`[data-user-id="${userId}"]`);
+  }
+
+  test('following-only (non-mutual) row also gets a drawer toggle, not inline actions', () => {
+    const li = mountFollowingOnly();
+    expect(li.dataset.mutual).toBeUndefined();
+    expect(li.querySelector('.card-drawer-toggle')).not.toBeNull();
+    expect(li.querySelector('.unfollow-btn')).toBeNull();
+    expect(li.querySelector('.notify-bell')).toBeNull();
+  });
+
+  test('call swipe is suppressed while a drawer is open', () => {
+    const { setCallState } = require('../js/db.js');
+    const li = mountMutual();
+    li.querySelector('.card-drawer-toggle').click(); // open drawer
+    setCallState.mockClear();
+    const w = 300;
+    jest.spyOn(li, 'getBoundingClientRect').mockReturnValue({ width: w });
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0, pointerId: 1, bubbles: true }));
+    li.dispatchEvent(new PointerEvent('pointermove', { clientX: w, clientY: 0, pointerId: 1, bubbles: true }));
+    expect(li.classList.contains('call-mode')).toBe(false);
+  });
+
+  test('re-render (renderList) closes an open drawer instead of stranding it', () => {
+    // Use initAndCaptureFollowersCallback so we can re-fire the followers callback
+    // to trigger renderList() a second time, simulating a server-driven update.
+    setupDom();
+    jest.clearAllMocks();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+    getFollowing.mockReturnValue([{ userId: 'alex', code: 'ABC123', label: 'Alice' }]);
+    watchStatus.mockReturnValue(jest.fn());
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    // Deliver followers so renderList renders the mutual row.
+    fire([{ userId: 'alex', code: 'ABC123' }]);
+
+    const li = document.querySelector('[data-user-id="alex"]');
+    li.querySelector('.card-drawer-toggle').click();
+    expect(isCardDrawerOpen()).toBe(true);
+
+    // Re-fire the followers callback — this triggers renderList() again,
+    // which wipes #people-list. The bug: without the fix, isCardDrawerOpen()
+    // stays true after the DOM is torn down.
+    fire([{ userId: 'alex', code: 'ABC123' }]);
+
+    expect(isCardDrawerOpen()).toBe(false);
+    expect(document.querySelector('.card-drawer')).toBeNull();
   });
 });

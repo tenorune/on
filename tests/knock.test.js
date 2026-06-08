@@ -26,6 +26,7 @@ beforeEach(() => {
     getCurrentContext: jest.fn(() => ({ context: 'direct', groupId: null })),
     onContextChange: jest.fn(() => () => {}),
   }));
+  jest.mock('../js/cardDrawer.js', () => ({ isCardDrawerOpen: jest.fn(() => false) }));
   ({ sendKnock, initKnocks, colorToRgba } = require('../js/knock.js'));
   // Re-bind db mocks to fresh instances created after resetModules
   const db = require('../js/db.js');
@@ -393,6 +394,42 @@ describe('visibilitychange re-init', () => {
   });
 });
 
+// --- card-drawer-close replay ---
+
+describe('card-drawer-close replay', () => {
+  test('dispatching card-drawer-close causes initKnocks to re-run and animate a deferred knock', async () => {
+    const ts = Date.now() - 1000; // 1 second ago — within 24h, will be deferred
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockReturnValue(jest.fn());
+    clearKnock.mockResolvedValue();
+
+    // Initial call to cache the userId inside the module
+    await initKnocks('myUid');
+
+    // Now seed a deferred knock for alice so the replay picks it up
+    const li = makeLi('alice');
+    getKnocks.mockResolvedValue({
+      exists: () => true,
+      val: () => ({ alice: { count: 1, ts } }),
+    });
+
+    // Trigger replay via card-drawer-close (mirrors the visibilitychange replay path).
+    // The event handler calls initKnocks() internally; we need to flush all
+    // microtasks it enqueues (getKnocks is a resolved promise, so one tick per
+    // await inside initKnocks). Using a zero-delay timer flush is the safest
+    // way to drain an unknown number of microtask continuations.
+    document.dispatchEvent(new Event('card-drawer-close'));
+
+    // Drain all pending microtasks by awaiting a chain long enough to let the
+    // internal getKnocks().then() chain settle.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+
+    // The deferred knock should have been animated on alice's li
+    expect(li.classList.contains('knock-deferred')).toBe(true);
+    expect(clearKnock).toHaveBeenCalledWith('myUid', 'alice');
+  });
+});
+
 // --- live listener background / reconnect guards ---
 
 describe('live listener: visibility and timestamp guards', () => {
@@ -440,6 +477,20 @@ describe('live listener: visibility and timestamp guards', () => {
     // Live pulse, NOT deferred:
     expect(li.classList.contains('knock-deferred')).toBe(false);
     expect(li.classList.contains('knock-live')).toBe(true);
+  });
+
+  test('a live knock is ignored (left in DB) while a card drawer is open', async () => {
+    const { isCardDrawerOpen } = require('../js/cardDrawer.js');
+    isCardDrawerOpen.mockReturnValue(true);
+    const { clearKnock } = require('../js/db.js');
+
+    const fire = await setupLiveListener();
+    const li = makeLi('alex');
+
+    fire('alex', { count: 1, ts: Date.now() });
+
+    expect(li.classList.contains('knock-live')).toBe(false);
+    expect(clearKnock).not.toHaveBeenCalled();
   });
 });
 

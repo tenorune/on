@@ -9,6 +9,7 @@ const { getNotifyPrefs, setNotifyPref } = require('../js/prefs.js');
 beforeEach(() => {
   document.body.innerHTML = '';
   getNotifyPrefs.mockReturnValue({ knock: false, call: false, availability: false });
+  getNotifyPrefs.mockClear();
   setNotifyPref.mockClear();
 });
 
@@ -51,11 +52,11 @@ test('bell shows active state when any pref is on', () => {
 });
 
 test('renders only the switches in the types list', () => {
-  const bell = createNotifyBell('alex', { types: ['availability'] });
+  const bell = createNotifyBell('alex', { types: ['knock', 'availability'] });
   document.body.appendChild(bell);
   bell.click();
   const switches = [...document.querySelectorAll('.notify-switch')].map((s) => s.dataset.type);
-  expect(switches).toEqual(['availability']);
+  expect(switches).toEqual(['knock', 'availability']);
 });
 
 test('defaults to all three types when types omitted', () => {
@@ -70,4 +71,62 @@ test('active-state counts only visible types', () => {
   getNotifyPrefs.mockReturnValue({ knock: true, call: false, availability: false });
   const bell = createNotifyBell('alex', { types: ['availability'] });
   expect(bell.classList.contains('active')).toBe(false);
+});
+
+test('renders an inline svg glyph (not the emoji)', () => {
+  const bell = createNotifyBell('alex', {});
+  expect(bell.querySelector('svg')).not.toBeNull();
+  expect(bell.textContent).not.toContain('\u{1F514}');
+});
+
+test('single-type bell toggles the pref directly without a popover', () => {
+  const bell = createNotifyBell('alex', { types: ['availability'] });
+  document.body.appendChild(bell);
+  bell.click();
+  expect(document.querySelector('.notify-popover')).toBeNull();
+  expect(setNotifyPref).toHaveBeenCalledWith('alex', 'availability', true);
+});
+
+test('single-type bell turning on calls onNeedPermission', () => {
+  const onNeedPermission = jest.fn();
+  const bell = createNotifyBell('alex', { types: ['availability'], onNeedPermission });
+  document.body.appendChild(bell);
+  bell.click();
+  expect(onNeedPermission).toHaveBeenCalled();
+});
+
+test('single-type bell turning OFF does not call onNeedPermission', () => {
+  getNotifyPrefs.mockReturnValue({ knock: false, call: false, availability: true });
+  const onNeedPermission = jest.fn();
+  const bell = createNotifyBell('alex', { types: ['availability'], onNeedPermission });
+  document.body.appendChild(bell);
+  bell.click();
+  expect(setNotifyPref).toHaveBeenCalledWith('alex', 'availability', false);
+  expect(onNeedPermission).not.toHaveBeenCalled();
+});
+
+test('multi-type bell still opens the popover', () => {
+  const bell = createNotifyBell('alex', { types: ['knock', 'availability'] });
+  document.body.appendChild(bell);
+  bell.click();
+  expect(document.querySelector('.notify-popover')).not.toBeNull();
+});
+
+test('clicking a single-type bell dismisses another bell\'s open popover', () => {
+  const multi = createNotifyBell('alex', { types: ['knock', 'availability'] });
+  const single = createNotifyBell('sam', { types: ['availability'] });
+  document.body.append(multi, single);
+  multi.click(); // opens popover
+  expect(document.querySelector('.notify-popover')).not.toBeNull();
+  single.click(); // single-type direct toggle — must close the orphaned popover
+  expect(document.querySelector('.notify-popover')).toBeNull();
+});
+
+test('open popover closes when a card-drawer-close event fires', () => {
+  const bell = createNotifyBell('alex', { types: ['knock', 'availability'] });
+  document.body.appendChild(bell);
+  bell.click();
+  expect(document.querySelector('.notify-popover')).not.toBeNull();
+  document.dispatchEvent(new CustomEvent('card-drawer-close'));
+  expect(document.querySelector('.notify-popover')).toBeNull();
 });
