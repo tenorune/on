@@ -49,6 +49,27 @@ test('markHintSeen for an unknown name is a no-op (no crash, no write)', () => {
   expect(mergeUserPrefs).not.toHaveBeenCalled();
 });
 
+// ── currentContext persistence ordering contract ──
+// Regression guard: setCurrentContext only mirrors to userPrefs once initPrefs
+// has told the module who's writing. app.js relies on this — it MUST call
+// initPrefs before the invite-redemption navigation, or navigateToGroup's
+// context write lands in localStorage only and the watchUserPrefs echo resets a
+// just-joined invitee back out of the group.
+test('setCurrentContext persists to userPrefs only after initPrefs knows the user', () => {
+  jest.isolateModules(() => {
+    const { mergeUserPrefs: mup } = require('../js/db.js');
+    const prefs = require('../js/prefs.js');
+    // Before initPrefs: localStorage updates, but nothing reaches Firebase.
+    prefs.setCurrentContext('group:G1');
+    expect(localStorage.getItem('statusapp_current_context')).toBe('group:G1');
+    expect(mup).not.toHaveBeenCalled();
+    // After initPrefs: the same call mirrors to userPrefs/{uid}/currentContext.
+    prefs.initPrefs('uid1');
+    prefs.setCurrentContext('group:G2');
+    expect(mup).toHaveBeenCalledWith('uid1', { currentContext: 'group:G2' });
+  });
+});
+
 // ── Call counters ──
 
 test('getMadeCallCount returns 0 when nothing stored', () => {
