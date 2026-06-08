@@ -96,6 +96,20 @@ test('tapping outside the drawer closes it', () => {
   expect(isCardDrawerOpen()).toBe(false);
 });
 
+test('a tap inside a body-portaled .notify-popover does NOT close the drawer', () => {
+  const ellipsis = createCardDrawer([{ el: makeAction('a') }, { el: makeAction('b') }]);
+  document.body.appendChild(ellipsis);
+  ellipsis.click(); // open drawer
+  // Simulate the bell popover portaled to <body> (outside the slice).
+  const popover = document.createElement('div');
+  popover.className = 'notify-popover';
+  const sw = document.createElement('button');
+  popover.appendChild(sw);
+  document.body.appendChild(popover);
+  sw.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  expect(isCardDrawerOpen()).toBe(true);
+});
+
 test('an outside tap that dismisses the drawer is consumed (stopPropagation)', () => {
   const parent = document.createElement('div');
   const body = document.createElement('div'); // card body, outside slice+ellipsis

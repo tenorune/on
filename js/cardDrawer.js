@@ -37,6 +37,9 @@ function openDrawer(ellipsis, actions) {
 
   const onOutside = (e) => {
     if (slice.contains(e.target) || ellipsis.contains(e.target)) return;
+    // The bell popover is portaled to <body> (outside the slice). Taps inside it
+    // must not close the drawer — the popover manages its own dismissal.
+    if (e.target.closest && e.target.closest('.notify-popover')) return;
     // A tap on a *different* card's toggle must reach that toggle's own click
     // handler (it manages the singleton itself by closing us then opening). Only
     // close here; do not consume, or the other drawer would never open.

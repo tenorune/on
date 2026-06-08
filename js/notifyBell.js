@@ -13,10 +13,27 @@ const BELL_SVG = '<svg viewBox="0 0 122.88 122.83" fill="currentColor" aria-hidd
 
 let _openPopover = null;
 let _outsideHandler = null;
+let _repositionHandler = null;
 
 function closeOpenPopover() {
   if (_openPopover) { _openPopover.remove(); _openPopover = null; }
   if (_outsideHandler) { document.removeEventListener('click', _outsideHandler); _outsideHandler = null; }
+  if (_repositionHandler) {
+    window.removeEventListener('scroll', _repositionHandler, true);
+    window.removeEventListener('resize', _repositionHandler);
+    _repositionHandler = null;
+  }
+}
+
+// Anchor the popover just under the bell with its right edge aligned, in
+// viewport coordinates. The popover is rendered at <body> (a portal) so no
+// card/slice overflow, transform, or stacking context can clip it — the cause
+// of it vanishing when nested inside the drawer slice.
+function positionPopover(popover, bell) {
+  const r = bell.getBoundingClientRect();
+  popover.style.top = `${Math.round(r.bottom + 4)}px`;
+  popover.style.right = `${Math.round(Math.max(8, window.innerWidth - r.right))}px`;
+  popover.style.left = 'auto';
 }
 
 // When the surrounding card drawer closes (Escape/scroll/outside-tap), tear
@@ -81,7 +98,8 @@ export function createNotifyBell(targetUid, { types, onNeedPermission } = {}) {
       });
       popover.appendChild(row);
     }
-    bell.insertAdjacentElement('afterend', popover);
+    document.body.appendChild(popover);
+    positionPopover(popover, bell);
     _openPopover = popover;
 
     // Outside-tap dismiss (mirrors groupContext settings handler).
@@ -90,6 +108,12 @@ export function createNotifyBell(targetUid, { types, onNeedPermission } = {}) {
       closeOpenPopover();
     };
     document.addEventListener('click', _outsideHandler);
+
+    // The popover is fixed-positioned and doesn't follow the bell on scroll or
+    // resize — dismiss it rather than let it drift away from its anchor.
+    _repositionHandler = () => closeOpenPopover();
+    window.addEventListener('scroll', _repositionHandler, true);
+    window.addEventListener('resize', _repositionHandler);
   });
 
   document.addEventListener('notify-prefs-synced', () => paintBell(bell, targetUid, typeKeys));
