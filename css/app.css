@@ -1122,16 +1122,23 @@ main {
   color: var(--text-muted); font-size: 1.2rem; line-height: 1;
   padding: 2px 8px; flex-shrink: 0; align-self: center;
 }
+/* Clip layer spanning the card: lets the slice slide in from the card's own
+   right edge. Transparent + click-through (the slice re-enables pointer events);
+   clips to the card's rounded rect. Not placed on the card itself so the
+   call-mode glow (an outward box-shadow on the row) isn't clipped. */
+.card-drawer-clip {
+  position: absolute; inset: 0; overflow: hidden;
+  border-radius: 10px; pointer-events: none; z-index: 40;
+}
 .card-drawer {
   position: absolute; top: 0; right: 0; bottom: 0;
+  pointer-events: auto;
   display: flex; align-items: center; gap: 0.25rem;
   padding: 0 0.75rem; background: var(--surface2);
   border-radius: 0 10px 10px 0;
-  transform: translateX(100%); opacity: 0;
-  transition: transform 0.18s ease-out, opacity 0.18s ease-out;
-  z-index: 40;
+  transform: translateX(100%); transition: transform 0.18s ease-out;
 }
-.card-drawer.open { transform: translateX(0); opacity: 1; }
+.card-drawer.open { transform: translateX(0); }
 
 /* Bell: OFF = full-opacity themed muted color; ON (any type enabled) = white. */
 .notify-bell { background: none; border: 0; cursor: pointer; color: var(--text-muted); opacity: 1; padding: 0.25rem; display: inline-flex; align-items: center; }

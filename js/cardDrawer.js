@@ -4,7 +4,7 @@
 // Consumed by following.js (and later groupContext.js) when a card has >=2
 // right-side actions. Singleton: only one drawer open at a time.
 
-let _open = null; // { slice, ellipsis, cleanup } | null
+let _open = null; // { slice, clip, ellipsis, cleanup } | null
 
 export function isCardDrawerOpen() {
   return _open !== null;
@@ -12,9 +12,9 @@ export function isCardDrawerOpen() {
 
 export function closeCardDrawer() {
   if (!_open) return;
-  const { slice, cleanup } = _open;
+  const { clip, cleanup } = _open;
   cleanup();
-  slice.remove();
+  clip.remove();
   _open = null;
   document.dispatchEvent(new CustomEvent('card-drawer-close'));
 }
@@ -31,7 +31,16 @@ function openDrawer(ellipsis, actions) {
     slice.appendChild(el);
   }
 
-  ellipsis.insertAdjacentElement('afterend', slice);
+  // Wrap the slice in a clip layer that spans the card. The slice slides in from
+  // the card's own right edge (clipped by the wrapper) rather than from off the
+  // screen. The wrapper is transparent and click-through; only the slice is
+  // interactive. Clipping here (not on the card) leaves the card's call-mode
+  // glow — an outward box-shadow on the row — unclipped.
+  const clip = document.createElement('div');
+  clip.className = 'card-drawer-clip';
+  clip.appendChild(slice);
+
+  ellipsis.insertAdjacentElement('afterend', clip);
   // Trigger the slide-in transition on the next frame.
   requestAnimationFrame(() => slice.classList.add('open'));
 
@@ -62,7 +71,7 @@ function openDrawer(ellipsis, actions) {
     document.removeEventListener('scroll', onScroll, true);
   };
 
-  _open = { slice, ellipsis, cleanup };
+  _open = { slice, clip, ellipsis, cleanup };
   document.dispatchEvent(new CustomEvent('card-drawer-open'));
 
   // Register AFTER dispatch so the synchronous opening click cannot immediately
