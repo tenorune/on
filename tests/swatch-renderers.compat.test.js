@@ -164,7 +164,6 @@ function groupDom() {
             <summary></summary>
             <div class="group-actions-menu">
               <button id="group-action-rename" class="hidden"></button>
-              <button id="group-action-invite" class="hidden"></button>
               <button id="group-action-delete" class="hidden"></button>
               <button id="group-action-edit-name" class="hidden"></button>
               <button id="group-action-leave" class="hidden"></button>

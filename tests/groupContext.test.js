@@ -167,7 +167,6 @@ function setupContextDom() {
                 <summary class="chip">Settings</summary>
                 <div class="group-actions-menu">
                   <button id="group-action-rename" class="hidden">Rename group</button>
-                  <button id="group-action-invite" class="hidden">Invite</button>
                   <button id="group-action-delete" class="hidden">Delete group</button>
                   <button id="group-action-edit-name" class="hidden">Edit my name</button>
                   <button id="group-action-leave" class="hidden">Leave group</button>
@@ -208,7 +207,6 @@ describe('groupContext scaffolding', () => {
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     expect(document.getElementById('group-action-rename').classList.contains('hidden')).toBe(false);
-    expect(document.getElementById('group-action-invite').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('group-action-delete').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('group-action-edit-name').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('group-action-leave').classList.contains('hidden')).toBe(true);
@@ -220,7 +218,6 @@ describe('groupContext scaffolding', () => {
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
     expect(document.getElementById('group-action-rename').classList.contains('hidden')).toBe(true);
-    expect(document.getElementById('group-action-invite').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('group-action-delete').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('group-action-edit-name').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('group-action-leave').classList.contains('hidden')).toBe(false);
@@ -449,16 +446,18 @@ describe('group roster render', () => {
     return { getMetaCb: () => metaCb, getMembersCb: () => membersCb };
   }
 
-  test('group roster shows "+ Invite to group" row for the owner', () => {
+  test('group roster shows "Invite to group" row for the owner', () => {
     const cbs = captureRosterCallbacks();
     enterGroupContext('G1', 'me');
     cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
     cbs.getMembersCb()({ me: { displayName: 'Me', role: 'owner', joinedAt: 1 } });
     const row = document.getElementById('group-roster-invite-row');
     expect(row).not.toBeNull();
+    // Label is plain "Invite to group" (no leading "+").
+    expect(row.querySelector('button').textContent).toBe('Invite to group');
   });
 
-  test('group roster does NOT show "+ Invite to group" row for non-owner members', () => {
+  test('group roster does NOT show "Invite to group" row for non-owner members', () => {
     const cbs = captureRosterCallbacks();
     enterGroupContext('G1', 'me');
     cbs.getMetaCb()({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
@@ -541,12 +540,21 @@ describe('owner actions', () => {
     expect(groupsModule.deleteGroup).toHaveBeenCalledWith('G1', 'me');
   });
 
-  test('Invite link opens the modal with group scope', () => {
-    let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
-    enterGroupContext('G1', 'me');
+  // The roster "Invite to group" row is now the only invite entry point (the
+  // Settings-menu Invite button was removed). Render it (owner + meta + members)
+  // and click it to exercise the invite-modal wiring.
+  function clickRosterInvite({ metaCb, membersCb }) {
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
-    document.getElementById('group-action-invite').click();
+    membersCb({ me: { displayName: 'Me', role: 'owner', joinedAt: 1 } });
+    document.getElementById('group-roster-invite-row').querySelector('button').click();
+  }
+
+  test('roster invite row opens the modal with group scope', () => {
+    let metaCb, membersCb;
+    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    clickRosterInvite({ metaCb, membersCb });
     expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
       scope: 'group',
       userId: 'me',
@@ -555,16 +563,16 @@ describe('owner actions', () => {
     }));
   });
 
-  test('Invite link passes activeInvite when an unrevoked group invite exists', () => {
-    let metaCb, invitesCb;
+  test('roster invite row passes activeInvite when an unrevoked group invite exists', () => {
+    let metaCb, membersCb, invitesCb;
     db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     db.watchGroupInvites.mockImplementation((groupId, cb) => { invitesCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
-    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     invitesCb({
       tok1: { scope: 'group', token: 'tok1', creatorUid: 'me', createdAt: 2, revoked: false },
     });
-    document.getElementById('group-action-invite').click();
+    clickRosterInvite({ metaCb, membersCb });
     expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
       scope: 'group',
       activeInvite: expect.objectContaining({
@@ -574,29 +582,29 @@ describe('owner actions', () => {
     }));
   });
 
-  test('Invite link passes activeInvite=null when no invites exist', () => {
-    let metaCb, invitesCb;
+  test('roster invite row passes activeInvite=null when no invites exist', () => {
+    let metaCb, membersCb, invitesCb;
     db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     db.watchGroupInvites.mockImplementation((groupId, cb) => { invitesCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
-    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     invitesCb({});
-    document.getElementById('group-action-invite').click();
+    clickRosterInvite({ metaCb, membersCb });
     expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
       activeInvite: null,
     }));
   });
 
-  test('Invite link ignores revoked invites', () => {
-    let metaCb, invitesCb;
+  test('roster invite row ignores revoked invites', () => {
+    let metaCb, membersCb, invitesCb;
     db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     db.watchGroupInvites.mockImplementation((groupId, cb) => { invitesCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
-    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     invitesCb({
       gone: { scope: 'group', token: 'gone', revoked: true },
     });
-    document.getElementById('group-action-invite').click();
+    clickRosterInvite({ metaCb, membersCb });
     expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
       activeInvite: null,
     }));
@@ -1910,20 +1918,6 @@ describe('notification bell on roster rows', () => {
     expect(li.querySelector('.notify-bell')).not.toBeNull();
     expect(createNotifyBell).toHaveBeenCalledWith('bea',
       expect.objectContaining({ types: ['knock', 'availability'] }));
-  });
-});
-
-
-describe('Phase 3 renames', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    setupContextDom();
-  });
-
-  test('group settings button reads "Invite" (Phase 3 rename from "Invite link")', () => {
-    setupContextDom();
-    const btn = document.getElementById('group-action-invite');
-    expect(btn.textContent).toBe('Invite');
   });
 });
 

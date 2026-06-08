@@ -120,7 +120,7 @@ function renderRoster(members, ownUserId) {
   if (!list) return;
   list.innerHTML = '';
 
-  // Owner-only "+ Invite to group" row pinned at the top of the roster.
+  // Owner-only "Invite to group" row pinned at the top of the roster.
   // The owner check reads from _groupOwnerId, captured by the watchGroupMeta
   // callback. If meta hasn't arrived yet, the row is hidden; it'll appear on
   // the next render after meta lands.
@@ -132,7 +132,7 @@ function renderRoster(members, ownUserId) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'add-btn';
-    btn.textContent = '+ Invite to group';
+    btn.textContent = 'Invite to group';
     btn.addEventListener('click', () => {
       openInviteModal({
         scope: 'group',
@@ -864,7 +864,7 @@ function uninstallSettingsOutsideHandler() {
 }
 
 function wireActions(groupId, userId, isOwner, groupName) {
-  const ids = ['group-action-rename', 'group-action-invite', 'group-action-delete', 'group-action-edit-name', 'group-action-leave'];
+  const ids = ['group-action-rename', 'group-action-delete', 'group-action-edit-name', 'group-action-leave'];
 
   // Clone-and-replace each button to drop any previous listeners
   for (const id of ids) {
@@ -876,7 +876,6 @@ function wireActions(groupId, userId, isOwner, groupName) {
 
   // Visibility
   document.getElementById('group-action-rename').classList.toggle('hidden', !isOwner);
-  document.getElementById('group-action-invite').classList.toggle('hidden', !isOwner);
   document.getElementById('group-action-delete').classList.toggle('hidden', !isOwner);
   document.getElementById('group-action-edit-name').classList.remove('hidden');
   document.getElementById('group-action-leave').classList.toggle('hidden', isOwner);
@@ -890,20 +889,6 @@ function wireActions(groupId, userId, isOwner, groupName) {
     const trimmed = next.trim();
     if (!trimmed) return;
     try { await renameGroup(groupId, userId, trimmed); } catch (e) { window.alert(e.message); }
-  });
-
-  document.getElementById('group-action-invite').addEventListener('click', () => {
-    closeSettingsMenu();
-    openInviteModal({
-      scope: 'group',
-      userId,
-      groupId,
-      groupName: groupName || groupId,
-      activeInvite: _activeGroupInvite,
-      followers: getCurrentFollowersMap(),
-      mutuals: getCurrentMutuals(),
-      currentMemberUids: new Set(Object.keys(_membersOverrides || {})),
-    });
   });
 
   document.getElementById('group-action-delete').addEventListener('click', async () => {
