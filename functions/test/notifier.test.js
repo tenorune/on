@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability } from '../notifier.js';
+import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName } from '../notifier.js';
 
 function makeDeps(overrides = {}) {
   const store = overrides.store || {};
@@ -153,5 +153,18 @@ describe('handleAvailability (narrowed: availableUntil before/after + status rea
     await handleAvailability(deps, 'star', null, FUTURE);
     expect(deps.send).toHaveBeenCalledTimes(2); // both attempted despite f1 throwing
     expect(deps.update).toHaveBeenCalledWith('notifierState/availability', { star: 1000 });
+  });
+});
+
+describe('resolveGroupMemberName', () => {
+  test('prefers the group member displayName, then user code, then "Someone"', async () => {
+    const deps1 = makeDeps({ store: { 'groups/g1/members/u/displayName': 'Bobby' } });
+    expect(await resolveGroupMemberName(deps1, 'g1', 'u')).toBe('Bobby');
+
+    const deps2 = makeDeps({ store: { 'users/u/code': 'ABC123' } });
+    expect(await resolveGroupMemberName(deps2, 'g1', 'u')).toBe('ABC123');
+
+    const deps3 = makeDeps({ store: {} });
+    expect(await resolveGroupMemberName(deps3, 'g1', 'u')).toBe('Someone');
   });
 });

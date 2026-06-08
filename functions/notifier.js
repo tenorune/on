@@ -25,6 +25,14 @@ export async function resolveName(deps, viewerUid, targetUid) {
   return 'Someone';
 }
 
+export async function resolveGroupMemberName(deps, groupId, uid) {
+  const displayName = await deps.getVal(`groups/${groupId}/members/${uid}/displayName`);
+  if (displayName) return displayName;
+  const code = await deps.getVal(`users/${uid}/code`);
+  if (code) return code;
+  return 'Someone';
+}
+
 export async function handleKnock(deps, recipientId, senderId, record) {
   const prefs = await deps.getVal(`userPrefs/${recipientId}/notify/${senderId}`);
   if (!wantsKnock(prefs)) return;
