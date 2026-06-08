@@ -13,3 +13,4 @@ coverage/
 NOTES.md
 .worktrees/
 docs/prototypes/
+/sw.js

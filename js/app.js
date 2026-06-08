@@ -657,8 +657,29 @@ async function main() {
   }
 
   if ('serviceWorker' in navigator) {
+    // Reload once when a newly-installed service worker takes control, so the
+    // freshly-activated shell is shown without a manual reinstall. Guarded to
+    // the update case (a controller already existed) so the first-ever install
+    // doesn't reload. The SW calls skipWaiting()+clients.claim(), so a detected
+    // update activates and fires controllerchange on its own.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading || !hadController) return;
+      reloading = true;
+      window.location.reload();
+    });
+
     navigator.serviceWorker.register('/sw.js').then((reg) => {
       window.__swRegistration = reg;
+      // iOS standalone PWAs resume without a navigation, so the browser never
+      // re-checks sw.js on its own. Poke it every time the app is foregrounded
+      // (and once at launch) so a deployed update is noticed promptly.
+      const checkForUpdate = () => { reg.update().catch(() => {}); };
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkForUpdate();
+      });
+      checkForUpdate();
     }).catch(console.error);
   }
 }

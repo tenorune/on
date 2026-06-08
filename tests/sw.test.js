@@ -11,7 +11,7 @@ function loadSwWithMockSelf() {
   };
   global.self = mockSelf;
   global.caches = { open: jest.fn().mockResolvedValue({ addAll: jest.fn() }), keys: jest.fn().mockResolvedValue([]) };
-  jest.isolateModules(() => { require('../sw.js'); });
+  jest.isolateModules(() => { require('../sw.template.js'); });
   return { handlers, showNotification, matchAll, mockSelf };
 }
 
