@@ -352,12 +352,23 @@ export function applyFloatToTop(li) {
 
 function restoreFromFloat(userId) {
   const entry = floatTimers.get(userId);
-  if (!entry) return;
-  const li = document.querySelector(`[data-user-id="${userId}"]`);
-  if (li && entry.originalParent) {
-    entry.originalParent.insertBefore(li, entry.originalSibling || null);
-  }
   floatTimers.delete(userId);
+  if (!entry || !entry.originalParent) return;
+  // Scope the lookup to the list the row was floated in. A global
+  // document.querySelector could match a same-userId row in the OTHER context
+  // (a Direct follower who is also a group member) and, because #main-ui-direct
+  // precedes #group-context-root in the DOM, reparent the Direct row into the
+  // group roster — leaving a phantom row in the wrong context and a gap in the
+  // right one. The list element itself survives renderList/renderRoster rebuilds
+  // (they clear innerHTML, not the <ul>), so it stays a valid scope.
+  const li = entry.originalParent.querySelector(`[data-user-id="${userId}"]`);
+  if (!li) return;
+  // Re-anchor to the saved sibling only if it still lives in this list (a
+  // rebuild may have replaced it).
+  const sibling = entry.originalSibling && entry.originalSibling.parentNode === entry.originalParent
+    ? entry.originalSibling
+    : null;
+  entry.originalParent.insertBefore(li, sibling);
 }
 
 export function getFloatedUserIds() {

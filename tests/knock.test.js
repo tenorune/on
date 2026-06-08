@@ -710,6 +710,33 @@ describe('float-to-top', () => {
     expect(order).toEqual(['a', 'b', 'c']);
   });
 
+  test('restore stays in its own list when the same userId exists in another context', () => {
+    // A mutual: a Direct follower row (#main-ui-direct, earlier in the DOM) AND
+    // a group roster row (#group-roster) share data-user-id="b". Float the GROUP
+    // row; the 20s restore must not yank the Direct row across into the group
+    // list (the phantom-member bug).
+    document.body.innerHTML = `
+      <div id="main-ui-direct"><ul id="people-list">
+        <li data-user-id="b">B-direct</li>
+      </ul></div>
+      <div id="group-context-root"><ul id="group-roster">
+        <li data-user-id="x">X</li>
+        <li data-user-id="b">B-group</li>
+      </ul></div>
+    `;
+    const groupLi = document.querySelector('#group-roster [data-user-id="b"]');
+    applyFloatToTop(groupLi);
+    // floated to top of the group roster
+    expect(document.querySelector('#group-roster').firstElementChild).toBe(groupLi);
+    jest.advanceTimersByTime(20000);
+    // Direct row untouched; group row restored below x — and crucially the
+    // Direct row was NOT moved into #group-roster.
+    expect(document.querySelectorAll('#people-list [data-user-id="b"]').length).toBe(1);
+    expect(document.querySelectorAll('#group-roster [data-user-id="b"]').length).toBe(1);
+    const groupOrder = Array.from(document.querySelectorAll('#group-roster li')).map((el) => el.dataset.userId);
+    expect(groupOrder).toEqual(['x', 'b']);
+  });
+
   test('repeated float resets the 20s timer', () => {
     const li = document.querySelector('[data-user-id="b"]');
     applyFloatToTop(li);
