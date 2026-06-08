@@ -891,13 +891,17 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   }
 }
 
-// On drawer close, reconcile any deferred receiver-side call-mode against the
-// latest known state for each rendered followee. A call cancelled while the
-// drawer was open is no longer in lastUserData's callState, so it won't replay.
+// On drawer close, reconcile deferred receiver-side call-mode against the
+// latest known state — but ONLY for rows that actually have an incoming call
+// cached. Re-rendering unrelated rows would recompute isFirstMutual swipe-hint
+// positions and could clobber an in-progress rename. A call cancelled while the
+// drawer was open is no longer an incoming call here, so it's correctly skipped
+// (its row never entered call-mode while deferred).
 document.addEventListener('card-drawer-close', () => {
   renderedFollowees.forEach((userId) => {
+    if (editingSet.has(userId)) return;
     const data = lastUserData.get(userId);
-    if (!data) return;
+    if (!data || data.callState?.calleeId !== myUserIdRef) return;
     const entry = getFollowing().find((f) => f.userId === userId);
     if (entry) updateFolloweeRow(entry, data, myUserIdRef);
   });

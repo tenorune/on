@@ -925,6 +925,18 @@ describe('call deferral while a drawer is open', () => {
     const li = document.querySelector('[data-user-id="alice"]');
     expect(li.classList.contains('call-mode')).toBe(false);
   });
+
+  test('drawer close does not re-render rows without an incoming call', () => {
+    const li = makeFolloweeLi('alice');
+    // Prime lastUserData + renderedFollowees with a NON-call state for alice.
+    updateFolloweeRow(entry, NOCALL, 'myUid');
+    // Put a sentinel in the status element that a re-render would clobber.
+    const statusEl = li.querySelector('.person-status');
+    statusEl.innerHTML = 'SENTINEL';
+    const ellipsis = openADrawer();
+    ellipsis.click(); // close the real drawer -> fires card-drawer-close
+    expect(document.querySelector('[data-user-id="alice"] .person-status').innerHTML).toBe('SENTINEL');
+  });
 });
 
 describe('call mode: display text during call', () => {
