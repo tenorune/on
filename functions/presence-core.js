@@ -23,12 +23,32 @@ export function wantsKnock(prefs) { return !!(prefs && prefs.knock); }
 export function wantsCall(prefs) { return !!(prefs && prefs.call); }
 export function wantsAvailability(prefs) { return !!(prefs && prefs.availability); }
 
+// Is the group override itself an "available" signal right now?
+export function overrideAvailable(override, now) {
+  return !!(override && override.enabled === true
+    && override.status === 'available' && isFutureMs(override.availableUntil, now));
+}
+
+// A member's EFFECTIVE in-group availability: their override when enabled,
+// otherwise their primary status. Mirrors what the group roster shows.
+export function effectiveAvailable(override, primaryStatus, primaryAU, now) {
+  if (override && override.enabled === true) return overrideAvailable(override, now);
+  return primaryStatus === 'available' && isFutureMs(primaryAU, now);
+}
+
 const TITLES = {
   knock: (name) => `${name} knocked`,
   call: (name) => `${name} is calling`,
   availability: (name) => `${name} is available`,
 };
 
-export function buildMessage(type, name) {
-  return { title: TITLES[type](name), body: '' };
+const GROUP_TITLES = {
+  knock: (name, group) => `${name} knocked in ${group}`,
+  call: (name, group) => `${name} is calling in ${group}`,
+  availability: (name, group) => `${name} is available in ${group}`,
+};
+
+export function buildMessage(type, name, opts = {}) {
+  const title = opts.group ? GROUP_TITLES[type](name, opts.group) : TITLES[type](name);
+  return { title, body: '' };
 }

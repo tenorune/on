@@ -4,7 +4,7 @@ import { getDatabase } from 'firebase-admin/database';
 import { getMessaging } from 'firebase-admin/messaging';
 import { onValueCreated, onValueWritten } from 'firebase-functions/v2/database';
 import { setGlobalOptions } from 'firebase-functions/v2';
-import { handleKnock, handleCall, handleAvailability } from './notifier.js';
+import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange } from './notifier.js';
 
 // Pin all functions to the RTDB's region. A 2nd-gen RTDB trigger MUST run in the
 // same region as the database instance. Region is per-project config: the Firebase
@@ -67,4 +67,18 @@ export const onCall = onValueWritten('/users/{callerId}/callState', (event) => {
 // the handler reads the sibling `status` to confirm.
 export const onAvailability = onValueWritten('/users/{uid}/availableUntil', (event) => {
   return handleAvailability(makeDeps(), event.params.uid, event.data.before.val(), event.data.after.val());
+});
+
+// A group member's per-group override changed. handleGroupOverrideChange computes
+// whether their EFFECTIVE in-group availability flipped off→on (reading their primary
+// for the override-off case) and notifies opted-in co-members. Same RTDB region as
+// the others (setGlobalOptions above).
+export const onMemberOverride = onValueWritten('/groups/{groupId}/members/{memberUid}/statusOverride', (event) => {
+  return handleGroupOverrideChange(
+    makeDeps(),
+    event.params.groupId,
+    event.params.memberUid,
+    event.data.before.val(),
+    event.data.after.val(),
+  );
 });

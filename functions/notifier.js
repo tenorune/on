@@ -1,5 +1,5 @@
 // functions/notifier.js — delivery + per-event handlers. Deps are injected.
-import { wantsKnock, wantsCall, wantsAvailability, availabilityTurnedOn, withinCooldown, buildMessage } from './presence-core.js';
+import { wantsKnock, wantsCall, wantsAvailability, availabilityTurnedOn, withinCooldown, buildMessage, effectiveAvailable } from './presence-core.js';
 
 const AVAIL_COOLDOWN_MS = 5 * 60 * 1000;
 
@@ -25,13 +25,69 @@ export async function resolveName(deps, viewerUid, targetUid) {
   return 'Someone';
 }
 
+export async function resolveGroupMemberName(deps, groupId, uid) {
+  const displayName = await deps.getVal(`groups/${groupId}/members/${uid}/displayName`);
+  if (displayName) return displayName;
+  const code = await deps.getVal(`users/${uid}/code`);
+  if (code) return code;
+  return 'Someone';
+}
+
 export async function handleKnock(deps, recipientId, senderId, record) {
   const prefs = await deps.getVal(`userPrefs/${recipientId}/notify/${senderId}`);
   if (!wantsKnock(prefs)) return;
+  const groupId = record && record.contextGroupId;
+  if (groupId) {
+    const name = await resolveGroupMemberName(deps, groupId, senderId);
+    const group = await deps.getVal(`groups/${groupId}/name`);
+    await sendToUser(deps, recipientId,
+      buildMessage('knock', name, { group: group || undefined }),
+      { type: 'knock', targetUid: senderId, contextGroupId: groupId });
+    return;
+  }
   const name = await resolveName(deps, recipientId, senderId);
-  const data = { type: 'knock', targetUid: senderId };
-  if (record && record.contextGroupId) data.contextGroupId = record.contextGroupId;
-  await sendToUser(deps, recipientId, buildMessage('knock', name), data);
+  await sendToUser(deps, recipientId, buildMessage('knock', name),
+    { type: 'knock', targetUid: senderId });
+}
+
+// Notify the OTHER members of a group that `memberUid` is available in it.
+// Caller decides the "became available" transition; this just fans out with a
+// per-(group, member) cooldown so availability in one group doesn't mute another.
+export async function notifyGroupAvailability(deps, groupId, memberUid, now) {
+  const lastTs = await deps.getVal(`notifierState/groupAvailability/${groupId}/${memberUid}`);
+  if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) return;
+  const name = await resolveGroupMemberName(deps, groupId, memberUid);
+  const group = await deps.getVal(`groups/${groupId}/name`);
+  const members = await deps.getVal(`groups/${groupId}/members`);
+  const memberIds = members ? Object.keys(members) : [];
+  let delivered = 0;
+  for (const coUid of memberIds) {
+    if (coUid === memberUid) continue;
+    const prefs = await deps.getVal(`userPrefs/${coUid}/notify/${memberUid}`);
+    if (!wantsAvailability(prefs)) continue;
+    try {
+      if (await sendToUser(deps, coUid,
+        buildMessage('availability', name, { group: group || undefined }),
+        { type: 'availability', targetUid: memberUid, contextGroupId: groupId })) {
+        delivered++;
+      }
+    } catch { /* one co-member's send failed — keep notifying the rest */ }
+  }
+  if (delivered > 0) await deps.update(`notifierState/groupAvailability/${groupId}`, { [memberUid]: now });
+}
+
+// Triggered on a write to groups/{g}/members/{uid}/statusOverride. Notifies when
+// the member's EFFECTIVE in-group availability flips off→on. `before == null`
+// means the member just joined (first override write) — not a "became available"
+// event, so we skip it to avoid a blast on every new member.
+export async function handleGroupOverrideChange(deps, groupId, memberUid, before, after) {
+  if (before == null) return;
+  const now = deps.now();
+  const status = await deps.getVal(`users/${memberUid}/status`);
+  const primaryAU = await deps.getVal(`users/${memberUid}/availableUntil`);
+  const wasOn = effectiveAvailable(before, status, primaryAU, now);
+  const isOn = effectiveAvailable(after, status, primaryAU, now);
+  if (isOn && !wasOn) await notifyGroupAvailability(deps, groupId, memberUid, now);
 }
 
 export async function handleCall(deps, callerId, callState) {
@@ -48,22 +104,33 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   const now = deps.now();
   const status = await deps.getVal(`users/${uid}/status`);
   if (!availabilityTurnedOn(beforeAU, afterAU, status, now)) return;
-  const lastTs = await deps.getVal(`notifierState/availability/${uid}`);
-  if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) return;
 
-  const followers = await deps.getVal(`users/${uid}/followers`);
-  const followerIds = followers ? Object.keys(followers) : [];
-  let delivered = 0;
-  for (const fid of followerIds) {
-    const prefs = await deps.getVal(`userPrefs/${fid}/notify/${uid}`);
-    if (!wantsAvailability(prefs)) continue;
-    const name = await resolveName(deps, fid, uid);
-    try {
-      if (await sendToUser(deps, fid, buildMessage('availability', name), { type: 'availability', targetUid: uid })) {
-        delivered++;
-      }
-    } catch { /* this follower's send failed — keep notifying the rest */ }
+  // Direct followers — own per-uid cooldown.
+  const lastTs = await deps.getVal(`notifierState/availability/${uid}`);
+  if (!withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) {
+    const followers = await deps.getVal(`users/${uid}/followers`);
+    const followerIds = followers ? Object.keys(followers) : [];
+    let delivered = 0;
+    for (const fid of followerIds) {
+      const prefs = await deps.getVal(`userPrefs/${fid}/notify/${uid}`);
+      if (!wantsAvailability(prefs)) continue;
+      const name = await resolveName(deps, fid, uid);
+      try {
+        if (await sendToUser(deps, fid, buildMessage('availability', name), { type: 'availability', targetUid: uid })) {
+          delivered++;
+        }
+      } catch { /* this follower's send failed — keep notifying the rest */ }
+    }
+    if (delivered > 0) await deps.update('notifierState/availability', { [uid]: now });
   }
-  // Only consume the cooldown if a notification actually went out.
-  if (delivered > 0) await deps.update('notifierState/availability', { [uid]: now });
+
+  // Group co-members — only for groups where this member's override is OFF, so the
+  // group is showing their primary. Override-ON groups are driven by onMemberOverride.
+  const groups = await deps.getVal(`users/${uid}/groups`);
+  const groupIds = groups ? Object.keys(groups) : [];
+  for (const groupId of groupIds) {
+    const override = await deps.getVal(`groups/${groupId}/members/${uid}/statusOverride`);
+    if (override && override.enabled === true) continue;
+    await notifyGroupAvailability(deps, groupId, uid, now);
+  }
 }

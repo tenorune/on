@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability } from '../notifier.js';
+import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange } from '../notifier.js';
 
 function makeDeps(overrides = {}) {
   const store = overrides.store || {};
@@ -48,15 +48,38 @@ describe('resolveName', () => {
 });
 
 describe('handleKnock', () => {
-  test('sends when recipient opted in for that sender', async () => {
+  test('Direct knock: uses the Direct name, no group suffix, no contextGroupId', async () => {
     const deps = makeDeps({ store: {
       'userPrefs/rcpt/notify/sndr': { knock: true },
       'userPrefs/rcpt/following/sndr': { label: 'Bea' },
       'userPrefs/rcpt/pushTokens': { tokA: {} },
     }});
-    await handleKnock(deps, 'rcpt', 'sndr', { count: 1, ts: 1, contextGroupId: 'g1' });
+    await handleKnock(deps, 'rcpt', 'sndr', { count: 1, ts: 1 });
     expect(deps.send).toHaveBeenCalledWith(['tokA'],
       { title: 'Bea knocked', body: '' },
+      { type: 'knock', targetUid: 'sndr' });
+  });
+  test('group knock: uses the group member displayName and names the group', async () => {
+    const deps = makeDeps({ store: {
+      'userPrefs/rcpt/notify/sndr': { knock: true },
+      'groups/g1/members/sndr/displayName': 'Bobby',
+      'groups/g1/name': 'Divers',
+      'userPrefs/rcpt/pushTokens': { tokA: {} },
+    }});
+    await handleKnock(deps, 'rcpt', 'sndr', { count: 1, ts: 1, contextGroupId: 'g1' });
+    expect(deps.send).toHaveBeenCalledWith(['tokA'],
+      { title: 'Bobby knocked in Divers', body: '' },
+      { type: 'knock', targetUid: 'sndr', contextGroupId: 'g1' });
+  });
+  test('group knock with missing group name → no suffix, still group-scoped name', async () => {
+    const deps = makeDeps({ store: {
+      'userPrefs/rcpt/notify/sndr': { knock: true },
+      'groups/g1/members/sndr/displayName': 'Bobby',
+      'userPrefs/rcpt/pushTokens': { tokA: {} },
+    }});
+    await handleKnock(deps, 'rcpt', 'sndr', { count: 1, ts: 1, contextGroupId: 'g1' });
+    expect(deps.send).toHaveBeenCalledWith(['tokA'],
+      { title: 'Bobby knocked', body: '' },
       { type: 'knock', targetUid: 'sndr', contextGroupId: 'g1' });
   });
   test('does nothing when not opted in', async () => {
@@ -153,5 +176,144 @@ describe('handleAvailability (narrowed: availableUntil before/after + status rea
     await handleAvailability(deps, 'star', null, FUTURE);
     expect(deps.send).toHaveBeenCalledTimes(2); // both attempted despite f1 throwing
     expect(deps.update).toHaveBeenCalledWith('notifierState/availability', { star: 1000 });
+  });
+});
+
+describe('resolveGroupMemberName', () => {
+  test('prefers the group member displayName, then user code, then "Someone"', async () => {
+    const deps1 = makeDeps({ store: { 'groups/g1/members/u/displayName': 'Bobby' } });
+    expect(await resolveGroupMemberName(deps1, 'g1', 'u')).toBe('Bobby');
+
+    const deps2 = makeDeps({ store: { 'users/u/code': 'ABC123' } });
+    expect(await resolveGroupMemberName(deps2, 'g1', 'u')).toBe('ABC123');
+
+    const deps3 = makeDeps({ store: {} });
+    expect(await resolveGroupMemberName(deps3, 'g1', 'u')).toBe('Someone');
+  });
+});
+
+describe('notifyGroupAvailability', () => {
+  function groupStore(extra = {}) {
+    return {
+      'groups/g1/name': 'Divers',
+      'groups/g1/members/m/displayName': 'Bobby',
+      'groups/g1/members': { m: {}, co1: {}, co2: {} },
+      'userPrefs/co1/notify/m': { availability: true },
+      'userPrefs/co2/notify/m': { availability: false },
+      'userPrefs/co1/pushTokens': { tokCo1: {} },
+      'notifierState/groupAvailability/g1/m': null,
+      ...extra,
+    };
+  }
+  test('notifies opted-in co-members (not the member, not opted-out), stamps cooldown', async () => {
+    const deps = makeDeps({ store: groupStore() });
+    await notifyGroupAvailability(deps, 'g1', 'm', 1000);
+    expect(deps.send).toHaveBeenCalledTimes(1);
+    expect(deps.send).toHaveBeenCalledWith(['tokCo1'],
+      { title: 'Bobby is available in Divers', body: '' },
+      { type: 'availability', targetUid: 'm', contextGroupId: 'g1' });
+    expect(deps.update).toHaveBeenCalledWith('notifierState/groupAvailability/g1', { m: 1000 });
+  });
+  test('within cooldown → no send', async () => {
+    const deps = makeDeps({ store: groupStore({ 'notifierState/groupAvailability/g1/m': 999 }) });
+    await notifyGroupAvailability(deps, 'g1', 'm', 1000);
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('nothing delivered (no tokens) → does not stamp cooldown', async () => {
+    const deps = makeDeps({ store: groupStore({ 'userPrefs/co1/pushTokens': null }) });
+    await notifyGroupAvailability(deps, 'g1', 'm', 1000);
+    expect(deps.update).not.toHaveBeenCalledWith('notifierState/groupAvailability/g1', expect.anything());
+  });
+});
+
+describe('handleGroupOverrideChange', () => {
+  const AVAIL = { enabled: true, status: 'available', availableUntil: FUTURE };
+  const UNAVAIL = { enabled: true, status: 'unavailable', availableUntil: null };
+  function store(extra = {}) {
+    return {
+      'groups/g1/name': 'Divers',
+      'groups/g1/members/m/displayName': 'Bobby',
+      'groups/g1/members': { m: {}, co1: {} },
+      'userPrefs/co1/notify/m': { availability: true },
+      'userPrefs/co1/pushTokens': { tokCo1: {} },
+      'notifierState/groupAvailability/g1/m': null,
+      ...extra,
+    };
+  }
+  test('override flips unavailable→available → notifies', async () => {
+    const deps = makeDeps({ store: store() });
+    await handleGroupOverrideChange(deps, 'g1', 'm', UNAVAIL, AVAIL);
+    expect(deps.send).toHaveBeenCalledWith(['tokCo1'],
+      { title: 'Bobby is available in Divers', body: '' },
+      { type: 'availability', targetUid: 'm', contextGroupId: 'g1' });
+  });
+  test('appearance-only change (still available) → no send', async () => {
+    const deps = makeDeps({ store: store() });
+    await handleGroupOverrideChange(deps, 'g1', 'm',
+      { ...AVAIL, statusColor: '#111' }, { ...AVAIL, statusColor: '#222' });
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('before == null (member just joined) → no send', async () => {
+    const deps = makeDeps({ store: store() });
+    await handleGroupOverrideChange(deps, 'g1', 'm', null, AVAIL);
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('override turned OFF but primary is available → effective on → notifies', async () => {
+    const deps = makeDeps({ store: store({
+      'users/m/status': 'available',
+      'users/m/availableUntil': FUTURE,
+    }) });
+    await handleGroupOverrideChange(deps, 'g1', 'm', UNAVAIL, { enabled: false });
+    expect(deps.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('handleAvailability → group co-members (primary path)', () => {
+  test('notifies co-members of override-OFF groups, skips override-ON groups', async () => {
+    const deps = makeDeps({ store: {
+      'users/star/status': 'available',
+      'users/star/availableUntil': FUTURE,
+      'users/star/followers': null,
+      'users/star/groups': { gOff: true, gOn: true },
+      // gOff: override disabled → group shows primary → notify
+      'groups/gOff/members/star/statusOverride': { enabled: false },
+      'groups/gOff/name': 'OffGroup',
+      'groups/gOff/members/star/displayName': 'Star',
+      'groups/gOff/members': { star: {}, a: {} },
+      'userPrefs/a/notify/star': { availability: true },
+      'userPrefs/a/pushTokens': { tokA: {} },
+      'notifierState/groupAvailability/gOff/star': null,
+      // gOn: override enabled → handled by onMemberOverride, not the primary path
+      'groups/gOn/members/star/statusOverride': { enabled: true, status: 'available', availableUntil: FUTURE },
+      'groups/gOn/members': { star: {}, b: {} },
+      'userPrefs/b/notify/star': { availability: true },
+      'userPrefs/b/pushTokens': { tokB: {} },
+      'notifierState/availability/star': null,
+    }});
+    await handleAvailability(deps, 'star', null, FUTURE);
+    expect(deps.send).toHaveBeenCalledTimes(1);
+    expect(deps.send).toHaveBeenCalledWith(['tokA'],
+      { title: 'Star is available in OffGroup', body: '' },
+      { type: 'availability', targetUid: 'star', contextGroupId: 'gOff' });
+  });
+  test('group fan-out runs even when the Direct cooldown is active', async () => {
+    const deps = makeDeps({ store: {
+      'users/star/status': 'available',
+      'users/star/availableUntil': FUTURE,
+      'users/star/groups': { gOff: true },
+      'groups/gOff/members/star/statusOverride': null, // absent → treated as off
+      'groups/gOff/name': 'OffGroup',
+      'groups/gOff/members/star/displayName': 'Star',
+      'groups/gOff/members': { star: {}, a: {} },
+      'userPrefs/a/notify/star': { availability: true },
+      'userPrefs/a/pushTokens': { tokA: {} },
+      'notifierState/availability/star': 999, // Direct within cooldown (now=1000)
+      'notifierState/groupAvailability/gOff/star': null,
+    }});
+    await handleAvailability(deps, 'star', null, FUTURE);
+    expect(deps.send).toHaveBeenCalledTimes(1); // group send, despite Direct cooldown
+    expect(deps.send).toHaveBeenCalledWith(['tokA'],
+      { title: 'Star is available in OffGroup', body: '' },
+      { type: 'availability', targetUid: 'star', contextGroupId: 'gOff' });
   });
 });
