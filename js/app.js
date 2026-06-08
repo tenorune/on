@@ -353,6 +353,18 @@ async function main() {
     else exitGroupContext();
   });
 
+  // Make the prefs module aware of who's writing BEFORE the invite-redemption
+  // block below. setCurrentContext (prefs.js) only mirrors to userPrefs/{uid}/
+  // when it knows the userId; the redemption flow navigates contexts
+  // (navigateToGroup → setCurrentContext('group:X'), or the personal-success
+  // force-write of 'direct') before this point. If initPrefs ran later, those
+  // writes would hit localStorage only, and the watchUserPrefs echo set up at
+  // the end of main() would then read the *stale* server currentContext and
+  // yank a just-joined invitee back out of the group (or into their old
+  // context). The watchUserPrefs subscription itself stays below so echoes
+  // don't fire mid-redemption.
+  initPrefs(userId);
+
   if (pendingInviteToken) {
     // Dismiss the splash before redemption: the flow may show the
     // displayname prompt (new joiner) or a failure overlay (revoked,
@@ -458,12 +470,12 @@ async function main() {
 
   touchLastSeen(userId).catch(() => {});
 
-  // Cross-device user-preferences sync. initPrefs makes the prefs module
-  // aware of who's writing; the watchUserPrefs subscription reconciles
-  // local cache with server on every change. Writes throughout the app
-  // (markHintSeen, incrementMadeCallCount, etc.) go through prefs.js so
-  // they hit both localStorage and userPrefs/{uid}/ in Firebase.
-  initPrefs(userId);
+  // Cross-device user-preferences sync. initPrefs already ran above (before the
+  // invite-redemption block) so context writes there persist; the watchUserPrefs
+  // subscription reconciles local cache with server on every change. Started
+  // here, after redemption, so its echoes can't reset context mid-flow. Writes
+  // throughout the app (markHintSeen, incrementMadeCallCount, etc.) go through
+  // prefs.js so they hit both localStorage and userPrefs/{uid}/ in Firebase.
   watchUserPrefs(userId, (serverPrefs) => {
     syncPrefsFromServer(serverPrefs);
   });
