@@ -79,3 +79,18 @@ describe('effectiveAvailable', () => {
     expect(effectiveAvailable(undefined, 'unavailable', 2000, NOW2)).toBe(false);
   });
 });
+
+describe('buildMessage group titles', () => {
+  test('no group → existing titles unchanged', () => {
+    expect(buildMessage('knock', 'Bea')).toEqual({ title: 'Bea knocked', body: '' });
+    expect(buildMessage('availability', 'Bea')).toEqual({ title: 'Bea is available', body: '' });
+  });
+  test('with group → "... in {group}"', () => {
+    expect(buildMessage('knock', 'Bea', { group: 'Divers' })).toEqual({ title: 'Bea knocked in Divers', body: '' });
+    expect(buildMessage('availability', 'Bea', { group: 'Divers' })).toEqual({ title: 'Bea is available in Divers', body: '' });
+  });
+  test('falsy group → no suffix', () => {
+    expect(buildMessage('knock', 'Bea', { group: undefined })).toEqual({ title: 'Bea knocked', body: '' });
+    expect(buildMessage('availability', 'Bea', { group: null })).toEqual({ title: 'Bea is available', body: '' });
+  });
+});

@@ -42,6 +42,13 @@ const TITLES = {
   availability: (name) => `${name} is available`,
 };
 
-export function buildMessage(type, name) {
-  return { title: TITLES[type](name), body: '' };
+const GROUP_TITLES = {
+  knock: (name, group) => `${name} knocked in ${group}`,
+  call: (name, group) => `${name} is calling in ${group}`,
+  availability: (name, group) => `${name} is available in ${group}`,
+};
+
+export function buildMessage(type, name, opts = {}) {
+  const title = opts.group ? GROUP_TITLES[type](name, opts.group) : TITLES[type](name);
+  return { title, body: '' };
 }
