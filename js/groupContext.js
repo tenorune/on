@@ -157,7 +157,13 @@ function renderRoster(members, ownUserId) {
 
     if (KNOCK_ENABLED) {
       li.classList.add('knockable');
-      li.addEventListener('click', () => {
+      li.addEventListener('click', (e) => {
+        // The per-member notification bell lives inside this row. It stops its
+        // own click propagation, but guard here too so a bell tap can never
+        // knock even if that propagation is defeated (stale shell, synthetic
+        // events, the body-portaled popover). Taps on the bell or its popover
+        // manage notification prefs only — never a knock.
+        if (e.target.closest('.notify-bell') || e.target.closest('.notify-popover')) return;
         sendKnock(uid, ownUserId, undefined, { contextGroupId: getCurrentGroupId() });
       });
     }
@@ -168,6 +174,11 @@ function renderRoster(members, ownUserId) {
       let suppressNextClick = false;
 
       li.addEventListener('pointerdown', (e) => {
+        // A press that starts on the notification bell drives the bell, not the
+        // row's long-press adoption (the bell only stops click propagation, not
+        // pointerdown). Without this, holding the bell would adopt the member's
+        // palette.
+        if (e.target.closest('.notify-bell')) return;
         if (!_ownOverride?.enabled) return;
         clearTimeout(pressTimer); pressTimer = null;
         pressStartX = e.clientX;
