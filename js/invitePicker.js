@@ -54,6 +54,15 @@ export function renderInvitePicker({
     sendBtn.parentNode.replaceChild(fresh, sendBtn);
     fresh.addEventListener('click', () => sendSelected());
   }
+  updateSendButton();
+}
+
+// The Invite button is disabled (and styled disabled) whenever nothing is
+// selected — on first render, after deselecting the last row, and after a send
+// clears the selection.
+function updateSendButton() {
+  const btn = document.getElementById('invite-modal-picker-send-btn');
+  if (btn) btn.disabled = !_state || _state.selected.size === 0;
 }
 
 function buildRow({ uid, displayName }) {
@@ -83,6 +92,7 @@ function buildRow({ uid, displayName }) {
     li.classList.toggle('selected');
     if (li.classList.contains('selected')) _state.selected.add(uid);
     else _state.selected.delete(uid);
+    updateSendButton();
   });
 
   return li;
@@ -124,6 +134,7 @@ async function sendSelected() {
     const row = document.querySelector(`.invite-picker-row[data-uid="${uid}"]`);
     if (row) refreshTrailing(row, uid);
   }
+  updateSendButton();
 }
 
 async function unInvite(uid, li) {

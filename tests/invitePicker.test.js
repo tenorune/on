@@ -86,6 +86,40 @@ describe('renderInvitePicker', () => {
     expect(row.classList.contains('selected')).toBe(false);
   });
 
+  test('Invite button is disabled until a row is selected, and re-disables when none remain', () => {
+    renderInvitePicker({
+      inviterUid: 'me',
+      groupId: 'G1',
+      followers: { uA: 'codeA' },
+      mutuals: [],
+      currentMemberUids: new Set(),
+      pendingInviteeUids: new Set(),
+    });
+    const sendBtn = () => document.getElementById('invite-modal-picker-send-btn');
+    expect(sendBtn().disabled).toBe(true); // nothing selected on first render
+    const row = document.querySelector('.invite-picker-row[data-uid="uA"]');
+    row.click();
+    expect(sendBtn().disabled).toBe(false); // one selected
+    row.click();
+    expect(sendBtn().disabled).toBe(true); // deselected → disabled again
+  });
+
+  test('Invite button re-disables after a successful send clears the selection', async () => {
+    renderInvitePicker({
+      inviterUid: 'me',
+      groupId: 'G1',
+      followers: { uA: 'codeA' },
+      mutuals: [],
+      currentMemberUids: new Set(),
+      pendingInviteeUids: new Set(),
+    });
+    document.querySelector('.invite-picker-row[data-uid="uA"]').click();
+    expect(document.getElementById('invite-modal-picker-send-btn').disabled).toBe(false);
+    document.getElementById('invite-modal-picker-send-btn').click();
+    await Promise.resolve(); await Promise.resolve();
+    expect(document.getElementById('invite-modal-picker-send-btn').disabled).toBe(true);
+  });
+
   test('Invite button writes pending invites for each selected row', async () => {
     renderInvitePicker({
       inviterUid: 'me',
