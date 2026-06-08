@@ -1092,7 +1092,10 @@ main {
   position: relative; /* anchor the notify popover under the bell */
 }
 .group-roster-row.knockable { cursor: pointer; }
-.group-roster-row.knockable:active { background: var(--surface2); }
+/* Press highlight is driven by JS (.knock-pressing), not :active, so pressing
+   the notification bell inside the row — or pressing while a bell popover is
+   open — doesn't flash the row like a phantom knock. */
+.group-roster-row.knockable.knock-pressing { background: var(--surface2); }
 .role-badge { color: var(--text-muted); font-size: 0.85rem; font-weight: normal; }
 
 /* Group removal toast */

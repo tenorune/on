@@ -105,7 +105,7 @@ jest.mock('../js/features.js', () => ({
   PALETTE_INTERACTIONS_ENABLED: true,
   NOTIFICATIONS_ENABLED: true,
 }));
-jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn() }));
+jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn(), isNotifyPopoverOpen: jest.fn(() => false) }));
 jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
 jest.mock('../js/me.js', () => ({
   clearFirstUsePulse: jest.fn(),
@@ -128,10 +128,11 @@ const inviteModal = require('../js/inviteModal.js');
 const prefs = require('../js/prefs.js');
 const store = require('../js/store.js');
 const { enterGroupContext, exitGroupContext } = require('../js/groupContext');
-const { createNotifyBell } = require('../js/notifyBell.js');
+const { createNotifyBell, isNotifyPopoverOpen } = require('../js/notifyBell.js');
 
 // Default implementation: return a real button so li.appendChild doesn't throw.
 beforeEach(() => {
+  isNotifyPopoverOpen.mockReturnValue(false);
   createNotifyBell.mockImplementation(() => {
     const b = document.createElement('button');
     b.className = 'notify-bell';
@@ -326,6 +327,44 @@ describe('group roster render', () => {
     const before = knock.sendKnock.mock.calls.length;
     bell.click();
     expect(knock.sendKnock.mock.calls.length).toBe(before);
+  });
+
+  test('pressing the bell does not add the row press highlight', () => {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const row = document.querySelector('#group-roster [data-user-id="a"]');
+    const bell = row.querySelector('.notify-bell');
+    bell.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(row.classList.contains('knock-pressing')).toBe(false);
+  });
+
+  test('a normal row press DOES add the press highlight (and clears on release)', () => {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const row = document.querySelector('#group-roster [data-user-id="a"]');
+    row.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(row.classList.contains('knock-pressing')).toBe(true);
+    row.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+    expect(row.classList.contains('knock-pressing')).toBe(false);
+  });
+
+  test('while a bell popover is open, tapping a row does NOT knock or highlight', () => {
+    const knock = require('../js/knock.js');
+    isNotifyPopoverOpen.mockReturnValue(true);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const row = document.querySelector('#group-roster [data-user-id="a"]');
+    const before = knock.sendKnock.mock.calls.length;
+    row.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    row.click();
+    expect(knock.sendKnock.mock.calls.length).toBe(before);
+    expect(row.classList.contains('knock-pressing')).toBe(false);
   });
 
   test('available member shows "Available for ..." status text', () => {
@@ -1282,6 +1321,20 @@ describe('group-context long-press adoption', () => {
     const bell = document.querySelector('#group-roster li[data-user-id="src"] .notify-bell');
     expect(bell).not.toBeNull();
     bell.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0, bubbles: true }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
+    expect(groupNav.applyOptimisticAppearance).not.toHaveBeenCalled();
+    expect(favorites.saveCombo).not.toHaveBeenCalled();
+  });
+
+  test('a long-press on a row while a bell popover is open does NOT adopt', () => {
+    isNotifyPopoverOpen.mockReturnValue(true);
+    setupRoster({
+      ownOverrideEnabled: true,
+      members: { src: { displayName: 'Alice' } },
+    });
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
     jest.advanceTimersByTime(600);
     expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
     expect(groupNav.applyOptimisticAppearance).not.toHaveBeenCalled();
