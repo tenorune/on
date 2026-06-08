@@ -312,6 +312,22 @@ describe('group roster render', () => {
     expect(knock.sendKnock).toHaveBeenCalledWith('a', 'me', undefined, expect.objectContaining({ contextGroupId: 'G1' }));
   });
 
+  test('tapping the notification bell on a member row does NOT send a knock', () => {
+    const knock = require('../js/knock.js');
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const bell = document.querySelector('#group-roster [data-user-id="a"] .notify-bell');
+    expect(bell).not.toBeNull();
+    // The bell's own stopPropagation is a first line of defence; this guards the
+    // case where a bell tap still reaches the row (stale shell, event-order
+    // quirks). The knock handler must ignore taps originating from the bell.
+    const before = knock.sendKnock.mock.calls.length;
+    bell.click();
+    expect(knock.sendKnock.mock.calls.length).toBe(before);
+  });
+
   test('available member shows "Available for ..." status text', () => {
     let membersCb;
     const statusCbs = {};
@@ -1256,6 +1272,20 @@ describe('group-context long-press adoption', () => {
     expect(favorites.saveCombo).toHaveBeenCalledWith(expect.objectContaining({
       statusColor: '#ff00aa', paletteKey: 'forest',
     }));
+  });
+
+  test('a long-press starting on the notification bell does NOT adopt', () => {
+    setupRoster({
+      ownOverrideEnabled: true,
+      members: { src: { displayName: 'Alice' } },
+    });
+    const bell = document.querySelector('#group-roster li[data-user-id="src"] .notify-bell');
+    expect(bell).not.toBeNull();
+    bell.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0, bubbles: true }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
+    expect(groupNav.applyOptimisticAppearance).not.toHaveBeenCalled();
+    expect(favorites.saveCombo).not.toHaveBeenCalled();
   });
 
   test('movement > 8px cancels the long-press', () => {
