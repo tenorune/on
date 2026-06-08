@@ -1168,18 +1168,12 @@ main {
   border-radius: 0.75rem; padding: 0.75rem 1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.25); z-index: 60; }
 .notify-promo.hidden { display: none; }
 .notify-promo #notify-promo-text { flex: 1; font-size: 0.9rem; }
-.roster-invite-row { list-style: none; padding: 0; margin: 0 0 0.5rem 0; }
-.roster-invite-row .add-btn {
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border: 1px dashed var(--text-muted);
-  color: var(--text-muted);
-  padding: 0.5rem 0.75rem;
-  border-radius: 8px;
-  cursor: pointer;
+/* Match Direct's "Add a person": a surface2 rounded card wrapping a plain,
+   full-width, left-aligned .add-btn (#add-person-area treatment). */
+.roster-invite-row {
+  list-style: none; padding: 0; margin: 0 0 0.5rem 0;
+  background: var(--surface2); border-radius: 10px; overflow: hidden;
 }
-.roster-invite-row .add-btn:hover { color: var(--text); border-color: var(--text); }
 
 /* ── Phase 3 invite picker (inside #invite-modal Section 2) ──────────────── */
 .invite-picker { margin-top: 1rem; }
