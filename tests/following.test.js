@@ -873,6 +873,60 @@ describe('call mode: receiver-side glow via updateFolloweeRow', () => {
   });
 });
 
+describe('call deferral while a drawer is open', () => {
+  const { createCardDrawer } = require('../js/cardDrawer.js');
+  const CALL = { status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6', callState: { calleeId: 'myUid', since: Date.now() } };
+  const NOCALL = { status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6' };
+  const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+
+  function openADrawer() {
+    const ellipsis = createCardDrawer([{ el: document.createElement('button') }, { el: document.createElement('button') }]);
+    document.body.appendChild(ellipsis);
+    ellipsis.click(); // isCardDrawerOpen() is now true
+    return ellipsis;
+  }
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+    // initList sets the module-level myUserIdRef used by the reconcile listener.
+    // No-op watchers so it does not render or clear our manually built rows.
+    watchFollowers.mockReturnValue(jest.fn());
+    watchStatus.mockReturnValue(jest.fn());
+    initList('myUid', 'MYCODE');
+    resetRenderedFollowees();
+    getFollowing.mockReturnValue([entry]);
+  });
+
+  test('incoming call does NOT enter call-mode while a drawer is open', () => {
+    makeFolloweeLi('alice');
+    openADrawer();
+    updateFolloweeRow(entry, CALL, 'myUid');
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(false);
+  });
+
+  test('closing the drawer applies a still-live call', () => {
+    makeFolloweeLi('alice');
+    const ellipsis = openADrawer();
+    updateFolloweeRow(entry, CALL, 'myUid');  // deferred; caches CALL in lastUserData
+    ellipsis.click(); // close the real drawer -> fires card-drawer-close, reconcile runs
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(true);
+  });
+
+  test('a call cancelled during the open window is not replayed on close', () => {
+    makeFolloweeLi('alice');
+    const ellipsis = openADrawer();
+    updateFolloweeRow(entry, CALL, 'myUid');    // call arrives (deferred)
+    updateFolloweeRow(entry, NOCALL, 'myUid');  // caller hangs up (caches NOCALL)
+    ellipsis.click(); // close the real drawer -> fires card-drawer-close, reconcile runs
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(false);
+  });
+});
+
 describe('call mode: display text during call', () => {
   beforeEach(() => {
     setupDom();

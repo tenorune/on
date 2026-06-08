@@ -720,6 +720,8 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   const li = document.querySelector(`[data-user-id="${entry.userId}"]`);
   if (!li) return;
 
+  lastUserData.set(entry.userId, userData);
+
   const isAvail = userData.status === 'available' && !isExpired(userData.availableUntil);
   const color = userData.statusColor || '#22c55e';
   const glow  = getGlowForColor(color);
@@ -729,7 +731,9 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   // Firebase record (e.g., a previous session left a call dangling) doesn't
   // render call-mode UI when calls are disabled on this device.
   const isCallee = CALL_ENABLED && callModeCalleeId !== null && entry.userId === callModeCalleeId;
-  const isCallModeReceiver = CALL_ENABLED && !isCallee && userData.callState?.calleeId === myUserId;
+  const isCallModeReceiver = CALL_ENABLED && !isCallee
+    && userData.callState?.calleeId === myUserId
+    && !isCardDrawerOpen();
   if (isCallee) {
     const callText = getMadeCallCount() < 4
       ? 'Calling them\u2026 (swipe left to hang up)'
@@ -886,6 +890,18 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     existingSwipe.remove();
   }
 }
+
+// On drawer close, reconcile any deferred receiver-side call-mode against the
+// latest known state for each rendered followee. A call cancelled while the
+// drawer was open is no longer in lastUserData's callState, so it won't replay.
+document.addEventListener('card-drawer-close', () => {
+  renderedFollowees.forEach((userId) => {
+    const data = lastUserData.get(userId);
+    if (!data) return;
+    const entry = getFollowing().find((f) => f.userId === userId);
+    if (entry) updateFolloweeRow(entry, data, myUserIdRef);
+  });
+});
 
 /** Re-evaluate long-press hints when the user's own combo changes. */
 document.addEventListener('my-combo-changed', () => refreshLongpressHints());
