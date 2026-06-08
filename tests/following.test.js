@@ -1665,6 +1665,10 @@ describe('notification bell on contact rows', () => {
 
 describe('tool drawer on contact rows', () => {
   const { createNotifyBell } = require('../js/notifyBell.js');
+  // Captured at describe-evaluation time (before any jest.resetModules() in later
+  // tests would create a fresh registry), so this shares the same module instance
+  // as the top-level require of following.js and cardDrawer.js.
+  const { isCardDrawerOpen } = require('../js/cardDrawer.js');
   function mountMutual(userId = 'alex') {
     setupDom();
     jest.clearAllMocks();
@@ -1735,5 +1739,34 @@ describe('tool drawer on contact rows', () => {
     li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0, pointerId: 1, bubbles: true }));
     li.dispatchEvent(new PointerEvent('pointermove', { clientX: w, clientY: 0, pointerId: 1, bubbles: true }));
     expect(li.classList.contains('call-mode')).toBe(false);
+  });
+
+  test('re-render (renderList) closes an open drawer instead of stranding it', () => {
+    // Use initAndCaptureFollowersCallback so we can re-fire the followers callback
+    // to trigger renderList() a second time, simulating a server-driven update.
+    setupDom();
+    jest.clearAllMocks();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+    getFollowing.mockReturnValue([{ userId: 'alex', code: 'ABC123', label: 'Alice' }]);
+    watchStatus.mockReturnValue(jest.fn());
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    // Deliver followers so renderList renders the mutual row.
+    fire([{ userId: 'alex', code: 'ABC123' }]);
+
+    const li = document.querySelector('[data-user-id="alex"]');
+    li.querySelector('.card-drawer-toggle').click();
+    expect(isCardDrawerOpen()).toBe(true);
+
+    // Re-fire the followers callback — this triggers renderList() again,
+    // which wipes #people-list. The bug: without the fix, isCardDrawerOpen()
+    // stays true after the DOM is torn down.
+    fire([{ userId: 'alex', code: 'ABC123' }]);
+
+    expect(isCardDrawerOpen()).toBe(false);
+    expect(document.querySelector('.card-drawer')).toBeNull();
   });
 });

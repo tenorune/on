@@ -19,7 +19,7 @@ import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
 import { isLongpressHintEligible, isSwipeHintEligible } from './hints.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { createNotifyBell } from './notifyBell.js';
-import { createCardDrawer, isCardDrawerOpen } from './cardDrawer.js';
+import { createCardDrawer, isCardDrawerOpen, closeCardDrawer } from './cardDrawer.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
 import { sendKnock, getFloatedUserIds } from './knock.js';
@@ -259,6 +259,10 @@ export function exitCallMode(myUserId) {
 }
 
 function renderList() {
+  // A drawer open on a row about to be wiped would leak its document listeners
+  // and strand isCardDrawerOpen()=true (gestures + knock/call deferral stuck).
+  // Closing first dispatches card-drawer-close, flushing that state.
+  closeCardDrawer();
   const myUserId = myUserIdRef;
   const following = getFollowing();
   const followerIds = new Set(latestFollowersSnapshot.map(f => f.userId));
