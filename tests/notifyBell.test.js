@@ -28,6 +28,17 @@ test('clicking the bell opens a popover with three switches', () => {
   expect(popover.querySelectorAll('button[role="switch"]').length).toBe(3);
 });
 
+test('popover is portaled to <body>, not nested under the bell container', () => {
+  const wrapper = document.createElement('div');
+  const bell = createNotifyBell('alex', {});
+  wrapper.appendChild(bell);
+  document.body.appendChild(wrapper);
+  bell.click();
+  const popover = document.querySelector('.notify-popover');
+  expect(popover.parentElement).toBe(document.body);
+  expect(wrapper.querySelector('.notify-popover')).toBeNull();
+});
+
 test('toggling a switch writes the pref', () => {
   const bell = createNotifyBell('alex', {});
   document.body.appendChild(bell);
