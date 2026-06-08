@@ -1090,6 +1090,12 @@ main {
   padding: 0.75rem 0.875rem;
   border-left: 3px solid transparent;
   position: relative; /* anchor the notify popover under the bell */
+  /* Match the Direct contact rows: constrain touch to vertical pan and kill the
+     browser's default tap-highlight flash (the grey/black blink seen in mobile
+     emulation when tapping the row or the bell inside it — tap-highlight-color
+     is inherited, so the bell is covered too). */
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
 }
 .group-roster-row.knockable { cursor: pointer; }
 /* Press highlight is driven by JS (.knock-pressing), not :active, so pressing
