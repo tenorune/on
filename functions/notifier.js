@@ -50,6 +50,32 @@ export async function handleKnock(deps, recipientId, senderId, record) {
     { type: 'knock', targetUid: senderId });
 }
 
+// Notify the OTHER members of a group that `memberUid` is available in it.
+// Caller decides the "became available" transition; this just fans out with a
+// per-(group, member) cooldown so availability in one group doesn't mute another.
+export async function notifyGroupAvailability(deps, groupId, memberUid, now) {
+  const lastTs = await deps.getVal(`notifierState/groupAvailability/${groupId}/${memberUid}`);
+  if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) return;
+  const name = await resolveGroupMemberName(deps, groupId, memberUid);
+  const group = await deps.getVal(`groups/${groupId}/name`);
+  const members = await deps.getVal(`groups/${groupId}/members`);
+  const memberIds = members ? Object.keys(members) : [];
+  let delivered = 0;
+  for (const coUid of memberIds) {
+    if (coUid === memberUid) continue;
+    const prefs = await deps.getVal(`userPrefs/${coUid}/notify/${memberUid}`);
+    if (!wantsAvailability(prefs)) continue;
+    try {
+      if (await sendToUser(deps, coUid,
+        buildMessage('availability', name, { group: group || undefined }),
+        { type: 'availability', targetUid: memberUid, contextGroupId: groupId })) {
+        delivered++;
+      }
+    } catch { /* one co-member's send failed — keep notifying the rest */ }
+  }
+  if (delivered > 0) await deps.update(`notifierState/groupAvailability/${groupId}`, { [memberUid]: now });
+}
+
 export async function handleCall(deps, callerId, callState) {
   if (!callState || !callState.calleeId) return;
   const calleeId = callState.calleeId;

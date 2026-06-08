@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName } from '../notifier.js';
+import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability } from '../notifier.js';
 
 function makeDeps(overrides = {}) {
   const store = overrides.store || {};
@@ -189,5 +189,39 @@ describe('resolveGroupMemberName', () => {
 
     const deps3 = makeDeps({ store: {} });
     expect(await resolveGroupMemberName(deps3, 'g1', 'u')).toBe('Someone');
+  });
+});
+
+describe('notifyGroupAvailability', () => {
+  function groupStore(extra = {}) {
+    return {
+      'groups/g1/name': 'Divers',
+      'groups/g1/members/m/displayName': 'Bobby',
+      'groups/g1/members': { m: {}, co1: {}, co2: {} },
+      'userPrefs/co1/notify/m': { availability: true },
+      'userPrefs/co2/notify/m': { availability: false },
+      'userPrefs/co1/pushTokens': { tokCo1: {} },
+      'notifierState/groupAvailability/g1/m': null,
+      ...extra,
+    };
+  }
+  test('notifies opted-in co-members (not the member, not opted-out), stamps cooldown', async () => {
+    const deps = makeDeps({ store: groupStore() });
+    await notifyGroupAvailability(deps, 'g1', 'm', 1000);
+    expect(deps.send).toHaveBeenCalledTimes(1);
+    expect(deps.send).toHaveBeenCalledWith(['tokCo1'],
+      { title: 'Bobby is available in Divers', body: '' },
+      { type: 'availability', targetUid: 'm', contextGroupId: 'g1' });
+    expect(deps.update).toHaveBeenCalledWith('notifierState/groupAvailability/g1', { m: 1000 });
+  });
+  test('within cooldown → no send', async () => {
+    const deps = makeDeps({ store: groupStore({ 'notifierState/groupAvailability/g1/m': 999 }) });
+    await notifyGroupAvailability(deps, 'g1', 'm', 1000);
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('nothing delivered (no tokens) → does not stamp cooldown', async () => {
+    const deps = makeDeps({ store: groupStore({ 'userPrefs/co1/pushTokens': null }) });
+    await notifyGroupAvailability(deps, 'g1', 'm', 1000);
+    expect(deps.update).not.toHaveBeenCalledWith('notifierState/groupAvailability/g1', expect.anything());
   });
 });
