@@ -10,6 +10,7 @@ import { createGroup, toggleStatusOverride } from './groups.js';
 import { applyOptimisticOverride } from './groupContext.js';
 import { openInviteModal } from './inviteModal.js';
 import { getGroupBadgeCount, getDirectBadgeCount } from './knock.js';
+import { renderInboxNavSlot } from './inbox.js';
 
 // Restore the deferred-knock indicator on a chip after renderNavRow
 // re-creates it. The indicator is a pulsing halo (CSS class), driven by a
@@ -220,6 +221,16 @@ export function applyOptimisticAppearance(groupId, fields) {
 }
 
 function renderNavRowDirectMode(row) {
+  // Phase 3 Inbox slot — first position in the row. The Inbox button itself
+  // is created/torn-down by js/inbox.js based on the pending-invite count;
+  // the slot just guarantees the DOM anchor.
+  const inboxSlot = document.createElement('div');
+  inboxSlot.id = 'nav-row-inbox-slot';
+  inboxSlot.className = 'nav-row-inbox-slot';
+  row.appendChild(inboxSlot);
+  // Repopulate the Inbox button (idempotent; no-op when pending count is 0).
+  renderInboxNavSlot();
+
   // "Direct" is the implicit current context — no label needed in the nav.
   // The groups + create-group button stand in for navigation; tapping a card
   // moves to that group, the persistent nav itself signals where you are.

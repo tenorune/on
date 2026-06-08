@@ -322,6 +322,42 @@ export function watchGroupInvites(groupId, callback) {
   });
 }
 
+// ── Pending invites mailbox ──────────────────────────────────────────────────
+// Phase 3 in-app push invites. Schema:
+//   pendingInvites/{inviteeUid}/{groupId} = { from, ts }
+//   pendingInvitesByGroup/{groupId}/{inviteeUid} = true   (sweep index)
+//
+// Writes are dual-writes (primary + index); deletions are dual-deletes.
+// Keyed by groupId (not a random inviteId) so re-inviting the same person to
+// the same group is a natural overwrite — no duplicate entries, no race.
+
+export function watchPendingInvites(inviteeUid, callback) {
+  const inboxRef = ref(db, `pendingInvites/${inviteeUid}`);
+  return onValue(inboxRef, (snap) => {
+    callback(snap.exists() ? snap.val() : {});
+  });
+}
+
+export async function writePendingInvite(inviterUid, inviteeUid, groupId) {
+  const ts = Date.now();
+  await update(ref(db), {
+    [`pendingInvites/${inviteeUid}/${groupId}`]: { from: inviterUid, ts },
+    [`pendingInvitesByGroup/${groupId}/${inviteeUid}`]: true,
+  });
+}
+
+export async function deletePendingInvite(inviteeUid, groupId) {
+  await update(ref(db), {
+    [`pendingInvites/${inviteeUid}/${groupId}`]: null,
+    [`pendingInvitesByGroup/${groupId}/${inviteeUid}`]: null,
+  });
+}
+
+export async function readPendingInviteesForGroup(groupId) {
+  const snap = await get(ref(db, `pendingInvitesByGroup/${groupId}`));
+  return snap.exists() ? Object.keys(snap.val()) : [];
+}
+
 // Write own status to Firebase
 export async function setStatus(userId, status, availableUntil) {
   await update(ref(db, `users/${userId}`), {

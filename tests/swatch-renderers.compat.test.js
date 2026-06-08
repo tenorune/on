@@ -43,6 +43,10 @@ jest.mock('../js/db.js', () => ({
   timeRemainingMs: jest.fn((until) => Math.max(0, until - Date.now())),
   formatTimeRemaining: jest.fn(() => ''),
   formatTimeRemainingFuzzy: jest.fn(() => ''),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock('../js/store.js', () => ({

@@ -7,6 +7,10 @@ jest.mock('../js/firebase-config.js', () => ({ db: {}, getMessagingIfSupported: 
 jest.mock('../js/db.js', () => ({
   initUser: jest.fn().mockResolvedValue(true),
   watchStatus: jest.fn(),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
   isExpired: jest.fn().mockReturnValue(false),
   writeBackExpired: jest.fn(),
   userExists: jest.fn().mockResolvedValue(true),

@@ -42,6 +42,12 @@
         ".write": true
       }
     },
+    "pendingInvitesByGroup": {
+      "$groupId": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "canvases": {
       "$canvasId": {
         ".read": true,

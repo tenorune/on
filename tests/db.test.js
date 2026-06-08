@@ -245,9 +245,9 @@ describe('readInviteIndex', () => {
 
 describe('readUserInvite', () => {
   test('returns the invite record by uid + token', async () => {
-    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ scope: 'personal', token: 'T', creatorLabel: 'Mike' }) });
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ scope: 'personal', token: 'T', creatorLabel: 'Alex' }) });
     const result = await readUserInvite('uid1', 'T');
-    expect(result).toEqual({ scope: 'personal', token: 'T', creatorLabel: 'Mike' });
+    expect(result).toEqual({ scope: 'personal', token: 'T', creatorLabel: 'Alex' });
   });
 
   test('returns null when absent', async () => {
@@ -260,7 +260,7 @@ describe('readUserInvite', () => {
 describe('writeUserInvite', () => {
   test('writes the full invite record at users/{uid}/invites/{token}', async () => {
     set.mockResolvedValue();
-    const payload = { scope: 'personal', token: 'T', creatorLabel: 'Mike', createdAt: 12345, expiresAt: null, redemptionCap: null, redemptionsUsed: 0, revoked: false };
+    const payload = { scope: 'personal', token: 'T', creatorLabel: 'Alex', createdAt: 12345, expiresAt: null, redemptionCap: null, redemptionsUsed: 0, revoked: false };
     await writeUserInvite('uid1', 'T', payload);
     expect(set).toHaveBeenCalledWith('mock-ref', payload);
     expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/invites/T');
@@ -481,16 +481,16 @@ describe('group members', () => {
 
   test('writeMember writes the full member record', async () => {
     set.mockResolvedValue();
-    const member = { role: 'member', displayName: 'Mike P.', joinedAt: 1234 };
+    const member = { role: 'member', displayName: 'Alex K.', joinedAt: 1234 };
     await writeMember('G1', 'uid2', member);
     expect(set).toHaveBeenCalledWith('mock-ref', member);
     expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uid2');
   });
 
   test('readMember returns the record', async () => {
-    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ role: 'member', displayName: 'Mike', joinedAt: 1 }) });
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ role: 'member', displayName: 'Alex', joinedAt: 1 }) });
     const result = await readMember('G1', 'uid2');
-    expect(result).toEqual({ role: 'member', displayName: 'Mike', joinedAt: 1 });
+    expect(result).toEqual({ role: 'member', displayName: 'Alex', joinedAt: 1 });
   });
 
   test('readMember returns null when missing', async () => {

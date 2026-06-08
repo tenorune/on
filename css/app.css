@@ -1168,3 +1168,92 @@ main {
   border-radius: 0.75rem; padding: 0.75rem 1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.25); z-index: 60; }
 .notify-promo.hidden { display: none; }
 .notify-promo #notify-promo-text { flex: 1; font-size: 0.9rem; }
+.roster-invite-row { list-style: none; padding: 0; margin: 0 0 0.5rem 0; }
+.roster-invite-row .add-btn {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px dashed var(--text-muted);
+  color: var(--text-muted);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.roster-invite-row .add-btn:hover { color: var(--text); border-color: var(--text); }
+
+/* ── Phase 3 invite picker (inside #invite-modal Section 2) ──────────────── */
+.invite-picker { margin-top: 1rem; }
+.invite-picker-framing { font-size: 0.875rem; color: var(--text-muted); margin: 0 0 0.5rem 0; }
+.invite-picker-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.invite-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.invite-picker-row:hover { background: rgba(255,255,255,0.04); }
+.invite-picker-row.selected { background: rgba(99,102,241,0.18); }
+.invite-picker-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-muted); flex-shrink: 0;
+}
+.invite-picker-name { flex: 1; font-size: 0.875rem; color: var(--text); }
+.invite-picker-trailing { flex-shrink: 0; }
+.invite-picker-indicator {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 1px solid var(--text-muted);
+  border-radius: 4px;
+}
+.invite-picker-row.selected .invite-picker-indicator {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.invite-picker-pill-invited {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.invite-picker-pill-invited:hover { background: var(--accent); color: var(--text); }
+
+/* ── Phase 3 Inbox nav element + modal ──────────────────────────────────── */
+.nav-row-inbox-slot { flex-shrink: 0; }
+.inbox-btn {
+  /* Same shape and border as the create-group "+" button. Tweak if .group-cards-plus
+     uses different class names. */
+  height: 2rem;
+  min-width: 2rem;
+  padding: 0 0.5rem;
+  border: 1px dashed var(--text-muted);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.inbox-btn:hover { color: var(--text); border-color: var(--text); }
+
+.inbox-modal-list { list-style: none; padding: 0; margin: 0; }
+.inbox-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--surface2);
+}
+.inbox-row:last-child { border-bottom: none; }
+.inbox-row-text { font-size: 0.875rem; color: var(--text); }
+.inbox-row-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+.inbox-join-btn, .inbox-decline-btn { padding: 0.25rem 0.75rem; font-size: 0.875rem; }

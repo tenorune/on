@@ -59,11 +59,10 @@
       <!-- State A: create -->
       <div id="invite-modal-create" class="hidden">
         <label id="invite-modal-label-hint" class="modal-label" for="invite-modal-label-input">Your name on the invite</label>
-        <input id="invite-modal-label-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Mike P." />
+        <input id="invite-modal-label-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Alex K." />
         <p id="invite-modal-label-error" class="error-msg hidden"></p>
         <div class="modal-actions">
           <button id="invite-modal-create-btn" class="primary-btn">Create invite link</button>
-          <button id="invite-modal-cancel-btn" class="ghost-btn">Cancel</button>
         </div>
       </div>
 
@@ -76,9 +75,22 @@
         </div>
         <div class="modal-actions">
           <button id="invite-modal-revoke-btn" class="ghost-btn">Revoke</button>
-          <button id="invite-modal-close-btn" class="primary-btn">Close</button>
         </div>
       </div>
+
+      <!-- Section 2: in-app picker (group scope only) -->
+      <div id="invite-modal-picker" class="hidden invite-picker">
+        <p id="invite-modal-picker-framing" class="invite-picker-framing">Invite specific people directly into the group.</p>
+        <button id="invite-modal-picker-send-btn" class="primary-btn">Invite</button>
+        <ul id="invite-modal-picker-list" class="invite-picker-list"></ul>
+      </div>
+    </div>
+  </div>
+
+  <div id="inbox-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="inbox-modal-title">
+    <div class="modal-card">
+      <h2 id="inbox-modal-title" class="modal-title">Inbox</h2>
+      <ul id="inbox-modal-list" class="inbox-modal-list"></ul>
     </div>
   </div>
 
@@ -223,7 +235,7 @@
               <div class="group-actions-menu">
                 <button id="group-action-edit-name" class="ghost-btn hidden">Edit my name</button>
                 <button id="group-action-leave" class="ghost-btn hidden">Leave group</button>
-                <button id="group-action-invite" class="ghost-btn hidden">Invite link</button>
+                <button id="group-action-invite" class="ghost-btn hidden">Invite</button>
                 <button id="group-action-rename" class="ghost-btn hidden">Rename group</button>
                 <button id="group-action-delete" class="ghost-btn hidden">Delete group</button>
               </div>

@@ -19,6 +19,10 @@ beforeEach(() => {
     getKnocks: jest.fn(),
     watchKnocksAdded: jest.fn(),
     clearKnock: jest.fn(),
+    watchPendingInvites: jest.fn(() => () => {}),
+    writePendingInvite: jest.fn().mockResolvedValue(undefined),
+    deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+    readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
   }));
   jest.mock('../js/store.js', () => ({}));
   jest.mock('../js/firebase-config.js', () => ({ db: {} }));
