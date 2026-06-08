@@ -224,6 +224,19 @@ describe('notifyGroupAvailability', () => {
     await notifyGroupAvailability(deps, 'g1', 'm', 1000);
     expect(deps.update).not.toHaveBeenCalledWith('notifierState/groupAvailability/g1', expect.anything());
   });
+  test('alreadyNotified set: skips members already in it, adds the ones it notifies', async () => {
+    const deps = makeDeps({ store: groupStore({
+      'userPrefs/co2/notify/m': { availability: true },
+      'userPrefs/co2/pushTokens': { tokCo2: {} },
+    }) });
+    const seen = new Set(['co1']); // co1 already got a push elsewhere
+    await notifyGroupAvailability(deps, 'g1', 'm', 1000, seen);
+    expect(deps.send).toHaveBeenCalledTimes(1); // only co2
+    expect(deps.send).toHaveBeenCalledWith(['tokCo2'],
+      { title: 'Bobby is available in Divers', body: '' },
+      { type: 'availability', targetUid: 'm', contextGroupId: 'g1' });
+    expect(seen.has('co2')).toBe(true);
+  });
 });
 
 describe('handleGroupOverrideChange', () => {
@@ -315,5 +328,78 @@ describe('handleAvailability → group co-members (primary path)', () => {
     expect(deps.send).toHaveBeenCalledWith(['tokA'],
       { title: 'Star is available in OffGroup', body: '' },
       { type: 'availability', targetUid: 'star', contextGroupId: 'gOff' });
+  });
+});
+
+describe('handleAvailability → one push per recipient (dedup)', () => {
+  test('a follower who is also a co-member of two override-off groups gets ONE Direct push', async () => {
+    const deps = makeDeps({ store: {
+      'users/bob/status': 'available',
+      'users/bob/availableUntil': FUTURE,
+      'users/bob/followers': { ann: 'codeAnn' },
+      'userPrefs/ann/notify/bob': { availability: true },
+      'userPrefs/ann/following/bob': { label: 'Bobby' },
+      'userPrefs/ann/pushTokens': { tokAnn: {} },
+      'users/bob/groups': { g1: true, g2: true },
+      'groups/g1/members/bob/statusOverride': { enabled: false },
+      'groups/g2/members/bob/statusOverride': { enabled: false },
+      'groups/g1/members': { bob: {}, ann: {} },
+      'groups/g2/members': { bob: {}, ann: {} },
+      'groups/g1/name': 'G1', 'groups/g2/name': 'G2',
+      'groups/g1/members/bob/displayName': 'BobG1',
+      'groups/g2/members/bob/displayName': 'BobG2',
+      'notifierState/availability/bob': null,
+      'notifierState/groupAvailability/g1/bob': null,
+      'notifierState/groupAvailability/g2/bob': null,
+    }});
+    await handleAvailability(deps, 'bob', null, FUTURE);
+    expect(deps.send).toHaveBeenCalledTimes(1);
+    expect(deps.send).toHaveBeenCalledWith(['tokAnn'],
+      { title: 'Bobby is available', body: '' },
+      { type: 'availability', targetUid: 'bob' });
+  });
+
+  test('a co-member of two override-off groups (not a follower) gets ONE group push (first group wins)', async () => {
+    const deps = makeDeps({ store: {
+      'users/bob/status': 'available',
+      'users/bob/availableUntil': FUTURE,
+      'users/bob/followers': null,
+      'userPrefs/ann/notify/bob': { availability: true },
+      'userPrefs/ann/pushTokens': { tokAnn: {} },
+      'users/bob/groups': { g1: true, g2: true },
+      'groups/g1/members/bob/statusOverride': { enabled: false },
+      'groups/g2/members/bob/statusOverride': { enabled: false },
+      'groups/g1/members': { bob: {}, ann: {} },
+      'groups/g2/members': { bob: {}, ann: {} },
+      'groups/g1/name': 'G1', 'groups/g2/name': 'G2',
+      'groups/g1/members/bob/displayName': 'BobG1',
+      'groups/g2/members/bob/displayName': 'BobG2',
+      'notifierState/groupAvailability/g1/bob': null,
+      'notifierState/groupAvailability/g2/bob': null,
+    }});
+    await handleAvailability(deps, 'bob', null, FUTURE);
+    expect(deps.send).toHaveBeenCalledTimes(1);
+    expect(deps.send).toHaveBeenCalledWith(['tokAnn'],
+      { title: 'BobG1 is available in G1', body: '' },
+      { type: 'availability', targetUid: 'bob', contextGroupId: 'g1' });
+  });
+
+  test('Direct owns a follower even when the Direct cooldown suppresses the send (no group double)', async () => {
+    const deps = makeDeps({ store: {
+      'users/bob/status': 'available',
+      'users/bob/availableUntil': FUTURE,
+      'users/bob/followers': { ann: 'codeAnn' },
+      'userPrefs/ann/notify/bob': { availability: true },
+      'userPrefs/ann/pushTokens': { tokAnn: {} },
+      'users/bob/groups': { g1: true },
+      'groups/g1/members/bob/statusOverride': { enabled: false },
+      'groups/g1/members': { bob: {}, ann: {} },
+      'groups/g1/name': 'G1',
+      'groups/g1/members/bob/displayName': 'BobG1',
+      'notifierState/availability/bob': 999, // Direct within cooldown (now=1000)
+      'notifierState/groupAvailability/g1/bob': null,
+    }});
+    await handleAvailability(deps, 'bob', null, FUTURE);
+    expect(deps.send).not.toHaveBeenCalled(); // Direct cooled, group skips the follower
   });
 });

@@ -53,7 +53,7 @@ export async function handleKnock(deps, recipientId, senderId, record) {
 // Notify the OTHER members of a group that `memberUid` is available in it.
 // Caller decides the "became available" transition; this just fans out with a
 // per-(group, member) cooldown so availability in one group doesn't mute another.
-export async function notifyGroupAvailability(deps, groupId, memberUid, now) {
+export async function notifyGroupAvailability(deps, groupId, memberUid, now, alreadyNotified = null) {
   const lastTs = await deps.getVal(`notifierState/groupAvailability/${groupId}/${memberUid}`);
   if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) return;
   const name = await resolveGroupMemberName(deps, groupId, memberUid);
@@ -63,8 +63,12 @@ export async function notifyGroupAvailability(deps, groupId, memberUid, now) {
   let delivered = 0;
   for (const coUid of memberIds) {
     if (coUid === memberUid) continue;
+    // Dedup: this person is already getting a push for this availability event
+    // (from Direct or an earlier group) — iOS web push won't coalesce by tag.
+    if (alreadyNotified && alreadyNotified.has(coUid)) continue;
     const prefs = await deps.getVal(`userPrefs/${coUid}/notify/${memberUid}`);
     if (!wantsAvailability(prefs)) continue;
+    if (alreadyNotified) alreadyNotified.add(coUid);
     try {
       if (await sendToUser(deps, coUid,
         buildMessage('availability', name, { group: group || undefined }),
@@ -105,32 +109,41 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   const status = await deps.getVal(`users/${uid}/status`);
   if (!availabilityTurnedOn(beforeAU, afterAU, status, now)) return;
 
-  // Direct followers — own per-uid cooldown.
-  const lastTs = await deps.getVal(`notifierState/availability/${uid}`);
-  if (!withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) {
-    const followers = await deps.getVal(`users/${uid}/followers`);
-    const followerIds = followers ? Object.keys(followers) : [];
-    let delivered = 0;
-    for (const fid of followerIds) {
-      const prefs = await deps.getVal(`userPrefs/${fid}/notify/${uid}`);
-      if (!wantsAvailability(prefs)) continue;
-      const name = await resolveName(deps, fid, uid);
-      try {
-        if (await sendToUser(deps, fid, buildMessage('availability', name), { type: 'availability', targetUid: uid })) {
-          delivered++;
-        }
-      } catch { /* this follower's send failed — keep notifying the rest */ }
-    }
-    if (delivered > 0) await deps.update('notifierState/availability', { [uid]: now });
+  // One push per recipient for this availability event. iOS web push doesn't
+  // coalesce by notification tag, so a follower who is also a co-member of
+  // several override-off groups would otherwise get a separate push from each.
+  // Direct "owns" a follower (generic "X is available" → Direct); a group-only
+  // co-member gets the first override-off group's "X is available in {group}".
+  const notified = new Set();
+
+  // Direct followers — own per-uid cooldown. Followers are marked notified even
+  // when that cooldown suppresses the send, so the group pass below never doubles
+  // them within the window.
+  const directCooled = withinCooldown(await deps.getVal(`notifierState/availability/${uid}`), now, AVAIL_COOLDOWN_MS);
+  const followers = await deps.getVal(`users/${uid}/followers`);
+  let directDelivered = 0;
+  for (const fid of followers ? Object.keys(followers) : []) {
+    if (fid === uid) continue;
+    const prefs = await deps.getVal(`userPrefs/${fid}/notify/${uid}`);
+    if (!wantsAvailability(prefs)) continue;
+    notified.add(fid);
+    if (directCooled) continue;
+    const name = await resolveName(deps, fid, uid);
+    try {
+      if (await sendToUser(deps, fid, buildMessage('availability', name), { type: 'availability', targetUid: uid })) {
+        directDelivered++;
+      }
+    } catch { /* this follower's send failed — keep notifying the rest */ }
   }
+  if (directDelivered > 0) await deps.update('notifierState/availability', { [uid]: now });
 
   // Group co-members — only for groups where this member's override is OFF, so the
   // group is showing their primary. Override-ON groups are driven by onMemberOverride.
+  // The shared `notified` set dedups across Direct + every group.
   const groups = await deps.getVal(`users/${uid}/groups`);
-  const groupIds = groups ? Object.keys(groups) : [];
-  for (const groupId of groupIds) {
+  for (const groupId of groups ? Object.keys(groups) : []) {
     const override = await deps.getVal(`groups/${groupId}/members/${uid}/statusOverride`);
     if (override && override.enabled === true) continue;
-    await notifyGroupAvailability(deps, groupId, uid, now);
+    await notifyGroupAvailability(deps, groupId, uid, now, notified);
   }
 }

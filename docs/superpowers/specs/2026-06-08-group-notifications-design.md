@@ -121,9 +121,14 @@ A transition "turned on" = `effectiveAvailable(after) && !effectiveAvailable(bef
 - **Override-off + primary available** is handled by the extended primary trigger; **override-on +
   override available** by `onMemberOverride`. The two paths are mutually exclusive per group
   (gated on `override.enabled`), so a single availability event notifies a given group once.
-- **Mutual double-send:** a co-member who also follows the member may receive both a Direct and a
-  group availability push; the shared `availability:{uid}` SW tag collapses them to one
-  (non-deterministic deep-link target). Accepted; no server-side cross-dedup.
+- **One push per recipient (primary path):** the SW tags availability as `availability:{uid}`, but
+  iOS web push does NOT coalesce separately-delivered pushes by tag (verified on device), so a
+  follower who is also a co-member of several override-off groups would get a push per context.
+  `handleAvailability` therefore dedups within its own invocation via a shared `notified` set:
+  Direct "owns" a follower (generic "X is available" → Direct, marked notified even if the Direct
+  cooldown suppresses the send); a group-only co-member gets the first override-off group's
+  "X is available in {group}". The separate `onMemberOverride` (override path) invocation can't
+  coordinate with this, but it rarely fans a single person across multiple contexts at once.
 - **Cooldown** is per-(group, member) so availability in one group doesn't suppress another.
 - **Name fallback:** a member who left (no displayName) falls back to code → "Someone"; missing
   group name omits the "in {group}" suffix.
