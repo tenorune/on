@@ -41,6 +41,20 @@ describe('renderInvitePicker', () => {
     expect(rows[3].dataset.uid).toBe('uFollD');
   });
 
+  test('a mutual with no custom label shows their share code, not a blank name', () => {
+    renderInvitePicker({
+      inviterUid: 'me',
+      groupId: 'G1',
+      followers: { uMut: 'MUTCODE' },
+      mutuals: [{ userId: 'uMut', label: '' }], // followed-back, never given a name
+      currentMemberUids: new Set(),
+      pendingInviteeUids: new Set(),
+    });
+    const row = document.querySelector('.invite-picker-row[data-uid="uMut"]');
+    expect(row).not.toBeNull();
+    expect(row.querySelector('.invite-picker-name').textContent).toBe('MUTCODE');
+  });
+
   test('excludes followers who are already group members', () => {
     renderInvitePicker({
       inviterUid: 'me',
