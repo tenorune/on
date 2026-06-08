@@ -1,6 +1,7 @@
 import {
   withinCooldown, isFutureMs, availabilityTurnedOn,
   wantsKnock, wantsCall, wantsAvailability, buildMessage,
+  overrideAvailable, effectiveAvailable,
 } from '../presence-core.js';
 
 const NOW = 1_000_000;
@@ -50,5 +51,31 @@ describe('messages', () => {
     expect(buildMessage('knock', 'Bea')).toEqual({ title: 'Bea knocked', body: '' });
     expect(buildMessage('call', 'Alex K.')).toEqual({ title: 'Alex K. is calling', body: '' });
     expect(buildMessage('availability', 'Bea')).toEqual({ title: 'Bea is available', body: '' });
+  });
+});
+
+describe('overrideAvailable', () => {
+  const NOW2 = 1000;
+  test('true only when enabled + status available + future availableUntil', () => {
+    expect(overrideAvailable({ enabled: true, status: 'available', availableUntil: 2000 }, NOW2)).toBe(true);
+    expect(overrideAvailable({ enabled: true, status: 'available', availableUntil: 500 }, NOW2)).toBe(false); // expired
+    expect(overrideAvailable({ enabled: true, status: 'unavailable', availableUntil: 2000 }, NOW2)).toBe(false);
+    expect(overrideAvailable({ enabled: false, status: 'available', availableUntil: 2000 }, NOW2)).toBe(false);
+    expect(overrideAvailable(null, NOW2)).toBe(false);
+    expect(overrideAvailable(undefined, NOW2)).toBe(false);
+  });
+});
+
+describe('effectiveAvailable', () => {
+  const NOW2 = 1000;
+  test('uses the override when enabled', () => {
+    expect(effectiveAvailable({ enabled: true, status: 'available', availableUntil: 2000 }, 'unavailable', null, NOW2)).toBe(true);
+    expect(effectiveAvailable({ enabled: true, status: 'unavailable', availableUntil: null }, 'available', 2000, NOW2)).toBe(false);
+  });
+  test('falls back to primary when override absent or disabled', () => {
+    expect(effectiveAvailable(null, 'available', 2000, NOW2)).toBe(true);
+    expect(effectiveAvailable({ enabled: false }, 'available', 2000, NOW2)).toBe(true);
+    expect(effectiveAvailable({ enabled: false }, 'available', 500, NOW2)).toBe(false); // primary expired
+    expect(effectiveAvailable(undefined, 'unavailable', 2000, NOW2)).toBe(false);
   });
 });
