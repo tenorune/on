@@ -48,15 +48,38 @@ describe('resolveName', () => {
 });
 
 describe('handleKnock', () => {
-  test('sends when recipient opted in for that sender', async () => {
+  test('Direct knock: uses the Direct name, no group suffix, no contextGroupId', async () => {
     const deps = makeDeps({ store: {
       'userPrefs/rcpt/notify/sndr': { knock: true },
       'userPrefs/rcpt/following/sndr': { label: 'Bea' },
       'userPrefs/rcpt/pushTokens': { tokA: {} },
     }});
-    await handleKnock(deps, 'rcpt', 'sndr', { count: 1, ts: 1, contextGroupId: 'g1' });
+    await handleKnock(deps, 'rcpt', 'sndr', { count: 1, ts: 1 });
     expect(deps.send).toHaveBeenCalledWith(['tokA'],
       { title: 'Bea knocked', body: '' },
+      { type: 'knock', targetUid: 'sndr' });
+  });
+  test('group knock: uses the group member displayName and names the group', async () => {
+    const deps = makeDeps({ store: {
+      'userPrefs/rcpt/notify/sndr': { knock: true },
+      'groups/g1/members/sndr/displayName': 'Bobby',
+      'groups/g1/name': 'Divers',
+      'userPrefs/rcpt/pushTokens': { tokA: {} },
+    }});
+    await handleKnock(deps, 'rcpt', 'sndr', { count: 1, ts: 1, contextGroupId: 'g1' });
+    expect(deps.send).toHaveBeenCalledWith(['tokA'],
+      { title: 'Bobby knocked in Divers', body: '' },
+      { type: 'knock', targetUid: 'sndr', contextGroupId: 'g1' });
+  });
+  test('group knock with missing group name → no suffix, still group-scoped name', async () => {
+    const deps = makeDeps({ store: {
+      'userPrefs/rcpt/notify/sndr': { knock: true },
+      'groups/g1/members/sndr/displayName': 'Bobby',
+      'userPrefs/rcpt/pushTokens': { tokA: {} },
+    }});
+    await handleKnock(deps, 'rcpt', 'sndr', { count: 1, ts: 1, contextGroupId: 'g1' });
+    expect(deps.send).toHaveBeenCalledWith(['tokA'],
+      { title: 'Bobby knocked', body: '' },
       { type: 'knock', targetUid: 'sndr', contextGroupId: 'g1' });
   });
   test('does nothing when not opted in', async () => {

@@ -36,10 +36,18 @@ export async function resolveGroupMemberName(deps, groupId, uid) {
 export async function handleKnock(deps, recipientId, senderId, record) {
   const prefs = await deps.getVal(`userPrefs/${recipientId}/notify/${senderId}`);
   if (!wantsKnock(prefs)) return;
+  const groupId = record && record.contextGroupId;
+  if (groupId) {
+    const name = await resolveGroupMemberName(deps, groupId, senderId);
+    const group = await deps.getVal(`groups/${groupId}/name`);
+    await sendToUser(deps, recipientId,
+      buildMessage('knock', name, { group: group || undefined }),
+      { type: 'knock', targetUid: senderId, contextGroupId: groupId });
+    return;
+  }
   const name = await resolveName(deps, recipientId, senderId);
-  const data = { type: 'knock', targetUid: senderId };
-  if (record && record.contextGroupId) data.contextGroupId = record.contextGroupId;
-  await sendToUser(deps, recipientId, buildMessage('knock', name), data);
+  await sendToUser(deps, recipientId, buildMessage('knock', name),
+    { type: 'knock', targetUid: senderId });
 }
 
 export async function handleCall(deps, callerId, callState) {
