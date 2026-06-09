@@ -14,6 +14,7 @@
   --dot-off: #6b7280;
   --dot-off-border: #9ca3af;
   --accent: #6366f1;
+  --accent-rgb: 99, 102, 241;
   --error-bg: #7f1d1d;
   --error-text: #fca5a5;
 }
@@ -1275,9 +1276,14 @@ main {
    below it. (With an Inbox button present the slot IS the aligned first item.) */
 .nav-row-inbox-slot:empty { display: none; }
 .inbox-btn {
-  /* Same shape and border as the create-group "+" button. Tweak if .group-cards-plus
-     uses different class names. */
-  height: 2rem;
+  /* Match the create-group "+" button's height: it's a direct .nav-row child and
+     gets height:2.5rem from `.nav-row > *`, but the Inbox button is nested in the
+     slot, so set it explicitly (border-box, like the "+"). */
+  height: 2.5rem;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 2rem;
   padding: 0 0.5rem;
   border: 1px dashed var(--text-muted);
@@ -1285,6 +1291,19 @@ main {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+}
+/* Unseen invite: pulse the border + an accent halo, mirroring the knock-pending
+   glow on a group chip. Cleared once the user opens the Inbox (markAllSeen). */
+.inbox-btn.unseen { animation: inbox-unseen-pulse 3s ease-in-out infinite; }
+@keyframes inbox-unseen-pulse {
+  0%, 100% {
+    border-color: rgba(var(--accent-rgb), 0.5);
+    box-shadow: 0 0 0 1.5px rgba(var(--accent-rgb), 0.3), 0 0 14px rgba(var(--accent-rgb), 0.15);
+  }
+  50% {
+    border-color: rgba(var(--accent-rgb), 1);
+    box-shadow: 0 0 0 1.5px rgba(var(--accent-rgb), 1), 0 0 24px rgba(var(--accent-rgb), 0.65);
+  }
 }
 .inbox-btn:hover { color: var(--text); border-color: var(--text); }
 

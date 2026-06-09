@@ -9,6 +9,7 @@ import { GROUPS_ENABLED } from './features.js';
 import { createGroup, toggleStatusOverride } from './groups.js';
 import { applyOptimisticOverride } from './groupContext.js';
 import { openInviteModal } from './inviteModal.js';
+import { getCurrentFollowersMap, getCurrentMutuals } from './following.js';
 import { getGroupBadgeCount, getDirectBadgeCount } from './knock.js';
 import { renderInboxNavSlot } from './inbox.js';
 
@@ -460,6 +461,12 @@ export function openCreateGroupModal() {
       userId: _myUserId,
       groupId: result.groupId,
       groupName: name,
+      // Without these the picker's "invite specific people" list renders empty
+      // during the create flow (it only repopulated on a manual reopen via the
+      // roster row). A brand-new group has just the creator as a member.
+      followers: getCurrentFollowersMap(),
+      mutuals: getCurrentMutuals(),
+      currentMemberUids: new Set([_myUserId]),
     });
     await navPromise;
     submit.disabled = false;

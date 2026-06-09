@@ -27,6 +27,10 @@ jest.mock('../js/groups.js', () => ({
 jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),
 }));
+jest.mock('../js/following.js', () => ({
+  getCurrentFollowersMap: jest.fn(() => ({ f1: 'CODEF1' })),
+  getCurrentMutuals: jest.fn(() => [{ userId: 'm1', label: 'Mut One' }]),
+}));
 
 const db = require('../js/db.js');
 const prefs = require('../js/prefs.js');
@@ -177,12 +181,18 @@ describe('create-group modal', () => {
     document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
-    expect(inviteModal.openInviteModal).toHaveBeenCalledWith({
+    // Includes the picker data (followers/mutuals/members) so the "invite
+    // specific people" list is populated during the create flow, not empty
+    // until a manual reopen.
+    expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
       scope: 'group',
       userId: 'uid1',
       groupId: 'G1ABCDEF',
       groupName: 'Family',
-    });
+      followers: { f1: 'CODEF1' },
+      mutuals: [{ userId: 'm1', label: 'Mut One' }],
+      currentMemberUids: expect.any(Set),
+    }));
   });
 
   test('Submit failure: surfaces error from createGroup, stays open', async () => {
