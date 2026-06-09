@@ -14,7 +14,6 @@
   --dot-off: #6b7280;
   --dot-off-border: #9ca3af;
   --accent: #6366f1;
-  --accent-rgb: 99, 102, 241;
   --error-bg: #7f1d1d;
   --error-text: #fca5a5;
 }
@@ -1293,16 +1292,22 @@ main {
   cursor: pointer;
 }
 /* Unseen invite: pulse the border + an accent halo, mirroring the knock-pending
-   glow on a group chip. Cleared once the user opens the Inbox (markAllSeen). */
+   glow on a group chip. Driven off the live --accent (set per Direct-context
+   theme by applyThemeVars), via color-mix, so it tracks a theme change while
+   glowing. Cleared once the user opens the Inbox (markAllSeen). */
 .inbox-btn.unseen { animation: inbox-unseen-pulse 3s ease-in-out infinite; }
 @keyframes inbox-unseen-pulse {
   0%, 100% {
-    border-color: rgba(var(--accent-rgb), 0.5);
-    box-shadow: 0 0 0 1.5px rgba(var(--accent-rgb), 0.3), 0 0 14px rgba(var(--accent-rgb), 0.15);
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    box-shadow:
+      0 0 0 1.5px color-mix(in srgb, var(--accent) 30%, transparent),
+      0 0 14px color-mix(in srgb, var(--accent) 15%, transparent);
   }
   50% {
-    border-color: rgba(var(--accent-rgb), 1);
-    box-shadow: 0 0 0 1.5px rgba(var(--accent-rgb), 1), 0 0 24px rgba(var(--accent-rgb), 0.65);
+    border-color: var(--accent);
+    box-shadow:
+      0 0 0 1.5px var(--accent),
+      0 0 24px color-mix(in srgb, var(--accent) 65%, transparent);
   }
 }
 .inbox-btn:hover { color: var(--text); border-color: var(--text); }
