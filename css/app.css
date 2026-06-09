@@ -1289,6 +1289,7 @@ main {
 .inbox-btn:hover { color: var(--text); border-color: var(--text); }
 
 .inbox-modal-list { list-style: none; padding: 0; margin: 0; }
+.inbox-loading { font-size: 0.875rem; color: var(--text-muted); padding: 0.5rem 0; }
 .inbox-row {
   display: flex;
   flex-direction: column;

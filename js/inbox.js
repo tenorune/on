@@ -66,18 +66,39 @@ async function refreshInboxModalIfOpen() {
 async function renderInboxModalRows() {
   const list = document.getElementById('inbox-modal-list');
   if (!list) return;
+  const entries = Object.entries(_pending);
+
+  // Lightweight in-flight state so the modal isn't blank while the group /
+  // member reads round-trip.
   list.innerHTML = '';
+  if (entries.length > 0) {
+    const loading = document.createElement('li');
+    loading.className = 'inbox-loading';
+    loading.textContent = 'Loading…';
+    list.appendChild(loading);
+  }
+
   const following = getFollowing();
   const inviterLabelByUid = {};
   for (const f of following) inviterLabelByUid[f.userId] = f.label;
 
-  const entries = Object.entries(_pending);
-  for (const [groupId, record] of entries) {
-    const inviterLabel = inviterLabelByUid[record.from] || record.from;
-    const group = await readGroup(groupId);
+  // Resolve all rows in parallel (was one awaited readGroup per row, in series).
+  // Inviter name: the invitee's own label for them when they follow the inviter,
+  // else the inviter's display name in that group (they're a member — today the
+  // owner), else a generic fallback — never the raw uid.
+  const rows = await Promise.all(entries.map(async ([groupId, record]) => {
+    const needMember = !inviterLabelByUid[record.from];
+    const [group, member] = await Promise.all([
+      readGroup(groupId),
+      needMember ? readMember(groupId, record.from) : Promise.resolve(null),
+    ]);
+    const inviterLabel = inviterLabelByUid[record.from] || member?.displayName || 'Someone';
     const groupName = group?.name || groupId;
-    list.appendChild(buildInboxRow({ groupId, inviterLabel, groupName }));
-  }
+    return buildInboxRow({ groupId, inviterLabel, groupName });
+  }));
+
+  list.innerHTML = '';
+  for (const row of rows) list.appendChild(row);
 }
 
 function buildInboxRow({ groupId, inviterLabel, groupName }) {
