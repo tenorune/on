@@ -50,6 +50,21 @@ export async function handleKnock(deps, recipientId, senderId, record) {
     { type: 'knock', targetUid: senderId });
 }
 
+// A pending invite landed in `pendingInvites/{inviteeUid}/{groupId}`. Notify the
+// invitee unconditionally — invites are directed and consensual (sent by someone
+// the invitee follows, or a group owner), so there is no per-person opt-in gate
+// like knocks/availability. Payload carries type:'invite' and NO contextGroupId:
+// the invitee is not a member yet, so the deep link opens the Inbox, not the group.
+export async function handleInvite(deps, inviteeUid, groupId, record) {
+  if (!record || !record.from) return;
+  const follow = await deps.getVal(`userPrefs/${inviteeUid}/following/${record.from}`);
+  const name = (follow && follow.label) || await resolveGroupMemberName(deps, groupId, record.from);
+  const group = await deps.getVal(`groups/${groupId}/name`);
+  await sendToUser(deps, inviteeUid,
+    buildMessage('invite', name, { group: group || undefined }),
+    { type: 'invite', targetUid: record.from, groupId });
+}
+
 // Notify the OTHER members of a group that `memberUid` is available in it.
 // Caller decides the "became available" transition; this just fans out with a
 // per-(group, member) cooldown so availability in one group doesn't mute another.

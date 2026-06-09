@@ -4,7 +4,7 @@ import { getDatabase } from 'firebase-admin/database';
 import { getMessaging } from 'firebase-admin/messaging';
 import { onValueCreated, onValueWritten } from 'firebase-functions/v2/database';
 import { setGlobalOptions } from 'firebase-functions/v2';
-import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange } from './notifier.js';
+import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange, handleInvite } from './notifier.js';
 
 // Pin all functions to the RTDB's region. A 2nd-gen RTDB trigger MUST run in the
 // same region as the database instance. Region is per-project config: the Firebase
@@ -81,4 +81,11 @@ export const onMemberOverride = onValueWritten('/groups/{groupId}/members/{membe
     event.data.before.val(),
     event.data.after.val(),
   );
+});
+
+// A pending group invite was created in the invitee's mailbox. onValueCreated
+// (not Written) so a resend-overwrite of the same {groupId} key doesn't re-fire;
+// a re-invite after decline (key deleted, then recreated) does.
+export const onInvite = onValueCreated('/pendingInvites/{inviteeUid}/{groupId}', (event) => {
+  return handleInvite(makeDeps(), event.params.inviteeUid, event.params.groupId, event.data.val());
 });

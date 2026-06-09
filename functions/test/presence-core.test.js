@@ -94,3 +94,13 @@ describe('buildMessage group titles', () => {
     expect(buildMessage('availability', 'Bea', { group: null })).toEqual({ title: 'Bea is available', body: '' });
   });
 });
+
+describe('buildMessage invite titles', () => {
+  test('invite with group → "{name} invited you to {group}"', () => {
+    expect(buildMessage('invite', 'Bobby', { group: 'Divers' }))
+      .toEqual({ title: 'Bobby invited you to Divers', body: '' });
+  });
+  test('invite without group → generic', () => {
+    expect(buildMessage('invite', 'Bobby')).toEqual({ title: 'Bobby invited you to a group', body: '' });
+  });
+});

@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange } from '../notifier.js';
+import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange, handleInvite } from '../notifier.js';
 
 function makeDeps(overrides = {}) {
   const store = overrides.store || {};
@@ -401,5 +401,36 @@ describe('handleAvailability → one push per recipient (dedup)', () => {
     }});
     await handleAvailability(deps, 'bob', null, FUTURE);
     expect(deps.send).not.toHaveBeenCalled(); // Direct cooled, group skips the follower
+  });
+});
+
+describe('handleInvite', () => {
+  test('notifies the invitee using their label for the inviter + group name', async () => {
+    const deps = makeDeps({ store: {
+      'userPrefs/inv/following/owner': { label: 'Alex' },
+      'groups/g1/name': 'Divers',
+      'userPrefs/inv/pushTokens': { tokI: {} },
+    }});
+    await handleInvite(deps, 'inv', 'g1', { from: 'owner', ts: 1 });
+    expect(deps.send).toHaveBeenCalledWith(['tokI'],
+      { title: 'Alex invited you to Divers', body: '' },
+      { type: 'invite', targetUid: 'owner', groupId: 'g1' });
+  });
+  test('falls back to the inviter group displayName when the invitee does not follow them', async () => {
+    const deps = makeDeps({ store: {
+      'groups/g1/members/owner/displayName': 'Bobby',
+      'groups/g1/name': 'Divers',
+      'userPrefs/inv/pushTokens': { tokI: {} },
+    }});
+    await handleInvite(deps, 'inv', 'g1', { from: 'owner', ts: 1 });
+    expect(deps.send).toHaveBeenCalledWith(['tokI'],
+      { title: 'Bobby invited you to Divers', body: '' },
+      expect.objectContaining({ type: 'invite' }));
+  });
+  test('no record / no from → no send', async () => {
+    const deps = makeDeps();
+    await handleInvite(deps, 'inv', 'g1', null);
+    await handleInvite(deps, 'inv', 'g1', { ts: 1 });
+    expect(deps.send).not.toHaveBeenCalled();
   });
 });
