@@ -173,13 +173,15 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
         : await regenerateGroupInvite(userId, groupId);
       currentInvite = { ...currentInvite, token: result.token, url: result.url };
       renderManageUrl(currentInvite);
-      flashRegenerated(document.getElementById('invite-modal-url'));
+      flashRegenerated(
+        document.getElementById('invite-modal-url'),
+        document.getElementById('invite-modal-regen-btn'),
+      );
       document.getElementById('invite-modal-copy-btn').textContent = 'Copy';
     } catch (err) {
       showError(err.message || 'Could not regenerate invite. Try again.');
-    } finally {
-      // The tapped ↻ keeps focus (and looks "stuck selected") until you tap
-      // elsewhere — drop it.
+      // On error the badge swap didn't run, so drop the tapped ↻'s focus here
+      // (otherwise it looks "stuck selected" until you tap elsewhere).
       document.getElementById('invite-modal-regen-btn').blur();
     }
   });
