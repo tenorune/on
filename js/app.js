@@ -19,6 +19,7 @@ import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector } from './groups.js';
 import { initInbox } from './inbox.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
+import { flashRegenerated } from './regenFlash.js';
 
 
 let splashCounter = 0;
@@ -211,6 +212,8 @@ export function showRecoveryCodeModal(initialCode) {
       current = generateRecoveryCode();
       text.textContent = current;
       if (copyBtn) copyBtn.textContent = 'Copy';
+      // Same visible-change cue as the invite modal (fade-in + NEW badge).
+      flashRegenerated(text);
       // Drop focus so the tapped ↻ doesn't stay visibly "selected" until the
       // user taps elsewhere.
       rotateBtn.blur();
