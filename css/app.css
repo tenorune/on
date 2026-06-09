@@ -943,6 +943,11 @@ main {
   gap: 0.5rem;
   margin-top: 0.75rem;
 }
+/* Group invite (no name field): the name input is hidden, so the Create button
+   sits directly under the help text. Drop the actions' top margin — it only
+   exists to separate the button from the input above it — leaving just the
+   modal's standard gap between the help text and the button. */
+#invite-modal-label-input.hidden ~ .modal-actions { margin-top: 0; }
 .modal-label {
   display: block;
   font-size: 0.9rem;
