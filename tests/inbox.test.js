@@ -85,6 +85,32 @@ describe('Inbox', () => {
     expect(rows[0].textContent).toContain('Family');
   });
 
+  test('inviter not followed by the invitee → shows their group displayName, never the raw uid', async () => {
+    let cb;
+    db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
+    db.readGroup.mockResolvedValue({ name: 'Family' });
+    db.readMember.mockResolvedValue({ role: 'owner', displayName: 'Bobby', joinedAt: 1 });
+    initInbox('me');
+    cb({ G1: { from: 'uStranger', ts: 1 } }); // uStranger is not in getFollowing()
+    await openInboxModal();
+    const row = document.querySelector('#inbox-modal-list .inbox-row');
+    expect(row.textContent).toContain('Bobby');
+    expect(row.textContent).not.toContain('uStranger');
+  });
+
+  test('inviter unresolvable (not followed, no member record) → "Someone", never the raw uid', async () => {
+    let cb;
+    db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
+    db.readGroup.mockResolvedValue({ name: 'Family' });
+    db.readMember.mockResolvedValue(null);
+    initInbox('me');
+    cb({ G1: { from: 'uStranger', ts: 1 } });
+    await openInboxModal();
+    const row = document.querySelector('#inbox-modal-list .inbox-row');
+    expect(row.textContent).toContain('Someone');
+    expect(row.textContent).not.toContain('uStranger');
+  });
+
   test('Join prompts for displayName, calls joinGroup, deletes pending, navigates', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
