@@ -40,12 +40,14 @@ const TITLES = {
   knock: (name) => `${name} knocked`,
   call: (name) => `${name} is calling`,
   availability: (name) => `${name} is available`,
+  invite: (name) => `${name} invited you to a group`,
 };
 
 const GROUP_TITLES = {
   knock: (name, group) => `${name} knocked in ${group}`,
   call: (name, group) => `${name} is calling in ${group}`,
   availability: (name, group) => `${name} is available in ${group}`,
+  invite: (name, group) => `${name} invited you to ${group}`,
 };
 
 export function buildMessage(type, name, opts = {}) {

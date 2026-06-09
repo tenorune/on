@@ -17,7 +17,7 @@ import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector } from './groups.js';
-import { initInbox } from './inbox.js';
+import { initInbox, openInboxModal } from './inbox.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { flashRegenerated } from './regenFlash.js';
 
@@ -499,6 +499,9 @@ async function main() {
     // client (sw.js notificationclick). Route group notifications into that group.
     navigator.serviceWorker?.addEventListener('message', (e) => {
       if (e.data?.kind !== 'notification-click') return;
+      // Invite pushes deep-link to the Inbox (the invitee isn't a member of the
+      // group yet, so group-context routing would be wrong for them).
+      if (e.data.data?.type === 'invite') { openInboxModal(); return; }
       const gid = e.data.data?.contextGroupId;
       if (gid) navigateToGroup(gid);
     });

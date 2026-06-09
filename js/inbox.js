@@ -44,6 +44,8 @@ export function renderInboxNavSlot() {
   slot.appendChild(btn);
 }
 
+// Deep-link target for an invite push notification (app.js routes type:'invite'
+// here). Same code path as tapping the nav-row Inbox button.
 export async function openInboxModal() {
   const modal = document.getElementById('inbox-modal');
   if (!modal) return;
