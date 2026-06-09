@@ -847,6 +847,16 @@ main {
    value in. See js/regenFlash.js. */
 @keyframes regen-flash { from { opacity: 0; } to { opacity: 1; } }
 .regen-flash { animation: regen-flash 0.45s ease-out; }
+/* Fixed-size slot for the ↻ button. The button keeps the slot's width even when
+   hidden (visibility), so swapping it for the NEW badge never resizes the row or
+   reflows the value. The badge is laid over the slot (right-aligned) so it can be
+   wider than the ↻ without affecting layout — it just clips over the value's end
+   during the cue. */
+.regen-slot { position: relative; display: inline-flex; align-items: center; flex: none; }
+.regen-slot .new-badge {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  margin: 0; white-space: nowrap;
+}
 /* Secret phrase (4 hyphen-joined words): wrap so the WHOLE phrase is always
    visible — never clipped — even if it takes two lines. Overrides the base
    nowrap/overflow:hidden used for the single-line invite token. */

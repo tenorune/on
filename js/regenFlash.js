@@ -12,23 +12,25 @@ export function flashRegenerated(el, button = null) {
   el.classList.remove('regen-flash');
   void el.offsetWidth; // reflow so re-adding the class restarts the animation
   el.classList.add('regen-flash');
-  const parent = el.parentElement;
-  const prior = parent && parent.querySelector('.new-badge');
+  // Anchor the badge in the button's slot (absolutely positioned over it) when a
+  // button is given, else inline after the value.
+  const host = button || el;
+  const prior = host.parentElement && host.parentElement.querySelector('.new-badge');
   if (prior) prior.remove();
-  // Hide the regenerate button so the badge takes its place; blur it first so it
-  // never stays visibly "selected" (display:none alone drops focus in browsers,
-  // but be explicit) and can't be double-tapped while the cue plays.
-  if (button) { button.blur(); button.style.display = 'none'; }
   const badge = document.createElement('span');
   badge.className = 'new-badge';
   badge.textContent = 'NEW';
-  el.insertAdjacentElement('afterend', badge);
+  // Hide the regenerate button with visibility (not display) so its slot keeps
+  // its size — the value's width never changes, so the phrase doesn't reflow and
+  // the box stays a constant size. blur() drops the "stuck selected" focus.
+  if (button) { button.blur(); button.style.visibility = 'hidden'; }
+  host.insertAdjacentElement('afterend', badge);
   requestAnimationFrame(() => { badge.style.opacity = '1'; });
   setTimeout(() => {
     badge.style.opacity = '0';
     setTimeout(() => {
       badge.remove();
-      if (button) button.style.display = '';
+      if (button) button.style.visibility = '';
     }, 500);
   }, 1400);
 }
