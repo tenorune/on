@@ -47,6 +47,7 @@ function setupDom() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  try { localStorage.clear(); } catch { /* no-op */ }
   setupDom();
 });
 
@@ -54,6 +55,32 @@ describe('Inbox', () => {
   test('subscribes via watchPendingInvites on init', () => {
     initInbox('me');
     expect(db.watchPendingInvites).toHaveBeenCalledWith('me', expect.any(Function));
+  });
+
+  test('a new pending invite glows (.unseen); opening the Inbox clears it', async () => {
+    let cb;
+    db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
+    db.readGroup.mockResolvedValue({ name: 'Family' });
+    initInbox('me');
+    cb({ G1: { from: 'uOwner1', ts: 100 } });
+    expect(document.querySelector('#nav-row-inbox-slot .inbox-btn.unseen')).not.toBeNull();
+    await openInboxModal();
+    // After opening, the (re-rendered) button no longer glows.
+    const btn = document.querySelector('#nav-row-inbox-slot .inbox-btn');
+    expect(btn).not.toBeNull();
+    expect(btn.classList.contains('unseen')).toBe(false);
+  });
+
+  test('a re-invite (new ts) glows again after a prior one was seen', async () => {
+    let cb;
+    db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
+    db.readGroup.mockResolvedValue({ name: 'Family' });
+    initInbox('me');
+    cb({ G1: { from: 'uOwner1', ts: 100 } });
+    await openInboxModal();                       // seen
+    cb({});                                        // declined → mailbox empties
+    cb({ G1: { from: 'uOwner1', ts: 200 } });      // re-invited (new ts)
+    expect(document.querySelector('#nav-row-inbox-slot .inbox-btn.unseen')).not.toBeNull();
   });
 
   test('renders no button when there are zero pending invites', () => {

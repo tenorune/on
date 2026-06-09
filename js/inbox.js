@@ -14,11 +14,42 @@ let _pending = {};               // groupId → { from, ts }
 let _unsubscribe = null;
 let _overlayHandlerInstalled = false;
 
+// "Unseen" tracking (per-device, like the knock-pending cue). An invite is
+// unseen until the user opens the Inbox. Keyed by groupId:ts so a re-invite
+// (new ts after a decline) glows again. localStorage so it survives reloads.
+const SEEN_KEY = 'statusapp_inbox_seen';
+let _seen = new Set();
+function loadSeen() {
+  try { _seen = new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')); }
+  catch { _seen = new Set(); }
+}
+function persistSeen() {
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify([..._seen])); } catch { /* quota */ }
+}
+function inviteKey(groupId, record) { return `${groupId}:${record?.ts ?? ''}`; }
+function pendingKeys() { return Object.entries(_pending).map(([gid, r]) => inviteKey(gid, r)); }
+function hasUnseenInvite() { return pendingKeys().some((k) => !_seen.has(k)); }
+// Drop seen entries that are no longer pending (declined/joined) so the set
+// can't grow without bound and a future same-key invite isn't pre-marked seen.
+function pruneSeen() {
+  const live = new Set(pendingKeys());
+  let changed = false;
+  for (const k of _seen) if (!live.has(k)) { _seen.delete(k); changed = true; }
+  if (changed) persistSeen();
+}
+function markAllSeen() {
+  let changed = false;
+  for (const k of pendingKeys()) if (!_seen.has(k)) { _seen.add(k); changed = true; }
+  if (changed) persistSeen();
+}
+
 export function initInbox(uid) {
   _myUid = uid;
+  loadSeen();
   if (_unsubscribe) _unsubscribe();
   _unsubscribe = watchPendingInvites(uid, (snap) => {
     _pending = snap || {};
+    pruneSeen();
     renderInboxNavSlot();
     refreshInboxModalIfOpen();
     if (getPendingCount() === 0) closeInboxModal();
@@ -37,6 +68,7 @@ export function renderInboxNavSlot() {
   if (getPendingCount() === 0) return;
   const btn = document.createElement('button');
   btn.className = 'inbox-btn';
+  if (hasUnseenInvite()) btn.classList.add('unseen'); // glow until opened
   btn.type = 'button';
   btn.textContent = 'Inbox';
   btn.title = 'Pending invites';
@@ -49,6 +81,9 @@ export function renderInboxNavSlot() {
 export async function openInboxModal() {
   const modal = document.getElementById('inbox-modal');
   if (!modal) return;
+  // Opening the Inbox = the invites are now seen; clear the glow.
+  markAllSeen();
+  renderInboxNavSlot();
   modal.classList.remove('hidden');
   await renderInboxModalRows();
 }
