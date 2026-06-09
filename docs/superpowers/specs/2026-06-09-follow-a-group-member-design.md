@@ -110,7 +110,7 @@ Cohesive split mirroring the invitee/inviter sides of `pendingInvites`:
     a decline (key deleted then recreated) does.
 - **`js/db.js`** (NEW primitives): `writeFollowRequest`, `watchFollowRequests`,
   `deleteFollowRequest`, `writeFollowGrant`, `watchFollowGrants`, `deleteFollowGrant`. Each new
-  export must be stubbed in every db-mocking test file (the "db-mock tax" — ~a dozen files).
+  export must be stubbed in every db-mocking test file (the "db-mock tax" — 17 files).
 
 ## Eligibility / dedup / edge cases
 
