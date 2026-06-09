@@ -42,7 +42,19 @@ jest.mock('../js/features.js', () => ({
   CALL_ENABLED: true,
 }));
 
-const { normalizePoint, denormalizePoint, getThicknessValues } = require('../js/canvas.js');
+const { normalizePoint, denormalizePoint, getThicknessValues, showPeerLeftDialog } = require('../js/canvas.js');
+
+describe('peer-name rendering is XSS-safe', () => {
+  test('showPeerLeftDialog escapes a malicious peer name (no element injection)', () => {
+    document.body.innerHTML = '<div id="host"></div>';
+    const host = document.getElementById('host');
+    const evil = `<img src=x onerror="window.__pwned=1">`;
+    showPeerLeftDialog(host, evil, () => {});
+    // The payload must be rendered as text, never as elements.
+    expect(host.querySelector('img')).toBeNull();
+    expect(host.querySelector('.canvas-dialog h3').textContent).toContain('<img src=x');
+  });
+});
 
 describe('canvas coordinate helpers', () => {
   test('normalizePoint converts pixel coords to 0-1 range', () => {

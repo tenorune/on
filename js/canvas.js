@@ -1,6 +1,6 @@
 // js/canvas.js
 import { getCanvasColors } from './favorites.js';
-import { safeCssColor } from './utils.js';
+import { safeCssColor, escapeHtml } from './utils.js';
 import {
   getCanvasId, loadCanvas, pushStroke, removeStroke, setCanvasBg, watchStrokes, unwatchStrokes,
   setCanvasPresence, watchCanvasPresence, unwatchCanvasPresence,
@@ -90,7 +90,7 @@ function buildFloatingUI(container, penColors, bgColors) {
   const header = document.createElement('div');
   header.className = 'canvas-float canvas-header';
   header.id = 'canvas-header';
-  const safeName = document.createTextNode(_peerName).textContent;
+  const safeName = escapeHtml(_peerName);
   header.innerHTML = `<span class="canvas-header-arrow">&lsaquo;</span><span class="canvas-header-name">${safeName}</span><div class="canvas-header-dot" id="canvas-peer-dot" style="background:${safeCssColor(_peerColor)}"></div>`;
   header.addEventListener('click', () => showEndDialog(container));
   container.appendChild(header);
@@ -301,7 +301,7 @@ function showEndDialog(container) {
 export function showPeerLeftDialog(container, peerName, onDone) {
   const overlay = document.createElement('div');
   overlay.className = 'canvas-dialog-overlay';
-  const safeName = document.createTextNode(peerName).textContent;
+  const safeName = escapeHtml(peerName);
   overlay.innerHTML = `
     <div class="canvas-dialog">
       <h3>${safeName} left</h3>
@@ -634,7 +634,7 @@ function requestClearCanvas() {
   overlay.innerHTML = `
     <div class="canvas-dialog">
       <h3>Clear canvas?</h3>
-      <p>Waiting for ${document.createTextNode(_peerName).textContent} to agree...</p>
+      <p>Waiting for ${escapeHtml(_peerName)} to agree...</p>
       <div class="canvas-dialog-btns">
         <button class="canvas-dialog-btn" id="canvas-clear-cancel">Cancel</button>
       </div>
@@ -655,7 +655,7 @@ function showClearApprovalDialog(requesterId) {
   overlay.innerHTML = `
     <div class="canvas-dialog">
       <h3>Clear canvas?</h3>
-      <p>${document.createTextNode(_peerName).textContent} wants to start over</p>
+      <p>${escapeHtml(_peerName)} wants to start over</p>
       <div class="canvas-dialog-btns">
         <button class="canvas-dialog-btn" id="canvas-clear-keep">Keep</button>
         <button class="canvas-dialog-btn danger" id="canvas-clear-approve">Clear</button>
