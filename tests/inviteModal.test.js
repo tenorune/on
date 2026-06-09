@@ -122,8 +122,9 @@ describe('openInviteModal — personal scope', () => {
     await new Promise(setImmediate);
     expect(invites.regeneratePersonalInvite).toHaveBeenCalledWith('uid1', 'Alex');
     expect(document.getElementById('invite-modal-url').textContent).toBe('NEW2');
-    // Visible change cue + the ↻ no longer holds focus ("stuck selected").
+    // The ↻ is replaced by the NEW badge while it shows (and so can't hold focus).
     expect(document.querySelector('#invite-modal-manage .new-badge')).not.toBeNull();
+    expect(regenBtn.style.display).toBe('none');
     expect(document.activeElement).not.toBe(regenBtn);
   });
 
@@ -219,6 +220,7 @@ describe('openInviteModal — group scope', () => {
     expect(invites.regenerateGroupInvite).toHaveBeenCalledWith('uid1', 'G1');
     expect(document.getElementById('invite-modal-url').textContent).toBe('NEW2');
     expect(document.querySelector('#invite-modal-manage .new-badge')).not.toBeNull();
+    expect(document.getElementById('invite-modal-regen-btn').style.display).toBe('none');
   });
 
   test('Revoke calls revokeGroupInvite(userId, groupId)', async () => {

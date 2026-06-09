@@ -212,11 +212,10 @@ export function showRecoveryCodeModal(initialCode) {
       current = generateRecoveryCode();
       text.textContent = current;
       if (copyBtn) copyBtn.textContent = 'Copy';
-      // Same visible-change cue as the invite modal (fade-in + NEW badge).
-      flashRegenerated(text);
-      // Drop focus so the tapped ↻ doesn't stay visibly "selected" until the
-      // user taps elsewhere.
-      rotateBtn.blur();
+      // Same visible-change cue as the invite modal: fade-in + a NEW badge that
+      // replaces the ↻ while it shows (which also drops the button's focus, so
+      // it never looks "stuck selected").
+      flashRegenerated(text, rotateBtn);
     }
     async function onCopy() {
       try {
