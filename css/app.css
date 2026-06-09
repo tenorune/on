@@ -843,11 +843,21 @@ main {
   word-break: break-all;
   margin-bottom: 0.375rem;
 }
-@keyframes invite-hash-swap { from { opacity: 0; } to { opacity: 1; } }
-#invite-modal-url.hash-swapped { animation: invite-hash-swap 0.45s ease-out; }
+/* Shared regenerate cue (invite hash, new-user secret phrase): fade the new
+   value in. See js/regenFlash.js. */
+@keyframes regen-flash { from { opacity: 0; } to { opacity: 1; } }
+.regen-flash { animation: regen-flash 0.45s ease-out; }
+/* Secret phrase (4 hyphen-joined words): wrap so the WHOLE phrase is always
+   visible — never clipped — even if it takes two lines. Overrides the base
+   nowrap/overflow:hidden used for the single-line invite token. */
+#recovery-code-text, #drawer-recovery-code {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: break-word;
+}
 /* Modal: tighter container (modal-card + recovery-display nested padding),
    so the code font runs smaller than the drawer pill version. */
-#recovery-code-text { font-size: clamp(0.6rem, 2.3vw, 0.8rem); }
+#recovery-code-text { font-size: clamp(0.7rem, 2.3vw, 0.85rem); }
 /* Drawer pill: more horizontal room since it spans the full drawer width. */
 #drawer-recovery-code { font-size: clamp(0.7rem, 3vw, 0.95rem); }
 .recovery-warning {
