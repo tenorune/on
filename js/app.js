@@ -211,6 +211,9 @@ export function showRecoveryCodeModal(initialCode) {
       current = generateRecoveryCode();
       text.textContent = current;
       if (copyBtn) copyBtn.textContent = 'Copy';
+      // Drop focus so the tapped ↻ doesn't stay visibly "selected" until the
+      // user taps elsewhere.
+      rotateBtn.blur();
     }
     async function onCopy() {
       try {

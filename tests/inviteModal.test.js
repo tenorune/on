@@ -38,6 +38,7 @@ function setupDom() {
           <button id="invite-modal-create-btn"></button>
         </div>
         <div id="invite-modal-manage" class="hidden">
+          <div id="invite-modal-url-prefix"></div>
           <code id="invite-modal-url"></code>
           <button id="invite-modal-copy-btn"></button>
           <button id="invite-modal-regen-btn"></button>
@@ -75,7 +76,9 @@ describe('openInviteModal — personal scope', () => {
     openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'TOKEN', creatorLabel: 'Alex', url: 'https://x/?i=TOKEN' } });
     expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(true);
-    expect(document.getElementById('invite-modal-url').textContent).toBe('https://x/?i=TOKEN');
+    // The unchanging base sits above the field; the field holds only the token.
+    expect(document.getElementById('invite-modal-url-prefix').textContent).toBe('https://x/?i=');
+    expect(document.getElementById('invite-modal-url').textContent).toBe('TOKEN');
   });
 
   test('Create button validates label and calls createPersonalInvite', async () => {
@@ -92,7 +95,7 @@ describe('openInviteModal — personal scope', () => {
     document.getElementById('invite-modal-create-btn').click();
     await new Promise(setImmediate);
     expect(invites.createPersonalInvite).toHaveBeenCalledWith('uid1', 'Alex K.');
-    expect(document.getElementById('invite-modal-url').textContent).toBe('https://x/?i=NEW');
+    expect(document.getElementById('invite-modal-url').textContent).toBe('NEW');
     expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(false);
   });
 
@@ -113,10 +116,15 @@ describe('openInviteModal — personal scope', () => {
   test('Regenerate calls regeneratePersonalInvite and refreshes the URL', async () => {
     invites.regeneratePersonalInvite.mockResolvedValue({ token: 'NEW2', url: 'https://x/?i=NEW2', existing: false });
     openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
-    document.getElementById('invite-modal-regen-btn').click();
+    const regenBtn = document.getElementById('invite-modal-regen-btn');
+    regenBtn.focus();
+    regenBtn.click();
     await new Promise(setImmediate);
     expect(invites.regeneratePersonalInvite).toHaveBeenCalledWith('uid1', 'Alex');
-    expect(document.getElementById('invite-modal-url').textContent).toBe('https://x/?i=NEW2');
+    expect(document.getElementById('invite-modal-url').textContent).toBe('NEW2');
+    // Visible change cue + the ↻ no longer holds focus ("stuck selected").
+    expect(document.querySelector('#invite-modal-manage .new-badge')).not.toBeNull();
+    expect(document.activeElement).not.toBe(regenBtn);
   });
 
   test('Revoke calls revokePersonalInvite and transitions to Create state', async () => {
@@ -197,7 +205,7 @@ describe('openInviteModal — group scope', () => {
     document.getElementById('invite-modal-create-btn').click();
     await new Promise(setImmediate);
     expect(invites.createGroupInvite).toHaveBeenCalledWith('uid1', 'G1');
-    expect(document.getElementById('invite-modal-url').textContent).toBe('https://x/?i=NEW');
+    expect(document.getElementById('invite-modal-url').textContent).toBe('NEW');
   });
 
   test('Regenerate calls regenerateGroupInvite(userId, groupId)', async () => {
@@ -209,6 +217,8 @@ describe('openInviteModal — group scope', () => {
     document.getElementById('invite-modal-regen-btn').click();
     await new Promise(setImmediate);
     expect(invites.regenerateGroupInvite).toHaveBeenCalledWith('uid1', 'G1');
+    expect(document.getElementById('invite-modal-url').textContent).toBe('NEW2');
+    expect(document.querySelector('#invite-modal-manage .new-badge')).not.toBeNull();
   });
 
   test('Revoke calls revokeGroupInvite(userId, groupId)', async () => {

@@ -41,8 +41,36 @@ function showState(stateName) {
   document.getElementById('invite-modal-manage').classList.toggle('hidden', stateName !== 'manage');
 }
 
-function renderManageUrl(url) {
-  document.getElementById('invite-modal-url').textContent = url;
+// Show the unchanging URL base (e.g. "https://app/?i=") above the field and only
+// the changing token ("hash") inside it, so a regenerate is obviously a change.
+function renderManageUrl(invite) {
+  const url = invite.url || '';
+  const token = invite.token || '';
+  const prefixEl = document.getElementById('invite-modal-url-prefix');
+  if (prefixEl) prefixEl.textContent = token && url.endsWith(token) ? url.slice(0, url.length - token.length) : url;
+  const urlEl = document.getElementById('invite-modal-url');
+  if (urlEl) urlEl.textContent = token || url;
+}
+
+// Visible "it changed" cue on regenerate — a quick fade-in on the new hash plus
+// a transient NEW badge, mirroring the share-code regeneration animation.
+function signalHashChanged() {
+  const display = document.getElementById('invite-modal-url');
+  if (!display) return;
+  display.classList.remove('hash-swapped');
+  void display.offsetWidth; // reflow so re-adding the class restarts the animation
+  display.classList.add('hash-swapped');
+  const prior = display.parentElement && display.parentElement.querySelector('.new-badge');
+  if (prior) prior.remove();
+  const badge = document.createElement('span');
+  badge.className = 'new-badge';
+  badge.textContent = 'NEW';
+  display.insertAdjacentElement('afterend', badge);
+  requestAnimationFrame(() => { badge.style.opacity = '1'; });
+  setTimeout(() => {
+    badge.style.opacity = '0';
+    setTimeout(() => badge.remove(), 500);
+  }, 1400);
 }
 
 function hideError() {
@@ -114,7 +142,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
 
   if (currentInvite) {
     showState('manage');
-    renderManageUrl(currentInvite.url);
+    renderManageUrl(currentInvite);
   } else {
     showState('create');
     if (labelInputEl) labelInputEl.value = '';
@@ -139,7 +167,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
         currentInvite = { token: result.token, url: result.url, scope, groupId, groupName };
       }
       showState('manage');
-      renderManageUrl(result.url);
+      renderManageUrl(currentInvite);
     } catch (err) {
       showError(err.message || 'Could not create invite. Try again.');
     }
@@ -164,10 +192,15 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
         ? await regeneratePersonalInvite(userId, currentInvite.creatorLabel)
         : await regenerateGroupInvite(userId, groupId);
       currentInvite = { ...currentInvite, token: result.token, url: result.url };
-      renderManageUrl(result.url);
+      renderManageUrl(currentInvite);
+      signalHashChanged();
       document.getElementById('invite-modal-copy-btn').textContent = 'Copy';
     } catch (err) {
       showError(err.message || 'Could not regenerate invite. Try again.');
+    } finally {
+      // The tapped ↻ keeps focus (and looks "stuck selected") until you tap
+      // elsewhere — drop it.
+      document.getElementById('invite-modal-regen-btn').blur();
     }
   });
 

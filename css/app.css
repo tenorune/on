@@ -834,6 +834,17 @@ main {
   white-space: nowrap;
   overflow: hidden;
 }
+/* Invite modal: the unchanging URL base above the field; the field holds only
+   the changing token, which fades in on regenerate so the change is obvious. */
+.invite-url-prefix {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  word-break: break-all;
+  margin-bottom: 0.375rem;
+}
+@keyframes invite-hash-swap { from { opacity: 0; } to { opacity: 1; } }
+#invite-modal-url.hash-swapped { animation: invite-hash-swap 0.45s ease-out; }
 /* Modal: tighter container (modal-card + recovery-display nested padding),
    so the code font runs smaller than the drawer pill version. */
 #recovery-code-text { font-size: clamp(0.6rem, 2.3vw, 0.8rem); }
