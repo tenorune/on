@@ -509,7 +509,10 @@ main {
   background: var(--surface);
   border: none;
   cursor: default;
-  padding: 0.25rem 0.5rem;
+  /* No left padding: the group name has no visible box (bg matches the row), so
+     its text is the visible left edge — keep it flush with the nav-row's 1rem
+     padding so it lines up with the availability dot below. */
+  padding: 0.25rem 0.5rem 0.25rem 0;
   flex-shrink: 0;
 }
 .nav-back {
@@ -1267,6 +1270,10 @@ main {
 
 /* ── Phase 3 Inbox nav element + modal ──────────────────────────────────── */
 .nav-row-inbox-slot { flex-shrink: 0; }
+/* When there are no pending invites the slot is empty — collapse it entirely so
+   its flex gap doesn't push the first group card / "+" off the dot's left edge
+   below it. (With an Inbox button present the slot IS the aligned first item.) */
+.nav-row-inbox-slot:empty { display: none; }
 .inbox-btn {
   /* Same shape and border as the create-group "+" button. Tweak if .group-cards-plus
      uses different class names. */
