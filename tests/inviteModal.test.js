@@ -124,7 +124,7 @@ describe('openInviteModal — personal scope', () => {
     expect(document.getElementById('invite-modal-url').textContent).toBe('NEW2');
     // The ↻ is replaced by the NEW badge while it shows (and so can't hold focus).
     expect(document.querySelector('#invite-modal-manage .new-badge')).not.toBeNull();
-    expect(regenBtn.style.display).toBe('none');
+    expect(regenBtn.style.visibility).toBe('hidden');
     expect(document.activeElement).not.toBe(regenBtn);
   });
 
@@ -220,7 +220,7 @@ describe('openInviteModal — group scope', () => {
     expect(invites.regenerateGroupInvite).toHaveBeenCalledWith('uid1', 'G1');
     expect(document.getElementById('invite-modal-url').textContent).toBe('NEW2');
     expect(document.querySelector('#invite-modal-manage .new-badge')).not.toBeNull();
-    expect(document.getElementById('invite-modal-regen-btn').style.display).toBe('none');
+    expect(document.getElementById('invite-modal-regen-btn').style.visibility).toBe('hidden');
   });
 
   test('Revoke calls revokeGroupInvite(userId, groupId)', async () => {
