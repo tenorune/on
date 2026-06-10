@@ -25,7 +25,12 @@ export function initOwnStatus(uid) {
   _last = NO_TICK;
   _unsub = watchStatus(uid, (data) => {
     _last = data;
-    for (const cb of _subs) {
+    // Snapshot before iterating: a consumer that (un)subscribes from within its
+    // own tick handler must not be double-delivered (newly-added consumers get
+    // exactly one delivery, via subscribeOwnStatus's synchronous replay) or
+    // visited after removal. Registration order is preserved by the spread.
+    for (const cb of [..._subs]) {
+      if (!_subs.has(cb)) continue; // unsubscribed mid-fan-out — skip
       try { cb(data); } catch { /* one consumer's handler threw — keep going */ }
     }
   });

@@ -85,3 +85,34 @@ test('re-init tears down the previous watch and clears replay', () => {
   subscribeOwnStatus(late);
   expect(late).not.toHaveBeenCalled();
 });
+
+test('a throwing consumer does not abort later consumers', () => {
+  const getCb = captureWatch();
+  initOwnStatus('me');
+  const after = jest.fn();
+  subscribeOwnStatus(() => { throw new Error('boom'); });
+  subscribeOwnStatus(after);
+  getCb()({ status: 'available' });
+  expect(after).toHaveBeenCalledWith({ status: 'available' });
+});
+
+test('subscribing during fan-out delivers to the new consumer exactly once', () => {
+  const getCb = captureWatch();
+  initOwnStatus('me');
+  const late = jest.fn();
+  subscribeOwnStatus(() => { subscribeOwnStatus(late); });
+  getCb()({ status: 'available' });
+  expect(late).toHaveBeenCalledTimes(1);
+  expect(late).toHaveBeenCalledWith({ status: 'available' });
+});
+
+test('unsubscribing a not-yet-visited consumer during fan-out skips it', () => {
+  const getCb = captureWatch();
+  initOwnStatus('me');
+  const victim = jest.fn();
+  let unsubVictim;
+  subscribeOwnStatus(() => { unsubVictim(); }); // first consumer removes the victim
+  unsubVictim = subscribeOwnStatus(victim);     // registered after, not yet visited
+  getCb()({ status: 'available' });
+  expect(victim).not.toHaveBeenCalled();
+});
