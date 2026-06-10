@@ -808,4 +808,32 @@ describe('subscribeGroupMeta / subscribeOwnOverride providers', () => {
     subscribeOwnOverride('G9', late);
     expect(late).toHaveBeenCalledWith(null);
   });
+
+  test('subscribeOwnOverride replay matches the last raw server tick, not an optimistic nav-cache write', () => {
+    let enumCb, overrideCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });          // G1 enumerated → override sub opens
+    overrideCb({ enabled: true, status: 'available', statusColor: '#111111' }); // server tick
+    // Optimistic nav-card mutation (does NOT come from the server watch):
+    applyOptimisticAppearance('G1', { statusColor: '#ffffff' });
+    // A late consumer must replay the last RAW server value, not the optimistic one.
+    const late = jest.fn();
+    subscribeOwnOverride('G1', late);
+    expect(late).toHaveBeenCalledWith({ enabled: true, status: 'available', statusColor: '#111111' });
+  });
+
+  test('subscribing to an already-enumerated group does not open a second meta watch', () => {
+    let enumCb;
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    db.watchGroupMeta.mockClear();
+    subscribeGroupMeta('G1', jest.fn());
+    expect(db.watchGroupMeta).not.toHaveBeenCalled(); // reuses the enumerated sub
+  });
 });

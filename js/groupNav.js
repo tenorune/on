@@ -100,6 +100,9 @@ const _metaConsumers = {};      // groupId → Set<cb>
 const _overrideConsumers = {};  // groupId → Set<cb>
 const _metaTicked = new Set();
 const _overrideTicked = new Set();
+const _overrideLastTick = {}; // groupId → last RAW value from watchOwnMemberOverride
+                              // (incl. null); replay source, kept distinct from the
+                              // optimistic-merged _overrideByGroupId nav-render cache.
 const _createListeners = new Set();
 // When true, renderNavRow is a no-op and won't touch the row's .hidden class.
 // Used by openCreateGroupModal's onSubmit to keep #nav-row hidden across the
@@ -130,6 +133,7 @@ export function startCardsRowSubscriptions() {
   for (const k in _overrideByGroupId) delete _overrideByGroupId[k];
   _metaTicked.clear();
   _overrideTicked.clear();
+  for (const k in _overrideLastTick) delete _overrideLastTick[k];
   // Consumer registries are cleared on a full reset (user switch / re-login) so
   // stale callbacks from the old session don't keep underlying subs alive or
   // receive ticks intended for a different user.
@@ -209,12 +213,14 @@ function syncMetaSubs() {
       delete _overrideSubs[groupId];
       delete _overrideByGroupId[groupId];
       _overrideTicked.delete(groupId);
+      delete _overrideLastTick[groupId];
     }
   }
   for (const groupId of overrideWant) {
     if (!_overrideSubs[groupId]) {
       _overrideSubs[groupId] = watchOwnMemberOverride(groupId, _myUserId, (override) => {
         _overrideTicked.add(groupId);
+        _overrideLastTick[groupId] = override;
         if (override) _overrideByGroupId[groupId] = override;
         else delete _overrideByGroupId[groupId];
         renderNavRow();
@@ -559,7 +565,7 @@ export function subscribeOwnOverride(groupId, cb) {
   _overrideConsumers[groupId].add(cb);
   syncMetaSubs();
   if (_overrideTicked.has(groupId)) {
-    try { cb(_overrideByGroupId[groupId] ?? null); } catch { /* replay threw */ }
+    try { cb(_overrideLastTick[groupId] ?? null); } catch { /* replay threw */ }
   }
   return () => {
     const set = _overrideConsumers[groupId];
