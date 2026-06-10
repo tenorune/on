@@ -89,6 +89,8 @@ jest.mock('../js/groupNav.js', () => ({
   getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
   applyOptimisticAppearance: jest.fn(),
   onContextChange: jest.fn(),
+  subscribeGroupMeta: jest.fn(() => () => {}),
+  subscribeOwnOverride: jest.fn(() => () => {}),
 }));
 
 jest.mock('../js/groups.js', () => ({
@@ -132,6 +134,7 @@ if (typeof PointerEvent === 'undefined') {
 }
 
 const db = require('../js/db.js');
+const groupNav = require('../js/groupNav.js');
 const { initSwatches, enterPaletteMode } = require('../js/palettes.js');
 const { enterGroupContext, exitGroupContext } = require('../js/groupContext.js');
 
@@ -190,12 +193,10 @@ function renderDirect(paletteState) {
 function renderGroup(paletteState, override) {
   mockState.group = { G1: paletteState };
   groupDom();
-  let overrideCb;
-  db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => { overrideCb = cb; return () => {}; });
-  db.watchGroupMeta.mockImplementation((_gid, cb) => { cb({ name: 'Family', ownerId: 'uid1', createdAt: 1 }); return () => {}; });
+  groupNav.subscribeGroupMeta.mockImplementation((_gid, cb) => { cb({ name: 'Family', ownerId: 'uid1', createdAt: 1 }); return () => {}; });
   db.watchStatus.mockImplementation((_uid, cb) => { cb({}); return () => {}; });
   db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-  db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => { overrideCb = cb; cb(override); return () => {}; });
+  groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => { cb(override); return () => {}; });
   enterGroupContext('G1', 'uid1');
   return document.getElementById('group-swatch-row');
 }

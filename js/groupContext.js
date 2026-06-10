@@ -5,9 +5,10 @@
 // own-status row, the chain-icon override toggle (installed into the nav row's
 // slot), and the member roster.
 
-import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs } from './db.js';
+import { watchGroupMembers, watchGroupInvites, watchStatus, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs } from './db.js';
 import { safeCssColor } from './utils.js';
-import { navigateToDirect, applyOptimisticAppearance } from './groupNav.js';
+import { navigateToDirect, applyOptimisticAppearance, subscribeGroupMeta, subscribeOwnOverride } from './groupNav.js';
+import { subscribeOwnStatus } from './ownStatus.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
          setOverrideAppearance } from './groups.js';
@@ -77,12 +78,12 @@ let _ownDisplayName = null; // string | null — own member displayName from wat
 let _membersOverrides = {}; // uid → statusOverride | null
 const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor, paletteKey } | null
 let _settingsOutsideHandler = null;
-let _groupOwnerId = null;  // ownerId from watchGroupMeta — used by renderRoster owner check
-let _groupName = null;     // group name from watchGroupMeta — used by roster invite row
+let _groupOwnerId = null;  // ownerId from the group-meta sub — used by renderRoster owner check
+let _groupName = null;     // group name from the group-meta sub — used by roster invite row
 let _lastMembers = null;   // last members snapshot — allows re-render when meta arrives after members
 // Timestamp of the most recent group palette-mode entry, or null. Tracked as
 // a timestamp (not a one-shot bool) because setOverrideAppearance writes to
-// RTDB and watchOwnMemberOverride echoes back ~100-300ms later, calling
+// RTDB and the own-override sub echoes back ~100-300ms later, calling
 // renderOwnStatusRow → renderGroupSwatchRow and destroying the just-rendered
 // key-spin element. The timestamp lets each subsequent render within the 5s
 // window re-apply .key-spin with a CSS --key-spin-delay so the animation
@@ -127,7 +128,7 @@ function renderRoster(members, ownUserId) {
   list.innerHTML = '';
 
   // Owner-only "Invite to group" row pinned at the top of the roster.
-  // The owner check reads from _groupOwnerId, captured by the watchGroupMeta
+  // The owner check reads from _groupOwnerId, captured by the group-meta sub
   // callback. If meta hasn't arrived yet, the row is hidden; it'll appear on
   // the next render after meta lands.
   const isOwner = _groupOwnerId !== null && _groupOwnerId === ownUserId;
@@ -494,7 +495,7 @@ function renderOwnStatusRow() {
 // same names so this file's internal references don't change.
 
 // Reconcile per-set local state with the override snapshot. Runs whenever
-// watchOwnMemberOverride fires (cross-device sync) and on enter so the
+// the own-override sub fires (cross-device sync) and on enter so the
 // picker reflects the server-side override's set + selection.
 function syncGroupPaletteStateFromOverride() {
   if (!_currentGroupId) return;
@@ -1056,7 +1057,7 @@ export function enterGroupContext(groupId, userId) {
   if (_ownOverrideUnsub) _ownOverrideUnsub();
   _ownPrimary = null;
   _ownOverride = null;
-  _ownPrimaryUnsub = watchStatus(userId, (data) => {
+  _ownPrimaryUnsub = subscribeOwnStatus((data) => {
     _ownPrimary = data
       ? {
           status: data.status,
@@ -1076,7 +1077,7 @@ export function enterGroupContext(groupId, userId) {
     applyEffectivePalette();
     renderOwnStatusRow();
   });
-  _ownOverrideUnsub = watchOwnMemberOverride(groupId, userId, (data) => {
+  _ownOverrideUnsub = subscribeOwnOverride(groupId, (data) => {
     _ownOverride = data || null;
     syncGroupPaletteStateFromOverride();
     // Seed override.statusColor the first time we see an enabled override
@@ -1200,7 +1201,7 @@ export function enterGroupContext(groupId, userId) {
   }
 
   // Subscribe to group meta for the name + owner check
-  _metaUnsub = watchGroupMeta(groupId, (meta) => {
+  _metaUnsub = subscribeGroupMeta(groupId, (meta) => {
     if (!meta) {
       // Group entity was deleted. Non-owner members never had their
       // users/{uid}/groups/{groupId} entry cleared by the owner (the

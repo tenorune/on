@@ -2,7 +2,8 @@
 // Navigation state machine: currentContext + group cards row.
 // State is in-memory; writes mirror to Firebase via setCurrentContext / setLastVisited.
 
-import { setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, watchStatus, removeUserGroupsEntry } from './db.js';
+import { setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, removeUserGroupsEntry } from './db.js';
+import { subscribeOwnStatus } from './ownStatus.js';
 import { setCurrentContext } from './prefs.js';
 import { safeCssColor, hexToRgb } from './utils.js';
 import { GROUPS_ENABLED } from './features.js';
@@ -91,6 +92,18 @@ let _ownPrimary = null;
 let _ownPrimaryUnsub = null;
 const _overrideByGroupId = {};
 const _overrideSubs = {}; // groupId → unsubscribe
+// Provider surface (used by groupContext to avoid double-watching the active
+// group). Consumers register per groupId; the underlying _metaSubs/_overrideSubs
+// fan out to them. "Ticked" tracks whether the underlying sub has delivered ≥1
+// value, so replay never hands a consumer a fabricated `null` (which reads as
+// "group deleted").
+const _metaConsumers = {};      // groupId → Set<cb>
+const _overrideConsumers = {};  // groupId → Set<cb>
+const _metaTicked = new Set();
+const _overrideTicked = new Set();
+const _overrideLastTick = {}; // groupId → last RAW value from watchOwnMemberOverride
+                              // (incl. null); replay source, kept distinct from the
+                              // optimistic-merged _overrideByGroupId nav-render cache.
 const _createListeners = new Set();
 // When true, renderNavRow is a no-op and won't touch the row's .hidden class.
 // Used by openCreateGroupModal's onSubmit to keep #nav-row hidden across the
@@ -119,6 +132,14 @@ export function startCardsRowSubscriptions() {
   for (const groupId of Object.keys(_overrideSubs)) { _overrideSubs[groupId](); }
   for (const k in _overrideSubs) delete _overrideSubs[k];
   for (const k in _overrideByGroupId) delete _overrideByGroupId[k];
+  _metaTicked.clear();
+  _overrideTicked.clear();
+  for (const k in _overrideLastTick) delete _overrideLastTick[k];
+  // Consumer registries are cleared on a full reset (user switch / re-login) so
+  // stale callbacks from the old session don't keep underlying subs alive or
+  // receive ticks intended for a different user.
+  for (const k in _metaConsumers) delete _metaConsumers[k];
+  for (const k in _overrideConsumers) delete _overrideConsumers[k];
   _enumeration = {};
   _ownPrimary = null;
 
@@ -129,7 +150,7 @@ export function startCardsRowSubscriptions() {
     renderNavRow();
   });
   if (_ownPrimaryUnsub) _ownPrimaryUnsub();
-  _ownPrimaryUnsub = watchStatus(_myUserId, (data) => {
+  _ownPrimaryUnsub = subscribeOwnStatus((data) => {
     _ownPrimary = data
       ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: data.statusColor || null }
       : null;
@@ -140,18 +161,27 @@ export function startCardsRowSubscriptions() {
   renderNavRow();
 }
 
+function metaWantIds() {
+  return new Set([...Object.keys(_enumeration), ...Object.keys(_metaConsumers)]);
+}
+function overrideWantIds() {
+  return new Set([...Object.keys(_enumeration), ...Object.keys(_overrideConsumers)]);
+}
+
 function syncMetaSubs() {
-  const wantIds = new Set(Object.keys(_enumeration));
+  const metaWant = metaWantIds();
   for (const groupId of Object.keys(_metaSubs)) {
-    if (!wantIds.has(groupId)) {
+    if (!metaWant.has(groupId)) {
       _metaSubs[groupId]();
       delete _metaSubs[groupId];
       delete _metaByGroupId[groupId];
+      _metaTicked.delete(groupId);
     }
   }
-  for (const groupId of wantIds) {
+  for (const groupId of metaWant) {
     if (!_metaSubs[groupId]) {
       _metaSubs[groupId] = watchGroupMeta(groupId, (meta) => {
+        _metaTicked.add(groupId);
         if (meta) {
           _metaByGroupId[groupId] = meta;
           if (meta.name) _lastKnownNames[groupId] = meta.name;
@@ -168,24 +198,35 @@ function syncMetaSubs() {
           }
         }
         renderNavRow();
+        // Fan out AFTER groupNav's own reaction so consumer order matches the
+        // historical attach order (groupNav before groupContext).
+        const consumers = _metaConsumers[groupId];
+        if (consumers) for (const cb of [...consumers]) { try { cb(meta); } catch { /* consumer threw */ } }
       });
     }
   }
 
   // Override-sub cleanup + setup (Phase 2)
+  const overrideWant = overrideWantIds();
   for (const groupId of Object.keys(_overrideSubs)) {
-    if (!wantIds.has(groupId)) {
+    if (!overrideWant.has(groupId)) {
       _overrideSubs[groupId]();
       delete _overrideSubs[groupId];
       delete _overrideByGroupId[groupId];
+      _overrideTicked.delete(groupId);
+      delete _overrideLastTick[groupId];
     }
   }
-  for (const groupId of wantIds) {
+  for (const groupId of overrideWant) {
     if (!_overrideSubs[groupId]) {
       _overrideSubs[groupId] = watchOwnMemberOverride(groupId, _myUserId, (override) => {
+        _overrideTicked.add(groupId);
+        _overrideLastTick[groupId] = override;
         if (override) _overrideByGroupId[groupId] = override;
         else delete _overrideByGroupId[groupId];
         renderNavRow();
+        const consumers = _overrideConsumers[groupId];
+        if (consumers) for (const cb of [...consumers]) { try { cb(override); } catch { /* consumer threw */ } }
       });
     }
   }
@@ -495,4 +536,41 @@ export function getLastKnownGroupName(groupId) {
 // still in-flight.
 export function setLastKnownGroupName(groupId, name) {
   if (groupId && name) _lastKnownNames[groupId] = name;
+}
+
+// Read-only subscription to a group's meta, backed by groupNav's existing
+// per-group watchGroupMeta. groupContext uses this instead of opening its own
+// watch on the active group. Replays the cached meta only after the underlying
+// sub has ticked (never a fabricated null). The union rule in syncMetaSubs
+// keeps the underlying sub alive while this consumer is registered, even if the
+// group isn't enumerated yet (deep-link boot race).
+export function subscribeGroupMeta(groupId, cb) {
+  if (!_metaConsumers[groupId]) _metaConsumers[groupId] = new Set();
+  _metaConsumers[groupId].add(cb);
+  syncMetaSubs();
+  if (_metaTicked.has(groupId)) {
+    try { cb(_metaByGroupId[groupId] ?? null); } catch { /* replay threw */ }
+  }
+  return () => {
+    const set = _metaConsumers[groupId];
+    if (set) { set.delete(cb); if (set.size === 0) delete _metaConsumers[groupId]; }
+    syncMetaSubs();
+  };
+}
+
+// Read-only subscription to the own member statusOverride for a group, backed
+// by groupNav's existing watchOwnMemberOverride. groupContext uses this for the
+// active group. (uid is groupNav's own _myUserId — consumers don't pass it.)
+export function subscribeOwnOverride(groupId, cb) {
+  if (!_overrideConsumers[groupId]) _overrideConsumers[groupId] = new Set();
+  _overrideConsumers[groupId].add(cb);
+  syncMetaSubs();
+  if (_overrideTicked.has(groupId)) {
+    try { cb(_overrideLastTick[groupId] ?? null); } catch { /* replay threw */ }
+  }
+  return () => {
+    const set = _overrideConsumers[groupId];
+    if (set) { set.delete(cb); if (set.size === 0) delete _overrideConsumers[groupId]; }
+    syncMetaSubs();
+  };
 }

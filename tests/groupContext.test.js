@@ -1,4 +1,7 @@
 // tests/groupContext.test.js
+jest.mock('../js/ownStatus.js', () => ({
+  subscribeOwnStatus: jest.fn(() => () => {}),
+}));
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(() => 120),
   setLastTimeout: jest.fn(),
@@ -49,6 +52,8 @@ jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
   getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
   applyOptimisticAppearance: jest.fn(),
+  subscribeGroupMeta: jest.fn(() => () => {}),
+  subscribeOwnOverride: jest.fn(() => () => {}),
 }));
 jest.mock('../js/groups.js', () => ({
   renameGroup: jest.fn().mockResolvedValue(undefined),
@@ -140,6 +145,7 @@ if (typeof PointerEvent === 'undefined') {
 }
 
 const db = require('../js/db.js');
+const ownStatus = require('../js/ownStatus.js');
 const groupNav = require('../js/groupNav.js');
 const groupsModule = require('../js/groups.js');
 const inviteModal = require('../js/inviteModal.js');
@@ -223,14 +229,14 @@ describe('groupContext scaffolding', () => {
 
   test('watchGroupMeta tick does not throw when h2 and breadcrumb are absent', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     expect(() => metaCb({ name: 'Family', ownerId: 'owner', createdAt: 1 })).not.toThrow();
   });
 
   test('shows owner-only action buttons when caller is the owner', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     expect(document.getElementById('group-action-rename').classList.contains('hidden')).toBe(false);
@@ -241,7 +247,7 @@ describe('groupContext scaffolding', () => {
 
   test('shows member-only action buttons when caller is a non-owner member', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
     expect(document.getElementById('group-action-rename').classList.contains('hidden')).toBe(true);
@@ -259,7 +265,7 @@ describe('groupContext scaffolding', () => {
 
   test('watchGroupMeta returning null (owner deleted group) clears the local enumeration entry', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb(null); // group entity was deleted
     expect(db.removeUserGroupsEntry).toHaveBeenCalledWith('me', 'G1');
@@ -473,7 +479,7 @@ describe('group roster render', () => {
 
   function captureRosterCallbacks() {
     let metaCb, membersCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     return { getMetaCb: () => metaCb, getMembersCb: () => membersCb };
   }
@@ -578,7 +584,7 @@ describe('owner actions', () => {
 
   test('activating a settings option closes the Settings menu', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     const details = document.getElementById('group-context-actions');
@@ -590,7 +596,7 @@ describe('owner actions', () => {
 
   test('tapping outside the Settings menu closes it', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     const details = document.getElementById('group-context-actions');
@@ -601,7 +607,7 @@ describe('owner actions', () => {
 
   test('tapping inside the Settings menu does not close it', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     const details = document.getElementById('group-context-actions');
@@ -613,7 +619,7 @@ describe('owner actions', () => {
 
   test('Rename group prompts and calls renameGroup', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     window.prompt = jest.fn(() => '  Familia  ');
@@ -623,7 +629,7 @@ describe('owner actions', () => {
 
   test('Delete group confirms and calls deleteGroup', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     window.confirm = jest.fn(() => true);
@@ -642,7 +648,7 @@ describe('owner actions', () => {
 
   test('roster invite row opens the modal with group scope', () => {
     let metaCb, membersCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     clickRosterInvite({ metaCb, membersCb });
@@ -656,7 +662,7 @@ describe('owner actions', () => {
 
   test('roster invite row passes activeInvite when an unrevoked group invite exists', () => {
     let metaCb, membersCb, invitesCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     db.watchGroupInvites.mockImplementation((groupId, cb) => { invitesCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
@@ -675,7 +681,7 @@ describe('owner actions', () => {
 
   test('roster invite row passes activeInvite=null when no invites exist', () => {
     let metaCb, membersCb, invitesCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     db.watchGroupInvites.mockImplementation((groupId, cb) => { invitesCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
@@ -688,7 +694,7 @@ describe('owner actions', () => {
 
   test('roster invite row ignores revoked invites', () => {
     let metaCb, membersCb, invitesCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     db.watchGroupInvites.mockImplementation((groupId, cb) => { invitesCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
@@ -710,7 +716,7 @@ describe('member actions', () => {
 
   test('Edit my name prompts and calls editOwnDisplayName', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
     window.prompt = jest.fn(() => '  M. P.  ');
@@ -720,7 +726,7 @@ describe('member actions', () => {
 
   test('Edit my name pre-fills the prompt with the user\'s current group displayName', () => {
     let metaCb; let membersCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
@@ -735,7 +741,7 @@ describe('member actions', () => {
 
   test('Leave group confirms and calls leaveGroup', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
     window.confirm = jest.fn(() => true);
@@ -753,9 +759,9 @@ beforeEach(() => { try { localStorage.clear(); } catch {} });
 describe('own status row', () => {
   function captureCallbacks() {
     let metaCb, primaryCb, overrideCb;
-    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { primaryCb = cb; return () => {}; });
-    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { primaryCb = cb; return () => {}; });
+    groupNav.subscribeOwnOverride.mockImplementation((g, cb) => { overrideCb = cb; return () => {}; });
     return { getMetaCb: () => metaCb, getPrimaryCb: () => primaryCb, getOverrideCb: () => overrideCb };
   }
 
@@ -825,8 +831,8 @@ describe('own status row', () => {
   test('exitGroupContext tears down own primary and override subscriptions', () => {
     const ownPrimaryUnsub = jest.fn();
     const ownOverrideUnsub = jest.fn();
-    db.watchStatus.mockImplementation(() => ownPrimaryUnsub);
-    db.watchOwnMemberOverride.mockImplementation(() => ownOverrideUnsub);
+    ownStatus.subscribeOwnStatus.mockImplementation(() => ownPrimaryUnsub);
+    groupNav.subscribeOwnOverride.mockImplementation(() => ownOverrideUnsub);
     enterGroupContext('G1', 'me');
     exitGroupContext();
     expect(ownPrimaryUnsub).toHaveBeenCalledTimes(1);
@@ -1403,7 +1409,7 @@ describe('group-context long-press adoption', () => {
       cb(members);
       return () => {};
     });
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb(ownOverrideEnabled
         ? { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' }
         : { enabled: false, status: null });
@@ -1527,7 +1533,7 @@ describe('group-context long-press adoption', () => {
   });
 
   test('source uses override.statusColor when override is enabled', () => {
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
     });
@@ -1549,7 +1555,7 @@ describe('group-context long-press adoption', () => {
   });
 
   test('source falls back to primary when source member has no override', () => {
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
     });
@@ -1571,7 +1577,7 @@ describe('group-context long-press adoption', () => {
   });
 
   test('source falls back to forest #22c55e when neither override nor primary has a color', () => {
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
     });
@@ -1594,7 +1600,7 @@ describe('group-context long-press adoption', () => {
 
   test('marks longpress hint seen on first adoption', () => {
     // prefs.isHintSeen defaults to false via the module-level jest.mock factory.
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
     });
@@ -1630,7 +1636,7 @@ describe('group-context dot-tap to go available', () => {
 
   test('dot-tap going available with override ON pushes the going-active combo to favorites', () => {
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
@@ -1650,7 +1656,7 @@ describe('group-context dot-tap to go available', () => {
 
   test('dot-tap going UNavailable with override ON does NOT push to favorites', () => {
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
@@ -1667,7 +1673,7 @@ describe('group-context dot-tap to go available', () => {
 
   test('chip cycle while available does NOT push to favorites', () => {
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
@@ -1687,7 +1693,7 @@ describe('group-context FTU hints', () => {
   const prefs = require('../js/prefs.js');
 
   function seedRoster({ ownOverride, members = {}, memberStatus = {} }) {
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => { cb(ownOverride); return () => {}; });
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => { cb(ownOverride); return () => {}; });
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb(members); return () => {}; });
     db.watchStatus.mockImplementation((uid, cb) => { cb(memberStatus[uid] ?? {}); return () => {}; });
     setupContextDom();
@@ -1907,7 +1913,7 @@ describe('group-context FTU hints', () => {
     prefs.setGroupPaletteState.mockImplementation((_gid, s) => { state = JSON.parse(JSON.stringify(s)); });
     // Capture the override callback so we can replay the RTDB echo manually.
     let overrideCb;
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       overrideCb = cb;
       cb({ enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' });
       return () => {};
