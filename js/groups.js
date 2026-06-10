@@ -180,7 +180,10 @@ async function handleGroupRemoval(myUserId, groupId) {
   }
 }
 
-function showRemovalToast(message) {
+// Generic dismissable toast (the markup ids predate other consumers, hence
+// group-removal-*). Also used by followRequests.js for the request/cancel
+// confirmations.
+export function showToast(message) {
   const el = document.getElementById('group-removal-toast');
   const txt = document.getElementById('group-removal-toast-text');
   if (!el || !txt) return;
@@ -193,6 +196,10 @@ function showRemovalToast(message) {
     dismissBtn._wired = true;
     dismissBtn.addEventListener('click', () => el.classList.add('hidden'));
   }
+}
+
+function showRemovalToast(message) {
+  showToast(message);
 }
 
 // Test helpers — exported only for tests.

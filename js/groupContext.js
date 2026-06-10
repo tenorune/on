@@ -200,7 +200,7 @@ function renderRoster(members, ownUserId) {
       actions.push({ el: bell, closesDrawer: false });
     }
     if (FOLLOW_REQUESTS_ENABLED && uid !== ownUserId && isFollowRequestEligible(uid)) {
-      const reqBtn = createRequestFollowButton(ownUserId, uid, getCurrentGroupId());
+      const reqBtn = createRequestFollowButton(ownUserId, uid, getCurrentGroupId(), member.displayName || uid);
       actions.push({ el: reqBtn, closesDrawer: true });
     }
     // >=2 right-side actions collapse behind the shared ⋮ drawer (like Direct);

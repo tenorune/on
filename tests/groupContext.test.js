@@ -520,7 +520,7 @@ describe('group roster render', () => {
 
     const row = document.querySelector('#group-roster [data-user-id="a"]');
     expect(row.querySelector('.card-drawer-toggle')).not.toBeNull();
-    expect(followRequests.createRequestFollowButton).toHaveBeenCalledWith('me', 'a', 'G1');
+    expect(followRequests.createRequestFollowButton).toHaveBeenCalledWith('me', 'a', 'G1', 'Alice');
     expect(row.querySelector('.card-drawer-toggle').dataset.actionCount).toBe('2');
   });
 

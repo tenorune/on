@@ -1,6 +1,7 @@
 // tests/followRequests.test.js
 jest.mock('../js/db.js', () => ({
   writeFollowRequest: jest.fn().mockResolvedValue(undefined),
+  deleteFollowRequest: jest.fn().mockResolvedValue(undefined),
   watchFollowGrants: jest.fn(() => () => {}),
   deleteFollowGrant: jest.fn().mockResolvedValue(undefined),
   setFollowingEntry: jest.fn().mockResolvedValue(undefined),
@@ -9,11 +10,15 @@ jest.mock('../js/db.js', () => ({
 jest.mock('../js/prefs.js', () => ({
   getFollowing: jest.fn(() => []),
 }));
+jest.mock('../js/groups.js', () => ({
+  showToast: jest.fn(),
+}));
 
 const db = require('../js/db.js');
 const prefs = require('../js/prefs.js');
+const { showToast } = require('../js/groups.js');
 const {
-  requestToFollow, isRequested, isFollowRequestEligible,
+  requestToFollow, cancelFollowRequest, isRequested, isFollowRequestEligible,
   createRequestFollowButton, initFollowGrants,
 } = require('../js/followRequests.js');
 
@@ -45,26 +50,51 @@ describe('isFollowRequestEligible', () => {
 });
 
 describe('createRequestFollowButton', () => {
-  test('renders "Request to follow"; click sends and flips to disabled "Requested"', async () => {
-    const btn = createRequestFollowButton('me', 'tgt', 'g1');
-    expect(btn.textContent).toBe('Request to follow');
+  // Settle the click handler's awaits.
+  const settle = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
+
+  test('renders the circled-plus icon, unrequested state', () => {
+    const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
+    expect(btn.querySelector('svg')).not.toBeNull();
+    expect(btn.classList.contains('requested')).toBe(false);
+    expect(btn.getAttribute('aria-label')).toBe('Request to follow');
     expect(btn.disabled).toBe(false);
-    btn.click();
-    await Promise.resolve(); await Promise.resolve();
-    expect(db.writeFollowRequest).toHaveBeenCalledWith('me', 'tgt', 'g1');
-    expect(btn.textContent).toBe('Requested');
-    expect(btn.disabled).toBe(true);
   });
 
-  test('renders disabled "Requested" when already requested', () => {
+  test('click sends the request, flips to requested (white) and toasts', async () => {
+    const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
+    btn.click();
+    await settle();
+    expect(db.writeFollowRequest).toHaveBeenCalledWith('me', 'tgt', 'g1');
+    expect(btn.classList.contains('requested')).toBe(true);
+    expect(btn.getAttribute('aria-label')).toBe('Cancel follow request');
+    expect(btn.disabled).toBe(false); // toggle stays tappable (cancel)
+    expect(showToast).toHaveBeenCalledWith('You requested to follow Bea.');
+  });
+
+  test('renders requested state when already requested, still enabled', () => {
     localStorage.setItem('statusapp_follow_requested', JSON.stringify(['tgt']));
-    const btn = createRequestFollowButton('me', 'tgt', 'g1');
-    expect(btn.textContent).toBe('Requested');
-    expect(btn.disabled).toBe(true);
+    const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
+    expect(btn.classList.contains('requested')).toBe(true);
+    expect(btn.getAttribute('aria-label')).toBe('Cancel follow request');
+    expect(btn.disabled).toBe(false);
+  });
+
+  test('click while requested cancels: deletes the request, clears state, toasts', async () => {
+    localStorage.setItem('statusapp_follow_requested', JSON.stringify(['tgt']));
+    const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
+    btn.click();
+    await settle();
+    expect(db.deleteFollowRequest).toHaveBeenCalledWith('tgt', 'me');
+    expect(db.writeFollowRequest).not.toHaveBeenCalled();
+    expect(isRequested('tgt')).toBe(false);
+    expect(btn.classList.contains('requested')).toBe(false);
+    expect(btn.getAttribute('aria-label')).toBe('Request to follow');
+    expect(showToast).toHaveBeenCalledWith('You cancelled your request to follow Bea.');
   });
 
   test('a click does not bubble to the row (knock guard)', () => {
-    const btn = createRequestFollowButton('me', 'tgt', 'g1');
+    const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
     const row = document.createElement('li');
     const onRow = jest.fn();
     row.addEventListener('click', onRow);
@@ -73,23 +103,34 @@ describe('createRequestFollowButton', () => {
     expect(onRow).not.toHaveBeenCalled();
   });
 
-  test('re-enables for retry when the request write fails', async () => {
+  test('stays unrequested and toast-free when the request write fails', async () => {
     db.writeFollowRequest.mockRejectedValueOnce(new Error('offline'));
-    const btn = createRequestFollowButton('me', 'tgt', 'g1');
+    const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
     btn.click();
-    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    await settle();
     expect(btn.disabled).toBe(false);
-    expect(btn.textContent).toBe('Request to follow');
+    expect(btn.classList.contains('requested')).toBe(false);
     expect(isRequested('tgt')).toBe(false);
+    expect(showToast).not.toHaveBeenCalled();
   });
 
   test('a click on a stale button (target now followed) sends nothing', async () => {
     // Rendered while the following cache was empty, clicked after it synced.
-    const btn = createRequestFollowButton('me', 'tgt', 'g1');
+    const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
     prefs.getFollowing.mockReturnValue([{ userId: 'tgt' }]);
     btn.click();
-    await Promise.resolve(); await Promise.resolve();
+    await settle();
     expect(db.writeFollowRequest).not.toHaveBeenCalled();
+    expect(isRequested('tgt')).toBe(false);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+});
+
+describe('cancelFollowRequest', () => {
+  test('deletes the mailbox entry and clears the local marker', async () => {
+    localStorage.setItem('statusapp_follow_requested', JSON.stringify(['tgt']));
+    await cancelFollowRequest('me', 'tgt');
+    expect(db.deleteFollowRequest).toHaveBeenCalledWith('tgt', 'me');
     expect(isRequested('tgt')).toBe(false);
   });
 });
@@ -103,12 +144,22 @@ describe('initFollowGrants', () => {
     initFollowGrants('me', 'MYCODE');
     expect(db.watchFollowGrants).toHaveBeenCalledWith('me', expect.any(Function));
 
-    await cb({ tgt: { from: 'tgt', code: 'TGTCODE', ts: 1 } });
+    await cb({ tgt: { from: 'tgt', code: 'TGTCODE', name: 'Bea', ts: 1 } });
 
-    expect(db.setFollowingEntry).toHaveBeenCalledWith('me', 'tgt', 'TGTCODE', '');
+    // The grant's name (the approver's roster display name) seeds the label,
+    // so the new Direct card shows the name the user requested by.
+    expect(db.setFollowingEntry).toHaveBeenCalledWith('me', 'tgt', 'TGTCODE', 'Bea');
     expect(db.registerAsFollower).toHaveBeenCalledWith('tgt', 'me', 'MYCODE');
     expect(db.deleteFollowGrant).toHaveBeenCalledWith('me', 'tgt');
     expect(isRequested('tgt')).toBe(false);
+  });
+
+  test('a grant without a name falls back to an empty label', async () => {
+    let cb;
+    db.watchFollowGrants.mockImplementation((uid, fn) => { cb = fn; return () => {}; });
+    initFollowGrants('me', 'MYCODE');
+    await cb({ tgt: { from: 'tgt', code: 'TGTCODE', ts: 1 } });
+    expect(db.setFollowingEntry).toHaveBeenCalledWith('me', 'tgt', 'TGTCODE', '');
   });
 
   test('ignores a grant with no code', async () => {

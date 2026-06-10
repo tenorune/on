@@ -8,6 +8,7 @@ import { watchPendingInvites, deletePendingInvite, readGroup, readMember,
 import { joinGroup } from './groups.js';
 import { navigateToGroup } from './groupNav.js';
 import { getFollowing } from './prefs.js';
+import { setFollowerName } from './store.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 
 let _myUid = null;
@@ -205,7 +206,7 @@ function buildFollowRequestRow({ requesterUid, requesterLabel }) {
   approveBtn.type = 'button';
   approveBtn.className = 'inbox-approve-btn primary-btn';
   approveBtn.textContent = 'Approve';
-  approveBtn.addEventListener('click', () => handleApprove(requesterUid));
+  approveBtn.addEventListener('click', () => handleApprove(requesterUid, requesterLabel));
   actions.appendChild(approveBtn);
 
   const declineBtn = document.createElement('button');
@@ -219,7 +220,7 @@ function buildFollowRequestRow({ requesterUid, requesterLabel }) {
   return li;
 }
 
-async function handleApprove(requesterUid) {
+async function handleApprove(requesterUid, requesterLabel) {
   if (!_myUid || !_myCode) return;
   // Double-tap guard.
   const row = document.querySelector(`.inbox-row[data-requester-id="${requesterUid}"]`);
@@ -231,7 +232,16 @@ async function handleApprove(requesterUid) {
   // a grant-written/delete-failed split just rewrites the same grant (set is
   // idempotent) and re-deletes.
   try {
-    await writeFollowGrant(requesterUid, _myUid, _myCode);
+    // The grant carries my display name in the shared group — the name the
+    // requester tapped on the roster — so their new Direct card opens named.
+    const groupId = _followRequests[requesterUid]?.groupId;
+    const me = groupId ? await readMember(groupId, _myUid) : null;
+    await writeFollowGrant(requesterUid, _myUid, _myCode, me?.displayName ?? null);
+    // Symmetrically, remember the requester's roster name for my follower card
+    // ("CODE (Name)") and the follow-back prefill. Skip the generic fallback.
+    if (requesterLabel && requesterLabel !== 'Someone') {
+      setFollowerName(requesterUid, requesterLabel);
+    }
     await deleteFollowRequest(_myUid, requesterUid);
   } catch (e) {
     if (btn) btn.disabled = false;

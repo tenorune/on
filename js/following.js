@@ -7,7 +7,7 @@ import {
 } from './db.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
-  setFollowing,
+  setFollowing, getFollowerName,
 } from './store.js';
 import {
   isHintSeen, markHintSeen,
@@ -628,16 +628,24 @@ function createFollowerOnlyRow(follower, myUserId) {
   li.className = 'follower-only';
   li.dataset.userId = follower.userId;
 
+  // Roster display name remembered at follow-request approval (inbox.js):
+  // shown next to the code, and pre-filled into the follow-back label field —
+  // the user knows this person by name, not code.
+  const rosterName = getFollowerName(follower.userId);
+  const labelHtml = rosterName
+    ? `${escapeHtml(follower.code)} (${escapeHtml(rosterName)})`
+    : escapeHtml(follower.code);
+
   li.innerHTML = `
     <button class="follow-back-btn" title="Follow back">+</button>
     <div class="person-info">
-      <div class="person-label" style="font-family:monospace">${escapeHtml(follower.code)}</div>
+      <div class="person-label" style="font-family:monospace">${labelHtml}</div>
     </div>
     <button class="unfollow-btn" title="Remove">×</button>`;
 
   li.querySelector('.follow-back-btn').addEventListener('click', () => {
     document.getElementById('add-code-input').value = follower.code;
-    document.getElementById('add-label-input').value = '';
+    document.getElementById('add-label-input').value = rosterName || '';
     document.getElementById('add-person-form').classList.add('open');
   });
 

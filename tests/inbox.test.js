@@ -24,7 +24,12 @@ jest.mock('../js/groupDisplayNamePrompt.js', () => ({
   showGroupDisplayNamePrompt: jest.fn().mockResolvedValue('My Group Name'),
 }));
 
+jest.mock('../js/store.js', () => ({
+  setFollowerName: jest.fn(),
+}));
+
 const db = require('../js/db.js');
+const store = require('../js/store.js');
 const groups = require('../js/groups.js');
 const groupNav = require('../js/groupNav.js');
 const prompt = require('../js/groupDisplayNamePrompt.js');
@@ -277,7 +282,10 @@ describe('Inbox — follow requests', () => {
   });
 
   test('renders a follow-request row and Approve writes a grant + deletes the request', async () => {
-    db.readMember.mockResolvedValue({ displayName: 'Req Name' });
+    // The requester's name resolves from the shared group; the approver's own
+    // member record carries the display name the requester saw on the roster.
+    db.readMember.mockImplementation(async (gid, uid) =>
+      uid === 'me' ? { displayName: 'My Roster Name' } : { displayName: 'Req Name' });
     const { inviteCb, frCb } = initWithCallbacks();
     inviteCb({});
     frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
@@ -288,9 +296,24 @@ describe('Inbox — follow requests', () => {
     expect(row.querySelector('.inbox-row-text').textContent).toBe('Req Name wants to follow you.');
 
     row.querySelector('.inbox-approve-btn').click();
-    await Promise.resolve(); await Promise.resolve();
-    expect(db.writeFollowGrant).toHaveBeenCalledWith('req', 'me', 'MYCODE');
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(db.writeFollowGrant).toHaveBeenCalledWith('req', 'me', 'MYCODE', 'My Roster Name');
     expect(db.deleteFollowRequest).toHaveBeenCalledWith('me', 'req');
+    // The requester's roster name is remembered for the follower card.
+    expect(store.setFollowerName).toHaveBeenCalledWith('req', 'Req Name');
+  });
+
+  test('Approve passes no name when the resolved label is the generic fallback', async () => {
+    db.readMember.mockResolvedValue(null); // no member records resolve
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+
+    await openInboxModal();
+    document.querySelector('.inbox-row[data-requester-id="req"] .inbox-approve-btn').click();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(db.writeFollowGrant).toHaveBeenCalledWith('req', 'me', 'MYCODE', null);
+    expect(store.setFollowerName).not.toHaveBeenCalled();
   });
 
   test('Decline deletes the request only (no grant)', async () => {

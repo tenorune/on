@@ -5,6 +5,7 @@ const PALETTE_STATE_KEY = 'statusapp_palette_state';
 const PALETTE_LEGACY_KEY = 'statusapp_palette';
 const MADE_CALL_COUNT_KEY = 'statusapp_made_call_count';
 const ANSWERED_CALL_COUNT_KEY = 'statusapp_answered_call_count';
+const FOLLOWER_NAMES_KEY = 'statusapp_follower_names';
 
 const DEFAULT_PALETTE_STATE = {
   activeSet: 1,
@@ -137,7 +138,24 @@ function setPalette(key) {
   localStorage.setItem('statusapp_palette', key);
 }
 
+// Roster display names remembered for follower-only cards (uid → name).
+// Written when approving a follow request (inbox.js), read by the follower
+// card render + follow-back prefill (following.js). Device-local, like the
+// requester-side "Requested" state.
+function getFollowerName(userId) {
+  try { return JSON.parse(localStorage.getItem(FOLLOWER_NAMES_KEY) || '{}')[userId] || null; }
+  catch { return null; }
+}
+
+function setFollowerName(userId, name) {
+  try {
+    const map = JSON.parse(localStorage.getItem(FOLLOWER_NAMES_KEY) || '{}');
+    map[userId] = name;
+    localStorage.setItem(FOLLOWER_NAMES_KEY, JSON.stringify(map));
+  } catch { /* quota */ }
+}
+
 // Call-counter helpers moved to js/prefs.js — they now sync via userPrefs/
 // instead of staying device-local.
 
-module.exports = { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, renameFollowing, updateFollowingCode, getPalette, setPalette, getPaletteState, setPaletteState, getFavorites, setFavorites };
+module.exports = { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, renameFollowing, updateFollowingCode, getPalette, setPalette, getPaletteState, setPaletteState, getFavorites, setFavorites, getFollowerName, setFollowerName };

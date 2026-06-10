@@ -679,10 +679,17 @@ describe('follow request/grant mailboxes', () => {
 
   test('writeFollowGrant sets followGrants/{requester}/{target} with target code', async () => {
     set.mockResolvedValueOnce();
-    await writeFollowGrant('req', 'tgt', 'TGTCODE');
+    await writeFollowGrant('req', 'tgt', 'TGTCODE', 'Bea');
     expect(ref).toHaveBeenCalledWith({}, 'followGrants/req/tgt');
     expect(set).toHaveBeenCalledWith('mock-ref',
-      expect.objectContaining({ from: 'tgt', code: 'TGTCODE', ts: expect.any(Number) }));
+      expect.objectContaining({ from: 'tgt', code: 'TGTCODE', name: 'Bea', ts: expect.any(Number) }));
+  });
+
+  test('writeFollowGrant stores null name when omitted', async () => {
+    set.mockResolvedValueOnce();
+    await writeFollowGrant('req', 'tgt', 'TGTCODE');
+    expect(set).toHaveBeenCalledWith('mock-ref',
+      expect.objectContaining({ name: null }));
   });
 
   test('deleteFollowGrant removes followGrants/{requester}/{target}', async () => {
