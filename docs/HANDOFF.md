@@ -28,7 +28,7 @@ A vanilla-JS PWA for **ambient presence**. Users mark themselves "available for 
 ```
 main                         → prod   (Firebase project: knock-knock, tagged v1.0.0)
 dev                          → dev    (Firebase project: on-on-22cb4)
-claude/<name>                → session feature branches
+feature branches (off dev)  → merged to dev by the user
 ```
 
 - **Deploys via GitHub Actions.** Push to `main` → prod; push to `dev` → dev. Workflows live in `.github/workflows/deploy-{dev,prod}.yml`.
@@ -37,7 +37,7 @@ claude/<name>                → session feature branches
 - **Critical CI gotcha:** the deploy step extracts `FIREBASE_PROJECT_ID` via `grep + cut` — *not* by sourcing the env file. Sourcing was fragile against secret formatting. Don't revert.
 - **CI deploys `--only hosting,database`.** Database rules are pushed alongside hosting. If you change `database.rules.json`, the next deploy carries it.
 - **Local deploys also push rules.** `npm run deploy:dev` and `npm run deploy` both use `--only hosting,database`.
-- **Session branch policy: NEVER push to `dev` or `main`.** The user merges via the GitHub PR UI. Push only to the assigned session branch (currently `claude/wonderful-heisenberg-fRek8`).
+- **Branch policy: NEVER push to `dev` or `main`.** Do feature work on branches cut from `dev`, push the feature branch, and the user merges it to `dev` themselves (then `dev` → `main`).
 
 ## 3. Code layout
 
@@ -321,7 +321,7 @@ Use `v<MAJOR>.<MINOR>.<PATCH>` per the existing tag history. Most recent release
 
 - **Commit messages:** `type: short description` first line + body. Types: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `ci:`, `build:`.
 - **Spec/plan docs:** `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` and `docs/superpowers/plans/YYYY-MM-DD-<topic>.md`.
-- **Branch naming:** session branches are `claude/<name>`. Long-lived: `main`, `dev`. The user merges to dev/main themselves via PR UI.
+- **Branch naming:** feature branches are cut from `dev` and named for the feature (e.g. `follow-group-member`). Long-lived: `main`, `dev`. The user merges to dev/main themselves.
 - **Git user identity for this repo:** `tenorune` / `117549102+tenorune@users.noreply.github.com`.
 - **Test-mock discipline:** **11 test files** mock `../js/db.js` per-suite. Every new `db.js` export must be added as a `jest.fn()` stub in all 11. Run `grep -l "jest.mock.*'../js/db.js'" tests/` to confirm the current list. Missing entries cause `(0, _db.foo) is not a function` failures.
 - **Placeholder identity discipline:** **never** use the project owner's first or last name in code, tests, fixtures, docs, commit messages, or chat replies. Use generic placeholders (`Alex K.`, `Bea`, etc.). The repo was previously scrubbed of references; keep it clean. **Don't put memory rules in a repo file (no CLAUDE.md).** Hold the rule in your session context.
