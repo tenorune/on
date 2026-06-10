@@ -114,12 +114,12 @@ async function refreshInboxModalIfOpen() {
 async function renderInboxModalRows() {
   const list = document.getElementById('inbox-modal-list');
   if (!list) return;
-  const entries = Object.entries(_pending);
+  const inviteEntries = Object.entries(_pending);
+  const frEntries = Object.entries(_followRequests);
 
-  // Lightweight in-flight state so the modal isn't blank while the group /
-  // member reads round-trip.
+  // Lightweight in-flight state so the modal isn't blank while reads round-trip.
   list.innerHTML = '';
-  if (entries.length > 0) {
+  if (inviteEntries.length + frEntries.length > 0) {
     const loading = document.createElement('li');
     loading.className = 'inbox-loading';
     loading.textContent = 'Loading…';
@@ -127,26 +127,34 @@ async function renderInboxModalRows() {
   }
 
   const following = getFollowing();
-  const inviterLabelByUid = {};
-  for (const f of following) inviterLabelByUid[f.userId] = f.label;
+  const labelByUid = {};
+  for (const f of following) labelByUid[f.userId] = f.label;
 
-  // Resolve all rows in parallel (was one awaited readGroup per row, in series).
-  // Inviter name: the invitee's own label for them when they follow the inviter,
-  // else the inviter's display name in that group (they're a member — today the
-  // owner), else a generic fallback — never the raw uid.
-  const rows = await Promise.all(entries.map(async ([groupId, record]) => {
-    const needMember = !inviterLabelByUid[record.from];
+  // Invite rows. Inviter name: own label → their group displayName → fallback.
+  const inviteRows = await Promise.all(inviteEntries.map(async ([groupId, record]) => {
+    const needMember = !labelByUid[record.from];
     const [group, member] = await Promise.all([
       readGroup(groupId),
       needMember ? readMember(groupId, record.from) : Promise.resolve(null),
     ]);
-    const inviterLabel = inviterLabelByUid[record.from] || member?.displayName || 'Someone';
+    const inviterLabel = labelByUid[record.from] || member?.displayName || 'Someone';
     const groupName = group?.name || groupId;
     return buildInboxRow({ groupId, inviterLabel, groupName });
   }));
 
+  // Follow-request rows. Requester name: own label → their shared-group displayName → fallback.
+  const frRows = await Promise.all(frEntries.map(async ([requesterUid, record]) => {
+    let requesterLabel = labelByUid[requesterUid];
+    if (!requesterLabel && record.groupId) {
+      const member = await readMember(record.groupId, requesterUid);
+      requesterLabel = member?.displayName;
+    }
+    return buildFollowRequestRow({ requesterUid, requesterLabel: requesterLabel || 'Someone' });
+  }));
+
   list.innerHTML = '';
-  for (const row of rows) list.appendChild(row);
+  for (const row of inviteRows) list.appendChild(row);
+  for (const row of frRows) list.appendChild(row);
 }
 
 function buildInboxRow({ groupId, inviterLabel, groupName }) {
@@ -178,6 +186,54 @@ function buildInboxRow({ groupId, inviterLabel, groupName }) {
 
   li.appendChild(actions);
   return li;
+}
+
+function buildFollowRequestRow({ requesterUid, requesterLabel }) {
+  const li = document.createElement('li');
+  li.className = 'inbox-row';
+  li.dataset.requesterId = requesterUid;
+
+  const text = document.createElement('span');
+  text.className = 'inbox-row-text';
+  text.textContent = `${requesterLabel} wants to follow you.`;
+  li.appendChild(text);
+
+  const actions = document.createElement('div');
+  actions.className = 'inbox-row-actions';
+
+  const approveBtn = document.createElement('button');
+  approveBtn.type = 'button';
+  approveBtn.className = 'inbox-approve-btn primary-btn';
+  approveBtn.textContent = 'Approve';
+  approveBtn.addEventListener('click', () => handleApprove(requesterUid));
+  actions.appendChild(approveBtn);
+
+  const declineBtn = document.createElement('button');
+  declineBtn.type = 'button';
+  declineBtn.className = 'inbox-fr-decline-btn ghost-btn';
+  declineBtn.textContent = 'Decline';
+  declineBtn.addEventListener('click', () => handleFollowRequestDecline(requesterUid));
+  actions.appendChild(declineBtn);
+
+  li.appendChild(actions);
+  return li;
+}
+
+async function handleApprove(requesterUid) {
+  if (!_myUid || !_myCode) return;
+  // Double-tap guard.
+  const row = document.querySelector(`.inbox-row[data-requester-id="${requesterUid}"]`);
+  const btn = row?.querySelector('.inbox-approve-btn');
+  if (btn) { if (btn.disabled) return; btn.disabled = true; }
+  // Hand the requester our code so their client completes the follow, then clear
+  // the request. The requester's grant-watcher does the rest.
+  await writeFollowGrant(requesterUid, _myUid, _myCode);
+  await deleteFollowRequest(_myUid, requesterUid);
+}
+
+async function handleFollowRequestDecline(requesterUid) {
+  if (!_myUid) return;
+  await deleteFollowRequest(_myUid, requesterUid);
 }
 
 async function handleJoin(groupId, groupName) {

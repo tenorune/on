@@ -275,4 +275,45 @@ describe('Inbox — follow requests', () => {
     expect(btn).not.toBeNull();
     expect(btn.classList.contains('unseen')).toBe(true);
   });
+
+  test('renders a follow-request row and Approve writes a grant + deletes the request', async () => {
+    db.readMember.mockResolvedValue({ displayName: 'Req Name' });
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+
+    await openInboxModal();
+    const row = document.querySelector('.inbox-row[data-requester-id="req"]');
+    expect(row).not.toBeNull();
+    expect(row.querySelector('.inbox-row-text').textContent).toBe('Req Name wants to follow you.');
+
+    row.querySelector('.inbox-approve-btn').click();
+    await Promise.resolve(); await Promise.resolve();
+    expect(db.writeFollowGrant).toHaveBeenCalledWith('req', 'me', 'MYCODE');
+    expect(db.deleteFollowRequest).toHaveBeenCalledWith('me', 'req');
+  });
+
+  test('Decline deletes the request only (no grant)', async () => {
+    db.readMember.mockResolvedValue({ displayName: 'Req Name' });
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+
+    await openInboxModal();
+    document.querySelector('.inbox-row[data-requester-id="req"] .inbox-fr-decline-btn').click();
+    await Promise.resolve();
+    expect(db.deleteFollowRequest).toHaveBeenCalledWith('me', 'req');
+    expect(db.writeFollowGrant).not.toHaveBeenCalled();
+  });
+
+  test('uses the viewer label for the requester when followed', async () => {
+    // prefs.getFollowing mock returns uOwner1 labelled "Owner One"
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ uOwner1: { from: 'uOwner1', groupId: 'g1', ts: 7 } });
+    await openInboxModal();
+    const row = document.querySelector('.inbox-row[data-requester-id="uOwner1"]');
+    expect(row.querySelector('.inbox-row-text').textContent).toBe('Owner One wants to follow you.');
+    expect(db.readMember).not.toHaveBeenCalledWith('g1', 'uOwner1');
+  });
 });
