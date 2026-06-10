@@ -52,10 +52,10 @@ users/{uid}/
              migrated to userPrefs/)
 
 knocks/{recipientId}/{senderId} = { count, ts, contextGroupId? }   ← moved out
-calls/{calleeId} = { callerId, ts }            ← caller writes; callee watches own
+calls/{uid} = { to: peerId, ts, answered? }     ← I am the caller
+            | { from: peerId, ts, answered? }   ← I am being called / I answered
 revocations/{revokedUid}/{revokerUid} = true   ← replaces revokedFollowers piggyback
 userPrefs/{uid}/perGroup/{gid}/lastVisited     ← nav-sort hint (private, synced)
-userPrefs/{uid}/activeCall = { calleeId, ts }  ← caller's own boot-recovery pointer
 ```
 
 `code` stays inside `presence/` so the followee-watcher code-rotation self-heal
@@ -76,16 +76,16 @@ and it belongs with presence.
   notes).
 - `writeKnock`/`getKnocks`/`watchKnocksAdded`/`clearKnock` → `knocks/{recipient}`
   top-level.
-- `setCallState(callerId, calleeId)` → ONE multi-path update writing
-  `calls/{calleeId} = { callerId, ts }` AND
-  `userPrefs/{callerId}/activeCall = { calleeId, ts }`.
-- `clearCallState(callerId)` → clears BOTH `calls/{calleeId}` AND
-  `userPrefs/{callerId}/activeCall`. The calleeId is resolved by reading
-  `userPrefs/{callerId}/activeCall` first (one get), then a multi-path update
-  nulls both paths. (Resolving from the pointer rather than a new param keeps
-  every existing `clearCallState(uid)` call site unchanged — there are several,
-  in error/teardown paths that don't all have the calleeId in hand.) A null/absent
-  pointer means no active call → clear is a no-op.
+- Call primitives (replacing `setCallState`/`clearCallState`) — every one a
+  single atomic multi-path update over BOTH participants' mailboxes:
+  - `startCall(callerId, calleeId)` → `calls/{callerId} = { to: calleeId, ts }`
+    + `calls/{calleeId} = { from: callerId, ts }`.
+  - `answerCall(calleeId, callerId)` → sets `answered: true` on both records.
+  - `endCall(aUid, bUid)` → nulls both records. ONE primitive replaces today's
+    three asymmetric clear paths (caller hangup, receiver decline, post-answer
+    teardown).
+  - `watchOwnCall(uid, cb)` → onValue on `calls/{uid}` (each party watches only
+    its OWN mailbox).
 - `removeFollower(myUid, followerUid)` → remove
   `users/{myUid}/followers/{followerUid}` AND set
   `revocations/{followerUid}/{myUid} = true` (was `revokedFollowers`).
@@ -96,8 +96,8 @@ and it belongs with presence.
 - `setLastVisited` → `userPrefs/{uid}/perGroup/{gid}/lastVisited` via
   mergeUserPrefs.
 - New: `watchPresence(uid, cb)` (the narrowed `onValue` on
-  `users/{uid}/presence`), `watchRevocations(uid, cb)`, `watchIncomingCalls(uid,
-  cb)` (on `calls/{uid}`).
+  `users/{uid}/presence`) and `watchRevocations(uid, cb)`. (`watchOwnCall` is
+  defined with the call primitives above.)
 
 ## 3. Client consumers
 
@@ -110,20 +110,44 @@ and it belongs with presence.
   on a revoker key appearing, run the existing auto-unfollow path (the logic
   that lived in each followee watcher's `revokedFollowers[me]` check moves here,
   once). Net: −N followees' revocation payload, +1 small listener.
-- **Call signaling (5b):** callee detection moves from the followee watchers
-  sniffing `callState` to ONE `watchIncomingCalls(myUid)` → resolve `callerId`
-  against the contacts list → existing incoming-call UI. Caller boot-recovery
-  reads `userPrefs/{me}/activeCall` (userPrefs is already watched at boot — no
-  new listener) instead of own `callState`; `reEnterCallMode`/`clearCallState`
-  keep their semantics on the new paths (teardown clears both the `calls/`
-  mailbox and the `activeCall` pointer). The UI still only OFFERS calls to
-  mutuals — unchanged; only the detection topology changes.
+- **Call signaling (5b) — the symmetric-mailbox state machine.** Each party
+  watches only `calls/{me}`; all transitions write both records atomically:
+  - *Initiate:* swipe-right (non-glowing) → `enterCallMode` keeps its local
+    `callModeCalleeId` + pre-clears anyone ringing me (`endCall` per ring —
+    today's clear-all loop) → `startCall(me, peer)`.
+  - *Ring (callee side):* own-mailbox tick with `from: A` → module state
+    `_incomingCall = { from }` → repaint A's row ("Calling you… swipe right to
+    answer"); replaces the followee-watch `callState` sniffing, the
+    `lastUserData.callState` reads, and the card-drawer-close repaint hook
+    (which re-reads `_incomingCall` instead).
+  - *Answer:* swipe-right on the glowing row → `answerCall(me, caller)` +
+    `enterCanvas` (unchanged). *Caller detects the answer* via its OWN mailbox
+    (`answered: true` appears) → `enterCanvas` — replacing the mutual-callState
+    detection in `updateFolloweeRow`.
+  - *Hangup/decline (either side, any phase):* `endCall(me, peer)`.
+    *Peer-ended detection:* own mailbox goes null while in call-mode/canvas →
+    today's "partner left" flow — moved OFF the own-presence watcher (app.js's
+    `callModeHandled` block), which no longer carries call logic at all.
+  - *Boot recovery:* the own mailbox IS the durable record (no userPrefs
+    pointer). `to: B` at first tick → validate `calls/{B}.from === me` (one
+    get; on mismatch self-clean via `endCall`) → `reEnterCallMode`;
+    `from: A, answered` → re-enter callee-side canvas path; unanswered
+    `from: A` → just renders as a live ring.
+  - *Concurrency:* single-occupancy mailbox ⇒ LAST-RING-WINS when two callers
+    ring one user (today: parallel rings). The displaced caller's stale `to`
+    record self-cleans via the boot/hangup validation. Accepted at this scale.
+  - The UI still only OFFERS calls to mutuals — unchanged; only detection
+    topology changes. `lastUserData` stops carrying call state entirely; the
+    followee-watch payload is pure presence.
 
 ## 4. Cloud Functions
 
 - `onKnock` → `/knocks/{recipientId}/{senderId}` (handler params identical).
-- `onCall` → `/calls/{calleeId}`; the "new call only" before/after dedup keys on
-  `callerId`; handler resolves the caller's name as today.
+- `onCall` → `/calls/{uid}` (onValueWritten). Guard: notify only when the
+  AFTER record is a fresh unanswered ring — `after.from` exists, `!after.answered`,
+  and `before?.from !== after.from`. The same `startCall` update also fires this
+  trigger for the caller's own `to`-record — skipped by the `from` check.
+  Handler resolves the caller's name as today.
 - `onAvailability` → `/users/{uid}/presence/availableUntil`; sibling reads in the
   handler (`status`) → `presence/status`.
 - Notifier `getVal` remaps: `users/{uid}/status` → `presence/status`,
@@ -170,10 +194,15 @@ incentive.
 - **db.js:** path assertions for every remapped writer; a perf-guard test that
   knock writes touch nothing under `users/` and presence writes touch only
   `users/{uid}/presence/`.
-- **Call flow (riskiest):** incoming-call detection via `calls/{me}` mailbox;
-  boot-recovery via `activeCall` (re-enter when callee data valid, clear when
-  gone — the `callModeHandled` matrix re-pinned on new seams); teardown clears
-  both records; `onCall` dedup (same-caller overwrite no-ops, new call pushes).
+- **Call flow (riskiest):** full transition matrix on the new seams —
+  initiate writes both records; ring renders from the own-mailbox tick (incl.
+  drawer-open suppression via `_incomingCall`); answer sets `answered` on both
+  and caller's own-mailbox tick triggers canvas; `endCall` from each side at
+  each phase (pre-answer hangup, receiver decline, post-answer teardown) nulls
+  both and the peer's null tick drives "partner left"; boot recovery for all
+  three mailbox shapes (`to`, `from`+answered, stale `to` self-clean);
+  last-ring-wins overwrite; `onCall` guard (to-record skipped, same-caller
+  overwrite no-op, answered write no-op, fresh ring pushes).
 - **Revocation:** auto-unfollow fires on a `revocations/{me}` tick;
   `removeFollower` writes both records; re-follow ordering
   (`registerAsFollower` removes revocation before the followers set).
