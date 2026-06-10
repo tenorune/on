@@ -13,6 +13,8 @@ const {
   writeMember, readMember, readMembers, removeMember, setMemberDisplayName, watchGroupMembers,
   writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions, watchGroupInvites,
   setStatusOverride, clearStatusOverride, watchOwnMemberOverride,
+  writeFollowRequest, watchFollowRequests, deleteFollowRequest,
+  writeFollowGrant, watchFollowGrants, deleteFollowGrant,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -642,5 +644,61 @@ describe('registerAsFollower', () => {
     const revokeIdx = refPaths.indexOf('users/targetUid/revokedFollowers/meUid');
     const followersIdx = refPaths.indexOf('users/targetUid/followers/meUid');
     expect(revokeIdx).toBeLessThan(followersIdx);
+  });
+});
+
+describe('follow request/grant mailboxes', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('writeFollowRequest sets followRequests/{target}/{requester}', async () => {
+    set.mockResolvedValueOnce();
+    await writeFollowRequest('req', 'tgt', 'g1');
+    expect(ref).toHaveBeenCalledWith({}, 'followRequests/tgt/req');
+    expect(set).toHaveBeenCalledWith('mock-ref',
+      expect.objectContaining({ from: 'req', groupId: 'g1', ts: expect.any(Number) }));
+  });
+
+  test('deleteFollowRequest removes followRequests/{target}/{requester}', async () => {
+    remove.mockResolvedValueOnce();
+    await deleteFollowRequest('tgt', 'req');
+    expect(ref).toHaveBeenCalledWith({}, 'followRequests/tgt/req');
+    expect(remove).toHaveBeenCalledWith('mock-ref');
+  });
+
+  test('watchFollowRequests subscribes to followRequests/{target} and maps empty', () => {
+    let handler;
+    onValue.mockImplementationOnce((_ref, cb) => { handler = cb; return () => {}; });
+    const got = jest.fn();
+    watchFollowRequests('tgt', got);
+    expect(ref).toHaveBeenCalledWith({}, 'followRequests/tgt');
+    handler({ exists: () => false, val: () => null });
+    expect(got).toHaveBeenCalledWith({});
+    handler({ exists: () => true, val: () => ({ req: { from: 'req', groupId: 'g1', ts: 1 } }) });
+    expect(got).toHaveBeenCalledWith({ req: { from: 'req', groupId: 'g1', ts: 1 } });
+  });
+
+  test('writeFollowGrant sets followGrants/{requester}/{target} with target code', async () => {
+    set.mockResolvedValueOnce();
+    await writeFollowGrant('req', 'tgt', 'TGTCODE');
+    expect(ref).toHaveBeenCalledWith({}, 'followGrants/req/tgt');
+    expect(set).toHaveBeenCalledWith('mock-ref',
+      expect.objectContaining({ from: 'tgt', code: 'TGTCODE', ts: expect.any(Number) }));
+  });
+
+  test('deleteFollowGrant removes followGrants/{requester}/{target}', async () => {
+    remove.mockResolvedValueOnce();
+    await deleteFollowGrant('req', 'tgt');
+    expect(ref).toHaveBeenCalledWith({}, 'followGrants/req/tgt');
+    expect(remove).toHaveBeenCalledWith('mock-ref');
+  });
+
+  test('watchFollowGrants subscribes to followGrants/{requester}', () => {
+    let handler;
+    onValue.mockImplementationOnce((_ref, cb) => { handler = cb; return () => {}; });
+    const got = jest.fn();
+    watchFollowGrants('req', got);
+    expect(ref).toHaveBeenCalledWith({}, 'followGrants/req');
+    handler({ exists: () => true, val: () => ({ tgt: { from: 'tgt', code: 'C', ts: 1 } }) });
+    expect(got).toHaveBeenCalledWith({ tgt: { from: 'tgt', code: 'C', ts: 1 } });
   });
 });
