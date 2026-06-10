@@ -205,6 +205,16 @@ describe('initSwatches', () => {
     expect(document.querySelectorAll('.swatch')).toHaveLength(8);
   });
 
+  test('swatches are focusable <button type="button"> (a11y, #116)', () => {
+    initSwatches('uid1');
+    const swatches = document.querySelectorAll('#swatch-row .swatch');
+    expect(swatches.length).toBe(8);
+    for (const s of swatches) {
+      expect(s.tagName).toBe('BUTTON');
+      expect(s.getAttribute('type')).toBe('button');
+    }
+  });
+
   test('toggle button is first child of swatch-row', () => {
     initSwatches('uid1');
     const first = document.getElementById('swatch-row').firstChild;
@@ -406,6 +416,22 @@ describe('enterPaletteMode', () => {
       });
     enterPaletteMode('ember', 'uid1');
     expect(document.querySelector('.key-swatch')).not.toBeNull();
+  });
+
+  test('palette-mode swatches (key + complements) are <button type="button"> (a11y, #116)', () => {
+    getPaletteState
+      .mockReturnValueOnce(JSON.parse(JSON.stringify(mockState)))
+      .mockReturnValueOnce({
+        ...JSON.parse(JSON.stringify(mockState)),
+        sets: { '1': { selectedKey: 'ember', activePaletteKey: 'ember' }, '2': { selectedKey: 'volt', activePaletteKey: null } },
+      });
+    enterPaletteMode('ember', 'uid1');
+    const swatches = document.querySelectorAll('#swatch-row .swatch');
+    expect(swatches.length).toBeGreaterThan(0);
+    for (const s of swatches) {
+      expect(s.tagName).toBe('BUTTON');
+      expect(s.getAttribute('type')).toBe('button');
+    }
   });
 
   test('calls setPaletteKey with the entered key', () => {

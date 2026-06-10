@@ -247,7 +247,8 @@ function renderSwatchRow(userId) {
       setPaletteState(cleanState);
     }
     PALETTE_SETS[setNum].forEach(p => {
-      const swatch = document.createElement('div');
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
       swatch.className = 'swatch';
       swatch.dataset.key = p.key;
       swatch.style.background = p.color;
@@ -288,7 +289,8 @@ function renderSwatchRow(userId) {
     let ci = 0;
 
     for (let i = 0; i < 8; i++) {
-      const swatch = document.createElement('div');
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
       if (i === keyIdx) {
         swatch.className = 'swatch key-swatch';
         if (_paletteEnterAt != null) {
