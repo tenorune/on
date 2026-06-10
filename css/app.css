@@ -727,20 +727,29 @@ main {
   transition: opacity 0.25s ease;
 }
 .group-swatch-row.visible { opacity: 1; pointer-events: auto; }
-.group-swatch-row .swatch {
-  background: transparent;
-  padding: 0;
-}
 .swatch {
   width: 22px; height: 22px; border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.12);
   cursor: pointer; flex-shrink: 0;
   transition: border-color 0.15s, box-shadow 0.15s;
+  /* Both pickers render swatches as <button> (a11y: keyboard-reachable,
+     announced as controls — issue #116). Reset the UA button chrome here so
+     Direct and Group share one rule; the per-swatch color is an inline
+     background that overrides this transparent default. */
+  background: transparent;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
 }
 .swatch.selected {
   border-color: rgba(255, 255, 255, 0.9);
   border-width: 3px;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+}
+/* Keyboard focus ring (only .selected was visually distinguished before). */
+.swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .swatch.hint-wave {
   transition: box-shadow 0.25s ease-in-out;

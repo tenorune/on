@@ -10,8 +10,11 @@ jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.f
 // is exactly what produced the theme-hint and key-spin bugs. This test
 // pins the shapes that should match so future drift fails noisily.
 //
+// Both renderers now emit <button type="button"> swatches (issue #116 — the
+// last semantic divergence, resolved; tag is asserted in palettes.test.js /
+// groupContext.test.js).
+//
 // Intentionally NOT asserted (these are the known/accepted differences):
-//   - swatch tagName (<div> vs <button>) — tracked in issue #116
 //   - container id (#swatch-row vs #group-swatch-row)
 //   - dataset attribute name (data-key vs data-palette-key)
 //   - extra class (.group-swatch on group swatches)
