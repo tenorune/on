@@ -5,9 +5,9 @@
 // own-status row, the chain-icon override toggle (installed into the nav row's
 // slot), and the member roster.
 
-import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs } from './db.js';
+import { watchGroupMembers, watchGroupInvites, watchStatus, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs } from './db.js';
 import { safeCssColor } from './utils.js';
-import { navigateToDirect, applyOptimisticAppearance } from './groupNav.js';
+import { navigateToDirect, applyOptimisticAppearance, subscribeGroupMeta, subscribeOwnOverride } from './groupNav.js';
 import { subscribeOwnStatus } from './ownStatus.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
@@ -1077,7 +1077,7 @@ export function enterGroupContext(groupId, userId) {
     applyEffectivePalette();
     renderOwnStatusRow();
   });
-  _ownOverrideUnsub = watchOwnMemberOverride(groupId, userId, (data) => {
+  _ownOverrideUnsub = subscribeOwnOverride(groupId, (data) => {
     _ownOverride = data || null;
     syncGroupPaletteStateFromOverride();
     // Seed override.statusColor the first time we see an enabled override
@@ -1201,7 +1201,7 @@ export function enterGroupContext(groupId, userId) {
   }
 
   // Subscribe to group meta for the name + owner check
-  _metaUnsub = watchGroupMeta(groupId, (meta) => {
+  _metaUnsub = subscribeGroupMeta(groupId, (meta) => {
     if (!meta) {
       // Group entity was deleted. Non-owner members never had their
       // users/{uid}/groups/{groupId} entry cleared by the owner (the
