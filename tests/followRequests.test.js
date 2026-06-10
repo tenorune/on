@@ -72,6 +72,16 @@ describe('createRequestFollowButton', () => {
     btn.click();
     expect(onRow).not.toHaveBeenCalled();
   });
+
+  test('re-enables for retry when the request write fails', async () => {
+    db.writeFollowRequest.mockRejectedValueOnce(new Error('offline'));
+    const btn = createRequestFollowButton('me', 'tgt', 'g1');
+    btn.click();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(btn.disabled).toBe(false);
+    expect(btn.textContent).toBe('Request to follow');
+    expect(isRequested('tgt')).toBe(false);
+  });
 });
 
 describe('initFollowGrants', () => {
@@ -98,5 +108,46 @@ describe('initFollowGrants', () => {
     await cb({ tgt: { from: 'tgt', ts: 1 } });
     expect(db.setFollowingEntry).not.toHaveBeenCalled();
     expect(db.deleteFollowGrant).not.toHaveBeenCalled();
+  });
+
+  test('a failed follow write leaves the grant in place (no delete)', async () => {
+    let cb;
+    db.watchFollowGrants.mockImplementation((uid, fn) => { cb = fn; return () => {}; });
+    db.setFollowingEntry.mockRejectedValueOnce(new Error('offline'));
+    initFollowGrants('me', 'MYCODE');
+    await cb({ tgt: { from: 'tgt', code: 'TGTCODE', ts: 1 } });
+    expect(db.deleteFollowGrant).not.toHaveBeenCalled();
+  });
+
+  test('processes multiple grants in one tick', async () => {
+    let cb;
+    db.watchFollowGrants.mockImplementation((uid, fn) => { cb = fn; return () => {}; });
+    initFollowGrants('me', 'MYCODE');
+    await cb({
+      t1: { from: 't1', code: 'C1', ts: 1 },
+      t2: { from: 't2', code: 'C2', ts: 2 },
+    });
+    expect(db.setFollowingEntry).toHaveBeenCalledWith('me', 't1', 'C1', '');
+    expect(db.setFollowingEntry).toHaveBeenCalledWith('me', 't2', 'C2', '');
+    expect(db.deleteFollowGrant).toHaveBeenCalledWith('me', 't1');
+    expect(db.deleteFollowGrant).toHaveBeenCalledWith('me', 't2');
+  });
+
+  test('a tick arriving mid-flight does not re-process the same grant', async () => {
+    let cb;
+    db.watchFollowGrants.mockImplementation((uid, fn) => { cb = fn; return () => {}; });
+    // Hold the first setFollowingEntry open so the first tick is mid-flight.
+    let release;
+    db.setFollowingEntry.mockImplementationOnce(() => new Promise((res) => { release = res; }));
+    initFollowGrants('me', 'MYCODE');
+    const first = cb({ tgt: { from: 'tgt', code: 'TGTCODE', ts: 1 } });
+    // Echo tick with the grant still present while the first is blocked.
+    const second = cb({ tgt: { from: 'tgt', code: 'TGTCODE', ts: 1 } });
+    await second;
+    release();
+    await first;
+    expect(db.setFollowingEntry).toHaveBeenCalledTimes(1);
+    expect(db.registerAsFollower).toHaveBeenCalledTimes(1);
+    expect(db.deleteFollowGrant).toHaveBeenCalledTimes(1);
   });
 });

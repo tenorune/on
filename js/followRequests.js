@@ -82,10 +82,16 @@ export function createRequestFollowButton(myUid, targetUid, groupId) {
 // code into my following list + me into their followers list — then delete the grant
 // and clear the local "Requested" marker. Idempotent if I already follow them.
 // Durable: a grant left by an offline-at-approval requester is consumed on next load.
+// Re-entrancy: our own deleteFollowGrant echoes back as a fresh onValue tick that can
+// land mid-flight; the per-target in-flight set keeps that tick (or any concurrent
+// one) from re-processing a grant we're already completing.
+const _inflight = new Set();
 export function initFollowGrants(myUid, myCode) {
   return watchFollowGrants(myUid, async (grants) => {
     for (const [targetUid, grant] of Object.entries(grants || {})) {
       if (!grant || !grant.code) continue;
+      if (_inflight.has(targetUid)) continue;
+      _inflight.add(targetUid);
       try {
         await setFollowingEntry(myUid, targetUid, grant.code, '');
         await registerAsFollower(targetUid, myUid, myCode);
@@ -93,6 +99,8 @@ export function initFollowGrants(myUid, myCode) {
         clearRequested(targetUid);
       } catch {
         // Leave the grant in place; retried on the next tick / next load.
+      } finally {
+        _inflight.delete(targetUid);
       }
     }
   });
