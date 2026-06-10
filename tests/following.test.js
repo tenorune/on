@@ -1849,3 +1849,61 @@ describe('syncFollowingFromServer event', () => {
     document.removeEventListener('following-synced', onSynced);
   });
 });
+
+describe('renderList reconciliation', () => {
+  beforeEach(() => { setupDom(); jest.clearAllMocks(); });
+
+  test('rows keep node identity across a followers tick', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]); // u1 mutual
+    const row = document.querySelector('[data-user-id="u1"]');
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    expect(document.querySelector('[data-user-id="u1"]')).toBe(row);
+  });
+
+  test('a section move (mutual -> follower-only loses follow) replaces the row', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    const mutualRow = document.querySelector('[data-user-id="u1"]');
+    expect(mutualRow.dataset.mutual).toBe('1');
+    // Following list empties: u1 becomes follower-only — structurally different row.
+    getFollowing.mockReturnValue([]);
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    const followerRow = document.querySelector('[data-user-id="u1"]');
+    expect(followerRow).not.toBe(mutualRow);
+    expect(followerRow.classList.contains('follower-only')).toBe(true);
+  });
+
+  test('section labels render once and persist', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    const label = document.querySelector('.list-section-label');
+    expect(label.textContent).toBe('Mutuals');
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    expect(document.querySelectorAll('.list-section-label').length).toBe(1);
+    expect(document.querySelector('.list-section-label')).toBe(label);
+  });
+
+  test('follow-back prefill reads the follower name at CLICK time, not render time', () => {
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockReturnValue(null); // unknown at render
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u2', code: 'Q3ZP7R' }]);
+    getFollowerName.mockReturnValue('Bea'); // learned later (approval flow)
+    document.querySelector('[data-user-id="u2"] .follow-back-btn').click();
+    expect(document.getElementById('add-label-input').value).toBe('Bea');
+  });
+
+  test('empty list still clears rows and shows the empty state', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    getFollowing.mockReturnValue([]);
+    fire([]);
+    expect(document.querySelectorAll('#people-list li').length).toBe(0);
+    expect(document.getElementById('people-list').style.display).toBe('none');
+  });
+});
