@@ -1193,6 +1193,12 @@ main {
 .notify-bell { background: none; border: 0; cursor: pointer; color: var(--text-muted); opacity: 1; padding: 0.25rem; display: inline-flex; align-items: center; }
 .notify-bell.active { color: #fff; }
 .notify-bell svg { width: 1rem; height: 1rem; display: block; }
+
+/* Roster request-to-follow toggle: mirrors the bell's idle/active coloring —
+   muted circled-plus = tap to request, white = requested (tap cancels). */
+.request-follow-btn { background: none; border: 0; cursor: pointer; color: var(--text-muted); padding: 0.25rem; display: inline-flex; align-items: center; }
+.request-follow-btn.requested { color: #fff; }
+.request-follow-btn svg { width: 1rem; height: 1rem; display: block; }
 /* Popover is portaled to <body> and positioned (top/right) inline by JS from the
    bell's rect, so no card/slice overflow or transform can clip it. */
 .notify-popover { position: fixed; z-index: 1000;
