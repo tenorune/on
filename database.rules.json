@@ -48,6 +48,18 @@
         ".write": true
       }
     },
+    "followRequests": {
+      "$targetUid": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "followGrants": {
+      "$requesterUid": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "canvases": {
       "$canvasId": {
         ".read": true,
