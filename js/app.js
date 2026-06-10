@@ -350,11 +350,15 @@ async function main() {
   // Wire navigation BEFORE the invite-redemption block, otherwise navigateToGroup
   // writes to users/null/... (because initNav hasn't set the local userId yet) AND
   // its state change gets wiped by initNav's reset-to-direct that follows.
-  // Own-status fan-out order is load-bearing: initOwnStatus opens the single
-  // watch FIRST; groupNav (via initNav → startCardsRowSubscriptions) must
-  // register its subscribeOwnStatus before this file's own handler (~L580), and
-  // groupContext on group-enter registers last so its group-override theme wins
-  // the same tick app.js writes the Direct theme. Don't reorder. See ownStatus.js.
+  // initOwnStatus opens the single own-user watch FIRST; everything else
+  // subscribes to it. The normal registration order is groupNav (via initNav →
+  // startCardsRowSubscriptions) → this file's own handler (~L580) → groupContext
+  // on group-enter. NOTE the deep-link/returning-in-group boot path inverts this
+  // (navigateToGroup → enterGroupContext runs before startCardsRowSubscriptions),
+  // so groupContext can register first there. That's harmless: the real guarantee
+  // that app.js's Direct-theme write never clobbers a group override is the
+  // `inDirectCtx` gate on those writes (~L634), not fan-out order. The order still
+  // matters for replay determinism — keep initOwnStatus before initNav. See ownStatus.js.
   initOwnStatus(userId);
   initNav(userId);
   initNavRow();  // Must register its onContextChange listener BEFORE the

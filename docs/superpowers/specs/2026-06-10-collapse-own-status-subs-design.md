@@ -65,10 +65,13 @@ Semantics:
   (consumers read `callState`, `paletteKey`, etc. — no narrowing).
 - **Registration-order fan-out.** Each call site swaps
   `watchStatus(uid, cb)` → `subscribeOwnStatus(cb)` in place, so registration
-  order equals today's Firebase attach order (initNav → groupContext-on-enter →
-  app.js handler). The same-tick ordering that protects the group-override
-  theme from app.js's Direct-theme write is preserved by construction and
-  documented as an invariant in the module header.
+  order equals today's Firebase attach order — normally groupNav (via initNav) →
+  app.js handler → groupContext-on-enter. (The deep-link/returning-in-group boot
+  path inverts this: enterGroupContext runs before startCardsRowSubscriptions, so
+  groupContext registers first there.) Order is preserved by construction, but it
+  is NOT the actual guarantee that app.js's Direct-theme write can't clobber a
+  group override — that is the `inDirectCtx` gate on those writes. Order matters
+  for replay determinism. Documented as an invariant in the module header.
 - **Replay only after the first tick.** `_last` starts as a sentinel distinct
   from `null` (`null` = user node absent). A pre-tick subscriber waits, exactly
   as `onValue` behaves today; a post-tick subscriber (groupContext on enter)
