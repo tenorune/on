@@ -24,7 +24,7 @@ import { getCurrentFollowersMap, getCurrentMutuals } from './following.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
 import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, NOTIFICATIONS_ENABLED, FOLLOW_REQUESTS_ENABLED } from './features.js';
-import { createCardDrawer, isCardDrawerOpen } from './cardDrawer.js';
+import { createCardDrawer, isCardDrawerOpen, closeCardDrawer } from './cardDrawer.js';
 import { isFollowRequestEligible, createRequestFollowButton } from './followRequests.js';
 import { createNotifyBell, isNotifyPopoverOpen } from './notifyBell.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
@@ -118,6 +118,10 @@ function reorderRosterByAvailability() {
 }
 
 function renderRoster(members, ownUserId) {
+  // A drawer open on a row about to be wiped would leak its document listeners
+  // and strand isCardDrawerOpen()=true (gestures + knock/call deferral stuck).
+  // Closing first dispatches card-drawer-close, flushing that state.
+  closeCardDrawer();
   const list = document.getElementById('group-roster');
   if (!list) return;
   list.innerHTML = '';
@@ -1230,6 +1234,9 @@ export function exitGroupContext() {
   _groupOwnerId = null;
   _groupName = null;
   _lastMembers = null;
+  // Close any open card drawer so its document-level capture listeners are
+  // removed and _open is cleared before we navigate away.
+  closeCardDrawer();
   closeSettingsMenu();
   uninstallSettingsOutsideHandler();
   const root = document.getElementById('group-context-root');

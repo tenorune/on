@@ -521,6 +521,19 @@ describe('group roster render', () => {
     const row = document.querySelector('#group-roster [data-user-id="a"]');
     expect(row.querySelector('.card-drawer-toggle')).not.toBeNull();
     expect(followRequests.createRequestFollowButton).toHaveBeenCalledWith('me', 'a', 'G1');
+    expect(row.querySelector('.card-drawer-toggle').dataset.actionCount).toBe('2');
+  });
+
+  test('re-rendering the roster closes any open card drawer first', () => {
+    const cardDrawer = require('../js/cardDrawer.js');
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    cardDrawer.closeCardDrawer.mockClear();
+    // Second tick re-renders the roster; the open-drawer teardown must run first.
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    expect(cardDrawer.closeCardDrawer).toHaveBeenCalled();
   });
 
   test('a co-member you already follow keeps the bare bell (no drawer)', () => {
