@@ -14,7 +14,7 @@ const db = require('../js/db.js');
 const prefs = require('../js/prefs.js');
 const {
   requestToFollow, isRequested, isFollowRequestEligible,
-  createRequestFollowButton,
+  createRequestFollowButton, initFollowGrants,
 } = require('../js/followRequests.js');
 
 beforeEach(() => {
@@ -71,5 +71,32 @@ describe('createRequestFollowButton', () => {
     row.appendChild(btn);
     btn.click();
     expect(onRow).not.toHaveBeenCalled();
+  });
+});
+
+describe('initFollowGrants', () => {
+  test('on a grant: completes the follow (both primitives), deletes grant, clears requested', async () => {
+    localStorage.setItem('statusapp_follow_requested', JSON.stringify(['tgt']));
+    let cb;
+    db.watchFollowGrants.mockImplementation((uid, fn) => { cb = fn; return () => {}; });
+
+    initFollowGrants('me', 'MYCODE');
+    expect(db.watchFollowGrants).toHaveBeenCalledWith('me', expect.any(Function));
+
+    await cb({ tgt: { from: 'tgt', code: 'TGTCODE', ts: 1 } });
+
+    expect(db.setFollowingEntry).toHaveBeenCalledWith('me', 'tgt', 'TGTCODE', '');
+    expect(db.registerAsFollower).toHaveBeenCalledWith('tgt', 'me', 'MYCODE');
+    expect(db.deleteFollowGrant).toHaveBeenCalledWith('me', 'tgt');
+    expect(isRequested('tgt')).toBe(false);
+  });
+
+  test('ignores a grant with no code', async () => {
+    let cb;
+    db.watchFollowGrants.mockImplementation((uid, fn) => { cb = fn; return () => {}; });
+    initFollowGrants('me', 'MYCODE');
+    await cb({ tgt: { from: 'tgt', ts: 1 } });
+    expect(db.setFollowingEntry).not.toHaveBeenCalled();
+    expect(db.deleteFollowGrant).not.toHaveBeenCalled();
   });
 });
