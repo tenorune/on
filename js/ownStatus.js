@@ -2,9 +2,10 @@
 // Single owner of the own-user `users/{uid}` subscription. Before this, three
 // places opened watchStatus(self) — app.js (call-mode recovery + theme + own
 // card), groupNav (nav cards), groupContext (own row + override palette) — so
-// every status write, and every knock/follower write to the shared user node,
-// was delivered three times. This collapses them to one underlying watch with a
-// registration-order fan-out.
+// every status write, and every follower/social-graph write to the shared user
+// node, was delivered three times. This collapses them to one underlying watch
+// with a registration-order fan-out. (Knocks were moved to a top-level mailbox
+// in the presence-schema-split work, so they no longer perturb this watch.)
 //
 // ORDERING INVARIANT: callbacks fire in registration order, which equals the
 // consumers' boot/attach order (groupNav.initNav → app.js handler →
