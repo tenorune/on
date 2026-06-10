@@ -48,6 +48,12 @@
         ".write": true
       }
     },
+    "calls": {
+      "$uid": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "pendingInvites": {
       "$inviteeUid": {
         ".read": true,

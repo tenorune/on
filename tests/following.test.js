@@ -50,8 +50,10 @@ jest.mock('../js/db.js', () => ({
   getKnocks: jest.fn(),
   watchKnocksAdded: jest.fn(),
   clearKnock: jest.fn(),
-  setCallState: jest.fn().mockResolvedValue(undefined),
-  clearCallState: jest.fn().mockResolvedValue(undefined),
+  startCall: jest.fn().mockResolvedValue(undefined),
+  answerCall: jest.fn().mockResolvedValue(undefined),
+  endCall: jest.fn().mockResolvedValue(undefined),
+  watchOwnCall: jest.fn(() => () => {}),
   setStatusColor: jest.fn().mockResolvedValue(undefined),
   setPaletteKey: jest.fn().mockResolvedValue(undefined),
   watchFollowing: jest.fn(() => jest.fn()),
@@ -144,13 +146,13 @@ jest.mock('../js/prefs.js', () => ({
   setPaletteState: jest.fn(),
 }));
 
-const { watchStatus, watchFollowers, watchFollowing, setCallState, clearCallState, watchRevocations } = require('../js/db.js');
+const { watchStatus, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations } = require('../js/db.js');
 const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, removeFollowing } = require('../js/store.js');
 const { getMadeCallCount, getAnsweredCallCount } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
   initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees,
-  enterCallMode, exitCallMode, getCallModeCalleeId, reEnterCallMode,
+  enterCallMode, exitCallMode, getCallModeCalleeId, reEnterCallMode, getIncomingCallFrom,
 } = require('../js/following.js');
 const { createNotifyBell } = require('../js/notifyBell.js');
 
@@ -193,6 +195,18 @@ function initAndCaptureFollowersCallback(myUserId = 'myUid', myCode = 'MYCODE') 
   watchStatus.mockReturnValue(jest.fn());
   initList(myUserId, myCode);
   return (arr) => followersCallback(arr);
+}
+
+// Capture the calls/{me} own-call watcher callback so tests can simulate a ring
+// (the receiver-side glow now keys off _incomingCall, set by this watcher —
+// it no longer rides a callState field on the followee's status record).
+function captureOwnCall(myUserId = 'myUid', myCode = 'MYCODE') {
+  let ownCallCb;
+  watchOwnCall.mockImplementation((_uid, cb) => { ownCallCb = cb; return jest.fn(); });
+  watchFollowers.mockReturnValue(jest.fn());
+  watchStatus.mockReturnValue(jest.fn());
+  initList(myUserId, myCode);
+  return (call) => ownCallCb(call);
 }
 
 // --- renderList: section rendering ---
@@ -861,25 +875,33 @@ describe('call mode: receiver-side glow via updateFolloweeRow', () => {
     resetRenderedFollowees();
   });
 
-  test('adds .call-mode and sets --call-color-rgb when callState.calleeId === myUserId', () => {
+  // Receiver-side glow now keys off the calls/{me} own-call watcher (_incomingCall)
+  // instead of a callState field on the followee's status record. Each test fires
+  // a ring through the captured own-call callback, then asserts updateFolloweeRow
+  // paints the glow. Updated (not weakened) because the detection source changed.
+  test('adds .call-mode and sets --call-color-rgb when ringing from this followee', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
     makeFolloweeLi('alice');
+    const ring = captureOwnCall('myUid', 'MYCODE');
+    ring({ from: 'alice', ts: 1 });
     updateFolloweeRow(entry, {
       status: 'available',
       availableUntil: Date.now() + 3600000,
       statusColor: '#3b82f6',
-      callState: { calleeId: 'myUid', since: Date.now() },
     }, 'myUid');
     const li = document.querySelector('[data-user-id="alice"]');
     expect(li.classList.contains('call-mode')).toBe(true);
     expect(li.style.getPropertyValue('--call-color-rgb')).toBe('59, 130, 246');
   });
 
-  test('removes .call-mode when callState is absent', () => {
+  test('removes .call-mode when there is no incoming call', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
     const li = makeFolloweeLi('alice');
     li.classList.add('call-mode');
     li.style.setProperty('--call-color-rgb', '59, 130, 246');
+    captureOwnCall('myUid', 'MYCODE'); // no ring fired → _incomingCall stays null
     updateFolloweeRow(entry, {
       status: 'available',
       availableUntil: Date.now() + 3600000,
@@ -889,26 +911,30 @@ describe('call mode: receiver-side glow via updateFolloweeRow', () => {
     expect(li.style.getPropertyValue('--call-color-rgb')).toBe('');
   });
 
-  test('removes .call-mode when callState.calleeId !== myUserId', () => {
+  test('removes .call-mode when the ring is from someone else', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
     const li = makeFolloweeLi('alice');
     li.classList.add('call-mode');
+    const ring = captureOwnCall('myUid', 'MYCODE');
+    ring({ from: 'someoneElse', ts: 1 });
     updateFolloweeRow(entry, {
       status: 'available',
       availableUntil: Date.now() + 3600000,
       statusColor: '#3b82f6',
-      callState: { calleeId: 'someoneElse', since: Date.now() },
     }, 'myUid');
     expect(li.classList.contains('call-mode')).toBe(false);
   });
 
   test('uses fallback #22c55e when statusColor absent', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
     makeFolloweeLi('alice');
+    const ring = captureOwnCall('myUid', 'MYCODE');
+    ring({ from: 'alice', ts: 1 });
     updateFolloweeRow(entry, {
       status: 'available',
       availableUntil: Date.now() + 3600000,
-      callState: { calleeId: 'myUid', since: Date.now() },
     }, 'myUid');
     const li = document.querySelector('[data-user-id="alice"]');
     expect(li.style.getPropertyValue('--call-color-rgb')).toBe('34, 197, 94');
@@ -917,9 +943,12 @@ describe('call mode: receiver-side glow via updateFolloweeRow', () => {
 
 describe('call deferral while a drawer is open', () => {
   const { createCardDrawer } = require('../js/cardDrawer.js');
-  const CALL = { status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6', callState: { calleeId: 'myUid', since: Date.now() } };
-  const NOCALL = { status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6' };
+  // The receiver-side glow is now driven by the calls/{me} own-call watcher
+  // (_incomingCall) rather than a callState field on the status record, so the
+  // status payload no longer carries call info; the ring is fired separately.
+  const STATUS = { status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6' };
   const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+  let ring; // fire a calls/{me} update through the captured own-call watcher
 
   function openADrawer() {
     const ellipsis = createCardDrawer([{ el: document.createElement('button') }, { el: document.createElement('button') }]);
@@ -933,18 +962,18 @@ describe('call deferral while a drawer is open', () => {
     jest.clearAllMocks();
     resetRenderedFollowees();
     // initList sets the module-level myUserIdRef used by the reconcile listener.
-    // No-op watchers so it does not render or clear our manually built rows.
-    watchFollowers.mockReturnValue(jest.fn());
-    watchStatus.mockReturnValue(jest.fn());
-    initList('myUid', 'MYCODE');
-    resetRenderedFollowees();
+    // captureOwnCall installs no-op followers/status watchers + grabs the
+    // own-call callback so a ring can be simulated.
     getFollowing.mockReturnValue([entry]);
+    ring = captureOwnCall('myUid', 'MYCODE');
+    resetRenderedFollowees();
   });
 
   test('incoming call does NOT enter call-mode while a drawer is open', () => {
     makeFolloweeLi('alice');
     openADrawer();
-    updateFolloweeRow(entry, CALL, 'myUid');
+    ring({ from: 'alice', ts: 1 });
+    updateFolloweeRow(entry, STATUS, 'myUid');
     const li = document.querySelector('[data-user-id="alice"]');
     expect(li.classList.contains('call-mode')).toBe(false);
   });
@@ -952,7 +981,8 @@ describe('call deferral while a drawer is open', () => {
   test('closing the drawer applies a still-live call', () => {
     makeFolloweeLi('alice');
     const ellipsis = openADrawer();
-    updateFolloweeRow(entry, CALL, 'myUid');  // deferred; caches CALL in lastUserData
+    ring({ from: 'alice', ts: 1 });           // ring arrives while drawer open
+    updateFolloweeRow(entry, STATUS, 'myUid'); // deferred; caches STATUS in lastUserData
     ellipsis.click(); // close the real drawer -> fires card-drawer-close, reconcile runs
     const li = document.querySelector('[data-user-id="alice"]');
     expect(li.classList.contains('call-mode')).toBe(true);
@@ -961,8 +991,9 @@ describe('call deferral while a drawer is open', () => {
   test('a call cancelled during the open window is not replayed on close', () => {
     makeFolloweeLi('alice');
     const ellipsis = openADrawer();
-    updateFolloweeRow(entry, CALL, 'myUid');    // call arrives (deferred)
-    updateFolloweeRow(entry, NOCALL, 'myUid');  // caller hangs up (caches NOCALL)
+    ring({ from: 'alice', ts: 1 });            // call arrives (deferred)
+    updateFolloweeRow(entry, STATUS, 'myUid');
+    ring(null);                                // caller hangs up -> _incomingCall cleared
     ellipsis.click(); // close the real drawer -> fires card-drawer-close, reconcile runs
     const li = document.querySelector('[data-user-id="alice"]');
     expect(li.classList.contains('call-mode')).toBe(false);
@@ -970,8 +1001,9 @@ describe('call deferral while a drawer is open', () => {
 
   test('drawer close does not re-render rows without an incoming call', () => {
     const li = makeFolloweeLi('alice');
-    // Prime lastUserData + renderedFollowees with a NON-call state for alice.
-    updateFolloweeRow(entry, NOCALL, 'myUid');
+    // Prime lastUserData + renderedFollowees with a NON-call state for alice
+    // (no ring fired, so _incomingCall is null).
+    updateFolloweeRow(entry, STATUS, 'myUid');
     // Put a sentinel in the status element that a re-render would clobber.
     const statusEl = li.querySelector('.person-status');
     statusEl.innerHTML = 'SENTINEL';
@@ -982,12 +1014,14 @@ describe('call deferral while a drawer is open', () => {
 });
 
 describe('call mode: display text during call', () => {
+  let ring; // fire a ring through the captured own-call watcher (receiver tests)
   beforeEach(() => {
     setupDom();
     jest.clearAllMocks();
     resetRenderedFollowees();
-    // initList resets callModeCalleeId so tests are isolated
-    initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    // initList resets callModeCalleeId so tests are isolated. captureOwnCall
+    // also grabs the calls/{me} callback so receiver-side tests can ring.
+    ring = captureOwnCall('myUid', 'MYCODE');
   });
 
   test('caller sees "Calling them…" when madeCallCount >= 4', () => {
@@ -1019,10 +1053,11 @@ describe('call mode: display text during call', () => {
   test('receiver sees "Calling you…" when answeredCallCount >= 4', () => {
     getAnsweredCallCount.mockReturnValue(5);
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
     makeFolloweeLi('alice');
+    ring({ from: 'alice', ts: 1 });
     updateFolloweeRow(entry, {
       status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6',
-      callState: { calleeId: 'myUid', since: Date.now() },
     }, 'myUid');
     const status = document.querySelector('[data-user-id="alice"] .person-status');
     expect(status.textContent).toBe('Calling you\u2026');
@@ -1031,10 +1066,11 @@ describe('call mode: display text during call', () => {
   test('receiver sees "(swipe right to answer)" hint when answeredCallCount < 4', () => {
     getAnsweredCallCount.mockReturnValue(1);
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
     makeFolloweeLi('alice');
+    ring({ from: 'alice', ts: 1 });
     updateFolloweeRow(entry, {
       status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6',
-      callState: { calleeId: 'myUid', since: Date.now() },
     }, 'myUid');
     const status = document.querySelector('[data-user-id="alice"] .person-status');
     expect(status.textContent).toBe('Calling you\u2026 (swipe right to answer)');
@@ -1054,27 +1090,23 @@ describe('call mode: display text during call', () => {
   });
 });
 
-describe('call mode: change-detection guard passes callState changes through', () => {
+// Detection moved off the followee status watch onto the calls/{me} mailbox:
+// a ring now arrives via the own-call watcher (not as a callState field on the
+// status record). This re-points the test at that source — a fresh ring repaints
+// the followee row into call-mode — rather than removing the coverage.
+describe('call mode: a ring on the own-call mailbox repaints the row', () => {
   beforeEach(() => {
     setupDom();
     jest.clearAllMocks();
     resetRenderedFollowees();
   });
 
-  test('updateFolloweeRow fires when only callState changes', () => {
+  test('updateFolloweeRow enters call-mode when an own-call ring lands', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
     makeFolloweeLi('alice');
-
-    let statusCallback;
-    watchStatus.mockImplementationOnce((_uid, cb) => {
-      statusCallback = cb;
-      return jest.fn();
-    });
-    watchFollowers.mockReturnValue(jest.fn());
     getFollowing.mockReturnValue([entry]);
 
-    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
-    fire([{ userId: 'alice', code: 'AAA111' }]);
+    const ring = captureOwnCall('myUid', 'MYCODE');
 
     const baseData = {
       status: 'available',
@@ -1083,13 +1115,15 @@ describe('call mode: change-detection guard passes callState changes through', (
       paletteKey: null,
       code: 'AAA111',
     };
-    statusCallback(baseData);
+    // Prime lastUserData + render once: no incoming call yet.
+    updateFolloweeRow(entry, baseData, 'myUid');
 
     const li = document.querySelector('[data-user-id="alice"]');
     expect(li.classList.contains('call-mode')).toBe(false);
 
-    // Same everything except callState now points to us
-    statusCallback({ ...baseData, callState: { calleeId: 'myUid', since: Date.now() } });
+    // alice rings us → own-call watcher sets _incomingCall + repaints the row
+    // (it re-runs updateFolloweeRow from the cached lastUserData).
+    ring({ from: 'alice', ts: 1 });
     expect(li.classList.contains('call-mode')).toBe(true);
   });
 });
@@ -1108,28 +1142,22 @@ describe('call mode: enterCallMode', () => {
     expect(getCallModeCalleeId()).toBe('alice');
   });
 
-  test('calls setCallState with callerId and calleeId', () => {
+  test('calls startCall with callerId and calleeId', () => {
     enterCallMode({ userId: 'alice', code: 'AAA111', label: 'Alice' }, 'myUid');
-    expect(setCallState).toHaveBeenCalledWith('myUid', 'alice');
+    expect(startCall).toHaveBeenCalledWith('myUid', 'alice');
   });
 
-  test('clears incoming callers\' callState before becoming a caller', () => {
-    // Simulate ann calling myUid (ann has callState.calleeId = 'myUid')
-    watchStatus.mockImplementationOnce((_uid, cb) => {
-      cb({ status: 'available', availableUntil: Date.now() + 3600000,
-           callState: { calleeId: 'myUid', since: Date.now() } });
-      return jest.fn();
-    });
-    watchFollowers.mockReturnValue(jest.fn());
+  test('ends an incoming ring before becoming a caller', () => {
+    // ann is ringing me — fired through the own-call mailbox (sets _incomingCall).
     getFollowing.mockReturnValue([{ userId: 'ann', code: 'ANN111', label: 'Ann' }]);
-    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
-    fire([{ userId: 'ann', code: 'ANN111' }]);
+    const ring = captureOwnCall('myUid', 'MYCODE');
+    ring({ from: 'ann', ts: 1 });
 
-    // myUid now calls carol — should clear ann's callState first
+    // myUid now calls carol — should endCall the ann ring first, then startCall carol.
     jest.clearAllMocks();
     enterCallMode({ userId: 'carol', code: 'CAR111', label: 'Carol' }, 'myUid');
-    expect(clearCallState).toHaveBeenCalledWith('ann');
-    expect(setCallState).toHaveBeenCalledWith('myUid', 'carol');
+    expect(endCall).toHaveBeenCalledWith('myUid', 'ann');
+    expect(startCall).toHaveBeenCalledWith('myUid', 'carol');
   });
 });
 
@@ -1141,10 +1169,10 @@ describe('call mode: exitCallMode', () => {
     initAndCaptureFollowersCallback('myUid', 'MYCODE');
   });
 
-  test('calls clearCallState with myUserId', () => {
+  test('calls endCall with both participants', () => {
     enterCallMode({ userId: 'alice', code: 'AAA111' }, 'myUid');
     exitCallMode('myUid');
-    expect(clearCallState).toHaveBeenCalledWith('myUid');
+    expect(endCall).toHaveBeenCalledWith('myUid', 'alice');
   });
 
   test('resets callModeCalleeId to null', () => {
@@ -1153,6 +1181,31 @@ describe('call mode: exitCallMode', () => {
     expect(getCallModeCalleeId()).toBeNull();
   });
 
+});
+
+describe('call mode: own-call mailbox', () => {
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+  });
+
+  test('a ring (own-call from) marks incoming', () => {
+    let ownCallCb;
+    watchOwnCall.mockImplementation((uid, cb) => { ownCallCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([{ userId: 'caller', code: 'C', label: 'Cara' }]);
+    initList('me', 'MYCODE');
+    ownCallCb({ from: 'caller', ts: 1 });
+    expect(getIncomingCallFrom()).toBe('caller');
+  });
+
+  test('endCall fires when I exit call mode', () => {
+    watchOwnCall.mockImplementation(() => jest.fn());
+    initList('me', 'MYCODE');
+    enterCallMode({ userId: 'callee' }, 'me');
+    exitCallMode('me');
+    expect(endCall).toHaveBeenCalledWith('me', 'callee');
+  });
 });
 
 describe('call mode: sortFollowees pins callee to top', () => {
@@ -1202,7 +1255,7 @@ describe('call mode: swipe gesture', () => {
     resetRenderedFollowees();
   });
 
-  test('right-swipe past 40% on a mutual card calls setCallState', () => {
+  test('right-swipe past 40% on a mutual card calls startCall', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
     watchStatus.mockReturnValue(jest.fn());
     const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
@@ -1215,10 +1268,10 @@ describe('call mode: swipe gesture', () => {
     firePointer(li, 'pointermove', 100, 52); // dx=90 > 200*0.4=80; ratio 90/2 = 45 > 1.5 ✓
     firePointer(li, 'pointerup',   100, 52);
 
-    expect(setCallState).toHaveBeenCalledWith('myUid', 'alice');
+    expect(startCall).toHaveBeenCalledWith('myUid', 'alice');
   });
 
-  test('left-swipe on caller-side .call-mode card calls clearCallState(myUserId)', () => {
+  test('left-swipe on caller-side .call-mode card ends the call', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
     watchStatus.mockImplementationOnce((_uid, cb) => {
       cb({ status: 'unavailable', statusColor: '#22c55e' });
@@ -1238,10 +1291,11 @@ describe('call mode: swipe gesture', () => {
     firePointer(li, 'pointermove',  10, 52); // dx=-90 < -80
     firePointer(li, 'pointerup',    10, 52);
 
-    expect(clearCallState).toHaveBeenCalledWith('myUid');
+    // Caller side: exitCallMode → endCall(myUid, alice)
+    expect(endCall).toHaveBeenCalledWith('myUid', 'alice');
   });
 
-  test('left-swipe on receiver-side .call-mode card calls clearCallState(callerId)', () => {
+  test('left-swipe on receiver-side .call-mode card ends the call', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
     watchStatus.mockImplementationOnce((_uid, cb) => {
       cb({ status: 'unavailable', statusColor: '#22c55e' });
@@ -1259,8 +1313,8 @@ describe('call mode: swipe gesture', () => {
     firePointer(li, 'pointermove',  10, 52);
     firePointer(li, 'pointerup',    10, 52);
 
-    // alice is the caller (entry.userId = 'alice'), so clearCallState('alice')
-    expect(clearCallState).toHaveBeenCalledWith('alice');
+    // Receiver decline: endCall(myUid, alice) tears down both mailboxes.
+    expect(endCall).toHaveBeenCalledWith('myUid', 'alice');
   });
 
   test('short right-swipe (< 40%) does nothing', () => {
@@ -1276,7 +1330,7 @@ describe('call mode: swipe gesture', () => {
     firePointer(li, 'pointermove', 50, 52); // dx=40 = 20% < 40%
     firePointer(li, 'pointerup',   50, 52);
 
-    expect(setCallState).not.toHaveBeenCalled();
+    expect(startCall).not.toHaveBeenCalled();
   });
 
   test('mostly-vertical movement does not trigger swipe', () => {
@@ -1292,7 +1346,7 @@ describe('call mode: swipe gesture', () => {
     firePointer(li, 'pointermove', 100, 100); // dx=90, dy=90 → ratio 90/90=1.0 < 1.5 → blocked
     firePointer(li, 'pointerup',   100, 100);
 
-    expect(setCallState).not.toHaveBeenCalled();
+    expect(startCall).not.toHaveBeenCalled();
   });
 });
 
@@ -1310,9 +1364,9 @@ describe('call mode: reEnterCallMode', () => {
     expect(getCallModeCalleeId()).toBe('alice');
   });
 
-  test('does NOT call setCallState (no Firebase write on restart)', () => {
+  test('does NOT call startCall (no Firebase write on restart)', () => {
     reEnterCallMode({ userId: 'alice', code: 'AAA111', label: 'Alice' }, {}, 'myUid');
-    expect(setCallState).not.toHaveBeenCalled();
+    expect(startCall).not.toHaveBeenCalled();
   });
 
   test('adds .call-mode class to callee li element', () => {
@@ -1772,10 +1826,10 @@ describe('tool drawer on contact rows', () => {
   });
 
   test('call swipe is suppressed while a drawer is open', () => {
-    const { setCallState } = require('../js/db.js');
+    const { startCall } = require('../js/db.js');
     const li = mountMutual();
     li.querySelector('.card-drawer-toggle').click(); // open drawer
-    setCallState.mockClear();
+    startCall.mockClear();
     const w = 300;
     jest.spyOn(li, 'getBoundingClientRect').mockReturnValue({ width: w });
     li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0, pointerId: 1, bubbles: true }));

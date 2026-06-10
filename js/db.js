@@ -605,14 +605,26 @@ export async function setPaletteKey(userId, paletteKey) {
   await update(ref(db, `users/${userId}`), { paletteKey: paletteKey ?? null });
 }
 
-export async function setCallState(callerId, calleeId) {
-  await update(ref(db, `users/${callerId}`), {
-    callState: { calleeId, since: Date.now() },
+// ── Call signaling (symmetric mailboxes) ─────────────────────────────────────
+export async function startCall(callerId, calleeId) {
+  const ts = Date.now();
+  await update(ref(db), {
+    [`calls/${callerId}`]: { to: calleeId, ts },
+    [`calls/${calleeId}`]: { from: callerId, ts },
   });
 }
-
-export async function clearCallState(callerId) {
-  await update(ref(db, `users/${callerId}`), { callState: null });
+export async function answerCall(calleeId, callerId) {
+  await update(ref(db), {
+    [`calls/${calleeId}/answered`]: true,
+    [`calls/${callerId}/answered`]: true,
+  });
+}
+export async function endCall(aUid, bUid) {
+  await update(ref(db), { [`calls/${aUid}`]: null, [`calls/${bUid}`]: null });
+}
+export function watchOwnCall(myUserId, callback) {
+  const callRef = ref(db, `calls/${myUserId}`);
+  return onValue(callRef, (snap) => { callback(snap.exists() ? snap.val() : null); });
 }
 
 // One-time read of a user's full document. Returns data object or null.

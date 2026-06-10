@@ -1,7 +1,7 @@
 // tests/db.test.js
 const {
   userExists, touchLastSeen, rotateCode, setStatusColor, setPaletteKey,
-  setCallState, clearCallState, getUser,
+  startCall, answerCall, endCall, watchOwnCall, getUser,
   claimInviteToken, releaseInviteToken, readInviteIndex,
   readUserInvite, writeUserInvite, deleteUserInvite,
   setInviteRevoked, incrementInviteRedemptions, getCreatorCode,
@@ -155,30 +155,33 @@ describe('setPaletteKey', () => {
   });
 });
 
-describe('setCallState', () => {
+describe('call mailboxes', () => {
   beforeEach(() => jest.clearAllMocks());
-
-  test('writes callState {calleeId, since} to users/{callerId}', async () => {
-    update.mockResolvedValueOnce();
-    await setCallState('caller-1', 'callee-2');
-    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/caller-1');
-    expect(update).toHaveBeenCalledWith('mock-ref', {
-      callState: expect.objectContaining({
-        calleeId: 'callee-2',
-        since: expect.any(Number),
-      }),
-    });
+  test('startCall writes both calls/{caller}.to and calls/{callee}.from atomically', async () => {
+    update.mockResolvedValue();
+    await startCall('caller', 'callee');
+    const arg = update.mock.calls[0][1];
+    expect(arg['calls/caller']).toEqual(expect.objectContaining({ to: 'callee', ts: expect.any(Number) }));
+    expect(arg['calls/callee']).toEqual(expect.objectContaining({ from: 'caller', ts: expect.any(Number) }));
   });
-});
-
-describe('clearCallState', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  test('sets callState to null on users/{callerId}', async () => {
-    update.mockResolvedValueOnce();
-    await clearCallState('caller-1');
-    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/caller-1');
-    expect(update).toHaveBeenCalledWith('mock-ref', { callState: null });
+  test('answerCall sets answered on both records', async () => {
+    update.mockResolvedValue();
+    await answerCall('callee', 'caller');
+    const arg = update.mock.calls[0][1];
+    expect(arg['calls/callee/answered']).toBe(true);
+    expect(arg['calls/caller/answered']).toBe(true);
+  });
+  test('endCall nulls both records', async () => {
+    update.mockResolvedValue();
+    await endCall('a', 'b');
+    const arg = update.mock.calls[0][1];
+    expect(arg['calls/a']).toBeNull();
+    expect(arg['calls/b']).toBeNull();
+  });
+  test('watchOwnCall subscribes to calls/{uid}', () => {
+    onValue.mockImplementationOnce(() => () => {});
+    watchOwnCall('me', jest.fn());
+    expect(ref).toHaveBeenCalledWith({}, 'calls/me');
   });
 });
 

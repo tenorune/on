@@ -1,8 +1,8 @@
 // js/app.js
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
-import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, clearCallState, getUser, getUserPrefs, readGroup } from './db.js';
+import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getUser, getUserPrefs, readGroup } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
-import { initList, setFolloweeReadyCallback, reEnterCallMode, exitCallMode, getCallModeCalleeId } from './following.js';
+import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
@@ -538,6 +538,29 @@ async function main() {
   initList(userId, code);
   if (KNOCK_ENABLED) initKnocks(userId);
 
+  // Boot-time own-call recovery: if we reload mid-call, re-enter the canvas
+  // from the persisted calls/{me} mailbox. One-shot — only acts on an already
+  // answered call (the caller side). An unanswered ring is left for
+  // following.js's own-call watcher to render on its first tick.
+  if (CALL_ENABLED) {
+    let callRecoveryHandled = false;
+    watchOwnCall(userId, async (call) => {
+      if (callRecoveryHandled) return;
+      callRecoveryHandled = true;
+      if (!call) return;
+      const peerId = call.to || call.from;
+      const entry = getFollowing().find((e) => e.userId === peerId);
+      if (!entry) { endCall(userId, peerId).catch(() => {}); return; }
+      try {
+        const peerData = await getUser(peerId);
+        if (!peerData) { endCall(userId, peerId).catch(() => {}); return; }
+        if (call.answered) reEnterCallMode(entry, peerData, userId);
+        // An unanswered ring (call.from, !answered) is left for following.js's
+        // own-call watcher to render on its first tick — no action here.
+      } catch { endCall(userId, peerId).catch(() => {}); }
+    });
+  }
+
   startCardsRowSubscriptions();
   initGroupRemovalDetector(userId);
   initInbox(userId, code);
@@ -584,45 +607,8 @@ async function main() {
   let lastAvailableUntil = null;
   let lastStatusColor = null;
   let lastPaletteKey = null;
-  let callModeHandled = false;
   subscribeOwnStatus(async (userData) => {
     if (!userData) return;
-
-    if (!callModeHandled) {
-      callModeHandled = true;
-      if (CALL_ENABLED && userData.callState) {
-        const { calleeId } = userData.callState;
-        const calleeEntry = getFollowing().find(e => e.userId === calleeId);
-        if (!calleeEntry) {
-          clearCallState(userId).catch(() => {});
-        } else {
-          try {
-            const calleeData = await getUser(calleeId);
-            if (calleeData) {
-              reEnterCallMode(calleeEntry, calleeData, userId);
-            } else {
-              clearCallState(userId).catch(() => {});
-            }
-          } catch {
-            clearCallState(userId).catch(() => {});
-          }
-        }
-      }
-    } else if (CALL_ENABLED && getCallModeCalleeId() !== null && !userData.callState) {
-      // Peer intentionally ended the call (callState cleared)
-      const canvasScreen = document.getElementById('canvas-screen');
-      if (canvasScreen && canvasScreen.classList.contains('active')) {
-        // On canvas — show "partner left" dialog, then exit
-        import('./canvas.js').then(({ showPeerLeftDialog, exitCanvas }) => {
-          showPeerLeftDialog(canvasScreen, 'Your partner', () => {
-            exitCanvas();
-            exitCallMode(userId);
-          });
-        });
-      } else {
-        exitCallMode(userId);
-      }
-    }
 
     // Sync color/palette across devices. These updates are independent of the
     // status-text re-render below, so they must run BEFORE the early-return that

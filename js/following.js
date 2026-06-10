@@ -2,7 +2,7 @@
 import {
   lookupCode, watchStatus, watchFollowers, registerAsFollower, unregisterAsFollower,
   removeFollower, isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
-  formatLastSeen, setCallState, clearCallState, setStatusColor,
+  formatLastSeen, startCall, answerCall, endCall, watchOwnCall, setStatusColor,
   watchFollowing, setFollowingEntry, removeFollowingEntry, watchRevocations,
 } from './db.js';
 import {
@@ -41,6 +41,9 @@ let refreshInterval = null;
 let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
 let callModeCalleeId = null;   // userId of callee while in call mode (null = not in call mode)
+let _incomingCall = null; // { from } when someone is ringing me; null otherwise
+export function getIncomingCallFrom() { return _incomingCall?.from ?? null; }
+let unsubOwnCall = null;
 let _hintAlternateTimer = null;
 let _hintAlternateShow = 'longpress'; // 'longpress' | 'swipe'
 
@@ -90,6 +93,7 @@ export function initList(myUserId, myCode) {
   lastUserData.clear();
   editingSet.clear();
   callModeCalleeId = null;
+  _incomingCall = null;
   latestFollowersSnapshot = [];
   pendingAction = null;
   if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
@@ -148,6 +152,42 @@ export function initList(myUserId, myCode) {
       lastUserData.delete(revokerId);
     }
     renderList();
+  });
+
+  // App-lifetime own-call watcher: detects rings + answers off the calls/{me}
+  // mailbox (call detection no longer rides the followee presence watch).
+  if (unsubOwnCall) unsubOwnCall();
+  unsubOwnCall = watchOwnCall(myUserId, (call) => {
+    if (!CALL_ENABLED) return;
+    // Caller side: the callee just answered → enter the canvas.
+    if (call && call.to && call.answered && callModeCalleeId === call.to) {
+      const entry = getFollowing().find((f) => f.userId === call.to);
+      const peerData = entry && lastUserData.get(call.to);
+      if (entry) {
+        const peerSurface = peerData?.paletteKey
+          ? (getPaletteByKey(peerData.paletteKey)?.theme?.surface || '#1e293b') : '#1e293b';
+        const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
+        const peerColor = peerData?.statusColor || '#22c55e';
+        enterCanvas(call.to, entry.label || entry.code, myUserId, myColor, peerColor, peerSurface, () => exitCallMode(myUserId))
+          .catch((err) => console.error('enterCanvas (caller) failed:', err));
+      }
+      return;
+    }
+    // Callee side: someone is ringing me (not yet in a call).
+    const prevFrom = _incomingCall?.from ?? null;
+    const nextFrom = (call && call.from && !call.answered && callModeCalleeId === null) ? call.from : null;
+    if (prevFrom === nextFrom) {
+      if (!call && callModeCalleeId !== null) handlePeerEnded(myUserId);
+      return;
+    }
+    _incomingCall = nextFrom ? { from: nextFrom } : null;
+    for (const uid of [prevFrom, nextFrom]) {
+      if (!uid) continue;
+      const entry = getFollowing().find((f) => f.userId === uid);
+      const data = lastUserData.get(uid);
+      if (entry && data) updateFolloweeRow(entry, data, myUserId);
+    }
+    if (!call && callModeCalleeId !== null) handlePeerEnded(myUserId);
   });
 
   // Refresh time labels every 60s
@@ -233,17 +273,22 @@ export function getCurrentMutuals() {
     .map((f) => ({ userId: f.userId, label: f.label, code: f.code }));
 }
 
+function handlePeerEnded(myUserId) {
+  const canvasScreen = document.getElementById('canvas-screen');
+  if (canvasScreen && canvasScreen.classList.contains('active')) {
+    import('./canvas.js').then(({ showPeerLeftDialog, exitCanvas }) => {
+      showPeerLeftDialog(canvasScreen, 'Your partner', () => { exitCanvas(); exitCallMode(myUserId); });
+    });
+  } else {
+    exitCallMode(myUserId);
+  }
+}
+
 export function enterCallMode(calleeEntry, myUserId) {
   incrementMadeCallCount();
-  // If we were being called by someone, clear their callState first
-  lastUserData.forEach((userData, userId) => {
-    if (userData.callState?.calleeId === myUserId) {
-      clearCallState(userId).catch(() => {});
-    }
-  });
-
+  if (_incomingCall?.from) { endCall(myUserId, _incomingCall.from).catch(() => {}); _incomingCall = null; }
   callModeCalleeId = calleeEntry.userId;
-  setCallState(myUserId, calleeEntry.userId).catch(() => {});
+  startCall(myUserId, calleeEntry.userId).catch(() => {});
 
   const calleeData = lastUserData.get(calleeEntry.userId);
   const callColor = calleeData?.statusColor || '#22c55e';
@@ -277,21 +322,11 @@ export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
 export function exitCallMode(myUserId) {
   const prevCalleeId = callModeCalleeId;
   callModeCalleeId = null;
-  clearCallState(myUserId).catch(() => {});
-
-  // Clear peer's callState only if it still points at us
   if (prevCalleeId) {
-    const peerData = lastUserData.get(prevCalleeId);
-    if (peerData?.callState?.calleeId === myUserId) {
-      clearCallState(prevCalleeId).catch(() => {});
-    }
+    endCall(myUserId, prevCalleeId).catch(() => {});
     const li = document.querySelector(`[data-user-id="${prevCalleeId}"]`);
-    if (li) {
-      li.classList.remove('call-mode');
-      li.style.removeProperty('--call-color-rgb');
-    }
+    if (li) { li.classList.remove('call-mode'); li.style.removeProperty('--call-color-rgb'); }
   }
-
   renderList();
 }
 
@@ -600,7 +635,8 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
           const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
           const peerColor = peerData?.statusColor || '#22c55e';
           callModeCalleeId = entry.userId;
-          setCallState(myUserId, entry.userId).catch(() => {});
+          _incomingCall = null;
+          answerCall(myUserId, entry.userId).catch(() => {});
           enterCanvas(entry.userId, entry.label || entry.code, myUserId, myColor, peerColor, peerSurface, () => {
             exitCallMode(myUserId);
           }).catch(err => console.error('enterCanvas failed:', err));
@@ -617,7 +653,8 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
             // We are the receiver — optimistic UI, fire-and-forget Firebase delete
             li.classList.remove('call-mode');
             li.style.removeProperty('--call-color-rgb');
-            clearCallState(entry.userId).catch(() => {});
+            _incomingCall = null;
+            endCall(myUserIdRef, entry.userId).catch(() => {});
           }
         }
       }
@@ -804,12 +841,12 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   const glow  = getGlowForColor(color);
   const ms = timeRemainingMs(userData.availableUntil);
   let statusText;
-  // Both checks gated by CALL_ENABLED so a stale callState on the peer's
-  // Firebase record (e.g., a previous session left a call dangling) doesn't
-  // render call-mode UI when calls are disabled on this device.
+  // Both checks gated by CALL_ENABLED so a stale calls/{me} mailbox entry
+  // (e.g., a previous session left a call dangling) doesn't render call-mode
+  // UI when calls are disabled on this device.
   const isCallee = CALL_ENABLED && callModeCalleeId !== null && entry.userId === callModeCalleeId;
   const isCallModeReceiver = CALL_ENABLED && !isCallee
-    && userData.callState?.calleeId === myUserId
+    && _incomingCall?.from === entry.userId
     && !isCardDrawerOpen();
   if (isCallee) {
     const callText = getMadeCallCount() < 4
@@ -882,21 +919,6 @@ export function updateFolloweeRow(entry, userData, myUserId) {
       : (getComputedStyle(document.documentElement).getPropertyValue('--dot-off').trim() || '#6b7280');
     li.style.setProperty('--call-color-rgb', hexToRgb(callColor));
     li.classList.add('call-mode');
-
-    // Caller: detect when receiver answers (mutual callState — both pointing at each other)
-    if (isCallee && userData.callState?.calleeId === myUserIdRef) {
-      const screen = document.getElementById('canvas-screen');
-      if (screen && !screen.classList.contains('active')) {
-        const peerSurface = userData.paletteKey
-          ? (getPaletteByKey(userData.paletteKey)?.theme?.surface || '#1e293b')
-          : '#1e293b';
-        const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
-        const peerColor = userData.statusColor || '#22c55e';
-        enterCanvas(entry.userId, entry.label || entry.code, myUserIdRef, myColor, peerColor, peerSurface, () => {
-          exitCallMode(myUserIdRef);
-        }).catch(err => console.error('enterCanvas (caller) failed:', err));
-      }
-    }
   } else {
     li.classList.remove('call-mode');
     li.style.removeProperty('--call-color-rgb');
@@ -975,10 +997,12 @@ export function updateFolloweeRow(entry, userData, myUserId) {
 // drawer was open is no longer an incoming call here, so it's correctly skipped
 // (its row never entered call-mode while deferred).
 document.addEventListener('card-drawer-close', () => {
+  if (getIncomingCallFrom() === null && callModeCalleeId === null) return;
   renderedFollowees.forEach((userId) => {
     if (editingSet.has(userId)) return;
     const data = lastUserData.get(userId);
-    if (!data || data.callState?.calleeId !== myUserIdRef) return;
+    if (!data) return;
+    if (getIncomingCallFrom() !== userId && callModeCalleeId !== userId) return;
     const entry = getFollowing().find((f) => f.userId === userId);
     if (entry) updateFolloweeRow(entry, data, myUserIdRef);
   });

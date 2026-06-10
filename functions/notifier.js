@@ -125,9 +125,7 @@ export async function handleGroupOverrideChange(deps, groupId, memberUid, before
   if (isOn && !wasOn) await notifyGroupAvailability(deps, groupId, memberUid, now);
 }
 
-export async function handleCall(deps, callerId, callState) {
-  if (!callState || !callState.calleeId) return;
-  const calleeId = callState.calleeId;
+export async function handleCall(deps, calleeId, callerId) {
   const prefs = await deps.getVal(`userPrefs/${calleeId}/notify/${callerId}`);
   if (!wantsCall(prefs)) return;
   const name = await resolveName(deps, calleeId, callerId);
