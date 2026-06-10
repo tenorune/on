@@ -65,6 +65,22 @@ export async function handleInvite(deps, inviteeUid, groupId, record) {
     { type: 'invite', targetUid: record.from, groupId });
 }
 
+// A follow request landed in `followRequests/{targetUid}/{requesterUid}` (Groups
+// §11). Notify the target unconditionally — like invites, this is directed and
+// consensual, so there's no per-person opt-in gate. Name: the target's own label
+// for the requester when they already follow them, else the requester's display
+// name in the shared group the request came from. Payload carries type:'followRequest'
+// and NO contextGroupId — the deep link opens the Inbox to approve/decline.
+export async function handleFollowRequest(deps, targetUid, requesterUid, record) {
+  if (!record || !record.from) return;
+  const follow = await deps.getVal(`userPrefs/${targetUid}/following/${requesterUid}`);
+  const name = (follow && follow.label)
+    || await resolveGroupMemberName(deps, record.groupId, requesterUid);
+  await sendToUser(deps, targetUid,
+    buildMessage('followRequest', name),
+    { type: 'followRequest', targetUid: requesterUid });
+}
+
 // Notify the OTHER members of a group that `memberUid` is available in it.
 // Caller decides the "became available" transition; this just fans out with a
 // per-(group, member) cooldown so availability in one group doesn't mute another.

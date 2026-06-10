@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange, handleInvite } from '../notifier.js';
+import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest } from '../notifier.js';
 
 function makeDeps(overrides = {}) {
   const store = overrides.store || {};
@@ -431,6 +431,37 @@ describe('handleInvite', () => {
     const deps = makeDeps();
     await handleInvite(deps, 'inv', 'g1', null);
     await handleInvite(deps, 'inv', 'g1', { ts: 1 });
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleFollowRequest', () => {
+  test('notifies the target using their own label for the requester', async () => {
+    const deps = makeDeps({ store: {
+      'userPrefs/tgt/following/req': { label: 'Cara' },
+      'userPrefs/tgt/pushTokens': { tokT: {} },
+    }});
+    await handleFollowRequest(deps, 'tgt', 'req', { from: 'req', groupId: 'g1', ts: 1 });
+    expect(deps.send).toHaveBeenCalledWith(['tokT'],
+      { title: 'Cara wants to follow you', body: '' },
+      { type: 'followRequest', targetUid: 'req' });
+  });
+
+  test('falls back to the requester group displayName when not followed', async () => {
+    const deps = makeDeps({ store: {
+      'groups/g1/members/req/displayName': 'Req Name',
+      'userPrefs/tgt/pushTokens': { tokT: {} },
+    }});
+    await handleFollowRequest(deps, 'tgt', 'req', { from: 'req', groupId: 'g1', ts: 1 });
+    expect(deps.send).toHaveBeenCalledWith(['tokT'],
+      { title: 'Req Name wants to follow you', body: '' },
+      expect.objectContaining({ type: 'followRequest', targetUid: 'req' }));
+  });
+
+  test('no record / no from → no send', async () => {
+    const deps = makeDeps();
+    await handleFollowRequest(deps, 'tgt', 'req', null);
+    await handleFollowRequest(deps, 'tgt', 'req', { ts: 1 });
     expect(deps.send).not.toHaveBeenCalled();
   });
 });
