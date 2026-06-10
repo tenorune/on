@@ -677,6 +677,12 @@ function syncFollowingFromServer(myUserId, serverFollowing) {
   if (localJson === serverJson) return;
 
   setFollowing(serverFollowing);
+  // Announce the cache update for consumers outside this module (same pattern
+  // as 'last-timeout-synced'). groupContext re-evaluates its roster's
+  // request-to-follow eligibility on this: a fresh-device restore that boots
+  // straight into a group renders the roster before this first tick lands,
+  // against an empty cache.
+  document.dispatchEvent(new CustomEvent('following-synced'));
   // Tear down watchers for followees that disappeared; new ones will be
   // resubscribed by renderList.
   const serverIds = new Set(serverFollowing.map(e => e.userId));

@@ -82,6 +82,16 @@ describe('createRequestFollowButton', () => {
     expect(btn.textContent).toBe('Request to follow');
     expect(isRequested('tgt')).toBe(false);
   });
+
+  test('a click on a stale button (target now followed) sends nothing', async () => {
+    // Rendered while the following cache was empty, clicked after it synced.
+    const btn = createRequestFollowButton('me', 'tgt', 'g1');
+    prefs.getFollowing.mockReturnValue([{ userId: 'tgt' }]);
+    btn.click();
+    await Promise.resolve(); await Promise.resolve();
+    expect(db.writeFollowRequest).not.toHaveBeenCalled();
+    expect(isRequested('tgt')).toBe(false);
+  });
 });
 
 describe('initFollowGrants', () => {

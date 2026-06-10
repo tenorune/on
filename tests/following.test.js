@@ -142,8 +142,8 @@ jest.mock('../js/prefs.js', () => ({
   setPaletteState: jest.fn(),
 }));
 
-const { watchStatus, watchFollowers, setCallState, clearCallState } = require('../js/db.js');
-const { getFollowing, updateFollowingCode } = require('../js/store.js');
+const { watchStatus, watchFollowers, watchFollowing, setCallState, clearCallState } = require('../js/db.js');
+const { getFollowing, setFollowing, updateFollowingCode } = require('../js/store.js');
 const { getMadeCallCount, getAnsweredCallCount } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
@@ -1772,5 +1772,49 @@ describe('tool drawer on contact rows', () => {
 
     expect(isCardDrawerOpen()).toBe(false);
     expect(document.querySelector('.card-drawer')).toBeNull();
+  });
+});
+
+// --- syncFollowingFromServer: following-synced event ---
+
+describe('syncFollowingFromServer event', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupDom();
+  });
+
+  function initAndCaptureFollowingCallback() {
+    let followingCb;
+    watchFollowing.mockImplementation((_uid, cb) => { followingCb = cb; return jest.fn(); });
+    watchFollowers.mockImplementation(() => jest.fn());
+    watchStatus.mockReturnValue(jest.fn());
+    initList('myUid', 'MYCODE');
+    return (list) => followingCb(list);
+  }
+
+  test('dispatches following-synced when the server list updates the local cache', () => {
+    getFollowing.mockReturnValue([]); // fresh device: empty local cache
+    const onSynced = jest.fn();
+    document.addEventListener('following-synced', onSynced);
+    const fireFollowing = initAndCaptureFollowingCallback();
+
+    fireFollowing([{ userId: 'tgt', code: 'C1', label: 'Bea' }]);
+
+    expect(setFollowing).toHaveBeenCalledWith([{ userId: 'tgt', code: 'C1', label: 'Bea' }]);
+    expect(onSynced).toHaveBeenCalled();
+    document.removeEventListener('following-synced', onSynced);
+  });
+
+  test('does not dispatch when the server list matches the local cache', () => {
+    getFollowing.mockReturnValue([{ userId: 'tgt', code: 'C1', label: 'Bea' }]);
+    const onSynced = jest.fn();
+    document.addEventListener('following-synced', onSynced);
+    const fireFollowing = initAndCaptureFollowingCallback();
+
+    fireFollowing([{ userId: 'tgt', code: 'C1', label: 'Bea' }]);
+
+    expect(setFollowing).not.toHaveBeenCalled();
+    expect(onSynced).not.toHaveBeenCalled();
+    document.removeEventListener('following-synced', onSynced);
   });
 });

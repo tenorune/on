@@ -548,6 +548,26 @@ describe('group roster render', () => {
     expect(row.querySelector('.card-drawer-toggle')).toBeNull();
     expect(row.querySelector('.notify-bell')).not.toBeNull();
   });
+
+  test('following-synced re-renders the roster so a stale request-follow affordance drops', () => {
+    const followRequests = require('../js/followRequests.js');
+    // Boot-into-group on a fresh device: following cache is empty, so the
+    // member looks eligible and gets the drawer.
+    followRequests.isFollowRequestEligible.mockReturnValue(true);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    expect(document.querySelector('#group-roster [data-user-id="a"] .card-drawer-toggle')).not.toBeNull();
+
+    // The server following list arrives: this member is already followed.
+    followRequests.isFollowRequestEligible.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('following-synced'));
+
+    const row = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(row.querySelector('.card-drawer-toggle')).toBeNull();
+    expect(row.querySelector('.notify-bell')).not.toBeNull();
+  });
 });
 
 describe('owner actions', () => {
