@@ -350,6 +350,11 @@ async function main() {
   // Wire navigation BEFORE the invite-redemption block, otherwise navigateToGroup
   // writes to users/null/... (because initNav hasn't set the local userId yet) AND
   // its state change gets wiped by initNav's reset-to-direct that follows.
+  // Own-status fan-out order is load-bearing: initOwnStatus opens the single
+  // watch FIRST; groupNav (via initNav → startCardsRowSubscriptions) must
+  // register its subscribeOwnStatus before this file's own handler (~L580), and
+  // groupContext on group-enter registers last so its group-override theme wins
+  // the same tick app.js writes the Direct theme. Don't reorder. See ownStatus.js.
   initOwnStatus(userId);
   initNav(userId);
   initNavRow();  // Must register its onContextChange listener BEFORE the
