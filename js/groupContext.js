@@ -331,9 +331,8 @@ function paintRosterRow(uid) {
   // who chose to not theme their group card (override.paletteKey null)
   // would still pick up their Direct theme. Override-off: primary wins
   // for every field (the group is linked to Direct).
-  const status = overrideOn ? (override.status || 'unavailable') : (primary?.status || 'unavailable');
   const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
-  const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+  const isAvailable = memberEffectiveAvailable(uid);
   const color = overrideOn ? (override.statusColor || null) : (primary?.statusColor || null);
   const paletteKey = overrideOn ? (override.paletteKey || null) : (primary?.paletteKey || null);
   const palette = PALETTES_ENABLED && paletteKey ? getPaletteByKey(paletteKey) : null;
