@@ -161,6 +161,8 @@ export function initList(myUserId, myCode) {
     if (!CALL_ENABLED) return;
     // Caller side: the callee just answered → enter the canvas.
     if (call && call.to && call.answered && callModeCalleeId === call.to) {
+      const canvasScreen = document.getElementById('canvas-screen');
+      if (canvasScreen && canvasScreen.classList.contains('active')) return; // already in canvas — idempotent
       const entry = getFollowing().find((f) => f.userId === call.to);
       const peerData = entry && lastUserData.get(call.to);
       if (entry) {
@@ -284,11 +286,11 @@ function handlePeerEnded(myUserId) {
   }
 }
 
-export function enterCallMode(calleeEntry, myUserId) {
+export async function enterCallMode(calleeEntry, myUserId) {
   incrementMadeCallCount();
-  if (_incomingCall?.from) { endCall(myUserId, _incomingCall.from).catch(() => {}); _incomingCall = null; }
+  const ringer = _incomingCall?.from || null;
   callModeCalleeId = calleeEntry.userId;
-  startCall(myUserId, calleeEntry.userId).catch(() => {});
+  _incomingCall = null;
 
   const calleeData = lastUserData.get(calleeEntry.userId);
   const callColor = calleeData?.statusColor || '#22c55e';
@@ -303,6 +305,10 @@ export function enterCallMode(calleeEntry, myUserId) {
   }
 
   renderList();
+
+  // End any incoming ring BEFORE writing the outgoing call (both touch calls/{me}).
+  if (ringer) { try { await endCall(myUserId, ringer); } catch { /* ignore */ } }
+  startCall(myUserId, calleeEntry.userId).catch(() => {});
 }
 
 export function reEnterCallMode(calleeEntry, calleeData, myUserId) {

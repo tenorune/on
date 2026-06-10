@@ -1147,7 +1147,7 @@ describe('call mode: enterCallMode', () => {
     expect(startCall).toHaveBeenCalledWith('myUid', 'alice');
   });
 
-  test('ends an incoming ring before becoming a caller', () => {
+  test('ends an incoming ring before becoming a caller', async () => {
     // ann is ringing me — fired through the own-call mailbox (sets _incomingCall).
     getFollowing.mockReturnValue([{ userId: 'ann', code: 'ANN111', label: 'Ann' }]);
     const ring = captureOwnCall('myUid', 'MYCODE');
@@ -1155,7 +1155,7 @@ describe('call mode: enterCallMode', () => {
 
     // myUid now calls carol — should endCall the ann ring first, then startCall carol.
     jest.clearAllMocks();
-    enterCallMode({ userId: 'carol', code: 'CAR111', label: 'Carol' }, 'myUid');
+    await enterCallMode({ userId: 'carol', code: 'CAR111', label: 'Carol' }, 'myUid');
     expect(endCall).toHaveBeenCalledWith('myUid', 'ann');
     expect(startCall).toHaveBeenCalledWith('myUid', 'carol');
   });
