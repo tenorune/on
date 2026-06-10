@@ -976,6 +976,15 @@ function installGroupSyncListeners() {
     if (_ownOverride?.enabled) return; // chip is showing the per-group value
     renderOwnStatusRow();
   });
+  // The following list synced from the server. The roster's request-to-follow
+  // eligibility is computed from that list at render time, so re-render: a
+  // fresh-device restore that boots straight into this group paints the roster
+  // against an empty following cache and offers the affordance for members the
+  // user already follows. Also drops the affordance when a follow completes.
+  document.addEventListener('following-synced', () => {
+    if (!_currentGroupId || _lastMembers === null) return;
+    renderRoster(_lastMembers, _currentUserId);
+  });
 }
 
 export function enterGroupContext(groupId, userId) {

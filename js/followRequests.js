@@ -63,6 +63,11 @@ export function createRequestFollowButton(myUid, targetUid, groupId) {
   btn.addEventListener('click', async (e) => {
     e.stopPropagation();
     if (btn.disabled) return;
+    // Re-check at click time: the button may have been rendered against a
+    // not-yet-synced following cache (fresh-device boot straight into a group).
+    // The 'following-synced' roster re-render removes stale buttons, but never
+    // send a request to someone already followed even if one is clicked first.
+    if (!isFollowRequestEligible(targetUid)) return;
     btn.disabled = true;
     try {
       await requestToFollow(myUid, targetUid, groupId);
