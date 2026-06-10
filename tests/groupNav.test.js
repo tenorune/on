@@ -106,7 +106,7 @@ describe('groupNav state machine', () => {
   });
 });
 
-const { initNavRow, onCreateRequested, openCreateGroupModal, getLastKnownGroupName, startCardsRowSubscriptions } = require('../js/groupNav');
+const { initNavRow, onCreateRequested, openCreateGroupModal, getLastKnownGroupName, startCardsRowSubscriptions, subscribeGroupMeta, subscribeOwnOverride } = require('../js/groupNav');
 
 function setupCreateModalDom() {
   // Replace the bare #create-group-modal placeholder (from setupNavDom) with
@@ -703,5 +703,109 @@ describe('applyOptimisticAppearance', () => {
     // The group card should remain bordered (i.e. "effectively available" is preserved
     // because enabled/status/availableUntil were not clobbered).
     expect(card.style.borderStyle).not.toBe('none');
+  });
+});
+
+describe('subscribeGroupMeta / subscribeOwnOverride providers', () => {
+  beforeEach(() => { jest.clearAllMocks(); setupNavDom(); });
+
+  test('subscribeGroupMeta opens an underlying watch for an un-enumerated group (union rule)', () => {
+    db.watchGroupMeta.mockImplementation((g, cb) => { return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    db.watchGroupMeta.mockClear();
+    subscribeGroupMeta('G9', jest.fn()); // G9 not in enumeration
+    expect(db.watchGroupMeta).toHaveBeenCalledWith('G9', expect.any(Function));
+  });
+
+  test('subscribeGroupMeta does NOT replay before the first tick (no fake deletion)', () => {
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    initNav('me');
+    startCardsRowSubscriptions();
+    const cb = jest.fn();
+    subscribeGroupMeta('G9', cb);
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  test('subscribeGroupMeta replays the cached meta after a tick', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    subscribeGroupMeta('G9', jest.fn());
+    metaCb({ name: 'Divers', ownerId: 'me', createdAt: 1 });
+    const late = jest.fn();
+    subscribeGroupMeta('G9', late);
+    expect(late).toHaveBeenCalledWith({ name: 'Divers', ownerId: 'me', createdAt: 1 });
+  });
+
+  test('a meta tick fans out to consumers', () => {
+    let metaCb;
+    const order = [];
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    subscribeGroupMeta('G9', () => order.push('consumer'));
+    metaCb({ name: 'Divers', ownerId: 'me', createdAt: 1 });
+    expect(order).toEqual(['consumer']);
+  });
+
+  test('a null meta tick fans out null (deletion) to consumers', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    const cb = jest.fn();
+    subscribeGroupMeta('G9', cb);
+    metaCb(null);
+    expect(cb).toHaveBeenCalledWith(null);
+  });
+
+  test('unsubscribing a consumer-only group tears down its underlying watch', () => {
+    const unsub = jest.fn();
+    db.watchGroupMeta.mockImplementation(() => unsub);
+    initNav('me');
+    startCardsRowSubscriptions();
+    const off = subscribeGroupMeta('G9', jest.fn());
+    off();
+    expect(unsub).toHaveBeenCalled();
+  });
+
+  test('an enumerated group keeps its watch when a consumer unsubscribes', () => {
+    let enumCb;
+    const unsub = jest.fn();
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation(() => unsub);
+    initNav('me');
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });   // G1 enumerated
+    const off = subscribeGroupMeta('G1', jest.fn());
+    off();
+    expect(unsub).not.toHaveBeenCalled(); // still enumerated → sub stays
+  });
+
+  test('subscribeOwnOverride replays cached override after a tick, drops uid param', () => {
+    let overrideCb;
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    subscribeOwnOverride('G9', jest.fn());
+    expect(db.watchOwnMemberOverride).toHaveBeenCalledWith('G9', 'me', expect.any(Function));
+    overrideCb({ enabled: true, status: 'available' });
+    const late = jest.fn();
+    subscribeOwnOverride('G9', late);
+    expect(late).toHaveBeenCalledWith({ enabled: true, status: 'available' });
+  });
+
+  test('subscribeOwnOverride replays null override after a null tick', () => {
+    let overrideCb;
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    subscribeOwnOverride('G9', jest.fn());
+    overrideCb(null);
+    const late = jest.fn();
+    subscribeOwnOverride('G9', late);
+    expect(late).toHaveBeenCalledWith(null);
   });
 });
