@@ -144,12 +144,22 @@ describe('initFollowGrants', () => {
     initFollowGrants('me', 'MYCODE');
     expect(db.watchFollowGrants).toHaveBeenCalledWith('me', expect.any(Function));
 
-    await cb({ tgt: { from: 'tgt', code: 'TGTCODE', ts: 1 } });
+    await cb({ tgt: { from: 'tgt', code: 'TGTCODE', name: 'Bea', ts: 1 } });
 
-    expect(db.setFollowingEntry).toHaveBeenCalledWith('me', 'tgt', 'TGTCODE', '');
+    // The grant's name (the approver's roster display name) seeds the label,
+    // so the new Direct card shows the name the user requested by.
+    expect(db.setFollowingEntry).toHaveBeenCalledWith('me', 'tgt', 'TGTCODE', 'Bea');
     expect(db.registerAsFollower).toHaveBeenCalledWith('tgt', 'me', 'MYCODE');
     expect(db.deleteFollowGrant).toHaveBeenCalledWith('me', 'tgt');
     expect(isRequested('tgt')).toBe(false);
+  });
+
+  test('a grant without a name falls back to an empty label', async () => {
+    let cb;
+    db.watchFollowGrants.mockImplementation((uid, fn) => { cb = fn; return () => {}; });
+    initFollowGrants('me', 'MYCODE');
+    await cb({ tgt: { from: 'tgt', code: 'TGTCODE', ts: 1 } });
+    expect(db.setFollowingEntry).toHaveBeenCalledWith('me', 'tgt', 'TGTCODE', '');
   });
 
   test('ignores a grant with no code', async () => {

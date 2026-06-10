@@ -111,6 +111,7 @@ jest.mock('../js/knock.js', () => ({
 jest.mock('../js/store.js', () => ({
   getFollowing: jest.fn(),
   setFollowing: jest.fn(),
+  getFollowerName: jest.fn(() => null),
   addFollowing: jest.fn(),
   removeFollowing: jest.fn(),
   renameFollowing: jest.fn(),
@@ -143,7 +144,7 @@ jest.mock('../js/prefs.js', () => ({
 }));
 
 const { watchStatus, watchFollowers, watchFollowing, setCallState, clearCallState } = require('../js/db.js');
-const { getFollowing, setFollowing, updateFollowingCode } = require('../js/store.js');
+const { getFollowing, setFollowing, updateFollowingCode, getFollowerName } = require('../js/store.js');
 const { getMadeCallCount, getAnsweredCallCount } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
@@ -306,6 +307,36 @@ describe('renderList: follower-only rows', () => {
 
     expect(document.getElementById('add-code-input').value).toBe('Q3ZP7R');
     expect(document.getElementById('add-person-form').classList.contains('open')).toBe(true);
+  });
+
+  test('shows the remembered roster name next to the code', () => {
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockReturnValue('Bea');
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u2', code: 'Q3ZP7R' }]);
+
+    const label = document.querySelector('[data-user-id="u2"] .person-label');
+    expect(label.textContent).toBe('Q3ZP7R (Bea)');
+  });
+
+  test('shows the bare code when no roster name is remembered', () => {
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockReturnValue(null);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u2', code: 'Q3ZP7R' }]);
+
+    const label = document.querySelector('[data-user-id="u2"] .person-label');
+    expect(label.textContent).toBe('Q3ZP7R');
+  });
+
+  test('follow-back pre-fills the label input with the remembered roster name', () => {
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockReturnValue('Bea');
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u2', code: 'Q3ZP7R' }]);
+
+    document.querySelector('[data-user-id="u2"] .follow-back-btn').click();
+    expect(document.getElementById('add-label-input').value).toBe('Bea');
   });
 });
 

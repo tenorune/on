@@ -379,9 +379,12 @@ export async function deleteFollowRequest(targetUid, requesterUid) {
   await remove(ref(db, `followRequests/${targetUid}/${requesterUid}`));
 }
 
-export async function writeFollowGrant(requesterUid, targetUid, targetCode) {
+// `targetName` is the approver's display name in the shared group the request
+// came from — the name the requester tapped on. The grant-watcher seeds the new
+// following entry's label with it so the Direct card opens named, not coded.
+export async function writeFollowGrant(requesterUid, targetUid, targetCode, targetName) {
   await set(ref(db, `followGrants/${requesterUid}/${targetUid}`), {
-    from: targetUid, code: targetCode, ts: Date.now(),
+    from: targetUid, code: targetCode, name: targetName ?? null, ts: Date.now(),
   });
 }
 

@@ -125,7 +125,9 @@ export function initFollowGrants(myUid, myCode) {
       if (_inflight.has(targetUid)) continue;
       _inflight.add(targetUid);
       try {
-        await setFollowingEntry(myUid, targetUid, grant.code, '');
+        // grant.name is the approver's roster display name — the name this
+        // user requested by — so the new Direct card opens named, not coded.
+        await setFollowingEntry(myUid, targetUid, grant.code, grant.name || '');
         await registerAsFollower(targetUid, myUid, myCode);
         await deleteFollowGrant(myUid, targetUid);
         clearRequested(targetUid);
