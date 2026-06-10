@@ -528,7 +528,8 @@ export async function removeFollowingEntry(myUserId, followeeUserId) {
 }
 
 // Called when the follower wants to stop following targetUserId.
-// Only removes the followers entry — does NOT write to revokedFollowers.
+// Only removes the followers entry — does NOT write a revocations entry
+// (revocation is for the followee EVICTING a follower, not self-unfollow).
 export async function unregisterAsFollower(targetUserId, myUserId) {
   await remove(ref(db, `users/${targetUserId}/followers/${myUserId}`));
 }

@@ -1942,6 +1942,15 @@ describe('renderList reconciliation', () => {
     expect(removeFollowing).toHaveBeenCalledWith('u1');
   });
 
+  test('a revocation tick for someone I no longer follow is skipped (no thrash)', () => {
+    let revCb;
+    watchRevocations.mockImplementation((uid, cb) => { revCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([]); // u1 not in my following — stale mailbox entry
+    initList('me', 'MYCODE');
+    expect(() => revCb({ u1: true })).not.toThrow();
+    expect(removeFollowing).not.toHaveBeenCalled();
+  });
+
   test('a card drawer survives a tick that keeps its row, closes when the row is removed', () => {
     getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
     const fire = initAndCaptureFollowersCallback();
