@@ -4,6 +4,9 @@ jest.mock('../js/db.js', () => ({
   deletePendingInvite: jest.fn().mockResolvedValue(undefined),
   readGroup: jest.fn(),
   readMember: jest.fn().mockResolvedValue(null),
+  watchFollowRequests: jest.fn(),
+  deleteFollowRequest: jest.fn().mockResolvedValue(undefined),
+  writeFollowGrant: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/groups.js', () => ({
   joinGroup: jest.fn().mockResolvedValue(undefined),
@@ -246,5 +249,30 @@ describe('Inbox', () => {
     initInbox('me');
     cb({ G1: { from: 'uOwner1', ts: 1 }, G2: { from: 'uOwner2', ts: 2 } });
     expect(getPendingCount()).toBe(2);
+  });
+});
+
+describe('Inbox — follow requests', () => {
+  // Drive both watchers: capture their callbacks so tests can push snapshots.
+  function initWithCallbacks() {
+    let inviteCb, frCb;
+    db.watchPendingInvites.mockImplementation((uid, cb) => { inviteCb = cb; return () => {}; });
+    db.watchFollowRequests.mockImplementation((uid, cb) => { frCb = cb; return () => {}; });
+    initInbox('me', 'MYCODE');
+    return { inviteCb, frCb };
+  }
+
+  test('subscribes via watchFollowRequests on init', () => {
+    initWithCallbacks();
+    expect(db.watchFollowRequests).toHaveBeenCalledWith('me', expect.any(Function));
+  });
+
+  test('a follow request alone makes the Inbox nav button appear and glow', () => {
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+    const btn = document.querySelector('#nav-row-inbox-slot .inbox-btn');
+    expect(btn).not.toBeNull();
+    expect(btn.classList.contains('unseen')).toBe(true);
   });
 });

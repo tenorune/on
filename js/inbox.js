@@ -3,15 +3,19 @@
 // renders a nav-row button (visible when ≥1 pending) plus a modal that lists
 // all pending invites with per-row Join / Decline.
 
-import { watchPendingInvites, deletePendingInvite, readGroup, readMember } from './db.js';
+import { watchPendingInvites, deletePendingInvite, readGroup, readMember,
+  watchFollowRequests, deleteFollowRequest, writeFollowGrant } from './db.js';
 import { joinGroup } from './groups.js';
 import { navigateToGroup } from './groupNav.js';
 import { getFollowing } from './prefs.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 
 let _myUid = null;
+let _myCode = null;
 let _pending = {};               // groupId → { from, ts }
+let _followRequests = {};        // requesterUid → { from, groupId, ts }
 let _unsubscribe = null;
+let _frUnsubscribe = null;
 let _overlayHandlerInstalled = false;
 
 // "Unseen" tracking (per-device, like the knock-pending cue). An invite is
@@ -27,33 +31,40 @@ function persistSeen() {
   try { localStorage.setItem(SEEN_KEY, JSON.stringify([..._seen])); } catch { /* quota */ }
 }
 function inviteKey(groupId, record) { return `${groupId}:${record?.ts ?? ''}`; }
+function followRequestKey(reqUid, record) { return `fr:${reqUid}:${record?.ts ?? ''}`; }
 function pendingKeys() { return Object.entries(_pending).map(([gid, r]) => inviteKey(gid, r)); }
-function hasUnseenInvite() { return pendingKeys().some((k) => !_seen.has(k)); }
-// Drop seen entries that are no longer pending (declined/joined) so the set
-// can't grow without bound and a future same-key invite isn't pre-marked seen.
+function followRequestKeys() { return Object.entries(_followRequests).map(([uid, r]) => followRequestKey(uid, r)); }
+function allKeys() { return pendingKeys().concat(followRequestKeys()); }
+function totalCount() { return Object.keys(_pending).length + Object.keys(_followRequests).length; }
+function hasUnseen() { return allKeys().some((k) => !_seen.has(k)); }
+// Drop seen entries no longer live (declined/joined/approved) so the set can't grow
+// unbounded and a future same-key item isn't pre-marked seen.
 function pruneSeen() {
-  const live = new Set(pendingKeys());
+  const live = new Set(allKeys());
   let changed = false;
   for (const k of _seen) if (!live.has(k)) { _seen.delete(k); changed = true; }
   if (changed) persistSeen();
 }
 function markAllSeen() {
   let changed = false;
-  for (const k of pendingKeys()) if (!_seen.has(k)) { _seen.add(k); changed = true; }
+  for (const k of allKeys()) if (!_seen.has(k)) { _seen.add(k); changed = true; }
   if (changed) persistSeen();
 }
 
-export function initInbox(uid) {
+export function initInbox(uid, code) {
   _myUid = uid;
+  _myCode = code;
   loadSeen();
-  if (_unsubscribe) _unsubscribe();
-  _unsubscribe = watchPendingInvites(uid, (snap) => {
-    _pending = snap || {};
+  const onChange = () => {
     pruneSeen();
     renderInboxNavSlot();
     refreshInboxModalIfOpen();
-    if (getPendingCount() === 0) closeInboxModal();
-  });
+    if (totalCount() === 0) closeInboxModal();
+  };
+  if (_unsubscribe) _unsubscribe();
+  _unsubscribe = watchPendingInvites(uid, (snap) => { _pending = snap || {}; onChange(); });
+  if (_frUnsubscribe) _frUnsubscribe();
+  _frUnsubscribe = watchFollowRequests(uid, (snap) => { _followRequests = snap || {}; onChange(); });
   installOverlayHandlerOnce();
 }
 
@@ -65,10 +76,10 @@ export function renderInboxNavSlot() {
   const slot = document.getElementById('nav-row-inbox-slot');
   if (!slot) return;
   slot.innerHTML = '';
-  if (getPendingCount() === 0) return;
+  if (totalCount() === 0) return;
   const btn = document.createElement('button');
   btn.className = 'inbox-btn';
-  if (hasUnseenInvite()) btn.classList.add('unseen'); // glow until opened
+  if (hasUnseen()) btn.classList.add('unseen'); // glow until opened
   btn.type = 'button';
   btn.textContent = 'Inbox';
   btn.title = 'Pending invites';
