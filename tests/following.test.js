@@ -1776,7 +1776,7 @@ describe('tool drawer on contact rows', () => {
     expect(li.classList.contains('call-mode')).toBe(false);
   });
 
-  test('re-render (renderList) closes an open drawer instead of stranding it', () => {
+  test('re-render (renderList): drawer persists on surviving row; closes when row is removed', () => {
     // Use initAndCaptureFollowersCallback so we can re-fire the followers callback
     // to trigger renderList() a second time, simulating a server-driven update.
     setupDom();
@@ -1796,11 +1796,16 @@ describe('tool drawer on contact rows', () => {
     li.querySelector('.card-drawer-toggle').click();
     expect(isCardDrawerOpen()).toBe(true);
 
-    // Re-fire the followers callback — this triggers renderList() again,
-    // which wipes #people-list. The bug: without the fix, isCardDrawerOpen()
-    // stays true after the DOM is torn down.
+    // Re-fire with the same row surviving: reconcile keeps the node, so the
+    // drawer must NOT close (no DOM teardown — isCardDrawerOpen() must stay true).
     fire([{ userId: 'alex', code: 'ABC123' }]);
+    expect(isCardDrawerOpen()).toBe(true);
+    expect(document.querySelector('.card-drawer')).not.toBeNull();
 
+    // Row is removed (user unfollows back): reconcile calls onRemove, which
+    // closes the drawer so its document listeners are cleaned up.
+    getFollowing.mockReturnValue([]);
+    fire([]);
     expect(isCardDrawerOpen()).toBe(false);
     expect(document.querySelector('.card-drawer')).toBeNull();
   });
@@ -1847,5 +1852,95 @@ describe('syncFollowingFromServer event', () => {
     expect(setFollowing).not.toHaveBeenCalled();
     expect(onSynced).not.toHaveBeenCalled();
     document.removeEventListener('following-synced', onSynced);
+  });
+});
+
+describe('renderList reconciliation', () => {
+  // Captured at describe-eval time (before any jest.resetModules() in earlier tests
+  // creates a fresh registry) so these share the same module instance as the
+  // top-level require of following.js and cardDrawer.js.
+  const { createNotifyBell: createNotifyBellMock } = require('../js/notifyBell.js');
+  const { isCardDrawerOpen: isDrawerOpen } = require('../js/cardDrawer.js');
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    // Provide a real DOM element so createFolloweeRow can build the card drawer.
+    createNotifyBellMock.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+  });
+
+  test('rows keep node identity across a followers tick', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]); // u1 mutual
+    const row = document.querySelector('[data-user-id="u1"]');
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    expect(document.querySelector('[data-user-id="u1"]')).toBe(row);
+  });
+
+  test('a section move (mutual -> follower-only loses follow) replaces the row', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    const mutualRow = document.querySelector('[data-user-id="u1"]');
+    expect(mutualRow.dataset.mutual).toBe('1');
+    // Following list empties: u1 becomes follower-only — structurally different row.
+    getFollowing.mockReturnValue([]);
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    const followerRow = document.querySelector('[data-user-id="u1"]');
+    expect(followerRow).not.toBe(mutualRow);
+    expect(followerRow.classList.contains('follower-only')).toBe(true);
+  });
+
+  test('section labels render once and persist', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    const label = document.querySelector('.list-section-label');
+    expect(label.textContent).toBe('Mutuals');
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    expect(document.querySelectorAll('.list-section-label').length).toBe(1);
+    expect(document.querySelector('.list-section-label')).toBe(label);
+  });
+
+  test('follow-back prefill reads the follower name at CLICK time, not render time', () => {
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockReturnValue(null); // unknown at render
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u2', code: 'Q3ZP7R' }]);
+    getFollowerName.mockReturnValue('Bea'); // learned later (approval flow)
+    document.querySelector('[data-user-id="u2"] .follow-back-btn').click();
+    expect(document.getElementById('add-label-input').value).toBe('Bea');
+  });
+
+  test('empty list still clears rows and shows the empty state', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    getFollowing.mockReturnValue([]);
+    fire([]);
+    expect(document.querySelectorAll('#people-list li').length).toBe(0);
+    expect(document.getElementById('people-list').style.display).toBe('none');
+  });
+
+  test('a card drawer survives a tick that keeps its row, closes when the row is removed', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    const row = document.querySelector('[data-user-id="u1"]');
+    // Open the real card drawer via the toggle button.
+    row.querySelector('.card-drawer-toggle').click();
+    expect(isDrawerOpen()).toBe(true);
+    // Unrelated tick (same data): the surviving row's drawer must NOT close.
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    expect(isDrawerOpen()).toBe(true);
+    expect(row.querySelector('.card-drawer')).not.toBeNull();
+    // The row is removed (u1 stops following us AND we unfollow → empty):
+    getFollowing.mockReturnValue([]);
+    fire([]);
+    expect(isDrawerOpen()).toBe(false);
   });
 });

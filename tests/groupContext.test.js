@@ -530,16 +530,27 @@ describe('group roster render', () => {
     expect(row.querySelector('.card-drawer-toggle').dataset.actionCount).toBe('2');
   });
 
-  test('re-rendering the roster closes any open card drawer first', () => {
+  test('a card drawer survives a members tick that keeps its row, closes when the row is removed', () => {
+    // Reconciliation contract (render-reconciliation spec §3): the blanket
+    // close-on-every-render is gone; the drawer closes only when its row is removed.
     const cardDrawer = require('../js/cardDrawer.js');
     let membersCb;
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
     cardDrawer.closeCardDrawer.mockClear();
-    // Second tick re-renders the roster; the open-drawer teardown must run first.
+    // Unrelated tick (same member set): the drawer must NOT be force-closed.
     membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    expect(cardDrawer.closeCardDrawer).not.toHaveBeenCalled();
+    // Simulate the open drawer living inside a's row, then remove a.
+    const rowA = document.querySelector('#group-roster [data-user-id="a"]');
+    const slice = document.createElement('div');
+    slice.className = 'card-drawer';
+    rowA.appendChild(slice);
+    cardDrawer.isCardDrawerOpen.mockReturnValue(true);
+    membersCb({});
     expect(cardDrawer.closeCardDrawer).toHaveBeenCalled();
+    cardDrawer.isCardDrawerOpen.mockReturnValue(false);
   });
 
   test('a co-member you already follow keeps the bare bell (no drawer)', () => {
@@ -553,6 +564,70 @@ describe('group roster render', () => {
     const row = document.querySelector('#group-roster [data-user-id="a"]');
     expect(row.querySelector('.card-drawer-toggle')).toBeNull();
     expect(row.querySelector('.notify-bell')).not.toBeNull();
+  });
+
+  test('roster rows keep node identity across a members tick', () => {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const rowA = document.querySelector('#group-roster [data-user-id="a"]');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    expect(document.querySelector('#group-roster [data-user-id="a"]')).toBe(rowA);
+  });
+
+  test('knock fires once per tap after two members ticks (no duplicated handlers)', () => {
+    const knock = require('../js/knock.js');
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    document.querySelector('#group-roster [data-user-id="a"]').click();
+    expect(knock.sendKnock).toHaveBeenCalledTimes(1);
+  });
+
+  test('an eligibility flip recreates the row (key carries the eligibility bit)', () => {
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(true);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const before = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(before.querySelector('.card-drawer-toggle')).not.toBeNull();
+    followRequests.isFollowRequestEligible.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('following-synced'));
+    const after = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(after).not.toBe(before); // recreated, not patched
+    expect(after.querySelector('.card-drawer-toggle')).toBeNull();
+    expect(after.querySelector('.notify-bell')).not.toBeNull();
+  });
+
+  test('a floated member stays pinned to the top across a members tick', () => {
+    const knock = require('../js/knock.js');
+    knock.getFloatedUserIds.mockReturnValue(['b']);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({
+      a: { role: 'member', displayName: 'Alice', joinedAt: 1 },
+      b: { role: 'member', displayName: 'Bob', joinedAt: 2 },
+    });
+    const rows = [...document.querySelectorAll('#group-roster li')];
+    expect(rows[0].dataset.userId).toBe('b'); // floated beats alphabetical
+    knock.getFloatedUserIds.mockReturnValue([]);
+  });
+
+  test('a displayName change repaints the surviving row label', () => {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const rowA = document.querySelector('#group-roster [data-user-id="a"]');
+    membersCb({ a: { role: 'member', displayName: 'Alicia', joinedAt: 1 } });
+    expect(document.querySelector('#group-roster [data-user-id="a"]')).toBe(rowA);
+    expect(rowA.querySelector('.person-label').textContent).toBe('Alicia');
   });
 
   test('following-synced re-renders the roster so a stale request-follow affordance drops', () => {
@@ -573,6 +648,31 @@ describe('group roster render', () => {
     const row = document.querySelector('#group-roster [data-user-id="a"]');
     expect(row.querySelector('.card-drawer-toggle')).toBeNull();
     expect(row.querySelector('.notify-bell')).not.toBeNull();
+  });
+
+  test('a floated row survives an eligibility flip (recreated, still pinned, restore-safe)', () => {
+    const knock = require('../js/knock.js');
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(true);
+    knock.getFloatedUserIds.mockReturnValue(['a']);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({
+      a: { role: 'member', displayName: 'Alice', joinedAt: 1 },
+      b: { role: 'member', displayName: 'Bob', joinedAt: 2 },
+    });
+    const before = document.querySelector('#group-roster [data-user-id="a"]');
+    expect([...document.querySelectorAll('#group-roster li')][0]).toBe(before); // floated → top
+    // Eligibility flips mid-float: the key changes, the row is recreated…
+    followRequests.isFollowRequestEligible.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('following-synced'));
+    const after = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(after).not.toBe(before);
+    // …but stays pinned to the top (still floated) and is findable by the
+    // float-restore lookup ([data-user-id] within the list).
+    expect([...document.querySelectorAll('#group-roster li')][0]).toBe(after);
+    knock.getFloatedUserIds.mockReturnValue([]);
   });
 });
 

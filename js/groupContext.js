@@ -6,6 +6,7 @@
 // slot), and the member roster.
 
 import { watchGroupMembers, watchGroupInvites, watchStatus, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs } from './db.js';
+import { reconcileChildren } from './reconcile.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect, applyOptimisticAppearance, subscribeGroupMeta, subscribeOwnOverride } from './groupNav.js';
 import { subscribeOwnStatus } from './ownStatus.js';
@@ -91,203 +92,232 @@ let _lastMembers = null;   // last members snapshot — allows re-render when me
 const KEY_SPIN_MS = 5000;
 let _groupPaletteEnterAt = null;
 
-// Reorder the existing roster `<li>` nodes so available members come first,
-// alphabetical within each (available / unavailable) bucket. Rows currently
-// being floated by a knock animation (knock.js prepends them) stay at the top
-// regardless of availability — knock visuals own that slot for 20s.
-function reorderRosterByAvailability() {
-  const list = document.getElementById('group-roster');
-  if (!list) return;
-  const floatedSet = new Set(getFloatedUserIds());
-  const rows = Array.from(list.children);
-  // The owner-only invite row is pinned at the top; exclude it from sorting.
-  const inviteRow = rows.find((r) => r.id === 'group-roster-invite-row');
-  const memberRows = rows.filter((r) => r.id !== 'group-roster-invite-row');
-  const floated = memberRows.filter((r) => floatedSet.has(r.dataset.userId));
-  const others = memberRows.filter((r) => !floatedSet.has(r.dataset.userId));
-  others.sort((a, b) => {
-    const aAvail = a.dataset.available === 'true';
-    const bAvail = b.dataset.available === 'true';
-    if (aAvail !== bAvail) return aAvail ? -1 : 1;
-    const aName = (a.querySelector('.person-label')?.textContent || '').toLowerCase();
-    const bName = (b.querySelector('.person-label')?.textContent || '').toLowerCase();
-    return aName.localeCompare(bName);
-  });
-  // Re-insert in order: invite row (if present) first, then floated, then others.
-  if (inviteRow) list.insertBefore(inviteRow, list.firstChild);
-  for (const row of floated.concat(others)) list.appendChild(row);
+// Effective in-group availability for a member, from data (not the DOM).
+// Override-on means "independent in this group": every field comes from the
+// override; override-off: primary wins. Mirrors paintRosterRow's merge.
+function memberEffectiveAvailable(uid) {
+  const override = _membersOverrides[uid];
+  const primary = _memberPrimaries.get(uid) || null;
+  const overrideOn = !!(override && override.enabled === true);
+  const status = overrideOn ? (override.status || 'unavailable') : (primary?.status || 'unavailable');
+  const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
+  return status === 'available' && (availableUntil == null || availableUntil > Date.now());
 }
 
-function renderRoster(members, ownUserId) {
-  // A drawer open on a row about to be wiped would leak its document listeners
-  // and strand isCardDrawerOpen()=true (gestures + knock/call deferral stuck).
-  // Closing first dispatches card-drawer-close, flushing that state.
-  closeCardDrawer();
-  const list = document.getElementById('group-roster');
-  if (!list) return;
-  list.innerHTML = '';
+const ROSTER_KEY_PREFIX = 'm:';
+function rosterRowKey(uid) {
+  // The eligibility bit rides the key: a request-to-follow eligibility flip
+  // changes the row's action cluster (bare bell vs ⋮ drawer), so it recreates
+  // that one row instead of update() rebuilding drawers in place.
+  const bit = (FOLLOW_REQUESTS_ENABLED && isFollowRequestEligible(uid)) ? '1' : '0';
+  return `${ROSTER_KEY_PREFIX}${uid}:${bit}`;
+}
+function rosterUidOf(key) {
+  return key.slice(ROSTER_KEY_PREFIX.length, key.lastIndexOf(':'));
+}
 
-  // Owner-only "Invite to group" row pinned at the top of the roster.
-  // The owner check reads from _groupOwnerId, captured by the group-meta sub
-  // callback. If meta hasn't arrived yet, the row is hidden; it'll appear on
-  // the next render after meta lands.
+function rosterKeys(members, ownUserId) {
   const isOwner = _groupOwnerId !== null && _groupOwnerId === ownUserId;
-  if (isOwner) {
-    const inviteRow = document.createElement('li');
-    inviteRow.id = 'group-roster-invite-row';
-    inviteRow.className = 'roster-invite-row';
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'add-btn';
-    btn.textContent = 'Invite to group';
-    btn.addEventListener('click', () => {
-      openInviteModal({
-        scope: 'group',
-        userId: ownUserId,
-        groupId: _currentGroupId,
-        groupName: _groupName || _currentGroupId,
-        activeInvite: _activeGroupInvite,
-        followers: getCurrentFollowersMap(),
-        mutuals: getCurrentMutuals(),
-        currentMemberUids: new Set(Object.keys(members || {})),
-      });
-    });
-    inviteRow.appendChild(btn);
-    list.appendChild(inviteRow);
-  }
-
-  // Own user is represented by the status row in the group-context header.
-  // Don't duplicate them in the roster.
   const entries = Object.entries(members || {}).filter(([uid]) => uid !== ownUserId);
-  entries.sort(([, a], [, b]) => {
+  const floatedSet = new Set(getFloatedUserIds());
+  const floated = [];
+  const others = [];
+  for (const e of entries) (floatedSet.has(e[0]) ? floated : others).push(e);
+  others.sort(([uidA, a], [uidB, b]) => {
+    const availA = memberEffectiveAvailable(uidA);
+    const availB = memberEffectiveAvailable(uidB);
+    if (availA !== availB) return availA ? -1 : 1;
     const nameA = (a.displayName || '').toLowerCase();
     const nameB = (b.displayName || '').toLowerCase();
     return nameA.localeCompare(nameB);
   });
+  const keys = [];
+  if (isOwner) keys.push('invite-row');
+  // Floated bucket is members-object order, not most-recently-floated — knock's own prepend wins between ticks and a reconcile self-heals; cosmetic only.
+  for (const [uid] of floated) keys.push(rosterRowKey(uid));
+  for (const [uid] of others) keys.push(rosterRowKey(uid));
+  return keys;
+}
 
-  for (const [uid, member] of entries) {
-    const li = document.createElement('li');
-    li.className = 'group-roster-row';
-    li.dataset.userId = uid;
-    li.dataset.available = 'false';
+function createInviteRow(ownUserId) {
+  const inviteRow = document.createElement('li');
+  inviteRow.id = 'group-roster-invite-row';
+  inviteRow.className = 'roster-invite-row';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'add-btn';
+  btn.textContent = 'Invite to group';
+  btn.addEventListener('click', () => {
+    openInviteModal({
+      scope: 'group',
+      userId: ownUserId,
+      groupId: _currentGroupId,
+      groupName: _groupName || _currentGroupId,
+      activeInvite: _activeGroupInvite,
+      followers: getCurrentFollowersMap(),
+      mutuals: getCurrentMutuals(),
+      currentMemberUids: new Set(Object.keys(_lastMembers || {})),
+    });
+  });
+  inviteRow.appendChild(btn);
+  return inviteRow;
+}
 
-    const dot = document.createElement('span');
-    dot.className = 'person-dot';
-    dot.dataset.available = 'false';
+function createRosterRow(uid, member, ownUserId) {
+  const li = document.createElement('li');
+  li.className = 'group-roster-row';
+  li.dataset.userId = uid;
+  li.dataset.available = 'false';
 
-    const info = document.createElement('div');
-    info.className = 'person-info';
+  const dot = document.createElement('span');
+  dot.className = 'person-dot';
+  dot.dataset.available = 'false';
 
-    const label = document.createElement('span');
-    label.className = 'person-label';
-    label.textContent = member.displayName || uid;
-    info.appendChild(label);
+  const info = document.createElement('div');
+  info.className = 'person-info';
 
-    const status = document.createElement('div');
-    status.className = 'person-status';
-    info.appendChild(status);
+  const label = document.createElement('span');
+  label.className = 'person-label';
+  label.textContent = member.displayName || uid;
+  info.appendChild(label);
 
-    li.appendChild(dot);
-    li.appendChild(info);
+  const status = document.createElement('div');
+  status.className = 'person-status';
+  info.appendChild(status);
 
-    const actions = [];
-    if (NOTIFICATIONS_ENABLED && uid !== ownUserId) {
-      // Group context has no Call feature; you can knock members and see their
-      // availability — so no Call toggle.
-      const bell = createNotifyBell(uid, {
-        types: ['knock', 'availability'],
-        onNeedPermission: () => { ensureNotificationsReady().catch(() => {}); },
-      });
-      actions.push({ el: bell, closesDrawer: false });
-    }
-    if (FOLLOW_REQUESTS_ENABLED && uid !== ownUserId && isFollowRequestEligible(uid)) {
-      const reqBtn = createRequestFollowButton(ownUserId, uid, getCurrentGroupId(), member.displayName || uid);
-      actions.push({ el: reqBtn, closesDrawer: true });
-    }
-    // >=2 right-side actions collapse behind the shared ⋮ drawer (like Direct);
-    // exactly one is shown inline (an already-followed member keeps the bare bell).
-    if (actions.length >= 2) {
-      li.appendChild(createCardDrawer(actions));
-    } else if (actions.length === 1) {
-      li.appendChild(actions[0].el);
-    }
+  li.appendChild(dot);
+  li.appendChild(info);
 
-    if (KNOCK_ENABLED) {
-      li.classList.add('knockable');
-      // A tap drives a knock UNLESS it belongs to the per-member notification
-      // bell or its (body-portaled) popover, or a popover is open and owns the
-      // screen like a modal. Shared by the knock itself AND the press-feedback
-      // highlight below, so neither the colored knock flash nor the row's
-      // "pressable" highlight ever fires for a bell tap or behind a popover.
-      const knockBlocked = (e) =>
-        e.target.closest('.notify-bell') ||
-        e.target.closest('.notify-popover') ||
-        e.target.closest('.card-drawer-toggle') ||
-        e.target.closest('.card-drawer') ||
-        isNotifyPopoverOpen() ||
-        isCardDrawerOpen();
-      li.addEventListener('click', (e) => {
-        if (knockBlocked(e)) return;
-        sendKnock(uid, ownUserId, undefined, { contextGroupId: getCurrentGroupId() });
-      });
-      // Press highlight is JS-driven (not CSS :active) so it can honour the same
-      // guard — a CSS :active on the row would flash even when the bell inside it
-      // is pressed, which reads as a (phantom) knock.
-      const clearPress = () => li.classList.remove('knock-pressing');
-      li.addEventListener('pointerdown', (e) => {
-        if (knockBlocked(e)) return;
-        li.classList.add('knock-pressing');
-      });
-      li.addEventListener('pointerup', clearPress);
-      li.addEventListener('pointercancel', clearPress);
-      li.addEventListener('pointerleave', clearPress);
-    }
-
-    if (PALETTES_ENABLED && PALETTE_INTERACTIONS_ENABLED && uid !== ownUserId) {
-      let pressTimer = null;
-      let pressStartX, pressStartY;
-      let suppressNextClick = false;
-
-      li.addEventListener('pointerdown', (e) => {
-        // A press that starts on the notification bell drives the bell, not the
-        // row's long-press adoption (the bell only stops click propagation, not
-        // pointerdown). Without this, holding the bell would adopt the member's
-        // palette.
-        if (e.target.closest('.notify-bell')) return;
-        // A press on the drawer toggle/slice, or while a drawer is open, belongs to
-        // the drawer (or its dismissal) — not palette adoption.
-        if (e.target.closest('.card-drawer-toggle') || e.target.closest('.card-drawer')) return;
-        if (isCardDrawerOpen()) return;
-        // Don't arm long-press adoption behind an open bell popover — the press
-        // belongs to dismissing that modal, not adopting a member's palette.
-        if (isNotifyPopoverOpen()) return;
-        if (!_ownOverride?.enabled) return;
-        clearTimeout(pressTimer); pressTimer = null;
-        pressStartX = e.clientX;
-        pressStartY = e.clientY;
-        pressTimer = setTimeout(() => {
-          pressTimer = null;
-          suppressNextClick = true;
-          triggerGroupAdoption(uid, ownUserId);
-        }, 500);
-      });
-      li.addEventListener('pointermove', (e) => {
-        if (pressTimer && (Math.abs(e.clientX - pressStartX) > 8 ||
-                           Math.abs(e.clientY - pressStartY) > 8)) {
-          clearTimeout(pressTimer); pressTimer = null;
-        }
-      });
-      ['pointerup', 'pointercancel'].forEach(ev =>
-        li.addEventListener(ev, () => { clearTimeout(pressTimer); pressTimer = null; })
-      );
-      li.addEventListener('click', (e) => {
-        if (suppressNextClick) { suppressNextClick = false; e.stopImmediatePropagation(); }
-      }, true);
-    }
-
-    list.appendChild(li);
+  const actions = [];
+  if (NOTIFICATIONS_ENABLED && uid !== ownUserId) {
+    // Group context has no Call feature; you can knock members and see their
+    // availability — so no Call toggle.
+    const bell = createNotifyBell(uid, {
+      types: ['knock', 'availability'],
+      onNeedPermission: () => { ensureNotificationsReady().catch(() => {}); },
+    });
+    actions.push({ el: bell, closesDrawer: false });
   }
-  reorderRosterByAvailability();
+  if (FOLLOW_REQUESTS_ENABLED && uid !== ownUserId && isFollowRequestEligible(uid)) {
+    // Accepted staleness: displayName is captured at create; a rename leaves a stale name in the request toast until the row is recreated (cosmetic, rare).
+    const reqBtn = createRequestFollowButton(ownUserId, uid, getCurrentGroupId(), member.displayName || uid);
+    actions.push({ el: reqBtn, closesDrawer: true });
+  }
+  // >=2 right-side actions collapse behind the shared ⋮ drawer (like Direct);
+  // exactly one is shown inline (an already-followed member keeps the bare bell).
+  if (actions.length >= 2) {
+    li.appendChild(createCardDrawer(actions));
+  } else if (actions.length === 1) {
+    li.appendChild(actions[0].el);
+  }
+
+  if (KNOCK_ENABLED) {
+    li.classList.add('knockable');
+    // A tap drives a knock UNLESS it belongs to the per-member notification
+    // bell or its (body-portaled) popover, or a popover is open and owns the
+    // screen like a modal. Shared by the knock itself AND the press-feedback
+    // highlight below, so neither the colored knock flash nor the row's
+    // "pressable" highlight ever fires for a bell tap or behind a popover.
+    const knockBlocked = (e) =>
+      e.target.closest('.notify-bell') ||
+      e.target.closest('.notify-popover') ||
+      e.target.closest('.card-drawer-toggle') ||
+      e.target.closest('.card-drawer') ||
+      isNotifyPopoverOpen() ||
+      isCardDrawerOpen();
+    li.addEventListener('click', (e) => {
+      if (knockBlocked(e)) return;
+      sendKnock(uid, ownUserId, undefined, { contextGroupId: getCurrentGroupId() });
+    });
+    // Press highlight is JS-driven (not CSS :active) so it can honour the same
+    // guard — a CSS :active on the row would flash even when the bell inside it
+    // is pressed, which reads as a (phantom) knock.
+    const clearPress = () => li.classList.remove('knock-pressing');
+    li.addEventListener('pointerdown', (e) => {
+      if (knockBlocked(e)) return;
+      li.classList.add('knock-pressing');
+    });
+    li.addEventListener('pointerup', clearPress);
+    li.addEventListener('pointercancel', clearPress);
+    li.addEventListener('pointerleave', clearPress);
+  }
+
+  if (PALETTES_ENABLED && PALETTE_INTERACTIONS_ENABLED && uid !== ownUserId) {
+    let pressTimer = null;
+    let pressStartX, pressStartY;
+    let suppressNextClick = false;
+
+    li.addEventListener('pointerdown', (e) => {
+      // A press that starts on the notification bell drives the bell, not the
+      // row's long-press adoption (the bell only stops click propagation, not
+      // pointerdown). Without this, holding the bell would adopt the member's
+      // palette.
+      if (e.target.closest('.notify-bell')) return;
+      // A press on the drawer toggle/slice, or while a drawer is open, belongs to
+      // the drawer (or its dismissal) — not palette adoption.
+      if (e.target.closest('.card-drawer-toggle') || e.target.closest('.card-drawer')) return;
+      if (isCardDrawerOpen()) return;
+      // Don't arm long-press adoption behind an open bell popover — the press
+      // belongs to dismissing that modal, not adopting a member's palette.
+      if (isNotifyPopoverOpen()) return;
+      if (!_ownOverride?.enabled) return;
+      clearTimeout(pressTimer); pressTimer = null;
+      pressStartX = e.clientX;
+      pressStartY = e.clientY;
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        suppressNextClick = true;
+        triggerGroupAdoption(uid, ownUserId);
+      }, 500);
+    });
+    li.addEventListener('pointermove', (e) => {
+      if (pressTimer && (Math.abs(e.clientX - pressStartX) > 8 ||
+                         Math.abs(e.clientY - pressStartY) > 8)) {
+        clearTimeout(pressTimer); pressTimer = null;
+      }
+    });
+    ['pointerup', 'pointercancel'].forEach(ev =>
+      li.addEventListener(ev, () => { clearTimeout(pressTimer); pressTimer = null; })
+    );
+    li.addEventListener('click', (e) => {
+      if (suppressNextClick) { suppressNextClick = false; e.stopImmediatePropagation(); }
+    }, true);
+  }
+
+  return li;
+}
+
+function renderRoster(members, ownUserId) {
+  const list = document.getElementById('group-roster');
+  if (!list) return;
+  reconcileChildren(list, rosterKeys(members, ownUserId), {
+    create: (key) => {
+      if (key === 'invite-row') return createInviteRow(ownUserId);
+      const uid = rosterUidOf(key);
+      return createRosterRow(uid, (members || {})[uid] || {}, ownUserId);
+    },
+    update: (node, key) => {
+      if (key === 'invite-row') return;
+      const uid = rosterUidOf(key);
+      const member = (members || {})[uid];
+      const label = node.querySelector('.person-label');
+      if (label && member) label.textContent = member.displayName || uid;
+      paintRosterRow(uid);
+    },
+    // The drawer survives ticks that keep its row; close only when the row
+    // holding the open drawer is removed (replaces the blanket close that
+    // renderRoster used to do — the leak vector was the wipe itself).
+    onRemove: (node) => {
+      if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
+    },
+  });
+}
+
+// Re-converge roster order after a status change (availability moved a row).
+// Reconciliation makes this a cheap reorder + repaint; no node churn.
+function syncRosterOrder() {
+  if (_lastMembers === null) return;
+  renderRoster(_lastMembers, _currentUserId);
 }
 
 function paintRosterRow(uid) {
@@ -302,9 +332,8 @@ function paintRosterRow(uid) {
   // who chose to not theme their group card (override.paletteKey null)
   // would still pick up their Direct theme. Override-off: primary wins
   // for every field (the group is linked to Direct).
-  const status = overrideOn ? (override.status || 'unavailable') : (primary?.status || 'unavailable');
   const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
-  const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+  const isAvailable = memberEffectiveAvailable(uid);
   const color = overrideOn ? (override.statusColor || null) : (primary?.statusColor || null);
   const paletteKey = overrideOn ? (override.paletteKey || null) : (primary?.paletteKey || null);
   const palette = PALETTES_ENABLED && paletteKey ? getPaletteByKey(paletteKey) : null;
@@ -401,8 +430,6 @@ function paintRosterRow(uid) {
       li.appendChild(hint);
     }
   }
-
-  reorderRosterByAvailability();
 }
 
 function renderOwnStatusRow() {
@@ -861,7 +888,8 @@ function syncStatusSubscriptions(memberUids) {
               paletteKey: data.paletteKey || null,
             }
           : null);
-        paintRosterRow(uid);
+        // renderRoster's update repaints every row, including this one.
+        syncRosterOrder();
       }));
     }
   }
@@ -1024,10 +1052,6 @@ export function enterGroupContext(groupId, userId) {
     _ownDisplayName = members?.[userId]?.displayName || null;
     renderRoster(members, userId);
     syncStatusSubscriptions(new Set(Object.keys(members || {})));
-    // Re-paint each row to reflect the merged override+primary.
-    for (const uid of Object.keys(members || {})) {
-      paintRosterRow(uid);
-    }
     // Replay any knocks that arrived while the user wasn't in this group.
     // Wait for the first members tick so the roster lis exist before drain
     // tries to look them up; one-shot per enterGroupContext call.

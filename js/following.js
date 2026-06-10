@@ -25,6 +25,7 @@ import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_
 import { sendKnock, getFloatedUserIds } from './knock.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
+import { reconcileChildren } from './reconcile.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
@@ -277,10 +278,6 @@ export function exitCallMode(myUserId) {
 }
 
 function renderList() {
-  // A drawer open on a row about to be wiped would leak its document listeners
-  // and strand isCardDrawerOpen()=true (gestures + knock/call deferral stuck).
-  // Closing first dispatches card-drawer-close, flushing that state.
-  closeCardDrawer();
   const myUserId = myUserIdRef;
   const following = getFollowing();
   const followerIds = new Set(latestFollowersSnapshot.map(f => f.userId));
@@ -309,7 +306,13 @@ function renderList() {
   const isEmpty = mutuals.length === 0 && followingOnly.length === 0 && followerOnly.length === 0;
   document.getElementById('add-person-area').classList.toggle('has-list', !isEmpty);
   if (isEmpty) {
-    list.innerHTML = '';
+    reconcileChildren(list, [], {
+      create: () => null, // unreachable with empty keys
+      update: () => {},
+      onRemove: (node) => {
+        if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
+      },
+    });
     list.style.display = 'none';
     emptyMsg.classList.remove('hidden');
     return;
@@ -317,7 +320,6 @@ function renderList() {
 
   list.style.display = '';
   emptyMsg.classList.add('hidden');
-  list.innerHTML = '';
 
   // Sort uses lastUserData which still has status for entries with active subscriptions.
   // New entries (not yet subscribed) will sort as unavailable until Firebase delivers status.
@@ -342,55 +344,93 @@ function renderList() {
     return [...entries].sort((a, b) => a.code.localeCompare(b.code));
   }
 
-  function appendSection(labelText, entries, renderRow) {
+  const entryByKey = new Map();
+  const keys = [];
+  function pushSection(labelKey, entries, type) {
     if (entries.length === 0) return;
-    const labelLi = document.createElement('li');
-    labelLi.className = 'list-section-label';
-    labelLi.textContent = labelText;
-    list.appendChild(labelLi);
-    entries.forEach(renderRow);
+    keys.push(labelKey);
+    for (const e of entries) {
+      const k = `${type}:${e.userId}`;
+      keys.push(k);
+      entryByKey.set(k, e);
+    }
+  }
+  pushSection('label:Mutuals', sortFollowees(mutuals), 'mutual');
+  pushSection('label:Following', sortFollowees(followingOnly), 'following');
+  pushSection('label:Followers', sortFollowerOnly(followerOnly), 'follower');
+
+  // Floated rows stay pinned right after the first section label (same
+  // contract applyFloatToTop honors), folded into the key order instead of
+  // the old post-render re-prepend.
+  const floated = getFloatedUserIds();
+  if (floated.length && keys.length) {
+    const firstLabelIdx = keys.findIndex((k) => k.startsWith('label:'));
+    const anchor = firstLabelIdx >= 0 ? firstLabelIdx + 1 : 0;
+    for (const uid of floated) {
+      const idx = keys.findIndex((k) => !k.startsWith('label:') && k.endsWith(`:${uid}`));
+      if (idx < 0 || idx === anchor) continue;
+      const [k] = keys.splice(idx, 1);
+      keys.splice(anchor, 0, k);
+    }
   }
 
-  appendSection('Mutuals', sortFollowees(mutuals), (entry) => {
-    createFolloweeRow(entry, myUserId, true);
-    // Only subscribe for entries not already subscribed (preserves existing connection)
-    if (!unsubscribers.has(entry.userId)) {
-      subscribeToFollowee(entry, myUserId);
-    } else {
-      // Row was just recreated from scratch; repopulate from cache so it doesn't
-      // flash "Unavailable" until the next Firebase event arrives.
-      const cached = lastUserData.get(entry.userId);
-      if (cached) updateFolloweeRow(entry, cached, myUserId);
-    }
+  // Track newly-created followee keys so we can repopulate from cache
+  // after reconcile (update() runs before insertBefore on fresh nodes, so
+  // updateFolloweeRow's document.querySelector lookup would return null).
+  const freshFolloweeKeys = [];
+
+  reconcileChildren(list, keys, {
+    create: (key) => {
+      if (key.startsWith('label:')) {
+        const labelLi = document.createElement('li');
+        labelLi.className = 'list-section-label';
+        labelLi.textContent = key.slice('label:'.length);
+        return labelLi;
+      }
+      const entry = entryByKey.get(key);
+      if (key.startsWith('follower:')) return createFollowerOnlyRow(entry, myUserId);
+      freshFolloweeKeys.push(key);
+      return createFolloweeRow(entry, myUserId, key.startsWith('mutual:'));
+    },
+    update: (node, key) => {
+      if (key.startsWith('label:')) return;
+      const entry = entryByKey.get(key);
+      if (key.startsWith('follower:')) {
+        // Refresh the CODE (Name) label — the name can be learned post-create.
+        const rosterName = getFollowerName(entry.userId);
+        const label = node.querySelector('.person-label');
+        if (label) {
+          label.textContent = rosterName ? `${entry.code} (${rosterName})` : entry.code;
+        }
+        return;
+      }
+      // Followee rows: subscribe once; surviving rows repaint from the status
+      // cache so they don't flash "Unavailable" until the next tick.
+      // Fresh rows are handled post-reconcile (after insertBefore) below.
+      if (!unsubscribers.has(entry.userId)) {
+        subscribeToFollowee(entry, myUserId);
+      } else if (!editingSet.has(entry.userId) && !freshFolloweeKeys.includes(key)) {
+        const cached = lastUserData.get(entry.userId);
+        if (cached) updateFolloweeRow(entry, cached, myUserId);
+      }
+    },
+    // NB: closeCardDrawer dispatches 'card-drawer-close' SYNCHRONOUSLY while
+    // this reconcile is in flight — listeners on that event must stay
+    // paint-only (no renderList/reconcile call, which would throw the
+    // re-entrancy guard mid-removal).
+    onRemove: (node) => {
+      if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
+    },
   });
 
-  appendSection('Following', sortFollowees(followingOnly), (entry) => {
-    createFolloweeRow(entry, myUserId);
-    if (!unsubscribers.has(entry.userId)) {
-      subscribeToFollowee(entry, myUserId);
-    } else {
-      const cached = lastUserData.get(entry.userId);
-      if (cached) updateFolloweeRow(entry, cached, myUserId);
-    }
-  });
-
-  appendSection('Followers', sortFollowerOnly(followerOnly), (follower) => {
-    createFollowerOnlyRow(follower, myUserId);
-  });
-
-  // Re-prepend any rows still in their float window so a coincident re-sort
-  // doesn't lose the float-to-top position. Same section-label awareness as
-  // applyFloatToTop (otherwise a floated mutual lands above the "Mutuals"
-  // label when renderList re-builds the list).
-  const firstLabel = list.querySelector('.list-section-label');
-  for (const uid of getFloatedUserIds()) {
-    const li = list.querySelector(`[data-user-id="${uid}"]`);
-    if (!li) continue;
-    if (firstLabel) {
-      list.insertBefore(li, firstLabel.nextSibling);
-    } else {
-      list.prepend(li);
-    }
+  // Post-reconcile: repopulate fresh followee rows from cache. These nodes are
+  // now in the DOM (insertBefore completed), so document.querySelector finds them.
+  for (const key of freshFolloweeKeys) {
+    const entry = entryByKey.get(key);
+    if (!unsubscribers.has(entry.userId)) continue; // newly subscribed; will get data from Firebase
+    if (editingSet.has(entry.userId)) continue;
+    const cached = lastUserData.get(entry.userId);
+    if (cached) updateFolloweeRow(entry, cached, myUserId);
   }
 }
 
@@ -620,7 +660,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     li.appendChild(actions[0].el);
   }
 
-  document.getElementById('people-list').appendChild(li);
+  return li;
 }
 
 function createFollowerOnlyRow(follower, myUserId) {
@@ -645,7 +685,9 @@ function createFollowerOnlyRow(follower, myUserId) {
 
   li.querySelector('.follow-back-btn').addEventListener('click', () => {
     document.getElementById('add-code-input').value = follower.code;
-    document.getElementById('add-label-input').value = rosterName || '';
+    // Read at click time: the row persists across renders, and the roster name
+    // can be learned (approval flow) after this row was created.
+    document.getElementById('add-label-input').value = getFollowerName(follower.userId) || '';
     document.getElementById('add-person-form').classList.add('open');
   });
 
@@ -657,7 +699,7 @@ function createFollowerOnlyRow(follower, myUserId) {
     });
   });
 
-  document.getElementById('people-list').appendChild(li);
+  return li;
 }
 
 // Reconcile local following list with server. Called from the watchFollowing
