@@ -358,6 +358,9 @@ export async function deletePendingInvite(inviteeUid, groupId) {
 // request into the target's mailbox; on approve the target writes a grant (with
 // THEIR share code) into the requester's mailbox; the requester completes the
 // follow itself and clears the grant. Each party only ever writes its own data.
+// NB: both writers take (requesterUid, targetUid) in that order, but the paths
+// transpose — requests are keyed by target, grants by requester (each mailbox
+// belongs to its reader).
 
 export async function writeFollowRequest(requesterUid, targetUid, groupId) {
   await set(ref(db, `followRequests/${targetUid}/${requesterUid}`), {
