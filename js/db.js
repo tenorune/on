@@ -618,7 +618,7 @@ export async function getUser(userId) {
 // runTransaction: null → {count:1,ts}, count<5 → increment, count>=5 → abort.
 // opts.contextGroupId — optional group surface context carried with the knock.
 export async function writeKnock(recipientId, senderId, opts = {}) {
-  const knockRef = ref(db, `users/${recipientId}/knocks/${senderId}`);
+  const knockRef = ref(db, `knocks/${recipientId}/${senderId}`);
   await runTransaction(knockRef, (current) => {
     if (current === null) {
       const next = { count: 1, ts: Date.now() };
@@ -636,14 +636,14 @@ export async function writeKnock(recipientId, senderId, opts = {}) {
 // One-time read of all pending knocks for myUserId.
 // Returns Promise<DataSnapshot>. Caller checks snapshot.exists() and iterates snapshot.val().
 export function getKnocks(myUserId) {
-  return get(ref(db, `users/${myUserId}/knocks`));
+  return get(ref(db, `knocks/${myUserId}`));
 }
 
-// Attach onChildAdded listener on users/{myUserId}/knocks.
+// Attach onChildAdded listener on knocks/{myUserId}.
 // callback(senderId, { count, ts }) fires for each child added (including existing at attach time).
 // Returns unsubscribe function.
 export function watchKnocksAdded(myUserId, callback) {
-  const knocksRef = ref(db, `users/${myUserId}/knocks`);
+  const knocksRef = ref(db, `knocks/${myUserId}`);
   return onChildAdded(knocksRef, (snap) => {
     callback(snap.key, snap.val());
   });
@@ -651,7 +651,7 @@ export function watchKnocksAdded(myUserId, callback) {
 
 // Delete a single knock entry for a sender. Returns raw promise — caller handles errors.
 export function clearKnock(myUserId, senderId) {
-  return remove(ref(db, `users/${myUserId}/knocks/${senderId}`));
+  return remove(ref(db, `knocks/${myUserId}/${senderId}`));
 }
 
 // --- Canvas operations ---

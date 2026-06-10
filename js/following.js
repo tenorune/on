@@ -773,18 +773,8 @@ function subscribeToFollowee(entry, myUserId) {
       return;
     }
 
-    const prevUserData = lastUserData.get(entry.userId);
     lastUserData.set(entry.userId, userData);
     if (editingSet.has(entry.userId)) return;
-    // Skip re-render if only the knocks subtree changed — knock writes trigger onValue
-    // on the parent node, and we don't want them interrupting card animations.
-    if (prevUserData &&
-        userData.status === prevUserData.status &&
-        userData.availableUntil === prevUserData.availableUntil &&
-        userData.statusColor === prevUserData.statusColor &&
-        userData.paletteKey === prevUserData.paletteKey &&
-        userData.code === prevUserData.code &&
-        userData.callState?.calleeId === prevUserData.callState?.calleeId) return;
     updateFolloweeRow(entry, userData, myUserId);
   });
   unsubscribers.set(entry.userId, unsub);

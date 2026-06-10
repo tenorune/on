@@ -676,6 +676,12 @@ describe('palette card styling', () => {
 });
 
 // --- subscribeToFollowee: field-change guard ---
+// Note: the old "skip-if-only-knocks-changed" guard in subscribeToFollowee was
+// deleted when knocks moved out of users/{uid} into the top-level knocks/
+// mailbox (knocks writes no longer trigger the watchStatus onValue tick).
+// The test below was renamed to reflect the new behavior: updateFolloweeRow IS
+// called on every status tick regardless of whether a knocks key is present,
+// but since the same data produces the same DOM the dot class is stable.
 
 describe('subscribeToFollowee: field-change guard', () => {
   let fireStatus; // fn(userData) → triggers watchStatus callback
@@ -697,7 +703,7 @@ describe('subscribeToFollowee: field-change guard', () => {
     fireStatus = (data) => statusCallback(data);
   }
 
-  test('updateFolloweeRow NOT called when only knocks key changes', () => {
+  test('re-render with same data leaves dot class unchanged (knocks key in payload is irrelevant)', () => {
     setupMutual();
     const baseData = {
       status: 'unavailable', availableUntil: null,
@@ -708,10 +714,10 @@ describe('subscribeToFollowee: field-change guard', () => {
     const li = document.querySelector('[data-user-id="u1"]');
     const dotBefore = li.querySelector('.person-dot').className;
 
-    // Fire again with only knocks key added — all 5 named fields unchanged
+    // Fire again with a knocks key present — guard no longer exists, but same
+    // visible data means the dot class is identical after the re-render.
     fireStatus({ ...baseData, knocks: { someUser: { count: 1, ts: Date.now() } } });
 
-    // DOM should not have changed (no re-render)
     expect(li.querySelector('.person-dot').className).toBe(dotBefore);
   });
 

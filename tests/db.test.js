@@ -15,6 +15,7 @@ const {
   setStatusOverride, clearStatusOverride, watchOwnMemberOverride,
   writeFollowRequest, watchFollowRequests, deleteFollowRequest,
   writeFollowGrant, watchFollowGrants, deleteFollowGrant,
+  writeKnock, getKnocks, watchKnocksAdded, clearKnock,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -25,12 +26,13 @@ jest.mock('firebase/database', () => ({
   remove: jest.fn(),
   runTransaction: jest.fn(),
   onValue: jest.fn(),
+  onChildAdded: jest.fn(),
 }));
 jest.mock('../js/firebase-config', () => ({ db: {} }));
 jest.mock('../js/identity.js', () => ({ generateCode: jest.fn() }));
 jest.mock('../js/store.js', () => ({ getFollowing: jest.fn() }));
 
-const { ref, get, update, set, remove, runTransaction, onValue } = require('firebase/database');
+const { ref, get, update, set, remove, runTransaction, onValue, onChildAdded } = require('firebase/database');
 const { generateCode } = require('../js/identity.js');
 const { getFollowing } = require('../js/store.js');
 
@@ -707,5 +709,33 @@ describe('follow request/grant mailboxes', () => {
     expect(ref).toHaveBeenCalledWith({}, 'followGrants/req');
     handler({ exists: () => true, val: () => ({ tgt: { from: 'tgt', code: 'C', ts: 1 } }) });
     expect(got).toHaveBeenCalledWith({ tgt: { from: 'tgt', code: 'C', ts: 1 } });
+  });
+});
+
+describe('knocks moved to top-level mailbox', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('writeKnock targets knocks/{recipient}/{sender}', async () => {
+    runTransaction.mockResolvedValueOnce({ committed: true });
+    await writeKnock('rcpt', 'sndr', {});
+    expect(ref).toHaveBeenCalledWith({}, 'knocks/rcpt/sndr');
+  });
+
+  test('getKnocks reads knocks/{recipient}', () => {
+    get.mockReturnValueOnce(Promise.resolve({ exists: () => false }));
+    getKnocks('me');
+    expect(ref).toHaveBeenCalledWith({}, 'knocks/me');
+  });
+
+  test('watchKnocksAdded subscribes to knocks/{recipient}', () => {
+    onChildAdded.mockImplementationOnce(() => () => {});
+    watchKnocksAdded('me', jest.fn());
+    expect(ref).toHaveBeenCalledWith({}, 'knocks/me');
+  });
+
+  test('clearKnock removes knocks/{recipient}/{sender}', () => {
+    remove.mockReturnValueOnce(Promise.resolve());
+    clearKnock('me', 'sndr');
+    expect(ref).toHaveBeenCalledWith({}, 'knocks/me/sndr');
   });
 });

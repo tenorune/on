@@ -48,7 +48,7 @@ function makeDeps() {
   };
 }
 
-export const onKnock = onValueCreated('/users/{recipientId}/knocks/{senderId}', (event) => {
+export const onKnock = onValueCreated('/knocks/{recipientId}/{senderId}', (event) => {
   return handleKnock(makeDeps(), event.params.recipientId, event.params.senderId, event.data.val());
 });
 

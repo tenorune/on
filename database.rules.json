@@ -36,6 +36,12 @@
         ".write": true
       }
     },
+    "knocks": {
+      "$recipientUid": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "pendingInvites": {
       "$inviteeUid": {
         ".read": true,
