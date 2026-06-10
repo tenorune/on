@@ -57,8 +57,9 @@ export async function cancelFollowRequest(myUid, targetUid) {
 
 // Circled-plus icon, colored like the notify bell: muted when unrequested,
 // white once requested (see .request-follow-btn CSS). stroke=currentColor so
-// the CSS color does the state work.
-const CIRCLED_PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>';
+// the CSS color does the state work; the .rf-plus glyph is hidden by CSS in
+// requested mode, leaving an empty white circle (= tap to cancel).
+const CIRCLED_PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><path class="rf-plus" d="M12 8v8M8 12h8"/></svg>';
 
 // The roster ⋮-drawer action: a circled-plus toggle. Muted = tap to request;
 // white (.requested) = tap to cancel the pending request. Each direction

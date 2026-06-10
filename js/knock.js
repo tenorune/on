@@ -337,12 +337,13 @@ export function applyFloatToTop(li) {
   }
   // Refresh startedAt on every prepend so a re-knock extends the float.
   floatTimers.get(userId).startedAt = Date.now();
-  // Don't let the floated li land above section labels (e.g. "Mutuals" in
-  // Direct's contact list). Insert right after the first section label if
-  // one exists; otherwise prepend (group roster, no labels).
-  const firstLabel = list.querySelector('.list-section-label');
-  if (firstLabel) {
-    list.insertBefore(li, firstLabel.nextSibling);
+  // Don't let the floated li land above pinned header rows — Direct's section
+  // labels (e.g. "Mutuals") or the group roster's owner-only "Invite to group"
+  // row. Insert right after the first pinned row if one exists; otherwise
+  // prepend (non-owner group roster, no pins).
+  const pin = list.querySelector('.list-section-label, #group-roster-invite-row');
+  if (pin) {
+    list.insertBefore(li, pin.nextSibling);
   } else {
     list.prepend(li);
   }

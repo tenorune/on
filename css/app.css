@@ -1195,10 +1195,13 @@ main {
 .notify-bell svg { width: 1rem; height: 1rem; display: block; }
 
 /* Roster request-to-follow toggle: mirrors the bell's idle/active coloring —
-   muted circled-plus = tap to request, white = requested (tap cancels). */
+   muted circled-plus = tap to request, white empty circle = requested (tap
+   cancels). Sized slightly over the bell's 1rem because the circle glyph has
+   built-in viewBox margin the bell doesn't; 1.125rem matches rendered height. */
 .request-follow-btn { background: none; border: 0; cursor: pointer; color: var(--text-muted); padding: 0.25rem; display: inline-flex; align-items: center; }
 .request-follow-btn.requested { color: #fff; }
-.request-follow-btn svg { width: 1rem; height: 1rem; display: block; }
+.request-follow-btn.requested .rf-plus { display: none; }
+.request-follow-btn svg { width: 1.125rem; height: 1.125rem; display: block; }
 /* Popover is portaled to <body> and positioned (top/right) inline by JS from the
    bell's rect, so no card/slice overflow or transform can clip it. */
 .notify-popover { position: fixed; z-index: 1000;
@@ -1215,9 +1218,12 @@ main {
 .notify-promo.hidden { display: none; }
 .notify-promo #notify-promo-text { flex: 1; font-size: 0.9rem; }
 /* Match Direct's "Add a person": a surface2 rounded card wrapping a plain,
-   full-width, left-aligned .add-btn (#add-person-area treatment). */
+   full-width, left-aligned .add-btn (#add-person-area treatment). The 0.25rem
+   top margin mirrors #add-person-area's empty-state margin-top so the button
+   lands at exactly the same y-position as Direct's no-contacts "Add a person"
+   (both lists pad 0.5rem on top; both headers collapse to equal heights). */
 .roster-invite-row {
-  list-style: none; padding: 0; margin: 0 0 0.5rem 0;
+  list-style: none; padding: 0; margin: 0.25rem 0 0.5rem 0;
   background: var(--surface2); border-radius: 10px; overflow: hidden;
 }
 
