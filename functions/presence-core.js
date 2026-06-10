@@ -41,6 +41,7 @@ const TITLES = {
   call: (name) => `${name} is calling`,
   availability: (name) => `${name} is available`,
   invite: (name) => `${name} invited you to a group`,
+  followRequest: (name) => `${name} wants to follow you`,
 };
 
 const GROUP_TITLES = {

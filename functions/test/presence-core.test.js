@@ -51,6 +51,7 @@ describe('messages', () => {
     expect(buildMessage('knock', 'Bea')).toEqual({ title: 'Bea knocked', body: '' });
     expect(buildMessage('call', 'Alex K.')).toEqual({ title: 'Alex K. is calling', body: '' });
     expect(buildMessage('availability', 'Bea')).toEqual({ title: 'Bea is available', body: '' });
+    expect(buildMessage('followRequest', 'Cara')).toEqual({ title: 'Cara wants to follow you', body: '' });
   });
 });
 
