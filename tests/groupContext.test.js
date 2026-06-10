@@ -108,6 +108,7 @@ jest.mock('../js/features.js', () => ({
   PALETTES_ENABLED: true,
   PALETTE_INTERACTIONS_ENABLED: true,
   NOTIFICATIONS_ENABLED: true,
+  FOLLOW_REQUESTS_ENABLED: true,
 }));
 jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn(), isNotifyPopoverOpen: jest.fn(() => false) }));
 jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
@@ -117,6 +118,15 @@ jest.mock('../js/me.js', () => ({
 jest.mock('../js/following.js', () => ({
   getCurrentFollowersMap: jest.fn(() => ({})),
   getCurrentMutuals: jest.fn(() => []),
+}));
+jest.mock('../js/followRequests.js', () => ({
+  isFollowRequestEligible: jest.fn(() => false),
+  createRequestFollowButton: jest.fn(),
+}));
+jest.mock('../js/cardDrawer.js', () => ({
+  createCardDrawer: jest.fn(),
+  isCardDrawerOpen: jest.fn(() => false),
+  closeCardDrawer: jest.fn(),
 }));
 
 // PointerEvent polyfill for jsdom (does not implement it natively)
@@ -146,6 +156,23 @@ beforeEach(() => {
     b.className = 'notify-bell';
     return b;
   });
+
+  const followRequests = require('../js/followRequests.js');
+  followRequests.createRequestFollowButton.mockImplementation(() => {
+    const b = document.createElement('button');
+    b.className = 'request-follow-btn';
+    b.textContent = 'Request to follow';
+    return b;
+  });
+
+  const cardDrawer = require('../js/cardDrawer.js');
+  cardDrawer.createCardDrawer.mockImplementation((actions) => {
+    const t = document.createElement('button');
+    t.className = 'card-drawer-toggle';
+    t.dataset.actionCount = String(actions.length);
+    return t;
+  });
+  cardDrawer.isCardDrawerOpen.mockReturnValue(false);
 });
 
 function setupContextDom() {
@@ -243,6 +270,11 @@ describe('group roster render', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     setupContextDom();
+    // Restore the factory default (false) so the eligible-member test's
+    // mockReturnValue(true) doesn't leak into subsequent tests.
+    // jest.clearAllMocks() resets call history but NOT mockReturnValue.
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(false);
   });
 
   test('renders one li per member, alphabetical, excluding the current user', () => {
@@ -476,6 +508,32 @@ describe('group roster render', () => {
     expect(inviteModalMock.openInviteModal).toHaveBeenCalledWith(
       expect.objectContaining({ scope: 'group', groupId: 'G1', groupName: 'Family' })
     );
+  });
+
+  test('an eligible co-member gets a ⋮ drawer carrying the request-follow action', () => {
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(true);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+
+    const row = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(row.querySelector('.card-drawer-toggle')).not.toBeNull();
+    expect(followRequests.createRequestFollowButton).toHaveBeenCalledWith('me', 'a', 'G1');
+  });
+
+  test('a co-member you already follow keeps the bare bell (no drawer)', () => {
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(false);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+
+    const row = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(row.querySelector('.card-drawer-toggle')).toBeNull();
+    expect(row.querySelector('.notify-bell')).not.toBeNull();
   });
 });
 

@@ -23,7 +23,9 @@ import { openInviteModal } from './inviteModal.js';
 import { getCurrentFollowersMap, getCurrentMutuals } from './following.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
-import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
+import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, NOTIFICATIONS_ENABLED, FOLLOW_REQUESTS_ENABLED } from './features.js';
+import { createCardDrawer, isCardDrawerOpen } from './cardDrawer.js';
+import { isFollowRequestEligible, createRequestFollowButton } from './followRequests.js';
 import { createNotifyBell, isNotifyPopoverOpen } from './notifyBell.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
 import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, ICON_BOLT, ICON_TREE, startSwatchHints } from './palettes.js';
@@ -183,6 +185,7 @@ function renderRoster(members, ownUserId) {
     li.appendChild(dot);
     li.appendChild(info);
 
+    const actions = [];
     if (NOTIFICATIONS_ENABLED && uid !== ownUserId) {
       // Group context has no Call feature; you can knock members and see their
       // availability — so no Call toggle.
@@ -190,7 +193,18 @@ function renderRoster(members, ownUserId) {
         types: ['knock', 'availability'],
         onNeedPermission: () => { ensureNotificationsReady().catch(() => {}); },
       });
-      li.appendChild(bell);
+      actions.push({ el: bell, closesDrawer: false });
+    }
+    if (FOLLOW_REQUESTS_ENABLED && uid !== ownUserId && isFollowRequestEligible(uid)) {
+      const reqBtn = createRequestFollowButton(ownUserId, uid, getCurrentGroupId());
+      actions.push({ el: reqBtn, closesDrawer: true });
+    }
+    // >=2 right-side actions collapse behind the shared ⋮ drawer (like Direct);
+    // exactly one is shown inline (an already-followed member keeps the bare bell).
+    if (actions.length >= 2) {
+      li.appendChild(createCardDrawer(actions));
+    } else if (actions.length === 1) {
+      li.appendChild(actions[0].el);
     }
 
     if (KNOCK_ENABLED) {
@@ -203,7 +217,10 @@ function renderRoster(members, ownUserId) {
       const knockBlocked = (e) =>
         e.target.closest('.notify-bell') ||
         e.target.closest('.notify-popover') ||
-        isNotifyPopoverOpen();
+        e.target.closest('.card-drawer-toggle') ||
+        e.target.closest('.card-drawer') ||
+        isNotifyPopoverOpen() ||
+        isCardDrawerOpen();
       li.addEventListener('click', (e) => {
         if (knockBlocked(e)) return;
         sendKnock(uid, ownUserId, undefined, { contextGroupId: getCurrentGroupId() });
@@ -232,6 +249,10 @@ function renderRoster(members, ownUserId) {
         // pointerdown). Without this, holding the bell would adopt the member's
         // palette.
         if (e.target.closest('.notify-bell')) return;
+        // A press on the drawer toggle/slice, or while a drawer is open, belongs to
+        // the drawer (or its dismissal) — not palette adoption.
+        if (e.target.closest('.card-drawer-toggle') || e.target.closest('.card-drawer')) return;
+        if (isCardDrawerOpen()) return;
         // Don't arm long-press adoption behind an open bell popover — the press
         // belongs to dismissing that modal, not adopting a member's palette.
         if (isNotifyPopoverOpen()) return;
