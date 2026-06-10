@@ -842,3 +842,55 @@ describe('subscribeGroupMeta / subscribeOwnOverride providers', () => {
     expect(db.watchGroupMeta).not.toHaveBeenCalled(); // reuses the enumerated sub
   });
 });
+
+describe('renderNavRow reconciliation', () => {
+  beforeEach(() => { jest.clearAllMocks(); setupNavDom(); });
+
+  function boot(enumeration) {
+    let enumCb, statusCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    enumCb(enumeration);
+    return { enumCb: (e) => enumCb(e), statusCb: (s) => statusCb(s) };
+  }
+
+  test('group cards keep node identity across an own-status tick', () => {
+    const t = boot({ G1: { lastVisited: 2 }, G2: { lastVisited: 1 } });
+    const card1 = document.querySelector('#nav-row [data-group-id="G1"]');
+    t.statusCb({ status: 'available', availableUntil: Date.now() + 60000, statusColor: '#22c55e' });
+    expect(document.querySelector('#nav-row [data-group-id="G1"]')).toBe(card1);
+  });
+
+  test('card click handler attaches once across renders', () => {
+    const t = boot({ G1: { lastVisited: 1 } });
+    t.statusCb({ status: 'unavailable', availableUntil: null });
+    t.statusCb({ status: 'unavailable', availableUntil: null });
+    const before = db.setLastVisited.mock.calls.length;
+    document.querySelector('#nav-row [data-group-id="G1"]').click();
+    expect(db.setLastVisited.mock.calls.length).toBe(before + 1);
+  });
+
+  test('going unavailable CLEARS the border and greys a surviving card', () => {
+    const t = boot({ G1: { lastVisited: 1 } });
+    t.statusCb({ status: 'available', availableUntil: Date.now() + 60000, statusColor: '#11aaff' });
+    const card = document.querySelector('#nav-row [data-group-id="G1"]');
+    expect(card.style.borderColor).not.toBe('');
+    expect(card.classList.contains('greyed')).toBe(false);
+    t.statusCb({ status: 'unavailable', availableUntil: null });
+    expect(document.querySelector('#nav-row [data-group-id="G1"]')).toBe(card);
+    expect(card.style.borderColor).toBe('');
+    expect(card.classList.contains('greyed')).toBe(true);
+  });
+
+  test('an added group creates one new card without recreating the rest', () => {
+    const t = boot({ G1: { lastVisited: 2 } });
+    const card1 = document.querySelector('#nav-row [data-group-id="G1"]');
+    t.enumCb({ G1: { lastVisited: 2 }, G2: { lastVisited: 1 } });
+    expect(document.querySelector('#nav-row [data-group-id="G1"]')).toBe(card1);
+    expect(document.querySelector('#nav-row [data-group-id="G2"]')).not.toBeNull();
+  });
+});

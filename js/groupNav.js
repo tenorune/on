@@ -13,6 +13,7 @@ import { openInviteModal } from './inviteModal.js';
 import { getCurrentFollowersMap, getCurrentMutuals } from './following.js';
 import { getGroupBadgeCount, getDirectBadgeCount } from './knock.js';
 import { renderInboxNavSlot } from './inbox.js';
+import { reconcileChildren } from './reconcile.js';
 
 // Restore the deferred-knock indicator on a chip after renderNavRow
 // re-creates it. The indicator is a pulsing halo (CSS class), driven by a
@@ -238,7 +239,6 @@ function renderNavRow() {
   if (_suspendRenderNavRow) return;
   if (!GROUPS_ENABLED) { row.classList.add('hidden'); return; }
   row.classList.remove('hidden');
-  row.innerHTML = '';
 
   if (_state.context === 'group') {
     renderNavRowGroupMode(row);
@@ -263,136 +263,146 @@ export function applyOptimisticAppearance(groupId, fields) {
 }
 
 function renderNavRowDirectMode(row) {
-  // Phase 3 Inbox slot — first position in the row. The Inbox button itself
-  // is created/torn-down by js/inbox.js based on the pending-invite count;
-  // the slot just guarantees the DOM anchor.
-  const inboxSlot = document.createElement('div');
-  inboxSlot.id = 'nav-row-inbox-slot';
-  inboxSlot.className = 'nav-row-inbox-slot';
-  row.appendChild(inboxSlot);
-  // Repopulate the Inbox button (idempotent; no-op when pending count is 0).
-  renderInboxNavSlot();
-
-  // "Direct" is the implicit current context — no label needed in the nav.
-  // The groups + create-group button stand in for navigation; tapping a card
-  // moves to that group, the persistent nav itself signals where you are.
-
-  const groupIds = Object.keys(_enumeration);
-  const sorted = groupIds.slice().sort((a, b) => {
+  const sorted = Object.keys(_enumeration).slice().sort((a, b) => {
     const va = _enumeration[a]?.lastVisited ?? 0;
     const vb = _enumeration[b]?.lastVisited ?? 0;
     return vb - va;
   });
+  // "Direct" is the implicit current context — no label needed in the nav.
+  const keys = ['inbox-slot', ...sorted.map((g) => `group:${g}`), 'plus'];
+  reconcileChildren(row, keys, {
+    create: (key) => {
+      if (key === 'inbox-slot') {
+        // Phase 3 Inbox slot — first position. The button itself is created/
+        // torn down by js/inbox.js; the slot guarantees the DOM anchor.
+        const slot = document.createElement('div');
+        slot.id = 'nav-row-inbox-slot';
+        slot.className = 'nav-row-inbox-slot';
+        return slot;
+      }
+      if (key === 'plus') {
+        const plus = document.createElement('button');
+        plus.className = 'group-cards-plus';
+        plus.textContent = '+';
+        plus.title = 'Create a new group';
+        plus.addEventListener('click', () => emitCreateRequest());
+        return plus;
+      }
+      const groupId = key.slice('group:'.length);
+      const card = document.createElement('button');
+      card.className = 'group-card';
+      card.dataset.groupId = groupId;
+      card.addEventListener('click', () => navigateToGroup(groupId));
+      return card;
+    },
+    update: (node, key) => {
+      if (key === 'inbox-slot') { renderInboxNavSlot(); return; }
+      if (key === 'plus') return;
+      paintNavCard(node, key.slice('group:'.length));
+    },
+  });
+}
 
-  for (const groupId of sorted) {
-    const meta = _metaByGroupId[groupId];
-    const name = meta?.name || groupId;
-    const card = document.createElement('button');
-    card.className = 'group-card';
-    card.dataset.groupId = groupId;
-    card.textContent = name;
-
-    // Effective-status indicator: when override is enabled the group's chip
-    // reflects the override (independent), otherwise it mirrors Direct
-    // (primary). No per-field mixing — override.statusColor is preserved
-    // across toggling enabled off (for restore-on-re-enable), but reading
-    // it while enabled=false would leak the group's last pick into the
-    // chip after the user turned the override off.
-    const ov = _overrideByGroupId[groupId];
-    const overrideOn = !!(ov && ov.enabled === true);
-    const source = overrideOn ? ov : _ownPrimary;
-    const isAvailable = source?.status === 'available'
-      && (source.availableUntil == null || source.availableUntil > Date.now());
-    // Effective in-group color drives both the border (when available) and
-    // the deferred-knock pulse color (set as --call-color-rgb so the pulse
-    // takes the chip's group identity, not the global accent).
-    const effectiveColor = source?.statusColor || '#22c55e';
-    if (isAvailable) {
-      card.style.borderColor = safeCssColor(effectiveColor);
-    } else {
-      card.classList.add('greyed');
-    }
-    card.style.setProperty('--call-color-rgb', hexToRgb(effectiveColor));
-
-    card.addEventListener('click', () => navigateToGroup(groupId));
-    applyBadgeIfNonZero(card, getGroupBadgeCount(groupId));
-    row.appendChild(card);
-  }
-
-  const plus = document.createElement('button');
-  plus.className = 'group-cards-plus';
-  plus.textContent = '+';
-  plus.title = 'Create a new group';
-  plus.addEventListener('click', () => emitCreateRequest());
-  row.appendChild(plus);
+// In-place paint for a Direct-mode group card. Persistent nodes mean every
+// conditional must CLEAR as well as set (the old build-fresh code only added).
+function paintNavCard(card, groupId) {
+  const meta = _metaByGroupId[groupId];
+  card.textContent = meta?.name || groupId;
+  // Effective-status indicator: when override is enabled the group's chip
+  // reflects the override (independent), otherwise it mirrors Direct
+  // (primary). No per-field mixing — override.statusColor is preserved
+  // across toggling enabled off (for restore-on-re-enable), but reading
+  // it while enabled=false would leak the group's last pick into the
+  // chip after the user turned the override off.
+  const ov = _overrideByGroupId[groupId];
+  const overrideOn = !!(ov && ov.enabled === true);
+  const source = overrideOn ? ov : _ownPrimary;
+  const isAvailable = source?.status === 'available'
+    && (source.availableUntil == null || source.availableUntil > Date.now());
+  const effectiveColor = source?.statusColor || '#22c55e';
+  card.classList.toggle('greyed', !isAvailable);
+  card.style.borderColor = isAvailable ? safeCssColor(effectiveColor) : '';
+  card.style.setProperty('--call-color-rgb', hexToRgb(effectiveColor));
+  applyBadgeIfNonZero(card, getGroupBadgeCount(groupId));
 }
 
 function renderNavRowGroupMode(row) {
   const groupId = _state.groupId;
-  const meta = _metaByGroupId[groupId];
-  const name = meta?.name || _lastKnownNames[groupId] || groupId;
-  const override = _overrideByGroupId[groupId];
-  const overrideOn = !!(override && override.enabled === true);
-
-  // Group name on the left, large/bold, fills available space; truncates with
-  // ellipsis when the row is too narrow to fit override + Direct on the right.
-  const current = document.createElement('span');
-  current.className = 'nav-current nav-current-truncate';
-  current.textContent = name;
-  current.style.flex = '1';
-  current.style.minWidth = '0';
-  row.appendChild(current);
-
-  // Override toggle on the right, immediately before the Direct card.
-  //   =   override OFF (linked to primary — Direct status equals group status)
-  //   ≠   override ON  (independent — Direct status not-equal to group status)
-  const toggle = document.createElement('button');
-  toggle.id = 'group-override-toggle';
-  toggle.type = 'button';
-  toggle.textContent = overrideOn ? '≠' : '=';
-  toggle.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
-  toggle.setAttribute('aria-label', overrideOn
-    ? 'Stop using a unique status for this group'
-    : 'Set a unique status for this group');
-  toggle.addEventListener('click', () => {
-    const nextEnabled = !overrideOn;
-    // Preserve any existing statusColor/paletteKey across the toggle so the
-    // optimistic update matches what mergeStatusOverride leaves on the
-    // server. Without the spread, _ownOverride briefly has no statusColor
-    // and the user's group dot falls back to --my-status (their Direct
-    // color) until the watch echo restores the field.
-    const existing = _overrideByGroupId[groupId] || {};
-    const nextState = nextEnabled
-      ? { ...existing, enabled: true, status: 'unavailable', availableUntil: null }
-      : { ...existing, enabled: false, status: null, availableUntil: null };
-    _overrideByGroupId[groupId] = nextState;
-    renderNavRow();
-    applyOptimisticOverride(nextState);
-    toggleStatusOverride(groupId, _myUserId, nextEnabled).catch(() => {});
+  reconcileChildren(row, ['group-name', 'override-toggle', 'direct-card'], {
+    create: (key) => {
+      if (key === 'group-name') {
+        const current = document.createElement('span');
+        current.className = 'nav-current nav-current-truncate';
+        current.style.flex = '1';
+        current.style.minWidth = '0';
+        return current;
+      }
+      if (key === 'override-toggle') {
+        // Override toggle:  =  OFF (linked to primary)   ≠  ON (independent).
+        const toggle = document.createElement('button');
+        toggle.id = 'group-override-toggle';
+        toggle.type = 'button';
+        toggle.addEventListener('click', () => {
+          // Persistent node: read LIVE state at click time, never the render-
+          // time closure (the toggle outlives the render that painted it).
+          const gid = _state.groupId;
+          // Preserve any existing statusColor/paletteKey across the toggle so
+          // the optimistic update matches what mergeStatusOverride leaves on
+          // the server. Without the spread, _ownOverride briefly has no
+          // statusColor and the user's group dot falls back to --my-status
+          // until the watch echo restores the field.
+          const existing = _overrideByGroupId[gid] || {};
+          const nextEnabled = !(existing.enabled === true);
+          const nextState = nextEnabled
+            ? { ...existing, enabled: true, status: 'unavailable', availableUntil: null }
+            : { ...existing, enabled: false, status: null, availableUntil: null };
+          _overrideByGroupId[gid] = nextState;
+          renderNavRow();
+          applyOptimisticOverride(nextState);
+          toggleStatusOverride(gid, _myUserId, nextEnabled).catch(() => {});
+        });
+        return toggle;
+      }
+      // "Direct" card on the far right, styled like a group card.
+      const directCard = document.createElement('button');
+      directCard.className = 'group-card';
+      directCard.dataset.nav = 'direct';
+      directCard.textContent = 'Direct';
+      directCard.addEventListener('click', () => navigateToDirect());
+      return directCard;
+    },
+    update: (node, key) => {
+      if (key === 'group-name') {
+        const meta = _metaByGroupId[groupId];
+        node.textContent = meta?.name || _lastKnownNames[groupId] || groupId;
+        return;
+      }
+      if (key === 'override-toggle') {
+        const override = _overrideByGroupId[groupId];
+        const overrideOn = !!(override && override.enabled === true);
+        node.textContent = overrideOn ? '≠' : '=';
+        node.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
+        node.setAttribute('aria-label', overrideOn
+          ? 'Stop using a unique status for this group'
+          : 'Set a unique status for this group');
+        return;
+      }
+      paintDirectCard(node);
+    },
   });
-  row.appendChild(toggle);
+}
 
-  // "Direct" card on the far right, styled like a group card. The border color
-  // reflects the user's primary status (the audience Direct represents).
-  const directCard = document.createElement('button');
-  directCard.className = 'group-card';
-  directCard.dataset.nav = 'direct';
-  directCard.textContent = 'Direct';
+// Border color reflects the user's primary status (the audience Direct
+// represents). --call-color-rgb is set even when greyed so a queued knock
+// pulses even on an unavailable Direct chip.
+function paintDirectCard(directCard) {
   const primaryAvailable = _ownPrimary?.status === 'available'
     && (_ownPrimary.availableUntil == null || _ownPrimary.availableUntil > Date.now());
   const directColor = _ownPrimary?.statusColor || '#22c55e';
-  if (primaryAvailable) {
-    directCard.style.borderColor = safeCssColor(directColor);
-  } else {
-    directCard.classList.add('greyed');
-  }
-  // Drive the deferred-knock pulse color from the primary (Direct =
-  // primary's audience), set even when greyed so a queued knock pulses
-  // even on an unavailable Direct chip.
+  directCard.classList.toggle('greyed', !primaryAvailable);
+  directCard.style.borderColor = primaryAvailable ? safeCssColor(directColor) : '';
   directCard.style.setProperty('--call-color-rgb', hexToRgb(directColor));
-  directCard.addEventListener('click', () => navigateToDirect());
   applyBadgeIfNonZero(directCard, getDirectBadgeCount());
-  row.appendChild(directCard);
 }
 
 export function onCreateRequested(fn) {
