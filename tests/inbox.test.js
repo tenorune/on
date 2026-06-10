@@ -316,4 +316,22 @@ describe('Inbox — follow requests', () => {
     expect(row.querySelector('.inbox-row-text').textContent).toBe('Owner One wants to follow you.');
     expect(db.readMember).not.toHaveBeenCalledWith('g1', 'uOwner1');
   });
+
+  test('a failed Approve re-enables the button and does not delete the request', async () => {
+    db.readMember.mockResolvedValue({ displayName: 'Req Name' });
+    db.writeFollowGrant.mockRejectedValueOnce(new Error('offline'));
+    window.alert = jest.fn();
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+
+    await openInboxModal();
+    const btn = document.querySelector('.inbox-row[data-requester-id="req"] .inbox-approve-btn');
+    btn.click();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+    expect(db.deleteFollowRequest).not.toHaveBeenCalled();
+    expect(btn.disabled).toBe(false);
+    expect(window.alert).toHaveBeenCalled();
+  });
 });

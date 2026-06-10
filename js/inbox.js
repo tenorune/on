@@ -226,9 +226,17 @@ async function handleApprove(requesterUid) {
   const btn = row?.querySelector('.inbox-approve-btn');
   if (btn) { if (btn.disabled) return; btn.disabled = true; }
   // Hand the requester our code so their client completes the follow, then clear
-  // the request. The requester's grant-watcher does the rest.
-  await writeFollowGrant(requesterUid, _myUid, _myCode);
-  await deleteFollowRequest(_myUid, requesterUid);
+  // the request. The requester's grant-watcher does the rest. On failure, re-enable
+  // the captured button and surface the error (mirrors handleJoin) — a retry after
+  // a grant-written/delete-failed split just rewrites the same grant (set is
+  // idempotent) and re-deletes.
+  try {
+    await writeFollowGrant(requesterUid, _myUid, _myCode);
+    await deleteFollowRequest(_myUid, requesterUid);
+  } catch (e) {
+    if (btn) btn.disabled = false;
+    window.alert(e.message || 'Could not approve this request. Please try again.');
+  }
 }
 
 async function handleFollowRequestDecline(requesterUid) {
