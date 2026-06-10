@@ -4,6 +4,9 @@ jest.mock('../js/db.js', () => ({
   deletePendingInvite: jest.fn().mockResolvedValue(undefined),
   readGroup: jest.fn(),
   readMember: jest.fn().mockResolvedValue(null),
+  watchFollowRequests: jest.fn(),
+  deleteFollowRequest: jest.fn().mockResolvedValue(undefined),
+  writeFollowGrant: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/groups.js', () => ({
   joinGroup: jest.fn().mockResolvedValue(undefined),
@@ -246,5 +249,89 @@ describe('Inbox', () => {
     initInbox('me');
     cb({ G1: { from: 'uOwner1', ts: 1 }, G2: { from: 'uOwner2', ts: 2 } });
     expect(getPendingCount()).toBe(2);
+  });
+});
+
+describe('Inbox — follow requests', () => {
+  // Drive both watchers: capture their callbacks so tests can push snapshots.
+  function initWithCallbacks() {
+    let inviteCb, frCb;
+    db.watchPendingInvites.mockImplementation((uid, cb) => { inviteCb = cb; return () => {}; });
+    db.watchFollowRequests.mockImplementation((uid, cb) => { frCb = cb; return () => {}; });
+    initInbox('me', 'MYCODE');
+    return { inviteCb, frCb };
+  }
+
+  test('subscribes via watchFollowRequests on init', () => {
+    initWithCallbacks();
+    expect(db.watchFollowRequests).toHaveBeenCalledWith('me', expect.any(Function));
+  });
+
+  test('a follow request alone makes the Inbox nav button appear and glow', () => {
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+    const btn = document.querySelector('#nav-row-inbox-slot .inbox-btn');
+    expect(btn).not.toBeNull();
+    expect(btn.classList.contains('unseen')).toBe(true);
+  });
+
+  test('renders a follow-request row and Approve writes a grant + deletes the request', async () => {
+    db.readMember.mockResolvedValue({ displayName: 'Req Name' });
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+
+    await openInboxModal();
+    const row = document.querySelector('.inbox-row[data-requester-id="req"]');
+    expect(row).not.toBeNull();
+    expect(row.querySelector('.inbox-row-text').textContent).toBe('Req Name wants to follow you.');
+
+    row.querySelector('.inbox-approve-btn').click();
+    await Promise.resolve(); await Promise.resolve();
+    expect(db.writeFollowGrant).toHaveBeenCalledWith('req', 'me', 'MYCODE');
+    expect(db.deleteFollowRequest).toHaveBeenCalledWith('me', 'req');
+  });
+
+  test('Decline deletes the request only (no grant)', async () => {
+    db.readMember.mockResolvedValue({ displayName: 'Req Name' });
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+
+    await openInboxModal();
+    document.querySelector('.inbox-row[data-requester-id="req"] .inbox-fr-decline-btn').click();
+    await Promise.resolve();
+    expect(db.deleteFollowRequest).toHaveBeenCalledWith('me', 'req');
+    expect(db.writeFollowGrant).not.toHaveBeenCalled();
+  });
+
+  test('uses the viewer label for the requester when followed', async () => {
+    // prefs.getFollowing mock returns uOwner1 labelled "Owner One"
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ uOwner1: { from: 'uOwner1', groupId: 'g1', ts: 7 } });
+    await openInboxModal();
+    const row = document.querySelector('.inbox-row[data-requester-id="uOwner1"]');
+    expect(row.querySelector('.inbox-row-text').textContent).toBe('Owner One wants to follow you.');
+    expect(db.readMember).not.toHaveBeenCalledWith('g1', 'uOwner1');
+  });
+
+  test('a failed Approve re-enables the button and does not delete the request', async () => {
+    db.readMember.mockResolvedValue({ displayName: 'Req Name' });
+    db.writeFollowGrant.mockRejectedValueOnce(new Error('offline'));
+    window.alert = jest.fn();
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+
+    await openInboxModal();
+    const btn = document.querySelector('.inbox-row[data-requester-id="req"] .inbox-approve-btn');
+    btn.click();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+    expect(db.deleteFollowRequest).not.toHaveBeenCalled();
+    expect(btn.disabled).toBe(false);
+    expect(window.alert).toHaveBeenCalled();
   });
 });

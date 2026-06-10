@@ -353,6 +353,49 @@ export async function deletePendingInvite(inviteeUid, groupId) {
   });
 }
 
+// ── Follow requests (Groups §11) ─────────────────────────────────────────────
+// Two Phase-B-clean mailboxes mirroring pendingInvites. The requester writes a
+// request into the target's mailbox; on approve the target writes a grant (with
+// THEIR share code) into the requester's mailbox; the requester completes the
+// follow itself and clears the grant. Each party only ever writes its own data.
+// NB: both writers take (requesterUid, targetUid) in that order, but the paths
+// transpose — requests are keyed by target, grants by requester (each mailbox
+// belongs to its reader).
+
+export async function writeFollowRequest(requesterUid, targetUid, groupId) {
+  await set(ref(db, `followRequests/${targetUid}/${requesterUid}`), {
+    from: requesterUid, groupId, ts: Date.now(),
+  });
+}
+
+export function watchFollowRequests(targetUid, callback) {
+  const reqRef = ref(db, `followRequests/${targetUid}`);
+  return onValue(reqRef, (snap) => {
+    callback(snap.exists() ? snap.val() : {});
+  });
+}
+
+export async function deleteFollowRequest(targetUid, requesterUid) {
+  await remove(ref(db, `followRequests/${targetUid}/${requesterUid}`));
+}
+
+export async function writeFollowGrant(requesterUid, targetUid, targetCode) {
+  await set(ref(db, `followGrants/${requesterUid}/${targetUid}`), {
+    from: targetUid, code: targetCode, ts: Date.now(),
+  });
+}
+
+export function watchFollowGrants(requesterUid, callback) {
+  const grantRef = ref(db, `followGrants/${requesterUid}`);
+  return onValue(grantRef, (snap) => {
+    callback(snap.exists() ? snap.val() : {});
+  });
+}
+
+export async function deleteFollowGrant(requesterUid, targetUid) {
+  await remove(ref(db, `followGrants/${requesterUid}/${targetUid}`));
+}
+
 export async function readPendingInviteesForGroup(groupId) {
   const snap = await get(ref(db, `pendingInvitesByGroup/${groupId}`));
   return snap.exists() ? Object.keys(snap.val()) : [];
