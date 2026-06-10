@@ -15,11 +15,10 @@ import { getGroupBadgeCount, getDirectBadgeCount } from './knock.js';
 import { renderInboxNavSlot } from './inbox.js';
 import { reconcileChildren } from './reconcile.js';
 
-// Restore the deferred-knock indicator on a chip after renderNavRow
-// re-creates it. The indicator is a pulsing halo (CSS class), driven by a
-// non-zero count tracked in knock.js — without this restore, navigating
-// between contexts wipes the class even though the count is still
-// non-zero in memory.
+// Set/clear the deferred-knock halo (a pulsing CSS class) to match the
+// in-memory count from knock.js. Runs in every card paint, so a surviving
+// card both gains the halo when a knock queues and loses it when the count
+// drops to zero — and a context flip (full child replacement) re-applies it.
 function applyBadgeIfNonZero(card, count) {
   card.classList.toggle('knock-pending', count > 0);
 }

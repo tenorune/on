@@ -392,9 +392,9 @@ export function clearGroupCardBadge(groupId) {
   renderGroupBadge(groupId, 0);
 }
 
-// Exposed for renderNavRow to re-apply the badge on each re-render —
-// without this, navigating between contexts wipes the badge DOM even
-// though the count is still non-zero in memory.
+// Exposed for renderNavRow's per-card paint — the halo class is derived from
+// this count on every paint (set when non-zero, cleared at zero), so the badge
+// survives context flips and clears on surviving cards alike.
 export function getGroupBadgeCount(groupId) {
   return groupBadgeCounts.get(groupId) || 0;
 }

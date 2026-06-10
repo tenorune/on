@@ -893,4 +893,41 @@ describe('renderNavRow reconciliation', () => {
     expect(document.querySelector('#nav-row [data-group-id="G1"]')).toBe(card1);
     expect(document.querySelector('#nav-row [data-group-id="G2"]')).not.toBeNull();
   });
+
+  test('knock badge clears on a SURVIVING card when the count drops to zero', () => {
+    const knock = require('../js/knock.js');
+    const spy = jest.spyOn(knock, 'getGroupBadgeCount');
+    const t = boot({ G1: { lastVisited: 1 } });
+    spy.mockReturnValue(2);
+    t.statusCb({ status: 'unavailable', availableUntil: null });
+    const card = document.querySelector('#nav-row [data-group-id="G1"]');
+    expect(card.classList.contains('knock-pending')).toBe(true);
+    spy.mockReturnValue(0);
+    t.statusCb({ status: 'unavailable', availableUntil: null });
+    expect(document.querySelector('#nav-row [data-group-id="G1"]')).toBe(card);
+    expect(card.classList.contains('knock-pending')).toBe(false);
+    spy.mockRestore();
+  });
+
+  test('the persistent override toggle reads live state: a double-tap toggles on then off', () => {
+    let enumCb, metaCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.setLastVisited.mockResolvedValue(undefined);
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    navigateToGroup('G1');
+    const toggle = document.querySelector('#group-override-toggle');
+    toggle.click();
+    expect(groups.toggleStatusOverride).toHaveBeenNthCalledWith(1, 'G1', 'me', true);
+    // The SAME node survives the re-render the first tap triggered…
+    expect(document.querySelector('#group-override-toggle')).toBe(toggle);
+    // …and its handler reads the current cache, so the second tap inverts again.
+    toggle.click();
+    expect(groups.toggleStatusOverride).toHaveBeenNthCalledWith(2, 'G1', 'me', false);
+  });
 });
