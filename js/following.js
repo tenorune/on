@@ -3,7 +3,7 @@ import {
   lookupCode, watchStatus, watchFollowers, registerAsFollower, unregisterAsFollower,
   removeFollower, isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
   formatLastSeen, setCallState, clearCallState, setStatusColor,
-  watchFollowing, setFollowingEntry, removeFollowingEntry,
+  watchFollowing, setFollowingEntry, removeFollowingEntry, watchRevocations,
 } from './db.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
@@ -36,6 +36,7 @@ let onFolloweeReady = null;
 let latestFollowersSnapshot = [];
 let unsubFollowers = null;
 let unsubFollowing = null;
+let unsubRevocations = null;
 let refreshInterval = null;
 let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
@@ -130,6 +131,23 @@ export function initList(myUserId, myCode) {
   if (unsubFollowing) unsubFollowing();
   unsubFollowing = watchFollowing(myUserId, (serverFollowing) => {
     syncFollowingFromServer(myUserId, serverFollowing);
+  });
+
+  // Subscribe to revocation mailbox: fires when a followee removes us as a follower
+  if (unsubRevocations) unsubRevocations();
+  unsubRevocations = watchRevocations(myUserId, (revokers) => {
+    // A revoker key means that user removed me as a follower: drop them from my
+    // following + tear down their presence watch (replaces the old per-followee
+    // revokedFollowers check, now once instead of N times).
+    for (const revokerId of Object.keys(revokers || {})) {
+      if (!getFollowing().some((f) => f.userId === revokerId)) continue;
+      removeFollowing(revokerId);
+      removeFollowingEntry(myUserId, revokerId).catch(() => {});
+      const unsub = unsubscribers.get(revokerId);
+      if (unsub) { unsub(); unsubscribers.delete(revokerId); }
+      lastUserData.delete(revokerId);
+    }
+    renderList();
   });
 
   // Refresh time labels every 60s
@@ -749,15 +767,6 @@ function syncFollowingFromServer(myUserId, serverFollowing) {
 function subscribeToFollowee(entry, myUserId) {
   const unsub = watchStatus(entry.userId, (userData) => {
     if (!userData) return;
-
-    if (userData.revokedFollowers && userData.revokedFollowers[myUserId]) {
-      removeFollowing(entry.userId);
-      removeFollowingEntry(myUserId, entry.userId).catch(() => {});
-      unsub();
-      unsubscribers.delete(entry.userId);
-      renderList();
-      return;
-    }
 
     if (userData.status === 'available' && isExpired(userData.availableUntil)) {
       if (navigator.onLine) writeBackExpired(entry.userId);

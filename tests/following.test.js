@@ -101,6 +101,7 @@ jest.mock('../js/db.js', () => ({
   writePendingInvite: jest.fn().mockResolvedValue(undefined),
   deletePendingInvite: jest.fn().mockResolvedValue(undefined),
   readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
+  watchRevocations: jest.fn(() => () => {}),
 }));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
@@ -143,8 +144,8 @@ jest.mock('../js/prefs.js', () => ({
   setPaletteState: jest.fn(),
 }));
 
-const { watchStatus, watchFollowers, watchFollowing, setCallState, clearCallState } = require('../js/db.js');
-const { getFollowing, setFollowing, updateFollowingCode, getFollowerName } = require('../js/store.js');
+const { watchStatus, watchFollowers, watchFollowing, setCallState, clearCallState, watchRevocations } = require('../js/db.js');
+const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, removeFollowing } = require('../js/store.js');
 const { getMadeCallCount, getAnsweredCallCount } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
@@ -1930,6 +1931,15 @@ describe('renderList reconciliation', () => {
     fire([]);
     expect(document.querySelectorAll('#people-list li').length).toBe(0);
     expect(document.getElementById('people-list').style.display).toBe('none');
+  });
+
+  test('a revocation mailbox tick auto-unfollows the revoker', () => {
+    let revCb;
+    watchRevocations.mockImplementation((uid, cb) => { revCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'A' }]);
+    initList('me', 'MYCODE');
+    revCb({ u1: true });
+    expect(removeFollowing).toHaveBeenCalledWith('u1');
   });
 
   test('a card drawer survives a tick that keeps its row, closes when the row is removed', () => {

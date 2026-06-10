@@ -481,16 +481,22 @@ export async function mergeUserPrefs(userId, fields) {
 
 export async function registerAsFollower(targetUserId, myUserId, myCode) {
   // Clear any prior revocation BEFORE writing the followers entry — not in
-  // parallel. The receiving end's watchStatus tick can fire on either
-  // write independently; if the followers `set` echoes through before the
-  // revokedFollowers `remove` does, subscribeToFollowee's revoked-check
-  // fires the auto-unfollow on the freshly-established relationship and
-  // the new follow is silently undone (the sender then disappears from
-  // the receiver's Mutuals on the next render until a full page reload
-  // pulls the unrevoked state). Sequential remove → set ensures the
-  // revocation is gone by the time the followers update is observable.
-  await remove(ref(db, `users/${targetUserId}/revokedFollowers/${myUserId}`));
+  // parallel. The receiver's revocation watcher can fire on either write
+  // independently; if the followers set echoes before the revocation remove,
+  // the auto-unfollow fires on the freshly-established relationship and the new
+  // follow is silently undone. Sequential remove → set ensures the revocation
+  // is gone by the time the followers update is observable.
+  await remove(ref(db, `revocations/${myUserId}/${targetUserId}`));
   await set(ref(db, `users/${targetUserId}/followers/${myUserId}`), myCode);
+}
+
+// Subscribe to my own revocation mailbox: revocations/{me}/{revoker} = true
+// means revoker removed me as a follower. Returns unsubscribe.
+export function watchRevocations(myUserId, callback) {
+  const revRef = ref(db, `revocations/${myUserId}`);
+  return onValue(revRef, (snap) => {
+    callback(snap.exists() ? snap.val() : {});
+  });
 }
 
 // ── Following (own-side of the relationship) ─────────────────────────────────
@@ -527,10 +533,10 @@ export async function unregisterAsFollower(targetUserId, myUserId) {
   await remove(ref(db, `users/${targetUserId}/followers/${myUserId}`));
 }
 
-// Remove a follower and add them to revokedFollowers
+// Remove a follower and write to their revocations mailbox
 export async function removeFollower(myUserId, followerUserId) {
   await remove(ref(db, `users/${myUserId}/followers/${followerUserId}`));
-  await set(ref(db, `users/${myUserId}/revokedFollowers/${followerUserId}`), true);
+  await set(ref(db, `revocations/${followerUserId}/${myUserId}`), true);
 }
 
 // Write back expired status (idempotent)

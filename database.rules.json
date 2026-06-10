@@ -42,6 +42,12 @@
         ".write": true
       }
     },
+    "revocations": {
+      "$revokedUid": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "pendingInvites": {
       "$inviteeUid": {
         ".read": true,

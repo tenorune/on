@@ -16,6 +16,7 @@ const {
   writeFollowRequest, watchFollowRequests, deleteFollowRequest,
   writeFollowGrant, watchFollowGrants, deleteFollowGrant,
   writeKnock, getKnocks, watchKnocksAdded, clearKnock,
+  removeFollower, registerAsFollower, watchRevocations,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -628,22 +629,21 @@ describe('statusOverride helpers', () => {
 });
 
 describe('registerAsFollower', () => {
-  const { registerAsFollower } = require('../js/db');
-  test('writes the followers entry and clears any prior revokedFollowers flag, in that order', async () => {
+  test('writes the followers entry and clears any prior revocations entry, in that order', async () => {
     set.mockResolvedValue();
     remove.mockResolvedValue();
     ref.mockClear();
     await registerAsFollower('targetUid', 'meUid', 'ABC123');
-    // Both writes happen — revokedFollowers/me cleared, followers/me set.
+    // Both writes happen — revocations/me/target cleared, followers/me set.
     const refPaths = ref.mock.calls.map((args) => args[1]);
     expect(refPaths).toContain('users/targetUid/followers/meUid');
-    expect(refPaths).toContain('users/targetUid/revokedFollowers/meUid');
+    expect(refPaths).toContain('revocations/meUid/targetUid');
     expect(set).toHaveBeenCalledWith('mock-ref', 'ABC123');
     expect(remove).toHaveBeenCalledWith('mock-ref');
-    // Order: revokedFollowers clear must precede the followers write so a
-    // subscriber's watchStatus tick can't echo the followers update with the
-    // revocation still set (which would trigger the auto-unfollow check).
-    const revokeIdx = refPaths.indexOf('users/targetUid/revokedFollowers/meUid');
+    // Order: revocation clear must precede the followers write so the
+    // receiver's revocation watcher can't fire on the followers update while
+    // the revocation entry is still present and silently undo the new follow.
+    const revokeIdx = refPaths.indexOf('revocations/meUid/targetUid');
     const followersIdx = refPaths.indexOf('users/targetUid/followers/meUid');
     expect(revokeIdx).toBeLessThan(followersIdx);
   });
@@ -737,5 +737,30 @@ describe('knocks moved to top-level mailbox', () => {
     remove.mockReturnValueOnce(Promise.resolve());
     clearKnock('me', 'sndr');
     expect(ref).toHaveBeenCalledWith({}, 'knocks/me/sndr');
+  });
+});
+
+describe('revocations mailbox', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('removeFollower removes the follower and writes revocations/{follower}/{me}', async () => {
+    remove.mockResolvedValue(); set.mockResolvedValue();
+    await removeFollower('me', 'fol');
+    expect(ref).toHaveBeenCalledWith({}, 'users/me/followers/fol');
+    expect(ref).toHaveBeenCalledWith({}, 'revocations/fol/me');
+    expect(set).toHaveBeenCalledWith('mock-ref', true);
+  });
+
+  test('registerAsFollower clears revocations/{me}/{target} before setting followers', async () => {
+    remove.mockResolvedValue(); set.mockResolvedValue();
+    await registerAsFollower('target', 'me', 'CODE');
+    expect(ref).toHaveBeenCalledWith({}, 'revocations/me/target');
+    expect(ref).toHaveBeenCalledWith({}, 'users/target/followers/me');
+  });
+
+  test('watchRevocations subscribes to revocations/{me}', () => {
+    onValue.mockImplementationOnce(() => () => {});
+    watchRevocations('me', jest.fn());
+    expect(ref).toHaveBeenCalledWith({}, 'revocations/me');
   });
 });
