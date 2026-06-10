@@ -414,6 +414,10 @@ function renderList() {
         if (cached) updateFolloweeRow(entry, cached, myUserId);
       }
     },
+    // NB: closeCardDrawer dispatches 'card-drawer-close' SYNCHRONOUSLY while
+    // this reconcile is in flight — listeners on that event must stay
+    // paint-only (no renderList/reconcile call, which would throw the
+    // re-entrancy guard mid-removal).
     onRemove: (node) => {
       if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
     },
