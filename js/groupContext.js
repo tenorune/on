@@ -133,6 +133,7 @@ function rosterKeys(members, ownUserId) {
   });
   const keys = [];
   if (isOwner) keys.push('invite-row');
+  // Floated bucket is members-object order, not most-recently-floated — knock's own prepend wins between ticks and a reconcile self-heals; cosmetic only.
   for (const [uid] of floated) keys.push(rosterRowKey(uid));
   for (const [uid] of others) keys.push(rosterRowKey(uid));
   return keys;
@@ -887,7 +888,7 @@ function syncStatusSubscriptions(memberUids) {
               paletteKey: data.paletteKey || null,
             }
           : null);
-        paintRosterRow(uid);
+        // renderRoster's update repaints every row, including this one.
         syncRosterOrder();
       }));
     }
@@ -1051,10 +1052,6 @@ export function enterGroupContext(groupId, userId) {
     _ownDisplayName = members?.[userId]?.displayName || null;
     renderRoster(members, userId);
     syncStatusSubscriptions(new Set(Object.keys(members || {})));
-    // Re-paint each row to reflect the merged override+primary.
-    for (const uid of Object.keys(members || {})) {
-      paintRosterRow(uid);
-    }
     // Replay any knocks that arrived while the user wasn't in this group.
     // Wait for the first members tick so the roster lis exist before drain
     // tries to look them up; one-shot per enterGroupContext call.

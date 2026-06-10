@@ -649,6 +649,31 @@ describe('group roster render', () => {
     expect(row.querySelector('.card-drawer-toggle')).toBeNull();
     expect(row.querySelector('.notify-bell')).not.toBeNull();
   });
+
+  test('a floated row survives an eligibility flip (recreated, still pinned, restore-safe)', () => {
+    const knock = require('../js/knock.js');
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(true);
+    knock.getFloatedUserIds.mockReturnValue(['a']);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({
+      a: { role: 'member', displayName: 'Alice', joinedAt: 1 },
+      b: { role: 'member', displayName: 'Bob', joinedAt: 2 },
+    });
+    const before = document.querySelector('#group-roster [data-user-id="a"]');
+    expect([...document.querySelectorAll('#group-roster li')][0]).toBe(before); // floated → top
+    // Eligibility flips mid-float: the key changes, the row is recreated…
+    followRequests.isFollowRequestEligible.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('following-synced'));
+    const after = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(after).not.toBe(before);
+    // …but stays pinned to the top (still floated) and is findable by the
+    // float-restore lookup ([data-user-id] within the list).
+    expect([...document.querySelectorAll('#group-roster li')][0]).toBe(after);
+    knock.getFloatedUserIds.mockReturnValue([]);
+  });
 });
 
 describe('owner actions', () => {
