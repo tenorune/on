@@ -18,6 +18,7 @@ import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, apply
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector } from './groups.js';
 import { initInbox, openInboxModal } from './inbox.js';
+import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { flashRegenerated } from './regenFlash.js';
 
@@ -502,6 +503,7 @@ async function main() {
       // Invite pushes deep-link to the Inbox (the invitee isn't a member of the
       // group yet, so group-context routing would be wrong for them).
       if (e.data.data?.type === 'invite') { openInboxModal(); return; }
+      if (e.data.data?.type === 'followRequest') { openInboxModal(); return; }
       const gid = e.data.data?.contextGroupId;
       if (gid) navigateToGroup(gid);
     });
@@ -527,7 +529,8 @@ async function main() {
 
   startCardsRowSubscriptions();
   initGroupRemovalDetector(userId);
-  initInbox(userId);
+  initInbox(userId, code);
+  initFollowGrants(userId, code);
 
   // #main-ui-direct starts hidden (markup default) so the welcome / restore /
   // recovery-code / displayname overlays render against a clean dark body
