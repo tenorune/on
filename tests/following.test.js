@@ -1776,7 +1776,7 @@ describe('tool drawer on contact rows', () => {
     expect(li.classList.contains('call-mode')).toBe(false);
   });
 
-  test('re-render (renderList) closes an open drawer instead of stranding it', () => {
+  test('re-render (renderList): drawer persists on surviving row; closes when row is removed', () => {
     // Use initAndCaptureFollowersCallback so we can re-fire the followers callback
     // to trigger renderList() a second time, simulating a server-driven update.
     setupDom();
@@ -1796,11 +1796,16 @@ describe('tool drawer on contact rows', () => {
     li.querySelector('.card-drawer-toggle').click();
     expect(isCardDrawerOpen()).toBe(true);
 
-    // Re-fire the followers callback — this triggers renderList() again,
-    // which wipes #people-list. The bug: without the fix, isCardDrawerOpen()
-    // stays true after the DOM is torn down.
+    // Re-fire with the same row surviving: reconcile keeps the node, so the
+    // drawer must NOT close (no DOM teardown — isCardDrawerOpen() must stay true).
     fire([{ userId: 'alex', code: 'ABC123' }]);
+    expect(isCardDrawerOpen()).toBe(true);
+    expect(document.querySelector('.card-drawer')).not.toBeNull();
 
+    // Row is removed (user unfollows back): reconcile calls onRemove, which
+    // closes the drawer so its document listeners are cleaned up.
+    getFollowing.mockReturnValue([]);
+    fire([]);
     expect(isCardDrawerOpen()).toBe(false);
     expect(document.querySelector('.card-drawer')).toBeNull();
   });
@@ -1851,7 +1856,21 @@ describe('syncFollowingFromServer event', () => {
 });
 
 describe('renderList reconciliation', () => {
-  beforeEach(() => { setupDom(); jest.clearAllMocks(); });
+  // Captured at describe-eval time (before any jest.resetModules() in earlier tests
+  // creates a fresh registry) so these share the same module instance as the
+  // top-level require of following.js and cardDrawer.js.
+  const { createNotifyBell: createNotifyBellMock } = require('../js/notifyBell.js');
+  const { isCardDrawerOpen: isDrawerOpen } = require('../js/cardDrawer.js');
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    // Provide a real DOM element so createFolloweeRow can build the card drawer.
+    createNotifyBellMock.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+  });
 
   test('rows keep node identity across a followers tick', () => {
     getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
@@ -1905,5 +1924,23 @@ describe('renderList reconciliation', () => {
     fire([]);
     expect(document.querySelectorAll('#people-list li').length).toBe(0);
     expect(document.getElementById('people-list').style.display).toBe('none');
+  });
+
+  test('a card drawer survives a tick that keeps its row, closes when the row is removed', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    const row = document.querySelector('[data-user-id="u1"]');
+    // Open the real card drawer via the toggle button.
+    row.querySelector('.card-drawer-toggle').click();
+    expect(isDrawerOpen()).toBe(true);
+    // Unrelated tick (same data): the surviving row's drawer must NOT close.
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    expect(isDrawerOpen()).toBe(true);
+    expect(row.querySelector('.card-drawer')).not.toBeNull();
+    // The row is removed (u1 stops following us AND we unfollow → empty):
+    getFollowing.mockReturnValue([]);
+    fire([]);
+    expect(isDrawerOpen()).toBe(false);
   });
 });

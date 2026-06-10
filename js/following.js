@@ -394,9 +394,6 @@ function renderList() {
     },
     update: (node, key) => {
       if (key.startsWith('label:')) return;
-      // Close any open card drawer before repainting — matches the original
-      // contract where every renderList() call implicitly dismissed open drawers.
-      if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
       const entry = entryByKey.get(key);
       if (key.startsWith('follower:')) {
         // Refresh the CODE (Name) label — the name can be learned post-create.
