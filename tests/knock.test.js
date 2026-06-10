@@ -1019,6 +1019,21 @@ describe('applyFloatToTop section-label handling', () => {
     expect(list.children[0].dataset.userId).toBe('bob');
     expect(list.children[1].dataset.userId).toBe('alice');
   });
+
+  test('inserts AFTER the owner-only invite row (owner receives a knock)', () => {
+    document.body.innerHTML = `
+      <ul id="group-roster">
+        <li id="group-roster-invite-row"></li>
+        <li data-user-id="alice"></li>
+        <li data-user-id="bob"></li>
+      </ul>`;
+    const bobLi = document.querySelector('[data-user-id="bob"]');
+    applyFloatToTop(bobLi);
+    const list = document.getElementById('group-roster');
+    expect(list.children[0].id).toBe('group-roster-invite-row');
+    expect(list.children[1].dataset.userId).toBe('bob');
+    expect(list.children[2].dataset.userId).toBe('alice');
+  });
 });
 
 describe('Direct-knock pending stash (live listener)', () => {

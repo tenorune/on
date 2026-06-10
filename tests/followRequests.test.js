@@ -56,6 +56,9 @@ describe('createRequestFollowButton', () => {
   test('renders the circled-plus icon, unrequested state', () => {
     const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
     expect(btn.querySelector('svg')).not.toBeNull();
+    // The plus glyph carries the .rf-plus hook; CSS hides it in requested
+    // mode so the icon reads as an empty circle.
+    expect(btn.querySelector('.rf-plus')).not.toBeNull();
     expect(btn.classList.contains('requested')).toBe(false);
     expect(btn.getAttribute('aria-label')).toBe('Request to follow');
     expect(btn.disabled).toBe(false);

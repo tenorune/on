@@ -1195,10 +1195,13 @@ main {
 .notify-bell svg { width: 1rem; height: 1rem; display: block; }
 
 /* Roster request-to-follow toggle: mirrors the bell's idle/active coloring —
-   muted circled-plus = tap to request, white = requested (tap cancels). */
+   muted circled-plus = tap to request, white empty circle = requested (tap
+   cancels). Sized slightly over the bell's 1rem because the circle glyph has
+   built-in viewBox margin the bell doesn't; 1.125rem matches rendered height. */
 .request-follow-btn { background: none; border: 0; cursor: pointer; color: var(--text-muted); padding: 0.25rem; display: inline-flex; align-items: center; }
 .request-follow-btn.requested { color: #fff; }
-.request-follow-btn svg { width: 1rem; height: 1rem; display: block; }
+.request-follow-btn.requested .rf-plus { display: none; }
+.request-follow-btn svg { width: 1.125rem; height: 1.125rem; display: block; }
 /* Popover is portaled to <body> and positioned (top/right) inline by JS from the
    bell's rect, so no card/slice overflow or transform can clip it. */
 .notify-popover { position: fixed; z-index: 1000;
