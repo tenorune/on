@@ -103,8 +103,9 @@ Cohesive split mirroring the invitee/inviter sides of `pendingInvites`:
     (no group variant needed).
   - `notifier.js`: `handleFollowRequest(deps, targetUid, requesterUid, record)` — resolve name
     (`userPrefs/{target}/following/{requester}` label → `resolveGroupMemberName(record.groupId,
-    requester)` → code → "Someone"), `sendToUser(target, msg, { type:'followRequest', from:
-    requesterUid })`. Unconditional (directed/consensual, like invites — no pref gate).
+    requester)` → code → "Someone"), `sendToUser(target, msg, { type:'followRequest', targetUid:
+    requesterUid })` — `targetUid` (not `from`) because sw.js builds its dedup tag and
+    deep-link data from that key. Unconditional (directed/consensual, like invites — no pref gate).
   - `index.js`: `onFollowRequest = onValueCreated('/followRequests/{targetUid}/{requesterUid}')`.
     `onValueCreated` (not Written) so a re-request overwrite doesn't re-fire; a re-request after
     a decline (key deleted then recreated) does.
