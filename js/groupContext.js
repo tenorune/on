@@ -8,6 +8,7 @@
 import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs } from './db.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect, applyOptimisticAppearance } from './groupNav.js';
+import { subscribeOwnStatus } from './ownStatus.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
          setOverrideAppearance } from './groups.js';
@@ -1056,7 +1057,7 @@ export function enterGroupContext(groupId, userId) {
   if (_ownOverrideUnsub) _ownOverrideUnsub();
   _ownPrimary = null;
   _ownOverride = null;
-  _ownPrimaryUnsub = watchStatus(userId, (data) => {
+  _ownPrimaryUnsub = subscribeOwnStatus((data) => {
     _ownPrimary = data
       ? {
           status: data.status,

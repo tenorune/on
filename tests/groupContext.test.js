@@ -1,4 +1,7 @@
 // tests/groupContext.test.js
+jest.mock('../js/ownStatus.js', () => ({
+  subscribeOwnStatus: jest.fn(() => () => {}),
+}));
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(() => 120),
   setLastTimeout: jest.fn(),
@@ -140,6 +143,7 @@ if (typeof PointerEvent === 'undefined') {
 }
 
 const db = require('../js/db.js');
+const ownStatus = require('../js/ownStatus.js');
 const groupNav = require('../js/groupNav.js');
 const groupsModule = require('../js/groups.js');
 const inviteModal = require('../js/inviteModal.js');
@@ -754,7 +758,7 @@ describe('own status row', () => {
   function captureCallbacks() {
     let metaCb, primaryCb, overrideCb;
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { primaryCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { primaryCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
     return { getMetaCb: () => metaCb, getPrimaryCb: () => primaryCb, getOverrideCb: () => overrideCb };
   }
@@ -825,7 +829,7 @@ describe('own status row', () => {
   test('exitGroupContext tears down own primary and override subscriptions', () => {
     const ownPrimaryUnsub = jest.fn();
     const ownOverrideUnsub = jest.fn();
-    db.watchStatus.mockImplementation(() => ownPrimaryUnsub);
+    ownStatus.subscribeOwnStatus.mockImplementation(() => ownPrimaryUnsub);
     db.watchOwnMemberOverride.mockImplementation(() => ownOverrideUnsub);
     enterGroupContext('G1', 'me');
     exitGroupContext();

@@ -1,5 +1,9 @@
 // tests/groupNav.test.js
 jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
+jest.mock('../js/ownStatus.js', () => ({
+  initOwnStatus: jest.fn(),
+  subscribeOwnStatus: jest.fn(() => () => {}),
+}));
 jest.mock('../js/db.js', () => ({
   setLastVisited: jest.fn().mockResolvedValue(undefined),
   watchUserGroups: jest.fn(),
@@ -33,6 +37,7 @@ jest.mock('../js/following.js', () => ({
 }));
 
 const db = require('../js/db.js');
+const ownStatus = require('../js/ownStatus.js');
 const prefs = require('../js/prefs.js');
 const groups = require('../js/groups.js');
 const inviteModal = require('../js/inviteModal.js');
@@ -240,7 +245,7 @@ describe('group cards own-override color reflection', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     startCardsRowSubscriptions();
     enumCb({ G1: { lastVisited: 1 } });
@@ -255,7 +260,7 @@ describe('group cards own-override color reflection', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     startCardsRowSubscriptions();
     enumCb({ G1: { lastVisited: 1 } });
@@ -284,7 +289,7 @@ describe('group cards own-override color reflection', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     startCardsRowSubscriptions();
     enumCb({ G1: { lastVisited: 1 } });
@@ -439,7 +444,7 @@ describe('Direct nav per-group status indicator', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
@@ -456,7 +461,7 @@ describe('Direct nav per-group status indicator', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
@@ -472,7 +477,7 @@ describe('Direct nav per-group status indicator', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
@@ -489,7 +494,7 @@ describe('Direct nav per-group status indicator', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
@@ -506,7 +511,7 @@ describe('Direct nav per-group status indicator', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
@@ -524,7 +529,7 @@ describe('Direct nav per-group status indicator', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
@@ -600,7 +605,7 @@ describe('renderNavRow — group mode', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     db.setLastVisited.mockResolvedValue(undefined);
     initNav('me');
     initNavRow();

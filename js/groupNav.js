@@ -2,7 +2,8 @@
 // Navigation state machine: currentContext + group cards row.
 // State is in-memory; writes mirror to Firebase via setCurrentContext / setLastVisited.
 
-import { setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, watchStatus, removeUserGroupsEntry } from './db.js';
+import { setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, removeUserGroupsEntry } from './db.js';
+import { subscribeOwnStatus } from './ownStatus.js';
 import { setCurrentContext } from './prefs.js';
 import { safeCssColor, hexToRgb } from './utils.js';
 import { GROUPS_ENABLED } from './features.js';
@@ -149,7 +150,7 @@ export function startCardsRowSubscriptions() {
     renderNavRow();
   });
   if (_ownPrimaryUnsub) _ownPrimaryUnsub();
-  _ownPrimaryUnsub = watchStatus(_myUserId, (data) => {
+  _ownPrimaryUnsub = subscribeOwnStatus((data) => {
     _ownPrimary = data
       ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: data.statusColor || null }
       : null;
