@@ -53,10 +53,21 @@ self.addEventListener('push', (e) => {
   })());
 });
 
+// Where a cold tap (no live client to postMessage) should land. Invite and
+// follow-request taps deep-link to the Inbox — the recipient isn't in the
+// group, and on a cold start they'd otherwise boot into their last (stale)
+// context with no inbox affordance. Group activity deep-links into the group;
+// everything else lands on Direct.
+function coldStartUrl(data) {
+  if (data.type === 'invite' || data.type === 'followRequest') return '/?inbox=1';
+  if (data.contextGroupId) return `/?group=${encodeURIComponent(data.contextGroupId)}`;
+  return '/';
+}
+
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
   const data = e.notification.data || {};
-  const url = data.contextGroupId ? `/?group=${encodeURIComponent(data.contextGroupId)}` : '/';
+  const url = coldStartUrl(data);
   e.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const client = all.find((c) => 'focus' in c);

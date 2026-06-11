@@ -275,6 +275,17 @@ export function extractInviteTokenFromUrl(urlStr) {
   }
 }
 
+// The SW's cold-start deep-link for invite/follow-request taps (sw.template.js
+// coldStartUrl). When set, boot lands in Direct and opens the Inbox modal
+// instead of restoring the user's last (possibly group) context.
+export function extractInboxIntentFromUrl(urlStr) {
+  try {
+    return new URL(urlStr).searchParams.get('inbox') === '1';
+  } catch {
+    return false;
+  }
+}
+
 function findActiveGroupInviteForCreator(collection, creatorUid) {
   for (const [token, inv] of Object.entries(collection || {})) {
     if (inv && inv.scope === 'group' && inv.creatorUid === creatorUid && !inv.revoked) {
