@@ -43,7 +43,7 @@ function migrateToChipIndex() {
   return chipIndexForMinutes(getLastTimeout());
 }
 
-// Called from app.js's watchStatus when userData.lastTimeoutMinutes changes.
+// Called when the userPrefs-synced lastTimeoutMinutes changes (cross-device).
 // Reflects the user's chip selection from another device on this device.
 export function updateChipFromServer(minutes) {
   if (!minutes) return;

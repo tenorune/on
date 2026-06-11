@@ -818,11 +818,6 @@ describe('presence subtree', () => {
     handler({ exists: () => false, val: () => null });
     expect(got).toHaveBeenCalledWith(null);
   });
-
-  test('setLastVisited writes to userPrefs/{uid}/perGroup/{gid}/lastVisited', async () => {
-    update.mockResolvedValue();
-    await setLastVisited('me', 'G1', 99);
-    expect(ref).toHaveBeenCalledWith({}, 'userPrefs/me');
-    expect(update).toHaveBeenCalledWith('mock-ref', { 'perGroup/G1/lastVisited': 99 });
-  });
+  // (setLastVisited is covered in the 'user-side groups enumeration' describe —
+  // not a presence field, so no duplicate here.)
 });

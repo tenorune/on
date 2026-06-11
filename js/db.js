@@ -439,7 +439,7 @@ export function watchFollowers(myUserId, callback) {
 // ── User preferences (cross-device sync) ────────────────────────────────────
 // All user-private state that needs to sync across devices lives under
 // `userPrefs/{uid}/` — deliberately NOT under `users/{uid}/` so it doesn't
-// get echoed to every follower's watchStatus tick. The schema is:
+// get echoed to every follower's watchPresence tick. The schema is:
 //   userPrefs/{uid}/
 //     hints/ { bolt, flower, theme, stripPeek, longpress, swipe, customAvail }
 //     madeCallCount, answeredCallCount

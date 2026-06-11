@@ -843,7 +843,7 @@ function applyEffectivePalette() {
 
 // Restore the primary palette/theme on group context exit so the user's
 // Direct view doesn't carry the group's theme. _ownPrimary still has the
-// last-known primary state from watchStatus.
+// last-known primary state from watchPresence.
 function restorePrimaryPalette() {
   if (!PALETTES_ENABLED) return;
   // Same helpers as applyEffectivePalette — for a fresh user who never wrote
@@ -1096,7 +1096,7 @@ export function enterGroupContext(groupId, userId) {
     // of the per-group chip lands with the userPrefs/ migration.
     // Re-apply effective theme: a primary-side palette change (e.g. another
     // device picked a different Direct theme) would otherwise have been
-    // written to root by app.js's watchStatus, clobbering our group-context
+    // written to root by app.js's watchPresence, clobbering our group-context
     // override theme.
     applyEffectivePalette();
     renderOwnStatusRow();
@@ -1248,7 +1248,7 @@ export function enterGroupContext(groupId, userId) {
 export function exitGroupContext() {
   // Restore the user's Direct (primary) theme BEFORE we clear _ownPrimary —
   // otherwise the group's override theme stays on root vars until app.js's
-  // next watchStatus tick happens to write something different.
+  // next watchPresence tick happens to write something different.
   restorePrimaryPalette();
   if (_metaUnsub) { _metaUnsub(); _metaUnsub = null; }
   if (_membersUnsub) { _membersUnsub(); _membersUnsub = null; }

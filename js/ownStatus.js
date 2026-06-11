@@ -1,5 +1,5 @@
 // js/ownStatus.js
-// Single owner of the own-user `users/{uid}` subscription. Before this, three
+// Single owner of the own-user `users/{uid}/presence` subscription. Before this, three
 // places opened watchStatus(self) — app.js (call-mode recovery + theme + own
 // card), groupNav (nav cards), groupContext (own row + override palette) — so
 // every status write, and every follower/social-graph write to the shared user
