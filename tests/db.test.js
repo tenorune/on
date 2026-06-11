@@ -428,11 +428,11 @@ describe('user-side groups enumeration', () => {
     expect(seen[1]).toEqual({});
   });
 
-  test('setLastVisited updates lastVisited under userPrefs/{uid}/perGroup/{gid}', async () => {
+  test('setLastVisited updates lastVisited on the users/{uid}/groups/{gid} record', async () => {
     update.mockResolvedValue();
     await setLastVisited('uid1', 'G1', 99999);
-    expect(update).toHaveBeenCalledWith('mock-ref', { 'perGroup/G1/lastVisited': 99999 });
-    expect(ref).toHaveBeenLastCalledWith({}, 'userPrefs/uid1');
+    expect(update).toHaveBeenCalledWith('mock-ref', { lastVisited: 99999 });
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/groups/G1');
   });
 });
 
