@@ -1142,22 +1142,22 @@ describe('call mode: enterCallMode', () => {
     expect(getCallModeCalleeId()).toBe('alice');
   });
 
-  test('calls startCall with callerId and calleeId', () => {
+  test('calls startCall with callerId and calleeId (no prior ringer → third arg undefined)', () => {
     enterCallMode({ userId: 'alice', code: 'AAA111', label: 'Alice' }, 'myUid');
-    expect(startCall).toHaveBeenCalledWith('myUid', 'alice');
+    expect(startCall).toHaveBeenCalledWith('myUid', 'alice', undefined);
   });
 
-  test('ends an incoming ring before becoming a caller', async () => {
-    // ann is ringing me — fired through the own-call mailbox (sets _incomingCall).
-    getFollowing.mockReturnValue([{ userId: 'ann', code: 'ANN111', label: 'Ann' }]);
-    const ring = captureOwnCall('myUid', 'MYCODE');
-    ring({ from: 'ann', ts: 1 });
-
-    // myUid now calls carol — should endCall the ann ring first, then startCall carol.
-    jest.clearAllMocks();
-    await enterCallMode({ userId: 'carol', code: 'CAR111', label: 'Carol' }, 'myUid');
-    expect(endCall).toHaveBeenCalledWith('myUid', 'ann');
-    expect(startCall).toHaveBeenCalledWith('myUid', 'carol');
+  test('enterCallMode while being rung starts the new call and clears the ringer atomically', () => {
+    let ownCallCb;
+    watchOwnCall.mockImplementation((uid, cb) => { ownCallCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([
+      { userId: 'ann', code: 'C1', label: 'Ann' },
+      { userId: 'cara', code: 'C2', label: 'Cara' },
+    ]);
+    initList('myUid', 'MYCODE');
+    ownCallCb({ from: 'ann', ts: 1 }); // Ann is ringing me
+    enterCallMode({ userId: 'cara' }, 'myUid'); // I call Cara instead
+    expect(startCall).toHaveBeenCalledWith('myUid', 'cara', 'ann');
   });
 });
 
@@ -1205,6 +1205,23 @@ describe('call mode: own-call mailbox', () => {
     enterCallMode({ userId: 'callee' }, 'me');
     exitCallMode('me');
     expect(endCall).toHaveBeenCalledWith('me', 'callee');
+  });
+
+  // canvas.js is not mocked in this suite, so enterCanvas runs as-is in jsdom
+  // and may error/no-op (canvas-screen element absent). The state mutations that
+  // happen BEFORE the enterCanvas call are the observable under test here.
+  test('boot into an answered call sets callModeCalleeId and clears _incomingCall for the callee (from-record)', () => {
+    let ownCallCb;
+    watchOwnCall.mockImplementation((uid, cb) => { ownCallCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([{ userId: 'caller', code: 'C', label: 'Cara' }]);
+    initList('me', 'MYCODE');
+    // No canvas active; persisted answered record where I'm the callee.
+    // The watcher fires on attach with the persisted record — this simulates boot recovery.
+    ownCallCb({ from: 'caller', answered: true, ts: 1 });
+    // callModeCalleeId is set to 'caller' (peerId = call.to || call.from = 'caller')
+    expect(getCallModeCalleeId()).toBe('caller');
+    // _incomingCall is cleared (no longer ringing since the call is answered)
+    expect(getIncomingCallFrom()).toBeNull();
   });
 });
 
@@ -1268,7 +1285,7 @@ describe('call mode: swipe gesture', () => {
     firePointer(li, 'pointermove', 100, 52); // dx=90 > 200*0.4=80; ratio 90/2 = 45 > 1.5 ✓
     firePointer(li, 'pointerup',   100, 52);
 
-    expect(startCall).toHaveBeenCalledWith('myUid', 'alice');
+    expect(startCall).toHaveBeenCalledWith('myUid', 'alice', undefined);
   });
 
   test('left-swipe on caller-side .call-mode card ends the call', () => {

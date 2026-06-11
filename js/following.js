@@ -159,19 +159,25 @@ export function initList(myUserId, myCode) {
   if (unsubOwnCall) unsubOwnCall();
   unsubOwnCall = watchOwnCall(myUserId, (call) => {
     if (!CALL_ENABLED) return;
-    // Caller side: the callee just answered → enter the canvas.
-    if (call && call.to && call.answered && callModeCalleeId === call.to) {
+    // An answered call (either role) → ensure we're on the canvas. Covers the
+    // caller learning the callee picked up, AND boot-into-an-answered-call for
+    // either side (the watcher fires on attach with the persisted record). Not
+    // gated on callModeCalleeId, so it can't race app.js's boot recovery.
+    if (call && call.answered) {
       const canvasScreen = document.getElementById('canvas-screen');
-      if (canvasScreen && canvasScreen.classList.contains('active')) return; // already in canvas — idempotent
-      const entry = getFollowing().find((f) => f.userId === call.to);
-      const peerData = entry && lastUserData.get(call.to);
+      if (canvasScreen && canvasScreen.classList.contains('active')) return; // already there — idempotent
+      const peerId = call.to || call.from;
+      const entry = getFollowing().find((f) => f.userId === peerId);
       if (entry) {
+        callModeCalleeId = peerId;
+        _incomingCall = null;
+        const peerData = lastUserData.get(peerId);
         const peerSurface = peerData?.paletteKey
           ? (getPaletteByKey(peerData.paletteKey)?.theme?.surface || '#1e293b') : '#1e293b';
         const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
         const peerColor = peerData?.statusColor || '#22c55e';
-        enterCanvas(call.to, entry.label || entry.code, myUserId, myColor, peerColor, peerSurface, () => exitCallMode(myUserId))
-          .catch((err) => console.error('enterCanvas (caller) failed:', err));
+        enterCanvas(peerId, entry.label || entry.code, myUserId, myColor, peerColor, peerSurface, () => exitCallMode(myUserId))
+          .catch((err) => console.error('enterCanvas (answered) failed:', err));
       }
       return;
     }
@@ -286,9 +292,9 @@ function handlePeerEnded(myUserId) {
   }
 }
 
-export async function enterCallMode(calleeEntry, myUserId) {
+export function enterCallMode(calleeEntry, myUserId) {
   incrementMadeCallCount();
-  const ringer = _incomingCall?.from || null;
+  const ringer = _incomingCall?.from || null; // a caller I was about to be answered by, if any
   callModeCalleeId = calleeEntry.userId;
   _incomingCall = null;
 
@@ -306,9 +312,10 @@ export async function enterCallMode(calleeEntry, myUserId) {
 
   renderList();
 
-  // End any incoming ring BEFORE writing the outgoing call (both touch calls/{me}).
-  if (ringer) { try { await endCall(myUserId, ringer); } catch { /* ignore */ } }
-  startCall(myUserId, calleeEntry.userId).catch(() => {});
+  // One atomic write: start the outgoing call AND drop any prior ringer's
+  // mailbox. Doing it in one update means calls/{me} never goes null, so our
+  // own-call watcher doesn't misread it as a peer-ended hangup.
+  startCall(myUserId, calleeEntry.userId, ringer || undefined).catch(() => {});
 }
 
 export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
