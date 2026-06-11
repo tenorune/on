@@ -251,6 +251,16 @@ export function setNotifyPref(targetUid, type, on) {
   if (_myUserId) mergeUserPrefs(_myUserId, { [`notify/${targetUid}/${type}`]: !!on }).catch(() => {});
 }
 
+// True if the user has at least one per-contact notify pref enabled. Used to
+// detect the "enabled bells but this device can't deliver" state (e.g. a
+// restored account on a new device with no OS permission/token yet).
+export function hasAnyNotifyPrefEnabled() {
+  for (const t of Object.values(readNotifyCache())) {
+    if (t && (t.knock || t.call || t.availability)) return true;
+  }
+  return false;
+}
+
 // ── Push-token registry ──────────────────────────────────────────────────────
 const PUSH_TOKEN_KEY = 'statusapp_push_token';
 

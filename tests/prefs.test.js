@@ -15,6 +15,7 @@ const {
   getAnsweredCallCount, incrementAnsweredCallCount,
   syncFromServer,
   getNotifyPrefs, setNotifyPref,
+  hasAnyNotifyPrefEnabled,
 } = require('../js/prefs.js');
 
 beforeEach(() => {
@@ -200,6 +201,21 @@ describe('notify prefs', () => {
     expect(getNotifyPrefs('bea')).toEqual({ knock: true, call: false, availability: true });
     expect(handler).toHaveBeenCalled();
     document.removeEventListener('notify-prefs-synced', handler);
+  });
+
+  test('hasAnyNotifyPrefEnabled is false when no prefs are set', () => {
+    expect(hasAnyNotifyPrefEnabled()).toBe(false);
+  });
+
+  test('hasAnyNotifyPrefEnabled is false when every pref is off', () => {
+    setNotifyPref('alex', 'knock', true);
+    setNotifyPref('alex', 'knock', false);
+    expect(hasAnyNotifyPrefEnabled()).toBe(false);
+  });
+
+  test('hasAnyNotifyPrefEnabled is true when any contact has any type on', () => {
+    setNotifyPref('alex', 'availability', true);
+    expect(hasAnyNotifyPrefEnabled()).toBe(true);
   });
 });
 
