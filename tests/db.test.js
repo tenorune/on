@@ -323,11 +323,11 @@ describe('incrementInviteRedemptions', () => {
 });
 
 describe('getCreatorCode', () => {
-  test('reads users/{creatorUid}/code', async () => {
+  test('reads users/{creatorUid}/presence/code', async () => {
     get.mockResolvedValueOnce({ exists: () => true, val: () => 'ABC123' });
     const code = await getCreatorCode('uid1');
     expect(code).toBe('ABC123');
-    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/code');
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/presence/code');
   });
 
   test('returns null when the user has no code', async () => {

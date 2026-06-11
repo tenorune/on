@@ -134,7 +134,7 @@ export async function incrementInviteRedemptions(userId, token) {
 }
 
 export async function getCreatorCode(creatorUserId) {
-  const snap = await get(ref(db, `users/${creatorUserId}/code`));
+  const snap = await get(ref(db, `users/${creatorUserId}/presence/code`));
   return snap.exists() ? snap.val() : null;
 }
 
