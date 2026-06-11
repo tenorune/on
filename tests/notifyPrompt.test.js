@@ -5,6 +5,7 @@ jest.mock('../js/prefs.js', () => ({
   addPushToken: jest.fn(),
   removePushToken: jest.fn(),
   getRegisteredPushToken: jest.fn(),
+  hasAnyNotifyPrefEnabled: jest.fn(() => false),
 }));
 jest.mock('../js/firebase-config.js', () => ({ getMessagingIfSupported: jest.fn() }));
 jest.mock('firebase/messaging', () => ({ getToken: jest.fn() }));
@@ -158,5 +159,82 @@ describe('ensureNotificationsReady', () => {
     expect(addPushToken).not.toHaveBeenCalled();
     expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('notify-promo-text').textContent).toBe('copy-for-denied');
+  });
+});
+
+const { shouldReprompt } = require('../js/notifyPrompt.js');
+
+describe('shouldReprompt (enabled prefs but no permission on this device)', () => {
+  const base = { enabled: true, hasEnabledPrefs: true, permission: 'default', capState: 'supported', deviceDismissed: false };
+
+  test('shown when prefs are enabled but permission is not granted (supported)', () => {
+    expect(shouldReprompt(base)).toBe(true);
+  });
+  test('shown on the iOS-install state (the Enable path is install guidance)', () => {
+    expect(shouldReprompt({ ...base, capState: 'needs-install-ios' })).toBe(true);
+  });
+  test('hidden when the feature flag is off', () => {
+    expect(shouldReprompt({ ...base, enabled: false })).toBe(false);
+  });
+  test('hidden when permission is already granted', () => {
+    expect(shouldReprompt({ ...base, permission: 'granted' })).toBe(false);
+  });
+  test('hidden when there are no enabled prefs (nothing unmet)', () => {
+    expect(shouldReprompt({ ...base, hasEnabledPrefs: false })).toBe(false);
+  });
+  test('hidden once dismissed on this device', () => {
+    expect(shouldReprompt({ ...base, deviceDismissed: true })).toBe(false);
+  });
+  test('hidden when capability is denied or unsupported (no actionable path)', () => {
+    expect(shouldReprompt({ ...base, capState: 'denied' })).toBe(false);
+    expect(shouldReprompt({ ...base, capState: 'unsupported' })).toBe(false);
+  });
+});
+
+const { maybeRepromptForMissingPermission } = require('../js/notifyPrompt.js');
+const { hasAnyNotifyPrefEnabled, isHintSeen, markHintSeen } = require('../js/prefs.js');
+
+describe('maybeRepromptForMissingPermission', () => {
+  beforeEach(() => {
+    mountBanner();
+    localStorage.clear();
+    detectNotifyCapability.mockReset();
+    detectNotifyCapability.mockReturnValue({ state: 'supported', supported: true });
+    hasAnyNotifyPrefEnabled.mockReset();
+    hasAnyNotifyPrefEnabled.mockReturnValue(true);
+    markHintSeen.mockClear();
+    // The restore scenario: the user dismissed the promo on their OLD device, so
+    // the synced hint reads "seen". The reprompt must surface the banner anyway.
+    isHintSeen.mockReturnValue(true);
+    global.Notification = { permission: 'default', requestPermission: jest.fn().mockResolvedValue('granted') };
+    global.navigator.serviceWorker = { ready: Promise.resolve({ id: 'reg' }) };
+  });
+
+  test('surfaces the promo when enabled prefs exist but permission is absent — despite the synced "dismissed" hint', () => {
+    maybeRepromptForMissingPermission();
+    const banner = document.getElementById('notify-promo');
+    expect(banner.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('notify-promo-text').textContent).toContain('notified');
+  });
+
+  test('stays hidden when permission is already granted', () => {
+    global.Notification = { permission: 'granted' };
+    maybeRepromptForMissingPermission();
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
+  });
+
+  test('stays hidden when there are no enabled prefs', () => {
+    hasAnyNotifyPrefEnabled.mockReturnValue(false);
+    maybeRepromptForMissingPermission();
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
+  });
+
+  test('Close dismisses for THIS device only (not the synced forever-dismiss) and stays hidden next load', () => {
+    maybeRepromptForMissingPermission();
+    document.getElementById('notify-promo-dismiss').click();
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
+    expect(markHintSeen).not.toHaveBeenCalled(); // device-local, not the synced hint
+    maybeRepromptForMissingPermission();
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
   });
 });
