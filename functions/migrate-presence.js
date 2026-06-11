@@ -67,12 +67,10 @@ async function main() {
     for (const dead of LEGACY_AND_MOVED) {
       if (u[dead] !== undefined) updates[`users/${uid}/${dead}`] = null;
     }
-    // 4. Drop groups/{*}/lastVisited (sort hint; rebuilds on next navigation).
-    for (const gid of Object.keys(u.groups || {})) {
-      if (u.groups[gid] && typeof u.groups[gid] === 'object' && u.groups[gid].lastVisited !== undefined) {
-        updates[`users/${uid}/groups/${gid}/lastVisited`] = null;
-      }
-    }
+    // NOTE: do NOT touch users/{uid}/groups/{gid}/lastVisited. That record's
+    // ONLY field is lastVisited, so nulling it deletes the whole enumeration
+    // node and the group disappears from the nav row. lastVisited stays here
+    // (it's the nav-sort key); see the lastVisited→userPrefs follow-up issue.
     if (Object.keys(updates).length) { await db.ref().update(updates); migrated++; }
   }
   console.log(`migrated ${migrated} of ${Object.keys(users).length} user(s)`);

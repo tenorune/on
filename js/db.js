@@ -185,8 +185,15 @@ export function watchUserGroups(userId, callback) {
   });
 }
 
+// lastVisited lives in the enumeration record itself (users/{uid}/groups/{gid}),
+// which is the same node the nav-row sort reads (groupNav renderNavRowDirectMode).
+// It deliberately stays here — NOT in userPrefs — so the write and read paths
+// can't drift apart. (Moving the write to userPrefs while the read stayed here
+// once silently broke nav-sort freshness; see the lastVisited→userPrefs issue.)
+// This write touches users/{uid}/groups, not users/{uid}/presence, so it never
+// re-fires presence watchers.
 export async function setLastVisited(userId, groupId, ts) {
-  await update(ref(db, `userPrefs/${userId}`), { [`perGroup/${groupId}/lastVisited`]: ts });
+  await update(ref(db, `users/${userId}/groups/${groupId}`), { lastVisited: ts });
 }
 
 // ── Groups: entity CRUD + meta subscription ───────────────────────────────────
