@@ -279,7 +279,7 @@ describe('handleAvailability → group co-members (primary path)', () => {
   test('notifies co-members of override-OFF groups, skips override-ON groups', async () => {
     const deps = makeDeps({ store: {
       'users/star/presence/status': 'available',
-      'users/star/availableUntil': FUTURE,
+      'users/star/presence/availableUntil': FUTURE,
       'users/star/followers': null,
       'users/star/groups': { gOff: true, gOn: true },
       // gOff: override disabled → group shows primary → notify
@@ -306,7 +306,7 @@ describe('handleAvailability → group co-members (primary path)', () => {
   test('group fan-out runs even when the Direct cooldown is active', async () => {
     const deps = makeDeps({ store: {
       'users/star/presence/status': 'available',
-      'users/star/availableUntil': FUTURE,
+      'users/star/presence/availableUntil': FUTURE,
       'users/star/groups': { gOff: true },
       'groups/gOff/members/star/statusOverride': null, // absent → treated as off
       'groups/gOff/name': 'OffGroup',
@@ -329,7 +329,7 @@ describe('handleAvailability → one push per recipient (dedup)', () => {
   test('a follower who is also a co-member of two override-off groups gets ONE Direct push', async () => {
     const deps = makeDeps({ store: {
       'users/bob/presence/status': 'available',
-      'users/bob/availableUntil': FUTURE,
+      'users/bob/presence/availableUntil': FUTURE,
       'users/bob/followers': { ann: 'codeAnn' },
       'userPrefs/ann/notify/bob': { availability: true },
       'userPrefs/ann/following/bob': { label: 'Bobby' },
@@ -356,7 +356,7 @@ describe('handleAvailability → one push per recipient (dedup)', () => {
   test('a co-member of two override-off groups (not a follower) gets ONE group push (first group wins)', async () => {
     const deps = makeDeps({ store: {
       'users/bob/presence/status': 'available',
-      'users/bob/availableUntil': FUTURE,
+      'users/bob/presence/availableUntil': FUTURE,
       'users/bob/followers': null,
       'userPrefs/ann/notify/bob': { availability: true },
       'userPrefs/ann/pushTokens': { tokAnn: {} },
@@ -381,7 +381,7 @@ describe('handleAvailability → one push per recipient (dedup)', () => {
   test('Direct owns a follower even when the Direct cooldown suppresses the send (no group double)', async () => {
     const deps = makeDeps({ store: {
       'users/bob/presence/status': 'available',
-      'users/bob/availableUntil': FUTURE,
+      'users/bob/presence/availableUntil': FUTURE,
       'users/bob/followers': { ann: 'codeAnn' },
       'userPrefs/ann/notify/bob': { availability: true },
       'userPrefs/ann/pushTokens': { tokAnn: {} },

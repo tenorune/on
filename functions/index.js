@@ -61,10 +61,10 @@ export const onCall = onValueWritten('/calls/{uid}', (event) => {
   return handleCall(makeDeps(), event.params.uid, after.from);
 });
 
-// Narrowed to the availability field so we're not invoked on every knock /
-// callState / lastSeen write to the user node. onValueWritten covers create
-// (going available from null), update (re-up), and delete (going offline);
-// the handler reads the sibling `status` to confirm.
+// Narrowed to presence/availableUntil so we're not invoked on every write to
+// other presence fields (status, statusColor, paletteKey, code, lastSeen).
+// onValueWritten covers create (going available from null), update (re-up), and
+// delete (going offline); the handler reads the sibling `status` to confirm.
 export const onAvailability = onValueWritten('/users/{uid}/presence/availableUntil', (event) => {
   return handleAvailability(makeDeps(), event.params.uid, event.data.before.val(), event.data.after.val());
 });

@@ -132,7 +132,7 @@ export async function handleCall(deps, calleeId, callerId) {
   await sendToUser(deps, calleeId, buildMessage('call', name), { type: 'call', targetUid: callerId });
 }
 
-// Triggered on a write to users/{uid}/availableUntil (before/after are that value).
+// Triggered on a write to users/{uid}/presence/availableUntil (before/after are that value).
 export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   const now = deps.now();
   const status = await deps.getVal(`users/${uid}/presence/status`);
