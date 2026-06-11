@@ -5,7 +5,7 @@
 // own-status row, the chain-icon override toggle (installed into the nav row's
 // slot), and the member roster.
 
-import { watchGroupMembers, watchGroupInvites, watchStatus, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs } from './db.js';
+import { watchGroupMembers, watchGroupInvites, watchPresence, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs } from './db.js';
 import { reconcileChildren } from './reconcile.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect, applyOptimisticAppearance, subscribeGroupMeta, subscribeOwnOverride } from './groupNav.js';
@@ -879,7 +879,7 @@ function syncStatusSubscriptions(memberUids) {
   }
   for (const uid of memberUids) {
     if (!_statusUnsubs.has(uid)) {
-      _statusUnsubs.set(uid, watchStatus(uid, (data) => {
+      _statusUnsubs.set(uid, watchPresence(uid, (data) => {
         _memberPrimaries.set(uid, data
           ? {
               status: data.status,

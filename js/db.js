@@ -71,7 +71,7 @@ export async function initUser(userId, code) {
   if (!result.committed) {
     return null; // signal collision to caller
   }
-  await set(ref(db, `users/${userId}`), {
+  await set(ref(db, `users/${userId}/presence`), {
     code,
     status: 'unavailable',
     availableUntil: null,
@@ -186,7 +186,7 @@ export function watchUserGroups(userId, callback) {
 }
 
 export async function setLastVisited(userId, groupId, ts) {
-  await update(ref(db, `users/${userId}/groups/${groupId}`), { lastVisited: ts });
+  await update(ref(db, `userPrefs/${userId}`), { [`perGroup/${groupId}/lastVisited`]: ts });
 }
 
 export async function setCurrentContext(userId, context) {
@@ -406,7 +406,7 @@ export async function readPendingInviteesForGroup(groupId) {
 
 // Write own status to Firebase
 export async function setStatus(userId, status, availableUntil) {
-  await update(ref(db, `users/${userId}`), {
+  await update(ref(db, `users/${userId}/presence`), {
     status,
     availableUntil: availableUntil ?? null,
     lastSeen: Date.now(),
@@ -419,12 +419,10 @@ export async function lookupCode(code) {
   return snap.exists() ? snap.val() : null;
 }
 
-// Subscribe to a user's status in real-time. Returns unsubscribe fn.
-export function watchStatus(userId, callback) {
-  const userRef = ref(db, `users/${userId}`);
-  return onValue(userRef, (snap) => {
-    callback(snap.exists() ? snap.val() : null);
-  });
+// Subscribe to a user's presence subtree in real-time. Returns unsubscribe fn.
+export function watchPresence(userId, callback) {
+  const presRef = ref(db, `users/${userId}/presence`);
+  return onValue(presRef, (snap) => { callback(snap.exists() ? snap.val() : null); });
 }
 
 // Subscribe to own followers list in real-time. Returns unsubscribe fn.
@@ -542,10 +540,7 @@ export async function removeFollower(myUserId, followerUserId) {
 
 // Write back expired status (idempotent)
 export async function writeBackExpired(userId) {
-  await update(ref(db, `users/${userId}`), {
-    status: 'unavailable',
-    availableUntil: null,
-  });
+  await update(ref(db, `users/${userId}/presence`), { status: 'unavailable', availableUntil: null });
 }
 
 // One-time check: does this user's record exist in Firebase?
@@ -557,7 +552,7 @@ export async function userExists(userId) {
 
 // Update lastSeen timestamp without changing status — called on every app open.
 export async function touchLastSeen(userId) {
-  await update(ref(db, `users/${userId}`), { lastSeen: Date.now() });
+  await update(ref(db, `users/${userId}/presence`), { lastSeen: Date.now() });
 }
 
 // Reserve a fresh code, update user record + follower entries, release old code.
@@ -577,7 +572,7 @@ export async function rotateCode(userId, oldCode) {
 
   // Steps 2–3: establish new code. If either throws, new code is orphaned in
   // codeIndex but old code remains valid — user retries and the orphan is harmless.
-  await update(ref(db, `users/${userId}`), { code: newCode });
+  await update(ref(db, `users/${userId}/presence`), { code: newCode });
   for (const entry of getFollowing()) {
     await set(ref(db, `users/${entry.userId}/followers/${userId}`), newCode);
   }
@@ -590,19 +585,11 @@ export async function rotateCode(userId, oldCode) {
 }
 
 export async function setStatusColor(userId, color) {
-  await update(ref(db, `users/${userId}`), { statusColor: color });
-}
-
-export async function setUserFavorites(userId, favorites) {
-  await update(ref(db, `users/${userId}`), { favorites });
-}
-
-export async function setLastTimeoutMinutes(userId, minutes) {
-  await update(ref(db, `users/${userId}`), { lastTimeoutMinutes: minutes });
+  await update(ref(db, `users/${userId}/presence`), { statusColor: color });
 }
 
 export async function setPaletteKey(userId, paletteKey) {
-  await update(ref(db, `users/${userId}`), { paletteKey: paletteKey ?? null });
+  await update(ref(db, `users/${userId}/presence`), { paletteKey: paletteKey ?? null });
 }
 
 // ── Call signaling (symmetric mailboxes) ─────────────────────────────────────
@@ -633,9 +620,9 @@ export function watchOwnCall(myUserId, callback) {
   return onValue(callRef, (snap) => { callback(snap.exists() ? snap.val() : null); });
 }
 
-// One-time read of a user's full document. Returns data object or null.
+// One-time read of a user's presence subtree. Returns data object or null.
 export async function getUser(userId) {
-  const snap = await get(ref(db, `users/${userId}`));
+  const snap = await get(ref(db, `users/${userId}/presence`));
   return snap.exists() ? snap.val() : null;
 }
 

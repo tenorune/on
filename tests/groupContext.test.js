@@ -20,7 +20,7 @@ jest.mock('../js/db.js', () => ({
   watchGroupMeta: jest.fn(() => () => {}),
   watchGroupMembers: jest.fn(() => () => {}),
   watchGroupInvites: jest.fn(() => () => {}),
-  watchStatus: jest.fn(() => () => {}),
+  watchPresence: jest.fn(() => () => {}),
   watchOwnMemberOverride: jest.fn(() => () => {}),
   removeUserGroupsEntry: jest.fn().mockResolvedValue(undefined),
   setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
@@ -309,7 +309,7 @@ describe('group roster render', () => {
     expect(document.querySelector('#group-roster li').textContent).not.toContain('owner');
   });
 
-  test('each member gets a watchStatus subscription', () => {
+  test('each member gets a watchPresence subscription', () => {
     let membersCb;
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
@@ -317,15 +317,15 @@ describe('group roster render', () => {
       'a': { role: 'member', displayName: 'Alice', joinedAt: 1 },
       'b': { role: 'member', displayName: 'Bob',   joinedAt: 2 },
     });
-    expect(db.watchStatus).toHaveBeenCalledWith('a', expect.any(Function));
-    expect(db.watchStatus).toHaveBeenCalledWith('b', expect.any(Function));
+    expect(db.watchPresence).toHaveBeenCalledWith('a', expect.any(Function));
+    expect(db.watchPresence).toHaveBeenCalledWith('b', expect.any(Function));
   });
 
   test('member status updates render the available/unavailable dot', () => {
     let membersCb;
     const statusCbs = {};
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     membersCb({ 'a': { role: 'member', displayName: 'Alice', joinedAt: 1 } });
 
@@ -339,7 +339,7 @@ describe('group roster render', () => {
     let membersCb;
     const unsubs = [];
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation(() => { const fn = jest.fn(); unsubs.push(fn); return fn; });
+    db.watchPresence.mockImplementation(() => { const fn = jest.fn(); unsubs.push(fn); return fn; });
     enterGroupContext('G1', 'me');
     membersCb({ 'a': { role: 'member', displayName: 'Alice', joinedAt: 1 } });
     exitGroupContext();
@@ -414,7 +414,7 @@ describe('group roster render', () => {
     let membersCb;
     const statusCbs = {};
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
     statusCbs.a({ status: 'available', availableUntil: Date.now() + 90 * 60000 });
@@ -427,7 +427,7 @@ describe('group roster render', () => {
     let membersCb;
     const statusCbs = {};
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
     statusCbs.a({ status: 'unavailable', availableUntil: null });
@@ -439,7 +439,7 @@ describe('group roster render', () => {
     let membersCb;
     const statusCbs = {};
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     membersCb({
       a: { role: 'member', displayName: 'Alice',   joinedAt: 1 },
@@ -457,11 +457,11 @@ describe('group roster render', () => {
     expect(items[2].dataset.userId).toBe('c');
   });
 
-  test('removed members lose their watchStatus subscription on the next tick', () => {
+  test('removed members lose their watchPresence subscription on the next tick', () => {
     let membersCb;
     const unsubByUid = {};
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid) => { const fn = jest.fn(); unsubByUid[uid] = fn; return fn; });
+    db.watchPresence.mockImplementation((uid) => { const fn = jest.fn(); unsubByUid[uid] = fn; return fn; });
     enterGroupContext('G1', 'me');
     membersCb({
       'a': { role: 'member', displayName: 'Alice', joinedAt: 1 },
@@ -1331,7 +1331,7 @@ describe('roster context-aware status', () => {
   }
   function captureStatuses() {
     const cbs = {};
-    db.watchStatus.mockImplementation((uid, cb) => { cbs[uid] = cb; return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { cbs[uid] = cb; return () => {}; });
     return cbs;
   }
 
@@ -1515,7 +1515,7 @@ describe('group-context long-press adoption', () => {
         : { enabled: false, status: null });
       return () => {};
     });
-    db.watchStatus.mockImplementation((uid, cb) => {
+    db.watchPresence.mockImplementation((uid, cb) => {
       cb({ status: 'available', statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
@@ -1641,7 +1641,7 @@ describe('group-context long-press adoption', () => {
       cb({ src: { displayName: 'Alice', statusOverride: { enabled: true, statusColor: '#aa00ff', paletteKey: 'volt' } } });
       return () => {};
     });
-    db.watchStatus.mockImplementation((uid, cb) => {
+    db.watchPresence.mockImplementation((uid, cb) => {
       cb({ statusColor: '#000', paletteKey: 'forest' });   // primary, but override wins
       return () => {};
     });
@@ -1663,7 +1663,7 @@ describe('group-context long-press adoption', () => {
       cb({ src: { displayName: 'Alice' } });   // no override
       return () => {};
     });
-    db.watchStatus.mockImplementation((uid, cb) => {
+    db.watchPresence.mockImplementation((uid, cb) => {
       cb({ statusColor: '#abcdef', paletteKey: 'forest' });
       return () => {};
     });
@@ -1685,7 +1685,7 @@ describe('group-context long-press adoption', () => {
       cb({ src: { displayName: 'Alice' } });
       return () => {};
     });
-    db.watchStatus.mockImplementation((uid, cb) => {
+    db.watchPresence.mockImplementation((uid, cb) => {
       cb({});   // no statusColor, no paletteKey
       return () => {};
     });
@@ -1708,7 +1708,7 @@ describe('group-context long-press adoption', () => {
       cb({ src: { displayName: 'Alice' } });
       return () => {};
     });
-    db.watchStatus.mockImplementation((uid, cb) => {
+    db.watchPresence.mockImplementation((uid, cb) => {
       cb({ statusColor: '#abc', paletteKey: null });
       return () => {};
     });
@@ -1740,7 +1740,7 @@ describe('group-context dot-tap to go available', () => {
       cb({ enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
-    db.watchStatus.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
+    db.watchPresence.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
     setupContextDom();
     enterGroupContext('G1', 'me');
 
@@ -1760,7 +1760,7 @@ describe('group-context dot-tap to go available', () => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
-    db.watchStatus.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
+    db.watchPresence.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
     setupContextDom();
     enterGroupContext('G1', 'me');
 
@@ -1777,7 +1777,7 @@ describe('group-context dot-tap to go available', () => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
-    db.watchStatus.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
+    db.watchPresence.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
     setupContextDom();
     enterGroupContext('G1', 'me');
 
@@ -1795,7 +1795,7 @@ describe('group-context FTU hints', () => {
   function seedRoster({ ownOverride, members = {}, memberStatus = {} }) {
     groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => { cb(ownOverride); return () => {}; });
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb(members); return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { cb(memberStatus[uid] ?? {}); return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { cb(memberStatus[uid] ?? {}); return () => {}; });
     setupContextDom();
     enterGroupContext('G1', 'me');
   }
@@ -2019,7 +2019,7 @@ describe('group-context FTU hints', () => {
       return () => {};
     });
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-    db.watchStatus.mockImplementation((_uid, cb) => { cb({}); return () => {}; });
+    db.watchPresence.mockImplementation((_uid, cb) => { cb({}); return () => {}; });
     setupContextDom();
     enterGroupContext('G1', 'me');
     // Promote to palette mode by tapping the selected base swatch.

@@ -1,6 +1,7 @@
 // tests/db.test.js
 const {
   userExists, touchLastSeen, rotateCode, setStatusColor, setPaletteKey,
+  setStatus, watchPresence,
   startCall, answerCall, endCall, watchOwnCall, getUser,
   claimInviteToken, releaseInviteToken, readInviteIndex,
   readUserInvite, writeUserInvite, deleteUserInvite,
@@ -49,7 +50,7 @@ test('userExists returns false when Firebase record does not exist', async () =>
   expect(result).toBe(false);
 });
 
-test('touchLastSeen writes lastSeen timestamp to users/{userId}', async () => {
+test('touchLastSeen writes lastSeen timestamp to users/{userId}/presence', async () => {
   update.mockResolvedValueOnce();
   await touchLastSeen('user-789');
   expect(update).toHaveBeenCalledWith('mock-ref', expect.objectContaining({ lastSeen: expect.any(Number) }));
@@ -123,10 +124,10 @@ describe('setStatusColor', () => {
     jest.clearAllMocks();
   });
 
-  test('writes statusColor to users/{userId} path', async () => {
+  test('writes statusColor to users/{userId}/presence path', async () => {
     update.mockResolvedValueOnce();
     await setStatusColor('user-1', '#a855f7');
-    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/user-1');
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/user-1/presence');
     expect(update).toHaveBeenCalledWith('mock-ref', { statusColor: '#a855f7' });
   });
 });
@@ -427,11 +428,11 @@ describe('user-side groups enumeration', () => {
     expect(seen[1]).toEqual({});
   });
 
-  test('setLastVisited updates only the lastVisited field', async () => {
+  test('setLastVisited updates lastVisited under userPrefs/{uid}/perGroup/{gid}', async () => {
     update.mockResolvedValue();
     await setLastVisited('uid1', 'G1', 99999);
-    expect(update).toHaveBeenCalledWith('mock-ref', { lastVisited: 99999 });
-    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/groups/G1');
+    expect(update).toHaveBeenCalledWith('mock-ref', { 'perGroup/G1/lastVisited': 99999 });
+    expect(ref).toHaveBeenLastCalledWith({}, 'userPrefs/uid1');
   });
 });
 
@@ -781,5 +782,47 @@ describe('revocations mailbox', () => {
     onValue.mockImplementationOnce(() => () => {});
     watchRevocations('me', jest.fn());
     expect(ref).toHaveBeenCalledWith({}, 'revocations/me');
+  });
+});
+
+describe('presence subtree', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('setStatus writes under users/{uid}/presence', async () => {
+    update.mockResolvedValue();
+    await setStatus('me', 'available', 123);
+    expect(ref).toHaveBeenCalledWith({}, 'users/me/presence');
+    expect(update).toHaveBeenCalledWith('mock-ref', expect.objectContaining({ status: 'available', availableUntil: 123 }));
+  });
+
+  test('setStatusColor / setPaletteKey / touchLastSeen write under presence', async () => {
+    update.mockResolvedValue();
+    await setStatusColor('me', '#fff');
+    expect(ref).toHaveBeenCalledWith({}, 'users/me/presence');
+    jest.clearAllMocks(); update.mockResolvedValue();
+    await setPaletteKey('me', 'iris');
+    expect(ref).toHaveBeenCalledWith({}, 'users/me/presence');
+    jest.clearAllMocks(); update.mockResolvedValue();
+    await touchLastSeen('me');
+    expect(ref).toHaveBeenCalledWith({}, 'users/me/presence');
+  });
+
+  test('watchPresence subscribes to users/{uid}/presence and returns the subtree', () => {
+    let handler;
+    onValue.mockImplementationOnce((_r, cb) => { handler = cb; return () => {}; });
+    const got = jest.fn();
+    watchPresence('me', got);
+    expect(ref).toHaveBeenCalledWith({}, 'users/me/presence');
+    handler({ exists: () => true, val: () => ({ status: 'available' }) });
+    expect(got).toHaveBeenCalledWith({ status: 'available' });
+    handler({ exists: () => false, val: () => null });
+    expect(got).toHaveBeenCalledWith(null);
+  });
+
+  test('setLastVisited writes to userPrefs/{uid}/perGroup/{gid}/lastVisited', async () => {
+    update.mockResolvedValue();
+    await setLastVisited('me', 'G1', 99);
+    expect(ref).toHaveBeenCalledWith({}, 'userPrefs/me');
+    expect(update).toHaveBeenCalledWith('mock-ref', { 'perGroup/G1/lastVisited': 99 });
   });
 });
