@@ -36,7 +36,7 @@ jest.mock('../js/palettes.js', () => ({
 }));
 jest.mock('../js/db.js', () => ({
   lookupCode: jest.fn(),
-  watchStatus: jest.fn(),
+  watchPresence: jest.fn(),
   watchFollowers: jest.fn(),
   registerAsFollower: jest.fn(),
   unregisterAsFollower: jest.fn(),
@@ -146,7 +146,7 @@ jest.mock('../js/prefs.js', () => ({
   setPaletteState: jest.fn(),
 }));
 
-const { watchStatus, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations } = require('../js/db.js');
+const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations } = require('../js/db.js');
 const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, removeFollowing } = require('../js/store.js');
 const { getMadeCallCount, getAnsweredCallCount } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
@@ -192,7 +192,7 @@ function initAndCaptureFollowersCallback(myUserId = 'myUid', myCode = 'MYCODE') 
     followersCallback = cb;
     return jest.fn();
   });
-  watchStatus.mockReturnValue(jest.fn());
+  watchPresence.mockReturnValue(jest.fn());
   initList(myUserId, myCode);
   return (arr) => followersCallback(arr);
 }
@@ -204,7 +204,7 @@ function captureOwnCall(myUserId = 'myUid', myCode = 'MYCODE') {
   let ownCallCb;
   watchOwnCall.mockImplementation((_uid, cb) => { ownCallCb = cb; return jest.fn(); });
   watchFollowers.mockReturnValue(jest.fn());
-  watchStatus.mockReturnValue(jest.fn());
+  watchPresence.mockReturnValue(jest.fn());
   initList(myUserId, myCode);
   return (call) => ownCallCb(call);
 }
@@ -470,7 +470,7 @@ describe('confirm dialog', () => {
 
 describe('subscribeToFollowee — code-change sync', () => {
   let watchFollowersCallback;
-  let watchStatusCallback;
+  let watchPresenceCallback;
 
   beforeEach(() => {
     setupDom();
@@ -480,8 +480,8 @@ describe('subscribeToFollowee — code-change sync', () => {
       watchFollowersCallback = cb;
       return jest.fn();
     });
-    watchStatus.mockImplementation((_userId, cb) => {
-      watchStatusCallback = cb;
+    watchPresence.mockImplementation((_userId, cb) => {
+      watchPresenceCallback = cb;
       return jest.fn();
     });
 
@@ -496,23 +496,23 @@ describe('subscribeToFollowee — code-change sync', () => {
   });
 
   test('calls updateFollowingCode when userData.code differs from entry.code', () => {
-    watchStatusCallback({ status: 'unavailable', code: 'NEW456' });
+    watchPresenceCallback({ status: 'unavailable', code: 'NEW456' });
     expect(updateFollowingCode).toHaveBeenCalledWith('u1', 'NEW456');
   });
 
   test('does not call updateFollowingCode when userData.code matches entry.code', () => {
-    watchStatusCallback({ status: 'unavailable', code: 'OLD123' });
+    watchPresenceCallback({ status: 'unavailable', code: 'OLD123' });
     expect(updateFollowingCode).not.toHaveBeenCalled();
   });
 
   test('does not call updateFollowingCode when userData.code is absent', () => {
-    watchStatusCallback({ status: 'unavailable' });
+    watchPresenceCallback({ status: 'unavailable' });
     expect(updateFollowingCode).not.toHaveBeenCalled();
   });
 
   test('updates entry.code in place so a second identical callback does not trigger another sync', () => {
-    watchStatusCallback({ status: 'unavailable', code: 'NEW456' });
-    watchStatusCallback({ status: 'unavailable', code: 'NEW456' });
+    watchPresenceCallback({ status: 'unavailable', code: 'NEW456' });
+    watchPresenceCallback({ status: 'unavailable', code: 'NEW456' });
     expect(updateFollowingCode).toHaveBeenCalledTimes(1);
   });
 });
@@ -521,7 +521,7 @@ describe('subscribeToFollowee — code-change sync', () => {
 
 describe('updateFolloweeRow: palette-aware dot and status text', () => {
   let watchFollowersCallback;
-  let watchStatusCallback;
+  let watchPresenceCallback;
 
   beforeEach(() => {
     setupDom();
@@ -531,8 +531,8 @@ describe('updateFolloweeRow: palette-aware dot and status text', () => {
       watchFollowersCallback = cb;
       return jest.fn();
     });
-    watchStatus.mockImplementation((_userId, cb) => {
-      watchStatusCallback = cb;
+    watchPresence.mockImplementation((_userId, cb) => {
+      watchPresenceCallback = cb;
       return jest.fn();
     });
     getFollowing.mockReturnValue([
@@ -543,36 +543,36 @@ describe('updateFolloweeRow: palette-aware dot and status text', () => {
   });
 
   test('available dot has inline background matching statusColor', () => {
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
     expect(dot.style.background).toBe('rgb(168, 85, 247)');
   });
 
   test('available dot has inline boxShadow derived from statusColor', () => {
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#818cf8' });
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#818cf8' });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
     expect(dot.style.boxShadow).toContain('rgba(129,140,248,0.4)');
   });
 
   test('unavailable dot has inline styles cleared', () => {
     // First set available with a color
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#818cf8' });
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#818cf8' });
     // Then go unavailable
-    watchStatusCallback({ status: 'unavailable', statusColor: '#818cf8' });
+    watchPresenceCallback({ status: 'unavailable', statusColor: '#818cf8' });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
     expect(dot.style.background).toBe('');
     expect(dot.style.boxShadow).toBe('');
   });
 
   test('available status text has inline color matching statusColor', () => {
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
     const statusEl = document.querySelector('[data-user-id="u1"] .person-status');
     const span = statusEl.querySelector('.status-available');
     expect(span.style.color).toBe('rgb(168, 85, 247)');
   });
 
   test('falls back to green (#22c55e) when statusColor absent', () => {
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000 });
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000 });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
     expect(dot.style.background).toBe('rgb(34, 197, 94)');
   });
@@ -591,23 +591,23 @@ describe('palette card styling', () => {
     setupDom();
     getFollowing.mockReturnValue([{ userId: 'user1', code: 'ABC123', label: 'Jordan' }]);
 
-    let watchStatusCallback;
+    let watchPresenceCallback;
     let watchFollowersCallback;
 
     watchFollowers.mockImplementation((_userId, cb) => {
       watchFollowersCallback = cb;
       return jest.fn();
     });
-    watchStatus.mockImplementation((_uid, cb) => {
-      watchStatusCallback = cb;
+    watchPresence.mockImplementation((_uid, cb) => {
+      watchPresenceCallback = cb;
       return jest.fn();
     });
 
     initList('myUid', 'MYCODE');
     watchFollowersCallback([]);     // no followers — 'Jordan' appears in Following section
 
-    // Trigger watchStatus with palette data
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, paletteKey });
+    // Trigger watchPresence with palette data
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, paletteKey });
     return document.querySelector('[data-user-id="user1"]');
   }
 
@@ -675,14 +675,14 @@ describe('palette card styling', () => {
   test('unavailable card with known paletteKey gets transparent borderLeftColor', () => {
     setupDom();
     getFollowing.mockReturnValue([{ userId: 'user1', code: 'ABC123', label: 'Jordan' }]);
-    let watchStatusCallback;
+    let watchPresenceCallback;
     let watchFollowersCallback;
     watchFollowers.mockImplementation((_userId, cb) => { watchFollowersCallback = cb; return jest.fn(); });
-    watchStatus.mockImplementation((_uid, cb) => { watchStatusCallback = cb; return jest.fn(); });
+    watchPresence.mockImplementation((_uid, cb) => { watchPresenceCallback = cb; return jest.fn(); });
     initList('myUid', 'MYCODE');
     watchFollowersCallback([]);
     getPaletteByKey.mockReturnValue(OCEAN_PALETTE);
-    watchStatusCallback({ status: 'unavailable', paletteKey: 'ocean' });
+    watchPresenceCallback({ status: 'unavailable', paletteKey: 'ocean' });
     const li = document.querySelector('[data-user-id="user1"]');
     // Unavailable: all palette card styles cleared — default CSS applies
     expect(li.style.background).toBe('');
@@ -693,20 +693,20 @@ describe('palette card styling', () => {
 // --- subscribeToFollowee: field-change guard ---
 // Note: the old "skip-if-only-knocks-changed" guard in subscribeToFollowee was
 // deleted when knocks moved out of users/{uid} into the top-level knocks/
-// mailbox (knocks writes no longer trigger the watchStatus onValue tick).
+// mailbox (knocks writes no longer trigger the watchPresence onValue tick).
 // The test below was renamed to reflect the new behavior: updateFolloweeRow IS
 // called on every status tick regardless of whether a knocks key is present,
 // but since the same data produces the same DOM the dot class is stable.
 
 describe('subscribeToFollowee: field-change guard', () => {
-  let fireStatus; // fn(userData) → triggers watchStatus callback
+  let fireStatus; // fn(userData) → triggers watchPresence callback
 
   function setupMutual(userId = 'u1') {
     setupDom();
     jest.clearAllMocks();
     getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
     let statusCallback;
-    watchStatus.mockImplementation((_uid, cb) => {
+    watchPresence.mockImplementation((_uid, cb) => {
       statusCallback = cb;
       return jest.fn();
     });
@@ -764,7 +764,7 @@ describe('knock click handler on mutual rows', () => {
     setupDom();
     jest.clearAllMocks();
     getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     watchFollowers.mockImplementation((_uid, cb) => {
       cb([{ userId, code: 'ABC123' }]);
       return jest.fn();
@@ -1238,7 +1238,7 @@ describe('call mode: sortFollowees pins callee to top', () => {
       { userId: 'bob',   code: 'BBB222', label: 'Bob' },
       { userId: 'carol', code: 'CCC333', label: 'Carol' },
     ]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
     fire([
       { userId: 'alice', code: 'AAA111' },
@@ -1274,7 +1274,7 @@ describe('call mode: swipe gesture', () => {
 
   test('right-swipe past 40% on a mutual card calls startCall', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
     fire([{ userId: 'alice', code: 'AAA111' }]);
 
@@ -1290,7 +1290,7 @@ describe('call mode: swipe gesture', () => {
 
   test('left-swipe on caller-side .call-mode card ends the call', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
-    watchStatus.mockImplementationOnce((_uid, cb) => {
+    watchPresence.mockImplementationOnce((_uid, cb) => {
       cb({ status: 'unavailable', statusColor: '#22c55e' });
       return jest.fn();
     });
@@ -1314,7 +1314,7 @@ describe('call mode: swipe gesture', () => {
 
   test('left-swipe on receiver-side .call-mode card ends the call', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
-    watchStatus.mockImplementationOnce((_uid, cb) => {
+    watchPresence.mockImplementationOnce((_uid, cb) => {
       cb({ status: 'unavailable', statusColor: '#22c55e' });
       return jest.fn();
     });
@@ -1336,7 +1336,7 @@ describe('call mode: swipe gesture', () => {
 
   test('short right-swipe (< 40%) does nothing', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
     fire([{ userId: 'alice', code: 'AAA111' }]);
 
@@ -1352,7 +1352,7 @@ describe('call mode: swipe gesture', () => {
 
   test('mostly-vertical movement does not trigger swipe', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
     fire([{ userId: 'alice', code: 'AAA111' }]);
 
@@ -1390,7 +1390,7 @@ describe('call mode: reEnterCallMode', () => {
     // Set up alice as a mutual with cached status data so updateFolloweeRow fires on re-render
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
     let aliceStatusCallback;
-    watchStatus.mockImplementationOnce((_uid, cb) => {
+    watchPresence.mockImplementationOnce((_uid, cb) => {
       aliceStatusCallback = cb;
       return jest.fn();
     });
@@ -1412,7 +1412,7 @@ describe('call mode: reEnterCallMode', () => {
     // Set up alice as a mutual with cached status data so updateFolloweeRow fires on re-render
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
     let aliceStatusCallback;
-    watchStatus.mockImplementationOnce((_uid, cb) => {
+    watchPresence.mockImplementationOnce((_uid, cb) => {
       aliceStatusCallback = cb;
       return jest.fn();
     });
@@ -1462,9 +1462,9 @@ function setupMutualAndFireStatus(userId, userData, myUserId = 'myUid') {
   getFollowing.mockReturnValue([{ userId, code: 'XY9K2M', label: 'Alice' }]);
   const fire = initAndCaptureFollowersCallback(myUserId);
   fire([{ userId, code: 'XY9K2M' }]);  // mutual
-  // Populate lastUserData by firing a watchStatus callback
-  const watchStatusCb = watchStatus.mock.calls.find(c => c[0] === userId)?.[1];
-  if (watchStatusCb) watchStatusCb(userData);
+  // Populate lastUserData by firing a watchPresence callback
+  const watchPresenceCb = watchPresence.mock.calls.find(c => c[0] === userId)?.[1];
+  if (watchPresenceCb) watchPresenceCb(userData);
   return document.querySelector(`[data-user-id="${userId}"]`);
 }
 
@@ -1635,7 +1635,7 @@ describe('long press handler', () => {
     jest.useFakeTimers();
     let cb;
     let statusCb;
-    const { watchFollowers: wf3, watchStatus: ws3 } = require('../js/db.js');
+    const { watchFollowers: wf3, watchPresence: ws3 } = require('../js/db.js');
     wf3.mockImplementation((_uid, fn) => { cb = fn; return jest.fn(); });
     ws3.mockImplementation((_uid, fn) => { statusCb = fn; return jest.fn(); });
     const { getFollowing: gf3 } = require('../js/store.js');
@@ -1663,7 +1663,7 @@ describe('long press handler', () => {
     setupDom();
     jest.useFakeTimers();
     let cb;
-    const { watchFollowers: wf, watchStatus: ws } = require('../js/db.js');
+    const { watchFollowers: wf, watchPresence: ws } = require('../js/db.js');
     wf.mockImplementation((_uid, fn) => { cb = fn; return jest.fn(); });
     ws.mockReturnValue(jest.fn());
     const { getFollowing: gf } = require('../js/store.js');
@@ -1791,7 +1791,7 @@ describe('tool drawer on contact rows', () => {
       return b;
     });
     getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     watchFollowers.mockImplementation((_uid, cb) => { cb([{ userId, code: 'ABC123' }]); return jest.fn(); });
     initList('myUid', 'MYCODE');
     return document.querySelector(`[data-user-id="${userId}"]`);
@@ -1827,7 +1827,7 @@ describe('tool drawer on contact rows', () => {
       return b;
     });
     getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     // No followers → not mutual (Following-only row).
     watchFollowers.mockImplementation((_uid, cb) => { cb([]); return jest.fn(); });
     initList('myUid', 'MYCODE');
@@ -1865,7 +1865,7 @@ describe('tool drawer on contact rows', () => {
       return b;
     });
     getFollowing.mockReturnValue([{ userId: 'alex', code: 'ABC123', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
     // Deliver followers so renderList renders the mutual row.
     fire([{ userId: 'alex', code: 'ABC123' }]);
@@ -1901,7 +1901,7 @@ describe('syncFollowingFromServer event', () => {
     let followingCb;
     watchFollowing.mockImplementation((_uid, cb) => { followingCb = cb; return jest.fn(); });
     watchFollowers.mockImplementation(() => jest.fn());
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     initList('myUid', 'MYCODE');
     return (list) => followingCb(list);
   }

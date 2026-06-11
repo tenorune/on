@@ -1,5 +1,5 @@
 // js/ownStatus.js
-// Single owner of the own-user `users/{uid}` subscription. Before this, three
+// Single owner of the own-user `users/{uid}/presence` subscription. Before this, three
 // places opened watchStatus(self) — app.js (call-mode recovery + theme + own
 // card), groupNav (nav cards), groupContext (own row + override palette) — so
 // every status write, and every follower/social-graph write to the shared user
@@ -14,7 +14,7 @@
 // group-override theme on the SAME tick and must win. Do not reorder
 // registration or change the Set's insertion-ordered iteration.
 
-import { watchStatus } from './db.js';
+import { watchPresence } from './db.js';
 
 const NO_TICK = Symbol('no-tick'); // distinct from null (= user node absent)
 let _unsub = null;
@@ -24,7 +24,7 @@ const _subs = new Set();
 export function initOwnStatus(uid) {
   if (_unsub) _unsub();
   _last = NO_TICK;
-  _unsub = watchStatus(uid, (data) => {
+  _unsub = watchPresence(uid, (data) => {
     _last = data;
     // Snapshot before iterating: a consumer that (un)subscribes from within its
     // own tick handler must not be double-delivered (newly-added consumers get

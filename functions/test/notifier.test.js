@@ -39,7 +39,7 @@ describe('resolveName', () => {
     }});
     expect(await resolveName(deps, 'v', 't')).toBe('Bea');
 
-    const deps2 = makeDeps({ store: { 'users/t/code': 'cool-code' } });
+    const deps2 = makeDeps({ store: { 'users/t/presence/code': 'cool-code' } });
     expect(await resolveName(deps2, 'v', 't')).toBe('cool-code');
 
     const deps3 = makeDeps({ store: {} });
@@ -113,7 +113,7 @@ const FUTURE = 9_999_999_999; // >> now (1000)
 describe('handleAvailability (narrowed: availableUntil before/after + status read)', () => {
   test('on availableUntil null→future with available status, notifies opted-in followers and stamps cooldown', async () => {
     const deps = makeDeps({ store: {
-      'users/star/status': 'available',
+      'users/star/presence/status': 'available',
       'users/star/followers': { f1: 'code1', f2: 'code2' },
       'userPrefs/f1/notify/star': { availability: true },
       'userPrefs/f2/notify/star': { availability: false },
@@ -128,14 +128,14 @@ describe('handleAvailability (narrowed: availableUntil before/after + status rea
     expect(deps.update).toHaveBeenCalledWith('notifierState/availability', { star: 1000 });
   });
   test('no notify on re-up (availableUntil future→future)', async () => {
-    const deps = makeDeps({ store: { 'users/star/status': 'available' } });
+    const deps = makeDeps({ store: { 'users/star/presence/status': 'available' } });
     await handleAvailability(deps, 'star', FUTURE - 1, FUTURE);
     expect(deps.send).not.toHaveBeenCalled();
     expect(deps.update).not.toHaveBeenCalled();
   });
   test('debounce: skip if within cooldown of last fire', async () => {
     const deps = makeDeps({ store: {
-      'users/star/status': 'available',
+      'users/star/presence/status': 'available',
       'notifierState/availability/star': 999, // now=1000, cooldown 5min
     }});
     await handleAvailability(deps, 'star', null, FUTURE);
@@ -143,7 +143,7 @@ describe('handleAvailability (narrowed: availableUntil before/after + status rea
   });
   test('does NOT stamp the cooldown when nothing was delivered (no tokens)', async () => {
     const deps = makeDeps({ store: {
-      'users/star/status': 'available',
+      'users/star/presence/status': 'available',
       'users/star/followers': { f1: 'code1' },
       'userPrefs/f1/notify/star': { availability: true },
       // f1 has no pushTokens → nothing delivered
@@ -155,7 +155,7 @@ describe('handleAvailability (narrowed: availableUntil before/after + status rea
   });
   test('one follower send failure does not abort the fan-out; stamps on any success', async () => {
     const deps = makeDeps({ store: {
-      'users/star/status': 'available',
+      'users/star/presence/status': 'available',
       'users/star/followers': { f1: 'c1', f2: 'c2' },
       'userPrefs/f1/notify/star': { availability: true },
       'userPrefs/f2/notify/star': { availability: true },
@@ -178,7 +178,7 @@ describe('resolveGroupMemberName', () => {
     const deps1 = makeDeps({ store: { 'groups/g1/members/u/displayName': 'Bobby' } });
     expect(await resolveGroupMemberName(deps1, 'g1', 'u')).toBe('Bobby');
 
-    const deps2 = makeDeps({ store: { 'users/u/code': 'ABC123' } });
+    const deps2 = makeDeps({ store: { 'users/u/presence/code': 'ABC123' } });
     expect(await resolveGroupMemberName(deps2, 'g1', 'u')).toBe('ABC123');
 
     const deps3 = makeDeps({ store: {} });
@@ -267,8 +267,8 @@ describe('handleGroupOverrideChange', () => {
   });
   test('override turned OFF but primary is available → effective on → notifies', async () => {
     const deps = makeDeps({ store: store({
-      'users/m/status': 'available',
-      'users/m/availableUntil': FUTURE,
+      'users/m/presence/status': 'available',
+      'users/m/presence/availableUntil': FUTURE,
     }) });
     await handleGroupOverrideChange(deps, 'g1', 'm', UNAVAIL, { enabled: false });
     expect(deps.send).toHaveBeenCalledTimes(1);
@@ -278,8 +278,8 @@ describe('handleGroupOverrideChange', () => {
 describe('handleAvailability → group co-members (primary path)', () => {
   test('notifies co-members of override-OFF groups, skips override-ON groups', async () => {
     const deps = makeDeps({ store: {
-      'users/star/status': 'available',
-      'users/star/availableUntil': FUTURE,
+      'users/star/presence/status': 'available',
+      'users/star/presence/availableUntil': FUTURE,
       'users/star/followers': null,
       'users/star/groups': { gOff: true, gOn: true },
       // gOff: override disabled → group shows primary → notify
@@ -305,8 +305,8 @@ describe('handleAvailability → group co-members (primary path)', () => {
   });
   test('group fan-out runs even when the Direct cooldown is active', async () => {
     const deps = makeDeps({ store: {
-      'users/star/status': 'available',
-      'users/star/availableUntil': FUTURE,
+      'users/star/presence/status': 'available',
+      'users/star/presence/availableUntil': FUTURE,
       'users/star/groups': { gOff: true },
       'groups/gOff/members/star/statusOverride': null, // absent → treated as off
       'groups/gOff/name': 'OffGroup',
@@ -328,8 +328,8 @@ describe('handleAvailability → group co-members (primary path)', () => {
 describe('handleAvailability → one push per recipient (dedup)', () => {
   test('a follower who is also a co-member of two override-off groups gets ONE Direct push', async () => {
     const deps = makeDeps({ store: {
-      'users/bob/status': 'available',
-      'users/bob/availableUntil': FUTURE,
+      'users/bob/presence/status': 'available',
+      'users/bob/presence/availableUntil': FUTURE,
       'users/bob/followers': { ann: 'codeAnn' },
       'userPrefs/ann/notify/bob': { availability: true },
       'userPrefs/ann/following/bob': { label: 'Bobby' },
@@ -355,8 +355,8 @@ describe('handleAvailability → one push per recipient (dedup)', () => {
 
   test('a co-member of two override-off groups (not a follower) gets ONE group push (first group wins)', async () => {
     const deps = makeDeps({ store: {
-      'users/bob/status': 'available',
-      'users/bob/availableUntil': FUTURE,
+      'users/bob/presence/status': 'available',
+      'users/bob/presence/availableUntil': FUTURE,
       'users/bob/followers': null,
       'userPrefs/ann/notify/bob': { availability: true },
       'userPrefs/ann/pushTokens': { tokAnn: {} },
@@ -380,8 +380,8 @@ describe('handleAvailability → one push per recipient (dedup)', () => {
 
   test('Direct owns a follower even when the Direct cooldown suppresses the send (no group double)', async () => {
     const deps = makeDeps({ store: {
-      'users/bob/status': 'available',
-      'users/bob/availableUntil': FUTURE,
+      'users/bob/presence/status': 'available',
+      'users/bob/presence/availableUntil': FUTURE,
       'users/bob/followers': { ann: 'codeAnn' },
       'userPrefs/ann/notify/bob': { availability: true },
       'userPrefs/ann/pushTokens': { tokAnn: {} },

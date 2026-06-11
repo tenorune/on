@@ -487,7 +487,7 @@ export function initSwatches(userId) {
 }
 
 // Reconcile local paletteState with what the server has. Used by the
-// watchStatus callback in app.js so a status color or palette change made
+// own-status (presence) subscription in app.js so a status color or palette change made
 // on another device updates this device's picker selection as well.
 //
 // Resolution:

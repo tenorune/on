@@ -3,14 +3,14 @@ let db, initOwnStatus, subscribeOwnStatus;
 
 beforeEach(() => {
   jest.resetModules();
-  jest.doMock('../js/db.js', () => ({ watchStatus: jest.fn(() => () => {}) }));
+  jest.doMock('../js/db.js', () => ({ watchPresence: jest.fn(() => () => {}) }));
   db = require('../js/db.js');
   ({ initOwnStatus, subscribeOwnStatus } = require('../js/ownStatus.js'));
 });
 
 function captureWatch() {
   let cb;
-  db.watchStatus.mockImplementation((uid, fn) => { cb = fn; return jest.fn(); });
+  db.watchPresence.mockImplementation((uid, fn) => { cb = fn; return jest.fn(); });
   return () => cb;
 }
 
@@ -20,8 +20,8 @@ test('initOwnStatus opens exactly one watchStatus regardless of subscriber count
   subscribeOwnStatus(jest.fn());
   subscribeOwnStatus(jest.fn());
   subscribeOwnStatus(jest.fn());
-  expect(db.watchStatus).toHaveBeenCalledTimes(1);
-  expect(db.watchStatus).toHaveBeenCalledWith('me', expect.any(Function));
+  expect(db.watchPresence).toHaveBeenCalledTimes(1);
+  expect(db.watchPresence).toHaveBeenCalledWith('me', expect.any(Function));
 });
 
 test('a tick fans out to every subscriber in registration order', () => {
@@ -73,11 +73,11 @@ test('unsubscribe stops further delivery', () => {
 
 test('re-init tears down the previous watch and clears replay', () => {
   const unsub1 = jest.fn();
-  db.watchStatus.mockImplementationOnce(() => unsub1);
+  db.watchPresence.mockImplementationOnce(() => unsub1);
   initOwnStatus('me');
   // second init
   let cb2;
-  db.watchStatus.mockImplementationOnce((uid, fn) => { cb2 = fn; return jest.fn(); });
+  db.watchPresence.mockImplementationOnce((uid, fn) => { cb2 = fn; return jest.fn(); });
   initOwnStatus('other');
   expect(unsub1).toHaveBeenCalled();
   // No stale replay from the first watch:

@@ -1,6 +1,6 @@
 // js/following.js
 import {
-  lookupCode, watchStatus, watchFollowers, registerAsFollower, unregisterAsFollower,
+  lookupCode, watchPresence, watchFollowers, registerAsFollower, unregisterAsFollower,
   removeFollower, isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
   formatLastSeen, startCall, answerCall, endCall, watchOwnCall, setStatusColor,
   watchFollowing, setFollowingEntry, removeFollowingEntry, watchRevocations,
@@ -667,7 +667,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
             li.classList.remove('call-mode');
             li.style.removeProperty('--call-color-rgb');
             _incomingCall = null;
-            endCall(myUserIdRef, entry.userId).catch(() => {});
+            endCall(myUserId, entry.userId).catch(() => {});
           }
         }
       }
@@ -815,7 +815,7 @@ function syncFollowingFromServer(myUserId, serverFollowing) {
 }
 
 function subscribeToFollowee(entry, myUserId) {
-  const unsub = watchStatus(entry.userId, (userData) => {
+  const unsub = watchPresence(entry.userId, (userData) => {
     if (!userData) return;
 
     if (userData.status === 'available' && isExpired(userData.availableUntil)) {
