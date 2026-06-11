@@ -37,7 +37,7 @@ jest.mock('../js/groups.js', () => ({
 const db = require('../js/db.js');
 const store = require('../js/store.js');
 const groups = require('../js/groups.js');
-const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, redeemPersonalInvite, attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInviteCreatorLabel } = require('../js/invites');
+const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, redeemPersonalInvite, attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, resolveInviteCreatorLabel } = require('../js/invites');
 
 describe('generateInviteToken', () => {
   test('returns a 22-char URL-safe base64 string', () => {
@@ -320,6 +320,26 @@ describe('extractInviteTokenFromUrl', () => {
 
   test('returns null on a non-URL input', () => {
     expect(extractInviteTokenFromUrl('not a url')).toBeNull();
+  });
+});
+
+describe('extractInboxIntentFromUrl', () => {
+  test('true when ?inbox=1 is present (cold-start invite/follow-request deep-link)', () => {
+    expect(extractInboxIntentFromUrl('https://app.example/?inbox=1')).toBe(true);
+  });
+
+  test('false when ?inbox is absent', () => {
+    expect(extractInboxIntentFromUrl('https://app.example/')).toBe(false);
+    expect(extractInboxIntentFromUrl('https://app.example/?i=ABC123')).toBe(false);
+  });
+
+  test('false for any value other than 1 (only the deep-link writes inbox=1)', () => {
+    expect(extractInboxIntentFromUrl('https://app.example/?inbox=0')).toBe(false);
+    expect(extractInboxIntentFromUrl('https://app.example/?inbox=yes')).toBe(false);
+  });
+
+  test('false on a non-URL input', () => {
+    expect(extractInboxIntentFromUrl('not a url')).toBe(false);
   });
 });
 

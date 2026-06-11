@@ -165,6 +165,7 @@ jest.mock('../js/store.js', () => ({
 jest.mock('../js/invites.js', () => ({
   attemptRedeemFromUrl: jest.fn().mockResolvedValue(null),
   extractInviteTokenFromUrl: jest.fn().mockReturnValue(null),
+  extractInboxIntentFromUrl: jest.fn().mockReturnValue(false),
   resolveInvitePreview: jest.fn().mockResolvedValue(null),
 }));
 
@@ -326,5 +327,51 @@ describe('app.js boot-recovery: watchOwnCall callback', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(reEnterCallMode).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    document.body.innerHTML = '';
+  });
+
+  async function bootApp() {
+    require('../js/app');
+    // Drain enough microtasks/macrotasks for main()'s awaits (ensureIdentity,
+    // getUserPrefs, readGroup) to settle and reach the inbox-open near the end.
+    for (let i = 0; i < 6; i += 1) await new Promise((r) => setTimeout(r, 0));
+  }
+
+  test('lands in Direct and opens the Inbox — does NOT restore the last group context', async () => {
+    const invites = require('../js/invites.js');
+    const db = require('../js/db.js');
+    const { navigateToGroup } = require('../js/groupNav.js');
+    const { openInboxModal } = require('../js/inbox.js');
+
+    invites.extractInboxIntentFromUrl.mockReturnValue(true);
+    db.getUserPrefs.mockResolvedValue({ currentContext: 'group:fam' }); // last context was a group
+    db.readGroup.mockResolvedValue({ name: 'Fam' }); // would otherwise drive navigateToGroup
+
+    await bootApp();
+
+    expect(openInboxModal).toHaveBeenCalled();
+    expect(navigateToGroup).not.toHaveBeenCalled(); // restore skipped — we stay in Direct
+  });
+
+  test('without the deep-link, a returning user still restores their last group context', async () => {
+    const invites = require('../js/invites.js');
+    const db = require('../js/db.js');
+    const { navigateToGroup } = require('../js/groupNav.js');
+    const { openInboxModal } = require('../js/inbox.js');
+
+    invites.extractInboxIntentFromUrl.mockReturnValue(false);
+    db.getUserPrefs.mockResolvedValue({ currentContext: 'group:fam' });
+    db.readGroup.mockResolvedValue({ name: 'Fam' });
+
+    await bootApp();
+
+    expect(navigateToGroup).toHaveBeenCalledWith('fam');
+    expect(openInboxModal).not.toHaveBeenCalled();
   });
 });

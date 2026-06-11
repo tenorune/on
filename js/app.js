@@ -11,7 +11,7 @@ import { getMessagingIfSupported } from './firebase-config.js';
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
 import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
-import { attemptRedeemFromUrl, extractInviteTokenFromUrl, resolveInvitePreview } from './invites.js';
+import { attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, resolveInvitePreview } from './invites.js';
 import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext } from './prefs.js';
 import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
@@ -344,6 +344,18 @@ function cleanInviteParamFromUrl() {
 
 async function main() {
   const pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
+  // Cold tap on an invite / follow-request notification: the SW opened us at
+  // /?inbox=1 (sw.template.js coldStartUrl). Land in Direct and open the Inbox
+  // rather than restoring the user's last (possibly group) context, where the
+  // inbox isn't reachable. Strip the param so a refresh doesn't reopen it.
+  const wantInbox = extractInboxIntentFromUrl(window.location.href);
+  if (wantInbox) {
+    try {
+      const clean = new URL(window.location.href);
+      clean.searchParams.delete('inbox');
+      window.history.replaceState({}, document.title, clean.toString());
+    } catch { /* no-op on unusual URLs */ }
+  }
   const { identity, isNew } = await ensureIdentity(pendingInviteToken);
   const { userId, code } = identity;
 
@@ -447,7 +459,7 @@ async function main() {
       if (directEl) directEl.classList.remove('hidden');
       if (navRowEl) navRowEl.classList.remove('hidden');
     }
-  } else if (!isNew) {
+  } else if (!isNew && !wantInbox) {
     // Returning user (no pending invite). Pre-resolve the user's last
     // currentContext from Firebase BEFORE any visible paint. Without
     // this, initNav defaults _state to 'direct', the end-of-main reveal
@@ -582,6 +594,11 @@ async function main() {
     const navRowEl = document.getElementById('nav-row');
     if (navRowEl) navRowEl.classList.remove('hidden');
   }
+
+  // Cold-start deep-link from an invite / follow-request tap: now that the
+  // inbox watchers are live (initInbox above) and Direct is revealed, open the
+  // Inbox modal over it. Closing the modal leaves the user in Direct.
+  if (wantInbox) openInboxModal();
 
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
 

@@ -19,6 +19,10 @@ function pushEvent(data) {
   return { data: { json: () => data }, waitUntil: (p) => p };
 }
 
+function clickEvent(data) {
+  return { notification: { close: jest.fn(), data }, waitUntil: (p) => p };
+}
+
 test('push with no focused client shows a notification', async () => {
   const { handlers, showNotification } = loadSwWithMockSelf();
   await handlers.push(pushEvent({ type: 'knock', title: 'Bea knocked', body: '', targetUid: 'bea' }));
@@ -39,4 +43,41 @@ test('push is suppressed when a focused client exists (foreground de-dupe)', asy
   matchAll.mockResolvedValue([{ focused: true, visibilityState: 'visible' }]);
   await handlers.push(pushEvent({ type: 'knock', title: 'Bea knocked', body: '', targetUid: 'bea' }));
   expect(showNotification).not.toHaveBeenCalled();
+});
+
+describe('notificationclick cold-start routing (no live client → openWindow)', () => {
+  test('invite opens the Inbox deep-link', async () => {
+    const { handlers, mockSelf } = loadSwWithMockSelf();
+    await handlers.notificationclick(clickEvent({ type: 'invite', targetUid: 'bea' }));
+    expect(mockSelf.clients.openWindow).toHaveBeenCalledWith('/?inbox=1');
+  });
+
+  test('followRequest opens the Inbox deep-link', async () => {
+    const { handlers, mockSelf } = loadSwWithMockSelf();
+    await handlers.notificationclick(clickEvent({ type: 'followRequest', targetUid: 'bea' }));
+    expect(mockSelf.clients.openWindow).toHaveBeenCalledWith('/?inbox=1');
+  });
+
+  test('group knock opens the group deep-link', async () => {
+    const { handlers, mockSelf } = loadSwWithMockSelf();
+    await handlers.notificationclick(clickEvent({ type: 'knock', targetUid: 'bea', contextGroupId: 'fam' }));
+    expect(mockSelf.clients.openWindow).toHaveBeenCalledWith('/?group=fam');
+  });
+
+  test('Direct knock opens the root', async () => {
+    const { handlers, mockSelf } = loadSwWithMockSelf();
+    await handlers.notificationclick(clickEvent({ type: 'knock', targetUid: 'bea' }));
+    expect(mockSelf.clients.openWindow).toHaveBeenCalledWith('/');
+  });
+});
+
+test('notificationclick warm path posts to a live client and focuses it (no window opened)', async () => {
+  const { handlers, mockSelf, matchAll } = loadSwWithMockSelf();
+  const focus = jest.fn();
+  const postMessage = jest.fn();
+  matchAll.mockResolvedValue([{ focus, postMessage }]);
+  await handlers.notificationclick(clickEvent({ type: 'invite', targetUid: 'bea' }));
+  expect(postMessage).toHaveBeenCalledWith({ kind: 'notification-click', data: { type: 'invite', targetUid: 'bea' } });
+  expect(focus).toHaveBeenCalled();
+  expect(mockSelf.clients.openWindow).not.toHaveBeenCalled();
 });
