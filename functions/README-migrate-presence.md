@@ -15,6 +15,11 @@ environment**, in this order.
    ```
    (Idempotent — safe to re-run. Reports how many users were migrated.)
 
+   The dev RTDB lives in `europe-west1`, so the script targets
+   `https://<project>-default-rtdb.europe-west1.firebasedatabase.app` by
+   default. For an instance in another region pass `--region <region>` (or
+   `--database-url <url>` to point at it explicitly).
+
 2. **Deploy** functions + hosting + rules together (the `dev` merge does this via
    CI; or `npm run deploy:dev`).
 

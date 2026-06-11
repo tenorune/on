@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // One-shot, idempotent migration to the presence schema split.
 // Usage: cd functions && node migrate-presence.js --project <firebase-project-id>
+//        (dev RTDB is in europe-west1, the default; pass --region or
+//         --database-url for an instance in another region.)
 // Lives in functions/ so Node resolves firebase-admin from functions/node_modules
 // and parses this file as ESM (functions/package.json has "type":"module").
 // Auth: set GOOGLE_APPLICATION_CREDENTIALS_JSON to the service-account JSON for
@@ -9,17 +11,32 @@
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
 
-const projectArg = process.argv.indexOf('--project');
-const projectId = projectArg >= 0 ? process.argv[projectArg + 1] : process.env.GCLOUD_PROJECT;
+function argVal(name) {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+const projectId = argVal('--project') || process.env.GCLOUD_PROJECT;
 if (!projectId) { console.error('Pass --project <firebase-project-id>'); process.exit(1); }
 
 const saJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
 if (!saJson) { console.error('Set GOOGLE_APPLICATION_CREDENTIALS_JSON to the service-account JSON'); process.exit(1); }
 
+// RTDB instances outside us-central1 use a region-namespaced host. The dev DB
+// lives in europe-west1 (matches FUNCTIONS_REGION). Pass --database-url to point
+// at any other instance/region explicitly; otherwise we build the regional host
+// from --region / FUNCTIONS_REGION (default europe-west1).
+const region = argVal('--region') || process.env.FUNCTIONS_REGION || 'europe-west1';
+const databaseURL = argVal('--database-url') || process.env.DATABASE_URL
+  || (region === 'us-central1'
+    ? `https://${projectId}-default-rtdb.firebaseio.com`
+    : `https://${projectId}-default-rtdb.${region}.firebasedatabase.app`);
+
 initializeApp({
   credential: cert(JSON.parse(saJson)),
-  databaseURL: `https://${projectId}-default-rtdb.firebaseio.com`,
+  databaseURL,
 });
+console.log(`using databaseURL ${databaseURL}`);
 const db = getDatabase();
 
 const PRESENCE_FIELDS = ['status', 'availableUntil', 'statusColor', 'paletteKey', 'code', 'lastSeen'];
