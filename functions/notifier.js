@@ -20,7 +20,7 @@ export async function sendToUser(deps, uid, message, data) {
 export async function resolveName(deps, viewerUid, targetUid) {
   const follow = await deps.getVal(`userPrefs/${viewerUid}/following/${targetUid}`);
   if (follow && follow.label) return follow.label;
-  const code = await deps.getVal(`users/${targetUid}/code`);
+  const code = await deps.getVal(`users/${targetUid}/presence/code`);
   if (code) return code;
   return 'Someone';
 }
@@ -28,7 +28,7 @@ export async function resolveName(deps, viewerUid, targetUid) {
 export async function resolveGroupMemberName(deps, groupId, uid) {
   const displayName = await deps.getVal(`groups/${groupId}/members/${uid}/displayName`);
   if (displayName) return displayName;
-  const code = await deps.getVal(`users/${uid}/code`);
+  const code = await deps.getVal(`users/${uid}/presence/code`);
   if (code) return code;
   return 'Someone';
 }
@@ -118,8 +118,8 @@ export async function notifyGroupAvailability(deps, groupId, memberUid, now, alr
 export async function handleGroupOverrideChange(deps, groupId, memberUid, before, after) {
   if (before == null) return;
   const now = deps.now();
-  const status = await deps.getVal(`users/${memberUid}/status`);
-  const primaryAU = await deps.getVal(`users/${memberUid}/availableUntil`);
+  const status = await deps.getVal(`users/${memberUid}/presence/status`);
+  const primaryAU = await deps.getVal(`users/${memberUid}/presence/availableUntil`);
   const wasOn = effectiveAvailable(before, status, primaryAU, now);
   const isOn = effectiveAvailable(after, status, primaryAU, now);
   if (isOn && !wasOn) await notifyGroupAvailability(deps, groupId, memberUid, now);
@@ -135,7 +135,7 @@ export async function handleCall(deps, calleeId, callerId) {
 // Triggered on a write to users/{uid}/availableUntil (before/after are that value).
 export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   const now = deps.now();
-  const status = await deps.getVal(`users/${uid}/status`);
+  const status = await deps.getVal(`users/${uid}/presence/status`);
   if (!availabilityTurnedOn(beforeAU, afterAU, status, now)) return;
 
   // One push per recipient for this availability event. iOS web push doesn't
