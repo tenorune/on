@@ -606,12 +606,18 @@ export async function setPaletteKey(userId, paletteKey) {
 }
 
 // ── Call signaling (symmetric mailboxes) ─────────────────────────────────────
-export async function startCall(callerId, calleeId) {
+export async function startCall(callerId, calleeId, clearUid) {
   const ts = Date.now();
-  await update(ref(db), {
+  const updates = {
     [`calls/${callerId}`]: { to: calleeId, ts },
     [`calls/${calleeId}`]: { from: callerId, ts },
-  });
+  };
+  // Optionally drop a prior ringer's mailbox (caller chose a different call
+  // while being rung) in the SAME write, so calls/{caller} never blinks null.
+  if (clearUid && clearUid !== callerId && clearUid !== calleeId) {
+    updates[`calls/${clearUid}`] = null;
+  }
+  await update(ref(db), updates);
 }
 export async function answerCall(calleeId, callerId) {
   await update(ref(db), {

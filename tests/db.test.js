@@ -183,6 +183,22 @@ describe('call mailboxes', () => {
     watchOwnCall('me', jest.fn());
     expect(ref).toHaveBeenCalledWith({}, 'calls/me');
   });
+
+  test('startCall with a clearUid nulls the prior ringer mailbox in the same update', async () => {
+    update.mockResolvedValue();
+    await startCall('me', 'C', 'B');
+    const arg = update.mock.calls[0][1];
+    expect(arg['calls/me']).toEqual(expect.objectContaining({ to: 'C' }));
+    expect(arg['calls/C']).toEqual(expect.objectContaining({ from: 'me' }));
+    expect(arg['calls/B']).toBeNull();
+  });
+
+  test('startCall ignores a clearUid equal to caller or callee', async () => {
+    update.mockResolvedValue();
+    await startCall('me', 'C', 'me');
+    expect('calls/me' in update.mock.calls[0][1]).toBe(true);
+    expect(update.mock.calls[0][1]['calls/me']).toEqual(expect.objectContaining({ to: 'C' })); // not nulled
+  });
 });
 
 describe('getUser', () => {
