@@ -481,16 +481,22 @@ export async function mergeUserPrefs(userId, fields) {
 
 export async function registerAsFollower(targetUserId, myUserId, myCode) {
   // Clear any prior revocation BEFORE writing the followers entry — not in
-  // parallel. The receiving end's watchStatus tick can fire on either
-  // write independently; if the followers `set` echoes through before the
-  // revokedFollowers `remove` does, subscribeToFollowee's revoked-check
-  // fires the auto-unfollow on the freshly-established relationship and
-  // the new follow is silently undone (the sender then disappears from
-  // the receiver's Mutuals on the next render until a full page reload
-  // pulls the unrevoked state). Sequential remove → set ensures the
-  // revocation is gone by the time the followers update is observable.
-  await remove(ref(db, `users/${targetUserId}/revokedFollowers/${myUserId}`));
+  // parallel. The receiver's revocation watcher can fire on either write
+  // independently; if the followers set echoes before the revocation remove,
+  // the auto-unfollow fires on the freshly-established relationship and the new
+  // follow is silently undone. Sequential remove → set ensures the revocation
+  // is gone by the time the followers update is observable.
+  await remove(ref(db, `revocations/${myUserId}/${targetUserId}`));
   await set(ref(db, `users/${targetUserId}/followers/${myUserId}`), myCode);
+}
+
+// Subscribe to my own revocation mailbox: revocations/{me}/{revoker} = true
+// means revoker removed me as a follower. Returns unsubscribe.
+export function watchRevocations(myUserId, callback) {
+  const revRef = ref(db, `revocations/${myUserId}`);
+  return onValue(revRef, (snap) => {
+    callback(snap.exists() ? snap.val() : {});
+  });
 }
 
 // ── Following (own-side of the relationship) ─────────────────────────────────
@@ -522,15 +528,16 @@ export async function removeFollowingEntry(myUserId, followeeUserId) {
 }
 
 // Called when the follower wants to stop following targetUserId.
-// Only removes the followers entry — does NOT write to revokedFollowers.
+// Only removes the followers entry — does NOT write a revocations entry
+// (revocation is for the followee EVICTING a follower, not self-unfollow).
 export async function unregisterAsFollower(targetUserId, myUserId) {
   await remove(ref(db, `users/${targetUserId}/followers/${myUserId}`));
 }
 
-// Remove a follower and add them to revokedFollowers
+// Remove a follower and write to their revocations mailbox
 export async function removeFollower(myUserId, followerUserId) {
   await remove(ref(db, `users/${myUserId}/followers/${followerUserId}`));
-  await set(ref(db, `users/${myUserId}/revokedFollowers/${followerUserId}`), true);
+  await set(ref(db, `revocations/${followerUserId}/${myUserId}`), true);
 }
 
 // Write back expired status (idempotent)
@@ -598,14 +605,26 @@ export async function setPaletteKey(userId, paletteKey) {
   await update(ref(db, `users/${userId}`), { paletteKey: paletteKey ?? null });
 }
 
-export async function setCallState(callerId, calleeId) {
-  await update(ref(db, `users/${callerId}`), {
-    callState: { calleeId, since: Date.now() },
+// ── Call signaling (symmetric mailboxes) ─────────────────────────────────────
+export async function startCall(callerId, calleeId) {
+  const ts = Date.now();
+  await update(ref(db), {
+    [`calls/${callerId}`]: { to: calleeId, ts },
+    [`calls/${calleeId}`]: { from: callerId, ts },
   });
 }
-
-export async function clearCallState(callerId) {
-  await update(ref(db, `users/${callerId}`), { callState: null });
+export async function answerCall(calleeId, callerId) {
+  await update(ref(db), {
+    [`calls/${calleeId}/answered`]: true,
+    [`calls/${callerId}/answered`]: true,
+  });
+}
+export async function endCall(aUid, bUid) {
+  await update(ref(db), { [`calls/${aUid}`]: null, [`calls/${bUid}`]: null });
+}
+export function watchOwnCall(myUserId, callback) {
+  const callRef = ref(db, `calls/${myUserId}`);
+  return onValue(callRef, (snap) => { callback(snap.exists() ? snap.val() : null); });
 }
 
 // One-time read of a user's full document. Returns data object or null.
@@ -618,7 +637,7 @@ export async function getUser(userId) {
 // runTransaction: null → {count:1,ts}, count<5 → increment, count>=5 → abort.
 // opts.contextGroupId — optional group surface context carried with the knock.
 export async function writeKnock(recipientId, senderId, opts = {}) {
-  const knockRef = ref(db, `users/${recipientId}/knocks/${senderId}`);
+  const knockRef = ref(db, `knocks/${recipientId}/${senderId}`);
   await runTransaction(knockRef, (current) => {
     if (current === null) {
       const next = { count: 1, ts: Date.now() };
@@ -636,14 +655,14 @@ export async function writeKnock(recipientId, senderId, opts = {}) {
 // One-time read of all pending knocks for myUserId.
 // Returns Promise<DataSnapshot>. Caller checks snapshot.exists() and iterates snapshot.val().
 export function getKnocks(myUserId) {
-  return get(ref(db, `users/${myUserId}/knocks`));
+  return get(ref(db, `knocks/${myUserId}`));
 }
 
-// Attach onChildAdded listener on users/{myUserId}/knocks.
+// Attach onChildAdded listener on knocks/{myUserId}.
 // callback(senderId, { count, ts }) fires for each child added (including existing at attach time).
 // Returns unsubscribe function.
 export function watchKnocksAdded(myUserId, callback) {
-  const knocksRef = ref(db, `users/${myUserId}/knocks`);
+  const knocksRef = ref(db, `knocks/${myUserId}`);
   return onChildAdded(knocksRef, (snap) => {
     callback(snap.key, snap.val());
   });
@@ -651,7 +670,7 @@ export function watchKnocksAdded(myUserId, callback) {
 
 // Delete a single knock entry for a sender. Returns raw promise — caller handles errors.
 export function clearKnock(myUserId, senderId) {
-  return remove(ref(db, `users/${myUserId}/knocks/${senderId}`));
+  return remove(ref(db, `knocks/${myUserId}/${senderId}`));
 }
 
 // --- Canvas operations ---

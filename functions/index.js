@@ -48,17 +48,17 @@ function makeDeps() {
   };
 }
 
-export const onKnock = onValueCreated('/users/{recipientId}/knocks/{senderId}', (event) => {
+export const onKnock = onValueCreated('/knocks/{recipientId}/{senderId}', (event) => {
   return handleKnock(makeDeps(), event.params.recipientId, event.params.senderId, event.data.val());
 });
 
-export const onCall = onValueWritten('/users/{callerId}/callState', (event) => {
+export const onCall = onValueWritten('/calls/{uid}', (event) => {
   const after = event.data.after.val();
   const before = event.data.before.val();
-  // Only on a newly-started call (callState appears or changes callee).
-  if (!after || !after.calleeId) return null;
-  if (before && before.calleeId === after.calleeId) return null;
-  return handleCall(makeDeps(), event.params.callerId, after);
+  // Only notify the callee on a fresh unanswered ring (calls/{callee}.from set).
+  if (!after || !after.from || after.answered) return null;
+  if (before && before.from === after.from) return null;
+  return handleCall(makeDeps(), event.params.uid, after.from);
 });
 
 // Narrowed to the availability field so we're not invoked on every knock /

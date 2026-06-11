@@ -36,6 +36,24 @@
         ".write": true
       }
     },
+    "knocks": {
+      "$recipientUid": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "revocations": {
+      "$revokedUid": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "calls": {
+      "$uid": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "pendingInvites": {
       "$inviteeUid": {
         ".read": true,
