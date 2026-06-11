@@ -189,10 +189,6 @@ export async function setLastVisited(userId, groupId, ts) {
   await update(ref(db, `userPrefs/${userId}`), { [`perGroup/${groupId}/lastVisited`]: ts });
 }
 
-export async function setCurrentContext(userId, context) {
-  await set(ref(db, `users/${userId}/currentContext`), context);
-}
-
 // ── Groups: entity CRUD + meta subscription ───────────────────────────────────
 // groups/{groupId} root fields: name, ownerId, createdAt, (post-MVP: color, paletteKey).
 // Sub-collections: members/, invites/ — managed by separate helpers below.

@@ -9,7 +9,7 @@ const {
   watchUserInvites, readUserInvites,
   claimGroupId,
   writeUserGroupsEntry, removeUserGroupsEntry, readUserGroups, watchUserGroups,
-  setLastVisited, setCurrentContext,
+  setLastVisited,
   writeGroup, readGroup, renameGroup, deleteGroup, watchGroupMeta,
   writeMember, readMember, readMembers, removeMember, setMemberDisplayName, watchGroupMembers,
   writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions, watchGroupInvites,
@@ -433,23 +433,6 @@ describe('user-side groups enumeration', () => {
     await setLastVisited('uid1', 'G1', 99999);
     expect(update).toHaveBeenCalledWith('mock-ref', { 'perGroup/G1/lastVisited': 99999 });
     expect(ref).toHaveBeenLastCalledWith({}, 'userPrefs/uid1');
-  });
-});
-
-describe('currentContext sync', () => {
-  beforeEach(() => { jest.clearAllMocks(); });
-
-  test('setCurrentContext writes users/{uid}/currentContext', async () => {
-    set.mockResolvedValue();
-    await setCurrentContext('uid1', 'group:G1');
-    expect(set).toHaveBeenCalledWith('mock-ref', 'group:G1');
-    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/currentContext');
-  });
-
-  test('setCurrentContext can be set to direct', async () => {
-    set.mockResolvedValue();
-    await setCurrentContext('uid1', 'direct');
-    expect(set).toHaveBeenCalledWith('mock-ref', 'direct');
   });
 });
 
