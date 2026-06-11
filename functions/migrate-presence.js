@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // One-shot, idempotent migration to the presence schema split.
-// Usage: cd functions && node ../scripts/migrate-presence.js --project <firebase-project-id>
-// Must be run from the functions/ directory (firebase-admin lives there).
+// Usage: cd functions && node migrate-presence.js --project <firebase-project-id>
+// Lives in functions/ so Node resolves firebase-admin from functions/node_modules
+// and parses this file as ESM (functions/package.json has "type":"module").
 // Auth: set GOOGLE_APPLICATION_CREDENTIALS_JSON to the service-account JSON for
 // the target environment (the same SA used by CI deploys).
 // Run ONCE per environment, immediately BEFORE the functions+hosting+rules deploy.

@@ -1,15 +1,17 @@
 # Presence schema migration — deploy runbook
 
 One-shot, idempotent migration for the presence-schema-split. Run **once per
-environment**, in this order:
+environment**, in this order.
 
-> **Note:** `firebase-admin` is a dependency of `functions/`, not the repo root.
-> Run the migration script from the `functions/` directory so Node resolves it.
+> The script lives in `functions/` (not the repo root) because `firebase-admin`
+> is a `functions/` dependency and `functions/package.json` sets
+> `"type":"module"`. Run it from the `functions/` directory.
 
 1. **Migrate live data** (before deploying the new code):
    ```
+   cd functions
    export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat path/to/dev-service-account.json)"
-   cd functions && node ../scripts/migrate-presence.js --project <dev-project-id>
+   node migrate-presence.js --project <dev-project-id>
    ```
    (Idempotent — safe to re-run. Reports how many users were migrated.)
 
@@ -27,7 +29,9 @@ environment**, in this order:
    Verify in the Functions logs that each fires (send a knock, a call, and toggle
    availability) before considering the deploy done.
 
-4. **Bump `sw.js` `CACHE`** so installed PWA clients pick up the new client code.
+4. **`sw.js` `CACHE`** auto-bumps — its value is a content hash over
+   `dist/bundle.js` + the shell assets, so the build emits a new cache name
+   whenever the client JS changes. No manual edit needed.
 
 ## What the migration does (per user)
 - Copies `status`/`availableUntil`/`statusColor`/`paletteKey`/`code`/`lastSeen`
