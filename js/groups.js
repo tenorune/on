@@ -6,7 +6,6 @@ import {
   removeMember, removeUserGroupsEntry, deleteGroup as dbDeleteGroup,
   renameGroup as dbRenameGroup, setMemberDisplayName,
   readGroup, readMember, readMembers,
-  setLastVisited, setCurrentContext,
   watchUserGroups,
   setStatusOverride, mergeStatusOverride,
   readPendingInviteesForGroup, deletePendingInvite,

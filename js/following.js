@@ -667,7 +667,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
             li.classList.remove('call-mode');
             li.style.removeProperty('--call-color-rgb');
             _incomingCall = null;
-            endCall(myUserIdRef, entry.userId).catch(() => {});
+            endCall(myUserId, entry.userId).catch(() => {});
           }
         }
       }
