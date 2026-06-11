@@ -14,7 +14,8 @@ import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, resolveInvitePreview } from './invites.js';
 import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext } from './prefs.js';
 import { watchUserPrefs } from './db.js';
-import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
+import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, navigateToDirect, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
+import { routeNotificationClick } from './notifyRouting.js';
 import { initOwnStatus, subscribeOwnStatus } from './ownStatus.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector } from './groups.js';
@@ -520,15 +521,11 @@ async function main() {
       });
     });
     // Deep-link routing: the SW postMessages a clicked notification to the focused
-    // client (sw.js notificationclick). Route group notifications into that group.
+    // client (sw.js notificationclick). Invite/follow-request taps land in Direct
+    // then open the Inbox; group activity navigates into the group. See notifyRouting.js.
     navigator.serviceWorker?.addEventListener('message', (e) => {
       if (e.data?.kind !== 'notification-click') return;
-      // Invite pushes deep-link to the Inbox (the invitee isn't a member of the
-      // group yet, so group-context routing would be wrong for them).
-      if (e.data.data?.type === 'invite') { openInboxModal(); return; }
-      if (e.data.data?.type === 'followRequest') { openInboxModal(); return; }
-      const gid = e.data.data?.contextGroupId;
-      if (gid) navigateToGroup(gid);
+      routeNotificationClick(e.data.data || {}, { navigateToDirect, navigateToGroup, openInboxModal });
     });
   }
 
