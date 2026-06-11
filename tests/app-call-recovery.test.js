@@ -348,6 +348,7 @@ describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)'
     const db = require('../js/db.js');
     const { navigateToGroup } = require('../js/groupNav.js');
     const { openInboxModal } = require('../js/inbox.js');
+    const { setCurrentContext } = require('../js/prefs.js');
 
     invites.extractInboxIntentFromUrl.mockReturnValue(true);
     db.getUserPrefs.mockResolvedValue({ currentContext: 'group:fam' }); // last context was a group
@@ -357,6 +358,9 @@ describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)'
 
     expect(openInboxModal).toHaveBeenCalled();
     expect(navigateToGroup).not.toHaveBeenCalled(); // restore skipped — we stay in Direct
+    // Force-write 'direct' so the watchUserPrefs echo of the persisted
+    // 'group:fam' doesn't yank us back into the group after boot.
+    expect(setCurrentContext).toHaveBeenCalledWith('direct');
   });
 
   test('without the deep-link, a returning user still restores their last group context', async () => {
