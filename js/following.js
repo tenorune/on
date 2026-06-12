@@ -15,7 +15,7 @@ import {
   getPaletteState, setPaletteState,
   getFavorites,
 } from './prefs.js';
-import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
+import { escapeHtml, hexToRgb, safeCssColor, resolveDisplayName } from './utils.js';
 import { isLongpressHintEligible, isSwipeHintEligible } from './hints.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { createNotifyBell } from './notifyBell.js';
@@ -176,7 +176,7 @@ export function initList(myUserId, myCode) {
           ? (getPaletteByKey(peerData.paletteKey)?.theme?.surface || '#1e293b') : '#1e293b';
         const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
         const peerColor = peerData?.statusColor || '#22c55e';
-        enterCanvas(peerId, entry.label || entry.code, myUserId, myColor, peerColor, peerSurface, () => exitCallMode(myUserId))
+        enterCanvas(peerId, resolveDisplayName(entry), myUserId, myColor, peerColor, peerSurface, () => exitCallMode(myUserId))
           .catch((err) => console.error('enterCanvas (answered) failed:', err));
       }
       return;
@@ -236,7 +236,7 @@ export function initList(myUserId, myCode) {
     if (code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) { showError(errorEl, 'Code must be 6 letters and numbers.'); return; }
     if (code === myCode.toUpperCase()) { showError(errorEl, "That's your own code."); return; }
     const existing = getFollowing().find((f) => f.code.toUpperCase() === code);
-    if (existing) { showError(errorEl, `You're already following ${existing.label || existing.code}.`); return; }
+    if (existing) { showError(errorEl, `You're already following ${resolveDisplayName(existing)}.`); return; }
     codeInput.disabled = true;
     const targetUserId = await lookupCode(code);
     codeInput.disabled = false;
@@ -404,8 +404,8 @@ function renderList() {
       const aAvail = aData ? aData.status === 'available' && !isExpired(aData.availableUntil) : false;
       const bAvail = bData ? bData.status === 'available' && !isExpired(bData.availableUntil) : false;
       if (aAvail !== bAvail) return bAvail ? 1 : -1;
-      const aName = a.label || a.code;
-      const bName = b.label || b.code;
+      const aName = resolveDisplayName(a);
+      const bName = resolveDisplayName(b);
       return aName.localeCompare(bName);
     });
   }
@@ -585,7 +585,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
       <div class="person-status">Unavailable</div>
     </div>`;
 
-  const displayName = entry.label || entry.code;
+  const displayName = resolveDisplayName(entry);
   const unfollowBtn = document.createElement('button');
   unfollowBtn.className = 'unfollow-btn';
   unfollowBtn.title = 'Unfollow';
@@ -654,7 +654,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
           callModeCalleeId = entry.userId;
           _incomingCall = null;
           answerCall(myUserId, entry.userId).catch(() => {});
-          enterCanvas(entry.userId, entry.label || entry.code, myUserId, myColor, peerColor, peerSurface, () => {
+          enterCanvas(entry.userId, resolveDisplayName(entry), myUserId, myColor, peerColor, peerSurface, () => {
             exitCallMode(myUserId);
           }).catch(err => console.error('enterCanvas failed:', err));
         } else if (!li.classList.contains('call-mode')) {
@@ -1116,7 +1116,7 @@ async function handleAddPerson(myUserId, myCode) {
   const following = getFollowing();
   const existing = following.find((e) => e.code.toUpperCase() === code);
   if (existing) {
-    showError(errorEl, `You're already following ${existing.label || existing.code}.`);
+    showError(errorEl, `You're already following ${resolveDisplayName(existing)}.`);
     return;
   }
 
