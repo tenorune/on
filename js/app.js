@@ -271,6 +271,11 @@ export function showRestoreScreen() {
       const userId = await deriveUserIdFromRecoveryCode(normalized);
       let exists;
       try {
+        // Sign in for THIS phrase before the owner-scoped validation reads —
+        // post-R1 `userExists`/`getUser` require an auth session for the
+        // account, and a cold restore has none yet. ensureSignedIn re-auths if
+        // a prior (mistyped) attempt left a session for a different account.
+        await ensureSignedIn(normalized);
         exists = await userExists(userId);
       } catch (_) {
         exists = false;

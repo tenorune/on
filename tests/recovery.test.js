@@ -340,6 +340,7 @@ describe('initRecoveryPill', () => {
 describe('showRestoreScreen', () => {
   let showRestoreScreen;
   let mockUserExists;
+  let mockEnsureSignedIn;
 
   beforeEach(() => {
     document.body.innerHTML = `
@@ -355,6 +356,7 @@ describe('showRestoreScreen', () => {
       getUser: jest.fn(),
     }));
     mockUserExists = require('../js/db').userExists;
+    mockEnsureSignedIn = require('../js/auth').ensureSignedIn;
     ({ showRestoreScreen } = require('../js/app'));
   });
 
@@ -387,6 +389,25 @@ describe('showRestoreScreen', () => {
     await waitFor(() => mockUserExists.mock.calls.length > 0); // real crypto digest precedes this
     expect(mockUserExists).toHaveBeenCalled();
     expect(document.getElementById('restore-error').classList.contains('hidden')).toBe(false);
+    document.getElementById('restore-cancel-btn').click();
+    await p;
+  });
+
+  test('signs in for the entered phrase before reading the account (owner-scoped reads need auth)', async () => {
+    // Post-R1 the validation reads (userExists / getUser) are owner-scoped and
+    // require an auth session for THIS phrase's account. Without signing in
+    // first, the read is denied and a valid phrase wrongly shows "no account".
+    const { generateRecoveryCode } = require('../js/identity');
+    const code = generateRecoveryCode();
+    mockUserExists.mockImplementation(() => {
+      expect(mockEnsureSignedIn).toHaveBeenCalledWith(code);
+      return Promise.resolve(false);
+    });
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = code;
+    document.getElementById('restore-submit-btn').click();
+    await waitFor(() => mockUserExists.mock.calls.length > 0);
+    expect(mockEnsureSignedIn).toHaveBeenCalledWith(code);
     document.getElementById('restore-cancel-btn').click();
     await p;
   });
