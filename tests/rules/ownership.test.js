@@ -24,3 +24,16 @@ test('no listing: cannot read a whole collection root', async () => {
   await assertFails(dbAs(env, 'u1').ref('users').get());
   await assertFails(dbAs(env, 'u1').ref('userPrefs').get());
 });
+
+// Regression guard for the legacy `writeBackExpired` pattern: a client that
+// watched a followed contact whose availability had lapsed used to write
+// `unavailable` back to THAT contact's presence. R1 forbids cross-user presence
+// writes; only the owner may write their own presence.
+test('presence: a non-owner cannot write another user\'s presence; owner can', async () => {
+  await assertFails(
+    dbAs(env, 'u2').ref('users/u1/presence').update({ status: 'unavailable', availableUntil: null }),
+  );
+  await assertSucceeds(
+    dbAs(env, 'u1').ref('users/u1/presence').update({ status: 'unavailable', availableUntil: null }),
+  );
+});
