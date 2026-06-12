@@ -8,7 +8,7 @@ afterAll(async () => { await env.cleanup(); });
 beforeEach(async () => { await env.clearDatabase(); });
 
 test('knock: sender can write own key, cannot forge another sender; recipient reads', async () => {
-  await assertSucceeds(dbAs(env, 'me').ref('knocks/you/me').set({ ts: 1 }));
+  await assertSucceeds(dbAs(env, 'me').ref('knocks/you/me').set({ count: 1, ts: 1 }));
   await assertFails(dbAs(env, 'me').ref('knocks/you/attacker').set({ ts: 1 }));
   await assertSucceeds(dbAs(env, 'you').ref('knocks/you').get());
   await assertFails(dbAs(env, 'me').ref('knocks/you').get());
@@ -26,14 +26,14 @@ test('knock: sender can read+transact its OWN node (count cap is read-modify-wri
 });
 
 test('followRequest: requester writes own key; target reads', async () => {
-  await assertSucceeds(dbAs(env, 'req').ref('followRequests/tgt/req').set({ ts: 1 }));
-  await assertFails(dbAs(env, 'req').ref('followRequests/tgt/someoneelse').set({ ts: 1 }));
+  await assertSucceeds(dbAs(env, 'req').ref('followRequests/tgt/req').set({ from: 'req', groupId: 'G', ts: 1 }));
+  await assertFails(dbAs(env, 'req').ref('followRequests/tgt/someoneelse').set({ from: 'req', groupId: 'G', ts: 1 }));
   await assertSucceeds(dbAs(env, 'tgt').ref('followRequests/tgt').get());
 });
 
 test('followGrant: target (grantor) writes own key; requester reads', async () => {
-  await assertSucceeds(dbAs(env, 'tgt').ref('followGrants/req/tgt').set({ from: 'tgt', code: 'X' }));
-  await assertFails(dbAs(env, 'evil').ref('followGrants/req/tgt').set({ from: 'tgt' }));
+  await assertSucceeds(dbAs(env, 'tgt').ref('followGrants/req/tgt').set({ from: 'tgt', code: 'X', ts: 1 }));
+  await assertFails(dbAs(env, 'evil').ref('followGrants/req/tgt').set({ from: 'tgt', code: 'X', ts: 1 }));
   await assertSucceeds(dbAs(env, 'req').ref('followGrants/req').get());
 });
 

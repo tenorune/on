@@ -22,7 +22,7 @@ test('calls: named peer can update/clear an existing call; owner can too', async
 });
 
 test('followers: follower self-registers; owner removes; stranger cannot', async () => {
-  await assertSucceeds(dbAs(env, 'follower').ref('users/owner/followers/follower').set(true));
+  await assertSucceeds(dbAs(env, 'follower').ref('users/owner/followers/follower').set('CODE12'));
   await assertSucceeds(dbAs(env, 'owner').ref('users/owner/followers/follower').remove());
-  await assertFails(dbAs(env, 'stranger').ref('users/owner/followers/follower').set(true));
+  await assertFails(dbAs(env, 'stranger').ref('users/owner/followers/follower').set('CODE12'));
 });
