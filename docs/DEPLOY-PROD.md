@@ -146,6 +146,18 @@ This is a deliberately generous superset that lets the CI deploy hosting +
 database rules + 2nd-gen functions end-to-end; tighten later if desired.
 (`iam.serviceAccountUser` is required so the deploy SA can act as the runtime SA.)
 
+### 0.5b — Auth for R1 (custom-token minting)
+
+- Enable **Firebase Authentication** on the project (Console → Authentication →
+  Get started). No sign-in providers are needed — custom tokens don't require one.
+- Grant the functions runtime SA permission to mint custom tokens:
+  ```bash
+  gcloud iam service-accounts add-iam-policy-binding "${RUNTIME_SA}" \
+    --member="serviceAccount:${RUNTIME_SA}" \
+    --role="roles/iam.serviceAccountTokenCreator" --project <prodId>
+  ```
+  Without this, `createCustomToken()` fails at runtime with a signBlob permission error.
+
 ### 0.6 — Prod Firebase web config + VAPID key → `FIREBASE_CONFIG_PROD` secret
 
 CI writes `FIREBASE_CONFIG_PROD` verbatim to `.env.production`, and the build
@@ -212,6 +224,12 @@ presence looks stale for users still on the old cached PWA.
     Database → ⋮ → **Export JSON** (your one-way-migration safety net; see Part 4).
 
 ## Part 2 — Deploy
+
+> **R1 flag-day:** the rules require auth. CI deploys `hosting,database,functions`
+> together, so the new client and new rules land in the same deploy — correct. The
+> `validateRecovery` function is part of `functions` and deploys with them. Any
+> client tab open on the *old* build (not signed in) is locked out until it
+> reloads. Cached Firebase sessions mean only never-signed-in clients are affected.
 
 13. **Merge `dev` → `main`.** Triggers `deploy-prod.yml`. Approve the `production`
     environment if a reviewer gate prompts.
