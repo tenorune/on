@@ -112,7 +112,6 @@ export async function ensureNotificationsReady() {
 }
 
 let _engaged = false;
-export function markEngaged() { _engaged = true; refreshPromoVisibility(); }
 
 let _userId = null;
 let _repromptListenerWired = false;

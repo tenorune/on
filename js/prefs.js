@@ -197,10 +197,6 @@ export function setGroupChipMinutes(groupId, minutes) {
 // Localstorage cache key is kept so any inline fallback reads keep working.
 const CURRENT_CONTEXT_KEY = 'statusapp_current_context';
 
-export function getCurrentContextCached() {
-  return localStorage.getItem(CURRENT_CONTEXT_KEY) || 'direct';
-}
-
 export function setCurrentContext(value) {
   const v = value || 'direct';
   if (localStorage.getItem(CURRENT_CONTEXT_KEY) !== v) {

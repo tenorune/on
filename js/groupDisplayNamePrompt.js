@@ -29,8 +29,3 @@ export function showGroupDisplayNamePrompt(groupName) {
     submit.addEventListener('click', onSubmit);
   });
 }
-
-export function cancelGroupDisplayNamePrompt() {
-  const screen = document.getElementById('group-displayname-screen');
-  if (screen) screen.classList.add('hidden');
-}

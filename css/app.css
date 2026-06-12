@@ -515,19 +515,6 @@ main {
   padding: 0.25rem 0.5rem 0.25rem 0;
   flex-shrink: 0;
 }
-.nav-back {
-  position: sticky;
-  left: 0;
-  background: var(--surface);
-  font-size: 0.9rem;
-  font-weight: normal;
-  color: var(--text-muted);
-  border: none;
-  cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  flex-shrink: 0;
-}
-.nav-back:hover { color: var(--text); }
 .nav-current-truncate {
   overflow: hidden;
   text-overflow: ellipsis;
