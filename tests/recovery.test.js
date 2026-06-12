@@ -412,6 +412,26 @@ describe('showRestoreScreen', () => {
     await p;
   });
 
+  test('shows a distinct "try again" error (not "no account") when sign-in fails', async () => {
+    // A blocked/failed sign-in (CSP, network, function error) must not be
+    // reported as an unknown phrase — and must log the real cause.
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { generateRecoveryCode } = require('../js/identity');
+    const code = generateRecoveryCode();
+    mockEnsureSignedIn.mockRejectedValueOnce(new Error('blocked by CSP'));
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = code;
+    document.getElementById('restore-submit-btn').click();
+    await waitFor(() => document.getElementById('restore-error').textContent.length > 0);
+    expect(document.getElementById('restore-error').textContent).toMatch(/try again/i);
+    expect(document.getElementById('restore-error').textContent).not.toMatch(/no account found/i);
+    expect(mockUserExists).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+    document.getElementById('restore-cancel-btn').click();
+    await p;
+  });
+
   test('resolves with identity when code is valid and Firebase record exists', async () => {
     const { generateRecoveryCode, deriveUserIdFromRecoveryCode } = require('../js/identity');
     const code = generateRecoveryCode();
