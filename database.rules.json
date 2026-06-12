@@ -38,8 +38,18 @@
       "$gid": {
         ".read": "auth != null && data.child('members').child(auth.uid).exists()",
         ".write": "auth != null && (data.child('ownerId').val() === auth.uid || newData.child('ownerId').val() === auth.uid)",
+        "name": { ".read": "auth != null" },
+        "invites": {
+          ".read": "auth != null",
+          "$token": {
+            "redemptionsUsed": { ".write": "auth != null" }
+          }
+        },
         "members": {
-          "$uid": { ".write": "auth != null && (auth.uid === $uid || data.parent().parent().child('ownerId').val() === auth.uid)" }
+          "$uid": {
+            ".read": "auth != null && auth.uid === $uid",
+            ".write": "auth != null && (auth.uid === $uid || data.parent().parent().child('ownerId').val() === auth.uid)"
+          }
         }
       }
     },

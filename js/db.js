@@ -209,6 +209,17 @@ export async function readGroup(groupId) {
   return snap.exists() ? snap.val() : null;
 }
 
+// Reads ONLY the group's name leaf (groups/{gid}/name). Used by the invite
+// redeem/preview flow, which runs as a NOT-YET-member: the whole groups/{gid}
+// node is membership-gated (it contains the private member list), but the name
+// is non-secret and shown in invite previews. Returns { name } or null so callers
+// can treat the result like a (minimal) group record. See database.rules.json
+// groups/$gid/name/.read.
+export async function readGroupName(groupId) {
+  const snap = await get(ref(db, `groups/${groupId}/name`));
+  return snap.exists() ? { name: snap.val() } : null;
+}
+
 export async function renameGroup(groupId, name) {
   await update(ref(db, `groups/${groupId}`), { name });
 }

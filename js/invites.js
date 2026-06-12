@@ -8,7 +8,7 @@ import {
   readInviteIndex, readUserInvite, incrementInviteRedemptions, getCreatorCode,
   registerAsFollower, setFollowingEntry,
   writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions,
-  readGroup, readMember,
+  readGroupName, readMember,
 } from './db.js';
 import { getFollowing } from './store.js';
 import { joinGroup } from './groups.js';
@@ -188,7 +188,7 @@ export async function attemptRedeemFromUrl(token, redeemerUid, redeemerCode, opt
       // reuse them.
       const group = cache.group !== undefined
         ? cache.group
-        : (groupId ? await readGroup(groupId) : null);
+        : (groupId ? await readGroupName(groupId) : null);
       return {
         ok: false,
         reason: 'needs-display-name',
@@ -227,9 +227,10 @@ export async function resolveInvitePreview(token) {
     if (indexEntry.scope === 'group') {
       const m = indexEntry.ownerPath.match(/^groups\/([^/]+)\/invites\/([^/]+)$/);
       if (!m) return null;
-      // Independent reads — fire in parallel.
+      // Independent reads — fire in parallel. readGroupName (not readGroup) so a
+      // not-yet-member previewer isn't blocked by the membership-gated group node.
       const [group, invitesByToken] = await Promise.all([
-        readGroup(m[1]),
+        readGroupName(m[1]),
         readGroupInvites(m[1]),
       ]);
       if (!group) return null;
@@ -366,8 +367,11 @@ export async function redeemGroupInvite(token, redeemerUid, displayName, opts = 
   // Parallelize the remaining independent reads: group record (if not cached),
   // group invites, and the redeemer's current membership row. All three are
   // independent — sequencing them costs round trips for no reason.
+  // readGroupName (not readGroup): the redeemer is not yet a member, so the
+  // membership-gated whole-group node would be denied. The name leaf is enough —
+  // it's the only field this flow and joinGroup consume from `group`.
   const [group, invitesByToken, existingMember] = await Promise.all([
-    cache.group !== undefined ? Promise.resolve(cache.group) : readGroup(groupId),
+    cache.group !== undefined ? Promise.resolve(cache.group) : readGroupName(groupId),
     readGroupInvites(groupId),
     readMember(groupId, redeemerUid),
   ]);

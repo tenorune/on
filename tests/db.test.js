@@ -10,7 +10,7 @@ const {
   claimGroupId,
   writeUserGroupsEntry, removeUserGroupsEntry, readUserGroups, watchUserGroups,
   setLastVisited,
-  writeGroup, readGroup, renameGroup, deleteGroup, watchGroupMeta,
+  writeGroup, readGroup, readGroupName, renameGroup, deleteGroup, watchGroupMeta,
   writeMember, readMember, readMembers, removeMember, setMemberDisplayName, watchGroupMembers,
   writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions, watchGroupInvites,
   setStatusOverride, clearStatusOverride, watchOwnMemberOverride,
@@ -460,6 +460,18 @@ describe('group entity ops', () => {
   test('readGroup returns null when missing', async () => {
     get.mockResolvedValueOnce({ exists: () => false });
     expect(await readGroup('NOPE0001')).toBeNull();
+  });
+
+  test('readGroupName reads only the name leaf and wraps it as { name }', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => 'Family' });
+    const result = await readGroupName('G1ABCD23');
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'groups/G1ABCD23/name');
+    expect(result).toEqual({ name: 'Family' });
+  });
+
+  test('readGroupName returns null when the group (name leaf) is missing', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    expect(await readGroupName('NOPE0001')).toBeNull();
   });
 
   test('renameGroup writes only the name field', async () => {
