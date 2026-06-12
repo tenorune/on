@@ -667,10 +667,19 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
             // We are the caller — exit call mode
             exitCallMode(myUserId);
           } else {
-            // We are the receiver — optimistic UI, fire-and-forget Firebase delete
-            li.classList.remove('call-mode');
-            li.style.removeProperty('--call-color-rgb');
+            // We are the receiver — optimistic UI, fire-and-forget Firebase
+            // delete. Repaint the row from the cleared state so the glow AND
+            // the "Calling you…" status text both clear: nulling _incomingCall
+            // first makes the own-call watcher's delete echo a no-op transition
+            // (prev===next===null), so it won't repaint the row for us.
             _incomingCall = null;
+            const data = lastUserData.get(entry.userId);
+            if (data) {
+              updateFolloweeRow(entry, data, myUserId);
+            } else {
+              li.classList.remove('call-mode');
+              li.style.removeProperty('--call-color-rgb');
+            }
             endCall(myUserId, entry.userId).catch(() => {});
           }
         }

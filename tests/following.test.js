@@ -1356,6 +1356,32 @@ describe('call mode: swipe gesture', () => {
     expect(endCall).toHaveBeenCalledWith('myUid', 'alice');
   });
 
+  test('left-swipe decline clears the "Calling you…" status text, not just the glow', () => {
+    const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
+    let followersCb, ownCallCb;
+    watchFollowers.mockImplementation((_uid, cb) => { followersCb = cb; return jest.fn(); });
+    watchOwnCall.mockImplementation((_uid, cb) => { ownCallCb = cb; return jest.fn(); });
+    watchPresence.mockImplementation((_uid, cb) => { cb({ status: 'unavailable', statusColor: '#22c55e' }); return jest.fn(); });
+    initList('myUid', 'MYCODE');
+    followersCb([{ userId: 'alice', code: 'AAA111' }]); // mutual → row + swipe handlers + lastUserData
+
+    ownCallCb({ from: 'alice', answered: false, ts: 1 }); // alice is ringing me
+
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(true);
+    expect(li.querySelector('.person-status').textContent).toContain('Calling you');
+
+    jest.spyOn(li, 'getBoundingClientRect').mockReturnValue({ width: 200 });
+    firePointer(li, 'pointerdown', 100, 50);
+    firePointer(li, 'pointermove',  10, 52); // dx=-90 < -80 → decline
+    firePointer(li, 'pointerup',    10, 52);
+
+    expect(endCall).toHaveBeenCalledWith('myUid', 'alice');
+    expect(li.classList.contains('call-mode')).toBe(false);
+    expect(li.querySelector('.person-status').textContent).not.toContain('Calling you');
+  });
+
   test('short right-swipe (< 40%) does nothing', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
     watchPresence.mockReturnValue(jest.fn());
