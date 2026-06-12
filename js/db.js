@@ -473,6 +473,13 @@ export async function getUserPrefs(userId) {
   return snap.exists() ? snap.val() : null;
 }
 
+// Targeted read of the FCM push-token registry (token → { createdAt, lastSeen,
+// ua }). Used by the stale-token TTL cull (prefs.cullStalePushTokens, #157).
+export async function readPushTokens(userId) {
+  const snap = await get(ref(db, `userPrefs/${userId}/pushTokens`));
+  return snap.exists() ? snap.val() : null;
+}
+
 // `fields` is a flat object keyed by slash-separated paths relative to
 // userPrefs/{uid}, e.g. { 'hints/bolt': true, 'lastTimeoutMinutes': 30 }.
 // RTDB's update() applies multi-path keys atomically.
