@@ -537,6 +537,17 @@ describe('subscribeToFollowee — code-change sync', () => {
     watchPresenceCallback({ status: 'unavailable', code: 'NEW456' });
     expect(updateFollowingCode).toHaveBeenCalledTimes(1);
   });
+
+  test('does NOT write back a peer\'s expired availability (R1 forbids cross-user presence writes)', () => {
+    const { writeBackExpired, isExpired } = require('../js/db.js');
+    isExpired.mockReturnValue(true); // the peer's availableUntil has lapsed
+    try {
+      watchPresenceCallback({ status: 'available', availableUntil: Date.now() - 1000, code: 'OLD123' });
+      expect(writeBackExpired).not.toHaveBeenCalled();
+    } finally {
+      isExpired.mockReturnValue(false);
+    }
+  });
 });
 
 // --- palette-aware follower rows (PALETTES_ENABLED: true) ---

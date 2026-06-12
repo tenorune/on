@@ -1,7 +1,7 @@
 // js/following.js
 import {
   lookupCode, watchPresence, watchFollowers, registerAsFollower, unregisterAsFollower,
-  removeFollower, isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
+  removeFollower, isExpired, formatTimeRemainingFuzzy, timeRemainingMs,
   formatLastSeen, startCall, answerCall, endCall, watchOwnCall, setStatusColor,
   watchFollowing, setFollowingEntry, removeFollowingEntry, watchRevocations,
 } from './db.js';
@@ -832,7 +832,10 @@ function subscribeToFollowee(entry, myUserId) {
     if (!userData) return;
 
     if (userData.status === 'available' && isExpired(userData.availableUntil)) {
-      if (navigator.onLine) writeBackExpired(entry.userId);
+      // Render the lapse locally only. Do NOT write back to the peer's node —
+      // under R1 a client may write only its own presence (auth.uid === uid),
+      // and every client computes expiry the same way, so display stays correct
+      // without a (now-forbidden) cross-user write.
       userData.status = 'unavailable';
       userData.availableUntil = null;
     }
