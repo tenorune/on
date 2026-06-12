@@ -51,10 +51,12 @@ jest.mock('../js/identity.js', () => ({ saveIdentity: jest.fn(), loadIdentity: j
 jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),
 }));
+jest.mock('../js/regenFlash.js', () => ({ flashRegenerated: jest.fn() }));
 
 const { rotateCode, watchUserInvites } = require('../js/db.js');
 const { saveIdentity } = require('../js/identity.js');
 const { openInviteModal } = require('../js/inviteModal.js');
+const { flashRegenerated } = require('../js/regenFlash.js');
 const { initCodeDrawer } = require('../js/mycode.js');
 
 beforeEach(() => {
@@ -105,6 +107,12 @@ test('rotate success: updates code display and calls saveIdentity', async () => 
 
   expect(document.getElementById('my-code-display').textContent).toBe('XYZ789');
   expect(saveIdentity).toHaveBeenCalledWith('uid1', 'XYZ789', '');
+  // Unified regen cue: delegates the value-flash + button→NEW-badge swap to the
+  // shared flashRegenerated() (same as the invite hash / secret phrase).
+  expect(flashRegenerated).toHaveBeenCalledWith(
+    document.getElementById('my-code-display'),
+    document.getElementById('rotate-code-btn'),
+  );
 });
 
 test('rotate error: shows error message and re-enables buttons', async () => {
