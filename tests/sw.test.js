@@ -60,8 +60,15 @@ describe('notificationclick cold-start routing (no live client → openWindow)',
 
   test('group knock opens the group deep-link', async () => {
     const { handlers, mockSelf } = loadSwWithMockSelf();
-    await handlers.notificationclick(clickEvent({ type: 'knock', targetUid: 'bea', contextGroupId: 'fam' }));
-    expect(mockSelf.clients.openWindow).toHaveBeenCalledWith('/?group=fam');
+    await handlers.notificationclick(clickEvent({ type: 'knock', targetUid: 'bea', contextGroupId: 'ABCD1234' }));
+    expect(mockSelf.clients.openWindow).toHaveBeenCalledWith('/?group=ABCD1234');
+  });
+
+  test('a malformed contextGroupId is not used in the group deep-link (#164 R3c)', async () => {
+    const { handlers, mockSelf } = loadSwWithMockSelf();
+    // forged group knock → invalid id ignored; knock type falls back to Direct
+    await handlers.notificationclick(clickEvent({ type: 'knock', targetUid: 'bea', contextGroupId: "x';alert(1)//" }));
+    expect(mockSelf.clients.openWindow).toHaveBeenCalledWith('/?direct=1');
   });
 
   test('Direct knock / call / availability open the Direct deep-link', async () => {

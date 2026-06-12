@@ -53,6 +53,13 @@ describe('messages', () => {
     expect(buildMessage('availability', 'Bea')).toEqual({ title: 'Bea is available', body: '' });
     expect(buildMessage('followRequest', 'Cara')).toEqual({ title: 'Cara wants to follow you', body: '' });
   });
+
+  test('buildMessage clamps over-long names and group labels (FCM title hygiene)', () => {
+    const long = 'x'.repeat(200);
+    const cap = 'x'.repeat(40);
+    expect(buildMessage('knock', long)).toEqual({ title: `${cap} knocked`, body: '' });
+    expect(buildMessage('knock', long, { group: long })).toEqual({ title: `${cap} knocked in ${cap}`, body: '' });
+  });
 });
 
 describe('overrideAvailable', () => {

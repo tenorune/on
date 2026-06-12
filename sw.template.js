@@ -60,7 +60,9 @@ self.addEventListener('push', (e) => {
 // everything else lands on Direct.
 function coldStartUrl(data) {
   if (data.type === 'invite' || data.type === 'followRequest') return '/?inbox=1';
-  if (data.contextGroupId) return `/?group=${encodeURIComponent(data.contextGroupId)}`;
+  // Only route to a group whose id matches the real format (8× [A-Z0-9]); the
+  // payload is attacker-controllable, so a forged id must not reach the URL (#164 R3c).
+  if (data.contextGroupId && /^[A-Z0-9]{8}$/.test(data.contextGroupId)) return `/?group=${encodeURIComponent(data.contextGroupId)}`;
   // Direct-scope activity (knock/call/availability, no contextGroupId) lands in
   // Direct — otherwise a cold boot restores the user's last (group) context and
   // the Direct activity is never seen (#144).
