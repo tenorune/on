@@ -12,7 +12,7 @@
     "dev": "node scripts/dev.js",
     "deploy": "node scripts/prod.js && npx firebase deploy --only hosting,database,functions",
     "deploy:dev": "node scripts/dev-deploy.js",
-    "test:rules": "firebase emulators:exec --only database --project demo-on \"jest --config jest.rules.config.js\""
+    "test:rules": "firebase emulators:exec --only database --project demo-on \"jest --config jest.rules.config.js --runInBand\""
   },
   "keywords": [],
   "author": "",
