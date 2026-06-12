@@ -11,7 +11,7 @@ import { getMessagingIfSupported } from './firebase-config.js';
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
 import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
-import { attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, resolveInvitePreview } from './invites.js';
+import { attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, extractDirectIntentFromUrl, resolveInvitePreview } from './invites.js';
 import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext } from './prefs.js';
 import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, navigateToDirect, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
@@ -349,11 +349,18 @@ async function main() {
   // /?inbox=1 (sw.template.js coldStartUrl). Land in Direct and open the Inbox
   // rather than restoring the user's last (possibly group) context, where the
   // inbox isn't reachable. Strip the param so a refresh doesn't reopen it.
+  // Cold taps deep-link with an intent param (sw.template.js coldStartUrl):
+  // ?inbox=1 for invite/follow-request, ?direct=1 for a Direct knock/call/
+  // availability. Both pin Direct (skip the last-context group restore); only
+  // the inbox intent also opens the modal.
   const wantInbox = extractInboxIntentFromUrl(window.location.href);
-  if (wantInbox) {
+  const wantDirect = extractDirectIntentFromUrl(window.location.href);
+  const pinDirect = wantInbox || wantDirect;
+  if (pinDirect) {
     try {
       const clean = new URL(window.location.href);
       clean.searchParams.delete('inbox');
+      clean.searchParams.delete('direct');
       window.history.replaceState({}, document.title, clean.toString());
     } catch { /* no-op on unusual URLs */ }
   }
@@ -460,7 +467,7 @@ async function main() {
       if (directEl) directEl.classList.remove('hidden');
       if (navRowEl) navRowEl.classList.remove('hidden');
     }
-  } else if (!isNew && !wantInbox) {
+  } else if (!isNew && !pinDirect) {
     // Returning user (no pending invite). Pre-resolve the user's last
     // currentContext from Firebase BEFORE any visible paint. Without
     // this, initNav defaults _state to 'direct', the end-of-main reveal
@@ -498,13 +505,13 @@ async function main() {
     }
   }
 
-  // Cold tap on an invite / follow-request (wantInbox): we deliberately stay in
-  // Direct and open the Inbox below. The restore branch was skipped, but the
-  // user's persisted currentContext is still their last (group) context — force
-  // -write 'direct' here, BEFORE watchUserPrefs starts, so its first echo
-  // doesn't yank us into that group (same hazard the personal-invite-success
-  // path guards against above).
-  if (wantInbox) setPrefsCurrentContext('direct');
+  // Cold tap that pins Direct (invite/follow-request → Inbox, or a Direct
+  // knock/call/availability): the restore branch was skipped, but the user's
+  // persisted currentContext is still their last (group) context — force-write
+  // 'direct' here, BEFORE watchUserPrefs starts, so its first echo doesn't yank
+  // us into that group (same hazard the personal-invite-success path guards
+  // against above).
+  if (pinDirect) setPrefsCurrentContext('direct');
 
   touchLastSeen(userId).catch(() => {});
 

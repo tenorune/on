@@ -43,17 +43,20 @@ test('group activity: navigates into the group, no Inbox, no Direct', () => {
   expect(d.navigateToDirect).not.toHaveBeenCalled();
 });
 
-test('Direct activity (no contextGroupId, not invite/follow): no navigation', () => {
-  const d = deps();
-  routeNotificationClick({ type: 'knock', targetUid: 'bea' }, d);
-  expect(d.navigateToGroup).not.toHaveBeenCalled();
-  expect(d.openInboxModal).not.toHaveBeenCalled();
-  expect(d.navigateToDirect).not.toHaveBeenCalled();
+test('Direct activity (knock/call/availability, no contextGroupId): returns to Direct', () => {
+  for (const type of ['knock', 'call', 'availability']) {
+    const d = deps();
+    routeNotificationClick({ type, targetUid: 'bea' }, d);
+    expect(d.navigateToDirect).toHaveBeenCalled();
+    expect(d.navigateToGroup).not.toHaveBeenCalled();
+    expect(d.openInboxModal).not.toHaveBeenCalled();
+  }
 });
 
-test('tolerates empty/missing data', () => {
+test('tolerates empty/missing data (unknown type → no navigation)', () => {
   const d = deps();
   expect(() => routeNotificationClick({}, d)).not.toThrow();
   expect(d.navigateToGroup).not.toHaveBeenCalled();
   expect(d.openInboxModal).not.toHaveBeenCalled();
+  expect(d.navigateToDirect).not.toHaveBeenCalled();
 });

@@ -166,6 +166,7 @@ jest.mock('../js/invites.js', () => ({
   attemptRedeemFromUrl: jest.fn().mockResolvedValue(null),
   extractInviteTokenFromUrl: jest.fn().mockReturnValue(null),
   extractInboxIntentFromUrl: jest.fn().mockReturnValue(false),
+  extractDirectIntentFromUrl: jest.fn().mockReturnValue(false),
   resolveInvitePreview: jest.fn().mockResolvedValue(null),
 }));
 
@@ -361,6 +362,24 @@ describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)'
     // Force-write 'direct' so the watchUserPrefs echo of the persisted
     // 'group:fam' doesn't yank us back into the group after boot.
     expect(setCurrentContext).toHaveBeenCalledWith('direct');
+  });
+
+  test('a ?direct=1 cold tap pins Direct (no group restore, no Inbox modal)', async () => {
+    const invites = require('../js/invites.js');
+    const db = require('../js/db.js');
+    const { navigateToGroup } = require('../js/groupNav.js');
+    const { openInboxModal } = require('../js/inbox.js');
+    const { setCurrentContext } = require('../js/prefs.js');
+
+    invites.extractDirectIntentFromUrl.mockReturnValue(true);
+    db.getUserPrefs.mockResolvedValue({ currentContext: 'group:fam' }); // last context was a group
+    db.readGroup.mockResolvedValue({ name: 'Fam' }); // would otherwise drive navigateToGroup
+
+    await bootApp();
+
+    expect(navigateToGroup).not.toHaveBeenCalled();      // restore skipped — we stay in Direct
+    expect(setCurrentContext).toHaveBeenCalledWith('direct'); // force-write so the echo can't yank us
+    expect(openInboxModal).not.toHaveBeenCalled();       // Direct intent, not inbox — no modal
   });
 
   test('without the deep-link, a returning user still restores their last group context', async () => {
