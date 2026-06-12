@@ -11,11 +11,17 @@
         "invites": {
           "$token": {
             ".read": "auth != null",
-            "redemptionsUsed": { ".write": "auth != null" }
+            "redemptionsUsed": {
+              ".write": "auth != null",
+              ".validate": "newData.isNumber() && (auth.uid === $uid || newData.val() === (data.exists() ? data.val() : 0) + 1)"
+            }
           }
         },
         "followers": {
-          "$follower": { ".write": "auth != null && (auth.uid === $follower || auth.uid === $uid)" }
+          "$follower": {
+            ".write": "auth != null && (auth.uid === $follower || auth.uid === $uid)",
+            ".validate": "newData.isString() && newData.val().length <= 16"
+          }
         }
       }
     },
@@ -42,7 +48,10 @@
         "invites": {
           "$token": {
             ".read": "auth != null",
-            "redemptionsUsed": { ".write": "auth != null" }
+            "redemptionsUsed": {
+              ".write": "auth != null",
+              ".validate": "newData.isNumber() && (root.child('groups').child($gid).child('ownerId').val() === auth.uid || newData.val() === (data.exists() ? data.val() : 0) + 1)"
+            }
           }
         },
         "members": {
@@ -58,44 +67,82 @@
         ".read": "auth != null && auth.uid === $recipient",
         "$sender": {
           ".read": "auth != null && (auth.uid === $sender || auth.uid === $recipient)",
-          ".write": "auth != null && (auth.uid === $sender || auth.uid === $recipient)"
+          ".write": "auth != null && (auth.uid === $sender || auth.uid === $recipient)",
+          ".validate": "newData.hasChildren(['count', 'ts'])",
+          "count": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 5" },
+          "ts": { ".validate": "newData.isNumber()" },
+          "contextGroupId": { ".validate": "newData.isString() && newData.val().matches(/^[A-Z0-9]{8}$/)" },
+          "$other": { ".validate": false }
         }
       }
     },
     "revocations": {
       "$revoked": {
         ".read": "auth != null && auth.uid === $revoked",
-        "$revoker": { ".write": "auth != null && (auth.uid === $revoker || auth.uid === $revoked)" }
+        "$revoker": {
+          ".write": "auth != null && (auth.uid === $revoker || auth.uid === $revoked)",
+          ".validate": "newData.val() === true"
+        }
       }
     },
     "followRequests": {
       "$target": {
         ".read": "auth != null && auth.uid === $target",
-        "$requester": { ".write": "auth != null && (auth.uid === $requester || auth.uid === $target)" }
+        "$requester": {
+          ".write": "auth != null && (auth.uid === $requester || auth.uid === $target)",
+          ".validate": "newData.hasChildren(['from', 'ts']) && newData.child('from').val() === $requester",
+          "from": { ".validate": "newData.isString()" },
+          "groupId": { ".validate": "newData.isString() && newData.val().length <= 64" },
+          "ts": { ".validate": "newData.isNumber()" },
+          "$other": { ".validate": false }
+        }
       }
     },
     "followGrants": {
       "$requester": {
         ".read": "auth != null && auth.uid === $requester",
-        "$target": { ".write": "auth != null && (auth.uid === $target || auth.uid === $requester)" }
+        "$target": {
+          ".write": "auth != null && (auth.uid === $target || auth.uid === $requester)",
+          ".validate": "newData.hasChildren(['from', 'ts']) && newData.child('from').val() === $target",
+          "from": { ".validate": "newData.isString()" },
+          "code": { ".validate": "newData.isString() && newData.val().length <= 16" },
+          "name": { ".validate": "newData.isString() && newData.val().length <= 64" },
+          "ts": { ".validate": "newData.isNumber()" },
+          "$other": { ".validate": false }
+        }
       }
     },
     "pendingInvites": {
       "$invitee": {
         ".read": "auth != null && auth.uid === $invitee",
-        "$group": { ".write": "auth != null && ((newData.exists() && newData.child('from').val() === auth.uid && root.child('groups').child($group).child('members').child(auth.uid).exists()) || auth.uid === $invitee || (!newData.exists() && data.child('from').val() === auth.uid))" }
+        "$group": {
+          ".write": "auth != null && ((newData.exists() && newData.child('from').val() === auth.uid && root.child('groups').child($group).child('members').child(auth.uid).exists()) || auth.uid === $invitee || (!newData.exists() && data.child('from').val() === auth.uid))",
+          ".validate": "newData.hasChildren(['from', 'ts'])",
+          "from": { ".validate": "newData.isString()" },
+          "ts": { ".validate": "newData.isNumber()" },
+          "$other": { ".validate": false }
+        }
       }
     },
     "pendingInvitesByGroup": {
       "$group": {
         ".read": "auth != null && root.child('groups').child($group).child('members').child(auth.uid).exists()",
-        "$invitee": { ".write": "auth != null && (root.child('groups').child($group).child('members').child(auth.uid).exists() || auth.uid === $invitee)" }
+        "$invitee": {
+          ".write": "auth != null && (root.child('groups').child($group).child('members').child(auth.uid).exists() || auth.uid === $invitee)",
+          ".validate": "newData.val() === true"
+        }
       }
     },
     "calls": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && (auth.uid === $uid || (newData.exists() && (newData.child('from').val() === auth.uid || newData.child('to').val() === auth.uid)) || (data.exists() && (data.child('from').val() === auth.uid || data.child('to').val() === auth.uid)))"
+        ".write": "auth != null && (auth.uid === $uid || (newData.exists() && (newData.child('from').val() === auth.uid || newData.child('to').val() === auth.uid)) || (data.exists() && (data.child('from').val() === auth.uid || data.child('to').val() === auth.uid)))",
+        ".validate": "newData.hasChildren(['ts'])",
+        "from": { ".validate": "newData.isString() && newData.val().length <= 64" },
+        "to": { ".validate": "newData.isString() && newData.val().length <= 64" },
+        "ts": { ".validate": "newData.isNumber()" },
+        "answered": { ".validate": "newData.isBoolean()" },
+        "$other": { ".validate": false }
       }
     },
     "canvases": {
