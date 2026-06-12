@@ -3,6 +3,7 @@ import { rotateCode, watchUserInvites } from './db.js';
 import { saveIdentity, loadIdentity } from './identity.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl } from './invites.js';
+import { flashRegenerated } from './regenFlash.js';
 
 let _myUserId = null;
 let _currentCode = null;
@@ -73,22 +74,13 @@ export function initCodeDrawer(myUserId, myCode) {
       const existing = loadIdentity();
       saveIdentity(_myUserId, newCode, existing?.recoveryCode ?? '');
 
-      // Create NEW badge (starts invisible via CSS opacity:0)
-      const badge = document.createElement('span');
-      badge.className = 'new-badge';
-      badge.textContent = 'NEW';
-      display.insertAdjacentElement('afterend', badge);
-
-      // Fade in code + badge simultaneously
+      // Hand the fade-in + transient NEW badge to the shared regen cue (same
+      // animation as the invite hash / secret phrase). flashRegenerated re-hides
+      // the button via visibility for the badge window and restores it when the
+      // badge fades, so restore the slot (drop the display:none) and delegate.
       display.classList.remove('fading');
-      requestAnimationFrame(() => { badge.style.opacity = '1'; });
-
-      // Fade out and remove the NEW badge, then restore rotate button
-      await new Promise((r) => setTimeout(r, 900));
-      badge.style.opacity = '0';
-      await new Promise((r) => setTimeout(r, 500));
-      badge.remove();
       rotateBtn.style.display = '';
+      flashRegenerated(display, rotateBtn);
 
     } catch (_e) {
       display.classList.remove('fading');

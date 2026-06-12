@@ -1,4 +1,12 @@
 // js/utils.js
+
+// Display name for a following entry ({ label, code }): the user's chosen label,
+// else the share code. Returns '' (not undefined) for a missing/empty entry so
+// it never renders "undefined" in a template.
+export function resolveDisplayName(entry) {
+  return (entry && (entry.label || entry.code)) || '';
+}
+
 export function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')

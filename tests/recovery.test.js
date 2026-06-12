@@ -1,4 +1,21 @@
 // tests/recovery.test.js
+
+// Deterministic microtask/promise-chain flush — drains pending promise
+// callbacks after the macrotask queue, replacing arbitrary setTimeout delays.
+const flushPromises = () => new Promise((resolve) => setImmediate(resolve));
+
+// Poll a condition across flushes, for paths that await genuinely async work
+// (e.g. the real WebCrypto digest in deriveUserIdFromRecoveryCode — identity.js
+// is NOT mocked here). Drains as many ticks as the op needs, bounded, instead of
+// a fixed sleep that's too short under load / wastefully long otherwise.
+async function waitFor(cond, tries = 100) {
+  for (let i = 0; i < tries; i += 1) {
+    if (cond()) return;
+    await flushPromises();
+  }
+  throw new Error('waitFor: condition not met in time');
+}
+
 jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
 jest.mock('../js/firebase-config.js', () => ({ db: {}, getMessagingIfSupported: jest.fn() }));
 
@@ -352,7 +369,7 @@ describe('showRestoreScreen', () => {
     const p = showRestoreScreen();
     document.getElementById('restore-input').value = 'only-three-words';
     document.getElementById('restore-submit-btn').click();
-    await new Promise(r => setTimeout(r, 0));
+    await flushPromises();
     expect(document.getElementById('restore-error').classList.contains('hidden')).toBe(false);
     expect(mockUserExists).not.toHaveBeenCalled();
     document.getElementById('restore-cancel-btn').click();
@@ -366,7 +383,7 @@ describe('showRestoreScreen', () => {
     const p = showRestoreScreen();
     document.getElementById('restore-input').value = code;
     document.getElementById('restore-submit-btn').click();
-    await new Promise(r => setTimeout(r, 10));
+    await waitFor(() => mockUserExists.mock.calls.length > 0); // real crypto digest precedes this
     expect(mockUserExists).toHaveBeenCalled();
     expect(document.getElementById('restore-error').classList.contains('hidden')).toBe(false);
     document.getElementById('restore-cancel-btn').click();
