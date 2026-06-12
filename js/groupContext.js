@@ -1042,6 +1042,13 @@ export function enterGroupContext(groupId, userId) {
   _lastMembers = null;
   _groupOwnerId = null;
   _groupName = null;
+  // Reset the roster DOM so rows rebuild fresh for THIS group. renderRoster
+  // reconciles by uid, so without this a member shared with the previously
+  // viewed group keeps that group's request-follow button — which captured the
+  // prior group's displayName + groupId at create time (stale name/context in
+  // the request toast, and the request written against the wrong group).
+  const rosterListEl = document.getElementById('group-roster');
+  if (rosterListEl) rosterListEl.innerHTML = '';
   let drainedKnocksOnEntry = false;
   _membersUnsub = watchGroupMembers(groupId, (members) => {
     _lastMembers = members;

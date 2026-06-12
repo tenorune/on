@@ -530,6 +530,24 @@ describe('group roster render', () => {
     expect(row.querySelector('.card-drawer-toggle').dataset.actionCount).toBe('2');
   });
 
+  test('switching groups recreates the request-follow button with the NEW group id + name (no stale capture across groups)', () => {
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(true);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+
+    enterGroupContext('G2', 'me');
+    membersCb({ a: { role: 'member', displayName: 'DOG', joinedAt: 1 } });
+    expect(followRequests.createRequestFollowButton).toHaveBeenCalledWith('me', 'a', 'G2', 'DOG');
+
+    followRequests.createRequestFollowButton.mockClear();
+    enterGroupContext('G1', 'me'); // 'a' is a member of BOTH groups, named CAT here
+    membersCb({ a: { role: 'member', displayName: 'CAT', joinedAt: 1 } });
+    // Without a roster reset the reconcile would reuse G2's row (update path) and
+    // never recreate the button → it would keep capturing 'G2' + 'DOG'.
+    expect(followRequests.createRequestFollowButton).toHaveBeenCalledWith('me', 'a', 'G1', 'CAT');
+  });
+
   test('a card drawer survives a members tick that keeps its row, closes when the row is removed', () => {
     // Reconciliation contract (render-reconciliation spec §3): the blanket
     // close-on-every-render is gone; the drawer closes only when its row is removed.
