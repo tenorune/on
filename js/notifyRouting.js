@@ -10,6 +10,12 @@
 // Direct-scope activity (a knock/call/availability with no contextGroupId) also
 // returns to Direct, where that activity surfaces (#144). Group activity (a
 // contextGroupId) navigates into the group; unknown types are a no-op.
+// Group ids are exactly 8 chars of [A-Z0-9] (groups.js generateGroupId). The
+// notification payload is attacker-controllable (forged RTDB writes), so reject
+// anything that doesn't match before using it as a navigation target — a forged
+// id falls back to Direct rather than reaching navigateToGroup (#164 R3c).
+const GROUP_ID_RE = /^[A-Z0-9]{8}$/;
+
 export function routeNotificationClick(data, { navigateToDirect, navigateToGroup, openInboxModal }) {
   const type = data?.type;
   if (type === 'invite' || type === 'followRequest') {
@@ -17,6 +23,7 @@ export function routeNotificationClick(data, { navigateToDirect, navigateToGroup
     openInboxModal();
     return;
   }
-  if (data?.contextGroupId) { navigateToGroup(data.contextGroupId); return; }
+  const gid = data?.contextGroupId;
+  if (gid && GROUP_ID_RE.test(gid)) { navigateToGroup(gid); return; }
   if (type === 'knock' || type === 'call' || type === 'availability') navigateToDirect();
 }

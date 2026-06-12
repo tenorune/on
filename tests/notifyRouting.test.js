@@ -37,8 +37,8 @@ test('navigates to Direct BEFORE opening the Inbox', () => {
 
 test('group activity: navigates into the group, no Inbox, no Direct', () => {
   const d = deps();
-  routeNotificationClick({ type: 'knock', targetUid: 'bea', contextGroupId: 'fam' }, d);
-  expect(d.navigateToGroup).toHaveBeenCalledWith('fam');
+  routeNotificationClick({ type: 'knock', targetUid: 'bea', contextGroupId: 'ABCD1234' }, d);
+  expect(d.navigateToGroup).toHaveBeenCalledWith('ABCD1234');
   expect(d.openInboxModal).not.toHaveBeenCalled();
   expect(d.navigateToDirect).not.toHaveBeenCalled();
 });
@@ -59,4 +59,13 @@ test('tolerates empty/missing data (unknown type → no navigation)', () => {
   expect(d.navigateToGroup).not.toHaveBeenCalled();
   expect(d.openInboxModal).not.toHaveBeenCalled();
   expect(d.navigateToDirect).not.toHaveBeenCalled();
+});
+
+test('a malformed contextGroupId is rejected — never navigated to; falls back to Direct (#164 R3c)', () => {
+  for (const bad of ['fam', 'abcd1234', "x';alert(1)//", 'TOOLONG12345', '../../etc']) {
+    const d = deps();
+    routeNotificationClick({ type: 'knock', targetUid: 'bea', contextGroupId: bad }, d);
+    expect(d.navigateToGroup).not.toHaveBeenCalled(); // forged/garbage id never reaches navigation
+    expect(d.navigateToDirect).toHaveBeenCalled();    // knock with no *valid* group → Direct
+  }
 });

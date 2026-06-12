@@ -51,7 +51,14 @@ const GROUP_TITLES = {
   invite: (name, group) => `${name} invited you to ${group}`,
 };
 
+// Cap user-controlled labels so a 500-char display name / group name can't
+// produce an oversized FCM title (lock-screen truncation / payload bloat). 40
+// chars comfortably exceeds what's visible on a notification (#164 R3b).
+const LABEL_MAX = 40;
+const clampLabel = (s) => String(s ?? '').slice(0, LABEL_MAX);
+
 export function buildMessage(type, name, opts = {}) {
-  const title = opts.group ? GROUP_TITLES[type](name, opts.group) : TITLES[type](name);
+  const n = clampLabel(name);
+  const title = opts.group ? GROUP_TITLES[type](n, clampLabel(opts.group)) : TITLES[type](n);
   return { title, body: '' };
 }
