@@ -231,8 +231,10 @@ Key design decisions:
 ## 9. CSP
 
 `firebase.json` headers contain a CSP allowing:
-- `*.firebaseio.com`, `wss://*.firebaseio.com`, `*.firebasedatabase.app`, `wss://*.firebasedatabase.app`, `*.googleapis.com` in `connect-src`
+- `*.firebaseio.com`, `wss://*.firebaseio.com`, `*.firebasedatabase.app`, `wss://*.firebasedatabase.app`, `*.googleapis.com`, `*.cloudfunctions.net` in `connect-src` (the last for the R1 `validateRecovery` callable)
 - `*.firebaseapp.com`, `*.firebasedatabase.app` in `frame-src` (RTDB long-polling iframe; without this, realtime delivery silently fails on restrictive networks)
+
+**The enforced CSP lives ONLY in the `firebase.json` header.** `index.template.html` also has a `<meta http-equiv="Content-Security-Policy">` but it is intentionally **commented out** (a meta CSP blocks `'self'` on local dev and ignores `frame-ancestors`). So new runtime hosts (e.g. the R1 Functions host) only need adding to `firebase.json`. If you ever re-enable the meta tag, keep its host list in sync — both would then be enforced as an intersection.
 
 ## 10. Build pipeline + deploy
 
