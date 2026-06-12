@@ -417,6 +417,15 @@ export function bumpDirectBadge() {
   renderDirectBadge(directBadgeCount);
 }
 
+// Pulse the Direct chip for Direct-scope activity (e.g. an incoming call) that
+// lands while the user is NOT in Direct — mirrors how a Direct knock badges the
+// chip. No-op in Direct, where the activity is already visible. Cleared on
+// entering Direct (the onContextChange handler in initKnocks), like knock badges.
+export function noteDirectActivity() {
+  if (getCurrentContext().context === 'direct') return;
+  bumpDirectBadge();
+}
+
 export function clearDirectBadge() {
   directBadgeCount = 0;
   renderDirectBadge(0);

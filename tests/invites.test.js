@@ -37,7 +37,7 @@ jest.mock('../js/groups.js', () => ({
 const db = require('../js/db.js');
 const store = require('../js/store.js');
 const groups = require('../js/groups.js');
-const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, redeemPersonalInvite, attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, resolveInviteCreatorLabel } = require('../js/invites');
+const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, redeemPersonalInvite, attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, extractDirectIntentFromUrl, resolveInviteCreatorLabel } = require('../js/invites');
 
 describe('generateInviteToken', () => {
   test('returns a 22-char URL-safe base64 string', () => {
@@ -340,6 +340,22 @@ describe('extractInboxIntentFromUrl', () => {
 
   test('false on a non-URL input', () => {
     expect(extractInboxIntentFromUrl('not a url')).toBe(false);
+  });
+});
+
+describe('extractDirectIntentFromUrl', () => {
+  test('true when ?direct=1 is present (cold-start Direct knock/call/availability)', () => {
+    expect(extractDirectIntentFromUrl('https://app.example/?direct=1')).toBe(true);
+  });
+
+  test('false when ?direct is absent or not 1', () => {
+    expect(extractDirectIntentFromUrl('https://app.example/')).toBe(false);
+    expect(extractDirectIntentFromUrl('https://app.example/?direct=0')).toBe(false);
+    expect(extractDirectIntentFromUrl('https://app.example/?inbox=1')).toBe(false);
+  });
+
+  test('false on a non-URL input', () => {
+    expect(extractDirectIntentFromUrl('not a url')).toBe(false);
   });
 });
 

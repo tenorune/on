@@ -61,6 +61,10 @@ self.addEventListener('push', (e) => {
 function coldStartUrl(data) {
   if (data.type === 'invite' || data.type === 'followRequest') return '/?inbox=1';
   if (data.contextGroupId) return `/?group=${encodeURIComponent(data.contextGroupId)}`;
+  // Direct-scope activity (knock/call/availability, no contextGroupId) lands in
+  // Direct — otherwise a cold boot restores the user's last (group) context and
+  // the Direct activity is never seen (#144).
+  if (data.type === 'knock' || data.type === 'call' || data.type === 'availability') return '/?direct=1';
   return '/';
 }
 

@@ -64,9 +64,17 @@ describe('notificationclick cold-start routing (no live client → openWindow)',
     expect(mockSelf.clients.openWindow).toHaveBeenCalledWith('/?group=fam');
   });
 
-  test('Direct knock opens the root', async () => {
+  test('Direct knock / call / availability open the Direct deep-link', async () => {
+    for (const type of ['knock', 'call', 'availability']) {
+      const { handlers, mockSelf } = loadSwWithMockSelf();
+      await handlers.notificationclick(clickEvent({ type, targetUid: 'bea' }));
+      expect(mockSelf.clients.openWindow).toHaveBeenCalledWith('/?direct=1');
+    }
+  });
+
+  test('an unknown/typeless notification opens the root', async () => {
     const { handlers, mockSelf } = loadSwWithMockSelf();
-    await handlers.notificationclick(clickEvent({ type: 'knock', targetUid: 'bea' }));
+    await handlers.notificationclick(clickEvent({ targetUid: 'bea' }));
     expect(mockSelf.clients.openWindow).toHaveBeenCalledWith('/');
   });
 });

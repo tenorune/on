@@ -7,6 +7,9 @@
 // Inbox — so closing the modal returns to Direct rather than the (possibly
 // group) context they were in. This mirrors the cold-start path, where boot
 // skips the last-context restore and opens the Inbox over Direct.
+// Direct-scope activity (a knock/call/availability with no contextGroupId) also
+// returns to Direct, where that activity surfaces (#144). Group activity (a
+// contextGroupId) navigates into the group; unknown types are a no-op.
 export function routeNotificationClick(data, { navigateToDirect, navigateToGroup, openInboxModal }) {
   const type = data?.type;
   if (type === 'invite' || type === 'followRequest') {
@@ -14,5 +17,6 @@ export function routeNotificationClick(data, { navigateToDirect, navigateToGroup
     openInboxModal();
     return;
   }
-  if (data?.contextGroupId) navigateToGroup(data.contextGroupId);
+  if (data?.contextGroupId) { navigateToGroup(data.contextGroupId); return; }
+  if (type === 'knock' || type === 'call' || type === 'availability') navigateToDirect();
 }

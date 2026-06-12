@@ -927,7 +927,7 @@ describe('group-card badge', () => {
 });
 
 describe('direct-card badge', () => {
-  let bumpDirectBadge, clearDirectBadge, getDirectBadgeCount;
+  let bumpDirectBadge, clearDirectBadge, getDirectBadgeCount, noteDirectActivity, getCurrentContext;
 
   beforeEach(() => {
     jest.resetModules();
@@ -944,11 +944,26 @@ describe('direct-card badge', () => {
       getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
       onContextChange: jest.fn(() => () => {}),
     }));
-    ({ bumpDirectBadge, clearDirectBadge, getDirectBadgeCount } = require('../js/knock.js'));
+    ({ bumpDirectBadge, clearDirectBadge, getDirectBadgeCount, noteDirectActivity } = require('../js/knock.js'));
+    ({ getCurrentContext } = require('../js/groupNav.js'));
     document.body.innerHTML = `<button class="group-card" data-nav="direct"></button>`;
   });
 
   afterEach(() => { document.body.innerHTML = ''; });
+
+  test('noteDirectActivity pulses the Direct chip when NOT in Direct (e.g. an incoming call in a group)', () => {
+    getCurrentContext.mockReturnValue({ context: 'group', groupId: 'G1' });
+    noteDirectActivity();
+    expect(document.querySelector('.group-card[data-nav="direct"]').classList.contains('knock-pending')).toBe(true);
+    expect(getDirectBadgeCount()).toBe(1);
+  });
+
+  test('noteDirectActivity is a no-op when already in Direct (the activity is visible)', () => {
+    getCurrentContext.mockReturnValue({ context: 'direct', groupId: null });
+    noteDirectActivity();
+    expect(document.querySelector('.group-card[data-nav="direct"]').classList.contains('knock-pending')).toBe(false);
+    expect(getDirectBadgeCount()).toBe(0);
+  });
 
   test('bumpDirectBadge adds the knock-pending pulse to the Direct chip and tracks the count', () => {
     bumpDirectBadge();

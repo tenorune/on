@@ -286,6 +286,17 @@ export function extractInboxIntentFromUrl(urlStr) {
   }
 }
 
+// The SW's cold-start deep-link for a Direct-scope knock/call/availability tap.
+// When set, boot lands in Direct (skip the last-context restore) so the Direct
+// activity is visible, without opening any modal (#144).
+export function extractDirectIntentFromUrl(urlStr) {
+  try {
+    return new URL(urlStr).searchParams.get('direct') === '1';
+  } catch {
+    return false;
+  }
+}
+
 function findActiveGroupInviteForCreator(collection, creatorUid) {
   for (const [token, inv] of Object.entries(collection || {})) {
     if (inv && inv.scope === 'group' && inv.creatorUid === creatorUid && !inv.revoked) {
