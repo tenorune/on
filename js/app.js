@@ -234,12 +234,26 @@ export function showRecoveryCodeModal(initialCode) {
         // ignore clipboard failures
       }
     }
+    // Trap the browser/PWA back-gesture so it can't dismiss the modal and discard
+    // the un-saved phrase: push a history entry on open, and re-push if a back
+    // pops it while the modal is still showing. Net history depth stays +1 (each
+    // back pops our entry and we push it again). Removed once the user saves.
+    function onPopState() {
+      if (!el.classList.contains('hidden') && typeof history !== 'undefined' && history.pushState) {
+        history.pushState({ recoveryModal: true }, '');
+      }
+    }
     function onSaved() {
       rotateBtn.removeEventListener('click', onRotate);
       copyBtn.removeEventListener('click', onCopy);
       savedBtn.removeEventListener('click', onSaved);
+      window.removeEventListener('popstate', onPopState);
       el.classList.add('hidden');
       resolve(current);
+    }
+    if (typeof history !== 'undefined' && history.pushState) {
+      history.pushState({ recoveryModal: true }, '');
+      window.addEventListener('popstate', onPopState);
     }
     rotateBtn.addEventListener('click', onRotate);
     copyBtn.addEventListener('click', onCopy);
@@ -284,18 +298,25 @@ export function showRestoreScreen() {
         error.classList.remove('hidden');
         return;
       }
-      let exists;
+      let user;
       try {
-        exists = await userExists(userId);
-      } catch (_) {
-        exists = false;
-      }
-      if (!exists) {
-        error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
+        const exists = await userExists(userId);
+        if (!exists) {
+          error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
+          error.classList.remove('hidden');
+          return;
+        }
+        user = await getUser(userId);
+      } catch (e) {
+        // A read failure here is transient/offline — NOT a missing account.
+        // Sign-in already succeeded, so the phrase is valid; telling the user to
+        // "start over" would discard a real identity. Surface it as retryable
+        // instead of conflating it with "no account found".
+        console.error('restore account read failed:', e);
+        error.textContent = "Couldn't verify your phrase right now. Check your connection and try again.";
         error.classList.remove('hidden');
         return;
       }
-      const user = await getUser(userId);
       if (!user) {
         error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
         error.classList.remove('hidden');
