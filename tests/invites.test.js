@@ -33,6 +33,7 @@ jest.mock('../js/store.js', () => ({ getFollowing: jest.fn(() => []) }));
 jest.mock('../js/groups.js', () => ({
   joinGroup: jest.fn().mockResolvedValue(undefined),
 }));
+jest.mock('../js/auth.js', () => ({ ensureSignedIn: jest.fn().mockResolvedValue(undefined) }));
 
 const db = require('../js/db.js');
 const store = require('../js/store.js');
