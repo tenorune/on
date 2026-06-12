@@ -498,6 +498,14 @@ async function main() {
     }
   }
 
+  // Cold tap on an invite / follow-request (wantInbox): we deliberately stay in
+  // Direct and open the Inbox below. The restore branch was skipped, but the
+  // user's persisted currentContext is still their last (group) context — force
+  // -write 'direct' here, BEFORE watchUserPrefs starts, so its first echo
+  // doesn't yank us into that group (same hazard the personal-invite-success
+  // path guards against above).
+  if (wantInbox) setPrefsCurrentContext('direct');
+
   touchLastSeen(userId).catch(() => {});
 
   // Cross-device user-preferences sync. initPrefs already ran above (before the
