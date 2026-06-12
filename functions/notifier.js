@@ -2,6 +2,14 @@
 import { wantsKnock, wantsCall, wantsAvailability, availabilityTurnedOn, withinCooldown, buildMessage, effectiveAvailable } from './presence-core.js';
 
 const AVAIL_COOLDOWN_MS = 5 * 60 * 1000;
+// Per-(recipient, sender) send cooldowns (R1.5 #179 S3). Each directed event
+// (knock/call/invite/follow-request) triggers a Cloud Function → FCM push; with
+// no throttle an authed user scripting set+delete loops could flood a victim's
+// lock screen. State lives under notifierState/* (rules: server-only read/write).
+const KNOCK_COOLDOWN_MS = 30 * 1000;
+const CALL_COOLDOWN_MS = 30 * 1000;
+const INVITE_COOLDOWN_MS = 60 * 60 * 1000;
+const FOLLOW_REQ_COOLDOWN_MS = 60 * 60 * 1000;
 
 export async function sendToUser(deps, uid, message, data) {
   const tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
@@ -36,6 +44,8 @@ export async function resolveGroupMemberName(deps, groupId, uid) {
 export async function handleKnock(deps, recipientId, senderId, record) {
   const prefs = await deps.getVal(`userPrefs/${recipientId}/notify/${senderId}`);
   if (!wantsKnock(prefs)) return;
+  const now = deps.now();
+  if (withinCooldown(await deps.getVal(`notifierState/knockCooldown/${recipientId}/${senderId}`), now, KNOCK_COOLDOWN_MS)) return;
   const groupId = record && record.contextGroupId;
   if (groupId) {
     const name = await resolveGroupMemberName(deps, groupId, senderId);
@@ -43,11 +53,12 @@ export async function handleKnock(deps, recipientId, senderId, record) {
     await sendToUser(deps, recipientId,
       buildMessage('knock', name, { group: group || undefined }),
       { type: 'knock', targetUid: senderId, contextGroupId: groupId });
-    return;
+  } else {
+    const name = await resolveName(deps, recipientId, senderId);
+    await sendToUser(deps, recipientId, buildMessage('knock', name),
+      { type: 'knock', targetUid: senderId });
   }
-  const name = await resolveName(deps, recipientId, senderId);
-  await sendToUser(deps, recipientId, buildMessage('knock', name),
-    { type: 'knock', targetUid: senderId });
+  await deps.update(`notifierState/knockCooldown/${recipientId}`, { [senderId]: now });
 }
 
 // A pending invite landed in `pendingInvites/{inviteeUid}/{groupId}`. Notify the
@@ -57,12 +68,15 @@ export async function handleKnock(deps, recipientId, senderId, record) {
 // the invitee is not a member yet, so the deep link opens the Inbox, not the group.
 export async function handleInvite(deps, inviteeUid, groupId, record) {
   if (!record || !record.from) return;
+  const now = deps.now();
+  if (withinCooldown(await deps.getVal(`notifierState/inviteCooldown/${inviteeUid}/${record.from}`), now, INVITE_COOLDOWN_MS)) return;
   const follow = await deps.getVal(`userPrefs/${inviteeUid}/following/${record.from}`);
   const name = (follow && follow.label) || await resolveGroupMemberName(deps, groupId, record.from);
   const group = await deps.getVal(`groups/${groupId}/name`);
   await sendToUser(deps, inviteeUid,
     buildMessage('invite', name, { group: group || undefined }),
     { type: 'invite', targetUid: record.from, groupId });
+  await deps.update(`notifierState/inviteCooldown/${inviteeUid}`, { [record.from]: now });
 }
 
 // A follow request landed in `followRequests/{targetUid}/{requesterUid}` (Groups
@@ -73,12 +87,15 @@ export async function handleInvite(deps, inviteeUid, groupId, record) {
 // and NO contextGroupId — the deep link opens the Inbox to approve/decline.
 export async function handleFollowRequest(deps, targetUid, requesterUid, record) {
   if (!record || !record.from) return;
+  const now = deps.now();
+  if (withinCooldown(await deps.getVal(`notifierState/followReqCooldown/${targetUid}/${requesterUid}`), now, FOLLOW_REQ_COOLDOWN_MS)) return;
   const follow = await deps.getVal(`userPrefs/${targetUid}/following/${requesterUid}`);
   const name = (follow && follow.label)
     || await resolveGroupMemberName(deps, record.groupId, requesterUid);
   await sendToUser(deps, targetUid,
     buildMessage('followRequest', name),
     { type: 'followRequest', targetUid: requesterUid });
+  await deps.update(`notifierState/followReqCooldown/${targetUid}`, { [requesterUid]: now });
 }
 
 // Notify the OTHER members of a group that `memberUid` is available in it.
@@ -128,8 +145,11 @@ export async function handleGroupOverrideChange(deps, groupId, memberUid, before
 export async function handleCall(deps, calleeId, callerId) {
   const prefs = await deps.getVal(`userPrefs/${calleeId}/notify/${callerId}`);
   if (!wantsCall(prefs)) return;
+  const now = deps.now();
+  if (withinCooldown(await deps.getVal(`notifierState/callCooldown/${calleeId}/${callerId}`), now, CALL_COOLDOWN_MS)) return;
   const name = await resolveName(deps, calleeId, callerId);
   await sendToUser(deps, calleeId, buildMessage('call', name), { type: 'call', targetUid: callerId });
+  await deps.update(`notifierState/callCooldown/${calleeId}`, { [callerId]: now });
 }
 
 // Triggered on a write to users/{uid}/presence/availableUntil (before/after are that value).

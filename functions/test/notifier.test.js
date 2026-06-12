@@ -459,3 +459,62 @@ describe('handleFollowRequest', () => {
     expect(deps.send).not.toHaveBeenCalled();
   });
 });
+
+// ── R1.5 #179 S3: per-(recipient, sender) directed-event send cooldowns ───────
+describe('directed-event send cooldowns', () => {
+  test('knock: suppressed within the window; recorded after a send; sends again after it elapses', async () => {
+    const base = { 'userPrefs/rcpt/notify/sndr': { knock: true }, 'userPrefs/rcpt/pushTokens': { tokA: {} } };
+
+    const cooled = makeDeps({ store: { ...base, 'notifierState/knockCooldown/rcpt/sndr': 990 } }); // now=1000
+    await handleKnock(cooled, 'rcpt', 'sndr', { count: 1, ts: 1 });
+    expect(cooled.send).not.toHaveBeenCalled();
+
+    const fresh = makeDeps({ store: { ...base } });
+    await handleKnock(fresh, 'rcpt', 'sndr', { count: 1, ts: 1 });
+    expect(fresh.send).toHaveBeenCalled();
+    expect(fresh.update).toHaveBeenCalledWith('notifierState/knockCooldown/rcpt', { sndr: 1000 });
+
+    const elapsed = makeDeps({ store: { ...base, 'notifierState/knockCooldown/rcpt/sndr': 1000 - 40000 } });
+    await handleKnock(elapsed, 'rcpt', 'sndr', { count: 1, ts: 1 });
+    expect(elapsed.send).toHaveBeenCalled();
+  });
+
+  test('call: suppressed within the window; recorded after a send', async () => {
+    const base = { 'userPrefs/callee/notify/caller': { call: true }, 'userPrefs/callee/pushTokens': { tokA: {} } };
+
+    const cooled = makeDeps({ store: { ...base, 'notifierState/callCooldown/callee/caller': 995 } });
+    await handleCall(cooled, 'callee', 'caller');
+    expect(cooled.send).not.toHaveBeenCalled();
+
+    const fresh = makeDeps({ store: { ...base } });
+    await handleCall(fresh, 'callee', 'caller');
+    expect(fresh.update).toHaveBeenCalledWith('notifierState/callCooldown/callee', { caller: 1000 });
+  });
+
+  test('invite: suppressed within the 1h window (unconditional event still throttled)', async () => {
+    const cooled = makeDeps({ store: {
+      'userPrefs/inv/pushTokens': { tokA: {} },
+      'groups/g/name': 'Fam',
+      'notifierState/inviteCooldown/inv/from': 1000 - 1000, // < 1h
+    }});
+    await handleInvite(cooled, 'inv', 'g', { from: 'from', ts: 1 });
+    expect(cooled.send).not.toHaveBeenCalled();
+
+    const fresh = makeDeps({ store: { 'userPrefs/inv/pushTokens': { tokA: {} }, 'groups/g/name': 'Fam' } });
+    await handleInvite(fresh, 'inv', 'g', { from: 'from', ts: 1 });
+    expect(fresh.update).toHaveBeenCalledWith('notifierState/inviteCooldown/inv', { from: 1000 });
+  });
+
+  test('followRequest: suppressed within the 1h window', async () => {
+    const cooled = makeDeps({ store: {
+      'userPrefs/tgt/pushTokens': { tokA: {} },
+      'notifierState/followReqCooldown/tgt/req': 999,
+    }});
+    await handleFollowRequest(cooled, 'tgt', 'req', { from: 'req', groupId: 'g', ts: 1 });
+    expect(cooled.send).not.toHaveBeenCalled();
+
+    const fresh = makeDeps({ store: { 'userPrefs/tgt/pushTokens': { tokA: {} } } });
+    await handleFollowRequest(fresh, 'tgt', 'req', { from: 'req', groupId: 'g', ts: 1 });
+    expect(fresh.update).toHaveBeenCalledWith('notifierState/followReqCooldown/tgt', { req: 1000 });
+  });
+});
