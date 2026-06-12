@@ -171,7 +171,12 @@ function renderBanner(banner, capState, onDismiss) {
     };
   } else {
     const copy = guidanceCopyFor(capState);
-    textEl.textContent = copy.body;
+    // Installing on iOS lands in a fresh storage partition, so the identity is
+    // gone unless the user re-enters their phrase. When the guidance flags it,
+    // append the save-your-phrase reminder (the §6c data-loss guard).
+    textEl.textContent = copy.remindPhrase
+      ? `${copy.body} First, make sure you’ve saved your secret phrase — you’ll need it to restore your account after installing.`
+      : copy.body;
     actionEl.classList.add('hidden');
   }
   banner.querySelector('#notify-promo-dismiss').onclick = onDismiss

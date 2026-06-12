@@ -244,6 +244,19 @@ describe('showRecoveryCodeModal', () => {
     expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(true);
   });
 
+  test('traps the back-gesture: pushes history on open and re-pushes on back so it cannot navigate away', async () => {
+    const pushSpy = jest.spyOn(window.history, 'pushState');
+    const p = showRecoveryCodeModal('alpha-bravo-charlie-delta');
+    expect(pushSpy).toHaveBeenCalledTimes(1);            // trap entry pushed on open
+    window.dispatchEvent(new PopStateEvent('popstate')); // simulated browser back
+    expect(pushSpy).toHaveBeenCalledTimes(2);            // re-trapped instead of dismissing
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('recovery-code-text').textContent).toBe('alpha-bravo-charlie-delta');
+    document.getElementById('recovery-saved-btn').click();
+    expect(await p).toBe('alpha-bravo-charlie-delta');
+    pushSpy.mockRestore();
+  });
+
   test('rotate (↻) updates the displayed code in place; modal stays open', async () => {
     const p = showRecoveryCodeModal('alpha-bravo-charlie-delta');
     const before = document.getElementById('recovery-code-text').textContent;
@@ -427,6 +440,26 @@ describe('showRestoreScreen', () => {
     expect(document.getElementById('restore-error').textContent).not.toMatch(/no account found/i);
     expect(mockUserExists).not.toHaveBeenCalled();
     expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+    document.getElementById('restore-cancel-btn').click();
+    await p;
+  });
+
+  test('a read failure AFTER sign-in shows a retryable error, not "no account" (no identity loss)', async () => {
+    // Sign-in succeeded (the phrase is valid) but the existence read threw — a
+    // transient/offline blip. Telling the user "no account found" would invite
+    // them to "start over" and discard a real identity. Must be retryable.
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { generateRecoveryCode } = require('../js/identity');
+    const code = generateRecoveryCode();
+    mockUserExists.mockRejectedValue(new Error('network blip'));
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = code;
+    document.getElementById('restore-submit-btn').click();
+    await waitFor(() => mockUserExists.mock.calls.length > 0);
+    const errText = document.getElementById('restore-error').textContent;
+    expect(errText).toMatch(/try again/i);
+    expect(errText).not.toMatch(/no account/i);
     errSpy.mockRestore();
     document.getElementById('restore-cancel-btn').click();
     await p;

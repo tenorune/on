@@ -123,7 +123,7 @@ describe('refreshPushToken', () => {
 });
 
 const { ensureNotificationsReady } = require('../js/notifyPrompt.js');
-const { detectNotifyCapability } = require('../js/installGuidance.js');
+const { detectNotifyCapability, guidanceCopyFor } = require('../js/installGuidance.js');
 
 function mountBanner() {
   document.body.innerHTML =
@@ -168,6 +168,15 @@ describe('ensureNotificationsReady', () => {
     const banner = document.getElementById('notify-promo');
     expect(banner.classList.contains('hidden')).toBe(false);
     expect(document.getElementById('notify-promo-text').textContent).toBe('copy-for-needs-install-ios');
+  });
+
+  test('an install-guidance state with remindPhrase appends the save-your-phrase reminder (data-loss guard)', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'needs-install-ios', supported: false });
+    guidanceCopyFor.mockReturnValueOnce({ body: 'install copy', remindPhrase: true });
+    await ensureNotificationsReady();
+    const text = document.getElementById('notify-promo-text').textContent;
+    expect(text).toContain('install copy');
+    expect(text).toMatch(/secret phrase/i);
   });
 
   test('supported but the user denies the prompt → shows blocked banner', async () => {
