@@ -5,6 +5,7 @@ jest.mock('../js/db.js', () => ({
   writePendingInvite: jest.fn().mockResolvedValue(undefined),
   deletePendingInvite: jest.fn().mockResolvedValue(undefined),
   readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
+  readPushTokens: jest.fn().mockResolvedValue(null),
 }));
 
 const { mergeUserPrefs } = require('../js/db.js');
@@ -219,16 +220,22 @@ describe('notify prefs', () => {
   });
 });
 
-const { addPushToken, removePushToken, getRegisteredPushToken } = require('../js/prefs.js');
+const { addPushToken, removePushToken, getRegisteredPushToken, touchPushToken, cullStalePushTokens } = require('../js/prefs.js');
+const { readPushTokens } = require('../js/db.js');
 
 describe('push tokens', () => {
   beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); initPrefs('me123'); });
 
-  test('addPushToken writes the token record and records it locally', () => {
+  test('addPushToken writes the token record (createdAt + lastSeen + ua) and records it locally', () => {
     addPushToken('tok-abc');
     expect(mergeUserPrefs).toHaveBeenCalledWith('me123',
-      expect.objectContaining({ 'pushTokens/tok-abc': expect.objectContaining({ createdAt: expect.any(Number) }) }));
+      expect.objectContaining({ 'pushTokens/tok-abc': expect.objectContaining({ createdAt: expect.any(Number), lastSeen: expect.any(Number) }) }));
     expect(getRegisteredPushToken()).toBe('tok-abc');
+  });
+
+  test('touchPushToken bumps only the lastSeen leaf (preserving createdAt/ua)', () => {
+    touchPushToken('tok-abc');
+    expect(mergeUserPrefs).toHaveBeenCalledWith('me123', { 'pushTokens/tok-abc/lastSeen': expect.any(Number) });
   });
 
   test('removePushToken nulls the path and clears the local record', () => {
@@ -236,5 +243,65 @@ describe('push tokens', () => {
     removePushToken('tok-abc');
     expect(mergeUserPrefs).toHaveBeenCalledWith('me123', { 'pushTokens/tok-abc': null });
     expect(getRegisteredPushToken()).toBe(null);
+  });
+});
+
+describe('cullStalePushTokens', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); readPushTokens.mockReset(); initPrefs('me123'); });
+
+  test('deletes tokens past the TTL, keeping the active and fresh ones', async () => {
+    addPushToken('active'); // localStorage active token = 'active'
+    const now = Date.now();
+    readPushTokens.mockResolvedValue({
+      active: { lastSeen: now - 200 * DAY }, // active → never culled despite age
+      fresh:  { lastSeen: now - 1 * DAY },
+      stale1: { lastSeen: now - 100 * DAY },
+      stale2: { createdAt: now - 120 * DAY }, // legacy record, no lastSeen
+    });
+    mergeUserPrefs.mockClear();
+    await cullStalePushTokens();
+    expect(mergeUserPrefs).toHaveBeenCalledWith('me123', { 'pushTokens/stale1': null, 'pushTokens/stale2': null });
+  });
+
+  test('no write when nothing is stale', async () => {
+    readPushTokens.mockResolvedValue({ a: { lastSeen: Date.now() } });
+    mergeUserPrefs.mockClear();
+    await cullStalePushTokens();
+    expect(mergeUserPrefs).not.toHaveBeenCalled();
+  });
+});
+
+const { selectStalePushTokens } = require('../js/prefs.js');
+
+describe('selectStalePushTokens (pure)', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = 1_000_000_000_000;
+  const ttl = 90 * DAY;
+
+  test('flags tokens whose lastSeen is older than the TTL', () => {
+    const map = {
+      fresh: { lastSeen: now - 1 * DAY },
+      stale: { lastSeen: now - 100 * DAY },
+    };
+    expect(selectStalePushTokens(map, { activeToken: null, now, maxAgeMs: ttl })).toEqual(['stale']);
+  });
+
+  test('never flags the active token, even if its lastSeen is old', () => {
+    const map = { active: { lastSeen: now - 200 * DAY } };
+    expect(selectStalePushTokens(map, { activeToken: 'active', now, maxAgeMs: ttl })).toEqual([]);
+  });
+
+  test('falls back to createdAt when lastSeen is missing (legacy records)', () => {
+    const map = {
+      legacyStale: { createdAt: now - 100 * DAY },
+      legacyFresh: { createdAt: now - 2 * DAY },
+    };
+    expect(selectStalePushTokens(map, { activeToken: null, now, maxAgeMs: ttl })).toEqual(['legacyStale']);
+  });
+
+  test('tolerates an empty/missing map', () => {
+    expect(selectStalePushTokens(null, { activeToken: null, now, maxAgeMs: ttl })).toEqual([]);
+    expect(selectStalePushTokens({}, { activeToken: null, now, maxAgeMs: ttl })).toEqual([]);
   });
 });

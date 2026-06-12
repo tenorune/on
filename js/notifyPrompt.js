@@ -1,6 +1,6 @@
 // js/notifyPrompt.js
 import { NOTIFICATIONS_ENABLED } from './features.js';
-import { isHintSeen, markHintSeen, addPushToken, removePushToken, getRegisteredPushToken, hasAnyNotifyPrefEnabled } from './prefs.js';
+import { isHintSeen, markHintSeen, addPushToken, removePushToken, getRegisteredPushToken, hasAnyNotifyPrefEnabled, touchPushToken, cullStalePushTokens } from './prefs.js';
 import { detectNotifyCapability, guidanceCopyFor } from './installGuidance.js';
 import { getMessagingIfSupported } from './firebase-config.js';
 import { getToken } from 'firebase/messaging';
@@ -78,8 +78,15 @@ export async function refreshPushToken() {
   const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: registration });
   if (!token) return;
   const prev = getRegisteredPushToken();
-  if (prev && prev !== token) removePushToken(prev);
-  addPushToken(token);
+  if (prev === token) {
+    touchPushToken(token);            // unchanged → just bump lastSeen
+  } else {
+    if (prev) removePushToken(prev);  // rotated → drop the old token
+    addPushToken(token);              // (re)register the current one
+  }
+  // Prune long-dead sibling tokens (orphaned installs). The active token was
+  // just touched/added, so it's never culled. See #157.
+  cullStalePushTokens().catch(() => {});
 }
 
 // Explicitly show the promo banner for a capability state, bypassing the

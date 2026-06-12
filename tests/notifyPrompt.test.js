@@ -6,6 +6,8 @@ jest.mock('../js/prefs.js', () => ({
   removePushToken: jest.fn(),
   getRegisteredPushToken: jest.fn(),
   hasAnyNotifyPrefEnabled: jest.fn(() => false),
+  touchPushToken: jest.fn(),
+  cullStalePushTokens: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../js/firebase-config.js', () => ({ getMessagingIfSupported: jest.fn() }));
 jest.mock('firebase/messaging', () => ({ getToken: jest.fn() }));
@@ -67,22 +69,24 @@ describe('requestPermissionAndRegister', () => {
 });
 
 const { refreshPushToken } = require('../js/notifyPrompt.js');
-const { getRegisteredPushToken, removePushToken } = require('../js/prefs.js');
+const { getRegisteredPushToken, removePushToken, touchPushToken, cullStalePushTokens } = require('../js/prefs.js');
 
 describe('refreshPushToken', () => {
   beforeEach(() => {
     addPushToken.mockClear(); removePushToken.mockClear(); getRegisteredPushToken.mockReset();
+    touchPushToken.mockClear(); cullStalePushTokens.mockClear();
     getToken.mockReset(); getMessagingIfSupported.mockReset();
     global.Notification = { permission: 'granted' };
     global.navigator.serviceWorker = { ready: Promise.resolve({ id: 'reg' }) };
     getMessagingIfSupported.mockResolvedValue({});
   });
 
-  test('re-registers the current token (self-heal) when permission granted', async () => {
+  test('unchanged token → touches lastSeen (not a full re-register)', async () => {
     getRegisteredPushToken.mockReturnValue('tok-A');
     getToken.mockResolvedValue('tok-A'); // unchanged
     await refreshPushToken();
-    expect(addPushToken).toHaveBeenCalledWith('tok-A');
+    expect(touchPushToken).toHaveBeenCalledWith('tok-A');
+    expect(addPushToken).not.toHaveBeenCalled();
     expect(removePushToken).not.toHaveBeenCalled();
   });
 
@@ -94,11 +98,27 @@ describe('refreshPushToken', () => {
     expect(addPushToken).toHaveBeenCalledWith('tok-NEW');
   });
 
+  test('registers the current token when none was registered locally', async () => {
+    getRegisteredPushToken.mockReturnValue(null);
+    getToken.mockResolvedValue('tok-NEW');
+    await refreshPushToken();
+    expect(addPushToken).toHaveBeenCalledWith('tok-NEW');
+    expect(removePushToken).not.toHaveBeenCalled();
+  });
+
+  test('prunes stale sibling tokens on every refresh', async () => {
+    getRegisteredPushToken.mockReturnValue('tok-A');
+    getToken.mockResolvedValue('tok-A');
+    await refreshPushToken();
+    expect(cullStalePushTokens).toHaveBeenCalled();
+  });
+
   test('no-op when permission is not granted', async () => {
     global.Notification = { permission: 'default' };
     await refreshPushToken();
     expect(getToken).not.toHaveBeenCalled();
     expect(addPushToken).not.toHaveBeenCalled();
+    expect(cullStalePushTokens).not.toHaveBeenCalled();
   });
 });
 
