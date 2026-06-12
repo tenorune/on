@@ -320,6 +320,11 @@ export async function readGroupInvites(groupId) {
   return snap.exists() ? snap.val() : {};
 }
 
+export async function readGroupInvite(groupId, token) {
+  const snap = await get(ref(db, `groups/${groupId}/invites/${token}`));
+  return snap.exists() ? snap.val() : null;
+}
+
 export async function setGroupInviteRevoked(groupId, token) {
   await update(ref(db, `groups/${groupId}/invites/${token}`), { revoked: true });
 }

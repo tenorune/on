@@ -83,11 +83,10 @@ describe('M1 users/{uid} read scoping', () => {
   });
 });
 
-// ── C2 + group-redeem read flow ──────────────────────────────────────────────
-// redeemGroupInvite (non-member) performs, before joining:
-//   readGroup(gid)         → groups/{gid}          (whole node, for group.name)
-//   readGroupInvites(gid)  → groups/{gid}/invites  (whole collection, find token)
-//   readMember(gid, me)    → groups/{gid}/members/{me}  (already-member probe)
+// ── C2 + group-redeem non-member read flow ───────────────────────────────────
+// redeemGroupInvite (non-member) now uses readGroupInvite(groupId, token)
+// (single-token read) instead of readGroupInvites(groupId) (whole collection),
+// so the rule is per-token, not collection-level — symmetric with personal invites.
 // then writeMember(self), writeUserGroupsEntry(self), and
 //   incrementGroupInviteRedemptions → groups/{gid}/invites/{token}/redemptionsUsed (C2).
 describe('C2 + group-redeem non-member read flow', () => {
@@ -107,8 +106,12 @@ describe('C2 + group-redeem non-member read flow', () => {
     await assertFails(dbAs(env, 'joiner').ref('groups/G1').get());
   });
 
-  test('a non-member joiner CAN read groups/{G}/invites to find their token', async () => {
-    await assertSucceeds(dbAs(env, 'joiner').ref('groups/G1/invites').get());
+  test('a non-member joiner CANNOT enumerate groups/{G}/invites (collection read blocked — M1-class leak)', async () => {
+    await assertFails(dbAs(env, 'joiner').ref('groups/G1/invites').get());
+  });
+
+  test('a non-member joiner CAN read a specific groups/{G}/invites/{token} (per-token read)', async () => {
+    await assertSucceeds(dbAs(env, 'joiner').ref('groups/G1/invites/TOKG').get());
   });
 
   test('a non-member joiner CAN probe their OWN membership row', async () => {

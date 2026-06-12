@@ -7,7 +7,7 @@ import {
   setInviteRevoked, releaseInviteToken,
   readInviteIndex, readUserInvite, incrementInviteRedemptions, getCreatorCode,
   registerAsFollower, setFollowingEntry,
-  writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions,
+  writeGroupInvite, readGroupInvites, readGroupInvite, setGroupInviteRevoked, incrementGroupInviteRedemptions,
   readGroupName, readMember,
 } from './db.js';
 import { getFollowing } from './store.js';
@@ -229,12 +229,13 @@ export async function resolveInvitePreview(token) {
       if (!m) return null;
       // Independent reads — fire in parallel. readGroupName (not readGroup) so a
       // not-yet-member previewer isn't blocked by the membership-gated group node.
-      const [group, invitesByToken] = await Promise.all([
+      // readGroupInvite (single token) instead of readGroupInvites (collection)
+      // so a non-member cannot enumerate all active invite tokens.
+      const [group, invite] = await Promise.all([
         readGroupName(m[1]),
-        readGroupInvites(m[1]),
+        readGroupInvite(m[1], m[2]),
       ]);
       if (!group) return null;
-      const invite = invitesByToken[m[2]];
       if (!invite || invite.revoked) return null;
       return { scope: 'group', groupName: group.name || null, groupId: m[1] };
     }
@@ -365,19 +366,20 @@ export async function redeemGroupInvite(token, redeemerUid, displayName, opts = 
   const [, groupId] = match;
 
   // Parallelize the remaining independent reads: group record (if not cached),
-  // group invites, and the redeemer's current membership row. All three are
-  // independent — sequencing them costs round trips for no reason.
+  // the specific invite token, and the redeemer's current membership row. All
+  // three are independent — sequencing them costs round trips for no reason.
   // readGroupName (not readGroup): the redeemer is not yet a member, so the
   // membership-gated whole-group node would be denied. The name leaf is enough —
   // it's the only field this flow and joinGroup consume from `group`.
-  const [group, invitesByToken, existingMember] = await Promise.all([
+  // readGroupInvite (single token) instead of readGroupInvites (collection)
+  // so a non-member cannot enumerate all active invite tokens.
+  const [group, invite, existingMember] = await Promise.all([
     cache.group !== undefined ? Promise.resolve(cache.group) : readGroupName(groupId),
-    readGroupInvites(groupId),
+    readGroupInvite(groupId, token),
     readMember(groupId, redeemerUid),
   ]);
   if (!group) return { ok: false, reason: 'group-missing' };
 
-  const invite = invitesByToken[token];
   if (!invite) return { ok: false, reason: 'not-found' };
   if (invite.revoked) return { ok: false, reason: 'revoked' };
   if (invite.expiresAt != null && invite.expiresAt < Date.now()) return { ok: false, reason: 'expired' };

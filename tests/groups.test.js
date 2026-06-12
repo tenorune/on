@@ -390,9 +390,9 @@ describe('end-to-end: create group → group invite → redeem → joined', () =
     db.readInviteIndex = jest.fn().mockResolvedValue({ scope: 'group', ownerPath: `groups/${created.groupId}/invites/${invite.token}` });
     db.readGroup = jest.fn().mockResolvedValue({ name: 'Family', ownerId: 'owner-uid', createdAt: 1 });
     db.readGroupName = jest.fn().mockResolvedValue({ name: 'Family' });
-    db.readGroupInvites = jest.fn().mockResolvedValue({
-      [invite.token]: { scope: 'group', token: invite.token, creatorUid: 'owner-uid', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
-    });
+    db.readGroupInvite = jest.fn().mockResolvedValue(
+      { scope: 'group', token: invite.token, creatorUid: 'owner-uid', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    );
     db.readMember = jest.fn().mockResolvedValue(null);
     db.incrementGroupInviteRedemptions = jest.fn().mockResolvedValue();
     db.writeMember.mockResolvedValue();
