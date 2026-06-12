@@ -56,7 +56,10 @@
     "knocks": {
       "$recipient": {
         ".read": "auth != null && auth.uid === $recipient",
-        "$sender": { ".write": "auth != null && (auth.uid === $sender || auth.uid === $recipient)" }
+        "$sender": {
+          ".read": "auth != null && (auth.uid === $sender || auth.uid === $recipient)",
+          ".write": "auth != null && (auth.uid === $sender || auth.uid === $recipient)"
+        }
       }
     },
     "revocations": {
