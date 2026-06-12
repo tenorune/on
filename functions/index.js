@@ -100,8 +100,37 @@ export const onFollowRequest = onValueCreated('/followRequests/{targetUid}/{requ
   return handleFollowRequest(makeDeps(), event.params.targetUid, event.params.requesterUid, event.data.val());
 });
 
+// Shared, instance-independent rate limiter for validateRecovery (#179 S5a).
+// Fixed-window counters in RTDB under the server-only notifierState/* subtree
+// (rules deny all client read/write). Per-uid caps brute-forcing one account;
+// the global counter is a backstop against mass guessing. Keyed by the derived
+// uid (not IP) so X-Forwarded-For spoofing can't reset the window.
+const RECOVERY_PER_UID_LIMIT = 10;
+const RECOVERY_GLOBAL_LIMIT = 60;
+const RECOVERY_WINDOW_MS = 60 * 1000;
+
+async function bumpFixedWindow(ref, limit, now, windowMs) {
+  let allowed = true;
+  await ref.transaction((cur) => {
+    if (!cur || now - cur.windowStart >= windowMs) { allowed = true; return { windowStart: now, count: 1 }; }
+    if (cur.count >= limit) { allowed = false; return cur; } // over cap — no change
+    allowed = true;
+    return { windowStart: cur.windowStart, count: cur.count + 1 };
+  });
+  return allowed;
+}
+
+async function allowRecoveryAttempt(db, uid) {
+  const now = Date.now();
+  if (!(await bumpFixedWindow(db.ref(`notifierState/recoveryRate/perUid/${uid}`), RECOVERY_PER_UID_LIMIT, now, RECOVERY_WINDOW_MS))) return false;
+  return bumpFixedWindow(db.ref('notifierState/recoveryRate/global'), RECOVERY_GLOBAL_LIMIT, now, RECOVERY_WINDOW_MS);
+}
+
 // Unauthenticated callable: the user isn't signed in yet. Mints a Firebase
 // custom token for uid = sha256(recoveryCode) so the client can sign in. Runs in
 // the same region as the rest (setGlobalOptions above). See auth.js / R1 spec.
 export const validateRecovery = httpsOnCall((request) =>
-  validateRecoveryHandler(request, { mintToken: (uid) => getAuth().createCustomToken(uid) }));
+  validateRecoveryHandler(request, {
+    allowAttempt: (uid) => allowRecoveryAttempt(getDatabase(), uid),
+    mintToken: (uid) => getAuth().createCustomToken(uid),
+  }));
