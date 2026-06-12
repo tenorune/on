@@ -14,6 +14,17 @@ test('knock: sender can write own key, cannot forge another sender; recipient re
   await assertFails(dbAs(env, 'me').ref('knocks/you').get());
 });
 
+test('knock: sender can read+transact its OWN node (count cap is read-modify-write), but not enumerate', async () => {
+  // The knock is a runTransaction (count up to 5), which reads before writing.
+  // The sender must be able to read its own knock node, or the transaction's
+  // read phase is denied.
+  await assertSucceeds(dbAs(env, 'me').ref('knocks/you/me').get());
+  await assertSucceeds(dbAs(env, 'me').ref('knocks/you/me').transaction((c) => ({ count: (c && c.count || 0) + 1, ts: 2 })));
+  // Still cannot read a different sender's node or the whole collection.
+  await assertFails(dbAs(env, 'me').ref('knocks/you/other').get());
+  await assertFails(dbAs(env, 'me').ref('knocks/you').get());
+});
+
 test('followRequest: requester writes own key; target reads', async () => {
   await assertSucceeds(dbAs(env, 'req').ref('followRequests/tgt/req').set({ ts: 1 }));
   await assertFails(dbAs(env, 'req').ref('followRequests/tgt/someoneelse').set({ ts: 1 }));
