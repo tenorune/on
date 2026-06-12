@@ -5,6 +5,9 @@ import { getMessaging } from 'firebase-admin/messaging';
 import { onValueCreated, onValueWritten } from 'firebase-functions/v2/database';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest } from './notifier.js';
+import { onCall as httpsOnCall } from 'firebase-functions/v2/https';
+import { getAuth } from 'firebase-admin/auth';
+import { validateRecoveryHandler } from './auth.js';
 
 // Pin all functions to the RTDB's region. A 2nd-gen RTDB trigger MUST run in the
 // same region as the database instance. Region is per-project config: the Firebase
@@ -96,3 +99,9 @@ export const onInvite = onValueCreated('/pendingInvites/{inviteeUid}/{groupId}',
 export const onFollowRequest = onValueCreated('/followRequests/{targetUid}/{requesterUid}', (event) => {
   return handleFollowRequest(makeDeps(), event.params.targetUid, event.params.requesterUid, event.data.val());
 });
+
+// Unauthenticated callable: the user isn't signed in yet. Mints a Firebase
+// custom token for uid = sha256(recoveryCode) so the client can sign in. Runs in
+// the same region as the rest (setGlobalOptions above). See auth.js / R1 spec.
+export const validateRecovery = httpsOnCall((request) =>
+  validateRecoveryHandler(request, { mintToken: (uid) => getAuth().createCustomToken(uid) }));
