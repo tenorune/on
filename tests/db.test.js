@@ -10,7 +10,7 @@ const {
   claimGroupId,
   writeUserGroupsEntry, removeUserGroupsEntry, readUserGroups, watchUserGroups,
   setLastVisited,
-  writeGroup, readGroup, renameGroup, deleteGroup, watchGroupMeta,
+  writeGroup, readGroup, readGroupName, renameGroup, deleteGroup, watchGroupMeta,
   writeMember, readMember, readMembers, removeMember, setMemberDisplayName, watchGroupMembers,
   writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions, watchGroupInvites,
   setStatusOverride, clearStatusOverride, watchOwnMemberOverride,
@@ -42,12 +42,16 @@ test('userExists returns true when Firebase record exists', async () => {
   get.mockResolvedValueOnce({ exists: () => true });
   const result = await userExists('user-123');
   expect(result).toBe(true);
+  // Post-M1: existence is probed via the cross-user-readable presence node,
+  // not the (now owner-only) whole users/{uid} node.
+  expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/user-123/presence');
 });
 
 test('userExists returns false when Firebase record does not exist', async () => {
   get.mockResolvedValueOnce({ exists: () => false });
   const result = await userExists('user-456');
   expect(result).toBe(false);
+  expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/user-456/presence');
 });
 
 test('touchLastSeen writes lastSeen timestamp to users/{userId}/presence', async () => {
@@ -456,6 +460,18 @@ describe('group entity ops', () => {
   test('readGroup returns null when missing', async () => {
     get.mockResolvedValueOnce({ exists: () => false });
     expect(await readGroup('NOPE0001')).toBeNull();
+  });
+
+  test('readGroupName reads only the name leaf and wraps it as { name }', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => 'Family' });
+    const result = await readGroupName('G1ABCD23');
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'groups/G1ABCD23/name');
+    expect(result).toEqual({ name: 'Family' });
+  });
+
+  test('readGroupName returns null when the group (name leaf) is missing', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    expect(await readGroupName('NOPE0001')).toBeNull();
   });
 
   test('renameGroup writes only the name field', async () => {

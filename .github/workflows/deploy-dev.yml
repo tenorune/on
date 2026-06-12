@@ -24,6 +24,7 @@ jobs:
         working-directory: functions
       - run: npm test
         working-directory: functions
+      - run: npm run test:rules
 
   deploy:
     needs: test

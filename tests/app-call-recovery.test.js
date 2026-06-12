@@ -223,6 +223,8 @@ jest.mock('../js/regenFlash.js', () => ({
   flashRegenerated: jest.fn(),
 }));
 
+jest.mock('../js/auth.js', () => ({ ensureSignedIn: jest.fn().mockResolvedValue(undefined) }));
+
 // ---- Helpers ----
 
 // Require app.js fresh (after all mocks are set), let main() run,
@@ -396,5 +398,16 @@ describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)'
 
     expect(navigateToGroup).toHaveBeenCalledWith('fam');
     expect(openInboxModal).not.toHaveBeenCalled();
+  });
+
+  test('boot signs in (ensureSignedIn) before wiring RTDB watchers', async () => {
+    const { ensureSignedIn } = require('../js/auth.js');
+    let signedInBeforeOwnStatus = false;
+    require('../js/ownStatus.js').initOwnStatus.mockImplementation(() => {
+      signedInBeforeOwnStatus = ensureSignedIn.mock.calls.length > 0;
+    });
+    await bootApp();
+    expect(ensureSignedIn).toHaveBeenCalled();
+    expect(signedInBeforeOwnStatus).toBe(true);
   });
 });

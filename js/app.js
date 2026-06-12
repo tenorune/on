@@ -23,6 +23,7 @@ import { initInbox, openInboxModal } from './inbox.js';
 import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { flashRegenerated } from './regenFlash.js';
+import { ensureSignedIn } from './auth.js';
 
 
 let splashCounter = 0;
@@ -76,6 +77,7 @@ async function ensureIdentity(pendingInviteToken = null) {
   if (existing) {
     let valid = true;
     try {
+      await ensureSignedIn(existing.recoveryCode);
       valid = await userExists(existing.userId);
     } catch {
       // Network error — assume valid and proceed offline
@@ -93,6 +95,7 @@ async function ensureIdentity(pendingInviteToken = null) {
         const restored = await showRestoreScreen();
         if (restored) {
           saveIdentity(restored.userId, restored.code, restored.recoveryCode);
+          await ensureSignedIn(restored.recoveryCode);
           // Re-show the splash so the user doesn't watch their groups + contacts
           // resolve from scratch after restoring.
           rearmSplash();
@@ -137,6 +140,8 @@ async function createNewAccount() {
   const initial = generateRecoveryCode();
   const recoveryCode = await showRecoveryCodeModal(initial);
   const userId = await deriveUserIdFromRecoveryCode(recoveryCode);
+
+  await ensureSignedIn(recoveryCode);
 
   // Claim a share code transactionally; loop on collision
   let code, success;

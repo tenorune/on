@@ -1,96 +1,107 @@
 {
   "rules": {
-    "users": {
-      "$userId": {
-        ".read": true,
-        ".write": true
-      }
-    },
     "userPrefs": {
-      "$userId": {
-        ".read": true,
-        ".write": true
+      "$uid": { ".read": "auth != null && auth.uid === $uid", ".write": "auth != null && auth.uid === $uid" }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "presence": { ".read": "auth != null" },
+        "invites": {
+          "$token": {
+            ".read": "auth != null",
+            "redemptionsUsed": { ".write": "auth != null" }
+          }
+        },
+        "followers": {
+          "$follower": { ".write": "auth != null && (auth.uid === $follower || auth.uid === $uid)" }
+        }
       }
     },
     "codeIndex": {
       "$code": {
-        ".read": true,
-        ".write": true
+        ".read": "auth != null",
+        ".write": "auth != null && ((newData.exists() && newData.val() === auth.uid) || (!newData.exists() && data.val() === auth.uid))"
       }
     },
     "inviteIndex": {
       "$token": {
-        ".read": true,
-        ".write": true
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || !newData.exists())"
       }
     },
     "groupIdIndex": {
-      "$groupId": {
-        ".read": true,
-        ".write": true
-      }
+      "$gid": { ".read": "auth != null", ".write": "auth != null && !data.exists()" }
     },
     "groups": {
-      "$groupId": {
-        ".read": true,
-        ".write": true
+      "$gid": {
+        ".read": "auth != null && data.child('members').child(auth.uid).exists()",
+        ".write": "auth != null && (data.child('ownerId').val() === auth.uid || newData.child('ownerId').val() === auth.uid)",
+        "name": { ".read": "auth != null" },
+        "invites": {
+          "$token": {
+            ".read": "auth != null",
+            "redemptionsUsed": { ".write": "auth != null" }
+          }
+        },
+        "members": {
+          "$uid": {
+            ".read": "auth != null && auth.uid === $uid",
+            ".write": "auth != null && (auth.uid === $uid || data.parent().parent().child('ownerId').val() === auth.uid)"
+          }
+        }
       }
     },
     "knocks": {
-      "$recipientUid": {
-        ".read": true,
-        ".write": true
+      "$recipient": {
+        ".read": "auth != null && auth.uid === $recipient",
+        "$sender": { ".write": "auth != null && (auth.uid === $sender || auth.uid === $recipient)" }
       }
     },
     "revocations": {
-      "$revokedUid": {
-        ".read": true,
-        ".write": true
+      "$revoked": {
+        ".read": "auth != null && auth.uid === $revoked",
+        "$revoker": { ".write": "auth != null && (auth.uid === $revoker || auth.uid === $revoked)" }
+      }
+    },
+    "followRequests": {
+      "$target": {
+        ".read": "auth != null && auth.uid === $target",
+        "$requester": { ".write": "auth != null && (auth.uid === $requester || auth.uid === $target)" }
+      }
+    },
+    "followGrants": {
+      "$requester": {
+        ".read": "auth != null && auth.uid === $requester",
+        "$target": { ".write": "auth != null && (auth.uid === $target || auth.uid === $requester)" }
+      }
+    },
+    "pendingInvites": {
+      "$invitee": {
+        ".read": "auth != null && auth.uid === $invitee",
+        "$group": { ".write": "auth != null && ((newData.exists() && newData.child('from').val() === auth.uid && root.child('groups').child($group).child('members').child(auth.uid).exists()) || auth.uid === $invitee || (!newData.exists() && data.child('from').val() === auth.uid))" }
+      }
+    },
+    "pendingInvitesByGroup": {
+      "$group": {
+        ".read": "auth != null && root.child('groups').child($group).child('members').child(auth.uid).exists()",
+        "$invitee": { ".write": "auth != null && (root.child('groups').child($group).child('members').child(auth.uid).exists() || auth.uid === $invitee)" }
       }
     },
     "calls": {
       "$uid": {
-        ".read": true,
-        ".write": true
-      }
-    },
-    "pendingInvites": {
-      "$inviteeUid": {
-        ".read": true,
-        ".write": true
-      }
-    },
-    "pendingInvitesByGroup": {
-      "$groupId": {
-        ".read": true,
-        ".write": true
-      }
-    },
-    "followRequests": {
-      "$targetUid": {
-        ".read": true,
-        ".write": true
-      }
-    },
-    "followGrants": {
-      "$requesterUid": {
-        ".read": true,
-        ".write": true
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && (auth.uid === $uid || (newData.exists() && (newData.child('from').val() === auth.uid || newData.child('to').val() === auth.uid)) || (data.exists() && (data.child('from').val() === auth.uid || data.child('to').val() === auth.uid)))"
       }
     },
     "canvases": {
       "$canvasId": {
-        ".read": true,
-        ".write": true
+        ".read": "auth != null && ($canvasId.beginsWith(auth.uid + '_') || $canvasId.endsWith('_' + auth.uid))",
+        ".write": "auth != null && ($canvasId.beginsWith(auth.uid + '_') || $canvasId.endsWith('_' + auth.uid))"
       }
     },
-    "notifierState": {
-      ".read": false,
-      ".write": false
-    },
-    "$other": {
-      ".read": false,
-      ".write": false
-    }
+    "notifierState": { ".read": false, ".write": false },
+    "$other": { ".read": false, ".write": false }
   }
 }

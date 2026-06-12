@@ -19,10 +19,12 @@ jest.mock('../js/db.js', () => ({
   lookupCode: jest.fn(),
   writeGroupInvite: jest.fn(),
   readGroupInvites: jest.fn().mockResolvedValue({}),
+  readGroupInvite: jest.fn().mockResolvedValue(null),
   setGroupInviteRevoked: jest.fn(),
   incrementGroupInviteRedemptions: jest.fn(),
   watchGroupInvites: jest.fn(() => () => {}),
   readGroup: jest.fn().mockResolvedValue(null),
+  readGroupName: jest.fn().mockResolvedValue(null),
   readMember: jest.fn().mockResolvedValue(null),
   watchPendingInvites: jest.fn(() => () => {}),
   writePendingInvite: jest.fn().mockResolvedValue(undefined),
@@ -33,6 +35,7 @@ jest.mock('../js/store.js', () => ({ getFollowing: jest.fn(() => []) }));
 jest.mock('../js/groups.js', () => ({
   joinGroup: jest.fn().mockResolvedValue(undefined),
 }));
+jest.mock('../js/auth.js', () => ({ ensureSignedIn: jest.fn().mockResolvedValue(undefined) }));
 
 const db = require('../js/db.js');
 const store = require('../js/store.js');
@@ -452,8 +455,8 @@ describe('resolveInvitePreview', () => {
   test('returns group preview with groupName and groupId', async () => {
     const { resolveInvitePreview } = require('../js/invites');
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
-    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
-    db.readGroupInvites.mockResolvedValue({ T: { scope: 'group', revoked: false } });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
+    db.readGroupInvite.mockResolvedValue({ scope: 'group', revoked: false });
     expect(await resolveInvitePreview('T')).toEqual({ scope: 'group', groupName: 'Family', groupId: 'G1' });
   });
 
@@ -645,10 +648,10 @@ describe('redeemGroupInvite', () => {
 
   test('happy path: joins the group and bumps redemption count', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/TOKEN' });
-    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
-    db.readGroupInvites.mockResolvedValue({
-      TOKEN: { scope: 'group', token: 'TOKEN', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
-    });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
+    db.readGroupInvite.mockResolvedValue(
+      { scope: 'group', token: 'TOKEN', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    );
     db.readMember.mockResolvedValue(null);
 
     const result = await redeemGroupInvite('TOKEN', 'redeemer-uid', 'Alex');
@@ -672,22 +675,22 @@ describe('redeemGroupInvite', () => {
 
   test('returns revoked / expired / cap as appropriate', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
-    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
 
-    db.readGroupInvites.mockResolvedValueOnce({ T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: true } });
+    db.readGroupInvite.mockResolvedValueOnce({ scope: 'group', token: 'T', creatorUid: 'uid1', revoked: true });
     expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'revoked' });
 
-    db.readGroupInvites.mockResolvedValueOnce({ T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: Date.now() - 1000 } });
+    db.readGroupInvite.mockResolvedValueOnce({ scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: Date.now() - 1000 });
     expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'expired' });
 
-    db.readGroupInvites.mockResolvedValueOnce({ T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: 5, redemptionsUsed: 5 } });
+    db.readGroupInvite.mockResolvedValueOnce({ scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: 5, redemptionsUsed: 5 });
     expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'cap' });
   });
 
   test('returns already-member when the redeemer is already in the group', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
-    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
-    db.readGroupInvites.mockResolvedValue({ T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 } });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
+    db.readGroupInvite.mockResolvedValue({ scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 });
     db.readMember.mockResolvedValue({ role: 'member', displayName: 'Existing', joinedAt: 1 });
     expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'already-member', groupId: 'G1', groupName: 'Family' });
     expect(groups.joinGroup).not.toHaveBeenCalled();
@@ -695,17 +698,17 @@ describe('redeemGroupInvite', () => {
 
   test('returns group-missing when the group record is gone', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
-    db.readGroup.mockResolvedValue(null);
+    db.readGroupName.mockResolvedValue(null);
     expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'group-missing' });
   });
 
   test('returns invalid-display-name when joinGroup rejects a bad name', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
-    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
-    db.readGroupInvites.mockResolvedValue({
-      T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
-    });
+    db.readGroupInvite.mockResolvedValue(
+      { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    );
     db.readMember.mockResolvedValue(null);
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     groups.joinGroup.mockRejectedValueOnce(new Error('Display name cannot be empty.'));
     const result = await redeemGroupInvite('T', 'redeemer', '   ');
     expect(result.ok).toBe(false);
@@ -716,11 +719,11 @@ describe('redeemGroupInvite', () => {
 
   test('returns group-missing when joinGroup throws Group not found (TOCTOU race)', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
-    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
-    db.readGroupInvites.mockResolvedValue({
-      T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
-    });
+    db.readGroupInvite.mockResolvedValue(
+      { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    );
     db.readMember.mockResolvedValue(null);
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     groups.joinGroup.mockRejectedValueOnce(new Error('Group not found.'));
     expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'group-missing' });
   });
@@ -743,7 +746,7 @@ describe('attemptRedeemFromUrl scope dispatch', () => {
 
   test('returns needs-display-name for group scope when displayName is missing', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
-    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'u', createdAt: 1 });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     const result = await attemptRedeemFromUrl('T', 'me', 'mycode');
     expect(result).toEqual({
       ok: false,
@@ -752,17 +755,17 @@ describe('attemptRedeemFromUrl scope dispatch', () => {
       groupName: 'Family',
       cache: {
         indexEntry: { scope: 'group', ownerPath: 'groups/G1/invites/T' },
-        group: { name: 'Family', ownerId: 'u', createdAt: 1 },
+        group: { name: 'Family' },
       },
     });
   });
 
   test('dispatches to group redemption when displayName is provided', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
-    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
-    db.readGroupInvites.mockResolvedValue({
-      T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
-    });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
+    db.readGroupInvite.mockResolvedValue(
+      { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    );
     db.readMember.mockResolvedValue(null);
     const result = await attemptRedeemFromUrl('T', 'me', 'mycode', { displayName: 'Alex' });
     expect(result).toEqual({ ok: true, groupId: 'G1', groupName: 'Family' });
@@ -770,24 +773,24 @@ describe('attemptRedeemFromUrl scope dispatch', () => {
 
   test('forwarding cache from needs-display-name response skips duplicate index + group reads', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
-    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
-    db.readGroupInvites.mockResolvedValue({
-      T: { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
-    });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
+    db.readGroupInvite.mockResolvedValue(
+      { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    );
     db.readMember.mockResolvedValue(null);
 
     const first = await attemptRedeemFromUrl('T', 'me', 'mycode');
     expect(first.reason).toBe('needs-display-name');
     expect(db.readInviteIndex).toHaveBeenCalledTimes(1);
-    expect(db.readGroup).toHaveBeenCalledTimes(1);
+    expect(db.readGroupName).toHaveBeenCalledTimes(1);
 
     const second = await attemptRedeemFromUrl('T', 'me', 'mycode', { displayName: 'Alex', cache: first.cache });
     expect(second.ok).toBe(true);
     // Index + group records came from the cache; no additional reads.
     expect(db.readInviteIndex).toHaveBeenCalledTimes(1);
-    expect(db.readGroup).toHaveBeenCalledTimes(1);
-    // The second call still has to read invites + membership, but only once.
-    expect(db.readGroupInvites).toHaveBeenCalledTimes(1);
+    expect(db.readGroupName).toHaveBeenCalledTimes(1);
+    // The second call still has to read the single invite + membership, but only once.
+    expect(db.readGroupInvite).toHaveBeenCalledTimes(1);
     expect(db.readMember).toHaveBeenCalledTimes(1);
   });
 });
@@ -796,10 +799,10 @@ describe('group-scope new-user flow integration (light)', () => {
   test('attemptRedeemFromUrl with displayName succeeds for new user joining a group', async () => {
     jest.clearAllMocks();
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
-    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'owner', createdAt: 1 });
-    db.readGroupInvites.mockResolvedValue({
-      T: { scope: 'group', token: 'T', creatorUid: 'owner', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
-    });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
+    db.readGroupInvite.mockResolvedValue(
+      { scope: 'group', token: 'T', creatorUid: 'owner', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    );
     db.readMember.mockResolvedValue(null);
     const result = await attemptRedeemFromUrl('T', 'new-user', 'code', { displayName: 'Alex' });
     expect(result).toEqual({ ok: true, groupId: 'G1', groupName: 'Family' });
