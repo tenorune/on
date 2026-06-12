@@ -1,4 +1,31 @@
-import { normalizeRecoveryCode, deriveUid } from '../auth.js';
+import { jest } from '@jest/globals';
+import { normalizeRecoveryCode, deriveUid, validateRecoveryHandler, _resetRateLimit } from '../auth.js';
+
+describe('validateRecoveryHandler', () => {
+  beforeEach(() => _resetRateLimit());
+  const mkReq = (data, ip = '1.1.1.1') => ({ data, rawRequest: { ip } });
+
+  test('mints a token for the derived uid on a valid code', async () => {
+    const mintToken = jest.fn().mockResolvedValue('TOKEN');
+    const res = await validateRecoveryHandler(mkReq({ code: 'swift-river-amber-dust' }), { mintToken });
+    expect(mintToken).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f]{32}$/));
+    expect(res).toEqual({ token: 'TOKEN' });
+  });
+
+  test('rejects a malformed code without minting', async () => {
+    const mintToken = jest.fn();
+    await expect(validateRecoveryHandler(mkReq({ code: 'nope' }), { mintToken }))
+      .rejects.toMatchObject({ code: 'invalid-argument' });
+    expect(mintToken).not.toHaveBeenCalled();
+  });
+
+  test('rate-limits per IP after the cap', async () => {
+    const mintToken = jest.fn().mockResolvedValue('T');
+    for (let i = 0; i < 10; i++) await validateRecoveryHandler(mkReq({ code: 'swift-river-amber-dust' }), { mintToken });
+    await expect(validateRecoveryHandler(mkReq({ code: 'swift-river-amber-dust' }), { mintToken }))
+      .rejects.toMatchObject({ code: 'resource-exhausted' });
+  });
+});
 
 describe('normalizeRecoveryCode', () => {
   test('lowercases, collapses separators to dashes, trims', () => {
