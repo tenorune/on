@@ -110,6 +110,7 @@ jest.mock('../js/knock.js', () => ({
   applyFloatToTop: jest.fn(),
   getFloatedUserIds: jest.fn(() => []),
   initKnocks: jest.fn(),
+  noteDirectActivity: jest.fn(),
 }));
 jest.mock('../js/store.js', () => ({
   getFollowing: jest.fn(),
@@ -208,6 +209,27 @@ function captureOwnCall(myUserId = 'myUid', myCode = 'MYCODE') {
   initList(myUserId, myCode);
   return (call) => ownCallCb(call);
 }
+
+describe('incoming ring → Direct chip pulse (#144)', () => {
+  beforeEach(() => { setupDom(); require('../js/store.js').getFollowing.mockReturnValue([]); });
+
+  test('a new ring calls noteDirectActivity (pulses the Direct chip for off-Direct users)', () => {
+    const knock = require('../js/knock.js');
+    const fire = captureOwnCall('myUid', 'MYCODE');
+    knock.noteDirectActivity.mockClear();
+    fire({ from: 'caller1' }); // someone starts ringing me
+    expect(knock.noteDirectActivity).toHaveBeenCalled();
+  });
+
+  test('a ring ending does not pulse the chip', () => {
+    const knock = require('../js/knock.js');
+    const fire = captureOwnCall('myUid', 'MYCODE');
+    fire({ from: 'caller1' }); // ring on
+    knock.noteDirectActivity.mockClear();
+    fire(null);                // ring ended
+    expect(knock.noteDirectActivity).not.toHaveBeenCalled();
+  });
+});
 
 // --- renderList: section rendering ---
 

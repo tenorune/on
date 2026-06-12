@@ -22,7 +22,7 @@ import { createNotifyBell } from './notifyBell.js';
 import { createCardDrawer, isCardDrawerOpen, closeCardDrawer } from './cardDrawer.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
-import { sendKnock, getFloatedUserIds } from './knock.js';
+import { sendKnock, getFloatedUserIds, noteDirectActivity } from './knock.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 import { reconcileChildren } from './reconcile.js';
@@ -189,6 +189,10 @@ export function initList(myUserId, myCode) {
       return;
     }
     _incomingCall = nextFrom ? { from: nextFrom } : null;
+    // A fresh incoming ring pulses the Direct chip when the user is off in a
+    // group, mirroring how a Direct knock badges it (#144). No-op in Direct,
+    // where the ringing row is already visible; cleared on entering Direct.
+    if (nextFrom) noteDirectActivity();
     for (const uid of [prevFrom, nextFrom]) {
       if (!uid) continue;
       const entry = getFollowing().find((f) => f.userId === uid);
