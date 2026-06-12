@@ -42,12 +42,16 @@ test('userExists returns true when Firebase record exists', async () => {
   get.mockResolvedValueOnce({ exists: () => true });
   const result = await userExists('user-123');
   expect(result).toBe(true);
+  // Post-M1: existence is probed via the cross-user-readable presence node,
+  // not the (now owner-only) whole users/{uid} node.
+  expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/user-123/presence');
 });
 
 test('userExists returns false when Firebase record does not exist', async () => {
   get.mockResolvedValueOnce({ exists: () => false });
   const result = await userExists('user-456');
   expect(result).toBe(false);
+  expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/user-456/presence');
 });
 
 test('touchLastSeen writes lastSeen timestamp to users/{userId}/presence', async () => {

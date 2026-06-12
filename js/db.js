@@ -555,8 +555,12 @@ export async function writeBackExpired(userId) {
 
 // One-time check: does this user's record exist in Firebase?
 // Returns true if found, false if missing. Throws on network error (caller decides how to handle).
+// Reads users/{userId}/presence (not the whole users/{userId} node): post-M1 the
+// whole node is owner-only readable, but presence is cross-user readable, and a
+// user exists iff they have a presence node (presence-schema-split model). This is
+// called cross-user (app.js recovery-code restore), so it must hit a readable path.
 export async function userExists(userId) {
-  const snap = await get(ref(db, `users/${userId}`));
+  const snap = await get(ref(db, `users/${userId}/presence`));
   return snap.exists();
 }
 

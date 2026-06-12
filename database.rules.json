@@ -5,8 +5,15 @@
     },
     "users": {
       "$uid": {
-        ".read": "auth != null",
+        ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid",
+        "presence": { ".read": "auth != null" },
+        "invites": {
+          "$token": {
+            ".read": "auth != null",
+            "redemptionsUsed": { ".write": "auth != null" }
+          }
+        },
         "followers": {
           "$follower": { ".write": "auth != null && (auth.uid === $follower || auth.uid === $uid)" }
         }
