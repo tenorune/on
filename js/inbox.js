@@ -73,6 +73,17 @@ export function getPendingCount() {
   return Object.keys(_pending).length;
 }
 
+// A backgrounded/suspended PWA (iOS especially, but also an occluded desktop
+// window) freezes the RTDB socket, so an invite or follow-request that arrives
+// while hidden never reaches the live onValue listeners — the Inbox stays empty
+// until a full restart. Re-subscribe the watchers when the app returns to the
+// foreground so the current server state is pulled in and rendered. Mirrors
+// knock.js's visibilitychange re-init.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (_myUid) initInbox(_myUid, _myCode);
+});
+
 export function renderInboxNavSlot() {
   const slot = document.getElementById('nav-row-inbox-slot');
   if (!slot) return;

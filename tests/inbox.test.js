@@ -358,3 +358,35 @@ describe('Inbox — follow requests', () => {
     expect(window.alert).toHaveBeenCalled();
   });
 });
+
+describe('foreground resync', () => {
+  // A backgrounded/suspended PWA misses live onValue ticks, so an invite or
+  // follow-request that arrives while the app is hidden never reaches the inbox
+  // until a full restart. Re-subscribe the watchers when the app returns to the
+  // foreground (mirrors knock.js's visibilitychange re-init).
+  test('re-subscribes both watchers when the app becomes visible', () => {
+    db.watchPendingInvites.mockReturnValue(() => {});
+    db.watchFollowRequests.mockReturnValue(() => {});
+    initInbox('me', 'CODE');
+    const invitesBefore = db.watchPendingInvites.mock.calls.length;
+    const frBefore = db.watchFollowRequests.mock.calls.length;
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(db.watchPendingInvites.mock.calls.length).toBe(invitesBefore + 1);
+    expect(db.watchFollowRequests.mock.calls.length).toBe(frBefore + 1);
+  });
+
+  test('does nothing while the app is hidden', () => {
+    db.watchPendingInvites.mockReturnValue(() => {});
+    db.watchFollowRequests.mockReturnValue(() => {});
+    initInbox('me', 'CODE');
+    const invitesBefore = db.watchPendingInvites.mock.calls.length;
+
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(db.watchPendingInvites.mock.calls.length).toBe(invitesBefore);
+  });
+});
