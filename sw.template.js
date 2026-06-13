@@ -58,9 +58,16 @@ self.addEventListener('push', (e) => {
       try { c.postMessage({ kind: 'push-debug', at: Date.now(), type: d.type || null, suppressed: focused }); } catch { /* client gone */ }
     }
     if (focused) return; // foreground de-dupe: the live in-app UI already handled it
+    // A reused tag (e.g. two calls from the same person → `call:<uid>`) coalesces
+    // into one notification; without renotify the OS updates it SILENTLY (no new
+    // banner/sound), so a second knock/call appears to "not notify". renotify
+    // re-alerts on the replacement. It requires a tag, so only set it when we have
+    // one (an untagged notification with renotify throws).
+    const tag = d.type ? `${d.type}:${d.targetUid || ''}` : undefined;
     await self.registration.showNotification(d.title || 'KnockKnock', {
       body: d.body || '',
-      tag: d.type ? `${d.type}:${d.targetUid || ''}` : undefined,
+      tag,
+      renotify: tag ? true : undefined,
       data: { type: d.type, targetUid: d.targetUid, contextGroupId: d.contextGroupId },
     });
   })());

@@ -78,6 +78,23 @@ test('push with no focused client shows a notification', async () => {
   expect(showNotification).toHaveBeenCalledWith('Bea knocked', expect.objectContaining({ data: expect.objectContaining({ targetUid: 'bea' }) }));
 });
 
+test('a tagged notification sets renotify so a reused tag re-alerts instead of silently updating', async () => {
+  const { handlers, showNotification } = loadSwWithMockSelf();
+  await handlers.push(pushEvent({ type: 'call', title: 'Bea is calling', body: '', targetUid: 'bea' }));
+  expect(showNotification).toHaveBeenCalledWith('Bea is calling', expect.objectContaining({
+    tag: 'call:bea',
+    renotify: true,
+  }));
+});
+
+test('an untagged notification does NOT set renotify (renotify requires a tag)', async () => {
+  const { handlers, showNotification } = loadSwWithMockSelf();
+  await handlers.push(pushEvent({ title: 'Hello', body: '' })); // no type → no tag
+  const opts = showNotification.mock.calls[0][1];
+  expect(opts.tag).toBeUndefined();
+  expect(opts.renotify).toBeFalsy();
+});
+
 test('push reads the title from FCM\'s nested data envelope', async () => {
   const { handlers, showNotification } = loadSwWithMockSelf();
   // Real FCM data messages arrive wrapped: our fields live under `data`.
