@@ -10,6 +10,7 @@ jest.mock('../js/db.js', () => ({
   renameGroup: jest.fn(),
   setMemberDisplayName: jest.fn(),
   readGroup: jest.fn().mockResolvedValue(null),
+  readGroupName: jest.fn().mockResolvedValue(null),
   readMember: jest.fn().mockResolvedValue(null),
   readMembers: jest.fn().mockResolvedValue({}),
   setLastVisited: jest.fn(),
@@ -263,7 +264,7 @@ describe('group removal detector', () => {
   });
 
   test('removal of an enumerated group whose record is gone → deletion toast', async () => {
-    db.readGroup.mockResolvedValue(null);
+    db.readGroupName.mockResolvedValue(null);
     // Seed: previously G1+G2 enumerated; new tick: only G2 (G1 was deleted)
     await _feedSnapshotForTests({ G1: true, G2: true });
     await _feedSnapshotForTests({ G2: true });
@@ -273,7 +274,7 @@ describe('group removal detector', () => {
   });
 
   test('dismiss button hides the toast', async () => {
-    db.readGroup.mockResolvedValue(null);
+    db.readGroupName.mockResolvedValue(null);
     initGroupRemovalDetector('me');
     await _feedSnapshotForTests({ G1: true });
     await _feedSnapshotForTests({});
@@ -283,15 +284,28 @@ describe('group removal detector', () => {
   });
 
   test('kick: group exists but member record gone shows the removed-from message', async () => {
-    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'owner', createdAt: 1 });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     await _feedSnapshotForTests({ G1: true });
     await _feedSnapshotForTests({});
     await flushPromises();
     expect(document.getElementById('group-removal-toast-text').textContent).toMatch(/removed|Family/i);
   });
 
+  test('leave/kick: whole-group read is denied for a non-member, so the toast uses the name leaf', async () => {
+    // After leaving / being kicked the user is no longer a member, so the
+    // membership-gated groups/{gid} whole-node read is denied. The detector
+    // must read the name leaf (readGroupName) instead.
+    db.readGroup.mockRejectedValue(new Error('Permission denied'));
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
+    await _feedSnapshotForTests({ G1: true });
+    await _feedSnapshotForTests({});
+    await flushPromises();
+    expect(document.getElementById('group-removal-toast-text').textContent).toBe("You've been removed from 'Family'.");
+    expect(db.readGroup).not.toHaveBeenCalled();
+  });
+
   test('deletion toast uses the cached group name when available', async () => {
-    db.readGroup.mockResolvedValue(null); // group entity gone
+    db.readGroupName.mockResolvedValue(null); // group entity gone
     groupNav.getLastKnownGroupName.mockReturnValue('Family');
     await _feedSnapshotForTests({ G1: true });
     await _feedSnapshotForTests({});
@@ -300,7 +314,7 @@ describe('group removal detector', () => {
   });
 
   test('deletion toast falls back to groupId when no cached name exists', async () => {
-    db.readGroup.mockResolvedValue(null);
+    db.readGroupName.mockResolvedValue(null);
     groupNav.getLastKnownGroupName.mockReturnValue(null);
     await _feedSnapshotForTests({ G1ABCD23: true });
     await _feedSnapshotForTests({});

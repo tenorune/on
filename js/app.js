@@ -1,6 +1,6 @@
 // js/app.js
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
-import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getUser, getUserPrefs, readGroup } from './db.js';
+import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getUser, getUserPrefs, readGroupName } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following.js';
 import { initKnocks } from './knock.js';
@@ -575,7 +575,10 @@ async function main() {
       const cc = prefsSnap?.currentContext;
       if (typeof cc === 'string' && cc.startsWith('group:')) {
         const groupId = cc.slice(6);
-        const groupData = await readGroup(groupId);
+        // Name leaf only: if the user was removed from this group while away,
+        // the whole-node read would be denied (non-member). We just need the
+        // name to prime the nav cache.
+        const groupData = await readGroupName(groupId);
         if (groupData?.name) {
           // Prime the nav-row name cache so the group nav renders the
           // real name on its first emit, not the groupId.
