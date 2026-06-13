@@ -2,11 +2,11 @@
 import { getCanvasColors } from './favorites.js';
 import { safeCssColor, escapeHtml } from './utils.js';
 import {
-  getCanvasId, loadCanvas, pushStroke, removeStroke, setCanvasBg, watchStrokes, unwatchStrokes,
-  setCanvasPresence, watchCanvasPresence, unwatchCanvasPresence,
-  watchCanvasBg, unwatchCanvasBg,
-  setDrawingState, watchDrawing, unwatchDrawing,
-  setClearRequest, removeClearRequest, clearAllStrokes, watchClearRequest, unwatchClearRequest,
+  getCanvasId, loadCanvas, pushStroke, removeStroke, setCanvasBg, watchStrokes,
+  setCanvasPresence, watchCanvasPresence,
+  watchCanvasBg,
+  setDrawingState, watchDrawing,
+  setClearRequest, removeClearRequest, clearAllStrokes, watchClearRequest,
 } from './db.js';
 
 const THICKNESS_VALUES = [0.002, 0.005, 0.01, 0.018, 0.03, 0.05];
@@ -24,6 +24,10 @@ let _isDrawing = false;
 // forces a layout/reflow; calling it on every pointermove was the per-segment hot
 // path. The canvas isn't resized mid-stroke, so one read per stroke is sufficient.
 let _canvasRect = null;
+// Unsubscribe fns for the per-session canvas watchers (strokes/clear/drawing/bg/
+// presence). canvas.js owns them so a re-enter can't leak the prior listeners;
+// exitCanvas drains this list.
+let _canvasUnsubs = [];
 let _currentPoints = [];
 let _onExit = null;
 let _peerId = null;
@@ -367,7 +371,7 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
 
   // Watch for new strokes from peer
   const lastKey = _allStrokes.length > 0 ? _allStrokes[_allStrokes.length - 1].key : null;
-  watchStrokes(_canvasId, lastKey, (entry) => {
+  _canvasUnsubs.push(watchStrokes(_canvasId, lastKey, (entry) => {
     if (entry.data.userId !== _myUserId) {
       renderStroke(entry.data, _ctx, _canvas.width, _canvas.height);
       updatePeerDot(entry.data.color);
@@ -377,10 +381,10 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
     // Peer undid a stroke — remove from local list and redraw
     _allStrokes = _allStrokes.filter(s => s.key !== removedKey);
     clearAndRedraw(_ctx, _canvas.width, _canvas.height, _bgColor, _allStrokes);
-  });
+  }));
 
   // Watch clear requests from peer
-  watchClearRequest(_canvasId, (requesterId) => {
+  _canvasUnsubs.push(watchClearRequest(_canvasId, (requesterId) => {
     if (requesterId && requesterId !== _myUserId) {
       showClearApprovalDialog(requesterId);
     } else if (requesterId === null) {
@@ -389,10 +393,10 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
       if (dialog) dialog.remove();
       // If strokes were cleared, the onChildRemoved handlers will redraw
     }
-  });
+  }));
 
   // Watch peer's live drawing (mid-stroke preview + pen color selection)
-  watchDrawing(_canvasId, peerId, (drawingData) => {
+  _canvasUnsubs.push(watchDrawing(_canvasId, peerId, (drawingData) => {
     if (!drawingData) return;
     if (drawingData.color) updatePeerDot(drawingData.color);
     if (drawingData.points) {
@@ -409,10 +413,10 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
         }, _ctx, _canvas.width, _canvas.height);
       }
     }
-  });
+  }));
 
   // Watch bg changes from peer
-  watchCanvasBg(_canvasId, (newBg) => {
+  _canvasUnsubs.push(watchCanvasBg(_canvasId, (newBg) => {
     if (newBg && newBg !== _bgColor) {
       _bgColor = newBg;
       clearAndRedraw(_ctx, _canvas.width, _canvas.height, _bgColor, _allStrokes);
@@ -420,7 +424,7 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
       const toolbox = document.getElementById('canvas-toolbox');
       if (toolbox) updateToolboxState(toolbox);
     }
-  });
+  }));
 
   // Broadcast initial pen color so peer sees it immediately
   broadcastPenColor();
@@ -429,7 +433,7 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
   setCanvasPresence(_canvasId, _myUserId, true).catch(() => {});
   let _peerSeenOnce = false;
   _absentTimerRef = null;
-  watchCanvasPresence(_canvasId, (presence) => {
+  _canvasUnsubs.push(watchCanvasPresence(_canvasId, (presence) => {
     if (!_peerId) return;
     if (presence[_peerId] === true) {
       _peerSeenOnce = true;
@@ -456,7 +460,7 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
         }
       }, 5000);
     }
-  });
+  }));
 
   // Update presence on tab/window visibility change
   document.addEventListener('visibilitychange', _onVisibilityChange);
@@ -478,11 +482,8 @@ export function exitCanvas() {
   if (_canvasId && _myUserId) {
     setCanvasPresence(_canvasId, _myUserId, false).catch(() => {});
   }
-  unwatchStrokes();
-  unwatchDrawing();
-  unwatchCanvasBg();
-  unwatchClearRequest();
-  unwatchCanvasPresence();
+  _canvasUnsubs.forEach((unsub) => { try { unsub(); } catch { /* already torn down */ } });
+  _canvasUnsubs = [];
   document.removeEventListener('visibilitychange', _onVisibilityChange);
   window.removeEventListener('blur', _onWindowBlur);
   window.removeEventListener('focus', _onWindowFocus);
