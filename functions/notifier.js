@@ -179,6 +179,23 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   // several override-off groups would otherwise get a separate push from each.
   // Direct "owns" a follower (generic "X is available" → Direct); a group-only
   // co-member gets the first override-off group's "X is available in {group}".
+  //
+  // Direct ownership giving an UNLABELLED message is intentional, not a gap
+  // (#215, accept-and-document). This trigger fires on the sender's PRIMARY
+  // availability, and the group pass below skips override-ON groups — so every
+  // group it could name is override-OFF, i.e. already showing the primary. For
+  // a recipient who both follows the sender AND co-members a group, "X is
+  // available" and "X is available in {group}" describe the SAME fact; the
+  // label adds no information and its "in {group}" reading can misleadingly
+  // imply the availability is group-scoped. A group label is only meaningful
+  // when the in-group status DIVERGES from the primary (an override-ON group),
+  // which is handled by onMemberOverride → notifyGroupAvailability, not here.
+  //
+  // Known accepted caveat (#215 finding #7): this in-memory `notified` set
+  // can't coordinate with the SEPARATE onMemberOverride invocation, so a
+  // recipient who is both a Direct follower and an override-ON co-member can
+  // still get a rare duplicate (one push per trigger). Accepted as-is for a
+  // 50–100-user app rather than adding a cross-invocation notifierState stamp.
   const notified = new Set();
 
   // Direct followers — own per-uid cooldown. Followers are marked notified even
@@ -206,6 +223,10 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
     const follow = await deps.getVal(`userPrefs/${fid}/following/${uid}`);
     const name = (follow && follow.label) || senderFallback;
     try {
+      // Intentionally unlabelled — no { group }. See the "One push per
+      // recipient" note above (#215): for a primary-availability event the
+      // Direct message is the truest one, and a group label here would only
+      // risk implying scope.
       const sent = await sendToUser(deps, fid, buildMessage('availability', name), { type: 'availability', targetUid: uid });
       return { fid, opted: true, sent };
     } catch { return { fid, opted: true, sent: false }; /* keep notifying the rest */ }
