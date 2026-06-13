@@ -9,7 +9,7 @@ A handoff to whoever picks this up next. Read top-to-bottom; specific subsection
 **Open follow-up work** (issues, not blockers — full list in §18):
 - **#214 R4** — suspend Direct presence watches while in a group context. Deliberately separated from R3 because it's entangled with context-switching, call-mode, and flash-avoidance. The biggest dedup win (R3) already shipped.
 - **#215** — Direct availability pushes carry no shared-context label (group pushes do).
-- **#217** — doc drift: Phase 2 plan/spec + HANDOFF §15 still describe the old `clearStatusOverride` toggle-OFF; per-group picker + push-on-invite framed as Phase 4+ but shipped.
+- **#217** — doc drift (Phase 2 toggle-OFF + invite-push phasing). **Reconciled 2026-06-13** (HANDOFF §15, Phase 2 plan, groups spec); pending maintainer close.
 - **#218** — consolidated post-MVP groups backlog (admin role, owner group color, >5-card collapse, dup-name UI, approval-gated joins).
 
 **Phase 4+:** request-to-follow (`js/followRequests.js`), group color/palette, and the per-audience (per-group) color picker have since **shipped**. Admin role and ownership transfer remain documented in groups spec §16 but unplanned (tracked: #180, #218).
@@ -371,7 +371,7 @@ The user uses the **superpowers** skills. Workflow:
 - **Don't import UI modules from `js/prefs.js`.** Cross-module re-renders go through CustomEvents.
 - **Optimistic-update + cross-module sync pattern (load-bearing).** Both groupNav and groupContext have their own copies of own-override state. When one mutates it, it must call the other's optimistic-apply API.
 - **`--my-status` writes from `app.js`'s own-status sync are gated on Direct context.** Don't add new `--my-status` setters that bypass the gate — the group override owns the var when context is group.
-- **Toggling a group status-override OFF *preserves* its color/palette.** `toggleStatusOverride(OFF)` calls `mergeStatusOverride({ enabled: false, status: null, availableUntil: null })`, which keeps `statusColor`/`paletteKey` so an adopted color survives a toggle (the 2026-05-29 adoption behavior). It does **not** delete the whole `statusOverride` record. Earlier docs (Phase 2 plan + this section) described an old `clearStatusOverride` "delete the record" behavior — that's stale; the merge-preserve behavior is correct. (Tracked as #217 for the spec/plan docs.)
+- **Toggling a group status-override OFF *preserves* its color/palette.** `toggleStatusOverride(OFF)` calls `mergeStatusOverride({ enabled: false, status: null, availableUntil: null })`, which keeps `statusColor`/`paletteKey` so an adopted color survives a toggle (the 2026-05-29 adoption behavior). It does **not** delete the whole `statusOverride` record. `clearStatusOverride` still exists as a db primitive but is no longer the toggle-OFF path. (Earlier versions of the Phase 2 plan described an old "delete the record" behavior; reconciled 2026-06-13 under #217.)
 - **Knock pulse uses a CSS keyframe class, not inline-style transitions.**
 - **`#main-ui-direct` starts hidden in markup.** Don't change without revisiting first-use UX flashes.
 - **Hint predicates live in `js/hints.js`.** Don't re-derive `isHintSeen` chains inline; import a predicate. Context-specific guards (override.enabled, etc.) stay at call sites.
@@ -382,7 +382,7 @@ The user uses the **superpowers** skills. Workflow:
 **Open issues (filed; full annotated list in §18):**
 - **#214 R4 — suspend Direct presence watches in a group context** (R1/R2/R3/R5/R6 shipped this session). Entangled with context-switch + call-mode + flash-avoidance; deliberately its own pass.
 - **#215 — Direct availability pushes carry no shared-context label** (group pushes do).
-- **#217 — doc drift:** Phase 2 plan/spec + §15 still describe the old `clearStatusOverride` toggle-OFF (code uses `mergeStatusOverride`, which preserves `statusColor`/`paletteKey`); per-group picker + push-on-invite framed as Phase 4+ but shipped.
+- **#217 — doc drift (reconciled 2026-06-13, pending maintainer close):** the Phase 2 plan described the old `clearStatusOverride` toggle-OFF (code uses `mergeStatusOverride`, which preserves `statusColor`/`paletteKey`) and framed the per-group picker + push-on-invite as Phase 4+ though both shipped. HANDOFF §15, the Phase 2 plan, and the groups spec §16 now describe the shipped behavior.
 - **#218 — post-MVP groups backlog** (admin role, owner group color, >5-card collapse, dup-name UI, approval-gated joins).
 - **#124 — Phase 3 inviter-side "sent invites" view + cross-device revoke.** The picker's in-modal "Invited" pill is the only revoke surface today (same-modal-session only, no cross-device).
 - Longer-standing: **#180** (group moderation: kick + ownership transfer), **#181** (invite TTL/cap UI + confirm card + label edit + index sweep + stale "Requested"), **#193** (App Check enforcement — flag-day risk, deferred), **#161** (standalone install nudge), **#160** (Telegram notification channel), **#156** (desktop PWA notification debug), **#148** (lastVisited userPrefs migration, Option A), **#34** (npm deprecation warnings).
@@ -436,7 +436,7 @@ A hygiene/perf/bugfix/docs sweep. Everything below is **merged to `dev`** unless
 |---|---|---|
 | **#214** | Client RTDB listener efficiency | R1/R2/R3/R5/R6 done; **R4 + 2 minor DOM items remain** |
 | **#215** | Direct availability pushes carry no shared-context label | Group pushes label the context ("…in Family"); Direct don't. Plus a documented cross-invocation duplicate-push caveat |
-| **#217** | Doc drift: Phase-2 toggle-OFF + invite-push phasing | D1 `clearStatusOverride`→`mergeStatusOverride`; D2 per-group picker shipped; D3 push-on-invite shipped. **Code is correct, docs are stale.** This HANDOFF's §15 was corrected; the Phase 2 plan/spec still need it |
+| **#217** | Doc drift: Phase-2 toggle-OFF + invite-push phasing | D1 `clearStatusOverride`→`mergeStatusOverride`; D2 per-group picker shipped; D3 push-on-invite shipped. **Code is correct, docs were stale — reconciled 2026-06-13:** HANDOFF §15, the Phase 2 plan (top banner + inline `[Superseded]` notes), and the groups spec §16 push-on-invite lines now describe the shipped behavior. Pending maintainer close |
 | **#218** | Post-MVP groups backlog (tracking) | G-A admin role, G-B owner group color, G-C >5-card collapse, G-D dup-name UI, G-E approval-gated joins. Holding list — promote items when prioritized |
 
 ### Deferred deliberately (with rationale)
