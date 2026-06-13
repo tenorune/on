@@ -194,6 +194,27 @@ describe('Inbox', () => {
     expect(row.textContent).not.toContain('uStranger');
   });
 
+  test('inviter not followed AND their member node is read-denied → "Someone", row still renders', async () => {
+    // Edge case: the invitee unfollowed the inviter (or their following list
+    // hasn't synced yet), so needMember is true — but reading ANOTHER member's
+    // node is denied for a not-yet-member invitee. The read must fail soft to
+    // the "Someone" fallback rather than rejecting the whole row.
+    let cb;
+    db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
+    // Once-only so the rejection can't leak into later tests (clearAllMocks
+    // doesn't reset implementations).
+    db.readMember.mockRejectedValueOnce(new Error('Permission denied'));
+    initInbox('me');
+    cb({ G1: { from: 'uStranger', ts: 1 } }); // uStranger not in getFollowing()
+    await openInboxModal();
+    const row = document.querySelector('#inbox-modal-list .inbox-row');
+    expect(row).not.toBeNull();
+    expect(row.textContent).toContain('Someone');
+    expect(row.textContent).toContain('Family');
+    expect(row.textContent).not.toContain('uStranger');
+  });
+
   test('Join prompts for displayName, calls joinGroup, deletes pending, navigates', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });

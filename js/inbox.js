@@ -169,7 +169,12 @@ async function renderInboxModalRows() {
     const needMember = !labelByUid[record.from];
     const [group, member] = await Promise.all([
       cachedReadGroupName(groupId),
-      needMember ? readMember(groupId, record.from) : Promise.resolve(null),
+      // The inviter's group displayName is only a nicer label (falls back to
+      // 'Someone'). Reading ANOTHER member's node is membership-private, so if
+      // the invitee no longer follows the inviter (unfollowed, or list not yet
+      // synced) and isn't a member, this read is denied — fail soft, don't let
+      // it reject the whole row.
+      needMember ? readMember(groupId, record.from).catch(() => null) : Promise.resolve(null),
     ]);
     const inviterLabel = labelByUid[record.from] || member?.displayName || 'Someone';
     const groupName = group?.name || groupId;
