@@ -17,6 +17,13 @@
 //   in-place paint only (text/classes/styles); never handlers or structure.
 //   Conditional state must be cleared as well as set. update must not touch
 //   container structure — structural changes belong on the key list itself.
+//   IMPORTANT: for a freshly-created key, update runs BEFORE the node is
+//   inserted (create → update → insertBefore). So paint via the passed `node`
+//   — a document.getElementById/querySelector for that node (or anything inside
+//   it) finds nothing yet and silently no-ops on first render, leaving the new
+//   row at its create-time default until some later re-render. If a paint must
+//   use a document lookup, defer it to AFTER reconcile returns (see following.js's
+//   freshFolloweeKeys post-pass).
 // - onRemove(node), optional, runs before a node is removed (used to close a
 //   card-drawer living inside a removed row).
 // - create/update/onRemove must not re-enter reconcileChildren on the same
