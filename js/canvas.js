@@ -20,6 +20,10 @@ let _peerName = '';
 let _penColor = '#22c55e';
 let _thickness = THICKNESS_VALUES[2]; // default medium
 let _isDrawing = false;
+// Canvas bounding rect, cached at stroke start (pointerdown). getBoundingClientRect
+// forces a layout/reflow; calling it on every pointermove was the per-segment hot
+// path. The canvas isn't resized mid-stroke, so one read per stroke is sufficient.
+let _canvasRect = null;
 let _currentPoints = [];
 let _onExit = null;
 let _peerId = null;
@@ -512,6 +516,7 @@ export function exitCanvas() {
 
   _ctx = null;
   _canvas = null;
+  _canvasRect = null;
   _canvasId = null;
   _peerId = null;
   _allStrokes = [];
@@ -707,7 +712,8 @@ function onPointerDown(e) {
   if (e.target !== _canvas && screen && screen.querySelector('.canvas-float')?.contains(e.target)) return;
 
   _isDrawing = true;
-  const rect = _canvas.getBoundingClientRect();
+  _canvasRect = _canvas.getBoundingClientRect();
+  const rect = _canvasRect;
   const px = e.clientX - rect.left;
   const py = e.clientY - rect.top;
   const [nx, ny] = normalizePoint(px, py, _canvas.width, _canvas.height);
@@ -723,7 +729,8 @@ function onPointerDown(e) {
 
 function onPointerMove(e) {
   if (!_isDrawing) return;
-  const rect = _canvas.getBoundingClientRect();
+  // Reuse the rect captured at pointerdown — avoids a forced reflow per segment.
+  const rect = _canvasRect || _canvas.getBoundingClientRect();
   const px = e.clientX - rect.left;
   const py = e.clientY - rect.top;
   const [nx, ny] = normalizePoint(px, py, _canvas.width, _canvas.height);
@@ -761,6 +768,7 @@ function onPointerMove(e) {
 function onPointerUp() {
   if (!_isDrawing) return;
   _isDrawing = false;
+  _canvasRect = null; // invalidate; next stroke re-reads at pointerdown
   if (_currentPoints.length === 0) return;
 
   const stroke = {
