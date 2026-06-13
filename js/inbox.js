@@ -3,7 +3,7 @@
 // renders a nav-row button (visible when ≥1 pending) plus a modal that lists
 // all pending invites with per-row Join / Decline.
 
-import { watchPendingInvites, deletePendingInvite, readGroup, readMember,
+import { watchPendingInvites, deletePendingInvite, readGroupName, readMember,
   watchFollowRequests, deleteFollowRequest, writeFollowGrant } from './db.js';
 import { joinGroup } from './groups.js';
 import { navigateToGroup } from './groupNav.js';
@@ -128,14 +128,19 @@ async function refreshInboxModalIfOpen() {
   await renderInboxModalRows();
 }
 
-// Session cache for readGroup. The inbox re-renders fully on every
+// Session cache for the group-name read. The inbox re-renders fully on every
 // watchPendingInvites/watchFollowRequests tick and on every modal open, and a
 // pending invite's group name is effectively static per session — so re-fetching
-// groups/{id} each render is wasteful (#214 R5). Cleared on initInbox.
-const _groupNameCache = new Map(); // groupId → group entity
-async function cachedReadGroup(groupId) {
+// it each render is wasteful (#214 R5). Cleared on initInbox.
+//
+// Reads the NAME LEAF only (readGroupName → groups/{gid}/name), not the whole
+// groups/{gid} node: the invitee isn't a member yet, and groups/{gid}/.read is
+// membership-gated, so a whole-node read is denied ("Permission denied"). The
+// name leaf is readable by any authed user. Returns { name } or null.
+const _groupNameCache = new Map(); // groupId → { name } | null
+async function cachedReadGroupName(groupId) {
   if (_groupNameCache.has(groupId)) return _groupNameCache.get(groupId);
-  const group = await readGroup(groupId);
+  const group = await readGroupName(groupId);
   if (group) _groupNameCache.set(groupId, group);
   return group;
 }
@@ -163,7 +168,7 @@ async function renderInboxModalRows() {
   const inviteRows = await Promise.all(inviteEntries.map(async ([groupId, record]) => {
     const needMember = !labelByUid[record.from];
     const [group, member] = await Promise.all([
-      cachedReadGroup(groupId),
+      cachedReadGroupName(groupId),
       needMember ? readMember(groupId, record.from) : Promise.resolve(null),
     ]);
     const inviterLabel = labelByUid[record.from] || member?.displayName || 'Someone';
@@ -292,10 +297,13 @@ async function handleJoin(groupId, groupName) {
     if (joinBtn.disabled) return;
     joinBtn.disabled = true;
   }
-  // Race protection: check membership and group existence in parallel.
+  // Race protection: check membership and group existence in parallel. The
+  // existence check uses readGroupName (name leaf) — the invitee isn't a member
+  // yet, so a whole groups/{gid} read would be denied; a null name means the
+  // group was deleted between invite and Join.
   const [existingMember, group] = await Promise.all([
     readMember(groupId, _myUid),
-    readGroup(groupId),
+    readGroupName(groupId),
   ]);
   // Race protection 1: invitee may have joined this group via link already.
   if (existingMember) {
