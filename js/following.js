@@ -1,10 +1,11 @@
 // js/following.js
 import {
-  lookupCode, watchPresence, watchFollowers, registerAsFollower, unregisterAsFollower,
+  lookupCode, watchFollowers, registerAsFollower, unregisterAsFollower,
   removeFollower, isExpired, isAvailable,
   formatLastSeen, startCall, answerCall, endCall, watchOwnCall, setStatusColor,
   watchFollowing, setFollowingEntry, removeFollowingEntry, watchRevocations,
 } from './db.js';
+import { subscribePresence } from './presenceHub.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
   setFollowing, getFollowerName,
@@ -842,7 +843,9 @@ function syncFollowingFromServer(myUserId, serverFollowing) {
 }
 
 function subscribeToFollowee(entry, myUserId) {
-  const unsub = watchPresence(entry.userId, (userData) => {
+  // Through the shared presence hub so a uid we also watch in a group roster is
+  // watched once at the RTDB layer (#214 R3). Same unsub contract as watchPresence.
+  const unsub = subscribePresence(entry.userId, (userData) => {
     if (!userData) return;
 
     if (userData.status === 'available' && isExpired(userData.availableUntil)) {
