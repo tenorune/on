@@ -205,7 +205,10 @@ describe('Inbox', () => {
     joinBtn.click();
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     expect(prompt.showGroupDisplayNamePrompt).toHaveBeenCalledWith('Family');
-    expect(groups.joinGroup).toHaveBeenCalledWith('G1', 'me', 'My Group Name');
+    // Pass the already-fetched group + membership so joinGroup skips its own
+    // membership-gated reads (groups/{gid} whole-node read would be denied for a
+    // not-yet-member). Mirrors redeemGroupInvite's call.
+    expect(groups.joinGroup).toHaveBeenCalledWith('G1', 'me', 'My Group Name', { group: { name: 'Family' }, existing: null });
     expect(db.deletePendingInvite).toHaveBeenCalledWith('me', 'G1');
     expect(groupNav.navigateToGroup).toHaveBeenCalledWith('G1');
   });
