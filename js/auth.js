@@ -1,7 +1,24 @@
 // js/auth.js
 import { signInWithCustomToken, signOut } from 'firebase/auth';
-import { auth, callValidateRecovery } from './firebase-config.js';
+import { ref, get } from 'firebase/database';
+import { auth, db, callValidateRecovery } from './firebase-config.js';
 import { deriveUserIdFromRecoveryCode } from './identity.js';
+
+// After signInWithCustomToken resolves, the RTDB connection re-authenticates
+// ASYNCHRONOUSLY — reads/listeners attached in that window get permission_denied,
+// and onValue listeners are then CANCELLED (not retried), silently stranding data
+// (e.g. a group member's override on a fresh restore, or the knock inbox). Gate on
+// a tiny own auth-required read (`users/{uid}/presence` → rule: auth != null) that
+// retries until the token has propagated, so every read/watcher set up after
+// sign-in attaches post-handshake. Bounded so a genuine network failure can't hang.
+async function whenRtdbAuthReady() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    try { await get(ref(db, `users/${uid}/presence/lastSeen`)); return; }
+    catch { await new Promise((resolve) => setTimeout(resolve, 150)); }
+  }
+}
 
 // Ensures a Firebase Auth session exists before any RTDB op. Reuses a cached
 // session (persistence is LOCAL by default) so this is a no-op on most loads;
@@ -24,4 +41,8 @@ export async function ensureSignedIn(recoveryCode) {
   }
   const token = await callValidateRecovery(recoveryCode);
   await signInWithCustomToken(auth, token);
+  // Don't return until the RTDB connection actually carries the new token, so
+  // the watchers main() attaches next don't race the auth handshake (and get
+  // cancelled by a transient permission_denied).
+  await whenRtdbAuthReady();
 }
