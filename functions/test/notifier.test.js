@@ -267,8 +267,7 @@ describe('handleGroupOverrideChange', () => {
   });
   test('override turned OFF but primary is available → effective on → notifies', async () => {
     const deps = makeDeps({ store: store({
-      'users/m/presence/status': 'available',
-      'users/m/presence/availableUntil': FUTURE,
+      'users/m/presence': { status: 'available', availableUntil: FUTURE },
     }) });
     await handleGroupOverrideChange(deps, 'g1', 'm', UNAVAIL, { enabled: false });
     expect(deps.send).toHaveBeenCalledTimes(1);
@@ -395,6 +394,105 @@ describe('handleAvailability → one push per recipient (dedup)', () => {
     }});
     await handleAvailability(deps, 'bob', null, FUTURE);
     expect(deps.send).not.toHaveBeenCalled(); // Direct cooled, group skips the follower
+  });
+});
+
+// #183 H6 — dedup + cooldown-write behavior under multi-group fan-out. The
+// dedup set is shared across Direct + every override-off group; only a group
+// that actually delivered a push should stamp its per-(group, member) cooldown.
+describe('handleAvailability → multi-group fan-out: exactly one push + selective cooldown stamps', () => {
+  function threeGroupStore(extra = {}) {
+    return {
+      'users/bob/presence/status': 'available',
+      'users/bob/presence/availableUntil': FUTURE,
+      'users/bob/followers': null,
+      'userPrefs/ann/notify/bob': { availability: true },
+      'userPrefs/ann/pushTokens': { tokAnn: {} },
+      'users/bob/groups': { g1: true, g2: true, g3: true },
+      'groups/g1/members/bob/statusOverride': { enabled: false },
+      'groups/g2/members/bob/statusOverride': { enabled: false },
+      'groups/g3/members/bob/statusOverride': { enabled: false },
+      'groups/g1/members': { bob: {}, ann: {} },
+      'groups/g2/members': { bob: {}, ann: {} },
+      'groups/g3/members': { bob: {}, ann: {} },
+      'groups/g1/name': 'G1', 'groups/g2/name': 'G2', 'groups/g3/name': 'G3',
+      'groups/g1/members/bob/displayName': 'BobG1',
+      'groups/g2/members/bob/displayName': 'BobG2',
+      'groups/g3/members/bob/displayName': 'BobG3',
+      'notifierState/groupAvailability/g1/bob': null,
+      'notifierState/groupAvailability/g2/bob': null,
+      'notifierState/groupAvailability/g3/bob': null,
+      ...extra,
+    };
+  }
+
+  test('a co-member of THREE override-off groups gets exactly ONE push (first group wins)', async () => {
+    const deps = makeDeps({ store: threeGroupStore() });
+    await handleAvailability(deps, 'bob', null, FUTURE);
+    expect(deps.send).toHaveBeenCalledTimes(1);
+    expect(deps.send).toHaveBeenCalledWith(['tokAnn'],
+      { title: 'BobG1 is available in G1', body: '' },
+      { type: 'availability', targetUid: 'bob', contextGroupId: 'g1' });
+  });
+
+  test('only the group that delivered stamps its cooldown; deduped groups do NOT', async () => {
+    const deps = makeDeps({ store: threeGroupStore() });
+    await handleAvailability(deps, 'bob', null, FUTURE);
+    // g1 delivered → stamped. g2/g3 found ann already in the dedup set → no send
+    // → must not stamp (otherwise a re-up within the window would be wrongly muted
+    // even though that group never actually notified anyone).
+    expect(deps.update).toHaveBeenCalledWith('notifierState/groupAvailability/g1', { bob: 1000 });
+    expect(deps.update).not.toHaveBeenCalledWith('notifierState/groupAvailability/g2', expect.anything());
+    expect(deps.update).not.toHaveBeenCalledWith('notifierState/groupAvailability/g3', expect.anything());
+  });
+
+  test('when the first group is within its own cooldown, the next override-off group delivers (still one push)', async () => {
+    const deps = makeDeps({ store: threeGroupStore({
+      'notifierState/groupAvailability/g1/bob': 999, // g1 within cooldown (now=1000)
+    }) });
+    await handleAvailability(deps, 'bob', null, FUTURE);
+    // g1 is cooled → notifyGroupAvailability returns before touching the dedup set,
+    // so g2 delivers the single push and stamps only g2.
+    expect(deps.send).toHaveBeenCalledTimes(1);
+    expect(deps.send).toHaveBeenCalledWith(['tokAnn'],
+      { title: 'BobG2 is available in G2', body: '' },
+      { type: 'availability', targetUid: 'bob', contextGroupId: 'g2' });
+    expect(deps.update).toHaveBeenCalledWith('notifierState/groupAvailability/g2', { bob: 1000 });
+    expect(deps.update).not.toHaveBeenCalledWith('notifierState/groupAvailability/g1', expect.anything());
+  });
+
+  test('distinct co-members across groups each get exactly one push from their first eligible group', async () => {
+    const deps = makeDeps({ store: {
+      'users/bob/presence/status': 'available',
+      'users/bob/presence/availableUntil': FUTURE,
+      'users/bob/followers': null,
+      'userPrefs/ann/notify/bob': { availability: true },
+      'userPrefs/ann/pushTokens': { tokAnn: {} },
+      'userPrefs/cal/notify/bob': { availability: true },
+      'userPrefs/cal/pushTokens': { tokCal: {} },
+      'users/bob/groups': { g1: true, g2: true },
+      'groups/g1/members/bob/statusOverride': { enabled: false },
+      'groups/g2/members/bob/statusOverride': { enabled: false },
+      // ann in both groups; cal only in g2
+      'groups/g1/members': { bob: {}, ann: {} },
+      'groups/g2/members': { bob: {}, ann: {}, cal: {} },
+      'groups/g1/name': 'G1', 'groups/g2/name': 'G2',
+      'groups/g1/members/bob/displayName': 'BobG1',
+      'groups/g2/members/bob/displayName': 'BobG2',
+      'notifierState/groupAvailability/g1/bob': null,
+      'notifierState/groupAvailability/g2/bob': null,
+    }});
+    await handleAvailability(deps, 'bob', null, FUTURE);
+    expect(deps.send).toHaveBeenCalledTimes(2); // ann via g1, cal via g2 — never doubled
+    expect(deps.send).toHaveBeenCalledWith(['tokAnn'],
+      { title: 'BobG1 is available in G1', body: '' },
+      { type: 'availability', targetUid: 'bob', contextGroupId: 'g1' });
+    expect(deps.send).toHaveBeenCalledWith(['tokCal'],
+      { title: 'BobG2 is available in G2', body: '' },
+      { type: 'availability', targetUid: 'bob', contextGroupId: 'g2' });
+    // both groups delivered → both stamped
+    expect(deps.update).toHaveBeenCalledWith('notifierState/groupAvailability/g1', { bob: 1000 });
+    expect(deps.update).toHaveBeenCalledWith('notifierState/groupAvailability/g2', { bob: 1000 });
   });
 });
 

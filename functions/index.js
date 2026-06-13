@@ -18,14 +18,18 @@ setGlobalOptions({ region: process.env.FUNCTIONS_REGION || 'europe-west1' });
 
 initializeApp();
 
+// Resolve the admin SDK singletons once at module load (initializeApp has run),
+// rather than per trigger invocation inside makeDeps.
+const db = getDatabase();
+const messaging = getMessaging();
+
 function makeDeps() {
-  const db = getDatabase();
   return {
     now: () => Date.now(),
     getVal: async (path) => (await db.ref(path).get()).val(),
     update: async (path, obj) => { await db.ref(path).update(obj); },
     send: async (tokens, message, data) => {
-      const res = await getMessaging().sendEachForMulticast({
+      const res = await messaging.sendEachForMulticast({
         tokens,
         // Data-only message (no `notification` block): the service worker fully
         // controls display via showNotification, so a focused client can suppress
