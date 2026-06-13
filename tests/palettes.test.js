@@ -30,7 +30,7 @@ const {
   applyThemeVars, resetThemeVars,
   tapSwatch, initSwatches, switchSet,
   enterPaletteMode, exitPaletteMode,
-  startSwatchHints,
+  startSwatchHints, paintStatusDot,
 } = require('../js/palettes.js');
 const { setStatusColor } = require('../js/db.js');
 const { getPaletteState, setPaletteState } = require('../js/store.js');
@@ -628,5 +628,46 @@ describe('palette mode swatch layout', () => {
     document.querySelector('.key-swatch').click();
     // exitPaletteMode resets theme
     expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#0f172a');
+  });
+});
+
+// #216 — shared status-dot painter (Direct list + group roster route through it).
+describe('paintStatusDot', () => {
+  function dot() { const d = document.createElement('div'); d.className = 'person-dot'; return d; }
+
+  test('available + color + palettes: sets background, border, and glow', () => {
+    const d = dot();
+    paintStatusDot(d, { color: '#22c55e', available: true, palettesEnabled: true });
+    expect(d.classList.contains('available')).toBe(true);
+    expect(d.style.background).toBeTruthy();
+    expect(d.style.borderColor).toBeTruthy();
+    expect(d.style.boxShadow).toContain('0 0 10px');
+  });
+
+  test('available + color, palettes OFF: background only, no border/glow', () => {
+    const d = dot();
+    paintStatusDot(d, { color: '#22c55e', available: true, palettesEnabled: false });
+    expect(d.style.background).toBeTruthy();
+    expect(d.style.borderColor).toBe('');
+    expect(d.style.boxShadow).toBe('');
+  });
+
+  test('unavailable: clears all dot styling and the available class', () => {
+    const d = dot();
+    paintStatusDot(d, { color: '#22c55e', available: true, palettesEnabled: true });
+    paintStatusDot(d, { color: '#22c55e', available: false, palettesEnabled: true });
+    expect(d.classList.contains('available')).toBe(false);
+    expect(d.style.background).toBe('');
+    expect(d.style.boxShadow).toBe('');
+  });
+
+  test('available but no color: cleared (group members with no statusColor)', () => {
+    const d = dot();
+    paintStatusDot(d, { color: null, available: true, palettesEnabled: true });
+    expect(d.style.background).toBe('');
+  });
+
+  test('null dot is a no-op (no throw)', () => {
+    expect(() => paintStatusDot(null, { color: '#fff', available: true })).not.toThrow();
   });
 });

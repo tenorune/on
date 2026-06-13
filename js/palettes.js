@@ -1,5 +1,6 @@
 // js/palettes.js
 import { setStatusColor, setPaletteKey } from './db.js';
+import { safeCssColor } from './utils.js';
 import { isHintSeen, markHintSeen, getPaletteState, setPaletteState } from './prefs.js';
 import {
   shouldShowSwatchWave, shouldShowThemeHint, shouldShowDotGoHint,
@@ -150,6 +151,30 @@ export function getGlowForColor(hex) {
     if (p) return p.glow;
   }
   return PALETTE_SETS[1][0].glow; // forest fallback
+}
+
+// Paint a peer's presence dot from their status color. Shared by the Direct list
+// (following.js) and the group roster (groupContext.js) — the own dot (me.js) is
+// styled via the global --my-status/--my-glow CSS vars instead, a separate path.
+// Available + color + palettes → background + border + glow; available + color
+// without palettes → background only; otherwise cleared.
+export function paintStatusDot(dot, { color, available, palettesEnabled = true }) {
+  if (!dot) return;
+  dot.classList.toggle('available', available);
+  if (available && color && palettesEnabled) {
+    const safe = safeCssColor(color);
+    dot.style.background = safe;
+    dot.style.borderColor = safe;
+    dot.style.boxShadow = `0 0 10px ${safeCssColor(getGlowForColor(color))}`;
+  } else if (available && color) {
+    dot.style.background = safeCssColor(color);
+    dot.style.borderColor = '';
+    dot.style.boxShadow = '';
+  } else {
+    dot.style.background = '';
+    dot.style.borderColor = '';
+    dot.style.boxShadow = '';
+  }
 }
 
 export function applyPaletteVars(key) {

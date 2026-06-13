@@ -3,6 +3,20 @@ jest.mock('../js/firebase-config.js', () => ({ db: {} }));
 jest.mock('firebase/database', () => ({}));
 
 const { isExpired, isAvailable, timeRemainingMs, formatTimeRemaining, formatTimeRemainingFuzzy, formatLastSeen } = require('../js/db');
+const { availableForText } = require('../js/utils');
+
+describe('availableForText', () => {
+  test('open-ended (null availableUntil) → "Available"', () => {
+    expect(availableForText(null)).toBe('Available');
+  });
+  test('timed window → "Available for <fuzzy>"', () => {
+    expect(availableForText(Date.now() + 2 * 3600000)).toMatch(/^Available for .+/);
+  });
+  test('lapsed window → "Available for just a few minutes" floors to bare "Available"', () => {
+    // timeRemainingMs clamps to 0 for a past timestamp → fuzzy '' → bare "Available"
+    expect(availableForText(Date.now() - 1000)).toBe('Available');
+  });
+});
 
 describe('isAvailable', () => {
   test('available + no expiry (null) → true', () => { expect(isAvailable('available', null)).toBe(true); });

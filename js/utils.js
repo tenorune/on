@@ -89,3 +89,12 @@ export function formatLastSeen(lastSeenMs) {
   if (days < 28) return 'over two weeks ago';
   return 'over a month ago';
 }
+
+// Shared "Available for …" label for the Direct list + group roster. Open-ended
+// availability (null availableUntil) reads just "Available"; a timed window reads
+// "Available for <fuzzy time>". Callers own the surrounding span/color.
+export function availableForText(availableUntil) {
+  const remaining = availableUntil ? formatTimeRemainingFuzzy(timeRemainingMs(availableUntil)) : '';
+  return remaining ? `Available for ${remaining}` : 'Available';
+}
+
