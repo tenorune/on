@@ -33,6 +33,14 @@ const lastUserData = new Map(); // userId → most recent userData from Firebase
 const renderedFollowees = new Set();
 let onFolloweeReady = null;
 
+// Direct-list rows are keyed by data-user-id, but a group roster reuses the same
+// attribute for the same uid. Scope every Direct-list row lookup to #people-list
+// so a mutual who is also a group member never has their Direct row resolve to
+// the group roster — which leaked their Direct status into the group card.
+function followeeRow(userId) {
+  return document.querySelector(`#people-list [data-user-id="${userId}"]`);
+}
+
 let latestFollowersSnapshot = [];
 let unsubFollowers = null;
 let unsubFollowing = null;
@@ -306,7 +314,7 @@ export function enterCallMode(calleeEntry, myUserId) {
   const callColor = calleeData?.statusColor || '#22c55e';
 
   // Apply glow to callee's card (clear any in-progress knock animation first)
-  const liPre = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
+  const liPre = followeeRow(calleeEntry.userId);
   if (liPre) {
     liPre.style.boxShadow = '';
     liPre.style.transition = '';
@@ -326,7 +334,7 @@ export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
   callModeCalleeId = calleeEntry.userId;
   // No Firebase write — state already persisted
   const callColor = calleeData?.statusColor || '#22c55e';
-  const li = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
+  const li = followeeRow(calleeEntry.userId);
   if (li) {
     li.style.boxShadow = '';
     li.style.transition = '';
@@ -341,7 +349,7 @@ export function exitCallMode(myUserId) {
   callModeCalleeId = null;
   if (prevCalleeId) {
     endCall(myUserId, prevCalleeId).catch(() => {});
-    const li = document.querySelector(`[data-user-id="${prevCalleeId}"]`);
+    const li = followeeRow(prevCalleeId);
     if (li) { li.classList.remove('call-mode'); li.style.removeProperty('--call-color-rgb'); }
   }
   renderList();
@@ -548,7 +556,7 @@ function applyAdoption(entry, myUserId) {
     setStatusColor(myUserId, targetData.statusColor).catch(() => {});
   }
 
-  const li = document.querySelector(`[data-user-id="${entry.userId}"]`);
+  const li = followeeRow(entry.userId);
   if (li) li.classList.add('adopted-from');
 }
 
@@ -860,7 +868,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     renderedFollowees.add(entry.userId);
     onFolloweeReady?.();
   }
-  const li = document.querySelector(`[data-user-id="${entry.userId}"]`);
+  const li = followeeRow(entry.userId);
   if (!li) return;
 
   lastUserData.set(entry.userId, userData);
