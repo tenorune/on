@@ -1,7 +1,7 @@
 // js/following.js
 import {
   lookupCode, watchPresence, watchFollowers, registerAsFollower, unregisterAsFollower,
-  removeFollower, isExpired, isAvailable, formatTimeRemainingFuzzy, timeRemainingMs,
+  removeFollower, isExpired, isAvailable,
   formatLastSeen, startCall, answerCall, endCall, watchOwnCall, setStatusColor,
   watchFollowing, setFollowingEntry, removeFollowingEntry, watchRevocations,
 } from './db.js';
@@ -15,13 +15,13 @@ import {
   getPaletteState, setPaletteState,
   getFavorites,
 } from './prefs.js';
-import { escapeHtml, hexToRgb, safeCssColor, resolveDisplayName } from './utils.js';
+import { escapeHtml, hexToRgb, safeCssColor, resolveDisplayName, availableForText } from './utils.js';
 import { isLongpressHintEligible, isSwipeHintEligible } from './hints.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { createNotifyBell } from './notifyBell.js';
 import { createCardDrawer, isCardDrawerOpen, closeCardDrawer } from './cardDrawer.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
-import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
+import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS, paintStatusDot } from './palettes.js';
 import { sendKnock, getFloatedUserIds, noteDirectActivity } from './knock.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
@@ -881,8 +881,6 @@ export function updateFolloweeRow(entry, userData, myUserId) {
 
   const isAvail = isAvailable(userData.status, userData.availableUntil);
   const color = userData.statusColor || '#22c55e';
-  const glow  = getGlowForColor(color);
-  const ms = timeRemainingMs(userData.availableUntil);
   let statusText;
   // Both checks gated by CALL_ENABLED so a stale calls/{me} mailbox entry
   // (e.g., a previous session left a call dangling) doesn't render call-mode
@@ -906,11 +904,10 @@ export function updateFolloweeRow(entry, userData, myUserId) {
       ? `<span style="color:${safeCssColor(color)}">${callText}</span>`
       : callText;
   } else if (isAvail) {
-    if (PALETTES_ENABLED) {
-      statusText = `<span class="status-available" style="color:${safeCssColor(color)}">Available for ${formatTimeRemainingFuzzy(ms)}</span>`;
-    } else {
-      statusText = `<span class="status-available">Available for ${formatTimeRemainingFuzzy(ms)}</span>`;
-    }
+    const text = availableForText(userData.availableUntil);
+    statusText = PALETTES_ENABLED
+      ? `<span class="status-available" style="color:${safeCssColor(color)}">${text}</span>`
+      : `<span class="status-available">${text}</span>`;
   } else {
     const lastSeenPhrase = formatLastSeen(userData.lastSeen ?? null);
     statusText = lastSeenPhrase ? `Last seen ${lastSeenPhrase}` : 'Unavailable';
@@ -919,18 +916,11 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   li.dataset.available = String(isAvail);
   const dot = li.querySelector('.person-dot');
   if (dot) {
+    // Reset className first to clear any transient classes, then paint. The
+    // PALETTES gate preserves the old behavior of leaving the dot's inline
+    // styles untouched when palettes are off (CSS .available handles it).
     dot.className = `person-dot${isAvail ? ' available' : ''}`;
-    if (PALETTES_ENABLED) {
-      if (isAvail) {
-        dot.style.background  = safeCssColor(color);
-        dot.style.borderColor = safeCssColor(color);
-        dot.style.boxShadow   = `0 0 10px ${safeCssColor(glow)}`;
-      } else {
-        dot.style.background  = '';
-        dot.style.borderColor = '';
-        dot.style.boxShadow   = '';
-      }
-    }
+    if (PALETTES_ENABLED) paintStatusDot(dot, { color, available: isAvail, palettesEnabled: true });
   }
   const statusEl = li.querySelector('.person-status');
   if (statusEl) statusEl.innerHTML = statusText;

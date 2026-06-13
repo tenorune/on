@@ -5,9 +5,9 @@
 // own-status row, the chain-icon override toggle (installed into the nav row's
 // slot), and the member roster.
 
-import { watchGroupMembers, watchGroupInvites, watchPresence, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs, isAvailable } from './db.js';
+import { watchGroupMembers, watchGroupInvites, watchPresence, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs, isAvailable } from './db.js';
 import { reconcileChildren } from './reconcile.js';
-import { safeCssColor } from './utils.js';
+import { safeCssColor, availableForText } from './utils.js';
 import { navigateToDirect, applyOptimisticAppearance, subscribeGroupMeta, subscribeOwnOverride } from './groupNav.js';
 import { subscribeOwnStatus } from './ownStatus.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
@@ -30,7 +30,7 @@ import { createCardDrawer, isCardDrawerOpen, closeCardDrawer } from './cardDrawe
 import { isFollowRequestEligible, createRequestFollowButton } from './followRequests.js';
 import { createNotifyBell, isNotifyPopoverOpen } from './notifyBell.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
-import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, startSwatchHints, buildSetToggleButton, buildSwatch, applyThemeHintIfDue, applyKeySpin } from './palettes.js';
+import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, startSwatchHints, buildSetToggleButton, buildSwatch, applyThemeHintIfDue, applyKeySpin, paintStatusDot } from './palettes.js';
 import {
   shouldShowDotGoHint,
   isLongpressHintEligible,
@@ -344,21 +344,7 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
   const dot = li.querySelector('.person-dot');
   if (dot) {
     dot.dataset.available = available ? 'true' : 'false';
-    dot.classList.toggle('available', available);
-    if (available && color && PALETTES_ENABLED) {
-      const safe = safeCssColor(color);
-      dot.style.background = safe;
-      dot.style.borderColor = safe;
-      dot.style.boxShadow = `0 0 10px ${safeCssColor(getGlowForColor(color))}`;
-    } else if (available && color) {
-      dot.style.background = safeCssColor(color);
-      dot.style.borderColor = '';
-      dot.style.boxShadow = '';
-    } else {
-      dot.style.background = '';
-      dot.style.borderColor = '';
-      dot.style.boxShadow = '';
-    }
+    paintStatusDot(dot, { color, available, palettesEnabled: PALETTES_ENABLED });
   }
   const statusEl = li.querySelector('.person-status');
   if (statusEl) {
@@ -372,10 +358,7 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
       // paletteKey still gets the right text color — without the inline
       // style, the CSS rule (.status-available → var(--green)) wins and
       // the fuzzy time renders forest green.
-      const remaining = availableUntil
-        ? formatTimeRemainingFuzzy(timeRemainingMs(availableUntil))
-        : '';
-      const text = remaining ? `Available for ${remaining}` : 'Available';
+      const text = availableForText(availableUntil);
       const inlineColor = color ? safeCssColor(color) : '';
       statusEl.innerHTML = inlineColor
         ? `<span class="status-available" style="color:${inlineColor}">${text}</span>`
