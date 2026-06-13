@@ -155,6 +155,19 @@ export function setGroupPaletteState(groupId, state) {
   }
 }
 
+// Drop the per-group palette selection (local + synced) so the next read
+// returns DEFAULT_GROUP_PALETTE_STATE. Called on a fresh (re)join: a member's
+// stale selection must not survive a leave, or it gets seeded into the new
+// color-less override as an impossible color+theme combo (#group rejoin).
+export function clearGroupPaletteState(groupId) {
+  try {
+    localStorage.removeItem(GROUP_PALETTE_LS(groupId));
+  } catch { /* ignore */ }
+  if (_myUserId) {
+    mergeUserPrefs(_myUserId, { [`perGroup/${groupId}/paletteState`]: null }).catch(() => {});
+  }
+}
+
 // ── Favorites (the user's history of saved palette combos) ──────────────────
 // Source of truth for cross-device sync moved from users/{uid}/favorites to
 // userPrefs/{uid}/favorites in this migration. Wipe-friendly: any pre-
