@@ -854,6 +854,26 @@ function makeFolloweeLi(userId) {
   return li;
 }
 
+describe('updateFolloweeRow: Direct-list scoping (no leak into a shared group-roster uid)', () => {
+  beforeEach(() => { setupDom(); jest.clearAllMocks(); resetRenderedFollowees(); });
+
+  test('paints the #people-list row, never a group-roster row that shares the uid', () => {
+    makeFolloweeLi('u2'); // the real Direct-list row
+    // A group roster carrying the SAME uid, placed BEFORE #people-list so an
+    // unscoped document-wide query would wrongly resolve to it and leak the
+    // member's Direct status ("Unavailable") into their group card.
+    const roster = document.createElement('ul');
+    roster.id = 'group-roster';
+    roster.innerHTML = '<li data-user-id="u2"><div class="person-status"></div></li>';
+    document.body.insertBefore(roster, document.getElementById('people-list'));
+
+    updateFolloweeRow({ userId: 'u2', code: 'X' }, { status: 'unavailable', availableUntil: null, lastSeen: null }, 'me');
+
+    expect(roster.querySelector('[data-user-id="u2"] .person-status').innerHTML).toBe(''); // group roster untouched
+    expect(document.querySelector('#people-list [data-user-id="u2"] .person-status').textContent).toBe('Unavailable');
+  });
+});
+
 describe('setFolloweeReadyCallback', () => {
   let cb;
   beforeEach(() => {
