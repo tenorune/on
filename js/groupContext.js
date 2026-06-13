@@ -302,7 +302,11 @@ function renderRoster(members, ownUserId) {
       const member = (members || {})[uid];
       const label = node.querySelector('.person-label');
       if (label && member) label.textContent = member.displayName || uid;
-      paintRosterRow(uid);
+      // Pass `node`: reconcile runs update() BEFORE inserting a freshly-created
+      // row, so a getElementById/querySelector lookup would miss it and the dot
+      // would keep createRosterRow's default until a later re-render (the
+      // override/status not applying on first render — esp. on a fresh restore).
+      paintRosterRow(uid, node);
     },
     // The drawer survives ticks that keep its row; close only when the row
     // holding the open drawer is removed (replaces the blanket close that
@@ -320,8 +324,7 @@ function syncRosterOrder() {
   renderRoster(_lastMembers, _currentUserId);
 }
 
-function paintRosterRow(uid) {
-  const li = document.querySelector(`#group-roster [data-user-id="${uid}"]`);
+function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-user-id="${uid}"]`)) {
   if (!li) return;
   const override = _membersOverrides[uid];
   const primary = _memberPrimaries.get(uid) || null;

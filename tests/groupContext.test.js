@@ -335,6 +335,17 @@ describe('group roster render', () => {
     expect(dot.dataset.available).toBe('true');
   });
 
+  test('a member override applies on the first render, before any presence tick (reconcile update-before-insert)', () => {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    db.watchPresence.mockImplementation(() => () => {}); // presence never fires
+    enterGroupContext('G1', 'me');
+    const ovr = { enabled: true, status: 'available', availableUntil: Date.now() + 3600000 };
+    membersCb({ b: { role: 'member', displayName: 'Bob', joinedAt: 1, statusOverride: ovr } });
+    const li = document.querySelector('#group-roster [data-user-id="b"]');
+    expect(li.dataset.available).toBe('true');
+  });
+
   test('exitGroupContext unsubscribes from member status watchers', () => {
     let membersCb;
     const unsubs = [];
