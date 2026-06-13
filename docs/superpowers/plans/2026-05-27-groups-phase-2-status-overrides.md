@@ -2,6 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **⚠️ Superseded since shipping (updated 2026-06-13, [#217](https://github.com/tenorune/on/issues/217)).** This plan records Phase 2 *as originally planned*. Two scope decisions below were later outrun by the shipped code — the body is kept as the historical record, but the **current behavior** is:
+> - **Per-audience color picker SHIPPED, not deferred.** The group-context palette picker (`renderGroupSwatchRow` + `applyAdoptedComboInGroup` / `setOverrideAppearance` in `js/groupContext.js` / `js/groups.js`) *does* write `statusOverride.statusColor` / `paletteKey`. (The plan's "No per-audience color picker / Phase 4+" decision no longer holds. The owner-level *group* color — Mode B/C — is the part still deferred; see groups spec §16 and [#218](https://github.com/tenorune/on/issues/218) G-B.)
+> - **Toggle OFF *preserves* color/palette; it does not clear the whole record.** `toggleStatusOverride(OFF)` calls `mergeStatusOverride({ enabled: false, status: null, availableUntil: null })`, which keeps `statusColor` / `paletteKey` so an adopted color survives a toggle (the 2026-05-29 adoption behavior). `clearStatusOverride` still exists as a db primitive but is no longer the toggle-OFF path.
+
 **Goal:** Ship per-**group** status overrides. A user can toggle "Set a unique status" inside any group's context. ON → that group's audience sees a status independent of the user's primary (defaults to Unavailable). OFF → that group inherits the primary status. The followers audience continues to see the primary status; no separate followers-audience override surface ships in this phase.
 
 **Architecture:** Override data lives at the canonical `groups/{groupId}/members/{ownUid}/statusOverride` slot established in Phase 1's data model (spec §7). New `js/db.js` helpers set/clear the override and subscribe to own-member override per group. `js/groups.js` gains thin toggle + override-status wrappers. `js/groupContext.js` grows a new status row inside the group-context header (own dot + status label + time chip + override toggle), wired to override writes when toggle ON and read-only-mirror of primary when OFF. `js/groupNav.js`'s cards row reflects each card's own-override color (uses the user's primary `statusColor` as the Phase 2 fill; per-audience color picker is Phase 4+). The roster in `js/groupContext.js` renders each member's *context-appropriate* status: their override if `enabled === true`, else their primary from `watchStatus(uid)`.
@@ -13,8 +17,8 @@
 **Scope decisions locked in upstream of this plan:**
 
 - **No followers-audience override.** The primary status IS what direct followers see. The "Set a unique status" toggle ships per-group only; the symmetric "followers" toggle from spec §4 example 3 / §16 is dropped from Phase 2 and not deferred to a specific later phase.
-- **No per-audience color picker.** The `statusOverride` schema's `statusColor` / `paletteKey` slots are preserved in the data model for Phase 4+ forward-compat, but Phase 2 never writes them. When an override is ON+available, the visual color falls back to the user's primary `statusColor`.
-- **Toggle OFF clears the override.** Setting `statusOverride` to null on toggle OFF (rather than preserving `{enabled: false, ...}`) keeps the schema clean and matches spec §4(4)'s "ON resets to Unavailable" semantic. When Phase 4+ adds per-audience colors, that phase will adjust the clear behavior to preserve color slots while clearing `enabled`/`status`/`availableUntil`.
+- **No per-audience color picker.** The `statusOverride` schema's `statusColor` / `paletteKey` slots are preserved in the data model for Phase 4+ forward-compat, but Phase 2 never writes them. When an override is ON+available, the visual color falls back to the user's primary `statusColor`. — **[Superseded 2026-06-13 (#217): the per-audience picker shipped and now writes these slots. See the banner at the top.]**
+- **Toggle OFF clears the override.** Setting `statusOverride` to null on toggle OFF (rather than preserving `{enabled: false, ...}`) keeps the schema clean and matches spec §4(4)'s "ON resets to Unavailable" semantic. When Phase 4+ adds per-audience colors, that phase will adjust the clear behavior to preserve color slots while clearing `enabled`/`status`/`availableUntil`. — **[Superseded 2026-06-13 (#217): toggle OFF now merge-preserves `statusColor`/`paletteKey` via `mergeStatusOverride`; it does not null the record. See the banner at the top.]**
 
 ---
 
@@ -1576,7 +1580,7 @@ Replace the "Phase 2 — per-audience status overrides" subsection with:
 **Phase 2 — per-group status overrides** (now shipped on dev):
 
 - Spec scope locked to per-**group** overrides only — the spec's symmetric "followers audience" override was dropped from Phase 2 because the primary status IS the followers' view.
-- Per-audience color picker also deferred to Phase 4+; the `statusOverride.statusColor` and `paletteKey` schema slots are preserved (forward-compat) but not written by Phase 2.
+- Per-audience color picker also deferred to Phase 4+; the `statusOverride.statusColor` and `paletteKey` schema slots are preserved (forward-compat) but not written by Phase 2. — **[Superseded 2026-06-13 (#217): the per-audience picker shipped and writes these slots; see the top-of-doc banner.]**
 - New code: own status row + override toggle inside the group-context header; group cards reflect own-override color when ON+available (primary statusColor as the Phase 2 fill); roster renders each member's context-appropriate status.
 - New db.js exports: `setStatusOverride`, `clearStatusOverride`, `watchOwnMemberOverride`. New groups.js exports: `toggleStatusOverride`, `setOverrideStatusAvailable`, `setOverrideStatusUnavailable`.
 ```

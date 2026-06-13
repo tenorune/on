@@ -959,7 +959,7 @@ What does **not** ship in this phase (tracked separately):
 - Inviter-side "sent invites" view + cross-device revoke — [#124](https://github.com/tenorune/on/issues/124).
 - Admin role activation (admin-issued invites) — Phase 4+.
 - Bulk in-app invites to many followers in one action — Phase 4+. (The picker is multi-select, which covers the common case.)
-- Push notifications when an invite arrives — Phase 4+.
+- ~~Push notifications when an invite arrives — Phase 4+.~~ **Superseded 2026-06-13 ([#217](https://github.com/tenorune/on/issues/217)): SHIPPED.** The notifications program (`NOTIFICATIONS_ENABLED`) added the `onInvite` Cloud Function trigger on `pendingInvites/{inviteeUid}/{groupId}` → `handleInvite` → FCM push to the invitee (`functions/index.js`, `functions/notifier.js`). Push-on-invite is live, not deferred.
 
 ### Phase 4+ — Post-MVP polish
 
@@ -985,7 +985,7 @@ These items are documented but not in MVP. Rough priority order:
 - **Sort/search affordances for large member lists.** For groups >100 members.
 - **"Live members here right now" indicator.** Beyond the existing presence model.
 - **Notifications on admin actions** (rename, color change, kick).
-- **Push notifications via service worker** for in-app invites and knocks.
+- ~~**Push notifications via service worker** for in-app invites and knocks.~~ **Superseded 2026-06-13 (#217): SHIPPED** via the notifications program (`NOTIFICATIONS_ENABLED`) — Cloud Function triggers fan knock/call/invite/availability/override/follow-request events out to FCM.
 - **`inviteIndex` cleanup pass** for expired-and-untouched entries.
 
 ## 17. MVP scope
