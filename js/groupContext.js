@@ -5,7 +5,8 @@
 // own-status row, the chain-icon override toggle (installed into the nav row's
 // slot), and the member roster.
 
-import { watchGroupMembers, watchGroupInvites, watchPresence, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs, isAvailable } from './db.js';
+import { watchGroupMembers, watchGroupInvites, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs, isAvailable } from './db.js';
+import { subscribePresence } from './presenceHub.js';
 import { reconcileChildren } from './reconcile.js';
 import { safeCssColor, availableForText } from './utils.js';
 import { navigateToDirect, applyOptimisticAppearance, subscribeGroupMeta, subscribeOwnOverride } from './groupNav.js';
@@ -840,7 +841,9 @@ function syncStatusSubscriptions(memberUids) {
   }
   for (const uid of memberUids) {
     if (!_statusUnsubs.has(uid)) {
-      _statusUnsubs.set(uid, watchPresence(uid, (data) => {
+      // Through the shared presence hub — a member who is also a Direct followee
+      // is watched once at the RTDB layer (#214 R3).
+      _statusUnsubs.set(uid, subscribePresence(uid, (data) => {
         _memberPrimaries.set(uid, data
           ? {
               status: data.status,

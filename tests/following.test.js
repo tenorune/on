@@ -161,6 +161,7 @@ const { createNotifyBell } = require('../js/notifyBell.js');
 // Default implementation: return a real button so li.appendChild doesn't throw.
 // Individual test suites may override via mockImplementation in their beforeEach.
 beforeEach(() => {
+  require('../js/presenceHub.js')._resetPresenceHub(); // clean per-uid watch state between tests
   createNotifyBell.mockImplementation(() => {
     const b = document.createElement('button');
     b.className = 'notify-bell';
