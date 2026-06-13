@@ -566,24 +566,7 @@ async function main() {
     syncPrefsFromServer(serverPrefs);
   });
 
-  if (NOTIFICATIONS_ENABLED) {
-    initNotifyPrompt(userId);
-    // Self-heal a drifted/stale FCM token on load (no-op unless already granted).
-    refreshPushToken().catch(() => {});
-    getMessagingIfSupported().then((messaging) => {
-      if (!messaging) return;
-      import('firebase/messaging').then(({ onMessage }) => {
-        onMessage(messaging, () => { /* foreground: in-app UI already reflects it; no OS toast */ });
-      });
-    });
-    // Deep-link routing: the SW postMessages a clicked notification to the focused
-    // client (sw.js notificationclick). Invite/follow-request taps land in Direct
-    // then open the Inbox; group activity navigates into the group. See notifyRouting.js.
-    navigator.serviceWorker?.addEventListener('message', (e) => {
-      if (e.data?.kind !== 'notification-click') return;
-      routeNotificationClick(e.data.data || {}, { navigateToDirect, navigateToGroup, openInboxModal });
-    });
-  }
+  initPushNotifications(userId);
 
   // currentContext changes from sibling devices arrive as a
   // 'current-context-synced' CustomEvent; forward into groupNav so the
@@ -607,24 +590,7 @@ async function main() {
   // from the persisted calls/{me} mailbox. One-shot — only acts on an already
   // answered call (the caller side). An unanswered ring is left for
   // following.js's own-call watcher to render on its first tick.
-  if (CALL_ENABLED) {
-    let callRecoveryHandled = false;
-    watchOwnCall(userId, async (call) => {
-      if (callRecoveryHandled) return;
-      callRecoveryHandled = true;
-      if (!call) return;
-      const peerId = call.to || call.from;
-      const entry = getFollowing().find((e) => e.userId === peerId);
-      if (!entry) { endCall(userId, peerId).catch(() => {}); return; }
-      try {
-        const peerData = await getUser(peerId);
-        if (!peerData) { endCall(userId, peerId).catch(() => {}); return; }
-        if (call.answered) reEnterCallMode(entry, peerData, userId);
-        // An unanswered ring (call.from, !answered) is left for following.js's
-        // own-call watcher to render on its first tick — no action here.
-      } catch { endCall(userId, peerId).catch(() => {}); }
-    });
-  }
+  initCallRecovery(userId);
 
   startCardsRowSubscriptions();
   initGroupRemovalDetector(userId);
@@ -655,24 +621,25 @@ async function main() {
 
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
 
-  if (PALETTES_ENABLED) {
-    document.getElementById('swatch-row').style.display = '';
-    const paletteState = getPaletteState();
-    const activeSetKey = String(paletteState.activeSet);
-    const { selectedKey, activePaletteKey } = paletteState.sets[activeSetKey];
-    // Apply status color vars before first paint — but only when landing in
-    // Direct context. In a group context, the override owns --my-status via
-    // groupContext.applyEffectivePalette; writing the Direct picker color
-    // here would clobber any override color set during the async
-    // enterGroupContext path above (which can fire Firebase callbacks during
-    // the `await navigateToGroup` that runs before we reach this point).
-    if (getCurrentContext().context === 'direct') {
-      applyPaletteVars(selectedKey);
-    }
-    initSwatches(userId);
-    if (PALETTE_INTERACTIONS_ENABLED) initFavoritesStrip(userId);
+  initPaletteBoot(userId);
+
+  initOwnStatusSync(userId);
+
+  if (isNew) {
+    const availableUntil = Date.now() + 120 * 60000;
+    setStatus(userId, 'available', availableUntil).catch(() => {});
   }
 
+  initServiceWorker();
+}
+
+// ── Boot init steps (extracted from main() for readability; call order in
+// main() is load-bearing — see the comments there) ───────────────────────────
+
+// Own primary-status subscription: cross-device color/palette/code sync + the
+// status-label re-render. Color/theme writes are Direct-context-scoped (see
+// inDirectCtx) so a primary echo can't clobber an active group override.
+function initOwnStatusSync(userId) {
   let lastStatus = null;
   let lastAvailableUntil = null;
   let lastStatusColor = null;
@@ -741,38 +708,89 @@ async function main() {
     if (expired) writeBackExpired(userId);
     applyOwnStatus(effectiveStatus, effectiveUntil);
   });
+}
 
-  if (isNew) {
-    const availableUntil = Date.now() + 120 * 60000;
-    setStatus(userId, 'available', availableUntil).catch(() => {});
+// Direct-context palette boot: reveal the swatch row and apply the saved color
+// (Direct context only — a group override owns --my-status otherwise).
+function initPaletteBoot(userId) {
+  if (!PALETTES_ENABLED) return;
+  document.getElementById('swatch-row').style.display = '';
+  const paletteState = getPaletteState();
+  const activeSetKey = String(paletteState.activeSet);
+  const { selectedKey } = paletteState.sets[activeSetKey];
+  if (getCurrentContext().context === 'direct') {
+    applyPaletteVars(selectedKey);
   }
+  initSwatches(userId);
+  if (PALETTE_INTERACTIONS_ENABLED) initFavoritesStrip(userId);
+}
 
-  if ('serviceWorker' in navigator) {
-    // Reload once when a newly-installed service worker takes control, so the
-    // freshly-activated shell is shown without a manual reinstall. Guarded to
-    // the update case (a controller already existed) so the first-ever install
-    // doesn't reload. The SW calls skipWaiting()+clients.claim(), so a detected
-    // update activates and fires controllerchange on its own.
-    const hadController = !!navigator.serviceWorker.controller;
-    let reloading = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (reloading || !hadController) return;
-      reloading = true;
-      window.location.reload();
+// Push notifications + deep-link routing from notification taps. No-op unless
+// the feature flag is on.
+function initPushNotifications(userId) {
+  if (!NOTIFICATIONS_ENABLED) return;
+  initNotifyPrompt(userId);
+  // Self-heal a drifted/stale FCM token on load (no-op unless already granted).
+  refreshPushToken().catch(() => {});
+  getMessagingIfSupported().then((messaging) => {
+    if (!messaging) return;
+    import('firebase/messaging').then(({ onMessage }) => {
+      onMessage(messaging, () => { /* foreground: in-app UI already reflects it; no OS toast */ });
     });
+  });
+  // Deep-link routing: the SW postMessages a clicked notification to the focused
+  // client (sw.js notificationclick). Invite/follow-request taps land in Direct
+  // then open the Inbox; group activity navigates into the group.
+  navigator.serviceWorker?.addEventListener('message', (e) => {
+    if (e.data?.kind !== 'notification-click') return;
+    routeNotificationClick(e.data.data || {}, { navigateToDirect, navigateToGroup, openInboxModal });
+  });
+}
 
-    navigator.serviceWorker.register('/sw.js').then((reg) => {
-      window.__swRegistration = reg;
-      // iOS standalone PWAs resume without a navigation, so the browser never
-      // re-checks sw.js on its own. Poke it every time the app is foregrounded
-      // (and once at launch) so a deployed update is noticed promptly.
-      const checkForUpdate = () => { reg.update().catch(() => {}); };
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') checkForUpdate();
-      });
-      checkForUpdate();
-    }).catch(console.error);
-  }
+// Boot-time own-call recovery: re-enter the canvas if we reloaded mid-call. One-
+// shot, and only for an already-answered call (the caller side); an unanswered
+// ring is left for following.js's own-call watcher to render on its first tick.
+function initCallRecovery(userId) {
+  if (!CALL_ENABLED) return;
+  let callRecoveryHandled = false;
+  watchOwnCall(userId, async (call) => {
+    if (callRecoveryHandled) return;
+    callRecoveryHandled = true;
+    if (!call) return;
+    const peerId = call.to || call.from;
+    const entry = getFollowing().find((e) => e.userId === peerId);
+    if (!entry) { endCall(userId, peerId).catch(() => {}); return; }
+    try {
+      const peerData = await getUser(peerId);
+      if (!peerData) { endCall(userId, peerId).catch(() => {}); return; }
+      if (call.answered) reEnterCallMode(entry, peerData, userId);
+    } catch { endCall(userId, peerId).catch(() => {}); }
+  });
+}
+
+// Service worker registration + update-on-foreground + reload-on-update. Guarded
+// to the update case (a controller already existed) so the first-ever install
+// doesn't reload.
+function initServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading || !hadController) return;
+    reloading = true;
+    window.location.reload();
+  });
+  navigator.serviceWorker.register('/sw.js').then((reg) => {
+    window.__swRegistration = reg;
+    // iOS standalone PWAs resume without a navigation, so the browser never
+    // re-checks sw.js on its own. Poke it on every foreground (and once at
+    // launch) so a deployed update is noticed promptly.
+    const checkForUpdate = () => { reg.update().catch(() => {}); };
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') checkForUpdate();
+    });
+    checkForUpdate();
+  }).catch(console.error);
 }
 
 main().catch(console.error);
