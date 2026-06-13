@@ -26,3 +26,66 @@ export function hexToRgb(hex) {
   if (!m) return '0, 0, 0';
   return `${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}`;
 }
+
+// ── Time / presence formatting (pure; were in db.js) ─────────────────────────
+export function isExpired(availableUntil) {
+  if (availableUntil === null || availableUntil === undefined) return false;
+  return availableUntil < Date.now();
+}
+
+// Single source of truth for "is this presence effectively available right now":
+// status is 'available' AND its window hasn't lapsed (null availableUntil = no
+// expiry). Replaces ~10 inline reimplementations that had drifted into two forms.
+export function isAvailable(status, availableUntil) {
+  return status === 'available' && !isExpired(availableUntil);
+}
+
+export function timeRemainingMs(availableUntil) {
+  if (!availableUntil) return 0;
+  return Math.max(0, availableUntil - Date.now());
+}
+
+// Both time-remaining formatters return a bare duration PHRASE with no trailing
+// " left" — the caller owns that suffix (e.g. `formatTimeRemaining(ms) + ' left'`
+// for a precise countdown, or `Available for ${formatTimeRemainingFuzzy(ms)}` for
+// the fuzzy roster text). Keeping the suffix out of the helpers means no call site
+// has to strip it back off.
+export function formatTimeRemaining(ms) {
+  if (ms <= 0) return '';
+  if (ms < 60000) return '< 1m';
+  const totalMinutes = Math.floor(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
+
+const HOUR_WORDS = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+function hourWord(n) { return HOUR_WORDS[n] ?? String(n); }
+
+export function formatTimeRemainingFuzzy(ms) {
+  if (ms <= 0) return '';
+  const minutes = ms / 60000;
+  const hours = ms / 3600000;
+  if (minutes < 5) return 'just a few minutes';
+  if (minutes < 20) return 'about 15 minutes';
+  if (minutes < 45) return 'about half an hour';
+  if (minutes < 75) return 'about an hour';
+  if (minutes < 120) return 'one to two hours';
+  const floor = Math.floor(hours);
+  const frac = hours - floor;
+  if (frac < 0.25) return `just over ${hourWord(floor)} hours`;
+  if (frac >= 0.75) return `nearly ${hourWord(floor + 1)} hours`;
+  return `about ${hourWord(Math.round(hours))} hours`;
+}
+
+export function formatLastSeen(lastSeenMs) {
+  if (lastSeenMs == null) return null;
+  const elapsed = Date.now() - lastSeenMs;
+  const days = elapsed / (24 * 60 * 60 * 1000);
+  if (days < 7) return null;
+  if (days < 14) return 'over a week ago';
+  if (days < 28) return 'over two weeks ago';
+  return 'over a month ago';
+}
