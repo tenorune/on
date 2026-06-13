@@ -8,6 +8,11 @@ esbuild.buildSync({
   entryPoints: ['js/app.js'],
   bundle: true,
   outfile: 'dist/bundle.js',
+  // Production ships minified — dev builds (dev-build.js / dev.js) stay readable
+  // for debugging. esbuild renames locals + strips whitespace/comments;
+  // string-keyed DOM ids, window.* globals, and the define-substituted Firebase
+  // config are all preserved, so behavior is unchanged.
+  minify: true,
   define,
 });
 
