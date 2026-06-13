@@ -50,19 +50,24 @@ self.addEventListener('push', (e) => {
   const d = (payload && payload.data) ? payload.data : (payload || {});
   e.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window' });
-    const focused = windows.some((c) => c.focused || c.visibilityState === 'visible');
-    // #156 debug: tell any open client a push reached the SW, regardless of the
-    // de-dupe below. This distinguishes "delivery never arrived" from "arrived
-    // but suppressed/failed to display" — the NOTIFY_DEBUG readout listens.
+    const appVisible = windows.some((c) => c.focused || c.visibilityState === 'visible');
+    // #156 debug: tell any open client a push reached the SW (distinguishes
+    // "delivery never arrived" from "arrived but didn't display"), and whether
+    // the app was visible. The NOTIFY_DEBUG readout listens.
     for (const c of windows) {
-      try { c.postMessage({ kind: 'push-debug', at: Date.now(), type: d.type || null, suppressed: focused }); } catch { /* client gone */ }
+      try { c.postMessage({ kind: 'push-debug', at: Date.now(), type: d.type || null, appVisible }); } catch { /* client gone */ }
     }
-    if (focused) return; // foreground de-dupe: the live in-app UI already handled it
+    // ALWAYS present a notification — no foreground de-dupe. Apple: "Safari
+    // doesn't support invisible push notifications… If you don't [present one],
+    // Safari revokes the push notification permission for your site." Receiving
+    // a push while the app was visible and showing nothing silently killed all
+    // future Safari delivery. The cost is a possibly-redundant banner when the
+    // app is already focused, which is acceptable (and required on Safari).
+    //
     // A reused tag (e.g. two calls from the same person → `call:<uid>`) coalesces
-    // into one notification; without renotify the OS updates it SILENTLY (no new
-    // banner/sound), so a second knock/call appears to "not notify". renotify
-    // re-alerts on the replacement. It requires a tag, so only set it when we have
-    // one (an untagged notification with renotify throws).
+    // into one notification; without renotify the OS updates it SILENTLY, so a
+    // repeat appears to "not notify". renotify re-alerts; it requires a tag, so
+    // set it only when we have one (an untagged notification with renotify throws).
     const tag = d.type ? `${d.type}:${d.targetUid || ''}` : undefined;
     await self.registration.showNotification(d.title || 'KnockKnock', {
       body: d.body || '',

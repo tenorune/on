@@ -104,11 +104,14 @@ test('push reads the title from FCM\'s nested data envelope', async () => {
   }));
 });
 
-test('push is suppressed when a focused client exists (foreground de-dupe)', async () => {
+test('push ALWAYS presents a notification, even when a client is focused (Safari revokes permission otherwise)', async () => {
+  // Apple: "Safari doesn't support invisible push notifications… If you don't
+  // [present one], Safari revokes the push notification permission for your
+  // site." So we must show even when the app is visible — no foreground de-dupe.
   const { handlers, showNotification, matchAll } = loadSwWithMockSelf();
-  matchAll.mockResolvedValue([{ focused: true, visibilityState: 'visible' }]);
+  matchAll.mockResolvedValue([{ focused: true, visibilityState: 'visible', postMessage: jest.fn() }]);
   await handlers.push(pushEvent({ type: 'knock', title: 'Bea knocked', body: '', targetUid: 'bea' }));
-  expect(showNotification).not.toHaveBeenCalled();
+  expect(showNotification).toHaveBeenCalledWith('Bea knocked', expect.objectContaining({ tag: 'knock:bea' }));
 });
 
 describe('notificationclick cold-start routing (no live client → openWindow)', () => {
@@ -164,15 +167,15 @@ test('notificationclick warm path posts to a live client and focuses it (no wind
 });
 
 describe('debug instrumentation (#156)', () => {
-  test('push posts a push-debug ping to open clients even when the OS notification is suppressed', async () => {
+  test('push posts a push-debug ping to open clients reporting the push arrived + app visibility', async () => {
     const postMessage = jest.fn();
     const { handlers, showNotification, matchAll } = loadSwWithMockSelf();
     matchAll.mockResolvedValue([{ focused: true, visibilityState: 'visible', postMessage }]);
     await handlers.push(pushEvent({ type: 'knock', title: 'x', targetUid: 'bea' }));
-    // De-dupe still suppresses the OS notification…
-    expect(showNotification).not.toHaveBeenCalled();
-    // …but the page is told the push DID arrive (delivery reached the SW).
-    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ kind: 'push-debug', type: 'knock', suppressed: true }));
+    // A notification is still presented (Safari requires it)…
+    expect(showNotification).toHaveBeenCalled();
+    // …and the page is told the push arrived and whether the app was visible.
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ kind: 'push-debug', type: 'knock', appVisible: true }));
   });
 
   test('a debug-ping message is answered with the controlling SW cache version', () => {

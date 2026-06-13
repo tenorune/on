@@ -61,8 +61,8 @@ function render() {
   if (!_info) { body.textContent = 'gathering…'; return; }
   const i = _info;
   const lastPush = _lastPush
-    ? `${_lastPush.type || '?'} ${_lastPush.suppressed ? '(suppressed: app was visible)' : '(shown)'} @ ${new Date(_lastPush.at).toLocaleTimeString()}`
-    : 'none yet — trigger a knock/call with this tab hidden';
+    ? `${_lastPush.type || '?'} ${_lastPush.appVisible ? '(app was visible)' : '(app hidden)'} @ ${new Date(_lastPush.at).toLocaleTimeString()}`
+    : 'none yet — trigger a knock/call from another account';
   body.innerHTML = [
     row('permission', i.permission, i.permission !== 'granted'),
     row('capability', i.capability, i.capability !== 'supported'),
@@ -71,7 +71,7 @@ function render() {
     row('local on server?', i.localTokenOnServer ? 'yes' : 'NO', !i.localTokenOnServer),
     row('SW cache', _swCache || '(asking…)'),
     row('SW controller', i.swController),
-    row('last push', lastPush, _lastPush?.suppressed),
+    row('last push', lastPush, false),
   ].join('');
 }
 
