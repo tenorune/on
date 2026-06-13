@@ -84,8 +84,12 @@ document.addEventListener('visibilitychange', () => {
   if (_myUid) initInbox(_myUid, _myCode);
 });
 
-export function renderInboxNavSlot() {
-  const slot = document.getElementById('nav-row-inbox-slot');
+// `slot` is passed by the nav-row reconcile's update(node) — which runs BEFORE
+// the freshly-created node is inserted, so a getElementById lookup would miss it
+// (and find nothing once a group round-trip has recreated the slot). Paint into
+// the node we're handed; other callers (data-change / open) omit it and fall
+// back to the live DOM node.
+export function renderInboxNavSlot(slot = document.getElementById('nav-row-inbox-slot')) {
   if (!slot) return;
   slot.innerHTML = '';
   if (totalCount() === 0) return;
