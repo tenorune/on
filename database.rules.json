@@ -7,7 +7,15 @@
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid",
-        "presence": { ".read": "auth != null" },
+        "presence": {
+          ".read": "auth != null",
+          "code": { ".validate": "newData.isString() && newData.val().length <= 32" },
+          "status": { ".validate": "newData.isString() && newData.val().length <= 16" },
+          "statusColor": { ".validate": "newData.isString() && newData.val().length <= 64" },
+          "paletteKey": { ".validate": "newData.isString() && newData.val().length <= 64" },
+          "availableUntil": { ".validate": "newData.isNumber()" },
+          "lastSeen": { ".validate": "newData.isNumber()" }
+        },
         "invites": {
           "$token": {
             ".read": "auth != null",
@@ -44,7 +52,11 @@
       "$gid": {
         ".read": "auth != null && data.child('members').child(auth.uid).exists()",
         ".write": "auth != null && (data.child('ownerId').val() === auth.uid || newData.child('ownerId').val() === auth.uid)",
-        "name": { ".read": "auth != null" },
+        "name": { ".read": "auth != null", ".validate": "newData.isString() && newData.val().length <= 64" },
+        "ownerId": { ".validate": "newData.isString() && newData.val().length <= 64" },
+        "createdAt": { ".validate": "newData.isNumber()" },
+        "color": { ".validate": "newData.isString() && newData.val().length <= 64" },
+        "paletteKey": { ".validate": "newData.isString() && newData.val().length <= 64" },
         "invites": {
           "$token": {
             ".read": "auth != null",
