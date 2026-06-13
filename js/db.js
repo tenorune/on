@@ -89,11 +89,14 @@ function inferScopeFromOwnerPath(ownerPath) {
   return ownerPath.startsWith('groups/') ? 'group' : 'personal';
 }
 
-export async function claimInviteToken(token, ownerPath) {
+export async function claimInviteToken(token, ownerPath, ownerUid) {
   const indexRef = ref(db, `inviteIndex/${token}`);
   const result = await runTransaction(indexRef, (current) => {
     if (current !== null) return; // abort — token already claimed
-    return { scope: inferScopeFromOwnerPath(ownerPath), ownerPath };
+    // ownerUid stamps the creator so the rules can scope index DELETION (token
+    // release) to them — a recipient who has the link knows the token but must
+    // not be able to release it. See database.rules.json inviteIndex.
+    return { scope: inferScopeFromOwnerPath(ownerPath), ownerPath, ownerUid };
   });
   return result.committed;
 }

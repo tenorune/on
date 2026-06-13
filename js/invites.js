@@ -74,7 +74,7 @@ export async function createPersonalInvite(userId, creatorLabelRaw) {
   let claimed = false;
   for (let attempt = 0; attempt < 8 && !claimed; attempt += 1) {
     token = generateInviteToken();
-    claimed = await claimInviteToken(token, `users/${userId}/invites/${token}`);
+    claimed = await claimInviteToken(token, `users/${userId}/invites/${token}`, userId);
   }
   if (!claimed) throw new Error('Could not allocate an invite token. Try again.');
 
@@ -319,7 +319,7 @@ export async function createGroupInvite(creatorUid, groupId) {
   let claimed = false;
   for (let attempt = 0; attempt < 8 && !claimed; attempt += 1) {
     token = generateInviteToken();
-    claimed = await claimInviteToken(token, `groups/${groupId}/invites/${token}`);
+    claimed = await claimInviteToken(token, `groups/${groupId}/invites/${token}`, creatorUid);
   }
   if (!claimed) throw new Error('Could not allocate an invite token. Try again.');
 

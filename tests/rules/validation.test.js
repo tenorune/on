@@ -133,3 +133,20 @@ describe('groups/$gid meta — field shape (Increment 2)', () => {
     await assertFails(dbAs(env, 'owner').ref('groups/G/createdAt').set('yesterday'));
   });
 });
+
+describe('inviteIndex — owner-scoped create/release (S4)', () => {
+  test('a creator claims a token stamping their own uid; cannot stamp another user', async () => {
+    await assertSucceeds(dbAs(env, 'owner').ref('inviteIndex/tok').set({ scope: 'personal', ownerPath: 'users/owner/invites/tok', ownerUid: 'owner' }));
+    // forging someone else's ownerUid is rejected
+    await assertFails(dbAs(env, 'attacker').ref('inviteIndex/tok2').set({ scope: 'personal', ownerPath: 'users/owner/invites/tok2', ownerUid: 'owner' }));
+  });
+  test('only the owner may release (delete) the index entry — a link recipient cannot', async () => {
+    await seed(env, (db) => db.ref('inviteIndex/tok').set({ scope: 'personal', ownerPath: 'users/owner/invites/tok', ownerUid: 'owner' }));
+    await assertFails(dbAs(env, 'recipient').ref('inviteIndex/tok').remove()); // knows the token (had the link) but isn't the owner
+    await assertSucceeds(dbAs(env, 'owner').ref('inviteIndex/tok').remove());
+  });
+  test('legacy entries without ownerUid stay deletable (back-compat — no migration needed)', async () => {
+    await seed(env, (db) => db.ref('inviteIndex/legacy').set({ scope: 'personal', ownerPath: 'users/x/invites/legacy' }));
+    await assertSucceeds(dbAs(env, 'anyone').ref('inviteIndex/legacy').remove());
+  });
+});
