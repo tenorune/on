@@ -104,3 +104,32 @@ describe('sender-identity mailboxes — no-forge + shape', () => {
     await assertFails(dbAs(env, 'me').ref('pendingInvitesByGroup/G/invitee').set({ junk: 1 }));
   });
 });
+
+describe('users/$uid/presence — field shape (Increment 2)', () => {
+  test('accepts a legit presence object and field updates', async () => {
+    await assertSucceeds(dbAs(env, 'u1').ref('users/u1/presence').set({ code: 'XK7P2M', status: 'available', availableUntil: 123 }));
+    await assertSucceeds(dbAs(env, 'u1').ref('users/u1/presence/lastSeen').set(456));
+    await assertSucceeds(dbAs(env, 'u1').ref('users/u1/presence/statusColor').set('#a855f7'));
+    await assertSucceeds(dbAs(env, 'u1').ref('users/u1/presence/paletteKey').set('default'));
+    await assertSucceeds(dbAs(env, 'u1').ref('users/u1/presence/availableUntil').set(null)); // clear
+  });
+  test('rejects oversized / wrong-typed fields (notifier reads code; clients render status/color)', async () => {
+    await assertFails(dbAs(env, 'u1').ref('users/u1/presence/code').set('x'.repeat(33)));
+    await assertFails(dbAs(env, 'u1').ref('users/u1/presence/status').set('x'.repeat(20)));
+    await assertFails(dbAs(env, 'u1').ref('users/u1/presence/statusColor').set('x'.repeat(65)));
+    await assertFails(dbAs(env, 'u1').ref('users/u1/presence/availableUntil').set('soon'));
+    await assertFails(dbAs(env, 'u1').ref('users/u1/presence/lastSeen').set('now'));
+  });
+});
+
+describe('groups/$gid meta — field shape (Increment 2)', () => {
+  test('accepts a legit group create + rename by the owner', async () => {
+    await assertSucceeds(dbAs(env, 'owner').ref('groups/G').set({ name: 'Family', ownerId: 'owner', createdAt: 1 }));
+    await assertSucceeds(dbAs(env, 'owner').ref('groups/G/name').set('Divers'));
+  });
+  test('rejects an oversized name / non-numeric createdAt', async () => {
+    await seed(env, (db) => db.ref('groups/G').set({ name: 'Family', ownerId: 'owner', createdAt: 1 }));
+    await assertFails(dbAs(env, 'owner').ref('groups/G/name').set('x'.repeat(65)));
+    await assertFails(dbAs(env, 'owner').ref('groups/G/createdAt').set('yesterday'));
+  });
+});
