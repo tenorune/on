@@ -99,6 +99,23 @@ describe('Inbox', () => {
     expect(document.querySelector('#nav-row-inbox-slot .inbox-btn')).toBeNull();
   });
 
+  test('renders into a passed slot node not yet attached to the DOM (reconcile update-before-insert)', () => {
+    // reconcileChildren calls update(node) BEFORE inserting a freshly-created
+    // node. After a group round-trip the nav-row inbox slot is recreated, so at
+    // update time the new slot is detached and the old one is already removed —
+    // a getElementById lookup would find nothing and drop the button (Inbox
+    // "disappears"). renderInboxNavSlot must paint into the node it's handed.
+    let cb;
+    db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
+    initInbox('me');
+    cb({ G1: { from: 'uOwner1', ts: 1 } }); // totalCount > 0
+    document.getElementById('nav-row-inbox-slot').remove(); // old slot gone (group mode removed it)
+    const freshSlot = document.createElement('div'); // new slot, not yet inserted
+    freshSlot.id = 'nav-row-inbox-slot';
+    renderInboxNavSlot(freshSlot);
+    expect(freshSlot.querySelector('.inbox-btn')).not.toBeNull();
+  });
+
   test('renders an Inbox button in the slot when ≥1 pending invite', () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });

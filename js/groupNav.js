@@ -295,7 +295,7 @@ function renderNavRowDirectMode(row) {
       return card;
     },
     update: (node, key) => {
-      if (key === 'inbox-slot') { renderInboxNavSlot(); return; }
+      if (key === 'inbox-slot') { renderInboxNavSlot(node); return; }
       if (key === 'plus') return;
       paintNavCard(node, key.slice('group:'.length));
     },
