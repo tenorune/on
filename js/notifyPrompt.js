@@ -62,7 +62,7 @@ export async function requestPermissionAndRegister() {
   return true;
 }
 
-export function dismissPromoForever() { markHintSeen(PROMO_HINT); }
+function dismissPromoForever() { markHintSeen(PROMO_HINT); }
 
 // Self-heal the server-side FCM token on app load. Permission/token state drifts
 // (especially on iOS), and the client otherwise only registers a token on

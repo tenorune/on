@@ -132,12 +132,6 @@ function getPalette() {
   return state.sets[String(state.activeSet)].selectedKey;
 }
 
-// @deprecated — writes to legacy key (statusapp_palette); no longer read by production code.
-// Kept for export compatibility. Do not call.
-function setPalette(key) {
-  localStorage.setItem('statusapp_palette', key);
-}
-
 // Roster display names remembered for follower-only cards (uid → name).
 // Written when approving a follow request (inbox.js), read by the follower
 // card render + follow-back prefill (following.js). Device-local, like the
@@ -158,4 +152,4 @@ function setFollowerName(userId, name) {
 // Call-counter helpers moved to js/prefs.js — they now sync via userPrefs/
 // instead of staying device-local.
 
-module.exports = { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, renameFollowing, updateFollowingCode, getPalette, setPalette, getPaletteState, setPaletteState, getFavorites, setFavorites, getFollowerName, setFollowerName };
+module.exports = { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, renameFollowing, updateFollowingCode, getPalette, getPaletteState, setPaletteState, getFavorites, setFavorites, getFollowerName, setFollowerName };

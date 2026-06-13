@@ -2,6 +2,7 @@
 import { writeKnock, getKnocks, watchKnocksAdded, clearKnock } from './db.js';
 import { getCurrentContext, onContextChange } from './groupNav.js';
 import { isCardDrawerOpen } from './cardDrawer.js';
+import { hexToRgb } from './utils.js';
 
 // Module-level state — reset by initKnocks on each call
 let debounceMap = new Map();   // recipientId → last knock timestamp
@@ -272,10 +273,8 @@ function getKnockColor(li) {
 
 export function colorToRgba(color, alpha) {
   if (color.startsWith('#')) {
-    const r = parseInt(color.slice(1, 3), 16);
-    const g = parseInt(color.slice(3, 5), 16);
-    const b = parseInt(color.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    // Reuse the shared hex parser (utils.hexToRgb) instead of re-slicing here.
+    return `rgba(${hexToRgb(color)}, ${alpha})`;
   }
   // rgb(r, g, b) — browser-normalized form
   const m = color.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);

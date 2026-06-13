@@ -2,13 +2,13 @@
 // Platform/capability detection + Add-to-Home-Screen guidance.
 // NOT gated by NOTIFICATIONS_ENABLED — installing is valuable on its own.
 
-export function isStandalone() {
+function isStandalone() {
   if (typeof navigator !== 'undefined' && navigator.standalone === true) return true;
   try { return window.matchMedia('(display-mode: standalone)').matches; }
   catch { return false; }
 }
 
-export function isPushApiAvailable() {
+function isPushApiAvailable() {
   return typeof window !== 'undefined'
     && 'PushManager' in window
     && 'Notification' in window

@@ -55,36 +55,38 @@ test('formatTimeRemainingFuzzy returns empty string for 0', () => {
   expect(formatTimeRemainingFuzzy(0)).toBe('');
 });
 
-test('formatTimeRemainingFuzzy returns "just a few minutes left" under 5 minutes', () => {
-  expect(formatTimeRemainingFuzzy(2 * 60000)).toBe('just a few minutes left');
+// Fuzzy formatter returns a bare duration phrase (no " left" suffix — the caller
+// owns that; see db.js convention note).
+test('formatTimeRemainingFuzzy returns "just a few minutes" under 5 minutes', () => {
+  expect(formatTimeRemainingFuzzy(2 * 60000)).toBe('just a few minutes');
 });
 
-test('formatTimeRemainingFuzzy returns "about 15 minutes left" for 5–20 minutes', () => {
-  expect(formatTimeRemainingFuzzy(10 * 60000)).toBe('about 15 minutes left');
+test('formatTimeRemainingFuzzy returns "about 15 minutes" for 5–20 minutes', () => {
+  expect(formatTimeRemainingFuzzy(10 * 60000)).toBe('about 15 minutes');
 });
 
-test('formatTimeRemainingFuzzy returns "about half an hour left" for 20–45 minutes', () => {
-  expect(formatTimeRemainingFuzzy(30 * 60000)).toBe('about half an hour left');
+test('formatTimeRemainingFuzzy returns "about half an hour" for 20–45 minutes', () => {
+  expect(formatTimeRemainingFuzzy(30 * 60000)).toBe('about half an hour');
 });
 
-test('formatTimeRemainingFuzzy returns "about an hour left" for 45–75 minutes', () => {
-  expect(formatTimeRemainingFuzzy(60 * 60000)).toBe('about an hour left');
+test('formatTimeRemainingFuzzy returns "about an hour" for 45–75 minutes', () => {
+  expect(formatTimeRemainingFuzzy(60 * 60000)).toBe('about an hour');
 });
 
-test('formatTimeRemainingFuzzy returns "one to two hours left" for 75–120 minutes', () => {
-  expect(formatTimeRemainingFuzzy(90 * 60000)).toBe('one to two hours left');
+test('formatTimeRemainingFuzzy returns "one to two hours" for 75–120 minutes', () => {
+  expect(formatTimeRemainingFuzzy(90 * 60000)).toBe('one to two hours');
 });
 
-test('formatTimeRemainingFuzzy returns "just over N hours left" when close above a whole hour', () => {
-  expect(formatTimeRemainingFuzzy(2.1 * 3600000)).toBe('just over two hours left');
+test('formatTimeRemainingFuzzy returns "just over N hours" when close above a whole hour', () => {
+  expect(formatTimeRemainingFuzzy(2.1 * 3600000)).toBe('just over two hours');
 });
 
-test('formatTimeRemainingFuzzy returns "about N hours left" for the middle of an hour band', () => {
-  expect(formatTimeRemainingFuzzy(2.4 * 3600000)).toBe('about two hours left');
+test('formatTimeRemainingFuzzy returns "about N hours" for the middle of an hour band', () => {
+  expect(formatTimeRemainingFuzzy(2.4 * 3600000)).toBe('about two hours');
 });
 
-test('formatTimeRemainingFuzzy returns "nearly N hours left" when close below a whole hour', () => {
-  expect(formatTimeRemainingFuzzy(2.8 * 3600000)).toBe('nearly three hours left');
+test('formatTimeRemainingFuzzy returns "nearly N hours" when close below a whole hour', () => {
+  expect(formatTimeRemainingFuzzy(2.8 * 3600000)).toBe('nearly three hours');
 });
 
 test('formatLastSeen returns null for null input', () => {

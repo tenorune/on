@@ -5,9 +5,9 @@ import {
   claimGroupId, writeGroup, writeMember, writeUserGroupsEntry,
   removeMember, removeUserGroupsEntry, deleteGroup as dbDeleteGroup,
   renameGroup as dbRenameGroup, setMemberDisplayName,
-  readGroup, readMember, readMembers,
+  readGroup, readMember,
   watchUserGroups,
-  setStatusOverride, mergeStatusOverride,
+  mergeStatusOverride,
   readPendingInviteesForGroup, deletePendingInvite,
 } from './db.js';
 import { navigateToDirect, getCurrentContext, getLastKnownGroupName } from './groupNav.js';

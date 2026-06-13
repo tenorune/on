@@ -39,7 +39,7 @@ jest.mock('../js/db.js', () => ({
   formatTimeRemainingFuzzy: jest.fn((ms) => {
     if (ms <= 0) return '';
     const hours = ms / 3600000;
-    return `about ${Math.round(hours)} hours left`;
+    return `about ${Math.round(hours)} hours`;
   }),
   watchPendingInvites: jest.fn(() => () => {}),
   writePendingInvite: jest.fn().mockResolvedValue(undefined),

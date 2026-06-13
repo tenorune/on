@@ -276,7 +276,7 @@ function updatePeerDot(color) {
   }
 }
 
-export function dimPeerIndicator() {
+function dimPeerIndicator() {
   const header = document.getElementById('canvas-header');
   if (header) header.classList.add('dimmed');
 }
