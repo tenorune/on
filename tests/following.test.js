@@ -1261,6 +1261,22 @@ describe('call mode: own-call mailbox', () => {
     expect(endCall).toHaveBeenCalledWith('me', 'callee');
   });
 
+  // Regression: ANN calls BOB, BOB declines → BOB's endCall clears BOTH mailboxes,
+  // so ANN's own-call watcher sees null. ANN must NOT re-issue endCall — calls/{BOB}
+  // is already empty and not ANN's, so the rules deny the whole root update
+  // ("update at / permission_denied" on ANN's console).
+  test('caller does NOT re-issue endCall when the peer ends the call', () => {
+    let ownCallCb;
+    watchOwnCall.mockImplementation((_uid, cb) => { ownCallCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([{ userId: 'callee', code: 'C', label: 'Cal' }]);
+    initList('me', 'MYCODE');
+    enterCallMode({ userId: 'callee' }, 'me'); // I'm the caller; callModeCalleeId = 'callee'
+    endCall.mockClear();                       // ignore any setup teardown
+    ownCallCb(null);                           // peer declined → my mailbox went null
+    expect(endCall).not.toHaveBeenCalled();    // no redundant (denied) teardown
+    expect(getCallModeCalleeId()).toBeNull();  // but we DID exit call mode locally
+  });
+
   // canvas.js is not mocked in this suite, so enterCanvas runs as-is in jsdom
   // and may error/no-op (canvas-screen element absent). The state mutations that
   // happen BEFORE the enterCanvas call are the observable under test here.
