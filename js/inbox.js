@@ -319,7 +319,10 @@ async function handleJoin(groupId, groupName) {
   closeInboxModal();
   const displayName = await showGroupDisplayNamePrompt(groupName);
   try {
-    await joinGroup(groupId, _myUid, displayName);
+    // Pass the group + membership we already read so joinGroup skips its own
+    // membership-gated reads — a not-yet-member can't read the whole groups/{gid}
+    // node, only the name leaf (same pattern as redeemGroupInvite).
+    await joinGroup(groupId, _myUid, displayName, { group, existing: existingMember });
   } catch (e) {
     // Join failed — a network error, or the group was deleted in the race
     // window after our existence check. Leave the pending invite in place so the
