@@ -114,7 +114,7 @@ v2 (secret-phrase derived):
 
 ## 5. Feature flags
 
-`js/features.js` exports five flags:
+`js/features.js` exports seven flags:
 
 ```js
 PALETTES_ENABLED               // Palette swatch picker, color theming
@@ -122,9 +122,11 @@ PALETTE_INTERACTIONS_ENABLED   // Favorites strip + adoption + hints
 KNOCK_ENABLED                  // Knock pulse system
 CALL_ENABLED                   // Swipe-right call + canvas
 GROUPS_ENABLED                 // Group cards row, group context view, invites, Inbox
+NOTIFICATIONS_ENABLED          // Web Push / FCM presence notifications (notifier program)
+FOLLOW_REQUESTS_ENABLED        // Request-to-follow a co-member (groups §11)
 ```
 
-- **Currently on `dev` AND `main`:** all five flags `true`. (Phase 3 didn't add or change any flags.)
+- **Currently on `dev` AND `main`:** all seven flags `true`.
 - These are compile-time constants. Changing means editing + redeploying.
 - **All test suites mock `../js/features.js`** per-suite. Flipping real values doesn't affect tests.
 - A recurring lesson: **render-layer gates must match handler-layer gates.** A stale render path can keep showing UI for a feature that's been disabled at the handler.
