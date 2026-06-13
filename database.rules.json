@@ -42,7 +42,8 @@
     "inviteIndex": {
       "$token": {
         ".read": "auth != null",
-        ".write": "auth != null && (!data.exists() || !newData.exists())"
+        ".write": "auth != null && ((!data.exists() && newData.child('ownerUid').val() === auth.uid) || (!newData.exists() && (!data.child('ownerUid').exists() || data.child('ownerUid').val() === auth.uid)))",
+        ".validate": "newData.hasChildren(['ownerPath', 'ownerUid']) && newData.child('ownerPath').isString() && newData.child('ownerUid').val() === auth.uid"
       }
     },
     "groupIdIndex": {

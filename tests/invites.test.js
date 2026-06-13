@@ -68,7 +68,7 @@ describe('createPersonalInvite', () => {
     const result = await createPersonalInvite('uid1', 'Alex K.');
 
     expect(result).toMatchObject({ token: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/), url: expect.stringContaining('?i=') });
-    expect(db.claimInviteToken).toHaveBeenCalledWith(result.token, `users/uid1/invites/${result.token}`);
+    expect(db.claimInviteToken).toHaveBeenCalledWith(result.token, `users/uid1/invites/${result.token}`, 'uid1');
     expect(db.writeUserInvite).toHaveBeenCalledWith('uid1', result.token, expect.objectContaining({
       scope: 'personal',
       token: result.token,
@@ -529,7 +529,7 @@ describe('createGroupInvite', () => {
       token: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/),
       url: expect.stringContaining('?i='),
     });
-    expect(db.claimInviteToken).toHaveBeenCalledWith(result.token, `groups/G1/invites/${result.token}`);
+    expect(db.claimInviteToken).toHaveBeenCalledWith(result.token, `groups/G1/invites/${result.token}`, 'uid1');
     expect(db.writeGroupInvite).toHaveBeenCalledWith('G1', result.token, expect.objectContaining({
       scope: 'group',
       token: result.token,
