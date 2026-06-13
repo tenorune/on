@@ -278,6 +278,46 @@ describe('showRecoveryCodeModal', () => {
     document.getElementById('recovery-saved-btn').click();
     expect(await p).toBe(finalCode);
   });
+
+  test('runs the onConfirm setup hook under a busy "Setting up…" button, keeping the modal up, then hides on success', async () => {
+    const saved = document.getElementById('recovery-saved-btn');
+    let resolveSetup;
+    const onConfirm = jest.fn(() => new Promise((r) => { resolveSetup = r; }));
+    const p = showRecoveryCodeModal('alpha-bravo-charlie-delta', onConfirm);
+    saved.click();
+    // Account setup runs while the modal stays visible with feedback on the button.
+    await waitFor(() => saved.disabled === true);
+    expect(onConfirm).toHaveBeenCalledWith('alpha-bravo-charlie-delta');
+    expect(saved.textContent).toMatch(/setting up/i);
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(false);
+    // Only after setup completes does the modal hand off to the app.
+    resolveSetup();
+    expect(await p).toBe('alpha-bravo-charlie-delta');
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(true);
+  });
+
+  test('keeps the modal open and reverts the button when onConfirm rejects, then succeeds on retry', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const saved = document.getElementById('recovery-saved-btn');
+    const onConfirm = jest.fn().mockRejectedValueOnce(new Error('setup blip'));
+    const p = showRecoveryCodeModal('alpha-bravo-charlie-delta', onConfirm);
+    saved.click();
+    await waitFor(() => saved.disabled === false && saved.textContent === "I've saved it");
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(false);
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+    onConfirm.mockResolvedValueOnce(undefined);
+    saved.click();
+    expect(await p).toBe('alpha-bravo-charlie-delta');
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(true);
+  });
+
+  test('without an onConfirm hook, saving still resolves immediately (back-compat)', async () => {
+    const p = showRecoveryCodeModal('alpha-bravo-charlie-delta');
+    document.getElementById('recovery-saved-btn').click();
+    expect(await p).toBe('alpha-bravo-charlie-delta');
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(true);
+  });
 });
 
 describe('initRecoveryPill', () => {
@@ -360,7 +400,7 @@ describe('showRestoreScreen', () => {
       <div id="restore-screen" class="restore-screen hidden">
         <input id="restore-input" />
         <p id="restore-error" class="error-msg hidden"></p>
-        <button id="restore-submit-btn"></button>
+        <button id="restore-submit-btn" class="primary-btn">Restore</button>
         <button id="restore-cancel-btn"></button>
       </div>`;
     jest.resetModules();
@@ -461,6 +501,41 @@ describe('showRestoreScreen', () => {
     expect(errText).toMatch(/try again/i);
     expect(errText).not.toMatch(/no account/i);
     errSpy.mockRestore();
+    document.getElementById('restore-cancel-btn').click();
+    await p;
+  });
+
+  test('shows a busy "Restoring…" button while verifying, then reverts on error (retryable)', async () => {
+    const { generateRecoveryCode } = require('../js/identity');
+    const code = generateRecoveryCode();
+    let resolveSignIn;
+    mockEnsureSignedIn.mockReturnValue(new Promise((r) => { resolveSignIn = r; }));
+    mockUserExists.mockResolvedValue(false);
+    const submit = document.getElementById('restore-submit-btn');
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = code;
+    submit.click();
+    // Busy as soon as the phrase parses, through the derive + sign-in round-trip.
+    await waitFor(() => submit.disabled === true);
+    expect(submit.textContent).toMatch(/restoring/i);
+    // Let it run to the "no account" outcome; the button must revert so the
+    // user can fix the phrase and try again.
+    resolveSignIn();
+    await waitFor(() => document.getElementById('restore-error').classList.contains('hidden') === false);
+    expect(submit.disabled).toBe(false);
+    expect(submit.textContent).toBe('Restore');
+    document.getElementById('restore-cancel-btn').click();
+    await p;
+  });
+
+  test('does not enter the busy state when the phrase is malformed (instant, no round-trip)', async () => {
+    const submit = document.getElementById('restore-submit-btn');
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = 'only-three-words';
+    submit.click();
+    await flushPromises();
+    expect(submit.disabled).toBe(false);
+    expect(submit.textContent).toBe('Restore');
     document.getElementById('restore-cancel-btn').click();
     await p;
   });
