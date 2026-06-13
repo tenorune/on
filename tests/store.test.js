@@ -2,7 +2,7 @@
 const {
   getFollowing, addFollowing, removeFollowing, isFollowing,
   getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode,
-  getPalette, setPalette, getPaletteState, setPaletteState,
+  getPalette, getPaletteState, setPaletteState,
 } = require('../js/store');
 
 beforeEach(() => {

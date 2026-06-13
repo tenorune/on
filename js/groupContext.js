@@ -373,7 +373,7 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
       // style, the CSS rule (.status-available → var(--green)) wins and
       // the fuzzy time renders forest green.
       const remaining = availableUntil
-        ? formatTimeRemainingFuzzy(timeRemainingMs(availableUntil)).replace(/ left$/, '')
+        ? formatTimeRemainingFuzzy(timeRemainingMs(availableUntil))
         : '';
       const text = remaining ? `Available for ${remaining}` : 'Available';
       const inlineColor = color ? safeCssColor(color) : '';
@@ -1287,7 +1287,7 @@ export function exitGroupContext() {
   if (direct) direct.classList.remove('hidden');
 }
 
-export function getCurrentGroupId() { return _currentGroupId; }
+function getCurrentGroupId() { return _currentGroupId; }
 
 /**
  * Apply an optimistic override update from elsewhere (e.g. the chain-icon

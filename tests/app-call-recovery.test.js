@@ -95,7 +95,7 @@ jest.mock('../js/db.js', () => ({
   unregisterAsFollower: jest.fn().mockResolvedValue(undefined),
   removeFollower: jest.fn().mockResolvedValue(undefined),
   lookupCode: jest.fn().mockResolvedValue(null),
-  formatTimeRemainingFuzzy: jest.fn(() => '2 hours left'),
+  formatTimeRemainingFuzzy: jest.fn(() => '2 hours'),
   timeRemainingMs: jest.fn(() => 7200000),
   formatLastSeen: jest.fn(() => null),
   writeBackExpired: jest.fn(),

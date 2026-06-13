@@ -26,6 +26,11 @@ export function timeRemainingMs(availableUntil) {
   return Math.max(0, availableUntil - Date.now());
 }
 
+// Both time-remaining formatters return a bare duration PHRASE with no trailing
+// " left" — the caller owns that suffix (e.g. `formatTimeRemaining(ms) + ' left'`
+// for a precise countdown, or `Available for ${formatTimeRemainingFuzzy(ms)}` for
+// the fuzzy roster text). Keeping the suffix out of the helpers means no call site
+// has to strip it back off.
 export function formatTimeRemaining(ms) {
   if (ms <= 0) return '';
   if (ms < 60000) return '< 1m';
@@ -44,16 +49,16 @@ export function formatTimeRemainingFuzzy(ms) {
   if (ms <= 0) return '';
   const minutes = ms / 60000;
   const hours = ms / 3600000;
-  if (minutes < 5) return 'just a few minutes left';
-  if (minutes < 20) return 'about 15 minutes left';
-  if (minutes < 45) return 'about half an hour left';
-  if (minutes < 75) return 'about an hour left';
-  if (minutes < 120) return 'one to two hours left';
+  if (minutes < 5) return 'just a few minutes';
+  if (minutes < 20) return 'about 15 minutes';
+  if (minutes < 45) return 'about half an hour';
+  if (minutes < 75) return 'about an hour';
+  if (minutes < 120) return 'one to two hours';
   const floor = Math.floor(hours);
   const frac = hours - floor;
-  if (frac < 0.25) return `just over ${hourWord(floor)} hours left`;
-  if (frac >= 0.75) return `nearly ${hourWord(floor + 1)} hours left`;
-  return `about ${hourWord(Math.round(hours))} hours left`;
+  if (frac < 0.25) return `just over ${hourWord(floor)} hours`;
+  if (frac >= 0.75) return `nearly ${hourWord(floor + 1)} hours`;
+  return `about ${hourWord(Math.round(hours))} hours`;
 }
 
 export function formatLastSeen(lastSeenMs) {

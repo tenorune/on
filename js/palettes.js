@@ -1,5 +1,4 @@
 // js/palettes.js
-import { getFavorites } from './store.js';
 import { setStatusColor, setPaletteKey } from './db.js';
 import { isHintSeen, markHintSeen, getPaletteState, setPaletteState } from './prefs.js';
 import {

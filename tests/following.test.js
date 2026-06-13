@@ -44,7 +44,7 @@ jest.mock('../js/db.js', () => ({
   isExpired: jest.fn(() => false),
   isAvailable: jest.fn((s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now())),
   writeBackExpired: jest.fn(),
-  formatTimeRemainingFuzzy: jest.fn(() => 'about 2 hours left'),
+  formatTimeRemainingFuzzy: jest.fn(() => 'about 2 hours'),
   timeRemainingMs: jest.fn(() => 7200000),
   formatLastSeen: jest.fn(() => null),
   writeKnock: jest.fn(),

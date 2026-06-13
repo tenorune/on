@@ -901,9 +901,9 @@ export function updateFolloweeRow(entry, userData, myUserId) {
       : callText;
   } else if (isAvail) {
     if (PALETTES_ENABLED) {
-      statusText = `<span class="status-available" style="color:${safeCssColor(color)}">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
+      statusText = `<span class="status-available" style="color:${safeCssColor(color)}">Available for ${formatTimeRemainingFuzzy(ms)}</span>`;
     } else {
-      statusText = `<span class="status-available">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
+      statusText = `<span class="status-available">Available for ${formatTimeRemainingFuzzy(ms)}</span>`;
     }
   } else {
     const lastSeenPhrase = formatLastSeen(userData.lastSeen ?? null);
