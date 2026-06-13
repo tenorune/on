@@ -31,8 +31,13 @@ jest.mock('../js/groupNav.js', () => ({
   getLastKnownGroupName: jest.fn(() => null),
 }));
 
+jest.mock('../js/prefs.js', () => ({
+  clearGroupPaletteState: jest.fn(),
+}));
+
 const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
+const prefs = require('../js/prefs.js');
 const { createGroup, renameGroup, deleteGroup, leaveGroup, joinGroup, editOwnDisplayName, initGroupRemovalDetector, _resetGroupRemovalDetectorForTests, _feedSnapshotForTests, toggleStatusOverride, setOverrideStatusAvailable, setOverrideStatusUnavailable } = require('../js/groups');
 
 describe('createGroup', () => {
@@ -227,6 +232,23 @@ describe('joinGroup', () => {
     await joinGroup('G1', 'uid2', 'Alex');
     expect(db.writeMember).not.toHaveBeenCalled();
     expect(db.writeUserGroupsEntry).toHaveBeenCalled(); // still bumps lastVisited
+  });
+
+  test('a fresh join clears stale per-group palette state so a rejoin starts from defaults', async () => {
+    // Without this, a member who set e.g. WHITE-in-ROSE, left, and rejoined would
+    // land with the stale color seeded into the fresh (color-less) override —
+    // an impossible WHITE + default-theme combo.
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.readMember.mockResolvedValue(null);
+    await joinGroup('G1', 'uid2', 'Alex');
+    expect(prefs.clearGroupPaletteState).toHaveBeenCalledWith('G1');
+  });
+
+  test('an idempotent (already-member) join does NOT clear palette state', async () => {
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.readMember.mockResolvedValue({ role: 'member', displayName: 'Old', joinedAt: 10 });
+    await joinGroup('G1', 'uid2', 'Alex');
+    expect(prefs.clearGroupPaletteState).not.toHaveBeenCalled();
   });
 });
 

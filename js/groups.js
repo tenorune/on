@@ -11,6 +11,7 @@ import {
   readPendingInviteesForGroup, deletePendingInvite,
 } from './db.js';
 import { navigateToDirect, getCurrentContext, getLastKnownGroupName } from './groupNav.js';
+import { clearGroupPaletteState } from './prefs.js';
 
 const NAME_MAX = 40;
 const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -116,6 +117,12 @@ export async function joinGroup(groupId, joinerUid, displayNameRaw, opts = {}) {
   const existing = ('existing' in opts) ? opts.existing : await readMember(groupId, joinerUid);
   const now = Date.now();
   if (!existing) {
+    // Fresh membership: drop any per-group palette selection left over from a
+    // PRIOR membership. The default override below carries no statusColor/
+    // paletteKey, and groupContext seeds the color from the local per-group
+    // palette state — a stale selection would seed an orphaned color (e.g. a
+    // ROSE-palette WHITE with no theme), producing an impossible combo.
+    clearGroupPaletteState(groupId);
     await writeMember(groupId, joinerUid, {
       role: 'member',
       displayName,
