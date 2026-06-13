@@ -49,8 +49,14 @@ self.addEventListener('push', (e) => {
   // Fall back to the top level so a raw (non-FCM) Web Push payload also works.
   const d = (payload && payload.data) ? payload.data : (payload || {});
   e.waitUntil((async () => {
-    const focused = (await self.clients.matchAll({ type: 'window' }))
-      .some((c) => c.focused || c.visibilityState === 'visible');
+    const windows = await self.clients.matchAll({ type: 'window' });
+    const focused = windows.some((c) => c.focused || c.visibilityState === 'visible');
+    // #156 debug: tell any open client a push reached the SW, regardless of the
+    // de-dupe below. This distinguishes "delivery never arrived" from "arrived
+    // but suppressed/failed to display" — the NOTIFY_DEBUG readout listens.
+    for (const c of windows) {
+      try { c.postMessage({ kind: 'push-debug', at: Date.now(), type: d.type || null, suppressed: focused }); } catch { /* client gone */ }
+    }
     if (focused) return; // foreground de-dupe: the live in-app UI already handled it
     await self.registration.showNotification(d.title || 'KnockKnock', {
       body: d.body || '',
@@ -58,6 +64,15 @@ self.addEventListener('push', (e) => {
       data: { type: d.type, targetUid: d.targetUid, contextGroupId: d.contextGroupId },
     });
   })());
+});
+
+// #156 debug: report the controlling SW's cache version on request, so the
+// readout can confirm THIS (updated) worker is actually controlling the page —
+// Safari is prone to keeping an old worker around.
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.kind === 'debug-ping' && e.source) {
+    try { e.source.postMessage({ kind: 'debug-pong', cache: CACHE }); } catch { /* gone */ }
+  }
 });
 
 // Where a cold tap (no live client to postMessage) should land. Invite and
