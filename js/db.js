@@ -731,32 +731,24 @@ export async function removeStroke(canvasId, strokeKey) {
   await remove(ref(db, `canvases/${canvasId}/strokes/${strokeKey}`));
 }
 
-let _bgUnsub = null;
-
+// Canvas watchers return their unsubscribe fn for the caller (canvas.js) to own,
+// mirroring following.js's per-watch Map. Parking the unsub in a module-level
+// singleton meant a second watchX without the matching unwatchX silently leaked
+// the first listener.
 export function watchCanvasBg(canvasId, onChange) {
-  _bgUnsub = onValue(ref(db, `canvases/${canvasId}/bg`), (snap) => {
+  return onValue(ref(db, `canvases/${canvasId}/bg`), (snap) => {
     onChange(snap.val());
   });
-}
-
-export function unwatchCanvasBg() {
-  if (_bgUnsub) { _bgUnsub(); _bgUnsub = null; }
 }
 
 export function setDrawingState(canvasId, userId, drawingData) {
   return set(ref(db, `canvases/${canvasId}/drawing/${userId}`), drawingData);
 }
 
-let _drawingUnsub = null;
-
 export function watchDrawing(canvasId, peerId, onChange) {
-  _drawingUnsub = onValue(ref(db, `canvases/${canvasId}/drawing/${peerId}`), (snap) => {
+  return onValue(ref(db, `canvases/${canvasId}/drawing/${peerId}`), (snap) => {
     onChange(snap.val());
   });
-}
-
-export function unwatchDrawing() {
-  if (_drawingUnsub) { _drawingUnsub(); _drawingUnsub = null; }
 }
 
 export async function setClearRequest(canvasId, requesterId) {
@@ -773,43 +765,33 @@ export async function clearAllStrokes(canvasId) {
   await update(ref(db, `canvases/${canvasId}`), { clearRequest: null });
 }
 
-let _clearReqUnsub = null;
-
 export function watchClearRequest(canvasId, onChange) {
-  _clearReqUnsub = onValue(ref(db, `canvases/${canvasId}/clearRequest`), (snap) => {
+  return onValue(ref(db, `canvases/${canvasId}/clearRequest`), (snap) => {
     onChange(snap.val());
   });
-}
-
-export function unwatchClearRequest() {
-  if (_clearReqUnsub) { _clearReqUnsub(); _clearReqUnsub = null; }
 }
 
 export async function setCanvasBg(canvasId, color) {
   await update(ref(db, `canvases/${canvasId}`), { bg: color });
 }
 
-let _strokeAddUnsub = null;
-let _strokeRemoveUnsub = null;
-
+// Returns a single unsub that tears down both the add and (optional) remove
+// child listeners.
 export function watchStrokes(canvasId, lastKey, onStroke, onStrokeRemoved) {
   const strokesRef = ref(db, `canvases/${canvasId}/strokes`);
   const q = lastKey
     ? query(strokesRef, orderByKey(), startAfter(lastKey))
     : strokesRef;
-  _strokeAddUnsub = onChildAdded(q, (snap) => {
+  const addUnsub = onChildAdded(q, (snap) => {
     onStroke({ key: snap.key, data: snap.val() });
   });
+  let removeUnsub = null;
   if (onStrokeRemoved) {
-    _strokeRemoveUnsub = onChildRemoved(strokesRef, (snap) => {
+    removeUnsub = onChildRemoved(strokesRef, (snap) => {
       onStrokeRemoved(snap.key);
     });
   }
-}
-
-export function unwatchStrokes() {
-  if (_strokeAddUnsub) { _strokeAddUnsub(); _strokeAddUnsub = null; }
-  if (_strokeRemoveUnsub) { _strokeRemoveUnsub(); _strokeRemoveUnsub = null; }
+  return () => { addUnsub(); if (removeUnsub) removeUnsub(); };
 }
 
 export async function setCanvasPresence(canvasId, userId, present) {
@@ -822,14 +804,8 @@ export async function setCanvasPresence(canvasId, userId, present) {
   }
 }
 
-let _presenceUnsub = null;
-
 export function watchCanvasPresence(canvasId, onChange) {
-  _presenceUnsub = onValue(ref(db, `canvases/${canvasId}/presence`), (snap) => {
+  return onValue(ref(db, `canvases/${canvasId}/presence`), (snap) => {
     onChange(snap.val() || {});
   });
-}
-
-export function unwatchCanvasPresence() {
-  if (_presenceUnsub) { _presenceUnsub(); _presenceUnsub = null; }
 }
