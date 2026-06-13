@@ -8,11 +8,21 @@ function loadSwWithMockSelf() {
     skipWaiting: jest.fn(),
     clients: { claim: jest.fn(), matchAll, openWindow: jest.fn() },
     registration: { showNotification },
+    location: { origin: 'https://app.example' },
   };
   global.self = mockSelf;
-  global.caches = { open: jest.fn().mockResolvedValue({ addAll: jest.fn() }), keys: jest.fn().mockResolvedValue([]) };
+  global.fetch = jest.fn().mockResolvedValue('network-response');
+  global.caches = {
+    open: jest.fn().mockResolvedValue({ addAll: jest.fn() }),
+    keys: jest.fn().mockResolvedValue([]),
+    match: jest.fn().mockResolvedValue(undefined),
+  };
   jest.isolateModules(() => { require('../sw.template.js'); });
   return { handlers, showNotification, matchAll, mockSelf };
+}
+
+function fetchEvent(url, method = 'GET') {
+  return { request: { url, method }, respondWith: jest.fn() };
 }
 
 function pushEvent(data) {
@@ -22,6 +32,45 @@ function pushEvent(data) {
 function clickEvent(data) {
   return { notification: { close: jest.fn(), data }, waitUntil: (p) => p };
 }
+
+describe('fetch handler — only the same-origin shell is intercepted', () => {
+  test('a cross-origin GET (apis.google.com / gapi) passes through — respondWith NOT called', () => {
+    // The SW must not take over cross-origin requests: re-fetching them rejects
+    // respondWith on Safari ("FetchEvent.respondWith received an error: Load
+    // failed"), breaking Firebase Auth/FCM's apis.google.com/js/api.js load.
+    const { handlers } = loadSwWithMockSelf();
+    const e = fetchEvent('https://apis.google.com/js/api.js?onload=__iframe123');
+    handlers.fetch(e);
+    expect(e.respondWith).not.toHaveBeenCalled();
+  });
+
+  test('other cross-origin GETs (firebaseio, googleapis, gstatic) also pass through', () => {
+    const { handlers } = loadSwWithMockSelf();
+    for (const url of [
+      'https://my-db.firebaseio.com/x.json',
+      'https://fcmregistrations.googleapis.com/v1/x',
+      'https://www.gstatic.com/firebasejs/x.js',
+    ]) {
+      const e = fetchEvent(url);
+      handlers.fetch(e);
+      expect(e.respondWith).not.toHaveBeenCalled();
+    }
+  });
+
+  test('a same-origin GET (shell asset) is intercepted (cache-first)', () => {
+    const { handlers } = loadSwWithMockSelf();
+    const e = fetchEvent('https://app.example/dist/bundle.js');
+    handlers.fetch(e);
+    expect(e.respondWith).toHaveBeenCalled();
+  });
+
+  test('a non-GET request is never intercepted', () => {
+    const { handlers } = loadSwWithMockSelf();
+    const e = fetchEvent('https://app.example/index.html', 'POST');
+    handlers.fetch(e);
+    expect(e.respondWith).not.toHaveBeenCalled();
+  });
+});
 
 test('push with no focused client shows a notification', async () => {
   const { handlers, showNotification } = loadSwWithMockSelf();
