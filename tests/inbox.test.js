@@ -3,6 +3,7 @@ jest.mock('../js/db.js', () => ({
   watchPendingInvites: jest.fn(),
   deletePendingInvite: jest.fn().mockResolvedValue(undefined),
   readGroup: jest.fn(),
+  readGroupName: jest.fn(),
   readMember: jest.fn().mockResolvedValue(null),
   watchFollowRequests: jest.fn(),
   deleteFollowRequest: jest.fn().mockResolvedValue(undefined),
@@ -68,7 +69,7 @@ describe('Inbox', () => {
   test('a new pending invite glows (.unseen); opening the Inbox clears it', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
-    db.readGroup.mockResolvedValue({ name: 'Family' });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     initInbox('me');
     cb({ G1: { from: 'uOwner1', ts: 100 } });
     expect(document.querySelector('#nav-row-inbox-slot .inbox-btn.unseen')).not.toBeNull();
@@ -82,7 +83,7 @@ describe('Inbox', () => {
   test('a re-invite (new ts) glows again after a prior one was seen', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
-    db.readGroup.mockResolvedValue({ name: 'Family' });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     initInbox('me');
     cb({ G1: { from: 'uOwner1', ts: 100 } });
     await openInboxModal();                       // seen
@@ -91,16 +92,34 @@ describe('Inbox', () => {
     expect(document.querySelector('#nav-row-inbox-slot .inbox-btn.unseen')).not.toBeNull();
   });
 
-  test('caches readGroup across renders — same group fetched once (#214 R5)', async () => {
+  test('renders the group name for a not-yet-member invitee via the name-only read, even when the full group read is denied', async () => {
+    // Repro: an invitee is NOT yet a member, so the membership-gated
+    // groups/{gid}/.read denies the whole-node read. The Inbox must use the
+    // name-leaf read (groups/{gid}/name, readable by any authed user) instead.
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
-    db.readGroup.mockResolvedValue({ name: 'Family' });
+    db.readGroup.mockRejectedValue(new Error('Permission denied'));
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     initInbox('me');
     cb({ G1: { from: 'uOwner1', ts: 100 } });
-    await openInboxModal();   // render 1 → readGroup('G1')
+    await openInboxModal();
+    const row = document.querySelector('#inbox-modal-list .inbox-row');
+    expect(row).not.toBeNull();
+    expect(row.textContent).toContain('Family');
+    expect(db.readGroupName).toHaveBeenCalledWith('G1');
+    expect(db.readGroup).not.toHaveBeenCalled();
+  });
+
+  test('caches the group-name read across renders — same group fetched once (#214 R5)', async () => {
+    let cb;
+    db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
+    initInbox('me');
+    cb({ G1: { from: 'uOwner1', ts: 100 } });
+    await openInboxModal();   // render 1 → readGroupName('G1')
     await openInboxModal();   // render 2 → served from the session cache
-    expect(db.readGroup).toHaveBeenCalledTimes(1);
-    expect(db.readGroup).toHaveBeenCalledWith('G1');
+    expect(db.readGroupName).toHaveBeenCalledTimes(1);
+    expect(db.readGroupName).toHaveBeenCalledWith('G1');
   });
 
   test('renders no button when there are zero pending invites', () => {
@@ -139,7 +158,7 @@ describe('Inbox', () => {
   test('opening the Inbox modal lists one row per pending invite', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
-    db.readGroup.mockImplementation((gid) => Promise.resolve({ name: gid === 'G1' ? 'Family' : 'Work' }));
+    db.readGroupName.mockImplementation((gid) => Promise.resolve({ name: gid === 'G1' ? 'Family' : 'Work' }));
     initInbox('me');
     cb({ G1: { from: 'uOwner1', ts: 1 }, G2: { from: 'uOwner2', ts: 2 } });
     await openInboxModal();
@@ -152,7 +171,7 @@ describe('Inbox', () => {
   test('inviter not followed by the invitee → shows their group displayName, never the raw uid', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
-    db.readGroup.mockResolvedValue({ name: 'Family' });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     db.readMember.mockResolvedValue({ role: 'owner', displayName: 'Bobby', joinedAt: 1 });
     initInbox('me');
     cb({ G1: { from: 'uStranger', ts: 1 } }); // uStranger is not in getFollowing()
@@ -165,7 +184,7 @@ describe('Inbox', () => {
   test('inviter unresolvable (not followed, no member record) → "Someone", never the raw uid', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
-    db.readGroup.mockResolvedValue({ name: 'Family' });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     db.readMember.mockResolvedValue(null);
     initInbox('me');
     cb({ G1: { from: 'uStranger', ts: 1 } });
@@ -178,7 +197,7 @@ describe('Inbox', () => {
   test('Join prompts for displayName, calls joinGroup, deletes pending, navigates', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
-    db.readGroup.mockResolvedValue({ name: 'Family' });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     initInbox('me');
     cb({ G1: { from: 'uOwner1', ts: 1 } });
     await openInboxModal();
@@ -194,7 +213,7 @@ describe('Inbox', () => {
   test('Join surfaces an error and keeps the pending invite when joinGroup fails', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
-    db.readGroup.mockResolvedValue({ name: 'Family' });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     groups.joinGroup.mockRejectedValueOnce(new Error('Network down'));
     window.alert = jest.fn();
     initInbox('me');
@@ -215,7 +234,7 @@ describe('Inbox', () => {
   test('Join on a row where the user is already a member silently dismisses (no prompt, no joinGroup)', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
-    db.readGroup.mockResolvedValue({ name: 'Family' });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     db.readMember.mockResolvedValueOnce({ role: 'member', displayName: 'Me', joinedAt: 1 });
     initInbox('me');
     cb({ G1: { from: 'uOwner1', ts: 1 } });
@@ -231,7 +250,7 @@ describe('Inbox', () => {
   test('Join on a row whose group has been deleted silently dismisses', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
-    db.readGroup.mockResolvedValue(null);
+    db.readGroupName.mockResolvedValue(null);
     initInbox('me');
     cb({ G1: { from: 'uOwner1', ts: 1 } });
     await openInboxModal();
@@ -245,7 +264,7 @@ describe('Inbox', () => {
   test('Decline deletes the pending record without joining', async () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
-    db.readGroup.mockResolvedValue({ name: 'Family' });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     initInbox('me');
     cb({ G1: { from: 'uOwner1', ts: 1 } });
     await openInboxModal();
