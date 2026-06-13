@@ -25,9 +25,16 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  // Only cache GET requests for shell assets; let Firebase requests go through
   if (e.request.method !== 'GET') return;
-  if (e.request.url.includes('firebaseio.com') || e.request.url.includes('googleapis.com')) return;
+  // Only the same-origin app shell is cached here. Cross-origin requests
+  // (Firebase RTDB, apis.google.com/gapi, fcmregistrations.googleapis.com,
+  // gstatic, the auth iframe, …) MUST go straight to the network: intercepting
+  // them and re-issuing fetch(e.request) rejects respondWith on Safari
+  // ("FetchEvent.respondWith received an error: TypeError: Load failed"), which
+  // breaks Firebase Auth + FCM token registration there. An origin allowlist
+  // replaces the old firebaseio/googleapis host denylist, which missed
+  // apis.google.com (gapi) and gstatic.
+  if (new URL(e.request.url).origin !== self.location.origin) return;
 
   e.respondWith(
     caches.match(e.request).then((cached) => cached || fetch(e.request)),
