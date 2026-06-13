@@ -16,6 +16,7 @@ jest.mock('../js/store.js', () => ({
   })),
 }));
 jest.mock('../js/db.js', () => ({
+  isAvailable: (s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now()),
   readGroup: jest.fn().mockResolvedValue(null),
   watchGroupMeta: jest.fn(() => () => {}),
   watchGroupMembers: jest.fn(() => () => {}),

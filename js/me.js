@@ -1,5 +1,5 @@
 // js/me.js
-import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs } from './db.js';
+import { setStatus, isAvailable, formatTimeRemaining, timeRemainingMs } from './db.js';
 import { getPaletteState } from './store.js';
 import { PALETTES_ENABLED } from './features.js';
 import { saveCombo, buildDirectCombo } from './favorites.js';
@@ -143,7 +143,7 @@ export function applyOwnStatus(status, availableUntil) {
     onOwnStatusReady?.();
   }
   if (firstUseActive) {
-    if (status === 'available' && !isExpired(availableUntil)) {
+    if (isAvailable(status, availableUntil)) {
       firstUseActive = false;
       setAvailable(availableUntil);
     } else {
@@ -152,7 +152,7 @@ export function applyOwnStatus(status, availableUntil) {
     savingEnabled = true;
     return;
   }
-  if (status === 'available' && !isExpired(availableUntil)) {
+  if (isAvailable(status, availableUntil)) {
     setAvailable(availableUntil);
   } else {
     setUnavailable();

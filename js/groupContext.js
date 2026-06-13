@@ -5,7 +5,7 @@
 // own-status row, the chain-icon override toggle (installed into the nav row's
 // slot), and the member roster.
 
-import { watchGroupMembers, watchGroupInvites, watchPresence, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs } from './db.js';
+import { watchGroupMembers, watchGroupInvites, watchPresence, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs, isAvailable } from './db.js';
 import { reconcileChildren } from './reconcile.js';
 import { safeCssColor } from './utils.js';
 import { navigateToDirect, applyOptimisticAppearance, subscribeGroupMeta, subscribeOwnOverride } from './groupNav.js';
@@ -101,7 +101,7 @@ function memberEffectiveAvailable(uid) {
   const overrideOn = !!(override && override.enabled === true);
   const status = overrideOn ? (override.status || 'unavailable') : (primary?.status || 'unavailable');
   const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
-  return status === 'available' && (availableUntil == null || availableUntil > Date.now());
+  return isAvailable(status, availableUntil);
 }
 
 const ROSTER_KEY_PREFIX = 'm:';
@@ -336,21 +336,21 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
   // would still pick up their Direct theme. Override-off: primary wins
   // for every field (the group is linked to Direct).
   const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
-  const isAvailable = memberEffectiveAvailable(uid);
+  const available = memberEffectiveAvailable(uid);
   const color = overrideOn ? (override.statusColor || null) : (primary?.statusColor || null);
   const paletteKey = overrideOn ? (override.paletteKey || null) : (primary?.paletteKey || null);
   const palette = PALETTES_ENABLED && paletteKey ? getPaletteByKey(paletteKey) : null;
-  li.dataset.available = isAvailable ? 'true' : 'false';
+  li.dataset.available = available ? 'true' : 'false';
   const dot = li.querySelector('.person-dot');
   if (dot) {
-    dot.dataset.available = isAvailable ? 'true' : 'false';
-    dot.classList.toggle('available', isAvailable);
-    if (isAvailable && color && PALETTES_ENABLED) {
+    dot.dataset.available = available ? 'true' : 'false';
+    dot.classList.toggle('available', available);
+    if (available && color && PALETTES_ENABLED) {
       const safe = safeCssColor(color);
       dot.style.background = safe;
       dot.style.borderColor = safe;
       dot.style.boxShadow = `0 0 10px ${safeCssColor(getGlowForColor(color))}`;
-    } else if (isAvailable && color) {
+    } else if (available && color) {
       dot.style.background = safeCssColor(color);
       dot.style.borderColor = '';
       dot.style.boxShadow = '';
@@ -362,7 +362,7 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
   }
   const statusEl = li.querySelector('.person-status');
   if (statusEl) {
-    if (isAvailable) {
+    if (available) {
       // Mirror the Direct contacts list: fuzzy text ("nearly 18 hours",
       // "about half an hour") rather than precise H:M. The Fuzzy helper
       // returns "… left"; strip that suffix since we prefix with
@@ -390,7 +390,7 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
   // palette and is available, color the card surface + border-left + status
   // text. Otherwise just border-left in statusColor (or clear when
   // unavailable). All inline styles so a re-paint can clear them cleanly.
-  if (PALETTES_ENABLED && palette && isAvailable) {
+  if (PALETTES_ENABLED && palette && available) {
     li.style.background = palette.theme.surface;
     li.style.borderLeftColor = palette.color;
     if (statusEl) {
@@ -405,7 +405,7 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
     }
   } else {
     li.style.background = '';
-    li.style.borderLeftColor = isAvailable && color ? safeCssColor(color) : '';
+    li.style.borderLeftColor = available && color ? safeCssColor(color) : '';
     if (statusEl) statusEl.style.color = '';
   }
   // FTU longpress hint pulse — mirrors following.js's pattern. Shows the
@@ -421,7 +421,7 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
   if (PALETTE_INTERACTIONS_ENABLED) {
     const showHint = isLongpressHintEligible()
       && _ownOverride?.enabled === true
-      && isAvailable
+      && available
       && (color !== (_ownOverride?.statusColor || null) || paletteKey !== (_ownOverride?.paletteKey || null));
     const existing = li.querySelector('.longpress-hint');
     if (!showHint && existing) {
@@ -450,19 +450,19 @@ function renderOwnStatusRow() {
   const source = overrideOn ? _ownOverride : _ownPrimary;
   const status = source?.status || 'unavailable';
   const availableUntil = source?.availableUntil ?? null;
-  const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+  const available = isAvailable(status, availableUntil);
 
-  dot.dataset.available = isAvailable ? 'true' : 'false';
-  dot.classList.toggle('available', isAvailable);
+  dot.dataset.available = available ? 'true' : 'false';
+  dot.classList.toggle('available', available);
   const color = source?.statusColor || null;
-  if (isAvailable && color) dot.style.background = safeCssColor(color);
+  if (available && color) dot.style.background = safeCssColor(color);
   else dot.style.background = '';
-  label.textContent = isAvailable ? 'Available' : 'Unavailable';
+  label.textContent = available ? 'Available' : 'Unavailable';
   // Color the "Available" label using --my-status so it matches the Direct
   // header (.status-label.available rule), regardless of which color is
   // active. Phase 4+ per-audience color picker will override --my-status
   // locally if it ships separate group palette state.
-  label.classList.toggle('available', isAvailable);
+  label.classList.toggle('available', available);
 
   // Read-only mode applies the dot + chip dimming when override is OFF.
   dot.classList.toggle('readonly', !overrideOn);
@@ -480,7 +480,7 @@ function renderOwnStatusRow() {
 
   if (timeRemaining) {
     // null availableUntil means open-ended; no countdown to show
-    if (isAvailable && availableUntil) {
+    if (available && availableUntil) {
       const formatted = formatTimeRemaining(timeRemainingMs(availableUntil));
       if (formatted) {
         timeRemaining.textContent = formatted + ' left';
@@ -503,7 +503,7 @@ function renderOwnStatusRow() {
   // stays constant across Available / Unavailable just like in Direct.
   const swatchRow = document.getElementById('group-swatch-row');
   const chipsContainer = document.querySelector('#group-context-root .group-header-chips');
-  const showSwatch = PALETTES_ENABLED && overrideOn && !isAvailable;
+  const showSwatch = PALETTES_ENABLED && overrideOn && !available;
   if (chipsContainer) {
     chipsContainer.style.opacity = showSwatch ? '0' : '';
     chipsContainer.style.pointerEvents = showSwatch ? 'none' : '';
@@ -774,10 +774,10 @@ function paintGroupDotGoHint() {
   const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
   const status = overrideOn ? _ownOverride?.status : _ownPrimary?.status;
   const availableUntil = overrideOn ? _ownOverride?.availableUntil : _ownPrimary?.availableUntil;
-  const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+  const available = isAvailable(status, availableUntil);
   // overrideOn is the group-context-specific guard — without override ON the
   // group dot is read-only, so nudging the user to tap it is wrong.
-  const shouldHint = overrideOn && shouldShowDotGoHint({ isNonDefault, dotAvailable: isAvailable });
+  const shouldHint = overrideOn && shouldShowDotGoHint({ isNonDefault, dotAvailable: available });
   dot.classList.toggle('dot-go-hint', shouldHint);
 }
 
@@ -1152,8 +1152,7 @@ export function enterGroupContext(groupId, userId) {
     dotClone.addEventListener('click', () => {
       const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
       if (!overrideOn) return;  // read-only when toggle is OFF
-      const currentlyAvailable = _ownOverride.status === 'available'
-        && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
+      const currentlyAvailable = isAvailable(_ownOverride.status, _ownOverride.availableUntil);
       if (currentlyAvailable) {
         // Spread instead of replace — otherwise the optimistic update
         // strips statusColor + paletteKey until the watch echo restores
@@ -1221,8 +1220,7 @@ export function enterGroupContext(groupId, userId) {
       const { minutes, text } = CHIP_VALUES[nextIdx];
       chipClone.textContent = text;
       setGroupChipMinutes(groupId, minutes);
-      const currentlyAvailable = _ownOverride.status === 'available'
-        && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
+      const currentlyAvailable = isAvailable(_ownOverride.status, _ownOverride.availableUntil);
       if (currentlyAvailable) {
         const availableUntil = Date.now() + minutes * 60000;
         // Spread preserves statusColor/paletteKey across the optimistic

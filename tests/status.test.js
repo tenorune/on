@@ -2,7 +2,15 @@
 jest.mock('../js/firebase-config.js', () => ({ db: {} }));
 jest.mock('firebase/database', () => ({}));
 
-const { isExpired, timeRemainingMs, formatTimeRemaining, formatTimeRemainingFuzzy, formatLastSeen } = require('../js/db');
+const { isExpired, isAvailable, timeRemainingMs, formatTimeRemaining, formatTimeRemainingFuzzy, formatLastSeen } = require('../js/db');
+
+describe('isAvailable', () => {
+  test('available + no expiry (null) → true', () => { expect(isAvailable('available', null)).toBe(true); });
+  test('available + future window → true', () => { expect(isAvailable('available', Date.now() + 60000)).toBe(true); });
+  test('available + lapsed window → false', () => { expect(isAvailable('available', Date.now() - 60000)).toBe(false); });
+  test('unavailable status → false even with a future window', () => { expect(isAvailable('unavailable', Date.now() + 60000)).toBe(false); });
+  test('missing status → false', () => { expect(isAvailable(undefined, undefined)).toBe(false); });
+});
 
 test('isExpired returns false when availableUntil is null', () => {
   expect(isExpired(null)).toBe(false);

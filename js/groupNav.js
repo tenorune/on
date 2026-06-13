@@ -2,7 +2,7 @@
 // Navigation state machine: currentContext + group cards row.
 // State is in-memory; writes mirror to Firebase via setCurrentContext / setLastVisited.
 
-import { setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, removeUserGroupsEntry } from './db.js';
+import { setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, removeUserGroupsEntry, isAvailable } from './db.js';
 import { subscribeOwnStatus } from './ownStatus.js';
 import { setCurrentContext } from './prefs.js';
 import { safeCssColor, hexToRgb } from './utils.js';
@@ -316,11 +316,10 @@ function paintNavCard(card, groupId) {
   const ov = _overrideByGroupId[groupId];
   const overrideOn = !!(ov && ov.enabled === true);
   const source = overrideOn ? ov : _ownPrimary;
-  const isAvailable = source?.status === 'available'
-    && (source.availableUntil == null || source.availableUntil > Date.now());
+  const available = isAvailable(source?.status, source?.availableUntil);
   const effectiveColor = source?.statusColor || '#22c55e';
-  card.classList.toggle('greyed', !isAvailable);
-  card.style.borderColor = isAvailable ? safeCssColor(effectiveColor) : '';
+  card.classList.toggle('greyed', !available);
+  card.style.borderColor = available ? safeCssColor(effectiveColor) : '';
   card.style.setProperty('--call-color-rgb', hexToRgb(effectiveColor));
   applyBadgeIfNonZero(card, getGroupBadgeCount(groupId));
 }
@@ -395,8 +394,7 @@ function renderNavRowGroupMode(row) {
 // represents). --call-color-rgb is set even when greyed so a queued knock
 // pulses even on an unavailable Direct chip.
 function paintDirectCard(directCard) {
-  const primaryAvailable = _ownPrimary?.status === 'available'
-    && (_ownPrimary.availableUntil == null || _ownPrimary.availableUntil > Date.now());
+  const primaryAvailable = isAvailable(_ownPrimary?.status, _ownPrimary?.availableUntil);
   const directColor = _ownPrimary?.statusColor || '#22c55e';
   directCard.classList.toggle('greyed', !primaryAvailable);
   directCard.style.borderColor = primaryAvailable ? safeCssColor(directColor) : '';

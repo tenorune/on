@@ -1,7 +1,7 @@
 // js/following.js
 import {
   lookupCode, watchPresence, watchFollowers, registerAsFollower, unregisterAsFollower,
-  removeFollower, isExpired, formatTimeRemainingFuzzy, timeRemainingMs,
+  removeFollower, isExpired, isAvailable, formatTimeRemainingFuzzy, timeRemainingMs,
   formatLastSeen, startCall, answerCall, endCall, watchOwnCall, setStatusColor,
   watchFollowing, setFollowingEntry, removeFollowingEntry, watchRevocations,
 } from './db.js';
@@ -409,8 +409,8 @@ function renderList() {
       }
       const aData = lastUserData.get(a.userId);
       const bData = lastUserData.get(b.userId);
-      const aAvail = aData ? aData.status === 'available' && !isExpired(aData.availableUntil) : false;
-      const bAvail = bData ? bData.status === 'available' && !isExpired(bData.availableUntil) : false;
+      const aAvail = isAvailable(aData?.status, aData?.availableUntil);
+      const bAvail = isAvailable(bData?.status, bData?.availableUntil);
       if (aAvail !== bAvail) return bAvail ? 1 : -1;
       const aName = resolveDisplayName(a);
       const bName = resolveDisplayName(b);
@@ -873,7 +873,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
 
   lastUserData.set(entry.userId, userData);
 
-  const isAvail = userData.status === 'available' && !isExpired(userData.availableUntil);
+  const isAvail = isAvailable(userData.status, userData.availableUntil);
   const color = userData.statusColor || '#22c55e';
   const glow  = getGlowForColor(color);
   const ms = timeRemainingMs(userData.availableUntil);
