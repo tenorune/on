@@ -10,7 +10,7 @@ A handoff to whoever picks this up next. Read top-to-bottom; specific subsection
 1. **GitHub issue #64** — knock float-to-top doesn't restore on tab return. Multiple fix attempts have not worked; hypotheses listed in §16.
 2. **GitHub issue #116** — Direct swatch picker uses non-focusable `<div>` swatches (a11y inconsistency with the group picker's `<button>`). Filed but unfixed.
 
-**Phase 4+** (admin role, ownership transfer, request-to-follow, group color/palette, per-audience color picker) and other post-MVP work is documented in groups spec §16 but not planned.
+**Phase 4+:** request-to-follow (`js/followRequests.js`), group color/palette, and the per-audience (per-group) color picker have since **shipped**. Admin role and ownership transfer remain documented in groups spec §16 but unplanned.
 
 ---
 
@@ -20,7 +20,7 @@ A vanilla-JS PWA for **ambient presence**. Users mark themselves "available for 
 
 - **Target user base:** 50–100 users (a small, hands-on sandbox, not a public app).
 - **Stack:** vanilla ES modules (no framework), Firebase Realtime Database + Hosting, esbuild, jest + jsdom.
-- **Tests:** 767 currently passing on `dev`. Run with `npx jest`.
+- **Tests:** 1069 currently passing on `dev` (web suite). Cloud Functions have their own suite (`cd functions && npm test`). Run the web suite with `npx jest`.
 - **Anonymous identity model** (no Firebase Auth) — see §4.
 
 ## 2. Repo & branch model
