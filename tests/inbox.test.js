@@ -91,6 +91,18 @@ describe('Inbox', () => {
     expect(document.querySelector('#nav-row-inbox-slot .inbox-btn.unseen')).not.toBeNull();
   });
 
+  test('caches readGroup across renders — same group fetched once (#214 R5)', async () => {
+    let cb;
+    db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
+    db.readGroup.mockResolvedValue({ name: 'Family' });
+    initInbox('me');
+    cb({ G1: { from: 'uOwner1', ts: 100 } });
+    await openInboxModal();   // render 1 → readGroup('G1')
+    await openInboxModal();   // render 2 → served from the session cache
+    expect(db.readGroup).toHaveBeenCalledTimes(1);
+    expect(db.readGroup).toHaveBeenCalledWith('G1');
+  });
+
   test('renders no button when there are zero pending invites', () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });

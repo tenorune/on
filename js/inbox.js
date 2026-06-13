@@ -55,6 +55,7 @@ function markAllSeen() {
 export function initInbox(uid, code) {
   _myUid = uid;
   _myCode = code;
+  _groupNameCache.clear();
   loadSeen();
   const onChange = () => {
     pruneSeen();
@@ -127,6 +128,18 @@ async function refreshInboxModalIfOpen() {
   await renderInboxModalRows();
 }
 
+// Session cache for readGroup. The inbox re-renders fully on every
+// watchPendingInvites/watchFollowRequests tick and on every modal open, and a
+// pending invite's group name is effectively static per session — so re-fetching
+// groups/{id} each render is wasteful (#214 R5). Cleared on initInbox.
+const _groupNameCache = new Map(); // groupId → group entity
+async function cachedReadGroup(groupId) {
+  if (_groupNameCache.has(groupId)) return _groupNameCache.get(groupId);
+  const group = await readGroup(groupId);
+  if (group) _groupNameCache.set(groupId, group);
+  return group;
+}
+
 async function renderInboxModalRows() {
   const list = document.getElementById('inbox-modal-list');
   if (!list) return;
@@ -150,7 +163,7 @@ async function renderInboxModalRows() {
   const inviteRows = await Promise.all(inviteEntries.map(async ([groupId, record]) => {
     const needMember = !labelByUid[record.from];
     const [group, member] = await Promise.all([
-      readGroup(groupId),
+      cachedReadGroup(groupId),
       needMember ? readMember(groupId, record.from) : Promise.resolve(null),
     ]);
     const inviterLabel = labelByUid[record.from] || member?.displayName || 'Someone';

@@ -276,12 +276,15 @@ export async function rotateCode(userId, oldCode) {
     committed = result.committed;
   } while (!committed);
 
-  // Steps 2–3: establish new code. If either throws, new code is orphaned in
-  // codeIndex but old code remains valid — user retries and the orphan is harmless.
-  await update(ref(db, `users/${userId}/presence`), { code: newCode });
+  // Steps 2–3: establish the new code in ONE atomic multi-path update (own
+  // presence code + each follower's followers/{me} mirror) instead of a write
+  // per followee (#214 R6). If it throws, the new code is orphaned in codeIndex
+  // but the old code remains valid — user retries and the orphan is harmless.
+  const updates = { [`users/${userId}/presence/code`]: newCode };
   for (const entry of getFollowing()) {
-    await set(ref(db, `users/${entry.userId}/followers/${userId}`), newCode);
+    updates[`users/${entry.userId}/followers/${userId}`] = newCode;
   }
+  await update(ref(db), updates);
 
   // Step 4: release old code last. If this throws, both codes exist briefly —
   // new code is already active, so old code is a harmless orphan. No rollback needed.
