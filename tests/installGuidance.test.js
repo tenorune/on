@@ -52,6 +52,20 @@ test('guidanceCopyFor maps each state to a non-empty message', () => {
   expect(guidanceCopyFor('denied').body).toMatch(/settings/i);
 });
 
+test('denied copy gives the Safari-specific re-enable path on macOS Safari', () => {
+  setUA('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15');
+  const body = guidanceCopyFor('denied').body;
+  expect(body).toMatch(/Safari/);
+  expect(body).toMatch(/Websites/i); // Safari → Settings → Websites → Notifications
+});
+
+test('denied copy points to the address-bar site settings on non-Safari', () => {
+  setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
+  const body = guidanceCopyFor('denied').body;
+  expect(body).toMatch(/address bar|site settings|site info/i);
+  expect(body).not.toMatch(/Websites/); // not the Safari menu path
+});
+
 test('iOS install copy includes the secret-phrase reminder flag', () => {
   expect(guidanceCopyFor('needs-install-ios').remindPhrase).toBe(true);
   expect(guidanceCopyFor('denied').remindPhrase).toBe(false);
