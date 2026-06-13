@@ -89,6 +89,18 @@ export async function refreshPushToken() {
   cullStalePushTokens().catch(() => {});
 }
 
+// Permission was granted but token registration didn't complete (getMessaging/
+// getToken returned nothing) — capability detection still reads 'supported', so
+// re-rendering the plain promo would just show the same Enable button. Give an
+// explicit "it didn't work" message while keeping Enable as a retry.
+function showRegistrationFailed(banner) {
+  const textEl = banner.querySelector('#notify-promo-text');
+  const actionEl = banner.querySelector('#notify-promo-action');
+  if (textEl) textEl.textContent = 'Couldn’t turn on notifications on this device — it may not fully support web push. You can try again.';
+  if (actionEl) actionEl.classList.remove('hidden');
+  banner.classList.remove('hidden');
+}
+
 // Explicitly show the promo banner for a capability state, bypassing the
 // engagement/dismissal gating used by the passive promo — the user just asked
 // for notifications, so we always show how to get them.
@@ -167,7 +179,15 @@ function renderBanner(banner, capState, onDismiss) {
     actionEl.classList.remove('hidden');
     actionEl.onclick = async () => {
       const ok = await requestPermissionAndRegister();
-      if (ok) banner.classList.add('hidden');
+      if (ok) { banner.classList.add('hidden'); return; }
+      // Failure feedback — previously a silent no-op. A denied prompt flips
+      // capability to 'denied' → show the re-enable guidance. If it's still
+      // 'supported', permission was granted but token registration failed
+      // (e.g. the browser can't complete web-push setup) — say so rather than
+      // leaving the user staring at an Enable button that appeared to do nothing.
+      const state = detectNotifyCapability().state;
+      if (state === 'supported') showRegistrationFailed(banner);
+      else showBannerForState(state);
     };
   } else {
     const copy = guidanceCopyFor(capState);

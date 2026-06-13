@@ -267,3 +267,54 @@ describe('maybeRepromptForMissingPermission', () => {
     expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
   });
 });
+
+describe('promo Enable button failure feedback (Defect 2 — no more silent no-op)', () => {
+  const flush = () => new Promise((r) => setImmediate(r));
+  beforeEach(() => {
+    mountBanner();
+    localStorage.clear();
+    addPushToken.mockClear(); getToken.mockReset(); getMessagingIfSupported.mockReset();
+    detectNotifyCapability.mockReset();
+    hasAnyNotifyPrefEnabled.mockReturnValue(true);
+    isHintSeen.mockReturnValue(false);
+    getMessagingIfSupported.mockResolvedValue({});
+    global.navigator.serviceWorker = { ready: Promise.resolve({ id: 'reg' }) };
+  });
+
+  test('denying the OS prompt surfaces the blocked guidance', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'supported', supported: true });
+    global.Notification = { permission: 'default', requestPermission: jest.fn().mockResolvedValue('granted') };
+    maybeRepromptForMissingPermission(); // renders the "Enable" banner
+    // The click denies, and the post-denial capability flips to 'denied'.
+    global.Notification.requestPermission = jest.fn().mockResolvedValue('denied');
+    detectNotifyCapability.mockReturnValue({ state: 'denied', supported: false });
+    document.getElementById('notify-promo-action').click();
+    await flush();
+    expect(document.getElementById('notify-promo-text').textContent).toBe('copy-for-denied');
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(false);
+  });
+
+  test('permission granted but token registration fails → a "could not enable" message, not silence', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'supported', supported: true });
+    global.Notification = { permission: 'default', requestPermission: jest.fn().mockResolvedValue('granted') };
+    getToken.mockResolvedValue(null); // registration fails despite a granted prompt
+    maybeRepromptForMissingPermission();
+    document.getElementById('notify-promo-action').click();
+    await flush();
+    const text = document.getElementById('notify-promo-text').textContent;
+    expect(text).toMatch(/could ?n.?t|try again|web push/i);
+    expect(text).not.toBe('Get notified about knocks, calls, and people coming online.');
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(false);
+  });
+
+  test('a successful Enable still hides the banner', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'supported', supported: true });
+    global.Notification = { permission: 'default', requestPermission: jest.fn().mockResolvedValue('granted') };
+    getToken.mockResolvedValue('tok-ok');
+    maybeRepromptForMissingPermission();
+    document.getElementById('notify-promo-action').click();
+    await flush();
+    expect(addPushToken).toHaveBeenCalledWith('tok-ok');
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
+  });
+});
