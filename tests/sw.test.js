@@ -145,3 +145,23 @@ test('notificationclick warm path posts to a live client and focuses it (no wind
   expect(focus).toHaveBeenCalled();
   expect(mockSelf.clients.openWindow).not.toHaveBeenCalled();
 });
+
+describe('debug instrumentation (#156)', () => {
+  test('push posts a push-debug ping to open clients even when the OS notification is suppressed', async () => {
+    const postMessage = jest.fn();
+    const { handlers, showNotification, matchAll } = loadSwWithMockSelf();
+    matchAll.mockResolvedValue([{ focused: true, visibilityState: 'visible', postMessage }]);
+    await handlers.push(pushEvent({ type: 'knock', title: 'x', targetUid: 'bea' }));
+    // De-dupe still suppresses the OS notification…
+    expect(showNotification).not.toHaveBeenCalled();
+    // …but the page is told the push DID arrive (delivery reached the SW).
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ kind: 'push-debug', type: 'knock', suppressed: true }));
+  });
+
+  test('a debug-ping message is answered with the controlling SW cache version', () => {
+    const { handlers } = loadSwWithMockSelf();
+    const post = jest.fn();
+    handlers.message({ data: { kind: 'debug-ping' }, source: { postMessage: post } });
+    expect(post).toHaveBeenCalledWith(expect.objectContaining({ kind: 'debug-pong', cache: '__CACHE_VERSION__' }));
+  });
+});
