@@ -30,9 +30,9 @@ import { createCardDrawer, isCardDrawerOpen, closeCardDrawer } from './cardDrawe
 import { isFollowRequestEligible, createRequestFollowButton } from './followRequests.js';
 import { createNotifyBell, isNotifyPopoverOpen } from './notifyBell.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
-import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, ICON_BOLT, ICON_TREE, startSwatchHints } from './palettes.js';
+import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, startSwatchHints, buildSetToggleButton, buildSwatch, applyThemeHintIfDue, applyKeySpin } from './palettes.js';
 import {
-  shouldShowThemeHint, shouldShowDotGoHint, shouldShowSetTogglePulse,
+  shouldShowDotGoHint,
   isLongpressHintEligible,
 } from './hints.js';
 import { clearFirstUsePulse } from './me.js';
@@ -88,8 +88,8 @@ let _lastMembers = null;   // last members snapshot — allows re-render when me
 // renderOwnStatusRow → renderGroupSwatchRow and destroying the just-rendered
 // key-spin element. The timestamp lets each subsequent render within the 5s
 // window re-apply .key-spin with a CSS --key-spin-delay so the animation
-// resumes mid-flight rather than restarting from 0deg.
-const KEY_SPIN_MS = 5000;
+// resumes mid-flight rather than restarting from 0deg. (The 5s window + spin
+// application now live in palettes.applyKeySpin.)
 let _groupPaletteEnterAt = null;
 
 // Effective in-group availability for a member, from data (not the DOM).
@@ -604,23 +604,13 @@ function renderGroupSwatchRow() {
   // the user's effective color follows the active set immediately (matches
   // Direct's switchSet behavior — without this, toggling and then going
   // Available would broadcast the *previous* set's color).
-  const toggleBtn = document.createElement('button');
-  toggleBtn.type = 'button';
-  toggleBtn.className = 'set-toggle-btn';
-  toggleBtn.innerHTML = activeSet === 1 ? ICON_BOLT : ICON_TREE;
-  // FTU hint pulse — same logic as Direct's #swatch-row set-toggle. The hint
-  // is set-specific (bolt vs flower), and the persistent flag is shared with
-  // Direct so clearing it in either context clears it everywhere.
-  const hintName = activeSet === 1 ? 'bolt' : 'flower';
-  if (shouldShowSetTogglePulse(activeSet)) {
-    toggleBtn.classList.add('first-use-pulse');
-    toggleBtn.addEventListener('click', () => {
-      toggleBtn.classList.remove('first-use-pulse');
-      markHintSeen(hintName);
-    }, { once: true });
-  }
-  toggleBtn.addEventListener('click', () => {
-    const nextSet = activeSet === 1 ? 2 : 1;
+  // Set-toggle button (shared builder; the FTU pulse + bolt/flower hint flag is
+  // identical to Direct's, only the toggle action differs). Switching writes the
+  // TARGET set's saved selectedColor + activePaletteKey to the override so the
+  // user's effective color follows the active set immediately (matches Direct's
+  // switchSet — without this, toggling then going Available would broadcast the
+  // *previous* set's color).
+  const toggleBtn = buildSetToggleButton(activeSet, (nextSet) => {
     const nextSetData = state.sets[String(nextSet)];
     const newState = { ...state, activeSet: nextSet };
     setGroupPaletteState(_currentGroupId, newState);
@@ -642,59 +632,51 @@ function renderGroupSwatchRow() {
     const complements = palette.complements;
     let ci = 0;
     for (let i = 0; i < 8; i++) {
-      const swatch = document.createElement('button');
-      swatch.type = 'button';
       if (i === keyIdx) {
-        swatch.className = 'swatch key-swatch group-swatch';
-        if (_groupPaletteEnterAt != null) {
-          const elapsed = Date.now() - _groupPaletteEnterAt;
-          if (elapsed < KEY_SPIN_MS) {
-            swatch.classList.add('key-spin');
-            if (elapsed > 0) swatch.style.setProperty('--key-spin-delay', `-${elapsed}ms`);
-          } else {
-            _groupPaletteEnterAt = null;
-          }
-        }
-        swatch.style.background = palette.color;
-        swatch.dataset.paletteKey = palette.key;
         const keySelected = currentColor === palette.color;
-        if (keySelected) swatch.classList.add('selected');
-        swatch.addEventListener('click', () => {
-          const newState = getGroupPaletteState(_currentGroupId);
-          const sk = String(newState.activeSet);
-          if (keySelected) {
-            // Exit palette mode for this set. Don't change statusColor —
-            // the user's pick survives, theme reverts to primary.
-            newState.sets[sk].activePaletteKey = null;
-            setGroupPaletteState(_currentGroupId, newState);
-            _ownOverride = { ..._ownOverride, paletteKey: null };
-            setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: null }).catch(() => {});
-          } else {
-            // Reset statusColor to the palette's base color.
-            newState.sets[sk].selectedColor = palette.color;
-            setGroupPaletteState(_currentGroupId, newState);
-            _ownOverride = { ..._ownOverride, statusColor: palette.color };
-            setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: palette.color }).catch(() => {});
-          }
-          applyEffectivePalette();
-          renderGroupSwatchRow();
+        const swatch = buildSwatch({
+          color: palette.color, key: palette.key, datasetAttr: 'paletteKey',
+          extraClass: 'group-swatch', keySwatch: true, selected: keySelected,
+          onTap: () => {
+            const newState = getGroupPaletteState(_currentGroupId);
+            const sk = String(newState.activeSet);
+            if (keySelected) {
+              // Exit palette mode for this set. Don't change statusColor —
+              // the user's pick survives, theme reverts to primary.
+              newState.sets[sk].activePaletteKey = null;
+              setGroupPaletteState(_currentGroupId, newState);
+              _ownOverride = { ..._ownOverride, paletteKey: null };
+              setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: null }).catch(() => {});
+            } else {
+              // Reset statusColor to the palette's base color.
+              newState.sets[sk].selectedColor = palette.color;
+              setGroupPaletteState(_currentGroupId, newState);
+              _ownOverride = { ..._ownOverride, statusColor: palette.color };
+              setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: palette.color }).catch(() => {});
+            }
+            applyEffectivePalette();
+            renderGroupSwatchRow();
+          },
         });
+        if (!applyKeySpin(swatch, _groupPaletteEnterAt)) _groupPaletteEnterAt = null;
+        row.appendChild(swatch);
       } else {
         const complementColor = complements[ci++];
-        swatch.className = 'swatch group-swatch';
-        swatch.style.background = complementColor;
-        if (currentColor === complementColor) swatch.classList.add('selected');
-        swatch.addEventListener('click', () => {
-          const newState = getGroupPaletteState(_currentGroupId);
-          newState.sets[String(newState.activeSet)].selectedColor = complementColor;
-          setGroupPaletteState(_currentGroupId, newState);
-          _ownOverride = { ..._ownOverride, statusColor: complementColor };
-          setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: complementColor }).catch(() => {});
-          applyEffectivePalette();
-          renderGroupSwatchRow();
+        const swatch = buildSwatch({
+          color: complementColor, extraClass: 'group-swatch',
+          selected: currentColor === complementColor,
+          onTap: () => {
+            const newState = getGroupPaletteState(_currentGroupId);
+            newState.sets[String(newState.activeSet)].selectedColor = complementColor;
+            setGroupPaletteState(_currentGroupId, newState);
+            _ownOverride = { ..._ownOverride, statusColor: complementColor };
+            setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: complementColor }).catch(() => {});
+            applyEffectivePalette();
+            renderGroupSwatchRow();
+          },
         });
+        row.appendChild(swatch);
       }
-      row.appendChild(swatch);
     }
   } else {
     // Base mode: 8 swatches in the active set. Selection follows the per-set
@@ -702,48 +684,41 @@ function renderGroupSwatchRow() {
     // writes only statusColor; second tap on the selected swatch promotes
     // to palette mode by writing paletteKey.
     for (const palette of PALETTE_SETS[activeSet]) {
-      const swatch = document.createElement('button');
-      swatch.type = 'button';
-      swatch.className = 'swatch group-swatch';
-      swatch.style.background = palette.color;
-      swatch.dataset.paletteKey = palette.key;
       const selected = palette.key === selectedKey;
-      if (selected) swatch.classList.add('selected');
-      swatch.addEventListener('click', () => {
-        const newState = getGroupPaletteState(_currentGroupId);
-        const sk = String(newState.activeSet);
-        if (selected) {
-          // Promote to palette mode for this palette.
-          newState.sets[sk].activePaletteKey = palette.key;
-          setGroupPaletteState(_currentGroupId, newState);
-          _ownOverride = { ..._ownOverride, paletteKey: palette.key };
-          setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: palette.key }).catch(() => {});
-          // Mirror palettes.enterPaletteMode — entering palette mode clears
-          // the theme hint regardless of which picker the user used.
-          if (!isHintSeen('theme')) markHintSeen('theme');
-          // Timestamp the entry so the key-spin animation survives the
-          // setOverrideAppearance echo's re-render (mirrors palettes.enterPaletteMode).
-          _groupPaletteEnterAt = Date.now();
-        } else {
-          // Color-only change. Don't touch paletteKey.
-          newState.sets[sk].selectedKey = palette.key;
-          newState.sets[sk].selectedColor = palette.color;
-          setGroupPaletteState(_currentGroupId, newState);
-          _ownOverride = { ..._ownOverride, statusColor: palette.color };
-          setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: palette.color }).catch(() => {});
-        }
-        applyEffectivePalette();
-        renderGroupSwatchRow();
+      const swatch = buildSwatch({
+        color: palette.color, key: palette.key, datasetAttr: 'paletteKey',
+        extraClass: 'group-swatch', selected,
+        onTap: () => {
+          const newState = getGroupPaletteState(_currentGroupId);
+          const sk = String(newState.activeSet);
+          if (selected) {
+            // Promote to palette mode for this palette.
+            newState.sets[sk].activePaletteKey = palette.key;
+            setGroupPaletteState(_currentGroupId, newState);
+            _ownOverride = { ..._ownOverride, paletteKey: palette.key };
+            setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: palette.key }).catch(() => {});
+            // Mirror palettes.enterPaletteMode — entering palette mode clears
+            // the theme hint regardless of which picker the user used.
+            if (!isHintSeen('theme')) markHintSeen('theme');
+            // Timestamp the entry so the key-spin animation survives the
+            // setOverrideAppearance echo's re-render (mirrors palettes.enterPaletteMode).
+            _groupPaletteEnterAt = Date.now();
+          } else {
+            // Color-only change. Don't touch paletteKey.
+            newState.sets[sk].selectedKey = palette.key;
+            newState.sets[sk].selectedColor = palette.color;
+            setGroupPaletteState(_currentGroupId, newState);
+            _ownOverride = { ..._ownOverride, statusColor: palette.color };
+            setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: palette.color }).catch(() => {});
+          }
+          applyEffectivePalette();
+          renderGroupSwatchRow();
+        },
       });
       row.appendChild(swatch);
     }
-    // Theme hint: pulsing dotted ring on the selected swatch once the user
-    // has gone Available with a custom color but hasn't yet entered palette
-    // mode anywhere — mirrors palettes.js's base-mode theme-hint logic.
-    if (shouldShowThemeHint()) {
-      const selectedSwatch = row.querySelector('.swatch.selected');
-      if (selectedSwatch) selectedSwatch.classList.add('theme-hint');
-    }
+    // Theme hint on the selected swatch (shared applier — same gate as Direct).
+    applyThemeHintIfDue(row);
   }
   paintGroupDotGoHint();
   // Rolling wave attractor across the unselected swatches — mirrors

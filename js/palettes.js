@@ -210,6 +210,74 @@ export function exitPaletteMode(userId) {
   renderSwatchRow(userId);
 }
 
+// ─── Shared swatch-row building blocks ───────────────────────────────────────
+// The Direct (#swatch-row) and group (#group-swatch-row) pickers build the same
+// DOM structure; only where state lives and what a tap writes differ. These
+// helpers own the structural pieces that historically drifted between the two
+// (the set-toggle button, the per-swatch element, the theme-hint, the key-spin)
+// so a future change can't silently desync one renderer from the other.
+// (Mode-determination and tap behavior stay in each renderer — they're
+// legitimately different, not duplication.)
+
+// Set-toggle button (bolt = Set 1 / tree = Set 2) with its first-use pulse. The
+// pulse clears once on first tap; the caller supplies the toggle action.
+export function buildSetToggleButton(activeSet, onToggle) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'set-toggle-btn';
+  btn.innerHTML = activeSet === 1 ? ICON_BOLT : ICON_TREE;
+  const hintName = activeSet === 1 ? 'bolt' : 'flower';
+  if (shouldShowSetTogglePulse(activeSet)) {
+    btn.classList.add('first-use-pulse');
+    btn.addEventListener('click', () => {
+      btn.classList.remove('first-use-pulse');
+      markHintSeen(hintName);
+    }, { once: true });
+  }
+  btn.addEventListener('click', () => onToggle(activeSet === 1 ? 2 : 1));
+  return btn;
+}
+
+// A single swatch <button>. `datasetAttr` is 'key' (Direct) or 'paletteKey'
+// (group); `extraClass` adds 'group-swatch'; `keySwatch` adds the key-swatch
+// class for palette mode.
+export function buildSwatch({ color, key, datasetAttr, extraClass = '', selected = false, keySwatch = false, onTap }) {
+  const swatch = document.createElement('button');
+  swatch.type = 'button';
+  swatch.className = 'swatch' + (keySwatch ? ' key-swatch' : '') + (extraClass ? ' ' + extraClass : '');
+  swatch.style.background = color;
+  if (key != null && datasetAttr) swatch.dataset[datasetAttr] = key;
+  if (selected) swatch.classList.add('selected');
+  swatch.addEventListener('click', onTap);
+  return swatch;
+}
+
+// Theme hint: pulsing dotted ring on the selected swatch when the gate is open
+// (seen both set icons + gone available with a custom color + never entered
+// palette mode). Centralized so neither renderer can skip it (the original
+// divergence bug — see hints.js).
+export function applyThemeHintIfDue(row) {
+  if (shouldShowThemeHint()) {
+    const selectedSwatch = row.querySelector('.swatch.selected');
+    if (selectedSwatch) selectedSwatch.classList.add('theme-hint');
+  }
+}
+
+// Re-apply the key-spin animation to a freshly-built key swatch within the 5s
+// window after entering palette mode (survives the userPrefs echo re-render via
+// --key-spin-delay). Returns false once the window has elapsed so the caller can
+// drop its enter timestamp.
+export function applyKeySpin(swatch, enterAt) {
+  if (enterAt == null) return false;
+  const elapsed = Date.now() - enterAt;
+  if (elapsed >= KEY_SPIN_MS) return false;
+  swatch.classList.add('key-spin');
+  // Resume the CSS animation mid-flight on re-renders triggered by the userPrefs
+  // echo; without this the new element starts at 0deg.
+  if (elapsed > 0) swatch.style.setProperty('--key-spin-delay', `-${elapsed}ms`);
+  return true;
+}
+
 function renderSwatchRow(userId) {
   const row = document.getElementById('swatch-row');
   row.innerHTML = '';
@@ -219,20 +287,7 @@ function renderSwatchRow(userId) {
   const savedKey = state.sets[setKey].selectedKey;
   const activePaletteKey = state.sets[setKey].activePaletteKey;
 
-  // Toggle button
-  const btn = document.createElement('button');
-  btn.className = 'set-toggle-btn';
-  btn.innerHTML = setNum === 1 ? ICON_BOLT : ICON_TREE;
-  // First-use pulse: bolt on Set 1, flower on Set 2 — each pulses once per icon
-  const hintName = setNum === 1 ? 'bolt' : 'flower';
-  if (shouldShowSetTogglePulse(setNum)) {
-    btn.classList.add('first-use-pulse');
-    btn.addEventListener('click', () => {
-      btn.classList.remove('first-use-pulse');
-      markHintSeen(hintName);
-    }, { once: true });
-  }
-  btn.addEventListener('click', () => switchSet(setNum === 1 ? 2 : 1, userId));
+  const btn = buildSetToggleButton(setNum, (nextSet) => switchSet(nextSet, userId));
   row.appendChild(btn);
 
   const keyIdx = activePaletteKey
@@ -247,23 +302,13 @@ function renderSwatchRow(userId) {
       setPaletteState(cleanState);
     }
     PALETTE_SETS[setNum].forEach(p => {
-      const swatch = document.createElement('button');
-      swatch.type = 'button';
-      swatch.className = 'swatch';
-      swatch.dataset.key = p.key;
-      swatch.style.background = p.color;
-      if (p.key === savedKey) swatch.classList.add('selected');
-      swatch.addEventListener('click', () => tapSwatch(p.key, userId));
-      row.appendChild(swatch);
+      row.appendChild(buildSwatch({
+        color: p.color, key: p.key, datasetAttr: 'key',
+        selected: p.key === savedKey,
+        onTap: () => tapSwatch(p.key, userId),
+      }));
     });
-    // Theme hint: pulsing dotted ring on selected swatch if user has:
-    // - seen both bolt and flower icons
-    // - selected a non-default color (gone available with it)
-    // - never entered palette mode
-    if (shouldShowThemeHint()) {
-      const selectedSwatch = row.querySelector('.swatch.selected');
-      if (selectedSwatch) selectedSwatch.classList.add('theme-hint');
-    }
+    applyThemeHintIfDue(row);
     // Dot go-hint: pulse status dot if current set is on a non-default swatch
     const dot = document.getElementById('my-dot');
     if (dot) {
@@ -289,62 +334,54 @@ function renderSwatchRow(userId) {
     let ci = 0;
 
     for (let i = 0; i < 8; i++) {
-      const swatch = document.createElement('button');
-      swatch.type = 'button';
       if (i === keyIdx) {
-        swatch.className = 'swatch key-swatch';
-        if (_paletteEnterAt != null) {
-          const elapsed = Date.now() - _paletteEnterAt;
-          if (elapsed < KEY_SPIN_MS) {
-            swatch.classList.add('key-spin');
-            // Resume the CSS animation mid-flight on re-renders triggered by
-            // the userPrefs echo; without this the new element starts at 0deg.
-            if (elapsed > 0) swatch.style.setProperty('--key-spin-delay', `-${elapsed}ms`);
-          } else {
-            _paletteEnterAt = null;
-          }
-        }
-        swatch.style.background = keyPalette.color;
-        if (!activeColor || activeColor === keyPalette.color) swatch.classList.add('selected');
-        swatch.addEventListener('click', () => {
-          if (swatch.classList.contains('selected')) {
-            // Tap KS while it is the active status color → exit palette mode
-            exitPaletteMode(userId);
-          } else {
-            // Tap KS while a different swatch is active → KS becomes the status color
-            row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
-            swatch.classList.add('selected');
-            const st = getPaletteState();
-            st.sets[String(st.activeSet)].selectedKey = activePaletteKey;
-            setPaletteState(st);
-            applyPaletteVars(activePaletteKey);
-            setStatusColor(userId, keyPalette.color).catch(() => {});
-            const st2 = getPaletteState();
-            st2.sets[String(st2.activeSet)].selectedColor = keyPalette.color;
-            setPaletteState(st2);
-            document.dispatchEvent(new Event('my-combo-changed'));
-            document.dispatchEvent(new CustomEvent('palette-state-changed'));
-          }
+        // Direct selects the key swatch when no color is active yet, or when the
+        // active color matches the key's base color.
+        const keySelected = !activeColor || activeColor === keyPalette.color;
+        const swatch = buildSwatch({
+          color: keyPalette.color, keySwatch: true, selected: keySelected,
+          onTap: () => {
+            if (swatch.classList.contains('selected')) {
+              // Tap KS while it is the active status color → exit palette mode
+              exitPaletteMode(userId);
+            } else {
+              // Tap KS while a different swatch is active → KS becomes the status color
+              row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
+              swatch.classList.add('selected');
+              const st = getPaletteState();
+              st.sets[String(st.activeSet)].selectedKey = activePaletteKey;
+              setPaletteState(st);
+              applyPaletteVars(activePaletteKey);
+              setStatusColor(userId, keyPalette.color).catch(() => {});
+              const st2 = getPaletteState();
+              st2.sets[String(st2.activeSet)].selectedColor = keyPalette.color;
+              setPaletteState(st2);
+              document.dispatchEvent(new Event('my-combo-changed'));
+              document.dispatchEvent(new CustomEvent('palette-state-changed'));
+            }
+          },
         });
+        if (!applyKeySpin(swatch, _paletteEnterAt)) _paletteEnterAt = null;
+        row.appendChild(swatch);
       } else {
         const color = complements[ci++];
-        swatch.className = 'swatch';
-        swatch.style.background = color;
-        if (activeColor === color) swatch.classList.add('selected');
-        swatch.addEventListener('click', () => {
-          // Change status color; keep palette mode and theme active
-          row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
-          swatch.classList.add('selected');
-          document.documentElement.style.setProperty('--my-status', color);
-          setStatusColor(userId, color).catch(() => {});
-          const st = getPaletteState();
-          st.sets[String(st.activeSet)].selectedColor = color;
-          setPaletteState(st);
-          document.dispatchEvent(new Event('my-combo-changed'));
-          document.dispatchEvent(new CustomEvent('palette-state-changed'));
+        const swatch = buildSwatch({
+          color, selected: activeColor === color,
+          onTap: () => {
+            // Change status color; keep palette mode and theme active
+            row.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
+            swatch.classList.add('selected');
+            document.documentElement.style.setProperty('--my-status', color);
+            setStatusColor(userId, color).catch(() => {});
+            const st = getPaletteState();
+            st.sets[String(st.activeSet)].selectedColor = color;
+            setPaletteState(st);
+            document.dispatchEvent(new Event('my-combo-changed'));
+            document.dispatchEvent(new CustomEvent('palette-state-changed'));
+          },
         });
+        row.appendChild(swatch);
       }
-      row.appendChild(swatch);
     }
   }
   document.dispatchEvent(new CustomEvent('palette-state-changed'));
