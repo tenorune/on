@@ -28,6 +28,7 @@ import { ensureSignedIn } from './auth.js';
 
 let splashCounter = 0;
 let splashDone = false;
+let _followGrantsUnsub = null; // captured for a future user-switch teardown (#214 R2)
 
 function initSplash(followeeCount) {
   splashCounter = 1 + followeeCount;
@@ -595,7 +596,9 @@ async function main() {
   startCardsRowSubscriptions();
   initGroupRemovalDetector(userId);
   initInbox(userId, code);
-  initFollowGrants(userId, code);
+  // Capture the follow-grants watcher unsub (it watches followGrants/{me} for the
+  // page lifetime) so a future user-switch/teardown can drop it (#214 R2).
+  _followGrantsUnsub = initFollowGrants(userId, code);
 
   // #main-ui-direct starts hidden (markup default) so the welcome / restore /
   // recovery-code / displayname overlays render against a clean dark body
@@ -752,10 +755,15 @@ function initPushNotifications(userId) {
 // ring is left for following.js's own-call watcher to render on its first tick.
 function initCallRecovery(userId) {
   if (!CALL_ENABLED) return;
-  let callRecoveryHandled = false;
-  watchOwnCall(userId, async (call) => {
-    if (callRecoveryHandled) return;
-    callRecoveryHandled = true;
+  // One-shot: this only needs the FIRST calls/{me} value (boot recovery). Capture
+  // the unsub and drop the watcher after the first fire, so it isn't a permanent
+  // duplicate of following.js's live own-call watch on the same path (#214 R1).
+  let unsub = null;
+  let handled = false;
+  unsub = watchOwnCall(userId, async (call) => {
+    if (handled) return;
+    handled = true;
+    if (unsub) unsub();
     if (!call) return;
     const peerId = call.to || call.from;
     const entry = getFollowing().find((e) => e.userId === peerId);

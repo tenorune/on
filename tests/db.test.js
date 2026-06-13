@@ -75,7 +75,8 @@ describe('rotateCode', () => {
     const result = await rotateCode('user-1', 'OLD123');
 
     expect(runTransaction).toHaveBeenCalledWith('mock-ref', expect.any(Function));
-    expect(update).toHaveBeenCalledWith('mock-ref', { code: 'NEW456' });
+    // Establishes the new code in one atomic multi-path update (no followers here).
+    expect(update).toHaveBeenCalledWith('mock-ref', { 'users/user-1/presence/code': 'NEW456' });
     expect(remove).toHaveBeenCalledWith('mock-ref');
     expect(result).toBe('NEW456');
   });
@@ -96,7 +97,7 @@ describe('rotateCode', () => {
     expect(result).toBe('NEW456');
   });
 
-  test('calls set once per following entry with correct path value', async () => {
+  test('writes one atomic multi-path update: own code + each follower mirror', async () => {
     getFollowing.mockReturnValue([
       { userId: 'followee-A', code: 'CODEA1', label: 'Alice' },
       { userId: 'followee-B', code: 'CODEB2', label: 'Bob' },
@@ -104,13 +105,17 @@ describe('rotateCode', () => {
     generateCode.mockReturnValue('NEW456');
     runTransaction.mockResolvedValue({ committed: true });
     update.mockResolvedValue();
-    set.mockResolvedValue();
     remove.mockResolvedValue();
 
     await rotateCode('user-1', 'OLD123');
 
-    expect(set).toHaveBeenCalledTimes(2);
-    expect(set).toHaveBeenCalledWith('mock-ref', 'NEW456');
+    // One update covering own presence code + each follower's followers/{me} mirror,
+    // instead of a set() per followee (#214 R6).
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      'users/user-1/presence/code': 'NEW456',
+      'users/followee-A/followers/user-1': 'NEW456',
+      'users/followee-B/followers/user-1': 'NEW456',
+    });
   });
 
   test('failure in step 2 (update) rejects the promise; remove is not called', async () => {
