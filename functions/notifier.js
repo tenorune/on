@@ -107,27 +107,37 @@ export async function handleFollowRequest(deps, targetUid, requesterUid, record)
 export async function notifyGroupAvailability(deps, groupId, memberUid, now, alreadyNotified = null) {
   const lastTs = await deps.getVal(`notifierState/groupAvailability/${groupId}/${memberUid}`);
   if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) return;
-  const name = await resolveGroupMemberName(deps, groupId, memberUid);
-  const group = await deps.getVal(`groups/${groupId}/name`);
-  const members = await deps.getVal(`groups/${groupId}/members`);
+  // Resolve the shared per-event data once (name + group label + roster) before
+  // fanning out — these don't vary by recipient, so reading them per co-member
+  // was an N+1.
+  const [name, group, members] = await Promise.all([
+    resolveGroupMemberName(deps, groupId, memberUid),
+    deps.getVal(`groups/${groupId}/name`),
+    deps.getVal(`groups/${groupId}/members`),
+  ]);
   const memberIds = members ? Object.keys(members) : [];
-  let delivered = 0;
+  // Reserve the recipients up front (synchronously) so the shared dedup set is
+  // updated deterministically regardless of send ordering, then fan the
+  // independent prefs-read + send out in parallel.
+  const recipients = [];
   for (const coUid of memberIds) {
     if (coUid === memberUid) continue;
     // Dedup: this person is already getting a push for this availability event
     // (from Direct or an earlier group) — iOS web push won't coalesce by tag.
     if (alreadyNotified && alreadyNotified.has(coUid)) continue;
+    recipients.push(coUid);
+  }
+  const sent = await Promise.all(recipients.map(async (coUid) => {
     const prefs = await deps.getVal(`userPrefs/${coUid}/notify/${memberUid}`);
-    if (!wantsAvailability(prefs)) continue;
+    if (!wantsAvailability(prefs)) return false;
     if (alreadyNotified) alreadyNotified.add(coUid);
     try {
-      if (await sendToUser(deps, coUid,
+      return await sendToUser(deps, coUid,
         buildMessage('availability', name, { group: group || undefined }),
-        { type: 'availability', targetUid: memberUid, contextGroupId: groupId })) {
-        delivered++;
-      }
-    } catch { /* one co-member's send failed — keep notifying the rest */ }
-  }
+        { type: 'availability', targetUid: memberUid, contextGroupId: groupId });
+    } catch { return false; /* one co-member's send failed — keep notifying the rest */ }
+  }));
+  const delivered = sent.filter(Boolean).length;
   if (delivered > 0) await deps.update(`notifierState/groupAvailability/${groupId}`, { [memberUid]: now });
 }
 
@@ -138,8 +148,11 @@ export async function notifyGroupAvailability(deps, groupId, memberUid, now, alr
 export async function handleGroupOverrideChange(deps, groupId, memberUid, before, after) {
   if (before == null) return;
   const now = deps.now();
-  const status = await deps.getVal(`users/${memberUid}/presence/status`);
-  const primaryAU = await deps.getVal(`users/${memberUid}/presence/availableUntil`);
+  // One read of the presence node instead of separate status/availableUntil
+  // gets (only consulted when the override is disabled, but cheap to fetch once).
+  const presence = await deps.getVal(`users/${memberUid}/presence`);
+  const status = presence?.status;
+  const primaryAU = presence?.availableUntil;
   const wasOn = effectiveAvailable(before, status, primaryAU, now);
   const isOn = effectiveAvailable(after, status, primaryAU, now);
   if (isOn && !wasOn) await notifyGroupAvailability(deps, groupId, memberUid, now);
@@ -171,21 +184,36 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   // Direct followers — own per-uid cooldown. Followers are marked notified even
   // when that cooldown suppresses the send, so the group pass below never doubles
   // them within the window.
-  const directCooled = withinCooldown(await deps.getVal(`notifierState/availability/${uid}`), now, AVAIL_COOLDOWN_MS);
-  const followers = await deps.getVal(`users/${uid}/followers`);
-  let directDelivered = 0;
-  for (const fid of followers ? Object.keys(followers) : []) {
-    if (fid === uid) continue;
+  const [directCooledTs, followers] = await Promise.all([
+    deps.getVal(`notifierState/availability/${uid}`),
+    deps.getVal(`users/${uid}/followers`),
+  ]);
+  const directCooled = withinCooldown(directCooledTs, now, AVAIL_COOLDOWN_MS);
+  const followerIds = (followers ? Object.keys(followers) : []).filter((fid) => fid !== uid);
+  // Resolve the sender's shared fallback name once (code → 'Someone'); only the
+  // per-viewer following label varies. This collapses the per-follower re-read
+  // of users/{uid}/presence/code that resolveName() did inside the old loop.
+  const senderFallback = followerIds.length
+    ? ((await deps.getVal(`users/${uid}/presence/code`)) || 'Someone')
+    : 'Someone';
+  // Fan the independent per-follower prefs-read + send out in parallel. Each
+  // opted-in follower is marked notified (so the group pass never doubles them),
+  // even when the Direct cooldown suppresses the actual send.
+  const results = await Promise.all(followerIds.map(async (fid) => {
     const prefs = await deps.getVal(`userPrefs/${fid}/notify/${uid}`);
-    if (!wantsAvailability(prefs)) continue;
-    notified.add(fid);
-    if (directCooled) continue;
-    const name = await resolveName(deps, fid, uid);
+    if (!wantsAvailability(prefs)) return { opted: false };
+    if (directCooled) return { fid, opted: true, sent: false };
+    const follow = await deps.getVal(`userPrefs/${fid}/following/${uid}`);
+    const name = (follow && follow.label) || senderFallback;
     try {
-      if (await sendToUser(deps, fid, buildMessage('availability', name), { type: 'availability', targetUid: uid })) {
-        directDelivered++;
-      }
-    } catch { /* this follower's send failed — keep notifying the rest */ }
+      const sent = await sendToUser(deps, fid, buildMessage('availability', name), { type: 'availability', targetUid: uid });
+      return { fid, opted: true, sent };
+    } catch { return { fid, opted: true, sent: false }; /* keep notifying the rest */ }
+  }));
+  let directDelivered = 0;
+  for (const r of results) {
+    if (r.opted) notified.add(r.fid);
+    if (r.sent) directDelivered++;
   }
   if (directDelivered > 0) await deps.update('notifierState/availability', { [uid]: now });
 
