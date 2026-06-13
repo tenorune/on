@@ -14,6 +14,13 @@ export function isExpired(availableUntil) {
   return availableUntil < Date.now();
 }
 
+// Single source of truth for "is this presence effectively available right now":
+// status is 'available' AND its window hasn't lapsed (null availableUntil = no
+// expiry). Replaces ~10 inline reimplementations that had drifted into two forms.
+export function isAvailable(status, availableUntil) {
+  return status === 'available' && !isExpired(availableUntil);
+}
+
 export function timeRemainingMs(availableUntil) {
   if (!availableUntil) return 0;
   return Math.max(0, availableUntil - Date.now());

@@ -5,6 +5,7 @@ jest.mock('../js/ownStatus.js', () => ({
   subscribeOwnStatus: jest.fn(() => () => {}),
 }));
 jest.mock('../js/db.js', () => ({
+  isAvailable: (s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now()),
   setLastVisited: jest.fn().mockResolvedValue(undefined),
   watchUserGroups: jest.fn(),
   watchGroupMeta: jest.fn(),

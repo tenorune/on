@@ -36,6 +36,7 @@ jest.mock('../js/db.js', () => ({
   setPaletteKey: jest.fn().mockResolvedValue(undefined),
   setStatus: jest.fn().mockResolvedValue(undefined),
   isExpired: () => false,
+  isAvailable: (s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now()),
   watchGroupMeta: jest.fn(() => () => {}),
   watchGroupMembers: jest.fn((_gid, cb) => { cb({}); return () => {}; }),
   watchGroupInvites: jest.fn(() => () => {}),
