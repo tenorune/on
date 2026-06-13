@@ -297,10 +297,10 @@ function handlePeerEnded(myUserId) {
   const canvasScreen = document.getElementById('canvas-screen');
   if (canvasScreen && canvasScreen.classList.contains('active')) {
     import('./canvas.js').then(({ showPeerLeftDialog, exitCanvas }) => {
-      showPeerLeftDialog(canvasScreen, 'Your partner', () => { exitCanvas(); exitCallMode(myUserId); });
+      showPeerLeftDialog(canvasScreen, 'Your partner', () => { exitCanvas(); exitCallMode(myUserId, { peerEnded: true }); });
     });
   } else {
-    exitCallMode(myUserId);
+    exitCallMode(myUserId, { peerEnded: true });
   }
 }
 
@@ -344,11 +344,17 @@ export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
   renderList();
 }
 
-export function exitCallMode(myUserId) {
+export function exitCallMode(myUserId, { peerEnded = false } = {}) {
   const prevCalleeId = callModeCalleeId;
   callModeCalleeId = null;
   if (prevCalleeId) {
-    endCall(myUserId, prevCalleeId).catch(() => {});
+    // Only the side that INITIATES the hangup writes the Firebase teardown.
+    // When the PEER ended the call, we got here because our own mailbox already
+    // went null — the peer's endCall cleared BOTH mailboxes. Re-issuing ours
+    // would try to clear calls/{peer}, which by then is empty and not ours, so
+    // the rules deny the whole multi-location update ("update at / permission_
+    // denied" on the caller's console after a decline). Skip it.
+    if (!peerEnded) endCall(myUserId, prevCalleeId).catch(() => {});
     const li = followeeRow(prevCalleeId);
     if (li) { li.classList.remove('call-mode'); li.style.removeProperty('--call-color-rgb'); }
   }
