@@ -30,6 +30,23 @@ let splashCounter = 0;
 let splashDone = false;
 let _followGrantsUnsub = null; // captured for a future user-switch teardown (#214 R2)
 
+// Busy/idle feedback for a primary action button while an async round-trip runs
+// (restore verification, new-account setup). Disabling it both dims the button
+// via the existing `.primary-btn:disabled` opacity rule and blocks double-taps;
+// the label swaps to a progress word. The idle label is stashed on first use so
+// clearButtonBusy restores whatever the markup shipped, and a re-open starts clean.
+function setButtonBusy(btn, busyText) {
+  if (!btn) return;
+  if (btn.dataset.idleLabel === undefined) btn.dataset.idleLabel = btn.textContent;
+  btn.textContent = busyText;
+  btn.disabled = true;
+}
+function clearButtonBusy(btn) {
+  if (!btn) return;
+  if (btn.dataset.idleLabel !== undefined) btn.textContent = btn.dataset.idleLabel;
+  btn.disabled = false;
+}
+
 function initSplash(followeeCount) {
   splashCounter = 1 + followeeCount;
   // Call dismissSplash directly (not signalReady) so the splash always
@@ -139,19 +156,22 @@ async function ensureIdentity(pendingInviteToken = null) {
 
 async function createNewAccount() {
   const initial = generateRecoveryCode();
-  const recoveryCode = await showRecoveryCodeModal(initial);
-  const userId = await deriveUserIdFromRecoveryCode(recoveryCode);
-
-  await ensureSignedIn(recoveryCode);
-
-  // Claim a share code transactionally; loop on collision
-  let code, success;
-  do {
-    code = generateCode();
-    success = await initUser(userId, code);
-  } while (!success);
-
-  saveIdentity(userId, code, recoveryCode);
+  // Account setup (sign-in + transactional share-code claim) runs inside the
+  // modal's onConfirm hook, so the "I've saved it" button shows "Setting up…"
+  // and the modal stays up through the round-trips instead of dropping to a
+  // blank screen before the Direct context paints.
+  let userId, code;
+  const recoveryCode = await showRecoveryCodeModal(initial, async (rc) => {
+    userId = await deriveUserIdFromRecoveryCode(rc);
+    await ensureSignedIn(rc);
+    // Claim a share code transactionally; loop on collision.
+    let success;
+    do {
+      code = generateCode();
+      success = await initUser(userId, code);
+    } while (!success);
+    saveIdentity(userId, code, rc);
+  });
   return { identity: { userId, code, recoveryCode }, isNew: true };
 }
 
@@ -203,7 +223,13 @@ export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName =
   });
 }
 
-export function showRecoveryCodeModal(initialCode) {
+// `onConfirm` (optional) is an async hook run when the user taps "I've saved it",
+// WHILE the modal stays up with the button in a "Setting up…" busy state. The
+// modal only hides + resolves once it completes; if it throws, the modal stays
+// open and the button reverts so the user can retry. New-account setup
+// (sign-in + share-code claim) runs here so the screen doesn't go blank during
+// those round-trips (the FTU equivalent of restore's post-submit splash).
+export function showRecoveryCodeModal(initialCode, onConfirm) {
   const el = document.getElementById('recovery-modal');
   const text = document.getElementById('recovery-code-text');
   const rotateBtn = document.getElementById('recovery-rotate-btn');
@@ -244,7 +270,19 @@ export function showRecoveryCodeModal(initialCode) {
         history.pushState({ recoveryModal: true }, '');
       }
     }
-    function onSaved() {
+    async function onSaved() {
+      // Run any setup hook first, keeping the modal up with feedback. On failure
+      // leave everything mounted so the user can tap again to retry.
+      if (onConfirm) {
+        setButtonBusy(savedBtn, 'Setting up…');
+        try {
+          await onConfirm(current);
+        } catch (e) {
+          console.error('account setup failed:', e);
+          clearButtonBusy(savedBtn);
+          return;
+        }
+      }
       rotateBtn.removeEventListener('click', onRotate);
       copyBtn.removeEventListener('click', onCopy);
       savedBtn.removeEventListener('click', onSaved);
@@ -273,16 +311,20 @@ export function showRestoreScreen() {
   input.value = '';
   error.classList.add('hidden');
   error.textContent = '';
+  clearButtonBusy(submit); // clean state if a prior attempt left it busy
   el.classList.remove('hidden');
 
   return new Promise((resolve) => {
     async function onSubmit() {
       const normalized = parseRecoveryCode(input.value);
       if (!normalized) {
+        // Malformed input is rejected instantly with no round-trip — no busy state.
         error.textContent = "That doesn't look like a secret phrase — check that you entered 4 words from the list.";
         error.classList.remove('hidden');
         return;
       }
+      // Feedback through the derive + sign-in + account-read round-trip.
+      setButtonBusy(submit, 'Restoring…');
       const userId = await deriveUserIdFromRecoveryCode(normalized);
       try {
         // Sign in for THIS phrase before the owner-scoped validation reads —
@@ -297,6 +339,7 @@ export function showRestoreScreen() {
         console.error('restore sign-in failed:', e);
         error.textContent = "Couldn't verify your phrase right now. Check your connection and try again.";
         error.classList.remove('hidden');
+        clearButtonBusy(submit);
         return;
       }
       let user;
@@ -305,6 +348,7 @@ export function showRestoreScreen() {
         if (!exists) {
           error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
           error.classList.remove('hidden');
+          clearButtonBusy(submit);
           return;
         }
         user = await getUser(userId);
@@ -316,11 +360,13 @@ export function showRestoreScreen() {
         console.error('restore account read failed:', e);
         error.textContent = "Couldn't verify your phrase right now. Check your connection and try again.";
         error.classList.remove('hidden');
+        clearButtonBusy(submit);
         return;
       }
       if (!user) {
         error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
         error.classList.remove('hidden');
+        clearButtonBusy(submit);
         return;
       }
       teardown();
