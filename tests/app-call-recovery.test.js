@@ -39,6 +39,7 @@ jest.mock('../js/db.js', () => ({
   getUser: jest.fn().mockResolvedValue(null),
   getUserPrefs: jest.fn().mockResolvedValue(null),
   readGroup: jest.fn().mockResolvedValue(null),
+  readGroupName: jest.fn().mockResolvedValue(null),
   watchUserPrefs: jest.fn(() => () => {}),
   watchStatus: jest.fn(() => () => {}),
   watchPendingInvites: jest.fn(() => () => {}),
@@ -355,7 +356,7 @@ describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)'
 
     invites.extractInboxIntentFromUrl.mockReturnValue(true);
     db.getUserPrefs.mockResolvedValue({ currentContext: 'group:fam' }); // last context was a group
-    db.readGroup.mockResolvedValue({ name: 'Fam' }); // would otherwise drive navigateToGroup
+    db.readGroupName.mockResolvedValue({ name: 'Fam' }); // would otherwise drive navigateToGroup
 
     await bootApp();
 
@@ -375,7 +376,7 @@ describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)'
 
     invites.extractDirectIntentFromUrl.mockReturnValue(true);
     db.getUserPrefs.mockResolvedValue({ currentContext: 'group:fam' }); // last context was a group
-    db.readGroup.mockResolvedValue({ name: 'Fam' }); // would otherwise drive navigateToGroup
+    db.readGroupName.mockResolvedValue({ name: 'Fam' }); // would otherwise drive navigateToGroup
 
     await bootApp();
 
@@ -392,7 +393,7 @@ describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)'
 
     invites.extractInboxIntentFromUrl.mockReturnValue(false);
     db.getUserPrefs.mockResolvedValue({ currentContext: 'group:fam' });
-    db.readGroup.mockResolvedValue({ name: 'Fam' });
+    db.readGroupName.mockResolvedValue({ name: 'Fam' });
 
     await bootApp();
 

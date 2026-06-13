@@ -5,7 +5,7 @@ import {
   claimGroupId, writeGroup, writeMember, writeUserGroupsEntry,
   removeMember, removeUserGroupsEntry, deleteGroup as dbDeleteGroup,
   renameGroup as dbRenameGroup, setMemberDisplayName,
-  readGroup, readMember,
+  readGroup, readGroupName, readMember,
   watchUserGroups,
   mergeStatusOverride,
   readPendingInviteesForGroup, deletePendingInvite,
@@ -162,7 +162,11 @@ export function initGroupRemovalDetector(myUserId) {
 }
 
 async function handleGroupRemoval(myUserId, groupId) {
-  const group = await readGroup(groupId);
+  // Read the name LEAF, not the whole node: by the time the removal fires the
+  // user is no longer a member (they left or were kicked), so the membership-
+  // gated groups/{gid} whole-node read would be denied. The name leaf stays
+  // readable, and a null result still means the group was deleted.
+  const group = await readGroupName(groupId);
   let message;
   if (!group) {
     // Group entity is gone; fall back to the last name we saw before deletion.
