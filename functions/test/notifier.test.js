@@ -491,7 +491,7 @@ describe('directed-event send cooldowns', () => {
     expect(fresh.update).toHaveBeenCalledWith('notifierState/callCooldown/callee', { caller: 1000 });
   });
 
-  test('invite: suppressed within the 1h window (unconditional event still throttled)', async () => {
+  test('invite: suppressed within the window (unconditional event still throttled)', async () => {
     const cooled = makeDeps({ store: {
       'userPrefs/inv/pushTokens': { tokA: {} },
       'groups/g/name': 'Fam',
@@ -505,7 +505,7 @@ describe('directed-event send cooldowns', () => {
     expect(fresh.update).toHaveBeenCalledWith('notifierState/inviteCooldown/inv', { from: 1000 });
   });
 
-  test('followRequest: suppressed within the 1h window', async () => {
+  test('followRequest: suppressed within the window', async () => {
     const cooled = makeDeps({ store: {
       'userPrefs/tgt/pushTokens': { tokA: {} },
       'notifierState/followReqCooldown/tgt/req': 999,
@@ -516,5 +516,17 @@ describe('directed-event send cooldowns', () => {
     const fresh = makeDeps({ store: { 'userPrefs/tgt/pushTokens': { tokA: {} } } });
     await handleFollowRequest(fresh, 'tgt', 'req', { from: 'req', groupId: 'g', ts: 1 });
     expect(fresh.update).toHaveBeenCalledWith('notifierState/followReqCooldown/tgt', { req: 1000 });
+  });
+
+  test('a genuine re-request re-notifies once the short window has elapsed (onValueCreated re-create)', async () => {
+    // followRequest/invite are onValueCreated — a re-request after a decline is
+    // a delete→create that SHOULD notify. The window must be short enough not to
+    // swallow it: 45s ago was suppressed under the old 1h, must send now.
+    const deps = makeDeps({ store: {
+      'userPrefs/tgt/pushTokens': { tokA: {} },
+      'notifierState/followReqCooldown/tgt/req': 1000 - 45000,
+    }});
+    await handleFollowRequest(deps, 'tgt', 'req', { from: 'req', groupId: 'g', ts: 1 });
+    expect(deps.send).toHaveBeenCalled();
   });
 });

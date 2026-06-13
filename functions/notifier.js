@@ -6,10 +6,13 @@ const AVAIL_COOLDOWN_MS = 5 * 60 * 1000;
 // (knock/call/invite/follow-request) triggers a Cloud Function → FCM push; with
 // no throttle an authed user scripting set+delete loops could flood a victim's
 // lock screen. State lives under notifierState/* (rules: server-only read/write).
+// All four are short: these events are onValueCreated, so re-WRITING an existing
+// node never re-fires — the cooldown only throttles delete→create loops, and a
+// genuine re-request after a decline (also a delete→create) must NOT be swallowed.
 const KNOCK_COOLDOWN_MS = 30 * 1000;
 const CALL_COOLDOWN_MS = 30 * 1000;
-const INVITE_COOLDOWN_MS = 60 * 60 * 1000;
-const FOLLOW_REQ_COOLDOWN_MS = 60 * 60 * 1000;
+const INVITE_COOLDOWN_MS = 30 * 1000;
+const FOLLOW_REQ_COOLDOWN_MS = 30 * 1000;
 
 export async function sendToUser(deps, uid, message, data) {
   const tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
