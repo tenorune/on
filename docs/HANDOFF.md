@@ -4,7 +4,7 @@ A handoff to whoever picks this up next. Read top-to-bottom; specific subsection
 
 **Most recent work:** Phase 3 of the groups feature (in-app push invites — unified invite modal with a picker, Inbox nav element on the invitee side, deterministic `pendingInvites/{inviteeUid}/{groupId}` schema, deleteGroup sweep) shipped to `dev` as PR #125 (commit `ca4ef5d`). `dev` is now 22 commits ahead of `main`. **MVP per spec §17 (Phases 0+1+2+3) is now complete on dev.**
 
-**Next likely action:** tag + deploy `dev → main`. The previous prod release is `v1.0.0` (Phases 0+1+2 + userPrefs migration). Bumping `sw.js`'s `CACHE` constant is recommended before the prod deploy — currently `knockknock-v2` on both branches (the bump was reverted earlier per user preference; recommend but do not auto-apply).
+**Next likely action:** tag + deploy `dev → main`. The previous prod release is `v1.0.0` (Phases 0+1+2 + userPrefs migration). **No manual cache step is needed** — `firebase.json` serves everything `no-cache` and `sw.js`'s `CACHE` is auto-stamped with a content hash at build (see §Service worker cache).
 
 **Two known unfixed bugs that aren't blocking but are worth knowing about** — read §16:
 1. **GitHub issue #64** — knock float-to-top doesn't restore on tab return. Multiple fix attempts have not worked; hypotheses listed in §16.
@@ -254,9 +254,14 @@ Run locally:
 
 ### Service worker cache
 
-`sw.js` defines `const CACHE = 'knockknock-v2'` (currently). On every prod deploy that ships shell-asset changes (`index.html`, `css/app.css`, `dist/bundle.js`, `manifest.json`), **recommend bumping the cache name** — the byte change forces install → fresh shell fetch → activate purges old cache. Existing PWA users won't pick up the new bundle without it.
+Two things make app updates reach users automatically — **no manual cache step is needed**:
 
-**Convention: recommend the bump; don't apply it automatically without asking.** The user is currently the only PWA user and a hard-refresh is acceptable.
+1. **`firebase.json` serves everything `no-cache`** (a single `**` header rule). Because the app has no content-hashed filenames (`dist/bundle.js`, `css/app.css`, `index.html` change in place), every file must revalidate; `no-cache` = store + revalidate → `304` when unchanged, fresh bytes right after a deploy. The CDN no longer pins shell assets at `max-age=3600`.
+   - *History:* an earlier header rule used an extglob `source` (`@(/|/index.html|…)`) that Firebase Hosting silently doesn't match, so `index.html`/`sw.js`/`bundle.js` were served `max-age=3600` and CDN-cached for an hour — the root cause of the long-standing "have to clear cache to see updates" problem. Fixed by moving `no-cache` onto the `**` source (commit on `fix-hosting-no-cache-headers`).
+
+2. **`sw.js`'s `CACHE` is auto-stamped** with a content hash of the shell at build time (`build.js` → `writeServiceWorker`: `knockknock-${sha256(shell).slice(0,12)}`). Any shell change yields a byte-different `sw.js` → the browser detects the update → install re-caches the fresh shell → activate purges the old cache → the app's `controllerchange` listener reloads. No literal version to bump.
+
+Offline still works — the SW serves the shell cache-first from Cache Storage, independent of the HTTP `no-cache` headers.
 
 ### Tagging releases
 
@@ -342,7 +347,7 @@ The user uses the **superpowers** skills. Workflow:
 ## 15. Things to know before changing things
 
 - **Don't push to a branch other than the assigned session branch** without explicit user permission. The user merges to dev/main themselves via PR UI.
-- **Don't auto-bump `sw.js`'s `CACHE` constant.** Recommend the bump in chat; let the user decide.
+- **No manual `sw.js` `CACHE` bump.** It's auto-stamped with a content hash at build, and `firebase.json` serves the shell `no-cache` — updates propagate on their own (see §Service worker cache).
 - **Don't introduce real-name placeholders.** See §13.
 - **Don't create CLAUDE.md or similar memory files in the repo.** Hold rules in your session context.
 - **Test the build after any change to identity / palette / canvas / groups / inbox / picker code** — the cross-device sync subtleties and the modal-stack ordering are easy to break.
