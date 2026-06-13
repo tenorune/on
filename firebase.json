@@ -17,16 +17,9 @@
     "rewrites": [{ "source": "**", "destination": "/index.html" }],
     "headers": [
       {
-        "source": "@(/sw.js|/firebase-messaging-sw.js)",
-        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-      },
-      {
-        "source": "@(/|/index.html|/dist/bundle.js|/css/app.css|/manifest.json)",
-        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-      },
-      {
         "source": "**",
         "headers": [
+          { "key": "Cache-Control", "value": "no-cache" },
           { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'sha256-8plvDJLmM7886+ra4DrxBzGM2hgpxIJwDEK2Iu4PWMU=' https://*.googleapis.com https://*.gstatic.com https://apis.google.com https://*.firebasedatabase.app; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.firebaseio.com wss://*.firebaseio.com https://*.firebasedatabase.app wss://*.firebasedatabase.app https://*.googleapis.com https://*.cloudfunctions.net; worker-src 'self'; base-uri 'self'; form-action 'self'; frame-src https://*.firebaseapp.com https://*.firebasedatabase.app; frame-ancestors 'none';" },
           { "key": "X-Content-Type-Options", "value": "nosniff" },
           { "key": "X-Frame-Options", "value": "DENY" },
