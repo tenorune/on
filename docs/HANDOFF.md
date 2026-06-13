@@ -2,15 +2,19 @@
 
 A handoff to whoever picks this up next. Read top-to-bottom; specific subsections can be re-skimmed when working in a particular area.
 
-**Most recent work:** Phase 3 of the groups feature (in-app push invites — unified invite modal with a picker, Inbox nav element on the invitee side, deterministic `pendingInvites/{inviteeUid}/{groupId}` schema, deleteGroup sweep) shipped to `dev` as PR #125 (commit `ca4ef5d`). `dev` is now 22 commits ahead of `main`. **MVP per spec §17 (Phases 0+1+2+3) is now complete on dev.**
+**Most recent work (session 2026-06-13):** a hygiene/perf/bugfix/docs sweep, all merged to `dev`. Highlights: a **shared presence hub** (`js/presenceHub.js`) that dedupes overlapping `watchPresence` listeners (#214 R3); the **client RTDB-listener efficiency** fixes R1/R2/R5/R6 (#214); a **shared status-dot/text renderer** (`paintStatusDot` / `availableForText`, #216); the **`permission_denied` console-error fix** (the peer-ended endCall double-teardown); the **hosting `no-cache` caching fix** (the long-standing "have to clear cache to see updates" bug); and an **add-person `<label for>` a11y fix**. The 12-June analysis transcripts were reconciled against the tracker and the gaps filed as #214–#218. See **§18** for the full per-item rundown.
 
 **Next likely action:** tag + deploy `dev → main`. The previous prod release is `v1.0.0` (Phases 0+1+2 + userPrefs migration). **No manual cache step is needed** — `firebase.json` serves everything `no-cache` and `sw.js`'s `CACHE` is auto-stamped with a content hash at build (see §Service worker cache).
 
-**Two known unfixed bugs that aren't blocking but are worth knowing about** — read §16:
-1. **GitHub issue #64** — knock float-to-top doesn't restore on tab return. Multiple fix attempts have not worked; hypotheses listed in §16.
-2. **GitHub issue #116** — Direct swatch picker uses non-focusable `<div>` swatches (a11y inconsistency with the group picker's `<button>`). Filed but unfixed.
+**Open follow-up work** (issues, not blockers — full list in §18):
+- **#214 R4** — suspend Direct presence watches while in a group context. Deliberately separated from R3 because it's entangled with context-switching, call-mode, and flash-avoidance. The biggest dedup win (R3) already shipped.
+- **#215** — Direct availability pushes carry no shared-context label (group pushes do).
+- **#217** — doc drift: Phase 2 plan/spec + HANDOFF §15 still describe the old `clearStatusOverride` toggle-OFF; per-group picker + push-on-invite framed as Phase 4+ but shipped.
+- **#218** — consolidated post-MVP groups backlog (admin role, owner group color, >5-card collapse, dup-name UI, approval-gated joins).
 
-**Phase 4+:** request-to-follow (`js/followRequests.js`), group color/palette, and the per-audience (per-group) color picker have since **shipped**. Admin role and ownership transfer remain documented in groups spec §16 but unplanned.
+**Phase 4+:** request-to-follow (`js/followRequests.js`), group color/palette, and the per-audience (per-group) color picker have since **shipped**. Admin role and ownership transfer remain documented in groups spec §16 but unplanned (tracked: #180, #218).
+
+**Recently closed bugs:** #64 (knock float-to-top tab-return) and #116 (Direct swatch `<div>` a11y) are now resolved — earlier handoffs cited them as open; they are not.
 
 ---
 
@@ -20,7 +24,7 @@ A vanilla-JS PWA for **ambient presence**. Users mark themselves "available for 
 
 - **Target user base:** 50–100 users (a small, hands-on sandbox, not a public app).
 - **Stack:** vanilla ES modules (no framework), Firebase Realtime Database + Hosting, esbuild, jest + jsdom.
-- **Tests:** 1069 currently passing on `dev` (web suite). Cloud Functions have their own suite (`cd functions && npm test`). Run the web suite with `npx jest`.
+- **Tests:** 1086 currently passing on `dev` (web suite, 38 suites). Cloud Functions have their own suite — 67 tests (`cd functions && npm test`). Run the web suite with `npx jest`.
 - **Anonymous identity model** (no Firebase Auth) — see §4.
 
 ## 2. Repo & branch model
@@ -68,16 +72,18 @@ feature branches (off dev)  → merged to dev by the user
 
 | File | Purpose |
 |---|---|
-| `js/app.js` | Main init, `ensureIdentity`, `watchStatus` subscription, screen orchestration, invite-redemption dispatch, group-context switching. **`initNavRow()` must be called BEFORE the `onContextChange(enterGroupContext)` registration**. The redemption block primes `setLastKnownGroupName(groupId, knownName)` before `navigateToGroup`. `#main-ui-direct` starts hidden in markup and is revealed at the end of `main()` only if the current context is not a group. **app.js's `watchStatus` callback gates `--my-status` / `--my-glow` / theme-var writes on `getCurrentContext().context === 'direct'`** — the synchronous `applyPaletteVars(selectedKey)` at boot is also gated — both prevent the Direct primary echo from clobbering the group override's color (fix commit `e3ebc37`). |
+| `js/app.js` | Main init (`main()` is split into named init steps: `initOwnStatusSync` / `initPaletteBoot` / `initPushNotifications` / `initCallRecovery` / `initServiceWorker`), `ensureIdentity`, own-status sync via `subscribeOwnStatus` (from `ownStatus.js`), screen orchestration, invite-redemption dispatch, group-context switching. **`initNavRow()` must be called BEFORE the `onContextChange(enterGroupContext)` registration**. The redemption block primes `setLastKnownGroupName(groupId, knownName)` before `navigateToGroup`. `#main-ui-direct` starts hidden in markup and is revealed at the end of `main()` only if the current context is not a group. **`initOwnStatusSync`'s callback gates `--my-status` / `--my-glow` / theme-var writes on `getCurrentContext().context === 'direct'`** — the synchronous `applyPaletteVars(selectedKey)` at boot is also gated — both prevent the Direct primary echo from clobbering the group override's color (fix commit `e3ebc37`). **`initCallRecovery` one-shots `watchOwnCall`** (captures the unsub, tears down after first fire — #214 R1) and **`initFollowGrants`'s unsub is stored** in a module var (#214 R2). |
 | `js/identity.js` | Secret phrase generate/parse/derive, localStorage v2 schema |
 | `js/wordlist.js` | 7772-word EFF long wordlist (regenerate via `scripts/gen-wordlist.js`) |
-| `js/db.js` | **All Firebase RTDB operations** (single import point). Sectioned: users / codeIndex / inviteIndex / personal-invites / groupIdIndex / users-groups enumeration / groups CRUD / group members / group invites / knocks / canvases / userPrefs / **pending invites mailbox** (Phase 3). |
+| `js/db.js` | **Barrel re-export — the single import point for RTDB ops, but the implementations now live in `js/db/{social,groups,canvas}.js`** (split in #183 H5). `db.js` re-exports `* from db/social.js`, `* from db/groups.js`, `* from db/canvas.js`, plus the time/format helpers from `js/utils.js` (`isExpired`, `isAvailable`, `timeRemainingMs`, `formatTimeRemaining`, `formatTimeRemainingFuzzy`, `formatLastSeen`). Call sites still `import { … } from './db.js'`. **`db/social.js`** = identity/presence, code/invite indexes, personal invites, followers/following, userPrefs, **calls mailbox** (`startCall`/`answerCall`/`endCall`/`watchOwnCall`), knocks. **`db/groups.js`** = group CRUD, members, group invites, pending-invite mailbox. **`db/canvas.js`** = shared-canvas strokes. |
+| `js/ownStatus.js` | **Single own-status watch, fanned out.** `subscribeOwnStatus(cb)` multiplexes one `watchPresence(myUid)` to all own-status consumers (app.js, groupNav, groupContext) instead of each opening its own — the precedent the presence hub (#214 R3) generalizes. Synchronous-replay of the cached value to late consumers. |
+| `js/presenceHub.js` | **NEW (#214 R3). Shared per-uid presence-watch registry.** `subscribePresence(uid, cb)` multiplexes one underlying `watchPresence(uid)` (`onValue` on `users/{uid}/presence`) out to every consumer, ref-counted: created on the first consumer, torn down when the last leaves. A uid that is both a Direct followee *and* a group co-member is now watched **once** instead of twice. The last value is cached per uid and async-replayed to a late consumer so a second subscriber doesn't flash "Unavailable" until the next write. **Consumers register BEFORE the underlying watch is created** so a synchronous first delivery still reaches them. `following.js` + `groupContext.js` both subscribe through here. |
 | `js/store.js` | localStorage operations |
 | `js/prefs.js` | Central preferences store. Reads stay synchronous via localStorage cache; writes hit both localStorage AND `userPrefs/{uid}/...` via `mergeUserPrefs`. Exports the hint API (`isHintSeen` / `markHintSeen`), call counters, favorites-collapsed, palette state (direct + per-group), favorites, chip minutes (direct + per-group), context, and `getFollowing()` (re-exported from store). `syncFromServer` dispatches CustomEvents for cross-module re-render without creating circular imports. |
 | `js/me.js` | Own-status UI (header, dot, time chip), `initHeader`, `applyOwnStatus`. Exports `clearFirstUsePulse` (used by groupContext after clone-and-replace wipes the FTU once-listener). |
-| `js/following.js` | Direct-contacts list rendering (Mutuals/Following/Followers), call mode, knock UI, 20s float-to-top survival. **Exports `getCurrentFollowersMap` / `getCurrentMutuals`** — snapshot accessors used by the Phase 3 invite picker without setting up a duplicate subscription. |
+| `js/following.js` | Direct-contacts list rendering (Mutuals/Following/Followers), call mode, knock UI, 20s float-to-top survival. **Exports `getCurrentFollowersMap` / `getCurrentMutuals`** — snapshot accessors used by the Phase 3 invite picker without setting up a duplicate subscription. **Subscribes to presence via `subscribePresence(uid)` (the shared hub), not `watchPresence` directly** (#214 R3). Status dot + text rendered through the shared `paintStatusDot` + `availableForText` helpers (#216). **`exitCallMode(myUid, { peerEnded })`** — when the *peer* ended the call (`handlePeerEnded`), it passes `{ peerEnded: true }` so we DON'T re-call `endCall` and clear the peer's already-empty mailbox (that redundant write was the `permission_denied "at /"` console error). |
 | `js/mycode.js` | Share-code drawer + secret-phrase reveal pill + invite-link button |
-| `js/palettes.js` | Palette definitions, swatch picker, theme application, cross-device sync. **Centralized hint predicates moved to `js/hints.js`**; this file just consumes them. The hint-wave timers are now per-row in a `Map<Element, timeoutId>` so Direct + group rows animate independently. The `_paletteEnterAt` timestamp pattern keeps the `key-spin` animation alive across the userPrefs echo re-render. |
+| `js/palettes.js` | Palette definitions, swatch picker, theme application, cross-device sync. **Centralized hint predicates moved to `js/hints.js`**; this file just consumes them. The hint-wave timers are now per-row in a `Map<Element, timeoutId>` so Direct + group rows animate independently. The `_paletteEnterAt` timestamp pattern keeps the `key-spin` animation alive across the userPrefs echo re-render. **Also home to the shared `paintStatusDot(dot, { color, available, palettesEnabled })` renderer (#216)** — the single status-dot painter (3-branch: available+color+palettes → bg+border+glow; available+color → bg only; else clear) used by both `following.js` and `groupContext.js` so the two rosters can't drift. (`availableForText` lives in `js/utils.js`.) |
 | `js/hints.js` | **Centralized hint-visibility predicates.** `shouldShowSwatchWave`, `shouldShowThemeHint`, `shouldShowDotGoHint`, `shouldShowSetTogglePulse`, `isLongpressHintEligible`, `isSwipeHintEligible`. Each renderer (palettes/groupContext/following) imports and calls these instead of re-deriving the gate inline. Context-specific guards (override.enabled, PALETTE_INTERACTIONS_ENABLED, peer-availability) remain at call sites. |
 | `js/favorites.js` | Favorites strip + `getCanvasColors()`. Strip is also rendered in group contexts. `saveCombo` is the single writer (full-array dedupe + head-match fast path). |
 | `js/canvas.js` | Shared drawing canvas during 1:1 calls |
@@ -90,7 +96,7 @@ feature branches (off dev)  → merged to dev by the user
 | `js/groupDisplayNamePrompt.js` | **NEW (Phase 3).** Extracted from `js/app.js` so both Flow A/B (link-redemption) and Flow C (Inbox Join) share the same `#group-displayname-screen` prompt component. |
 | `js/groups.js` | Group lifecycle business logic: `createGroup` / `renameGroup` / `deleteGroup` (owner-only) / `joinGroup` / `leaveGroup` / `editOwnDisplayName`. **`deleteGroup` now sweeps `pendingInvites/*/{groupId}` before removing the group entity** (Phase 3) so a concurrent Inbox Join sees the group missing and silently dismisses. `initGroupRemovalDetector` surfaces a toast when a group disappears from enumeration. |
 | `js/groupNav.js` | Nav state machine: `currentContext`, `navigateToDirect` / `navigateToGroup`, listener pattern via `onContextChange`. Persistent sticky nav row. Direct context: each group as `.group-card` + `+`. **`renderNavRowDirectMode` injects `#nav-row-inbox-slot` as its first child and calls `renderInboxNavSlot()` after** so the Inbox button appears before group cards. Group context: Direct back-link + group name + override toggle (`=`/`≠`) + Direct card on right. Override toggle is owned here; cross-module sync via `applyOptimisticOverride` exported from groupContext. |
-| `js/groupContext.js` | Group context view: own-status row + roster + per-group palette picker. Hosts `_ownOverride` / `_ownPrimary` / `_membersOverrides` / `_memberPrimaries` plus `_groupOwnerId` / `_groupName` captured from `watchGroupMeta`. **`renderRoster` renders an owner-only `+ Invite to group` row** at the top (Phase 3), opening the unified invite modal. The "Invite" entry in the settings menu (renamed from "Invite link") also opens the same modal with picker data. Both pass `getCurrentFollowersMap()` / `getCurrentMutuals()` / `new Set(Object.keys(_membersOverrides || {}))` so the picker can filter to non-members. |
+| `js/groupContext.js` | Group context view: own-status row + roster + per-group palette picker. Hosts `_ownOverride` / `_ownPrimary` / `_membersOverrides` / `_memberPrimaries` plus `_groupOwnerId` / `_groupName` captured from `watchGroupMeta`. **`syncStatusSubscriptions` subscribes to member presence via `subscribePresence(uid)` (the shared hub, #214 R3)** and paints via `paintStatusDot` + `availableForText` (#216). Shares the `exitCallMode(..., { peerEnded })` peer-ended contract with `following.js`. **`renderRoster` renders an owner-only `+ Invite to group` row** at the top (Phase 3), opening the unified invite modal. The "Invite" entry in the settings menu (renamed from "Invite link") also opens the same modal with picker data. Both pass `getCurrentFollowersMap()` / `getCurrentMutuals()` / `new Set(Object.keys(_membersOverrides || {}))` so the picker can filter to non-members. |
 
 ## 4. Identity model (load-bearing — read this carefully)
 
@@ -127,7 +133,7 @@ GROUPS_ENABLED                 // Group cards row, group context view, invites, 
 
 When the same secret phrase is used on multiple devices, **everything that's user-state syncs**. There are three subscription paths:
 
-- **`watchStatus(myUid, cb)`** in `js/app.js` — drives the broadcast-shaped subtree `users/{uid}/...` (status, availableUntil, statusColor, paletteKey, code, callState, followers, ...). Every follower's `watchStatus(otherUid, cb)` reads this subtree, so anything here goes out to every follower on every tick. Keep it lean.
+- **Own status:** `subscribeOwnStatus(cb)` (in `js/ownStatus.js`, fanned out from one `watchPresence(myUid)`) drives the broadcast-shaped subtree **`users/{uid}/presence/...`** (status, availableUntil, statusColor, paletteKey, code, ...). Every follower watches the *other* user's presence via `subscribePresence(otherUid, cb)` → `watchPresence` → `onValue` on `users/{uid}/presence`, so anything here goes out to every follower on every tick. Keep it lean. **Calls are NOT a field here** — call signaling uses per-user mailboxes at `calls/{uid}` (`startCall`/`answerCall`/`endCall`/`watchOwnCall`), and knocks use `knocks/{recipient}/{sender}`.
 - **`watchUserPrefs(myUid, cb)`** in `js/app.js` — drives the private subtree `userPrefs/{uid}/...`. Only the owner reads it; followers don't subscribe. New private state belongs here.
 - **`watchPendingInvites(myUid, cb)`** in `js/inbox.js` — drives the mailbox subtree `pendingInvites/{myUid}/...`. Each child key is a `groupId` (deterministic, one entry per (invitee, group) pair). Callback receives a map of `groupId → { from, ts }`.
 
@@ -135,16 +141,16 @@ The pattern in each callback is the same: reconcile local with server. `prefs.sy
 
 | Surface | Mechanism |
 |---|---|
-| Status / availability / availableUntil | watchStatus → `applyOwnStatus` |
-| Dot color (`--my-status` CSS var) | watchStatus → setProperty **only when context is Direct** (the gate prevents clobbering the group override) |
-| Theme variables | watchStatus → `applyThemeVars` / `resetThemeVars`, also gated on Direct context |
-| Share code (rotated on another device) | watchStatus → `updateMyCode` |
+| Status / availability / availableUntil | `subscribeOwnStatus` → `applyOwnStatus` |
+| Dot color (`--my-status` CSS var) | `subscribeOwnStatus` → setProperty **only when context is Direct** (the gate prevents clobbering the group override) |
+| Theme variables | `subscribeOwnStatus` → `applyThemeVars` / `resetThemeVars`, also gated on Direct context |
+| Share code (rotated on another device) | `subscribeOwnStatus` → `updateMyCode` |
 | Followers list | `watchFollowers` (separate subscription) |
 | Following list (contacts) | `watchFollowing` at `userPrefs/{uid}/following` → `syncFollowingFromServer` |
 | Group enumeration | `watchUserGroups` (separate subscription) → cards row + removal detector |
 | Per-group meta | `watchGroupMeta(groupId, cb)` per enumerated group → card name + last-known-name cache |
 | Own per-group status override | `watchOwnMemberOverride(groupId, ownUid)` per enumerated group → card color + group-context status row |
-| Group roster + statuses | `watchGroupMembers(groupId, cb)` + per-member `watchStatus(memberUid, cb)` |
+| Group roster + statuses | `watchGroupMembers(groupId, cb)` + per-member `subscribePresence(memberUid, cb)` (shared hub) |
 | Personal invite collection | `watchUserInvites` → drawer button label |
 | **Pending invites mailbox** (Phase 3) | `watchPendingInvites(uid, cb)` → Inbox button + Inbox modal |
 | All userPrefs | `watchUserPrefs(uid, cb)` → `prefs.syncFromServer` → CustomEvents → per-module re-render |
@@ -169,7 +175,7 @@ userPrefs/{uid}:
     lastTimeoutMinutes: <number>                // per-group chip default
 ```
 
-What stays in `users/{uid}/`: everything followers need to see (status, statusColor, paletteKey, availableUntil, code, callState, followers/, revokedFollowers/) plus the group enumeration (`groups/{groupId}`) and the personal-invite collection (`invites/{inviteId}`).
+What stays in `users/{uid}/`: everything followers need to see — the broadcast `presence/` subtree (status, statusColor, paletteKey, availableUntil, code), plus `followers/`, `revokedFollowers/`, the group enumeration (`groups/{groupId}`) and the personal-invite collection (`invites/{inviteId}`). Call signaling is NOT here — it lives in the top-level `calls/{uid}` mailbox.
 
 Sync wiring:
 - `mergeUserPrefs(uid, fields)` in `db.js` is the multi-path atomic write helper.
@@ -273,12 +279,17 @@ Use `v<MAJOR>.<MINOR>.<PATCH>` per the existing tag history. Most recent release
 
 **No further phases planned right now.** Phase 4+ work (admin role, ownership transfer, request-to-follow, per-audience color picker, in-place edit of personal invite creator label, etc.) is documented in groups spec §16 Phase 4+ but not scheduled.
 
-**Deferred follow-up tracked as issues:**
+**Deferred follow-up tracked as issues** (full current list in §18):
+- **#214 R4** — suspend Direct presence watches in a group context (R1/R2/R3/R5/R6 done).
+- **#215** — Direct availability pushes carry no shared-context label.
+- **#217** — doc drift (Phase 2 toggle-OFF + invite-push phasing).
+- **#218** — post-MVP groups backlog.
 - **#124** — Phase 3 inviter-side "sent invites" view + cross-device revoke. The MVP Phase 3 doesn't include this; the picker's in-modal "Invited" pill is the only revoke surface. Mirror at `userPrefs/{ownerUid}/sentInvites/{groupId}/{inviteeUid}` is the suggested shape.
-- **#116** — Direct swatch picker uses `<div>` (non-focusable) where the group picker uses `<button>`. A11y inconsistency. Recommended fix: migrate Direct to `<button type="button">`, hoist UA-reset CSS to `.swatch`, add `:focus-visible`. Not urgent.
-- **#64** — Knock float-to-top doesn't restore on tab return. Multiple fix attempts have not worked. Open.
+- **#180 / #181 / #193 / #161 / #160 / #156 / #148 / #34** — longer-standing deferrals (moderation, invite controls, App Check, install nudge, Telegram channel, desktop-notif debug, lastVisited migration, npm deprecations).
 
-**Possible (not committed) follow-up:** collapse `palettes.renderSwatchRow` and `groupContext.renderGroupSwatchRow` into a single renderer (the "option 3" discussion). A compat test (`tests/swatch-renderers.compat.test.js`) was added as a cheaper alternative to lock down the structural-shape contract between the two; revisit only if a third caller appears or drift becomes a recurring source of bugs.
+*(Resolved since earlier handoffs: #64 knock float-to-top, #116 Direct swatch a11y, #182/#183 perf+hygiene waves, #216 status-dot renderer.)*
+
+**Possible (not committed) follow-up:** collapse `palettes.renderSwatchRow` and `groupContext.renderGroupSwatchRow` into a single renderer (the "option 3" discussion). A compat test (`tests/swatch-renderers.compat.test.js`) locks down the structural-shape contract between the two; revisit only if a third caller appears or drift becomes a recurring source of bugs. *(Note: the status-**dot** painter and "Available for…" text were already unified into `paintStatusDot` / `availableForText` in #216 — that's the dot/text, not the swatch row.)*
 
 ## 12. Recent significant fixes & gotchas
 
@@ -293,7 +304,7 @@ Use `v<MAJOR>.<MINOR>.<PATCH>` per the existing tag history. Most recent release
 
 **Group-context label color clobbered by Direct primary echo on boot (fix `e3ebc37`):**
 - On fresh boot with `currentContext='group:X'` + override on, three async writers competed for `--my-status`. The synchronous `applyPaletteVars(selectedKey)` at `app.js:510` was the last writer (running after `await navigateToGroup` yielded the event loop and let Firebase callbacks fire). Result: group label rendered in the Direct picker color.
-- Fix: gated both the sync `applyPaletteVars` AND the async `watchStatus` callback's `--my-status` write on `getCurrentContext().context === 'direct'`. In group context, only `groupContext.applyEffectivePalette` writes `--my-status`.
+- Fix: gated both the sync `applyPaletteVars` AND the async own-status-sync callback's `--my-status` write (then `watchStatus`, now `subscribeOwnStatus`) on `getCurrentContext().context === 'direct'`. In group context, only `groupContext.applyEffectivePalette` writes `--my-status`.
 
 **Hint system centralization:**
 - All inline `localStorage.getItem('statusapp_*')` reads (17 of them) migrated through `isHintSeen('name')`.
@@ -330,7 +341,7 @@ Use `v<MAJOR>.<MINOR>.<PATCH>` per the existing tag history. Most recent release
 - **Spec/plan docs:** `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` and `docs/superpowers/plans/YYYY-MM-DD-<topic>.md`.
 - **Branch naming:** feature branches are cut from `dev` and named for the feature (e.g. `follow-group-member`). Long-lived: `main`, `dev`. The user merges to dev/main themselves.
 - **Git user identity for this repo:** `tenorune` / `117549102+tenorune@users.noreply.github.com`.
-- **Test-mock discipline:** **11 test files** mock `../js/db.js` per-suite. Every new `db.js` export must be added as a `jest.fn()` stub in all 11. Run `grep -l "jest.mock.*'../js/db.js'" tests/` to confirm the current list. Missing entries cause `(0, _db.foo) is not a function` failures.
+- **Test-mock discipline:** **20 test files** (as of 2026-06-13) mock `../js/db.js` per-suite. Every new `db.js` export must be added as a `jest.fn()` stub in all of them. Run `grep -l "jest.mock.*'../js/db.js'" tests/ | wc -l` to confirm the current count and `grep -l ...` for the list. Missing entries cause `(0, _db.foo) is not a function` failures. **Note:** even though the implementations now live in `js/db/{social,groups,canvas}.js`, suites still mock the `js/db.js` barrel (call sites import from there). Tests touching the presence hub call `require('../js/presenceHub.js')._resetPresenceHub()` in `beforeEach` to avoid cross-test state leakage.
 - **Placeholder identity discipline:** **never** use the project owner's first or last name in code, tests, fixtures, docs, commit messages, or chat replies. Use generic placeholders (`Alex K.`, `Bea`, etc.). The repo was previously scrubbed of references; keep it clean. **Don't put memory rules in a repo file (no CLAUDE.md).** Hold the rule in your session context.
 
 ## 14. Workflows & superpowers conventions
@@ -351,13 +362,14 @@ The user uses the **superpowers** skills. Workflow:
 - **Don't introduce real-name placeholders.** See §13.
 - **Don't create CLAUDE.md or similar memory files in the repo.** Hold rules in your session context.
 - **Test the build after any change to identity / palette / canvas / groups / inbox / picker code** — the cross-device sync subtleties and the modal-stack ordering are easy to break.
-- **Mind the 11 test mock files** (per §13).
+- **Mind the 20 test mock files** (per §13).
 - **All Phase 2+ identity work (auth.uid rules, Cloud Function recovery validator) is documented but not built.** The honor-system trust model is current reality.
 - **Phase 0/1/2/3 designs are forward-compatible with Phase B.** The membership-canonical-on-group-side layout, the top-level `pendingInvites/{inviteeUid}/...` mailbox path, the `groups/{groupId}/members/{uid}` self-write rule, and the `pendingInvites` `from === auth.uid` write rule were all chosen so Phase B doesn't need a Cloud Function.
 - **`users/{uid}/` vs `userPrefs/{uid}/` split.** New private user state goes in `userPrefs/{uid}/...` via `js/prefs.js` (which calls `mergeUserPrefs`). Only put something in `users/{uid}/...` if followers genuinely need to see it on every status tick.
 - **Don't import UI modules from `js/prefs.js`.** Cross-module re-renders go through CustomEvents.
 - **Optimistic-update + cross-module sync pattern (load-bearing).** Both groupNav and groupContext have their own copies of own-override state. When one mutates it, it must call the other's optimistic-apply API.
-- **`--my-status` writes from `app.js`'s `watchStatus` are gated on Direct context.** Don't add new `--my-status` setters that bypass the gate — the group override owns the var when context is group.
+- **`--my-status` writes from `app.js`'s own-status sync are gated on Direct context.** Don't add new `--my-status` setters that bypass the gate — the group override owns the var when context is group.
+- **Toggling a group status-override OFF *preserves* its color/palette.** `toggleStatusOverride(OFF)` calls `mergeStatusOverride({ enabled: false, status: null, availableUntil: null })`, which keeps `statusColor`/`paletteKey` so an adopted color survives a toggle (the 2026-05-29 adoption behavior). It does **not** delete the whole `statusOverride` record. Earlier docs (Phase 2 plan + this section) described an old `clearStatusOverride` "delete the record" behavior — that's stale; the merge-preserve behavior is correct. (Tracked as #217 for the spec/plan docs.)
 - **Knock pulse uses a CSS keyframe class, not inline-style transitions.**
 - **`#main-ui-direct` starts hidden in markup.** Don't change without revisiting first-use UX flashes.
 - **Hint predicates live in `js/hints.js`.** Don't re-derive `isHintSeen` chains inline; import a predicate. Context-specific guards (override.enabled, etc.) stay at call sites.
@@ -365,17 +377,22 @@ The user uses the **superpowers** skills. Workflow:
 
 ## 16. Known unknowns / open decisions / open bugs
 
-**Open bugs (active, filed as issues):**
-- **#64 — float-to-top doesn't restore on tab return.** When a knock recipient sees the knock and then leaves the browser / switches tabs while the knocker's name is still floated at the top, on return the name stays floated past the 20s deadline and doesn't snap back. Commit `0098631` attempted a fix (`startedAt` per floatTimer entry + drain on `visibilitychange`) but it does NOT work in production. Hypotheses worth checking: (a) stale `originalSibling` after a `watchGroupMembers`-triggered `renderRoster` while the page was hidden; (b) `visibilitychange` not firing on iOS Safari / BFCache; (c) `renderRoster` wiping the floated `<li>` so restoration can't find the right element.
-- **#116 — Direct swatch picker uses non-focusable `<div>` swatches** where group uses `<button>`. A11y inconsistency. Fix path: migrate Direct to `<button type="button">`, hoist UA-reset CSS to `.swatch`, add `:focus-visible`.
-- **#124 — Phase 3 inviter-side "sent invites" view + cross-device revoke.** Tracked as a Phase 3 follow-up; the picker's in-modal "Invited" pill is the only revoke surface today (same-modal-session only, no cross-device).
+**Open issues (filed; full annotated list in §18):**
+- **#214 R4 — suspend Direct presence watches in a group context** (R1/R2/R3/R5/R6 shipped this session). Entangled with context-switch + call-mode + flash-avoidance; deliberately its own pass.
+- **#215 — Direct availability pushes carry no shared-context label** (group pushes do).
+- **#217 — doc drift:** Phase 2 plan/spec + §15 still describe the old `clearStatusOverride` toggle-OFF (code uses `mergeStatusOverride`, which preserves `statusColor`/`paletteKey`); per-group picker + push-on-invite framed as Phase 4+ but shipped.
+- **#218 — post-MVP groups backlog** (admin role, owner group color, >5-card collapse, dup-name UI, approval-gated joins).
+- **#124 — Phase 3 inviter-side "sent invites" view + cross-device revoke.** The picker's in-modal "Invited" pill is the only revoke surface today (same-modal-session only, no cross-device).
+- Longer-standing: **#180** (group moderation: kick + ownership transfer), **#181** (invite TTL/cap UI + confirm card + label edit + index sweep + stale "Requested"), **#193** (App Check enforcement — flag-day risk, deferred), **#161** (standalone install nudge), **#160** (Telegram notification channel), **#156** (desktop PWA notification debug), **#148** (lastVisited userPrefs migration, Option A), **#34** (npm deprecation warnings).
+
+*(Closed since earlier handoffs: **#64** knock float-to-top tab-return, **#116** Direct swatch `<div>` a11y. Both were previously listed here as open.)*
 
 **Open decisions:**
 - When (if) to do Phase B identity tightening.
 - Whether to collapse `palettes.renderSwatchRow` and `groupContext.renderGroupSwatchRow` into a single renderer. The compat test in `tests/swatch-renderers.compat.test.js` catches drift cheaply; collapse only if a third caller appears.
 - Whether the post-MVP "co-members can use 1:1 primitives without mutual" relaxation lands soon.
 - `database.rules.json` does NOT yet have explicit rules for the new `userPrefs/{uid}/...` namespace or for `pendingInvites/{inviteeUid}/{groupId}` beyond the honor-system catch-all (`.read/.write: true`). When Phase B lands, the rule sketches in the groups spec §10 Flow C and §6.5 are the targets.
-- Mock-file maintenance: 11 db-mocking test files. A shared mock factory would scale better but isn't worth the refactor cost yet.
+- Mock-file maintenance: 20 db-mocking test files. A shared mock factory would scale better but isn't worth the refactor cost yet.
 
 ## 17. Key reference artifacts
 
@@ -389,5 +406,46 @@ When picking this up, the documents to read together:
 6. **`docs/superpowers/plans/2026-05-27-groups-phase-2-status-overrides.md`** — Phase 2 plan as executed
 7. **`docs/superpowers/specs/2026-05-28-nav-redesign-design.md`** + **`docs/superpowers/plans/2026-05-28-nav-redesign.md`** — Nav redesign as shipped
 8. **`docs/superpowers/plans/2026-05-31-groups-phase-3-in-app-invites.md`** — Phase 3 plan as executed
+9. **`docs/color-theme-architecture-v0.8.html`** — current color/theme/favorites architecture walkthrough (refreshed 2026-06-13: favorites-no-slots, prefs.js/userPrefs storage, calls mailboxes, db split, thickness grades).
+
+## 18. Session 2026-06-13 — what changed and what's still open
+
+A hygiene/perf/bugfix/docs sweep. Everything below is **merged to `dev`** unless marked otherwise. The 12-June multi-pass analysis transcripts were reconciled against the issue tracker; the genuinely-untracked findings were filed as #214–#218.
+
+### Shipped this session
+
+- **#214 RTDB client-listener efficiency (R1/R2/R3/R5/R6):**
+  - **R1** — boot call-recovery `watchOwnCall` was leaked *and* a duplicate of `following.js`'s watch. Now `initCallRecovery` captures the unsub and tears the listener down after the first fire (one-shot).
+  - **R2** — `initFollowGrants`'s unsub is now stored in a module var (`_followGrantsUnsub`) for a future user-switch teardown.
+  - **R3** — **`js/presenceHub.js`** (new): a shared per-uid presence-watch registry. A uid that is both a Direct followee and a group co-member is now watched **once**. Late consumers get an async replay of the cached value (no "Unavailable" flash). `following.js` + `groupContext.js` subscribe via `subscribePresence`. (Biggest steady-state bandwidth win.)
+  - **R5** — inbox `readGroup` N+1 per mailbox tick → per-session `cachedReadGroup` cache in `inbox.js`, cleared on `initInbox`; regression test added.
+  - **R6** — `rotateCode` now does one atomic multi-path `update()` instead of a `set()` per followee.
+  - **Remaining → #214 R4** (open): suspend Direct presence watches while parked in a group context. Deliberately deferred — it's entangled with `onContextChange` wiring, call-mode (an incoming-call peer is a Direct contact whose watch would be suspended), the float-to-top/sort lifecycle, and resume-without-flash. Plus two low-priority DOM items (inbox `innerHTML` rebuild; add-person `getElementById` re-query).
+- **#216 — shared status renderer:** `paintStatusDot(dot, { color, available, palettesEnabled })` (in `palettes.js`) + `availableForText(availableUntil)` (in `utils.js`). Both `following.js` and `groupContext.js` route the status dot and the "Available / Available for …" text through these, so the two rosters can't drift. (Closed.)
+- **`permission_denied` console-error fix:** repro was *ANN calls BOB, BOB declines → error on ANN's console*. ANN's peer-ended path was redundantly calling `endCall`, which tried to clear BOB's already-empty `calls/` mailbox → `update at / failed: permission_denied`. Fixed with the `exitCallMode(myUid, { peerEnded })` flag: when the peer ended it, skip the teardown write. Shared by `following.js` + `groupContext.js`.
+- **Hosting `no-cache` caching fix:** the chronic "have to clear cache to see updates" bug. `firebase.json`'s header rule used an extglob `source` (`@(/|/index.html|…)`) that Firebase Hosting silently doesn't match, so `index.html`/`sw.js`/`bundle.js` were served `max-age=3600` and CDN-cached for an hour. Replaced with a single `**` source carrying `Cache-Control: no-cache` (+ the CSP / X-Content-Type-Options / X-Frame-Options / Referrer-Policy headers). Confirmed fixed in prod (incognito shows `cache-control: no-cache`). See §10 §Service worker cache for the full model.
+- **Add-person `<label for>` a11y fix:** `index.template.html` labels now associate with their inputs (`for="add-code-input"`, `for="add-label-input"`).
+- **`db.js` → `db/{social,groups,canvas}.js` split (#183 H5)** plus helper extraction into `js/utils.js`; `db.js` is now a barrel. (See §3 module table.)
+- **Docs:** `color-theme-architecture-v0.7.html` → **`-v0.8.html`**, refreshed; this HANDOFF updated.
+
+### Filed this session (open issues)
+
+| # | Title | Notes |
+|---|---|---|
+| **#214** | Client RTDB listener efficiency | R1/R2/R3/R5/R6 done; **R4 + 2 minor DOM items remain** |
+| **#215** | Direct availability pushes carry no shared-context label | Group pushes label the context ("…in Family"); Direct don't. Plus a documented cross-invocation duplicate-push caveat |
+| **#217** | Doc drift: Phase-2 toggle-OFF + invite-push phasing | D1 `clearStatusOverride`→`mergeStatusOverride`; D2 per-group picker shipped; D3 push-on-invite shipped. **Code is correct, docs are stale.** This HANDOFF's §15 was corrected; the Phase 2 plan/spec still need it |
+| **#218** | Post-MVP groups backlog (tracking) | G-A admin role, G-B owner group color, G-C >5-card collapse, G-D dup-name UI, G-E approval-gated joins. Holding list — promote items when prioritized |
+
+### Deferred deliberately (with rationale)
+
+- **#214 R4** — see above.
+- **P3 wordlist build migration** (from #182) — couldn't verify the build path; risk > reward.
+- **#183 H5 remaining splits** — `following.js` → call-mode extraction and a further `groupContext.js` split are entangled; left for a focused pass.
+- **#193 App Check** — flag-day lockout risk; maintainer not convinced it's worth it for a 50–100 trusted-user app.
+
+### Pattern worth keeping
+
+Several of the above were split into "ship the safe, high-value part now; file the entangled remainder as its own issue" (R3 vs R4; the status-**dot** unification #216 vs the swatch-**row** collapse left as a decision). This was the repeatedly-endorsed approach: don't bundle a risky, cross-cutting behavioral change onto a clean mechanical one.
 
 Those eight artifacts together cover everything that matters.
