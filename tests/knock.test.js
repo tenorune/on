@@ -167,6 +167,30 @@ describe('initKnocks: deferred (null snapshot)', () => {
   });
 });
 
+describe('initKnocks: deferred-snapshot read resilience (cold-start auth race)', () => {
+  test('retries a transient permission_denied, then uses the snapshot once it succeeds', async () => {
+    getKnocks
+      .mockRejectedValueOnce(new Error('Permission denied'))
+      .mockResolvedValueOnce({ exists: () => false });
+    watchKnocksAdded.mockReturnValue(jest.fn());
+    const p = initKnocks('myUid');
+    await jest.runAllTimersAsync(); // ride out the retry backoff
+    await expect(p).resolves.toBeUndefined();
+    expect(getKnocks).toHaveBeenCalledTimes(2);
+  });
+
+  test('a persistently failing read degrades to live-only (no throw, retried) so delivery never stalls', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    getKnocks.mockRejectedValue(new Error('Permission denied'));
+    watchKnocksAdded.mockReturnValue(jest.fn());
+    const p = initKnocks('myUid');
+    await jest.runAllTimersAsync();
+    await expect(p).resolves.toBeUndefined();
+    expect(getKnocks.mock.calls.length).toBeGreaterThan(1);
+    warnSpy.mockRestore();
+  });
+});
+
 describe('initKnocks: deferred (within 24h)', () => {
   test('within-24h entries enqueue one deferred animation per sender', async () => {
     const ts = Date.now() - 1000; // 1 second ago

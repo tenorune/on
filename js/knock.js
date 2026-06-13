@@ -133,17 +133,30 @@ export async function initKnocks(myUserId) {
     clearKnock(myUserId, senderId).catch(() => {});
   });
 
-  // 2. Read deferred knocks (one-time get)
-  const snapshot = await getKnocks(myUserId);
+  // 2. Read deferred knocks (one-time get). A cold-start read can race the RTDB
+  //    connection's auth handshake: the custom-token auth propagates to the
+  //    socket slightly after signInWithCustomToken resolves, so a one-shot get()
+  //    can transiently fail with permission_denied — unlike live listeners,
+  //    which re-fire once authed. Retry briefly; on persistent failure, degrade
+  //    to live-only. (If this read threw, snapshotPending would stay true and the
+  //    live listener above would hold every knock for the whole session.)
+  let snapshot = null;
+  for (let attempt = 0; ; attempt += 1) {
+    try { snapshot = await getKnocks(myUserId); break; }
+    catch (err) {
+      if (attempt >= 4) { console.warn('initKnocks: deferred-knock snapshot unavailable, continuing live-only', err); break; }
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
 
   // 3. Populate deferredKeys from snapshot, then clear the pending flag so
   //    live events for non-deferred senders are processed normally going forward.
-  if (snapshot.exists()) {
+  if (snapshot && snapshot.exists()) {
     Object.keys(snapshot.val()).forEach(senderId => deferredKeys.add(senderId));
   }
   snapshotPending = false;
 
-  if (!snapshot.exists()) return;
+  if (!snapshot || !snapshot.exists()) return;
 
   // 4. Categorize snapshot entries
   const toDelete = [];
