@@ -208,7 +208,18 @@
 <body>
 
 <h1>Status App — Color &amp; Theme Data Model</h1>
-<p class="subtitle">v0.7 &middot; Palette Interactions &middot; March 2026</p>
+<p class="subtitle">v0.8 &middot; Cross-device favorites, per-group palettes &amp; call mailboxes &middot; June 2026</p>
+
+<div class="note">
+  <strong>Refreshed 2026-06-13.</strong> Since v0.7 the favorites strip lost its
+  "slot" pills (it is now a pure, cross-device-synced history list), color/palette
+  state moved from <code>store.js</code> localStorage to <code>prefs.js</code> +
+  <code>userPrefs/{uid}/</code> (so it syncs across devices), groups gained a
+  per-audience palette override, call signaling moved from a <code>callState</code>
+  field to <code>calls/{uid}</code> mailboxes, and <code>db.js</code> was split into
+  <code>db/{social,groups,canvas}.js</code> + <code>utils.js</code>. The combo
+  <em>shape</em> is unchanged; the machinery around it is what changed.
+</div>
 
 <nav class="toc">
   <h2>Contents</h2>
@@ -294,7 +305,7 @@ and restore previous configurations through the <strong>Favorites Strip</strong>
     <td><code>PALETTE_INTERACTIONS_ENABLED</code></td>
     <td><code>true</code></td>
     <td>
-      Favorites strip (slots + history pills), <code>saveFavorite</code> history recording,
+      Favorites strip (cross-device history pills), <code>saveCombo</code> history recording,
       long-press adoption on user cards.
       Requires <code>PALETTES_ENABLED = true</code>.
       When <code>false</code>: no strip, no adoption, no history.
@@ -448,32 +459,51 @@ card styling (background, border, text color) is cleared. The card reverts to CS
 
 <h3 id="favorites-strip">3.5 Favorites Strip <span class="flag-badge flag-interactions">INTERACTIONS</span></h3>
 
-<p>A horizontally-scrollable strip below the swatch row. Contains two types of pills:</p>
+<p>A horizontally-scrollable strip below the swatch row. It is a <strong>pure history list</strong>
+of recently-used color/theme combos — most recent first, capped at <code>MAX_FAVORITES = 8</code>.</p>
 
-<h4>Slot Pills (Slots 1 &amp; 2)</h4>
+<div class="note">
+  <strong>Changed since v0.7:</strong> the strip no longer has "slot" pills (the two
+  always-present pills that mirrored Set 1 / Set 2). Every pill is now a history combo,
+  and the favorites array is <strong>synced across devices</strong> via
+  <code>userPrefs/{uid}/favorites</code> (a sibling device's change re-renders the strip
+  through the <code>favorites-synced</code> event).
+</div>
+
+<h4>History Pills</h4>
 <ul>
-  <li>Always present; mirror the current state of Set 1 and Set 2</li>
+  <li>Auto-saved combos, most recent first, capped at 8</li>
   <li>Each pill is a split circle: left half = <code>statusColor</code>, right half = <code>surface2</code></li>
-  <li><strong>Active set's pill</strong>: reduced opacity, not tappable (it's what you're already looking at)</li>
-  <li><strong>Inactive set's pill</strong>: full opacity, tappable — tapping switches to that set</li>
+  <li>Full opacity, tappable. Created by a single writer, <code>saveCombo(combo)</code>, called when
+      the user goes available (<code>buildDirectCombo()</code>) or long-press-adopts another user's
+      combo (<code>buildAdoptedCombo()</code>) — in both Direct and group context</li>
+  <li>The whole array is deduped by visual identity (<code>statusColor</code> + <code>surface2</code>)
+      on every write (see §6)</li>
 </ul>
 
-<h4>History Pills (Slots 3–8)</h4>
+<h4>Tapping a Pill</h4>
 <ul>
-  <li>Auto-saved combos, most recent first. Maximum 6 items</li>
-  <li>Full opacity, tappable — tapping restores the combo (color + theme + set)</li>
-  <li>Created by <code>saveFavorite(true)</code> (forced, pre-adoption) or <code>saveFavorite(false)</code> (going available)</li>
+  <li><strong>In Direct:</strong> restores the live picker to that combo (set, swatch, color, theme)
+      without mutating history</li>
+  <li><strong>In a group:</strong> applies the combo to the group's <code>statusOverride</code> +
+      per-group palette state (same path as long-press group adoption), via
+      <code>applyAdoptedComboInGroup</code></li>
 </ul>
+
+<h4>Dual containers</h4>
+<p>The strip is rendered into two DOM nodes — <code>#favorites-strip</code> (inside
+<code>#main-ui-direct</code>) and <code>#group-favorites-strip</code> (inside
+<code>#group-context-root</code>). Both show the same favorites; only the one in the active
+context is visible. Click handlers dispatch by whichever context is active at tap time.</p>
 
 <h4>Layout</h4>
-<p>Pills stretch dynamically to fill the strip width (<code>flex: 1 1 0</code>) rather than
-using a fixed width. With up to 8 pills sharing the space, each pill shrinks or grows
-proportionally.</p>
+<p>Pills stretch dynamically to fill the strip width rather than using a fixed width. With up to
+8 pills sharing the space, each pill shrinks or grows proportionally (animated on count change).</p>
 
 <h4>Collapsed Mode</h4>
-<p>A single gradient line showing all pill colors left-to-right. Tap to expand.
-The collapsed touch target extends below the visible line (via padding) to fill
-the gap between the strip and the list.</p>
+<p>A single gradient line showing all pill colors left-to-right. Tap to expand. A first-use
+"peek" animation (every 6s until opened) nudges the user to open it. Collapsed/expanded state is
+itself synced (<code>userPrefs/{uid}/favoritesCollapsed</code>).</p>
 
 <h4>Gestures</h4>
 <ul>
@@ -488,23 +518,39 @@ the gap between the strip and the list.</p>
 
 <h3 id="firebase-schema">4.1 Firebase Schema</h3>
 
-<p>Firebase Realtime Database. All palette-related fields live on the user record at <code>users/{userId}/</code>.</p>
+<p>Firebase Realtime Database. The user's palette fields live on the presence record at
+<code>users/{userId}/presence/</code>. Call signaling, revocations, and knocks are separate
+top-level mailboxes (not sub-nodes of the user record).</p>
 
 <pre><code>users/
   {userId}/
-    code: string               // 6-char discovery code
-    status: "available" | "unavailable"
-    availableUntil: number|null  // ms timestamp
-    lastSeen: number             // ms timestamp
-    statusColor: string          // hex, e.g. "#22c55e"
-    paletteKey: string|null      // active palette ID or null (base mode)
-    callState: { calleeId, since } | null
+    presence/
+      code: string               // 6-char discovery code
+      status: "available" | "unavailable"
+      availableUntil: number|null  // ms timestamp
+      lastSeen: number             // ms timestamp
+      statusColor: string          // hex, e.g. "#22c55e"
+      paletteKey: string|null      // active palette ID or null (base mode)
     followers/
-      {followerId}: string       // follower's code
-    revokedFollowers/
-      {followerId}: true
-    knocks/
-      {senderId}: { count, ts }</code></pre>
+      {followerId}: string         // follower's code
+
+calls/                             // symmetric call mailboxes (was the old callState field)
+  {userId}: { to|from, ts, answered? } | null
+revocations/                       // "X removed me as a follower" mailbox (was revokedFollowers)
+  {userId}/
+    {revokerId}: true
+knocks/
+  {recipientId}/
+    {senderId}: { count, ts }</code></pre>
+
+<div class="note">
+  <strong>Per-audience palette (groups):</strong> a member's per-group color/theme override lives at
+  <code>groups/{groupId}/members/{memberUid}/statusOverride</code> =
+  <code>{ enabled, status, availableUntil, statusColor?, paletteKey? }</code>. When
+  <code>enabled</code>, that group renders the member with the override's color/theme instead of
+  their Direct <code>statusColor</code>/<code>paletteKey</code> — this is the "per-audience color
+  picker" the group swatch row drives.
+</div>
 
 <h4>Palette-Relevant Fields</h4>
 
@@ -514,7 +560,7 @@ the gap between the strip and the list.</p>
     <td><code>statusColor</code></td>
     <td>hex string</td>
     <td><code>palettes.js</code>, <code>favorites.js</code>, <code>following.js</code></td>
-    <td>Current status indicator color. Read by peers via <code>watchStatus</code> to style cards.</td>
+    <td>Current status indicator color. Read by peers via <code>watchPresence</code> to style cards.</td>
   </tr>
   <tr>
     <td><code>paletteKey</code></td>
@@ -549,22 +595,37 @@ the gap between the strip and the list.</p>
   </tr>
   <tr>
     <td><code>setStatus(userId, status, availableUntil)</code></td>
-    <td>db.js</td>
+    <td>db/social.js</td>
     <td>Write</td>
-    <td>Updates <code>status</code>, <code>availableUntil</code>, <code>lastSeen</code></td>
+    <td>Updates <code>presence/status</code> + <code>presence/availableUntil</code>
+        (<code>lastSeen</code> is bumped separately by <code>touchLastSeen</code>)</td>
   </tr>
   <tr>
-    <td><code>watchStatus(userId, callback)</code></td>
-    <td>db.js</td>
+    <td><code>watchPresence(userId, callback)</code></td>
+    <td>db/social.js</td>
     <td>Stream</td>
-    <td>Real-time listener on entire user record; delivers <code>statusColor</code> and <code>paletteKey</code> to peers</td>
+    <td>Real-time listener on <code>users/{userId}/presence</code>; delivers <code>statusColor</code> and <code>paletteKey</code> to peers</td>
   </tr>
 </table>
 
+<p class="note" style="margin-top:0.75rem;">The <code>db.js</code> entries in the tables throughout this
+doc now resolve through the <code>db/{social,groups,canvas}.js</code> split — see §9. The public
+<code>./db.js</code> import path is unchanged (it re-exports the three modules), so call sites and the
+function names above are the same.</p>
+
 <h3 id="local-palette-state">4.2 Local Palette State</h3>
 
-<p>Stored in <code>localStorage</code> at key <code>statusapp_palette_state</code>. Managed by
-<code>getPaletteState()</code> / <code>setPaletteState()</code> in <code>store.js</code>.</p>
+<p>Managed by <code>getPaletteState()</code> / <code>setPaletteState()</code> in <code>prefs.js</code>.
+Reads stay synchronous off a <code>localStorage</code> cache (key <code>statusapp_palette_state</code>,
+the underlying store still lives in <code>store.js</code>); writes <em>also</em> fan out to
+<code>userPrefs/{uid}/paletteState/direct</code> so the Direct picker state syncs across devices.</p>
+
+<div class="note">
+  <strong>Per-group palette state:</strong> each group keeps its own independent picker state at
+  <code>userPrefs/{uid}/perGroup/{groupId}/paletteState</code>, via
+  <code>getGroupPaletteState(groupId)</code> / <code>setGroupPaletteState(groupId, state)</code>
+  (same shape as below). The group swatch row reads/writes this instead of the Direct state.
+</div>
 
 <pre><code>{
   activeSet: 1 | 2,                   // Which set is currently active
@@ -589,7 +650,7 @@ the gap between the strip and the list.</p>
   <tr>
     <td><code>activeSet</code></td>
     <td>Set switch, adoption, history restore</td>
-    <td>Swatch rendering, strip rendering, <code>buildCombo</code></td>
+    <td>Swatch rendering, strip rendering, <code>buildDirectCombo</code></td>
     <td>Which set (1 or 2) the user is currently working in</td>
   </tr>
   <tr>
@@ -607,19 +668,20 @@ the gap between the strip and the list.</p>
   <tr>
     <td><code>selectedColor</code></td>
     <td>Every explicit user color choice (swatch tap, complement tap, key swatch select, adoption)</td>
-    <td><code>renderSwatchRow</code> (ring on complement), <code>switchSet</code> (restore color), <code>slotCombo</code> (inactive slot color), <code>saveFavorite</code> (explicit-choice gate)</td>
+    <td><code>renderSwatchRow</code> (ring on complement), <code>switchSet</code> (restore color), <code>buildDirectCombo</code> (combo color)</td>
     <td>
-      The exact color the user chose. May differ from palette's primary when a complement
-      is selected. Also serves as the "user has made an explicit choice" signal —
-      if absent, <code>saveFavorite(false)</code> skips saving.
+      The exact color the user chose. May differ from the palette's primary when a complement
+      is selected. <code>buildDirectCombo</code> reads it (falling back to <code>--my-status</code>)
+      when assembling the combo that going-available saves.
     </td>
   </tr>
 </table>
 
 <div class="note">
-  <strong>Local-only vs. persisted:</strong> <code>selectedKey</code>, <code>activePaletteKey</code>,
-  <code>selectedColor</code>, and <code>activeSet</code> are local only (localStorage).
-  Only <code>statusColor</code> and <code>paletteKey</code> are written to Firebase for peer visibility.
+  <strong>Picker state vs. peer-visible state:</strong> <code>selectedKey</code>, <code>activePaletteKey</code>,
+  <code>selectedColor</code>, and <code>activeSet</code> are picker state — cached in localStorage and
+  synced privately to <code>userPrefs/{uid}/paletteState/direct</code> (cross-device, not visible to peers).
+  Only <code>statusColor</code> and <code>paletteKey</code> are written to the public presence record for peer visibility.
 </div>
 
 <h4>Default State</h4>
@@ -635,7 +697,10 @@ the gap between the strip and the list.</p>
 
 <h3 id="favorites-storage">4.3 Favorites Storage</h3>
 
-<p>Stored in <code>localStorage</code> at key <code>statusapp_favorites</code>. Array of "combo" objects, maximum 6.</p>
+<p>Array of "combo" objects, capped at <code>MAX_FAVORITES = 8</code>. Managed by
+<code>getFavorites()</code> / <code>setFavorites()</code> in <code>prefs.js</code>: reads come from
+a <code>localStorage</code> cache (key <code>statusapp_favorites</code>), and writes also fan out to
+<code>userPrefs/{uid}/favorites</code> so the strip syncs across devices.</p>
 
 <h4>Combo Object Shape</h4>
 
@@ -652,7 +717,7 @@ the gap between the strip and the list.</p>
   <tr><th>Field</th><th>Source</th><th>Used For</th></tr>
   <tr>
     <td><code>statusColor</code></td>
-    <td>CSS <code>--my-status</code> (active set) or <code>selectedColor</code> (inactive set)</td>
+    <td>CSS <code>--my-status</code> (<code>buildDirectCombo</code>) or the adopted source's color (<code>buildAdoptedCombo</code>)</td>
     <td>Left half of pill color; pen color for Call Canvas; restored on tap</td>
   </tr>
   <tr>
@@ -692,8 +757,8 @@ fall back to these constants defined in <code>favorites.js</code>:</p>
   <tr>
     <td><code>DEFAULT_STATUS_COLOR</code></td>
     <td><code>#22c55e</code></td>
-    <td><code>statusColor</code> in <code>slotCombo()</code> when inactive set has no
-        <code>selectedColor</code> and no palette color</td>
+    <td><code>statusColor</code> in <code>buildAdoptedCombo()</code> when the adopted source has
+        no <code>statusColor</code></td>
   </tr>
   <tr>
     <td><code>DEFAULT_SURFACE</code></td>
@@ -707,43 +772,49 @@ fall back to these constants defined in <code>favorites.js</code>:</p>
   </tr>
 </table>
 
-<h4>Internal Tracking: <code>_lastCommittedCombo</code></h4>
-
-<p>An in-memory variable (not persisted) that tracks the "last committed" combo state.
-Used by <code>saveFavorite(false)</code> to determine what the <em>previous</em> combo was,
-so it can save it to history when the user goes available with a new combo.</p>
-
-<table>
-  <tr><th>Event</th><th>Updated To</th></tr>
-  <tr><td><code>initFavoritesStrip()</code></td><td><code>buildCombo()</code> — current live state</td></tr>
-  <tr><td><code>saveFavorite()</code> (any call)</td><td>Current combo at time of call</td></tr>
-  <tr><td><code>handleSlotTap()</code></td><td><code>slotCombo(newSlot)</code> — the slot switched to</td></tr>
-  <tr><td><code>handleHistoryTap()</code></td><td>The restored combo</td></tr>
-  <tr><td><code>onPaletteStateChanged()</code> (set switch via Bolt/Flower toggle)</td>
-      <td><code>slotCombo(newActiveSet)</code> — detects <code>activeSet</code> change
-          and re-baselines to the new set</td></tr>
-</table>
+<div class="note">
+  <strong>Removed since v0.7:</strong> the slot model is gone, and with it the in-memory
+  <code>_lastCommittedCombo</code> baseline, <code>slotCombo()</code>, and <code>handleSlotTap()</code>.
+  Saving is now a single stateless writer (<code>saveCombo</code>) plus whole-array dedup, so no
+  "previous combo" bookkeeping is needed.
+</div>
 
 <h3 id="combo-apis">4.4 Combo APIs</h3>
 
-<p>Two exported functions in <code>favorites.js</code> provide unified access to all favorite combos
-without consumers needing to know about the underlying storage keys.</p>
+<p>Exported from <code>favorites.js</code>:</p>
 
 <table>
-  <tr><th>Function</th><th>Returns</th><th>Purpose</th></tr>
+  <tr><th>Function</th><th>Returns / Effect</th><th>Purpose</th></tr>
   <tr>
-    <td><code>getAllCombos()</code></td>
-    <td>Array of up to 8 combos: <code>[slotCombo(1), slotCombo(2), ...getFavorites()]</code></td>
-    <td>Single API for all favorite combos — live slots (Set 1, Set 2) followed by
-        history (up to 6). Each combo has the full enriched shape including
-        <code>surface</code> and <code>surface2</code>.</td>
+    <td><code>buildDirectCombo()</code></td>
+    <td>A combo from the live Direct picker state (<code>--my-status</code> + current set's
+        <code>selectedKey</code>/<code>activePaletteKey</code>)</td>
+    <td>What going-available (me.js) and the Direct strip save</td>
+  </tr>
+  <tr>
+    <td><code>buildAdoptedCombo(statusColor, paletteKey)</code></td>
+    <td>A combo from an arbitrary (color, palette) pair</td>
+    <td>Long-press adoption from a card — Direct (following.js) and group (groupContext.js)</td>
+  </tr>
+  <tr>
+    <td><code>saveCombo(combo)</code></td>
+    <td>Prepends <code>combo</code> to <code>getFavorites()</code>, dedupes the whole array, caps at 8,
+        persists + re-renders. The single writer.</td>
+    <td>Called by both build* paths above (Direct + group)</td>
+  </tr>
+  <tr>
+    <td><code>dedupeCombos(arr)</code></td>
+    <td>Array with visual duplicates (<code>statusColor</code>+<code>surface2</code>) removed,
+        first occurrence kept</td>
+    <td>Used inside <code>saveCombo</code> and by <code>prefs.syncFromServer</code> to clean
+        server-sourced arrays</td>
   </tr>
   <tr>
     <td><code>getCanvasColors()</code></td>
     <td><code>{ penColors: string[], bgColors: string[] }</code></td>
-    <td>Deduplicated color arrays extracted from <code>getAllCombos()</code>.
-        <code>penColors</code> = unique <code>statusColor</code> values (for drawing pen palette).
-        <code>bgColors</code> = unique <code>surface</code> values (for canvas background options).</td>
+    <td>Pen/bg color lists for the Call Canvas, extracted from <code>getFavorites()</code>:
+        <code>penColors</code> = unique <code>statusColor</code> (padded to 4 with default palette
+        colors), <code>bgColors</code> = unique <code>surface</code></td>
   </tr>
 </table>
 
@@ -858,7 +929,8 @@ within that theme changes. This is how a user can have Forest theme with a non-F
 <p>Triggered by:</p>
 <ul>
   <li>The <strong>Bolt/Flower toggle</strong> button in the swatch row</li>
-  <li>Tapping an <strong>inactive Slot pill</strong> in the favorites strip</li>
+  <li><strong>History pill restore</strong> (Direct) — <code>handleHistoryTap</code> calls
+      <code>switchSet(combo.activeSet)</code> to land on the pill's set</li>
   <li><strong>Long-press adoption</strong> — if the adopted combo belongs to the user's currently
       inactive set, <code>applyAdoption</code> sets <code>activeSet</code> to that set before
       calling <code>enterPaletteMode</code> or <code>switchSet</code>, effectively switching sets
@@ -912,26 +984,21 @@ setAvailable(availableUntil) in me.js
   +-- if transitioning from unavailable &amp; PALETTES_ENABLED:
         |
         v
-      saveFavorite(false)
+      saveCombo(buildDirectCombo())          &lt;-- save the combo you're going available WITH
         |
-        +-- Guard: PALETTE_INTERACTIONS_ENABLED?      &lt;-- no  = return
-        +-- Guard: selectedColor set?                  &lt;-- no  = return (no explicit choice)
-        +-- previousCombo = _lastCommittedCombo
-        +-- _lastCommittedCombo = currentCombo
-        +-- Guard: previousCombo exists?               &lt;-- no  = return (first time)
-        +-- Guard: current !== previous?               &lt;-- same = return (no change)
-        +-- Guard: !slotVisuallyMatches(prev, slot1)?  &lt;-- match = return (already in slot)
-        +-- Guard: !slotVisuallyMatches(prev, slot2)?  &lt;-- match = return (already in slot)
-        +-- Guard: !history.some(pillsLookSame(prev))?  &lt;-- match = return (looks same in history)
-        |
-        +-- setFavorites([previousCombo, ...history])  &lt;-- localStorage
+        +-- Guard: PALETTES &amp;&amp; INTERACTIONS?  &lt;-- no = return
+        +-- prepend combo to getFavorites()
+        +-- dedupeCombos(whole array)         &lt;-- drop visual dups (statusColor+surface2)
+        +-- cap at MAX_FAVORITES (8)
+        +-- setFavorites(arr)                 &lt;-- localStorage + userPrefs/{uid}/favorites
         +-- renderStrip()
 </pre>
 </div>
 
-<p>Key insight: <code>saveFavorite(false)</code> saves the <strong>previous</strong> combo (what was
-committed before the user changed), not the current one. The current combo is already visible
-in Slot 1 or 2.</p>
+<p>Unlike v0.7 (which saved the <em>previous</em> combo via a <code>_lastCommittedCombo</code>
+baseline), going available now simply saves the combo you are going available <em>with</em>.
+<code>saveCombo</code>'s whole-array dedup means re-going-available with an unchanged combo is a
+no-op (it already sits at the head), so there is no separate "no change" guard to maintain.</p>
 
 <h3 id="adoption">5.5 Long-Press Adoption <span class="flag-badge flag-interactions">INTERACTIONS</span></h3>
 
@@ -942,13 +1009,12 @@ User long-presses on a followee's card
   v
 triggerAdoption(entry, myUserId)
   |
-  +-- saveFavorite(true)                      &lt;-- force-save current combo to history
-  |     (so user can recover pre-adoption state)
+  +-- saveCombo(buildAdoptedCombo(            &lt;-- save the ADOPTED combo to history,
+  |     target.statusColor, target.paletteKey))   built from the source's broadcast state,
+  |                                                BEFORE applying (apply mutates picker state).
+  |                                                Whole-array dedup handles same-combo adoption.
   |
   +-- applyAdoption(entry, myUserId)
-  |
-  +-- removeHistoryDuplicatesOfSlots()        &lt;-- post-cleanup: if adoption didn't
-        change anything, removes the now-duplicate pill
         |
         +-- Read target's statusColor, paletteKey from lastUserData cache
         |
@@ -974,12 +1040,16 @@ triggerAdoption(entry, myUserId)
 </div>
 
 <div class="note">
-  <strong>Save timing:</strong> The pre-adoption <code>saveFavorite(true)</code> captures the
-  user's state <em>before</em> adoption. The adopted combo itself enters history only when the user
-  later moves away from it — either via another adoption or by going available with a new combo.
-  After adoption, <code>removeHistoryDuplicatesOfSlots()</code> cleans up: if the adopted combo
-  is identical to the user's current state (same-combo adoption), the pre-save is removed
-  since it now visually matches a slot.
+  <strong>Save semantics (v0.8):</strong> adoption now saves the <em>adopted</em> combo itself
+  (not the pre-adoption state) to history, then applies it. <code>saveCombo</code>'s whole-array
+  dedup is what handles a same-combo adoption — the prepended pill collapses against any existing
+  visual duplicate, so no separate post-cleanup pass is needed (the old
+  <code>removeHistoryDuplicatesOfSlots()</code> is gone).
+  <br><br>
+  <strong>Group adoption</strong> mirrors this: long-pressing a roster member (or tapping a strip
+  pill while in a group) routes through <code>groupContext.applyAdoptedComboInGroup(statusColor,
+  paletteKey)</code>, which writes the group's <code>statusOverride</code> + per-group palette state
+  and <code>saveCombo</code>s the same adopted combo.
 </div>
 
 <h3 id="history-restore">5.6 History Pill Restore <span class="flag-badge flag-interactions">INTERACTIONS</span></h3>
@@ -991,101 +1061,67 @@ User taps history pill [idx]
   v
 handleHistoryTap(idx)
   |
-  +-- Read combo from history array
-  +-- Snapshot the slot being OVERWRITTEN: slotCombo(combo.activeSet)
-  |     (captures the target set's state, not the active set —
-  |      the target set is what changes when a cross-set pill is tapped)
+  +-- combo = getFavorites()[idx]
   |
-  +-- Update state: selectedKey + selectedColor on target set
-  +-- setPaletteState()                     &lt;-- localStorage
+  +-- if active context is a GROUP:
+  |     applyAdoptedComboInGroup(combo.statusColor, combo.paletteKey)
+  |       (writes the group's statusOverride + per-group paletteState; same
+  |        path as long-press group adoption, sourced from the pill)
+  |     return
   |
-  +-- switchSet(combo.activeSet, userId)    &lt;-- applies color + theme + Firebase
-  |
-  +-- If combo.paletteKey:
-  |     enterPaletteMode(key, userId)
-  +-- Else if activePaletteKey was set:
-  |     exitPaletteMode(userId)             &lt;-- clear theme
-  |
-  +-- Override status color to combo's exact color:
-  |     CSS: --my-status = combo.statusColor
-  |     setStatusColor(userId, combo.statusColor)  &lt;-- Firebase
-  |
-  +-- Remove tapped pill from history
-  +-- Prepend old slot to history (if it doesn't match new Slot 1, 2, or existing history)
-  +-- _lastCommittedCombo = combo
-  +-- setFavorites(), renderStrip()
+  +-- else (Direct): restore the live picker to this combo
+        +-- state.sets[combo.activeSet].selectedKey   = combo.selectedKey
+        +-- state.sets[combo.activeSet].selectedColor = combo.statusColor
+        +-- setPaletteState(state)                  &lt;-- localStorage + userPrefs
+        +-- switchSet(combo.activeSet, userId)
+        +-- combo.paletteKey ? enterPaletteMode(key) : exitPaletteMode()
+        +-- --my-status / --my-glow = combo.statusColor / glow
+        +-- setStatusColor(userId, combo.statusColor)   &lt;-- Firebase
+        (NO history mutation — restoring doesn't reshuffle the strip)
 </pre>
+</div>
+
+<div class="note">
+  <strong>Changed since v0.7:</strong> restoring no longer snapshots/reshuffles history (the old
+  "prepend the overwritten slot" + <code>_lastCommittedCombo</code> bookkeeping is gone) — a tap just
+  restores. And a tap behaves differently per context: in Direct it restores the picker; in a group
+  it applies the combo to that group's override.
 </div>
 
 <!-- ===== 6. DEDUP ===== -->
 <h2 id="dedup">6. Favorites Deduplication</h2>
 
-<p>History pills are deduplicated to avoid visual clutter. Three mechanisms work together:</p>
-
-<table>
-  <tr><th>#</th><th>Check</th><th>What It Prevents</th></tr>
-  <tr>
-    <td>1</td>
-    <td><code>selectedColor</code> must be set</td>
-    <td>No pill when going available/unavailable repeatedly without ever choosing a color
-        (first-time use with defaults)</td>
-  </tr>
-  <tr>
-    <td>2</td>
-    <td><code>slotVisuallyMatches(prev, slot1 | slot2)</code></td>
-    <td>No pill when the previous combo is already visible in Slot 1 or 2
-        (e.g. default state matches a slot)</td>
-  </tr>
-  <tr>
-    <td>3</td>
-    <td><code>history.some(h =&gt; pillsLookSame(prev, h))</code></td>
-    <td>No pill when a visually identical pill already exists anywhere in history
-        (compares <code>statusColor</code> + <code>surface2</code> only)</td>
-  </tr>
-  <tr>
-    <td>4</td>
-    <td><code>removeHistoryDuplicatesOfSlots()</code></td>
-    <td>Post-adoption cleanup: removes any history pill that now visually matches
-        Slot 1 or Slot 2 (handles same-combo adoption where pre-save creates a duplicate)</td>
-  </tr>
-</table>
-
-<h4>Comparison Functions</h4>
+<p>The strip dedupes by <strong>visual identity</strong> so two combos that look the same don't both
+appear. With the slot model gone, this collapsed from four interacting mechanisms to one:</p>
 
 <table>
   <tr><th>Function</th><th>Compares</th><th>Use</th></tr>
   <tr>
-    <td><code>combosMatch(a, b)</code></td>
-    <td><code>statusColor</code>, <code>paletteKey</code>, <code>selectedKey</code>, <code>activeSet</code></td>
-    <td>Exact equality — used for detecting "no change" between current and previous combo,
-        and for slot dedup in <code>handleHistoryTap</code></td>
-  </tr>
-  <tr>
     <td><code>pillsLookSame(a, b)</code></td>
-    <td><code>statusColor</code>, <code>surface2</code></td>
-    <td>Visual equality — compares only what the user sees (pill left/right colors).
-        Used for history dedup in both force-save and non-forced paths, and for
-        <code>removeHistoryDuplicatesOfSlots</code> post-adoption cleanup</td>
+    <td><code>statusColor</code> + <code>surface2</code></td>
+    <td>Visual equality — only what the user sees (pill left/right colors). The single
+        comparison used everywhere.</td>
   </tr>
   <tr>
-    <td><code>slotVisuallyMatches(combo, setNum)</code></td>
-    <td><code>statusColor</code>, <code>paletteKey</code>, <code>selectedKey</code> (ignores <code>activeSet</code>)</td>
-    <td>Appearance-only match — used for slot dedup. Ignores <code>activeSet</code>
-        because that field is irrelevant to whether a combo <em>looks like</em>
-        what's already in a slot.</td>
+    <td><code>dedupeCombos(arr)</code></td>
+    <td>—</td>
+    <td>Walks the array keeping the first occurrence of each <code>pillsLookSame</code> group.
+        Cleans both freshly-written and server-sourced arrays.</td>
   </tr>
 </table>
 
+<p>Every <code>saveCombo(combo)</code> prepends the incoming combo, runs <code>dedupeCombos</code> over
+the whole array (so an incoming duplicate collapses against any existing pill regardless of
+position), then caps at 8. A fast path skips the write entirely when the incoming combo already
+matches the head and the array has no deeper duplicates. <code>prefs.syncFromServer</code> runs the
+same <code>dedupeCombos</code> on arrays arriving from other devices.</p>
+
 <div class="note">
-  <strong>Why <code>slotVisuallyMatches</code> ignores <code>activeSet</code>:</strong>
-  The previous combo being checked has an <code>activeSet</code> value baked in from when
-  it was captured, and the slot is always either Set 1 or Set 2. The question being asked
-  is "does this combo look like what's already visible in this slot?" — <code>activeSet</code>
-  is not part of a pill's visual appearance (both slots render the same way: left half =
-  <code>statusColor</code>, right half = <code>surface2</code>), so it is excluded.
-  Note that cross-set visual matches cannot actually occur with the current palette definitions,
-  since Set 1 and Set 2 have disjoint palette keys — but the comparison is correct to focus
-  on appearance rather than set membership.
+  <strong>Why visual-only (<code>statusColor</code> + <code>surface2</code>)?</strong>
+  Two pills that render identically would be confusing to keep both, even if their underlying
+  combo objects differ (e.g. a base-mode forest vs. a palette-mode forest can share a dot color).
+  Dedup deliberately ignores <code>paletteKey</code>/<code>selectedKey</code>/<code>activeSet</code>
+  and compares only the two colors a pill actually shows.
 </div>
 
 <!-- ===== 7. PALETTE SETS ===== -->
@@ -1199,19 +1235,19 @@ canvas regardless of who initiated.</p>
 <div class="diagram">
 <pre style="margin:0;border:0;background:transparent;font-size:0.8rem;">
 Caller swipes right on card
-  → enterCallMode() — writes callState to Firebase, card glows
+  → enterCallMode() — startCall(): writes calls/{caller} + calls/{callee}, card glows
 
-Receiver sees glow, swipes right
-  → writes own callState (without clearing caller's)
+Receiver sees glow, swipes right (answers)
+  → answerCall(): sets answered=true on both calls/ mailboxes
   → enterCanvas(peerId, peerName, myUserId, myColor, peerColor, surface, onExit)
      → loadCanvas() — get existing strokes + bg
      → render strokes on &lt;canvas&gt;
-     → watchStrokes() — listen for peer's new strokes
+     → watchStrokes() — listen for peer's new strokes (returns its unsub)
      → setCanvasPresence(true)
      → watchCanvasPresence() — detect peer leave/rejoin
      → build floating UI (header + toolbox)
 
-Caller's updateFolloweeRow detects mutual callState
+Caller's own-call watcher (watchOwnCall on calls/{me}) sees answered=true
   → auto-enters canvas (same enterCanvas flow)
 </pre>
 </div>
@@ -1223,11 +1259,11 @@ Caller's updateFolloweeRow detects mutual callState
 User taps ‹ header → confirmation dialog → confirms
   → exitCanvas()
      → setCanvasPresence(false)
-     → unwatchStrokes(), unwatchCanvasPresence()
+     → drains its watcher unsub list (strokes/presence/bg/drawing/clearRequest)
      → remove floating UI, show main UI
   → exitCallMode(myUserId)
-     → clearCallState(myUserId) — own callState only
-     → peer's callState remains (their card keeps glowing)
+     → endCall(myUserId, peerId) — clears both calls/ mailboxes (the side that
+       hangs up writes the teardown; a peer-ended exit skips it, see note)
 
 Peer (still on canvas):
   → presence watcher sees false → dims header, shows "partner left" dialog
@@ -1239,7 +1275,7 @@ Peer (still on canvas):
 <h4>Re-entry</h4>
 
 <p>After leaving canvas, if peer is still on canvas, their card keeps glowing
-(peer's callState still points at you). Swiping right on the glowing card
+(peer's <code>calls/</code> mailbox still references you). Swiping right on the glowing card
 re-enters the canvas with one swipe — the existing receiver-answer code path
 handles it since <code>isCallModeReceiver</code> is true.</p>
 
@@ -1267,8 +1303,8 @@ Main UI (header, strip, list) is hidden while canvas is active.</p>
     <td>Toolbox (expanded)</td>
     <td>Bottom-right</td>
     <td>Color dots row (up to 8, from <code>getCanvasColors().penColors</code>)
-        with white ring on selected. Separator. Thickness dots row (3 grades).
-        Tap outside to close.</td>
+        with white ring on selected. Separator. Thickness dots row (6 grades, drag-as-slider).
+        Background-color row (surface squares; syncs to both users). Tap outside to close.</td>
   </tr>
 </table>
 
@@ -1283,11 +1319,18 @@ Main UI (header, strip, list) is hidden while canvas is active.</p>
 Thickness is also normalized (multiplied by canvas width when rendering).</p>
 
 <table>
-  <tr><th>Thickness Grade</th><th>Normalized Value</th><th>Toolbox Dot Size</th></tr>
-  <tr><td>Thin</td><td>0.005</td><td>6px</td></tr>
-  <tr><td>Medium (default)</td><td>0.012</td><td>14px</td></tr>
-  <tr><td>Thick</td><td>0.025</td><td>24px</td></tr>
+  <tr><th>Grade</th><th>Normalized Value</th><th>Toolbox Dot Size</th></tr>
+  <tr><td>1</td><td>0.002</td><td>3px</td></tr>
+  <tr><td>2</td><td>0.005</td><td>6px</td></tr>
+  <tr><td>3 (default)</td><td>0.01</td><td>10px</td></tr>
+  <tr><td>4</td><td>0.018</td><td>16px</td></tr>
+  <tr><td>5</td><td>0.03</td><td>22px</td></tr>
+  <tr><td>6</td><td>0.05</td><td>30px</td></tr>
 </table>
+<p>The canvas also supports a background-color picker (synced via <code>watchCanvasBg</code>),
+real-time mid-stroke preview to the peer (<code>setDrawingState</code>/<code>watchDrawing</code>),
+own-stroke undo (capped at 8), and clear-canvas with mutual agreement
+(<code>setClearRequest</code>/<code>watchClearRequest</code>) — all shipped since v0.7.</p>
 
 <h4>Drawing Flow</h4>
 
@@ -1300,9 +1343,9 @@ Thickness is also normalized (multiplied by canvas width when rendering).</p>
 
 <h4>Pen Colors</h4>
 
-<p>Colors come from <code>getCanvasColors().penColors</code> — up to 8 unique
-<code>statusColor</code> values from the user's favorites (slots 1–2 + history).
-The user's current <code>statusColor</code> is the default pen and is prepended
+<p>Colors come from <code>getCanvasColors().penColors</code> — unique <code>statusColor</code>
+values from the user's favorites history, padded up to 4 with default palette colors when the
+user has fewer. The user's current <code>statusColor</code> is the default pen and is prepended
 if not already in the list.</p>
 
 <!-- ===== 9. FILE MAP ===== -->
@@ -1316,14 +1359,28 @@ if not already in the list.</p>
   </tr>
   <tr>
     <td><code>js/store.js</code></td>
-    <td><code>getPaletteState</code> / <code>setPaletteState</code> (localStorage). Also <code>getFavorites</code> / <code>setFavorites</code>.</td>
+    <td>Underlying <code>localStorage</code> palette-state store (<code>getPaletteState</code> /
+        <code>setPaletteState</code>). Wrapped by <code>prefs.js</code> — call sites import from there, not here.</td>
   </tr>
   <tr>
-    <td><code>js/db.js</code></td>
-    <td><code>setStatusColor</code>, <code>setPaletteKey</code>, <code>watchStatus</code> — Firebase persistence.
-        Canvas: <code>getCanvasId</code>, <code>loadCanvas</code>, <code>pushStroke</code>,
-        <code>setCanvasBg</code>, <code>watchStrokes</code>, <code>setCanvasPresence</code>,
-        <code>watchCanvasPresence</code>.</td>
+    <td><code>js/prefs.js</code></td>
+    <td>Central prefs store with cross-device sync. Wraps <code>getPaletteState</code>/<code>setPaletteState</code>
+        (Direct) and adds <code>getGroupPaletteState</code>/<code>setGroupPaletteState</code> (per-group),
+        <code>getFavorites</code>/<code>setFavorites</code>, collapsed state, and the hint API. Reads are
+        synchronous off localStorage; writes also <code>mergeUserPrefs</code> to
+        <code>userPrefs/{uid}/</code>. <code>syncFromServer</code> dispatches <code>favorites-synced</code> /
+        <code>palette-state-changed</code> events.</td>
+  </tr>
+  <tr>
+    <td><code>js/db.js</code> &rarr; <code>js/db/{social,groups,canvas}.js</code></td>
+    <td><code>db.js</code> is now a thin re-export barrel; the implementation lives in
+        <code>db/social.js</code> (<code>setStatusColor</code>, <code>setPaletteKey</code>, presence,
+        calls, knocks), <code>db/groups.js</code> (group CRUD + <code>statusOverride</code>), and
+        <code>db/canvas.js</code> (<code>getCanvasId</code>, <code>loadCanvas</code>,
+        <code>pushStroke</code>, <code>setCanvasBg</code>, <code>watchStrokes</code>,
+        <code>setCanvasPresence</code>, <code>watchCanvasPresence</code> — watchers return their unsub).
+        Pure formatters (<code>isExpired</code>/<code>isAvailable</code>/<code>formatTimeRemaining*</code>)
+        moved to <code>utils.js</code>. Peers read presence via <code>watchPresence</code>.</td>
   </tr>
   <tr>
     <td><code>js/palettes.js</code></td>
@@ -1337,17 +1394,25 @@ if not already in the list.</p>
   <tr>
     <td><code>js/favorites.js</code></td>
     <td>
-      <code>initFavoritesStrip</code>, <code>saveFavorite</code>, <code>getAllCombos</code>,
-      <code>getCanvasColors</code>, <code>removeHistoryDuplicatesOfSlots</code>,
-      <code>renderStrip</code>, <code>buildCombo</code>, <code>slotCombo</code>,
-      <code>handleSlotTap</code>, <code>handleHistoryTap</code>.
-      Listens to <code>palette-state-changed</code> event.
+      <code>initFavoritesStrip</code>, <code>saveCombo</code> (single writer), <code>buildDirectCombo</code>,
+      <code>buildAdoptedCombo</code>, <code>dedupeCombos</code>, <code>getCanvasColors</code>,
+      <code>renderStrip</code> (dual containers), <code>handleHistoryTap</code> (context-aware).
+      Listens to <code>favorites-synced</code> (re-render on a sibling device's change).
+    </td>
+  </tr>
+  <tr>
+    <td><code>js/groupContext.js</code></td>
+    <td>
+      Group swatch row + per-group <code>statusOverride</code> color/theme (the per-audience picker),
+      <code>applyAdoptedComboInGroup</code> (roster long-press + strip pill in group context),
+      group palette state via <code>getGroupPaletteState</code>/<code>setGroupPaletteState</code>.
+      Shares <code>buildSetToggleButton</code>/<code>buildSwatch</code>/<code>applyThemeHintIfDue</code>/<code>applyKeySpin</code> with <code>palettes.js</code>.
     </td>
   </tr>
   <tr>
     <td><code>js/me.js</code></td>
     <td>
-      Calls <code>saveFavorite()</code> on going available. Applies <code>--my-status</code>
+      Calls <code>saveCombo(buildDirectCombo())</code> on going available. Applies <code>--my-status</code>
       to own dot/label. Toggles swatch row visibility.
     </td>
   </tr>
@@ -1397,17 +1462,17 @@ if not already in the list.</p>
  | switchSet |                  |              |               |             |
  +-----------+                  +------+-------+               |             |
        |                               |                       |             |
-       | applyPaletteVars              | handleSlotTap ------->| switchSet   |
-       | applyThemeVars                | handleHistoryTap ---->| (imported)  |
-       |                               |                       |             |
+       | applyPaletteVars              | handleHistoryTap ---->| switchSet   |
+       | applyThemeVars                |  (Direct: restore     | (imported)  |
+       |                               |   group: override)    |             |
        v                               v                       |             |
-  CSS custom properties           localStorage                 |             |
-  (--my-status, --my-glow,       (favorites array)            |             |
-   --bg, --surface, etc.)                                      |             |
+  CSS custom properties      localStorage + userPrefs          |             |
+  (--my-status, --my-glow,       (favorites array,            |             |
+   --bg, --surface, etc.)         synced cross-device)        |             |
        |                                                       | applyAdopt. |
        v                                                       |      |      |
   DOM styling                                                  |      v      |
-  (dot, cards, bg)                                             | saveFavorite|
+  (dot, cards, bg)                                             | saveCombo   |
                                                                | (imported)  |
        Firebase                                                +------+------+
   +---------------+                                                   |
@@ -1415,7 +1480,7 @@ if not already in the list.</p>
   | paletteKey    |<--- setPaletteKey  ---- palettes.js, favorites.js
   +-------+-------+
           |
-          | watchStatus (real-time)
+          | watchPresence (real-time)
           v
     following.js:updateFolloweeRow
     (card theming for peers)
@@ -1425,18 +1490,21 @@ if not already in the list.</p>
 <h4>Key Communication Patterns</h4>
 
 <ul>
-  <li><strong>Custom event (<code>palette-state-changed</code>):</strong> Dispatched by palette interactions
-      (swatch tap, complement click, set switch, mode changes). The favorites strip listens and
-      re-renders to keep slot pills in sync.</li>
-  <li><strong>Direct imports:</strong> <code>favorites.js</code> imports <code>switchSet</code> and
-      <code>enterPaletteMode</code> from <code>palettes.js</code>; <code>following.js</code> imports
-      <code>saveFavorite</code> and <code>removeHistoryDuplicatesOfSlots</code> from <code>favorites.js</code>.</li>
-  <li><strong>Firebase stream:</strong> Peer visibility is entirely through <code>watchStatus</code>.
+  <li><strong>Custom events:</strong> <code>palette-state-changed</code> is dispatched by palette
+      interactions; <code>favorites-synced</code> fires when a sibling device's favorites land via
+      <code>watchUserPrefs</code> &rarr; <code>prefs.syncFromServer</code>. The favorites strip
+      listens to <code>favorites-synced</code> and re-renders.</li>
+  <li><strong>Direct imports:</strong> <code>favorites.js</code> imports <code>switchSet</code> /
+      <code>enterPaletteMode</code> from <code>palettes.js</code>; <code>following.js</code> and
+      <code>groupContext.js</code> import <code>saveCombo</code> / <code>buildAdoptedCombo</code> from
+      <code>favorites.js</code>; <code>me.js</code> imports <code>saveCombo</code> /
+      <code>buildDirectCombo</code>.</li>
+  <li><strong>Firebase stream:</strong> Peer visibility is entirely through <code>watchPresence</code>.
       There is no direct communication between users' palette pickers — one user's
       <code>setStatusColor</code>/<code>setPaletteKey</code> writes are read by peers'
       <code>updateFolloweeRow</code> callbacks.</li>
   <li><strong>CSS variables as shared state:</strong> <code>--my-status</code> is read by both
-      <code>buildCombo()</code> (favorites) and the status dot styling (me.js). It serves as the
+      <code>buildDirectCombo()</code> (favorites) and the status dot styling (me.js). It is the
       source of truth for the active status color in the active set.</li>
 </ul>
 
@@ -1531,10 +1599,40 @@ if not already in the list.</p>
       </ul>
     </td>
   </tr>
+  <tr>
+    <td><code>v0.8</code></td>
+    <td>2026-06-13</td>
+    <td>
+      <strong>Doc refresh — caught up with shipped work since v0.7:</strong>
+      <ul style="margin:0.3em 0 0 1.2em;">
+        <li><strong>Favorites strip:</strong> slot pills removed — it's now a pure history list
+            (max 8). Single writer <code>saveCombo</code> + whole-array <code>dedupeCombos</code>
+            replaces <code>saveFavorite</code>/<code>slotCombo</code>/<code>_lastCommittedCombo</code>/
+            <code>removeHistoryDuplicatesOfSlots</code>/<code>getAllCombos</code>.</li>
+        <li><strong>Cross-device sync:</strong> favorites + palette state moved from
+            <code>store.js</code> localStorage to <code>prefs.js</code> + <code>userPrefs/{uid}/</code>;
+            new <code>favorites-synced</code> event; strip renders into both Direct and group containers.</li>
+        <li><strong>Per-audience palette (groups):</strong> per-group <code>statusOverride</code>
+            (<code>statusColor</code>/<code>paletteKey</code>) + per-group palette state; strip pill +
+            roster long-press route through <code>applyAdoptedComboInGroup</code>.</li>
+        <li><strong>Call signaling:</strong> the <code>callState</code> field is gone — replaced by
+            <code>calls/{uid}</code> mailboxes (<code>startCall</code>/<code>answerCall</code>/
+            <code>endCall</code>, <code>watchOwnCall</code>); follower removal uses the
+            <code>revocations/</code> mailbox.</li>
+        <li><strong>Canvas:</strong> 6 thickness grades (was 3), background-color picker with sync,
+            real-time mid-stroke preview, capped undo, mutual-agreement clear; watchers return their
+            own unsub.</li>
+        <li><strong>Structure:</strong> <code>db.js</code> split into
+            <code>db/{social,groups,canvas}.js</code> (barrel re-export); pure formatters moved to
+            <code>utils.js</code>. Peer reads via <code>watchPresence</code> (was <code>watchStatus</code>).</li>
+      </ul>
+    </td>
+  </tr>
 </table>
 
 <p style="color:var(--text-muted); font-size:0.8rem; margin-top:1rem;">
-  Generated from codebase at tag <code>v0.7</code>. Source files in <code>js/</code> and <code>css/</code>.
+  Refreshed 2026-06-13 against <code>dev</code>. Source files in <code>js/</code> and <code>css/</code>.
+  (Filename retains the <code>v0.7</code> suffix for stable links; content is current as of v0.8.)
 </p>
 
 </body>
