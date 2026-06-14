@@ -117,6 +117,17 @@ export function setPaletteState(state) {
   if (_myUserId) mergeUserPrefs(_myUserId, { 'paletteState/direct': state }).catch(() => {});
 }
 
+// localStorage-only palette-state write — does NOT touch userPrefs. Used by
+// syncPaletteStateFromServer, which reconstructs the ACTIVE set from the
+// broadcast presence (statusColor/paletteKey). On a fresh-device sign-in it runs
+// before watchUserPrefs has hydrated paletteState, so the local INACTIVE set is
+// still this device's default; pushing the whole object to userPrefs (as
+// setPaletteState would) clobbers the server's real inactive-set selection.
+// Writing locally only lets the userPrefs sync own the inactive set.
+export function setPaletteStateLocal(state) {
+  storeSetPaletteState(state);
+}
+
 // Per-group palette state (was inline in groupContext.js). Keyed shape:
 //   userPrefs/{uid}/perGroup/{groupId}/paletteState
 const GROUP_PALETTE_LS = (groupId) => `statusapp_group_palette_${groupId}`;

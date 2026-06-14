@@ -17,6 +17,7 @@ const {
   syncFromServer,
   getNotifyPrefs, setNotifyPref,
   hasAnyNotifyPrefEnabled,
+  setPaletteState, setPaletteStateLocal, getPaletteState,
 } = require('../js/prefs.js');
 
 beforeEach(() => {
@@ -304,4 +305,31 @@ describe('selectStalePushTokens (pure)', () => {
     expect(selectStalePushTokens(null, { activeToken: null, now, maxAgeMs: ttl })).toEqual([]);
     expect(selectStalePushTokens({}, { activeToken: null, now, maxAgeMs: ttl })).toEqual([]);
   });
+});
+
+// ── Direct palette state: local-only vs synced setters ──
+// syncPaletteStateFromServer (palettes.js) reconstructs the ACTIVE set from the
+// broadcast presence and must NOT push the whole paletteState back to userPrefs,
+// or it clobbers the INACTIVE set's selection with this device's not-yet-synced
+// default (the cross-device regression).
+const TWO_SET_STATE = {
+  activeSet: 1,
+  sets: {
+    '1': { selectedKey: 'ember', selectedColor: '#f97316', activePaletteKey: null },
+    '2': { selectedKey: 'venom', selectedColor: '#39ff14', activePaletteKey: 'venom' },
+  },
+};
+
+test('setPaletteState writes localStorage AND userPrefs (full direct state)', () => {
+  initPrefs('uid1');
+  setPaletteState(TWO_SET_STATE);
+  expect(mergeUserPrefs).toHaveBeenCalledWith('uid1', { 'paletteState/direct': TWO_SET_STATE });
+  expect(getPaletteState().sets['2'].selectedKey).toBe('venom');
+});
+
+test('setPaletteStateLocal writes localStorage only — never userPrefs (no inactive-set clobber)', () => {
+  initPrefs('uid1');
+  setPaletteStateLocal(TWO_SET_STATE);
+  expect(mergeUserPrefs).not.toHaveBeenCalled();
+  expect(getPaletteState().sets['2'].selectedKey).toBe('venom'); // still applied locally
 });
