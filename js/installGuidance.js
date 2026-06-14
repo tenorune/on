@@ -65,12 +65,12 @@ const COPY = {
   },
   'ios-use-safari': {
     title: 'Open in Safari',
-    body: 'On iPhone, notifications only work from Safari. Open this app in Safari, then tap Share → "Add to Home Screen."',
+    body: `On iPhone, notifications only work from Safari. Open this app in Safari, then tap Share ${SHARE_ICON} → "Add to Home Screen" ${ADD_HOME_ICON}.`,
     remindPhrase: true,
   },
   'needs-install-macos': {
     title: 'Add to Dock',
-    body: `On a Mac, notifications need the app in your Dock. In Safari, choose File → Add to Dock ${ADD_DOCK_ICON}, then open the app from there.`,
+    body: `In Safari on a Mac, notifications need the app in your Dock. Choose File → Add to Dock ${ADD_DOCK_ICON}, then open the app from there.`,
     remindPhrase: true,
   },
   // 'denied' body is computed per-browser in guidanceCopyFor (the re-enable

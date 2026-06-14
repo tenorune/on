@@ -105,3 +105,12 @@ test('iOS install copy embeds the Share and Add-to-Home step icons inline', () =
 test('macOS install copy embeds the Add-to-Dock step icon inline', () => {
   expect(guidanceCopyFor('needs-install-macos').body).toContain('class="step-icon"');
 });
+
+test('macOS install copy scopes the requirement to Safari ("In Safari on a Mac")', () => {
+  expect(guidanceCopyFor('needs-install-macos').body).toMatch(/In Safari on a Mac/i);
+});
+
+test('iOS "use Safari" copy embeds the Share and Add-to-Home step icons inline', () => {
+  const body = guidanceCopyFor('ios-use-safari').body;
+  expect((body.match(/class="step-icon"/g) || []).length).toBe(2);
+});
