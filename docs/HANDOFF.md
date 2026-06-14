@@ -126,10 +126,11 @@ NOTIFICATIONS_ENABLED          // Web Push / FCM presence notifications (notifie
 FOLLOW_REQUESTS_ENABLED        // Request-to-follow a co-member (groups §11)
 ```
 
-- **Currently on `dev` AND `main`:** all seven flags `true`.
-- These are compile-time constants. Changing means editing + redeploying.
-- **All test suites mock `../js/features.js`** per-suite. Flipping real values doesn't affect tests.
-- A recurring lesson: **render-layer gates must match handler-layer gates.** A stale render path can keep showing UI for a feature that's been disabled at the handler.
+- **Currently on `dev` AND `main`:** all seven build defaults `true`.
+- **Build defaults, narrowed by per-user runtime overrides.** `features.js` now reads `js/featureOverrides.js` (a dependency-free `statusapp_feature_overrides` localStorage JSON) at module-eval and exports the *effective* value: `buildDefault && override !== false`. A user can only **disable** a build-enabled feature, never enable a build-disabled one. Overrides are read once per load — **toggling applies on reload**.
+- **Two features are user-controllable today:** `palettes` (bundles `PALETTES_ENABLED` + `PALETTE_INTERACTIONS_ENABLED`) and `groups` (`GROUPS_ENABLED`). Surfaced as an experimental toggle section in the header `#code-drawer` (`js/featureSettings.js`), gated behind the `?features` query param (ships dark; ungate by removing the guard). Read/write + cross-device sync live in `js/prefs.js` (`getFeatureToggle`/`setFeatureToggle` → `userPrefs/{uid}/featureToggles/{key}`; a `feature-toggles-synced` CustomEvent prompts a reload toast when another device changes a toggle — we never auto-reload). The `userPrefs/{uid}` rule is owner-scoped with no child allowlist, so `featureToggles` needs no rules change. Spec/plan: `docs/superpowers/specs/2026-06-14-user-feature-toggles-design.md` + `docs/superpowers/plans/2026-06-14-user-feature-toggles.md`.
+- **All test suites mock `../js/features.js`** per-suite (the override read only runs on the real module). Flipping real values doesn't affect those suites.
+- A recurring lesson: **render-layer gates must match handler-layer gates.** A stale render path can keep showing UI for a feature that's been disabled at the handler. This work **closed the groups handler-gate gap**: `app.js` now wraps `startCardsRowSubscriptions`/`initGroupRemovalDetector`/`initInbox`/`initFollowGrants` (and the inbox deep-link) in `if (GROUPS_ENABLED)`; `initNav`/`initNavRow`/`onContextChange` stay (context machinery + personal-invite redemption; `groupNav` already self-hides the cards row when groups are off).
 
 ## 6. Cross-device sync
 
