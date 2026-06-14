@@ -25,7 +25,7 @@ A vanilla-JS PWA for **ambient presence**. Users mark themselves "available for 
 - **Target user base:** 50–100 users (a small, hands-on sandbox, not a public app).
 - **Stack:** vanilla ES modules (no framework), Firebase Realtime Database + Hosting, esbuild, jest + jsdom.
 - **Tests:** 1128 currently passing on `dev` (web suite, 39 suites). Cloud Functions have their own suite — 67 tests (`cd functions && npm test`). Run the web suite with `npx jest`.
-- **Anonymous identity model** (no Firebase Auth) — see §4.
+- **Phrase-based identity with Firebase custom-token auth** (`validateRecovery` callable + `auth.uid`-scoped rules) — see §4.
 
 ## 2. Repo & branch model
 
@@ -104,13 +104,13 @@ v2 (secret-phrase derived):
 
 - A user's identity = a **4-word "secret phrase"** drawn from `js/wordlist.js`. Format: `swift-river-amber-dust`.
 - `userId = sha256(phrase).slice(0, 32)` — **deterministic**. Typing the same phrase on any device restores the same account.
-- **No Firebase Auth.** The phrase is the only secret. Anyone who has it can claim the account.
+- **The phrase is the only *credential*.** Anyone who has it can claim the account. (Sign-in itself uses Firebase Auth custom tokens minted from the phrase — see the auth trust model below — but there's no email/password/social login.)
 - localStorage shape: `statusapp_identity = { userId, code, recoveryCode }`.
 - Welcome screen surfaces `I'm new` / `I have a secret phrase` on empty localStorage. The welcome screen also takes optional `inviteCreatorLabel` / `inviteGroupName` to frame the screen for brand-new users arriving via an invite link.
 - Drawer has a "Show secret phrase" pill for recovery.
 - `crypto.subtle.digest('SHA-256', ...)` is used for derivation — works in browser and Node 20+.
 
-**Auth trust model:** honor-system. `database.rules.json` allows `.read/.write: true` to every namespace. Future **Phase B** (documented in the recovery-code spec) would add Firebase Anonymous Auth + a Cloud Function recovery validator + `auth.uid === $userId` rules. Not built. Phase 0/1/2/3 data layout was deliberately designed to be portable to Phase B without a Cloud Function — see the groups spec §19.
+**Auth trust model (R1 + R1.5 shipped — this is the "Phase B" the older docs called future):** Firebase Auth via **custom tokens**. `ensureSignedIn(phrase)` calls the rate-limited `validateRecovery` Cloud Function (`functions/auth.js`, the onCall in `functions/index.js`) with the phrase; it mints a Firebase custom token for the derived uid; the client `signInWithCustomToken`s, so `auth.uid === userId`. `database.rules.json` is scoped to `auth.uid === $uid` with field-level `.validate` — the broadcast `presence` subtree is readable by any authed user, everything else is owner-scoped (knocks/calls/pendingInvites/followRequests use `auth.uid`-keyed mailbox rules). The one remaining hardening is **App Check enforcement (deferred, #193)**. (The phrase is still the only credential — anyone with it can claim the account.)
 
 ## 5. Feature flags
 
@@ -367,7 +367,7 @@ The user uses the **superpowers** skills. Workflow:
 - **Don't create CLAUDE.md or similar memory files in the repo.** Hold rules in your session context.
 - **Test the build after any change to identity / palette / canvas / groups / inbox / picker code** — the cross-device sync subtleties and the modal-stack ordering are easy to break.
 - **Mind the 20 test mock files** (per §13).
-- **All Phase 2+ identity work (auth.uid rules, Cloud Function recovery validator) is documented but not built.** The honor-system trust model is current reality.
+- **Identity auth (R1/R1.5) is SHIPPED:** custom-token sign-in via the `validateRecovery` callable + `auth.uid`-scoped RTDB rules with field validation. The only remaining hardening is **App Check enforcement (deferred, #193)** — don't re-describe this as honor-system/not-built.
 - **Phase 0/1/2/3 designs are forward-compatible with Phase B.** The membership-canonical-on-group-side layout, the top-level `pendingInvites/{inviteeUid}/...` mailbox path, the `groups/{groupId}/members/{uid}` self-write rule, and the `pendingInvites` `from === auth.uid` write rule were all chosen so Phase B doesn't need a Cloud Function.
 - **`users/{uid}/` vs `userPrefs/{uid}/` split.** New private user state goes in `userPrefs/{uid}/...` via `js/prefs.js` (which calls `mergeUserPrefs`). Only put something in `users/{uid}/...` if followers genuinely need to see it on every status tick.
 - **Don't import UI modules from `js/prefs.js`.** Cross-module re-renders go through CustomEvents.
@@ -395,7 +395,7 @@ The user uses the **superpowers** skills. Workflow:
 - When (if) to do Phase B identity tightening.
 - Whether to collapse `palettes.renderSwatchRow` and `groupContext.renderGroupSwatchRow` into a single renderer. The compat test in `tests/swatch-renderers.compat.test.js` catches drift cheaply; collapse only if a third caller appears.
 - Whether the post-MVP "co-members can use 1:1 primitives without mutual" relaxation lands soon.
-- `database.rules.json` does NOT yet have explicit rules for the new `userPrefs/{uid}/...` namespace or for `pendingInvites/{inviteeUid}/{groupId}` beyond the honor-system catch-all (`.read/.write: true`). When Phase B lands, the rule sketches in the groups spec §10 Flow C and §6.5 are the targets.
+- `database.rules.json` IS now `auth.uid`-scoped with explicit rules + field `.validate` across the tree — including `userPrefs/{uid}` (owner-only), `pendingInvites/{inviteeUid}` and `followRequests/{targetUid}` (mailbox rules keyed on `auth.uid`), and `notifierState` (server-only, `.read/.write: false`). The remaining open security item is App Check enforcement (#193).
 - Mock-file maintenance: 20 db-mocking test files. A shared mock factory would scale better but isn't worth the refactor cost yet.
 
 ## 17. Key reference artifacts

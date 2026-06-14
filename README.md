@@ -10,7 +10,7 @@ A real-time **ambient-presence** [PWA](https://en.wikipedia.org/wiki/Progressive
 - **Palettes & favorites** — 16 palettes across two sets (Natural + Electric), each a full UI theme; up to 8 saved color combos. Long-press a contact's card to **adopt** their color + theme.
 - **Groups** — Create groups, invite via link or in-app picker, and set a **per-audience status** (a different availability/color for each group than your primary). An Inbox surfaces pending invites and follow requests.
 - **Push notifications** — Web Push (FCM) for knocks, calls, availability, group invites, and follow requests, with per-contact opt-in. Platform-aware install guidance where the OS requires it (iOS Home Screen, macOS Dock).
-- **Anonymous identity** — A 4-word secret phrase is your account; type it on any device to restore. No sign-up, no email.
+- **Phrase-based identity** — A 4-word secret phrase is your account; type it on any device to restore. No email, no social sign-up.
 - **PWA** — Installable, standalone, offline shell, auto-updating service worker.
 
 ## Author's Note
@@ -26,8 +26,9 @@ KnockKnock is a sandbox & playground for me to explore agent-assisted design and
 ## Tech Stack
 
 - **Vanilla JS** (ES modules, bundled with esbuild — no framework)
-- **Firebase Realtime Database** (anonymous identity; honor-system rules with field validation)
-- **Firebase Cloud Functions** (`functions/` — the push-notification backend: RTDB triggers → FCM)
+- **Firebase Realtime Database** — security rules scoped to `auth.uid` (a user can only touch their own data), with field-level validation
+- **Firebase Authentication** (custom tokens) — minted by the `validateRecovery` Cloud Function; the secret phrase is exchanged for a token so `auth.uid === userId`
+- **Firebase Cloud Functions** (`functions/`) — push-notification triggers (knock/call/availability/invite/follow-request → FCM) **and** the `validateRecovery` token-minting callable
 - **Firebase Cloud Messaging** + Web Push (notifications)
 - **Firebase Hosting** (deploys via GitHub Actions)
 - **HTML Canvas API** (drawing engine)
@@ -36,14 +37,16 @@ KnockKnock is a sandbox & playground for me to explore agent-assisted design and
 
 ## Identity model
 
-There is **no Firebase Auth sign-up**. A user's identity is a **4-word secret phrase** (e.g. `swift-river-amber-dust`) drawn from the EFF wordlist; `userId = sha256(phrase)`. Typing the same phrase on any device restores the same account. The phrase is the only secret — anyone who has it can claim the account (honor-system trust model, appropriate for a small trusted user base). Phase B (Firebase Anonymous Auth + a recovery-validator Cloud Function + `auth.uid` rules) is designed but not the current reality.
+There is **no email/password or social sign-up** — a user's identity is a **4-word secret phrase** (e.g. `swift-river-amber-dust`) drawn from the EFF wordlist; `userId = sha256(phrase)`. Typing the same phrase on any device restores the same account.
+
+Authentication is **Firebase Auth via custom tokens**: the client calls the rate-limited **`validateRecovery` Cloud Function** with the phrase, which mints a Firebase custom token for that `userId`; the client then signs in with `signInWithCustomToken`, so `auth.uid === userId`. The RTDB security rules are scoped to **`auth.uid === $uid`** with field-level `.validate` — a user can only read/write their own data (the broadcast `presence` subtree is readable by any authenticated user; everything else is owner-scoped). The phrase is the only credential — treat it like a password; anyone who has it can claim the account.
 
 ## Setup
 
 ### Prerequisites
 
 - Node.js 18+
-- A Firebase project with Realtime Database, Hosting, Cloud Functions, and Cloud Messaging enabled
+- A Firebase project with Realtime Database, **Authentication** (for custom tokens), Hosting, Cloud Functions, and Cloud Messaging enabled, on the Blaze plan (2nd-gen functions)
 
 ### Install
 
@@ -81,9 +84,9 @@ cd functions && npm test   # Cloud Functions test suite
 
 ## Deployment
 
-Deploys run through **GitHub Actions**: push to `dev` → dev project; merge `dev` → `main` → prod (gated by a required reviewer). Workflows live in `.github/workflows/deploy-{dev,prod}.yml` and run `firebase deploy --only hosting,database` (database rules ship with hosting).
+Deploys run through **GitHub Actions**: push to `dev` → dev project; merge `dev` → `main` → prod (gated by a required reviewer). Workflows live in `.github/workflows/deploy-{dev,prod}.yml`; the prod workflow runs `firebase deploy --only hosting,database,functions` (database rules ship alongside hosting).
 
-Local deploys are also available — `npm run deploy:dev` (uses `.env.local`) and `npm run deploy` (uses `.firebaserc` default alias). The Cloud Functions deploy separately (`cd functions && firebase deploy --only functions`).
+Local deploys are also available — `npm run deploy:dev` (dev: build + hosting + database) and `npm run deploy` (prod build + `firebase deploy --only hosting,database,functions`). The **first-ever prod functions deploy** also needs the GCP/API/IAM setup in [`docs/DEPLOY-PROD.md`](docs/DEPLOY-PROD.md).
 
 **See [`docs/DEPLOY-PROD.md`](docs/DEPLOY-PROD.md) for the full production release runbook.**
 
