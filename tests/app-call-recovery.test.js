@@ -133,6 +133,7 @@ jest.mock('../js/features.js', () => ({
   KNOCK_ENABLED: false,
   CALL_ENABLED: true,
   NOTIFICATIONS_ENABLED: false,
+  GROUPS_ENABLED: false,
 }));
 
 jest.mock('../js/notifyPrompt.js', () => ({
@@ -341,6 +342,17 @@ describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)'
   beforeEach(() => {
     jest.resetModules();
     document.body.innerHTML = '';
+    // Inbox and follow-grants are groups features; override GROUPS_ENABLED to
+    // true so that openInboxModal / initInbox / initFollowGrants actually run
+    // during bootApp() in these tests.
+    jest.doMock('../js/features.js', () => ({
+      PALETTES_ENABLED: false,
+      PALETTE_INTERACTIONS_ENABLED: false,
+      KNOCK_ENABLED: false,
+      CALL_ENABLED: true,
+      NOTIFICATIONS_ENABLED: false,
+      GROUPS_ENABLED: true,
+    }));
   });
 
   async function bootApp() {
@@ -413,5 +425,35 @@ describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)'
     await bootApp();
     expect(ensureSignedIn).toHaveBeenCalled();
     expect(signedInBeforeOwnStatus).toBe(true);
+  });
+});
+
+describe('app.js groups gating (GROUPS_ENABLED=false)', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    document.body.innerHTML = '';
+    // Ensure GROUPS_ENABLED is false for this describe block, regardless of any
+    // doMock override left by the inbox deep-link describe above.
+    jest.doMock('../js/features.js', () => ({
+      PALETTES_ENABLED: false,
+      PALETTE_INTERACTIONS_ENABLED: false,
+      KNOCK_ENABLED: false,
+      CALL_ENABLED: true,
+      NOTIFICATIONS_ENABLED: false,
+      GROUPS_ENABLED: false,
+    }));
+  });
+
+  test('groups subscriptions are skipped when GROUPS_ENABLED is false', async () => {
+    await loadAppAndCaptureRecoveryCb();
+    const { startCardsRowSubscriptions } = require('../js/groupNav.js');
+    const { initGroupRemovalDetector } = require('../js/groups.js');
+    const { initInbox, openInboxModal } = require('../js/inbox.js');
+    const { initFollowGrants } = require('../js/followRequests.js');
+    expect(startCardsRowSubscriptions).not.toHaveBeenCalled();
+    expect(initGroupRemovalDetector).not.toHaveBeenCalled();
+    expect(initInbox).not.toHaveBeenCalled();
+    expect(initFollowGrants).not.toHaveBeenCalled();
+    expect(openInboxModal).not.toHaveBeenCalled();
   });
 });

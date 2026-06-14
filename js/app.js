@@ -6,7 +6,7 @@ import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
 import { initFeatureSettings } from './featureSettings.js';
-import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
+import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED, GROUPS_ENABLED } from './features.js';
 import { initNotifyPrompt, refreshPushToken } from './notifyPrompt.js';
 import { initNotifyDebug } from './notifyDebug.js';
 import { getMessagingIfSupported } from './firebase-config.js';
@@ -651,12 +651,14 @@ async function main() {
   // following.js's own-call watcher to render on its first tick.
   initCallRecovery(userId);
 
-  startCardsRowSubscriptions();
-  initGroupRemovalDetector(userId);
-  initInbox(userId, code);
-  // Capture the follow-grants watcher unsub (it watches followGrants/{me} for the
-  // page lifetime) so a future user-switch/teardown can drop it (#214 R2).
-  _followGrantsUnsub = initFollowGrants(userId, code);
+  if (GROUPS_ENABLED) {
+    startCardsRowSubscriptions();
+    initGroupRemovalDetector(userId);
+    initInbox(userId, code);
+    // Capture the follow-grants watcher unsub (it watches followGrants/{me} for
+    // the page lifetime) so a future user-switch/teardown can drop it (#214 R2).
+    _followGrantsUnsub = initFollowGrants(userId, code);
+  }
 
   // #main-ui-direct starts hidden (markup default) so the welcome / restore /
   // recovery-code / displayname overlays render against a clean dark body
@@ -678,7 +680,7 @@ async function main() {
   // Cold-start deep-link from an invite / follow-request tap: now that the
   // inbox watchers are live (initInbox above) and Direct is revealed, open the
   // Inbox modal over it. Closing the modal leaves the user in Direct.
-  if (wantInbox) openInboxModal();
+  if (wantInbox && GROUPS_ENABLED) openInboxModal();
 
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
 
