@@ -24,7 +24,7 @@ A vanilla-JS PWA for **ambient presence**. Users mark themselves "available for 
 
 - **Target user base:** 50–100 users (a small, hands-on sandbox, not a public app).
 - **Stack:** vanilla ES modules (no framework), Firebase Realtime Database + Hosting, esbuild, jest + jsdom.
-- **Tests:** 1086 currently passing on `dev` (web suite, 38 suites). Cloud Functions have their own suite — 67 tests (`cd functions && npm test`). Run the web suite with `npx jest`.
+- **Tests:** 1128 currently passing on `dev` (web suite, 39 suites). Cloud Functions have their own suite — 67 tests (`cd functions && npm test`). Run the web suite with `npx jest`.
 - **Anonymous identity model** (no Firebase Auth) — see §4.
 
 ## 2. Repo & branch model
@@ -453,3 +453,36 @@ A hygiene/perf/bugfix/docs sweep. Everything below is **merged to `dev`** unless
 Several of the above were split into "ship the safe, high-value part now; file the entangled remainder as its own issue" (R3 vs R4; the status-**dot** unification #216 vs the swatch-**row** collapse left as a decision). This was the repeatedly-endorsed approach: don't bundle a risky, cross-cutting behavioral change onto a clean mechanical one.
 
 Those eight artifacts together cover everything that matters.
+
+## 19. Session 2026-06-14 — web push / notifications + Safari + install nudges
+
+A long debugging + polish pass on the notifications stack, all merged to `dev`. This is also where the **clean-test runbook** lives: `docs/notifications-testing.md` (read it before testing push).
+
+### The notification surfaces (inventory)
+- **`#notify-promo` banner** (`js/notifyPrompt.js`) — passive promo (engaged, 2nd+ session) OR reprompt (synced bells but no local permission). Renders an **Enable** button when push is usable, or **install/guidance copy** otherwise.
+- **Per-contact bell** (`js/notifyBell.js`) — 3 switches (knock/call/availability); turning one on with no permission routes through `ensureNotificationsReady`.
+- **`js/installGuidance.js`** — `detectNotifyCapability()` → `supported | denied | needs-install-ios | needs-install-macos | ios-use-safari | unsupported`; `guidanceCopyFor(state)` returns the (now icon-bearing) copy.
+- **`js/notifyDebug.js`** — the `#156` `NOTIFY_DEBUG` / `?notifydebug=1` readout (token state, SW cache, last-push).
+
+### Bugs found + fixed (each a real SW/notification trap)
+- **SW must only intercept same-origin requests.** The old fetch handler used a host *denylist* (`firebaseio.com`/`googleapis.com`) and took over everything else — including `apis.google.com/js/api.js` (gapi), which **fails to re-fetch on Safari** ("FetchEvent.respondWith … Load failed") and broke Firebase Auth + FCM there. Now an origin allowlist.
+- **The SW must present a notification for EVERY push** — never a foreground de-dupe (`if (focused) return`). Apple: *"Safari … revokes the push notification permission for your site"* if a push arrives without a visible notification. That was the "worked once, then silently stopped" cause. (See §15.) `renotify: true` on reused tags so repeat knocks/calls re-alert.
+- **macOS Safari needs the installed Dock app.** In-browser macOS Safari accepts a push and never displays it (separate matter from delivery — even a manual `showNotification` resolves but shows nothing in a tab). `detectNotifyCapability` returns `needs-install-macos` (mirrors iOS); the installed Dock app runs standalone → `supported`. **Installed Safari apps use a separate storage partition** → the identity is lost until the phrase is re-entered (the install nudges show a "Copy secret phrase" button + reminder for exactly this). Chrome/Android installs share storage — no loss.
+- **Promo Enable no longer silently no-ops** on failure (denied → guidance; granted-but-token-failed → "couldn't enable" + retry).
+- **`denied` guidance is browser-aware** — Safari gets the Settings → Websites → Notifications menu path; others get the address-bar hint.
+
+### Platform reality (matrix in `docs/notifications-testing.md`)
+- **iOS:** push only from **Safari + Add to Home Screen**; iOS Chrome/FF/Edge → `ios-use-safari` ("open in Safari"). Installing wipes the identity.
+- **macOS:** **Safari needs Add to Dock** (separate partition, identity loss); **Chrome/Firefox work in-browser** (Enable, identity kept).
+- **Android / Windows:** in-browser push works everywhere (Enable, identity kept) — no nudge.
+
+### Token hygiene (#156 item 3) — considered done
+Covered by the **server-side dead-token drop** (`functions/index.js` drops `registration-token-not-registered` on a failed send) + **#157's 90-day TTL cull** (`cullStalePushTokens`). A per-user token cap isn't worth it.
+
+### Open follow-up
+- **Token-rotation-on-foreground** (not built): `refreshPushToken` only runs on load, so a token that rotates mid-session leaves the server sending to a stale token until the next reload — the likely lever if "delivery stops after a while" recurs on desktop Chrome. File as its own issue if it reproduces.
+- **#161** (standalone, un-gated install nudge) — the macOS/iOS *notification-gated* guidance shipped and is reusable; the un-gated "install for the app-like experience" nudge is still open.
+
+## 20. Release note (2026-06-14)
+
+`dev` is **~447 commits ahead of `main`** — this is a large release covering everything since `v1.0.0`: groups **Phase 3** (in-app invites + Inbox), the entire **notifications/push program** (FCM, Cloud Functions notifier, install nudges, the Safari work above), **security hardening** (R1 Auth/RTDB-rules + R1.5 callable/notifier hardening + field validation), the **presence-schema-split** (`users/{uid}/presence`, `calls/`+`knocks/` mailboxes), the card tool drawer, PWA auto-update, and the 2026-06-13/14 hygiene+fix sweeps. Suggested prod tag: **`v1.1.0`**. Use `docs/DEPLOY-PROD.md`; smoke-test per `docs/notifications-testing.md` + the manual checklist before cutting the release.
