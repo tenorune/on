@@ -1217,6 +1217,9 @@ main {
 .notify-promo .step-icon { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.18em; margin: 0 0.12em; }
 /* "First, make sure…" reminder renders as its own paragraph. */
 .notify-promo .notify-promo-reminder { display: block; margin-top: 0.55rem; }
+/* "Secret phrase: [Copy to clipboard]" affordance under the install guidance. */
+.notify-promo .notify-promo-phrase { display: block; margin-top: 0.5rem; font-size: 0.82rem; opacity: 0.9; }
+.notify-promo .notify-promo-copy { font: inherit; color: var(--accent, #2dd4bf); background: none; border: none; padding: 0; margin-left: 0.15em; cursor: pointer; text-decoration: underline; }
 /* Match Direct's "Add a person": a surface2 rounded card wrapping a plain,
    full-width, left-aligned .add-btn (#add-person-area treatment). The 0.25rem
    top margin mirrors #add-person-area's empty-state margin-top so the button
