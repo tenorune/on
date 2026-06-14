@@ -575,7 +575,10 @@ async function main() {
       // currentContext lives in userPrefs/{uid}/ after the migration.
       const prefsSnap = await getUserPrefs(userId);
       const cc = prefsSnap?.currentContext;
-      if (typeof cc === 'string' && cc.startsWith('group:')) {
+      // With groups disabled, never restore into a group context — the nav row
+      // is hidden (groupNav self-gates) so the user would be stuck with no exit.
+      // Stay in Direct; the watchUserPrefs echo is likewise coerced below.
+      if (GROUPS_ENABLED && typeof cc === 'string' && cc.startsWith('group:')) {
         const groupId = cc.slice(6);
         // Name leaf only: if the user was removed from this group while away,
         // the whole-node read would be denied (non-member). We just need the
@@ -624,7 +627,11 @@ async function main() {
   // 'current-context-synced' CustomEvent; forward into groupNav so the
   // active context flips just like the old watchStatus-driven path used to.
   document.addEventListener('current-context-synced', (e) => {
-    applyServerCurrentContext(e.detail?.currentContext || 'direct');
+    const cc = e.detail?.currentContext || 'direct';
+    // With groups disabled, a sibling device's group context (and the initial
+    // hydration echo of a persisted group context) must not flip us into a
+    // group view — stay in Direct.
+    applyServerCurrentContext(GROUPS_ENABLED ? cc : 'direct');
   });
 
   initCodeDrawer(userId, code);
@@ -809,7 +816,13 @@ function initPushNotifications(userId) {
   // then open the Inbox; group activity navigates into the group.
   navigator.serviceWorker?.addEventListener('message', (e) => {
     if (e.data?.kind !== 'notification-click') return;
-    routeNotificationClick(e.data.data || {}, { navigateToDirect, navigateToGroup, openInboxModal });
+    // With groups disabled, route group/inbox notification taps to Direct rather
+    // than into a group view or an uninitialized Inbox.
+    routeNotificationClick(e.data.data || {}, {
+      navigateToDirect,
+      navigateToGroup: GROUPS_ENABLED ? navigateToGroup : navigateToDirect,
+      openInboxModal: GROUPS_ENABLED ? openInboxModal : () => {},
+    });
   });
 }
 

@@ -456,4 +456,38 @@ describe('app.js groups gating (GROUPS_ENABLED=false)', () => {
     expect(initFollowGrants).not.toHaveBeenCalled();
     expect(openInboxModal).not.toHaveBeenCalled();
   });
+
+  // Drain enough macrotasks for main()'s returning-user prefetch (getUserPrefs
+  // + readGroupName awaits) to settle, mirroring the inbox-deep-link bootApp().
+  async function bootGroupsOff() {
+    require('../js/app');
+    for (let i = 0; i < 6; i += 1) await new Promise((r) => setTimeout(r, 0));
+  }
+
+  test('a returning user with a saved group context does NOT restore into it when groups are off', async () => {
+    const db = require('../js/db.js');
+    const invites = require('../js/invites.js');
+    const { navigateToGroup } = require('../js/groupNav.js');
+
+    invites.extractInboxIntentFromUrl.mockReturnValue(false);
+    invites.extractDirectIntentFromUrl.mockReturnValue(false);
+    db.getUserPrefs.mockResolvedValue({ currentContext: 'group:fam' });
+    db.readGroupName.mockResolvedValue({ name: 'Fam' }); // would otherwise drive navigateToGroup
+
+    await bootGroupsOff();
+
+    expect(navigateToGroup).not.toHaveBeenCalled(); // stays in Direct
+  });
+
+  test('a current-context-synced group echo is coerced to Direct when groups are off', async () => {
+    const { applyServerCurrentContext } = require('../js/groupNav.js');
+
+    await bootGroupsOff(); // registers the current-context-synced listener
+    document.dispatchEvent(new CustomEvent('current-context-synced', {
+      detail: { currentContext: 'group:fam' },
+    }));
+
+    expect(applyServerCurrentContext).toHaveBeenCalledWith('direct');
+    expect(applyServerCurrentContext).not.toHaveBeenCalledWith('group:fam');
+  });
 });
