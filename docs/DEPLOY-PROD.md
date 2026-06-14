@@ -139,6 +139,24 @@ gcloud projects add-iam-policy-binding <prodId> \
   --member="serviceAccount:${RUNTIME_SA}" --role="roles/firebase.admin"
 ```
 
+**Create the deploy service account + key first** (the source of both
+`FIREBASE_SERVICE_ACCOUNT_PROD` and `DEPLOY_SA` below). Either reuse the
+Firebase-managed Admin SDK SA (Console → ⚙ Project settings → **Service
+accounts → Generate new private key**) or make a dedicated one:
+```bash
+gcloud iam service-accounts create github-deploy-prod \
+  --project=<prodId> --display-name="GitHub Actions prod deploy"
+gcloud iam service-accounts keys create prod-deploy-key.json \
+  --iam-account="github-deploy-prod@<prodId>.iam.gserviceaccount.com"
+```
+- The **full JSON** (`prod-deploy-key.json`, or the Console download) is the value
+  of the GitHub repo secret **`FIREBASE_SERVICE_ACCOUNT_PROD`** (GitHub → repo →
+  Settings → Secrets and variables → Actions → New repository secret). It also
+  serves 0.7's local migration/repair scripts.
+- Its `client_email` is the `DEPLOY_SA` used in (d).
+- **It's a live prod credential** — never commit it; delete the local file after
+  setting the secret; rotate if exposed (see step 26).
+
 **d) Deploy service account roles** (the SA whose JSON is in
 `FIREBASE_SERVICE_ACCOUNT_PROD`). Set its email and grant the deploy roles:
 ```bash
