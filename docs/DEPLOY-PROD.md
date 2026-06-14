@@ -272,6 +272,20 @@ presence looks stale for users still on the old cached PWA.
     **functions** step fails on a first-time API/IAM error (common on the very
     first deploy while service agents finish provisioning), read the error, fix
     the named API/role, and **re-run the job**.
+
+    **Expected on the very first deploy:** the RTDB-triggered functions
+    (`onKnock`, `onCall`, `onAvailability`, `onInvite`, `onFollowRequest`,
+    `onMemberOverride`) can fail with *"Permission denied while using the Eventarc
+    Service Agent … Retry the deployment in a few minutes"* even though `0.5`'s
+    bindings are correct — the Eventarc service-agent IAM grant just hasn't
+    propagated yet. `validateRecovery` (a callable, no Eventarc trigger) succeeds
+    in the same run. **Fix: wait a few minutes and re-run** — the create succeeds
+    once IAM propagates; no config change needed.
+
+    The deploy passes `--force` so the Artifact Registry image **cleanup policy**
+    is auto-accepted. Without it, a `--non-interactive` deploy exits 1 on the
+    *"No cleanup policy detected"* prompt **even when every function deployed** —
+    a misleading red that looks like a deploy failure but isn't.
 15. **Run the data migration against prod, immediately after the deploy lands:**
     ```bash
     cd functions
