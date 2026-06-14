@@ -12,6 +12,7 @@
 // add a setter (writes both layers), handle it in syncFromServer.
 
 import { mergeUserPrefs, readPushTokens } from './db.js';
+import { readOverrides, writeOverride } from './featureOverrides.js';
 import {
   getPaletteState as storeGetPaletteState,
   setPaletteState as storeSetPaletteState,
@@ -31,8 +32,22 @@ export function getFollowing() {
 
 let _myUserId = null;
 
+// Feature toggles controllable by the user this cut. Snapshot of the override
+// values in effect at boot (captured in initPrefs) so syncFromServer can tell
+// when a cross-device change requires a reload to take effect.
+const FEATURE_TOGGLE_KEYS = ['palettes', 'groups'];
+let _bootFeatureToggles = {};
+
+// Single source of the "is this feature enabled?" rule: a stored override only
+// disables (=== false); a missing key means the build default (enabled).
+function _toggleEnabled(key) {
+  return readOverrides()[key] !== false;
+}
+
 export function initPrefs(userId) {
   _myUserId = userId;
+  _bootFeatureToggles = {};
+  for (const k of FEATURE_TOGGLE_KEYS) _bootFeatureToggles[k] = _toggleEnabled(k);
 }
 
 // ── Hints ────────────────────────────────────────────────────────────────────
@@ -281,6 +296,22 @@ export function hasAnyNotifyPrefEnabled() {
   return false;
 }
 
+// ── Feature toggles (experimental per-user feature gates) ───────────────────
+// Default ENABLED. Written to localStorage (read synchronously at boot by
+// js/features.js) and mirrored to userPrefs/{uid}/featureToggles/{key} for
+// cross-device sync. Applying a change requires a reload — see featureSettings.js.
+export function getFeatureToggle(key) {
+  return _toggleEnabled(key);
+}
+
+export function setFeatureToggle(key, enabled) {
+  if (!FEATURE_TOGGLE_KEYS.includes(key)) return; // only mint known toggle keys
+  writeOverride(key, enabled);
+  if (_myUserId) {
+    mergeUserPrefs(_myUserId, { [`featureToggles/${key}`]: !!enabled }).catch(() => {});
+  }
+}
+
 // ── Push-token registry ──────────────────────────────────────────────────────
 const PUSH_TOKEN_KEY = 'statusapp_push_token';
 
@@ -453,5 +484,19 @@ export function syncFromServer(serverPrefs) {
     }
     writeNotifyCache(map);
     document.dispatchEvent(new CustomEvent('notify-prefs-synced'));
+  }
+  // Feature toggles. Server wins (write into the localStorage override cache).
+  // If a controlled key now differs from the value in effect at boot, the
+  // running session is stale for that feature — dispatch an event so app.js can
+  // offer a reload (we never auto-reload mid-use).
+  if (serverPrefs.featureToggles && typeof serverPrefs.featureToggles === 'object') {
+    let changed = false;
+    for (const key of FEATURE_TOGGLE_KEYS) {
+      const v = serverPrefs.featureToggles[key];
+      if (typeof v !== 'boolean') continue;
+      writeOverride(key, v);
+      if (v !== _bootFeatureToggles[key]) changed = true;
+    }
+    if (changed) document.dispatchEvent(new CustomEvent('feature-toggles-synced'));
   }
 }

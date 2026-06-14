@@ -18,6 +18,7 @@ const {
   getNotifyPrefs, setNotifyPref,
   hasAnyNotifyPrefEnabled,
   setPaletteState, setPaletteStateLocal, getPaletteState,
+  getFeatureToggle, setFeatureToggle,
 } = require('../js/prefs.js');
 
 beforeEach(() => {
@@ -332,4 +333,74 @@ test('setPaletteStateLocal writes localStorage only — never userPrefs (no inac
   setPaletteStateLocal(TWO_SET_STATE);
   expect(mergeUserPrefs).not.toHaveBeenCalled();
   expect(getPaletteState().sets['2'].selectedKey).toBe('venom'); // still applied locally
+});
+
+// ── Feature toggles ──
+
+test('getFeatureToggle defaults to true when nothing stored', () => {
+  expect(getFeatureToggle('groups')).toBe(true);
+  expect(getFeatureToggle('palettes')).toBe(true);
+});
+
+test('setFeatureToggle writes localStorage AND userPrefs when initialized', () => {
+  initPrefs('uid1');
+  setFeatureToggle('groups', false);
+  expect(getFeatureToggle('groups')).toBe(false);
+  expect(JSON.parse(localStorage.getItem('statusapp_feature_overrides')))
+    .toEqual({ groups: false });
+  expect(mergeUserPrefs).toHaveBeenCalledWith('uid1', { 'featureToggles/groups': false });
+});
+
+test('syncFromServer writes incoming featureToggles into localStorage (server wins)', () => {
+  initPrefs('uid1');
+  syncFromServer({ featureToggles: { palettes: false } });
+  expect(getFeatureToggle('palettes')).toBe(false);
+});
+
+test('syncFromServer dispatches feature-toggles-synced when a key differs from boot', () => {
+  initPrefs('uid1'); // boot snapshot: nothing stored → all enabled
+  const handler = jest.fn();
+  document.addEventListener('feature-toggles-synced', handler);
+  syncFromServer({ featureToggles: { groups: false } });
+  expect(handler).toHaveBeenCalledTimes(1);
+  document.removeEventListener('feature-toggles-synced', handler);
+});
+
+test('syncFromServer does NOT dispatch when the synced value matches boot state', () => {
+  localStorage.setItem('statusapp_feature_overrides', JSON.stringify({ groups: false }));
+  initPrefs('uid1'); // boot snapshot now has groups:false
+  const handler = jest.fn();
+  document.addEventListener('feature-toggles-synced', handler);
+  syncFromServer({ featureToggles: { groups: false } });
+  expect(handler).not.toHaveBeenCalled();
+  document.removeEventListener('feature-toggles-synced', handler);
+});
+
+test('setFeatureToggle before initPrefs writes localStorage but skips the userPrefs write', () => {
+  // Mirrors the setCurrentContext ordering contract: no userId known yet → no
+  // Firebase mirror, but the local override still lands for the next boot.
+  // isolateModules gives a fresh prefs module whose _myUserId is still null
+  // (module-level state leaks across tests in the same file otherwise).
+  jest.isolateModules(() => {
+    const { mergeUserPrefs: mup } = require('../js/db.js');
+    const prefs = require('../js/prefs.js');
+    prefs.setFeatureToggle('groups', false);
+    expect(prefs.getFeatureToggle('groups')).toBe(false);
+    expect(mup).not.toHaveBeenCalled();
+  });
+});
+
+test('setFeatureToggle ignores unknown keys (does not mint/sync arbitrary toggles)', () => {
+  initPrefs('uid1');
+  setFeatureToggle('bogus', false);
+  expect(localStorage.getItem('statusapp_feature_overrides')).toBeNull();
+  expect(mergeUserPrefs).not.toHaveBeenCalled();
+});
+
+test('syncFromServer preserves a local toggle key absent from the server payload', () => {
+  localStorage.setItem('statusapp_feature_overrides', JSON.stringify({ groups: false }));
+  initPrefs('uid1');
+  syncFromServer({ featureToggles: { palettes: false } }); // groups absent
+  expect(getFeatureToggle('palettes')).toBe(false);
+  expect(getFeatureToggle('groups')).toBe(false); // untouched
 });
