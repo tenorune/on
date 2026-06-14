@@ -37,7 +37,7 @@ let _allStrokes = [];
 let _undoStack = []; // my stroke keys, max 8
 const MAX_UNDO = 8;
 let _lastDrawingSend = 0;
-let _absentTimerRefRef = null;
+let _absentTimerRef = null;
 const DRAWING_THROTTLE = 80; // ms between live drawing updates
 let _stripWasVisible = false;
 
@@ -94,6 +94,15 @@ function clearAndRedraw(ctx, cw, ch, bgColor, strokes) {
 // ─── Floating UI ─────────────────────────────────────────────────────────────
 
 function buildFloatingUI(container, penColors, bgColors) {
+  // Idempotency guard. exitCanvas defers float removal to the fade-out
+  // `transitionend`, which is skipped when a quick re-enter cancels the out-
+  // transition (re-adding `.active`). A surviving stale header means a SECOND
+  // #canvas-peer-dot gets appended here; getElementById then resolves the stale
+  // (first) node, so updatePeerDot writes to a hidden dot while the visible
+  // (newer) one stays frozen at its init color — the peer's pen color appears
+  // stuck. Clear any leftover floats/dialogs before building this session's UI.
+  container.querySelectorAll('.canvas-float, .canvas-dialog-overlay').forEach(el => el.remove());
+
   // Combined header: < Name (dot)
   const header = document.createElement('div');
   header.className = 'canvas-float canvas-header';
