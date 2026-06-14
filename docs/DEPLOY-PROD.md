@@ -99,6 +99,21 @@ service agents and the functions runtime SA need explicit roles. (These mirror
 the bindings that made dev work; if the first deploy still complains, its error
 output names the exact missing role — grant that and re-run.)
 
+**0) Provision the service agents.** GCP creates per-service "service agents"
+**lazily** — `gcloud services enable` (0.4) only *starts* their async
+provisioning, so a binding below can fail with `INVALID_ARGUMENT: Service
+account service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com does not
+exist` (the "binding with condition" line in that error is a red herring). Force
+them into existence first — safe + idempotent (returns the existing agent if it
+already exists):
+```bash
+gcloud beta services identity create --service=pubsub.googleapis.com   --project=<prodId>
+gcloud beta services identity create --service=eventarc.googleapis.com --project=<prodId>
+```
+(If your `gcloud` rejects `beta`, drop it — `gcloud services identity create …`
+is GA in recent versions. If a binding *still* reports "does not exist" right
+after, it's IAM propagation — wait ~1 min and retry.)
+
 **a) Pub/Sub service agent → Service Account Token Creator** (lets Eventarc mint
 auth tokens for trigger delivery):
 ```bash
