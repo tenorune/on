@@ -2,6 +2,7 @@
 import { NOTIFICATIONS_ENABLED } from './features.js';
 import { isHintSeen, markHintSeen, addPushToken, removePushToken, getRegisteredPushToken, hasAnyNotifyPrefEnabled, touchPushToken, cullStalePushTokens } from './prefs.js';
 import { detectNotifyCapability, guidanceCopyFor } from './installGuidance.js';
+import { loadIdentity } from './identity.js';
 import { getMessagingIfSupported } from './firebase-config.js';
 import { getToken } from 'firebase/messaging';
 
@@ -199,8 +200,23 @@ function renderBanner(banner, capState, onDismiss) {
     let html = copy.body;
     if (copy.remindPhrase) {
       html += '<span class="notify-promo-reminder">First, make sure you’ve saved your secret phrase — you’ll need it to restore your account after installing.</span>';
+      // One-tap save: copy the phrase to the clipboard right here (without
+      // displaying it), so the user can stash it before installing.
+      html += '<span class="notify-promo-phrase">Secret phrase: <button type="button" class="notify-promo-copy" id="notify-promo-copy">Copy to clipboard</button></span>';
     }
     textEl.innerHTML = html;
+    const copyBtn = textEl.querySelector('#notify-promo-copy');
+    if (copyBtn) {
+      copyBtn.onclick = async () => {
+        const phrase = loadIdentity()?.recoveryCode;
+        if (!phrase) return;
+        try {
+          await navigator.clipboard?.writeText(phrase);
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => { copyBtn.textContent = 'Copy to clipboard'; }, 1500);
+        } catch { /* clipboard blocked */ }
+      };
+    }
     actionEl.classList.add('hidden');
   }
   banner.querySelector('#notify-promo-dismiss').onclick = onDismiss

@@ -15,6 +15,7 @@ jest.mock('../js/installGuidance.js', () => ({
   detectNotifyCapability: jest.fn(),
   guidanceCopyFor: jest.fn((s) => ({ body: `copy-for-${s}` })),
 }));
+jest.mock('../js/identity.js', () => ({ loadIdentity: jest.fn() }));
 
 const { shouldShowPromo } = require('../js/notifyPrompt.js');
 
@@ -316,5 +317,42 @@ describe('promo Enable button failure feedback (Defect 2 — no more silent no-o
     await flush();
     expect(addPushToken).toHaveBeenCalledWith('tok-ok');
     expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
+  });
+});
+
+const { loadIdentity } = require('../js/identity.js');
+
+describe('install-nudge secret-phrase copy button', () => {
+  const flush = () => new Promise((r) => setImmediate(r));
+  beforeEach(() => {
+    mountBanner();
+    localStorage.clear();
+    detectNotifyCapability.mockReset();
+    detectNotifyCapability.mockReturnValue({ state: 'needs-install-ios', supported: false });
+    guidanceCopyFor.mockReset();
+    guidanceCopyFor.mockReturnValue({ body: 'install copy', remindPhrase: true });
+    hasAnyNotifyPrefEnabled.mockReturnValue(true);
+    isHintSeen.mockReturnValue(false);
+    loadIdentity.mockReset();
+    loadIdentity.mockReturnValue({ recoveryCode: 'swift-river-amber-dust' });
+    global.Notification = { permission: 'default' };
+  });
+
+  test('a remindPhrase nudge shows a copy button that writes the recovery code to the clipboard', async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    maybeRepromptForMissingPermission(); // renders the install-guidance banner
+    const btn = document.getElementById('notify-promo-copy');
+    expect(btn).not.toBeNull();
+    btn.click();
+    await flush();
+    expect(writeText).toHaveBeenCalledWith('swift-river-amber-dust');
+    expect(btn.textContent).toMatch(/copied/i);
+  });
+
+  test('no copy button when the guidance carries no phrase reminder', () => {
+    guidanceCopyFor.mockReturnValue({ body: 'plain guidance', remindPhrase: false });
+    maybeRepromptForMissingPermission();
+    expect(document.getElementById('notify-promo-copy')).toBeNull();
   });
 });
