@@ -67,4 +67,5 @@ jobs:
           npx firebase deploy \
             --only hosting,database,functions \
             --project "$PROJECT_ID" \
-            --non-interactive
+            --non-interactive \
+            --force
