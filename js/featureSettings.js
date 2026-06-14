@@ -36,6 +36,13 @@ export function initFeatureSettings() {
     input.checked = getFeatureToggle(key);
     input.addEventListener('change', () => {
       setFeatureToggle(key, input.checked);
+      // Brief reload affordance — the gates are read once at boot, so applying a
+      // change means reloading. Disable the row + show status before reloading.
+      input.disabled = true;
+      const status = document.createElement('span');
+      status.className = 'feature-settings-status';
+      status.textContent = 'Reloading…';
+      row.appendChild(status);
       _reload();
     });
 

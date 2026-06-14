@@ -1352,3 +1352,4 @@ main {
 .feature-settings-label { display: flex; flex-direction: column; }
 .feature-settings-name { font-size: 0.9rem; }
 .feature-settings-desc { font-size: 0.75rem; opacity: 0.6; }
+.feature-settings-status { font-size: 0.75rem; opacity: 0.7; margin-left: 0.5rem; align-self: center; }

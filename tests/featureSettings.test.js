@@ -49,6 +49,9 @@ test('flipping a switch writes the pref and reloads', () => {
   sw.dispatchEvent(new Event('change'));
   expect(setFeatureToggle).toHaveBeenCalledWith('groups', false);
   expect(reload).toHaveBeenCalledTimes(1);
+  // Brief reload affordance: the flipped switch is disabled and a status shows.
+  expect(sw.disabled).toBe(true);
+  expect(document.querySelector('.feature-settings-status').textContent).toBe('Reloading…');
 });
 
 test('is a no-op when the #feature-settings container is absent', () => {
