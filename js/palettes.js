@@ -1,7 +1,7 @@
 // js/palettes.js
 import { setStatusColor, setPaletteKey } from './db.js';
 import { safeCssColor } from './utils.js';
-import { isHintSeen, markHintSeen, getPaletteState, setPaletteState } from './prefs.js';
+import { isHintSeen, markHintSeen, getPaletteState, setPaletteState, setPaletteStateLocal } from './prefs.js';
 import {
   shouldShowSwatchWave, shouldShowThemeHint, shouldShowDotGoHint,
   shouldShowSetTogglePulse,
@@ -602,7 +602,12 @@ export function syncPaletteStateFromServer(userId, statusColor, paletteKey) {
   state.sets[setKey].selectedKey = foundKey;
   state.sets[setKey].selectedColor = statusColor;
   state.sets[setKey].activePaletteKey = incomingActivePaletteKey;
-  setPaletteState(state);
+  // localStorage ONLY — this is a downstream reconstruction of the ACTIVE set
+  // from the broadcast presence. Writing the whole paletteState back to userPrefs
+  // (setPaletteState) would clobber the INACTIVE set's selection with this
+  // device's not-yet-synced default on a fresh sign-in. The inactive set is owned
+  // by the userPrefs sync (syncFromServer → storeSetPaletteState).
+  setPaletteStateLocal(state);
   renderSwatchRow(userId);
 }
 
