@@ -191,12 +191,16 @@ function renderBanner(banner, capState, onDismiss) {
     };
   } else {
     const copy = guidanceCopyFor(capState);
-    // Installing on iOS lands in a fresh storage partition, so the identity is
-    // gone unless the user re-enters their phrase. When the guidance flags it,
-    // append the save-your-phrase reminder (the §6c data-loss guard).
-    textEl.textContent = copy.remindPhrase
-      ? `${copy.body} First, make sure you’ve saved your secret phrase — you’ll need it to restore your account after installing.`
-      : copy.body;
+    // The guidance body is app-controlled HTML (it carries inline step icons),
+    // so render it as innerHTML. Installing on iOS/macOS lands in a fresh storage
+    // partition, so the identity is gone unless the user re-enters their phrase;
+    // when the guidance flags it, add the save-your-phrase reminder as its own
+    // paragraph (the §6c data-loss guard).
+    let html = copy.body;
+    if (copy.remindPhrase) {
+      html += '<span class="notify-promo-reminder">First, make sure you’ve saved your secret phrase — you’ll need it to restore your account after installing.</span>';
+    }
+    textEl.innerHTML = html;
     actionEl.classList.add('hidden');
   }
   banner.querySelector('#notify-promo-dismiss').onclick = onDismiss

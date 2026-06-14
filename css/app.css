@@ -1213,6 +1213,10 @@ main {
   border-radius: 0.75rem; padding: 0.75rem 1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.25); z-index: 60; }
 .notify-promo.hidden { display: none; }
 .notify-promo #notify-promo-text { flex: 1; font-size: 0.9rem; }
+/* Inline step icons in the install guidance (Share / Add-to-Home / Add-to-Dock). */
+.notify-promo .step-icon { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.18em; margin: 0 0.12em; }
+/* "First, make sure…" reminder renders as its own paragraph. */
+.notify-promo .notify-promo-reminder { display: block; margin-top: 0.55rem; }
 /* Match Direct's "Add a person": a surface2 rounded card wrapping a plain,
    full-width, left-aligned .add-btn (#add-person-area treatment). The 0.25rem
    top margin mirrors #add-person-area's empty-state margin-top so the button

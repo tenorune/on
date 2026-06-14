@@ -96,3 +96,12 @@ test('macOS install copy points to the Dock and includes the secret-phrase remin
   expect(copy.body).toMatch(/Dock/i);
   expect(copy.remindPhrase).toBe(true);
 });
+
+test('iOS install copy embeds the Share and Add-to-Home step icons inline', () => {
+  const body = guidanceCopyFor('needs-install-ios').body;
+  expect((body.match(/class="step-icon"/g) || []).length).toBe(2);
+});
+
+test('macOS install copy embeds the Add-to-Dock step icon inline', () => {
+  expect(guidanceCopyFor('needs-install-macos').body).toContain('class="step-icon"');
+});
