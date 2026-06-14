@@ -30,7 +30,7 @@ const {
   applyThemeVars, resetThemeVars,
   tapSwatch, initSwatches, switchSet,
   enterPaletteMode, exitPaletteMode,
-  startSwatchHints, paintStatusDot,
+  startSwatchHints, paintStatusDot, syncPaletteStateFromServer,
 } = require('../js/palettes.js');
 const { setStatusColor } = require('../js/db.js');
 const { getPaletteState, setPaletteState } = require('../js/store.js');
@@ -669,5 +669,61 @@ describe('paintStatusDot', () => {
 
   test('null dot is a no-op (no throw)', () => {
     expect(() => paintStatusDot(null, { color: '#fff', available: true })).not.toThrow();
+  });
+});
+
+// ── syncPaletteStateFromServer: cross-set echo guard ──
+// switchSet writes statusColor and paletteKey to presence as TWO separate writes,
+// so the own-status watch can briefly see a NEW set's color paired with the OLD
+// set's paletteKey. syncPaletteStateFromServer must not attribute that color to
+// the (stale) paletteKey's set — that clobbers the wrong set's selectedColor and
+// forces activeSet, dropping the selected indicator and broadcasting the wrong
+// color on go-available.
+describe('syncPaletteStateFromServer cross-set echo guard', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    document.body.innerHTML = '<div id="swatch-row"></div><div id="my-dot"></div>';
+  });
+
+  test('ignores a transient echo: a set-2 color arriving with a set-1 paletteKey', () => {
+    const voltColor = getPaletteByKey('volt').color;   // set-2 base color
+    getPaletteState.mockReturnValue({
+      activeSet: 2,
+      sets: {
+        '1': { selectedKey: 'forest', selectedColor: getPaletteByKey('forest').color, activePaletteKey: 'forest' },
+        '2': { selectedKey: 'volt',   selectedColor: voltColor, activePaletteKey: null },
+      },
+    });
+    // statusColor switched to volt (set 2) but paletteKey is still 'forest' (set 1).
+    syncPaletteStateFromServer('me', voltColor, 'forest');
+    // Must NOT write — that would set set-1.selectedColor = voltColor and activeSet = 1.
+    expect(setPaletteState).not.toHaveBeenCalled();
+  });
+
+  test('applies a consistent echo whose color belongs to the paletteKey palette', () => {
+    const forest = getPaletteByKey('forest');
+    getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', selectedColor: '#000000', activePaletteKey: 'forest' },
+        '2': { selectedKey: 'volt',   selectedColor: getPaletteByKey('volt').color, activePaletteKey: null },
+      },
+    });
+    syncPaletteStateFromServer('me', forest.color, 'forest'); // forest color IS in the forest palette
+    expect(setPaletteState).toHaveBeenCalled();
+  });
+
+  test('applies a consistent echo whose color is a complement of the paletteKey palette', () => {
+    const forest = getPaletteByKey('forest');
+    const complement = forest.complements[0];
+    getPaletteState.mockReturnValue({
+      activeSet: 1,
+      sets: {
+        '1': { selectedKey: 'forest', selectedColor: '#000000', activePaletteKey: 'forest' },
+        '2': { selectedKey: 'volt',   selectedColor: getPaletteByKey('volt').color, activePaletteKey: null },
+      },
+    });
+    syncPaletteStateFromServer('me', complement, 'forest');
+    expect(setPaletteState).toHaveBeenCalled();
   });
 });
