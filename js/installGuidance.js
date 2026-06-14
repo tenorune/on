@@ -34,11 +34,16 @@ function isMacSafari() {
 }
 
 // Returns { state, supported } where state is one of:
-// 'supported' | 'denied' | 'needs-install-ios' | 'ios-use-safari' | 'unsupported'
+// 'supported' | 'denied' | 'needs-install-ios' | 'needs-install-macos' | 'ios-use-safari' | 'unsupported'
 export function detectNotifyCapability() {
   if (typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission === 'denied') {
     return { state: 'denied', supported: false };
   }
+  // In-browser macOS Safari HAS the Push API, but in practice it accepts a push
+  // and silently never displays it (the installed Dock app does). Treat a normal
+  // Safari tab on macOS like iOS-needs-install and point the user at Add to Dock;
+  // the installed web app runs standalone, so it falls through to 'supported'.
+  if (isMacSafari() && !isStandalone()) return { state: 'needs-install-macos', supported: false };
   if (isPushApiAvailable()) return { state: 'supported', supported: true };
   if (isIosThirdParty()) return { state: 'ios-use-safari', supported: false };
   if (isIos() && !isStandalone()) return { state: 'needs-install-ios', supported: false };
@@ -54,6 +59,11 @@ const COPY = {
   'ios-use-safari': {
     title: 'Open in Safari',
     body: 'On iPhone, notifications only work from Safari. Open this app in Safari, then tap Share → "Add to Home Screen."',
+    remindPhrase: true,
+  },
+  'needs-install-macos': {
+    title: 'Add to Dock',
+    body: 'On a Mac, notifications need the app in your Dock. In Safari, choose File → Add to Dock, then open the app from there.',
     remindPhrase: true,
   },
   // 'denied' body is computed per-browser in guidanceCopyFor (the re-enable
