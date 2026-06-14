@@ -203,8 +203,11 @@ jest.mock('../js/groupContext.js', () => ({
   exitGroupContext: jest.fn(),
 }));
 
+jest.mock('../js/featureSettings.js', () => ({ initFeatureSettings: jest.fn() }));
+
 jest.mock('../js/groups.js', () => ({
   initGroupRemovalDetector: jest.fn(),
+  showToast: jest.fn(),
 }));
 
 jest.mock('../js/inbox.js', () => ({

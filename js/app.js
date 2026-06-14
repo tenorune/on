@@ -5,6 +5,7 @@ import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallbac
 import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
+import { initFeatureSettings } from './featureSettings.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { initNotifyPrompt, refreshPushToken } from './notifyPrompt.js';
 import { initNotifyDebug } from './notifyDebug.js';
@@ -19,7 +20,7 @@ import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, apply
 import { routeNotificationClick } from './notifyRouting.js';
 import { initOwnStatus, subscribeOwnStatus } from './ownStatus.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
-import { initGroupRemovalDetector } from './groups.js';
+import { initGroupRemovalDetector, showToast } from './groups.js';
 import { initInbox, openInboxModal } from './inbox.js';
 import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
@@ -627,6 +628,13 @@ async function main() {
   });
 
   initCodeDrawer(userId, code);
+  initFeatureSettings();
+  // Cross-device feature-toggle change: prefs.syncFromServer fires this when a
+  // synced toggle differs from what booted. We never auto-reload mid-use — just
+  // tell the user a reload is needed (the gates are read once at boot).
+  document.addEventListener('feature-toggles-synced', () => {
+    showToast('Feature settings changed on another device — reload to apply.');
+  });
   initHeader(userId);
   if (!splashDone) {
     const followeeCount = getFollowing().length;
