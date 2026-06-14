@@ -50,10 +50,17 @@ export function detectNotifyCapability() {
   return { state: 'unsupported', supported: false };
 }
 
+// Inline step icons rendered into the guidance copy (decorative — aria-hidden;
+// they inherit the banner's text color via currentColor). The copy is rendered
+// as HTML by notifyPrompt's renderBanner; it's all app-controlled, no user input.
+const SHARE_ICON = '<svg class="step-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>';
+const ADD_HOME_ICON = '<svg class="step-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
+const ADD_DOCK_ICON = '<svg class="step-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><rect x="9.5" y="13" width="5" height="3" rx="1" fill="currentColor" stroke="none"/></svg>';
+
 const COPY = {
   'needs-install-ios': {
     title: 'Add to Home Screen',
-    body: 'On iPhone, notifications need the app on your Home Screen. Tap the Share button, then "Add to Home Screen."',
+    body: `On iPhone, notifications need the app on your Home Screen. Tap the Share button ${SHARE_ICON}, then "Add to Home Screen" ${ADD_HOME_ICON}.`,
     remindPhrase: true,
   },
   'ios-use-safari': {
@@ -63,7 +70,7 @@ const COPY = {
   },
   'needs-install-macos': {
     title: 'Add to Dock',
-    body: 'On a Mac, notifications need the app in your Dock. In Safari, choose File → Add to Dock, then open the app from there.',
+    body: `On a Mac, notifications need the app in your Dock. In Safari, choose File → Add to Dock ${ADD_DOCK_ICON}, then open the app from there.`,
     remindPhrase: true,
   },
   // 'denied' body is computed per-browser in guidanceCopyFor (the re-enable
