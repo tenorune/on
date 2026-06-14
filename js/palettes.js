@@ -567,9 +567,20 @@ export function syncPaletteStateFromServer(userId, statusColor, paletteKey) {
 
   if (paletteKey) {
     for (const setNum of [1, 2]) {
-      if (PALETTE_SETS[setNum].some(p => p.key === paletteKey)) {
-        foundSet = setNum;
-        foundKey = paletteKey;
+      const pal = PALETTE_SETS[setNum].find(p => p.key === paletteKey);
+      if (pal) {
+        // Guard against an inconsistent presence echo: switchSet writes
+        // statusColor and paletteKey as two separate presence updates, so the
+        // own-status watcher can briefly observe the NEW set's color paired
+        // with the OLD set's paletteKey. Only attribute the color to this set
+        // if it actually belongs to this palette (base color or a complement);
+        // otherwise the next (consistent) echo will reconcile it.
+        const colorBelongs = statusColor === pal.color
+          || (Array.isArray(pal.complements) && pal.complements.includes(statusColor));
+        if (colorBelongs) {
+          foundSet = setNum;
+          foundKey = paletteKey;
+        }
         break;
       }
     }
