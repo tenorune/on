@@ -1,6 +1,8 @@
 // js/knock.js
 import { writeKnock, getKnocks, watchKnocksAdded, clearKnock } from './db.js';
 import { getCurrentContext, onContextChange } from './groupNav.js';
+import { isCardDrawerOpen } from './cardDrawer.js';
+import { hexToRgb } from './utils.js';
 
 // Module-level state — reset by initKnocks on each call
 let debounceMap = new Map();   // recipientId → last knock timestamp
@@ -86,6 +88,9 @@ export async function initKnocks(myUserId) {
     // App is backgrounded or on canvas — leave knock in DB so the next initKnocks
     // (on foreground / canvas exit) picks it up via getKnocks and shows it as deferred.
     if (document.visibilityState !== 'visible') return;
+    // A tool drawer is open — defer like the backgrounded case: leave the knock
+    // in the DB so the card-drawer-close replay (initKnocks) shows it.
+    if (isCardDrawerOpen()) return;
     const canvasScreen = document.getElementById('canvas-screen');
     if (canvasScreen && canvasScreen.classList.contains('active')) return;
     // Stale-knock check: only knocks that are clearly older than "this
@@ -129,17 +134,30 @@ export async function initKnocks(myUserId) {
     clearKnock(myUserId, senderId).catch(() => {});
   });
 
-  // 2. Read deferred knocks (one-time get)
-  const snapshot = await getKnocks(myUserId);
+  // 2. Read deferred knocks (one-time get). A cold-start read can race the RTDB
+  //    connection's auth handshake: the custom-token auth propagates to the
+  //    socket slightly after signInWithCustomToken resolves, so a one-shot get()
+  //    can transiently fail with permission_denied — unlike live listeners,
+  //    which re-fire once authed. Retry briefly; on persistent failure, degrade
+  //    to live-only. (If this read threw, snapshotPending would stay true and the
+  //    live listener above would hold every knock for the whole session.)
+  let snapshot = null;
+  for (let attempt = 0; ; attempt += 1) {
+    try { snapshot = await getKnocks(myUserId); break; }
+    catch (err) {
+      if (attempt >= 4) { console.warn('initKnocks: deferred-knock snapshot unavailable, continuing live-only', err); break; }
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
 
   // 3. Populate deferredKeys from snapshot, then clear the pending flag so
   //    live events for non-deferred senders are processed normally going forward.
-  if (snapshot.exists()) {
+  if (snapshot && snapshot.exists()) {
     Object.keys(snapshot.val()).forEach(senderId => deferredKeys.add(senderId));
   }
   snapshotPending = false;
 
-  if (!snapshot.exists()) return;
+  if (!snapshot || !snapshot.exists()) return;
 
   // 4. Categorize snapshot entries
   const toDelete = [];
@@ -255,10 +273,8 @@ function getKnockColor(li) {
 
 export function colorToRgba(color, alpha) {
   if (color.startsWith('#')) {
-    const r = parseInt(color.slice(1, 3), 16);
-    const g = parseInt(color.slice(3, 5), 16);
-    const b = parseInt(color.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    // Reuse the shared hex parser (utils.hexToRgb) instead of re-slicing here.
+    return `rgba(${hexToRgb(color)}, ${alpha})`;
   }
   // rgb(r, g, b) — browser-normalized form
   const m = color.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
@@ -333,12 +349,13 @@ export function applyFloatToTop(li) {
   }
   // Refresh startedAt on every prepend so a re-knock extends the float.
   floatTimers.get(userId).startedAt = Date.now();
-  // Don't let the floated li land above section labels (e.g. "Mutuals" in
-  // Direct's contact list). Insert right after the first section label if
-  // one exists; otherwise prepend (group roster, no labels).
-  const firstLabel = list.querySelector('.list-section-label');
-  if (firstLabel) {
-    list.insertBefore(li, firstLabel.nextSibling);
+  // Don't let the floated li land above pinned header rows — Direct's section
+  // labels (e.g. "Mutuals") or the group roster's owner-only "Invite to group"
+  // row. Insert right after the first pinned row if one exists; otherwise
+  // prepend (non-owner group roster, no pins).
+  const pin = list.querySelector('.list-section-label, #group-roster-invite-row');
+  if (pin) {
+    list.insertBefore(li, pin.nextSibling);
   } else {
     list.prepend(li);
   }
@@ -348,12 +365,23 @@ export function applyFloatToTop(li) {
 
 function restoreFromFloat(userId) {
   const entry = floatTimers.get(userId);
-  if (!entry) return;
-  const li = document.querySelector(`[data-user-id="${userId}"]`);
-  if (li && entry.originalParent) {
-    entry.originalParent.insertBefore(li, entry.originalSibling || null);
-  }
   floatTimers.delete(userId);
+  if (!entry || !entry.originalParent) return;
+  // Scope the lookup to the list the row was floated in. A global
+  // document.querySelector could match a same-userId row in the OTHER context
+  // (a Direct follower who is also a group member) and, because #main-ui-direct
+  // precedes #group-context-root in the DOM, reparent the Direct row into the
+  // group roster — leaving a phantom row in the wrong context and a gap in the
+  // right one. The list element itself survives renderList/renderRoster rebuilds
+  // (they clear innerHTML, not the <ul>), so it stays a valid scope.
+  const li = entry.originalParent.querySelector(`[data-user-id="${userId}"]`);
+  if (!li) return;
+  // Re-anchor to the saved sibling only if it still lives in this list (a
+  // rebuild may have replaced it).
+  const sibling = entry.originalSibling && entry.originalSibling.parentNode === entry.originalParent
+    ? entry.originalSibling
+    : null;
+  entry.originalParent.insertBefore(li, sibling);
 }
 
 export function getFloatedUserIds() {
@@ -376,9 +404,9 @@ export function clearGroupCardBadge(groupId) {
   renderGroupBadge(groupId, 0);
 }
 
-// Exposed for renderNavRow to re-apply the badge on each re-render —
-// without this, navigating between contexts wipes the badge DOM even
-// though the count is still non-zero in memory.
+// Exposed for renderNavRow's per-card paint — the halo class is derived from
+// this count on every paint (set when non-zero, cleared at zero), so the badge
+// survives context flips and clears on surviving cards alike.
 export function getGroupBadgeCount(groupId) {
   return groupBadgeCounts.get(groupId) || 0;
 }
@@ -399,6 +427,15 @@ function renderGroupBadge(groupId, count) {
 export function bumpDirectBadge() {
   directBadgeCount += 1;
   renderDirectBadge(directBadgeCount);
+}
+
+// Pulse the Direct chip for Direct-scope activity (e.g. an incoming call) that
+// lands while the user is NOT in Direct — mirrors how a Direct knock badges the
+// chip. No-op in Direct, where the activity is already visible. Cleared on
+// entering Direct (the onContextChange handler in initKnocks), like knock badges.
+export function noteDirectActivity() {
+  if (getCurrentContext().context === 'direct') return;
+  bumpDirectBadge();
 }
 
 export function clearDirectBadge() {
@@ -460,5 +497,8 @@ document.addEventListener('visibilitychange', () => {
   if (cachedUserId) initKnocks(cachedUserId);
 });
 document.addEventListener('canvas-exited', () => {
+  if (cachedUserId) initKnocks(cachedUserId);
+});
+document.addEventListener('card-drawer-close', () => {
   if (cachedUserId) initKnocks(cachedUserId);
 });

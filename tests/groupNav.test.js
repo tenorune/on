@@ -1,5 +1,11 @@
 // tests/groupNav.test.js
+jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
+jest.mock('../js/ownStatus.js', () => ({
+  initOwnStatus: jest.fn(),
+  subscribeOwnStatus: jest.fn(() => () => {}),
+}));
 jest.mock('../js/db.js', () => ({
+  isAvailable: (s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now()),
   setLastVisited: jest.fn().mockResolvedValue(undefined),
   watchUserGroups: jest.fn(),
   watchGroupMeta: jest.fn(),
@@ -7,9 +13,16 @@ jest.mock('../js/db.js', () => ({
   watchOwnMemberOverride: jest.fn(() => () => {}),
   watchStatus: jest.fn(() => () => {}),
   removeUserGroupsEntry: jest.fn().mockResolvedValue(undefined),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('../js/prefs.js', () => ({
   setCurrentContext: jest.fn(),
+}));
+jest.mock('../js/inbox.js', () => ({
+  renderInboxNavSlot: jest.fn(),
 }));
 jest.mock('../js/features.js', () => ({ GROUPS_ENABLED: true }));
 jest.mock('../js/groups.js', () => ({
@@ -19,8 +32,13 @@ jest.mock('../js/groups.js', () => ({
 jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),
 }));
+jest.mock('../js/following.js', () => ({
+  getCurrentFollowersMap: jest.fn(() => ({ f1: 'CODEF1' })),
+  getCurrentMutuals: jest.fn(() => [{ userId: 'm1', label: 'Mut One' }]),
+}));
 
 const db = require('../js/db.js');
+const ownStatus = require('../js/ownStatus.js');
 const prefs = require('../js/prefs.js');
 const groups = require('../js/groups.js');
 const inviteModal = require('../js/inviteModal.js');
@@ -94,7 +112,7 @@ describe('groupNav state machine', () => {
   });
 });
 
-const { initNavRow, onCreateRequested, openCreateGroupModal, getLastKnownGroupName, startCardsRowSubscriptions } = require('../js/groupNav');
+const { initNavRow, onCreateRequested, openCreateGroupModal, getLastKnownGroupName, startCardsRowSubscriptions, subscribeGroupMeta, subscribeOwnOverride } = require('../js/groupNav');
 
 function setupCreateModalDom() {
   // Replace the bare #create-group-modal placeholder (from setupNavDom) with
@@ -143,7 +161,7 @@ describe('create-group modal', () => {
   test('Submit validates: empty name shows error', async () => {
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = '   ';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('create-group-error').classList.contains('hidden')).toBe(false);
@@ -154,10 +172,10 @@ describe('create-group modal', () => {
     groups.createGroup.mockResolvedValue({ groupId: 'G1ABCDEF', name: 'Family' });
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = 'Family';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
-    expect(groups.createGroup).toHaveBeenCalledWith('uid1', 'Family', 'Mike');
+    expect(groups.createGroup).toHaveBeenCalledWith('uid1', 'Family', 'Alex');
     expect(document.getElementById('create-group-modal').classList.contains('hidden')).toBe(true);
     expect(prefs.setCurrentContext).toHaveBeenCalledWith('group:G1ABCDEF');
   });
@@ -166,22 +184,28 @@ describe('create-group modal', () => {
     groups.createGroup.mockResolvedValue({ groupId: 'G1ABCDEF', name: 'Family' });
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = 'Family';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
-    expect(inviteModal.openInviteModal).toHaveBeenCalledWith({
+    // Includes the picker data (followers/mutuals/members) so the "invite
+    // specific people" list is populated during the create flow, not empty
+    // until a manual reopen.
+    expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
       scope: 'group',
       userId: 'uid1',
       groupId: 'G1ABCDEF',
       groupName: 'Family',
-    });
+      followers: { f1: 'CODEF1' },
+      mutuals: [{ userId: 'm1', label: 'Mut One' }],
+      currentMemberUids: expect.any(Set),
+    }));
   });
 
   test('Submit failure: surfaces error from createGroup, stays open', async () => {
     groups.createGroup.mockRejectedValue(new Error('boom'));
     openCreateGroupModal();
     document.getElementById('create-group-name-input').value = 'Family';
-    document.getElementById('create-group-displayname-input').value = 'Mike';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('create-group-error').textContent).toBe('boom');
@@ -222,7 +246,7 @@ describe('group cards own-override color reflection', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     startCardsRowSubscriptions();
     enumCb({ G1: { lastVisited: 1 } });
@@ -237,7 +261,7 @@ describe('group cards own-override color reflection', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     startCardsRowSubscriptions();
     enumCb({ G1: { lastVisited: 1 } });
@@ -266,7 +290,7 @@ describe('group cards own-override color reflection', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     startCardsRowSubscriptions();
     enumCb({ G1: { lastVisited: 1 } });
@@ -396,6 +420,21 @@ describe('renderNavRow — Direct mode', () => {
     // of a back-link and current-group label. No label needed.
     expect(document.querySelector('#nav-row .nav-current')).toBeNull();
   });
+
+  test('renderNavRowDirectMode injects an inbox slot before the group cards', () => {
+    db.watchUserGroups.mockImplementation(() => () => {});
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation(() => () => {});
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    const row = document.getElementById('nav-row');
+    const slot = row.querySelector('#nav-row-inbox-slot');
+    expect(slot).not.toBeNull();
+    // The slot is the first child of #nav-row (before any .group-card or .group-cards-plus).
+    expect(row.firstElementChild).toBe(slot);
+  });
 });
 
 describe('Direct nav per-group status indicator', () => {
@@ -406,7 +445,7 @@ describe('Direct nav per-group status indicator', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
@@ -423,7 +462,7 @@ describe('Direct nav per-group status indicator', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
@@ -439,7 +478,7 @@ describe('Direct nav per-group status indicator', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
@@ -456,7 +495,7 @@ describe('Direct nav per-group status indicator', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
@@ -473,7 +512,7 @@ describe('Direct nav per-group status indicator', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
@@ -491,7 +530,7 @@ describe('Direct nav per-group status indicator', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     initNav('me');
     initNavRow();
     startCardsRowSubscriptions();
@@ -567,7 +606,7 @@ describe('renderNavRow — group mode', () => {
     db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
     db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     db.watchOwnMemberOverride.mockImplementation(() => () => {});
-    db.watchStatus.mockImplementation((uid, cb) => { statusCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     db.setLastVisited.mockResolvedValue(undefined);
     initNav('me');
     initNavRow();
@@ -670,5 +709,226 @@ describe('applyOptimisticAppearance', () => {
     // The group card should remain bordered (i.e. "effectively available" is preserved
     // because enabled/status/availableUntil were not clobbered).
     expect(card.style.borderStyle).not.toBe('none');
+  });
+});
+
+describe('subscribeGroupMeta / subscribeOwnOverride providers', () => {
+  beforeEach(() => { jest.clearAllMocks(); setupNavDom(); });
+
+  test('subscribeGroupMeta opens an underlying watch for an un-enumerated group (union rule)', () => {
+    db.watchGroupMeta.mockImplementation((g, cb) => { return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    db.watchGroupMeta.mockClear();
+    subscribeGroupMeta('G9', jest.fn()); // G9 not in enumeration
+    expect(db.watchGroupMeta).toHaveBeenCalledWith('G9', expect.any(Function));
+  });
+
+  test('subscribeGroupMeta does NOT replay before the first tick (no fake deletion)', () => {
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    initNav('me');
+    startCardsRowSubscriptions();
+    const cb = jest.fn();
+    subscribeGroupMeta('G9', cb);
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  test('subscribeGroupMeta replays the cached meta after a tick', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    subscribeGroupMeta('G9', jest.fn());
+    metaCb({ name: 'Divers', ownerId: 'me', createdAt: 1 });
+    const late = jest.fn();
+    subscribeGroupMeta('G9', late);
+    expect(late).toHaveBeenCalledWith({ name: 'Divers', ownerId: 'me', createdAt: 1 });
+  });
+
+  test('a meta tick fans out to consumers', () => {
+    let metaCb;
+    const order = [];
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    subscribeGroupMeta('G9', () => order.push('consumer'));
+    metaCb({ name: 'Divers', ownerId: 'me', createdAt: 1 });
+    expect(order).toEqual(['consumer']);
+  });
+
+  test('a null meta tick fans out null (deletion) to consumers', () => {
+    let metaCb;
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    const cb = jest.fn();
+    subscribeGroupMeta('G9', cb);
+    metaCb(null);
+    expect(cb).toHaveBeenCalledWith(null);
+  });
+
+  test('unsubscribing a consumer-only group tears down its underlying watch', () => {
+    const unsub = jest.fn();
+    db.watchGroupMeta.mockImplementation(() => unsub);
+    initNav('me');
+    startCardsRowSubscriptions();
+    const off = subscribeGroupMeta('G9', jest.fn());
+    off();
+    expect(unsub).toHaveBeenCalled();
+  });
+
+  test('an enumerated group keeps its watch when a consumer unsubscribes', () => {
+    let enumCb;
+    const unsub = jest.fn();
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation(() => unsub);
+    initNav('me');
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });   // G1 enumerated
+    const off = subscribeGroupMeta('G1', jest.fn());
+    off();
+    expect(unsub).not.toHaveBeenCalled(); // still enumerated → sub stays
+  });
+
+  test('subscribeOwnOverride replays cached override after a tick, drops uid param', () => {
+    let overrideCb;
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    subscribeOwnOverride('G9', jest.fn());
+    expect(db.watchOwnMemberOverride).toHaveBeenCalledWith('G9', 'me', expect.any(Function));
+    overrideCb({ enabled: true, status: 'available' });
+    const late = jest.fn();
+    subscribeOwnOverride('G9', late);
+    expect(late).toHaveBeenCalledWith({ enabled: true, status: 'available' });
+  });
+
+  test('subscribeOwnOverride replays null override after a null tick', () => {
+    let overrideCb;
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    subscribeOwnOverride('G9', jest.fn());
+    overrideCb(null);
+    const late = jest.fn();
+    subscribeOwnOverride('G9', late);
+    expect(late).toHaveBeenCalledWith(null);
+  });
+
+  test('subscribeOwnOverride replay matches the last raw server tick, not an optimistic nav-cache write', () => {
+    let enumCb, overrideCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });          // G1 enumerated → override sub opens
+    overrideCb({ enabled: true, status: 'available', statusColor: '#111111' }); // server tick
+    // Optimistic nav-card mutation (does NOT come from the server watch):
+    applyOptimisticAppearance('G1', { statusColor: '#ffffff' });
+    // A late consumer must replay the last RAW server value, not the optimistic one.
+    const late = jest.fn();
+    subscribeOwnOverride('G1', late);
+    expect(late).toHaveBeenCalledWith({ enabled: true, status: 'available', statusColor: '#111111' });
+  });
+
+  test('subscribing to an already-enumerated group does not open a second meta watch', () => {
+    let enumCb;
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    db.watchGroupMeta.mockClear();
+    subscribeGroupMeta('G1', jest.fn());
+    expect(db.watchGroupMeta).not.toHaveBeenCalled(); // reuses the enumerated sub
+  });
+});
+
+describe('renderNavRow reconciliation', () => {
+  beforeEach(() => { jest.clearAllMocks(); setupNavDom(); });
+
+  function boot(enumeration) {
+    let enumCb, statusCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
+    initNav('me');
+    startCardsRowSubscriptions();
+    enumCb(enumeration);
+    return { enumCb: (e) => enumCb(e), statusCb: (s) => statusCb(s) };
+  }
+
+  test('group cards keep node identity across an own-status tick', () => {
+    const t = boot({ G1: { lastVisited: 2 }, G2: { lastVisited: 1 } });
+    const card1 = document.querySelector('#nav-row [data-group-id="G1"]');
+    t.statusCb({ status: 'available', availableUntil: Date.now() + 60000, statusColor: '#22c55e' });
+    expect(document.querySelector('#nav-row [data-group-id="G1"]')).toBe(card1);
+  });
+
+  test('card click handler attaches once across renders', () => {
+    const t = boot({ G1: { lastVisited: 1 } });
+    t.statusCb({ status: 'unavailable', availableUntil: null });
+    t.statusCb({ status: 'unavailable', availableUntil: null });
+    const before = db.setLastVisited.mock.calls.length;
+    document.querySelector('#nav-row [data-group-id="G1"]').click();
+    expect(db.setLastVisited.mock.calls.length).toBe(before + 1);
+  });
+
+  test('going unavailable CLEARS the border and greys a surviving card', () => {
+    const t = boot({ G1: { lastVisited: 1 } });
+    t.statusCb({ status: 'available', availableUntil: Date.now() + 60000, statusColor: '#11aaff' });
+    const card = document.querySelector('#nav-row [data-group-id="G1"]');
+    expect(card.style.borderColor).not.toBe('');
+    expect(card.classList.contains('greyed')).toBe(false);
+    t.statusCb({ status: 'unavailable', availableUntil: null });
+    expect(document.querySelector('#nav-row [data-group-id="G1"]')).toBe(card);
+    expect(card.style.borderColor).toBe('');
+    expect(card.classList.contains('greyed')).toBe(true);
+  });
+
+  test('an added group creates one new card without recreating the rest', () => {
+    const t = boot({ G1: { lastVisited: 2 } });
+    const card1 = document.querySelector('#nav-row [data-group-id="G1"]');
+    t.enumCb({ G1: { lastVisited: 2 }, G2: { lastVisited: 1 } });
+    expect(document.querySelector('#nav-row [data-group-id="G1"]')).toBe(card1);
+    expect(document.querySelector('#nav-row [data-group-id="G2"]')).not.toBeNull();
+  });
+
+  test('knock badge clears on a SURVIVING card when the count drops to zero', () => {
+    const knock = require('../js/knock.js');
+    const spy = jest.spyOn(knock, 'getGroupBadgeCount');
+    const t = boot({ G1: { lastVisited: 1 } });
+    spy.mockReturnValue(2);
+    t.statusCb({ status: 'unavailable', availableUntil: null });
+    const card = document.querySelector('#nav-row [data-group-id="G1"]');
+    expect(card.classList.contains('knock-pending')).toBe(true);
+    spy.mockReturnValue(0);
+    t.statusCb({ status: 'unavailable', availableUntil: null });
+    expect(document.querySelector('#nav-row [data-group-id="G1"]')).toBe(card);
+    expect(card.classList.contains('knock-pending')).toBe(false);
+    spy.mockRestore();
+  });
+
+  test('the persistent override toggle reads live state: a double-tap toggles on then off', () => {
+    let enumCb, metaCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.setLastVisited.mockResolvedValue(undefined);
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({ G1: { lastVisited: 1 } });
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    navigateToGroup('G1');
+    const toggle = document.querySelector('#group-override-toggle');
+    toggle.click();
+    expect(groups.toggleStatusOverride).toHaveBeenNthCalledWith(1, 'G1', 'me', true);
+    // The SAME node survives the re-render the first tap triggered…
+    expect(document.querySelector('#group-override-toggle')).toBe(toggle);
+    // …and its handler reads the current cache, so the second tap inverts again.
+    toggle.click();
+    expect(groups.toggleStatusOverride).toHaveBeenNthCalledWith(2, 'G1', 'me', false);
   });
 });

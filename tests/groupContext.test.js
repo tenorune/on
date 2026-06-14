@@ -1,4 +1,7 @@
 // tests/groupContext.test.js
+jest.mock('../js/ownStatus.js', () => ({
+  subscribeOwnStatus: jest.fn(() => () => {}),
+}));
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(() => 120),
   setLastTimeout: jest.fn(),
@@ -13,11 +16,12 @@ jest.mock('../js/store.js', () => ({
   })),
 }));
 jest.mock('../js/db.js', () => ({
+  isAvailable: (s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now()),
   readGroup: jest.fn().mockResolvedValue(null),
   watchGroupMeta: jest.fn(() => () => {}),
   watchGroupMembers: jest.fn(() => () => {}),
   watchGroupInvites: jest.fn(() => () => {}),
-  watchStatus: jest.fn(() => () => {}),
+  watchPresence: jest.fn(() => () => {}),
   watchOwnMemberOverride: jest.fn(() => () => {}),
   removeUserGroupsEntry: jest.fn().mockResolvedValue(undefined),
   setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
@@ -35,8 +39,12 @@ jest.mock('../js/db.js', () => ({
   formatTimeRemainingFuzzy: jest.fn((ms) => {
     if (ms <= 0) return '';
     const hours = ms / 3600000;
-    return `about ${Math.round(hours)} hours left`;
+    return `about ${Math.round(hours)} hours`;
   }),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('../js/invites.js', () => ({
   buildInviteUrl: jest.fn((token) => `https://app.example/?i=${token}`),
@@ -45,6 +53,8 @@ jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
   getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
   applyOptimisticAppearance: jest.fn(),
+  subscribeGroupMeta: jest.fn(() => () => {}),
+  subscribeOwnOverride: jest.fn(() => () => {}),
 }));
 jest.mock('../js/groups.js', () => ({
   renameGroup: jest.fn().mockResolvedValue(undefined),
@@ -103,9 +113,26 @@ jest.mock('../js/features.js', () => ({
   KNOCK_ENABLED: true,
   PALETTES_ENABLED: true,
   PALETTE_INTERACTIONS_ENABLED: true,
+  NOTIFICATIONS_ENABLED: true,
+  FOLLOW_REQUESTS_ENABLED: true,
 }));
+jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn(), isNotifyPopoverOpen: jest.fn(() => false) }));
+jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
 jest.mock('../js/me.js', () => ({
   clearFirstUsePulse: jest.fn(),
+}));
+jest.mock('../js/following.js', () => ({
+  getCurrentFollowersMap: jest.fn(() => ({})),
+  getCurrentMutuals: jest.fn(() => []),
+}));
+jest.mock('../js/followRequests.js', () => ({
+  isFollowRequestEligible: jest.fn(() => false),
+  createRequestFollowButton: jest.fn(),
+}));
+jest.mock('../js/cardDrawer.js', () => ({
+  createCardDrawer: jest.fn(),
+  isCardDrawerOpen: jest.fn(() => false),
+  closeCardDrawer: jest.fn(),
 }));
 
 // PointerEvent polyfill for jsdom (does not implement it natively)
@@ -119,12 +146,42 @@ if (typeof PointerEvent === 'undefined') {
 }
 
 const db = require('../js/db.js');
+const ownStatus = require('../js/ownStatus.js');
 const groupNav = require('../js/groupNav.js');
 const groupsModule = require('../js/groups.js');
 const inviteModal = require('../js/inviteModal.js');
 const prefs = require('../js/prefs.js');
 const store = require('../js/store.js');
 const { enterGroupContext, exitGroupContext } = require('../js/groupContext');
+const { createNotifyBell, isNotifyPopoverOpen } = require('../js/notifyBell.js');
+
+// Default implementation: return a real button so li.appendChild doesn't throw.
+beforeEach(() => {
+  require('../js/presenceHub.js')._resetPresenceHub(); // clean per-uid watch state between tests
+  isNotifyPopoverOpen.mockReturnValue(false);
+  createNotifyBell.mockImplementation(() => {
+    const b = document.createElement('button');
+    b.className = 'notify-bell';
+    return b;
+  });
+
+  const followRequests = require('../js/followRequests.js');
+  followRequests.createRequestFollowButton.mockImplementation(() => {
+    const b = document.createElement('button');
+    b.className = 'request-follow-btn';
+    b.textContent = 'Request to follow';
+    return b;
+  });
+
+  const cardDrawer = require('../js/cardDrawer.js');
+  cardDrawer.createCardDrawer.mockImplementation((actions) => {
+    const t = document.createElement('button');
+    t.className = 'card-drawer-toggle';
+    t.dataset.actionCount = String(actions.length);
+    return t;
+  });
+  cardDrawer.isCardDrawerOpen.mockReturnValue(false);
+});
 
 function setupContextDom() {
   document.body.innerHTML = `
@@ -145,7 +202,6 @@ function setupContextDom() {
                 <summary class="chip">Settings</summary>
                 <div class="group-actions-menu">
                   <button id="group-action-rename" class="hidden">Rename group</button>
-                  <button id="group-action-invite" class="hidden">Invite link</button>
                   <button id="group-action-delete" class="hidden">Delete group</button>
                   <button id="group-action-edit-name" class="hidden">Edit my name</button>
                   <button id="group-action-leave" class="hidden">Leave group</button>
@@ -175,18 +231,17 @@ describe('groupContext scaffolding', () => {
 
   test('watchGroupMeta tick does not throw when h2 and breadcrumb are absent', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     expect(() => metaCb({ name: 'Family', ownerId: 'owner', createdAt: 1 })).not.toThrow();
   });
 
   test('shows owner-only action buttons when caller is the owner', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     expect(document.getElementById('group-action-rename').classList.contains('hidden')).toBe(false);
-    expect(document.getElementById('group-action-invite').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('group-action-delete').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('group-action-edit-name').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('group-action-leave').classList.contains('hidden')).toBe(true);
@@ -194,11 +249,10 @@ describe('groupContext scaffolding', () => {
 
   test('shows member-only action buttons when caller is a non-owner member', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
     expect(document.getElementById('group-action-rename').classList.contains('hidden')).toBe(true);
-    expect(document.getElementById('group-action-invite').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('group-action-delete').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('group-action-edit-name').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('group-action-leave').classList.contains('hidden')).toBe(false);
@@ -213,7 +267,7 @@ describe('groupContext scaffolding', () => {
 
   test('watchGroupMeta returning null (owner deleted group) clears the local enumeration entry', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb(null); // group entity was deleted
     expect(db.removeUserGroupsEntry).toHaveBeenCalledWith('me', 'G1');
@@ -224,6 +278,11 @@ describe('group roster render', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     setupContextDom();
+    // Restore the factory default (false) so the eligible-member test's
+    // mockReturnValue(true) doesn't leak into subsequent tests.
+    // jest.clearAllMocks() resets call history but NOT mockReturnValue.
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(false);
   });
 
   test('renders one li per member, alphabetical, excluding the current user', () => {
@@ -252,7 +311,7 @@ describe('group roster render', () => {
     expect(document.querySelector('#group-roster li').textContent).not.toContain('owner');
   });
 
-  test('each member gets a watchStatus subscription', () => {
+  test('each member gets a watchPresence subscription', () => {
     let membersCb;
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
@@ -260,15 +319,15 @@ describe('group roster render', () => {
       'a': { role: 'member', displayName: 'Alice', joinedAt: 1 },
       'b': { role: 'member', displayName: 'Bob',   joinedAt: 2 },
     });
-    expect(db.watchStatus).toHaveBeenCalledWith('a', expect.any(Function));
-    expect(db.watchStatus).toHaveBeenCalledWith('b', expect.any(Function));
+    expect(db.watchPresence).toHaveBeenCalledWith('a', expect.any(Function));
+    expect(db.watchPresence).toHaveBeenCalledWith('b', expect.any(Function));
   });
 
   test('member status updates render the available/unavailable dot', () => {
     let membersCb;
     const statusCbs = {};
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     membersCb({ 'a': { role: 'member', displayName: 'Alice', joinedAt: 1 } });
 
@@ -278,11 +337,22 @@ describe('group roster render', () => {
     expect(dot.dataset.available).toBe('true');
   });
 
+  test('a member override applies on the first render, before any presence tick (reconcile update-before-insert)', () => {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    db.watchPresence.mockImplementation(() => () => {}); // presence never fires
+    enterGroupContext('G1', 'me');
+    const ovr = { enabled: true, status: 'available', availableUntil: Date.now() + 3600000 };
+    membersCb({ b: { role: 'member', displayName: 'Bob', joinedAt: 1, statusOverride: ovr } });
+    const li = document.querySelector('#group-roster [data-user-id="b"]');
+    expect(li.dataset.available).toBe('true');
+  });
+
   test('exitGroupContext unsubscribes from member status watchers', () => {
     let membersCb;
     const unsubs = [];
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation(() => { const fn = jest.fn(); unsubs.push(fn); return fn; });
+    db.watchPresence.mockImplementation(() => { const fn = jest.fn(); unsubs.push(fn); return fn; });
     enterGroupContext('G1', 'me');
     membersCb({ 'a': { role: 'member', displayName: 'Alice', joinedAt: 1 } });
     exitGroupContext();
@@ -299,11 +369,65 @@ describe('group roster render', () => {
     expect(knock.sendKnock).toHaveBeenCalledWith('a', 'me', undefined, expect.objectContaining({ contextGroupId: 'G1' }));
   });
 
+  test('tapping the notification bell on a member row does NOT send a knock', () => {
+    const knock = require('../js/knock.js');
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const bell = document.querySelector('#group-roster [data-user-id="a"] .notify-bell');
+    expect(bell).not.toBeNull();
+    // The bell's own stopPropagation is a first line of defence; this guards the
+    // case where a bell tap still reaches the row (stale shell, event-order
+    // quirks). The knock handler must ignore taps originating from the bell.
+    const before = knock.sendKnock.mock.calls.length;
+    bell.click();
+    expect(knock.sendKnock.mock.calls.length).toBe(before);
+  });
+
+  test('pressing the bell does not add the row press highlight', () => {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const row = document.querySelector('#group-roster [data-user-id="a"]');
+    const bell = row.querySelector('.notify-bell');
+    bell.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(row.classList.contains('knock-pressing')).toBe(false);
+  });
+
+  test('a normal row press DOES add the press highlight (and clears on release)', () => {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const row = document.querySelector('#group-roster [data-user-id="a"]');
+    row.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(row.classList.contains('knock-pressing')).toBe(true);
+    row.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+    expect(row.classList.contains('knock-pressing')).toBe(false);
+  });
+
+  test('while a bell popover is open, tapping a row does NOT knock or highlight', () => {
+    const knock = require('../js/knock.js');
+    isNotifyPopoverOpen.mockReturnValue(true);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const row = document.querySelector('#group-roster [data-user-id="a"]');
+    const before = knock.sendKnock.mock.calls.length;
+    row.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    row.click();
+    expect(knock.sendKnock.mock.calls.length).toBe(before);
+    expect(row.classList.contains('knock-pressing')).toBe(false);
+  });
+
   test('available member shows "Available for ..." status text', () => {
     let membersCb;
     const statusCbs = {};
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
     statusCbs.a({ status: 'available', availableUntil: Date.now() + 90 * 60000 });
@@ -316,7 +440,7 @@ describe('group roster render', () => {
     let membersCb;
     const statusCbs = {};
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
     statusCbs.a({ status: 'unavailable', availableUntil: null });
@@ -328,7 +452,7 @@ describe('group roster render', () => {
     let membersCb;
     const statusCbs = {};
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     membersCb({
       a: { role: 'member', displayName: 'Alice',   joinedAt: 1 },
@@ -346,11 +470,11 @@ describe('group roster render', () => {
     expect(items[2].dataset.userId).toBe('c');
   });
 
-  test('removed members lose their watchStatus subscription on the next tick', () => {
+  test('removed members lose their watchPresence subscription on the next tick', () => {
     let membersCb;
     const unsubByUid = {};
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid) => { const fn = jest.fn(); unsubByUid[uid] = fn; return fn; });
+    db.watchPresence.mockImplementation((uid) => { const fn = jest.fn(); unsubByUid[uid] = fn; return fn; });
     enterGroupContext('G1', 'me');
     membersCb({
       'a': { role: 'member', displayName: 'Alice', joinedAt: 1 },
@@ -365,6 +489,222 @@ describe('group roster render', () => {
     expect(unsubByUid.a).not.toHaveBeenCalled(); // Alice's sub stays
     expect(unsubByUid.b).toHaveBeenCalled();     // Bob's sub torn down
   });
+
+  function captureRosterCallbacks() {
+    let metaCb, membersCb;
+    groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    return { getMetaCb: () => metaCb, getMembersCb: () => membersCb };
+  }
+
+  test('group roster shows "Invite to group" row for the owner', () => {
+    const cbs = captureRosterCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getMembersCb()({ me: { displayName: 'Me', role: 'owner', joinedAt: 1 } });
+    const row = document.getElementById('group-roster-invite-row');
+    expect(row).not.toBeNull();
+    // Label is plain "Invite to group" (no leading "+").
+    expect(row.querySelector('button').textContent).toBe('Invite to group');
+  });
+
+  test('group roster does NOT show "Invite to group" row for non-owner members', () => {
+    const cbs = captureRosterCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
+    cbs.getMembersCb()({ me: { displayName: 'Me', role: 'member', joinedAt: 1 } });
+    const row = document.getElementById('group-roster-invite-row');
+    expect(row).toBeNull();
+  });
+
+  test('clicking the roster invite row opens the invite modal in group scope', () => {
+    const cbs = captureRosterCallbacks();
+    const inviteModalMock = require('../js/inviteModal.js');
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getMembersCb()({ me: { displayName: 'Me', role: 'owner', joinedAt: 1 } });
+    document.getElementById('group-roster-invite-row').querySelector('button').click();
+    expect(inviteModalMock.openInviteModal).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'group', groupId: 'G1', groupName: 'Family' })
+    );
+  });
+
+  test('an eligible co-member gets a ⋮ drawer carrying the request-follow action', () => {
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(true);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+
+    const row = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(row.querySelector('.card-drawer-toggle')).not.toBeNull();
+    expect(followRequests.createRequestFollowButton).toHaveBeenCalledWith('me', 'a', 'G1', 'Alice');
+    expect(row.querySelector('.card-drawer-toggle').dataset.actionCount).toBe('2');
+  });
+
+  test('switching groups recreates the request-follow button with the NEW group id + name (no stale capture across groups)', () => {
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(true);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+
+    enterGroupContext('G2', 'me');
+    membersCb({ a: { role: 'member', displayName: 'DOG', joinedAt: 1 } });
+    expect(followRequests.createRequestFollowButton).toHaveBeenCalledWith('me', 'a', 'G2', 'DOG');
+
+    followRequests.createRequestFollowButton.mockClear();
+    enterGroupContext('G1', 'me'); // 'a' is a member of BOTH groups, named CAT here
+    membersCb({ a: { role: 'member', displayName: 'CAT', joinedAt: 1 } });
+    // Without a roster reset the reconcile would reuse G2's row (update path) and
+    // never recreate the button → it would keep capturing 'G2' + 'DOG'.
+    expect(followRequests.createRequestFollowButton).toHaveBeenCalledWith('me', 'a', 'G1', 'CAT');
+  });
+
+  test('a card drawer survives a members tick that keeps its row, closes when the row is removed', () => {
+    // Reconciliation contract (render-reconciliation spec §3): the blanket
+    // close-on-every-render is gone; the drawer closes only when its row is removed.
+    const cardDrawer = require('../js/cardDrawer.js');
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    cardDrawer.closeCardDrawer.mockClear();
+    // Unrelated tick (same member set): the drawer must NOT be force-closed.
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    expect(cardDrawer.closeCardDrawer).not.toHaveBeenCalled();
+    // Simulate the open drawer living inside a's row, then remove a.
+    const rowA = document.querySelector('#group-roster [data-user-id="a"]');
+    const slice = document.createElement('div');
+    slice.className = 'card-drawer';
+    rowA.appendChild(slice);
+    cardDrawer.isCardDrawerOpen.mockReturnValue(true);
+    membersCb({});
+    expect(cardDrawer.closeCardDrawer).toHaveBeenCalled();
+    cardDrawer.isCardDrawerOpen.mockReturnValue(false);
+  });
+
+  test('a co-member you already follow keeps the bare bell (no drawer)', () => {
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(false);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+
+    const row = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(row.querySelector('.card-drawer-toggle')).toBeNull();
+    expect(row.querySelector('.notify-bell')).not.toBeNull();
+  });
+
+  test('roster rows keep node identity across a members tick', () => {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const rowA = document.querySelector('#group-roster [data-user-id="a"]');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    expect(document.querySelector('#group-roster [data-user-id="a"]')).toBe(rowA);
+  });
+
+  test('knock fires once per tap after two members ticks (no duplicated handlers)', () => {
+    const knock = require('../js/knock.js');
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    document.querySelector('#group-roster [data-user-id="a"]').click();
+    expect(knock.sendKnock).toHaveBeenCalledTimes(1);
+  });
+
+  test('an eligibility flip recreates the row (key carries the eligibility bit)', () => {
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(true);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const before = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(before.querySelector('.card-drawer-toggle')).not.toBeNull();
+    followRequests.isFollowRequestEligible.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('following-synced'));
+    const after = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(after).not.toBe(before); // recreated, not patched
+    expect(after.querySelector('.card-drawer-toggle')).toBeNull();
+    expect(after.querySelector('.notify-bell')).not.toBeNull();
+  });
+
+  test('a floated member stays pinned to the top across a members tick', () => {
+    const knock = require('../js/knock.js');
+    knock.getFloatedUserIds.mockReturnValue(['b']);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({
+      a: { role: 'member', displayName: 'Alice', joinedAt: 1 },
+      b: { role: 'member', displayName: 'Bob', joinedAt: 2 },
+    });
+    const rows = [...document.querySelectorAll('#group-roster li')];
+    expect(rows[0].dataset.userId).toBe('b'); // floated beats alphabetical
+    knock.getFloatedUserIds.mockReturnValue([]);
+  });
+
+  test('a displayName change repaints the surviving row label', () => {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    const rowA = document.querySelector('#group-roster [data-user-id="a"]');
+    membersCb({ a: { role: 'member', displayName: 'Alicia', joinedAt: 1 } });
+    expect(document.querySelector('#group-roster [data-user-id="a"]')).toBe(rowA);
+    expect(rowA.querySelector('.person-label').textContent).toBe('Alicia');
+  });
+
+  test('following-synced re-renders the roster so a stale request-follow affordance drops', () => {
+    const followRequests = require('../js/followRequests.js');
+    // Boot-into-group on a fresh device: following cache is empty, so the
+    // member looks eligible and gets the drawer.
+    followRequests.isFollowRequestEligible.mockReturnValue(true);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    expect(document.querySelector('#group-roster [data-user-id="a"] .card-drawer-toggle')).not.toBeNull();
+
+    // The server following list arrives: this member is already followed.
+    followRequests.isFollowRequestEligible.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('following-synced'));
+
+    const row = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(row.querySelector('.card-drawer-toggle')).toBeNull();
+    expect(row.querySelector('.notify-bell')).not.toBeNull();
+  });
+
+  test('a floated row survives an eligibility flip (recreated, still pinned, restore-safe)', () => {
+    const knock = require('../js/knock.js');
+    const followRequests = require('../js/followRequests.js');
+    followRequests.isFollowRequestEligible.mockReturnValue(true);
+    knock.getFloatedUserIds.mockReturnValue(['a']);
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({
+      a: { role: 'member', displayName: 'Alice', joinedAt: 1 },
+      b: { role: 'member', displayName: 'Bob', joinedAt: 2 },
+    });
+    const before = document.querySelector('#group-roster [data-user-id="a"]');
+    expect([...document.querySelectorAll('#group-roster li')][0]).toBe(before); // floated → top
+    // Eligibility flips mid-float: the key changes, the row is recreated…
+    followRequests.isFollowRequestEligible.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('following-synced'));
+    const after = document.querySelector('#group-roster [data-user-id="a"]');
+    expect(after).not.toBe(before);
+    // …but stays pinned to the top (still floated) and is findable by the
+    // float-restore lookup ([data-user-id] within the list).
+    expect([...document.querySelectorAll('#group-roster li')][0]).toBe(after);
+    knock.getFloatedUserIds.mockReturnValue([]);
+  });
 });
 
 describe('owner actions', () => {
@@ -375,7 +715,7 @@ describe('owner actions', () => {
 
   test('activating a settings option closes the Settings menu', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     const details = document.getElementById('group-context-actions');
@@ -387,7 +727,7 @@ describe('owner actions', () => {
 
   test('tapping outside the Settings menu closes it', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     const details = document.getElementById('group-context-actions');
@@ -398,7 +738,7 @@ describe('owner actions', () => {
 
   test('tapping inside the Settings menu does not close it', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     const details = document.getElementById('group-context-actions');
@@ -410,7 +750,7 @@ describe('owner actions', () => {
 
   test('Rename group prompts and calls renameGroup', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     window.prompt = jest.fn(() => '  Familia  ');
@@ -420,7 +760,7 @@ describe('owner actions', () => {
 
   test('Delete group confirms and calls deleteGroup', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     window.confirm = jest.fn(() => true);
@@ -428,12 +768,21 @@ describe('owner actions', () => {
     expect(groupsModule.deleteGroup).toHaveBeenCalledWith('G1', 'me');
   });
 
-  test('Invite link opens the modal with group scope', () => {
-    let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
-    enterGroupContext('G1', 'me');
+  // The roster "Invite to group" row is now the only invite entry point (the
+  // Settings-menu Invite button was removed). Render it (owner + meta + members)
+  // and click it to exercise the invite-modal wiring.
+  function clickRosterInvite({ metaCb, membersCb }) {
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
-    document.getElementById('group-action-invite').click();
+    membersCb({ me: { displayName: 'Me', role: 'owner', joinedAt: 1 } });
+    document.getElementById('group-roster-invite-row').querySelector('button').click();
+  }
+
+  test('roster invite row opens the modal with group scope', () => {
+    let metaCb, membersCb;
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    clickRosterInvite({ metaCb, membersCb });
     expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
       scope: 'group',
       userId: 'me',
@@ -442,16 +791,16 @@ describe('owner actions', () => {
     }));
   });
 
-  test('Invite link passes activeInvite when an unrevoked group invite exists', () => {
-    let metaCb, invitesCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+  test('roster invite row passes activeInvite when an unrevoked group invite exists', () => {
+    let metaCb, membersCb, invitesCb;
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     db.watchGroupInvites.mockImplementation((groupId, cb) => { invitesCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
-    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     invitesCb({
       tok1: { scope: 'group', token: 'tok1', creatorUid: 'me', createdAt: 2, revoked: false },
     });
-    document.getElementById('group-action-invite').click();
+    clickRosterInvite({ metaCb, membersCb });
     expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
       scope: 'group',
       activeInvite: expect.objectContaining({
@@ -461,29 +810,29 @@ describe('owner actions', () => {
     }));
   });
 
-  test('Invite link passes activeInvite=null when no invites exist', () => {
-    let metaCb, invitesCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+  test('roster invite row passes activeInvite=null when no invites exist', () => {
+    let metaCb, membersCb, invitesCb;
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     db.watchGroupInvites.mockImplementation((groupId, cb) => { invitesCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
-    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     invitesCb({});
-    document.getElementById('group-action-invite').click();
+    clickRosterInvite({ metaCb, membersCb });
     expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
       activeInvite: null,
     }));
   });
 
-  test('Invite link ignores revoked invites', () => {
-    let metaCb, invitesCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+  test('roster invite row ignores revoked invites', () => {
+    let metaCb, membersCb, invitesCb;
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     db.watchGroupInvites.mockImplementation((groupId, cb) => { invitesCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
-    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     invitesCb({
       gone: { scope: 'group', token: 'gone', revoked: true },
     });
-    document.getElementById('group-action-invite').click();
+    clickRosterInvite({ metaCb, membersCb });
     expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
       activeInvite: null,
     }));
@@ -498,7 +847,7 @@ describe('member actions', () => {
 
   test('Edit my name prompts and calls editOwnDisplayName', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
     window.prompt = jest.fn(() => '  M. P.  ');
@@ -508,22 +857,22 @@ describe('member actions', () => {
 
   test('Edit my name pre-fills the prompt with the user\'s current group displayName', () => {
     let metaCb; let membersCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
     membersCb({
-      me: { role: 'member', displayName: 'Mike P.', joinedAt: 1 },
+      me: { role: 'member', displayName: 'Alex K.', joinedAt: 1 },
       a:  { role: 'member', displayName: 'Alice',   joinedAt: 2 },
     });
     window.prompt = jest.fn(() => null);
     document.getElementById('group-action-edit-name').click();
-    expect(window.prompt).toHaveBeenCalledWith('Your name in this group', 'Mike P.');
+    expect(window.prompt).toHaveBeenCalledWith('Your name in this group', 'Alex K.');
   });
 
   test('Leave group confirms and calls leaveGroup', () => {
     let metaCb;
-    db.watchGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
     window.confirm = jest.fn(() => true);
@@ -541,9 +890,9 @@ beforeEach(() => { try { localStorage.clear(); } catch {} });
 describe('own status row', () => {
   function captureCallbacks() {
     let metaCb, primaryCb, overrideCb;
-    db.watchGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { primaryCb = cb; return () => {}; });
-    db.watchOwnMemberOverride.mockImplementation((g, uid, cb) => { overrideCb = cb; return () => {}; });
+    groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { primaryCb = cb; return () => {}; });
+    groupNav.subscribeOwnOverride.mockImplementation((g, cb) => { overrideCb = cb; return () => {}; });
     return { getMetaCb: () => metaCb, getPrimaryCb: () => primaryCb, getOverrideCb: () => overrideCb };
   }
 
@@ -613,8 +962,8 @@ describe('own status row', () => {
   test('exitGroupContext tears down own primary and override subscriptions', () => {
     const ownPrimaryUnsub = jest.fn();
     const ownOverrideUnsub = jest.fn();
-    db.watchStatus.mockImplementation(() => ownPrimaryUnsub);
-    db.watchOwnMemberOverride.mockImplementation(() => ownOverrideUnsub);
+    ownStatus.subscribeOwnStatus.mockImplementation(() => ownPrimaryUnsub);
+    groupNav.subscribeOwnOverride.mockImplementation(() => ownOverrideUnsub);
     enterGroupContext('G1', 'me');
     exitGroupContext();
     expect(ownPrimaryUnsub).toHaveBeenCalledTimes(1);
@@ -1013,7 +1362,7 @@ describe('roster context-aware status', () => {
   }
   function captureStatuses() {
     const cbs = {};
-    db.watchStatus.mockImplementation((uid, cb) => { cbs[uid] = cb; return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { cbs[uid] = cb; return () => {}; });
     return cbs;
   }
 
@@ -1191,13 +1540,13 @@ describe('group-context long-press adoption', () => {
       cb(members);
       return () => {};
     });
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb(ownOverrideEnabled
         ? { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' }
         : { enabled: false, status: null });
       return () => {};
     });
-    db.watchStatus.mockImplementation((uid, cb) => {
+    db.watchPresence.mockImplementation((uid, cb) => {
       cb({ status: 'available', statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
@@ -1245,6 +1594,34 @@ describe('group-context long-press adoption', () => {
     }));
   });
 
+  test('a long-press starting on the notification bell does NOT adopt', () => {
+    setupRoster({
+      ownOverrideEnabled: true,
+      members: { src: { displayName: 'Alice' } },
+    });
+    const bell = document.querySelector('#group-roster li[data-user-id="src"] .notify-bell');
+    expect(bell).not.toBeNull();
+    bell.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0, bubbles: true }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
+    expect(groupNav.applyOptimisticAppearance).not.toHaveBeenCalled();
+    expect(favorites.saveCombo).not.toHaveBeenCalled();
+  });
+
+  test('a long-press on a row while a bell popover is open does NOT adopt', () => {
+    isNotifyPopoverOpen.mockReturnValue(true);
+    setupRoster({
+      ownOverrideEnabled: true,
+      members: { src: { displayName: 'Alice' } },
+    });
+    const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+    jest.advanceTimersByTime(600);
+    expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
+    expect(groupNav.applyOptimisticAppearance).not.toHaveBeenCalled();
+    expect(favorites.saveCombo).not.toHaveBeenCalled();
+  });
+
   test('movement > 8px cancels the long-press', () => {
     setupRoster({
       ownOverrideEnabled: true,
@@ -1287,7 +1664,7 @@ describe('group-context long-press adoption', () => {
   });
 
   test('source uses override.statusColor when override is enabled', () => {
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
     });
@@ -1295,7 +1672,7 @@ describe('group-context long-press adoption', () => {
       cb({ src: { displayName: 'Alice', statusOverride: { enabled: true, statusColor: '#aa00ff', paletteKey: 'volt' } } });
       return () => {};
     });
-    db.watchStatus.mockImplementation((uid, cb) => {
+    db.watchPresence.mockImplementation((uid, cb) => {
       cb({ statusColor: '#000', paletteKey: 'forest' });   // primary, but override wins
       return () => {};
     });
@@ -1309,7 +1686,7 @@ describe('group-context long-press adoption', () => {
   });
 
   test('source falls back to primary when source member has no override', () => {
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
     });
@@ -1317,7 +1694,7 @@ describe('group-context long-press adoption', () => {
       cb({ src: { displayName: 'Alice' } });   // no override
       return () => {};
     });
-    db.watchStatus.mockImplementation((uid, cb) => {
+    db.watchPresence.mockImplementation((uid, cb) => {
       cb({ statusColor: '#abcdef', paletteKey: 'forest' });
       return () => {};
     });
@@ -1331,7 +1708,7 @@ describe('group-context long-press adoption', () => {
   });
 
   test('source falls back to forest #22c55e when neither override nor primary has a color', () => {
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
     });
@@ -1339,7 +1716,7 @@ describe('group-context long-press adoption', () => {
       cb({ src: { displayName: 'Alice' } });
       return () => {};
     });
-    db.watchStatus.mockImplementation((uid, cb) => {
+    db.watchPresence.mockImplementation((uid, cb) => {
       cb({});   // no statusColor, no paletteKey
       return () => {};
     });
@@ -1354,7 +1731,7 @@ describe('group-context long-press adoption', () => {
 
   test('marks longpress hint seen on first adoption', () => {
     // prefs.isHintSeen defaults to false via the module-level jest.mock factory.
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
     });
@@ -1362,7 +1739,7 @@ describe('group-context long-press adoption', () => {
       cb({ src: { displayName: 'Alice' } });
       return () => {};
     });
-    db.watchStatus.mockImplementation((uid, cb) => {
+    db.watchPresence.mockImplementation((uid, cb) => {
       cb({ statusColor: '#abc', paletteKey: null });
       return () => {};
     });
@@ -1390,11 +1767,11 @@ describe('group-context dot-tap to go available', () => {
 
   test('dot-tap going available with override ON pushes the going-active combo to favorites', () => {
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
-    db.watchStatus.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
+    db.watchPresence.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
     setupContextDom();
     enterGroupContext('G1', 'me');
 
@@ -1410,11 +1787,11 @@ describe('group-context dot-tap to go available', () => {
 
   test('dot-tap going UNavailable with override ON does NOT push to favorites', () => {
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
-    db.watchStatus.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
+    db.watchPresence.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
     setupContextDom();
     enterGroupContext('G1', 'me');
 
@@ -1427,11 +1804,11 @@ describe('group-context dot-tap to go available', () => {
 
   test('chip cycle while available does NOT push to favorites', () => {
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
-    db.watchStatus.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
+    db.watchPresence.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
     setupContextDom();
     enterGroupContext('G1', 'me');
 
@@ -1447,9 +1824,9 @@ describe('group-context FTU hints', () => {
   const prefs = require('../js/prefs.js');
 
   function seedRoster({ ownOverride, members = {}, memberStatus = {} }) {
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => { cb(ownOverride); return () => {}; });
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => { cb(ownOverride); return () => {}; });
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb(members); return () => {}; });
-    db.watchStatus.mockImplementation((uid, cb) => { cb(memberStatus[uid] ?? {}); return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { cb(memberStatus[uid] ?? {}); return () => {}; });
     setupContextDom();
     enterGroupContext('G1', 'me');
   }
@@ -1667,13 +2044,13 @@ describe('group-context FTU hints', () => {
     prefs.setGroupPaletteState.mockImplementation((_gid, s) => { state = JSON.parse(JSON.stringify(s)); });
     // Capture the override callback so we can replay the RTDB echo manually.
     let overrideCb;
-    db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => {
+    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       overrideCb = cb;
       cb({ enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' });
       return () => {};
     });
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-    db.watchStatus.mockImplementation((_uid, cb) => { cb({}); return () => {}; });
+    db.watchPresence.mockImplementation((_uid, cb) => { cb({}); return () => {}; });
     setupContextDom();
     enterGroupContext('G1', 'me');
     // Promote to palette mode by tapping the selected base swatch.
@@ -1743,6 +2120,32 @@ describe('group-context FTU hints', () => {
     seedRoster({ ownOverride: { enabled: false, status: null, availableUntil: null } });
     const dot = document.getElementById('group-my-dot');
     expect(dot.classList.contains('dot-go-hint')).toBe(false);
+  });
+});
+
+// --- notification bell on roster rows ---
+
+describe('notification bell on roster rows', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+  });
+
+  test('renders a notification bell on each roster member when NOTIFICATIONS_ENABLED', () => {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ bea: { role: 'member', displayName: 'Bea', joinedAt: 1 } });
+
+    const li = document.querySelector('#group-roster [data-user-id="bea"]');
+    expect(li.querySelector('.notify-bell')).not.toBeNull();
+    expect(createNotifyBell).toHaveBeenCalledWith('bea',
+      expect.objectContaining({ types: ['knock', 'availability'] }));
   });
 });
 

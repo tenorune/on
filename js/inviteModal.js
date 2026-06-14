@@ -6,17 +6,20 @@ import {
   createPersonalInvite, regeneratePersonalInvite, revokePersonalInvite,
   createGroupInvite, regenerateGroupInvite, revokeGroupInvite,
 } from './invites.js';
+import { readPendingInviteesForGroup } from './db.js';
+import { renderInvitePicker } from './invitePicker.js';
+import { flashRegenerated } from './regenFlash.js';
 
 const SCOPE_COPY = {
   personal: {
     title: 'Your invite link',
     subtitle: 'People who tap this link will follow you.',
     labelHint: 'Your name on the invite',
-    labelPlaceholder: 'e.g. Mike P.',
+    labelPlaceholder: 'e.g. Alex K.',
     needsLabel: true,
   },
   group: {
-    title: 'Invite link for {groupName}',
+    title: 'Invite to {groupName}',
     subtitle: 'People who tap this link will join {groupName}.',
     needsLabel: false,
   },
@@ -39,18 +42,27 @@ function showState(stateName) {
   document.getElementById('invite-modal-manage').classList.toggle('hidden', stateName !== 'manage');
 }
 
-function renderManageUrl(url) {
-  document.getElementById('invite-modal-url').textContent = url;
+// Show the unchanging URL base (e.g. "https://app/?i=") above the field and only
+// the changing token ("hash") inside it, so a regenerate is obviously a change.
+function renderManageUrl(invite) {
+  const url = invite.url || '';
+  const token = invite.token || '';
+  const prefixEl = document.getElementById('invite-modal-url-prefix');
+  if (prefixEl) prefixEl.textContent = token && url.endsWith(token) ? url.slice(0, url.length - token.length) : url;
+  const urlEl = document.getElementById('invite-modal-url');
+  if (urlEl) urlEl.textContent = token || url;
 }
 
 function hideError() {
   const errEl = document.getElementById('invite-modal-label-error');
+  if (!errEl) return;
   errEl.classList.add('hidden');
   errEl.textContent = '';
 }
 
 function showError(msg) {
   const errEl = document.getElementById('invite-modal-label-error');
+  if (!errEl) return;
   errEl.classList.remove('hidden');
   errEl.textContent = msg;
 }
@@ -60,7 +72,7 @@ function closeModal() {
   clearListeners();
 }
 
-export function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null }) {
+export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, mutuals = [], currentMemberUids = new Set() }) {
   const copy = SCOPE_COPY[scope];
   if (!copy) throw new Error(`Unknown scope: ${scope}`);
   if (scope === 'group' && (!groupId || !groupName)) {
@@ -83,6 +95,25 @@ export function openInviteModal({ scope, userId, activeInvite = null, groupId = 
     if (labelInputEl) labelInputEl.classList.add('hidden');
   }
 
+  // Section 2 (in-app picker) — group scope only.
+  const pickerEl = document.getElementById('invite-modal-picker');
+  if (pickerEl) {
+    pickerEl.classList.toggle('hidden', scope !== 'group');
+  }
+
+  // Section 2 — populate the picker for group scope only.
+  if (scope === 'group') {
+    const pendingInvitees = await readPendingInviteesForGroup(groupId);
+    renderInvitePicker({
+      inviterUid: userId,
+      groupId,
+      followers,
+      mutuals,
+      currentMemberUids,
+      pendingInviteeUids: new Set(pendingInvitees),
+    });
+  }
+
   hideError();
   clearListeners();
   document.getElementById('invite-modal').classList.remove('hidden');
@@ -91,7 +122,7 @@ export function openInviteModal({ scope, userId, activeInvite = null, groupId = 
 
   if (currentInvite) {
     showState('manage');
-    renderManageUrl(currentInvite.url);
+    renderManageUrl(currentInvite);
   } else {
     showState('create');
     if (labelInputEl) labelInputEl.value = '';
@@ -116,13 +147,11 @@ export function openInviteModal({ scope, userId, activeInvite = null, groupId = 
         currentInvite = { token: result.token, url: result.url, scope, groupId, groupName };
       }
       showState('manage');
-      renderManageUrl(result.url);
+      renderManageUrl(currentInvite);
     } catch (err) {
       showError(err.message || 'Could not create invite. Try again.');
     }
   });
-
-  on(document.getElementById('invite-modal-cancel-btn'), 'click', () => closeModal());
 
   // Copy — unchanged from Phase 0
   on(document.getElementById('invite-modal-copy-btn'), 'click', async () => {
@@ -143,10 +172,17 @@ export function openInviteModal({ scope, userId, activeInvite = null, groupId = 
         ? await regeneratePersonalInvite(userId, currentInvite.creatorLabel)
         : await regenerateGroupInvite(userId, groupId);
       currentInvite = { ...currentInvite, token: result.token, url: result.url };
-      renderManageUrl(result.url);
+      renderManageUrl(currentInvite);
+      flashRegenerated(
+        document.getElementById('invite-modal-url'),
+        document.getElementById('invite-modal-regen-btn'),
+      );
       document.getElementById('invite-modal-copy-btn').textContent = 'Copy';
     } catch (err) {
       showError(err.message || 'Could not regenerate invite. Try again.');
+      // On error the badge swap didn't run, so drop the tapped ↻'s focus here
+      // (otherwise it looks "stuck selected" until you tap elsewhere).
+      document.getElementById('invite-modal-regen-btn').blur();
     }
   });
 
@@ -163,5 +199,14 @@ export function openInviteModal({ scope, userId, activeInvite = null, groupId = 
     }
   });
 
-  on(document.getElementById('invite-modal-close-btn'), 'click', () => closeModal());
+  // Dismiss on tap-outside (overlay click, but not card click).
+  const overlay = document.getElementById('invite-modal');
+  on(overlay, 'click', (e) => {
+    if (e.target === overlay) closeModal();
+  });
+  // Escape-to-dismiss for keyboard users — the modal has aria-modal="true",
+  // which traps focus, so without this there is no keyboard path out.
+  on(document, 'keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+  });
 }

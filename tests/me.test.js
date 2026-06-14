@@ -5,6 +5,7 @@ jest.mock('../js/palettes.js', () => ({ applyThemeHint: jest.fn(), restoreSetSwi
 jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
   isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
+  isAvailable: (s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now()),
   formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
   timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
   setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
@@ -48,6 +49,10 @@ jest.mock('../js/db.js', () => ({
   mergeUserPrefs: jest.fn().mockResolvedValue(undefined),
   watchUserPrefs: jest.fn(() => () => {}),
   watchOwnMemberOverride: jest.fn(() => () => {}),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('../js/store.js', () => ({
   getLastTimeout: jest.fn(),
@@ -412,6 +417,7 @@ describe('saveCombo guard in setAvailable', () => {
     jest.mock('../js/db.js', () => ({
       setStatus: jest.fn().mockResolvedValue(undefined),
       isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
+  isAvailable: (s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now()),
       formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
       timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
       setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),

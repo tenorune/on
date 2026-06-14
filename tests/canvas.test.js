@@ -6,10 +6,12 @@ jest.mock('firebase/database', () => ({
   get: jest.fn(() => Promise.resolve({ exists: () => false, val: () => null })),
   push: jest.fn(() => Promise.resolve()),
   update: jest.fn(() => Promise.resolve()),
-  set: jest.fn(),
-  remove: jest.fn(),
-  onValue: jest.fn(),
+  set: jest.fn(() => Promise.resolve()),
+  remove: jest.fn(() => Promise.resolve()),
+  onValue: jest.fn(() => jest.fn()),
   onChildAdded: jest.fn(() => jest.fn()),
+  onChildRemoved: jest.fn(() => jest.fn()),
+  onDisconnect: jest.fn(() => ({ set: jest.fn() })),
   runTransaction: jest.fn(),
   query: jest.fn(r => r),
   orderByKey: jest.fn(),
@@ -42,7 +44,61 @@ jest.mock('../js/features.js', () => ({
   CALL_ENABLED: true,
 }));
 
-const { normalizePoint, denormalizePoint, getThicknessValues } = require('../js/canvas.js');
+const { normalizePoint, denormalizePoint, getThicknessValues, showPeerLeftDialog, enterCanvas, exitCanvas } = require('../js/canvas.js');
+
+// Minimal 2D context stub — jsdom returns null from getContext, but enterCanvas
+// needs a context to clear/redraw. A Proxy no-ops every method and stores every
+// property assignment (strokeStyle, fillStyle, …).
+function fakeCtx() {
+  return new Proxy({}, {
+    get: (t, p) => (p in t ? t[p] : () => {}),
+    set: (t, p, v) => { t[p] = v; return true; },
+  });
+}
+
+describe('peer-name rendering is XSS-safe', () => {
+  test('showPeerLeftDialog escapes a malicious peer name (no element injection)', () => {
+    document.body.innerHTML = '<div id="host"></div>';
+    const host = document.getElementById('host');
+    const evil = `<img src=x onerror="window.__pwned=1">`;
+    showPeerLeftDialog(host, evil, () => {});
+    // The payload must be rendered as text, never as elements.
+    expect(host.querySelector('img')).toBeNull();
+    expect(host.querySelector('.canvas-dialog h3').textContent).toContain('<img src=x');
+  });
+});
+
+describe('canvas re-entry is idempotent (peer-dot duplication)', () => {
+  function setupCanvasDom() {
+    document.body.innerHTML = `
+      <div id="app-header"></div>
+      <div id="favorites-strip"></div>
+      <div id="main-list"></div>
+      <div id="canvas-screen"><canvas id="draw-canvas"></canvas></div>`;
+    HTMLCanvasElement.prototype.getContext = () => fakeCtx();
+  }
+
+  // Regression: on the callee's screen the caller's pen-color dot froze at its
+  // initial color. Root cause: exitCanvas defers float removal to a fade-out
+  // `transitionend` that is skipped when a quick re-enter cancels the out-
+  // transition, so a stale #canvas-peer-dot survives. The next enterCanvas
+  // appended a SECOND #canvas-peer-dot; getElementById resolves the stale
+  // (first) one, so updatePeerDot wrote to a hidden dot while the visible
+  // (newer) dot stayed frozen. enterCanvas must leave exactly one dot.
+  test('re-entering after an interrupted teardown leaves a single peer dot', async () => {
+    setupCanvasDom();
+    const screen = document.getElementById('canvas-screen');
+
+    await enterCanvas('peer1', 'Peer', 'me', '#111111', '#abcdef', '#000000', () => {});
+    // jsdom never fires `transitionend`, mirroring the interrupted fade-out:
+    // exitCanvas's deferred float cleanup does not run.
+    exitCanvas();
+    await enterCanvas('peer1', 'Peer', 'me', '#111111', '#abcdef', '#000000', () => {});
+
+    expect(screen.querySelectorAll('#canvas-peer-dot')).toHaveLength(1);
+    exitCanvas();
+  });
+});
 
 describe('canvas coordinate helpers', () => {
   test('normalizePoint converts pixel coords to 0-1 range', () => {

@@ -1,8 +1,10 @@
 # Call Canvas — Status
 
-*Last updated: 2026-03-23*
-*Baseline: v0.7.1 (`bc892c7`)*
-*Latest committed: `af8e02d`*
+*Last updated: 2026-06-13*
+
+The call canvas shipped to production with the MVP. The "Deferred / SHOULD"
+list below has since landed; this doc now tracks only what's genuinely
+outstanding.
 
 ## Implemented
 
@@ -26,15 +28,19 @@
 ### Drawing engine
 
 - Pen tool with pointer/touch events — `5d90640`
-- 3 thickness grades (6px, 14px, 24px visual indicators) — `5d90640`, `2ce2c37`
+- 6 thickness grades (3/6/10/16/22/30px visual indicators) — `5d90640`, `2ce2c37`
 - Strokes normalized to 0–1 coordinates (viewport-independent) — `5d90640`
 - Local rendering on draw + tap (single-point dots visible to sender) — `6ecff4a`
 - Peer strokes render on completion via `onChildAdded` — `5d90640`
+- Real-time mid-stroke preview broadcast to the peer (`setDrawingState`/`watchDrawing`) — shipped post-baseline
+- Undo (own strokes only, capped at 8) — shipped post-baseline
+- Clear canvas with mutual agreement (request + approval dialog) — shipped post-baseline
 
 ### Floating toolbox (bottom-right)
 
 - Collapsed: pen icon + color ring with thickness indicator (matching expanded sizes) — `5d90640`, `5597e28`
-- Expanded: up to 8 status color dots with white ring on selection + 3 thickness dots — `5d90640`, `6ecff4a`
+- Expanded: up to 8 status color dots with white ring on selection + 6 thickness dots — `5d90640`, `6ecff4a`
+- Background color picker (surface squares); bg change syncs to both users (`watchCanvasBg`) — shipped post-baseline
 - Tap outside to close — `5d90640`
 
 ### Header widget (top-right)
@@ -60,23 +66,17 @@
 
 ## Remaining from Plan
 
-### Task 5 (in progress)
+The canvas shipped to production with the MVP. The only canvas features still
+unbuilt are the NICE-to-have drawing tools below.
 
-- [x] Commit accumulated changes — `5597e28`
-- [ ] Manual testing checklist verification
-- [x] Architecture doc update with Call Canvas section + changelog — `cff6606`
-- [ ] Tag milestone
-
-## Deferred (SHOULD HAVE / NICE TO HAVE)
+## Deferred (NICE TO HAVE — not built)
 
 | Priority | Feature |
 |---|---|
-| SHOULD | 6 thickness grades (currently 3) |
-| SHOULD | Canvas background picker (surface colors) |
-| SHOULD | Background change visible to both users |
-| SHOULD | Real-time mid-stroke visibility |
-| SHOULD | Clear canvas with mutual agreement (gesture) |
-| SHOULD | Undo (my strokes only, capped at 8) |
 | NICE | Line tool |
 | NICE | Shape tool (circle/rect/triangle) with sub-menu |
 | NICE | Shape drag-to-size with dashed preview |
+
+The earlier SHOULD-HAVE list — 6 thickness grades, background picker + sync,
+real-time mid-stroke visibility, mutual-agreement clear, and capped undo — has
+all shipped and now lives under **Implemented** above.

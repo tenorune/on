@@ -1,0 +1,17 @@
+{
+  "name": "knockknock-functions",
+  "description": "Presence-notification Cloud Functions",
+  "type": "module",
+  "main": "index.js",
+  "engines": { "node": "22" },
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.js --passWithNoTests"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^7.2.5"
+  },
+  "devDependencies": {
+    "jest": "^30.3.0"
+  }
+}

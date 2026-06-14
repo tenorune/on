@@ -5,9 +5,12 @@
 // own-status row, the chain-icon override toggle (installed into the nav row's
 // slot), and the member roster.
 
-import { watchGroupMeta, watchGroupMembers, watchGroupInvites, watchStatus, watchOwnMemberOverride, removeUserGroupsEntry, formatTimeRemaining, formatTimeRemainingFuzzy, timeRemainingMs } from './db.js';
-import { safeCssColor } from './utils.js';
-import { navigateToDirect, applyOptimisticAppearance } from './groupNav.js';
+import { watchGroupMembers, watchGroupInvites, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs, isAvailable } from './db.js';
+import { subscribePresence } from './presenceHub.js';
+import { reconcileChildren } from './reconcile.js';
+import { safeCssColor, availableForText } from './utils.js';
+import { navigateToDirect, applyOptimisticAppearance, subscribeGroupMeta, subscribeOwnOverride } from './groupNav.js';
+import { subscribeOwnStatus } from './ownStatus.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
          setOverrideAppearance } from './groups.js';
@@ -20,12 +23,17 @@ import {
 } from './prefs.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { openInviteModal } from './inviteModal.js';
+import { getCurrentFollowersMap, getCurrentMutuals } from './following.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
-import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
-import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, ICON_BOLT, ICON_TREE, startSwatchHints } from './palettes.js';
+import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, NOTIFICATIONS_ENABLED, FOLLOW_REQUESTS_ENABLED } from './features.js';
+import { createCardDrawer, isCardDrawerOpen, closeCardDrawer } from './cardDrawer.js';
+import { isFollowRequestEligible, createRequestFollowButton } from './followRequests.js';
+import { createNotifyBell, isNotifyPopoverOpen } from './notifyBell.js';
+import { ensureNotificationsReady } from './notifyPrompt.js';
+import { getPaletteByKey, getGlowForColor, applyPaletteVars, applyThemeVars, resetThemeVars, PALETTE_SETS, startSwatchHints, buildSetToggleButton, buildSwatch, applyThemeHintIfDue, applyKeySpin, paintStatusDot } from './palettes.js';
 import {
-  shouldShowThemeHint, shouldShowDotGoHint, shouldShowSetTogglePulse,
+  shouldShowDotGoHint,
   isLongpressHintEligible,
 } from './hints.js';
 import { clearFirstUsePulse } from './me.js';
@@ -72,121 +80,252 @@ let _ownDisplayName = null; // string | null — own member displayName from wat
 let _membersOverrides = {}; // uid → statusOverride | null
 const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor, paletteKey } | null
 let _settingsOutsideHandler = null;
+let _groupOwnerId = null;  // ownerId from the group-meta sub — used by renderRoster owner check
+let _groupName = null;     // group name from the group-meta sub — used by roster invite row
+let _lastMembers = null;   // last members snapshot — allows re-render when meta arrives after members
 // Timestamp of the most recent group palette-mode entry, or null. Tracked as
 // a timestamp (not a one-shot bool) because setOverrideAppearance writes to
-// RTDB and watchOwnMemberOverride echoes back ~100-300ms later, calling
+// RTDB and the own-override sub echoes back ~100-300ms later, calling
 // renderOwnStatusRow → renderGroupSwatchRow and destroying the just-rendered
 // key-spin element. The timestamp lets each subsequent render within the 5s
 // window re-apply .key-spin with a CSS --key-spin-delay so the animation
-// resumes mid-flight rather than restarting from 0deg.
-const KEY_SPIN_MS = 5000;
+// resumes mid-flight rather than restarting from 0deg. (The 5s window + spin
+// application now live in palettes.applyKeySpin.)
 let _groupPaletteEnterAt = null;
 
-// Reorder the existing roster `<li>` nodes so available members come first,
-// alphabetical within each (available / unavailable) bucket. Rows currently
-// being floated by a knock animation (knock.js prepends them) stay at the top
-// regardless of availability — knock visuals own that slot for 20s.
-function reorderRosterByAvailability() {
-  const list = document.getElementById('group-roster');
-  if (!list) return;
+// Effective in-group availability for a member, from data (not the DOM).
+// Override-on means "independent in this group": every field comes from the
+// override; override-off: primary wins. Mirrors paintRosterRow's merge.
+function memberEffectiveAvailable(uid) {
+  const override = _membersOverrides[uid];
+  const primary = _memberPrimaries.get(uid) || null;
+  const overrideOn = !!(override && override.enabled === true);
+  const status = overrideOn ? (override.status || 'unavailable') : (primary?.status || 'unavailable');
+  const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
+  return isAvailable(status, availableUntil);
+}
+
+const ROSTER_KEY_PREFIX = 'm:';
+function rosterRowKey(uid) {
+  // The eligibility bit rides the key: a request-to-follow eligibility flip
+  // changes the row's action cluster (bare bell vs ⋮ drawer), so it recreates
+  // that one row instead of update() rebuilding drawers in place.
+  const bit = (FOLLOW_REQUESTS_ENABLED && isFollowRequestEligible(uid)) ? '1' : '0';
+  return `${ROSTER_KEY_PREFIX}${uid}:${bit}`;
+}
+function rosterUidOf(key) {
+  return key.slice(ROSTER_KEY_PREFIX.length, key.lastIndexOf(':'));
+}
+
+function rosterKeys(members, ownUserId) {
+  const isOwner = _groupOwnerId !== null && _groupOwnerId === ownUserId;
+  const entries = Object.entries(members || {}).filter(([uid]) => uid !== ownUserId);
   const floatedSet = new Set(getFloatedUserIds());
-  const rows = Array.from(list.children);
-  const floated = rows.filter((r) => floatedSet.has(r.dataset.userId));
-  const others = rows.filter((r) => !floatedSet.has(r.dataset.userId));
-  others.sort((a, b) => {
-    const aAvail = a.dataset.available === 'true';
-    const bAvail = b.dataset.available === 'true';
-    if (aAvail !== bAvail) return aAvail ? -1 : 1;
-    const aName = (a.querySelector('.person-label')?.textContent || '').toLowerCase();
-    const bName = (b.querySelector('.person-label')?.textContent || '').toLowerCase();
-    return aName.localeCompare(bName);
+  const floated = [];
+  const others = [];
+  for (const e of entries) (floatedSet.has(e[0]) ? floated : others).push(e);
+  others.sort(([uidA, a], [uidB, b]) => {
+    const availA = memberEffectiveAvailable(uidA);
+    const availB = memberEffectiveAvailable(uidB);
+    if (availA !== availB) return availA ? -1 : 1;
+    const nameA = (a.displayName || '').toLowerCase();
+    const nameB = (b.displayName || '').toLowerCase();
+    return nameA.localeCompare(nameB);
   });
-  for (const row of floated.concat(others)) list.appendChild(row);
+  const keys = [];
+  if (isOwner) keys.push('invite-row');
+  // Floated bucket is members-object order, not most-recently-floated — knock's own prepend wins between ticks and a reconcile self-heals; cosmetic only.
+  for (const [uid] of floated) keys.push(rosterRowKey(uid));
+  for (const [uid] of others) keys.push(rosterRowKey(uid));
+  return keys;
+}
+
+function createInviteRow(ownUserId) {
+  const inviteRow = document.createElement('li');
+  inviteRow.id = 'group-roster-invite-row';
+  inviteRow.className = 'roster-invite-row';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'add-btn';
+  btn.textContent = 'Invite to group';
+  btn.addEventListener('click', () => {
+    openInviteModal({
+      scope: 'group',
+      userId: ownUserId,
+      groupId: _currentGroupId,
+      groupName: _groupName || _currentGroupId,
+      activeInvite: _activeGroupInvite,
+      followers: getCurrentFollowersMap(),
+      mutuals: getCurrentMutuals(),
+      currentMemberUids: new Set(Object.keys(_lastMembers || {})),
+    });
+  });
+  inviteRow.appendChild(btn);
+  return inviteRow;
+}
+
+function createRosterRow(uid, member, ownUserId) {
+  const li = document.createElement('li');
+  li.className = 'group-roster-row';
+  li.dataset.userId = uid;
+  li.dataset.available = 'false';
+
+  const dot = document.createElement('span');
+  dot.className = 'person-dot';
+  dot.dataset.available = 'false';
+
+  const info = document.createElement('div');
+  info.className = 'person-info';
+
+  const label = document.createElement('span');
+  label.className = 'person-label';
+  label.textContent = member.displayName || uid;
+  info.appendChild(label);
+
+  const status = document.createElement('div');
+  status.className = 'person-status';
+  info.appendChild(status);
+
+  li.appendChild(dot);
+  li.appendChild(info);
+
+  const actions = [];
+  if (NOTIFICATIONS_ENABLED && uid !== ownUserId) {
+    // Group context has no Call feature; you can knock members and see their
+    // availability — so no Call toggle.
+    const bell = createNotifyBell(uid, {
+      types: ['knock', 'availability'],
+      onNeedPermission: () => { ensureNotificationsReady().catch(() => {}); },
+    });
+    actions.push({ el: bell, closesDrawer: false });
+  }
+  if (FOLLOW_REQUESTS_ENABLED && uid !== ownUserId && isFollowRequestEligible(uid)) {
+    // Accepted staleness: displayName is captured at create; a rename leaves a stale name in the request toast until the row is recreated (cosmetic, rare).
+    const reqBtn = createRequestFollowButton(ownUserId, uid, getCurrentGroupId(), member.displayName || uid);
+    actions.push({ el: reqBtn, closesDrawer: true });
+  }
+  // >=2 right-side actions collapse behind the shared ⋮ drawer (like Direct);
+  // exactly one is shown inline (an already-followed member keeps the bare bell).
+  if (actions.length >= 2) {
+    li.appendChild(createCardDrawer(actions));
+  } else if (actions.length === 1) {
+    li.appendChild(actions[0].el);
+  }
+
+  if (KNOCK_ENABLED) {
+    li.classList.add('knockable');
+    // A tap drives a knock UNLESS it belongs to the per-member notification
+    // bell or its (body-portaled) popover, or a popover is open and owns the
+    // screen like a modal. Shared by the knock itself AND the press-feedback
+    // highlight below, so neither the colored knock flash nor the row's
+    // "pressable" highlight ever fires for a bell tap or behind a popover.
+    const knockBlocked = (e) =>
+      e.target.closest('.notify-bell') ||
+      e.target.closest('.notify-popover') ||
+      e.target.closest('.card-drawer-toggle') ||
+      e.target.closest('.card-drawer') ||
+      isNotifyPopoverOpen() ||
+      isCardDrawerOpen();
+    li.addEventListener('click', (e) => {
+      if (knockBlocked(e)) return;
+      sendKnock(uid, ownUserId, undefined, { contextGroupId: getCurrentGroupId() });
+    });
+    // Press highlight is JS-driven (not CSS :active) so it can honour the same
+    // guard — a CSS :active on the row would flash even when the bell inside it
+    // is pressed, which reads as a (phantom) knock.
+    const clearPress = () => li.classList.remove('knock-pressing');
+    li.addEventListener('pointerdown', (e) => {
+      if (knockBlocked(e)) return;
+      li.classList.add('knock-pressing');
+    });
+    li.addEventListener('pointerup', clearPress);
+    li.addEventListener('pointercancel', clearPress);
+    li.addEventListener('pointerleave', clearPress);
+  }
+
+  if (PALETTES_ENABLED && PALETTE_INTERACTIONS_ENABLED && uid !== ownUserId) {
+    let pressTimer = null;
+    let pressStartX, pressStartY;
+    let suppressNextClick = false;
+
+    li.addEventListener('pointerdown', (e) => {
+      // A press that starts on the notification bell drives the bell, not the
+      // row's long-press adoption (the bell only stops click propagation, not
+      // pointerdown). Without this, holding the bell would adopt the member's
+      // palette.
+      if (e.target.closest('.notify-bell')) return;
+      // A press on the drawer toggle/slice, or while a drawer is open, belongs to
+      // the drawer (or its dismissal) — not palette adoption.
+      if (e.target.closest('.card-drawer-toggle') || e.target.closest('.card-drawer')) return;
+      if (isCardDrawerOpen()) return;
+      // Don't arm long-press adoption behind an open bell popover — the press
+      // belongs to dismissing that modal, not adopting a member's palette.
+      if (isNotifyPopoverOpen()) return;
+      if (!_ownOverride?.enabled) return;
+      clearTimeout(pressTimer); pressTimer = null;
+      pressStartX = e.clientX;
+      pressStartY = e.clientY;
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        suppressNextClick = true;
+        triggerGroupAdoption(uid, ownUserId);
+      }, 500);
+    });
+    li.addEventListener('pointermove', (e) => {
+      if (pressTimer && (Math.abs(e.clientX - pressStartX) > 8 ||
+                         Math.abs(e.clientY - pressStartY) > 8)) {
+        clearTimeout(pressTimer); pressTimer = null;
+      }
+    });
+    ['pointerup', 'pointercancel'].forEach(ev =>
+      li.addEventListener(ev, () => { clearTimeout(pressTimer); pressTimer = null; })
+    );
+    li.addEventListener('click', (e) => {
+      if (suppressNextClick) { suppressNextClick = false; e.stopImmediatePropagation(); }
+    }, true);
+  }
+
+  return li;
 }
 
 function renderRoster(members, ownUserId) {
   const list = document.getElementById('group-roster');
   if (!list) return;
-  list.innerHTML = '';
-
-  // Own user is represented by the status row in the group-context header.
-  // Don't duplicate them in the roster.
-  const entries = Object.entries(members || {}).filter(([uid]) => uid !== ownUserId);
-  entries.sort(([, a], [, b]) => {
-    const nameA = (a.displayName || '').toLowerCase();
-    const nameB = (b.displayName || '').toLowerCase();
-    return nameA.localeCompare(nameB);
+  reconcileChildren(list, rosterKeys(members, ownUserId), {
+    create: (key) => {
+      if (key === 'invite-row') return createInviteRow(ownUserId);
+      const uid = rosterUidOf(key);
+      return createRosterRow(uid, (members || {})[uid] || {}, ownUserId);
+    },
+    update: (node, key) => {
+      if (key === 'invite-row') return;
+      const uid = rosterUidOf(key);
+      const member = (members || {})[uid];
+      const label = node.querySelector('.person-label');
+      if (label && member) label.textContent = member.displayName || uid;
+      // Pass `node`: reconcile runs update() BEFORE inserting a freshly-created
+      // row, so a getElementById/querySelector lookup would miss it and the dot
+      // would keep createRosterRow's default until a later re-render (the
+      // override/status not applying on first render — esp. on a fresh restore).
+      paintRosterRow(uid, node);
+    },
+    // The drawer survives ticks that keep its row; close only when the row
+    // holding the open drawer is removed (replaces the blanket close that
+    // renderRoster used to do — the leak vector was the wipe itself).
+    onRemove: (node) => {
+      if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
+    },
   });
-
-  for (const [uid, member] of entries) {
-    const li = document.createElement('li');
-    li.className = 'group-roster-row';
-    li.dataset.userId = uid;
-    li.dataset.available = 'false';
-
-    const dot = document.createElement('span');
-    dot.className = 'person-dot';
-    dot.dataset.available = 'false';
-
-    const info = document.createElement('div');
-    info.className = 'person-info';
-
-    const label = document.createElement('span');
-    label.className = 'person-label';
-    label.textContent = member.displayName || uid;
-    info.appendChild(label);
-
-    const status = document.createElement('div');
-    status.className = 'person-status';
-    info.appendChild(status);
-
-    li.appendChild(dot);
-    li.appendChild(info);
-
-    if (KNOCK_ENABLED) {
-      li.classList.add('knockable');
-      li.addEventListener('click', () => {
-        sendKnock(uid, ownUserId, undefined, { contextGroupId: getCurrentGroupId() });
-      });
-    }
-
-    if (PALETTES_ENABLED && PALETTE_INTERACTIONS_ENABLED && uid !== ownUserId) {
-      let pressTimer = null;
-      let pressStartX, pressStartY;
-      let suppressNextClick = false;
-
-      li.addEventListener('pointerdown', (e) => {
-        if (!_ownOverride?.enabled) return;
-        clearTimeout(pressTimer); pressTimer = null;
-        pressStartX = e.clientX;
-        pressStartY = e.clientY;
-        pressTimer = setTimeout(() => {
-          pressTimer = null;
-          suppressNextClick = true;
-          triggerGroupAdoption(uid, ownUserId);
-        }, 500);
-      });
-      li.addEventListener('pointermove', (e) => {
-        if (pressTimer && (Math.abs(e.clientX - pressStartX) > 8 ||
-                           Math.abs(e.clientY - pressStartY) > 8)) {
-          clearTimeout(pressTimer); pressTimer = null;
-        }
-      });
-      ['pointerup', 'pointercancel'].forEach(ev =>
-        li.addEventListener(ev, () => { clearTimeout(pressTimer); pressTimer = null; })
-      );
-      li.addEventListener('click', (e) => {
-        if (suppressNextClick) { suppressNextClick = false; e.stopImmediatePropagation(); }
-      }, true);
-    }
-
-    list.appendChild(li);
-  }
-  reorderRosterByAvailability();
 }
 
-function paintRosterRow(uid) {
-  const li = document.querySelector(`#group-roster [data-user-id="${uid}"]`);
+// Re-converge roster order after a status change (availability moved a row).
+// Reconciliation makes this a cheap reorder + repaint; no node churn.
+function syncRosterOrder() {
+  if (_lastMembers === null) return;
+  renderRoster(_lastMembers, _currentUserId);
+}
+
+function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-user-id="${uid}"]`)) {
   if (!li) return;
   const override = _membersOverrides[uid];
   const primary = _memberPrimaries.get(uid) || null;
@@ -197,35 +336,20 @@ function paintRosterRow(uid) {
   // who chose to not theme their group card (override.paletteKey null)
   // would still pick up their Direct theme. Override-off: primary wins
   // for every field (the group is linked to Direct).
-  const status = overrideOn ? (override.status || 'unavailable') : (primary?.status || 'unavailable');
   const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
-  const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+  const available = memberEffectiveAvailable(uid);
   const color = overrideOn ? (override.statusColor || null) : (primary?.statusColor || null);
   const paletteKey = overrideOn ? (override.paletteKey || null) : (primary?.paletteKey || null);
   const palette = PALETTES_ENABLED && paletteKey ? getPaletteByKey(paletteKey) : null;
-  li.dataset.available = isAvailable ? 'true' : 'false';
+  li.dataset.available = available ? 'true' : 'false';
   const dot = li.querySelector('.person-dot');
   if (dot) {
-    dot.dataset.available = isAvailable ? 'true' : 'false';
-    dot.classList.toggle('available', isAvailable);
-    if (isAvailable && color && PALETTES_ENABLED) {
-      const safe = safeCssColor(color);
-      dot.style.background = safe;
-      dot.style.borderColor = safe;
-      dot.style.boxShadow = `0 0 10px ${safeCssColor(getGlowForColor(color))}`;
-    } else if (isAvailable && color) {
-      dot.style.background = safeCssColor(color);
-      dot.style.borderColor = '';
-      dot.style.boxShadow = '';
-    } else {
-      dot.style.background = '';
-      dot.style.borderColor = '';
-      dot.style.boxShadow = '';
-    }
+    dot.dataset.available = available ? 'true' : 'false';
+    paintStatusDot(dot, { color, available, palettesEnabled: PALETTES_ENABLED });
   }
   const statusEl = li.querySelector('.person-status');
   if (statusEl) {
-    if (isAvailable) {
+    if (available) {
       // Mirror the Direct contacts list: fuzzy text ("nearly 18 hours",
       // "about half an hour") rather than precise H:M. The Fuzzy helper
       // returns "… left"; strip that suffix since we prefix with
@@ -235,10 +359,7 @@ function paintRosterRow(uid) {
       // paletteKey still gets the right text color — without the inline
       // style, the CSS rule (.status-available → var(--green)) wins and
       // the fuzzy time renders forest green.
-      const remaining = availableUntil
-        ? formatTimeRemainingFuzzy(timeRemainingMs(availableUntil)).replace(/ left$/, '')
-        : '';
-      const text = remaining ? `Available for ${remaining}` : 'Available';
+      const text = availableForText(availableUntil);
       const inlineColor = color ? safeCssColor(color) : '';
       statusEl.innerHTML = inlineColor
         ? `<span class="status-available" style="color:${inlineColor}">${text}</span>`
@@ -253,7 +374,7 @@ function paintRosterRow(uid) {
   // palette and is available, color the card surface + border-left + status
   // text. Otherwise just border-left in statusColor (or clear when
   // unavailable). All inline styles so a re-paint can clear them cleanly.
-  if (PALETTES_ENABLED && palette && isAvailable) {
+  if (PALETTES_ENABLED && palette && available) {
     li.style.background = palette.theme.surface;
     li.style.borderLeftColor = palette.color;
     if (statusEl) {
@@ -268,7 +389,7 @@ function paintRosterRow(uid) {
     }
   } else {
     li.style.background = '';
-    li.style.borderLeftColor = isAvailable && color ? safeCssColor(color) : '';
+    li.style.borderLeftColor = available && color ? safeCssColor(color) : '';
     if (statusEl) statusEl.style.color = '';
   }
   // FTU longpress hint pulse — mirrors following.js's pattern. Shows the
@@ -284,7 +405,7 @@ function paintRosterRow(uid) {
   if (PALETTE_INTERACTIONS_ENABLED) {
     const showHint = isLongpressHintEligible()
       && _ownOverride?.enabled === true
-      && isAvailable
+      && available
       && (color !== (_ownOverride?.statusColor || null) || paletteKey !== (_ownOverride?.paletteKey || null));
     const existing = li.querySelector('.longpress-hint');
     if (!showHint && existing) {
@@ -296,8 +417,6 @@ function paintRosterRow(uid) {
       li.appendChild(hint);
     }
   }
-
-  reorderRosterByAvailability();
 }
 
 function renderOwnStatusRow() {
@@ -315,19 +434,19 @@ function renderOwnStatusRow() {
   const source = overrideOn ? _ownOverride : _ownPrimary;
   const status = source?.status || 'unavailable';
   const availableUntil = source?.availableUntil ?? null;
-  const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+  const available = isAvailable(status, availableUntil);
 
-  dot.dataset.available = isAvailable ? 'true' : 'false';
-  dot.classList.toggle('available', isAvailable);
+  dot.dataset.available = available ? 'true' : 'false';
+  dot.classList.toggle('available', available);
   const color = source?.statusColor || null;
-  if (isAvailable && color) dot.style.background = safeCssColor(color);
+  if (available && color) dot.style.background = safeCssColor(color);
   else dot.style.background = '';
-  label.textContent = isAvailable ? 'Available' : 'Unavailable';
+  label.textContent = available ? 'Available' : 'Unavailable';
   // Color the "Available" label using --my-status so it matches the Direct
   // header (.status-label.available rule), regardless of which color is
   // active. Phase 4+ per-audience color picker will override --my-status
   // locally if it ships separate group palette state.
-  label.classList.toggle('available', isAvailable);
+  label.classList.toggle('available', available);
 
   // Read-only mode applies the dot + chip dimming when override is OFF.
   dot.classList.toggle('readonly', !overrideOn);
@@ -345,7 +464,7 @@ function renderOwnStatusRow() {
 
   if (timeRemaining) {
     // null availableUntil means open-ended; no countdown to show
-    if (isAvailable && availableUntil) {
+    if (available && availableUntil) {
       const formatted = formatTimeRemaining(timeRemainingMs(availableUntil));
       if (formatted) {
         timeRemaining.textContent = formatted + ' left';
@@ -368,7 +487,7 @@ function renderOwnStatusRow() {
   // stays constant across Available / Unavailable just like in Direct.
   const swatchRow = document.getElementById('group-swatch-row');
   const chipsContainer = document.querySelector('#group-context-root .group-header-chips');
-  const showSwatch = PALETTES_ENABLED && overrideOn && !isAvailable;
+  const showSwatch = PALETTES_ENABLED && overrideOn && !available;
   if (chipsContainer) {
     chipsContainer.style.opacity = showSwatch ? '0' : '';
     chipsContainer.style.pointerEvents = showSwatch ? 'none' : '';
@@ -390,7 +509,7 @@ function renderOwnStatusRow() {
 // same names so this file's internal references don't change.
 
 // Reconcile per-set local state with the override snapshot. Runs whenever
-// watchOwnMemberOverride fires (cross-device sync) and on enter so the
+// the own-override sub fires (cross-device sync) and on enter so the
 // picker reflects the server-side override's set + selection.
 function syncGroupPaletteStateFromOverride() {
   if (!_currentGroupId) return;
@@ -469,23 +588,13 @@ function renderGroupSwatchRow() {
   // the user's effective color follows the active set immediately (matches
   // Direct's switchSet behavior — without this, toggling and then going
   // Available would broadcast the *previous* set's color).
-  const toggleBtn = document.createElement('button');
-  toggleBtn.type = 'button';
-  toggleBtn.className = 'set-toggle-btn';
-  toggleBtn.innerHTML = activeSet === 1 ? ICON_BOLT : ICON_TREE;
-  // FTU hint pulse — same logic as Direct's #swatch-row set-toggle. The hint
-  // is set-specific (bolt vs flower), and the persistent flag is shared with
-  // Direct so clearing it in either context clears it everywhere.
-  const hintName = activeSet === 1 ? 'bolt' : 'flower';
-  if (shouldShowSetTogglePulse(activeSet)) {
-    toggleBtn.classList.add('first-use-pulse');
-    toggleBtn.addEventListener('click', () => {
-      toggleBtn.classList.remove('first-use-pulse');
-      markHintSeen(hintName);
-    }, { once: true });
-  }
-  toggleBtn.addEventListener('click', () => {
-    const nextSet = activeSet === 1 ? 2 : 1;
+  // Set-toggle button (shared builder; the FTU pulse + bolt/flower hint flag is
+  // identical to Direct's, only the toggle action differs). Switching writes the
+  // TARGET set's saved selectedColor + activePaletteKey to the override so the
+  // user's effective color follows the active set immediately (matches Direct's
+  // switchSet — without this, toggling then going Available would broadcast the
+  // *previous* set's color).
+  const toggleBtn = buildSetToggleButton(activeSet, (nextSet) => {
     const nextSetData = state.sets[String(nextSet)];
     const newState = { ...state, activeSet: nextSet };
     setGroupPaletteState(_currentGroupId, newState);
@@ -507,59 +616,51 @@ function renderGroupSwatchRow() {
     const complements = palette.complements;
     let ci = 0;
     for (let i = 0; i < 8; i++) {
-      const swatch = document.createElement('button');
-      swatch.type = 'button';
       if (i === keyIdx) {
-        swatch.className = 'swatch key-swatch group-swatch';
-        if (_groupPaletteEnterAt != null) {
-          const elapsed = Date.now() - _groupPaletteEnterAt;
-          if (elapsed < KEY_SPIN_MS) {
-            swatch.classList.add('key-spin');
-            if (elapsed > 0) swatch.style.setProperty('--key-spin-delay', `-${elapsed}ms`);
-          } else {
-            _groupPaletteEnterAt = null;
-          }
-        }
-        swatch.style.background = palette.color;
-        swatch.dataset.paletteKey = palette.key;
         const keySelected = currentColor === palette.color;
-        if (keySelected) swatch.classList.add('selected');
-        swatch.addEventListener('click', () => {
-          const newState = getGroupPaletteState(_currentGroupId);
-          const sk = String(newState.activeSet);
-          if (keySelected) {
-            // Exit palette mode for this set. Don't change statusColor —
-            // the user's pick survives, theme reverts to primary.
-            newState.sets[sk].activePaletteKey = null;
-            setGroupPaletteState(_currentGroupId, newState);
-            _ownOverride = { ..._ownOverride, paletteKey: null };
-            setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: null }).catch(() => {});
-          } else {
-            // Reset statusColor to the palette's base color.
-            newState.sets[sk].selectedColor = palette.color;
-            setGroupPaletteState(_currentGroupId, newState);
-            _ownOverride = { ..._ownOverride, statusColor: palette.color };
-            setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: palette.color }).catch(() => {});
-          }
-          applyEffectivePalette();
-          renderGroupSwatchRow();
+        const swatch = buildSwatch({
+          color: palette.color, key: palette.key, datasetAttr: 'paletteKey',
+          extraClass: 'group-swatch', keySwatch: true, selected: keySelected,
+          onTap: () => {
+            const newState = getGroupPaletteState(_currentGroupId);
+            const sk = String(newState.activeSet);
+            if (keySelected) {
+              // Exit palette mode for this set. Don't change statusColor —
+              // the user's pick survives, theme reverts to primary.
+              newState.sets[sk].activePaletteKey = null;
+              setGroupPaletteState(_currentGroupId, newState);
+              _ownOverride = { ..._ownOverride, paletteKey: null };
+              setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: null }).catch(() => {});
+            } else {
+              // Reset statusColor to the palette's base color.
+              newState.sets[sk].selectedColor = palette.color;
+              setGroupPaletteState(_currentGroupId, newState);
+              _ownOverride = { ..._ownOverride, statusColor: palette.color };
+              setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: palette.color }).catch(() => {});
+            }
+            applyEffectivePalette();
+            renderGroupSwatchRow();
+          },
         });
+        if (!applyKeySpin(swatch, _groupPaletteEnterAt)) _groupPaletteEnterAt = null;
+        row.appendChild(swatch);
       } else {
         const complementColor = complements[ci++];
-        swatch.className = 'swatch group-swatch';
-        swatch.style.background = complementColor;
-        if (currentColor === complementColor) swatch.classList.add('selected');
-        swatch.addEventListener('click', () => {
-          const newState = getGroupPaletteState(_currentGroupId);
-          newState.sets[String(newState.activeSet)].selectedColor = complementColor;
-          setGroupPaletteState(_currentGroupId, newState);
-          _ownOverride = { ..._ownOverride, statusColor: complementColor };
-          setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: complementColor }).catch(() => {});
-          applyEffectivePalette();
-          renderGroupSwatchRow();
+        const swatch = buildSwatch({
+          color: complementColor, extraClass: 'group-swatch',
+          selected: currentColor === complementColor,
+          onTap: () => {
+            const newState = getGroupPaletteState(_currentGroupId);
+            newState.sets[String(newState.activeSet)].selectedColor = complementColor;
+            setGroupPaletteState(_currentGroupId, newState);
+            _ownOverride = { ..._ownOverride, statusColor: complementColor };
+            setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: complementColor }).catch(() => {});
+            applyEffectivePalette();
+            renderGroupSwatchRow();
+          },
         });
+        row.appendChild(swatch);
       }
-      row.appendChild(swatch);
     }
   } else {
     // Base mode: 8 swatches in the active set. Selection follows the per-set
@@ -567,48 +668,41 @@ function renderGroupSwatchRow() {
     // writes only statusColor; second tap on the selected swatch promotes
     // to palette mode by writing paletteKey.
     for (const palette of PALETTE_SETS[activeSet]) {
-      const swatch = document.createElement('button');
-      swatch.type = 'button';
-      swatch.className = 'swatch group-swatch';
-      swatch.style.background = palette.color;
-      swatch.dataset.paletteKey = palette.key;
       const selected = palette.key === selectedKey;
-      if (selected) swatch.classList.add('selected');
-      swatch.addEventListener('click', () => {
-        const newState = getGroupPaletteState(_currentGroupId);
-        const sk = String(newState.activeSet);
-        if (selected) {
-          // Promote to palette mode for this palette.
-          newState.sets[sk].activePaletteKey = palette.key;
-          setGroupPaletteState(_currentGroupId, newState);
-          _ownOverride = { ..._ownOverride, paletteKey: palette.key };
-          setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: palette.key }).catch(() => {});
-          // Mirror palettes.enterPaletteMode — entering palette mode clears
-          // the theme hint regardless of which picker the user used.
-          if (!isHintSeen('theme')) markHintSeen('theme');
-          // Timestamp the entry so the key-spin animation survives the
-          // setOverrideAppearance echo's re-render (mirrors palettes.enterPaletteMode).
-          _groupPaletteEnterAt = Date.now();
-        } else {
-          // Color-only change. Don't touch paletteKey.
-          newState.sets[sk].selectedKey = palette.key;
-          newState.sets[sk].selectedColor = palette.color;
-          setGroupPaletteState(_currentGroupId, newState);
-          _ownOverride = { ..._ownOverride, statusColor: palette.color };
-          setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: palette.color }).catch(() => {});
-        }
-        applyEffectivePalette();
-        renderGroupSwatchRow();
+      const swatch = buildSwatch({
+        color: palette.color, key: palette.key, datasetAttr: 'paletteKey',
+        extraClass: 'group-swatch', selected,
+        onTap: () => {
+          const newState = getGroupPaletteState(_currentGroupId);
+          const sk = String(newState.activeSet);
+          if (selected) {
+            // Promote to palette mode for this palette.
+            newState.sets[sk].activePaletteKey = palette.key;
+            setGroupPaletteState(_currentGroupId, newState);
+            _ownOverride = { ..._ownOverride, paletteKey: palette.key };
+            setOverrideAppearance(_currentGroupId, _currentUserId, { paletteKey: palette.key }).catch(() => {});
+            // Mirror palettes.enterPaletteMode — entering palette mode clears
+            // the theme hint regardless of which picker the user used.
+            if (!isHintSeen('theme')) markHintSeen('theme');
+            // Timestamp the entry so the key-spin animation survives the
+            // setOverrideAppearance echo's re-render (mirrors palettes.enterPaletteMode).
+            _groupPaletteEnterAt = Date.now();
+          } else {
+            // Color-only change. Don't touch paletteKey.
+            newState.sets[sk].selectedKey = palette.key;
+            newState.sets[sk].selectedColor = palette.color;
+            setGroupPaletteState(_currentGroupId, newState);
+            _ownOverride = { ..._ownOverride, statusColor: palette.color };
+            setOverrideAppearance(_currentGroupId, _currentUserId, { statusColor: palette.color }).catch(() => {});
+          }
+          applyEffectivePalette();
+          renderGroupSwatchRow();
+        },
       });
       row.appendChild(swatch);
     }
-    // Theme hint: pulsing dotted ring on the selected swatch once the user
-    // has gone Available with a custom color but hasn't yet entered palette
-    // mode anywhere — mirrors palettes.js's base-mode theme-hint logic.
-    if (shouldShowThemeHint()) {
-      const selectedSwatch = row.querySelector('.swatch.selected');
-      if (selectedSwatch) selectedSwatch.classList.add('theme-hint');
-    }
+    // Theme hint on the selected swatch (shared applier — same gate as Direct).
+    applyThemeHintIfDue(row);
   }
   paintGroupDotGoHint();
   // Rolling wave attractor across the unselected swatches — mirrors
@@ -639,10 +733,10 @@ function paintGroupDotGoHint() {
   const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
   const status = overrideOn ? _ownOverride?.status : _ownPrimary?.status;
   const availableUntil = overrideOn ? _ownOverride?.availableUntil : _ownPrimary?.availableUntil;
-  const isAvailable = status === 'available' && (availableUntil == null || availableUntil > Date.now());
+  const available = isAvailable(status, availableUntil);
   // overrideOn is the group-context-specific guard — without override ON the
   // group dot is read-only, so nudging the user to tap it is wrong.
-  const shouldHint = overrideOn && shouldShowDotGoHint({ isNonDefault, dotAvailable: isAvailable });
+  const shouldHint = overrideOn && shouldShowDotGoHint({ isNonDefault, dotAvailable: available });
   dot.classList.toggle('dot-go-hint', shouldHint);
 }
 
@@ -711,7 +805,7 @@ function applyEffectivePalette() {
 
 // Restore the primary palette/theme on group context exit so the user's
 // Direct view doesn't carry the group's theme. _ownPrimary still has the
-// last-known primary state from watchStatus.
+// last-known primary state from watchPresence.
 function restorePrimaryPalette() {
   if (!PALETTES_ENABLED) return;
   // Same helpers as applyEffectivePalette — for a fresh user who never wrote
@@ -747,7 +841,9 @@ function syncStatusSubscriptions(memberUids) {
   }
   for (const uid of memberUids) {
     if (!_statusUnsubs.has(uid)) {
-      _statusUnsubs.set(uid, watchStatus(uid, (data) => {
+      // Through the shared presence hub — a member who is also a Direct followee
+      // is watched once at the RTDB layer (#214 R3).
+      _statusUnsubs.set(uid, subscribePresence(uid, (data) => {
         _memberPrimaries.set(uid, data
           ? {
               status: data.status,
@@ -756,7 +852,8 @@ function syncStatusSubscriptions(memberUids) {
               paletteKey: data.paletteKey || null,
             }
           : null);
-        paintRosterRow(uid);
+        // renderRoster's update repaints every row, including this one.
+        syncRosterOrder();
       }));
     }
   }
@@ -785,7 +882,7 @@ function uninstallSettingsOutsideHandler() {
 }
 
 function wireActions(groupId, userId, isOwner, groupName) {
-  const ids = ['group-action-rename', 'group-action-invite', 'group-action-delete', 'group-action-edit-name', 'group-action-leave'];
+  const ids = ['group-action-rename', 'group-action-delete', 'group-action-edit-name', 'group-action-leave'];
 
   // Clone-and-replace each button to drop any previous listeners
   for (const id of ids) {
@@ -797,7 +894,6 @@ function wireActions(groupId, userId, isOwner, groupName) {
 
   // Visibility
   document.getElementById('group-action-rename').classList.toggle('hidden', !isOwner);
-  document.getElementById('group-action-invite').classList.toggle('hidden', !isOwner);
   document.getElementById('group-action-delete').classList.toggle('hidden', !isOwner);
   document.getElementById('group-action-edit-name').classList.remove('hidden');
   document.getElementById('group-action-leave').classList.toggle('hidden', isOwner);
@@ -811,17 +907,6 @@ function wireActions(groupId, userId, isOwner, groupName) {
     const trimmed = next.trim();
     if (!trimmed) return;
     try { await renameGroup(groupId, userId, trimmed); } catch (e) { window.alert(e.message); }
-  });
-
-  document.getElementById('group-action-invite').addEventListener('click', () => {
-    closeSettingsMenu();
-    openInviteModal({
-      scope: 'group',
-      userId,
-      groupId,
-      groupName: groupName || groupId,
-      activeInvite: _activeGroupInvite,
-    });
   });
 
   document.getElementById('group-action-delete').addEventListener('click', async () => {
@@ -884,6 +969,15 @@ function installGroupSyncListeners() {
     if (_ownOverride?.enabled) return; // chip is showing the per-group value
     renderOwnStatusRow();
   });
+  // The following list synced from the server. The roster's request-to-follow
+  // eligibility is computed from that list at render time, so re-render: a
+  // fresh-device restore that boots straight into this group paints the roster
+  // against an empty following cache and offers the affordance for members the
+  // user already follows. Also drops the affordance when a follow completes.
+  document.addEventListener('following-synced', () => {
+    if (!_currentGroupId || _lastMembers === null) return;
+    renderRoster(_lastMembers, _currentUserId);
+  });
 }
 
 export function enterGroupContext(groupId, userId) {
@@ -909,8 +1003,19 @@ export function enterGroupContext(groupId, userId) {
   _statusUnsubs.clear();
   _memberPrimaries.clear();
   _membersOverrides = {};
+  _lastMembers = null;
+  _groupOwnerId = null;
+  _groupName = null;
+  // Reset the roster DOM so rows rebuild fresh for THIS group. renderRoster
+  // reconciles by uid, so without this a member shared with the previously
+  // viewed group keeps that group's request-follow button — which captured the
+  // prior group's displayName + groupId at create time (stale name/context in
+  // the request toast, and the request written against the wrong group).
+  const rosterListEl = document.getElementById('group-roster');
+  if (rosterListEl) rosterListEl.innerHTML = '';
   let drainedKnocksOnEntry = false;
   _membersUnsub = watchGroupMembers(groupId, (members) => {
+    _lastMembers = members;
     _membersOverrides = {};
     for (const [uid, m] of Object.entries(members || {})) {
       _membersOverrides[uid] = m.statusOverride || null;
@@ -918,10 +1023,6 @@ export function enterGroupContext(groupId, userId) {
     _ownDisplayName = members?.[userId]?.displayName || null;
     renderRoster(members, userId);
     syncStatusSubscriptions(new Set(Object.keys(members || {})));
-    // Re-paint each row to reflect the merged override+primary.
-    for (const uid of Object.keys(members || {})) {
-      paintRosterRow(uid);
-    }
     // Replay any knocks that arrived while the user wasn't in this group.
     // Wait for the first members tick so the roster lis exist before drain
     // tries to look them up; one-shot per enterGroupContext call.
@@ -951,7 +1052,7 @@ export function enterGroupContext(groupId, userId) {
   if (_ownOverrideUnsub) _ownOverrideUnsub();
   _ownPrimary = null;
   _ownOverride = null;
-  _ownPrimaryUnsub = watchStatus(userId, (data) => {
+  _ownPrimaryUnsub = subscribeOwnStatus((data) => {
     _ownPrimary = data
       ? {
           status: data.status,
@@ -966,12 +1067,12 @@ export function enterGroupContext(groupId, userId) {
     // of the per-group chip lands with the userPrefs/ migration.
     // Re-apply effective theme: a primary-side palette change (e.g. another
     // device picked a different Direct theme) would otherwise have been
-    // written to root by app.js's watchStatus, clobbering our group-context
+    // written to root by app.js's watchPresence, clobbering our group-context
     // override theme.
     applyEffectivePalette();
     renderOwnStatusRow();
   });
-  _ownOverrideUnsub = watchOwnMemberOverride(groupId, userId, (data) => {
+  _ownOverrideUnsub = subscribeOwnOverride(groupId, (data) => {
     _ownOverride = data || null;
     syncGroupPaletteStateFromOverride();
     // Seed override.statusColor the first time we see an enabled override
@@ -1012,8 +1113,7 @@ export function enterGroupContext(groupId, userId) {
     dotClone.addEventListener('click', () => {
       const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
       if (!overrideOn) return;  // read-only when toggle is OFF
-      const currentlyAvailable = _ownOverride.status === 'available'
-        && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
+      const currentlyAvailable = isAvailable(_ownOverride.status, _ownOverride.availableUntil);
       if (currentlyAvailable) {
         // Spread instead of replace — otherwise the optimistic update
         // strips statusColor + paletteKey until the watch echo restores
@@ -1081,8 +1181,7 @@ export function enterGroupContext(groupId, userId) {
       const { minutes, text } = CHIP_VALUES[nextIdx];
       chipClone.textContent = text;
       setGroupChipMinutes(groupId, minutes);
-      const currentlyAvailable = _ownOverride.status === 'available'
-        && (_ownOverride.availableUntil == null || _ownOverride.availableUntil > Date.now());
+      const currentlyAvailable = isAvailable(_ownOverride.status, _ownOverride.availableUntil);
       if (currentlyAvailable) {
         const availableUntil = Date.now() + minutes * 60000;
         // Spread preserves statusColor/paletteKey across the optimistic
@@ -1095,7 +1194,7 @@ export function enterGroupContext(groupId, userId) {
   }
 
   // Subscribe to group meta for the name + owner check
-  _metaUnsub = watchGroupMeta(groupId, (meta) => {
+  _metaUnsub = subscribeGroupMeta(groupId, (meta) => {
     if (!meta) {
       // Group entity was deleted. Non-owner members never had their
       // users/{uid}/groups/{groupId} entry cleared by the owner (the
@@ -1105,15 +1204,20 @@ export function enterGroupContext(groupId, userId) {
       removeUserGroupsEntry(userId, groupId).catch(() => {});
       return;
     }
+    _groupOwnerId = meta.ownerId || null;
+    _groupName = meta.name || null;
     const isOwner = meta.ownerId === userId;
     wireActions(groupId, userId, isOwner, meta.name);
+    // Re-render the roster so the owner-only invite row appears even if the
+    // members callback fired before meta (race condition on first load).
+    if (_lastMembers !== null) renderRoster(_lastMembers, userId);
   });
 }
 
 export function exitGroupContext() {
   // Restore the user's Direct (primary) theme BEFORE we clear _ownPrimary —
   // otherwise the group's override theme stays on root vars until app.js's
-  // next watchStatus tick happens to write something different.
+  // next watchPresence tick happens to write something different.
   restorePrimaryPalette();
   if (_metaUnsub) { _metaUnsub(); _metaUnsub = null; }
   if (_membersUnsub) { _membersUnsub(); _membersUnsub = null; }
@@ -1130,6 +1234,12 @@ export function exitGroupContext() {
   _currentGroupId = null;
   _currentUserId = null;
   _activeGroupInvite = null;
+  _groupOwnerId = null;
+  _groupName = null;
+  _lastMembers = null;
+  // Close any open card drawer so its document-level capture listeners are
+  // removed and _open is cleared before we navigate away.
+  closeCardDrawer();
   closeSettingsMenu();
   uninstallSettingsOutsideHandler();
   const root = document.getElementById('group-context-root');
@@ -1138,7 +1248,7 @@ export function exitGroupContext() {
   if (direct) direct.classList.remove('hidden');
 }
 
-export function getCurrentGroupId() { return _currentGroupId; }
+function getCurrentGroupId() { return _currentGroupId; }
 
 /**
  * Apply an optimistic override update from elsewhere (e.g. the chain-icon

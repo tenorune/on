@@ -10,6 +10,7 @@ jest.mock('../js/db.js', () => ({
   renameGroup: jest.fn(),
   setMemberDisplayName: jest.fn(),
   readGroup: jest.fn().mockResolvedValue(null),
+  readGroupName: jest.fn().mockResolvedValue(null),
   readMember: jest.fn().mockResolvedValue(null),
   readMembers: jest.fn().mockResolvedValue({}),
   setLastVisited: jest.fn(),
@@ -18,6 +19,10 @@ jest.mock('../js/db.js', () => ({
   setStatusOverride: jest.fn(),
   clearStatusOverride: jest.fn(),
   mergeStatusOverride: jest.fn().mockResolvedValue(undefined),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock('../js/groupNav.js', () => ({
@@ -26,8 +31,13 @@ jest.mock('../js/groupNav.js', () => ({
   getLastKnownGroupName: jest.fn(() => null),
 }));
 
+jest.mock('../js/prefs.js', () => ({
+  clearGroupPaletteState: jest.fn(),
+}));
+
 const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
+const prefs = require('../js/prefs.js');
 const { createGroup, renameGroup, deleteGroup, leaveGroup, joinGroup, editOwnDisplayName, initGroupRemovalDetector, _resetGroupRemovalDetectorForTests, _feedSnapshotForTests, toggleStatusOverride, setOverrideStatusAvailable, setOverrideStatusUnavailable } = require('../js/groups');
 
 describe('createGroup', () => {
@@ -40,8 +50,8 @@ describe('createGroup', () => {
   });
 
   test('validates name: trim, non-empty, max 40 chars', async () => {
-    await expect(createGroup('uid1', '  ', 'Mike')).rejects.toThrow(/empty/i);
-    await expect(createGroup('uid1', 'x'.repeat(41), 'Mike')).rejects.toThrow(/40/);
+    await expect(createGroup('uid1', '  ', 'Alex')).rejects.toThrow(/empty/i);
+    await expect(createGroup('uid1', 'x'.repeat(41), 'Alex')).rejects.toThrow(/40/);
   });
 
   test('validates owner displayName: trim, non-empty, max 40 chars', async () => {
@@ -50,7 +60,7 @@ describe('createGroup', () => {
   });
 
   test('happy path: claims id, writes group, writes owner member, writes user enumeration', async () => {
-    const result = await createGroup('uid1', '  Family  ', '  Mike  ');
+    const result = await createGroup('uid1', '  Family  ', '  Alex  ');
     expect(result).toMatchObject({ groupId: expect.stringMatching(/^[A-Z0-9]{8}$/) });
     expect(db.claimGroupId).toHaveBeenCalledWith(result.groupId);
     expect(db.writeGroup).toHaveBeenCalledWith(result.groupId, expect.objectContaining({
@@ -60,7 +70,7 @@ describe('createGroup', () => {
     }));
     expect(db.writeMember).toHaveBeenCalledWith(result.groupId, 'uid1', expect.objectContaining({
       role: 'owner',
-      displayName: 'Mike',
+      displayName: 'Alex',
       joinedAt: expect.any(Number),
       // Override defaults ON so a newly-created group doesn't auto-broadcast
       // the owner's primary status.
@@ -73,14 +83,14 @@ describe('createGroup', () => {
 
   test('retries on group-id collision', async () => {
     db.claimGroupId.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-    const result = await createGroup('uid1', 'Family', 'Mike');
+    const result = await createGroup('uid1', 'Family', 'Alex');
     expect(db.claimGroupId).toHaveBeenCalledTimes(2);
     expect(result.groupId).toMatch(/^[A-Z0-9]{8}$/);
   });
 
   test('throws after exhausting retry budget', async () => {
     db.claimGroupId.mockResolvedValue(false);
-    await expect(createGroup('uid1', 'Family', 'Mike')).rejects.toThrow(/allocate/i);
+    await expect(createGroup('uid1', 'Family', 'Alex')).rejects.toThrow(/allocate/i);
   });
 });
 
@@ -127,6 +137,43 @@ describe('deleteGroup', () => {
     await deleteGroup('G1', 'uid1');
     expect(db.deleteGroup).not.toHaveBeenCalled();
   });
+
+  test('deleteGroup sweeps pending invites for the group', async () => {
+    const { readGroup, deleteGroup: dbDeleteGroup, removeUserGroupsEntry,
+            readPendingInviteesForGroup, deletePendingInvite } = require('../js/db.js');
+    readGroup.mockResolvedValueOnce({ ownerId: 'me', name: 'Family', createdAt: 1 });
+    readPendingInviteesForGroup.mockResolvedValueOnce(['inviteeA', 'inviteeB']);
+
+    await deleteGroup('G1', 'me');
+
+    expect(readPendingInviteesForGroup).toHaveBeenCalledWith('G1');
+    expect(deletePendingInvite).toHaveBeenCalledWith('inviteeA', 'G1');
+    expect(deletePendingInvite).toHaveBeenCalledWith('inviteeB', 'G1');
+    expect(dbDeleteGroup).toHaveBeenCalledWith('G1');
+    expect(removeUserGroupsEntry).toHaveBeenCalledWith('me', 'G1');
+  });
+
+  test('deleteGroup sweeps pending invites BEFORE deleting the group entity', async () => {
+    const { readGroup, deleteGroup: dbDeleteGroup,
+            readPendingInviteesForGroup, deletePendingInvite } = require('../js/db.js');
+
+    const callOrder = [];
+    readGroup.mockResolvedValueOnce({ ownerId: 'me', name: 'Family', createdAt: 1 });
+    readPendingInviteesForGroup.mockResolvedValueOnce(['inviteeA', 'inviteeB']);
+    deletePendingInvite.mockImplementation((uid) => {
+      callOrder.push(`deletePendingInvite:${uid}`);
+      return Promise.resolve();
+    });
+    dbDeleteGroup.mockImplementation((gid) => {
+      callOrder.push(`dbDeleteGroup:${gid}`);
+      return Promise.resolve();
+    });
+
+    await deleteGroup('G1', 'me');
+
+    expect(callOrder.indexOf('deletePendingInvite:inviteeA')).toBeLessThan(callOrder.indexOf('dbDeleteGroup:G1'));
+    expect(callOrder.indexOf('deletePendingInvite:inviteeB')).toBeLessThan(callOrder.indexOf('dbDeleteGroup:G1'));
+  });
 });
 
 describe('leaveGroup', () => {
@@ -157,7 +204,7 @@ describe('joinGroup', () => {
 
   test('refuses when the group does not exist', async () => {
     db.readGroup.mockResolvedValue(null);
-    await expect(joinGroup('NOPE', 'uid2', 'Mike')).rejects.toThrow(/not found/i);
+    await expect(joinGroup('NOPE', 'uid2', 'Alex')).rejects.toThrow(/not found/i);
   });
 
   test('writes member record + user enumeration when joining', async () => {
@@ -165,10 +212,10 @@ describe('joinGroup', () => {
     db.readMember.mockResolvedValue(null);
     db.writeMember.mockResolvedValue();
     db.writeUserGroupsEntry.mockResolvedValue();
-    await joinGroup('G1', 'uid2', '  Mike  ');
+    await joinGroup('G1', 'uid2', '  Alex  ');
     expect(db.writeMember).toHaveBeenCalledWith('G1', 'uid2', expect.objectContaining({
       role: 'member',
-      displayName: 'Mike',
+      displayName: 'Alex',
       joinedAt: expect.any(Number),
       // Override defaults ON so the joiner doesn't auto-broadcast their
       // primary status to the group.
@@ -182,9 +229,26 @@ describe('joinGroup', () => {
   test('idempotent for existing members (no-op writes)', async () => {
     db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
     db.readMember.mockResolvedValue({ role: 'member', displayName: 'Old', joinedAt: 10 });
-    await joinGroup('G1', 'uid2', 'Mike');
+    await joinGroup('G1', 'uid2', 'Alex');
     expect(db.writeMember).not.toHaveBeenCalled();
     expect(db.writeUserGroupsEntry).toHaveBeenCalled(); // still bumps lastVisited
+  });
+
+  test('a fresh join clears stale per-group palette state so a rejoin starts from defaults', async () => {
+    // Without this, a member who set e.g. WHITE-in-ROSE, left, and rejoined would
+    // land with the stale color seeded into the fresh (color-less) override —
+    // an impossible WHITE + default-theme combo.
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.readMember.mockResolvedValue(null);
+    await joinGroup('G1', 'uid2', 'Alex');
+    expect(prefs.clearGroupPaletteState).toHaveBeenCalledWith('G1');
+  });
+
+  test('an idempotent (already-member) join does NOT clear palette state', async () => {
+    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
+    db.readMember.mockResolvedValue({ role: 'member', displayName: 'Old', joinedAt: 10 });
+    await joinGroup('G1', 'uid2', 'Alex');
+    expect(prefs.clearGroupPaletteState).not.toHaveBeenCalled();
   });
 });
 
@@ -222,7 +286,7 @@ describe('group removal detector', () => {
   });
 
   test('removal of an enumerated group whose record is gone → deletion toast', async () => {
-    db.readGroup.mockResolvedValue(null);
+    db.readGroupName.mockResolvedValue(null);
     // Seed: previously G1+G2 enumerated; new tick: only G2 (G1 was deleted)
     await _feedSnapshotForTests({ G1: true, G2: true });
     await _feedSnapshotForTests({ G2: true });
@@ -232,7 +296,7 @@ describe('group removal detector', () => {
   });
 
   test('dismiss button hides the toast', async () => {
-    db.readGroup.mockResolvedValue(null);
+    db.readGroupName.mockResolvedValue(null);
     initGroupRemovalDetector('me');
     await _feedSnapshotForTests({ G1: true });
     await _feedSnapshotForTests({});
@@ -242,15 +306,28 @@ describe('group removal detector', () => {
   });
 
   test('kick: group exists but member record gone shows the removed-from message', async () => {
-    db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'owner', createdAt: 1 });
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
     await _feedSnapshotForTests({ G1: true });
     await _feedSnapshotForTests({});
     await flushPromises();
     expect(document.getElementById('group-removal-toast-text').textContent).toMatch(/removed|Family/i);
   });
 
+  test('leave/kick: whole-group read is denied for a non-member, so the toast uses the name leaf', async () => {
+    // After leaving / being kicked the user is no longer a member, so the
+    // membership-gated groups/{gid} whole-node read is denied. The detector
+    // must read the name leaf (readGroupName) instead.
+    db.readGroup.mockRejectedValue(new Error('Permission denied'));
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
+    await _feedSnapshotForTests({ G1: true });
+    await _feedSnapshotForTests({});
+    await flushPromises();
+    expect(document.getElementById('group-removal-toast-text').textContent).toBe("You've been removed from 'Family'.");
+    expect(db.readGroup).not.toHaveBeenCalled();
+  });
+
   test('deletion toast uses the cached group name when available', async () => {
-    db.readGroup.mockResolvedValue(null); // group entity gone
+    db.readGroupName.mockResolvedValue(null); // group entity gone
     groupNav.getLastKnownGroupName.mockReturnValue('Family');
     await _feedSnapshotForTests({ G1: true });
     await _feedSnapshotForTests({});
@@ -259,7 +336,7 @@ describe('group removal detector', () => {
   });
 
   test('deletion toast falls back to groupId when no cached name exists', async () => {
-    db.readGroup.mockResolvedValue(null);
+    db.readGroupName.mockResolvedValue(null);
     groupNav.getLastKnownGroupName.mockReturnValue(null);
     await _feedSnapshotForTests({ G1ABCD23: true });
     await _feedSnapshotForTests({});
@@ -348,15 +425,16 @@ describe('end-to-end: create group → group invite → redeem → joined', () =
     // Setup mocks for redeemGroupInvite
     db.readInviteIndex = jest.fn().mockResolvedValue({ scope: 'group', ownerPath: `groups/${created.groupId}/invites/${invite.token}` });
     db.readGroup = jest.fn().mockResolvedValue({ name: 'Family', ownerId: 'owner-uid', createdAt: 1 });
-    db.readGroupInvites = jest.fn().mockResolvedValue({
-      [invite.token]: { scope: 'group', token: invite.token, creatorUid: 'owner-uid', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
-    });
+    db.readGroupName = jest.fn().mockResolvedValue({ name: 'Family' });
+    db.readGroupInvite = jest.fn().mockResolvedValue(
+      { scope: 'group', token: invite.token, creatorUid: 'owner-uid', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    );
     db.readMember = jest.fn().mockResolvedValue(null);
     db.incrementGroupInviteRedemptions = jest.fn().mockResolvedValue();
     db.writeMember.mockResolvedValue();
     db.writeUserGroupsEntry.mockResolvedValue();
 
-    const redemption = await redeemGroupInvite(invite.token, 'redeemer-uid', 'Mike');
+    const redemption = await redeemGroupInvite(invite.token, 'redeemer-uid', 'Alex');
     expect(redemption).toEqual({ ok: true, groupId: created.groupId, groupName: 'Family' });
   });
 });

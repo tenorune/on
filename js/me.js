@@ -1,5 +1,5 @@
 // js/me.js
-import { setStatus, isExpired, formatTimeRemaining, timeRemainingMs } from './db.js';
+import { setStatus, isAvailable, formatTimeRemaining, timeRemainingMs } from './db.js';
 import { getPaletteState } from './store.js';
 import { PALETTES_ENABLED } from './features.js';
 import { saveCombo, buildDirectCombo } from './favorites.js';
@@ -43,9 +43,9 @@ function migrateToChipIndex() {
   return chipIndexForMinutes(getLastTimeout());
 }
 
-// Called from app.js's watchStatus when userData.lastTimeoutMinutes changes.
+// Called when the userPrefs-synced lastTimeoutMinutes changes (cross-device).
 // Reflects the user's chip selection from another device on this device.
-export function updateChipFromServer(minutes) {
+function updateChipFromServer(minutes) {
   if (!minutes) return;
   const newIndex = chipIndexForMinutes(minutes);
   if (newIndex === currentChipIndex) return;
@@ -143,7 +143,7 @@ export function applyOwnStatus(status, availableUntil) {
     onOwnStatusReady?.();
   }
   if (firstUseActive) {
-    if (status === 'available' && !isExpired(availableUntil)) {
+    if (isAvailable(status, availableUntil)) {
       firstUseActive = false;
       setAvailable(availableUntil);
     } else {
@@ -152,7 +152,7 @@ export function applyOwnStatus(status, availableUntil) {
     savingEnabled = true;
     return;
   }
-  if (status === 'available' && !isExpired(availableUntil)) {
+  if (isAvailable(status, availableUntil)) {
     setAvailable(availableUntil);
   } else {
     setUnavailable();

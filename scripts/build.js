@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // scripts/build.js — reads .env.local or .env.production and passes Firebase config as esbuild defines
 const { readFileSync, writeFileSync, existsSync } = require('fs');
+const { createHash } = require('crypto');
 const path = require('path');
 
 function loadEnv(filename) {
@@ -29,6 +30,7 @@ const FIREBASE_KEYS = [
   'FIREBASE_STORAGE_BUCKET',
   'FIREBASE_MESSAGING_SENDER_ID',
   'FIREBASE_APP_ID',
+  'FIREBASE_VAPID_KEY',
 ];
 
 const define = {};
@@ -49,4 +51,21 @@ function writeIndexHtml(defaultTitle) {
   return title;
 }
 
-module.exports = { define, envFile, writeIndexHtml };
+// Generate sw.js from sw.template.js, stamping the cache name with a hash of the
+// shell assets. Any shell change yields a new hash → a byte-different sw.js →
+// the browser detects the update on its next check. Call AFTER writeIndexHtml
+// and the esbuild bundle so the hashed inputs exist.
+function writeServiceWorker() {
+  const root = path.resolve(__dirname, '..');
+  const template = readFileSync(path.join(root, 'sw.template.js'), 'utf8');
+  const hash = createHash('sha256');
+  for (const f of ['dist/bundle.js', 'css/app.css', 'index.html', 'manifest.json']) {
+    const p = path.join(root, f);
+    if (existsSync(p)) hash.update(readFileSync(p));
+  }
+  const version = `knockknock-${hash.digest('hex').slice(0, 12)}`;
+  writeFileSync(path.join(root, 'sw.js'), template.replace(/__CACHE_VERSION__/g, version));
+  return version;
+}
+
+module.exports = { define, envFile, writeIndexHtml, writeServiceWorker };

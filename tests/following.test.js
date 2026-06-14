@@ -22,7 +22,9 @@ if (typeof PointerEvent === 'undefined') {
   };
 }
 
-jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true }));
+jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true, NOTIFICATIONS_ENABLED: true }));
+jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn() }));
+jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
 jest.mock('../js/palettes.js', () => ({
   ...jest.requireActual('../js/palettes.js'),
   getPaletteByKey: jest.fn(),
@@ -34,22 +36,25 @@ jest.mock('../js/palettes.js', () => ({
 }));
 jest.mock('../js/db.js', () => ({
   lookupCode: jest.fn(),
-  watchStatus: jest.fn(),
+  watchPresence: jest.fn(),
   watchFollowers: jest.fn(),
   registerAsFollower: jest.fn(),
   unregisterAsFollower: jest.fn(),
   removeFollower: jest.fn(),
   isExpired: jest.fn(() => false),
+  isAvailable: jest.fn((s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now())),
   writeBackExpired: jest.fn(),
-  formatTimeRemainingFuzzy: jest.fn(() => 'about 2 hours left'),
+  formatTimeRemainingFuzzy: jest.fn(() => 'about 2 hours'),
   timeRemainingMs: jest.fn(() => 7200000),
   formatLastSeen: jest.fn(() => null),
   writeKnock: jest.fn(),
   getKnocks: jest.fn(),
   watchKnocksAdded: jest.fn(),
   clearKnock: jest.fn(),
-  setCallState: jest.fn().mockResolvedValue(undefined),
-  clearCallState: jest.fn().mockResolvedValue(undefined),
+  startCall: jest.fn().mockResolvedValue(undefined),
+  answerCall: jest.fn().mockResolvedValue(undefined),
+  endCall: jest.fn().mockResolvedValue(undefined),
+  watchOwnCall: jest.fn(() => () => {}),
   setStatusColor: jest.fn().mockResolvedValue(undefined),
   setPaletteKey: jest.fn().mockResolvedValue(undefined),
   watchFollowing: jest.fn(() => jest.fn()),
@@ -95,16 +100,23 @@ jest.mock('../js/db.js', () => ({
   mergeUserPrefs: jest.fn().mockResolvedValue(undefined),
   watchUserPrefs: jest.fn(() => () => {}),
   watchOwnMemberOverride: jest.fn(() => () => {}),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
+  watchRevocations: jest.fn(() => () => {}),
 }));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
   applyFloatToTop: jest.fn(),
   getFloatedUserIds: jest.fn(() => []),
   initKnocks: jest.fn(),
+  noteDirectActivity: jest.fn(),
 }));
 jest.mock('../js/store.js', () => ({
   getFollowing: jest.fn(),
   setFollowing: jest.fn(),
+  getFollowerName: jest.fn(() => null),
   addFollowing: jest.fn(),
   removeFollowing: jest.fn(),
   renameFollowing: jest.fn(),
@@ -136,14 +148,26 @@ jest.mock('../js/prefs.js', () => ({
   setPaletteState: jest.fn(),
 }));
 
-const { watchStatus, watchFollowers, setCallState, clearCallState } = require('../js/db.js');
-const { getFollowing, updateFollowingCode } = require('../js/store.js');
+const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations } = require('../js/db.js');
+const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, removeFollowing } = require('../js/store.js');
 const { getMadeCallCount, getAnsweredCallCount } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
   initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees,
-  enterCallMode, exitCallMode, getCallModeCalleeId, reEnterCallMode,
+  enterCallMode, exitCallMode, getCallModeCalleeId, reEnterCallMode, getIncomingCallFrom,
 } = require('../js/following.js');
+const { createNotifyBell } = require('../js/notifyBell.js');
+
+// Default implementation: return a real button so li.appendChild doesn't throw.
+// Individual test suites may override via mockImplementation in their beforeEach.
+beforeEach(() => {
+  require('../js/presenceHub.js')._resetPresenceHub(); // clean per-uid watch state between tests
+  createNotifyBell.mockImplementation(() => {
+    const b = document.createElement('button');
+    b.className = 'notify-bell';
+    return b;
+  });
+});
 
 function setupDom() {
   document.body.innerHTML = `
@@ -171,10 +195,43 @@ function initAndCaptureFollowersCallback(myUserId = 'myUid', myCode = 'MYCODE') 
     followersCallback = cb;
     return jest.fn();
   });
-  watchStatus.mockReturnValue(jest.fn());
+  watchPresence.mockReturnValue(jest.fn());
   initList(myUserId, myCode);
   return (arr) => followersCallback(arr);
 }
+
+// Capture the calls/{me} own-call watcher callback so tests can simulate a ring
+// (the receiver-side glow now keys off _incomingCall, set by this watcher —
+// it no longer rides a callState field on the followee's status record).
+function captureOwnCall(myUserId = 'myUid', myCode = 'MYCODE') {
+  let ownCallCb;
+  watchOwnCall.mockImplementation((_uid, cb) => { ownCallCb = cb; return jest.fn(); });
+  watchFollowers.mockReturnValue(jest.fn());
+  watchPresence.mockReturnValue(jest.fn());
+  initList(myUserId, myCode);
+  return (call) => ownCallCb(call);
+}
+
+describe('incoming ring → Direct chip pulse (#144)', () => {
+  beforeEach(() => { setupDom(); require('../js/store.js').getFollowing.mockReturnValue([]); });
+
+  test('a new ring calls noteDirectActivity (pulses the Direct chip for off-Direct users)', () => {
+    const knock = require('../js/knock.js');
+    const fire = captureOwnCall('myUid', 'MYCODE');
+    knock.noteDirectActivity.mockClear();
+    fire({ from: 'caller1' }); // someone starts ringing me
+    expect(knock.noteDirectActivity).toHaveBeenCalled();
+  });
+
+  test('a ring ending does not pulse the chip', () => {
+    const knock = require('../js/knock.js');
+    const fire = captureOwnCall('myUid', 'MYCODE');
+    fire({ from: 'caller1' }); // ring on
+    knock.noteDirectActivity.mockClear();
+    fire(null);                // ring ended
+    expect(knock.noteDirectActivity).not.toHaveBeenCalled();
+  });
+});
 
 // --- renderList: section rendering ---
 
@@ -290,6 +347,36 @@ describe('renderList: follower-only rows', () => {
     expect(document.getElementById('add-code-input').value).toBe('Q3ZP7R');
     expect(document.getElementById('add-person-form').classList.contains('open')).toBe(true);
   });
+
+  test('shows the remembered roster name next to the code', () => {
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockReturnValue('Bea');
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u2', code: 'Q3ZP7R' }]);
+
+    const label = document.querySelector('[data-user-id="u2"] .person-label');
+    expect(label.textContent).toBe('Q3ZP7R (Bea)');
+  });
+
+  test('shows the bare code when no roster name is remembered', () => {
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockReturnValue(null);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u2', code: 'Q3ZP7R' }]);
+
+    const label = document.querySelector('[data-user-id="u2"] .person-label');
+    expect(label.textContent).toBe('Q3ZP7R');
+  });
+
+  test('follow-back pre-fills the label input with the remembered roster name', () => {
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockReturnValue('Bea');
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u2', code: 'Q3ZP7R' }]);
+
+    document.querySelector('[data-user-id="u2"] .follow-back-btn').click();
+    expect(document.getElementById('add-label-input').value).toBe('Bea');
+  });
 });
 
 // --- renderList: name display (moved from mycode.test.js) ---
@@ -381,6 +468,7 @@ describe('confirm dialog', () => {
     fire([]); // u1 is following-only
 
     const li = document.querySelector('[data-user-id="u1"]');
+    li.querySelector('.card-drawer-toggle').click();
     li.querySelector('.unfollow-btn').click();
 
     expect(document.getElementById('unfollow-confirm-title').textContent).toBe('Unfollow Alice?');
@@ -406,7 +494,7 @@ describe('confirm dialog', () => {
 
 describe('subscribeToFollowee — code-change sync', () => {
   let watchFollowersCallback;
-  let watchStatusCallback;
+  let watchPresenceCallback;
 
   beforeEach(() => {
     setupDom();
@@ -416,8 +504,8 @@ describe('subscribeToFollowee — code-change sync', () => {
       watchFollowersCallback = cb;
       return jest.fn();
     });
-    watchStatus.mockImplementation((_userId, cb) => {
-      watchStatusCallback = cb;
+    watchPresence.mockImplementation((_userId, cb) => {
+      watchPresenceCallback = cb;
       return jest.fn();
     });
 
@@ -432,24 +520,35 @@ describe('subscribeToFollowee — code-change sync', () => {
   });
 
   test('calls updateFollowingCode when userData.code differs from entry.code', () => {
-    watchStatusCallback({ status: 'unavailable', code: 'NEW456' });
+    watchPresenceCallback({ status: 'unavailable', code: 'NEW456' });
     expect(updateFollowingCode).toHaveBeenCalledWith('u1', 'NEW456');
   });
 
   test('does not call updateFollowingCode when userData.code matches entry.code', () => {
-    watchStatusCallback({ status: 'unavailable', code: 'OLD123' });
+    watchPresenceCallback({ status: 'unavailable', code: 'OLD123' });
     expect(updateFollowingCode).not.toHaveBeenCalled();
   });
 
   test('does not call updateFollowingCode when userData.code is absent', () => {
-    watchStatusCallback({ status: 'unavailable' });
+    watchPresenceCallback({ status: 'unavailable' });
     expect(updateFollowingCode).not.toHaveBeenCalled();
   });
 
   test('updates entry.code in place so a second identical callback does not trigger another sync', () => {
-    watchStatusCallback({ status: 'unavailable', code: 'NEW456' });
-    watchStatusCallback({ status: 'unavailable', code: 'NEW456' });
+    watchPresenceCallback({ status: 'unavailable', code: 'NEW456' });
+    watchPresenceCallback({ status: 'unavailable', code: 'NEW456' });
     expect(updateFollowingCode).toHaveBeenCalledTimes(1);
+  });
+
+  test('does NOT write back a peer\'s expired availability (R1 forbids cross-user presence writes)', () => {
+    const { writeBackExpired, isExpired } = require('../js/db.js');
+    isExpired.mockReturnValue(true); // the peer's availableUntil has lapsed
+    try {
+      watchPresenceCallback({ status: 'available', availableUntil: Date.now() - 1000, code: 'OLD123' });
+      expect(writeBackExpired).not.toHaveBeenCalled();
+    } finally {
+      isExpired.mockReturnValue(false);
+    }
   });
 });
 
@@ -457,7 +556,7 @@ describe('subscribeToFollowee — code-change sync', () => {
 
 describe('updateFolloweeRow: palette-aware dot and status text', () => {
   let watchFollowersCallback;
-  let watchStatusCallback;
+  let watchPresenceCallback;
 
   beforeEach(() => {
     setupDom();
@@ -467,8 +566,8 @@ describe('updateFolloweeRow: palette-aware dot and status text', () => {
       watchFollowersCallback = cb;
       return jest.fn();
     });
-    watchStatus.mockImplementation((_userId, cb) => {
-      watchStatusCallback = cb;
+    watchPresence.mockImplementation((_userId, cb) => {
+      watchPresenceCallback = cb;
       return jest.fn();
     });
     getFollowing.mockReturnValue([
@@ -479,36 +578,36 @@ describe('updateFolloweeRow: palette-aware dot and status text', () => {
   });
 
   test('available dot has inline background matching statusColor', () => {
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
     expect(dot.style.background).toBe('rgb(168, 85, 247)');
   });
 
   test('available dot has inline boxShadow derived from statusColor', () => {
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#818cf8' });
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#818cf8' });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
     expect(dot.style.boxShadow).toContain('rgba(129,140,248,0.4)');
   });
 
   test('unavailable dot has inline styles cleared', () => {
     // First set available with a color
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#818cf8' });
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#818cf8' });
     // Then go unavailable
-    watchStatusCallback({ status: 'unavailable', statusColor: '#818cf8' });
+    watchPresenceCallback({ status: 'unavailable', statusColor: '#818cf8' });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
     expect(dot.style.background).toBe('');
     expect(dot.style.boxShadow).toBe('');
   });
 
   test('available status text has inline color matching statusColor', () => {
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
     const statusEl = document.querySelector('[data-user-id="u1"] .person-status');
     const span = statusEl.querySelector('.status-available');
     expect(span.style.color).toBe('rgb(168, 85, 247)');
   });
 
   test('falls back to green (#22c55e) when statusColor absent', () => {
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000 });
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000 });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
     expect(dot.style.background).toBe('rgb(34, 197, 94)');
   });
@@ -527,23 +626,23 @@ describe('palette card styling', () => {
     setupDom();
     getFollowing.mockReturnValue([{ userId: 'user1', code: 'ABC123', label: 'Jordan' }]);
 
-    let watchStatusCallback;
+    let watchPresenceCallback;
     let watchFollowersCallback;
 
     watchFollowers.mockImplementation((_userId, cb) => {
       watchFollowersCallback = cb;
       return jest.fn();
     });
-    watchStatus.mockImplementation((_uid, cb) => {
-      watchStatusCallback = cb;
+    watchPresence.mockImplementation((_uid, cb) => {
+      watchPresenceCallback = cb;
       return jest.fn();
     });
 
     initList('myUid', 'MYCODE');
     watchFollowersCallback([]);     // no followers — 'Jordan' appears in Following section
 
-    // Trigger watchStatus with palette data
-    watchStatusCallback({ status: 'available', availableUntil: Date.now() + 3600000, paletteKey });
+    // Trigger watchPresence with palette data
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, paletteKey });
     return document.querySelector('[data-user-id="user1"]');
   }
 
@@ -611,14 +710,14 @@ describe('palette card styling', () => {
   test('unavailable card with known paletteKey gets transparent borderLeftColor', () => {
     setupDom();
     getFollowing.mockReturnValue([{ userId: 'user1', code: 'ABC123', label: 'Jordan' }]);
-    let watchStatusCallback;
+    let watchPresenceCallback;
     let watchFollowersCallback;
     watchFollowers.mockImplementation((_userId, cb) => { watchFollowersCallback = cb; return jest.fn(); });
-    watchStatus.mockImplementation((_uid, cb) => { watchStatusCallback = cb; return jest.fn(); });
+    watchPresence.mockImplementation((_uid, cb) => { watchPresenceCallback = cb; return jest.fn(); });
     initList('myUid', 'MYCODE');
     watchFollowersCallback([]);
     getPaletteByKey.mockReturnValue(OCEAN_PALETTE);
-    watchStatusCallback({ status: 'unavailable', paletteKey: 'ocean' });
+    watchPresenceCallback({ status: 'unavailable', paletteKey: 'ocean' });
     const li = document.querySelector('[data-user-id="user1"]');
     // Unavailable: all palette card styles cleared — default CSS applies
     expect(li.style.background).toBe('');
@@ -627,16 +726,22 @@ describe('palette card styling', () => {
 });
 
 // --- subscribeToFollowee: field-change guard ---
+// Note: the old "skip-if-only-knocks-changed" guard in subscribeToFollowee was
+// deleted when knocks moved out of users/{uid} into the top-level knocks/
+// mailbox (knocks writes no longer trigger the watchPresence onValue tick).
+// The test below was renamed to reflect the new behavior: updateFolloweeRow IS
+// called on every status tick regardless of whether a knocks key is present,
+// but since the same data produces the same DOM the dot class is stable.
 
 describe('subscribeToFollowee: field-change guard', () => {
-  let fireStatus; // fn(userData) → triggers watchStatus callback
+  let fireStatus; // fn(userData) → triggers watchPresence callback
 
   function setupMutual(userId = 'u1') {
     setupDom();
     jest.clearAllMocks();
     getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
     let statusCallback;
-    watchStatus.mockImplementation((_uid, cb) => {
+    watchPresence.mockImplementation((_uid, cb) => {
       statusCallback = cb;
       return jest.fn();
     });
@@ -648,7 +753,7 @@ describe('subscribeToFollowee: field-change guard', () => {
     fireStatus = (data) => statusCallback(data);
   }
 
-  test('updateFolloweeRow NOT called when only knocks key changes', () => {
+  test('re-render with same data leaves dot class unchanged (knocks key in payload is irrelevant)', () => {
     setupMutual();
     const baseData = {
       status: 'unavailable', availableUntil: null,
@@ -659,10 +764,10 @@ describe('subscribeToFollowee: field-change guard', () => {
     const li = document.querySelector('[data-user-id="u1"]');
     const dotBefore = li.querySelector('.person-dot').className;
 
-    // Fire again with only knocks key added — all 5 named fields unchanged
+    // Fire again with a knocks key present — guard no longer exists, but same
+    // visible data means the dot class is identical after the re-render.
     fireStatus({ ...baseData, knocks: { someUser: { count: 1, ts: Date.now() } } });
 
-    // DOM should not have changed (no re-render)
     expect(li.querySelector('.person-dot').className).toBe(dotBefore);
   });
 
@@ -688,12 +793,13 @@ describe('subscribeToFollowee: field-change guard', () => {
 
 describe('knock click handler on mutual rows', () => {
   const { sendKnock } = require('../js/knock.js');
+  const { isCardDrawerOpen } = require('../js/cardDrawer.js');
 
   function setupMutualWithKnock(userId = 'u1') {
     setupDom();
     jest.clearAllMocks();
     getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     watchFollowers.mockImplementation((_uid, cb) => {
       cb([{ userId, code: 'ABC123' }]);
       return jest.fn();
@@ -715,11 +821,23 @@ describe('knock click handler on mutual rows', () => {
     expect(sendKnock).not.toHaveBeenCalled();
   });
 
-  test('tapping unfollow-btn skips knock', () => {
+  test('tapping unfollow inside the drawer does not knock', () => {
     const li = setupMutualWithKnock();
     sendKnock.mockClear();
+    li.querySelector('.card-drawer-toggle').click();
     li.querySelector('.unfollow-btn').click();
     expect(sendKnock).not.toHaveBeenCalled();
+  });
+
+  test('tapping the card body to dismiss an open drawer does not knock (C1)', () => {
+    const li = setupMutualWithKnock();
+    sendKnock.mockClear();
+    li.querySelector('.card-drawer-toggle').click(); // open the drawer
+    expect(isCardDrawerOpen()).toBe(true);
+    // Tap the li body itself (NOT inside .card-drawer) to dismiss.
+    li.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(sendKnock).not.toHaveBeenCalled();
+    expect(isCardDrawerOpen()).toBe(false); // dismissed
   });
 });
 
@@ -737,6 +855,26 @@ function makeFolloweeLi(userId) {
   document.getElementById('people-list').appendChild(li);
   return li;
 }
+
+describe('updateFolloweeRow: Direct-list scoping (no leak into a shared group-roster uid)', () => {
+  beforeEach(() => { setupDom(); jest.clearAllMocks(); resetRenderedFollowees(); });
+
+  test('paints the #people-list row, never a group-roster row that shares the uid', () => {
+    makeFolloweeLi('u2'); // the real Direct-list row
+    // A group roster carrying the SAME uid, placed BEFORE #people-list so an
+    // unscoped document-wide query would wrongly resolve to it and leak the
+    // member's Direct status ("Unavailable") into their group card.
+    const roster = document.createElement('ul');
+    roster.id = 'group-roster';
+    roster.innerHTML = '<li data-user-id="u2"><div class="person-status"></div></li>';
+    document.body.insertBefore(roster, document.getElementById('people-list'));
+
+    updateFolloweeRow({ userId: 'u2', code: 'X' }, { status: 'unavailable', availableUntil: null, lastSeen: null }, 'me');
+
+    expect(roster.querySelector('[data-user-id="u2"] .person-status').innerHTML).toBe(''); // group roster untouched
+    expect(document.querySelector('#people-list [data-user-id="u2"] .person-status').textContent).toBe('Unavailable');
+  });
+});
 
 describe('setFolloweeReadyCallback', () => {
   let cb;
@@ -792,25 +930,33 @@ describe('call mode: receiver-side glow via updateFolloweeRow', () => {
     resetRenderedFollowees();
   });
 
-  test('adds .call-mode and sets --call-color-rgb when callState.calleeId === myUserId', () => {
+  // Receiver-side glow now keys off the calls/{me} own-call watcher (_incomingCall)
+  // instead of a callState field on the followee's status record. Each test fires
+  // a ring through the captured own-call callback, then asserts updateFolloweeRow
+  // paints the glow. Updated (not weakened) because the detection source changed.
+  test('adds .call-mode and sets --call-color-rgb when ringing from this followee', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
     makeFolloweeLi('alice');
+    const ring = captureOwnCall('myUid', 'MYCODE');
+    ring({ from: 'alice', ts: 1 });
     updateFolloweeRow(entry, {
       status: 'available',
       availableUntil: Date.now() + 3600000,
       statusColor: '#3b82f6',
-      callState: { calleeId: 'myUid', since: Date.now() },
     }, 'myUid');
     const li = document.querySelector('[data-user-id="alice"]');
     expect(li.classList.contains('call-mode')).toBe(true);
     expect(li.style.getPropertyValue('--call-color-rgb')).toBe('59, 130, 246');
   });
 
-  test('removes .call-mode when callState is absent', () => {
+  test('removes .call-mode when there is no incoming call', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
     const li = makeFolloweeLi('alice');
     li.classList.add('call-mode');
     li.style.setProperty('--call-color-rgb', '59, 130, 246');
+    captureOwnCall('myUid', 'MYCODE'); // no ring fired → _incomingCall stays null
     updateFolloweeRow(entry, {
       status: 'available',
       availableUntil: Date.now() + 3600000,
@@ -820,39 +966,117 @@ describe('call mode: receiver-side glow via updateFolloweeRow', () => {
     expect(li.style.getPropertyValue('--call-color-rgb')).toBe('');
   });
 
-  test('removes .call-mode when callState.calleeId !== myUserId', () => {
+  test('removes .call-mode when the ring is from someone else', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
     const li = makeFolloweeLi('alice');
     li.classList.add('call-mode');
+    const ring = captureOwnCall('myUid', 'MYCODE');
+    ring({ from: 'someoneElse', ts: 1 });
     updateFolloweeRow(entry, {
       status: 'available',
       availableUntil: Date.now() + 3600000,
       statusColor: '#3b82f6',
-      callState: { calleeId: 'someoneElse', since: Date.now() },
     }, 'myUid');
     expect(li.classList.contains('call-mode')).toBe(false);
   });
 
   test('uses fallback #22c55e when statusColor absent', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
     makeFolloweeLi('alice');
+    const ring = captureOwnCall('myUid', 'MYCODE');
+    ring({ from: 'alice', ts: 1 });
     updateFolloweeRow(entry, {
       status: 'available',
       availableUntil: Date.now() + 3600000,
-      callState: { calleeId: 'myUid', since: Date.now() },
     }, 'myUid');
     const li = document.querySelector('[data-user-id="alice"]');
     expect(li.style.getPropertyValue('--call-color-rgb')).toBe('34, 197, 94');
   });
 });
 
-describe('call mode: display text during call', () => {
+describe('call deferral while a drawer is open', () => {
+  const { createCardDrawer } = require('../js/cardDrawer.js');
+  // The receiver-side glow is now driven by the calls/{me} own-call watcher
+  // (_incomingCall) rather than a callState field on the status record, so the
+  // status payload no longer carries call info; the ring is fired separately.
+  const STATUS = { status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6' };
+  const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+  let ring; // fire a calls/{me} update through the captured own-call watcher
+
+  function openADrawer() {
+    const ellipsis = createCardDrawer([{ el: document.createElement('button') }, { el: document.createElement('button') }]);
+    document.body.appendChild(ellipsis);
+    ellipsis.click(); // isCardDrawerOpen() is now true
+    return ellipsis;
+  }
+
   beforeEach(() => {
     setupDom();
     jest.clearAllMocks();
     resetRenderedFollowees();
-    // initList resets callModeCalleeId so tests are isolated
-    initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    // initList sets the module-level myUserIdRef used by the reconcile listener.
+    // captureOwnCall installs no-op followers/status watchers + grabs the
+    // own-call callback so a ring can be simulated.
+    getFollowing.mockReturnValue([entry]);
+    ring = captureOwnCall('myUid', 'MYCODE');
+    resetRenderedFollowees();
+  });
+
+  test('incoming call does NOT enter call-mode while a drawer is open', () => {
+    makeFolloweeLi('alice');
+    openADrawer();
+    ring({ from: 'alice', ts: 1 });
+    updateFolloweeRow(entry, STATUS, 'myUid');
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(false);
+  });
+
+  test('closing the drawer applies a still-live call', () => {
+    makeFolloweeLi('alice');
+    const ellipsis = openADrawer();
+    ring({ from: 'alice', ts: 1 });           // ring arrives while drawer open
+    updateFolloweeRow(entry, STATUS, 'myUid'); // deferred; caches STATUS in lastUserData
+    ellipsis.click(); // close the real drawer -> fires card-drawer-close, reconcile runs
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(true);
+  });
+
+  test('a call cancelled during the open window is not replayed on close', () => {
+    makeFolloweeLi('alice');
+    const ellipsis = openADrawer();
+    ring({ from: 'alice', ts: 1 });            // call arrives (deferred)
+    updateFolloweeRow(entry, STATUS, 'myUid');
+    ring(null);                                // caller hangs up -> _incomingCall cleared
+    ellipsis.click(); // close the real drawer -> fires card-drawer-close, reconcile runs
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(false);
+  });
+
+  test('drawer close does not re-render rows without an incoming call', () => {
+    const li = makeFolloweeLi('alice');
+    // Prime lastUserData + renderedFollowees with a NON-call state for alice
+    // (no ring fired, so _incomingCall is null).
+    updateFolloweeRow(entry, STATUS, 'myUid');
+    // Put a sentinel in the status element that a re-render would clobber.
+    const statusEl = li.querySelector('.person-status');
+    statusEl.innerHTML = 'SENTINEL';
+    const ellipsis = openADrawer();
+    ellipsis.click(); // close the real drawer -> fires card-drawer-close
+    expect(document.querySelector('[data-user-id="alice"] .person-status').innerHTML).toBe('SENTINEL');
+  });
+});
+
+describe('call mode: display text during call', () => {
+  let ring; // fire a ring through the captured own-call watcher (receiver tests)
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+    // initList resets callModeCalleeId so tests are isolated. captureOwnCall
+    // also grabs the calls/{me} callback so receiver-side tests can ring.
+    ring = captureOwnCall('myUid', 'MYCODE');
   });
 
   test('caller sees "Calling them…" when madeCallCount >= 4', () => {
@@ -884,10 +1108,11 @@ describe('call mode: display text during call', () => {
   test('receiver sees "Calling you…" when answeredCallCount >= 4', () => {
     getAnsweredCallCount.mockReturnValue(5);
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
     makeFolloweeLi('alice');
+    ring({ from: 'alice', ts: 1 });
     updateFolloweeRow(entry, {
       status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6',
-      callState: { calleeId: 'myUid', since: Date.now() },
     }, 'myUid');
     const status = document.querySelector('[data-user-id="alice"] .person-status');
     expect(status.textContent).toBe('Calling you\u2026');
@@ -896,10 +1121,11 @@ describe('call mode: display text during call', () => {
   test('receiver sees "(swipe right to answer)" hint when answeredCallCount < 4', () => {
     getAnsweredCallCount.mockReturnValue(1);
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
     makeFolloweeLi('alice');
+    ring({ from: 'alice', ts: 1 });
     updateFolloweeRow(entry, {
       status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6',
-      callState: { calleeId: 'myUid', since: Date.now() },
     }, 'myUid');
     const status = document.querySelector('[data-user-id="alice"] .person-status');
     expect(status.textContent).toBe('Calling you\u2026 (swipe right to answer)');
@@ -919,27 +1145,23 @@ describe('call mode: display text during call', () => {
   });
 });
 
-describe('call mode: change-detection guard passes callState changes through', () => {
+// Detection moved off the followee status watch onto the calls/{me} mailbox:
+// a ring now arrives via the own-call watcher (not as a callState field on the
+// status record). This re-points the test at that source — a fresh ring repaints
+// the followee row into call-mode — rather than removing the coverage.
+describe('call mode: a ring on the own-call mailbox repaints the row', () => {
   beforeEach(() => {
     setupDom();
     jest.clearAllMocks();
     resetRenderedFollowees();
   });
 
-  test('updateFolloweeRow fires when only callState changes', () => {
+  test('updateFolloweeRow enters call-mode when an own-call ring lands', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
     makeFolloweeLi('alice');
-
-    let statusCallback;
-    watchStatus.mockImplementationOnce((_uid, cb) => {
-      statusCallback = cb;
-      return jest.fn();
-    });
-    watchFollowers.mockReturnValue(jest.fn());
     getFollowing.mockReturnValue([entry]);
 
-    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
-    fire([{ userId: 'alice', code: 'AAA111' }]);
+    const ring = captureOwnCall('myUid', 'MYCODE');
 
     const baseData = {
       status: 'available',
@@ -948,13 +1170,15 @@ describe('call mode: change-detection guard passes callState changes through', (
       paletteKey: null,
       code: 'AAA111',
     };
-    statusCallback(baseData);
+    // Prime lastUserData + render once: no incoming call yet.
+    updateFolloweeRow(entry, baseData, 'myUid');
 
     const li = document.querySelector('[data-user-id="alice"]');
     expect(li.classList.contains('call-mode')).toBe(false);
 
-    // Same everything except callState now points to us
-    statusCallback({ ...baseData, callState: { calleeId: 'myUid', since: Date.now() } });
+    // alice rings us → own-call watcher sets _incomingCall + repaints the row
+    // (it re-runs updateFolloweeRow from the cached lastUserData).
+    ring({ from: 'alice', ts: 1 });
     expect(li.classList.contains('call-mode')).toBe(true);
   });
 });
@@ -973,28 +1197,22 @@ describe('call mode: enterCallMode', () => {
     expect(getCallModeCalleeId()).toBe('alice');
   });
 
-  test('calls setCallState with callerId and calleeId', () => {
+  test('calls startCall with callerId and calleeId (no prior ringer → third arg undefined)', () => {
     enterCallMode({ userId: 'alice', code: 'AAA111', label: 'Alice' }, 'myUid');
-    expect(setCallState).toHaveBeenCalledWith('myUid', 'alice');
+    expect(startCall).toHaveBeenCalledWith('myUid', 'alice', undefined);
   });
 
-  test('clears incoming callers\' callState before becoming a caller', () => {
-    // Simulate ann calling myUid (ann has callState.calleeId = 'myUid')
-    watchStatus.mockImplementationOnce((_uid, cb) => {
-      cb({ status: 'available', availableUntil: Date.now() + 3600000,
-           callState: { calleeId: 'myUid', since: Date.now() } });
-      return jest.fn();
-    });
-    watchFollowers.mockReturnValue(jest.fn());
-    getFollowing.mockReturnValue([{ userId: 'ann', code: 'ANN111', label: 'Ann' }]);
-    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
-    fire([{ userId: 'ann', code: 'ANN111' }]);
-
-    // myUid now calls carol — should clear ann's callState first
-    jest.clearAllMocks();
-    enterCallMode({ userId: 'carol', code: 'CAR111', label: 'Carol' }, 'myUid');
-    expect(clearCallState).toHaveBeenCalledWith('ann');
-    expect(setCallState).toHaveBeenCalledWith('myUid', 'carol');
+  test('enterCallMode while being rung starts the new call and clears the ringer atomically', () => {
+    let ownCallCb;
+    watchOwnCall.mockImplementation((uid, cb) => { ownCallCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([
+      { userId: 'ann', code: 'C1', label: 'Ann' },
+      { userId: 'cara', code: 'C2', label: 'Cara' },
+    ]);
+    initList('myUid', 'MYCODE');
+    ownCallCb({ from: 'ann', ts: 1 }); // Ann is ringing me
+    enterCallMode({ userId: 'cara' }, 'myUid'); // I call Cara instead
+    expect(startCall).toHaveBeenCalledWith('myUid', 'cara', 'ann');
   });
 });
 
@@ -1006,10 +1224,10 @@ describe('call mode: exitCallMode', () => {
     initAndCaptureFollowersCallback('myUid', 'MYCODE');
   });
 
-  test('calls clearCallState with myUserId', () => {
+  test('calls endCall with both participants', () => {
     enterCallMode({ userId: 'alice', code: 'AAA111' }, 'myUid');
     exitCallMode('myUid');
-    expect(clearCallState).toHaveBeenCalledWith('myUid');
+    expect(endCall).toHaveBeenCalledWith('myUid', 'alice');
   });
 
   test('resets callModeCalleeId to null', () => {
@@ -1018,6 +1236,64 @@ describe('call mode: exitCallMode', () => {
     expect(getCallModeCalleeId()).toBeNull();
   });
 
+});
+
+describe('call mode: own-call mailbox', () => {
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+  });
+
+  test('a ring (own-call from) marks incoming', () => {
+    let ownCallCb;
+    watchOwnCall.mockImplementation((uid, cb) => { ownCallCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([{ userId: 'caller', code: 'C', label: 'Cara' }]);
+    initList('me', 'MYCODE');
+    ownCallCb({ from: 'caller', ts: 1 });
+    expect(getIncomingCallFrom()).toBe('caller');
+  });
+
+  test('endCall fires when I exit call mode', () => {
+    watchOwnCall.mockImplementation(() => jest.fn());
+    initList('me', 'MYCODE');
+    enterCallMode({ userId: 'callee' }, 'me');
+    exitCallMode('me');
+    expect(endCall).toHaveBeenCalledWith('me', 'callee');
+  });
+
+  // Regression: ANN calls BOB, BOB declines → BOB's endCall clears BOTH mailboxes,
+  // so ANN's own-call watcher sees null. ANN must NOT re-issue endCall — calls/{BOB}
+  // is already empty and not ANN's, so the rules deny the whole root update
+  // ("update at / permission_denied" on ANN's console).
+  test('caller does NOT re-issue endCall when the peer ends the call', () => {
+    let ownCallCb;
+    watchOwnCall.mockImplementation((_uid, cb) => { ownCallCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([{ userId: 'callee', code: 'C', label: 'Cal' }]);
+    initList('me', 'MYCODE');
+    enterCallMode({ userId: 'callee' }, 'me'); // I'm the caller; callModeCalleeId = 'callee'
+    endCall.mockClear();                       // ignore any setup teardown
+    ownCallCb(null);                           // peer declined → my mailbox went null
+    expect(endCall).not.toHaveBeenCalled();    // no redundant (denied) teardown
+    expect(getCallModeCalleeId()).toBeNull();  // but we DID exit call mode locally
+  });
+
+  // canvas.js is not mocked in this suite, so enterCanvas runs as-is in jsdom
+  // and may error/no-op (canvas-screen element absent). The state mutations that
+  // happen BEFORE the enterCanvas call are the observable under test here.
+  test('boot into an answered call sets callModeCalleeId and clears _incomingCall for the callee (from-record)', () => {
+    let ownCallCb;
+    watchOwnCall.mockImplementation((uid, cb) => { ownCallCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([{ userId: 'caller', code: 'C', label: 'Cara' }]);
+    initList('me', 'MYCODE');
+    // No canvas active; persisted answered record where I'm the callee.
+    // The watcher fires on attach with the persisted record — this simulates boot recovery.
+    ownCallCb({ from: 'caller', answered: true, ts: 1 });
+    // callModeCalleeId is set to 'caller' (peerId = call.to || call.from = 'caller')
+    expect(getCallModeCalleeId()).toBe('caller');
+    // _incomingCall is cleared (no longer ringing since the call is answered)
+    expect(getIncomingCallFrom()).toBeNull();
+  });
 });
 
 describe('call mode: sortFollowees pins callee to top', () => {
@@ -1033,7 +1309,7 @@ describe('call mode: sortFollowees pins callee to top', () => {
       { userId: 'bob',   code: 'BBB222', label: 'Bob' },
       { userId: 'carol', code: 'CCC333', label: 'Carol' },
     ]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
     fire([
       { userId: 'alice', code: 'AAA111' },
@@ -1067,9 +1343,9 @@ describe('call mode: swipe gesture', () => {
     resetRenderedFollowees();
   });
 
-  test('right-swipe past 40% on a mutual card calls setCallState', () => {
+  test('right-swipe past 40% on a mutual card calls startCall', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
     fire([{ userId: 'alice', code: 'AAA111' }]);
 
@@ -1080,12 +1356,12 @@ describe('call mode: swipe gesture', () => {
     firePointer(li, 'pointermove', 100, 52); // dx=90 > 200*0.4=80; ratio 90/2 = 45 > 1.5 ✓
     firePointer(li, 'pointerup',   100, 52);
 
-    expect(setCallState).toHaveBeenCalledWith('myUid', 'alice');
+    expect(startCall).toHaveBeenCalledWith('myUid', 'alice', undefined);
   });
 
-  test('left-swipe on caller-side .call-mode card calls clearCallState(myUserId)', () => {
+  test('left-swipe on caller-side .call-mode card ends the call', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
-    watchStatus.mockImplementationOnce((_uid, cb) => {
+    watchPresence.mockImplementationOnce((_uid, cb) => {
       cb({ status: 'unavailable', statusColor: '#22c55e' });
       return jest.fn();
     });
@@ -1103,12 +1379,13 @@ describe('call mode: swipe gesture', () => {
     firePointer(li, 'pointermove',  10, 52); // dx=-90 < -80
     firePointer(li, 'pointerup',    10, 52);
 
-    expect(clearCallState).toHaveBeenCalledWith('myUid');
+    // Caller side: exitCallMode → endCall(myUid, alice)
+    expect(endCall).toHaveBeenCalledWith('myUid', 'alice');
   });
 
-  test('left-swipe on receiver-side .call-mode card calls clearCallState(callerId)', () => {
+  test('left-swipe on receiver-side .call-mode card ends the call', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
-    watchStatus.mockImplementationOnce((_uid, cb) => {
+    watchPresence.mockImplementationOnce((_uid, cb) => {
       cb({ status: 'unavailable', statusColor: '#22c55e' });
       return jest.fn();
     });
@@ -1124,13 +1401,39 @@ describe('call mode: swipe gesture', () => {
     firePointer(li, 'pointermove',  10, 52);
     firePointer(li, 'pointerup',    10, 52);
 
-    // alice is the caller (entry.userId = 'alice'), so clearCallState('alice')
-    expect(clearCallState).toHaveBeenCalledWith('alice');
+    // Receiver decline: endCall(myUid, alice) tears down both mailboxes.
+    expect(endCall).toHaveBeenCalledWith('myUid', 'alice');
+  });
+
+  test('left-swipe decline clears the "Calling you…" status text, not just the glow', () => {
+    const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
+    getFollowing.mockReturnValue([entry]);
+    let followersCb, ownCallCb;
+    watchFollowers.mockImplementation((_uid, cb) => { followersCb = cb; return jest.fn(); });
+    watchOwnCall.mockImplementation((_uid, cb) => { ownCallCb = cb; return jest.fn(); });
+    watchPresence.mockImplementation((_uid, cb) => { cb({ status: 'unavailable', statusColor: '#22c55e' }); return jest.fn(); });
+    initList('myUid', 'MYCODE');
+    followersCb([{ userId: 'alice', code: 'AAA111' }]); // mutual → row + swipe handlers + lastUserData
+
+    ownCallCb({ from: 'alice', answered: false, ts: 1 }); // alice is ringing me
+
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.classList.contains('call-mode')).toBe(true);
+    expect(li.querySelector('.person-status').textContent).toContain('Calling you');
+
+    jest.spyOn(li, 'getBoundingClientRect').mockReturnValue({ width: 200 });
+    firePointer(li, 'pointerdown', 100, 50);
+    firePointer(li, 'pointermove',  10, 52); // dx=-90 < -80 → decline
+    firePointer(li, 'pointerup',    10, 52);
+
+    expect(endCall).toHaveBeenCalledWith('myUid', 'alice');
+    expect(li.classList.contains('call-mode')).toBe(false);
+    expect(li.querySelector('.person-status').textContent).not.toContain('Calling you');
   });
 
   test('short right-swipe (< 40%) does nothing', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
     fire([{ userId: 'alice', code: 'AAA111' }]);
 
@@ -1141,12 +1444,12 @@ describe('call mode: swipe gesture', () => {
     firePointer(li, 'pointermove', 50, 52); // dx=40 = 20% < 40%
     firePointer(li, 'pointerup',   50, 52);
 
-    expect(setCallState).not.toHaveBeenCalled();
+    expect(startCall).not.toHaveBeenCalled();
   });
 
   test('mostly-vertical movement does not trigger swipe', () => {
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
-    watchStatus.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
     const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
     fire([{ userId: 'alice', code: 'AAA111' }]);
 
@@ -1157,7 +1460,7 @@ describe('call mode: swipe gesture', () => {
     firePointer(li, 'pointermove', 100, 100); // dx=90, dy=90 → ratio 90/90=1.0 < 1.5 → blocked
     firePointer(li, 'pointerup',   100, 100);
 
-    expect(setCallState).not.toHaveBeenCalled();
+    expect(startCall).not.toHaveBeenCalled();
   });
 });
 
@@ -1175,16 +1478,16 @@ describe('call mode: reEnterCallMode', () => {
     expect(getCallModeCalleeId()).toBe('alice');
   });
 
-  test('does NOT call setCallState (no Firebase write on restart)', () => {
+  test('does NOT call startCall (no Firebase write on restart)', () => {
     reEnterCallMode({ userId: 'alice', code: 'AAA111', label: 'Alice' }, {}, 'myUid');
-    expect(setCallState).not.toHaveBeenCalled();
+    expect(startCall).not.toHaveBeenCalled();
   });
 
   test('adds .call-mode class to callee li element', () => {
     // Set up alice as a mutual with cached status data so updateFolloweeRow fires on re-render
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
     let aliceStatusCallback;
-    watchStatus.mockImplementationOnce((_uid, cb) => {
+    watchPresence.mockImplementationOnce((_uid, cb) => {
       aliceStatusCallback = cb;
       return jest.fn();
     });
@@ -1206,7 +1509,7 @@ describe('call mode: reEnterCallMode', () => {
     // Set up alice as a mutual with cached status data so updateFolloweeRow fires on re-render
     getFollowing.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
     let aliceStatusCallback;
-    watchStatus.mockImplementationOnce((_uid, cb) => {
+    watchPresence.mockImplementationOnce((_uid, cb) => {
       aliceStatusCallback = cb;
       return jest.fn();
     });
@@ -1256,9 +1559,9 @@ function setupMutualAndFireStatus(userId, userData, myUserId = 'myUid') {
   getFollowing.mockReturnValue([{ userId, code: 'XY9K2M', label: 'Alice' }]);
   const fire = initAndCaptureFollowersCallback(myUserId);
   fire([{ userId, code: 'XY9K2M' }]);  // mutual
-  // Populate lastUserData by firing a watchStatus callback
-  const watchStatusCb = watchStatus.mock.calls.find(c => c[0] === userId)?.[1];
-  if (watchStatusCb) watchStatusCb(userData);
+  // Populate lastUserData by firing a watchPresence callback
+  const watchPresenceCb = watchPresence.mock.calls.find(c => c[0] === userId)?.[1];
+  if (watchPresenceCb) watchPresenceCb(userData);
   return document.querySelector(`[data-user-id="${userId}"]`);
 }
 
@@ -1397,6 +1700,16 @@ describe('long press handler', () => {
     expect(setStatusColor).not.toHaveBeenCalled();
   });
 
+  test('long-press is suppressed while a card drawer is open', () => {
+    const li = setupForLongPress(); // mutual row with statusColor '#f59e0b'
+    li.querySelector('.card-drawer-toggle').click(); // open the drawer
+    const { setStatusColor } = require('../js/db.js');
+    setStatusColor.mockClear();
+    press(li);
+    jest.advanceTimersByTime(500);
+    expect(setStatusColor).not.toHaveBeenCalled();
+  });
+
   test('target has no statusColor — CSS vars unchanged, setStatusColor not called', () => {
     const { setStatusColor } = require('../js/db.js');
     const li = setupForLongPress({ paletteKey: 'ember' }); // no statusColor
@@ -1419,7 +1732,7 @@ describe('long press handler', () => {
     jest.useFakeTimers();
     let cb;
     let statusCb;
-    const { watchFollowers: wf3, watchStatus: ws3 } = require('../js/db.js');
+    const { watchFollowers: wf3, watchPresence: ws3 } = require('../js/db.js');
     wf3.mockImplementation((_uid, fn) => { cb = fn; return jest.fn(); });
     ws3.mockImplementation((_uid, fn) => { statusCb = fn; return jest.fn(); });
     const { getFollowing: gf3 } = require('../js/store.js');
@@ -1447,7 +1760,7 @@ describe('long press handler', () => {
     setupDom();
     jest.useFakeTimers();
     let cb;
-    const { watchFollowers: wf, watchStatus: ws } = require('../js/db.js');
+    const { watchFollowers: wf, watchPresence: ws } = require('../js/db.js');
     wf.mockImplementation((_uid, fn) => { cb = fn; return jest.fn(); });
     ws.mockReturnValue(jest.fn());
     const { getFollowing: gf } = require('../js/store.js');
@@ -1514,5 +1827,313 @@ describe('direct-list float survives re-render', () => {
     }
     const order = Array.from(list.querySelectorAll('li')).map((el) => el.dataset.userId);
     expect(order).toEqual(['b', 'a', 'c']);
+  });
+});
+
+// --- notification bell on contact rows ---
+
+describe('notification bell on contact rows', () => {
+  const { createNotifyBell } = require('../js/notifyBell.js');
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+  });
+
+  test('mutual contact gets a bell with all three types', () => {
+    getFollowing.mockReturnValue([
+      { userId: 'alex', code: 'alex-code', label: 'Alex K.' },
+    ]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'alex', code: 'alex-code' }]); // mutual row
+
+    const li = document.querySelector('#people-list li[data-user-id="alex"]');
+    expect(createNotifyBell).toHaveBeenCalledWith('alex',
+      expect.objectContaining({ types: ['knock', 'call', 'availability'] }));
+    li.querySelector('.card-drawer-toggle').click();
+    expect(li.querySelector('.notify-bell')).not.toBeNull();
+  });
+
+  test('non-mutual Following contact gets availability-only', () => {
+    getFollowing.mockReturnValue([
+      { userId: 'bea', code: 'bea-code', label: 'Bea' },
+    ]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([]); // no followers → Following-only row
+
+    expect(createNotifyBell).toHaveBeenCalledWith('bea',
+      expect.objectContaining({ types: ['availability'] }));
+  });
+});
+
+// --- tool drawer on contact rows ---
+
+describe('tool drawer on contact rows', () => {
+  const { createNotifyBell } = require('../js/notifyBell.js');
+  // Captured at describe-evaluation time (before any jest.resetModules() in later
+  // tests would create a fresh registry), so this shares the same module instance
+  // as the top-level require of following.js and cardDrawer.js.
+  const { isCardDrawerOpen } = require('../js/cardDrawer.js');
+  function mountMutual(userId = 'alex') {
+    setupDom();
+    jest.clearAllMocks();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+    getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
+    watchPresence.mockReturnValue(jest.fn());
+    watchFollowers.mockImplementation((_uid, cb) => { cb([{ userId, code: 'ABC123' }]); return jest.fn(); });
+    initList('myUid', 'MYCODE');
+    return document.querySelector(`[data-user-id="${userId}"]`);
+  }
+
+  test('mutual row shows a drawer toggle, not inline unfollow/bell', () => {
+    const li = mountMutual();
+    expect(li.querySelector('.card-drawer-toggle')).not.toBeNull();
+    expect(li.querySelector('.unfollow-btn')).toBeNull();
+    expect(li.querySelector('.notify-bell')).toBeNull();
+  });
+
+  test('opening the drawer reveals unfollow and bell', () => {
+    const li = mountMutual();
+    li.querySelector('.card-drawer-toggle').click();
+    expect(li.querySelector('.card-drawer .unfollow-btn')).not.toBeNull();
+    expect(li.querySelector('.card-drawer .notify-bell')).not.toBeNull();
+  });
+
+  test('tapping unfollow inside the drawer opens the confirm dialog', () => {
+    const li = mountMutual();
+    li.querySelector('.card-drawer-toggle').click();
+    li.querySelector('.unfollow-btn').click();
+    expect(document.querySelector('.confirm-overlay')).not.toBeNull();
+  });
+
+  function mountFollowingOnly(userId = 'alex') {
+    setupDom();
+    jest.clearAllMocks();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+    getFollowing.mockReturnValue([{ userId, code: 'ABC123', label: 'Alice' }]);
+    watchPresence.mockReturnValue(jest.fn());
+    // No followers → not mutual (Following-only row).
+    watchFollowers.mockImplementation((_uid, cb) => { cb([]); return jest.fn(); });
+    initList('myUid', 'MYCODE');
+    return document.querySelector(`[data-user-id="${userId}"]`);
+  }
+
+  test('following-only (non-mutual) row also gets a drawer toggle, not inline actions', () => {
+    const li = mountFollowingOnly();
+    expect(li.dataset.mutual).toBeUndefined();
+    expect(li.querySelector('.card-drawer-toggle')).not.toBeNull();
+    expect(li.querySelector('.unfollow-btn')).toBeNull();
+    expect(li.querySelector('.notify-bell')).toBeNull();
+  });
+
+  test('call swipe is suppressed while a drawer is open', () => {
+    const { startCall } = require('../js/db.js');
+    const li = mountMutual();
+    li.querySelector('.card-drawer-toggle').click(); // open drawer
+    startCall.mockClear();
+    const w = 300;
+    jest.spyOn(li, 'getBoundingClientRect').mockReturnValue({ width: w });
+    li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0, pointerId: 1, bubbles: true }));
+    li.dispatchEvent(new PointerEvent('pointermove', { clientX: w, clientY: 0, pointerId: 1, bubbles: true }));
+    expect(li.classList.contains('call-mode')).toBe(false);
+  });
+
+  test('re-render (renderList): drawer persists on surviving row; closes when row is removed', () => {
+    // Use initAndCaptureFollowersCallback so we can re-fire the followers callback
+    // to trigger renderList() a second time, simulating a server-driven update.
+    setupDom();
+    jest.clearAllMocks();
+    createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+    getFollowing.mockReturnValue([{ userId: 'alex', code: 'ABC123', label: 'Alice' }]);
+    watchPresence.mockReturnValue(jest.fn());
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    // Deliver followers so renderList renders the mutual row.
+    fire([{ userId: 'alex', code: 'ABC123' }]);
+
+    const li = document.querySelector('[data-user-id="alex"]');
+    li.querySelector('.card-drawer-toggle').click();
+    expect(isCardDrawerOpen()).toBe(true);
+
+    // Re-fire with the same row surviving: reconcile keeps the node, so the
+    // drawer must NOT close (no DOM teardown — isCardDrawerOpen() must stay true).
+    fire([{ userId: 'alex', code: 'ABC123' }]);
+    expect(isCardDrawerOpen()).toBe(true);
+    expect(document.querySelector('.card-drawer')).not.toBeNull();
+
+    // Row is removed (user unfollows back): reconcile calls onRemove, which
+    // closes the drawer so its document listeners are cleaned up.
+    getFollowing.mockReturnValue([]);
+    fire([]);
+    expect(isCardDrawerOpen()).toBe(false);
+    expect(document.querySelector('.card-drawer')).toBeNull();
+  });
+});
+
+// --- syncFollowingFromServer: following-synced event ---
+
+describe('syncFollowingFromServer event', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupDom();
+  });
+
+  function initAndCaptureFollowingCallback() {
+    let followingCb;
+    watchFollowing.mockImplementation((_uid, cb) => { followingCb = cb; return jest.fn(); });
+    watchFollowers.mockImplementation(() => jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
+    initList('myUid', 'MYCODE');
+    return (list) => followingCb(list);
+  }
+
+  test('dispatches following-synced when the server list updates the local cache', () => {
+    getFollowing.mockReturnValue([]); // fresh device: empty local cache
+    const onSynced = jest.fn();
+    document.addEventListener('following-synced', onSynced);
+    const fireFollowing = initAndCaptureFollowingCallback();
+
+    fireFollowing([{ userId: 'tgt', code: 'C1', label: 'Bea' }]);
+
+    expect(setFollowing).toHaveBeenCalledWith([{ userId: 'tgt', code: 'C1', label: 'Bea' }]);
+    expect(onSynced).toHaveBeenCalled();
+    document.removeEventListener('following-synced', onSynced);
+  });
+
+  test('does not dispatch when the server list matches the local cache', () => {
+    getFollowing.mockReturnValue([{ userId: 'tgt', code: 'C1', label: 'Bea' }]);
+    const onSynced = jest.fn();
+    document.addEventListener('following-synced', onSynced);
+    const fireFollowing = initAndCaptureFollowingCallback();
+
+    fireFollowing([{ userId: 'tgt', code: 'C1', label: 'Bea' }]);
+
+    expect(setFollowing).not.toHaveBeenCalled();
+    expect(onSynced).not.toHaveBeenCalled();
+    document.removeEventListener('following-synced', onSynced);
+  });
+});
+
+describe('renderList reconciliation', () => {
+  // Captured at describe-eval time (before any jest.resetModules() in earlier tests
+  // creates a fresh registry) so these share the same module instance as the
+  // top-level require of following.js and cardDrawer.js.
+  const { createNotifyBell: createNotifyBellMock } = require('../js/notifyBell.js');
+  const { isCardDrawerOpen: isDrawerOpen } = require('../js/cardDrawer.js');
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    // Provide a real DOM element so createFolloweeRow can build the card drawer.
+    createNotifyBellMock.mockImplementation(() => {
+      const b = document.createElement('button');
+      b.className = 'notify-bell';
+      return b;
+    });
+  });
+
+  test('rows keep node identity across a followers tick', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]); // u1 mutual
+    const row = document.querySelector('[data-user-id="u1"]');
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    expect(document.querySelector('[data-user-id="u1"]')).toBe(row);
+  });
+
+  test('a section move (mutual -> follower-only loses follow) replaces the row', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    const mutualRow = document.querySelector('[data-user-id="u1"]');
+    expect(mutualRow.dataset.mutual).toBe('1');
+    // Following list empties: u1 becomes follower-only — structurally different row.
+    getFollowing.mockReturnValue([]);
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    const followerRow = document.querySelector('[data-user-id="u1"]');
+    expect(followerRow).not.toBe(mutualRow);
+    expect(followerRow.classList.contains('follower-only')).toBe(true);
+  });
+
+  test('section labels render once and persist', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    const label = document.querySelector('.list-section-label');
+    expect(label.textContent).toBe('Mutuals');
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    expect(document.querySelectorAll('.list-section-label').length).toBe(1);
+    expect(document.querySelector('.list-section-label')).toBe(label);
+  });
+
+  test('follow-back prefill reads the follower name at CLICK time, not render time', () => {
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockReturnValue(null); // unknown at render
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u2', code: 'Q3ZP7R' }]);
+    getFollowerName.mockReturnValue('Bea'); // learned later (approval flow)
+    document.querySelector('[data-user-id="u2"] .follow-back-btn').click();
+    expect(document.getElementById('add-label-input').value).toBe('Bea');
+  });
+
+  test('empty list still clears rows and shows the empty state', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    getFollowing.mockReturnValue([]);
+    fire([]);
+    expect(document.querySelectorAll('#people-list li').length).toBe(0);
+    expect(document.getElementById('people-list').style.display).toBe('none');
+  });
+
+  test('a revocation mailbox tick auto-unfollows the revoker', () => {
+    let revCb;
+    watchRevocations.mockImplementation((uid, cb) => { revCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'A' }]);
+    initList('me', 'MYCODE');
+    revCb({ u1: true });
+    expect(removeFollowing).toHaveBeenCalledWith('u1');
+  });
+
+  test('a revocation tick for someone I no longer follow is skipped (no thrash)', () => {
+    let revCb;
+    watchRevocations.mockImplementation((uid, cb) => { revCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([]); // u1 not in my following — stale mailbox entry
+    initList('me', 'MYCODE');
+    expect(() => revCb({ u1: true })).not.toThrow();
+    expect(removeFollowing).not.toHaveBeenCalled();
+  });
+
+  test('a card drawer survives a tick that keeps its row, closes when the row is removed', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'AAA111', label: 'Alpha' }]);
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    const row = document.querySelector('[data-user-id="u1"]');
+    // Open the real card drawer via the toggle button.
+    row.querySelector('.card-drawer-toggle').click();
+    expect(isDrawerOpen()).toBe(true);
+    // Unrelated tick (same data): the surviving row's drawer must NOT close.
+    fire([{ userId: 'u1', code: 'AAA111' }]);
+    expect(isDrawerOpen()).toBe(true);
+    expect(row.querySelector('.card-drawer')).not.toBeNull();
+    // The row is removed (u1 stops following us AND we unfollow → empty):
+    getFollowing.mockReturnValue([]);
+    fire([]);
+    expect(isDrawerOpen()).toBe(false);
   });
 });

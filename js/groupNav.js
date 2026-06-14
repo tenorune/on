@@ -2,20 +2,23 @@
 // Navigation state machine: currentContext + group cards row.
 // State is in-memory; writes mirror to Firebase via setCurrentContext / setLastVisited.
 
-import { setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, watchStatus, removeUserGroupsEntry } from './db.js';
+import { setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, removeUserGroupsEntry, isAvailable } from './db.js';
+import { subscribeOwnStatus } from './ownStatus.js';
 import { setCurrentContext } from './prefs.js';
 import { safeCssColor, hexToRgb } from './utils.js';
 import { GROUPS_ENABLED } from './features.js';
 import { createGroup, toggleStatusOverride } from './groups.js';
 import { applyOptimisticOverride } from './groupContext.js';
 import { openInviteModal } from './inviteModal.js';
+import { getCurrentFollowersMap, getCurrentMutuals } from './following.js';
 import { getGroupBadgeCount, getDirectBadgeCount } from './knock.js';
+import { renderInboxNavSlot } from './inbox.js';
+import { reconcileChildren } from './reconcile.js';
 
-// Restore the deferred-knock indicator on a chip after renderNavRow
-// re-creates it. The indicator is a pulsing halo (CSS class), driven by a
-// non-zero count tracked in knock.js — without this restore, navigating
-// between contexts wipes the class even though the count is still
-// non-zero in memory.
+// Set/clear the deferred-knock halo (a pulsing CSS class) to match the
+// in-memory count from knock.js. Runs in every card paint, so a surviving
+// card both gains the halo when a knock queues and loses it when the count
+// drops to zero — and a context flip (full child replacement) re-applies it.
 function applyBadgeIfNonZero(card, count) {
   card.classList.toggle('knock-pending', count > 0);
 }
@@ -89,6 +92,18 @@ let _ownPrimary = null;
 let _ownPrimaryUnsub = null;
 const _overrideByGroupId = {};
 const _overrideSubs = {}; // groupId → unsubscribe
+// Provider surface (used by groupContext to avoid double-watching the active
+// group). Consumers register per groupId; the underlying _metaSubs/_overrideSubs
+// fan out to them. "Ticked" tracks whether the underlying sub has delivered ≥1
+// value, so replay never hands a consumer a fabricated `null` (which reads as
+// "group deleted").
+const _metaConsumers = {};      // groupId → Set<cb>
+const _overrideConsumers = {};  // groupId → Set<cb>
+const _metaTicked = new Set();
+const _overrideTicked = new Set();
+const _overrideLastTick = {}; // groupId → last RAW value from watchOwnMemberOverride
+                              // (incl. null); replay source, kept distinct from the
+                              // optimistic-merged _overrideByGroupId nav-render cache.
 const _createListeners = new Set();
 // When true, renderNavRow is a no-op and won't touch the row's .hidden class.
 // Used by openCreateGroupModal's onSubmit to keep #nav-row hidden across the
@@ -117,6 +132,14 @@ export function startCardsRowSubscriptions() {
   for (const groupId of Object.keys(_overrideSubs)) { _overrideSubs[groupId](); }
   for (const k in _overrideSubs) delete _overrideSubs[k];
   for (const k in _overrideByGroupId) delete _overrideByGroupId[k];
+  _metaTicked.clear();
+  _overrideTicked.clear();
+  for (const k in _overrideLastTick) delete _overrideLastTick[k];
+  // Consumer registries are cleared on a full reset (user switch / re-login) so
+  // stale callbacks from the old session don't keep underlying subs alive or
+  // receive ticks intended for a different user.
+  for (const k in _metaConsumers) delete _metaConsumers[k];
+  for (const k in _overrideConsumers) delete _overrideConsumers[k];
   _enumeration = {};
   _ownPrimary = null;
 
@@ -127,7 +150,7 @@ export function startCardsRowSubscriptions() {
     renderNavRow();
   });
   if (_ownPrimaryUnsub) _ownPrimaryUnsub();
-  _ownPrimaryUnsub = watchStatus(_myUserId, (data) => {
+  _ownPrimaryUnsub = subscribeOwnStatus((data) => {
     _ownPrimary = data
       ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: data.statusColor || null }
       : null;
@@ -138,18 +161,27 @@ export function startCardsRowSubscriptions() {
   renderNavRow();
 }
 
+function metaWantIds() {
+  return new Set([...Object.keys(_enumeration), ...Object.keys(_metaConsumers)]);
+}
+function overrideWantIds() {
+  return new Set([...Object.keys(_enumeration), ...Object.keys(_overrideConsumers)]);
+}
+
 function syncMetaSubs() {
-  const wantIds = new Set(Object.keys(_enumeration));
+  const metaWant = metaWantIds();
   for (const groupId of Object.keys(_metaSubs)) {
-    if (!wantIds.has(groupId)) {
+    if (!metaWant.has(groupId)) {
       _metaSubs[groupId]();
       delete _metaSubs[groupId];
       delete _metaByGroupId[groupId];
+      _metaTicked.delete(groupId);
     }
   }
-  for (const groupId of wantIds) {
+  for (const groupId of metaWant) {
     if (!_metaSubs[groupId]) {
       _metaSubs[groupId] = watchGroupMeta(groupId, (meta) => {
+        _metaTicked.add(groupId);
         if (meta) {
           _metaByGroupId[groupId] = meta;
           if (meta.name) _lastKnownNames[groupId] = meta.name;
@@ -166,24 +198,35 @@ function syncMetaSubs() {
           }
         }
         renderNavRow();
+        // Fan out AFTER groupNav's own reaction so consumer order matches the
+        // historical attach order (groupNav before groupContext).
+        const consumers = _metaConsumers[groupId];
+        if (consumers) for (const cb of [...consumers]) { try { cb(meta); } catch { /* consumer threw */ } }
       });
     }
   }
 
   // Override-sub cleanup + setup (Phase 2)
+  const overrideWant = overrideWantIds();
   for (const groupId of Object.keys(_overrideSubs)) {
-    if (!wantIds.has(groupId)) {
+    if (!overrideWant.has(groupId)) {
       _overrideSubs[groupId]();
       delete _overrideSubs[groupId];
       delete _overrideByGroupId[groupId];
+      _overrideTicked.delete(groupId);
+      delete _overrideLastTick[groupId];
     }
   }
-  for (const groupId of wantIds) {
+  for (const groupId of overrideWant) {
     if (!_overrideSubs[groupId]) {
       _overrideSubs[groupId] = watchOwnMemberOverride(groupId, _myUserId, (override) => {
+        _overrideTicked.add(groupId);
+        _overrideLastTick[groupId] = override;
         if (override) _overrideByGroupId[groupId] = override;
         else delete _overrideByGroupId[groupId];
         renderNavRow();
+        const consumers = _overrideConsumers[groupId];
+        if (consumers) for (const cb of [...consumers]) { try { cb(override); } catch { /* consumer threw */ } }
       });
     }
   }
@@ -195,7 +238,6 @@ function renderNavRow() {
   if (_suspendRenderNavRow) return;
   if (!GROUPS_ENABLED) { row.classList.add('hidden'); return; }
   row.classList.remove('hidden');
-  row.innerHTML = '';
 
   if (_state.context === 'group') {
     renderNavRowGroupMode(row);
@@ -220,126 +262,144 @@ export function applyOptimisticAppearance(groupId, fields) {
 }
 
 function renderNavRowDirectMode(row) {
-  // "Direct" is the implicit current context — no label needed in the nav.
-  // The groups + create-group button stand in for navigation; tapping a card
-  // moves to that group, the persistent nav itself signals where you are.
-
-  const groupIds = Object.keys(_enumeration);
-  const sorted = groupIds.slice().sort((a, b) => {
+  const sorted = Object.keys(_enumeration).slice().sort((a, b) => {
     const va = _enumeration[a]?.lastVisited ?? 0;
     const vb = _enumeration[b]?.lastVisited ?? 0;
     return vb - va;
   });
+  // "Direct" is the implicit current context — no label needed in the nav.
+  const keys = ['inbox-slot', ...sorted.map((g) => `group:${g}`), 'plus'];
+  reconcileChildren(row, keys, {
+    create: (key) => {
+      if (key === 'inbox-slot') {
+        // Phase 3 Inbox slot — first position. The button itself is created/
+        // torn down by js/inbox.js; the slot guarantees the DOM anchor.
+        const slot = document.createElement('div');
+        slot.id = 'nav-row-inbox-slot';
+        slot.className = 'nav-row-inbox-slot';
+        return slot;
+      }
+      if (key === 'plus') {
+        const plus = document.createElement('button');
+        plus.className = 'group-cards-plus';
+        plus.textContent = '+';
+        plus.title = 'Create a new group';
+        plus.addEventListener('click', () => emitCreateRequest());
+        return plus;
+      }
+      const groupId = key.slice('group:'.length);
+      const card = document.createElement('button');
+      card.className = 'group-card';
+      card.dataset.groupId = groupId;
+      card.addEventListener('click', () => navigateToGroup(groupId));
+      return card;
+    },
+    update: (node, key) => {
+      if (key === 'inbox-slot') { renderInboxNavSlot(node); return; }
+      if (key === 'plus') return;
+      paintNavCard(node, key.slice('group:'.length));
+    },
+  });
+}
 
-  for (const groupId of sorted) {
-    const meta = _metaByGroupId[groupId];
-    const name = meta?.name || groupId;
-    const card = document.createElement('button');
-    card.className = 'group-card';
-    card.dataset.groupId = groupId;
-    card.textContent = name;
-
-    // Effective-status indicator: when override is enabled the group's chip
-    // reflects the override (independent), otherwise it mirrors Direct
-    // (primary). No per-field mixing — override.statusColor is preserved
-    // across toggling enabled off (for restore-on-re-enable), but reading
-    // it while enabled=false would leak the group's last pick into the
-    // chip after the user turned the override off.
-    const ov = _overrideByGroupId[groupId];
-    const overrideOn = !!(ov && ov.enabled === true);
-    const source = overrideOn ? ov : _ownPrimary;
-    const isAvailable = source?.status === 'available'
-      && (source.availableUntil == null || source.availableUntil > Date.now());
-    // Effective in-group color drives both the border (when available) and
-    // the deferred-knock pulse color (set as --call-color-rgb so the pulse
-    // takes the chip's group identity, not the global accent).
-    const effectiveColor = source?.statusColor || '#22c55e';
-    if (isAvailable) {
-      card.style.borderColor = safeCssColor(effectiveColor);
-    } else {
-      card.classList.add('greyed');
-    }
-    card.style.setProperty('--call-color-rgb', hexToRgb(effectiveColor));
-
-    card.addEventListener('click', () => navigateToGroup(groupId));
-    applyBadgeIfNonZero(card, getGroupBadgeCount(groupId));
-    row.appendChild(card);
-  }
-
-  const plus = document.createElement('button');
-  plus.className = 'group-cards-plus';
-  plus.textContent = '+';
-  plus.title = 'Create a new group';
-  plus.addEventListener('click', () => emitCreateRequest());
-  row.appendChild(plus);
+// In-place paint for a Direct-mode group card. Persistent nodes mean every
+// conditional must CLEAR as well as set (the old build-fresh code only added).
+function paintNavCard(card, groupId) {
+  const meta = _metaByGroupId[groupId];
+  card.textContent = meta?.name || groupId;
+  // Effective-status indicator: when override is enabled the group's chip
+  // reflects the override (independent), otherwise it mirrors Direct
+  // (primary). No per-field mixing — override.statusColor is preserved
+  // across toggling enabled off (for restore-on-re-enable), but reading
+  // it while enabled=false would leak the group's last pick into the
+  // chip after the user turned the override off.
+  const ov = _overrideByGroupId[groupId];
+  const overrideOn = !!(ov && ov.enabled === true);
+  const source = overrideOn ? ov : _ownPrimary;
+  const available = isAvailable(source?.status, source?.availableUntil);
+  const effectiveColor = source?.statusColor || '#22c55e';
+  card.classList.toggle('greyed', !available);
+  card.style.borderColor = available ? safeCssColor(effectiveColor) : '';
+  card.style.setProperty('--call-color-rgb', hexToRgb(effectiveColor));
+  applyBadgeIfNonZero(card, getGroupBadgeCount(groupId));
 }
 
 function renderNavRowGroupMode(row) {
   const groupId = _state.groupId;
-  const meta = _metaByGroupId[groupId];
-  const name = meta?.name || _lastKnownNames[groupId] || groupId;
-  const override = _overrideByGroupId[groupId];
-  const overrideOn = !!(override && override.enabled === true);
-
-  // Group name on the left, large/bold, fills available space; truncates with
-  // ellipsis when the row is too narrow to fit override + Direct on the right.
-  const current = document.createElement('span');
-  current.className = 'nav-current nav-current-truncate';
-  current.textContent = name;
-  current.style.flex = '1';
-  current.style.minWidth = '0';
-  row.appendChild(current);
-
-  // Override toggle on the right, immediately before the Direct card.
-  //   =   override OFF (linked to primary — Direct status equals group status)
-  //   ≠   override ON  (independent — Direct status not-equal to group status)
-  const toggle = document.createElement('button');
-  toggle.id = 'group-override-toggle';
-  toggle.type = 'button';
-  toggle.textContent = overrideOn ? '≠' : '=';
-  toggle.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
-  toggle.setAttribute('aria-label', overrideOn
-    ? 'Stop using a unique status for this group'
-    : 'Set a unique status for this group');
-  toggle.addEventListener('click', () => {
-    const nextEnabled = !overrideOn;
-    // Preserve any existing statusColor/paletteKey across the toggle so the
-    // optimistic update matches what mergeStatusOverride leaves on the
-    // server. Without the spread, _ownOverride briefly has no statusColor
-    // and the user's group dot falls back to --my-status (their Direct
-    // color) until the watch echo restores the field.
-    const existing = _overrideByGroupId[groupId] || {};
-    const nextState = nextEnabled
-      ? { ...existing, enabled: true, status: 'unavailable', availableUntil: null }
-      : { ...existing, enabled: false, status: null, availableUntil: null };
-    _overrideByGroupId[groupId] = nextState;
-    renderNavRow();
-    applyOptimisticOverride(nextState);
-    toggleStatusOverride(groupId, _myUserId, nextEnabled).catch(() => {});
+  reconcileChildren(row, ['group-name', 'override-toggle', 'direct-card'], {
+    create: (key) => {
+      if (key === 'group-name') {
+        const current = document.createElement('span');
+        current.className = 'nav-current nav-current-truncate';
+        current.style.flex = '1';
+        current.style.minWidth = '0';
+        return current;
+      }
+      if (key === 'override-toggle') {
+        // Override toggle:  =  OFF (linked to primary)   ≠  ON (independent).
+        const toggle = document.createElement('button');
+        toggle.id = 'group-override-toggle';
+        toggle.type = 'button';
+        toggle.addEventListener('click', () => {
+          // Persistent node: read LIVE state at click time, never the render-
+          // time closure (the toggle outlives the render that painted it).
+          const gid = _state.groupId;
+          // Preserve any existing statusColor/paletteKey across the toggle so
+          // the optimistic update matches what mergeStatusOverride leaves on
+          // the server. Without the spread, _ownOverride briefly has no
+          // statusColor and the user's group dot falls back to --my-status
+          // until the watch echo restores the field.
+          const existing = _overrideByGroupId[gid] || {};
+          const nextEnabled = !(existing.enabled === true);
+          const nextState = nextEnabled
+            ? { ...existing, enabled: true, status: 'unavailable', availableUntil: null }
+            : { ...existing, enabled: false, status: null, availableUntil: null };
+          _overrideByGroupId[gid] = nextState;
+          renderNavRow();
+          applyOptimisticOverride(nextState);
+          toggleStatusOverride(gid, _myUserId, nextEnabled).catch(() => {});
+        });
+        return toggle;
+      }
+      // "Direct" card on the far right, styled like a group card.
+      const directCard = document.createElement('button');
+      directCard.className = 'group-card';
+      directCard.dataset.nav = 'direct';
+      directCard.textContent = 'Direct';
+      directCard.addEventListener('click', () => navigateToDirect());
+      return directCard;
+    },
+    update: (node, key) => {
+      if (key === 'group-name') {
+        const meta = _metaByGroupId[groupId];
+        node.textContent = meta?.name || _lastKnownNames[groupId] || groupId;
+        return;
+      }
+      if (key === 'override-toggle') {
+        const override = _overrideByGroupId[groupId];
+        const overrideOn = !!(override && override.enabled === true);
+        node.textContent = overrideOn ? '≠' : '=';
+        node.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
+        node.setAttribute('aria-label', overrideOn
+          ? 'Stop using a unique status for this group'
+          : 'Set a unique status for this group');
+        return;
+      }
+      paintDirectCard(node);
+    },
   });
-  row.appendChild(toggle);
+}
 
-  // "Direct" card on the far right, styled like a group card. The border color
-  // reflects the user's primary status (the audience Direct represents).
-  const directCard = document.createElement('button');
-  directCard.className = 'group-card';
-  directCard.dataset.nav = 'direct';
-  directCard.textContent = 'Direct';
-  const primaryAvailable = _ownPrimary?.status === 'available'
-    && (_ownPrimary.availableUntil == null || _ownPrimary.availableUntil > Date.now());
+// Border color reflects the user's primary status (the audience Direct
+// represents). --call-color-rgb is set even when greyed so a queued knock
+// pulses even on an unavailable Direct chip.
+function paintDirectCard(directCard) {
+  const primaryAvailable = isAvailable(_ownPrimary?.status, _ownPrimary?.availableUntil);
   const directColor = _ownPrimary?.statusColor || '#22c55e';
-  if (primaryAvailable) {
-    directCard.style.borderColor = safeCssColor(directColor);
-  } else {
-    directCard.classList.add('greyed');
-  }
-  // Drive the deferred-knock pulse color from the primary (Direct =
-  // primary's audience), set even when greyed so a queued knock pulses
-  // even on an unavailable Direct chip.
+  directCard.classList.toggle('greyed', !primaryAvailable);
+  directCard.style.borderColor = primaryAvailable ? safeCssColor(directColor) : '';
   directCard.style.setProperty('--call-color-rgb', hexToRgb(directColor));
-  directCard.addEventListener('click', () => navigateToDirect());
   applyBadgeIfNonZero(directCard, getDirectBadgeCount());
-  row.appendChild(directCard);
 }
 
 export function onCreateRequested(fn) {
@@ -449,6 +509,12 @@ export function openCreateGroupModal() {
       userId: _myUserId,
       groupId: result.groupId,
       groupName: name,
+      // Without these the picker's "invite specific people" list renders empty
+      // during the create flow (it only repopulated on a manual reopen via the
+      // roster row). A brand-new group has just the creator as a member.
+      followers: getCurrentFollowersMap(),
+      mutuals: getCurrentMutuals(),
+      currentMemberUids: new Set([_myUserId]),
     });
     await navPromise;
     submit.disabled = false;
@@ -477,4 +543,41 @@ export function getLastKnownGroupName(groupId) {
 // still in-flight.
 export function setLastKnownGroupName(groupId, name) {
   if (groupId && name) _lastKnownNames[groupId] = name;
+}
+
+// Read-only subscription to a group's meta, backed by groupNav's existing
+// per-group watchGroupMeta. groupContext uses this instead of opening its own
+// watch on the active group. Replays the cached meta only after the underlying
+// sub has ticked (never a fabricated null). The union rule in syncMetaSubs
+// keeps the underlying sub alive while this consumer is registered, even if the
+// group isn't enumerated yet (deep-link boot race).
+export function subscribeGroupMeta(groupId, cb) {
+  if (!_metaConsumers[groupId]) _metaConsumers[groupId] = new Set();
+  _metaConsumers[groupId].add(cb);
+  syncMetaSubs();
+  if (_metaTicked.has(groupId)) {
+    try { cb(_metaByGroupId[groupId] ?? null); } catch { /* replay threw */ }
+  }
+  return () => {
+    const set = _metaConsumers[groupId];
+    if (set) { set.delete(cb); if (set.size === 0) delete _metaConsumers[groupId]; }
+    syncMetaSubs();
+  };
+}
+
+// Read-only subscription to the own member statusOverride for a group, backed
+// by groupNav's existing watchOwnMemberOverride. groupContext uses this for the
+// active group. (uid is groupNav's own _myUserId — consumers don't pass it.)
+export function subscribeOwnOverride(groupId, cb) {
+  if (!_overrideConsumers[groupId]) _overrideConsumers[groupId] = new Set();
+  _overrideConsumers[groupId].add(cb);
+  syncMetaSubs();
+  if (_overrideTicked.has(groupId)) {
+    try { cb(_overrideLastTick[groupId] ?? null); } catch { /* replay threw */ }
+  }
+  return () => {
+    const set = _overrideConsumers[groupId];
+    if (set) { set.delete(cb); if (set.size === 0) delete _overrideConsumers[groupId]; }
+    syncMetaSubs();
+  };
 }

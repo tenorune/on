@@ -1,13 +1,14 @@
 // js/following.js
 import {
-  lookupCode, watchStatus, watchFollowers, registerAsFollower, unregisterAsFollower,
-  removeFollower, isExpired, writeBackExpired, formatTimeRemainingFuzzy, timeRemainingMs,
-  formatLastSeen, setCallState, clearCallState, setStatusColor,
-  watchFollowing, setFollowingEntry, removeFollowingEntry,
+  lookupCode, watchFollowers, registerAsFollower, unregisterAsFollower,
+  removeFollower, isExpired, isAvailable,
+  formatLastSeen, startCall, answerCall, endCall, watchOwnCall, setStatusColor,
+  watchFollowing, setFollowingEntry, removeFollowingEntry, watchRevocations,
 } from './db.js';
+import { subscribePresence } from './presenceHub.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
-  setFollowing,
+  setFollowing, getFollowerName,
 } from './store.js';
 import {
   isHintSeen, markHintSeen,
@@ -15,13 +16,17 @@ import {
   getPaletteState, setPaletteState,
   getFavorites,
 } from './prefs.js';
-import { escapeHtml, hexToRgb, safeCssColor } from './utils.js';
+import { escapeHtml, hexToRgb, safeCssColor, resolveDisplayName, availableForText } from './utils.js';
 import { isLongpressHintEligible, isSwipeHintEligible } from './hints.js';
-import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED } from './features.js';
-import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS } from './palettes.js';
-import { sendKnock, getFloatedUserIds } from './knock.js';
+import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
+import { createNotifyBell } from './notifyBell.js';
+import { createCardDrawer, isCardDrawerOpen, closeCardDrawer } from './cardDrawer.js';
+import { ensureNotificationsReady } from './notifyPrompt.js';
+import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS, paintStatusDot } from './palettes.js';
+import { sendKnock, getFloatedUserIds, noteDirectActivity } from './knock.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
+import { reconcileChildren } from './reconcile.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
@@ -29,13 +34,25 @@ const lastUserData = new Map(); // userId → most recent userData from Firebase
 const renderedFollowees = new Set();
 let onFolloweeReady = null;
 
+// Direct-list rows are keyed by data-user-id, but a group roster reuses the same
+// attribute for the same uid. Scope every Direct-list row lookup to #people-list
+// so a mutual who is also a group member never has their Direct row resolve to
+// the group roster — which leaked their Direct status into the group card.
+function followeeRow(userId) {
+  return document.querySelector(`#people-list [data-user-id="${userId}"]`);
+}
+
 let latestFollowersSnapshot = [];
 let unsubFollowers = null;
 let unsubFollowing = null;
+let unsubRevocations = null;
 let refreshInterval = null;
 let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
 let callModeCalleeId = null;   // userId of callee while in call mode (null = not in call mode)
+let _incomingCall = null; // { from } when someone is ringing me; null otherwise
+export function getIncomingCallFrom() { return _incomingCall?.from ?? null; }
+let unsubOwnCall = null;
 let _hintAlternateTimer = null;
 let _hintAlternateShow = 'longpress'; // 'longpress' | 'swipe'
 
@@ -85,6 +102,7 @@ export function initList(myUserId, myCode) {
   lastUserData.clear();
   editingSet.clear();
   callModeCalleeId = null;
+  _incomingCall = null;
   latestFollowersSnapshot = [];
   pendingAction = null;
   if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
@@ -128,6 +146,71 @@ export function initList(myUserId, myCode) {
     syncFollowingFromServer(myUserId, serverFollowing);
   });
 
+  // Subscribe to revocation mailbox: fires when a followee removes us as a follower
+  if (unsubRevocations) unsubRevocations();
+  unsubRevocations = watchRevocations(myUserId, (revokers) => {
+    // A revoker key means that user removed me as a follower: drop them from my
+    // following + tear down their presence watch (replaces the old per-followee
+    // revokedFollowers check, now once instead of N times).
+    for (const revokerId of Object.keys(revokers || {})) {
+      if (!getFollowing().some((f) => f.userId === revokerId)) continue;
+      removeFollowing(revokerId);
+      removeFollowingEntry(myUserId, revokerId).catch(() => {});
+      const unsub = unsubscribers.get(revokerId);
+      if (unsub) { unsub(); unsubscribers.delete(revokerId); }
+      lastUserData.delete(revokerId);
+    }
+    renderList();
+  });
+
+  // App-lifetime own-call watcher: detects rings + answers off the calls/{me}
+  // mailbox (call detection no longer rides the followee presence watch).
+  if (unsubOwnCall) unsubOwnCall();
+  unsubOwnCall = watchOwnCall(myUserId, (call) => {
+    if (!CALL_ENABLED) return;
+    // An answered call (either role) → ensure we're on the canvas. Covers the
+    // caller learning the callee picked up, AND boot-into-an-answered-call for
+    // either side (the watcher fires on attach with the persisted record). Not
+    // gated on callModeCalleeId, so it can't race app.js's boot recovery.
+    if (call && call.answered) {
+      const canvasScreen = document.getElementById('canvas-screen');
+      if (canvasScreen && canvasScreen.classList.contains('active')) return; // already there — idempotent
+      const peerId = call.to || call.from;
+      const entry = getFollowing().find((f) => f.userId === peerId);
+      if (entry) {
+        callModeCalleeId = peerId;
+        _incomingCall = null;
+        const peerData = lastUserData.get(peerId);
+        const peerSurface = peerData?.paletteKey
+          ? (getPaletteByKey(peerData.paletteKey)?.theme?.surface || '#1e293b') : '#1e293b';
+        const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
+        const peerColor = peerData?.statusColor || '#22c55e';
+        enterCanvas(peerId, resolveDisplayName(entry), myUserId, myColor, peerColor, peerSurface, () => exitCallMode(myUserId))
+          .catch((err) => console.error('enterCanvas (answered) failed:', err));
+      }
+      return;
+    }
+    // Callee side: someone is ringing me (not yet in a call).
+    const prevFrom = _incomingCall?.from ?? null;
+    const nextFrom = (call && call.from && !call.answered && callModeCalleeId === null) ? call.from : null;
+    if (prevFrom === nextFrom) {
+      if (!call && callModeCalleeId !== null) handlePeerEnded(myUserId);
+      return;
+    }
+    _incomingCall = nextFrom ? { from: nextFrom } : null;
+    // A fresh incoming ring pulses the Direct chip when the user is off in a
+    // group, mirroring how a Direct knock badges it (#144). No-op in Direct,
+    // where the ringing row is already visible; cleared on entering Direct.
+    if (nextFrom) noteDirectActivity();
+    for (const uid of [prevFrom, nextFrom]) {
+      if (!uid) continue;
+      const entry = getFollowing().find((f) => f.userId === uid);
+      const data = lastUserData.get(uid);
+      if (entry && data) updateFolloweeRow(entry, data, myUserId);
+    }
+    if (!call && callModeCalleeId !== null) handlePeerEnded(myUserId);
+  });
+
   // Refresh time labels every 60s
   refreshInterval = setInterval(() => {
     getFollowing().forEach((entry) => {
@@ -162,7 +245,7 @@ export function initList(myUserId, myCode) {
     if (code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) { showError(errorEl, 'Code must be 6 letters and numbers.'); return; }
     if (code === myCode.toUpperCase()) { showError(errorEl, "That's your own code."); return; }
     const existing = getFollowing().find((f) => f.code.toUpperCase() === code);
-    if (existing) { showError(errorEl, `You're already following ${existing.label || existing.code}.`); return; }
+    if (existing) { showError(errorEl, `You're already following ${resolveDisplayName(existing)}.`); return; }
     codeInput.disabled = true;
     const targetUserId = await lookupCode(code);
     codeInput.disabled = false;
@@ -193,23 +276,46 @@ export function resetRenderedFollowees() {
 
 export function getCallModeCalleeId() { return callModeCalleeId; }
 
+// Snapshot accessor for callers that need the current followers + mutuals
+// without setting up their own subscription. Currently used by the Phase 3
+// invite picker.
+export function getCurrentFollowersMap() {
+  if (!latestFollowersSnapshot) return {};
+  // Snapshot is an array of { userId, code }; convert to a map.
+  const out = {};
+  for (const f of latestFollowersSnapshot) out[f.userId] = f.code;
+  return out;
+}
+
+export function getCurrentMutuals() {
+  const followers = getCurrentFollowersMap();
+  return getFollowing()
+    .filter((f) => followers[f.userId])
+    .map((f) => ({ userId: f.userId, label: f.label, code: f.code }));
+}
+
+function handlePeerEnded(myUserId) {
+  const canvasScreen = document.getElementById('canvas-screen');
+  if (canvasScreen && canvasScreen.classList.contains('active')) {
+    import('./canvas.js').then(({ showPeerLeftDialog, exitCanvas }) => {
+      showPeerLeftDialog(canvasScreen, 'Your partner', () => { exitCanvas(); exitCallMode(myUserId, { peerEnded: true }); });
+    });
+  } else {
+    exitCallMode(myUserId, { peerEnded: true });
+  }
+}
+
 export function enterCallMode(calleeEntry, myUserId) {
   incrementMadeCallCount();
-  // If we were being called by someone, clear their callState first
-  lastUserData.forEach((userData, userId) => {
-    if (userData.callState?.calleeId === myUserId) {
-      clearCallState(userId).catch(() => {});
-    }
-  });
-
+  const ringer = _incomingCall?.from || null; // a caller I was about to be answered by, if any
   callModeCalleeId = calleeEntry.userId;
-  setCallState(myUserId, calleeEntry.userId).catch(() => {});
+  _incomingCall = null;
 
   const calleeData = lastUserData.get(calleeEntry.userId);
   const callColor = calleeData?.statusColor || '#22c55e';
 
   // Apply glow to callee's card (clear any in-progress knock animation first)
-  const liPre = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
+  const liPre = followeeRow(calleeEntry.userId);
   if (liPre) {
     liPre.style.boxShadow = '';
     liPre.style.transition = '';
@@ -218,13 +324,18 @@ export function enterCallMode(calleeEntry, myUserId) {
   }
 
   renderList();
+
+  // One atomic write: start the outgoing call AND drop any prior ringer's
+  // mailbox. Doing it in one update means calls/{me} never goes null, so our
+  // own-call watcher doesn't misread it as a peer-ended hangup.
+  startCall(myUserId, calleeEntry.userId, ringer || undefined).catch(() => {});
 }
 
 export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
   callModeCalleeId = calleeEntry.userId;
   // No Firebase write — state already persisted
   const callColor = calleeData?.statusColor || '#22c55e';
-  const li = document.querySelector(`[data-user-id="${calleeEntry.userId}"]`);
+  const li = followeeRow(calleeEntry.userId);
   if (li) {
     li.style.boxShadow = '';
     li.style.transition = '';
@@ -234,24 +345,20 @@ export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
   renderList();
 }
 
-export function exitCallMode(myUserId) {
+export function exitCallMode(myUserId, { peerEnded = false } = {}) {
   const prevCalleeId = callModeCalleeId;
   callModeCalleeId = null;
-  clearCallState(myUserId).catch(() => {});
-
-  // Clear peer's callState only if it still points at us
   if (prevCalleeId) {
-    const peerData = lastUserData.get(prevCalleeId);
-    if (peerData?.callState?.calleeId === myUserId) {
-      clearCallState(prevCalleeId).catch(() => {});
-    }
-    const li = document.querySelector(`[data-user-id="${prevCalleeId}"]`);
-    if (li) {
-      li.classList.remove('call-mode');
-      li.style.removeProperty('--call-color-rgb');
-    }
+    // Only the side that INITIATES the hangup writes the Firebase teardown.
+    // When the PEER ended the call, we got here because our own mailbox already
+    // went null — the peer's endCall cleared BOTH mailboxes. Re-issuing ours
+    // would try to clear calls/{peer}, which by then is empty and not ours, so
+    // the rules deny the whole multi-location update ("update at / permission_
+    // denied" on the caller's console after a decline). Skip it.
+    if (!peerEnded) endCall(myUserId, prevCalleeId).catch(() => {});
+    const li = followeeRow(prevCalleeId);
+    if (li) { li.classList.remove('call-mode'); li.style.removeProperty('--call-color-rgb'); }
   }
-
   renderList();
 }
 
@@ -284,7 +391,13 @@ function renderList() {
   const isEmpty = mutuals.length === 0 && followingOnly.length === 0 && followerOnly.length === 0;
   document.getElementById('add-person-area').classList.toggle('has-list', !isEmpty);
   if (isEmpty) {
-    list.innerHTML = '';
+    reconcileChildren(list, [], {
+      create: () => null, // unreachable with empty keys
+      update: () => {},
+      onRemove: (node) => {
+        if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
+      },
+    });
     list.style.display = 'none';
     emptyMsg.classList.remove('hidden');
     return;
@@ -292,7 +405,6 @@ function renderList() {
 
   list.style.display = '';
   emptyMsg.classList.add('hidden');
-  list.innerHTML = '';
 
   // Sort uses lastUserData which still has status for entries with active subscriptions.
   // New entries (not yet subscribed) will sort as unavailable until Firebase delivers status.
@@ -304,11 +416,11 @@ function renderList() {
       }
       const aData = lastUserData.get(a.userId);
       const bData = lastUserData.get(b.userId);
-      const aAvail = aData ? aData.status === 'available' && !isExpired(aData.availableUntil) : false;
-      const bAvail = bData ? bData.status === 'available' && !isExpired(bData.availableUntil) : false;
+      const aAvail = isAvailable(aData?.status, aData?.availableUntil);
+      const bAvail = isAvailable(bData?.status, bData?.availableUntil);
       if (aAvail !== bAvail) return bAvail ? 1 : -1;
-      const aName = a.label || a.code;
-      const bName = b.label || b.code;
+      const aName = resolveDisplayName(a);
+      const bName = resolveDisplayName(b);
       return aName.localeCompare(bName);
     });
   }
@@ -317,55 +429,93 @@ function renderList() {
     return [...entries].sort((a, b) => a.code.localeCompare(b.code));
   }
 
-  function appendSection(labelText, entries, renderRow) {
+  const entryByKey = new Map();
+  const keys = [];
+  function pushSection(labelKey, entries, type) {
     if (entries.length === 0) return;
-    const labelLi = document.createElement('li');
-    labelLi.className = 'list-section-label';
-    labelLi.textContent = labelText;
-    list.appendChild(labelLi);
-    entries.forEach(renderRow);
+    keys.push(labelKey);
+    for (const e of entries) {
+      const k = `${type}:${e.userId}`;
+      keys.push(k);
+      entryByKey.set(k, e);
+    }
+  }
+  pushSection('label:Mutuals', sortFollowees(mutuals), 'mutual');
+  pushSection('label:Following', sortFollowees(followingOnly), 'following');
+  pushSection('label:Followers', sortFollowerOnly(followerOnly), 'follower');
+
+  // Floated rows stay pinned right after the first section label (same
+  // contract applyFloatToTop honors), folded into the key order instead of
+  // the old post-render re-prepend.
+  const floated = getFloatedUserIds();
+  if (floated.length && keys.length) {
+    const firstLabelIdx = keys.findIndex((k) => k.startsWith('label:'));
+    const anchor = firstLabelIdx >= 0 ? firstLabelIdx + 1 : 0;
+    for (const uid of floated) {
+      const idx = keys.findIndex((k) => !k.startsWith('label:') && k.endsWith(`:${uid}`));
+      if (idx < 0 || idx === anchor) continue;
+      const [k] = keys.splice(idx, 1);
+      keys.splice(anchor, 0, k);
+    }
   }
 
-  appendSection('Mutuals', sortFollowees(mutuals), (entry) => {
-    createFolloweeRow(entry, myUserId, true);
-    // Only subscribe for entries not already subscribed (preserves existing connection)
-    if (!unsubscribers.has(entry.userId)) {
-      subscribeToFollowee(entry, myUserId);
-    } else {
-      // Row was just recreated from scratch; repopulate from cache so it doesn't
-      // flash "Unavailable" until the next Firebase event arrives.
-      const cached = lastUserData.get(entry.userId);
-      if (cached) updateFolloweeRow(entry, cached, myUserId);
-    }
+  // Track newly-created followee keys so we can repopulate from cache
+  // after reconcile (update() runs before insertBefore on fresh nodes, so
+  // updateFolloweeRow's document.querySelector lookup would return null).
+  const freshFolloweeKeys = [];
+
+  reconcileChildren(list, keys, {
+    create: (key) => {
+      if (key.startsWith('label:')) {
+        const labelLi = document.createElement('li');
+        labelLi.className = 'list-section-label';
+        labelLi.textContent = key.slice('label:'.length);
+        return labelLi;
+      }
+      const entry = entryByKey.get(key);
+      if (key.startsWith('follower:')) return createFollowerOnlyRow(entry, myUserId);
+      freshFolloweeKeys.push(key);
+      return createFolloweeRow(entry, myUserId, key.startsWith('mutual:'));
+    },
+    update: (node, key) => {
+      if (key.startsWith('label:')) return;
+      const entry = entryByKey.get(key);
+      if (key.startsWith('follower:')) {
+        // Refresh the CODE (Name) label — the name can be learned post-create.
+        const rosterName = getFollowerName(entry.userId);
+        const label = node.querySelector('.person-label');
+        if (label) {
+          label.textContent = rosterName ? `${entry.code} (${rosterName})` : entry.code;
+        }
+        return;
+      }
+      // Followee rows: subscribe once; surviving rows repaint from the status
+      // cache so they don't flash "Unavailable" until the next tick.
+      // Fresh rows are handled post-reconcile (after insertBefore) below.
+      if (!unsubscribers.has(entry.userId)) {
+        subscribeToFollowee(entry, myUserId);
+      } else if (!editingSet.has(entry.userId) && !freshFolloweeKeys.includes(key)) {
+        const cached = lastUserData.get(entry.userId);
+        if (cached) updateFolloweeRow(entry, cached, myUserId);
+      }
+    },
+    // NB: closeCardDrawer dispatches 'card-drawer-close' SYNCHRONOUSLY while
+    // this reconcile is in flight — listeners on that event must stay
+    // paint-only (no renderList/reconcile call, which would throw the
+    // re-entrancy guard mid-removal).
+    onRemove: (node) => {
+      if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
+    },
   });
 
-  appendSection('Following', sortFollowees(followingOnly), (entry) => {
-    createFolloweeRow(entry, myUserId);
-    if (!unsubscribers.has(entry.userId)) {
-      subscribeToFollowee(entry, myUserId);
-    } else {
-      const cached = lastUserData.get(entry.userId);
-      if (cached) updateFolloweeRow(entry, cached, myUserId);
-    }
-  });
-
-  appendSection('Followers', sortFollowerOnly(followerOnly), (follower) => {
-    createFollowerOnlyRow(follower, myUserId);
-  });
-
-  // Re-prepend any rows still in their float window so a coincident re-sort
-  // doesn't lose the float-to-top position. Same section-label awareness as
-  // applyFloatToTop (otherwise a floated mutual lands above the "Mutuals"
-  // label when renderList re-builds the list).
-  const firstLabel = list.querySelector('.list-section-label');
-  for (const uid of getFloatedUserIds()) {
-    const li = list.querySelector(`[data-user-id="${uid}"]`);
-    if (!li) continue;
-    if (firstLabel) {
-      list.insertBefore(li, firstLabel.nextSibling);
-    } else {
-      list.prepend(li);
-    }
+  // Post-reconcile: repopulate fresh followee rows from cache. These nodes are
+  // now in the DOM (insertBefore completed), so document.querySelector finds them.
+  for (const key of freshFolloweeKeys) {
+    const entry = entryByKey.get(key);
+    if (!unsubscribers.has(entry.userId)) continue; // newly subscribed; will get data from Firebase
+    if (editingSet.has(entry.userId)) continue;
+    const cached = lastUserData.get(entry.userId);
+    if (cached) updateFolloweeRow(entry, cached, myUserId);
   }
 }
 
@@ -413,7 +563,7 @@ function applyAdoption(entry, myUserId) {
     setStatusColor(myUserId, targetData.statusColor).catch(() => {});
   }
 
-  const li = document.querySelector(`[data-user-id="${entry.userId}"]`);
+  const li = followeeRow(entry.userId);
   if (li) li.classList.add('adopted-from');
 }
 
@@ -448,11 +598,17 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     <div class="person-info">
       ${nameHtml}
       <div class="person-status">Unavailable</div>
-    </div>
-    <button class="unfollow-btn" title="Unfollow">×</button>`;
+    </div>`;
 
-  const displayName = entry.label || entry.code;
-  li.querySelector('.unfollow-btn').addEventListener('click', () => {
+  const displayName = resolveDisplayName(entry);
+  const unfollowBtn = document.createElement('button');
+  unfollowBtn.className = 'unfollow-btn';
+  unfollowBtn.title = 'Unfollow';
+  unfollowBtn.textContent = '×';
+  unfollowBtn.addEventListener('click', (e) => {
+    // Stop the tap bubbling to the li-level knock handler in both the inline
+    // (flag-off) and in-slice paths.
+    e.stopPropagation();
     showConfirm(`Unfollow ${displayName}?`, 'Unfollow', {
       type: 'unfollow',
       userId: entry.userId,
@@ -466,10 +622,9 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
 
   if (KNOCK_ENABLED && isMutual) {
     const labelEl = li.querySelector('.person-label');
-    const unfollowBtnEl = li.querySelector('.unfollow-btn');
     li.addEventListener('click', (e) => {
+      if (isCardDrawerOpen()) return;
       if (labelEl.contains(e.target)) return;
-      if (unfollowBtnEl.contains(e.target)) return;
       const statusColor = lastUserData.get(entry.userId)?.statusColor;
       sendKnock(entry.userId, myUserId, statusColor);
     });
@@ -479,6 +634,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     let swipeStartX = 0, swipeStartY = 0, swipeCardWidth = 0, swipeActive = false;
 
     li.addEventListener('pointerdown', (e) => {
+      if (isCardDrawerOpen()) return;
       if (e.target.closest('.unfollow-btn, .person-label')) return;
       swipeStartX = e.clientX;
       swipeStartY = e.clientY;
@@ -511,8 +667,9 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
           const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
           const peerColor = peerData?.statusColor || '#22c55e';
           callModeCalleeId = entry.userId;
-          setCallState(myUserId, entry.userId).catch(() => {});
-          enterCanvas(entry.userId, entry.label || entry.code, myUserId, myColor, peerColor, peerSurface, () => {
+          _incomingCall = null;
+          answerCall(myUserId, entry.userId).catch(() => {});
+          enterCanvas(entry.userId, resolveDisplayName(entry), myUserId, myColor, peerColor, peerSurface, () => {
             exitCallMode(myUserId);
           }).catch(err => console.error('enterCanvas failed:', err));
         } else if (!li.classList.contains('call-mode')) {
@@ -525,10 +682,20 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
             // We are the caller — exit call mode
             exitCallMode(myUserId);
           } else {
-            // We are the receiver — optimistic UI, fire-and-forget Firebase delete
-            li.classList.remove('call-mode');
-            li.style.removeProperty('--call-color-rgb');
-            clearCallState(entry.userId).catch(() => {});
+            // We are the receiver — optimistic UI, fire-and-forget Firebase
+            // delete. Repaint the row from the cleared state so the glow AND
+            // the "Calling you…" status text both clear: nulling _incomingCall
+            // first makes the own-call watcher's delete echo a no-op transition
+            // (prev===next===null), so it won't repaint the row for us.
+            _incomingCall = null;
+            const data = lastUserData.get(entry.userId);
+            if (data) {
+              updateFolloweeRow(entry, data, myUserId);
+            } else {
+              li.classList.remove('call-mode');
+              li.style.removeProperty('--call-color-rgb');
+            }
+            endCall(myUserId, entry.userId).catch(() => {});
           }
         }
       }
@@ -544,6 +711,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     let suppressNextClick = false;
 
     li.addEventListener('pointerdown', (e) => {
+      if (isCardDrawerOpen()) return;
       clearTimeout(pressTimer); pressTimer = null;
       pressStartX = e.clientX;
       pressStartY = e.clientY;
@@ -567,7 +735,28 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     }, true);
   }
 
-  document.getElementById('people-list').appendChild(li);
+  // Assemble right-side actions. >=2 -> collapse behind a tool drawer; exactly
+  // one -> inline. Bell is non-terminal (keeps the drawer open); unfollow is
+  // terminal (closes it; the confirm overlay then covers the card).
+  const actions = [];
+  if (NOTIFICATIONS_ENABLED) {
+    // Knock/Call are mutual-only interactions; non-mutual (Following) contacts
+    // get availability only. (Followers use createFollowerOnlyRow — no bell.)
+    const bell = createNotifyBell(entry.userId, {
+      types: isMutual ? ['knock', 'call', 'availability'] : ['availability'],
+      onNeedPermission: () => { ensureNotificationsReady().catch(() => {}); },
+    });
+    actions.push({ el: bell, closesDrawer: false });
+  }
+  actions.push({ el: unfollowBtn, closesDrawer: true });
+
+  if (actions.length >= 2) {
+    li.appendChild(createCardDrawer(actions));
+  } else {
+    li.appendChild(actions[0].el);
+  }
+
+  return li;
 }
 
 function createFollowerOnlyRow(follower, myUserId) {
@@ -575,16 +764,26 @@ function createFollowerOnlyRow(follower, myUserId) {
   li.className = 'follower-only';
   li.dataset.userId = follower.userId;
 
+  // Roster display name remembered at follow-request approval (inbox.js):
+  // shown next to the code, and pre-filled into the follow-back label field —
+  // the user knows this person by name, not code.
+  const rosterName = getFollowerName(follower.userId);
+  const labelHtml = rosterName
+    ? `${escapeHtml(follower.code)} (${escapeHtml(rosterName)})`
+    : escapeHtml(follower.code);
+
   li.innerHTML = `
     <button class="follow-back-btn" title="Follow back">+</button>
     <div class="person-info">
-      <div class="person-label" style="font-family:monospace">${escapeHtml(follower.code)}</div>
+      <div class="person-label" style="font-family:monospace">${labelHtml}</div>
     </div>
     <button class="unfollow-btn" title="Remove">×</button>`;
 
   li.querySelector('.follow-back-btn').addEventListener('click', () => {
     document.getElementById('add-code-input').value = follower.code;
-    document.getElementById('add-label-input').value = '';
+    // Read at click time: the row persists across renders, and the roster name
+    // can be learned (approval flow) after this row was created.
+    document.getElementById('add-label-input').value = getFollowerName(follower.userId) || '';
     document.getElementById('add-person-form').classList.add('open');
   });
 
@@ -596,7 +795,7 @@ function createFollowerOnlyRow(follower, myUserId) {
     });
   });
 
-  document.getElementById('people-list').appendChild(li);
+  return li;
 }
 
 // Reconcile local following list with server. Called from the watchFollowing
@@ -624,6 +823,12 @@ function syncFollowingFromServer(myUserId, serverFollowing) {
   if (localJson === serverJson) return;
 
   setFollowing(serverFollowing);
+  // Announce the cache update for consumers outside this module (same pattern
+  // as 'last-timeout-synced'). groupContext re-evaluates its roster's
+  // request-to-follow eligibility on this: a fresh-device restore that boots
+  // straight into a group renders the roster before this first tick lands,
+  // against an empty cache.
+  document.dispatchEvent(new CustomEvent('following-synced'));
   // Tear down watchers for followees that disappeared; new ones will be
   // resubscribed by renderList.
   const serverIds = new Set(serverFollowing.map(e => e.userId));
@@ -638,20 +843,16 @@ function syncFollowingFromServer(myUserId, serverFollowing) {
 }
 
 function subscribeToFollowee(entry, myUserId) {
-  const unsub = watchStatus(entry.userId, (userData) => {
+  // Through the shared presence hub so a uid we also watch in a group roster is
+  // watched once at the RTDB layer (#214 R3). Same unsub contract as watchPresence.
+  const unsub = subscribePresence(entry.userId, (userData) => {
     if (!userData) return;
 
-    if (userData.revokedFollowers && userData.revokedFollowers[myUserId]) {
-      removeFollowing(entry.userId);
-      removeFollowingEntry(myUserId, entry.userId).catch(() => {});
-      unsub();
-      unsubscribers.delete(entry.userId);
-      renderList();
-      return;
-    }
-
     if (userData.status === 'available' && isExpired(userData.availableUntil)) {
-      if (navigator.onLine) writeBackExpired(entry.userId);
+      // Render the lapse locally only. Do NOT write back to the peer's node —
+      // under R1 a client may write only its own presence (auth.uid === uid),
+      // and every client computes expiry the same way, so display stays correct
+      // without a (now-forbidden) cross-user write.
       userData.status = 'unavailable';
       userData.availableUntil = null;
     }
@@ -664,18 +865,8 @@ function subscribeToFollowee(entry, myUserId) {
       return;
     }
 
-    const prevUserData = lastUserData.get(entry.userId);
     lastUserData.set(entry.userId, userData);
     if (editingSet.has(entry.userId)) return;
-    // Skip re-render if only the knocks subtree changed — knock writes trigger onValue
-    // on the parent node, and we don't want them interrupting card animations.
-    if (prevUserData &&
-        userData.status === prevUserData.status &&
-        userData.availableUntil === prevUserData.availableUntil &&
-        userData.statusColor === prevUserData.statusColor &&
-        userData.paletteKey === prevUserData.paletteKey &&
-        userData.code === prevUserData.code &&
-        userData.callState?.calleeId === prevUserData.callState?.calleeId) return;
     updateFolloweeRow(entry, userData, myUserId);
   });
   unsubscribers.set(entry.userId, unsub);
@@ -686,19 +877,21 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     renderedFollowees.add(entry.userId);
     onFolloweeReady?.();
   }
-  const li = document.querySelector(`[data-user-id="${entry.userId}"]`);
+  const li = followeeRow(entry.userId);
   if (!li) return;
 
-  const isAvail = userData.status === 'available' && !isExpired(userData.availableUntil);
+  lastUserData.set(entry.userId, userData);
+
+  const isAvail = isAvailable(userData.status, userData.availableUntil);
   const color = userData.statusColor || '#22c55e';
-  const glow  = getGlowForColor(color);
-  const ms = timeRemainingMs(userData.availableUntil);
   let statusText;
-  // Both checks gated by CALL_ENABLED so a stale callState on the peer's
-  // Firebase record (e.g., a previous session left a call dangling) doesn't
-  // render call-mode UI when calls are disabled on this device.
+  // Both checks gated by CALL_ENABLED so a stale calls/{me} mailbox entry
+  // (e.g., a previous session left a call dangling) doesn't render call-mode
+  // UI when calls are disabled on this device.
   const isCallee = CALL_ENABLED && callModeCalleeId !== null && entry.userId === callModeCalleeId;
-  const isCallModeReceiver = CALL_ENABLED && !isCallee && userData.callState?.calleeId === myUserId;
+  const isCallModeReceiver = CALL_ENABLED && !isCallee
+    && _incomingCall?.from === entry.userId
+    && !isCardDrawerOpen();
   if (isCallee) {
     const callText = getMadeCallCount() < 4
       ? 'Calling them\u2026 (swipe left to hang up)'
@@ -714,11 +907,10 @@ export function updateFolloweeRow(entry, userData, myUserId) {
       ? `<span style="color:${safeCssColor(color)}">${callText}</span>`
       : callText;
   } else if (isAvail) {
-    if (PALETTES_ENABLED) {
-      statusText = `<span class="status-available" style="color:${safeCssColor(color)}">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
-    } else {
-      statusText = `<span class="status-available">Available for ${formatTimeRemainingFuzzy(ms).replace(/ left$/, '')}</span>`;
-    }
+    const text = availableForText(userData.availableUntil);
+    statusText = PALETTES_ENABLED
+      ? `<span class="status-available" style="color:${safeCssColor(color)}">${text}</span>`
+      : `<span class="status-available">${text}</span>`;
   } else {
     const lastSeenPhrase = formatLastSeen(userData.lastSeen ?? null);
     statusText = lastSeenPhrase ? `Last seen ${lastSeenPhrase}` : 'Unavailable';
@@ -727,18 +919,11 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   li.dataset.available = String(isAvail);
   const dot = li.querySelector('.person-dot');
   if (dot) {
+    // Reset className first to clear any transient classes, then paint. The
+    // PALETTES gate preserves the old behavior of leaving the dot's inline
+    // styles untouched when palettes are off (CSS .available handles it).
     dot.className = `person-dot${isAvail ? ' available' : ''}`;
-    if (PALETTES_ENABLED) {
-      if (isAvail) {
-        dot.style.background  = safeCssColor(color);
-        dot.style.borderColor = safeCssColor(color);
-        dot.style.boxShadow   = `0 0 10px ${safeCssColor(glow)}`;
-      } else {
-        dot.style.background  = '';
-        dot.style.borderColor = '';
-        dot.style.boxShadow   = '';
-      }
-    }
+    if (PALETTES_ENABLED) paintStatusDot(dot, { color, available: isAvail, palettesEnabled: true });
   }
   const statusEl = li.querySelector('.person-status');
   if (statusEl) statusEl.innerHTML = statusText;
@@ -770,21 +955,6 @@ export function updateFolloweeRow(entry, userData, myUserId) {
       : (getComputedStyle(document.documentElement).getPropertyValue('--dot-off').trim() || '#6b7280');
     li.style.setProperty('--call-color-rgb', hexToRgb(callColor));
     li.classList.add('call-mode');
-
-    // Caller: detect when receiver answers (mutual callState — both pointing at each other)
-    if (isCallee && userData.callState?.calleeId === myUserIdRef) {
-      const screen = document.getElementById('canvas-screen');
-      if (screen && !screen.classList.contains('active')) {
-        const peerSurface = userData.paletteKey
-          ? (getPaletteByKey(userData.paletteKey)?.theme?.surface || '#1e293b')
-          : '#1e293b';
-        const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
-        const peerColor = userData.statusColor || '#22c55e';
-        enterCanvas(entry.userId, entry.label || entry.code, myUserIdRef, myColor, peerColor, peerSurface, () => {
-          exitCallMode(myUserIdRef);
-        }).catch(err => console.error('enterCanvas (caller) failed:', err));
-      }
-    }
   } else {
     li.classList.remove('call-mode');
     li.style.removeProperty('--call-color-rgb');
@@ -855,6 +1025,24 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     existingSwipe.remove();
   }
 }
+
+// On drawer close, reconcile deferred receiver-side call-mode against the
+// latest known state — but ONLY for rows that actually have an incoming call
+// cached. Re-rendering unrelated rows would recompute isFirstMutual swipe-hint
+// positions and could clobber an in-progress rename. A call cancelled while the
+// drawer was open is no longer an incoming call here, so it's correctly skipped
+// (its row never entered call-mode while deferred).
+document.addEventListener('card-drawer-close', () => {
+  if (getIncomingCallFrom() === null && callModeCalleeId === null) return;
+  renderedFollowees.forEach((userId) => {
+    if (editingSet.has(userId)) return;
+    const data = lastUserData.get(userId);
+    if (!data) return;
+    if (getIncomingCallFrom() !== userId && callModeCalleeId !== userId) return;
+    const entry = getFollowing().find((f) => f.userId === userId);
+    if (entry) updateFolloweeRow(entry, data, myUserIdRef);
+  });
+});
 
 /** Re-evaluate long-press hints when the user's own combo changes. */
 document.addEventListener('my-combo-changed', () => refreshLongpressHints());
@@ -947,7 +1135,7 @@ async function handleAddPerson(myUserId, myCode) {
   const following = getFollowing();
   const existing = following.find((e) => e.code.toUpperCase() === code);
   if (existing) {
-    showError(errorEl, `You're already following ${existing.label || existing.code}.`);
+    showError(errorEl, `You're already following ${resolveDisplayName(existing)}.`);
     return;
   }
 

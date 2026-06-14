@@ -5,12 +5,13 @@ import {
   claimGroupId, writeGroup, writeMember, writeUserGroupsEntry,
   removeMember, removeUserGroupsEntry, deleteGroup as dbDeleteGroup,
   renameGroup as dbRenameGroup, setMemberDisplayName,
-  readGroup, readMember, readMembers,
-  setLastVisited, setCurrentContext,
+  readGroup, readGroupName, readMember,
   watchUserGroups,
-  setStatusOverride, mergeStatusOverride,
+  mergeStatusOverride,
+  readPendingInviteesForGroup, deletePendingInvite,
 } from './db.js';
 import { navigateToDirect, getCurrentContext, getLastKnownGroupName } from './groupNav.js';
+import { clearGroupPaletteState } from './prefs.js';
 
 const NAME_MAX = 40;
 const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -84,6 +85,13 @@ export async function renameGroup(groupId, callerUid, newNameRaw) {
 export async function deleteGroup(groupId, callerUid) {
   const group = await requireOwner(groupId, callerUid);
   if (!group) return;
+  // Sweep pending invites for this group BEFORE the entity itself is gone,
+  // so any concurrent Join attempt against a stale invite sees the group
+  // missing and silently dismisses (see Inbox accept flow, Task 11).
+  const pendingInvitees = await readPendingInviteesForGroup(groupId);
+  await Promise.all(pendingInvitees.map((inviteeUid) =>
+    deletePendingInvite(inviteeUid, groupId)
+  ));
   await dbDeleteGroup(groupId);
   await removeUserGroupsEntry(callerUid, groupId);
   // Members' own enumeration entries are cleaned up by their own apps' deletion-detection
@@ -109,6 +117,12 @@ export async function joinGroup(groupId, joinerUid, displayNameRaw, opts = {}) {
   const existing = ('existing' in opts) ? opts.existing : await readMember(groupId, joinerUid);
   const now = Date.now();
   if (!existing) {
+    // Fresh membership: drop any per-group palette selection left over from a
+    // PRIOR membership. The default override below carries no statusColor/
+    // paletteKey, and groupContext seeds the color from the local per-group
+    // palette state — a stale selection would seed an orphaned color (e.g. a
+    // ROSE-palette WHITE with no theme), producing an impossible combo.
+    clearGroupPaletteState(groupId);
     await writeMember(groupId, joinerUid, {
       role: 'member',
       displayName,
@@ -155,7 +169,11 @@ export function initGroupRemovalDetector(myUserId) {
 }
 
 async function handleGroupRemoval(myUserId, groupId) {
-  const group = await readGroup(groupId);
+  // Read the name LEAF, not the whole node: by the time the removal fires the
+  // user is no longer a member (they left or were kicked), so the membership-
+  // gated groups/{gid} whole-node read would be denied. The name leaf stays
+  // readable, and a null result still means the group was deleted.
+  const group = await readGroupName(groupId);
   let message;
   if (!group) {
     // Group entity is gone; fall back to the last name we saw before deletion.
@@ -172,7 +190,10 @@ async function handleGroupRemoval(myUserId, groupId) {
   }
 }
 
-function showRemovalToast(message) {
+// Generic dismissable toast (the markup ids predate other consumers, hence
+// group-removal-*). Also used by followRequests.js for the request/cancel
+// confirmations.
+export function showToast(message) {
   const el = document.getElementById('group-removal-toast');
   const txt = document.getElementById('group-removal-toast-text');
   if (!el || !txt) return;
@@ -185,6 +206,10 @@ function showRemovalToast(message) {
     dismissBtn._wired = true;
     dismissBtn.addEventListener('click', () => el.classList.add('hidden'));
   }
+}
+
+function showRemovalToast(message) {
+  showToast(message);
 }
 
 // Test helpers — exported only for tests.

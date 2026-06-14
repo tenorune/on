@@ -1,16 +1,41 @@
 // tests/recovery.test.js
 
+// Deterministic microtask/promise-chain flush — drains pending promise
+// callbacks after the macrotask queue, replacing arbitrary setTimeout delays.
+const flushPromises = () => new Promise((resolve) => setImmediate(resolve));
+
+// Poll a condition across flushes, for paths that await genuinely async work
+// (e.g. the real WebCrypto digest in deriveUserIdFromRecoveryCode — identity.js
+// is NOT mocked here). Drains as many ticks as the op needs, bounded, instead of
+// a fixed sleep that's too short under load / wastefully long otherwise.
+async function waitFor(cond, tries = 100) {
+  for (let i = 0; i < tries; i += 1) {
+    if (cond()) return;
+    await flushPromises();
+  }
+  throw new Error('waitFor: condition not met in time');
+}
+
+jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
+jest.mock('../js/firebase-config.js', () => ({ db: {}, getMessagingIfSupported: jest.fn() }));
+jest.mock('../js/auth.js', () => ({ ensureSignedIn: jest.fn().mockResolvedValue(undefined) }));
+
 // Mocks required so that require('../js/app') doesn't crash on Firebase imports.
 // These do NOT mock identity.js so the real functions work for the tests above.
 jest.mock('../js/db.js', () => ({
   initUser: jest.fn().mockResolvedValue(true),
   watchStatus: jest.fn(),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
   isExpired: jest.fn().mockReturnValue(false),
   writeBackExpired: jest.fn(),
   userExists: jest.fn().mockResolvedValue(true),
   touchLastSeen: jest.fn().mockResolvedValue(undefined),
   setStatus: jest.fn().mockResolvedValue(undefined),
-  clearCallState: jest.fn().mockResolvedValue(undefined),
+  watchOwnCall: jest.fn(() => () => {}),
+  endCall: jest.fn().mockResolvedValue(undefined),
   getUser: jest.fn().mockResolvedValue(null),
   claimInviteToken: jest.fn(),
   releaseInviteToken: jest.fn(),
@@ -219,6 +244,19 @@ describe('showRecoveryCodeModal', () => {
     expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(true);
   });
 
+  test('traps the back-gesture: pushes history on open and re-pushes on back so it cannot navigate away', async () => {
+    const pushSpy = jest.spyOn(window.history, 'pushState');
+    const p = showRecoveryCodeModal('alpha-bravo-charlie-delta');
+    expect(pushSpy).toHaveBeenCalledTimes(1);            // trap entry pushed on open
+    window.dispatchEvent(new PopStateEvent('popstate')); // simulated browser back
+    expect(pushSpy).toHaveBeenCalledTimes(2);            // re-trapped instead of dismissing
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('recovery-code-text').textContent).toBe('alpha-bravo-charlie-delta');
+    document.getElementById('recovery-saved-btn').click();
+    expect(await p).toBe('alpha-bravo-charlie-delta');
+    pushSpy.mockRestore();
+  });
+
   test('rotate (↻) updates the displayed code in place; modal stays open', async () => {
     const p = showRecoveryCodeModal('alpha-bravo-charlie-delta');
     const before = document.getElementById('recovery-code-text').textContent;
@@ -239,6 +277,46 @@ describe('showRecoveryCodeModal', () => {
     const finalCode = document.getElementById('recovery-code-text').textContent;
     document.getElementById('recovery-saved-btn').click();
     expect(await p).toBe(finalCode);
+  });
+
+  test('runs the onConfirm setup hook under a busy "Setting up…" button, keeping the modal up, then hides on success', async () => {
+    const saved = document.getElementById('recovery-saved-btn');
+    let resolveSetup;
+    const onConfirm = jest.fn(() => new Promise((r) => { resolveSetup = r; }));
+    const p = showRecoveryCodeModal('alpha-bravo-charlie-delta', onConfirm);
+    saved.click();
+    // Account setup runs while the modal stays visible with feedback on the button.
+    await waitFor(() => saved.disabled === true);
+    expect(onConfirm).toHaveBeenCalledWith('alpha-bravo-charlie-delta');
+    expect(saved.textContent).toMatch(/setting up/i);
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(false);
+    // Only after setup completes does the modal hand off to the app.
+    resolveSetup();
+    expect(await p).toBe('alpha-bravo-charlie-delta');
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(true);
+  });
+
+  test('keeps the modal open and reverts the button when onConfirm rejects, then succeeds on retry', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const saved = document.getElementById('recovery-saved-btn');
+    const onConfirm = jest.fn().mockRejectedValueOnce(new Error('setup blip'));
+    const p = showRecoveryCodeModal('alpha-bravo-charlie-delta', onConfirm);
+    saved.click();
+    await waitFor(() => saved.disabled === false && saved.textContent === "I've saved it");
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(false);
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+    onConfirm.mockResolvedValueOnce(undefined);
+    saved.click();
+    expect(await p).toBe('alpha-bravo-charlie-delta');
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(true);
+  });
+
+  test('without an onConfirm hook, saving still resolves immediately (back-compat)', async () => {
+    const p = showRecoveryCodeModal('alpha-bravo-charlie-delta');
+    document.getElementById('recovery-saved-btn').click();
+    expect(await p).toBe('alpha-bravo-charlie-delta');
+    expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(true);
   });
 });
 
@@ -315,13 +393,14 @@ describe('initRecoveryPill', () => {
 describe('showRestoreScreen', () => {
   let showRestoreScreen;
   let mockUserExists;
+  let mockEnsureSignedIn;
 
   beforeEach(() => {
     document.body.innerHTML = `
       <div id="restore-screen" class="restore-screen hidden">
         <input id="restore-input" />
         <p id="restore-error" class="error-msg hidden"></p>
-        <button id="restore-submit-btn"></button>
+        <button id="restore-submit-btn" class="primary-btn">Restore</button>
         <button id="restore-cancel-btn"></button>
       </div>`;
     jest.resetModules();
@@ -330,6 +409,7 @@ describe('showRestoreScreen', () => {
       getUser: jest.fn(),
     }));
     mockUserExists = require('../js/db').userExists;
+    mockEnsureSignedIn = require('../js/auth').ensureSignedIn;
     ({ showRestoreScreen } = require('../js/app'));
   });
 
@@ -345,7 +425,7 @@ describe('showRestoreScreen', () => {
     const p = showRestoreScreen();
     document.getElementById('restore-input').value = 'only-three-words';
     document.getElementById('restore-submit-btn').click();
-    await new Promise(r => setTimeout(r, 0));
+    await flushPromises();
     expect(document.getElementById('restore-error').classList.contains('hidden')).toBe(false);
     expect(mockUserExists).not.toHaveBeenCalled();
     document.getElementById('restore-cancel-btn').click();
@@ -359,9 +439,103 @@ describe('showRestoreScreen', () => {
     const p = showRestoreScreen();
     document.getElementById('restore-input').value = code;
     document.getElementById('restore-submit-btn').click();
-    await new Promise(r => setTimeout(r, 10));
+    await waitFor(() => mockUserExists.mock.calls.length > 0); // real crypto digest precedes this
     expect(mockUserExists).toHaveBeenCalled();
     expect(document.getElementById('restore-error').classList.contains('hidden')).toBe(false);
+    document.getElementById('restore-cancel-btn').click();
+    await p;
+  });
+
+  test('signs in for the entered phrase before reading the account (owner-scoped reads need auth)', async () => {
+    // Post-R1 the validation reads (userExists / getUser) are owner-scoped and
+    // require an auth session for THIS phrase's account. Without signing in
+    // first, the read is denied and a valid phrase wrongly shows "no account".
+    const { generateRecoveryCode } = require('../js/identity');
+    const code = generateRecoveryCode();
+    mockUserExists.mockImplementation(() => {
+      expect(mockEnsureSignedIn).toHaveBeenCalledWith(code);
+      return Promise.resolve(false);
+    });
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = code;
+    document.getElementById('restore-submit-btn').click();
+    await waitFor(() => mockUserExists.mock.calls.length > 0);
+    expect(mockEnsureSignedIn).toHaveBeenCalledWith(code);
+    document.getElementById('restore-cancel-btn').click();
+    await p;
+  });
+
+  test('shows a distinct "try again" error (not "no account") when sign-in fails', async () => {
+    // A blocked/failed sign-in (CSP, network, function error) must not be
+    // reported as an unknown phrase — and must log the real cause.
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { generateRecoveryCode } = require('../js/identity');
+    const code = generateRecoveryCode();
+    mockEnsureSignedIn.mockRejectedValueOnce(new Error('blocked by CSP'));
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = code;
+    document.getElementById('restore-submit-btn').click();
+    await waitFor(() => document.getElementById('restore-error').textContent.length > 0);
+    expect(document.getElementById('restore-error').textContent).toMatch(/try again/i);
+    expect(document.getElementById('restore-error').textContent).not.toMatch(/no account found/i);
+    expect(mockUserExists).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+    document.getElementById('restore-cancel-btn').click();
+    await p;
+  });
+
+  test('a read failure AFTER sign-in shows a retryable error, not "no account" (no identity loss)', async () => {
+    // Sign-in succeeded (the phrase is valid) but the existence read threw — a
+    // transient/offline blip. Telling the user "no account found" would invite
+    // them to "start over" and discard a real identity. Must be retryable.
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { generateRecoveryCode } = require('../js/identity');
+    const code = generateRecoveryCode();
+    mockUserExists.mockRejectedValue(new Error('network blip'));
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = code;
+    document.getElementById('restore-submit-btn').click();
+    await waitFor(() => mockUserExists.mock.calls.length > 0);
+    const errText = document.getElementById('restore-error').textContent;
+    expect(errText).toMatch(/try again/i);
+    expect(errText).not.toMatch(/no account/i);
+    errSpy.mockRestore();
+    document.getElementById('restore-cancel-btn').click();
+    await p;
+  });
+
+  test('shows a busy "Restoring…" button while verifying, then reverts on error (retryable)', async () => {
+    const { generateRecoveryCode } = require('../js/identity');
+    const code = generateRecoveryCode();
+    let resolveSignIn;
+    mockEnsureSignedIn.mockReturnValue(new Promise((r) => { resolveSignIn = r; }));
+    mockUserExists.mockResolvedValue(false);
+    const submit = document.getElementById('restore-submit-btn');
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = code;
+    submit.click();
+    // Busy as soon as the phrase parses, through the derive + sign-in round-trip.
+    await waitFor(() => submit.disabled === true);
+    expect(submit.textContent).toMatch(/restoring/i);
+    // Let it run to the "no account" outcome; the button must revert so the
+    // user can fix the phrase and try again.
+    resolveSignIn();
+    await waitFor(() => document.getElementById('restore-error').classList.contains('hidden') === false);
+    expect(submit.disabled).toBe(false);
+    expect(submit.textContent).toBe('Restore');
+    document.getElementById('restore-cancel-btn').click();
+    await p;
+  });
+
+  test('does not enter the busy state when the phrase is malformed (instant, no round-trip)', async () => {
+    const submit = document.getElementById('restore-submit-btn');
+    const p = showRestoreScreen();
+    document.getElementById('restore-input').value = 'only-three-words';
+    submit.click();
+    await flushPromises();
+    expect(submit.disabled).toBe(false);
+    expect(submit.textContent).toBe('Restore');
     document.getElementById('restore-cancel-btn').click();
     await p;
   });

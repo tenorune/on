@@ -7,8 +7,9 @@ jest.mock('firebase/database', () => ({
   push: jest.fn(),
   update: jest.fn(),
   remove: jest.fn(),
-  onValue: jest.fn(),
+  onValue: jest.fn(() => jest.fn()),
   onChildAdded: jest.fn(() => jest.fn()),
+  onChildRemoved: jest.fn(() => jest.fn()),
   runTransaction: jest.fn(),
   query: jest.fn(r => r),
   orderByKey: jest.fn(),
@@ -21,7 +22,6 @@ const {
   pushStroke,
   setCanvasBg,
   watchStrokes,
-  unwatchStrokes,
 } = require('../js/db');
 
 describe('getCanvasId', () => {
@@ -32,6 +32,34 @@ describe('getCanvasId', () => {
 
   test('same ID produces consistent result regardless of order', () => {
     expect(getCanvasId('abc', 'def')).toBe(getCanvasId('def', 'abc'));
+  });
+});
+
+describe('watchStrokes (returns a self-owned unsub — #183 H3)', () => {
+  test('returns a function that tears down both the add and remove child listeners', () => {
+    const { onChildAdded, onChildRemoved } = require('firebase/database');
+    const addUnsub = jest.fn();
+    const removeUnsub = jest.fn();
+    onChildAdded.mockReturnValueOnce(addUnsub);
+    onChildRemoved.mockReturnValueOnce(removeUnsub);
+    const unsub = watchStrokes('a_b', null, () => {}, () => {});
+    expect(typeof unsub).toBe('function');
+    expect(addUnsub).not.toHaveBeenCalled();
+    expect(removeUnsub).not.toHaveBeenCalled();
+    unsub();
+    expect(addUnsub).toHaveBeenCalledTimes(1);
+    expect(removeUnsub).toHaveBeenCalledTimes(1);
+  });
+
+  test('without an onStrokeRemoved handler, the unsub only tears down the add listener', () => {
+    const { onChildAdded, onChildRemoved } = require('firebase/database');
+    const addUnsub = jest.fn();
+    onChildAdded.mockReturnValueOnce(addUnsub);
+    onChildRemoved.mockClear();
+    const unsub = watchStrokes('a_b', null, () => {});
+    expect(onChildRemoved).not.toHaveBeenCalled();
+    unsub();
+    expect(addUnsub).toHaveBeenCalledTimes(1);
   });
 });
 

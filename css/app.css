@@ -19,7 +19,7 @@
 }
 
 html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; overscroll-behavior-y: none; min-width: 360px; }
-body { max-width: 600px; margin: 0 auto; }
+body { max-width: 600px; margin: 0 auto; overflow-x: clip; }
 
 .brand-mark {
   color: var(--text);
@@ -210,6 +210,7 @@ main {
   margin-bottom: 0.5rem; list-style: none;
   border-left: 3px solid transparent;
   touch-action: pan-y;
+  position: relative;
 }
 .person-dot {
   width: 2rem; height: 2rem; border-radius: 50%; flex-shrink: 0;
@@ -269,6 +270,7 @@ main {
   background: var(--accent); color: white; border: none; padding: 13px;
   border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer;
 }
+.primary-btn:disabled { opacity: 0.45; cursor: default; }
 .ghost-btn {
   background: var(--surface); color: var(--text-muted); border: 1px solid var(--surface2);
   padding: 10px; border-radius: 10px; font-size: 13px; cursor: pointer;
@@ -507,22 +509,12 @@ main {
   background: var(--surface);
   border: none;
   cursor: default;
-  padding: 0.25rem 0.5rem;
+  /* No left padding: the group name has no visible box (bg matches the row), so
+     its text is the visible left edge — keep it flush with the nav-row's 1rem
+     padding so it lines up with the availability dot below. */
+  padding: 0.25rem 0.5rem 0.25rem 0;
   flex-shrink: 0;
 }
-.nav-back {
-  position: sticky;
-  left: 0;
-  background: var(--surface);
-  font-size: 0.9rem;
-  font-weight: normal;
-  color: var(--text-muted);
-  border: none;
-  cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  flex-shrink: 0;
-}
-.nav-back:hover { color: var(--text); }
 .nav-current-truncate {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -722,20 +714,29 @@ main {
   transition: opacity 0.25s ease;
 }
 .group-swatch-row.visible { opacity: 1; pointer-events: auto; }
-.group-swatch-row .swatch {
-  background: transparent;
-  padding: 0;
-}
 .swatch {
   width: 22px; height: 22px; border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.12);
   cursor: pointer; flex-shrink: 0;
   transition: border-color 0.15s, box-shadow 0.15s;
+  /* Both pickers render swatches as <button> (a11y: keyboard-reachable,
+     announced as controls — issue #116). Reset the UA button chrome here so
+     Direct and Group share one rule; the per-swatch color is an inline
+     background that overrides this transparent default. */
+  background: transparent;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
 }
 .swatch.selected {
   border-color: rgba(255, 255, 255, 0.9);
   border-width: 3px;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+}
+/* Keyboard focus ring (only .selected was visually distinguished before). */
+.swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .swatch.hint-wave {
   transition: box-shadow 0.25s ease-in-out;
@@ -832,9 +833,40 @@ main {
   white-space: nowrap;
   overflow: hidden;
 }
+/* Invite modal: the unchanging URL base above the field; the field holds only
+   the changing token, which fades in on regenerate so the change is obvious. */
+.invite-url-prefix {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  word-break: break-all;
+  margin-bottom: 0.375rem;
+}
+/* Shared regenerate cue (invite hash, new-user secret phrase): fade the new
+   value in. See js/regenFlash.js. */
+@keyframes regen-flash { from { opacity: 0; } to { opacity: 1; } }
+.regen-flash { animation: regen-flash 0.45s ease-out; }
+/* Fixed-size slot for the ↻ button. The button keeps the slot's width even when
+   hidden (visibility), so swapping it for the NEW badge never resizes the row or
+   reflows the value. The badge is laid over the slot (right-aligned) so it can be
+   wider than the ↻ without affecting layout — it just clips over the value's end
+   during the cue. */
+.regen-slot { position: relative; display: inline-flex; align-items: center; flex: none; }
+.regen-slot .new-badge {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  margin: 0; white-space: nowrap;
+}
+/* Secret phrase (4 hyphen-joined words): wrap so the WHOLE phrase is always
+   visible — never clipped — even if it takes two lines. Overrides the base
+   nowrap/overflow:hidden used for the single-line invite token. */
+#recovery-code-text, #drawer-recovery-code {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: break-word;
+}
 /* Modal: tighter container (modal-card + recovery-display nested padding),
    so the code font runs smaller than the drawer pill version. */
-#recovery-code-text { font-size: clamp(0.6rem, 2.3vw, 0.8rem); }
+#recovery-code-text { font-size: clamp(0.7rem, 2.3vw, 0.85rem); }
 /* Drawer pill: more horizontal room since it spans the full drawer width. */
 #drawer-recovery-code { font-size: clamp(0.7rem, 3vw, 0.95rem); }
 .recovery-warning {
@@ -941,6 +973,11 @@ main {
   gap: 0.5rem;
   margin-top: 0.75rem;
 }
+/* Group invite (no name field): the name input is hidden, so the Create button
+   sits directly under the help text. Drop the actions' top margin — it only
+   exists to separate the button from the input above it — leaving just the
+   modal's standard gap between the help text and the button. */
+#invite-modal-label-input.hidden ~ .modal-actions { margin-top: 0; }
 .modal-label {
   display: block;
   font-size: 0.9rem;
@@ -1088,9 +1125,19 @@ main {
   background: var(--surface); border-radius: 10px;
   padding: 0.75rem 0.875rem;
   border-left: 3px solid transparent;
+  position: relative; /* anchor the notify popover under the bell */
+  /* Match the Direct contact rows: constrain touch to vertical pan and kill the
+     browser's default tap-highlight flash (the grey/black blink seen in mobile
+     emulation when tapping the row or the bell inside it — tap-highlight-color
+     is inherited, so the bell is covered too). */
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
 }
 .group-roster-row.knockable { cursor: pointer; }
-.group-roster-row.knockable:active { background: var(--surface2); }
+/* Press highlight is driven by JS (.knock-pressing), not :active, so pressing
+   the notification bell inside the row — or pressing while a bell popover is
+   open — doesn't flash the row like a phantom knock. */
+.group-roster-row.knockable.knock-pressing { background: var(--surface2); }
 .role-badge { color: var(--text-muted); font-size: 0.85rem; font-weight: normal; }
 
 /* Group removal toast */
@@ -1113,3 +1160,186 @@ main {
 .group-removal-toast.hidden {
   display: none;
 }
+
+/* Card tool drawer */
+.card-drawer-toggle {
+  background: none; border: 0; cursor: pointer;
+  color: var(--text-muted); font-size: 1.2rem; line-height: 1;
+  padding: 2px 8px; flex-shrink: 0; align-self: center;
+}
+/* Clip layer spanning the card: lets the slice slide in from the card's own
+   right edge. Transparent + click-through (the slice re-enables pointer events);
+   clips to the card's rounded rect. Not placed on the card itself so the
+   call-mode glow (an outward box-shadow on the row) isn't clipped. */
+.card-drawer-clip {
+  position: absolute; inset: 0; overflow: hidden;
+  border-radius: 10px; pointer-events: none; z-index: 40;
+}
+.card-drawer {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 0.25rem;
+  padding: 0 0.75rem; background: var(--surface2);
+  border-radius: 0 10px 10px 0;
+  transform: translateX(100%); transition: transform 0.18s ease-out;
+}
+.card-drawer.open { transform: translateX(0); }
+
+/* Bell: OFF = full-opacity themed muted color; ON (any type enabled) = white. */
+.notify-bell { background: none; border: 0; cursor: pointer; color: var(--text-muted); opacity: 1; padding: 0.25rem; display: inline-flex; align-items: center; }
+.notify-bell.active { color: #fff; }
+.notify-bell svg { width: 1rem; height: 1rem; display: block; }
+
+/* Roster request-to-follow toggle: mirrors the bell's idle/active coloring —
+   muted circled-plus = tap to request, white empty circle = requested (tap
+   cancels). Sized slightly over the bell's 1rem because the circle glyph has
+   built-in viewBox margin the bell doesn't; 1.125rem matches rendered height. */
+.request-follow-btn { background: none; border: 0; cursor: pointer; color: var(--text-muted); padding: 0.25rem; display: inline-flex; align-items: center; }
+.request-follow-btn.requested { color: #fff; }
+.request-follow-btn.requested .rf-plus { display: none; }
+.request-follow-btn svg { width: 1.125rem; height: 1.125rem; display: block; }
+/* Popover is portaled to <body> and positioned (top/right) inline by JS from the
+   bell's rect, so no card/slice overflow or transform can clip it. */
+.notify-popover { position: fixed; z-index: 1000;
+  background: var(--surface2); color: var(--text); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 0.5rem; padding: 0.25rem; display: flex; flex-direction: column; gap: 0.125rem; box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
+.notify-switch { display: flex; justify-content: space-between; gap: 1rem; background: none; border: 0; cursor: pointer; color: var(--text);
+  padding: 0.4rem 0.6rem; border-radius: 0.375rem; font: inherit; text-align: left; }
+/* Selected type: themed accent tint (no weight change — keeps the popover a constant size). */
+.notify-switch.on { background: var(--accent); background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.card-drawer .unfollow-btn { align-self: center; }
+.notify-promo { position: fixed; left: 50%; transform: translateX(-50%); bottom: 1rem; max-width: 560px; width: calc(100% - 2rem);
+  display: flex; align-items: center; gap: 0.75rem; background: var(--surface2); border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 0.75rem; padding: 0.75rem 1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.25); z-index: 60; }
+.notify-promo.hidden { display: none; }
+.notify-promo #notify-promo-text { flex: 1; font-size: 0.9rem; }
+/* Inline step icons in the install guidance (Share / Add-to-Home / Add-to-Dock). */
+.notify-promo .step-icon { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.18em; margin: 0 0.12em; }
+/* "First, make sure…" reminder renders as its own paragraph. */
+.notify-promo .notify-promo-reminder { display: block; margin-top: 0.55rem; }
+/* "Secret phrase: [Copy to clipboard]" affordance under the install guidance. */
+.notify-promo .notify-promo-phrase { display: block; margin-top: 0.5rem; font-size: 0.82rem; opacity: 0.9; }
+.notify-promo .notify-promo-copy { font: inherit; color: var(--accent, #2dd4bf); background: none; border: none; padding: 0; margin-left: 0.15em; cursor: pointer; text-decoration: underline; }
+/* Match Direct's "Add a person": a surface2 rounded card wrapping a plain,
+   full-width, left-aligned .add-btn (#add-person-area treatment). The 0.25rem
+   top margin mirrors #add-person-area's empty-state margin-top so the button
+   lands at exactly the same y-position as Direct's no-contacts "Add a person"
+   (both lists pad 0.5rem on top; both headers collapse to equal heights). */
+.roster-invite-row {
+  list-style: none; padding: 0; margin: 0.25rem 0 0.5rem 0;
+  background: var(--surface2); border-radius: 10px; overflow: hidden;
+}
+
+/* ── Phase 3 invite picker (inside #invite-modal Section 2) ──────────────── */
+.invite-picker { margin-top: 1rem; }
+.invite-picker-framing { font-size: 0.875rem; color: var(--text-muted); margin: 0 0 0.5rem 0; }
+.invite-picker-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.invite-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Hover only on real-hover (mouse) devices — on touch, :hover sticks after a
+   tap and reads as the row still being highlighted after deselect. */
+@media (hover: hover) {
+  .invite-picker-row:hover { background: rgba(255,255,255,0.04); }
+}
+.invite-picker-row.selected { background: rgba(99,102,241,0.18); }
+.invite-picker-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-muted); flex-shrink: 0;
+}
+.invite-picker-name { flex: 1; font-size: 0.875rem; color: var(--text); }
+.invite-picker-trailing { flex-shrink: 0; }
+.invite-picker-indicator {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 1px solid var(--text-muted);
+  border-radius: 4px;
+}
+.invite-picker-row.selected .invite-picker-indicator {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.invite-picker-pill-invited {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.invite-picker-pill-invited:hover { background: var(--accent); color: var(--text); }
+
+/* ── Phase 3 Inbox nav element + modal ──────────────────────────────────── */
+.nav-row-inbox-slot { flex-shrink: 0; }
+/* When there are no pending invites the slot is empty — collapse it entirely so
+   its flex gap doesn't push the first group card / "+" off the dot's left edge
+   below it. (With an Inbox button present the slot IS the aligned first item.) */
+.nav-row-inbox-slot:empty { display: none; }
+.inbox-btn {
+  /* Match the create-group "+" button's height: it's a direct .nav-row child and
+     gets height:2.5rem from `.nav-row > *`, but the Inbox button is nested in the
+     slot, so set it explicitly (border-box, like the "+"). */
+  height: 2.5rem;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  padding: 0 0.5rem;
+  border: 1px dashed var(--text-muted);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+/* Unseen invite: pulse the border + an accent halo, mirroring the knock-pending
+   glow on a group chip. Driven off the live --accent (set per Direct-context
+   theme by applyThemeVars), via color-mix, so it tracks a theme change while
+   glowing. Cleared once the user opens the Inbox (markAllSeen). */
+.inbox-btn.unseen { animation: inbox-unseen-pulse 3s ease-in-out infinite; }
+@keyframes inbox-unseen-pulse {
+  0%, 100% {
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    box-shadow:
+      0 0 0 1.5px color-mix(in srgb, var(--accent) 30%, transparent),
+      0 0 14px color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+  50% {
+    border-color: var(--accent);
+    box-shadow:
+      0 0 0 1.5px var(--accent),
+      0 0 24px color-mix(in srgb, var(--accent) 65%, transparent);
+  }
+}
+.inbox-btn:hover { color: var(--text); border-color: var(--text); }
+
+.inbox-modal-list { list-style: none; padding: 0; margin: 0; }
+.inbox-loading { font-size: 0.875rem; color: var(--text-muted); padding: 0.5rem 0; }
+.inbox-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--surface2);
+}
+.inbox-row:last-child { border-bottom: none; }
+.inbox-row-text { font-size: 0.875rem; color: var(--text); }
+.inbox-row-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+/* One sizing rule for every inbox action (invite Join/Decline AND follow-request
+   Approve/Decline) so the two row types' buttons match. */
+.inbox-join-btn, .inbox-decline-btn,
+.inbox-approve-btn, .inbox-fr-decline-btn { padding: 0.25rem 0.75rem; font-size: 0.875rem; }

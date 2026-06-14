@@ -19,6 +19,10 @@ beforeEach(() => {
     getKnocks: jest.fn(),
     watchKnocksAdded: jest.fn(),
     clearKnock: jest.fn(),
+    watchPendingInvites: jest.fn(() => () => {}),
+    writePendingInvite: jest.fn().mockResolvedValue(undefined),
+    deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+    readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
   }));
   jest.mock('../js/store.js', () => ({}));
   jest.mock('../js/firebase-config.js', () => ({ db: {} }));
@@ -26,6 +30,7 @@ beforeEach(() => {
     getCurrentContext: jest.fn(() => ({ context: 'direct', groupId: null })),
     onContextChange: jest.fn(() => () => {}),
   }));
+  jest.mock('../js/cardDrawer.js', () => ({ isCardDrawerOpen: jest.fn(() => false) }));
   ({ sendKnock, initKnocks, colorToRgba } = require('../js/knock.js'));
   // Re-bind db mocks to fresh instances created after resetModules
   const db = require('../js/db.js');
@@ -159,6 +164,30 @@ describe('initKnocks: deferred (null snapshot)', () => {
     getKnocks.mockResolvedValue({ exists: () => false });
     watchKnocksAdded.mockReturnValue(jest.fn());
     await expect(initKnocks('myUid')).resolves.not.toThrow();
+  });
+});
+
+describe('initKnocks: deferred-snapshot read resilience (cold-start auth race)', () => {
+  test('retries a transient permission_denied, then uses the snapshot once it succeeds', async () => {
+    getKnocks
+      .mockRejectedValueOnce(new Error('Permission denied'))
+      .mockResolvedValueOnce({ exists: () => false });
+    watchKnocksAdded.mockReturnValue(jest.fn());
+    const p = initKnocks('myUid');
+    await jest.runAllTimersAsync(); // ride out the retry backoff
+    await expect(p).resolves.toBeUndefined();
+    expect(getKnocks).toHaveBeenCalledTimes(2);
+  });
+
+  test('a persistently failing read degrades to live-only (no throw, retried) so delivery never stalls', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    getKnocks.mockRejectedValue(new Error('Permission denied'));
+    watchKnocksAdded.mockReturnValue(jest.fn());
+    const p = initKnocks('myUid');
+    await jest.runAllTimersAsync();
+    await expect(p).resolves.toBeUndefined();
+    expect(getKnocks.mock.calls.length).toBeGreaterThan(1);
+    warnSpy.mockRestore();
   });
 });
 
@@ -393,6 +422,42 @@ describe('visibilitychange re-init', () => {
   });
 });
 
+// --- card-drawer-close replay ---
+
+describe('card-drawer-close replay', () => {
+  test('dispatching card-drawer-close causes initKnocks to re-run and animate a deferred knock', async () => {
+    const ts = Date.now() - 1000; // 1 second ago — within 24h, will be deferred
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockReturnValue(jest.fn());
+    clearKnock.mockResolvedValue();
+
+    // Initial call to cache the userId inside the module
+    await initKnocks('myUid');
+
+    // Now seed a deferred knock for alice so the replay picks it up
+    const li = makeLi('alice');
+    getKnocks.mockResolvedValue({
+      exists: () => true,
+      val: () => ({ alice: { count: 1, ts } }),
+    });
+
+    // Trigger replay via card-drawer-close (mirrors the visibilitychange replay path).
+    // The event handler calls initKnocks() internally; we need to flush all
+    // microtasks it enqueues (getKnocks is a resolved promise, so one tick per
+    // await inside initKnocks). Using a zero-delay timer flush is the safest
+    // way to drain an unknown number of microtask continuations.
+    document.dispatchEvent(new Event('card-drawer-close'));
+
+    // Drain all pending microtasks by awaiting a chain long enough to let the
+    // internal getKnocks().then() chain settle.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+
+    // The deferred knock should have been animated on alice's li
+    expect(li.classList.contains('knock-deferred')).toBe(true);
+    expect(clearKnock).toHaveBeenCalledWith('myUid', 'alice');
+  });
+});
+
 // --- live listener background / reconnect guards ---
 
 describe('live listener: visibility and timestamp guards', () => {
@@ -440,6 +505,20 @@ describe('live listener: visibility and timestamp guards', () => {
     // Live pulse, NOT deferred:
     expect(li.classList.contains('knock-deferred')).toBe(false);
     expect(li.classList.contains('knock-live')).toBe(true);
+  });
+
+  test('a live knock is ignored (left in DB) while a card drawer is open', async () => {
+    const { isCardDrawerOpen } = require('../js/cardDrawer.js');
+    isCardDrawerOpen.mockReturnValue(true);
+    const { clearKnock } = require('../js/db.js');
+
+    const fire = await setupLiveListener();
+    const li = makeLi('alex');
+
+    fire('alex', { count: 1, ts: Date.now() });
+
+    expect(li.classList.contains('knock-live')).toBe(false);
+    expect(clearKnock).not.toHaveBeenCalled();
   });
 });
 
@@ -659,6 +738,33 @@ describe('float-to-top', () => {
     expect(order).toEqual(['a', 'b', 'c']);
   });
 
+  test('restore stays in its own list when the same userId exists in another context', () => {
+    // A mutual: a Direct follower row (#main-ui-direct, earlier in the DOM) AND
+    // a group roster row (#group-roster) share data-user-id="b". Float the GROUP
+    // row; the 20s restore must not yank the Direct row across into the group
+    // list (the phantom-member bug).
+    document.body.innerHTML = `
+      <div id="main-ui-direct"><ul id="people-list">
+        <li data-user-id="b">B-direct</li>
+      </ul></div>
+      <div id="group-context-root"><ul id="group-roster">
+        <li data-user-id="x">X</li>
+        <li data-user-id="b">B-group</li>
+      </ul></div>
+    `;
+    const groupLi = document.querySelector('#group-roster [data-user-id="b"]');
+    applyFloatToTop(groupLi);
+    // floated to top of the group roster
+    expect(document.querySelector('#group-roster').firstElementChild).toBe(groupLi);
+    jest.advanceTimersByTime(20000);
+    // Direct row untouched; group row restored below x — and crucially the
+    // Direct row was NOT moved into #group-roster.
+    expect(document.querySelectorAll('#people-list [data-user-id="b"]').length).toBe(1);
+    expect(document.querySelectorAll('#group-roster [data-user-id="b"]').length).toBe(1);
+    const groupOrder = Array.from(document.querySelectorAll('#group-roster li')).map((el) => el.dataset.userId);
+    expect(groupOrder).toEqual(['x', 'b']);
+  });
+
   test('repeated float resets the 20s timer', () => {
     const li = document.querySelector('[data-user-id="b"]');
     applyFloatToTop(li);
@@ -845,7 +951,7 @@ describe('group-card badge', () => {
 });
 
 describe('direct-card badge', () => {
-  let bumpDirectBadge, clearDirectBadge, getDirectBadgeCount;
+  let bumpDirectBadge, clearDirectBadge, getDirectBadgeCount, noteDirectActivity, getCurrentContext;
 
   beforeEach(() => {
     jest.resetModules();
@@ -862,11 +968,26 @@ describe('direct-card badge', () => {
       getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
       onContextChange: jest.fn(() => () => {}),
     }));
-    ({ bumpDirectBadge, clearDirectBadge, getDirectBadgeCount } = require('../js/knock.js'));
+    ({ bumpDirectBadge, clearDirectBadge, getDirectBadgeCount, noteDirectActivity } = require('../js/knock.js'));
+    ({ getCurrentContext } = require('../js/groupNav.js'));
     document.body.innerHTML = `<button class="group-card" data-nav="direct"></button>`;
   });
 
   afterEach(() => { document.body.innerHTML = ''; });
+
+  test('noteDirectActivity pulses the Direct chip when NOT in Direct (e.g. an incoming call in a group)', () => {
+    getCurrentContext.mockReturnValue({ context: 'group', groupId: 'G1' });
+    noteDirectActivity();
+    expect(document.querySelector('.group-card[data-nav="direct"]').classList.contains('knock-pending')).toBe(true);
+    expect(getDirectBadgeCount()).toBe(1);
+  });
+
+  test('noteDirectActivity is a no-op when already in Direct (the activity is visible)', () => {
+    getCurrentContext.mockReturnValue({ context: 'direct', groupId: null });
+    noteDirectActivity();
+    expect(document.querySelector('.group-card[data-nav="direct"]').classList.contains('knock-pending')).toBe(false);
+    expect(getDirectBadgeCount()).toBe(0);
+  });
 
   test('bumpDirectBadge adds the knock-pending pulse to the Direct chip and tracks the count', () => {
     bumpDirectBadge();
@@ -936,6 +1057,21 @@ describe('applyFloatToTop section-label handling', () => {
     const list = document.getElementById('group-roster');
     expect(list.children[0].dataset.userId).toBe('bob');
     expect(list.children[1].dataset.userId).toBe('alice');
+  });
+
+  test('inserts AFTER the owner-only invite row (owner receives a knock)', () => {
+    document.body.innerHTML = `
+      <ul id="group-roster">
+        <li id="group-roster-invite-row"></li>
+        <li data-user-id="alice"></li>
+        <li data-user-id="bob"></li>
+      </ul>`;
+    const bobLi = document.querySelector('[data-user-id="bob"]');
+    applyFloatToTop(bobLi);
+    const list = document.getElementById('group-roster');
+    expect(list.children[0].id).toBe('group-roster-invite-row');
+    expect(list.children[1].dataset.userId).toBe('bob');
+    expect(list.children[2].dataset.userId).toBe('alice');
   });
 });
 

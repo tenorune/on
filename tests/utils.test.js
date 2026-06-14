@@ -1,5 +1,19 @@
 // tests/utils.test.js
-const { hexToRgb } = require('../js/utils.js');
+const { hexToRgb, resolveDisplayName } = require('../js/utils.js');
+
+describe('resolveDisplayName', () => {
+  test('prefers the label when set', () => {
+    expect(resolveDisplayName({ label: 'Bea', code: 'AB12CD' })).toBe('Bea');
+  });
+  test('falls back to the code when the label is empty/absent', () => {
+    expect(resolveDisplayName({ label: '', code: 'AB12CD' })).toBe('AB12CD');
+    expect(resolveDisplayName({ code: 'AB12CD' })).toBe('AB12CD');
+  });
+  test('returns "" rather than undefined for a missing/empty entry', () => {
+    expect(resolveDisplayName(null)).toBe('');
+    expect(resolveDisplayName({})).toBe('');
+  });
+});
 
 describe('hexToRgb', () => {
   test('converts 6-digit hex with # to "r, g, b" string', () => {

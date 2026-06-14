@@ -15,3 +15,10 @@ Object.defineProperty(global, 'crypto', {
 if (typeof global.setImmediate === 'undefined') {
   global.setImmediate = (fn, ...args) => setTimeout(fn, 0, ...args);
 }
+
+// jsdom does not implement window.scrollTo (it throws "Not implemented"); knock.js
+// calls it on knock receipt. Stub it to a no-op so tests don't emit console noise.
+if (typeof window !== 'undefined') {
+  window.scrollTo = () => {};
+}
+

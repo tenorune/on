@@ -1,18 +1,23 @@
 // tests/db.test.js
 const {
   userExists, touchLastSeen, rotateCode, setStatusColor, setPaletteKey,
-  setCallState, clearCallState, getUser,
+  setStatus, watchPresence,
+  startCall, answerCall, endCall, watchOwnCall, getUser,
   claimInviteToken, releaseInviteToken, readInviteIndex,
   readUserInvite, writeUserInvite, deleteUserInvite,
   setInviteRevoked, incrementInviteRedemptions, getCreatorCode,
   watchUserInvites, readUserInvites,
   claimGroupId,
   writeUserGroupsEntry, removeUserGroupsEntry, readUserGroups, watchUserGroups,
-  setLastVisited, setCurrentContext,
-  writeGroup, readGroup, renameGroup, deleteGroup, watchGroupMeta,
+  setLastVisited,
+  writeGroup, readGroup, readGroupName, renameGroup, deleteGroup, watchGroupMeta,
   writeMember, readMember, readMembers, removeMember, setMemberDisplayName, watchGroupMembers,
   writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions, watchGroupInvites,
   setStatusOverride, clearStatusOverride, watchOwnMemberOverride,
+  writeFollowRequest, watchFollowRequests, deleteFollowRequest,
+  writeFollowGrant, watchFollowGrants, deleteFollowGrant,
+  writeKnock, getKnocks, watchKnocksAdded, clearKnock,
+  removeFollower, registerAsFollower, watchRevocations,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -23,12 +28,13 @@ jest.mock('firebase/database', () => ({
   remove: jest.fn(),
   runTransaction: jest.fn(),
   onValue: jest.fn(),
+  onChildAdded: jest.fn(),
 }));
 jest.mock('../js/firebase-config', () => ({ db: {} }));
 jest.mock('../js/identity.js', () => ({ generateCode: jest.fn() }));
 jest.mock('../js/store.js', () => ({ getFollowing: jest.fn() }));
 
-const { ref, get, update, set, remove, runTransaction, onValue } = require('firebase/database');
+const { ref, get, update, set, remove, runTransaction, onValue, onChildAdded } = require('firebase/database');
 const { generateCode } = require('../js/identity.js');
 const { getFollowing } = require('../js/store.js');
 
@@ -36,15 +42,19 @@ test('userExists returns true when Firebase record exists', async () => {
   get.mockResolvedValueOnce({ exists: () => true });
   const result = await userExists('user-123');
   expect(result).toBe(true);
+  // Post-M1: existence is probed via the cross-user-readable presence node,
+  // not the (now owner-only) whole users/{uid} node.
+  expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/user-123/presence');
 });
 
 test('userExists returns false when Firebase record does not exist', async () => {
   get.mockResolvedValueOnce({ exists: () => false });
   const result = await userExists('user-456');
   expect(result).toBe(false);
+  expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/user-456/presence');
 });
 
-test('touchLastSeen writes lastSeen timestamp to users/{userId}', async () => {
+test('touchLastSeen writes lastSeen timestamp to users/{userId}/presence', async () => {
   update.mockResolvedValueOnce();
   await touchLastSeen('user-789');
   expect(update).toHaveBeenCalledWith('mock-ref', expect.objectContaining({ lastSeen: expect.any(Number) }));
@@ -65,7 +75,8 @@ describe('rotateCode', () => {
     const result = await rotateCode('user-1', 'OLD123');
 
     expect(runTransaction).toHaveBeenCalledWith('mock-ref', expect.any(Function));
-    expect(update).toHaveBeenCalledWith('mock-ref', { code: 'NEW456' });
+    // Establishes the new code in one atomic multi-path update (no followers here).
+    expect(update).toHaveBeenCalledWith('mock-ref', { 'users/user-1/presence/code': 'NEW456' });
     expect(remove).toHaveBeenCalledWith('mock-ref');
     expect(result).toBe('NEW456');
   });
@@ -86,7 +97,7 @@ describe('rotateCode', () => {
     expect(result).toBe('NEW456');
   });
 
-  test('calls set once per following entry with correct path value', async () => {
+  test('writes one atomic multi-path update: own code + each follower mirror', async () => {
     getFollowing.mockReturnValue([
       { userId: 'followee-A', code: 'CODEA1', label: 'Alice' },
       { userId: 'followee-B', code: 'CODEB2', label: 'Bob' },
@@ -94,13 +105,17 @@ describe('rotateCode', () => {
     generateCode.mockReturnValue('NEW456');
     runTransaction.mockResolvedValue({ committed: true });
     update.mockResolvedValue();
-    set.mockResolvedValue();
     remove.mockResolvedValue();
 
     await rotateCode('user-1', 'OLD123');
 
-    expect(set).toHaveBeenCalledTimes(2);
-    expect(set).toHaveBeenCalledWith('mock-ref', 'NEW456');
+    // One update covering own presence code + each follower's followers/{me} mirror,
+    // instead of a set() per followee (#214 R6).
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      'users/user-1/presence/code': 'NEW456',
+      'users/followee-A/followers/user-1': 'NEW456',
+      'users/followee-B/followers/user-1': 'NEW456',
+    });
   });
 
   test('failure in step 2 (update) rejects the promise; remove is not called', async () => {
@@ -118,10 +133,10 @@ describe('setStatusColor', () => {
     jest.clearAllMocks();
   });
 
-  test('writes statusColor to users/{userId} path', async () => {
+  test('writes statusColor to users/{userId}/presence path', async () => {
     update.mockResolvedValueOnce();
     await setStatusColor('user-1', '#a855f7');
-    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/user-1');
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/user-1/presence');
     expect(update).toHaveBeenCalledWith('mock-ref', { statusColor: '#a855f7' });
   });
 });
@@ -150,30 +165,49 @@ describe('setPaletteKey', () => {
   });
 });
 
-describe('setCallState', () => {
+describe('call mailboxes', () => {
   beforeEach(() => jest.clearAllMocks());
-
-  test('writes callState {calleeId, since} to users/{callerId}', async () => {
-    update.mockResolvedValueOnce();
-    await setCallState('caller-1', 'callee-2');
-    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/caller-1');
-    expect(update).toHaveBeenCalledWith('mock-ref', {
-      callState: expect.objectContaining({
-        calleeId: 'callee-2',
-        since: expect.any(Number),
-      }),
-    });
+  test('startCall writes both calls/{caller}.to and calls/{callee}.from atomically', async () => {
+    update.mockResolvedValue();
+    await startCall('caller', 'callee');
+    const arg = update.mock.calls[0][1];
+    expect(arg['calls/caller']).toEqual(expect.objectContaining({ to: 'callee', ts: expect.any(Number) }));
+    expect(arg['calls/callee']).toEqual(expect.objectContaining({ from: 'caller', ts: expect.any(Number) }));
   });
-});
+  test('answerCall sets answered on both records', async () => {
+    update.mockResolvedValue();
+    await answerCall('callee', 'caller');
+    const arg = update.mock.calls[0][1];
+    expect(arg['calls/callee/answered']).toBe(true);
+    expect(arg['calls/caller/answered']).toBe(true);
+  });
+  test('endCall nulls both records', async () => {
+    update.mockResolvedValue();
+    await endCall('a', 'b');
+    const arg = update.mock.calls[0][1];
+    expect(arg['calls/a']).toBeNull();
+    expect(arg['calls/b']).toBeNull();
+  });
+  test('watchOwnCall subscribes to calls/{uid}', () => {
+    onValue.mockImplementationOnce(() => () => {});
+    watchOwnCall('me', jest.fn());
+    expect(ref).toHaveBeenCalledWith({}, 'calls/me');
+  });
 
-describe('clearCallState', () => {
-  beforeEach(() => jest.clearAllMocks());
+  test('startCall with a clearUid nulls the prior ringer mailbox in the same update', async () => {
+    update.mockResolvedValue();
+    await startCall('me', 'C', 'B');
+    const arg = update.mock.calls[0][1];
+    expect(arg['calls/me']).toEqual(expect.objectContaining({ to: 'C' }));
+    expect(arg['calls/C']).toEqual(expect.objectContaining({ from: 'me' }));
+    expect(arg['calls/B']).toBeNull();
+  });
 
-  test('sets callState to null on users/{callerId}', async () => {
-    update.mockResolvedValueOnce();
-    await clearCallState('caller-1');
-    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/caller-1');
-    expect(update).toHaveBeenCalledWith('mock-ref', { callState: null });
+  test('startCall ignores a clearUid equal to caller or callee', async () => {
+    update.mockResolvedValue();
+    await startCall('me', 'C', 'me');
+    expect('calls/me' in update.mock.calls[0][1]).toBe(true);
+    expect(update.mock.calls[0][1]['calls/me']).toEqual(expect.objectContaining({ to: 'C' })); // not nulled
   });
 });
 
@@ -245,9 +279,9 @@ describe('readInviteIndex', () => {
 
 describe('readUserInvite', () => {
   test('returns the invite record by uid + token', async () => {
-    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ scope: 'personal', token: 'T', creatorLabel: 'Mike' }) });
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ scope: 'personal', token: 'T', creatorLabel: 'Alex' }) });
     const result = await readUserInvite('uid1', 'T');
-    expect(result).toEqual({ scope: 'personal', token: 'T', creatorLabel: 'Mike' });
+    expect(result).toEqual({ scope: 'personal', token: 'T', creatorLabel: 'Alex' });
   });
 
   test('returns null when absent', async () => {
@@ -260,7 +294,7 @@ describe('readUserInvite', () => {
 describe('writeUserInvite', () => {
   test('writes the full invite record at users/{uid}/invites/{token}', async () => {
     set.mockResolvedValue();
-    const payload = { scope: 'personal', token: 'T', creatorLabel: 'Mike', createdAt: 12345, expiresAt: null, redemptionCap: null, redemptionsUsed: 0, revoked: false };
+    const payload = { scope: 'personal', token: 'T', creatorLabel: 'Alex', createdAt: 12345, expiresAt: null, redemptionCap: null, redemptionsUsed: 0, revoked: false };
     await writeUserInvite('uid1', 'T', payload);
     expect(set).toHaveBeenCalledWith('mock-ref', payload);
     expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/invites/T');
@@ -298,11 +332,11 @@ describe('incrementInviteRedemptions', () => {
 });
 
 describe('getCreatorCode', () => {
-  test('reads users/{creatorUid}/code', async () => {
+  test('reads users/{creatorUid}/presence/code', async () => {
     get.mockResolvedValueOnce({ exists: () => true, val: () => 'ABC123' });
     const code = await getCreatorCode('uid1');
     expect(code).toBe('ABC123');
-    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/code');
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/presence/code');
   });
 
   test('returns null when the user has no code', async () => {
@@ -403,28 +437,11 @@ describe('user-side groups enumeration', () => {
     expect(seen[1]).toEqual({});
   });
 
-  test('setLastVisited updates only the lastVisited field', async () => {
+  test('setLastVisited updates lastVisited on the users/{uid}/groups/{gid} record', async () => {
     update.mockResolvedValue();
     await setLastVisited('uid1', 'G1', 99999);
     expect(update).toHaveBeenCalledWith('mock-ref', { lastVisited: 99999 });
     expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/groups/G1');
-  });
-});
-
-describe('currentContext sync', () => {
-  beforeEach(() => { jest.clearAllMocks(); });
-
-  test('setCurrentContext writes users/{uid}/currentContext', async () => {
-    set.mockResolvedValue();
-    await setCurrentContext('uid1', 'group:G1');
-    expect(set).toHaveBeenCalledWith('mock-ref', 'group:G1');
-    expect(ref).toHaveBeenLastCalledWith({}, 'users/uid1/currentContext');
-  });
-
-  test('setCurrentContext can be set to direct', async () => {
-    set.mockResolvedValue();
-    await setCurrentContext('uid1', 'direct');
-    expect(set).toHaveBeenCalledWith('mock-ref', 'direct');
   });
 });
 
@@ -448,6 +465,18 @@ describe('group entity ops', () => {
   test('readGroup returns null when missing', async () => {
     get.mockResolvedValueOnce({ exists: () => false });
     expect(await readGroup('NOPE0001')).toBeNull();
+  });
+
+  test('readGroupName reads only the name leaf and wraps it as { name }', async () => {
+    get.mockResolvedValueOnce({ exists: () => true, val: () => 'Family' });
+    const result = await readGroupName('G1ABCD23');
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'groups/G1ABCD23/name');
+    expect(result).toEqual({ name: 'Family' });
+  });
+
+  test('readGroupName returns null when the group (name leaf) is missing', async () => {
+    get.mockResolvedValueOnce({ exists: () => false });
+    expect(await readGroupName('NOPE0001')).toBeNull();
   });
 
   test('renameGroup writes only the name field', async () => {
@@ -481,16 +510,16 @@ describe('group members', () => {
 
   test('writeMember writes the full member record', async () => {
     set.mockResolvedValue();
-    const member = { role: 'member', displayName: 'Mike P.', joinedAt: 1234 };
+    const member = { role: 'member', displayName: 'Alex K.', joinedAt: 1234 };
     await writeMember('G1', 'uid2', member);
     expect(set).toHaveBeenCalledWith('mock-ref', member);
     expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uid2');
   });
 
   test('readMember returns the record', async () => {
-    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ role: 'member', displayName: 'Mike', joinedAt: 1 }) });
+    get.mockResolvedValueOnce({ exists: () => true, val: () => ({ role: 'member', displayName: 'Alex', joinedAt: 1 }) });
     const result = await readMember('G1', 'uid2');
-    expect(result).toEqual({ role: 'member', displayName: 'Mike', joinedAt: 1 });
+    expect(result).toEqual({ role: 'member', displayName: 'Alex', joinedAt: 1 });
   });
 
   test('readMember returns null when missing', async () => {
@@ -624,23 +653,175 @@ describe('statusOverride helpers', () => {
 });
 
 describe('registerAsFollower', () => {
-  const { registerAsFollower } = require('../js/db');
-  test('writes the followers entry and clears any prior revokedFollowers flag, in that order', async () => {
+  test('writes the followers entry and clears any prior revocations entry, in that order', async () => {
     set.mockResolvedValue();
     remove.mockResolvedValue();
     ref.mockClear();
     await registerAsFollower('targetUid', 'meUid', 'ABC123');
-    // Both writes happen — revokedFollowers/me cleared, followers/me set.
+    // Both writes happen — revocations/me/target cleared, followers/me set.
     const refPaths = ref.mock.calls.map((args) => args[1]);
     expect(refPaths).toContain('users/targetUid/followers/meUid');
-    expect(refPaths).toContain('users/targetUid/revokedFollowers/meUid');
+    expect(refPaths).toContain('revocations/meUid/targetUid');
     expect(set).toHaveBeenCalledWith('mock-ref', 'ABC123');
     expect(remove).toHaveBeenCalledWith('mock-ref');
-    // Order: revokedFollowers clear must precede the followers write so a
-    // subscriber's watchStatus tick can't echo the followers update with the
-    // revocation still set (which would trigger the auto-unfollow check).
-    const revokeIdx = refPaths.indexOf('users/targetUid/revokedFollowers/meUid');
+    // Order: revocation clear must precede the followers write so the
+    // receiver's revocation watcher can't fire on the followers update while
+    // the revocation entry is still present and silently undo the new follow.
+    const revokeIdx = refPaths.indexOf('revocations/meUid/targetUid');
     const followersIdx = refPaths.indexOf('users/targetUid/followers/meUid');
     expect(revokeIdx).toBeLessThan(followersIdx);
   });
+});
+
+describe('follow request/grant mailboxes', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('writeFollowRequest sets followRequests/{target}/{requester}', async () => {
+    set.mockResolvedValueOnce();
+    await writeFollowRequest('req', 'tgt', 'g1');
+    expect(ref).toHaveBeenCalledWith({}, 'followRequests/tgt/req');
+    expect(set).toHaveBeenCalledWith('mock-ref',
+      expect.objectContaining({ from: 'req', groupId: 'g1', ts: expect.any(Number) }));
+  });
+
+  test('deleteFollowRequest removes followRequests/{target}/{requester}', async () => {
+    remove.mockResolvedValueOnce();
+    await deleteFollowRequest('tgt', 'req');
+    expect(ref).toHaveBeenCalledWith({}, 'followRequests/tgt/req');
+    expect(remove).toHaveBeenCalledWith('mock-ref');
+  });
+
+  test('watchFollowRequests subscribes to followRequests/{target} and maps empty', () => {
+    let handler;
+    onValue.mockImplementationOnce((_ref, cb) => { handler = cb; return () => {}; });
+    const got = jest.fn();
+    watchFollowRequests('tgt', got);
+    expect(ref).toHaveBeenCalledWith({}, 'followRequests/tgt');
+    handler({ exists: () => false, val: () => null });
+    expect(got).toHaveBeenCalledWith({});
+    handler({ exists: () => true, val: () => ({ req: { from: 'req', groupId: 'g1', ts: 1 } }) });
+    expect(got).toHaveBeenCalledWith({ req: { from: 'req', groupId: 'g1', ts: 1 } });
+  });
+
+  test('writeFollowGrant sets followGrants/{requester}/{target} with target code', async () => {
+    set.mockResolvedValueOnce();
+    await writeFollowGrant('req', 'tgt', 'TGTCODE', 'Bea');
+    expect(ref).toHaveBeenCalledWith({}, 'followGrants/req/tgt');
+    expect(set).toHaveBeenCalledWith('mock-ref',
+      expect.objectContaining({ from: 'tgt', code: 'TGTCODE', name: 'Bea', ts: expect.any(Number) }));
+  });
+
+  test('writeFollowGrant stores null name when omitted', async () => {
+    set.mockResolvedValueOnce();
+    await writeFollowGrant('req', 'tgt', 'TGTCODE');
+    expect(set).toHaveBeenCalledWith('mock-ref',
+      expect.objectContaining({ name: null }));
+  });
+
+  test('deleteFollowGrant removes followGrants/{requester}/{target}', async () => {
+    remove.mockResolvedValueOnce();
+    await deleteFollowGrant('req', 'tgt');
+    expect(ref).toHaveBeenCalledWith({}, 'followGrants/req/tgt');
+    expect(remove).toHaveBeenCalledWith('mock-ref');
+  });
+
+  test('watchFollowGrants subscribes to followGrants/{requester}', () => {
+    let handler;
+    onValue.mockImplementationOnce((_ref, cb) => { handler = cb; return () => {}; });
+    const got = jest.fn();
+    watchFollowGrants('req', got);
+    expect(ref).toHaveBeenCalledWith({}, 'followGrants/req');
+    handler({ exists: () => true, val: () => ({ tgt: { from: 'tgt', code: 'C', ts: 1 } }) });
+    expect(got).toHaveBeenCalledWith({ tgt: { from: 'tgt', code: 'C', ts: 1 } });
+  });
+});
+
+describe('knocks moved to top-level mailbox', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('writeKnock targets knocks/{recipient}/{sender}', async () => {
+    runTransaction.mockResolvedValueOnce({ committed: true });
+    await writeKnock('rcpt', 'sndr', {});
+    expect(ref).toHaveBeenCalledWith({}, 'knocks/rcpt/sndr');
+  });
+
+  test('getKnocks reads knocks/{recipient}', () => {
+    get.mockReturnValueOnce(Promise.resolve({ exists: () => false }));
+    getKnocks('me');
+    expect(ref).toHaveBeenCalledWith({}, 'knocks/me');
+  });
+
+  test('watchKnocksAdded subscribes to knocks/{recipient}', () => {
+    onChildAdded.mockImplementationOnce(() => () => {});
+    watchKnocksAdded('me', jest.fn());
+    expect(ref).toHaveBeenCalledWith({}, 'knocks/me');
+  });
+
+  test('clearKnock removes knocks/{recipient}/{sender}', () => {
+    remove.mockReturnValueOnce(Promise.resolve());
+    clearKnock('me', 'sndr');
+    expect(ref).toHaveBeenCalledWith({}, 'knocks/me/sndr');
+  });
+});
+
+describe('revocations mailbox', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('removeFollower removes the follower and writes revocations/{follower}/{me}', async () => {
+    remove.mockResolvedValue(); set.mockResolvedValue();
+    await removeFollower('me', 'fol');
+    expect(ref).toHaveBeenCalledWith({}, 'users/me/followers/fol');
+    expect(ref).toHaveBeenCalledWith({}, 'revocations/fol/me');
+    expect(set).toHaveBeenCalledWith('mock-ref', true);
+  });
+
+  test('registerAsFollower clears revocations/{me}/{target} before setting followers', async () => {
+    remove.mockResolvedValue(); set.mockResolvedValue();
+    await registerAsFollower('target', 'me', 'CODE');
+    expect(ref).toHaveBeenCalledWith({}, 'revocations/me/target');
+    expect(ref).toHaveBeenCalledWith({}, 'users/target/followers/me');
+  });
+
+  test('watchRevocations subscribes to revocations/{me}', () => {
+    onValue.mockImplementationOnce(() => () => {});
+    watchRevocations('me', jest.fn());
+    expect(ref).toHaveBeenCalledWith({}, 'revocations/me');
+  });
+});
+
+describe('presence subtree', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('setStatus writes under users/{uid}/presence', async () => {
+    update.mockResolvedValue();
+    await setStatus('me', 'available', 123);
+    expect(ref).toHaveBeenCalledWith({}, 'users/me/presence');
+    expect(update).toHaveBeenCalledWith('mock-ref', expect.objectContaining({ status: 'available', availableUntil: 123 }));
+  });
+
+  test('setStatusColor / setPaletteKey / touchLastSeen write under presence', async () => {
+    update.mockResolvedValue();
+    await setStatusColor('me', '#fff');
+    expect(ref).toHaveBeenCalledWith({}, 'users/me/presence');
+    jest.clearAllMocks(); update.mockResolvedValue();
+    await setPaletteKey('me', 'iris');
+    expect(ref).toHaveBeenCalledWith({}, 'users/me/presence');
+    jest.clearAllMocks(); update.mockResolvedValue();
+    await touchLastSeen('me');
+    expect(ref).toHaveBeenCalledWith({}, 'users/me/presence');
+  });
+
+  test('watchPresence subscribes to users/{uid}/presence and returns the subtree', () => {
+    let handler;
+    onValue.mockImplementationOnce((_r, cb) => { handler = cb; return () => {}; });
+    const got = jest.fn();
+    watchPresence('me', got);
+    expect(ref).toHaveBeenCalledWith({}, 'users/me/presence');
+    handler({ exists: () => true, val: () => ({ status: 'available' }) });
+    expect(got).toHaveBeenCalledWith({ status: 'available' });
+    handler({ exists: () => false, val: () => null });
+    expect(got).toHaveBeenCalledWith(null);
+  });
+  // (setLastVisited is covered in the 'user-side groups enumeration' describe —
+  // not a presence field, so no duplicate here.)
 });

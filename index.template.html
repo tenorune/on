@@ -59,26 +59,39 @@
       <!-- State A: create -->
       <div id="invite-modal-create" class="hidden">
         <label id="invite-modal-label-hint" class="modal-label" for="invite-modal-label-input">Your name on the invite</label>
-        <input id="invite-modal-label-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Mike P." />
+        <input id="invite-modal-label-input" class="text-input" type="text" maxlength="40" placeholder="e.g. Alex K." />
         <p id="invite-modal-label-error" class="error-msg hidden"></p>
         <div class="modal-actions">
           <button id="invite-modal-create-btn" class="primary-btn">Create invite link</button>
-          <button id="invite-modal-cancel-btn" class="ghost-btn">Cancel</button>
         </div>
       </div>
 
       <!-- State B: manage -->
       <div id="invite-modal-manage" class="hidden">
+        <div id="invite-modal-url-prefix" class="invite-url-prefix"></div>
         <div class="recovery-display">
           <code id="invite-modal-url" class="recovery-code-text"></code>
-          <button id="invite-modal-regen-btn" class="rotate-btn" title="Generate new invite link" aria-label="Generate new invite link">↻</button>
+          <span class="regen-slot"><button id="invite-modal-regen-btn" class="rotate-btn" title="Generate new invite link" aria-label="Generate new invite link">↻</button></span>
           <button id="invite-modal-copy-btn" class="ghost-btn">Copy</button>
         </div>
         <div class="modal-actions">
           <button id="invite-modal-revoke-btn" class="ghost-btn">Revoke</button>
-          <button id="invite-modal-close-btn" class="primary-btn">Close</button>
         </div>
       </div>
+
+      <!-- Section 2: in-app picker (group scope only) -->
+      <div id="invite-modal-picker" class="hidden invite-picker">
+        <p id="invite-modal-picker-framing" class="invite-picker-framing">Invite specific people directly into the group.</p>
+        <button id="invite-modal-picker-send-btn" class="primary-btn">Invite</button>
+        <ul id="invite-modal-picker-list" class="invite-picker-list"></ul>
+      </div>
+    </div>
+  </div>
+
+  <div id="inbox-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="inbox-modal-title">
+    <div class="modal-card">
+      <h2 id="inbox-modal-title" class="modal-title">Inbox</h2>
+      <ul id="inbox-modal-list" class="inbox-modal-list"></ul>
     </div>
   </div>
 
@@ -116,7 +129,7 @@
       <h3>This is your secret phrase</h3>
       <div class="recovery-display">
         <span id="recovery-code-text" class="recovery-code-text"></span>
-        <button id="recovery-rotate-btn" class="rotate-btn" title="Generate new secret phrase" aria-label="Generate new secret phrase">↻</button>
+        <span class="regen-slot"><button id="recovery-rotate-btn" class="rotate-btn" title="Generate new secret phrase" aria-label="Generate new secret phrase">↻</button></span>
         <button id="recovery-copy-btn" class="ghost-btn">Copy</button>
       </div>
       <p class="recovery-warning">Save this somewhere safe. It's the only way to restore your account if you lose this browser. We can't recover it for you.</p>
@@ -192,9 +205,9 @@
       <button id="add-person-btn" class="add-btn">Add a person</button>
       <div id="add-person-form">
         <div class="add-form">
-          <label class="field-label">Code</label>
+          <label class="field-label" for="add-code-input">Code</label>
           <input id="add-code-input" type="text" maxlength="6" placeholder="e.g. XK7P2M" class="code-input" autocomplete="off" />
-          <label class="field-label">Name (optional)</label>
+          <label class="field-label" for="add-label-input">Name (optional)</label>
           <input id="add-label-input" type="text" maxlength="40" placeholder="e.g. Partner, Mom" class="text-input" />
           <p id="add-error" class="error-msg hidden"></p>
           <div style="display:flex;gap:8px">
@@ -223,7 +236,6 @@
               <div class="group-actions-menu">
                 <button id="group-action-edit-name" class="ghost-btn hidden">Edit my name</button>
                 <button id="group-action-leave" class="ghost-btn hidden">Leave group</button>
-                <button id="group-action-invite" class="ghost-btn hidden">Invite link</button>
                 <button id="group-action-rename" class="ghost-btn hidden">Rename group</button>
                 <button id="group-action-delete" class="ghost-btn hidden">Delete group</button>
               </div>
@@ -247,6 +259,12 @@
   <div id="group-removal-toast" class="group-removal-toast hidden" role="alert">
     <span id="group-removal-toast-text"></span>
     <button id="group-removal-toast-dismiss" class="ghost-btn">OK</button>
+  </div>
+
+  <div id="notify-promo" class="notify-promo hidden" role="region" aria-label="Notifications">
+    <span id="notify-promo-text"></span>
+    <button id="notify-promo-action" class="primary-btn hidden"></button>
+    <button id="notify-promo-dismiss" class="ghost-btn" aria-label="Close">Close</button>
   </div>
 
   <script src="dist/bundle.js"></script>

@@ -11,7 +11,7 @@
 // To make a piece of state syncable: add a getter (defaults to localStorage),
 // add a setter (writes both layers), handle it in syncFromServer.
 
-import { mergeUserPrefs } from './db.js';
+import { mergeUserPrefs, readPushTokens } from './db.js';
 import {
   getPaletteState as storeGetPaletteState,
   setPaletteState as storeSetPaletteState,
@@ -21,7 +21,13 @@ import {
   setLastTimeout as storeSetLastTimeout,
   getGroupChipMinutes as storeGetGroupChipMinutes,
   setGroupChipMinutes as storeSetGroupChipMinutes,
+  getFollowing as storeGetFollowing,
 } from './store.js';
+
+// Re-export for modules (e.g. inbox.js) that import following data via prefs.
+export function getFollowing() {
+  return storeGetFollowing();
+}
 
 let _myUserId = null;
 
@@ -41,6 +47,7 @@ const HINT_KEYS = {
   longpress:   'statusapp_seen_longpress',
   swipe:       'statusapp_seen_swipe',
   customAvail: 'statusapp_went_avail_custom',
+  notifyPromo: 'statusapp_seen_notify_promo',
 };
 
 export function isHintSeen(name) {
@@ -110,6 +117,17 @@ export function setPaletteState(state) {
   if (_myUserId) mergeUserPrefs(_myUserId, { 'paletteState/direct': state }).catch(() => {});
 }
 
+// localStorage-only palette-state write — does NOT touch userPrefs. Used by
+// syncPaletteStateFromServer, which reconstructs the ACTIVE set from the
+// broadcast presence (statusColor/paletteKey). On a fresh-device sign-in it runs
+// before watchUserPrefs has hydrated paletteState, so the local INACTIVE set is
+// still this device's default; pushing the whole object to userPrefs (as
+// setPaletteState would) clobbers the server's real inactive-set selection.
+// Writing locally only lets the userPrefs sync own the inactive set.
+export function setPaletteStateLocal(state) {
+  storeSetPaletteState(state);
+}
+
 // Per-group palette state (was inline in groupContext.js). Keyed shape:
 //   userPrefs/{uid}/perGroup/{groupId}/paletteState
 const GROUP_PALETTE_LS = (groupId) => `statusapp_group_palette_${groupId}`;
@@ -145,6 +163,19 @@ export function setGroupPaletteState(groupId, state) {
   } catch { /* ignore quota errors */ }
   if (_myUserId) {
     mergeUserPrefs(_myUserId, { [`perGroup/${groupId}/paletteState`]: state }).catch(() => {});
+  }
+}
+
+// Drop the per-group palette selection (local + synced) so the next read
+// returns DEFAULT_GROUP_PALETTE_STATE. Called on a fresh (re)join: a member's
+// stale selection must not survive a leave, or it gets seeded into the new
+// color-less override as an impossible color+theme combo (#group rejoin).
+export function clearGroupPaletteState(groupId) {
+  try {
+    localStorage.removeItem(GROUP_PALETTE_LS(groupId));
+  } catch { /* ignore */ }
+  if (_myUserId) {
+    mergeUserPrefs(_myUserId, { [`perGroup/${groupId}/paletteState`]: null }).catch(() => {});
   }
 }
 
@@ -190,10 +221,6 @@ export function setGroupChipMinutes(groupId, minutes) {
 // Localstorage cache key is kept so any inline fallback reads keep working.
 const CURRENT_CONTEXT_KEY = 'statusapp_current_context';
 
-export function getCurrentContextCached() {
-  return localStorage.getItem(CURRENT_CONTEXT_KEY) || 'direct';
-}
-
 export function setCurrentContext(value) {
   const v = value || 'direct';
   if (localStorage.getItem(CURRENT_CONTEXT_KEY) !== v) {
@@ -217,6 +244,110 @@ function dedupeServerFavorites(arr) {
     out.push(c);
   }
   return out;
+}
+
+// ── Per-person notification preferences ──────────────────────────────────────
+// Cached as a single JSON map in localStorage so reads stay synchronous.
+// Writes hit userPrefs/{uid}/notify/{targetUid}/{type} via mergeUserPrefs.
+const NOTIFY_KEY = 'statusapp_notify_prefs';
+
+function readNotifyCache() {
+  try { return JSON.parse(localStorage.getItem(NOTIFY_KEY)) || {}; }
+  catch { return {}; }
+}
+function writeNotifyCache(map) {
+  try { localStorage.setItem(NOTIFY_KEY, JSON.stringify(map)); } catch { /* quota */ }
+}
+
+export function getNotifyPrefs(targetUid) {
+  const t = readNotifyCache()[targetUid] || {};
+  return { knock: !!t.knock, call: !!t.call, availability: !!t.availability };
+}
+
+export function setNotifyPref(targetUid, type, on) {
+  const map = readNotifyCache();
+  map[targetUid] = { ...getNotifyPrefs(targetUid), [type]: !!on };
+  writeNotifyCache(map);
+  if (_myUserId) mergeUserPrefs(_myUserId, { [`notify/${targetUid}/${type}`]: !!on }).catch(() => {});
+}
+
+// True if the user has at least one per-contact notify pref enabled. Used to
+// detect the "enabled bells but this device can't deliver" state (e.g. a
+// restored account on a new device with no OS permission/token yet).
+export function hasAnyNotifyPrefEnabled() {
+  for (const t of Object.values(readNotifyCache())) {
+    if (t && (t.knock || t.call || t.availability)) return true;
+  }
+  return false;
+}
+
+// ── Push-token registry ──────────────────────────────────────────────────────
+const PUSH_TOKEN_KEY = 'statusapp_push_token';
+
+export function getRegisteredPushToken() {
+  return localStorage.getItem(PUSH_TOKEN_KEY) || null;
+}
+
+// 90 days. A device that's opened within this window re-stamps its token's
+// lastSeen (refreshPushToken → touchPushToken), so only genuinely dormant
+// tokens age out. Generous so a rarely-used second device isn't culled.
+const PUSH_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+export function addPushToken(token) {
+  if (!token) return;
+  try { localStorage.setItem(PUSH_TOKEN_KEY, token); } catch { /* quota */ }
+  if (_myUserId) {
+    const now = Date.now();
+    mergeUserPrefs(_myUserId, {
+      [`pushTokens/${token}`]: { createdAt: now, lastSeen: now, ua: navigator.userAgent || '' },
+    }).catch(() => {});
+  }
+}
+
+// Bump lastSeen on an already-registered token (every load while permission is
+// granted), preserving createdAt/ua. Drives the stale-token TTL cull below.
+export function touchPushToken(token) {
+  if (!token || !_myUserId) return;
+  mergeUserPrefs(_myUserId, { [`pushTokens/${token}/lastSeen`]: Date.now() }).catch(() => {});
+}
+
+// Prune the user's own tokens not seen within the TTL — orphans left by deleted
+// installs / browser-profile churn that the owning device never reloads to
+// clean. Self-cull from the active device (its own token is excluded and was
+// just touched, so it's never removed). Reactive `registration-token-not-
+// registered` pruning in the sender remains the second safety net. See #157.
+export async function cullStalePushTokens() {
+  if (!_myUserId) return;
+  let map;
+  try { map = await readPushTokens(_myUserId); } catch { return; }
+  const stale = selectStalePushTokens(map, {
+    activeToken: getRegisteredPushToken(), now: Date.now(), maxAgeMs: PUSH_TOKEN_TTL_MS,
+  });
+  if (!stale.length) return;
+  const updates = {};
+  for (const token of stale) updates[`pushTokens/${token}`] = null;
+  await mergeUserPrefs(_myUserId, updates).catch(() => {});
+}
+
+export function removePushToken(token) {
+  if (!token) return;
+  if (localStorage.getItem(PUSH_TOKEN_KEY) === token) localStorage.removeItem(PUSH_TOKEN_KEY);
+  if (_myUserId) mergeUserPrefs(_myUserId, { [`pushTokens/${token}`]: null }).catch(() => {});
+}
+
+// Pure: which tokens in `map` are stale (last seen beyond maxAgeMs), excluding
+// the active token. Falls back to createdAt for legacy records without lastSeen.
+// Repeated installs (deleted PWAs, browser-profile churn) orphan tokens that the
+// owning device never reloads to clean — this is the freshness signal that lets
+// an active device prune them. See #157.
+export function selectStalePushTokens(map, { activeToken, now, maxAgeMs }) {
+  const stale = [];
+  for (const [token, rec] of Object.entries(map || {})) {
+    if (token === activeToken) continue;
+    const ts = (rec && (typeof rec.lastSeen === 'number' ? rec.lastSeen : rec.createdAt)) || 0;
+    if (now - ts > maxAgeMs) stale.push(token);
+  }
+  return stale;
 }
 
 // ── Watch reconciliation ─────────────────────────────────────────────────────
@@ -311,5 +442,16 @@ export function syncFromServer(serverPrefs) {
         }));
       }
     }
+  }
+  // Notification preferences (per-person knock/call/availability)
+  if (serverPrefs.notify && typeof serverPrefs.notify === 'object') {
+    const map = readNotifyCache();
+    for (const [targetUid, prefs] of Object.entries(serverPrefs.notify)) {
+      map[targetUid] = {
+        knock: !!prefs?.knock, call: !!prefs?.call, availability: !!prefs?.availability,
+      };
+    }
+    writeNotifyCache(map);
+    document.dispatchEvent(new CustomEvent('notify-prefs-synced'));
   }
 }

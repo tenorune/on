@@ -1,4 +1,5 @@
 // tests/swatch-renderers.compat.test.js
+jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
 // Cross-renderer compatibility test.
 //
 // The Direct (#swatch-row) and Group (#group-swatch-row) swatch pickers are
@@ -9,8 +10,11 @@
 // is exactly what produced the theme-hint and key-spin bugs. This test
 // pins the shapes that should match so future drift fails noisily.
 //
+// Both renderers now emit <button type="button"> swatches (issue #116 — the
+// last semantic divergence, resolved; tag is asserted in palettes.test.js /
+// groupContext.test.js).
+//
 // Intentionally NOT asserted (these are the known/accepted differences):
-//   - swatch tagName (<div> vs <button>) — tracked in issue #116
 //   - container id (#swatch-row vs #group-swatch-row)
 //   - dataset attribute name (data-key vs data-palette-key)
 //   - extra class (.group-swatch on group swatches)
@@ -32,6 +36,7 @@ jest.mock('../js/db.js', () => ({
   setPaletteKey: jest.fn().mockResolvedValue(undefined),
   setStatus: jest.fn().mockResolvedValue(undefined),
   isExpired: () => false,
+  isAvailable: (s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now()),
   watchGroupMeta: jest.fn(() => () => {}),
   watchGroupMembers: jest.fn((_gid, cb) => { cb({}); return () => {}; }),
   watchGroupInvites: jest.fn(() => () => {}),
@@ -42,6 +47,10 @@ jest.mock('../js/db.js', () => ({
   timeRemainingMs: jest.fn((until) => Math.max(0, until - Date.now())),
   formatTimeRemaining: jest.fn(() => ''),
   formatTimeRemainingFuzzy: jest.fn(() => ''),
+  watchPendingInvites: jest.fn(() => () => {}),
+  writePendingInvite: jest.fn().mockResolvedValue(undefined),
+  deletePendingInvite: jest.fn().mockResolvedValue(undefined),
+  readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock('../js/store.js', () => ({
@@ -81,6 +90,8 @@ jest.mock('../js/groupNav.js', () => ({
   getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
   applyOptimisticAppearance: jest.fn(),
   onContextChange: jest.fn(),
+  subscribeGroupMeta: jest.fn(() => () => {}),
+  subscribeOwnOverride: jest.fn(() => () => {}),
 }));
 
 jest.mock('../js/groups.js', () => ({
@@ -124,6 +135,7 @@ if (typeof PointerEvent === 'undefined') {
 }
 
 const db = require('../js/db.js');
+const groupNav = require('../js/groupNav.js');
 const { initSwatches, enterPaletteMode } = require('../js/palettes.js');
 const { enterGroupContext, exitGroupContext } = require('../js/groupContext.js');
 
@@ -159,7 +171,6 @@ function groupDom() {
             <summary></summary>
             <div class="group-actions-menu">
               <button id="group-action-rename" class="hidden"></button>
-              <button id="group-action-invite" class="hidden"></button>
               <button id="group-action-delete" class="hidden"></button>
               <button id="group-action-edit-name" class="hidden"></button>
               <button id="group-action-leave" class="hidden"></button>
@@ -183,12 +194,10 @@ function renderDirect(paletteState) {
 function renderGroup(paletteState, override) {
   mockState.group = { G1: paletteState };
   groupDom();
-  let overrideCb;
-  db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => { overrideCb = cb; return () => {}; });
-  db.watchGroupMeta.mockImplementation((_gid, cb) => { cb({ name: 'Family', ownerId: 'uid1', createdAt: 1 }); return () => {}; });
+  groupNav.subscribeGroupMeta.mockImplementation((_gid, cb) => { cb({ name: 'Family', ownerId: 'uid1', createdAt: 1 }); return () => {}; });
   db.watchStatus.mockImplementation((_uid, cb) => { cb({}); return () => {}; });
   db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-  db.watchOwnMemberOverride.mockImplementation((_gid, _uid, cb) => { overrideCb = cb; cb(override); return () => {}; });
+  groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => { cb(override); return () => {}; });
   enterGroupContext('G1', 'uid1');
   return document.getElementById('group-swatch-row');
 }
