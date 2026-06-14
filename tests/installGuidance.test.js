@@ -44,6 +44,26 @@ test('iOS Safari installed (standalone, Push API present) → supported', () => 
   expect(detectNotifyCapability().state).toBe('supported');
 });
 
+test('in-browser macOS Safari (not installed) → needs-install-macos', () => {
+  // In-browser macOS Safari has the Push API, but delivery is unreliable there;
+  // the working path is an installed Dock app. Treat it like iOS needs-install.
+  setUA('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15');
+  setStandalone(false);
+  expect(detectNotifyCapability().state).toBe('needs-install-macos');
+});
+
+test('installed (Dock) macOS Safari web app → supported', () => {
+  setUA('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15');
+  setStandalone(true);
+  expect(detectNotifyCapability().state).toBe('supported');
+});
+
+test('desktop Chrome on macOS is NOT treated as needs-install-macos', () => {
+  setUA('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36');
+  setStandalone(false);
+  expect(detectNotifyCapability().state).toBe('supported');
+});
+
 const { guidanceCopyFor } = require('../js/installGuidance.js');
 
 test('guidanceCopyFor maps each state to a non-empty message', () => {
@@ -69,4 +89,10 @@ test('denied copy points to the address-bar site settings on non-Safari', () => 
 test('iOS install copy includes the secret-phrase reminder flag', () => {
   expect(guidanceCopyFor('needs-install-ios').remindPhrase).toBe(true);
   expect(guidanceCopyFor('denied').remindPhrase).toBe(false);
+});
+
+test('macOS install copy points to the Dock and includes the secret-phrase reminder', () => {
+  const copy = guidanceCopyFor('needs-install-macos');
+  expect(copy.body).toMatch(/Dock/i);
+  expect(copy.remindPhrase).toBe(true);
 });
