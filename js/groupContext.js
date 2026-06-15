@@ -411,6 +411,7 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
     const showHint = isLongpressHintEligible()
       && _ownOverride?.enabled === true
       && available
+      && (color || paletteKey) // nothing to adopt from a colorless member (palettes off)
       && (color !== (_ownOverride?.statusColor || null) || paletteKey !== (_ownOverride?.paletteKey || null));
     const existing = li.querySelector('.longpress-hint');
     if (!showHint && existing) {
@@ -1095,6 +1096,11 @@ export function enterGroupContext(groupId, userId) {
         _ownOverride = { ..._ownOverride, statusColor: seed };
         setOverrideAppearance(groupId, userId, { statusColor: seed }).catch(() => {});
       }
+    } else if (!PALETTES_ENABLED && _ownOverride && (_ownOverride.statusColor || _ownOverride.paletteKey)) {
+      // Palettes off → don't broadcast a stale override color/palette to
+      // co-members. Mirror the Direct presence clear in app.js.
+      _ownOverride = { ..._ownOverride, statusColor: null, paletteKey: null };
+      setOverrideAppearance(groupId, userId, { statusColor: null, paletteKey: null }).catch(() => {});
     }
     applyEffectivePalette();
     renderOwnStatusRow();
@@ -1329,6 +1335,12 @@ function triggerGroupAdoption(srcUid, ownUid) {
   // _membersOverrides is a plain object keyed by uid; _memberPrimaries is a Map.
   const srcOverride = _membersOverrides?.[srcUid] || null;
   const srcPrimary  = _memberPrimaries?.get(srcUid) || null;
+  // Nothing to adopt from a colorless member (e.g. palettes off → broadcasts no
+  // color/palette). Without this the forest fallback below would "adopt" a
+  // default the source never chose.
+  const srcColor   = srcOverride?.enabled ? srcOverride.statusColor : srcPrimary?.statusColor;
+  const srcPalette = srcOverride?.enabled ? srcOverride.paletteKey  : srcPrimary?.paletteKey;
+  if (!srcColor && !srcPalette) return;
   let adoptedColor, adoptedPaletteKey;
   if (srcOverride?.enabled && srcOverride.statusColor) {
     adoptedColor      = srcOverride.statusColor;

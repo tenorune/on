@@ -522,6 +522,10 @@ function renderList() {
 function applyAdoption(entry, myUserId) {
   const targetData = lastUserData.get(entry.userId);
 
+  // Nothing to adopt from a colorless contact (e.g. they have palettes off and
+  // broadcast no color/palette).
+  if (!targetData?.statusColor && !targetData?.paletteKey) return;
+
   // Set CSS vars first so renderStrip reads the correct color when palette-state-changed fires
   if (targetData?.statusColor) {
     document.documentElement.style.setProperty('--my-status', targetData.statusColor);
@@ -971,6 +975,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
       && isLongpressHintEligible()
       && !isCallee && !isCallModeReceiver
       && isAvail
+      && (peerColor || peerTheme) // nothing to adopt from a colorless peer (palettes off)
       && !isMyCombo;
   // Swipe-right call hint: same gate as long-press, first mutual only
   const isFirstMutual = li.dataset.mutual === '1'

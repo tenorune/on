@@ -1707,7 +1707,9 @@ describe('group-context long-press adoption', () => {
       { statusColor: '#abcdef', paletteKey: 'forest' });
   });
 
-  test('source falls back to forest #22c55e when neither override nor primary has a color', () => {
+  test('adopting a member with no color or palette is a no-op (nothing to adopt)', () => {
+    // A colorless member (e.g. palettes off → broadcasts no color/palette) must
+    // not be adoptable — we do not "adopt" a forest default the source never chose.
     groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
@@ -1723,10 +1725,10 @@ describe('group-context long-press adoption', () => {
     setupContextDom();
     enterGroupContext('G1', 'me');
     const li = document.querySelector('#group-roster li[data-user-id="src"]');
+    groups.setOverrideAppearance.mockClear();
     li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
     jest.advanceTimersByTime(600);
-    expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
-      { statusColor: '#22c55e', paletteKey: null });
+    expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
   });
 
   test('marks longpress hint seen on first adoption', () => {
@@ -2203,5 +2205,15 @@ describe('palettes disabled: group dots use defaults, not stored colors', () => 
     const dot = document.getElementById('group-my-dot');
     expect(dot.dataset.available).toBe('true');
     expect(dot.style.background).toBe(''); // no inline color → CSS .dot.available (var(--my-status))
+  });
+
+  test('a stale override color/palette is cleared from the broadcast when palettes are off', () => {
+    let overrideCb;
+    const groups2 = require('../js/groups.js');
+    groupNav2.subscribeOwnOverride.mockImplementation((g, cb) => { overrideCb = cb; return () => {}; });
+    db2.watchGroupMembers.mockImplementation(() => () => {});
+    enterGroupContext2('G1', 'me');
+    overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#ff00ff', paletteKey: 'iris' });
+    expect(groups2.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me', { statusColor: null, paletteKey: null });
   });
 });

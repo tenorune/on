@@ -92,6 +92,7 @@ jest.mock('../js/db.js', () => ({
   startCall: jest.fn().mockResolvedValue(undefined),
   answerCall: jest.fn().mockResolvedValue(undefined),
   setStatusColor: jest.fn().mockResolvedValue(undefined),
+  setPaletteKey: jest.fn().mockResolvedValue(undefined),
   registerAsFollower: jest.fn().mockResolvedValue(undefined),
   unregisterAsFollower: jest.fn().mockResolvedValue(undefined),
   removeFollower: jest.fn().mockResolvedValue(undefined),
@@ -489,5 +490,26 @@ describe('app.js groups gating (GROUPS_ENABLED=false)', () => {
 
     expect(applyServerCurrentContext).toHaveBeenCalledWith('direct');
     expect(applyServerCurrentContext).not.toHaveBeenCalledWith('group:fam');
+  });
+});
+
+describe('app.js broadcast hygiene with palettes disabled', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    document.body.innerHTML = '';
+  });
+
+  test('clears a stale presence statusColor/paletteKey so others see no color', async () => {
+    const ownStatus = require('../js/ownStatus.js');
+    const db = require('../js/db.js');
+    let statusCb;
+    ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
+    require('../js/app');
+    for (let i = 0; i < 6; i += 1) await new Promise((r) => setTimeout(r, 0));
+    db.setStatusColor.mockClear();
+    db.setPaletteKey.mockClear();
+    statusCb({ status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00ff', paletteKey: 'iris' });
+    expect(db.setStatusColor).toHaveBeenCalledWith('me', null);
+    expect(db.setPaletteKey).toHaveBeenCalledWith('me', null);
   });
 });
