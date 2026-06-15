@@ -9,7 +9,10 @@ const { initFeatureSettings, _setReloadForTests } = require('../js/featureSettin
 
 let reload;
 beforeEach(() => {
-  document.body.innerHTML = '<div id="feature-settings" class="feature-settings hidden"></div>';
+  document.body.innerHTML =
+    '<div id="code-drawer"><div class="drawer-inner">' +
+    '<div id="feature-settings" class="feature-settings hidden"></div>' +
+    '</div></div>';
   getFeatureToggle.mockReturnValue(true);
   setFeatureToggle.mockClear();
   reload = jest.fn();
@@ -31,6 +34,8 @@ test('renders and reveals the section with ?features, one switch per feature', (
   expect(el.classList.contains('hidden')).toBe(false);
   expect(el.querySelector('#feature-toggle-palettes')).not.toBeNull();
   expect(el.querySelector('#feature-toggle-groups')).not.toBeNull();
+  // Flags the drawer so CSS expands its clipped max-height to fit the section.
+  expect(document.getElementById('code-drawer').classList.contains('has-feature-settings')).toBe(true);
 });
 
 test('switches reflect current toggle state', () => {

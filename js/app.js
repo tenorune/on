@@ -732,7 +732,10 @@ function initOwnStatusSync(userId) {
     let colorOrPaletteChanged = false;
     if (userData.statusColor && userData.statusColor !== lastStatusColor) {
       lastStatusColor = userData.statusColor;
-      if (inDirectCtx) {
+      // Palettes off → leave --my-status at its CSS default (forest). Writing the
+      // stored statusColor here would pollute the var and leak into the group
+      // own-status dot, which falls back to var(--my-status).
+      if (inDirectCtx && PALETTES_ENABLED) {
         document.documentElement.style.setProperty('--my-status', userData.statusColor);
         document.documentElement.style.setProperty('--my-glow', getGlowForColor(userData.statusColor));
       }
@@ -741,7 +744,7 @@ function initOwnStatusSync(userId) {
     const incomingPaletteKey = userData.paletteKey ?? null;
     if (incomingPaletteKey !== lastPaletteKey) {
       lastPaletteKey = incomingPaletteKey;
-      if (inDirectCtx) {
+      if (inDirectCtx && PALETTES_ENABLED) {
         if (incomingPaletteKey) {
           const palette = getPaletteByKey(incomingPaletteKey);
           if (palette) applyThemeVars(palette.theme);

@@ -638,6 +638,13 @@ main {
   max-height: 12.5rem;
   margin-top: 0.75rem;
 }
+/* The experimental feature-toggle section (only present with ?features) makes
+   the drawer taller than the default clip; give it room and allow scroll so the
+   toggles are never cut off on narrow screens where the code row wraps. */
+#code-drawer.open.has-feature-settings {
+  max-height: 30rem;
+  overflow-y: auto;
+}
 
 /* List section labels */
 .person-list .list-section-label {

@@ -345,7 +345,9 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
   const dot = li.querySelector('.person-dot');
   if (dot) {
     dot.dataset.available = available ? 'true' : 'false';
-    paintStatusDot(dot, { color, available, palettesEnabled: PALETTES_ENABLED });
+    // Palettes off → no per-user color (mirror following.js): pass color null so
+    // paintStatusDot clears the dot and the CSS .person-dot.available default shows.
+    paintStatusDot(dot, { color: PALETTES_ENABLED ? color : null, available, palettesEnabled: PALETTES_ENABLED });
   }
   const statusEl = li.querySelector('.person-status');
   if (statusEl) {
@@ -360,7 +362,9 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
       // style, the CSS rule (.status-available → var(--green)) wins and
       // the fuzzy time renders forest green.
       const text = availableForText(availableUntil);
-      const inlineColor = color ? safeCssColor(color) : '';
+      // Palettes off → don't tint the status text with the member's color
+      // (mirror following.js, which gates the inline color on PALETTES_ENABLED).
+      const inlineColor = (PALETTES_ENABLED && color) ? safeCssColor(color) : '';
       statusEl.innerHTML = inlineColor
         ? `<span class="status-available" style="color:${inlineColor}">${text}</span>`
         : `<span class="status-available">${text}</span>`;
@@ -439,7 +443,9 @@ function renderOwnStatusRow() {
   dot.dataset.available = available ? 'true' : 'false';
   dot.classList.toggle('available', available);
   const color = source?.statusColor || null;
-  if (available && color) dot.style.background = safeCssColor(color);
+  // Palettes off → clear the inline color so the CSS .dot.available default
+  // (var(--my-status), forest) shows instead of a stale adopted color.
+  if (PALETTES_ENABLED && available && color) dot.style.background = safeCssColor(color);
   else dot.style.background = '';
   label.textContent = available ? 'Available' : 'Unavailable';
   // Color the "Available" label using --my-status so it matches the Direct

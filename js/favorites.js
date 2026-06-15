@@ -177,6 +177,10 @@ const STRIP_CONTAINERS = [
 ];
 
 function renderStrip() {
+  // Palette interactions off → no strip. The favorites-synced listener below is
+  // registered at module-eval (ungated), so without this guard a sibling-device
+  // favorites sync would reveal + populate the strip even with palettes off.
+  if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
   const history = getFavorites();
   for (const { id, homeContext } of STRIP_CONTAINERS) {
     const container = document.getElementById(id);

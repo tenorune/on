@@ -2149,3 +2149,57 @@ describe('notification bell on roster rows', () => {
   });
 });
 
+
+// ─── Palettes disabled: dots fall back to CSS defaults, not stored colors ─────
+// Mirrors following.js (Direct), which leaves the dot's inline styles untouched
+// when palettes are off so the CSS .available default shows. Regression guard for
+// the per-user-color leak in group context.
+describe('palettes disabled: group dots use defaults, not stored colors', () => {
+  let db2, groupNav2, enterGroupContext2;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.doMock('../js/features.js', () => ({
+      KNOCK_ENABLED: true, PALETTES_ENABLED: false, PALETTE_INTERACTIONS_ENABLED: false,
+      NOTIFICATIONS_ENABLED: true, FOLLOW_REQUESTS_ENABLED: true,
+    }));
+    db2 = require('../js/db.js');
+    groupNav2 = require('../js/groupNav.js');
+    require('../js/presenceHub.js')._resetPresenceHub();
+    const notifyBell = require('../js/notifyBell.js');
+    notifyBell.isNotifyPopoverOpen.mockReturnValue(false);
+    notifyBell.createNotifyBell.mockImplementation(() => {
+      const b = document.createElement('button'); b.className = 'notify-bell'; return b;
+    });
+    const cardDrawer = require('../js/cardDrawer.js');
+    cardDrawer.createCardDrawer.mockImplementation(() => document.createElement('button'));
+    cardDrawer.isCardDrawerOpen.mockReturnValue(false);
+    ({ enterGroupContext: enterGroupContext2 } = require('../js/groupContext'));
+    setupContextDom();
+  });
+
+  afterEach(() => { jest.dontMock('../js/features.js'); });
+
+  test('an available member dot is not painted with the stored statusColor', () => {
+    let membersCb; const statusCbs = {};
+    db2.watchGroupMembers.mockImplementation((g, cb) => { membersCb = cb; return () => {}; });
+    db2.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    enterGroupContext2('G1', 'me');
+    membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    statusCbs.a({ status: 'available', statusColor: '#ff00ff', availableUntil: Date.now() + 60000 });
+    const dot = document.querySelector('#group-roster [data-user-id="a"] .person-dot');
+    expect(dot.classList.contains('available')).toBe(true);
+    expect(dot.style.background).toBe(''); // no inline color → CSS .person-dot.available (forest)
+  });
+
+  test('the own status dot is not painted with a stored override color', () => {
+    let overrideCb;
+    groupNav2.subscribeOwnOverride.mockImplementation((g, cb) => { overrideCb = cb; return () => {}; });
+    db2.watchGroupMembers.mockImplementation(() => () => {});
+    enterGroupContext2('G1', 'me');
+    overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#ff00ff' });
+    const dot = document.getElementById('group-my-dot');
+    expect(dot.dataset.available).toBe('true');
+    expect(dot.style.background).toBe(''); // no inline color → CSS .dot.available (var(--my-status))
+  });
+});

@@ -62,4 +62,7 @@ export function initFeatureSettings() {
     root.appendChild(row);
   }
   root.classList.remove('hidden');
+  // The drawer clips to a fixed max-height; flag it so the CSS gives the added
+  // section room (and scroll) instead of cutting off the lower toggles.
+  root.closest('#code-drawer')?.classList.add('has-feature-settings');
 }

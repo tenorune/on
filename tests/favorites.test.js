@@ -820,3 +820,34 @@ function setFavoritesCollapsed_(value) {
   const { initFavoritesStrip } = require('../js/favorites.js');
   initFavoritesStrip('myUid');
 }
+
+// ─── Feature gate: palettes off ──────────────────────────────────────────────
+// The favorites-synced listener is registered at module-eval (ungated), so
+// renderStrip itself must no-op when palette interactions are off — otherwise a
+// sibling-device favorites sync reveals + populates the strip with palettes off.
+describe('strip respects the palette-interactions feature gate', () => {
+  let initFavoritesStrip;
+
+  beforeEach(() => {
+    setupDom(); // #favorites-strip container
+    jest.resetModules();
+    jest.doMock('../js/features.js', () => ({ PALETTES_ENABLED: false, PALETTE_INTERACTIONS_ENABLED: false }));
+    jest.mock('../js/palettes.js', () => ({
+      ...jest.requireActual('../js/palettes.js'),
+      switchSet: jest.fn(), enterPaletteMode: jest.fn(), exitPaletteMode: jest.fn(),
+      getPaletteByKey: jest.fn(() => null), getGlowForColor: jest.fn(() => 'rgba(0,0,0,0)'),
+    }));
+    jest.mock('../js/db.js', () => ({ setStatusColor: jest.fn(), setUserFavorites: jest.fn() }));
+    ({ initFavoritesStrip } = require('../js/favorites.js'));
+  });
+
+  afterEach(() => { jest.dontMock('../js/features.js'); });
+
+  test('initFavoritesStrip does not reveal or populate the strip when palettes are off', () => {
+    initFavoritesStrip('myUid');
+    const c = document.getElementById('favorites-strip');
+    expect(c.style.display).not.toBe('block');
+    expect(c.querySelector('.fav-collapsed')).toBeNull();
+    expect(c.querySelectorAll('.fav-pill').length).toBe(0);
+  });
+});
