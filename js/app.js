@@ -555,7 +555,7 @@ async function main() {
     // automatically via navigateToGroup's emit() → renderNavRow chain.
     if (!landedInGroup) {
       if (directEl) directEl.classList.remove('hidden');
-      if (navRowEl) navRowEl.classList.remove('hidden');
+      if (navRowEl && GROUPS_ENABLED) navRowEl.classList.remove('hidden');
     }
   } else if (!isNew && !pinDirect) {
     // Returning user (no pending invite). Pre-resolve the user's last
@@ -681,7 +681,9 @@ async function main() {
     // name, or read failure); restore it here so direct-context users
     // still get their nav.
     const navRowEl = document.getElementById('nav-row');
-    if (navRowEl) navRowEl.classList.remove('hidden');
+    // Groups off → the nav row only hosts group cards + the Inbox, so leave it
+    // hidden (revealing it shows an empty bar + a gap above Direct).
+    if (navRowEl && GROUPS_ENABLED) navRowEl.classList.remove('hidden');
   }
 
   // Cold-start deep-link from an invite / follow-request tap: now that the

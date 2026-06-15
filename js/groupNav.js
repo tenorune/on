@@ -6,7 +6,7 @@ import { setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride
 import { subscribeOwnStatus } from './ownStatus.js';
 import { setCurrentContext } from './prefs.js';
 import { safeCssColor, hexToRgb } from './utils.js';
-import { GROUPS_ENABLED } from './features.js';
+import { GROUPS_ENABLED, PALETTES_ENABLED } from './features.js';
 import { createGroup, toggleStatusOverride } from './groups.js';
 import { applyOptimisticOverride } from './groupContext.js';
 import { openInviteModal } from './inviteModal.js';
@@ -317,7 +317,8 @@ function paintNavCard(card, groupId) {
   const overrideOn = !!(ov && ov.enabled === true);
   const source = overrideOn ? ov : _ownPrimary;
   const available = isAvailable(source?.status, source?.availableUntil);
-  const effectiveColor = source?.statusColor || '#22c55e';
+  // Palettes off → fall back to the default forest, ignoring any stored color.
+  const effectiveColor = (PALETTES_ENABLED && source?.statusColor) || '#22c55e';
   card.classList.toggle('greyed', !available);
   card.style.borderColor = available ? safeCssColor(effectiveColor) : '';
   card.style.setProperty('--call-color-rgb', hexToRgb(effectiveColor));
@@ -395,7 +396,7 @@ function renderNavRowGroupMode(row) {
 // pulses even on an unavailable Direct chip.
 function paintDirectCard(directCard) {
   const primaryAvailable = isAvailable(_ownPrimary?.status, _ownPrimary?.availableUntil);
-  const directColor = _ownPrimary?.statusColor || '#22c55e';
+  const directColor = (PALETTES_ENABLED && _ownPrimary?.statusColor) || '#22c55e';
   directCard.classList.toggle('greyed', !primaryAvailable);
   directCard.style.borderColor = primaryAvailable ? safeCssColor(directColor) : '';
   directCard.style.setProperty('--call-color-rgb', hexToRgb(directColor));

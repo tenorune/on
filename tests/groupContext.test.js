@@ -2187,9 +2187,11 @@ describe('palettes disabled: group dots use defaults, not stored colors', () => 
     enterGroupContext2('G1', 'me');
     membersCb({ a: { role: 'member', displayName: 'Alice', joinedAt: 1 } });
     statusCbs.a({ status: 'available', statusColor: '#ff00ff', availableUntil: Date.now() + 60000 });
-    const dot = document.querySelector('#group-roster [data-user-id="a"] .person-dot');
+    const li = document.querySelector('#group-roster [data-user-id="a"]');
+    const dot = li.querySelector('.person-dot');
     expect(dot.classList.contains('available')).toBe(true);
     expect(dot.style.background).toBe(''); // no inline color → CSS .person-dot.available (forest)
+    expect(li.style.borderLeftColor).toBe(''); // no accent stripe from the stored color
   });
 
   test('the own status dot is not painted with a stored override color', () => {

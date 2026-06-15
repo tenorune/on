@@ -944,7 +944,9 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     }
   } else {
     li.style.background      = '';
-    li.style.borderLeftColor = isAvail ? safeCssColor(color) : '';
+    // Palettes off → no accent stripe (base-mode statusColor accent only applies
+    // when palettes are on); otherwise the stored color leaks through.
+    li.style.borderLeftColor = (PALETTES_ENABLED && isAvail && color) ? safeCssColor(color) : '';
     if (statusEl) statusEl.style.color = '';
   }
 

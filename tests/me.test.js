@@ -454,3 +454,41 @@ describe('saveCombo guard in setAvailable', () => {
     expect(saveComboMock).toHaveBeenCalledWith({}); // buildDirectCombo mock returns {}
   });
 });
+
+describe('header chips with palettes disabled', () => {
+  let applyOwnStatus;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: false }));
+    jest.mock('../js/favorites.js', () => ({ saveCombo: jest.fn(), buildDirectCombo: jest.fn(() => ({})), initFavoritesStrip: jest.fn() }));
+    jest.mock('../js/db.js', () => ({
+      setStatus: jest.fn().mockResolvedValue(undefined),
+      isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
+      isAvailable: (s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now()),
+      formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
+      timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
+      setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
+    }));
+    jest.mock('../js/store.js', () => ({
+      getLastTimeout: jest.fn().mockReturnValue(2),
+      setLastTimeout: jest.fn(),
+      getPaletteState: jest.fn(() => ({ activeSet: 1, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } })),
+    }));
+    jest.useFakeTimers();
+    global.requestAnimationFrame = (fn) => fn();
+    makeFixture();
+    ({ applyOwnStatus } = require('../js/me.js'));
+  });
+
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('unavailable keeps the time + share-code chips visible (no swatch row to swap in)', () => {
+    applyOwnStatus('available', Date.now() + 7200000);
+    jest.advanceTimersByTime(250);
+    applyOwnStatus('unavailable', null);
+    const chips = document.getElementById('header-chips');
+    expect(chips.style.opacity).toBe('1');
+    expect(chips.style.pointerEvents).toBe('auto');
+  });
+});

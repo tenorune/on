@@ -239,8 +239,17 @@ function setUnavailable() {
   if (mycodeChip) mycodeChip.classList.remove('active');
 
   label.style.opacity = '0';
-  chips.style.opacity = '0';
-  chips.style.pointerEvents = 'none';
+  // The chips↔swatch-row swap is a palette mechanism: when available→unavailable
+  // with palettes ON, chips hide and the swatch row takes their place. With
+  // palettes OFF there's no swatch row, so keep the time + share-code chips
+  // visible (matches group context).
+  if (PALETTES_ENABLED) {
+    chips.style.opacity = '0';
+    chips.style.pointerEvents = 'none';
+  } else {
+    chips.style.opacity = '1';
+    chips.style.pointerEvents = 'auto';
+  }
   timeRemaining.style.opacity = '0';
 
   // After fade-out: hide chips, swap label to "Unavailable", fade label back in

@@ -24,7 +24,7 @@ jest.mock('../js/prefs.js', () => ({
 jest.mock('../js/inbox.js', () => ({
   renderInboxNavSlot: jest.fn(),
 }));
-jest.mock('../js/features.js', () => ({ GROUPS_ENABLED: true }));
+jest.mock('../js/features.js', () => ({ GROUPS_ENABLED: true, PALETTES_ENABLED: true }));
 jest.mock('../js/groups.js', () => ({
   createGroup: jest.fn(),
   toggleStatusOverride: jest.fn().mockResolvedValue(undefined),

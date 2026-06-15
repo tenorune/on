@@ -393,7 +393,8 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
     }
   } else {
     li.style.background = '';
-    li.style.borderLeftColor = available && color ? safeCssColor(color) : '';
+    // Palettes off → no accent stripe; otherwise the stored statusColor leaks.
+    li.style.borderLeftColor = (PALETTES_ENABLED && available && color) ? safeCssColor(color) : '';
     if (statusEl) statusEl.style.color = '';
   }
   // FTU longpress hint pulse — mirrors following.js's pattern. Shows the
