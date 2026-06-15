@@ -119,7 +119,12 @@ function rosterUidOf(key) {
 
 function rosterKeys(members, ownUserId) {
   const isOwner = _groupOwnerId !== null && _groupOwnerId === ownUserId;
-  const entries = Object.entries(members || {}).filter(([uid]) => uid !== ownUserId);
+  // Exclude co-members who have groups disabled — they broadcast groupsEnabled:
+  // false on their presence and should be invisible in every group until they
+  // turn groups back on (their membership record is preserved). Members whose
+  // presence hasn't ticked yet (groupsEnabled undefined) stay visible.
+  const entries = Object.entries(members || {}).filter(([uid]) =>
+    uid !== ownUserId && _memberPrimaries.get(uid)?.groupsEnabled !== false);
   const floatedSet = new Set(getFloatedUserIds());
   const floated = [];
   const others = [];
@@ -865,6 +870,7 @@ function syncStatusSubscriptions(memberUids) {
               statusColor: data.statusColor || null,
               paletteKey: data.paletteKey || null,
               palettesEnabled: data.palettesEnabled,
+              groupsEnabled: data.groupsEnabled,
             }
           : null);
         // renderRoster's update repaints every row, including this one.

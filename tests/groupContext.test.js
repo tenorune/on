@@ -337,6 +337,21 @@ describe('group roster render', () => {
     expect(dot.dataset.available).toBe('true');
   });
 
+  test('a member broadcasting groupsEnabled=false is hidden from the roster, then reappears when re-enabled', () => {
+    let membersCb;
+    const statusCbs = {};
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ 'a': { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    // Alice has groups off → broadcasts the flag → hidden from the roster.
+    statusCbs.a({ status: 'available', availableUntil: Date.now() + 60000, groupsEnabled: false });
+    expect(document.querySelector('#group-roster [data-user-id="a"]')).toBeNull();
+    // She turns groups back on → membership was preserved → she reappears.
+    statusCbs.a({ status: 'available', availableUntil: Date.now() + 60000, groupsEnabled: true });
+    expect(document.querySelector('#group-roster [data-user-id="a"]')).not.toBeNull();
+  });
+
   test('a member broadcasting palettesEnabled=false renders forest with no accent (viewer palettes on)', () => {
     let membersCb;
     const statusCbs = {};

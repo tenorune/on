@@ -309,6 +309,13 @@ export async function setPalettesEnabled(userId, enabled) {
   await update(ref(db, `users/${userId}/presence`), { palettesEnabled: !!enabled });
 }
 
+// Broadcast whether this user has groups enabled. Co-members hide a groups-off
+// user from their roster without us removing the membership record — re-enabling
+// restores visibility. Absent (legacy clients) is treated as enabled by readers.
+export async function setGroupsEnabled(userId, enabled) {
+  await update(ref(db, `users/${userId}/presence`), { groupsEnabled: !!enabled });
+}
+
 // ── Call signaling (symmetric mailboxes) ─────────────────────────────────────
 export async function startCall(callerId, calleeId, clearUid) {
   const ts = Date.now();

@@ -1,6 +1,6 @@
 // js/app.js
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
-import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getUser, getUserPrefs, readGroupName, setPalettesEnabled } from './db.js';
+import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getUser, getUserPrefs, readGroupName, setPalettesEnabled, setGroupsEnabled } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following.js';
 import { initKnocks } from './knock.js';
@@ -14,7 +14,7 @@ import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, apply
 import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, extractDirectIntentFromUrl, resolveInvitePreview } from './invites.js';
-import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext } from './prefs.js';
+import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext, setFeatureToggle } from './prefs.js';
 import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, navigateToDirect, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
 import { routeNotificationClick } from './notifyRouting.js';
@@ -433,6 +433,38 @@ function cleanInviteParamFromUrl() {
   } catch { /* no-op on unusual URLs */ }
 }
 
+// Asked when a groups-off user opens a group invite link. Resolves true if they
+// choose to turn Groups on, false otherwise. Reuses the confirm-overlay styles.
+function showEnableGroupsPrompt(groupName) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-overlay';
+    const sheet = document.createElement('div');
+    sheet.className = 'confirm-sheet';
+    const h = document.createElement('h4');
+    h.textContent = 'Group invite';
+    const p = document.createElement('p');
+    p.textContent = `You've been invited to ${groupName ? `"${groupName}"` : 'a group'}, `
+      + 'but Groups are turned off. Turn Groups on to join?';
+    const btns = document.createElement('div');
+    btns.className = 'confirm-btns';
+    const cancel = document.createElement('button');
+    cancel.className = 'confirm-btn-cancel';
+    cancel.textContent = 'Not now';
+    const ok = document.createElement('button');
+    ok.className = 'confirm-btn-generate';
+    ok.textContent = 'Turn on Groups';
+    btns.append(cancel, ok);
+    sheet.append(h, p, btns);
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+    const done = (val) => { overlay.remove(); resolve(val); };
+    cancel.addEventListener('click', () => done(false));
+    ok.addEventListener('click', () => done(true));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) done(false); });
+  });
+}
+
 async function main() {
   const pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
   // Cold tap on an invite / follow-request notification: the SW opened us at
@@ -511,7 +543,30 @@ async function main() {
     const navRowEl = document.getElementById('nav-row');
     if (navRowEl) navRowEl.classList.add('hidden');
     let landedInGroup = false;
-    let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+
+    // Groups off → a group invite must NOT silently add the user. Resolve the
+    // invite first; if it's a group, ask whether to turn Groups on. On yes we
+    // persist the toggle and reload (the token stays in the URL, so the reload
+    // re-enters with groups on and redeems normally). On no, skip redemption and
+    // land in Direct. Personal invites (Direct follows) are unaffected.
+    let result;
+    let groupsOffDeclined = false;
+    if (!GROUPS_ENABLED) {
+      const preview = await resolveInvitePreview(pendingInviteToken).catch(() => null);
+      if (preview && preview.scope === 'group') {
+        const enable = await showEnableGroupsPrompt(preview.groupName);
+        if (enable) {
+          setFeatureToggle('groups', true);
+          location.reload();
+          return;
+        }
+        groupsOffDeclined = true;
+        cleanInviteParamFromUrl();
+      }
+    }
+    if (!groupsOffDeclined) {
+      result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+    }
     // Captured from the needs-display-name response so we can prime
     // setLastKnownGroupName even on the success path (where the second
     // attemptRedeemFromUrl call returns its own groupName too).
@@ -725,6 +780,11 @@ function initOwnStatusSync(userId) {
     // the guard avoids re-writing once it already matches.
     if (userData.palettesEnabled !== PALETTES_ENABLED) {
       setPalettesEnabled(userId, PALETTES_ENABLED).catch(() => {});
+    }
+    // Same for groups: co-members hide a groups-off user from their roster. The
+    // membership record is untouched, so re-enabling restores visibility.
+    if (userData.groupsEnabled !== GROUPS_ENABLED) {
+      setGroupsEnabled(userId, GROUPS_ENABLED).catch(() => {});
     }
 
     // Sync color/palette across devices. These updates are independent of the
