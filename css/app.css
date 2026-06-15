@@ -487,6 +487,11 @@ main {
 }
 .nav-row::-webkit-scrollbar { display: none; }
 .nav-row.hidden { display: none; }
+/* Groups disabled → the nav row is hidden, so the sticky header has no nav row
+   to clear above it. Stick it to the very top instead of offsetting 3rem (which
+   left a background strip above the availability section and overlapped the
+   contacts on scroll). */
+.nav-row.hidden + #main-ui-direct #app-header { top: 0; }
 /* Lock every direct child of .nav-row to a fixed height so the nav row
    has the same overall height in Direct (where .group-card with padding +
    border is the tallest item, ~40px) and group context (where .nav-back /
