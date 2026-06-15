@@ -312,7 +312,7 @@ export function enterCallMode(calleeEntry, myUserId) {
   _incomingCall = null;
 
   const calleeData = lastUserData.get(calleeEntry.userId);
-  const callColor = calleeData?.statusColor || '#22c55e';
+  const callColor = (PALETTES_ENABLED && calleeData?.statusColor) || '#22c55e';
 
   // Apply glow to callee's card (clear any in-progress knock animation first)
   const liPre = followeeRow(calleeEntry.userId);
@@ -334,7 +334,7 @@ export function enterCallMode(calleeEntry, myUserId) {
 export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
   callModeCalleeId = calleeEntry.userId;
   // No Firebase write — state already persisted
-  const callColor = calleeData?.statusColor || '#22c55e';
+  const callColor = (PALETTES_ENABLED && calleeData?.statusColor) || '#22c55e';
   const li = followeeRow(calleeEntry.userId);
   if (li) {
     li.style.boxShadow = '';
@@ -957,7 +957,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   // Call mode glow — caller side (this card is our active callee) or receiver side (they called us)
   if (isCallee || isCallModeReceiver) {
     const callColor = isAvail
-      ? (userData.statusColor || '#22c55e')
+      ? ((PALETTES_ENABLED && userData.statusColor) || '#22c55e') // palettes off → forest glow
       : (getComputedStyle(document.documentElement).getPropertyValue('--dot-off').trim() || '#6b7280');
     li.style.setProperty('--call-color-rgb', hexToRgb(callColor));
     li.classList.add('call-mode');

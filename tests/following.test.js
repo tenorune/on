@@ -2137,3 +2137,26 @@ describe('renderList reconciliation', () => {
     expect(isDrawerOpen()).toBe(false);
   });
 });
+
+// --- call glow with palettes disabled (resetModules — must stay at end of file) ---
+describe('call mode glow respects PALETTES_ENABLED', () => {
+  test('PALETTES_ENABLED false — call glow uses forest, not the peer color', () => {
+    jest.resetModules();
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: false, PALETTE_INTERACTIONS_ENABLED: false, KNOCK_ENABLED: true, CALL_ENABLED: true }));
+    const { initList: initList2, reEnterCallMode: reEnter2 } = require('../js/following.js');
+    setupDom();
+    let cb, aliceStatusCb;
+    const { watchFollowers: wf, watchPresence: ws } = require('../js/db.js');
+    wf.mockImplementation((_uid, fn) => { cb = fn; return jest.fn(); });
+    ws.mockImplementationOnce((_uid, fn) => { aliceStatusCb = fn; return jest.fn(); });
+    ws.mockReturnValue(jest.fn());
+    const { getFollowing: gf } = require('../js/store.js');
+    gf.mockReturnValue([{ userId: 'alice', code: 'AAA111', label: 'Alice' }]);
+    initList2('myUid', 'MYCODE');
+    cb([{ userId: 'alice', code: 'AAA111' }]);
+    aliceStatusCb({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6' });
+    reEnter2({ userId: 'alice', code: 'AAA111', label: 'Alice' }, { statusColor: '#3b82f6' }, 'myUid');
+    const li = document.querySelector('[data-user-id="alice"]');
+    expect(li.style.getPropertyValue('--call-color-rgb')).toBe('34, 197, 94'); // forest, not #3b82f6 (59,130,246)
+  });
+});
