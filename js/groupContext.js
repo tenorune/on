@@ -338,8 +338,14 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
   // for every field (the group is linked to Direct).
   const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
   const available = memberEffectiveAvailable(uid);
-  const color = overrideOn ? (override.statusColor || null) : (primary?.statusColor || null);
-  const paletteKey = overrideOn ? (override.paletteKey || null) : (primary?.paletteKey || null);
+  // The member's palettes setting is global, broadcast on their primary presence.
+  // When off, render the forest default — ignore any (preserved) override/primary
+  // color or palette so co-members never see a color the member has hidden.
+  const memberPalettesOff = primary?.palettesEnabled === false;
+  const color = memberPalettesOff ? null
+    : (overrideOn ? (override.statusColor || null) : (primary?.statusColor || null));
+  const paletteKey = memberPalettesOff ? null
+    : (overrideOn ? (override.paletteKey || null) : (primary?.paletteKey || null));
   const palette = PALETTES_ENABLED && paletteKey ? getPaletteByKey(paletteKey) : null;
   li.dataset.available = available ? 'true' : 'false';
   const dot = li.querySelector('.person-dot');
@@ -858,6 +864,7 @@ function syncStatusSubscriptions(memberUids) {
               availableUntil: data.availableUntil ?? null,
               statusColor: data.statusColor || null,
               paletteKey: data.paletteKey || null,
+              palettesEnabled: data.palettesEnabled,
             }
           : null);
         // renderRoster's update repaints every row, including this one.
@@ -1096,11 +1103,6 @@ export function enterGroupContext(groupId, userId) {
         _ownOverride = { ..._ownOverride, statusColor: seed };
         setOverrideAppearance(groupId, userId, { statusColor: seed }).catch(() => {});
       }
-    } else if (!PALETTES_ENABLED && _ownOverride && (_ownOverride.statusColor || _ownOverride.paletteKey)) {
-      // Palettes off → don't broadcast a stale override color/palette to
-      // co-members. Mirror the Direct presence clear in app.js.
-      _ownOverride = { ..._ownOverride, statusColor: null, paletteKey: null };
-      setOverrideAppearance(groupId, userId, { statusColor: null, paletteKey: null }).catch(() => {});
     }
     applyEffectivePalette();
     renderOwnStatusRow();
@@ -1335,8 +1337,10 @@ function triggerGroupAdoption(srcUid, ownUid) {
   // _membersOverrides is a plain object keyed by uid; _memberPrimaries is a Map.
   const srcOverride = _membersOverrides?.[srcUid] || null;
   const srcPrimary  = _memberPrimaries?.get(srcUid) || null;
-  // Nothing to adopt from a colorless member (e.g. palettes off → broadcasts no
-  // color/palette). Without this the forest fallback below would "adopt" a
+  // A member with palettes off broadcasts the forest default and isn't adoptable,
+  // even though their override/primary color is preserved on the server.
+  if (srcPrimary?.palettesEnabled === false) return;
+  // Nothing to adopt from a colorless member either — don't "adopt" a forest
   // default the source never chose.
   const srcColor   = srcOverride?.enabled ? srcOverride.statusColor : srcPrimary?.statusColor;
   const srcPalette = srcOverride?.enabled ? srcOverride.paletteKey  : srcPrimary?.paletteKey;

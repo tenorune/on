@@ -93,6 +93,7 @@ jest.mock('../js/db.js', () => ({
   answerCall: jest.fn().mockResolvedValue(undefined),
   setStatusColor: jest.fn().mockResolvedValue(undefined),
   setPaletteKey: jest.fn().mockResolvedValue(undefined),
+  setPalettesEnabled: jest.fn().mockResolvedValue(undefined),
   registerAsFollower: jest.fn().mockResolvedValue(undefined),
   unregisterAsFollower: jest.fn().mockResolvedValue(undefined),
   removeFollower: jest.fn().mockResolvedValue(undefined),
@@ -499,17 +500,21 @@ describe('app.js broadcast hygiene with palettes disabled', () => {
     document.body.innerHTML = '';
   });
 
-  test('clears a stale presence statusColor/paletteKey so others see no color', async () => {
+  test('broadcasts palettesEnabled=false without destroying the saved color', async () => {
     const ownStatus = require('../js/ownStatus.js');
     const db = require('../js/db.js');
     let statusCb;
     ownStatus.subscribeOwnStatus.mockImplementation((cb) => { statusCb = cb; return () => {}; });
     require('../js/app');
     for (let i = 0; i < 6; i += 1) await new Promise((r) => setTimeout(r, 0));
+    db.setPalettesEnabled.mockClear();
     db.setStatusColor.mockClear();
     db.setPaletteKey.mockClear();
+    // Presence carries the saved color and no flag yet (palettesEnabled undefined !== false).
     statusCb({ status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00ff', paletteKey: 'iris' });
-    expect(db.setStatusColor).toHaveBeenCalledWith('me', null);
-    expect(db.setPaletteKey).toHaveBeenCalledWith('me', null);
+    expect(db.setPalettesEnabled).toHaveBeenCalledWith('me', false);
+    // The saved color/palette are preserved — never cleared — so re-enabling restores them.
+    expect(db.setStatusColor).not.toHaveBeenCalled();
+    expect(db.setPaletteKey).not.toHaveBeenCalled();
   });
 });

@@ -301,6 +301,14 @@ export async function setPaletteKey(userId, paletteKey) {
   await update(ref(db, `users/${userId}/presence`), { paletteKey: paletteKey ?? null });
 }
 
+// Broadcast whether this user has palettes enabled. Followers render the forest
+// default (no accent/palette, not adoptable) for a palettes-off user without us
+// destroying their saved statusColor/paletteKey — re-enabling restores it.
+// Absent (legacy clients) is treated as enabled by readers.
+export async function setPalettesEnabled(userId, enabled) {
+  await update(ref(db, `users/${userId}/presence`), { palettesEnabled: !!enabled });
+}
+
 // ── Call signaling (symmetric mailboxes) ─────────────────────────────────────
 export async function startCall(callerId, calleeId, clearUid) {
   const ts = Date.now();

@@ -723,6 +723,21 @@ describe('palette card styling', () => {
     expect(li.style.background).toBe('');
     expect(li.style.borderLeftColor).toBe('');
   });
+
+  test('available contact broadcasting palettesEnabled=false renders no accent (color preserved server-side)', () => {
+    setupDom();
+    getFollowing.mockReturnValue([{ userId: 'user1', code: 'ABC123', label: 'Jordan' }]);
+    let watchPresenceCallback;
+    let watchFollowersCallback;
+    watchFollowers.mockImplementation((_userId, cb) => { watchFollowersCallback = cb; return jest.fn(); });
+    watchPresence.mockImplementation((_uid, cb) => { watchPresenceCallback = cb; return jest.fn(); });
+    initList('myUid', 'MYCODE');
+    watchFollowersCallback([]);
+    // The contact still broadcasts their saved statusColor, but palettes off → flag.
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#3b82f6', palettesEnabled: false });
+    const li = document.querySelector('[data-user-id="user1"]');
+    expect(li.style.borderLeftColor).toBe(''); // no accent — renders the forest default
+  });
 });
 
 // --- subscribeToFollowee: field-change guard ---

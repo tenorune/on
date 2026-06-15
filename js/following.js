@@ -312,7 +312,7 @@ export function enterCallMode(calleeEntry, myUserId) {
   _incomingCall = null;
 
   const calleeData = lastUserData.get(calleeEntry.userId);
-  const callColor = (PALETTES_ENABLED && calleeData?.statusColor) || '#22c55e';
+  const callColor = (PALETTES_ENABLED && calleeData?.palettesEnabled !== false && calleeData?.statusColor) || '#22c55e';
 
   // Apply glow to callee's card (clear any in-progress knock animation first)
   const liPre = followeeRow(calleeEntry.userId);
@@ -334,7 +334,7 @@ export function enterCallMode(calleeEntry, myUserId) {
 export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
   callModeCalleeId = calleeEntry.userId;
   // No Firebase write — state already persisted
-  const callColor = (PALETTES_ENABLED && calleeData?.statusColor) || '#22c55e';
+  const callColor = (PALETTES_ENABLED && calleeData?.palettesEnabled !== false && calleeData?.statusColor) || '#22c55e';
   const li = followeeRow(calleeEntry.userId);
   if (li) {
     li.style.boxShadow = '';
@@ -522,8 +522,10 @@ function renderList() {
 function applyAdoption(entry, myUserId) {
   const targetData = lastUserData.get(entry.userId);
 
-  // Nothing to adopt from a colorless contact (e.g. they have palettes off and
-  // broadcast no color/palette).
+  // A contact with palettes off broadcasts the forest default and isn't
+  // adoptable, even though their color is preserved server-side. Also nothing to
+  // adopt from a colorless contact.
+  if (targetData?.palettesEnabled === false) return;
   if (!targetData?.statusColor && !targetData?.paletteKey) return;
 
   // Set CSS vars first so renderStrip reads the correct color when palette-state-changed fires
@@ -887,7 +889,15 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   lastUserData.set(entry.userId, userData);
 
   const isAvail = isAvailable(userData.status, userData.availableUntil);
-  const color = userData.statusColor || '#22c55e';
+  // A contact with palettes off broadcasts the flag (their saved color/palette is
+  // preserved server-side but must read as the forest default here). rawColor /
+  // rawPaletteKey are null for a palettes-off OR colorless contact — they drive
+  // the accent, palette theme, long-press hint and adoption. The dot keeps the
+  // forest fallback (`color`) so an available contact always shows a green dot.
+  const palettesOff = userData.palettesEnabled === false;
+  const rawColor = palettesOff ? null : (userData.statusColor || null);
+  const rawPaletteKey = palettesOff ? null : (userData.paletteKey || null);
+  const color = rawColor || '#22c55e';
   let statusText;
   // Both checks gated by CALL_ENABLED so a stale calls/{me} mailbox entry
   // (e.g., a previous session left a call dangling) doesn't render call-mode
@@ -933,8 +943,8 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   if (statusEl) statusEl.innerHTML = statusText;
 
   // Palette card styling (Increment 3): only when available
-  if (PALETTES_ENABLED && userData.paletteKey && isAvail) {
-    const palette = getPaletteByKey(userData.paletteKey);
+  if (PALETTES_ENABLED && rawPaletteKey && isAvail) {
+    const palette = getPaletteByKey(rawPaletteKey);
     if (palette) {
       li.style.background      = palette.theme.surface;
       li.style.borderLeftColor = palette.color;
@@ -948,16 +958,16 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     }
   } else {
     li.style.background      = '';
-    // Palettes off → no accent stripe (base-mode statusColor accent only applies
-    // when palettes are on); otherwise the stored color leaks through.
-    li.style.borderLeftColor = (PALETTES_ENABLED && isAvail && color) ? safeCssColor(color) : '';
+    // Accent only for a contact with a real broadcast color (rawColor). A
+    // palettes-off or colorless contact gets no stripe — matches group context.
+    li.style.borderLeftColor = (PALETTES_ENABLED && isAvail && rawColor) ? safeCssColor(rawColor) : '';
     if (statusEl) statusEl.style.color = '';
   }
 
   // Call mode glow — caller side (this card is our active callee) or receiver side (they called us)
   if (isCallee || isCallModeReceiver) {
     const callColor = isAvail
-      ? ((PALETTES_ENABLED && userData.statusColor) || '#22c55e') // palettes off → forest glow
+      ? ((PALETTES_ENABLED && rawColor) || '#22c55e') // palettes off (caller or peer) → forest glow
       : (getComputedStyle(document.documentElement).getPropertyValue('--dot-off').trim() || '#6b7280');
     li.style.setProperty('--call-color-rgb', hexToRgb(callColor));
     li.classList.add('call-mode');
@@ -968,8 +978,8 @@ export function updateFolloweeRow(entry, userData, myUserId) {
 
   // Long-press hint: show when mutual's combo differs from my current combo.
   // Only after all FTU hints cleared, not during a call.
-  const peerColor = color;
-  const peerTheme = userData.paletteKey || null;
+  const peerColor = rawColor;
+  const peerTheme = rawPaletteKey;
   const isMyCombo = getFavorites().some(c => c.statusColor === peerColor && (c.paletteKey || null) === peerTheme);
   const showLongpressHint = PALETTE_INTERACTIONS_ENABLED
       && isLongpressHintEligible()

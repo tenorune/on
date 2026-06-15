@@ -337,6 +337,22 @@ describe('group roster render', () => {
     expect(dot.dataset.available).toBe('true');
   });
 
+  test('a member broadcasting palettesEnabled=false renders forest with no accent (viewer palettes on)', () => {
+    let membersCb;
+    const statusCbs = {};
+    db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+    db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    membersCb({ 'a': { role: 'member', displayName: 'Alice', joinedAt: 1 } });
+    // Alice has a saved color but palettes off → broadcasts the flag.
+    statusCbs.a({ status: 'available', statusColor: '#ff00ff', availableUntil: Date.now() + 60000, palettesEnabled: false });
+    const li = document.querySelector('#group-roster [data-user-id="a"]');
+    const dot = li.querySelector('.person-dot');
+    expect(dot.classList.contains('available')).toBe(true);
+    expect(dot.style.background).toBe('');      // forest default, not #ff00ff
+    expect(li.style.borderLeftColor).toBe('');  // no accent stripe
+  });
+
   test('a member override applies on the first render, before any presence tick (reconcile update-before-insert)', () => {
     let membersCb;
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
@@ -2205,15 +2221,5 @@ describe('palettes disabled: group dots use defaults, not stored colors', () => 
     const dot = document.getElementById('group-my-dot');
     expect(dot.dataset.available).toBe('true');
     expect(dot.style.background).toBe(''); // no inline color → CSS .dot.available (var(--my-status))
-  });
-
-  test('a stale override color/palette is cleared from the broadcast when palettes are off', () => {
-    let overrideCb;
-    const groups2 = require('../js/groups.js');
-    groupNav2.subscribeOwnOverride.mockImplementation((g, cb) => { overrideCb = cb; return () => {}; });
-    db2.watchGroupMembers.mockImplementation(() => () => {});
-    enterGroupContext2('G1', 'me');
-    overrideCb({ enabled: true, status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#ff00ff', paletteKey: 'iris' });
-    expect(groups2.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me', { statusColor: null, paletteKey: null });
   });
 });

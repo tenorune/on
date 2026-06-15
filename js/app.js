@@ -1,6 +1,6 @@
 // js/app.js
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
-import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getUser, getUserPrefs, readGroupName, setStatusColor, setPaletteKey } from './db.js';
+import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getUser, getUserPrefs, readGroupName, setPalettesEnabled } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following.js';
 import { initKnocks } from './knock.js';
@@ -719,13 +719,12 @@ function initOwnStatusSync(userId) {
   subscribeOwnStatus(async (userData) => {
     if (!userData) return;
 
-    // Palettes off → never broadcast a (stale) color/palette to followers. Clear
-    // it once; with palettes disabled the picker can't re-introduce one, so the
-    // guard makes this a no-op on subsequent ticks. Keeps others' rosters showing
-    // the default forest with no accent and nothing to adopt.
-    if (!PALETTES_ENABLED) {
-      if (userData.statusColor != null) setStatusColor(userId, null).catch(() => {});
-      if (userData.paletteKey != null) setPaletteKey(userId, null).catch(() => {});
+    // Broadcast whether palettes are enabled so followers render the forest
+    // default (no accent/palette, not adoptable) for a palettes-off user WITHOUT
+    // destroying their saved color — re-enabling restores it. One presence field;
+    // the guard avoids re-writing once it already matches.
+    if (userData.palettesEnabled !== PALETTES_ENABLED) {
+      setPalettesEnabled(userId, PALETTES_ENABLED).catch(() => {});
     }
 
     // Sync color/palette across devices. These updates are independent of the
