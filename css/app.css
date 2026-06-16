@@ -1212,6 +1212,16 @@ main {
   display: flex; align-items: center; gap: 0.75rem; background: var(--surface2); border: 1px solid rgba(0,0,0,0.15);
   border-radius: 0.75rem; padding: 0.75rem 1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.25); z-index: 60; }
 .notify-promo.hidden { display: none; }
+.install-fab {
+  position: fixed; left: 1rem; bottom: 1rem; z-index: 60;
+  width: 2.25rem; height: 2.25rem; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface2); color: var(--text-muted);
+  border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  cursor: pointer; padding: 0;
+}
+.install-fab.hidden { display: none; }
+.install-toast { left: 1rem; right: auto; transform: none; bottom: 3.75rem; }
 .notify-promo #notify-promo-text { flex: 1; font-size: 0.9rem; }
 /* Inline step icons in the install guidance (Share / Add-to-Home / Add-to-Dock). */
 .notify-promo .step-icon { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.18em; margin: 0 0.12em; }
