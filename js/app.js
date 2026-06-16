@@ -478,12 +478,9 @@ function showInstallStep(lane) {
 function showSafariRedirect() {
   const el = document.getElementById('safari-redirect');
   const bodyEl = document.getElementById('safari-redirect-body');
-  const reminderEl = document.getElementById('safari-redirect-reminder');
   const continueBtn = document.getElementById('safari-redirect-continue-btn');
   if (!el) return Promise.resolve();
   bodyEl.textContent = 'To get notified about knocks, calls, and people coming online on iPhone, open this app in Safari, then add it to your Home Screen.';
-  reminderEl.innerHTML = phraseReminderHtml();
-  wirePhraseCopyButton(reminderEl);
   el.classList.remove('hidden');
   return new Promise((resolve) => {
     function cont() { continueBtn.removeEventListener('click', cont); el.classList.add('hidden'); resolve(); }
@@ -720,6 +717,7 @@ async function main() {
     syncPrefsFromServer(serverPrefs);
   });
 
+  initInstallAffordance();
   initPushNotifications(userId);
 
   // currentContext changes from sibling devices arrive as a
@@ -886,7 +884,6 @@ function initPaletteBoot(userId) {
 function initPushNotifications(userId) {
   if (!NOTIFICATIONS_ENABLED) return;
   initNotifyPrompt(userId);
-  initInstallAffordance();
   // Flag/opt-in-gated push debug readout (#156). No-op unless NOTIFY_DEBUG or
   // ?notifydebug=1.
   initNotifyDebug(userId);
