@@ -104,3 +104,20 @@ export function guidanceCopyFor(state) {
   }
   return COPY[state] || COPY.unsupported;
 }
+
+// Onboarding lane selector — classifies the environment into the path the
+// onboarding flow should take. `installPromptAvailable` is the (async) signal
+// from js/installPrompt.js that a real beforeinstallprompt has fired, used to
+// distinguish an installable Chromium browser from one that simply hasn't
+// offered (or won't, e.g. Firefox desktop → push-in-tab).
+// Returns: 'ready' | 'ios-use-safari' | 'ios-install' | 'macos-install'
+//          | 'installable' | 'push-in-tab'
+export function onboardingLane({ installPromptAvailable = false } = {}) {
+  if (isStandalone()) return 'ready';
+  if (isIosThirdParty()) return 'ios-use-safari';
+  if (isMacSafari()) return 'macos-install';
+  if (isIos()) return 'ios-install';
+  if (installPromptAvailable) return 'installable';
+  if (isFirefoxDesktop()) return 'push-in-tab';
+  return 'ready';
+}

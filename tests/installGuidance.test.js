@@ -145,3 +145,42 @@ test('iOS "use Safari" copy embeds the Share and Add-to-Home step icons inline',
   const body = guidanceCopyFor('ios-use-safari').body;
   expect((body.match(/class="step-icon"/g) || []).length).toBe(2);
 });
+
+const { onboardingLane } = require('../js/installGuidance.js');
+
+describe('onboardingLane', () => {
+  const IOS_SAFARI = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1';
+  const IOS_CHROME = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605 CriOS/120 Mobile/15E148 Safari/604.1';
+  const MAC_SAFARI = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15';
+  const WIN_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36';
+  const LINUX_FF = 'Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0';
+
+  test('standalone → ready regardless of UA', () => {
+    setUA(IOS_SAFARI); setStandalone(true);
+    expect(onboardingLane({ installPromptAvailable: false })).toBe('ready');
+  });
+  test('iOS third-party browser → ios-use-safari', () => {
+    setUA(IOS_CHROME); setStandalone(false);
+    expect(onboardingLane({ installPromptAvailable: false })).toBe('ios-use-safari');
+  });
+  test('iOS Safari tab → ios-install', () => {
+    setUA(IOS_SAFARI); setStandalone(false);
+    expect(onboardingLane({ installPromptAvailable: false })).toBe('ios-install');
+  });
+  test('macOS Safari tab → macos-install', () => {
+    setUA(MAC_SAFARI); setStandalone(false); global.navigator.maxTouchPoints = 0;
+    expect(onboardingLane({ installPromptAvailable: false })).toBe('macos-install');
+  });
+  test('Chrome desktop with prompt available → installable', () => {
+    setUA(WIN_CHROME); setStandalone(false);
+    expect(onboardingLane({ installPromptAvailable: true })).toBe('installable');
+  });
+  test('Chrome desktop without prompt yet → ready', () => {
+    setUA(WIN_CHROME); setStandalone(false);
+    expect(onboardingLane({ installPromptAvailable: false })).toBe('ready');
+  });
+  test('desktop Firefox → push-in-tab', () => {
+    setUA(LINUX_FF); setStandalone(false);
+    expect(onboardingLane({ installPromptAvailable: false })).toBe('push-in-tab');
+  });
+});
