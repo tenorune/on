@@ -923,6 +923,10 @@ main {
 .restore-btns { display: flex; gap: 0.5rem; }
 .restore-btns button { flex: 1; }
 
+.install-step-reminder { margin-top: 1rem; font-size: 0.85rem; color: var(--text-muted); }
+.install-step-reminder .notify-promo-reminder,
+.install-step-reminder .notify-promo-phrase { display: block; margin-top: 0.5rem; }
+
 .stale-btns {
   display: flex; flex-direction: column; gap: 0.5rem;
 }
