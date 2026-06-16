@@ -133,7 +133,16 @@
         <button id="recovery-copy-btn" class="ghost-btn">Copy</button>
       </div>
       <p class="recovery-warning">Save this somewhere safe. It's the only way to restore your account if you lose this browser. We can't recover it for you.</p>
-      <button id="recovery-saved-btn" class="primary-btn">I've saved it</button>
+      <!-- Hidden credential form: lets iOS/macOS offer "Save Password" (iCloud
+           Keychain), which crosses the install storage partition by domain. Never
+           relied upon or asserted in copy. -->
+      <form id="recovery-keychain-form" autocomplete="on" aria-hidden="true">
+        <input id="recovery-keychain-username" class="visually-hidden" type="text"
+               autocomplete="username" tabindex="-1" readonly aria-hidden="true" />
+        <input id="recovery-keychain-phrase" class="visually-hidden" type="password"
+               autocomplete="new-password" tabindex="-1" readonly aria-hidden="true" />
+        <button id="recovery-saved-btn" class="primary-btn" type="submit">I've saved it</button>
+      </form>
     </div>
   </div>
 

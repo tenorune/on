@@ -244,10 +244,16 @@ export function showRecoveryCodeModal(initialCode, onConfirm) {
   if (copyBtn) copyBtn.textContent = 'Copy';
   el.classList.remove('hidden');
 
+  const kcPhrase = document.getElementById('recovery-keychain-phrase');
+  const kcForm = document.getElementById('recovery-keychain-form');
+  if (kcPhrase) kcPhrase.value = current;
+  if (kcForm) kcForm.addEventListener('submit', (e) => e.preventDefault());
+
   return new Promise((resolve) => {
     function onRotate() {
       current = generateRecoveryCode();
       text.textContent = current;
+      if (kcPhrase) kcPhrase.value = current;
       if (copyBtn) copyBtn.textContent = 'Copy';
       // Same visible-change cue as the invite modal: fade-in + a NEW badge that
       // replaces the ↻ while it shows (which also drops the button's focus, so
