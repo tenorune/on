@@ -247,7 +247,8 @@ export function showRecoveryCodeModal(initialCode, onConfirm) {
   const kcPhrase = document.getElementById('recovery-keychain-phrase');
   const kcForm = document.getElementById('recovery-keychain-form');
   if (kcPhrase) kcPhrase.value = current;
-  if (kcForm) kcForm.addEventListener('submit', (e) => e.preventDefault());
+  const onKcSubmit = (e) => e.preventDefault();
+  if (kcForm) kcForm.addEventListener('submit', onKcSubmit);
 
   return new Promise((resolve) => {
     function onRotate() {
@@ -295,6 +296,7 @@ export function showRecoveryCodeModal(initialCode, onConfirm) {
       copyBtn.removeEventListener('click', onCopy);
       savedBtn.removeEventListener('click', onSaved);
       window.removeEventListener('popstate', onPopState);
+      if (kcForm) kcForm.removeEventListener('submit', onKcSubmit);
       el.classList.add('hidden');
       resolve(current);
     }
