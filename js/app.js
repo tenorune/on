@@ -172,6 +172,8 @@ async function createNewAccount() {
       code = generateCode();
       success = await initUser(userId, code);
     } while (!success);
+    const kcUser = document.getElementById('recovery-keychain-username');
+    if (kcUser) kcUser.value = code;
     saveIdentity(userId, code, rc);
   });
   return { identity: { userId, code, recoveryCode }, isNew: true };
@@ -324,6 +326,10 @@ export function showRestoreScreen() {
   clearButtonBusy(submit); // clean state if a prior attempt left it busy
   el.classList.remove('hidden');
 
+  const restoreForm = document.getElementById('restore-form');
+  function onFormSubmit(e) { e.preventDefault(); }
+  if (restoreForm) restoreForm.addEventListener('submit', onFormSubmit);
+
   return new Promise((resolve) => {
     async function onSubmit() {
       const normalized = parseRecoveryCode(input.value);
@@ -389,6 +395,7 @@ export function showRestoreScreen() {
     function teardown() {
       submit.removeEventListener('click', onSubmit);
       cancel.removeEventListener('click', onCancel);
+      if (restoreForm) restoreForm.removeEventListener('submit', onFormSubmit);
       el.classList.add('hidden');
     }
     submit.addEventListener('click', onSubmit);
