@@ -171,6 +171,29 @@ function refreshPromoVisibility() {
   banner.classList.remove('hidden');
 }
 
+// Shared phrase-reminder block — reused by the notification guidance banner and
+// the onboarding install step. Installing on iOS/macOS lands in a fresh storage
+// partition, so the user must re-enter their phrase; this reminds them to save it
+// first and offers a one-tap clipboard copy (without displaying the phrase).
+export function phraseReminderHtml() {
+  return '<span class="notify-promo-reminder">First, make sure you’ve saved your secret phrase — you’ll need it to restore your account after installing.</span>'
+    + '<span class="notify-promo-phrase">Secret phrase: <button type="button" class="notify-promo-copy">Copy to clipboard</button></span>';
+}
+
+export function wirePhraseCopyButton(container) {
+  const copyBtn = container.querySelector('.notify-promo-copy');
+  if (!copyBtn) return;
+  copyBtn.onclick = async () => {
+    const phrase = loadIdentity()?.recoveryCode;
+    if (!phrase) return;
+    try {
+      await navigator.clipboard?.writeText(phrase);
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => { copyBtn.textContent = 'Copy to clipboard'; }, 1500);
+    } catch { /* clipboard blocked */ }
+  };
+}
+
 function renderBanner(banner, capState, onDismiss) {
   const textEl = banner.querySelector('#notify-promo-text');
   const actionEl = banner.querySelector('#notify-promo-action');
@@ -192,31 +215,10 @@ function renderBanner(banner, capState, onDismiss) {
     };
   } else {
     const copy = guidanceCopyFor(capState);
-    // The guidance body is app-controlled HTML (it carries inline step icons),
-    // so render it as innerHTML. Installing on iOS/macOS lands in a fresh storage
-    // partition, so the identity is gone unless the user re-enters their phrase;
-    // when the guidance flags it, add the save-your-phrase reminder as its own
-    // paragraph (the §6c data-loss guard).
     let html = copy.body;
-    if (copy.remindPhrase) {
-      html += '<span class="notify-promo-reminder">First, make sure you’ve saved your secret phrase — you’ll need it to restore your account after installing.</span>';
-      // One-tap save: copy the phrase to the clipboard right here (without
-      // displaying it), so the user can stash it before installing.
-      html += '<span class="notify-promo-phrase">Secret phrase: <button type="button" class="notify-promo-copy" id="notify-promo-copy">Copy to clipboard</button></span>';
-    }
+    if (copy.remindPhrase) html += phraseReminderHtml();
     textEl.innerHTML = html;
-    const copyBtn = textEl.querySelector('#notify-promo-copy');
-    if (copyBtn) {
-      copyBtn.onclick = async () => {
-        const phrase = loadIdentity()?.recoveryCode;
-        if (!phrase) return;
-        try {
-          await navigator.clipboard?.writeText(phrase);
-          copyBtn.textContent = 'Copied!';
-          setTimeout(() => { copyBtn.textContent = 'Copy to clipboard'; }, 1500);
-        } catch { /* clipboard blocked */ }
-      };
-    }
+    wirePhraseCopyButton(textEl);
     actionEl.classList.add('hidden');
   }
   banner.querySelector('#notify-promo-dismiss').onclick = onDismiss

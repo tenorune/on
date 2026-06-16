@@ -322,6 +322,36 @@ describe('promo Enable button failure feedback (Defect 2 — no more silent no-o
 
 const { loadIdentity } = require('../js/identity.js');
 
+const { phraseReminderHtml, wirePhraseCopyButton } = require('../js/notifyPrompt.js');
+
+describe('phrase-reminder shared renderer', () => {
+  test('phraseReminderHtml contains the verbatim reminder + copy button', () => {
+    const html = phraseReminderHtml();
+    expect(html).toContain('make sure you’ve saved your secret phrase');
+    expect(html).toContain('class="notify-promo-copy"');
+  });
+
+  test('wirePhraseCopyButton copies the recovery phrase and flips label', async () => {
+    jest.useFakeTimers();
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    loadIdentity.mockReturnValue({ recoveryCode: 'apple-banana-cherry-dog' });
+
+    const container = document.createElement('div');
+    container.innerHTML = phraseReminderHtml();
+    wirePhraseCopyButton(container);
+    const btn = container.querySelector('.notify-promo-copy');
+    btn.click();
+    await Promise.resolve(); await Promise.resolve();
+
+    expect(writeText).toHaveBeenCalledWith('apple-banana-cherry-dog');
+    expect(btn.textContent).toBe('Copied!');
+    jest.advanceTimersByTime(1500);
+    expect(btn.textContent).toBe('Copy to clipboard');
+    jest.useRealTimers();
+  });
+});
+
 describe('install-nudge secret-phrase copy button', () => {
   const flush = () => new Promise((r) => setImmediate(r));
   beforeEach(() => {
@@ -342,7 +372,7 @@ describe('install-nudge secret-phrase copy button', () => {
     const writeText = jest.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     maybeRepromptForMissingPermission(); // renders the install-guidance banner
-    const btn = document.getElementById('notify-promo-copy');
+    const btn = document.querySelector('.notify-promo-copy');
     expect(btn).not.toBeNull();
     btn.click();
     await flush();
@@ -353,6 +383,6 @@ describe('install-nudge secret-phrase copy button', () => {
   test('no copy button when the guidance carries no phrase reminder', () => {
     guidanceCopyFor.mockReturnValue({ body: 'plain guidance', remindPhrase: false });
     maybeRepromptForMissingPermission();
-    expect(document.getElementById('notify-promo-copy')).toBeNull();
+    expect(document.querySelector('.notify-promo-copy')).toBeNull();
   });
 });
