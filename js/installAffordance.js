@@ -49,6 +49,9 @@ export function initInstallAffordance() {
     if (!show) toast.classList.add('hidden');
   };
 
+  // initInstallAffordance is called once at boot. We intentionally do not guard
+  // against repeated init: this binds to DOM nodes that may be replaced (e.g. in
+  // tests), so a guard would skip re-wiring a fresh DOM rather than prevent a leak.
   fab.addEventListener('click', () => openToast(toast));
   toast.querySelector('#install-toast-dismiss').addEventListener('click', () => toast.classList.add('hidden'));
   onInstallPromptChange(render);

@@ -48,4 +48,29 @@ describe('install affordance rendering', () => {
     initInstallAffordance();
     expect(document.getElementById('install-fab').classList.contains('hidden')).toBe(true);
   });
+
+  test('installable lane: fab opens toast with a working Install button', async () => {
+    setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
+    // Fire a beforeinstallprompt so the install prompt is available → lane 'installable'.
+    const evt = new Event('beforeinstallprompt');
+    evt.preventDefault = jest.fn();
+    evt.prompt = jest.fn();
+    evt.userChoice = Promise.resolve({ outcome: 'accepted' });
+    initInstallAffordance();        // registers the beforeinstallprompt listener
+    window.dispatchEvent(evt);      // now available; onInstallPromptChange → re-render shows fab
+
+    const fab = document.getElementById('install-fab');
+    expect(fab.classList.contains('hidden')).toBe(false);
+
+    fab.click();
+    const action = document.getElementById('install-toast-action');
+    const toast = document.getElementById('install-toast');
+    expect(action.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('install-toast-text').textContent).toContain('install KnockKnock');
+
+    action.click();
+    await Promise.resolve(); await Promise.resolve();
+    expect(evt.prompt).toHaveBeenCalledTimes(1);
+    expect(toast.classList.contains('hidden')).toBe(true);
+  });
 });
