@@ -183,7 +183,7 @@ The redesign splits into three lanes, keyed off the existing capability state:
    (it's a two-step cliff: switch browser → then install).
 2. **Installable desktop + Android lane** — notifications are the goal; install
    is an optional "add for quick access + reliable alerts" upsell, not a gate.
-   Good place to adopt `beforeinstallprompt` for a real in-app install button.
+   Uses a real in-app Install button via `beforeinstallprompt` (§8).
 3. **Push-in-tab lane** (desktop Chrome/Edge; Firefox) — no install gate. Soft
    notification ask at a meaningful moment. **Firefox desktop** additionally gets
    the soft "open in Chrome/Edge for the full experience" upsell (§3a), then a
@@ -200,9 +200,65 @@ matrix — the redesign should consume it rather than re-detect platforms.
 - iOS minimum version: web push requires iOS/iPadOS **16.4+**. Confirm whether we
   surface anything for older iOS (currently they fall into `needs-install-ios`
   but push still won't work post-install on < 16.4).
-- Whether to adopt `beforeinstallprompt` (Chrome/Edge/Android) for a real
-  in-app install button vs. keeping instruction-only.
+- ~~Whether to adopt `beforeinstallprompt`~~ — **decided: adopt** for lane 2
+  (Chrome/Edge/Android) as a real in-app install button. See §8.
 - Exact placement of the phrase-save gate relative to the iOS install step.
+
+---
+
+## 8. Real install button via `beforeinstallprompt` (lane 2)
+
+**Decision:** lane 2 (Chromium: Chrome/Edge desktop, Chrome/Samsung/Opera
+Android) gets a real in-app **Install** button driven by `beforeinstallprompt`,
+instead of instructions. Safari (iOS/macOS) and Firefox never fire the event, so
+they stay instruction-based (lanes 1 and 3) — the API does not change anything
+for them.
+
+**Pattern** — capture-and-stash, fire from a user gesture:
+
+```js
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();        // suppress Chrome's mini-infobar
+  deferredPrompt = e;        // stash for later
+  showInstallButton();       // only now is the button actionable
+});
+
+installBtn.addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();                              // native dialog
+  const { outcome } = await deferredPrompt.userChoice;  // 'accepted' | 'dismissed'
+  deferredPrompt = null;                                // single-use; consumed
+  hideInstallButton();
+});
+
+window.addEventListener('appinstalled', () => { /* confirmed installed */ });
+```
+
+**Constraints to respect:**
+
+- The button is **only actionable after the event fires** — can't trigger install
+  on demand. Reveal the button from the listener, not eagerly. Event timing is a
+  Chromium heuristic (install criteria met + engagement).
+- **Single-use:** once `.prompt()` runs, the stashed event is consumed; hide the
+  button afterward. A dismissed prompt may not re-fire for a while.
+- Must call `.prompt()` inside a **user gesture**.
+- Install criteria: valid manifest (name, icons, `start_url`, `display: standalone`),
+  HTTPS, SW with a fetch handler — this app already meets these.
+
+**Dual-purpose signal — splits the `supported` state for free:** capturing
+`beforeinstallprompt` is also how we distinguish "supported **and** installable"
+from "supported but **not** installable" (the §3a gap):
+
+- event has fired → installable → show the Install button (lane 2).
+- event provably has not fired on a non-iOS/non-Safari **desktop** browser →
+  treat as not-installable → Firefox-style "open in Chrome/Edge" upsell (§3a).
+  (Use a short grace window / Firefox-desktop UA check, since the event is async
+  and "hasn't fired yet" ≠ "won't fire.")
+
+Net new for this project — `js/installGuidance.js` is detection + instructions
+only today and listens for no install events.
 
 ---
 
