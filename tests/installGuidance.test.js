@@ -1,5 +1,5 @@
 // tests/installGuidance.test.js
-const { detectNotifyCapability, isFirefoxDesktop, isStandalone } = require('../js/installGuidance.js');
+const { detectNotifyCapability, isFirefoxDesktop, isStandalone, shouldPrimeRestore } = require('../js/installGuidance.js');
 
 function setUA(ua) {
   Object.defineProperty(global.navigator, 'userAgent', { value: ua, configurable: true });
@@ -182,5 +182,17 @@ describe('onboardingLane', () => {
   test('desktop Firefox → push-in-tab', () => {
     setUA(LINUX_FF); setStandalone(false);
     expect(onboardingLane({ installPromptAvailable: false })).toBe('push-in-tab');
+  });
+});
+
+describe('shouldPrimeRestore', () => {
+  test('standalone + no identity → true', () => {
+    expect(shouldPrimeRestore({ standalone: true, hasIdentity: false })).toBe(true);
+  });
+  test('standalone + has identity → false', () => {
+    expect(shouldPrimeRestore({ standalone: true, hasIdentity: true })).toBe(false);
+  });
+  test('not standalone → false', () => {
+    expect(shouldPrimeRestore({ standalone: false, hasIdentity: false })).toBe(false);
   });
 });

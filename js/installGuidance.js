@@ -121,3 +121,11 @@ export function onboardingLane({ installPromptAvailable = false } = {}) {
   if (isFirefoxDesktop()) return 'push-in-tab';
   return 'ready';
 }
+
+// A standalone (installed) launch with no stored identity is almost certainly a
+// just-installed user who must restore — our flow only prompts install AFTER
+// account creation. Prime restore instead of showing the new/restore chooser, so
+// they don't accidentally create a duplicate account.
+export function shouldPrimeRestore({ standalone, hasIdentity }) {
+  return !!standalone && !hasIdentity;
+}
