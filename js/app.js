@@ -6,7 +6,7 @@ import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
-import { initNotifyPrompt, refreshPushToken } from './notifyPrompt.js';
+import { initNotifyPrompt, refreshPushToken, phraseReminderHtml, wirePhraseCopyButton } from './notifyPrompt.js';
 import { initInstallAffordance } from './installAffordance.js';
 import { initNotifyDebug } from './notifyDebug.js';
 import { getMessagingIfSupported } from './firebase-config.js';
@@ -26,7 +26,7 @@ import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { flashRegenerated } from './regenFlash.js';
 import { ensureSignedIn } from './auth.js';
-import { shouldPrimeRestore, isStandalone } from './installGuidance.js';
+import { shouldPrimeRestore, isStandalone, onboardingLane } from './installGuidance.js';
 
 
 let splashCounter = 0;
@@ -435,6 +435,53 @@ export function showRestoreScreen({ primed = false } = {}) {
   });
 }
 
+
+// Inline install step for the iOS/macOS lanes. Body leads with the notification
+// value (per copy conventions); the phrase-reminder is the shared block.
+// "Maybe later" resolves so the user lands in the app un-installed (install
+// stays reachable via the corner fab).
+function showInstallStep(lane) {
+  const el = document.getElementById('install-step');
+  const titleEl = document.getElementById('install-step-title');
+  const bodyEl = document.getElementById('install-step-body');
+  const reminderEl = document.getElementById('install-step-reminder');
+  const laterBtn = document.getElementById('install-step-later-btn');
+  if (!el) return Promise.resolve();
+
+  if (lane === 'macos-install') {
+    titleEl.textContent = 'Add to Dock';
+    bodyEl.textContent = 'To get notified about knocks, calls, and people coming online, add KnockKnock to your Dock: choose File → Add to Dock, then open the app from there.';
+  } else { // ios-install
+    titleEl.textContent = 'Add to Home Screen';
+    bodyEl.textContent = 'To get notified about knocks, calls, and people coming online, add KnockKnock to your Home Screen: tap the Share button, then "Add to Home Screen".';
+  }
+  reminderEl.innerHTML = phraseReminderHtml();
+  wirePhraseCopyButton(reminderEl);
+  el.classList.remove('hidden');
+
+  return new Promise((resolve) => {
+    function later() { laterBtn.removeEventListener('click', later); el.classList.add('hidden'); resolve(); }
+    laterBtn.addEventListener('click', later);
+  });
+}
+
+// Early redirect for iOS non-Safari browsers (push only works from Safari).
+// Surfaced before account creation so the account is made in Safari directly.
+function showSafariRedirect() {
+  const el = document.getElementById('safari-redirect');
+  const bodyEl = document.getElementById('safari-redirect-body');
+  const reminderEl = document.getElementById('safari-redirect-reminder');
+  const continueBtn = document.getElementById('safari-redirect-continue-btn');
+  if (!el) return Promise.resolve();
+  bodyEl.textContent = 'To get notified about knocks, calls, and people coming online on iPhone, open this app in Safari, then add it to your Home Screen.';
+  reminderEl.innerHTML = phraseReminderHtml();
+  wirePhraseCopyButton(reminderEl);
+  el.classList.remove('hidden');
+  return new Promise((resolve) => {
+    function cont() { continueBtn.removeEventListener('click', cont); el.classList.add('hidden'); resolve(); }
+    continueBtn.addEventListener('click', cont);
+  });
+}
 
 function handleInviteRedemptionResult(result) {
   if (result.ok) {
