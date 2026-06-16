@@ -312,7 +312,7 @@ export function showRecoveryCodeModal(initialCode, onConfirm) {
   });
 }
 
-export function showRestoreScreen() {
+export function showRestoreScreen({ primed = false } = {}) {
   const el = document.getElementById('restore-screen');
   const input = document.getElementById('restore-input');
   const error = document.getElementById('restore-error');
@@ -325,6 +325,19 @@ export function showRestoreScreen() {
   error.textContent = '';
   clearButtonBusy(submit); // clean state if a prior attempt left it busy
   el.classList.remove('hidden');
+
+  const pasteBtn = document.getElementById('restore-paste-btn');
+  const newLink = document.getElementById('restore-new-link');
+  const username = document.getElementById('restore-username');
+  if (username) username.value = ''; // let AutoFill match by domain
+  if (pasteBtn) {
+    pasteBtn.classList.toggle('hidden', !primed);
+    pasteBtn.onclick = async () => {
+      try { input.value = (await navigator.clipboard?.readText()) || input.value; }
+      catch { /* clipboard blocked */ }
+    };
+  }
+  if (newLink) newLink.classList.toggle('hidden', !primed);
 
   const restoreForm = document.getElementById('restore-form');
   function onFormSubmit(e) { e.preventDefault(); }
@@ -392,14 +405,17 @@ export function showRestoreScreen() {
       teardown();
       resolve(null);
     }
+    function onNew() { teardown(); resolve({ createNew: true }); }
     function teardown() {
       submit.removeEventListener('click', onSubmit);
       cancel.removeEventListener('click', onCancel);
+      if (newLink) newLink.removeEventListener('click', onNew);
       if (restoreForm) restoreForm.removeEventListener('submit', onFormSubmit);
       el.classList.add('hidden');
     }
     submit.addEventListener('click', onSubmit);
     cancel.addEventListener('click', onCancel);
+    if (newLink) newLink.addEventListener('click', onNew);
   });
 }
 
