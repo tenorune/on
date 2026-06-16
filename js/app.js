@@ -7,6 +7,7 @@ import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { initNotifyPrompt, refreshPushToken } from './notifyPrompt.js';
+import { initInstallAffordance } from './installAffordance.js';
 import { initNotifyDebug } from './notifyDebug.js';
 import { getMessagingIfSupported } from './firebase-config.js';
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
@@ -783,6 +784,7 @@ function initPaletteBoot(userId) {
 function initPushNotifications(userId) {
   if (!NOTIFICATIONS_ENABLED) return;
   initNotifyPrompt(userId);
+  initInstallAffordance();
   // Flag/opt-in-gated push debug readout (#156). No-op unless NOTIFY_DEBUG or
   // ?notifydebug=1.
   initNotifyDebug(userId);
