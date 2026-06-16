@@ -149,13 +149,14 @@ implementation.
 ### `ios-install` / `macos-install` step
 
 - **Body** (context-appropriate, differs from the bell-tap nudge — exact lead-in
-  is an implementation detail; recorded direction below): pitch install's value
-  for the onboarding context, then the platform install instructions, reusing the
-  existing Share/➕/Dock step icons (`js/installGuidance.js:56-58`).
-  - iOS direction: *"Add KnockKnock to your Home Screen for an app icon and alerts
-    when someone knocks."* + Share→➕ steps.
-  - macOS direction: *"Add KnockKnock to your Dock for quick access and alerts
-    when someone knocks."* + File→Add to Dock steps.
+  is an implementation detail; recorded direction below): lead with the
+  *notification* value (knocks, calls, people coming online), **not** the icon,
+  then the platform install instructions, reusing the existing Share/➕/Dock step
+  icons (`js/installGuidance.js:56-58`). See **Copy conventions** below.
+  - iOS direction: *"To get notified about knocks, calls, and people coming online,
+    add KnockKnock to your Home Screen."* + Share→➕ steps.
+  - macOS direction: *"To get notified about knocks, calls, and people coming
+    online, add KnockKnock to your Dock."* + File→Add to Dock steps.
 - **Phrase-reminder block** (verbatim shared component, above).
 - **Primary action:** the instructions themselves (user performs the OS install).
 - **Secondary action:** **"Maybe later"** → lands in the app un-installed. No
@@ -215,6 +216,24 @@ Unchanged. Bell-gated, soft, contextual (verified above). Firefox included — a
 Firefox user tapping a bell still gets the existing Enable path (notifications
 while Firefox is open). The corner nudge is purely the *additional* path to the
 more-reliable installed experience; it gates/replaces nothing.
+
+## Copy conventions
+
+Any new copytext introduced by this work must, before being written, **survey the
+app for related existing copy and match its tone and content.** Notable anchors:
+
+- The notification value is consistently phrased around the events, not the
+  mechanics: *"Get notified about knocks, calls, and people coming online."*
+  (`js/notifyPrompt.js:178`). New copy frames value the same way.
+- **The value is being notified — knocks, calls, someone becoming available — and
+  (on desktop) getting those even when the browser is closed. It is NOT the
+  home-screen/dock icon or "quick access."** Do not lead with the icon.
+- Reuse exact existing strings where the meaning is identical (e.g. the shared
+  phrase-reminder block) rather than paraphrasing — avoid multiple wordings of the
+  same thing.
+
+This applies during implementation to every new string, including the install-step
+body lead-ins recorded above (which are directions, not final copy).
 
 ## Edge cases & known limitations
 
