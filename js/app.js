@@ -153,6 +153,9 @@ async function ensureIdentity(pendingInviteToken = null) {
   const inviteGroupName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
   // Dismiss splash so the user can see and interact with the welcome screen.
   dismissSplash();
+  if (onboardingLane({ installPromptAvailable: false }) === 'ios-use-safari') {
+    await showSafariRedirect(); // informational; user may continue here anyway
+  }
   // Loop so that cancelling the restore screen returns the user to the
   // welcome screen, not silently into the new-account flow.
   while (true) {
@@ -168,7 +171,12 @@ async function ensureIdentity(pendingInviteToken = null) {
       }
       continue;
     }
-    return await createNewAccount();
+    const created = await createNewAccount();
+    const lane = onboardingLane({ installPromptAvailable: false });
+    if (lane === 'ios-install' || lane === 'macos-install') {
+      await showInstallStep(lane);
+    }
+    return created;
   }
 }
 
