@@ -2,7 +2,7 @@
 // Platform/capability detection + Add-to-Home-Screen guidance.
 // NOT gated by NOTIFICATIONS_ENABLED — installing is valuable on its own.
 
-function isStandalone() {
+export function isStandalone() {
   if (typeof navigator !== 'undefined' && navigator.standalone === true) return true;
   try { return window.matchMedia('(display-mode: standalone)').matches; }
   catch { return false; }
@@ -31,6 +31,13 @@ function isMacSafari() {
   // document' avoids a false positive under jsdom.
   const touchPoints = (typeof navigator !== 'undefined' && navigator.maxTouchPoints) || 0;
   return touchPoints === 0;
+}
+
+// Desktop Firefox: push works in-tab but there is no PWA install. Exclude
+// mobile Firefox (Android) and Firefox-on-iOS (FxiOS), which behave differently.
+export function isFirefoxDesktop() {
+  const u = ua();
+  return /Firefox/.test(u) && !/Mobile|Android|iPhone|iPad|iPod|FxiOS/.test(u);
 }
 
 // Returns { state, supported } where state is one of:

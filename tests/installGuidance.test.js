@@ -1,5 +1,5 @@
 // tests/installGuidance.test.js
-const { detectNotifyCapability } = require('../js/installGuidance.js');
+const { detectNotifyCapability, isFirefoxDesktop, isStandalone } = require('../js/installGuidance.js');
 
 function setUA(ua) {
   Object.defineProperty(global.navigator, 'userAgent', { value: ua, configurable: true });
@@ -62,6 +62,37 @@ test('desktop Chrome on macOS is NOT treated as needs-install-macos', () => {
   setUA('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36');
   setStandalone(false);
   expect(detectNotifyCapability().state).toBe('supported');
+});
+
+describe('isFirefoxDesktop', () => {
+  test('true for desktop Firefox', () => {
+    setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0');
+    expect(isFirefoxDesktop()).toBe(true);
+  });
+  test('false for Firefox on Android', () => {
+    setUA('Mozilla/5.0 (Android 14; Mobile; rv:125.0) Gecko/125.0 Firefox/125.0');
+    expect(isFirefoxDesktop()).toBe(false);
+  });
+  test('false for Firefox on iOS (FxiOS)', () => {
+    setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) FxiOS/125.0 Mobile/15E148 Safari/605');
+    expect(isFirefoxDesktop()).toBe(false);
+  });
+  test('false for Chrome', () => {
+    setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
+    expect(isFirefoxDesktop()).toBe(false);
+  });
+});
+
+describe('isStandalone (exported)', () => {
+  test('true when display-mode standalone matches', () => {
+    setStandalone(true);
+    expect(isStandalone()).toBe(true);
+  });
+  test('false otherwise', () => {
+    setStandalone(false);
+    delete global.navigator.standalone;
+    expect(isStandalone()).toBe(false);
+  });
 });
 
 const { guidanceCopyFor } = require('../js/installGuidance.js');
