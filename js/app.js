@@ -330,13 +330,7 @@ export function showRestoreScreen({ primed = false } = {}) {
   const newLink = document.getElementById('restore-new-link');
   const username = document.getElementById('restore-username');
   if (username) username.value = ''; // let AutoFill match by domain
-  if (pasteBtn) {
-    pasteBtn.classList.toggle('hidden', !primed);
-    pasteBtn.onclick = async () => {
-      try { input.value = (await navigator.clipboard?.readText()) || input.value; }
-      catch { /* clipboard blocked */ }
-    };
-  }
+  if (pasteBtn) pasteBtn.classList.toggle('hidden', !primed);
   if (newLink) newLink.classList.toggle('hidden', !primed);
 
   const restoreForm = document.getElementById('restore-form');
@@ -344,6 +338,10 @@ export function showRestoreScreen({ primed = false } = {}) {
   if (restoreForm) restoreForm.addEventListener('submit', onFormSubmit);
 
   return new Promise((resolve) => {
+    async function onPaste() {
+      try { input.value = (await navigator.clipboard?.readText()) || input.value; }
+      catch { /* clipboard blocked */ }
+    }
     async function onSubmit() {
       const normalized = parseRecoveryCode(input.value);
       if (!normalized) {
@@ -410,12 +408,14 @@ export function showRestoreScreen({ primed = false } = {}) {
       submit.removeEventListener('click', onSubmit);
       cancel.removeEventListener('click', onCancel);
       if (newLink) newLink.removeEventListener('click', onNew);
+      if (pasteBtn) pasteBtn.removeEventListener('click', onPaste);
       if (restoreForm) restoreForm.removeEventListener('submit', onFormSubmit);
       el.classList.add('hidden');
     }
     submit.addEventListener('click', onSubmit);
     cancel.addEventListener('click', onCancel);
     if (newLink) newLink.addEventListener('click', onNew);
+    if (pasteBtn) pasteBtn.addEventListener('click', onPaste);
   });
 }
 
