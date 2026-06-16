@@ -26,6 +26,7 @@ import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { flashRegenerated } from './regenFlash.js';
 import { ensureSignedIn } from './auth.js';
+import { shouldPrimeRestore, isStandalone } from './installGuidance.js';
 
 
 let splashCounter = 0;
@@ -128,6 +129,21 @@ async function ensureIdentity(pendingInviteToken = null) {
   }
 
   // Empty localStorage — true new user OR cleared cache.
+
+  // Standalone launch with empty storage → almost certainly a just-installed user
+  // who must restore. Prime restore (AutoFill/Paste/manual) instead of the
+  // new/restore chooser, with an escape hatch for the rare genuine-new case.
+  if (shouldPrimeRestore({ standalone: isStandalone(), hasIdentity: false })) {
+    dismissSplash();
+    const restored = await showRestoreScreen({ primed: true });
+    if (restored && restored.userId) {
+      saveIdentity(restored.userId, restored.code, restored.recoveryCode);
+      rearmSplash();
+      return { identity: restored, isNew: false };
+    }
+    // restored.createNew (escape hatch) or null (cancel) → fall through to normal flow.
+  }
+
   // Resolve invite preview BEFORE dismissing splash, so the welcome
   // screen renders with framing already populated. resolveInvitePreview
   // returns null synchronously when there is no pending token, so non-invite
