@@ -85,7 +85,7 @@ from "is the browser running"; a bookmark does not.**
 | **macOS Safari (installed/Dock)** | (installed) | — | none → `supported` | "Enable" button | Already done. |
 | **macOS Chrome/Edge** | ✅ optional | ❌ No | none → `supported` | "Enable" button | **Optional.** Push works in-tab; install = nicety + reliability. |
 | **Windows/Linux Chrome/Edge** | ✅ optional | ❌ No | none → `supported` | "Enable" button | **Optional.** Same as above. |
-| **Desktop Firefox** | ❌ no PWA install | ❌ No | none → `supported` | "Enable" button | **No install path.** Offer bookmark/pin for re-entry only. |
+| **Desktop Firefox** | ❌ no PWA install | ❌ No | none → `supported` | "Enable" button | **No install path here.** Soft nudge to Chrome/Edge for the full (installable) experience — see §3a. Else bookmark/pin for re-entry. |
 | **Chrome/Edge Android** | ✅ optional (`beforeinstallprompt` available) | ❌ No | none → `supported` | "Enable" button | **Optional, recommended.** Push works either way; install adds home-screen presence + reliability. |
 | **Samsung Internet / FF Android** | ✅ / ⚠️ | ❌ No (if Push API present) | `supported` or `unsupported` | "Enable" or hidden | Optional. |
 | **In-app browsers** (IG/FB/etc.) | ❌ | ❌ | falls to `unsupported` → hidden | hidden | **No** — can't install or push. Should tell user to open in a real browser. |
@@ -94,6 +94,44 @@ from "is the browser running"; a bookmark does not.**
 > **macOS Safari-in-tab:** confirmed non-working in hands-on testing (a prior
 > session tried exhaustively and could not get in-tab push to display). Treated
 > as a hard install-to-Dock requirement, matching `js/installGuidance.js:42-46`.
+
+---
+
+## 3a. "Use a different browser for the full experience" nudge
+
+We already redirect iOS non-Safari users to Safari (`ios-use-safari`). We want a
+**parallel nudge for browsers where install isn't available** — primarily
+**desktop Firefox** — pointing at Chrome/Edge.
+
+**Critical difference in framing — do not copy the iOS tone verbatim:**
+
+- **iOS Chrome → Safari is a _fix_.** Web push is *impossible* in iOS non-Safari
+  browsers, so the redirect is the only path to notifications at all. Firm nudge
+  is warranted.
+- **Firefox desktop → Chrome/Edge is an _upgrade_.** Push *already works* in
+  Firefox (it returns `supported`; the "Enable" button functions). Firefox just
+  can't **install** the PWA. Switching buys the app icon + reliable background
+  delivery (alerts even when the browser is closed) — **not** notifications from
+  zero. Copy must not imply notifications are broken, or Firefox users will think
+  a working feature is broken.
+
+**Recommended behavior for the "push works but not installable" bucket** (really
+just desktop Firefox; in-app browsers fall to `unsupported` and can't push
+either):
+
+1. **Soft, optional** upsell: "Notifications work here. For the full experience —
+   an app icon and alerts even when your browser is closed — open this in Chrome
+   or Edge and install it." Ranked **below** the iOS redirect in urgency; never a
+   gate.
+2. Otherwise let them proceed with in-tab push **plus** the bookmark/pin
+   suggestion framed as "so you can find your way back" (§2).
+
+**Implementation note:** today every push-capable browser collapses to a single
+`supported` state, so we can't distinguish "supported **and** installable"
+(Chrome/Edge desktop, Android) from "supported but **not** installable" (Firefox
+desktop). The redesign needs a new detection branch — UA-sniff Firefox desktop,
+or capture `beforeinstallprompt` (fires on installable browsers) to know install
+is genuinely on offer before showing the upsell.
 
 ---
 
@@ -147,8 +185,10 @@ The redesign splits into three lanes, keyed off the existing capability state:
    is an optional "add for quick access + reliable alerts" upsell, not a gate.
    Good place to adopt `beforeinstallprompt` for a real in-app install button.
 3. **Push-in-tab lane** (desktop Chrome/Edge; Firefox) — no install gate. Soft
-   notification ask at a meaningful moment. Firefox additionally gets a
-   bookmark/pin suggestion framed as "so you can find your way back."
+   notification ask at a meaningful moment. **Firefox desktop** additionally gets
+   the soft "open in Chrome/Edge for the full experience" upsell (§3a), then a
+   bookmark/pin suggestion framed as "so you can find your way back." (Note
+   Chrome/Edge desktop belong to lane 2 — they *are* installable.)
 
 Assets to lean on: `detectNotifyCapability()` already encodes nearly the whole
 matrix — the redesign should consume it rather than re-detect platforms.
