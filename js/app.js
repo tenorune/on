@@ -386,6 +386,7 @@ export function showRestoreScreen({ primed = false } = {}) {
     pasteBtn.classList.toggle('hidden', !primed);
     pasteBtn.classList.toggle('primary-btn', primed);
     pasteBtn.classList.toggle('ghost-btn', !primed);
+    pasteBtn.textContent = primed ? 'Paste & sign in' : 'Paste';
   }
   if (submit) {
     submit.classList.toggle('primary-btn', !primed);
@@ -398,8 +399,13 @@ export function showRestoreScreen({ primed = false } = {}) {
 
   return new Promise((resolve) => {
     async function onPaste() {
-      try { input.value = (await navigator.clipboard?.readText()) || input.value; }
-      catch { /* clipboard blocked */ }
+      try {
+        const text = await navigator.clipboard?.readText();
+        if (text) input.value = text;
+      } catch { /* clipboard blocked */ }
+      // One tap: if the pasted text is a valid phrase, sign in immediately instead
+      // of making the user also tap Restore. Otherwise leave it for manual editing.
+      if (parseRecoveryCode(input.value)) await onSubmit();
     }
     async function onSubmit() {
       const normalized = parseRecoveryCode(input.value);
@@ -504,8 +510,7 @@ function showInstallStep(lane) {
   // it and show only the Add-to-Home-Screen instructions.
   const id = loadIdentity();
   if (id && id.recoveryCode) {
-    reminderEl.innerHTML = phraseReminderHtml()
-      + '<span class="install-step-paste-note">After installing, open KnockKnock and tap <strong>Paste</strong> to sign in.</span>';
+    reminderEl.innerHTML = phraseReminderHtml();
     wirePhraseCopyButton(reminderEl);
     reminderEl.classList.remove('hidden');
   } else {
