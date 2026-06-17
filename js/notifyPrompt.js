@@ -1,6 +1,6 @@
 // js/notifyPrompt.js
 import { NOTIFICATIONS_ENABLED } from './features.js';
-import { isHintSeen, markHintSeen, addPushToken, removePushToken, getRegisteredPushToken, hasAnyNotifyPrefEnabled, touchPushToken, cullStalePushTokens } from './prefs.js';
+import { markHintSeen, addPushToken, removePushToken, getRegisteredPushToken, hasAnyNotifyPrefEnabled, touchPushToken, cullStalePushTokens } from './prefs.js';
 import { detectNotifyCapability, guidanceCopyFor } from './installGuidance.js';
 import { loadIdentity } from './identity.js';
 import { getMessagingIfSupported } from './firebase-config.js';
@@ -17,17 +17,6 @@ function isRepromptDismissedOnDevice() {
 }
 function dismissRepromptOnDevice() {
   try { localStorage.setItem(REPROMPT_DISMISS_KEY, '1'); } catch { /* quota */ }
-}
-
-// Pure: decide whether the promo banner should be shown.
-export function shouldShowPromo({ enabled, hintSeen, engaged, capState, permission }) {
-  if (!enabled) return false;
-  if (hintSeen) return false;
-  if (!engaged) return false;
-  if (permission === 'granted') return false;
-  if (capState === 'denied') return false;
-  if (capState === 'unsupported') return false;
-  return true; // 'supported' | 'needs-install-ios' | 'ios-use-safari'
 }
 
 // Pure: decide whether to RE-prompt because the user has enabled notify prefs
@@ -124,15 +113,10 @@ export async function ensureNotificationsReady() {
   showBannerForState(cap.state);
 }
 
-let _engaged = false;
-
 let _userId = null;
 let _repromptListenerWired = false;
 export function initNotifyPrompt(userId) {
   _userId = userId;
-  // Engagement = second session onward (avoid first-ever-load nag).
-  const k = 'statusapp_session_seen';
-  if (localStorage.getItem(k) === '1') _engaged = true; else localStorage.setItem(k, '1');
   // Re-evaluate once the synced notify prefs land — that's when we can tell a
   // restored device has "on" bells it can't yet deliver (no permission/token).
   if (!_repromptListenerWired && typeof document !== 'undefined') {
@@ -146,28 +130,21 @@ export function initNotifyPrompt(userId) {
 // notify-prefs-synced event, after a restore hydrates the bells).
 export function maybeRepromptForMissingPermission() { refreshPromoVisibility(); }
 
-// Single source of truth for the banner's visibility. Shows it for either the
-// passive promo (engaged, unseen) OR the reprompt (enabled prefs but no
-// permission on this device). When the ONLY reason is the reprompt, Close is a
-// device-local dismissal; otherwise it's the synced forever-dismiss.
+// Single source of truth for the banner's visibility. Notifications are
+// bell-gated: the banner surfaces ONLY for the reprompt — the user enabled notify
+// bells (possibly on another device) but this device has no permission/token.
+// There is no passive 2nd-session promo. Close is a device-local dismissal.
 function refreshPromoVisibility() {
   const banner = document.getElementById('notify-promo');
   if (!banner) return;
   const cap = detectNotifyCapability();
   const permission = (typeof Notification !== 'undefined' && Notification.permission) || 'default';
-  const passive = shouldShowPromo({
-    enabled: NOTIFICATIONS_ENABLED, hintSeen: isHintSeen(PROMO_HINT),
-    engaged: _engaged, capState: cap.state, permission,
-  });
   const reprompt = shouldReprompt({
     enabled: NOTIFICATIONS_ENABLED, hasEnabledPrefs: hasAnyNotifyPrefEnabled(),
     permission, capState: cap.state, deviceDismissed: isRepromptDismissedOnDevice(),
   });
-  if (!passive && !reprompt) { banner.classList.add('hidden'); return; }
-  const onDismiss = (reprompt && !passive)
-    ? () => { dismissRepromptOnDevice(); banner.classList.add('hidden'); }
-    : () => { dismissPromoForever(); banner.classList.add('hidden'); };
-  renderBanner(banner, cap.state, onDismiss);
+  if (!reprompt) { banner.classList.add('hidden'); return; }
+  renderBanner(banner, cap.state, () => { dismissRepromptOnDevice(); banner.classList.add('hidden'); });
   banner.classList.remove('hidden');
 }
 

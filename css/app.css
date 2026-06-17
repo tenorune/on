@@ -929,10 +929,10 @@ main {
 /* Spacing in the install step is governed by .modal-card's flex gap; kill the
    default <p> margins that otherwise pile on top of it. */
 #install-step-body, #install-step-reminder { margin: 0; }
-/* Reminder matches the body text (white, normal size), pulled up close to it. */
-.install-step-reminder { margin-top: -0.4rem; }
+/* Reminder is muted + slightly smaller (sub-note under the install help); pulled
+   up close to the help text. */
+.install-step-reminder { margin-top: -0.4rem; font-size: 0.85rem; color: var(--text-muted); }
 .install-step-reminder .notify-promo-reminder { margin-top: 0; }
-.install-step-reminder .notify-promo-phrase { font-size: inherit; opacity: 1; }
 
 .stale-btns {
   display: flex; flex-direction: column; gap: 0.5rem;
