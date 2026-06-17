@@ -1228,12 +1228,18 @@ main {
   display: flex; align-items: center; gap: 0.75rem; background: var(--surface2); border: 1px solid rgba(0,0,0,0.15);
   border-radius: 0.75rem; padding: 0.75rem 1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.25); z-index: 60; }
 .notify-promo.hidden { display: none; }
+/* Flex column so the install icon can sit at the bottom of the viewport when the
+   roster/contact lists are short (margin-top:auto), yet get pushed down when they
+   grow tall. min-height fills the space below the ~3rem sticky nav-row (matching
+   #app-header's top:3rem). The sticky header still works inside the flex column. */
+#main-ui-direct { display: flex; flex-direction: column; min-height: 100vh; min-height: calc(100dvh - 3rem); }
 .install-fab {
-  /* In-flow at the bottom of the Direct content (pushed down by the lists),
-     left-aligned, NOT fixed — so any toast renders above it. */
+  /* In-flow at the bottom of the Direct content: margin-top:auto seats it at the
+     bottom of the screen when content is short; the lists push it down otherwise.
+     Left-aligned, NOT fixed — so any toast renders above it. */
   display: inline-flex; align-items: center; justify-content: center;
   width: 2.25rem; height: 2.25rem; border-radius: 50%;
-  margin: 0.5rem 1rem 1.25rem;
+  margin: auto 1rem 1.25rem;
   background: var(--surface2); color: var(--text-muted);
   border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 16px rgba(0,0,0,0.25);
   cursor: pointer; padding: 0;
@@ -1242,7 +1248,7 @@ main {
 /* #install-toast carries the base .notify-promo class, so it inherits the
    centered, max-width position (it's no longer pinned to the corner — the fab
    and the toast are mutually exclusive, so there's nothing to stack above). */
-.notify-promo #notify-promo-text { flex: 1; font-size: 0.9rem; }
+.notify-promo #notify-promo-text, .notify-promo #install-toast-text { flex: 1; font-size: 0.9rem; }
 /* Inline step icons in the install guidance (Share / Add-to-Home / Add-to-Dock). */
 .notify-promo .step-icon { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.18em; margin: 0 0.12em; }
 /* Shared phrase-reminder styling (phraseReminderHtml from notifyPrompt.js).
