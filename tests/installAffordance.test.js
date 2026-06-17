@@ -31,24 +31,24 @@ describe('install affordance rendering', () => {
   }
   beforeEach(() => { __resetInstallPromptForTests(); dom(); setStandalone(false); });
 
-  test('Firefox desktop: toast shows first (fab hidden); dismiss reveals fab; fab reopens toast', () => {
+  test('Firefox desktop: lands with the corner icon; tapping it shows the toast; dismiss returns to the icon', () => {
     setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0');
     initInstallAffordance();
     const fab = document.getElementById('install-fab');
     const toast = document.getElementById('install-toast');
-    // toast leads, fab hidden
+    // icon leads, toast hidden
+    expect(fab.classList.contains('hidden')).toBe(false);
+    expect(toast.classList.contains('hidden')).toBe(true);
+    // fab click → toast shows the explanation (no button), fab hidden
+    fab.click();
     expect(toast.classList.contains('hidden')).toBe(false);
     expect(fab.classList.contains('hidden')).toBe(true);
     expect(document.getElementById('install-toast-text').textContent).toContain('Chrome or Edge');
     expect(document.getElementById('install-toast-action').classList.contains('hidden')).toBe(true);
-    // dismiss → fab appears, toast hidden
+    // dismiss → back to the corner icon
     document.getElementById('install-toast-dismiss').click();
     expect(toast.classList.contains('hidden')).toBe(true);
     expect(fab.classList.contains('hidden')).toBe(false);
-    // fab click → toast returns, fab hidden again
-    fab.click();
-    expect(toast.classList.contains('hidden')).toBe(false);
-    expect(fab.classList.contains('hidden')).toBe(true);
   });
 
   test('ready lane (standalone) hides both toast and fab', () => {
@@ -59,7 +59,7 @@ describe('install affordance rendering', () => {
     expect(document.getElementById('install-toast').classList.contains('hidden')).toBe(true);
   });
 
-  test('installable lane: toast shows first with a working Install button (fab hidden)', async () => {
+  test('installable lane: lands with the corner icon; tapping it shows a working Install button', async () => {
     setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
     // Fire a beforeinstallprompt so the install prompt is available → lane 'installable'.
     const evt = new Event('beforeinstallprompt');
@@ -72,9 +72,12 @@ describe('install affordance rendering', () => {
     const fab = document.getElementById('install-fab');
     const action = document.getElementById('install-toast-action');
     const toast = document.getElementById('install-toast');
-    // toast leads, with the Install button; fab hidden
+    // icon leads, toast hidden
+    expect(fab.classList.contains('hidden')).toBe(false);
+    expect(toast.classList.contains('hidden')).toBe(true);
+    // fab click → toast shows with the Install button
+    fab.click();
     expect(toast.classList.contains('hidden')).toBe(false);
-    expect(fab.classList.contains('hidden')).toBe(true);
     expect(action.classList.contains('hidden')).toBe(false);
     expect(document.getElementById('install-toast-text').textContent).toContain('install KnockKnock');
 
