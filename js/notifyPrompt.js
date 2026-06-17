@@ -176,7 +176,7 @@ function refreshPromoVisibility() {
 // partition, so the user must re-enter their phrase; this reminds them to save it
 // first and offers a one-tap clipboard copy (without displaying the phrase).
 export function phraseReminderHtml() {
-  return '<span class="notify-promo-reminder">First, make sure you’ve saved your secret phrase — you’ll need it to restore your account after installing.</span>'
+  return '<span class="notify-promo-reminder">Make sure you’ve saved your secret phrase — you’ll need it to restore your account after installing.</span>'
     + '<span class="notify-promo-phrase">Secret phrase: <button type="button" class="notify-promo-copy">Copy to clipboard</button></span>';
 }
 

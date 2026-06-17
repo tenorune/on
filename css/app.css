@@ -926,7 +926,13 @@ main {
 
 .install-step-instruction { display: block; margin-top: 0.5rem; }
 #install-step-body .step-icon { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.18em; margin: 0 0.12em; }
-.install-step-reminder { margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted); }
+/* Spacing in the install step is governed by .modal-card's flex gap; kill the
+   default <p> margins that otherwise pile on top of it. */
+#install-step-body, #install-step-reminder { margin: 0; }
+/* Reminder matches the body text (white, normal size), pulled up close to it. */
+.install-step-reminder { margin-top: -0.4rem; }
+.install-step-reminder .notify-promo-reminder { margin-top: 0; }
+.install-step-reminder .notify-promo-phrase { font-size: inherit; opacity: 1; }
 
 .stale-btns {
   display: flex; flex-direction: column; gap: 0.5rem;
@@ -1243,7 +1249,7 @@ main {
    onboarding install step). */
 .notify-promo-reminder { display: block; margin-top: 0.55rem; }
 .notify-promo-phrase { display: block; margin-top: 0.5rem; font-size: 0.82rem; opacity: 0.9; }
-.notify-promo-copy { font: inherit; color: var(--accent, #2dd4bf); background: none; border: none; padding: 0; margin-left: 0.15em; cursor: pointer; text-decoration: underline; }
+.notify-promo-copy { font: inherit; color: var(--text); background: rgba(255,255,255,0.08); border: 1px solid var(--text-muted); border-radius: 8px; padding: 0.2rem 0.55rem; margin-left: 0.4em; cursor: pointer; }
 /* Match Direct's "Add a person": a surface2 rounded card wrapping a plain,
    full-width, left-aligned .add-btn (#add-person-area treatment). The 0.25rem
    top margin mirrors #add-person-area's empty-state margin-top so the button

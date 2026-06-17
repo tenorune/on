@@ -327,7 +327,7 @@ const { phraseReminderHtml, wirePhraseCopyButton } = require('../js/notifyPrompt
 describe('phrase-reminder shared renderer', () => {
   test('phraseReminderHtml contains the verbatim reminder + copy button', () => {
     const html = phraseReminderHtml();
-    expect(html).toContain('make sure you’ve saved your secret phrase');
+    expect(html).toContain('saved your secret phrase');
     expect(html).toContain('class="notify-promo-copy"');
   });
 
