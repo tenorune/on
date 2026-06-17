@@ -377,47 +377,37 @@ export function showRestoreScreen() {
   clearButtonBusy(submit); // clean state if a prior attempt left it busy
   el.classList.remove('hidden');
 
-  const username = document.getElementById('restore-username');
-  if (username) username.value = ''; // let AutoFill match by domain
-
-  // Start collapsed: hide the field so the primary action is a one-tap clipboard
-  // paste via "Sign in"; "Type it instead" reveals the field for manual entry.
-  const typeLink = document.getElementById('restore-type-link');
-  input.classList.add('hidden');
-  if (typeLink) typeLink.classList.remove('hidden');
-  function revealField() {
-    input.classList.remove('hidden');
-    if (typeLink) typeLink.classList.add('hidden');
-    input.focus();
-  }
-
   const restoreForm = document.getElementById('restore-form');
   function onFormSubmit(e) { e.preventDefault(); }
   if (restoreForm) restoreForm.addEventListener('submit', onFormSubmit);
 
   return new Promise((resolve) => {
-    // Errors always reveal the field so the user can see and edit the phrase.
+    // The field is always visible. With it empty the button reads "Paste & Sign
+    // in" and pulls the phrase from the clipboard; once there's text (typed or
+    // pasted) it reads "Sign in". Busy → "Signing in…".
+    function syncLabel() {
+      if (submit.disabled) return; // don't clobber the busy label
+      submit.textContent = input.value.trim() ? 'Sign in' : 'Paste & Sign in';
+    }
     function showError(msg) {
-      revealField();
       error.textContent = msg;
       error.classList.remove('hidden');
     }
-    // "Sign in" is the primary action. Collapsed (field hidden) it pulls the phrase
-    // from the clipboard and signs in — the common just-installed path. A filled
-    // field (typed, or pasted manually) just signs in. Nothing to paste → reveal
-    // the field for manual entry.
     async function onAction() {
-      if (input.value.trim()) { await onSubmit(); return; }
-      if (input.classList.contains('hidden')) {
+      syncLabel();
+      if (!input.value.trim()) {
+        // Empty field → pull from the clipboard (the just-installed paste path).
         try {
           const text = await navigator.clipboard?.readText();
           if (text) input.value = text;
         } catch { /* clipboard blocked */ }
-        if (input.value.trim()) { await onSubmit(); return; }
-        showError('Couldn’t find your phrase to paste — type it below.');
-        return;
+        if (!input.value.trim()) {
+          showError('Paste or type your secret phrase.');
+          input.focus();
+          return;
+        }
       }
-      showError('Type your secret phrase below.');
+      await onSubmit();
     }
     async function onSubmit() {
       const normalized = parseRecoveryCode(input.value);
@@ -471,7 +461,6 @@ export function showRestoreScreen() {
       teardown();
       resolve({ userId, code: user.code, recoveryCode: normalized });
     }
-    function onTypeLink() { revealField(); }
     function onCancel() {
       teardown();
       resolve(null);
@@ -479,13 +468,14 @@ export function showRestoreScreen() {
     function teardown() {
       submit.removeEventListener('click', onAction);
       cancel.removeEventListener('click', onCancel);
-      if (typeLink) typeLink.removeEventListener('click', onTypeLink);
+      input.removeEventListener('input', syncLabel);
       if (restoreForm) restoreForm.removeEventListener('submit', onFormSubmit);
       el.classList.add('hidden');
     }
     submit.addEventListener('click', onAction);
     cancel.addEventListener('click', onCancel);
-    if (typeLink) typeLink.addEventListener('click', onTypeLink);
+    input.addEventListener('input', syncLabel);
+    syncLabel();
   });
 }
 

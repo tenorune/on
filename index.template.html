@@ -153,13 +153,12 @@
       <h3>Enter your secret phrase</h3>
       <form id="restore-form" autocomplete="on">
         <input id="restore-username" class="visually-hidden" type="text" autocomplete="username" tabindex="-1" aria-hidden="true" />
-        <input id="restore-input" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" placeholder="your-four-secret-words" class="code-input restore-input hidden" />
+      <input id="restore-input" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="your-four-secret-words" class="code-input restore-input" />
         <p id="restore-error" class="error-msg hidden"></p>
         <div class="restore-btns">
-          <button id="restore-submit-btn" class="primary-btn" type="submit">Sign in</button>
+          <button id="restore-submit-btn" class="primary-btn" type="submit">Paste &amp; Sign in</button>
           <button id="restore-cancel-btn" class="ghost-btn" type="button">Cancel</button>
         </div>
-        <button id="restore-type-link" class="link-btn" type="button">Type it instead</button>
       </form>
     </div>
   </div>

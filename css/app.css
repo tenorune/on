@@ -923,7 +923,6 @@ main {
 .restore-btns { display: flex; gap: 0.5rem; }
 .restore-btns button { flex: 1; }
 #restore-form { display: flex; flex-direction: column; gap: 0.75rem; }
-#restore-type-link { align-self: center; }
 
 .install-step-instruction { display: block; margin-top: 0.5rem; }
 .install-step-hint { display: block; margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted); }
