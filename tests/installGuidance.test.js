@@ -1,5 +1,5 @@
 // tests/installGuidance.test.js
-const { detectNotifyCapability, isFirefoxDesktop, isStandalone, shouldPrimeRestore } = require('../js/installGuidance.js');
+const { detectNotifyCapability, isFirefoxDesktop, isStandalone, shouldPrimeRestore, isInAppBrowser } = require('../js/installGuidance.js');
 
 function setUA(ua) {
   Object.defineProperty(global.navigator, 'userAgent', { value: ua, configurable: true });
@@ -32,10 +32,16 @@ test('iOS Safari tab (no Push API, not standalone) → needs-install-ios', () =>
   expect(detectNotifyCapability().state).toBe('needs-install-ios');
 });
 
-test('iOS Chrome (CriOS) → ios-use-safari', () => {
+test('iOS Chrome (CriOS) → needs-install-ios (real browser, not in-app)', () => {
   setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) CriOS/120 Mobile');
   delete global.window.PushManager;
-  expect(detectNotifyCapability().state).toBe('ios-use-safari');
+  expect(detectNotifyCapability().state).toBe('needs-install-ios');
+});
+
+test('in-app browser (Instagram) → in-app-browser', () => {
+  setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Instagram 300.0');
+  delete global.window.PushManager;
+  expect(detectNotifyCapability().state).toBe('in-app-browser');
 });
 
 test('iOS Safari installed (standalone, Push API present) → supported', () => {
@@ -99,7 +105,7 @@ const { guidanceCopyFor } = require('../js/installGuidance.js');
 
 test('guidanceCopyFor maps each state to a non-empty message', () => {
   expect(guidanceCopyFor('needs-install-ios').body).toMatch(/Home Screen/i);
-  expect(guidanceCopyFor('ios-use-safari').body).toMatch(/Safari/i);
+  expect(guidanceCopyFor('in-app-browser').body).toMatch(/browser/i);
   expect(guidanceCopyFor('denied').body).toMatch(/settings/i);
 });
 
@@ -141,9 +147,8 @@ test('macOS install copy scopes the requirement to Safari ("In Safari on a Mac")
   expect(guidanceCopyFor('needs-install-macos').body).toMatch(/In Safari on a Mac/i);
 });
 
-test('iOS "use Safari" copy embeds the Share and Add-to-Home step icons inline', () => {
-  const body = guidanceCopyFor('ios-use-safari').body;
-  expect((body.match(/class="step-icon"/g) || []).length).toBe(2);
+test('in-app-browser copy includes the secret-phrase reminder flag', () => {
+  expect(guidanceCopyFor('in-app-browser').remindPhrase).toBe(true);
 });
 
 const { onboardingLane } = require('../js/installGuidance.js');
@@ -159,9 +164,14 @@ describe('onboardingLane', () => {
     setUA(IOS_SAFARI); setStandalone(true);
     expect(onboardingLane({ installPromptAvailable: false })).toBe('ready');
   });
-  test('iOS third-party browser → ios-use-safari', () => {
+  test('iOS Chrome/Firefox (real browser) → ios-install', () => {
     setUA(IOS_CHROME); setStandalone(false);
-    expect(onboardingLane({ installPromptAvailable: false })).toBe('ios-use-safari');
+    expect(onboardingLane({ installPromptAvailable: false })).toBe('ios-install');
+  });
+  test('in-app browser (Instagram) → in-app-browser', () => {
+    const INSTAGRAM = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Instagram 300.0';
+    setUA(INSTAGRAM); setStandalone(false);
+    expect(onboardingLane({ installPromptAvailable: false })).toBe('in-app-browser');
   });
   test('iOS Safari tab → ios-install', () => {
     setUA(IOS_SAFARI); setStandalone(false);
@@ -215,5 +225,24 @@ describe('shouldPrimeRestore', () => {
   });
   test('not standalone → false', () => {
     expect(shouldPrimeRestore({ standalone: false, hasIdentity: false })).toBe(false);
+  });
+});
+
+describe('isInAppBrowser', () => {
+  test('true for Instagram UA', () => {
+    setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Instagram 300.0');
+    expect(isInAppBrowser()).toBe(true);
+  });
+  test('true for Android WebView UA', () => {
+    setUA('Mozilla/5.0 (Linux; Android 13; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120 Mobile Safari/537.36');
+    expect(isInAppBrowser()).toBe(true);
+  });
+  test('false for plain desktop Chrome', () => {
+    setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
+    expect(isInAppBrowser()).toBe(false);
+  });
+  test('false for iOS Safari', () => {
+    setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1');
+    expect(isInAppBrowser()).toBe(false);
   });
 });

@@ -28,7 +28,13 @@ function isIos() {
   const touchPoints = (typeof navigator !== 'undefined' && navigator.maxTouchPoints) || 0;
   return /Macintosh/.test(u) && touchPoints > 0;
 }
-function isIosThirdParty() { return isIos() && /CriOS|FxiOS|EdgiOS|OPiOS/.test(ua()); }
+// Embedded WebViews (in-app browsers inside Instagram, Facebook, Slack, etc.)
+// lack the com.apple.developer.web-browser entitlement, so on iOS they can't
+// "Add to Home Screen" / install a PWA (nor on Android). Route them to a real
+// browser. Markers: common host apps + Android System WebView (; wv).
+export function isInAppBrowser() {
+  return /FBAN|FBAV|FB_IAB|Instagram|Line\/|Snapchat|Twitter|LinkedInApp|WhatsApp|musical_ly|Bytedance|TikTok|Pinterest|; ?wv\)|GSA\//.test(ua());
+}
 // Desktop (macOS) Safari — its re-enable path lives in an obscure menu, unlike
 // Chromium/Firefox which expose site permissions from the address bar. Excludes
 // Chromium/Firefox (which also carry "Safari" in their UA) and iPadOS (touch).
@@ -51,18 +57,23 @@ export function isFirefoxDesktop() {
 }
 
 // Returns { state, supported } where state is one of:
-// 'supported' | 'denied' | 'needs-install-ios' | 'needs-install-macos' | 'ios-use-safari' | 'unsupported'
+// 'supported' | 'denied' | 'needs-install-ios' | 'needs-install-macos' | 'in-app-browser' | 'unsupported'
 export function detectNotifyCapability() {
   if (typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission === 'denied') {
     return { state: 'denied', supported: false };
   }
+  // In-app/embedded browsers can't install (no Add to Home Screen), so push can
+  // never work there — route the user to a real browser.
+  if (isInAppBrowser()) return { state: 'in-app-browser', supported: false };
   // In-browser macOS Safari HAS the Push API, but in practice it accepts a push
   // and silently never displays it (the installed Dock app does). Treat a normal
   // Safari tab on macOS like iOS-needs-install and point the user at Add to Dock;
   // the installed web app runs standalone, so it falls through to 'supported'.
   if (isMacSafari() && !isStandalone()) return { state: 'needs-install-macos', supported: false };
   if (isPushApiAvailable()) return { state: 'supported', supported: true };
-  if (isIosThirdParty()) return { state: 'ios-use-safari', supported: false };
+  // iOS Safari AND third-party browsers (Chrome/Firefox/Edge) in a tab: all can
+  // Add to Home Screen, and the installed app gets push (iOS 16.4+), so all get
+  // the same install guidance.
   if (isIos() && !isStandalone()) return { state: 'needs-install-ios', supported: false };
   return { state: 'unsupported', supported: false };
 }
@@ -80,9 +91,9 @@ const COPY = {
     body: `On iPhone, notifications need the app on your Home Screen. Tap the Share button ${SHARE_ICON}, then "Add to Home Screen" ${ADD_HOME_ICON}.`,
     remindPhrase: true,
   },
-  'ios-use-safari': {
-    title: 'Open in Safari',
-    body: `On iPhone, notifications only work from Safari. Open this app in Safari, then tap Share ${SHARE_ICON} → "Add to Home Screen" ${ADD_HOME_ICON}.`,
+  'in-app-browser': {
+    title: 'Open in your browser',
+    body: `This app’s built-in browser can’t install KnockKnock. Open this page in your browser — Safari, Chrome, or any other — then add it to your Home Screen ${ADD_HOME_ICON} to get notified.`,
     remindPhrase: true,
   },
   'needs-install-macos': {
@@ -117,14 +128,16 @@ export function guidanceCopyFor(state) {
 
 // Onboarding lane selector — classifies the environment into the path the
 // onboarding flow should take. `installPromptAvailable` is the (async) signal
-// from js/installPrompt.js that a real beforeinstallprompt has fired, used to
-// distinguish an installable Chromium browser from one that simply hasn't
-// offered (or won't, e.g. Firefox desktop → push-in-tab).
-// Returns: 'ready' | 'ios-use-safari' | 'ios-install' | 'macos-install'
+// from js/installPrompt.js that a real beforeinstallprompt has fired.
+// Returns: 'ready' | 'in-app-browser' | 'ios-install' | 'macos-install'
 //          | 'installable' | 'push-in-tab'
+// NOTE: iOS Chrome/Firefox/Edge are NOT special-cased — since iOS 16.4 they can
+// Add to Home Screen and the installed app receives web push like Safari, so they
+// take the normal 'ios-install' path. Only true in-app/embedded browsers (which
+// can't install at all) are redirected.
 export function onboardingLane({ installPromptAvailable = false } = {}) {
   if (isStandalone()) return 'ready';
-  if (isIosThirdParty()) return 'ios-use-safari';
+  if (isInAppBrowser()) return 'in-app-browser';
   if (isMacSafari()) return 'macos-install';
   if (isIos()) return 'ios-install';
   if (installPromptAvailable) return 'installable';

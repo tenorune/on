@@ -7,6 +7,19 @@ whether installing the PWA is the right call for that setup.
 Status: research / orientation doc (2026-06-16). Behavior described is current
 `dev`. Update when onboarding behavior changes.
 
+> **Correction (2026-06-17):** an earlier premise of this doc — "iOS web push
+> only works from Safari" — was **wrong**. Per the WebKit 16.4 post, since **iOS
+> 16.4** *any* browser (Chrome/Firefox/Edge) can Add to Home Screen and the
+> installed app receives web push "no matter which browser added the website."
+> The real dividing line is **registered browser vs. in-app/embedded WebView**:
+> real browsers install + push; in-app WebViews (Instagram, FB, …) can't. The
+> `ios-use-safari` lane has been removed in favor of an `in-app-browser` redirect;
+> iOS Chrome/FF/Edge now take the normal `needs-install-ios`/`ios-install` path.
+> (Verified empirically on iOS 26: PWAs installed from Chrome and Firefox both
+> receive push and survive deleting the installing browser — storage is
+> system-managed, not tied to the browser.) Rows below are updated; some prose
+> elsewhere may still carry the old framing.
+
 ---
 
 ## 1. The decision engine (how the app decides today)
@@ -21,7 +34,7 @@ install nudge and the notification toast are just rendered views of that state
 | `supported` | Push API present, delivery expected | "Enable" button → `Notification.requestPermission()` → FCM token |
 | `needs-install-ios` | iOS Safari, not installed | "Add to Home Screen" + Share/➕ icons + save-your-phrase reminder |
 | `needs-install-macos` | macOS Safari tab, not installed | "Add to Dock" + save-your-phrase reminder |
-| `ios-use-safari` | iOS Chrome/FF/Edge/Opera | "Open in Safari" + save-your-phrase reminder |
+| `in-app-browser` | In-app/embedded WebViews (Instagram, FB, Android `wv`, …) | "Open in your browser" + save-your-phrase reminder |
 | `denied` | Permission blocked | Browser-specific re-enable instructions |
 | `unsupported` | No Push API | Banner hidden (silent no-op) |
 
@@ -30,7 +43,7 @@ install nudge and the notification toast are just rendered views of that state
 - `isStandalone()` — `navigator.standalone === true` **or** `matchMedia('(display-mode: standalone)')`.
 - `isPushApiAvailable()` — `PushManager` + `Notification` + `serviceWorker` all present.
 - `isIos()` — UA `iPhone|iPad|iPod`, or `Macintosh` + touch (iPadOS).
-- `isIosThirdParty()` — iOS + `CriOS|FxiOS|EdgiOS|OPiOS`.
+- `isInAppBrowser()` — embedded WebViews (`FBAN`/`Instagram`/`Line`/… + Android `; wv`). Real browsers (Chrome/FF/Edge) are NOT flagged — since iOS 16.4 they install + push like Safari.
 - `isMacSafari()` — `Macintosh` + `Safari`, excludes Chromium/FF, `maxTouchPoints === 0`.
 
 **No `beforeinstallprompt` is used anywhere.** Install is always "point the user
@@ -79,7 +92,7 @@ from "is the browser running"; a bookmark does not.**
 | Platform / Browser | PWA install | Web push needs install? | Current install nudge | Current notification toast | Install the right call? |
 |---|---|---|---|---|---|
 | **iOS Safari (tab)** | ✅ Home Screen | ✅ **Required** (iOS 16.4+) | "Add to Home Screen" + phrase reminder (`needs-install-ios`) | Same banner; no "Enable" until installed | **Yes — mandatory.** No install = no push. |
-| **iOS Chrome/FF/Edge/Opera** | ⚠️ via Safari only | ✅ Required, Safari-only | "Open in Safari" + phrase reminder (`ios-use-safari`) | Same | **Yes — but must switch to Safari first.** Biggest friction cliff. |
+| **iOS Chrome/FF/Edge/Opera** | ✅ Home Screen (own Share menu) | ✅ **Required** (iOS 16.4+) | "Add to Home Screen" + phrase reminder (`needs-install-ios`) | Same | **Yes — via the browser's own Share menu** (iOS 16.4+); no Safari detour. |
 | **iPadOS Safari** | ✅ Home Screen | ✅ Required | Same as iOS (touch-detected) | Same | **Yes — mandatory.** |
 | **macOS Safari (tab)** | ✅ Add to Dock | ✅ **Required** (in-tab push confirmed non-working) | "Add to Dock" + phrase reminder (`needs-install-macos`) | Same | **Yes — required.** |
 | **macOS Safari (installed/Dock)** | (installed) | — | none → `supported` | "Enable" button | Already done. |
@@ -88,7 +101,7 @@ from "is the browser running"; a bookmark does not.**
 | **Desktop Firefox** | ❌ no PWA install | ❌ No | none → `supported` | "Enable" button | **No install path here.** Soft nudge to Chrome/Edge for the full (installable) experience — see §3a. Else bookmark/pin for re-entry. |
 | **Chrome/Edge Android** | ✅ optional (`beforeinstallprompt` available) | ❌ No | none → `supported` | "Enable" button | **Optional, recommended.** Push works either way; install adds home-screen presence + reliability. |
 | **Samsung Internet / FF Android** | ✅ / ⚠️ | ❌ No (if Push API present) | `supported` or `unsupported` | "Enable" or hidden | Optional. |
-| **In-app browsers** (IG/FB/etc.) | ❌ | ❌ | falls to `unsupported` → hidden | hidden | **No** — can't install or push. Should tell user to open in a real browser. |
+| **In-app/embedded WebViews** (IG/FB/Android `wv`/…) | ❌ can't Add to Home Screen | ❌ | "Open in your browser" (`in-app-browser`) | redirect | **No** — no install entitlement. Redirect to a real browser. |
 | **Any browser, permission denied** | — | — | "blocked, re-enable here" (Safari path vs address-bar) | same | N/A |
 
 > **macOS Safari-in-tab:** confirmed non-working in hands-on testing (a prior

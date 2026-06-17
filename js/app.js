@@ -153,8 +153,8 @@ async function ensureIdentity(pendingInviteToken = null) {
   const inviteGroupName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
   // Dismiss splash so the user can see and interact with the welcome screen.
   dismissSplash();
-  if (onboardingLane({ installPromptAvailable: false }) === 'ios-use-safari') {
-    await showSafariRedirect(); // informational; user may continue here anyway
+  if (onboardingLane({ installPromptAvailable: false }) === 'in-app-browser') {
+    await showInAppBrowserRedirect(); // informational; user may continue here anyway
   }
   // Loop so that cancelling the restore screen returns the user to the
   // welcome screen, not silently into the new-account flow.
@@ -470,14 +470,16 @@ function showInstallStep(lane) {
   });
 }
 
-// Early redirect for iOS non-Safari browsers (push only works from Safari).
-// Surfaced before account creation so the account is made in Safari directly.
-function showSafariRedirect() {
-  const el = document.getElementById('safari-redirect');
-  const bodyEl = document.getElementById('safari-redirect-body');
-  const continueBtn = document.getElementById('safari-redirect-continue-btn');
+// Redirect for in-app/embedded browsers (Instagram, Facebook, etc.), which can't
+// Add to Home Screen. Surfaced before account creation so the account is ideally
+// created in a real browser. Real browsers (Safari, Chrome, Firefox) are NOT sent
+// here — they install normally.
+function showInAppBrowserRedirect() {
+  const el = document.getElementById('browser-redirect');
+  const bodyEl = document.getElementById('browser-redirect-body');
+  const continueBtn = document.getElementById('browser-redirect-continue-btn');
   if (!el) return Promise.resolve();
-  bodyEl.textContent = 'To get notified about knocks, calls, and people coming online on iPhone, open this app in Safari, then add it to your Home Screen.';
+  bodyEl.textContent = 'This app’s built-in browser can’t install KnockKnock. To get notified about knocks, calls, and people coming online, open this page in your browser (Safari, Chrome, …), then add it to your Home Screen.';
   el.classList.remove('hidden');
   return new Promise((resolve) => {
     function cont() { continueBtn.removeEventListener('click', cont); el.classList.add('hidden'); resolve(); }

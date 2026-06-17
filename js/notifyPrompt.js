@@ -32,7 +32,7 @@ export function shouldReprompt({ enabled, hasEnabledPrefs, permission, capState,
   if (!hasEnabledPrefs) return false;
   if (capState === 'denied') return false;
   if (capState === 'unsupported') return false;
-  return true; // 'supported' | 'needs-install-ios' | 'ios-use-safari'
+  return true; // 'supported' | 'needs-install-ios' | 'in-app-browser'
 }
 
 const VAPID_KEY = process.env.FIREBASE_VAPID_KEY;
