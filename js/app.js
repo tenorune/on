@@ -93,6 +93,18 @@ function rearmSplash() {
   el.style.display = '';
 }
 
+// The ?setup=install marker is stamped on the URL after account creation on the
+// iOS/macOS install lanes. When the user opens that URL in a real browser to Add
+// to Home Screen (a fresh storage partition with no identity), it routes them to
+// install instructions instead of the new/restore chooser — preventing a
+// duplicate account.
+function markSetupInstall() {
+  try { const u = new URL(location.href); u.searchParams.set('setup', 'install'); history.replaceState(null, '', u); } catch { /* ignore */ }
+}
+function isSetupInstall() {
+  try { return new URLSearchParams(location.search).get('setup') === 'install'; } catch { return false; }
+}
+
 async function ensureIdentity(pendingInviteToken = null) {
   const existing = loadIdentity();
   if (existing) {
@@ -144,6 +156,20 @@ async function ensureIdentity(pendingInviteToken = null) {
     // restored.createNew (escape hatch) or null (cancel) → fall through to normal flow.
   }
 
+  // Safari install-hop: the user created an account elsewhere (e.g. an in-app
+  // browser) and opened this page in a real browser to Add to Home Screen — a
+  // fresh partition with no identity but carrying the ?setup=install marker. Show
+  // install instructions instead of the new/restore chooser so they don't fork a
+  // duplicate account; after installing they Paste in the app.
+  if (isSetupInstall() && !isStandalone()) {
+    dismissSplash();
+    const hopLane = onboardingLane({ installPromptAvailable: false });
+    if (hopLane === 'ios-install' || hopLane === 'macos-install') {
+      await showInstallStep(hopLane);
+      // "Maybe later" falls through to the normal welcome flow below.
+    }
+  }
+
   // Resolve invite preview BEFORE dismissing splash, so the welcome
   // screen renders with framing already populated. resolveInvitePreview
   // returns null synchronously when there is no pending token, so non-invite
@@ -174,6 +200,7 @@ async function ensureIdentity(pendingInviteToken = null) {
     const created = await createNewAccount();
     const lane = onboardingLane({ installPromptAvailable: false });
     if (lane === 'ios-install' || lane === 'macos-install') {
+      markSetupInstall(); // so the Safari hop (to Add to Home Screen) shows install, not the chooser
       await showInstallStep(lane);
     }
     return created;
@@ -353,7 +380,17 @@ export function showRestoreScreen({ primed = false } = {}) {
   const pasteBtn = document.getElementById('restore-paste-btn');
   const username = document.getElementById('restore-username');
   if (username) username.value = ''; // let AutoFill match by domain
-  if (pasteBtn) pasteBtn.classList.toggle('hidden', !primed);
+  // In primed mode (a fresh/just-installed device) pasting the phrase is the
+  // common path, so make Paste the primary button and demote manual Restore.
+  if (pasteBtn) {
+    pasteBtn.classList.toggle('hidden', !primed);
+    pasteBtn.classList.toggle('primary-btn', primed);
+    pasteBtn.classList.toggle('ghost-btn', !primed);
+  }
+  if (submit) {
+    submit.classList.toggle('primary-btn', !primed);
+    submit.classList.toggle('ghost-btn', primed);
+  }
 
   const restoreForm = document.getElementById('restore-form');
   function onFormSubmit(e) { e.preventDefault(); }
@@ -461,8 +498,20 @@ function showInstallStep(lane) {
       + `<span class="install-step-instruction">Tap the Share button ${SHARE_ICON}, then “Add to Home Screen” ${ADD_HOME_ICON}.</span>`
       + `<span class="install-step-hint">Don’t see “Add to Home Screen”? Open this page in a browser first.</span>`;
   }
-  reminderEl.innerHTML = phraseReminderHtml();
-  wirePhraseCopyButton(reminderEl);
+  // The save-your-phrase reminder (with Copy) is only meaningful when there's an
+  // identity to copy — right after account creation. On the Safari install-hop (a
+  // fresh partition, no identity) the phrase is already on the clipboard, so skip
+  // it and show only the Add-to-Home-Screen instructions.
+  const id = loadIdentity();
+  if (id && id.recoveryCode) {
+    reminderEl.innerHTML = phraseReminderHtml()
+      + '<span class="install-step-paste-note">After installing, open KnockKnock and tap <strong>Paste</strong> to sign in.</span>';
+    wirePhraseCopyButton(reminderEl);
+    reminderEl.classList.remove('hidden');
+  } else {
+    reminderEl.innerHTML = '';
+    reminderEl.classList.add('hidden');
+  }
   el.classList.remove('hidden');
 
   return new Promise((resolve) => {
