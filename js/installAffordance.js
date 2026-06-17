@@ -1,14 +1,14 @@
 // js/installAffordance.js
 // Install affordance: a toast (centered in the app column) plus a small bottom-
 // left corner icon. The toast and the corner icon are never shown at once.
-// - installable (Chromium): toast leads with an Install button, shown from page
-//   load (capability-detected). Click fires the native dialog if a
-//   beforeinstallprompt was captured, else falls back to manual install steps.
+// - installable (Chromium): toast leads, shown from page load (capability-
+//   detected). With a captured beforeinstallprompt it carries a one-tap Install
+//   button; without one, it appends the manual install step inline (no button).
 // - push-in-tab (Firefox desktop): toast leads, explains installing via another browser.
 // - ios-install / macos-install: the user has just tapped "Maybe later" on the
 //   install step of the core new-user flow, so we don't re-pop the same content —
 //   we land with the corner icon (toast on tap) as an ongoing reminder.
-import { onboardingLane, installStepBodyHtml, installPromptInstructionsHtml } from './installGuidance.js';
+import { onboardingLane, installStepBodyHtml, installPromptStepHtml } from './installGuidance.js';
 import { phraseReminderHtml, wirePhraseCopyButton } from './phraseReminder.js';
 import {
   initInstallPrompt, isInstallPromptAvailable, isAppInstalled,
@@ -30,8 +30,17 @@ function fillToast(toast, lane) {
   const textEl = toast.querySelector('#install-toast-text');
   const actionEl = toast.querySelector('#install-toast-action');
   if (lane === 'installable') {
-    textEl.textContent = 'To get notified about knocks, calls, and people coming online — even when this browser is closed — install KnockKnock.';
-    actionEl.classList.remove('hidden');
+    const lead = 'To get notified about knocks, calls, and people coming online — even when this browser is closed — install KnockKnock.';
+    if (isInstallPromptAvailable()) {
+      textEl.textContent = lead;            // one-tap native dialog via the button
+      actionEl.classList.remove('hidden');
+    } else {
+      // No beforeinstallprompt captured: the native dialog can't be opened, so
+      // append the manual step inline. No button — it would only reveal these
+      // same steps on click.
+      textEl.innerHTML = lead + installPromptStepHtml();
+      actionEl.classList.add('hidden');
+    }
   } else if (lane === 'ios-install' || lane === 'macos-install') {
     // Same Add-to-Home-Screen / Add-to-Dock content as the onboarding install
     // modal, plus the save-your-phrase reminder (the toast is shown to a signed-in
@@ -80,15 +89,9 @@ export function initInstallAffordance() {
   // tests), so a guard would skip re-wiring a fresh DOM rather than prevent a leak.
   fab.addEventListener('click', () => { dismissed = false; apply(); });
   dismissEl.addEventListener('click', () => { dismissed = true; apply(); });
-  if (actionEl) actionEl.addEventListener('click', async () => {
-    if (isInstallPromptAvailable()) { await promptInstall(); apply(); return; }
-    // No beforeinstallprompt captured (e.g. it hasn't fired yet) — the native
-    // dialog can't be opened programmatically, so show the manual install steps
-    // in place rather than letting the click do nothing.
-    const textEl = toast.querySelector('#install-toast-text');
-    if (textEl) textEl.innerHTML = installPromptInstructionsHtml();
-    actionEl.classList.add('hidden');
-  });
+  // The Install button only renders when a beforeinstallprompt is captured (see
+  // fillToast), so its click always has a live prompt to fire.
+  if (actionEl) actionEl.addEventListener('click', async () => { await promptInstall(); apply(); });
   onInstallPromptChange(apply);
   apply();
 }

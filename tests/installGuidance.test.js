@@ -230,17 +230,18 @@ describe('onboardingLane', () => {
   });
 });
 
-describe('installPromptInstructionsHtml', () => {
-  const { installPromptInstructionsHtml } = require('../js/installGuidance.js');
+describe('installPromptStepHtml', () => {
+  const { installPromptStepHtml } = require('../js/installGuidance.js');
   test('desktop Chromium → address-bar install glyph + menu', () => {
     setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
-    const html = installPromptInstructionsHtml();
+    const html = installPromptStepHtml();
     expect(html).toContain('address bar');
     expect(html).toContain('Install KnockKnock');
+    expect(html).not.toContain('To get notified'); // step only, no duplicate lead
   });
   test('Android Chromium → Add to Home screen via menu', () => {
     setUA('Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36');
-    const html = installPromptInstructionsHtml();
+    const html = installPromptStepHtml();
     expect(html).toContain('Add to Home screen');
     expect(html).not.toContain('address bar');
   });

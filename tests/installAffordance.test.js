@@ -87,27 +87,19 @@ describe('install affordance rendering', () => {
     expect(toast.classList.contains('hidden')).toBe(true);
   });
 
-  test('installable lane: button shows from page load (no captured event) via capability detection', () => {
+  test('installable lane: from page load with no captured event, manual step is inline (no button)', () => {
     setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
     setInstallPromptSupport(true);   // Chromium exposes onbeforeinstallprompt
     initInstallAffordance();         // no beforeinstallprompt dispatched
     const toast = document.getElementById('install-toast');
     const action = document.getElementById('install-toast-action');
-    // toast leads with the Install button even though no event has fired
-    expect(toast.classList.contains('hidden')).toBe(false);
-    expect(action.classList.contains('hidden')).toBe(false);
-    expect(document.getElementById('install-toast-text').textContent).toContain('install KnockKnock');
-  });
-
-  test('installable lane: clicking Install with no captured event shows manual instructions', () => {
-    setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
-    setInstallPromptSupport(true);
-    initInstallAffordance();
-    const action = document.getElementById('install-toast-action');
     const textEl = document.getElementById('install-toast-text');
-    action.click();   // no beforeinstallprompt captured → fall back to instructions
-    expect(textEl.innerHTML).toContain('address bar');
+    // toast leads from page load; no button (the native dialog can't be opened),
+    // and the manual step is appended inline — no extra click, no duplicate lead.
+    expect(toast.classList.contains('hidden')).toBe(false);
     expect(action.classList.contains('hidden')).toBe(true);
+    expect(textEl.textContent).toContain('install KnockKnock'); // upsell lead, once
+    expect(textEl.innerHTML).toContain('address bar');          // manual step inline
   });
 
   test('iOS install lane: lands with the corner icon; tapping it shows the Add-to-Home-Screen toast (no button)', () => {

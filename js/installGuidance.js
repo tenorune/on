@@ -150,16 +150,16 @@ export function installStepBodyHtml(lane) {
   return lead + `<span class="install-step-instruction">Tap the Share button ${SHARE_ICON}, then “Add to Home Screen” ${ADD_HOME_ICON}.</span>`;
 }
 
-// Manual install steps for the Chromium 'installable' lane, shown when the
-// Install button is tapped but no beforeinstallprompt has been captured (so the
-// native dialog can't be opened programmatically). Platform-aware: Android
-// Chromium installs from the menu; desktop Chromium has the address-bar glyph.
-export function installPromptInstructionsHtml() {
-  const lead = 'To get notified about knocks, calls, and people coming online, install the app:';
+// Manual install step for the Chromium 'installable' lane, appended inline to the
+// toast when no beforeinstallprompt has been captured (so the native dialog can't
+// be opened programmatically). Step only — no lead sentence, since the toast
+// already carries the install upsell. Platform-aware: Android Chromium installs
+// from the menu; desktop Chromium has the address-bar glyph.
+export function installPromptStepHtml() {
   if (/Android/.test(ua())) {
-    return lead + `<span class="install-step-instruction">Open the browser menu (⋮), then “Add to Home screen” ${ADD_HOME_ICON}.</span>`;
+    return `<span class="install-step-instruction">Open the browser menu (⋮), then “Add to Home screen” ${ADD_HOME_ICON}.</span>`;
   }
-  return lead + `<span class="install-step-instruction">Click the install icon ${INSTALL_ICON} in the address bar, or open the browser menu (⋮) and choose “Install KnockKnock”.</span>`;
+  return `<span class="install-step-instruction">Click the install icon ${INSTALL_ICON} in the address bar, or open the browser menu (⋮) and choose “Install KnockKnock”.</span>`;
 }
 
 // Onboarding lane selector — classifies the environment into the path the
