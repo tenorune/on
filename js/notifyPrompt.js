@@ -2,7 +2,7 @@
 import { NOTIFICATIONS_ENABLED } from './features.js';
 import { markHintSeen, addPushToken, removePushToken, getRegisteredPushToken, hasAnyNotifyPrefEnabled, touchPushToken, cullStalePushTokens } from './prefs.js';
 import { detectNotifyCapability, guidanceCopyFor } from './installGuidance.js';
-import { loadIdentity } from './identity.js';
+import { phraseReminderHtml, wirePhraseCopyButton } from './phraseReminder.js';
 import { getMessagingIfSupported } from './firebase-config.js';
 import { getToken } from 'firebase/messaging';
 
@@ -148,28 +148,10 @@ function refreshPromoVisibility() {
   banner.classList.remove('hidden');
 }
 
-// Shared phrase-reminder block — reused by the notification guidance banner and
-// the onboarding install step. Installing on iOS/macOS lands in a fresh storage
-// partition, so the user must re-enter their phrase; this reminds them to save it
-// first and offers a one-tap clipboard copy (without displaying the phrase).
-export function phraseReminderHtml() {
-  return '<span class="notify-promo-reminder">Make sure you’ve saved your secret phrase — you’ll need it to restore your account after installing.</span>'
-    + '<span class="notify-promo-phrase">Secret phrase: <button type="button" class="notify-promo-copy">Copy to clipboard</button></span>';
-}
-
-export function wirePhraseCopyButton(container) {
-  const copyBtn = container.querySelector('.notify-promo-copy');
-  if (!copyBtn) return;
-  copyBtn.onclick = async () => {
-    const phrase = loadIdentity()?.recoveryCode;
-    if (!phrase) return;
-    try {
-      await navigator.clipboard?.writeText(phrase);
-      copyBtn.textContent = 'Copied!';
-      setTimeout(() => { copyBtn.textContent = 'Copy to clipboard'; }, 1500);
-    } catch { /* clipboard blocked */ }
-  };
-}
+// The phrase-reminder block + clipboard wiring live in ./phraseReminder.js (no
+// Firebase deps, so the install toast can import them too). Re-exported here for
+// existing consumers of this module.
+export { phraseReminderHtml, wirePhraseCopyButton };
 
 function renderBanner(banner, capState, onDismiss) {
   const textEl = banner.querySelector('#notify-promo-text');

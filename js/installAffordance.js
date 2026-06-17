@@ -6,6 +6,7 @@
 // - ios-install / macos-install: the onboarding install modal already showed the
 //   content, so we land with the corner icon (toast on tap) as an ongoing reminder.
 import { onboardingLane, installStepBodyHtml } from './installGuidance.js';
+import { phraseReminderHtml, wirePhraseCopyButton } from './phraseReminder.js';
 import {
   initInstallPrompt, isInstallPromptAvailable, isAppInstalled,
   promptInstall, onInstallPromptChange,
@@ -30,8 +31,10 @@ function fillToast(toast, lane) {
     actionEl.classList.remove('hidden');
   } else if (lane === 'ios-install' || lane === 'macos-install') {
     // Same Add-to-Home-Screen / Add-to-Dock content as the onboarding install
-    // modal. No button — install is manual via the Share / File menu.
-    textEl.innerHTML = installStepBodyHtml(lane);
+    // modal, plus the save-your-phrase reminder (the toast is shown to a signed-in
+    // user, so Copy works here). No button — install is manual via the Share/File menu.
+    textEl.innerHTML = installStepBodyHtml(lane) + phraseReminderHtml();
+    wirePhraseCopyButton(textEl);
     actionEl.classList.add('hidden');
   } else { // push-in-tab — no in-app install possible, so no button
     textEl.textContent = pushInTabCopy();
