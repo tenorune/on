@@ -380,35 +380,50 @@ export function showRestoreScreen() {
   const username = document.getElementById('restore-username');
   if (username) username.value = ''; // let AutoFill match by domain
 
+  // Start collapsed: hide the field so the primary action is a one-tap clipboard
+  // paste via "Sign in"; "Type it instead" reveals the field for manual entry.
+  const typeLink = document.getElementById('restore-type-link');
+  input.classList.add('hidden');
+  if (typeLink) typeLink.classList.remove('hidden');
+  function revealField() {
+    input.classList.remove('hidden');
+    if (typeLink) typeLink.classList.add('hidden');
+    input.focus();
+  }
+
   const restoreForm = document.getElementById('restore-form');
   function onFormSubmit(e) { e.preventDefault(); }
   if (restoreForm) restoreForm.addEventListener('submit', onFormSubmit);
 
   return new Promise((resolve) => {
-    // Single action: an empty field pulls the phrase from the clipboard first
-    // (the just-installed paste case); a filled field (typed or pasted) just signs
-    // in. One button instead of separate Paste / Restore.
+    // Errors always reveal the field so the user can see and edit the phrase.
+    function showError(msg) {
+      revealField();
+      error.textContent = msg;
+      error.classList.remove('hidden');
+    }
+    // "Sign in" is the primary action. Collapsed (field hidden) it pulls the phrase
+    // from the clipboard and signs in — the common just-installed path. A filled
+    // field (typed, or pasted manually) just signs in. Nothing to paste → reveal
+    // the field for manual entry.
     async function onAction() {
-      if (!input.value.trim()) {
+      if (input.value.trim()) { await onSubmit(); return; }
+      if (input.classList.contains('hidden')) {
         try {
           const text = await navigator.clipboard?.readText();
           if (text) input.value = text;
         } catch { /* clipboard blocked */ }
-        if (!input.value.trim()) {
-          error.textContent = 'Paste or type your secret phrase below.';
-          error.classList.remove('hidden');
-          input.focus();
-          return;
-        }
+        if (input.value.trim()) { await onSubmit(); return; }
+        showError('Couldn’t find your phrase to paste — type it below.');
+        return;
       }
-      await onSubmit();
+      showError('Type your secret phrase below.');
     }
     async function onSubmit() {
       const normalized = parseRecoveryCode(input.value);
       if (!normalized) {
         // Malformed input is rejected instantly with no round-trip — no busy state.
-        error.textContent = "That doesn't look like a secret phrase — check that you entered 4 words from the list.";
-        error.classList.remove('hidden');
+        showError("That doesn't look like a secret phrase — check that you entered 4 words from the list.");
         return;
       }
       // Feedback through the derive + sign-in + account-read round-trip.
@@ -425,8 +440,7 @@ export function showRestoreScreen() {
         // an unknown phrase — surface it distinctly and log the real cause
         // instead of masquerading as "no account found".
         console.error('restore sign-in failed:', e);
-        error.textContent = "Couldn't verify your phrase right now. Check your connection and try again.";
-        error.classList.remove('hidden');
+        showError("Couldn't verify your phrase right now. Check your connection and try again.");
         clearButtonBusy(submit);
         return;
       }
@@ -434,8 +448,7 @@ export function showRestoreScreen() {
       try {
         const exists = await userExists(userId);
         if (!exists) {
-          error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
-          error.classList.remove('hidden');
+          showError("No account found with that phrase. Check spelling, or tap Cancel to start over.");
           clearButtonBusy(submit);
           return;
         }
@@ -446,20 +459,19 @@ export function showRestoreScreen() {
         // "start over" would discard a real identity. Surface it as retryable
         // instead of conflating it with "no account found".
         console.error('restore account read failed:', e);
-        error.textContent = "Couldn't verify your phrase right now. Check your connection and try again.";
-        error.classList.remove('hidden');
+        showError("Couldn't verify your phrase right now. Check your connection and try again.");
         clearButtonBusy(submit);
         return;
       }
       if (!user) {
-        error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
-        error.classList.remove('hidden');
+        showError("No account found with that phrase. Check spelling, or tap Cancel to start over.");
         clearButtonBusy(submit);
         return;
       }
       teardown();
       resolve({ userId, code: user.code, recoveryCode: normalized });
     }
+    function onTypeLink() { revealField(); }
     function onCancel() {
       teardown();
       resolve(null);
@@ -467,11 +479,13 @@ export function showRestoreScreen() {
     function teardown() {
       submit.removeEventListener('click', onAction);
       cancel.removeEventListener('click', onCancel);
+      if (typeLink) typeLink.removeEventListener('click', onTypeLink);
       if (restoreForm) restoreForm.removeEventListener('submit', onFormSubmit);
       el.classList.add('hidden');
     }
     submit.addEventListener('click', onAction);
     cancel.addEventListener('click', onCancel);
+    if (typeLink) typeLink.addEventListener('click', onTypeLink);
   });
 }
 
