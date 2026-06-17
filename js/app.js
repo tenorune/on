@@ -147,7 +147,7 @@ async function ensureIdentity(pendingInviteToken = null) {
   // new/restore chooser, with an escape hatch for the rare genuine-new case.
   if (shouldPrimeRestore({ standalone: isStandalone(), hasIdentity: false })) {
     dismissSplash();
-    const restored = await showRestoreScreen({ primed: true });
+    const restored = await showRestoreScreen();
     if (restored && restored.userId) {
       saveIdentity(restored.userId, restored.code, restored.recoveryCode);
       rearmSplash();
@@ -363,7 +363,7 @@ export function showRecoveryCodeModal(initialCode, onConfirm) {
   });
 }
 
-export function showRestoreScreen({ primed = false } = {}) {
+export function showRestoreScreen() {
   const el = document.getElementById('restore-screen');
   const input = document.getElementById('restore-input');
   const error = document.getElementById('restore-error');
@@ -377,35 +377,31 @@ export function showRestoreScreen({ primed = false } = {}) {
   clearButtonBusy(submit); // clean state if a prior attempt left it busy
   el.classList.remove('hidden');
 
-  const pasteBtn = document.getElementById('restore-paste-btn');
   const username = document.getElementById('restore-username');
   if (username) username.value = ''; // let AutoFill match by domain
-  // In primed mode (a fresh/just-installed device) pasting the phrase is the
-  // common path, so make Paste the primary button and demote manual Restore.
-  if (pasteBtn) {
-    pasteBtn.classList.toggle('hidden', !primed);
-    pasteBtn.classList.toggle('primary-btn', primed);
-    pasteBtn.classList.toggle('ghost-btn', !primed);
-    pasteBtn.textContent = primed ? 'Paste & sign in' : 'Paste';
-  }
-  if (submit) {
-    submit.classList.toggle('primary-btn', !primed);
-    submit.classList.toggle('ghost-btn', primed);
-  }
 
   const restoreForm = document.getElementById('restore-form');
   function onFormSubmit(e) { e.preventDefault(); }
   if (restoreForm) restoreForm.addEventListener('submit', onFormSubmit);
 
   return new Promise((resolve) => {
-    async function onPaste() {
-      try {
-        const text = await navigator.clipboard?.readText();
-        if (text) input.value = text;
-      } catch { /* clipboard blocked */ }
-      // One tap: if the pasted text is a valid phrase, sign in immediately instead
-      // of making the user also tap Restore. Otherwise leave it for manual editing.
-      if (parseRecoveryCode(input.value)) await onSubmit();
+    // Single action: an empty field pulls the phrase from the clipboard first
+    // (the just-installed paste case); a filled field (typed or pasted) just signs
+    // in. One button instead of separate Paste / Restore.
+    async function onAction() {
+      if (!input.value.trim()) {
+        try {
+          const text = await navigator.clipboard?.readText();
+          if (text) input.value = text;
+        } catch { /* clipboard blocked */ }
+        if (!input.value.trim()) {
+          error.textContent = 'Paste or type your secret phrase below.';
+          error.classList.remove('hidden');
+          input.focus();
+          return;
+        }
+      }
+      await onSubmit();
     }
     async function onSubmit() {
       const normalized = parseRecoveryCode(input.value);
@@ -416,7 +412,7 @@ export function showRestoreScreen({ primed = false } = {}) {
         return;
       }
       // Feedback through the derive + sign-in + account-read round-trip.
-      setButtonBusy(submit, 'Restoring…');
+      setButtonBusy(submit, 'Signing in…');
       const userId = await deriveUserIdFromRecoveryCode(normalized);
       try {
         // Sign in for THIS phrase before the owner-scoped validation reads —
@@ -469,15 +465,13 @@ export function showRestoreScreen({ primed = false } = {}) {
       resolve(null);
     }
     function teardown() {
-      submit.removeEventListener('click', onSubmit);
+      submit.removeEventListener('click', onAction);
       cancel.removeEventListener('click', onCancel);
-      if (pasteBtn) pasteBtn.removeEventListener('click', onPaste);
       if (restoreForm) restoreForm.removeEventListener('submit', onFormSubmit);
       el.classList.add('hidden');
     }
-    submit.addEventListener('click', onSubmit);
+    submit.addEventListener('click', onAction);
     cancel.addEventListener('click', onCancel);
-    if (pasteBtn) pasteBtn.addEventListener('click', onPaste);
   });
 }
 

@@ -517,7 +517,7 @@ describe('showRestoreScreen', () => {
     submit.click();
     // Busy as soon as the phrase parses, through the derive + sign-in round-trip.
     await waitFor(() => submit.disabled === true);
-    expect(submit.textContent).toMatch(/restoring/i);
+    expect(submit.textContent).toMatch(/signing in/i);
     // Let it run to the "no account" outcome; the button must revert so the
     // user can fix the phrase and try again.
     resolveSignIn();
