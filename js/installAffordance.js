@@ -1,12 +1,11 @@
 // js/installAffordance.js
-// Install affordance: a small bottom-left corner icon plus a toast (centered in
-// the app column). The icon and the toast are never shown at once. Every lane
-// leads with the corner icon as the persistent, low-key affordance; tapping it
-// surfaces the toast with the details:
-// - installable (Chromium): toast has a real Install button (beforeinstallprompt).
-// - push-in-tab (Firefox desktop): toast explains installing via another browser.
-// - ios-install / macos-install: toast repeats the Add-to-Home-Screen / Add-to-Dock
-//   steps from onboarding, plus the save-your-phrase reminder.
+// Install affordance: a toast (centered in the app column) plus a small bottom-
+// left corner icon. The toast and the corner icon are never shown at once.
+// - installable (Chromium): toast leads, has a real Install button (beforeinstallprompt).
+// - push-in-tab (Firefox desktop): toast leads, explains installing via another browser.
+// - ios-install / macos-install: the user has just tapped "Maybe later" on the
+//   install step of the core new-user flow, so we don't re-pop the same content —
+//   we land with the corner icon (toast on tap) as an ongoing reminder.
 import { onboardingLane, installStepBodyHtml } from './installGuidance.js';
 import { phraseReminderHtml, wirePhraseCopyButton } from './phraseReminder.js';
 import {
@@ -52,11 +51,12 @@ export function initInstallAffordance() {
   const actionEl = toast.querySelector('#install-toast-action');
   const dismissEl = toast.querySelector('#install-toast-dismiss');
 
-  // Every lane leads with the corner icon as the persistent, low-key install
-  // affordance; tapping it surfaces the toast (and, for the installable lane, the
-  // Install button). The icon and toast are never shown together. Consistent
-  // across platforms — no toast-leads-for-some, icon-leads-for-others.
-  let dismissed = true;
+  // The toast leads; once dismissed, the corner icon takes over. Never both.
+  // iOS/macOS land already-dismissed: the user has just said "Maybe later" on the
+  // install step of the new-user flow, so re-popping the same content would nag.
+  // installable/push-in-tab have had no prior install prompt → the toast leads.
+  const initialLane = currentLane();
+  let dismissed = (initialLane === 'ios-install' || initialLane === 'macos-install');
 
   const apply = () => {
     const lane = currentLane();

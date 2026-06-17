@@ -1236,10 +1236,13 @@ main {
 .install-fab {
   /* In-flow at the bottom of the Direct content: margin-top:auto seats it at the
      bottom of the screen when content is short; the lists push it down otherwise.
-     Left-aligned, NOT fixed — so any toast renders above it. */
+     Left-aligned within the centered app column (so it stays in the bottom-left
+     corner and stops tracking right once the column hits its max width), NOT
+     fixed — so any toast renders above it. The bottom margin clears the viewport
+     edge and the mobile safe-area (home indicator). */
   display: inline-flex; align-items: center; justify-content: center;
   width: 2.25rem; height: 2.25rem; border-radius: 50%;
-  margin: auto 1rem 1.25rem;
+  margin: auto 1rem calc(2rem + env(safe-area-inset-bottom, 0px));
   background: var(--surface2); color: var(--text-muted);
   border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 16px rgba(0,0,0,0.25);
   cursor: pointer; padding: 0;
