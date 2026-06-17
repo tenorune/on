@@ -7,12 +7,20 @@ function setUA(ua) {
 function setStandalone(matches) {
   global.window.matchMedia = () => ({ matches });
 }
+// Simulate a Chromium browser exposing the beforeinstallprompt capability. jsdom
+// doesn't define `onbeforeinstallprompt`, so `'onbeforeinstallprompt' in window`
+// is false by default; assigning null makes the feature-detect read true.
+function setInstallPromptSupport(on) {
+  if (on) global.window.onbeforeinstallprompt = null;
+  else delete global.window.onbeforeinstallprompt;
+}
 beforeEach(() => {
   setStandalone(false);
   global.window.PushManager = function () {};
   global.window.Notification = { permission: 'default' };
   global.navigator.serviceWorker = {};
   delete global.navigator.standalone;
+  delete global.window.onbeforeinstallprompt;
 });
 
 test('desktop Chrome with Push API → supported', () => {
@@ -185,8 +193,14 @@ describe('onboardingLane', () => {
     setUA(WIN_CHROME); setStandalone(false);
     expect(onboardingLane({ installPromptAvailable: true })).toBe('installable');
   });
-  test('Chrome desktop without prompt yet → ready', () => {
-    setUA(WIN_CHROME); setStandalone(false);
+  test('Chromium without captured event but feature-detected → installable', () => {
+    setUA(WIN_CHROME); setStandalone(false); setInstallPromptSupport(true);
+    // Capability is present from page load, so we surface the lane before the
+    // browser fires beforeinstallprompt.
+    expect(onboardingLane({ installPromptAvailable: false })).toBe('installable');
+  });
+  test('no install-prompt support and no captured event → ready', () => {
+    setUA(WIN_CHROME); setStandalone(false); setInstallPromptSupport(false);
     expect(onboardingLane({ installPromptAvailable: false })).toBe('ready');
   });
   test('desktop Firefox → push-in-tab', () => {
@@ -213,6 +227,22 @@ describe('onboardingLane', () => {
     global.navigator.maxTouchPoints = 5;
     expect(onboardingLane({ installPromptAvailable: false })).toBe('ios-install');
     global.navigator.maxTouchPoints = 0;
+  });
+});
+
+describe('installPromptInstructionsHtml', () => {
+  const { installPromptInstructionsHtml } = require('../js/installGuidance.js');
+  test('desktop Chromium → address-bar install glyph + menu', () => {
+    setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
+    const html = installPromptInstructionsHtml();
+    expect(html).toContain('address bar');
+    expect(html).toContain('Install KnockKnock');
+  });
+  test('Android Chromium → Add to Home screen via menu', () => {
+    setUA('Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36');
+    const html = installPromptInstructionsHtml();
+    expect(html).toContain('Add to Home screen');
+    expect(html).not.toContain('address bar');
   });
 });
 

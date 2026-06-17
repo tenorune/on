@@ -56,6 +56,16 @@ export function isFirefoxDesktop() {
   return /Firefox/.test(u) && !/Mobile|Android|iPhone|iPad|iPod|FxiOS/.test(u);
 }
 
+// Chromium (Chrome/Edge/Opera/Samsung/Brave) exposes the `onbeforeinstallprompt`
+// event handler property — present whether or not the event has fired yet. This
+// is a capability signal: the browser CAN install via the native prompt, so we
+// surface the Install affordance from page load rather than waiting on the
+// browser's event timing. Safari/Firefox don't define it. (The captured event is
+// still required to actually OPEN the dialog — see js/installPrompt.js.)
+export function supportsInstallPrompt() {
+  return typeof window !== 'undefined' && 'onbeforeinstallprompt' in window;
+}
+
 // Returns { state, supported } where state is one of:
 // 'supported' | 'denied' | 'needs-install-ios' | 'needs-install-macos' | 'in-app-browser' | 'unsupported'
 export function detectNotifyCapability() {
@@ -84,6 +94,8 @@ export function detectNotifyCapability() {
 export const SHARE_ICON = '<svg class="step-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>';
 export const ADD_HOME_ICON = '<svg class="step-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
 export const ADD_DOCK_ICON = '<svg class="step-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><rect x="9.5" y="13" width="5" height="3" rx="1" fill="currentColor" stroke="none"/></svg>';
+// Chromium's address-bar "install" glyph: a display with a downward arrow.
+export const INSTALL_ICON = '<svg class="step-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><polyline points="9 9 12 12 15 9"/><line x1="12" y1="6" x2="12" y2="12"/></svg>';
 
 const COPY = {
   'needs-install-ios': {
@@ -138,21 +150,37 @@ export function installStepBodyHtml(lane) {
   return lead + `<span class="install-step-instruction">Tap the Share button ${SHARE_ICON}, then “Add to Home Screen” ${ADD_HOME_ICON}.</span>`;
 }
 
+// Manual install steps for the Chromium 'installable' lane, shown when the
+// Install button is tapped but no beforeinstallprompt has been captured (so the
+// native dialog can't be opened programmatically). Platform-aware: Android
+// Chromium installs from the menu; desktop Chromium has the address-bar glyph.
+export function installPromptInstructionsHtml() {
+  const lead = 'To get notified about knocks, calls, and people coming online, install the app:';
+  if (/Android/.test(ua())) {
+    return lead + `<span class="install-step-instruction">Open the browser menu (⋮), then “Add to Home screen” ${ADD_HOME_ICON}.</span>`;
+  }
+  return lead + `<span class="install-step-instruction">Click the install icon ${INSTALL_ICON} in the address bar, or open the browser menu (⋮) and choose “Install KnockKnock”.</span>`;
+}
+
 // Onboarding lane selector — classifies the environment into the path the
 // onboarding flow should take. `installPromptAvailable` is the (async) signal
-// from js/installPrompt.js that a real beforeinstallprompt has fired.
+// from js/installPrompt.js that a real beforeinstallprompt has been captured.
 // Returns: 'ready' | 'in-app-browser' | 'ios-install' | 'macos-install'
 //          | 'installable' | 'push-in-tab'
 // NOTE: iOS Chrome/Firefox/Edge are NOT special-cased — since iOS 16.4 they can
 // Add to Home Screen and the installed app receives web push like Safari, so they
 // take the normal 'ios-install' path. Only true in-app/embedded browsers (which
 // can't install at all) are redirected.
+// The 'installable' lane is driven by CAPABILITY (supportsInstallPrompt), not by
+// whether the event has fired yet — so Chromium shows the Install affordance from
+// page load. If the event isn't captured at click time, the button falls back to
+// manual instructions instead of a no-op (the native dialog can't be summoned).
 export function onboardingLane({ installPromptAvailable = false } = {}) {
   if (isStandalone()) return 'ready';
   if (isInAppBrowser()) return 'in-app-browser';
   if (isMacSafari()) return 'macos-install';
   if (isIos()) return 'ios-install';
-  if (installPromptAvailable) return 'installable';
+  if (installPromptAvailable || supportsInstallPrompt()) return 'installable';
   if (isFirefoxDesktop()) return 'push-in-tab';
   return 'ready';
 }

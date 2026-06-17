@@ -1,12 +1,14 @@
 // js/installAffordance.js
 // Install affordance: a toast (centered in the app column) plus a small bottom-
 // left corner icon. The toast and the corner icon are never shown at once.
-// - installable (Chromium): toast leads, has a real Install button (beforeinstallprompt).
+// - installable (Chromium): toast leads with an Install button, shown from page
+//   load (capability-detected). Click fires the native dialog if a
+//   beforeinstallprompt was captured, else falls back to manual install steps.
 // - push-in-tab (Firefox desktop): toast leads, explains installing via another browser.
 // - ios-install / macos-install: the user has just tapped "Maybe later" on the
 //   install step of the core new-user flow, so we don't re-pop the same content —
 //   we land with the corner icon (toast on tap) as an ongoing reminder.
-import { onboardingLane, installStepBodyHtml } from './installGuidance.js';
+import { onboardingLane, installStepBodyHtml, installPromptInstructionsHtml } from './installGuidance.js';
 import { phraseReminderHtml, wirePhraseCopyButton } from './phraseReminder.js';
 import {
   initInstallPrompt, isInstallPromptAvailable, isAppInstalled,
@@ -78,7 +80,15 @@ export function initInstallAffordance() {
   // tests), so a guard would skip re-wiring a fresh DOM rather than prevent a leak.
   fab.addEventListener('click', () => { dismissed = false; apply(); });
   dismissEl.addEventListener('click', () => { dismissed = true; apply(); });
-  if (actionEl) actionEl.addEventListener('click', async () => { await promptInstall(); apply(); });
+  if (actionEl) actionEl.addEventListener('click', async () => {
+    if (isInstallPromptAvailable()) { await promptInstall(); apply(); return; }
+    // No beforeinstallprompt captured (e.g. it hasn't fired yet) — the native
+    // dialog can't be opened programmatically, so show the manual install steps
+    // in place rather than letting the click do nothing.
+    const textEl = toast.querySelector('#install-toast-text');
+    if (textEl) textEl.innerHTML = installPromptInstructionsHtml();
+    actionEl.classList.add('hidden');
+  });
   onInstallPromptChange(apply);
   apply();
 }
