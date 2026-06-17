@@ -1229,9 +1229,11 @@ main {
   border-radius: 0.75rem; padding: 0.75rem 1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.25); z-index: 60; }
 .notify-promo.hidden { display: none; }
 .install-fab {
-  position: fixed; left: 1rem; bottom: 1rem; z-index: 60;
-  width: 2.25rem; height: 2.25rem; border-radius: 50%;
+  /* In-flow at the bottom of the Direct content (pushed down by the lists),
+     left-aligned, NOT fixed — so any toast renders above it. */
   display: inline-flex; align-items: center; justify-content: center;
+  width: 2.25rem; height: 2.25rem; border-radius: 50%;
+  margin: 0.5rem 1rem 1.25rem;
   background: var(--surface2); color: var(--text-muted);
   border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 16px rgba(0,0,0,0.25);
   cursor: pointer; padding: 0;
