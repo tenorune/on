@@ -33,7 +33,7 @@ function isIos() {
 // "Add to Home Screen" / install a PWA (nor on Android). Route them to a real
 // browser. Markers: common host apps + Android System WebView (; wv).
 export function isInAppBrowser() {
-  return /FBAN|FBAV|FB_IAB|Instagram|Line\/|Snapchat|Twitter|LinkedInApp|WhatsApp|musical_ly|Bytedance|TikTok|Pinterest|; ?wv\)|GSA\//.test(ua());
+  return /FBAN|FBAV|FB_IAB|Instagram|Line\/|Snapchat|Twitter|LinkedInApp|WhatsApp|musical_ly|Bytedance|TikTok|Pinterest|Telegram|MicroMessenger|; ?wv\)|GSA\//.test(ua());
 }
 // Desktop (macOS) Safari — its re-enable path lives in an obscure menu, unlike
 // Chromium/Firefox which expose site permissions from the address bar. Excludes
