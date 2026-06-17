@@ -499,22 +499,15 @@ function showInstallStep(lane) {
   } else { // ios-install
     titleEl.textContent = 'Install the app';
     bodyEl.innerHTML = 'To get notified about knocks, calls, and people coming online, install the app:'
-      + `<span class="install-step-instruction">Tap the Share button ${SHARE_ICON}, then “Add to Home Screen” ${ADD_HOME_ICON}.</span>`
-      + `<span class="install-step-hint">Don’t see “Add to Home Screen”? Open this page in a browser first.</span>`;
+      + `<span class="install-step-instruction">Tap the Share button ${SHARE_ICON}, then “Add to Home Screen” ${ADD_HOME_ICON}.</span>`;
   }
-  // The save-your-phrase reminder (with Copy) is only meaningful when there's an
-  // identity to copy — right after account creation. On the Safari install-hop (a
-  // fresh partition, no identity) the phrase is already on the clipboard, so skip
-  // it and show only the Add-to-Home-Screen instructions.
-  const id = loadIdentity();
-  if (id && id.recoveryCode) {
-    reminderEl.innerHTML = phraseReminderHtml();
-    wirePhraseCopyButton(reminderEl);
-    reminderEl.classList.remove('hidden');
-  } else {
-    reminderEl.innerHTML = '';
-    reminderEl.classList.add('hidden');
-  }
+  // Save-your-phrase reminder (with Copy). Shown on both install modals so they
+  // are identical; on the Safari install-hop the phrase is already on the
+  // clipboard from the creation step (Copy is a no-op there), but the reminder
+  // still applies.
+  reminderEl.innerHTML = phraseReminderHtml();
+  wirePhraseCopyButton(reminderEl);
+  reminderEl.classList.remove('hidden');
   el.classList.remove('hidden');
 
   return new Promise((resolve) => {
