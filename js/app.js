@@ -458,7 +458,8 @@ function showInstallStep(lane) {
   } else { // ios-install
     titleEl.textContent = 'Install the app';
     bodyEl.innerHTML = 'To get notified about knocks, calls, and people coming online, install the app:'
-      + `<span class="install-step-instruction">Tap the Share button ${SHARE_ICON}, then “Add to Home Screen” ${ADD_HOME_ICON}.</span>`;
+      + `<span class="install-step-instruction">Tap the Share button ${SHARE_ICON}, then “Add to Home Screen” ${ADD_HOME_ICON}.</span>`
+      + `<span class="install-step-hint">Don’t see “Add to Home Screen”? Open this page in a browser first.</span>`;
   }
   reminderEl.innerHTML = phraseReminderHtml();
   wirePhraseCopyButton(reminderEl);

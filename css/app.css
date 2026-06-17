@@ -925,6 +925,7 @@ main {
 #restore-form { display: flex; flex-direction: column; gap: 0.75rem; }
 
 .install-step-instruction { display: block; margin-top: 0.5rem; }
+.install-step-hint { display: block; margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted); }
 #install-step-body .step-icon { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.18em; margin: 0 0.12em; }
 /* Spacing in the install step is governed by .modal-card's flex gap; kill the
    default <p> margins that otherwise pile on top of it. */
