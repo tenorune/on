@@ -17,7 +17,17 @@ function isPushApiAvailable() {
 }
 
 function ua() { return (typeof navigator !== 'undefined' && navigator.userAgent) || ''; }
-function isIos() { return /iPhone|iPad|iPod/.test(ua()) || (/Macintosh/.test(ua()) && 'ontouchend' in (typeof document !== 'undefined' ? document : {})); }
+function isIos() {
+  const u = ua();
+  if (/iPhone|iPad|iPod/.test(u)) return true;
+  // iPadOS Safari reports as "Macintosh"; distinguish a real touch device (iPad,
+  // maxTouchPoints > 0) from a desktop Mac browser. Desktop Chrome exposes
+  // 'ontouchend' even without a touchscreen, which previously misrouted Chrome on
+  // macOS into the iOS install lane — so key off maxTouchPoints (Macs report 0),
+  // matching isMacSafari.
+  const touchPoints = (typeof navigator !== 'undefined' && navigator.maxTouchPoints) || 0;
+  return /Macintosh/.test(u) && touchPoints > 0;
+}
 function isIosThirdParty() { return isIos() && /CriOS|FxiOS|EdgiOS|OPiOS/.test(ua()); }
 // Desktop (macOS) Safari — its re-enable path lives in an obscure menu, unlike
 // Chromium/Firefox which expose site permissions from the address bar. Excludes

@@ -183,6 +183,27 @@ describe('onboardingLane', () => {
     setUA(LINUX_FF); setStandalone(false);
     expect(onboardingLane({ installPromptAvailable: false })).toBe('push-in-tab');
   });
+
+  // Regression: desktop Chrome on macOS exposes 'ontouchend' without a touchscreen.
+  // isIos() must key off maxTouchPoints (Macs report 0), not 'ontouchend', or
+  // Chrome-macOS is misrouted into the iOS install lane (issue: install step shown
+  // after account creation instead of landing in the app with the install toast).
+  test('Chrome on macOS (exposes ontouchend, no touch) is NOT iOS → installable/ready', () => {
+    const MAC_CHROME = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    setUA(MAC_CHROME); setStandalone(false);
+    global.navigator.maxTouchPoints = 0;
+    document.ontouchend = null; // desktop Chrome exposes touch event handlers
+    expect(onboardingLane({ installPromptAvailable: true })).toBe('installable');
+    expect(onboardingLane({ installPromptAvailable: false })).toBe('ready');
+    delete document.ontouchend;
+  });
+
+  test('iPadOS Safari (Macintosh + touch points) → ios-install', () => {
+    setUA(MAC_SAFARI); setStandalone(false);
+    global.navigator.maxTouchPoints = 5;
+    expect(onboardingLane({ installPromptAvailable: false })).toBe('ios-install');
+    global.navigator.maxTouchPoints = 0;
+  });
 });
 
 describe('shouldPrimeRestore', () => {
