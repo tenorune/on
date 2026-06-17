@@ -26,7 +26,7 @@ import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { flashRegenerated } from './regenFlash.js';
 import { ensureSignedIn } from './auth.js';
-import { shouldPrimeRestore, isStandalone, onboardingLane, SHARE_ICON, ADD_HOME_ICON, ADD_DOCK_ICON } from './installGuidance.js';
+import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
 
 
 let splashCounter = 0;
@@ -492,22 +492,20 @@ function showInstallStep(lane) {
   const laterBtn = document.getElementById('install-step-later-btn');
   if (!el) return Promise.resolve();
 
-  if (lane === 'macos-install') {
-    titleEl.textContent = 'Install the app';
-    bodyEl.innerHTML = 'To get notified about knocks, calls, and people coming online, install the app:'
-      + `<span class="install-step-instruction">Choose File → Add to Dock ${ADD_DOCK_ICON}, then open the app from there.</span>`;
-  } else { // ios-install
-    titleEl.textContent = 'Install the app';
-    bodyEl.innerHTML = 'To get notified about knocks, calls, and people coming online, install the app:'
-      + `<span class="install-step-instruction">Tap the Share button ${SHARE_ICON}, then “Add to Home Screen” ${ADD_HOME_ICON}.</span>`;
+  titleEl.textContent = 'Install the app';
+  bodyEl.innerHTML = installStepBodyHtml(lane);
+  // Save-your-phrase reminder (with Copy) only when there's an identity to copy —
+  // right after account creation. The Safari install-hop is a fresh partition with
+  // no identity, so skip it there (the Copy would be a no-op).
+  const id = loadIdentity();
+  if (id && id.recoveryCode) {
+    reminderEl.innerHTML = phraseReminderHtml();
+    wirePhraseCopyButton(reminderEl);
+    reminderEl.classList.remove('hidden');
+  } else {
+    reminderEl.innerHTML = '';
+    reminderEl.classList.add('hidden');
   }
-  // Save-your-phrase reminder (with Copy). Shown on both install modals so they
-  // are identical; on the Safari install-hop the phrase is already on the
-  // clipboard from the creation step (Copy is a no-op there), but the reminder
-  // still applies.
-  reminderEl.innerHTML = phraseReminderHtml();
-  wirePhraseCopyButton(reminderEl);
-  reminderEl.classList.remove('hidden');
   el.classList.remove('hidden');
 
   return new Promise((resolve) => {

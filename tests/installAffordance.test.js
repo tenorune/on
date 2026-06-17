@@ -83,4 +83,18 @@ describe('install affordance rendering', () => {
     expect(evt.prompt).toHaveBeenCalledTimes(1);
     expect(toast.classList.contains('hidden')).toBe(true);
   });
+
+  test('iOS install lane: lands with the corner icon; tapping it shows the Add-to-Home-Screen toast (no button)', () => {
+    setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1');
+    initInstallAffordance();
+    const fab = document.getElementById('install-fab');
+    const toast = document.getElementById('install-toast');
+    // The onboarding modal already showed the content → land with the corner icon.
+    expect(fab.classList.contains('hidden')).toBe(false);
+    expect(toast.classList.contains('hidden')).toBe(true);
+    fab.click();
+    expect(toast.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('install-toast-text').innerHTML).toMatch(/Add to Home Screen/i);
+    expect(document.getElementById('install-toast-action').classList.contains('hidden')).toBe(true);
+  });
 });

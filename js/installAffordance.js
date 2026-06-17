@@ -1,11 +1,11 @@
 // js/installAffordance.js
 // Install affordance: a toast (centered in the app column) plus a small bottom-
-// left corner icon. The toast shows FIRST on landing; dismissing it hides the
-// toast and reveals the corner icon, which re-opens the toast. The toast and the
-// corner icon are never shown at the same time.
-// - installable (Chromium): toast has a real Install button (beforeinstallprompt).
-// - push-in-tab (Firefox desktop): toast explains installing via another browser.
-import { onboardingLane } from './installGuidance.js';
+// left corner icon. The toast and the corner icon are never shown at once.
+// - installable (Chromium): toast leads, has a real Install button (beforeinstallprompt).
+// - push-in-tab (Firefox desktop): toast leads, explains installing via another browser.
+// - ios-install / macos-install: the onboarding install modal already showed the
+//   content, so we land with the corner icon (toast on tap) as an ongoing reminder.
+import { onboardingLane, installStepBodyHtml } from './installGuidance.js';
 import {
   initInstallPrompt, isInstallPromptAvailable, isAppInstalled,
   promptInstall, onInstallPromptChange,
@@ -28,6 +28,11 @@ function fillToast(toast, lane) {
   if (lane === 'installable') {
     textEl.textContent = 'To get notified about knocks, calls, and people coming online — even when this browser is closed — install KnockKnock.';
     actionEl.classList.remove('hidden');
+  } else if (lane === 'ios-install' || lane === 'macos-install') {
+    // Same Add-to-Home-Screen / Add-to-Dock content as the onboarding install
+    // modal. No button — install is manual via the Share / File menu.
+    textEl.innerHTML = installStepBodyHtml(lane);
+    actionEl.classList.add('hidden');
   } else { // push-in-tab — no in-app install possible, so no button
     textEl.textContent = pushInTabCopy();
     actionEl.classList.add('hidden');
@@ -43,11 +48,16 @@ export function initInstallAffordance() {
   const dismissEl = toast.querySelector('#install-toast-dismiss');
 
   // The toast leads; once dismissed, the corner icon takes over. Never both.
-  let dismissed = false;
+  // iOS/macOS already showed the full-screen install modal during onboarding, so
+  // land with just the corner icon (toast on tap) instead of re-popping the same
+  // content; installable/push-in-tab have no prior modal → the toast leads.
+  const initialLane = currentLane();
+  let dismissed = (initialLane === 'ios-install' || initialLane === 'macos-install');
 
   const apply = () => {
     const lane = currentLane();
-    const relevant = !isAppInstalled() && (lane === 'installable' || lane === 'push-in-tab');
+    const relevant = !isAppInstalled()
+      && (lane === 'installable' || lane === 'push-in-tab' || lane === 'ios-install' || lane === 'macos-install');
     if (!relevant) { toast.classList.add('hidden'); fab.classList.add('hidden'); return; }
     if (dismissed) {
       toast.classList.add('hidden');

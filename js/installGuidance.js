@@ -126,6 +126,18 @@ export function guidanceCopyFor(state) {
   return COPY[state] || COPY.unsupported;
 }
 
+// Shared install-step body for the iOS/macOS lanes — used by the onboarding
+// install modal AND the persistent install toast, so they read identically. Leads
+// with the notification value, then the platform Add-to-Home-Screen / Add-to-Dock
+// steps with inline icons.
+export function installStepBodyHtml(lane) {
+  const lead = 'To get notified about knocks, calls, and people coming online, install the app:';
+  if (lane === 'macos-install') {
+    return lead + `<span class="install-step-instruction">Choose File → Add to Dock ${ADD_DOCK_ICON}, then open the app from there.</span>`;
+  }
+  return lead + `<span class="install-step-instruction">Tap the Share button ${SHARE_ICON}, then “Add to Home Screen” ${ADD_HOME_ICON}.</span>`;
+}
+
 // Onboarding lane selector — classifies the environment into the path the
 // onboarding flow should take. `installPromptAvailable` is the (async) signal
 // from js/installPrompt.js that a real beforeinstallprompt has fired.
