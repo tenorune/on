@@ -26,7 +26,7 @@ import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { flashRegenerated } from './regenFlash.js';
 import { ensureSignedIn } from './auth.js';
-import { shouldPrimeRestore, isStandalone, onboardingLane } from './installGuidance.js';
+import { shouldPrimeRestore, isStandalone, onboardingLane, SHARE_ICON, ADD_HOME_ICON, ADD_DOCK_ICON } from './installGuidance.js';
 
 
 let splashCounter = 0;
@@ -351,11 +351,9 @@ export function showRestoreScreen({ primed = false } = {}) {
   el.classList.remove('hidden');
 
   const pasteBtn = document.getElementById('restore-paste-btn');
-  const newLink = document.getElementById('restore-new-link');
   const username = document.getElementById('restore-username');
   if (username) username.value = ''; // let AutoFill match by domain
   if (pasteBtn) pasteBtn.classList.toggle('hidden', !primed);
-  if (newLink) newLink.classList.toggle('hidden', !primed);
 
   const restoreForm = document.getElementById('restore-form');
   function onFormSubmit(e) { e.preventDefault(); }
@@ -427,18 +425,15 @@ export function showRestoreScreen({ primed = false } = {}) {
       teardown();
       resolve(null);
     }
-    function onNew() { teardown(); resolve({ createNew: true }); }
     function teardown() {
       submit.removeEventListener('click', onSubmit);
       cancel.removeEventListener('click', onCancel);
-      if (newLink) newLink.removeEventListener('click', onNew);
       if (pasteBtn) pasteBtn.removeEventListener('click', onPaste);
       if (restoreForm) restoreForm.removeEventListener('submit', onFormSubmit);
       el.classList.add('hidden');
     }
     submit.addEventListener('click', onSubmit);
     cancel.addEventListener('click', onCancel);
-    if (newLink) newLink.addEventListener('click', onNew);
     if (pasteBtn) pasteBtn.addEventListener('click', onPaste);
   });
 }
@@ -457,11 +452,13 @@ function showInstallStep(lane) {
   if (!el) return Promise.resolve();
 
   if (lane === 'macos-install') {
-    titleEl.textContent = 'Add to Dock';
-    bodyEl.textContent = 'To get notified about knocks, calls, and people coming online, add KnockKnock to your Dock: choose File → Add to Dock, then open the app from there.';
+    titleEl.textContent = 'Install the app';
+    bodyEl.innerHTML = 'To get notified about knocks, calls, and people coming online, install the app:'
+      + `<span class="install-step-instruction">Choose File → Add to Dock ${ADD_DOCK_ICON}, then open the app from there.</span>`;
   } else { // ios-install
-    titleEl.textContent = 'Add to Home Screen';
-    bodyEl.textContent = 'To get notified about knocks, calls, and people coming online, add KnockKnock to your Home Screen: tap the Share button, then "Add to Home Screen".';
+    titleEl.textContent = 'Install the app';
+    bodyEl.innerHTML = 'To get notified about knocks, calls, and people coming online, install the app:'
+      + `<span class="install-step-instruction">Tap the Share button ${SHARE_ICON}, then “Add to Home Screen” ${ADD_HOME_ICON}.</span>`;
   }
   reminderEl.innerHTML = phraseReminderHtml();
   wirePhraseCopyButton(reminderEl);
