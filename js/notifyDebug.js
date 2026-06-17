@@ -72,6 +72,7 @@ function render() {
     row('SW cache', _swCache || '(asking…)'),
     row('SW controller', i.swController),
     row('last push', lastPush, false),
+    row('UA', i.ua),
   ].join('');
 }
 
