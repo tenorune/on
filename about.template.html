@@ -7,6 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="__APP_TITLE__" />
   <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="description" content="__APP_TITLE__ — a quiet way to let the people who matter know when you're free." />
   <title>About · __APP_TITLE__</title>
   <link rel="manifest" href="manifest.json" />
@@ -19,6 +20,7 @@
   <header class="hero">
     <span class="brand-mark">k&#x0338;n&#x0336;o&#x0338;c&#x0335;k&#x0335; &#x0336;k&#x0338;n&#x0337;o&#x0335;c&#x0338;k&#x0335;</span>
     <p class="tagline">Let the people who matter know when you're free.</p>
+    <!-- intentional: open the app in a new tab to keep this page in place -->
     <a class="cta" href="/" target="_blank" rel="noopener">Open __APP_TITLE__ &rarr;</a>
   </header>
 
@@ -89,29 +91,30 @@
       </ul>
       <p><a href="#privacy">Read the privacy details in full &darr;</a></p>
     </section>
+
+    <section id="privacy" class="privacy-detail">
+      <h2>Privacy, in detail</h2>
+
+      <h3>Your identity is a secret phrase</h3>
+      <p>Instead of an email and password, your account is four words — something like <code>swift-river-amber-dust</code>. Type the same phrase on any device and you're back. That phrase is the only key to your account: treat it like a password, because anyone who has it can sign in as you. There's no &ldquo;forgot password&rdquo; — it can't be reset or recovered for you, so keep it somewhere safe.</p>
+
+      <h3>What others can see — and what they can't</h3>
+      <p>The people you've connected with can see your availability, your status, and your color, updating in real time. Inside a group, fellow members see the status you've set for that group. Everything else — who your contacts are, your settings, your saved colors — stays private to you.</p>
+
+      <h3>Where your data lives</h3>
+      <p>__APP_TITLE__ runs on Firebase (Google Cloud). Your data is stored in a Realtime Database hosted in the __DATA_REGION__ region. Access is locked down so each account can only read and write its own data — the only thing shared is the presence others need in order to see your status. When you sign in, a small server function checks your phrase and hands your device a token; your phrase itself is never stored as a password.</p>
+
+      <h3>Notifications are opt-in</h3>
+      <p>You decide who can notify you and about what, contact by contact. Nothing is pushed to you until you turn it on.</p>
+
+      <h3>No analytics, ads, or data sales</h3>
+      <p>There are no third-party trackers, no advertising, and no analytics quietly watching how you use the app. Your presence is for your people, not for anyone else.</p>
+    </section>
   </main>
-
-  <section id="privacy" class="privacy-detail">
-    <h2>Privacy, in detail</h2>
-
-    <h3>Your identity is a secret phrase</h3>
-    <p>Instead of an email and password, your account is four words — something like <code>swift-river-amber-dust</code>. Type the same phrase on any device and you're back. That phrase is the only key to your account: treat it like a password, because anyone who has it can sign in as you. There's no &ldquo;forgot password&rdquo; — it can't be reset or recovered for you, so keep it somewhere safe.</p>
-
-    <h3>What others can see — and what they can't</h3>
-    <p>The people you've connected with can see your availability, your status, and your color, updating in real time. Inside a group, fellow members see the status you've set for that group. Everything else — who your contacts are, your settings, your saved colors — stays private to you.</p>
-
-    <h3>Where your data lives</h3>
-    <p>__APP_TITLE__ runs on Firebase (Google Cloud). Your data is stored in a Realtime Database hosted in the __DATA_REGION__ region. Access is locked down so each account can only read and write its own data — the only thing shared is the presence others need in order to see your status. When you sign in, a small server function checks your phrase and hands your device a token; your phrase itself is never stored as a password.</p>
-
-    <h3>Notifications are opt-in</h3>
-    <p>You decide who can notify you and about what, contact by contact. Nothing is pushed to you until you turn it on.</p>
-
-    <h3>No analytics, ads, or data sales</h3>
-    <p>There are no third-party trackers, no advertising, and no analytics quietly watching how you use the app. Your presence is for your people, not for anyone else.</p>
-  </section>
 
   <footer class="footer">
     <nav class="footer-links">
+      <!-- intentional: open the app in a new tab to keep this page in place -->
       <a href="/" target="_blank" rel="noopener">Open __APP_TITLE__ &rarr;</a>
       <a href="https://github.com/tenorune/on" target="_blank" rel="noopener">Source on GitHub</a>
     </nav>

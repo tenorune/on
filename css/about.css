@@ -9,6 +9,8 @@
   --accent: #6366f1;
   --green: #22c55e;
   --green-glow: rgba(34, 197, 94, 0.4);
+  /* --green/--error-* are carried so the theme-bootstrap script can override the
+     full app token set; some are decorative-only on this page. */
   --error-bg: #7f1d1d;
   --error-text: #fca5a5;
 }
@@ -57,7 +59,6 @@ code {
 .cta:hover { transform: translateY(-1px); }
 
 /* Sections */
-main, .privacy-detail { display: block; }
 h1 { font-size: 1.6rem; margin-bottom: 0.75rem; }
 h2 { font-size: 1.3rem; margin: 2.5rem 0 1rem; }
 h3 { font-size: 1.05rem; margin-bottom: 0.4rem; }
@@ -101,9 +102,9 @@ p { margin-bottom: 0.9rem; }
   border-radius: 0.6rem;
   padding: 0.75rem 1rem;
   margin-bottom: 0.6rem;
+  color: var(--text-muted);
 }
 .privacy-short strong { color: var(--text); }
-.privacy-short li { color: var(--text-muted); }
 
 .privacy-detail {
   margin-top: 2.5rem;

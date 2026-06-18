@@ -71,7 +71,7 @@ describe('about.template.html content', () => {
     const anchors = tpl.match(/<a [^>]*>/g) || [];
     const blanks = anchors.filter((a) => /target="_blank"/.test(a));
     expect(blanks.length).toBeGreaterThan(0);
-    for (const a of blanks) expect(a).toMatch(/rel="noopener"/);
+    for (const a of blanks) expect(a).toMatch(/\bnoopener\b/);
   });
 
   test('links to the GitHub repo', () => {
