@@ -97,6 +97,7 @@ feature branches (off dev)  → merged to dev by the user
 | `js/groups.js` | Group lifecycle business logic: `createGroup` / `renameGroup` / `deleteGroup` (owner-only) / `joinGroup` / `leaveGroup` / `editOwnDisplayName`. **`deleteGroup` now sweeps `pendingInvites/*/{groupId}` before removing the group entity** (Phase 3) so a concurrent Inbox Join sees the group missing and silently dismisses. `initGroupRemovalDetector` surfaces a toast when a group disappears from enumeration. |
 | `js/groupNav.js` | Nav state machine: `currentContext`, `navigateToDirect` / `navigateToGroup`, listener pattern via `onContextChange`. Persistent sticky nav row. Direct context: each group as `.group-card` + `+`. **`renderNavRowDirectMode` injects `#nav-row-inbox-slot` as its first child and calls `renderInboxNavSlot()` after** so the Inbox button appears before group cards. Group context: Direct back-link + group name + override toggle (`=`/`≠`) + Direct card on right. Override toggle is owned here; cross-module sync via `applyOptimisticOverride` exported from groupContext. |
 | `js/groupContext.js` | Group context view: own-status row + roster + per-group palette picker. Hosts `_ownOverride` / `_ownPrimary` / `_membersOverrides` / `_memberPrimaries` plus `_groupOwnerId` / `_groupName` captured from `watchGroupMeta`. **`syncStatusSubscriptions` subscribes to member presence via `subscribePresence(uid)` (the shared hub, #214 R3)** and paints via `paintStatusDot` + `availableForText` (#216). Shares the `exitCallMode(..., { peerEnded })` peer-ended contract with `following.js`. **`renderRoster` renders an owner-only `+ Invite to group` row** at the top (Phase 3), opening the unified invite modal. The "Invite" entry in the settings menu (renamed from "Invite link") also opens the same modal with picker data. Both pass `getCurrentFollowersMap()` / `getCurrentMutuals()` / `new Set(Object.keys(_membersOverrides || {}))` so the picker can filter to non-members. |
+| **Onboarding install (2026-06)** | `onboardingLane()` in `js/installGuidance.js` routes per platform; `js/installPrompt.js` captures `beforeinstallprompt`; `js/installAffordance.js` renders the bottom-left install fab + toast. iOS uses a Keychain-save (recovery modal hidden credential form) → standalone restore-primed handoff (`shouldPrimeRestore`). The phrase-reminder block is shared from `js/notifyPrompt.js`. Notifications remain bell-gated/unchanged. Spec: `docs/superpowers/specs/2026-06-16-onboarding-install-redesign-design.md`. |
 
 ## 4. Identity model (load-bearing — read this carefully)
 
@@ -461,7 +462,7 @@ A long debugging + polish pass on the notifications stack, all merged to `dev`. 
 ### The notification surfaces (inventory)
 - **`#notify-promo` banner** (`js/notifyPrompt.js`) — passive promo (engaged, 2nd+ session) OR reprompt (synced bells but no local permission). Renders an **Enable** button when push is usable, or **install/guidance copy** otherwise.
 - **Per-contact bell** (`js/notifyBell.js`) — 3 switches (knock/call/availability); turning one on with no permission routes through `ensureNotificationsReady`.
-- **`js/installGuidance.js`** — `detectNotifyCapability()` → `supported | denied | needs-install-ios | needs-install-macos | ios-use-safari | unsupported`; `guidanceCopyFor(state)` returns the (now icon-bearing) copy.
+- **`js/installGuidance.js`** — `detectNotifyCapability()` → `supported | denied | needs-install-ios | needs-install-macos | in-app-browser | unsupported`; `guidanceCopyFor(state)` returns the (now icon-bearing) copy.
 - **`js/notifyDebug.js`** — the `#156` `NOTIFY_DEBUG` / `?notifydebug=1` readout (token state, SW cache, last-push).
 
 ### Bugs found + fixed (each a real SW/notification trap)
@@ -472,7 +473,7 @@ A long debugging + polish pass on the notifications stack, all merged to `dev`. 
 - **`denied` guidance is browser-aware** — Safari gets the Settings → Websites → Notifications menu path; others get the address-bar hint.
 
 ### Platform reality (matrix in `docs/notifications-testing.md`)
-- **iOS:** push only from **Safari + Add to Home Screen**; iOS Chrome/FF/Edge → `ios-use-safari` ("open in Safari"). Installing wipes the identity.
+- **iOS (16.4+):** push works from *any* browser's installed Home Screen web app — Chrome/FF/Edge install via their own Share menu, same as Safari (→ `needs-install-ios`). Only **in-app/embedded WebViews** (IG/FB/Android `wv`) can't install → `in-app-browser` ("open in your browser"). Installing lands in a fresh storage partition (identity must be re-entered, hence the save-your-phrase reminder), but the installed app's storage is **system-managed** and survives clearing/deleting the installing browser (verified on iOS 26).
 - **macOS:** **Safari needs Add to Dock** (separate partition, identity loss); **Chrome/Firefox work in-browser** (Enable, identity kept).
 - **Android / Windows:** in-browser push works everywhere (Enable, identity kept) — no nudge.
 

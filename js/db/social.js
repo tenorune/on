@@ -7,6 +7,12 @@ import {
 import { generateCode } from '../identity.js';
 import { getFollowing } from '../store.js';
 
+// Re-exported through the db.js barrel so invite code reaches the unauthenticated
+// invite-preview callable the same way it reaches every other Firebase op (via
+// './db.js'), without importing firebase-config directly (which would pull
+// firebase/auth into module graphs that mock only './db.js').
+export { callResolveInvitePreview } from '../firebase-config.js';
+
 // Register new user. Retries on code collision. Returns true on success, null on collision.
 export async function initUser(userId, code) {
   const codeRef = ref(db, `codeIndex/${code}`);

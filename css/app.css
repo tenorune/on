@@ -275,6 +275,7 @@ main {
   background: var(--surface); color: var(--text-muted); border: 1px solid var(--surface2);
   padding: 10px; border-radius: 10px; font-size: 13px; cursor: pointer;
 }
+.link-btn { background: none; border: 0; color: var(--text-muted); text-decoration: underline; cursor: pointer; font: inherit; padding: 0.25rem; }
 .error-msg {
   background: var(--error-bg); color: var(--error-text); font-size: 13px;
   padding: 10px 12px; border-radius: 8px;
@@ -326,6 +327,10 @@ main {
 
 /* Utilities */
 .hidden { display: none !important; }
+.visually-hidden {
+  position: absolute !important; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0;
+}
 .rename-input {
   display: block;
   font: inherit;
@@ -917,6 +922,17 @@ main {
 }
 .restore-btns { display: flex; gap: 0.5rem; }
 .restore-btns button { flex: 1; }
+#restore-form { display: flex; flex-direction: column; gap: 0.75rem; }
+
+.install-step-instruction { display: block; margin-top: 0.5rem; }
+#install-step-body .step-icon { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.18em; margin: 0 0.12em; }
+/* Spacing in the install step is governed by .modal-card's flex gap; kill the
+   default <p> margins that otherwise pile on top of it. */
+#install-step-body, #install-step-reminder { margin: 0; }
+/* Reminder is muted + slightly smaller (sub-note under the install help); pulled
+   up close to the help text. */
+.install-step-reminder { margin-top: -0.4rem; font-size: 0.85rem; color: var(--text-muted); }
+.install-step-reminder .notify-promo-reminder { margin-top: 0; }
 
 .stale-btns {
   display: flex; flex-direction: column; gap: 0.5rem;
@@ -1212,14 +1228,39 @@ main {
   display: flex; align-items: center; gap: 0.75rem; background: var(--surface2); border: 1px solid rgba(0,0,0,0.15);
   border-radius: 0.75rem; padding: 0.75rem 1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.25); z-index: 60; }
 .notify-promo.hidden { display: none; }
-.notify-promo #notify-promo-text { flex: 1; font-size: 0.9rem; }
+/* Flex column so the install icon can sit at the bottom of the viewport when the
+   roster/contact lists are short (margin-top:auto), yet get pushed down when they
+   grow tall. min-height fills the space below the ~3rem sticky nav-row (matching
+   #app-header's top:3rem). The sticky header still works inside the flex column. */
+#main-ui-direct { display: flex; flex-direction: column; min-height: 100vh; min-height: calc(100dvh - 3rem); }
+.install-fab {
+  /* In-flow at the bottom of the Direct content: margin-top:auto seats it at the
+     bottom of the screen when content is short; the lists push it down otherwise.
+     Left-aligned within the centered app column (so it stays in the bottom-left
+     corner and stops tracking right once the column hits its max width), NOT
+     fixed — so any toast renders above it. The bottom margin clears the viewport
+     edge and the mobile safe-area (home indicator). */
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2.25rem; height: 2.25rem; border-radius: 50%;
+  margin: auto 1rem calc(2rem + env(safe-area-inset-bottom, 0px));
+  background: var(--surface2); color: var(--text-muted);
+  border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  cursor: pointer; padding: 0;
+}
+.install-fab.hidden { display: none; }
+/* #install-toast carries the base .notify-promo class, so it inherits the
+   centered, max-width position (it's no longer pinned to the corner — the fab
+   and the toast are mutually exclusive, so there's nothing to stack above). */
+.notify-promo #notify-promo-text, .notify-promo #install-toast-text { flex: 1; font-size: 0.9rem; }
 /* Inline step icons in the install guidance (Share / Add-to-Home / Add-to-Dock). */
 .notify-promo .step-icon { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.18em; margin: 0 0.12em; }
-/* "First, make sure…" reminder renders as its own paragraph. */
-.notify-promo .notify-promo-reminder { display: block; margin-top: 0.55rem; }
-/* "Secret phrase: [Copy to clipboard]" affordance under the install guidance. */
-.notify-promo .notify-promo-phrase { display: block; margin-top: 0.5rem; font-size: 0.82rem; opacity: 0.9; }
-.notify-promo .notify-promo-copy { font: inherit; color: var(--accent, #2dd4bf); background: none; border: none; padding: 0; margin-left: 0.15em; cursor: pointer; text-decoration: underline; }
+/* Shared phrase-reminder styling (phraseReminderHtml from notifyPrompt.js).
+   NOT scoped to .notify-promo, so the reminder + "Copy to clipboard" link render
+   identically wherever the shared block appears (notification toast AND the
+   onboarding install step). */
+.notify-promo-reminder { display: block; margin-top: 0.55rem; }
+.notify-promo-phrase { display: block; margin-top: 0.5rem; font-size: 0.82rem; opacity: 0.9; }
+.notify-promo-copy { font: inherit; color: var(--text); background: rgba(255,255,255,0.08); border: 1px solid var(--text-muted); border-radius: 8px; padding: 0.2rem 0.55rem; margin-left: 0.4em; cursor: pointer; }
 /* Match Direct's "Add a person": a surface2 rounded card wrapping a plain,
    full-width, left-aligned .add-btn (#add-person-area treatment). The 0.25rem
    top margin mirrors #add-person-area's empty-state margin-top so the button

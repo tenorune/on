@@ -8,7 +8,7 @@ import {
   readInviteIndex, readUserInvite, incrementInviteRedemptions, getCreatorCode,
   registerAsFollower, setFollowingEntry,
   writeGroupInvite, readGroupInvites, readGroupInvite, setGroupInviteRevoked, incrementGroupInviteRedemptions,
-  readGroupName, readMember,
+  readGroupName, readMember, callResolveInvitePreview,
 } from './db.js';
 import { getFollowing } from './store.js';
 import { joinGroup } from './groups.js';
@@ -207,40 +207,19 @@ function parseGroupIdFromOwnerPath(ownerPath) {
   return m ? m[1] : null;
 }
 
-// Resolves invite metadata for the pre-redemption preview. Handles both
-// personal-scope (returns { scope, label }) and group-scope (returns { scope, groupName, groupId }).
-// Returns null on any failure (missing token, revoked, DB error, etc.).
+// Resolves invite metadata for the pre-redemption welcome-screen framing. Handles
+// both personal-scope (returns { scope, label }) and group-scope (returns
+// { scope, groupName, groupId }). Returns null on any failure.
+//
+// Delegates to the unauthenticated `resolveInvitePreview` Cloud callable: this
+// runs BEFORE a brand-new user signs in, and every invite node is gated by
+// `auth != null` in the security rules, so a direct client read here would be
+// permission-denied for exactly the new users this framing targets. The callable
+// reads server-side via the Admin SDK and returns only the preview-safe fields.
 export async function resolveInvitePreview(token) {
   if (!token) return null;
   try {
-    const indexEntry = await readInviteIndex(token);
-    if (!indexEntry) return null;
-
-    if (indexEntry.scope === 'personal') {
-      const m = indexEntry.ownerPath.match(/^users\/([^/]+)\/invites\/([^/]+)$/);
-      if (!m) return null;
-      const invite = await readUserInvite(m[1], m[2]);
-      if (!invite || invite.revoked) return null;
-      return { scope: 'personal', label: invite.creatorLabel || null };
-    }
-
-    if (indexEntry.scope === 'group') {
-      const m = indexEntry.ownerPath.match(/^groups\/([^/]+)\/invites\/([^/]+)$/);
-      if (!m) return null;
-      // Independent reads — fire in parallel. readGroupName (not readGroup) so a
-      // not-yet-member previewer isn't blocked by the membership-gated group node.
-      // readGroupInvite (single token) instead of readGroupInvites (collection)
-      // so a non-member cannot enumerate all active invite tokens.
-      const [group, invite] = await Promise.all([
-        readGroupName(m[1]),
-        readGroupInvite(m[1], m[2]),
-      ]);
-      if (!group) return null;
-      if (!invite || invite.revoked) return null;
-      return { scope: 'group', groupName: group.name || null, groupId: m[1] };
-    }
-
-    return null;
+    return await callResolveInvitePreview(token);
   } catch {
     return null;
   }

@@ -1,6 +1,6 @@
 // js/groupDisplayNamePrompt.js
-// Reusable "Your name in '{group}'" prompt screen. Wraps the static
-// #group-displayname-screen DOM with a promise-based API. Used by:
+// Reusable "What name would you like to use in '{group}'?" prompt screen. Wraps
+// the static #group-displayname-screen DOM with a promise-based API. Used by:
 //   - app.js boot-time link-join flow (Flow A in the groups design spec)
 //   - inbox.js Inbox-Join flow (Flow C)
 
@@ -11,7 +11,7 @@ export function showGroupDisplayNamePrompt(groupName) {
   const errEl = document.getElementById('group-displayname-error');
   const submit = document.getElementById('group-displayname-submit-btn');
 
-  framing.textContent = `Your name in '${groupName}'`;
+  framing.textContent = `What name would you like to use in '${groupName}'?`;
   errEl.textContent = '';
   errEl.classList.add('hidden');
   input.value = '';
