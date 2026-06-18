@@ -4,7 +4,7 @@ A handoff to whoever picks this up next. Read top-to-bottom; specific subsection
 
 **Most recent work (session 2026-06-18):** the **onboarding & install redesign** plus an **invite-preview fix**, shipped as **`v1.2.0`** (merged `dev → main`). Highlights: platform-aware install lanes (`onboardingLane()`), a capability-driven **Install button that shows from page load** on Chromium (with an inline manual-step fallback), an **in-flow corner install icon + toast** inside `#main-ui-direct` (Direct-only), a rebuilt **restore/sign-in screen** (always-visible field, one adaptive "Paste & Sign in"/"Sign in" button), Telegram/in-app-browser handling with a clipboard + `?setup=install` handoff, and a new **unauthenticated `resolveInvitePreview` Cloud callable** so invite framing works for brand-new users. Full rundown in **§21**. (Prior sessions: §18 = 2026-06-13 perf/hygiene, §19 = 2026-06-14 push/notifications, §20 = the v1.1.0 release note.)
 
-**Next likely action:** none pending a decision. Two small copy commits (`resolveInvitePreview` deploy docs + group-invite prompt reword; shortened malformed-phrase error) landed **after** the v1.2.0 tag, so they ride the next release. **No manual cache step is needed** — `firebase.json` serves everything `no-cache` and `sw.js`'s `CACHE` is auto-stamped with a content hash at build (see §Service worker cache).
+**Next likely action:** none pending a decision. Everything from this session — including the two small copy commits (`resolveInvitePreview` deploy docs + group-invite prompt reword; shortened malformed-phrase error) — is **in v1.2.0** (the release was cut after they merged to `main`). **No manual cache step is needed** — `firebase.json` serves everything `no-cache` and `sw.js`'s `CACHE` is auto-stamped with a content hash at build (see §Service worker cache).
 
 **Open follow-up work** (issues, not blockers — full list in §18):
 - **#214 R4** — suspend Direct presence watches while in a group context. Deliberately separated from R3 because it's entangled with context-switching, call-mode, and flash-avoidance. The biggest dedup win (R3) already shipped.
@@ -539,4 +539,5 @@ Web suite **42 suites / 1171 tests** (`npx jest`); Cloud Functions **4 suites / 
 - **Rate-limit `resolveInvitePreview`** (optional DoS backstop) — deferred; tokens are 128-bit so enumeration is a non-issue.
 - **Telegram in-app-Safari is undetectable** — no fix possible client-side; the clipboard + `?setup=install` handoff is the mitigation.
 - Restore-screen error #1 ("Paste or type your secret phrase.") was reviewed and **left as-is** by the maintainer.
-- The two post-v1.2.0 copy commits (deploy docs + prompt reword; shortened error) await the next release tag.
+
+> **All of the above shipped in `v1.2.0`** — the release was tagged after the final copy commits merged to `main`, so nothing from this session is awaiting a later tag.
