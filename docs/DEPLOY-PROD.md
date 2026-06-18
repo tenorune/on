@@ -357,3 +357,68 @@ functions already exist on an *old* trigger path — i.e. dev.)
 26. Delete the local prod service-account JSON; rotate the key if exposed.
 27. Desktop notifications remain under investigation (#156) — not a blocker for
     the mobile-verified deploy.
+
+---
+
+## Addendum — `resolveInvitePreview` callable (invite-preview framing)
+
+The welcome-screen invite framing ("You've been invited to follow/join …") is
+resolved by an **unauthenticated** callable, `resolveInvitePreview`. It exists
+because that screen renders *before* a brand-new user has any Firebase auth
+session, while every invite node is gated by `auth != null` in the rules — so a
+direct client read is permission-denied for exactly the new users the framing
+targets. The callable reads via the Admin SDK (bypassing rules) and returns only
+preview-safe fields (`scope` + `label`/`groupName`). It mirrors the pre-auth
+`validateRecovery` pattern (`functions/index.js`, handler in `functions/invites.js`).
+
+### Deploy
+
+No special steps and **no rules change** — the Admin SDK bypasses rules. The
+callable ships with the normal release, since both pipelines deploy
+`--only hosting,database,functions`:
+
+- **Dev:** merge the branch into `dev` → `.github/workflows/deploy-dev.yml`
+  builds with `scripts/dev-build.js` and deploys to `on-on-22cb4`.
+- **Prod:** merge `dev` → `main` → `.github/workflows/deploy-prod.yml` builds
+  with `scripts/prod.js` and deploys to `<prodId>` (`knock-knock-bf4fe`).
+
+The fix needs **both** the function (the new callable) and the client bundle
+(which now calls it) — the CI deploy carries both. The client tolerates the
+callable being absent (it catches the error → no framing, same as before), so
+the function-first vs hosting-first ordering within a single deploy is harmless.
+
+**Manual / out-of-band deploy** (from repo root, authenticated via
+`npx firebase login`), if shipping just this function without a full release:
+
+```bash
+# Dev
+npx firebase deploy --only functions:resolveInvitePreview --project on-on-22cb4
+# Prod
+npx firebase deploy --only functions:resolveInvitePreview --project <prodId>
+```
+
+Deploy the function before the client bundle so there's no gap (not dangerous
+either way — see above). The callable runs in `europe-west1` for both projects,
+matching the client's hardcoded `getFunctions(app, 'europe-west1')`.
+
+### Verify
+
+Open an invite link — one **personal** and one **group** — in a fresh
+**incognito** window (no cached auth session). The "You've been invited to …"
+line should appear on the "I'm new / I have a secret phrase" screen. Group
+invites then prompt *"What name would you like to use in '{group}'?"*.
+
+### Notes
+
+- **Public invoker:** 2nd-gen callables run on Cloud Run and need public invoke
+  access. The Firebase CLI sets this automatically for callable functions
+  (`validateRecovery` is the same type and works). If the browser ever gets
+  `unauthenticated`/403 from it, grant `roles/run.invoker` to `allUsers` on the
+  `resolveinvitepreview` Cloud Run service, then retry.
+- **No rate limit:** invite tokens are 128-bit, so enumeration is infeasible and
+  this read-only endpoint is left unthrottled (unlike `validateRecovery`, which
+  guards low-entropy recovery codes). Add a global fixed-window limiter later if
+  a DoS backstop is wanted.
+- **Rollback:** `firebase functions:delete resolveInvitePreview --project <id>`
+  returns to the prior behavior (no framing for unauthenticated users); the
+  client handles its absence gracefully.
