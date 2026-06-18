@@ -3,7 +3,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { renderAbout } = require('../scripts/build.js');
+const { renderAbout, invitePreviewUrl } = require('../scripts/build.js');
 
 describe('renderAbout substitution', () => {
   const tpl = 'T:__APP_TITLE__ R:__DATA_REGION__ M:__ABOUT_MADE_BY__';
@@ -24,6 +24,16 @@ describe('renderAbout substitution', () => {
     expect(out).toContain('Made with a little help from Claude');
     expect(out).not.toContain('Made by ');
     expect(out).not.toContain('__ABOUT_MADE_BY__');
+  });
+
+  test('substitutes the invite-preview callable URL', () => {
+    const out = renderAbout('U:__INVITE_PREVIEW_URL__', { INVITE_PREVIEW_URL: 'https://x/resolveInvitePreview' });
+    expect(out).toBe('U:https://x/resolveInvitePreview');
+  });
+
+  test('invite-preview URL is blank when unset (placeholder cleared)', () => {
+    const out = renderAbout('U:__INVITE_PREVIEW_URL__', { APP_TITLE: 'X' });
+    expect(out).toBe('U:');
   });
 
   test('region degrades gracefully when unset', () => {
@@ -88,6 +98,74 @@ describe('about.template.html content', () => {
   test('links a stylesheet, not the app bundle', () => {
     expect(tpl).toContain('css/about.css');
     expect(tpl).not.toContain('dist/bundle.js');
+  });
+
+  test('has the invite-framing slot + preview-url placeholder + scripts', () => {
+    expect(tpl).toMatch(/id="about-invite-framing"/);
+    expect(tpl).toContain('data-preview-url="__INVITE_PREVIEW_URL__"');
+    expect(tpl).toContain('js/about-invite.js');
+    expect(tpl).toContain('js/about-cta.js');
+  });
+});
+
+describe('invitePreviewUrl', () => {
+  test('builds the europe-west1 callable URL for a project', () => {
+    expect(invitePreviewUrl('on-on-22cb4'))
+      .toBe('https://europe-west1-on-on-22cb4.cloudfunctions.net/resolveInvitePreview');
+  });
+  test('is empty without a project id', () => {
+    expect(invitePreviewUrl('')).toBe('');
+  });
+});
+
+describe('about-cta link rewriting (token carry + in-app escape)', () => {
+  const vm = require('vm');
+  function runCta({ ua, maxTouchPoints = 0, search = '', host = 'knock.example' }) {
+    const link = {
+      attrs: {},
+      setAttribute(k, v) { this.attrs[k] = v; },
+      removeAttribute(k) { delete this.attrs[k]; },
+    };
+    const sandbox = {
+      navigator: { userAgent: ua, maxTouchPoints },
+      location: { search, host },
+      document: { querySelectorAll: () => [link] },
+      URLSearchParams,
+      encodeURIComponent,
+    };
+    vm.runInNewContext(readRoot('js/about-cta.js'), sandbox);
+    return link;
+  }
+  const DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120 Safari/537.36';
+  const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) Version/17.4 Mobile Safari/604.1';
+  const ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel) Chrome/120 Mobile Safari/537.36';
+
+  test('desktop with no token: link is left untouched', () => {
+    const link = runCta({ ua: DESKTOP, search: '' });
+    expect(link.attrs.href).toBeUndefined();
+  });
+  test('desktop with token: carries ?i= on the normal link', () => {
+    const link = runCta({ ua: DESKTOP, search: '?i=ABC123' });
+    expect(link.attrs.href).toBe('/?i=ABC123');
+  });
+  test('iOS: rewrites to x-safari-https and drops target, carrying the token', () => {
+    const link = runCta({ ua: IPHONE, search: '?i=ABC123' });
+    expect(link.attrs.href).toBe('x-safari-https://knock.example/?i=ABC123');
+    expect(link.attrs.target).toBeUndefined();
+  });
+  test('iOS with no token: bare x-safari-https', () => {
+    const link = runCta({ ua: IPHONE, search: '' });
+    expect(link.attrs.href).toBe('x-safari-https://knock.example/');
+  });
+  test('Android: intent:// with token + https fallback', () => {
+    const link = runCta({ ua: ANDROID, search: '?i=ABC123' });
+    expect(link.attrs.href).toContain('intent://knock.example/?i=ABC123#Intent;scheme=https;');
+    expect(link.attrs.href).toContain('browser_fallback_url=' + encodeURIComponent('https://knock.example/?i=ABC123'));
+    expect(link.attrs.href).toMatch(/;end$/);
+  });
+  test('ignores a malformed token (treated as none)', () => {
+    const link = runCta({ ua: DESKTOP, search: '?i=' + encodeURIComponent('bad token!') });
+    expect(link.attrs.href).toBeUndefined(); // desktop + no valid token → untouched
   });
 });
 

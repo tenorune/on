@@ -66,6 +66,17 @@ h3 { font-size: 1.05rem; margin-bottom: 0.4rem; }
 p { margin-bottom: 0.9rem; }
 .muted { color: var(--text-muted); }
 
+.hidden { display: none; }
+
+/* Invite framing ("You've been invited…"), shown only via /about?i=TOKEN. */
+.invite-framing {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--status-echo, var(--accent));
+  text-align: center;
+  margin-bottom: 1.1rem;
+}
+
 .intro p:first-of-type { font-size: 1.05rem; }
 
 /* Feature cards */
