@@ -100,3 +100,16 @@ describe('theme bootstrap parity (keeps the CSP hash valid)', () => {
     expect(about[0]).toBe(index[0]);
   });
 });
+
+describe('firebase.json routing', () => {
+  let cfg;
+  beforeAll(() => { cfg = JSON.parse(readRoot('firebase.json')); });
+
+  test('/about rewrite exists and precedes the ** catch-all', () => {
+    const rewrites = cfg.hosting.rewrites;
+    const aboutIdx = rewrites.findIndex((r) => r.source === '/about' && r.destination === '/about.html');
+    const catchAllIdx = rewrites.findIndex((r) => r.source === '**');
+    expect(aboutIdx).toBeGreaterThanOrEqual(0);
+    expect(catchAllIdx).toBeGreaterThan(aboutIdx);
+  });
+});
