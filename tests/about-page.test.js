@@ -117,6 +117,20 @@ describe('firebase.json routing', () => {
 
 describe('status-color easter egg', () => {
   const vm = require('vm');
+  const crypto = require('crypto');
+
+  // The egg is an inline <script> in <head> (so it runs before the <em> paints —
+  // no green→custom flash). It's the SECOND inline script; the first is the theme
+  // bootstrap. Extract it by its identifying body.
+  const EGG_RE = /<script>\(function\(\)\{try\{var s=JSON\.parse[\s\S]*?<\/script>/;
+  function eggScriptTag() {
+    const m = readRoot('about.template.html').match(EGG_RE);
+    if (!m) throw new Error('inline easter-egg script not found in about.template.html');
+    return m[0];
+  }
+  function eggScriptBody() {
+    return eggScriptTag().replace(/^<script>/, '').replace(/<\/script>$/, '');
+  }
 
   function runEcho(storage) {
     const docEl = { style: { _vars: {}, setProperty(k, v) { this._vars[k] = v; } } };
@@ -125,14 +139,23 @@ describe('status-color easter egg', () => {
       localStorage: { getItem: (k) => (k in storage ? storage[k] : null) },
       document: { documentElement: docEl },
     };
-    vm.runInNewContext(readRoot('about-echo.js'), sandbox);
+    vm.runInNewContext(eggScriptBody(), sandbox);
     return docEl.style._vars['--status-echo'];
   }
 
-  test('the page loads the echo script and the <em> falls back to green', () => {
+  test('the egg runs inline in <head> (before paint), and the <em> falls back to green', () => {
     const tpl = readRoot('about.template.html');
-    expect(tpl).toContain('<script src="about-echo.js"></script>');
+    const headEnd = tpl.indexOf('</head>');
+    const eggAt = tpl.search(EGG_RE);
+    expect(eggAt).toBeGreaterThanOrEqual(0);
+    expect(eggAt).toBeLessThan(headEnd);          // inline, in <head>
+    expect(tpl).not.toContain('about-echo.js');    // no external/bottom script
     expect(readRoot('css/about.css')).toContain('var(--status-echo, var(--green))');
+  });
+
+  test("the egg script's hash is whitelisted in the CSP (won't be blocked / silently break)", () => {
+    const hash = crypto.createHash('sha256').update(eggScriptBody(), 'utf8').digest('base64');
+    expect(readRoot('firebase.json')).toContain(`'sha256-${hash}'`);
   });
 
   test('applies the saved status color when present', () => {

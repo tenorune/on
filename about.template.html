@@ -15,6 +15,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
   <link rel="stylesheet" href="css/about.css" />
   <script>try{var t=JSON.parse(localStorage.getItem('statusapp_theme')||'null');if(t){var r=document.documentElement;r.style.setProperty('--bg',t.bg);r.style.setProperty('--surface',t.surface);r.style.setProperty('--surface2',t.surface2);r.style.setProperty('--text',t.text);r.style.setProperty('--text-muted',t.textMuted);r.style.setProperty('--accent',t.accent);r.style.setProperty('--error-bg',t.errorBg);r.style.setProperty('--error-text',t.errorText);}}catch(e){}</script>
+  <script>(function(){try{var s=JSON.parse(localStorage.getItem('statusapp_palette_state')||'null');if(!s||!s.sets)return;var set=s.sets[String(s.activeSet)];var c=set&&set.selectedColor;if(typeof c!=='string'||!/^#[0-9a-fA-F]{3,8}$/.test(c))return;document.documentElement.style.setProperty('--status-echo',c);}catch(e){}})();</script>
 </head>
 <body>
   <header class="hero">
@@ -117,6 +118,5 @@
     <p class="muted">An experimental personal project.</p>
     <p class="made-by">__ABOUT_MADE_BY__</p>
   </footer>
-  <script src="about-echo.js"></script>
 </body>
 </html>
