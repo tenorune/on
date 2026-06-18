@@ -30,6 +30,7 @@ jest.mock('../js/db.js', () => ({
   writePendingInvite: jest.fn().mockResolvedValue(undefined),
   deletePendingInvite: jest.fn().mockResolvedValue(undefined),
   readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
+  callResolveInvitePreview: jest.fn(),
 }));
 jest.mock('../js/store.js', () => ({ getFollowing: jest.fn(() => []) }));
 jest.mock('../js/groups.js', () => ({
@@ -440,36 +441,34 @@ describe('resolveInviteCreatorLabel', () => {
 describe('resolveInvitePreview', () => {
   beforeEach(() => { jest.clearAllMocks(); });
 
-  test('returns null for empty token', async () => {
+  test('returns null for empty token without calling the function', async () => {
     const { resolveInvitePreview } = require('../js/invites');
     expect(await resolveInvitePreview(null)).toBeNull();
+    expect(db.callResolveInvitePreview).not.toHaveBeenCalled();
   });
 
-  test('returns personal preview with label', async () => {
+  test('passes the token to the callable and returns its preview', async () => {
     const { resolveInvitePreview } = require('../js/invites');
-    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
-    db.readUserInvite.mockResolvedValue({ scope: 'personal', creatorLabel: 'Alex K.', revoked: false });
+    db.callResolveInvitePreview.mockResolvedValue({ scope: 'personal', label: 'Alex K.' });
     expect(await resolveInvitePreview('T')).toEqual({ scope: 'personal', label: 'Alex K.' });
+    expect(db.callResolveInvitePreview).toHaveBeenCalledWith('T');
   });
 
-  test('returns group preview with groupName and groupId', async () => {
+  test('passes through a group preview', async () => {
     const { resolveInvitePreview } = require('../js/invites');
-    db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
-    db.readGroupName.mockResolvedValue({ name: 'Family' });
-    db.readGroupInvite.mockResolvedValue({ scope: 'group', revoked: false });
+    db.callResolveInvitePreview.mockResolvedValue({ scope: 'group', groupName: 'Family', groupId: 'G1' });
     expect(await resolveInvitePreview('T')).toEqual({ scope: 'group', groupName: 'Family', groupId: 'G1' });
   });
 
-  test('returns null on revoked, missing, or DB error', async () => {
+  test('returns null when the callable yields null (revoked/missing)', async () => {
     const { resolveInvitePreview } = require('../js/invites');
-    db.readInviteIndex.mockResolvedValue(null);
+    db.callResolveInvitePreview.mockResolvedValue(null);
     expect(await resolveInvitePreview('NOPE')).toBeNull();
+  });
 
-    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
-    db.readUserInvite.mockResolvedValue({ scope: 'personal', revoked: true });
-    expect(await resolveInvitePreview('T')).toBeNull();
-
-    db.readInviteIndex.mockRejectedValue(new Error('network'));
+  test('returns null when the callable rejects (network/unavailable)', async () => {
+    const { resolveInvitePreview } = require('../js/invites');
+    db.callResolveInvitePreview.mockRejectedValue(new Error('unavailable'));
     expect(await resolveInvitePreview('T')).toBeNull();
   });
 });
