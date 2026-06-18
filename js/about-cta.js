@@ -1,31 +1,43 @@
 // js/about-cta.js
-// /about page only. The "Open app" links can't reliably escape an in-app browser
+// /about page only. Rewrites the "Open app" links so they (a) carry any invite
+// token through to the app, and (b) on mobile, break out of in-app browsers
 // (Telegram's in-app Safari is byte-identical to real Safari, so detection is
-// impossible). Instead, rewrite the links BY PLATFORM, always:
-//   - iOS  → x-safari-https://host/   (opens Safari; in real Safari it just
+// impossible — we rewrite BY PLATFORM, always):
+//   - iOS  → x-safari-https://host/<?i=…>   (opens Safari; in real Safari it just
 //            prompts "Open in Safari?" — verified harmless on iOS/macOS 26)
-//   - Android → intent://host/#Intent;scheme=https;...;end  (hands off to the
-//            default browser; real Chrome resolves it too; browser_fallback_url
-//            degrades cleanly if nothing handles it)
-//   - desktop (incl. macOS) → left as the normal new-tab link, so we don't hijack
-//            a Chrome/Firefox user into Safari.
-// Plain classic script (no imports) so the static about page can load it directly.
+//   - Android → intent://host/<?i=…>#Intent;scheme=https;…browser_fallback_url…;end
+//   - desktop (incl. macOS) → normal new-tab link, with the token appended so the
+//            app still redeems the invite; we don't hijack Chrome/Firefox to Safari.
+// The token (?i=TOKEN) carries the invite from /about?i=TOKEN into the app, which
+// performs the actual redemption after account creation. Plain classic script.
 (function () {
   var ua = navigator.userAgent || '';
   var isAndroid = /Android/.test(ua);
-  // iOS incl. iPadOS (reports as "Macintosh" but has a touchscreen; desktop Macs
+  // iOS incl. iPadOS (reports as "Macintosh" with a touchscreen; desktop Macs
   // report maxTouchPoints 0). Mirrors isIos() in js/installGuidance.js.
   var isIOS = /iPhone|iPad|iPod/.test(ua)
     || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 0);
-  if (!isAndroid && !isIOS) return; // desktop → leave the normal links alone
+
+  var token = new URLSearchParams(location.search).get('i');
+  var query = (token && /^[A-Za-z0-9_-]{1,64}$/.test(token)) ? '?i=' + token : '';
+
+  // Nothing to rewrite on desktop when there's no token to carry.
+  if (!isAndroid && !isIOS && !query) return;
+
   var host = location.host;
-  var url = isAndroid
-    ? 'intent://' + host + '/#Intent;scheme=https;S.browser_fallback_url='
-        + encodeURIComponent('https://' + host + '/') + ';end'
-    : 'x-safari-https://' + host + '/';
   var links = document.querySelectorAll('a[data-open-app]');
   for (var i = 0; i < links.length; i += 1) {
-    links[i].setAttribute('href', url);
-    links[i].removeAttribute('target'); // the scheme opens the external browser itself
+    if (isAndroid) {
+      var fallback = encodeURIComponent('https://' + host + '/' + query);
+      links[i].setAttribute('href',
+        'intent://' + host + '/' + query
+        + '#Intent;scheme=https;S.browser_fallback_url=' + fallback + ';end');
+      links[i].removeAttribute('target'); // the scheme opens the external browser itself
+    } else if (isIOS) {
+      links[i].setAttribute('href', 'x-safari-https://' + host + '/' + query);
+      links[i].removeAttribute('target');
+    } else { // desktop with a token → carry it; keep the normal new-tab link
+      links[i].setAttribute('href', '/' + query);
+    }
   }
 })();

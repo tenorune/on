@@ -24,6 +24,11 @@
 
   <main>
     <section class="intro">
+      <!-- Invite framing: filled by js/about-invite.js when the page is opened as
+           /about?i=TOKEN and the unauthenticated resolveInvitePreview callable
+           returns a preview. Hidden otherwise. data-preview-url is substituted at
+           build time (the static page has no Firebase config to derive it). -->
+      <p id="about-invite-framing" class="invite-framing hidden" data-preview-url="__INVITE_PREVIEW_URL__"></p>
       <p>__APP_TITLE__ is about <em>ambient presence</em> — a soft signal that you're around and open to company, without the pressure of a chat thread. Mark yourself available for a little while, and the handful of people you've chosen simply see it. When the timer runs out, you fade back to quiet.</p>
       <!-- intentional: open the app in a new tab to keep this page in place.
            data-open-app: on iOS/Android, js/about-cta.js rewrites this to a
@@ -121,8 +126,11 @@
     <p class="muted">An experimental personal project.</p>
     <p class="made-by">__ABOUT_MADE_BY__</p>
   </footer>
-  <!-- Breaks the Open-app links out of in-app browsers (Instagram/Telegram/etc.).
-       External (script-src 'self'), so no CSP hash to maintain. -->
+  <!-- Invite framing ("You've been invited…") when opened as /about?i=TOKEN. -->
+  <script src="js/about-invite.js"></script>
+  <!-- Breaks the Open-app links out of in-app browsers (Instagram/Telegram/etc.)
+       and carries any ?i=TOKEN through to the app. External (script-src 'self'),
+       so no CSP hash to maintain. -->
   <script src="js/about-cta.js"></script>
 </body>
 </html>
