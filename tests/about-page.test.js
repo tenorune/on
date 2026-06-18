@@ -114,3 +114,42 @@ describe('firebase.json routing', () => {
     expect(catchAllIdx).toBeGreaterThan(aboutIdx);
   });
 });
+
+describe('status-color easter egg', () => {
+  const vm = require('vm');
+
+  function runEcho(storage) {
+    const docEl = { style: { _vars: {}, setProperty(k, v) { this._vars[k] = v; } } };
+    const sandbox = {
+      JSON,
+      localStorage: { getItem: (k) => (k in storage ? storage[k] : null) },
+      document: { documentElement: docEl },
+    };
+    vm.runInNewContext(readRoot('about-echo.js'), sandbox);
+    return docEl.style._vars['--status-echo'];
+  }
+
+  test('the page loads the echo script and the <em> falls back to green', () => {
+    const tpl = readRoot('about.template.html');
+    expect(tpl).toContain('<script src="about-echo.js"></script>');
+    expect(readRoot('css/about.css')).toContain('var(--status-echo, var(--green))');
+  });
+
+  test('applies the saved status color when present', () => {
+    const stored = JSON.stringify({ activeSet: 2, sets: { '1': { selectedColor: '#22c55e' }, '2': { selectedColor: '#3b82f6' } } });
+    expect(runEcho({ statusapp_palette_state: stored })).toBe('#3b82f6');
+  });
+
+  test('does nothing when no palette state is saved', () => {
+    expect(runEcho({})).toBeUndefined();
+  });
+
+  test('ignores a non-hex / unexpected color value', () => {
+    const stored = JSON.stringify({ activeSet: 1, sets: { '1': { selectedColor: 'rgb(1,2,3)' }, '2': {} } });
+    expect(runEcho({ statusapp_palette_state: stored })).toBeUndefined();
+  });
+
+  test('never throws on malformed storage', () => {
+    expect(() => runEcho({ statusapp_palette_state: '{not json' })).not.toThrow();
+  });
+});

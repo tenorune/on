@@ -31,7 +31,7 @@ body {
 }
 
 a { color: var(--accent); }
-em { font-style: normal; color: var(--green); }
+em { font-style: normal; color: var(--status-echo, var(--green)); }
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   background: var(--surface2);
