@@ -68,4 +68,31 @@ function writeServiceWorker() {
   return version;
 }
 
-module.exports = { define, envFile, writeIndexHtml, writeServiceWorker };
+function renderAbout(template, vars) {
+  const title = vars.APP_TITLE || 'KnockKnock';
+  const region = vars.DATA_REGION
+    ? `the ${escapeHtml(vars.DATA_REGION)} region`
+    : 'a Google Cloud region';
+  const author = vars.ABOUT_AUTHOR || '';
+  const madeBy = author
+    ? `Made by ${escapeHtml(author)} with a little help from Claude`
+    : 'Made with a little help from Claude';
+  return template
+    .replaceAll('__APP_TITLE__', escapeHtml(title))
+    .replaceAll('__DATA_REGION__', region)
+    .replaceAll('__ABOUT_MADE_BY__', madeBy);
+}
+
+function writeAboutHtml(defaultTitle) {
+  const templatePath = path.resolve(__dirname, '..', 'about.template.html');
+  const outPath = path.resolve(__dirname, '..', 'about.html');
+  const template = readFileSync(templatePath, 'utf8');
+  const out = renderAbout(template, {
+    APP_TITLE: process.env.APP_TITLE || env.APP_TITLE || defaultTitle,
+    DATA_REGION: process.env.DATA_REGION || env.DATA_REGION || '',
+    ABOUT_AUTHOR: process.env.ABOUT_AUTHOR || env.ABOUT_AUTHOR || '',
+  });
+  writeFileSync(outPath, out);
+}
+
+module.exports = { define, envFile, writeIndexHtml, writeServiceWorker, renderAbout, writeAboutHtml };
