@@ -113,8 +113,6 @@ p { margin-bottom: 0.9rem; }
 
 .privacy-detail {
   margin-top: 2.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--surface2);
 }
 .privacy-detail h3 { margin-top: 1.5rem; color: var(--accent); }
 .privacy-detail p { color: var(--text-muted); }
