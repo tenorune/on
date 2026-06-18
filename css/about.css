@@ -45,8 +45,9 @@ code {
 .brand-mark { font-size: 1.85rem; display: block; letter-spacing: 0.02em; }
 .tagline { color: var(--text-muted); margin-top: 0.75rem; font-size: 1.15rem; }
 .cta {
-  display: inline-block;
-  margin-top: 1.75rem;
+  display: block;
+  width: fit-content;
+  margin: 1.75rem auto 0;
   padding: 0.65rem 1.3rem;
   background: var(--accent);
   color: #fff;
@@ -94,6 +95,10 @@ p { margin-bottom: 0.9rem; }
   border-left: 2px solid var(--surface2);
   padding-left: 0.85rem;
 }
+/* Override-toggle glyphs, colored as in the app: ≠ (independent status) uses
+   the accent; = (linked to primary) uses the default text color. */
+.glyph-neq { color: var(--accent); font-weight: 600; }
+.glyph-eq { color: var(--text); font-weight: 600; }
 
 /* Privacy */
 .privacy-short ul { list-style: none; }
