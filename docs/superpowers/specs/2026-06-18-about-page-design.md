@@ -83,7 +83,7 @@ Single centered column, `max-width` ~600px (mirrors the app), responsive down to
    - **Where your data lives** — hosted on **Firebase (Google Cloud)**; the Realtime Database runs in the **`__DATA_REGION__`** region. Access is scoped so each account can only read/write its own data (broadcast status is readable by signed-in connections); a small Cloud Function mints a sign-in token from your phrase.
    - **Notifications** — opt-in per contact; you choose who and what.
    - **No analytics, ads, or data sales.**
-6. **Footer** — "Open KnockKnock →" (to `/`), a link to the GitHub repo (`https://github.com/tenorune/on`), an "experimental personal project" line, and — when `ABOUT_AUTHOR` is set — a "Made by `__ABOUT_AUTHOR__`" attribution. All outbound links `target="_blank" rel="noopener"`.
+6. **Footer** — "Open KnockKnock →" (to `/`), a link to the GitHub repo (`https://github.com/tenorune/on`), an "experimental personal project" line, and an attribution: **"Made by `__ABOUT_AUTHOR__` with a little help from Claude"** when `ABOUT_AUTHOR` is set, degrading to **"Made with a little help from Claude"** when it's unset (no `REPLACE_ME`, no dangling "by"). All outbound links `target="_blank" rel="noopener"`.
 
 ## Styling notes
 
