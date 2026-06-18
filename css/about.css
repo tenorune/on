@@ -73,8 +73,7 @@ p { margin-bottom: 0.9rem; }
   font-size: 1.05rem;
   font-weight: 600;
   color: var(--status-echo, var(--accent));
-  border-left: 3px solid var(--status-echo, var(--accent));
-  padding-left: 0.75rem;
+  text-align: center;
   margin-bottom: 1.1rem;
 }
 
