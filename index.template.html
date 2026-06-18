@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0f172a" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="__APP_TITLE__" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <!-- CSP: deploy via firebase.json headers, not meta tag (meta blocks 'self' on local dev, ignores frame-ancestors) -->
@@ -13,7 +14,8 @@
   -->
   <title>__APP_TITLE__</title>
   <link rel="manifest" href="manifest.json" />
-  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png" />
+  <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
   <link rel="stylesheet" href="css/app.css" />
   <link rel="stylesheet" href="css/canvas.css" />
   <script>try{var t=JSON.parse(localStorage.getItem('statusapp_theme')||'null');if(t){var r=document.documentElement;r.style.setProperty('--bg',t.bg);r.style.setProperty('--surface',t.surface);r.style.setProperty('--surface2',t.surface2);r.style.setProperty('--text',t.text);r.style.setProperty('--text-muted',t.textMuted);r.style.setProperty('--accent',t.accent);r.style.setProperty('--error-bg',t.errorBg);r.style.setProperty('--error-text',t.errorText);}}catch(e){}</script>
@@ -133,19 +135,47 @@
         <button id="recovery-copy-btn" class="ghost-btn">Copy</button>
       </div>
       <p class="recovery-warning">Save this somewhere safe. It's the only way to restore your account if you lose this browser. We can't recover it for you.</p>
-      <button id="recovery-saved-btn" class="primary-btn">I've saved it</button>
+      <!-- Hidden credential form: lets iOS/macOS offer "Save Password" (iCloud
+           Keychain), which crosses the install storage partition by domain. Never
+           relied upon or asserted in copy. -->
+      <form id="recovery-keychain-form" autocomplete="on">
+        <input id="recovery-keychain-username" class="visually-hidden" type="text"
+               autocomplete="username" tabindex="-1" readonly aria-hidden="true" />
+        <input id="recovery-keychain-phrase" class="visually-hidden" type="password"
+               autocomplete="new-password" tabindex="-1" readonly aria-hidden="true" />
+        <button id="recovery-saved-btn" class="primary-btn" type="submit">I've saved it</button>
+      </form>
     </div>
   </div>
 
   <div id="restore-screen" class="restore-screen hidden">
     <div class="restore-card">
       <h3>Enter your secret phrase</h3>
-      <input id="restore-input" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" placeholder="your-four-secret-words" class="code-input restore-input" />
-      <p id="restore-error" class="error-msg hidden"></p>
-      <div class="restore-btns">
-        <button id="restore-submit-btn" class="primary-btn">Restore</button>
-        <button id="restore-cancel-btn" class="ghost-btn">Cancel</button>
-      </div>
+      <form id="restore-form" autocomplete="on">
+        <input id="restore-username" class="visually-hidden" type="text" autocomplete="username" tabindex="-1" aria-hidden="true" />
+      <input id="restore-input" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="your-four-secret-words" class="code-input restore-input" />
+        <p id="restore-error" class="error-msg hidden"></p>
+        <div class="restore-btns">
+          <button id="restore-submit-btn" class="primary-btn" type="submit">Paste &amp; Sign in</button>
+          <button id="restore-cancel-btn" class="ghost-btn" type="button">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="install-step" class="welcome-screen hidden">
+    <div class="modal-card">
+      <h3 id="install-step-title"></h3>
+      <p id="install-step-body"></p>
+      <p id="install-step-reminder" class="install-step-reminder"></p>
+      <button id="install-step-later-btn" class="ghost-btn" type="button">Maybe later</button>
+    </div>
+  </div>
+  <div id="browser-redirect" class="welcome-screen hidden">
+    <div class="modal-card">
+      <h3 id="browser-redirect-title">Open in your browser</h3>
+      <p id="browser-redirect-body"></p>
+      <button id="browser-redirect-continue-btn" class="ghost-btn" type="button">Continue here anyway</button>
     </div>
   </div>
 
@@ -218,6 +248,17 @@
       </div>
       </div>
     </main>
+
+    <!-- Install reminder icon: in-flow at the bottom of the Direct list (pushed
+         down by the roster + contact list), Direct-context only, below toasts. -->
+    <button id="install-fab" class="install-fab hidden" type="button" aria-label="Install app">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </svg>
+    </button>
   </div>
 
   <div id="group-context-root" class="group-context-root hidden">
@@ -265,6 +306,12 @@
     <span id="notify-promo-text"></span>
     <button id="notify-promo-action" class="primary-btn hidden"></button>
     <button id="notify-promo-dismiss" class="ghost-btn" aria-label="Close">Close</button>
+  </div>
+
+  <div id="install-toast" class="notify-promo install-toast hidden" role="region" aria-label="Install">
+    <span id="install-toast-text"></span>
+    <button id="install-toast-action" class="primary-btn hidden" type="button">Install</button>
+    <button id="install-toast-dismiss" class="ghost-btn" type="button" aria-label="Close">Close</button>
   </div>
 
   <script src="dist/bundle.js"></script>

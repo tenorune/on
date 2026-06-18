@@ -22,11 +22,19 @@ export const auth = getAuth(app);
 // Functions are pinned to europe-west1 (functions/index.js setGlobalOptions).
 const _functions = getFunctions(app, 'europe-west1');
 const _validateRecovery = httpsCallable(_functions, 'validateRecovery');
+const _resolveInvitePreview = httpsCallable(_functions, 'resolveInvitePreview');
 
 // Calls the validateRecovery callable; returns the Firebase custom token string.
 export async function callValidateRecovery(code) {
   const { data } = await _validateRecovery({ code });
   return data.token;
+}
+
+// Calls the resolveInvitePreview callable; returns the preview object (or null).
+// Unauthenticated: the welcome screen needs invite framing before sign-in.
+export async function callResolveInvitePreview(token) {
+  const { data } = await _resolveInvitePreview({ token });
+  return data?.preview ?? null;
 }
 
 let _messaging = null;

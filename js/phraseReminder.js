@@ -1,0 +1,25 @@
+// js/phraseReminder.js
+// Shared "save your secret phrase" reminder block + one-tap clipboard copy.
+// Reused by the notification guidance banner, the onboarding install step, and the
+// install toast. Kept in its own module with NO Firebase dependency so any of
+// those can import it without dragging in firebase-config.
+import { loadIdentity } from './identity.js';
+
+export function phraseReminderHtml() {
+  return '<span class="notify-promo-reminder">Make sure you’ve saved your secret phrase — you’ll need it to restore your account after installing.</span>'
+    + '<span class="notify-promo-phrase">Secret phrase: <button type="button" class="notify-promo-copy">Copy to clipboard</button></span>';
+}
+
+export function wirePhraseCopyButton(container) {
+  const copyBtn = container.querySelector('.notify-promo-copy');
+  if (!copyBtn) return;
+  copyBtn.onclick = async () => {
+    const phrase = loadIdentity()?.recoveryCode;
+    if (!phrase) return;
+    try {
+      await navigator.clipboard?.writeText(phrase);
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => { copyBtn.textContent = 'Copy to clipboard'; }, 1500);
+    } catch { /* clipboard blocked */ }
+  };
+}

@@ -47,7 +47,7 @@ function writeIndexHtml(defaultTitle) {
   const outPath = path.resolve(__dirname, '..', 'index.html');
   const title = process.env.APP_TITLE || env.APP_TITLE || defaultTitle;
   const template = readFileSync(templatePath, 'utf8');
-  writeFileSync(outPath, template.replace('__APP_TITLE__', escapeHtml(title)));
+  writeFileSync(outPath, template.replaceAll('__APP_TITLE__', escapeHtml(title)));
   return title;
 }
 

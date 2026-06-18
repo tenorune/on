@@ -8,6 +8,7 @@ import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange,
 import { onCall as httpsOnCall } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
+import { resolveInvitePreviewHandler } from './invites.js';
 
 // Pin all functions to the RTDB's region. A 2nd-gen RTDB trigger MUST run in the
 // same region as the database instance. Region is per-project config: the Firebase
@@ -137,4 +138,13 @@ export const validateRecovery = httpsOnCall((request) =>
   validateRecoveryHandler(request, {
     allowAttempt: (uid) => allowRecoveryAttempt(getDatabase(), uid),
     mintToken: (uid) => getAuth().createCustomToken(uid),
+  }));
+
+// Unauthenticated callable: the welcome screen names the inviter/group before the
+// new user has a session, but invite nodes are gated by `auth != null`. Resolves
+// the preview via the Admin SDK (bypasses rules), returning only preview-safe
+// fields. Invite tokens are 128-bit, so enumeration is infeasible. See invites.js.
+export const resolveInvitePreview = httpsOnCall((request) =>
+  resolveInvitePreviewHandler(request, {
+    getVal: (path) => db.ref(path).get().then((snap) => snap.val()),
   }));

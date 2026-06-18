@@ -17,6 +17,7 @@ function makeIcon(size) {
 }
 
 fs.mkdirSync('icons', { recursive: true });
+fs.writeFileSync('icons/icon-180.png', makeIcon(180)); // canonical iOS apple-touch-icon size
 fs.writeFileSync('icons/icon-192.png', makeIcon(192));
 fs.writeFileSync('icons/icon-512.png', makeIcon(512));
 console.log('Icons created.');
