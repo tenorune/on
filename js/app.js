@@ -413,7 +413,7 @@ export function showRestoreScreen() {
       const normalized = parseRecoveryCode(input.value);
       if (!normalized) {
         // Malformed input is rejected instantly with no round-trip — no busy state.
-        showError("That doesn't look like a secret phrase — check that you entered 4 words from the list.");
+        showError("That doesn't look like a secret phrase.");
         return;
       }
       // Feedback through the derive + sign-in + account-read round-trip.
