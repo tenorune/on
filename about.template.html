@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="__APP_TITLE__" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="A quiet way to let the people who matter know when you're free." />
+  <title>__APP_TITLE__</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png" />
+  <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/about.css" />
+  <script>try{var t=JSON.parse(localStorage.getItem('statusapp_theme')||'null');if(t){var r=document.documentElement;r.style.setProperty('--bg',t.bg);r.style.setProperty('--surface',t.surface);r.style.setProperty('--surface2',t.surface2);r.style.setProperty('--text',t.text);r.style.setProperty('--text-muted',t.textMuted);r.style.setProperty('--accent',t.accent);r.style.setProperty('--error-bg',t.errorBg);r.style.setProperty('--error-text',t.errorText);}}catch(e){}</script>
+  <script>(function(){try{var s=JSON.parse(localStorage.getItem('statusapp_palette_state')||'null');if(!s||!s.sets)return;var set=s.sets[String(s.activeSet)];var c=set&&set.selectedColor;if(typeof c!=='string'||!/^#[0-9a-fA-F]{3,8}$/.test(c))return;document.documentElement.style.setProperty('--status-echo',c);}catch(e){}})();</script>
+</head>
+<body>
+  <header class="hero">
+    <span class="brand-mark">k&#x0338;n&#x0336;o&#x0338;c&#x0335;k&#x0335; &#x0336;k&#x0338;n&#x0337;o&#x0335;c&#x0338;k&#x0335;</span>
+  </header>
+
+  <main>
+    <section class="intro">
+      <!-- Invite framing: filled by js/about-invite.js when the page is opened as
+           /about?i=TOKEN and the unauthenticated resolveInvitePreview callable
+           returns a preview. Hidden otherwise. data-preview-url is substituted at
+           build time (the static page has no Firebase config to derive it). -->
+      <p id="about-invite-framing" class="invite-framing hidden" data-preview-url="__INVITE_PREVIEW_URL__"></p>
+      <p>__APP_TITLE__ is about <em>ambient presence</em> — a soft signal that you're around and open to company, without the pressure of a chat thread. Mark yourself available for a little while, and the handful of people you've chosen simply see it. When the timer runs out, you fade back to quiet.</p>
+      <!-- intentional: open the app in a new tab to keep this page in place.
+           data-open-app: on iOS/Android, js/about-cta.js rewrites this to a
+           platform scheme that opens the real browser (escapes in-app browsers
+           like Telegram); on desktop it stays this normal new-tab link. -->
+      <a class="cta" href="/" target="_blank" rel="noopener" data-open-app>Open __APP_TITLE__ &rarr;</a>
+    </section>
+
+    <section class="features">
+      <h2>What you can do</h2>
+
+      <article class="feature">
+        <h3>Availability</h3>
+        <p>Go available for a set stretch of time. The people you've connected with see it in real time, glowing in your color — no message to send, no &ldquo;you up?&rdquo;.</p>
+      </article>
+
+      <article class="feature">
+        <h3>Knock</h3>
+        <p>A gentle nudge. Tap a contact to send a little pulse their way — a hello without words.</p>
+      </article>
+
+      <article class="feature">
+        <h3>Colors</h3>
+        <p>Pick a palette and the whole app dresses up in it.</p>
+        <details>
+          <summary>How colors work</summary>
+          <p>There are 16 palettes across two sets, and each one re-themes the entire app — including how others see you. You can save your favorite color combos, and borrow a contact's color by long-pressing their card. The favorites you build here also become your pen colors when you draw together on a call.</p>
+        </details>
+      </article>
+
+      <article class="feature">
+        <h3>Calls &amp; a shared canvas</h3>
+        <p>Reach someone in the moment — and doodle together while you do.</p>
+        <details>
+          <summary>How calls work</summary>
+          <p>Swipe right to call a mutual; they swipe right to answer. Answering opens a shared drawing canvas kept just for the two of you. Your saved favorite colors are the canvas pens — so the palette you build in Colors is the palette you draw with.</p>
+        </details>
+      </article>
+
+      <article class="feature">
+        <h3>Groups</h3>
+        <p>Small circles, each with their own name and mood.</p>
+        <details>
+          <summary>How groups work</summary>
+          <p>Every group can have its own display name and its own status and color, separate from your primary one — so you can be &ldquo;free to wander&rdquo; with friends and &ldquo;heads down&rdquo; with another circle at the same time. Prefer not to keep a separate status (<span class="glyph-neq">&ne;</span>) for a group? Turn that group's override off (<span class="glyph-eq">=</span>) anytime. Invite people with a link or pick them right inside the app.</p>
+        </details>
+      </article>
+
+      <article class="feature">
+        <h3>Notifications</h3>
+        <p>Off by default, and yours to shape.</p>
+        <details>
+          <summary>How notifications work</summary>
+          <p>Notifications are opt-in, contact by contact — you choose who and what you hear about (knocks, calls, availability, invites). On some platforms (an iPhone Home Screen, the macOS Dock) the app needs to be installed first to deliver them, and it'll walk you through that when the time comes.</p>
+        </details>
+      </article>
+    </section>
+
+    <section class="privacy-short">
+      <h2>Privacy, briefly</h2>
+      <ul>
+        <li><strong>No email, phone, or social sign-up.</strong> Your account is a four-word secret phrase.</li>
+        <li><strong>Only your people see you.</strong> Your status is visible to the contacts you've connected with — and to fellow members inside a group.</li>
+        <li><strong>No ads. No tracking. No analytics.</strong> Nothing about you is sold or measured.</li>
+        <li><strong>A small, invite-based space</strong> — not a public network.</li>
+      </ul>
+    </section>
+
+    <section id="privacy" class="privacy-detail">
+      <h2>Privacy, in detail</h2>
+
+      <h3>Your identity is a secret phrase</h3>
+      <p>Instead of an email and password, your account is four words — something like <code>swift-river-amber-dust</code>. Type the same phrase on any device and you're back. That phrase is the only key to your account: treat it like a password, because anyone who has it can sign in as you. There's no &ldquo;forgot password&rdquo; — it can't be reset or recovered for you, so keep it somewhere safe.</p>
+
+      <h3>What others can see — and what they can't</h3>
+      <p>The people you've connected with can see your availability, your status, and your color, updating in real time. Inside a group, fellow members see the status you've set for that group. Everything else — who your contacts are, your settings, your saved colors — stays private to you.</p>
+
+      <h3>Where your data lives</h3>
+      <p>__APP_TITLE__ runs on Firebase (Google Cloud). Your data is stored in a Realtime Database hosted in __DATA_REGION__. Access is locked down so each account can only read and write its own data — the only thing shared is the presence others need in order to see your status. When you sign in, a small server function checks your phrase and hands your device a token; your phrase itself is never stored as a password.</p>
+
+      <h3>Notifications are opt-in</h3>
+      <p>You decide who can notify you and about what, contact by contact. Nothing is pushed to you until you turn it on.</p>
+
+      <h3>No analytics, ads, or data sales</h3>
+      <p>There are no third-party trackers, no advertising, and no analytics quietly watching how you use the app.</p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <nav class="footer-links">
+      <!-- intentional: open the app in a new tab to keep this page in place -->
+      <a href="/" target="_blank" rel="noopener" data-open-app>Open __APP_TITLE__ &rarr;</a>
+      <a href="https://github.com/tenorune/on" target="_blank" rel="noopener">Source on GitHub</a>
+    </nav>
+    <p class="muted">An experimental personal project.</p>
+    <p class="made-by">__ABOUT_MADE_BY__</p>
+  </footer>
+  <!-- Invite framing ("You've been invited…") when opened as /about?i=TOKEN. -->
+  <script src="js/about-invite.js"></script>
+  <!-- Breaks the Open-app links out of in-app browsers (Instagram/Telegram/etc.)
+       and carries any ?i=TOKEN through to the app. External (script-src 'self'),
+       so no CSP hash to maintain. -->
+  <script src="js/about-cta.js"></script>
+</body>
+</html>

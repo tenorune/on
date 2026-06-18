@@ -1,0 +1,140 @@
+/* css/about.css — standalone styling for /about. Default theme tokens live on
+   :root; the inline theme-bootstrap script may override them per saved palette. */
+:root {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface2: #334155;
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --accent: #6366f1;
+  --green: #22c55e;
+  --green-glow: rgba(34, 197, 94, 0.4);
+  /* --green/--error-* are carried so the theme-bootstrap script can override the
+     full app token set; some are decorative-only on this page. */
+  --error-bg: #7f1d1d;
+  --error-text: #fca5a5;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.6;
+  min-width: 360px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 1.25rem 4rem;
+}
+
+a { color: var(--accent); }
+em { font-style: normal; color: var(--status-echo, var(--green)); }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--surface2);
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.3rem;
+  font-size: 0.9em;
+}
+
+/* Hero */
+.hero { text-align: center; padding: 3.5rem 0 2rem; }
+.brand-mark { font-size: 1.85rem; display: block; letter-spacing: 0.02em; }
+.tagline { color: var(--text-muted); margin-top: 0.75rem; font-size: 1.15rem; }
+.cta {
+  display: block;
+  width: fit-content;
+  margin: 1.75rem auto 0;
+  padding: 0.65rem 1.3rem;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 0.6rem;
+  box-shadow: 0 0 28px var(--green-glow);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.cta:hover { transform: translateY(-1px); }
+
+/* Sections */
+h1 { font-size: 1.6rem; margin-bottom: 0.75rem; }
+h2 { font-size: 1.3rem; margin: 2.5rem 0 1rem; }
+h3 { font-size: 1.05rem; margin-bottom: 0.4rem; }
+p { margin-bottom: 0.9rem; }
+.muted { color: var(--text-muted); }
+
+.hidden { display: none; }
+
+/* Invite framing ("You've been invited…"), shown only via /about?i=TOKEN. */
+.invite-framing {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--status-echo, var(--accent));
+  text-align: center;
+  margin-bottom: 1.1rem;
+}
+
+.intro p:first-of-type { font-size: 1.05rem; }
+
+/* Feature cards */
+.feature {
+  background: var(--surface);
+  border-radius: 0.75rem;
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 0.9rem;
+}
+.feature h3 { color: var(--text); }
+.feature > p { margin-bottom: 0; color: var(--text-muted); }
+
+.feature details { margin-top: 0.75rem; }
+.feature summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+  list-style: none;
+}
+.feature summary::-webkit-details-marker { display: none; }
+.feature summary::before { content: "▸ "; }
+.feature details[open] summary::before { content: "▾ "; }
+.feature details p {
+  margin-top: 0.6rem;
+  margin-bottom: 0;
+  color: var(--text-muted);
+  border-left: 2px solid var(--surface2);
+  padding-left: 0.85rem;
+}
+/* Override-toggle glyphs, colored as in the app: ≠ (independent status) uses
+   the accent; = (linked to primary) uses the default text color. */
+.glyph-neq { color: var(--accent); font-weight: 600; }
+.glyph-eq { color: var(--text); font-weight: 600; }
+
+/* Privacy */
+.privacy-short ul { list-style: none; }
+.privacy-short li {
+  background: var(--surface);
+  border-radius: 0.6rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.6rem;
+  color: var(--text-muted);
+}
+.privacy-short strong { color: var(--text); }
+
+.privacy-detail {
+  margin-top: 2.5rem;
+}
+.privacy-detail h3 { margin-top: 1.5rem; color: var(--accent); }
+.privacy-detail p { color: var(--text-muted); }
+
+/* Footer */
+.footer {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--surface2);
+  text-align: center;
+}
+.footer-links { display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1rem; }
+.footer-links a { font-weight: 600; text-decoration: none; }
+.made-by { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0; }
