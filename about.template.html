@@ -25,8 +25,10 @@
   <main>
     <section class="intro">
       <p>__APP_TITLE__ is about <em>ambient presence</em> — a soft signal that you're around and open to company, without the pressure of a chat thread. Mark yourself available for a little while, and the handful of people you've chosen simply see it. When the timer runs out, you fade back to quiet.</p>
-      <!-- intentional: open the app in a new tab to keep this page in place -->
-      <a class="cta" href="/" target="_blank" rel="noopener">Open __APP_TITLE__ &rarr;</a>
+      <!-- intentional: open the app in a new tab to keep this page in place.
+           data-open-app: js/about-cta.js rewrites this to break out of in-app
+           browsers (Safari on iOS, the default browser on Android). -->
+      <a class="cta" href="/" target="_blank" rel="noopener" data-open-app>Open __APP_TITLE__ &rarr;</a>
     </section>
 
     <section class="features">
@@ -112,11 +114,14 @@
   <footer class="footer">
     <nav class="footer-links">
       <!-- intentional: open the app in a new tab to keep this page in place -->
-      <a href="/" target="_blank" rel="noopener">Open __APP_TITLE__ &rarr;</a>
+      <a href="/" target="_blank" rel="noopener" data-open-app>Open __APP_TITLE__ &rarr;</a>
       <a href="https://github.com/tenorune/on" target="_blank" rel="noopener">Source on GitHub</a>
     </nav>
     <p class="muted">An experimental personal project.</p>
     <p class="made-by">__ABOUT_MADE_BY__</p>
   </footer>
+  <!-- Breaks the Open-app links out of in-app browsers (Instagram/Telegram/etc.).
+       External (script-src 'self'), so no CSP hash to maintain. -->
+  <script src="js/about-cta.js"></script>
 </body>
 </html>

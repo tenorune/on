@@ -541,3 +541,12 @@ Web suite **42 suites / 1171 tests** (`npx jest`); Cloud Functions **4 suites / 
 - Restore-screen error #1 ("Paste or type your secret phrase.") was reviewed and **left as-is** by the maintainer.
 
 > **All of the above shipped in `v1.2.0`** — the release was tagged after the final copy commits merged to `main`, so nothing from this session is awaiting a later tag.
+
+## 22. `/about` page (side experiment, 2026-06-18)
+
+A standalone, shareable landing/about page — candidate for the link that gets passed around. Merged from `claude/adoring-fermi-panh4e`. **Not yet released** (post-v1.2.0; rides the next tag).
+
+- **`about.template.html` → `about.html`** (built by `renderAbout`/`writeAboutHtml` in `scripts/build.js`, emitted from all build paths; `about.html` is gitignored). Served at the clean URL **`/about`** via a `firebase.json` hosting rewrite that **precedes** the `**` catch-all. Substitutions: `__APP_TITLE__`, `__DATA_REGION__`, `__ABOUT_MADE_BY__` (author optional; degrades to "Made with a little help from Claude"). Spec/plan: `docs/superpowers/specs|plans/2026-06-18-about-page*`.
+- **Self-contained static page** — its own `css/about.css`, no app bundle. Two inline `<head>` scripts (theme-restore, byte-identical to index's so it shares the CSP hash; + a status-color easter-egg that tints "ambient presence" — its body hash is whitelisted in the `firebase.json` CSP, asserted by `tests/about-page.test.js`). Don't edit those inline scripts without updating the CSP hash.
+- **In-app-browser escape on the "Open app" links** (`js/about-cta.js`, a plain classic script loaded via `<script src>` — allowed by `script-src 'self'`, so **no CSP hash to maintain**). On `a[data-open-app]` clicks, if the UA is an in-app browser (same regex as `isInAppBrowser`), it breaks out to the real browser: **iOS → `x-safari-https://<host>/`**, **Android → `intent://<host>/#Intent;scheme=https;end`**. Outside an in-app browser the links just open the app in a new tab (`target="_blank"`). Experimental — schemes are unverified on-device.
+- Tests: `tests/about-page.test.js` (renderAbout substitution, template content, `/about` rewrite ordering, theme-script parity, easter-egg + CSP-hash).
