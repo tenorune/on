@@ -39,3 +39,64 @@ describe('renderAbout substitution', () => {
     expect(out).toContain('&lt;');
   });
 });
+
+const root = path.resolve(__dirname, '..');
+const readRoot = (f) => fs.readFileSync(path.join(root, f), 'utf8');
+
+describe('about.template.html content', () => {
+  let tpl;
+  beforeAll(() => { tpl = readRoot('about.template.html'); });
+
+  test('has the privacy-detail anchor', () => {
+    expect(tpl).toMatch(/id="privacy"/);
+  });
+
+  test('names the six core features', () => {
+    for (const f of ['Availability', 'Knock', 'Colors', 'Calls', 'Groups', 'Notifications']) {
+      expect(tpl).toContain(f);
+    }
+  });
+
+  test('has at least four how-it-works <details> blocks', () => {
+    const count = (tpl.match(/<details>/g) || []).length;
+    expect(count).toBeGreaterThanOrEqual(4);
+  });
+
+  test('mentions favorites feeding the call canvas pens', () => {
+    expect(tpl.toLowerCase()).toContain('pen');
+    expect(tpl.toLowerCase()).toContain('canvas');
+  });
+
+  test('every new-tab link is safe (target=_blank => rel=noopener)', () => {
+    const anchors = tpl.match(/<a [^>]*>/g) || [];
+    const blanks = anchors.filter((a) => /target="_blank"/.test(a));
+    expect(blanks.length).toBeGreaterThan(0);
+    for (const a of blanks) expect(a).toMatch(/rel="noopener"/);
+  });
+
+  test('links to the GitHub repo', () => {
+    expect(tpl).toContain('https://github.com/tenorune/on');
+  });
+
+  test('carries the substitution placeholders', () => {
+    expect(tpl).toContain('__APP_TITLE__');
+    expect(tpl).toContain('__DATA_REGION__');
+    expect(tpl).toContain('__ABOUT_MADE_BY__');
+  });
+
+  test('links a stylesheet, not the app bundle', () => {
+    expect(tpl).toContain('css/about.css');
+    expect(tpl).not.toContain('dist/bundle.js');
+  });
+});
+
+describe('theme bootstrap parity (keeps the CSP hash valid)', () => {
+  const SCRIPT_RE = /<script>try\{var t=JSON\.parse[\s\S]*?<\/script>/;
+  test('about reuses the byte-identical inline theme script from index', () => {
+    const about = readRoot('about.template.html').match(SCRIPT_RE);
+    const index = readRoot('index.template.html').match(SCRIPT_RE);
+    expect(about).not.toBeNull();
+    expect(index).not.toBeNull();
+    expect(about[0]).toBe(index[0]);
+  });
+});
