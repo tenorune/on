@@ -1,28 +1,31 @@
 // js/about-cta.js
-// /about page only. When the page is opened inside an in-app browser (Instagram,
-// Telegram, Facebook, etc.), the "Open app" links can't reliably install or
-// deliver notifications, so break out to the real browser instead: Safari on iOS
-// via the x-safari-https: scheme, the default browser on Android via an intent://
-// URL. Outside an in-app browser the links behave normally (open the app in a new
-// tab — handled by their target="_blank").
-//
-// A plain classic script (no imports) so the static about page can load it
-// directly. In-app UA list mirrors isInAppBrowser() in js/installGuidance.js.
+// /about page only. The "Open app" links can't reliably escape an in-app browser
+// (Telegram's in-app Safari is byte-identical to real Safari, so detection is
+// impossible). Instead, rewrite the links BY PLATFORM, always:
+//   - iOS  → x-safari-https://host/   (opens Safari; in real Safari it just
+//            prompts "Open in Safari?" — verified harmless on iOS/macOS 26)
+//   - Android → intent://host/#Intent;scheme=https;...;end  (hands off to the
+//            default browser; real Chrome resolves it too; browser_fallback_url
+//            degrades cleanly if nothing handles it)
+//   - desktop (incl. macOS) → left as the normal new-tab link, so we don't hijack
+//            a Chrome/Firefox user into Safari.
+// Plain classic script (no imports) so the static about page can load it directly.
 (function () {
   var ua = navigator.userAgent || '';
-  var IN_APP = /FBAN|FBAV|FB_IAB|Instagram|Line\/|Snapchat|Twitter|LinkedInApp|WhatsApp|musical_ly|Bytedance|TikTok|Pinterest|Telegram|MicroMessenger|; ?wv\)|GSA\//;
-  if (!IN_APP.test(ua)) return; // real browser → leave the normal new-tab links alone
   var isAndroid = /Android/.test(ua);
+  // iOS incl. iPadOS (reports as "Macintosh" but has a touchscreen; desktop Macs
+  // report maxTouchPoints 0). Mirrors isIos() in js/installGuidance.js.
+  var isIOS = /iPhone|iPad|iPod/.test(ua)
+    || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 0);
+  if (!isAndroid && !isIOS) return; // desktop → leave the normal links alone
+  var host = location.host;
+  var url = isAndroid
+    ? 'intent://' + host + '/#Intent;scheme=https;S.browser_fallback_url='
+        + encodeURIComponent('https://' + host + '/') + ';end'
+    : 'x-safari-https://' + host + '/';
   var links = document.querySelectorAll('a[data-open-app]');
   for (var i = 0; i < links.length; i += 1) {
-    links[i].addEventListener('click', function (e) {
-      e.preventDefault();
-      var host = location.host;
-      // Android: intent:// hands off to the default browser. iOS: x-safari-https:
-      // forces Safari from within a WKWebView-based in-app browser.
-      window.location.href = isAndroid
-        ? 'intent://' + host + '/#Intent;scheme=https;end'
-        : 'x-safari-https://' + host + '/';
-    });
+    links[i].setAttribute('href', url);
+    links[i].removeAttribute('target'); // the scheme opens the external browser itself
   }
 })();
