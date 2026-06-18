@@ -65,14 +65,13 @@ Single centered column, `max-width` ~600px (mirrors the app), responsive down to
 
 1. **Hero** — the stylized struck-through `knock knock` brand mark (same glyph sequence as the splash), a one-line tagline ("Let the people who matter know when you're free."), and an "Open KnockKnock →" link to `/`.
 2. **What it is** — a short friendly paragraph on ambient presence + one sentence acknowledging it's a small, experimental space that rewards curiosity.
-3. **What you can do** — friendly, non-technical blurbs for the core six:
-   - **Availability** — go available for a while; the people you've connected with see it in real time, in your color.
-   - **Knock** — a gentle nudge to a contact.
-   - **Call + shared canvas** — reach a contact and draw together.
-   - **Colors** — pick a palette that themes the whole app; save favorites; borrow a contact's color.
-   - **Groups** — small circles with a per-group status and name; invite by link or in app.
-   - **Notifications** — optional, opt-in per contact.
-   - **2–3 of these carry a small inline `<details>` "how it works" disclosure** (native, no JS) — the non-privacy detail blocks.
+3. **What you can do** — friendly, non-technical blurbs for the core six. **Colors, Calls, Groups, and Notifications each carry a small inline `<details>` "how it works" disclosure** (native `<details>`/`<summary>`, no JS); Availability and Knock stay as plain blurbs.
+   - **Availability** — go available for a while; the people you've connected with see it in real time, in your color. *(plain blurb)*
+   - **Knock** — a gentle nudge to a contact. *(plain blurb)*
+   - **Colors** — pick a palette that themes the whole app. *`<details>`:* there are 16 palettes across two sets, each a full theme; you can **save favorite color combos** and **borrow a contact's color** by long-pressing their card. Your saved favorites also feed your pen colors on the call canvas (see Calls).
+   - **Calls + shared canvas** — reach a contact and draw together. *`<details>`:* swipe right to call a mutual; they swipe right to answer, which opens a **shared drawing canvas** that's saved per pair. **Your saved favorite colors are the canvas pen colors** — so the palette you build in Colors is the palette you draw with.
+   - **Groups** — small circles with their own status and name. *`<details>`:* each group can have its **own display name** and a **per-group status/color** that's separate from your primary one; you can **turn a group's status override off** anytime when you'd rather not keep a separate status for that group. Invite people by **link** or with the **in-app picker**.
+   - **Notifications** — optional and **opt-in per contact**. *`<details>`:* choose who and what you're notified about (knocks, calls, availability, invites); some platforms (iOS Home Screen, macOS Dock) need the app installed first, and the app guides you when so.
 4. **Your privacy, in short** — high-level model in the body:
    - No email, phone, or social sign-up — your account is a **4-word secret phrase**.
    - Only people you've connected with can see your status (and fellow members within a group).
