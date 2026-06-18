@@ -222,6 +222,30 @@ Run before merging `dev → main`:
 
 ---
 
+## Onboarding & install (added 2026-06)
+
+Run per device/browser. Lane is chosen by `onboardingLane()`.
+
+- [ ] **iOS Safari (tab):** new account → "I've saved it" → install step ("Add to
+      Home Screen") with the shared phrase-reminder + working "Copy to clipboard".
+      "Maybe later" lands in the app. Install via Share → Add to Home Screen.
+- [ ] **iOS Safari (installed):** relaunch the installed app with cleared storage
+      → restore-primed screen (NOT the new/restore chooser). Verify **AutoFill
+      offers the saved phrase** above the keyboard; verify **Paste** fills it;
+      verify manual entry works. "I don't have a phrase yet" → create flow.
+- [ ] **iOS Chrome/Firefox/Edge:** welcome → early "Open in Safari" redirect with
+      the phrase-reminder; "Continue here anyway" proceeds.
+- [ ] **macOS Safari (tab):** install step ("Add to Dock"); "Maybe later" works.
+- [ ] **Desktop Chrome/Edge:** no install step; bottom-left install fab appears
+      once `beforeinstallprompt` fires; toast has a working Install button;
+      dismiss hides toast, fab stays; after install the fab disappears.
+- [ ] **Desktop Firefox:** install fab appears; toast shows the platform-aware
+      "open in Safari/Chrome/Edge" copy with NO button; notifications still
+      enable normally via a bell.
+- [ ] **Already installed (any):** `ready` lane — no fab, no install step.
+
+---
+
 ## Findings
 
 Log anything that failed here, with device + exact steps, so it survives the

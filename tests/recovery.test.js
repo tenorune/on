@@ -517,13 +517,13 @@ describe('showRestoreScreen', () => {
     submit.click();
     // Busy as soon as the phrase parses, through the derive + sign-in round-trip.
     await waitFor(() => submit.disabled === true);
-    expect(submit.textContent).toMatch(/restoring/i);
+    expect(submit.textContent).toMatch(/signing in/i);
     // Let it run to the "no account" outcome; the button must revert so the
     // user can fix the phrase and try again.
     resolveSignIn();
     await waitFor(() => document.getElementById('restore-error').classList.contains('hidden') === false);
     expect(submit.disabled).toBe(false);
-    expect(submit.textContent).toBe('Restore');
+    expect(submit.textContent).toBe('Sign in');
     document.getElementById('restore-cancel-btn').click();
     await p;
   });
@@ -535,7 +535,7 @@ describe('showRestoreScreen', () => {
     submit.click();
     await flushPromises();
     expect(submit.disabled).toBe(false);
-    expect(submit.textContent).toBe('Restore');
+    expect(submit.textContent).toBe('Sign in');
     document.getElementById('restore-cancel-btn').click();
     await p;
   });

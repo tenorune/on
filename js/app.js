@@ -7,7 +7,8 @@ import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode } from './mycode.js';
 import { initFeatureSettings } from './featureSettings.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED, GROUPS_ENABLED } from './features.js';
-import { initNotifyPrompt, refreshPushToken } from './notifyPrompt.js';
+import { initNotifyPrompt, refreshPushToken, phraseReminderHtml, wirePhraseCopyButton } from './notifyPrompt.js';
+import { initInstallAffordance } from './installAffordance.js';
 import { initNotifyDebug } from './notifyDebug.js';
 import { getMessagingIfSupported } from './firebase-config.js';
 import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, applyThemeVars, resetThemeVars, syncPaletteStateFromServer } from './palettes.js';
@@ -26,6 +27,7 @@ import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { flashRegenerated } from './regenFlash.js';
 import { ensureSignedIn } from './auth.js';
+import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
 
 
 let splashCounter = 0;
@@ -92,6 +94,18 @@ function rearmSplash() {
   el.style.display = '';
 }
 
+// The ?setup=install marker is stamped on the URL after account creation on the
+// iOS/macOS install lanes. When the user opens that URL in a real browser to Add
+// to Home Screen (a fresh storage partition with no identity), it routes them to
+// install instructions instead of the new/restore chooser — preventing a
+// duplicate account.
+function markSetupInstall() {
+  try { const u = new URL(location.href); u.searchParams.set('setup', 'install'); history.replaceState(null, '', u); } catch { /* ignore */ }
+}
+function isSetupInstall() {
+  try { return new URLSearchParams(location.search).get('setup') === 'install'; } catch { return false; }
+}
+
 async function ensureIdentity(pendingInviteToken = null) {
   const existing = loadIdentity();
   if (existing) {
@@ -128,6 +142,35 @@ async function ensureIdentity(pendingInviteToken = null) {
   }
 
   // Empty localStorage — true new user OR cleared cache.
+
+  // Standalone launch with empty storage → almost certainly a just-installed user
+  // who must restore. Prime restore (AutoFill/Paste/manual) instead of the
+  // new/restore chooser, with an escape hatch for the rare genuine-new case.
+  if (shouldPrimeRestore({ standalone: isStandalone(), hasIdentity: false })) {
+    dismissSplash();
+    const restored = await showRestoreScreen();
+    if (restored && restored.userId) {
+      saveIdentity(restored.userId, restored.code, restored.recoveryCode);
+      rearmSplash();
+      return { identity: restored, isNew: false };
+    }
+    // restored.createNew (escape hatch) or null (cancel) → fall through to normal flow.
+  }
+
+  // Safari install-hop: the user created an account elsewhere (e.g. an in-app
+  // browser) and opened this page in a real browser to Add to Home Screen — a
+  // fresh partition with no identity but carrying the ?setup=install marker. Show
+  // install instructions instead of the new/restore chooser so they don't fork a
+  // duplicate account; after installing they Paste in the app.
+  if (isSetupInstall() && !isStandalone()) {
+    dismissSplash();
+    const hopLane = onboardingLane({ installPromptAvailable: false });
+    if (hopLane === 'ios-install' || hopLane === 'macos-install') {
+      await showInstallStep(hopLane);
+      // "Maybe later" falls through to the normal welcome flow below.
+    }
+  }
+
   // Resolve invite preview BEFORE dismissing splash, so the welcome
   // screen renders with framing already populated. resolveInvitePreview
   // returns null synchronously when there is no pending token, so non-invite
@@ -137,6 +180,9 @@ async function ensureIdentity(pendingInviteToken = null) {
   const inviteGroupName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
   // Dismiss splash so the user can see and interact with the welcome screen.
   dismissSplash();
+  if (onboardingLane({ installPromptAvailable: false }) === 'in-app-browser') {
+    await showInAppBrowserRedirect(); // informational; user may continue here anyway
+  }
   // Loop so that cancelling the restore screen returns the user to the
   // welcome screen, not silently into the new-account flow.
   while (true) {
@@ -152,7 +198,13 @@ async function ensureIdentity(pendingInviteToken = null) {
       }
       continue;
     }
-    return await createNewAccount();
+    const created = await createNewAccount();
+    const lane = onboardingLane({ installPromptAvailable: false });
+    if (lane === 'ios-install' || lane === 'macos-install') {
+      markSetupInstall(); // so the Safari hop (to Add to Home Screen) shows install, not the chooser
+      await showInstallStep(lane);
+    }
+    return created;
   }
 }
 
@@ -172,6 +224,8 @@ async function createNewAccount() {
       code = generateCode();
       success = await initUser(userId, code);
     } while (!success);
+    const kcUser = document.getElementById('recovery-keychain-username');
+    if (kcUser) kcUser.value = code;
     saveIdentity(userId, code, rc);
   });
   return { identity: { userId, code, recoveryCode }, isNew: true };
@@ -244,10 +298,17 @@ export function showRecoveryCodeModal(initialCode, onConfirm) {
   if (copyBtn) copyBtn.textContent = 'Copy';
   el.classList.remove('hidden');
 
+  const kcPhrase = document.getElementById('recovery-keychain-phrase');
+  const kcForm = document.getElementById('recovery-keychain-form');
+  if (kcPhrase) kcPhrase.value = current;
+  const onKcSubmit = (e) => e.preventDefault();
+  if (kcForm) kcForm.addEventListener('submit', onKcSubmit);
+
   return new Promise((resolve) => {
     function onRotate() {
       current = generateRecoveryCode();
       text.textContent = current;
+      if (kcPhrase) kcPhrase.value = current;
       if (copyBtn) copyBtn.textContent = 'Copy';
       // Same visible-change cue as the invite modal: fade-in + a NEW badge that
       // replaces the ↻ while it shows (which also drops the button's focus, so
@@ -289,6 +350,7 @@ export function showRecoveryCodeModal(initialCode, onConfirm) {
       copyBtn.removeEventListener('click', onCopy);
       savedBtn.removeEventListener('click', onSaved);
       window.removeEventListener('popstate', onPopState);
+      if (kcForm) kcForm.removeEventListener('submit', onKcSubmit);
       el.classList.add('hidden');
       resolve(current);
     }
@@ -316,17 +378,47 @@ export function showRestoreScreen() {
   clearButtonBusy(submit); // clean state if a prior attempt left it busy
   el.classList.remove('hidden');
 
+  const restoreForm = document.getElementById('restore-form');
+  function onFormSubmit(e) { e.preventDefault(); }
+  if (restoreForm) restoreForm.addEventListener('submit', onFormSubmit);
+
   return new Promise((resolve) => {
+    // The field is always visible. With it empty the button reads "Paste & Sign
+    // in" and pulls the phrase from the clipboard; once there's text (typed or
+    // pasted) it reads "Sign in". Busy → "Signing in…".
+    function syncLabel() {
+      if (submit.disabled) return; // don't clobber the busy label
+      submit.textContent = input.value.trim() ? 'Sign in' : 'Paste & Sign in';
+    }
+    function showError(msg) {
+      error.textContent = msg;
+      error.classList.remove('hidden');
+    }
+    async function onAction() {
+      syncLabel();
+      if (!input.value.trim()) {
+        // Empty field → pull from the clipboard (the just-installed paste path).
+        try {
+          const text = await navigator.clipboard?.readText();
+          if (text) input.value = text;
+        } catch { /* clipboard blocked */ }
+        if (!input.value.trim()) {
+          showError('Paste or type your secret phrase.');
+          input.focus();
+          return;
+        }
+      }
+      await onSubmit();
+    }
     async function onSubmit() {
       const normalized = parseRecoveryCode(input.value);
       if (!normalized) {
         // Malformed input is rejected instantly with no round-trip — no busy state.
-        error.textContent = "That doesn't look like a secret phrase — check that you entered 4 words from the list.";
-        error.classList.remove('hidden');
+        showError("That doesn't look like a secret phrase — check that you entered 4 words from the list.");
         return;
       }
       // Feedback through the derive + sign-in + account-read round-trip.
-      setButtonBusy(submit, 'Restoring…');
+      setButtonBusy(submit, 'Signing in…');
       const userId = await deriveUserIdFromRecoveryCode(normalized);
       try {
         // Sign in for THIS phrase before the owner-scoped validation reads —
@@ -339,8 +431,7 @@ export function showRestoreScreen() {
         // an unknown phrase — surface it distinctly and log the real cause
         // instead of masquerading as "no account found".
         console.error('restore sign-in failed:', e);
-        error.textContent = "Couldn't verify your phrase right now. Check your connection and try again.";
-        error.classList.remove('hidden');
+        showError("Couldn't verify your phrase right now. Check your connection and try again.");
         clearButtonBusy(submit);
         return;
       }
@@ -348,8 +439,7 @@ export function showRestoreScreen() {
       try {
         const exists = await userExists(userId);
         if (!exists) {
-          error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
-          error.classList.remove('hidden');
+          showError("No account found with that phrase. Check spelling, or tap Cancel to start over.");
           clearButtonBusy(submit);
           return;
         }
@@ -360,14 +450,12 @@ export function showRestoreScreen() {
         // "start over" would discard a real identity. Surface it as retryable
         // instead of conflating it with "no account found".
         console.error('restore account read failed:', e);
-        error.textContent = "Couldn't verify your phrase right now. Check your connection and try again.";
-        error.classList.remove('hidden');
+        showError("Couldn't verify your phrase right now. Check your connection and try again.");
         clearButtonBusy(submit);
         return;
       }
       if (!user) {
-        error.textContent = "No account found with that phrase. Check spelling, or tap Cancel to start over.";
-        error.classList.remove('hidden');
+        showError("No account found with that phrase. Check spelling, or tap Cancel to start over.");
         clearButtonBusy(submit);
         return;
       }
@@ -379,15 +467,70 @@ export function showRestoreScreen() {
       resolve(null);
     }
     function teardown() {
-      submit.removeEventListener('click', onSubmit);
+      submit.removeEventListener('click', onAction);
       cancel.removeEventListener('click', onCancel);
+      input.removeEventListener('input', syncLabel);
+      if (restoreForm) restoreForm.removeEventListener('submit', onFormSubmit);
       el.classList.add('hidden');
     }
-    submit.addEventListener('click', onSubmit);
+    submit.addEventListener('click', onAction);
     cancel.addEventListener('click', onCancel);
+    input.addEventListener('input', syncLabel);
+    syncLabel();
   });
 }
 
+
+// Inline install step for the iOS/macOS lanes. Body leads with the notification
+// value (per copy conventions); the phrase-reminder is the shared block.
+// "Maybe later" resolves so the user lands in the app un-installed (install
+// stays reachable via the corner fab).
+function showInstallStep(lane) {
+  const el = document.getElementById('install-step');
+  const titleEl = document.getElementById('install-step-title');
+  const bodyEl = document.getElementById('install-step-body');
+  const reminderEl = document.getElementById('install-step-reminder');
+  const laterBtn = document.getElementById('install-step-later-btn');
+  if (!el) return Promise.resolve();
+
+  titleEl.textContent = 'Install the app';
+  bodyEl.innerHTML = installStepBodyHtml(lane);
+  // Save-your-phrase reminder (with Copy) only when there's an identity to copy —
+  // right after account creation. The Safari install-hop is a fresh partition with
+  // no identity, so skip it there (the Copy would be a no-op).
+  const id = loadIdentity();
+  if (id && id.recoveryCode) {
+    reminderEl.innerHTML = phraseReminderHtml();
+    wirePhraseCopyButton(reminderEl);
+    reminderEl.classList.remove('hidden');
+  } else {
+    reminderEl.innerHTML = '';
+    reminderEl.classList.add('hidden');
+  }
+  el.classList.remove('hidden');
+
+  return new Promise((resolve) => {
+    function later() { laterBtn.removeEventListener('click', later); el.classList.add('hidden'); resolve(); }
+    laterBtn.addEventListener('click', later);
+  });
+}
+
+// Redirect for in-app/embedded browsers (Instagram, Facebook, etc.), which can't
+// Add to Home Screen. Surfaced before account creation so the account is ideally
+// created in a real browser. Real browsers (Safari, Chrome, Firefox) are NOT sent
+// here — they install normally.
+function showInAppBrowserRedirect() {
+  const el = document.getElementById('browser-redirect');
+  const bodyEl = document.getElementById('browser-redirect-body');
+  const continueBtn = document.getElementById('browser-redirect-continue-btn');
+  if (!el) return Promise.resolve();
+  bodyEl.textContent = 'This app’s built-in browser can’t install KnockKnock. To get notified about knocks, calls, and people coming online, open this page in your browser (Safari, Chrome, …), then add it to your Home Screen.';
+  el.classList.remove('hidden');
+  return new Promise((resolve) => {
+    function cont() { continueBtn.removeEventListener('click', cont); el.classList.add('hidden'); resolve(); }
+    continueBtn.addEventListener('click', cont);
+  });
+}
 
 function handleInviteRedemptionResult(result) {
   if (result.ok) {
@@ -676,6 +819,7 @@ async function main() {
     syncPrefsFromServer(serverPrefs);
   });
 
+  initInstallAffordance();
   initPushNotifications(userId);
 
   // currentContext changes from sibling devices arrive as a

@@ -17,30 +17,6 @@ jest.mock('../js/installGuidance.js', () => ({
 }));
 jest.mock('../js/identity.js', () => ({ loadIdentity: jest.fn() }));
 
-const { shouldShowPromo } = require('../js/notifyPrompt.js');
-
-test('hidden when feature flag off', () => {
-  expect(shouldShowPromo({ enabled: false, hintSeen: false, engaged: true, capState: 'supported', permission: 'default' })).toBe(false);
-});
-test('hidden when hint already dismissed forever', () => {
-  expect(shouldShowPromo({ enabled: true, hintSeen: true, engaged: true, capState: 'supported', permission: 'default' })).toBe(false);
-});
-test('hidden until the user is engaged', () => {
-  expect(shouldShowPromo({ enabled: true, hintSeen: false, engaged: false, capState: 'supported', permission: 'default' })).toBe(false);
-});
-test('hidden when permission already granted', () => {
-  expect(shouldShowPromo({ enabled: true, hintSeen: false, engaged: true, capState: 'supported', permission: 'granted' })).toBe(false);
-});
-test('hidden when permission is denied (no nagging)', () => {
-  expect(shouldShowPromo({ enabled: true, hintSeen: false, engaged: true, capState: 'denied', permission: 'denied' })).toBe(false);
-});
-test('shown for an engaged, unseen, supported, ungranted user', () => {
-  expect(shouldShowPromo({ enabled: true, hintSeen: false, engaged: true, capState: 'supported', permission: 'default' })).toBe(true);
-});
-test('shown for iOS-install state (install nudge counts)', () => {
-  expect(shouldShowPromo({ enabled: true, hintSeen: false, engaged: true, capState: 'needs-install-ios', permission: 'default' })).toBe(true);
-});
-
 const { requestPermissionAndRegister } = require('../js/notifyPrompt.js');
 const { addPushToken } = require('../js/prefs.js');
 const { getMessagingIfSupported } = require('../js/firebase-config.js');
@@ -322,6 +298,36 @@ describe('promo Enable button failure feedback (Defect 2 — no more silent no-o
 
 const { loadIdentity } = require('../js/identity.js');
 
+const { phraseReminderHtml, wirePhraseCopyButton } = require('../js/notifyPrompt.js');
+
+describe('phrase-reminder shared renderer', () => {
+  test('phraseReminderHtml contains the verbatim reminder + copy button', () => {
+    const html = phraseReminderHtml();
+    expect(html).toContain('saved your secret phrase');
+    expect(html).toContain('class="notify-promo-copy"');
+  });
+
+  test('wirePhraseCopyButton copies the recovery phrase and flips label', async () => {
+    jest.useFakeTimers();
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    loadIdentity.mockReturnValue({ recoveryCode: 'apple-banana-cherry-dog' });
+
+    const container = document.createElement('div');
+    container.innerHTML = phraseReminderHtml();
+    wirePhraseCopyButton(container);
+    const btn = container.querySelector('.notify-promo-copy');
+    btn.click();
+    await Promise.resolve(); await Promise.resolve();
+
+    expect(writeText).toHaveBeenCalledWith('apple-banana-cherry-dog');
+    expect(btn.textContent).toBe('Copied!');
+    jest.advanceTimersByTime(1500);
+    expect(btn.textContent).toBe('Copy to clipboard');
+    jest.useRealTimers();
+  });
+});
+
 describe('install-nudge secret-phrase copy button', () => {
   const flush = () => new Promise((r) => setImmediate(r));
   beforeEach(() => {
@@ -342,7 +348,7 @@ describe('install-nudge secret-phrase copy button', () => {
     const writeText = jest.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     maybeRepromptForMissingPermission(); // renders the install-guidance banner
-    const btn = document.getElementById('notify-promo-copy');
+    const btn = document.querySelector('.notify-promo-copy');
     expect(btn).not.toBeNull();
     btn.click();
     await flush();
@@ -353,6 +359,6 @@ describe('install-nudge secret-phrase copy button', () => {
   test('no copy button when the guidance carries no phrase reminder', () => {
     guidanceCopyFor.mockReturnValue({ body: 'plain guidance', remindPhrase: false });
     maybeRepromptForMissingPermission();
-    expect(document.getElementById('notify-promo-copy')).toBeNull();
+    expect(document.querySelector('.notify-promo-copy')).toBeNull();
   });
 });
