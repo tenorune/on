@@ -11,7 +11,7 @@ describe('renderAbout substitution', () => {
   test('fills title and region', () => {
     const out = renderAbout(tpl, { APP_TITLE: 'KnockKnock', DATA_REGION: 'europe-west1', ABOUT_AUTHOR: 'Alex K.' });
     expect(out).toContain('T:KnockKnock');
-    expect(out).toContain('R:europe-west1');
+    expect(out).toContain('R:the europe-west1 region');
   });
 
   test('made-by includes the author when set', () => {
@@ -30,6 +30,7 @@ describe('renderAbout substitution', () => {
     const out = renderAbout(tpl, { APP_TITLE: 'X', DATA_REGION: '', ABOUT_AUTHOR: '' });
     expect(out).toContain('a Google Cloud region');
     expect(out).not.toContain('__DATA_REGION__');
+    expect(out).not.toContain('region region');
   });
 
   test('escapes HTML in author and title', () => {

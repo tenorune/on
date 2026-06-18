@@ -70,14 +70,16 @@ function writeServiceWorker() {
 
 function renderAbout(template, vars) {
   const title = vars.APP_TITLE || 'KnockKnock';
-  const region = vars.DATA_REGION || 'a Google Cloud region';
+  const region = vars.DATA_REGION
+    ? `the ${escapeHtml(vars.DATA_REGION)} region`
+    : 'a Google Cloud region';
   const author = vars.ABOUT_AUTHOR || '';
   const madeBy = author
     ? `Made by ${escapeHtml(author)} with a little help from Claude`
     : 'Made with a little help from Claude';
   return template
     .replaceAll('__APP_TITLE__', escapeHtml(title))
-    .replaceAll('__DATA_REGION__', escapeHtml(region))
+    .replaceAll('__DATA_REGION__', region)
     .replaceAll('__ABOUT_MADE_BY__', madeBy);
 }
 
