@@ -401,16 +401,24 @@ export function syncFromServer(serverPrefs) {
     // form the leading run of the local array. saveCombo always prepends, so
     // a genuine pending write that hasn't echoed back from Firebase yet sits
     // at the head — preserving it stops a stale watchUserPrefs echo (e.g. one
-    // triggered by an unrelated madeCallCount write that fires before our
-    // favorites write commits) from wiping the user's most-recent commit.
+    // triggered by an unrelated write that fires before our favorites write
+    // commits) from wiping the user's most-recent commit.
     //
     // A local-only entry that appears AFTER an entry the server also has is
-    // NOT a pending write: it's a stale tail that the OTHER device dropped
-    // when its list hit the 8-cap. Scooping those back to the head (the old
-    // behavior) resurrected dead pills above the genuinely-new combo and let
-    // them zombie at slot 1 forever — issue #253. Stop at the first local
-    // entry the server knows so cap-dropped tails fall away. (Groups surface
-    // this fast: the shared 8-slot list saturates and churns quickly.)
+    // NOT a pending write — it's a stale remnant of a list this device has
+    // since diverged from (a tail the other device dropped at the 8-cap, or a
+    // mid-list entry left over from an earlier raced state). The old behavior
+    // scooped ALL local-only entries to the head, resurrecting those dead
+    // pills above the genuinely-current list and letting them zombie at slot
+    // 1 — issue #253. Stopping at the first server-known entry lets the
+    // server own everything from there down, so stale remnants fall away.
+    //
+    // Why groups surfaced this and Direct didn't: in Direct the favorites node
+    // basically only changes when favorites change, so both devices stay in
+    // lockstep and this merge rarely runs against a divergent local list. In a
+    // group, every swatch tap writes perGroup/{groupId}/paletteState to
+    // userPrefs, waking the passive device's watch and re-running this merge
+    // constantly — catching divergent states Direct never exposed.
     const local = storeGetFavorites();
     const inServer = (l) => serverDeduped.some(s =>
       s && l && s.statusColor === l.statusColor && s.surface2 === l.surface2);

@@ -201,6 +201,24 @@ test('syncFromServer does NOT resurrect a cap-dropped tail entry (issue #253)', 
   expect(stored).toEqual(serverAfterSave);
 });
 
+test('syncFromServer drops a stale local-only entry that sits after a server-known entry (issue #253)', () => {
+  const FAVS_KEY = 'statusapp_favorites';
+  // Well under the 8-cap. This device diverged from the canonical list during
+  // an earlier raced sync and is left holding a stale entry wedged in the
+  // middle. The server's current list is the source of truth. The stale entry
+  // is NOT a pending write (it isn't at the head), so it must fall away rather
+  // than be resurrected to slot 1.
+  const mk = (c) => ({ statusColor: c, surface2: '#334155',
+                       paletteKey: null, selectedKey: 'forest', activeSet: 1 });
+  const s1 = mk('#111111'), s2 = mk('#222222'), s3 = mk('#333333');
+  const stale = mk('#deadbe');
+  localStorage.setItem(FAVS_KEY, JSON.stringify([s1, stale, s2, s3]));
+  syncFromServer({ favorites: [s1, s2, s3] });
+  const stored = JSON.parse(localStorage.getItem(FAVS_KEY));
+  // Server list reproduced exactly — stale entry gone, nothing pinned ahead of it.
+  expect(stored).toEqual([s1, s2, s3]);
+});
+
 describe('notify prefs', () => {
   beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); initPrefs('me123'); });
 
