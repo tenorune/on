@@ -397,16 +397,29 @@ export function syncFromServer(serverPrefs) {
       ? serverPrefs.favorites
       : Object.values(serverPrefs.favorites);
     const serverDeduped = dedupeServerFavorites(raw);
-    // Merge instead of overwrite. Any local entry not present in the
-    // server payload is a pending saveCombo write that hasn't been
-    // committed to Firebase yet — preserve it at the head so a stale
-    // watchUserPrefs echo (e.g. triggered by an unrelated madeCallCount
-    // write that fires before our favorites write is committed) doesn't
-    // wipe the user's most-recent commit.
+    // Merge instead of overwrite, but ONLY preserve local-only entries that
+    // form the leading run of the local array. saveCombo always prepends, so
+    // a genuine pending write that hasn't echoed back from Firebase yet sits
+    // at the head — preserving it stops a stale watchUserPrefs echo (e.g. one
+    // triggered by an unrelated madeCallCount write that fires before our
+    // favorites write commits) from wiping the user's most-recent commit.
+    //
+    // A local-only entry that appears AFTER an entry the server also has is
+    // NOT a pending write: it's a stale tail that the OTHER device dropped
+    // when its list hit the 8-cap. Scooping those back to the head (the old
+    // behavior) resurrected dead pills above the genuinely-new combo and let
+    // them zombie at slot 1 forever — issue #253. Stop at the first local
+    // entry the server knows so cap-dropped tails fall away. (Groups surface
+    // this fast: the shared 8-slot list saturates and churns quickly.)
     const local = storeGetFavorites();
-    const localOnly = local.filter(l => !serverDeduped.some(s =>
-      s && l && s.statusColor === l.statusColor && s.surface2 === l.surface2));
-    const merged = [...localOnly, ...serverDeduped].slice(0, 8);
+    const inServer = (l) => serverDeduped.some(s =>
+      s && l && s.statusColor === l.statusColor && s.surface2 === l.surface2);
+    const pendingHead = [];
+    for (const l of local) {
+      if (inServer(l)) break;
+      pendingHead.push(l);
+    }
+    const merged = [...pendingHead, ...serverDeduped].slice(0, 8);
     storeSetFavorites(merged);
     document.dispatchEvent(new CustomEvent('favorites-synced'));
   }
