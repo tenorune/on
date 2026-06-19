@@ -56,11 +56,15 @@ Worked example — swipe candidates `{Alex, Bo, Cy}`, longpress candidates
   global pause (see B6), which clears immediately.
 
 ### B4 — Visibility (hard filter)
-A card is a candidate only if it is **fully within the visible list region**: between
-the context's pinned header (Direct: `#app-header` bottom; Group: `#nav-row` bottom)
-and the viewport bottom (less the install-fab / safe-area in Direct). If **nothing
-showable is visible, show nothing** — never force a pulse onto a partly-off card, and
-never make the user scroll to find the hint.
+A card is a candidate only if it is **fully within the visible list region**. The
+region's **top edge is computed at runtime** as the bottom of the *lowest currently
+pinned header* in the active context — measured from the live sticky/fixed headers
+rather than hardcoded per context, so it stays correct regardless of which headers
+are pinned (today: Direct pins `.nav-row` + `#app-header`; Group pins only
+`.nav-row`, with its static `.group-context-header` scrolling away). The region's
+**bottom edge** is the viewport bottom (less the install-fab / safe-area in Direct).
+If **nothing showable is visible, show nothing** — never force a pulse onto a
+partly-off card, and never make the user scroll to find the hint.
 
 ### B5 — Availability: visibility-first, prefer-available-within-visible (Interpretation Y)
 Per type, per step:
@@ -129,8 +133,10 @@ Owns: the step timer, `currentType`, per-type round-robin pointers, the single
   (B2.2), place the pulse, clear the prior.
 - Helpers: `placeHint(li, type)`, `clearActiveHint()`, `isFullyVisible(li, region)`.
 - Visibility: `getBoundingClientRect` per candidate at each step / refresh (cheap for
-  a handful of rows); the context supplies its clip-region top (its pinned header).
-  IntersectionObserver is an acceptable optimization but not required.
+  a handful of rows). The clip-region top is computed generically (B4) by measuring
+  the lowest currently-pinned header in the active context, not a hardcoded element —
+  so it survives the group-header-sticky change tracked separately. IntersectionObserver
+  is an acceptable optimization but not required.
 
 ### Providers
 Each returns, for its context, candidates **already eligibility-filtered but not
@@ -184,3 +190,6 @@ timers), and an injected visibility predicate:**
 - **B5 / Interpretation Y** was chosen over the stricter "available-exists-anywhere"
   reading (X). Recorded here for traceability.
 - **Fallback (B1)** is a tolerance only; the design targets a strict single spotlight.
+- **Runtime-measured clip (B4)** decouples this feature from the group-header-sticky
+  inconsistency tracked in **#274** — landing or not landing that change requires no
+  edit here.
