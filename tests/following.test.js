@@ -22,6 +22,11 @@ if (typeof PointerEvent === 'undefined') {
   };
 }
 
+jest.mock('../js/hintRotation.js', () => ({
+  refreshHints: jest.fn(),
+  initHintRotation: jest.fn(),
+  stopHintRotation: jest.fn(),
+}));
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true, NOTIFICATIONS_ENABLED: true }));
 jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn() }));
 jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
