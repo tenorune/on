@@ -145,7 +145,7 @@ Append to `tests/hintRotation.test.js`:
 
 ```javascript
 describe('selectNextHint', () => {
-  const fresh = () => ({ lastType: null, pointers: { longpress: -1, swipe: -1 } });
+  const fresh = () => ({ lastType: null, lastIds: { longpress: null, swipe: null } });
 
   test('returns {type:null} when both pools are empty', () => {
     const r = selectNextHint(fresh(), { longpress: [], swipe: [] });
@@ -389,7 +389,7 @@ Then, above `module.exports`, add the engine:
 const STEP_MS = 6850;
 const CONTAINER_BY_CONTEXT = { direct: '#people-list', group: '#group-roster' };
 
-let _state = { lastType: null, pointers: { longpress: -1, swipe: -1 } };
+let _state = { lastType: null, lastIds: { longpress: null, swipe: null } };
 let _active = null;        // { li, type } | null
 let _timer = null;
 let _scrolling = false;
@@ -434,7 +434,7 @@ export function _placeHint(li, type) {
 export function _resetEngineForTest() {
   _stopTimer();
   _clearActive();
-  _state = { lastType: null, pointers: { longpress: -1, swipe: -1 } };
+  _state = { lastType: null, lastIds: { longpress: null, swipe: null } };
   _scrolling = false;
   _started = false;
 }
