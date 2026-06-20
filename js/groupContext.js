@@ -37,6 +37,7 @@ import {
   isLongpressHintEligible,
 } from './hints.js';
 import { clearFirstUsePulse } from './me.js';
+import { refreshHints, clearActiveHint } from './hintRotation.js';
 
 // Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
 
@@ -392,31 +393,19 @@ function paintRosterRow(uid, li = document.querySelector(`#group-roster [data-us
     li.style.borderLeftColor = available && color ? safeCssColor(color) : '';
     if (statusEl) statusEl.style.color = '';
   }
-  // FTU longpress hint pulse — mirrors following.js's pattern. Shows the
-  // ".longpress-hint" text on each available member whose combo differs
-  // from the user's current group-effective combo. Gated on:
-  // (a) PALETTE_INTERACTIONS_ENABLED
-  // (b) the rest of the FTU chain has progressed (customAvail + theme +
-  //     stripPeek all marked seen)
-  // (c) override is ON for this group — otherwise long-press is a no-op
-  // (d) member is available
-  // (e) member's combo differs from user's (no point adopting your own combo)
-  // (f) longpress hint not yet seen
-  if (PALETTE_INTERACTIONS_ENABLED) {
-    const showHint = isLongpressHintEligible()
-      && _ownOverride?.enabled === true
-      && available
-      && (color !== (_ownOverride?.statusColor || null) || paletteKey !== (_ownOverride?.paletteKey || null));
-    const existing = li.querySelector('.longpress-hint');
-    if (!showHint && existing) {
-      existing.remove();
-    } else if (showHint && !existing) {
-      const hint = document.createElement('div');
-      hint.className = 'longpress-hint';
-      li.style.position = 'relative';
-      li.appendChild(hint);
-    }
-  }
+  // FTU longpress eligibility — stamp attributes; js/hintRotation.js owns the
+  // animation. Availability is a tag, not a gate (engine resolves prefer-
+  // available-with-fallback). No swipe hint in group context.
+  const comboDiffers = color !== (_ownOverride?.statusColor || null)
+    || paletteKey !== (_ownOverride?.paletteKey || null);
+  const longpressEligible = PALETTE_INTERACTIONS_ENABLED
+    && isLongpressHintEligible()
+    && _ownOverride?.enabled === true
+    && comboDiffers;
+  li.dataset.hintAvail = available ? '1' : '0';
+  li.dataset.hintLongpress = longpressEligible ? '1' : '0';
+  li.dataset.hintSwipe = '0';
+  refreshHints();
 }
 
 function renderOwnStatusRow() {
@@ -1346,7 +1335,7 @@ function triggerGroupAdoption(srcUid, ownUid) {
   applyAdoptedComboInGroup(adoptedColor, adoptedPaletteKey);
 
   // 6. Hint flag.
-  if (!isHintSeen('longpress')) markHintSeen('longpress');
+  if (!isHintSeen('longpress')) { markHintSeen('longpress'); clearActiveHint(); }
 
   // 7. Visual flash on the source row.
   const srcLi = document.querySelector(`#group-roster li[data-user-id="${srcUid}"]`);

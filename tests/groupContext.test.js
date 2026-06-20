@@ -1,4 +1,10 @@
 // tests/groupContext.test.js
+jest.mock('../js/hintRotation.js', () => ({
+  refreshHints: jest.fn(),
+  initHintRotation: jest.fn(),
+  stopHintRotation: jest.fn(),
+  clearActiveHint: jest.fn(),
+}));
 jest.mock('../js/ownStatus.js', () => ({
   subscribeOwnStatus: jest.fn(() => () => {}),
 }));
@@ -1892,7 +1898,9 @@ describe('group-context FTU hints', () => {
     });
     const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
     expect(aliceLi).not.toBeNull();
-    expect(aliceLi.querySelector('.longpress-hint')).not.toBeNull();
+    expect(aliceLi.dataset.hintLongpress).toBe('1');
+    expect(aliceLi.dataset.hintAvail).toBe('1');
+    expect(aliceLi.dataset.hintSwipe).toBe('0');
   });
 
   test('roster does NOT show .longpress-hint when override is OFF', () => {
@@ -1903,7 +1911,7 @@ describe('group-context FTU hints', () => {
       memberStatus: { alice: { status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00' } },
     });
     const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
-    expect(aliceLi.querySelector('.longpress-hint')).toBeNull();
+    expect(aliceLi.dataset.hintLongpress).not.toBe('1');
   });
 
   test('roster does NOT show .longpress-hint when member combo matches user combo', () => {
@@ -1914,7 +1922,7 @@ describe('group-context FTU hints', () => {
       memberStatus: { alice: { status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00', paletteKey: 'volt' } },
     });
     const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
-    expect(aliceLi.querySelector('.longpress-hint')).toBeNull();
+    expect(aliceLi.dataset.hintLongpress).not.toBe('1');
   });
 
   test('roster does NOT show .longpress-hint when longpress already seen', () => {
@@ -1925,7 +1933,7 @@ describe('group-context FTU hints', () => {
       memberStatus: { alice: { status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00', paletteKey: 'volt' } },
     });
     const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
-    expect(aliceLi.querySelector('.longpress-hint')).toBeNull();
+    expect(aliceLi.dataset.hintLongpress).not.toBe('1');
   });
 
   test('group dot gets dot-go-hint when user has picked a non-default swatch and is unavailable', () => {
