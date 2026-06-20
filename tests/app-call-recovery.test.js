@@ -12,6 +12,16 @@
 // Must be set up BEFORE app.js is require()'d.
 const IDENTITY = { userId: 'me', code: 'MYCODE', recoveryCode: 'a-b-c-d' };
 
+// Stub the hint-rotation engine: app.js calls initHintRotation() at boot, which
+// would otherwise pull in the real engine (and its following.js call-state
+// imports) and run during main(). This suite tests boot recovery, not rotation.
+jest.mock('../js/hintRotation.js', () => ({
+  initHintRotation: jest.fn(),
+  refreshHints: jest.fn(),
+  stopHintRotation: jest.fn(),
+  clearActiveHint: jest.fn(),
+}));
+
 jest.mock('../js/identity.js', () => ({
   loadIdentity: jest.fn(() => IDENTITY),
   saveIdentity: jest.fn(),
