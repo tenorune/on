@@ -1,4 +1,12 @@
 // tests/hintRotation.test.js
+jest.mock('../js/groupNav.js', () => ({ getCurrentContext: jest.fn(() => ({ context: 'direct', groupId: null })) }));
+jest.mock('../js/cardDrawer.js', () => ({ isCardDrawerOpen: jest.fn(() => false) }));
+jest.mock('../js/notifyBell.js', () => ({ isNotifyPopoverOpen: jest.fn(() => false) }));
+jest.mock('../js/following.js', () => ({
+  getCallModeCalleeId: jest.fn(() => null),
+  getIncomingCallFrom: jest.fn(() => null),
+}));
+
 const { resolvePool, selectNextHint, isPaused } = require('../js/hintRotation.js');
 
 describe('resolvePool', () => {
@@ -118,5 +126,98 @@ describe('isPaused', () => {
     for (const k of ['overlayOpen', 'callActive', 'hidden', 'scrolling']) {
       expect(isPaused({ ...none, [k]: true })).toBe(true);
     }
+  });
+});
+
+const {
+  _collectCandidates, _placeHint, _clearActive, _resetEngineForTest,
+} = require('../js/hintRotation.js');
+
+describe('engine: _collectCandidates', () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <ul id="people-list">
+        <li data-user-id="a" data-hint-longpress="1" data-hint-swipe="1" data-hint-avail="1"></li>
+        <li data-user-id="b" data-hint-longpress="0" data-hint-swipe="1" data-hint-avail="0"></li>
+        <li data-user-id="c" data-hint-longpress="1" data-hint-swipe="0" data-hint-avail="1"></li>
+      </ul>`;
+  });
+
+  test('reads data-hint-* attributes from #people-list in DOM order', () => {
+    const pools = _collectCandidates(document.getElementById('people-list'));
+    expect(pools.longpress.map((c) => [c.id.dataset.userId, c.available]))
+      .toEqual([['a', true], ['c', true]]);
+    expect(pools.swipe.map((c) => [c.id.dataset.userId, c.available]))
+      .toEqual([['a', true], ['b', false]]);
+  });
+});
+
+describe('engine: placement', () => {
+  beforeEach(() => {
+    _resetEngineForTest();
+    document.body.innerHTML = `<ul id="people-list"><li data-user-id="a"></li></ul>`;
+  });
+
+  test('_placeHint adds exactly one hint element of the right class', () => {
+    const li = document.querySelector('[data-user-id="a"]');
+    _placeHint(li, 'longpress');
+    expect(document.querySelectorAll('.longpress-hint').length).toBe(1);
+    expect(li.querySelector('.longpress-hint')).not.toBeNull();
+  });
+
+  test('_placeHint swaps to a single element when the type changes on the same card', () => {
+    const li = document.querySelector('[data-user-id="a"]');
+    _placeHint(li, 'longpress');
+    _placeHint(li, 'swipe');
+    expect(document.querySelectorAll('.longpress-hint, .swipe-hint').length).toBe(1);
+    expect(li.querySelector('.swipe-hint')).not.toBeNull();
+  });
+
+  test('_clearActive removes all hint elements document-wide', () => {
+    const li = document.querySelector('[data-user-id="a"]');
+    _placeHint(li, 'longpress');
+    _clearActive();
+    expect(document.querySelectorAll('.longpress-hint, .swipe-hint').length).toBe(0);
+  });
+});
+
+const { _collectPauseFlags } = require('../js/hintRotation.js');
+const cardDrawer = require('../js/cardDrawer.js');
+const notifyBell = require('../js/notifyBell.js');
+const following = require('../js/following.js');
+
+describe('engine: _collectPauseFlags', () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="add-person-form"></div>
+      <div id="code-drawer"></div>
+      <div id="create-group-modal" class="hidden"></div>
+      <details id="group-context-actions"></details>
+      <div id="recovery-revealed" class="hidden"></div>`;
+    cardDrawer.isCardDrawerOpen.mockReturnValue(false);
+    notifyBell.isNotifyPopoverOpen.mockReturnValue(false);
+    following.getCallModeCalleeId.mockReturnValue(null);
+    following.getIncomingCallFrom.mockReturnValue(null);
+  });
+
+  test('overlayOpen true when the code drawer is open', () => {
+    document.getElementById('code-drawer').classList.add('open');
+    expect(_collectPauseFlags().overlayOpen).toBe(true);
+  });
+
+  test('overlayOpen true when the settings details is open', () => {
+    document.getElementById('group-context-actions').open = true;
+    expect(_collectPauseFlags().overlayOpen).toBe(true);
+  });
+
+  test('callActive true when a call is in progress', () => {
+    following.getCallModeCalleeId.mockReturnValue('peer1');
+    expect(_collectPauseFlags().callActive).toBe(true);
+  });
+
+  test('all flags false in a clean Direct view', () => {
+    expect(_collectPauseFlags()).toEqual({
+      overlayOpen: false, callActive: false, hidden: false, scrolling: false,
+    });
   });
 });
