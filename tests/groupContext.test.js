@@ -1888,7 +1888,7 @@ describe('group-context FTU hints', () => {
     expect(prefs.markHintSeen).not.toHaveBeenCalledWith('customAvail');
   });
 
-  test('roster member shows .longpress-hint when FTU chain is complete + override ON + combo differs', () => {
+  test('roster member stamps data-hint-longpress when FTU chain complete + override ON + combo differs', () => {
     // FTU chain progressed past stripPeek, longpress NOT yet seen.
     prefs.isHintSeen.mockImplementation((name) => name !== 'longpress');
     seedRoster({
@@ -1903,7 +1903,7 @@ describe('group-context FTU hints', () => {
     expect(aliceLi.dataset.hintSwipe).toBe('0');
   });
 
-  test('roster does NOT show .longpress-hint when override is OFF', () => {
+  test('roster does NOT stamp data-hint-longpress when override is OFF', () => {
     prefs.isHintSeen.mockImplementation((name) => name !== 'longpress');
     seedRoster({
       ownOverride: { enabled: false, status: null, availableUntil: null },
@@ -1914,7 +1914,7 @@ describe('group-context FTU hints', () => {
     expect(aliceLi.dataset.hintLongpress).not.toBe('1');
   });
 
-  test('roster does NOT show .longpress-hint when member combo matches user combo', () => {
+  test('roster does NOT stamp data-hint-longpress when combo matches', () => {
     prefs.isHintSeen.mockImplementation((name) => name !== 'longpress');
     seedRoster({
       ownOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00', paletteKey: 'volt' },
@@ -1925,7 +1925,7 @@ describe('group-context FTU hints', () => {
     expect(aliceLi.dataset.hintLongpress).not.toBe('1');
   });
 
-  test('roster does NOT show .longpress-hint when longpress already seen', () => {
+  test('roster does NOT stamp data-hint-longpress when longpress already seen', () => {
     prefs.isHintSeen.mockImplementation(() => true); // EVERYTHING seen including longpress
     seedRoster({
       ownOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#22c55e', paletteKey: 'forest' },
