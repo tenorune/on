@@ -100,6 +100,10 @@ export function _clearActive() {
   _active = null;
 }
 
+// Public: drop the current hint immediately and reset rotation ownership.
+// Used by gesture handlers that retire a hint on first use.
+export function clearActiveHint() { _clearActive(); }
+
 export function _placeHint(li, type) {
   if (_active && _active.li === li && _active.type === type && document.contains(li)) return;
   _clearActive();

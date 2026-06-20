@@ -27,7 +27,7 @@ import { sendKnock, getFloatedUserIds, noteDirectActivity } from './knock.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 import { reconcileChildren } from './reconcile.js';
-import { refreshHints } from './hintRotation.js';
+import { refreshHints, clearActiveHint } from './hintRotation.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
@@ -570,7 +570,7 @@ function triggerAdoption(entry, myUserId) {
   // Clear long-press hint on first adoption
   if (!isHintSeen('longpress')) {
     markHintSeen('longpress');
-    document.querySelectorAll('.longpress-hint').forEach(el => el.remove());
+    clearActiveHint();
   }
   // Build the adopted combo from the source's broadcast state and push to
   // favorites BEFORE applying the adoption (the apply mutates picker state).
@@ -654,7 +654,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
         // Clear swipe hint on first right-swipe
         if (!isHintSeen('swipe')) {
           markHintSeen('swipe');
-          document.querySelectorAll('.swipe-hint').forEach(el => el.remove());
+          clearActiveHint();
         }
         if (li.classList.contains('call-mode') && callModeCalleeId !== entry.userId) {
           // Card is glowing and we're NOT the caller — we're the receiver answering
@@ -980,12 +980,26 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   refreshHints();
 }
 
+// Re-stamp hint eligibility when the user's own combo changes — a row's
+// longpress eligibility depends on whether the peer's combo equals mine.
+// Re-running updateFolloweeRow recomputes the data-hint-* attrs and calls
+// refreshHints so the engine sees fresh eligibility.
+document.addEventListener('my-combo-changed', () => {
+  for (const userId of renderedFollowees) {
+    if (editingSet.has(userId)) continue;
+    const data = lastUserData.get(userId);
+    if (!data) continue;
+    const entry = getFollowing().find((f) => f.userId === userId);
+    if (entry) updateFolloweeRow(entry, data, myUserIdRef);
+  }
+});
+
 // On drawer close, reconcile deferred receiver-side call-mode against the
 // latest known state — but ONLY for rows that actually have an incoming call
-// cached. Re-rendering unrelated rows would recompute isFirstMutual swipe-hint
-// positions and could clobber an in-progress rename. A call cancelled while the
-// drawer was open is no longer an incoming call here, so it's correctly skipped
-// (its row never entered call-mode while deferred).
+// cached. Re-rendering unrelated rows would re-stamp swipe-hint eligibility and
+// could clobber an in-progress rename. A call cancelled while the drawer was
+// open is no longer an incoming call here, so it's correctly skipped (its row
+// never entered call-mode while deferred).
 document.addEventListener('card-drawer-close', () => {
   if (getIncomingCallFrom() === null && callModeCalleeId === null) return;
   renderedFollowees.forEach((userId) => {

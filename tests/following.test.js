@@ -26,6 +26,7 @@ jest.mock('../js/hintRotation.js', () => ({
   refreshHints: jest.fn(),
   initHintRotation: jest.fn(),
   stopHintRotation: jest.fn(),
+  clearActiveHint: jest.fn(),
 }));
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true, NOTIFICATIONS_ENABLED: true }));
 jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn() }));
@@ -155,7 +156,7 @@ jest.mock('../js/prefs.js', () => ({
 
 const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations } = require('../js/db.js');
 const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, removeFollowing } = require('../js/store.js');
-const { getMadeCallCount, getAnsweredCallCount } = require('../js/prefs.js');
+const { getMadeCallCount, getAnsweredCallCount, isHintSeen } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
   initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees,
@@ -615,6 +616,29 @@ describe('updateFolloweeRow: palette-aware dot and status text', () => {
     watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000 });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
     expect(dot.style.background).toBe('rgb(34, 197, 94)');
+  });
+
+  // Stamping contract: an available mutual whose combo differs from mine, with
+  // the FTU prerequisites (customAvail/theme/stripPeek) seen but longpress/swipe
+  // not yet seen, must get all three hint eligibility attrs stamped to '1'.
+  // getFavorites is mocked empty so isMyCombo is false.
+  test('available mutual with differing combo gets hint eligibility stamped', () => {
+    // Drive the FTU chain: prerequisites seen, longpress/swipe not yet.
+    isHintSeen.mockImplementation((key) =>
+      key === 'customAvail' || key === 'theme' || key === 'stripPeek');
+
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
+    const li = document.querySelector('[data-user-id="u1"]');
+
+    // All three attributes present and string-valued.
+    expect(typeof li.dataset.hintAvail).toBe('string');
+    expect(typeof li.dataset.hintLongpress).toBe('string');
+    expect(typeof li.dataset.hintSwipe).toBe('string');
+
+    // Available peer, eligible longpress (combo differs), eligible swipe (mutual).
+    expect(li.dataset.hintAvail).toBe('1');
+    expect(li.dataset.hintLongpress).toBe('1');
+    expect(li.dataset.hintSwipe).toBe('1');
   });
 });
 

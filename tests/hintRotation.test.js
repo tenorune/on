@@ -130,7 +130,7 @@ describe('isPaused', () => {
 });
 
 const {
-  _collectCandidates, _placeHint, _clearActive, _resetEngineForTest,
+  _collectCandidates, _placeHint, _clearActive, _resetEngineForTest, clearActiveHint,
 } = require('../js/hintRotation.js');
 
 describe('engine: _collectCandidates', () => {
@@ -177,6 +177,13 @@ describe('engine: placement', () => {
     const li = document.querySelector('[data-user-id="a"]');
     _placeHint(li, 'longpress');
     _clearActive();
+    expect(document.querySelectorAll('.longpress-hint, .swipe-hint').length).toBe(0);
+  });
+
+  test('clearActiveHint drops the current hint (public wrapper for gesture handlers)', () => {
+    const li = document.querySelector('[data-user-id="a"]');
+    _placeHint(li, 'longpress');
+    clearActiveHint();
     expect(document.querySelectorAll('.longpress-hint, .swipe-hint').length).toBe(0);
   });
 });
