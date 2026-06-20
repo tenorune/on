@@ -27,6 +27,7 @@ import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { flashRegenerated } from './regenFlash.js';
 import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
+import { initHintRotation } from './hintRotation.js';
 
 
 let splashCounter = 0;
@@ -779,6 +780,7 @@ async function main() {
     setFolloweeReadyCallback(signalReady);
   }
   initList(userId, code);
+  initHintRotation();
   if (KNOCK_ENABLED) initKnocks(userId);
 
   // Boot-time own-call recovery: if we reload mid-call, re-enter the canvas
