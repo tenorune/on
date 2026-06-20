@@ -117,6 +117,8 @@ export function _placeHint(li, type) {
 // Test-only reset so suites start from a clean engine.
 export function _resetEngineForTest() {
   _stopTimer();
+  clearTimeout(_scrollEndTimer); _scrollEndTimer = null;
+  clearTimeout(_refreshTimer); _refreshTimer = null;
   _clearActive();
   _state = { lastType: null, lastIds: { longpress: null, swipe: null } };
   _scrolling = false;

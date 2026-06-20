@@ -1335,7 +1335,16 @@ function triggerGroupAdoption(srcUid, ownUid) {
   applyAdoptedComboInGroup(adoptedColor, adoptedPaletteKey);
 
   // 6. Hint flag.
-  if (!isHintSeen('longpress')) { markHintSeen('longpress'); clearActiveHint(); }
+  if (!isHintSeen('longpress')) {
+    markHintSeen('longpress');
+    clearActiveHint();
+    // Re-stamp synchronously so eligibility drops to '0' before the engine's
+    // next step. markHintSeen has no side effect and this path doesn't otherwise
+    // repaint the roster, so without this the engine could re-pulse a longpress
+    // hint until the async override echo repaints (the Direct path self-heals via
+    // the my-combo-changed listener; group has no equivalent here).
+    for (const uid of _memberPrimaries.keys()) paintRosterRow(uid);
+  }
 
   // 7. Visual flash on the source row.
   const srcLi = document.querySelector(`#group-roster li[data-user-id="${srcUid}"]`);
