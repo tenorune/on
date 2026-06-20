@@ -87,6 +87,7 @@ export function _collectCandidates(container = _container()) {
   if (!container) return pools;
   for (const li of container.querySelectorAll('[data-user-id]')) {
     const available = li.dataset.hintAvail === '1';
+    // id is the row <li> element itself — selectNextHint treats it as an opaque identity token.
     if (li.dataset.hintLongpress === '1') pools.longpress.push({ id: li, available });
     if (li.dataset.hintSwipe === '1') pools.swipe.push({ id: li, available });
   }
@@ -145,6 +146,7 @@ export function _collectPauseFlags() {
 // active context (measured live, so it's correct whether or not the group header
 // is ever made sticky — see #274). Bottom edge = viewport bottom.
 function _regionTop() {
+  // Known pinnable headers; filtered to those actually sticky/fixed right now.
   const headers = [
     document.getElementById('nav-row'),
     document.getElementById('app-header'),
@@ -168,7 +170,7 @@ function _isFullyVisible(li) {
   return r.height > 0 && r.top >= top && r.bottom <= bottom;
 }
 
-function _step() {
+export function _step() {
   if (isPaused(_collectPauseFlags())) { _clearActive(); return; }
   const cand = _collectCandidates();
   const pools = {
@@ -203,9 +205,10 @@ function _onScroll() {
 }
 
 let _mo = null;
+let _refreshTimer = null;
 function _scheduleRefresh() {
-  if (_scheduleRefresh._raf) return;
-  _scheduleRefresh._raf = setTimeout(() => { _scheduleRefresh._raf = null; refreshHints(); }, 50);
+  if (_refreshTimer) return;
+  _refreshTimer = setTimeout(() => { _refreshTimer = null; refreshHints(); }, 50);
 }
 
 export function initHintRotation() {
@@ -225,5 +228,7 @@ export function stopHintRotation() {
   document.removeEventListener('visibilitychange', refreshHints);
   window.removeEventListener('scroll', _onScroll);
   if (_mo) { _mo.disconnect(); _mo = null; }
+  clearTimeout(_scrollEndTimer); _scrollEndTimer = null;
+  clearTimeout(_refreshTimer); _refreshTimer = null;
   _resetEngineForTest();
 }

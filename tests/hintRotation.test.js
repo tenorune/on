@@ -221,3 +221,68 @@ describe('engine: _collectPauseFlags', () => {
     });
   });
 });
+
+const { _step, refreshHints, initHintRotation, stopHintRotation } = require('../js/hintRotation.js');
+
+describe('engine: _step integration', () => {
+  const inView = (li) => { li.getBoundingClientRect = () => ({ top: 100, bottom: 150, height: 50, left: 0, right: 100, width: 100 }); };
+  beforeEach(() => {
+    _resetEngineForTest();
+    document.body.innerHTML = `
+      <ul id="people-list">
+        <li data-user-id="a" data-hint-longpress="1" data-hint-swipe="1" data-hint-avail="1"></li>
+        <li data-user-id="b" data-hint-longpress="1" data-hint-swipe="1" data-hint-avail="1"></li>
+      </ul>`;
+    document.querySelectorAll('#people-list li').forEach(inView);
+    // getCurrentContext is already mocked to { context: 'direct' } at top of file.
+  });
+
+  test('places exactly one hint on a visible eligible row', () => {
+    _step();
+    expect(document.querySelectorAll('.longpress-hint, .swipe-hint').length).toBe(1);
+  });
+
+  test('alternates type across consecutive steps', () => {
+    _step();
+    const first = document.querySelector('.longpress-hint, .swipe-hint').className;
+    _step();
+    const second = document.querySelector('.longpress-hint, .swipe-hint').className;
+    expect(first).not.toBe(second); // longpress-hint <-> swipe-hint
+    expect(document.querySelectorAll('.longpress-hint, .swipe-hint').length).toBe(1);
+  });
+
+  test('clears the hint when an overlay is open (paused)', () => {
+    _step();
+    expect(document.querySelectorAll('.longpress-hint, .swipe-hint').length).toBe(1);
+    const drawer = document.createElement('div');
+    drawer.id = 'code-drawer'; drawer.className = 'open';
+    document.body.appendChild(drawer);
+    _step();
+    expect(document.querySelectorAll('.longpress-hint, .swipe-hint').length).toBe(0);
+  });
+
+  test('initHintRotation fires an immediate pulse then steps on the interval', () => {
+    jest.useFakeTimers();
+    try {
+      initHintRotation();
+      expect(document.querySelectorAll('.longpress-hint, .swipe-hint').length).toBe(1);
+      const before = document.querySelector('.longpress-hint, .swipe-hint').className;
+      jest.advanceTimersByTime(6850);
+      const after = document.querySelector('.longpress-hint, .swipe-hint').className;
+      expect(after).not.toBe(before); // advanced (type alternated)
+      expect(document.querySelectorAll('.longpress-hint, .swipe-hint').length).toBe(1);
+    } finally {
+      stopHintRotation();
+      jest.useRealTimers();
+    }
+  });
+
+  test('refreshHints clears the active hint when its row is removed from the DOM', () => {
+    initHintRotation();          // sets _started + places a hint
+    const active = document.querySelector('.longpress-hint, .swipe-hint').closest('li');
+    active.remove();
+    refreshHints();
+    expect(document.querySelectorAll('.longpress-hint, .swipe-hint').length).toBe(0);
+    stopHintRotation();
+  });
+});
