@@ -1251,10 +1251,12 @@ main {
      Left-aligned within the centered app column (so it stays in the bottom-left
      corner and stops tracking right once the column hits its max width), NOT
      fixed — so any toast renders above it. The bottom margin clears the viewport
-     edge and the mobile safe-area (home indicator). */
+     edge and the mobile safe-area (home indicator). Kept to 1rem so the icon sits
+     near the bottom edge — the prior 2rem only looked balanced because a layout
+     bug left the Direct column ~17px over-tall, dropping the icon below the fold. */
   display: inline-flex; align-items: center; justify-content: center;
   width: 2.25rem; height: 2.25rem; border-radius: 50%;
-  margin: auto 1rem calc(2rem + env(safe-area-inset-bottom, 0px));
+  margin: auto 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
   background: var(--surface2); color: var(--text-muted);
   border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 16px rgba(0,0,0,0.25);
   cursor: pointer; padding: 0;

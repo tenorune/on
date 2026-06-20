@@ -27,6 +27,7 @@ import { sendKnock, getFloatedUserIds, noteDirectActivity } from './knock.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 import { reconcileChildren } from './reconcile.js';
+import { refreshHints, clearActiveHint } from './hintRotation.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
@@ -53,8 +54,6 @@ let callModeCalleeId = null;   // userId of callee while in call mode (null = no
 let _incomingCall = null; // { from } when someone is ringing me; null otherwise
 export function getIncomingCallFrom() { return _incomingCall?.from ?? null; }
 let unsubOwnCall = null;
-let _hintAlternateTimer = null;
-let _hintAlternateShow = 'longpress'; // 'longpress' | 'swipe'
 
 function showConfirm(title, btnText, action) {
   pendingAction = action;
@@ -571,7 +570,7 @@ function triggerAdoption(entry, myUserId) {
   // Clear long-press hint on first adoption
   if (!isHintSeen('longpress')) {
     markHintSeen('longpress');
-    document.querySelectorAll('.longpress-hint').forEach(el => el.remove());
+    clearActiveHint();
   }
   // Build the adopted combo from the source's broadcast state and push to
   // favorites BEFORE applying the adoption (the apply mutates picker state).
@@ -655,7 +654,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
         // Clear swipe hint on first right-swipe
         if (!isHintSeen('swipe')) {
           markHintSeen('swipe');
-          document.querySelectorAll('.swipe-hint').forEach(el => el.remove());
+          clearActiveHint();
         }
         if (li.classList.contains('call-mode') && callModeCalleeId !== entry.userId) {
           // Card is glowing and we're NOT the caller — we're the receiver answering
@@ -960,78 +959,47 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     li.style.removeProperty('--call-color-rgb');
   }
 
-  // Long-press hint: show when mutual's combo differs from my current combo.
-  // Only after all FTU hints cleared, not during a call.
+  // FTU hint eligibility — stamp attributes; js/hintRotation.js owns the actual
+  // animation (one at a time, visible-only, prefer-available). Availability is a
+  // tag here, NOT a gate: the engine resolves prefer-available-with-fallback.
   const peerColor = color;
   const peerTheme = userData.paletteKey || null;
-  const isMyCombo = getFavorites().some(c => c.statusColor === peerColor && (c.paletteKey || null) === peerTheme);
-  const showLongpressHint = PALETTE_INTERACTIONS_ENABLED
-      && isLongpressHintEligible()
-      && !isCallee && !isCallModeReceiver
-      && isAvail
-      && !isMyCombo;
-  // Swipe-right call hint: same gate as long-press, first mutual only
-  const isFirstMutual = li.dataset.mutual === '1'
-      && !li.previousElementSibling?.dataset?.mutual;
+  const isMyCombo = getFavorites().some(
+    (c) => c.statusColor === peerColor && (c.paletteKey || null) === peerTheme);
+  const longpressEligible = PALETTE_INTERACTIONS_ENABLED
+    && isLongpressHintEligible()
+    && !isCallee && !isCallModeReceiver
+    && !isMyCombo;
   const swipeEligible = CALL_ENABLED
-      && isFirstMutual
-      && isSwipeHintEligible()
-      && !isCallee && !isCallModeReceiver;
-
-  // If both hints qualify, alternate between them each animation cycle
-  const bothEligible = showLongpressHint && swipeEligible;
-  if (bothEligible) {
-    if (!_hintAlternateTimer) {
-      _hintAlternateShow = 'longpress';
-      _hintAlternateTimer = setInterval(() => {
-        _hintAlternateShow = _hintAlternateShow === 'longpress' ? 'swipe' : 'longpress';
-        // Re-evaluate by triggering cached update for all visible mutuals
-        document.querySelectorAll('[data-mutual="1"][data-user-id]').forEach(el => {
-          const userId = el.dataset.userId;
-          const cached = lastUserData.get(userId);
-          if (cached) {
-            const entry = getFollowing().find(f => f.userId === userId);
-            if (entry) updateFolloweeRow(entry, cached, myUserIdRef);
-          }
-        });
-      }, 6850);
-    }
-  } else if (_hintAlternateTimer) {
-    clearInterval(_hintAlternateTimer);
-    _hintAlternateTimer = null;
-  }
-
-  const showThisLongpress = bothEligible ? _hintAlternateShow === 'longpress' : showLongpressHint;
-  const showSwipeHint = bothEligible ? _hintAlternateShow === 'swipe' : swipeEligible;
-
-  // Apply longpress hint based on alternation
-  const existingHint = li.querySelector('.longpress-hint');
-  if (!showThisLongpress && existingHint) {
-    existingHint.remove();
-  } else if (showThisLongpress && !li.querySelector('.longpress-hint')) {
-    const hint = document.createElement('div');
-    hint.className = 'longpress-hint';
-    li.style.position = 'relative';
-    li.appendChild(hint);
-  }
-
-  const existingSwipe = li.querySelector('.swipe-hint');
-  if (showSwipeHint && !existingSwipe) {
-    const hint = document.createElement('div');
-    hint.className = 'swipe-hint';
-    li.style.position = 'relative';
-    li.appendChild(hint);
-  } else if (!showSwipeHint && existingSwipe) {
-    existingSwipe.remove();
-  }
+    && isSwipeHintEligible()
+    && li.dataset.mutual === '1'
+    && !isCallee && !isCallModeReceiver;
+  li.dataset.hintAvail = isAvail ? '1' : '0';
+  li.dataset.hintLongpress = longpressEligible ? '1' : '0';
+  li.dataset.hintSwipe = swipeEligible ? '1' : '0';
+  refreshHints();
 }
+
+// Re-stamp hint eligibility when the user's own combo changes — a row's
+// longpress eligibility depends on whether the peer's combo equals mine.
+// Re-running updateFolloweeRow recomputes the data-hint-* attrs and calls
+// refreshHints so the engine sees fresh eligibility.
+document.addEventListener('my-combo-changed', () => {
+  for (const userId of renderedFollowees) {
+    if (editingSet.has(userId)) continue;
+    const data = lastUserData.get(userId);
+    if (!data) continue;
+    const entry = getFollowing().find((f) => f.userId === userId);
+    if (entry) updateFolloweeRow(entry, data, myUserIdRef);
+  }
+});
 
 // On drawer close, reconcile deferred receiver-side call-mode against the
 // latest known state — but ONLY for rows that actually have an incoming call
-// cached. Re-rendering unrelated rows would recompute isFirstMutual swipe-hint
-// positions and could clobber an in-progress rename. A call cancelled while the
-// drawer was open is no longer an incoming call here, so it's correctly skipped
-// (its row never entered call-mode while deferred).
+// cached. Re-rendering unrelated rows would re-stamp swipe-hint eligibility and
+// could clobber an in-progress rename. A call cancelled while the drawer was
+// open is no longer an incoming call here, so it's correctly skipped (its row
+// never entered call-mode while deferred).
 document.addEventListener('card-drawer-close', () => {
   if (getIncomingCallFrom() === null && callModeCalleeId === null) return;
   renderedFollowees.forEach((userId) => {
@@ -1043,26 +1011,6 @@ document.addEventListener('card-drawer-close', () => {
     if (entry) updateFolloweeRow(entry, data, myUserIdRef);
   });
 });
-
-/** Re-evaluate long-press hints when the user's own combo changes. */
-document.addEventListener('my-combo-changed', () => refreshLongpressHints());
-
-function refreshLongpressHints() {
-  if (isHintSeen('longpress')) return;
-  const myCombos = getFavorites();
-
-  document.querySelectorAll('.longpress-hint').forEach(hint => {
-    const li = hint.closest('[data-user-id]');
-    if (!li) return;
-    const userData = lastUserData.get(li.dataset.userId);
-    if (!userData) { hint.remove(); return; }
-    const peerColor = userData.statusColor || '#22c55e';
-    const peerTheme = userData.paletteKey || null;
-    if (myCombos.some(c => c.statusColor === peerColor && (c.paletteKey || null) === peerTheme)) {
-      hint.remove();
-    }
-  });
-}
 
 function getLabelText(li) {
   const labelEl = li.querySelector('.person-label');
