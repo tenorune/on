@@ -967,6 +967,12 @@ function installGroupSyncListeners() {
     if (!_currentGroupId || _lastMembers === null) return;
     renderRoster(_lastMembers, _currentUserId);
   });
+  // A knock float expired (knock.js). Re-sort the roster so the card lands in
+  // its correct current position rather than a stale captured one.
+  document.addEventListener('knock-float-restored', () => {
+    if (!_currentGroupId || _lastMembers === null) return;
+    syncRosterOrder();
+  });
 }
 
 export function enterGroupContext(groupId, userId) {

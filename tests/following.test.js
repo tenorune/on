@@ -1441,6 +1441,26 @@ describe('incoming call pin + call-above-knocks', () => {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(order()).toEqual(['carol', 'alice', 'bob']);
   });
+
+  test('a knock-float-restored event re-sorts so an expired float lands in its sorted slot', async () => {
+    const knock = require('../js/knock.js');
+    let followersCb;
+    watchFollowers.mockImplementation((_u, cb) => { followersCb = cb; return jest.fn(); });
+    watchPresence.mockReturnValue(jest.fn());
+    getFollowing.mockReturnValue([
+      { userId: 'amy', code: 'AM', label: 'Amy' },
+      { userId: 'zoe', code: 'ZO', label: 'Zoe' },
+    ]);
+    knock.getFloatedUserIds.mockReturnValue(['zoe']); // zoe knocked → floated to top
+    initList('myUid', 'MYCODE');
+    followersCb([]);
+    expect(order()).toEqual(['zoe', 'amy']);
+    // Float expires: knock.js clears it and dispatches the event.
+    knock.getFloatedUserIds.mockReturnValue([]);
+    document.dispatchEvent(new CustomEvent('knock-float-restored', { detail: { userId: 'zoe' } }));
+    await flush();
+    expect(order()).toEqual(['amy', 'zoe']); // re-sorted to alphabetical, no longer floated
+  });
 });
 
 describe('rename re-sorts the list (P2)', () => {
