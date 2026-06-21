@@ -841,6 +841,27 @@ function syncFollowingFromServer(myUserId, serverFollowing) {
   renderList();
 }
 
+// Re-sort the Direct list after an availability change. Coalesced + deferred to a
+// microtask: a presence value can arrive synchronously while renderList's reconcile
+// is still in flight (presenceHub.js), and calling renderList() synchronously there
+// would re-enter reconcileChildren on #people-list and throw. While a rename input
+// is open, the reorder would blur it, so it's held until the edit closes
+// (confirmRename/cancelRename flush it).
+let _resortPending = false;
+let _resortDeferredByEdit = false;
+
+function scheduleResort() {
+  if (_resortPending) return;
+  _resortPending = true;
+  queueMicrotask(runResort);
+}
+
+function runResort() {
+  _resortPending = false;
+  if (editingSet.size > 0) { _resortDeferredByEdit = true; return; }
+  renderList();
+}
+
 function subscribeToFollowee(entry, myUserId) {
   // Through the shared presence hub so a uid we also watch in a group roster is
   // watched once at the RTDB layer (#214 R3). Same unsub contract as watchPresence.
@@ -864,9 +885,16 @@ function subscribeToFollowee(entry, myUserId) {
       return;
     }
 
+    // Re-sort only when availability actually flips (group context re-sorts on
+    // every tick; Direct only on change to avoid reordering rows mid-interaction).
+    const prev = lastUserData.get(entry.userId);
+    const flipped = isAvailable(prev?.status, prev?.availableUntil)
+      !== isAvailable(userData.status, userData.availableUntil);
     lastUserData.set(entry.userId, userData);
-    if (editingSet.has(entry.userId)) return;
-    updateFolloweeRow(entry, userData, myUserId);
+    // Skip the in-place repaint for a row being renamed (don't disturb its input);
+    // the re-sort below still fires (deferred until the edit closes).
+    if (!editingSet.has(entry.userId)) updateFolloweeRow(entry, userData, myUserId);
+    if (flipped) scheduleResort();
   });
   unsubscribers.set(entry.userId, unsub);
 }
@@ -1039,15 +1067,19 @@ function activateRename(entry, labelEl) {
     entry.label = val;
     editingSet.delete(entry.userId);
     labelEl.textContent = val;
-    // Re-sort: the new name changes alphabetical position. editingSet is already
-    // cleared and this runs from a user event (Enter/blur), never inside a
-    // reconcile, so calling renderList() here is re-entrancy-safe.
+    // Re-sort: the new name changes alphabetical position, and this also flushes
+    // any availability re-sort deferred while the edit was open. editingSet is
+    // already cleared and this runs from a user event (Enter/blur), never inside
+    // a reconcile, so calling renderList() here is re-entrancy-safe.
+    _resortDeferredByEdit = false;
     renderList();
   }
 
   function cancelRename() {
     editingSet.delete(entry.userId);
     labelEl.textContent = original || entry.code;
+    // Flush an availability re-sort that was deferred while this edit was open.
+    if (_resortDeferredByEdit) { _resortDeferredByEdit = false; renderList(); }
   }
 
   input.addEventListener('keydown', (e) => {

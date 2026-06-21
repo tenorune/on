@@ -1399,6 +1399,116 @@ describe('rename re-sorts the list (P2)', () => {
   });
 });
 
+describe('availability re-sorts the list (P1)', () => {
+  const flush = () => Promise.resolve();
+  const order = () => Array.from(document.querySelectorAll('#people-list [data-user-id]'))
+    .map((el) => el.dataset.userId);
+  const avail = (until = Date.now() + 3600000) => ({ status: 'available', availableUntil: until, statusColor: '#22c55e' });
+  const unavail = (extra = {}) => ({ status: 'unavailable', availableUntil: null, ...extra });
+
+  // Capture per-uid presence callbacks (through the real presence hub) so tests
+  // can fire status ticks, plus the followers callback to drive renderList.
+  function initWithPresence(following, myUserId = 'myUid') {
+    const presenceCbs = new Map();
+    watchPresence.mockImplementation((uid, cb) => { presenceCbs.set(uid, cb); return jest.fn(); });
+    let followersCb;
+    watchFollowers.mockImplementation((_u, cb) => { followersCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue(following);
+    initList(myUserId, 'MYCODE');
+    return {
+      fireFollowers: (arr) => followersCb(arr),
+      firePresence: (uid, data) => { const cb = presenceCbs.get(uid); if (cb) cb(data); },
+    };
+  }
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+  });
+
+  test('a followee going available floats to the top of its section', async () => {
+    const h = initWithPresence([
+      { userId: 'alice', code: 'A', label: 'Alice' },
+      { userId: 'bob',   code: 'B', label: 'Bob' },
+      { userId: 'carol', code: 'C', label: 'Carol' },
+    ]);
+    h.fireFollowers([]);
+    expect(order()).toEqual(['alice', 'bob', 'carol']);
+    h.firePresence('carol', avail());
+    await flush();
+    expect(order()).toEqual(['carol', 'alice', 'bob']);
+  });
+
+  test('a followee going unavailable drops back to alphabetical', async () => {
+    const h = initWithPresence([
+      { userId: 'alice', code: 'A', label: 'Alice' },
+      { userId: 'bob',   code: 'B', label: 'Bob' },
+      { userId: 'carol', code: 'C', label: 'Carol' },
+    ]);
+    h.fireFollowers([]);
+    h.firePresence('carol', avail());
+    await flush();
+    expect(order()).toEqual(['carol', 'alice', 'bob']);
+    h.firePresence('carol', unavail());
+    await flush();
+    expect(order()).toEqual(['alice', 'bob', 'carol']);
+  });
+
+  test('a synchronous first presence value during the initial render does not throw and ends sorted', async () => {
+    // bob's value arrives synchronously inside subscribe (during renderList's
+    // reconcile). The re-sort must be deferred, not re-enter reconcile.
+    watchPresence.mockImplementation((uid, cb) => {
+      if (uid === 'bob') cb({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#22c55e' });
+      return jest.fn();
+    });
+    let followersCb;
+    watchFollowers.mockImplementation((_u, cb) => { followersCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([
+      { userId: 'alice', code: 'A', label: 'Alice' },
+      { userId: 'bob',   code: 'B', label: 'Bob' },
+    ]);
+    initList('myUid', 'MYCODE');
+    expect(() => followersCb([])).not.toThrow();
+    await flush();
+    expect(order()).toEqual(['bob', 'alice']);
+  });
+
+  test('a status tick while a rename is open does not reorder; order catches up after the edit', async () => {
+    const h = initWithPresence([
+      { userId: 'alice', code: 'A', label: 'Alice' },
+      { userId: 'bob',   code: 'B', label: 'Bob' },
+      { userId: 'carol', code: 'C', label: 'Carol' },
+    ]);
+    h.fireFollowers([]);
+    expect(order()).toEqual(['alice', 'bob', 'carol']);
+
+    document.querySelector('#people-list [data-user-id="alice"] .person-label').click();
+    const input = document.querySelector('#people-list [data-user-id="alice"] .rename-input');
+    expect(input).not.toBeNull();
+
+    h.firePresence('carol', avail()); // carol goes available mid-edit
+    await flush();
+    expect(order()).toEqual(['alice', 'bob', 'carol']); // NOT reordered while editing
+    expect(document.querySelector('#people-list [data-user-id="alice"] .rename-input')).not.toBeNull();
+
+    input.value = 'Alice';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(order()).toEqual(['carol', 'alice', 'bob']); // deferred re-sort flushed on edit end
+  });
+
+  test('a non-availability tick (color only, still unavailable) does not reorder', async () => {
+    const h = initWithPresence([
+      { userId: 'alice', code: 'A', label: 'Alice' },
+      { userId: 'bob',   code: 'B', label: 'Bob' },
+    ]);
+    h.fireFollowers([]);
+    h.firePresence('alice', unavail({ statusColor: '#ff0000' }));
+    await flush();
+    expect(order()).toEqual(['alice', 'bob']);
+  });
+});
+
 describe('call mode: swipe gesture', () => {
   function firePointer(el, type, clientX, clientY) {
     el.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX, clientY, pointerId: 1 }));
