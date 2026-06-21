@@ -1039,6 +1039,10 @@ function activateRename(entry, labelEl) {
     entry.label = val;
     editingSet.delete(entry.userId);
     labelEl.textContent = val;
+    // Re-sort: the new name changes alphabetical position. editingSet is already
+    // cleared and this runs from a user event (Enter/blur), never inside a
+    // reconcile, so calling renderList() here is re-entrancy-safe.
+    renderList();
   }
 
   function cancelRename() {

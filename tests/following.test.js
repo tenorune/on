@@ -1361,6 +1361,44 @@ describe('call mode: sortFollowees pins callee to top', () => {
   });
 });
 
+describe('rename re-sorts the list (P2)', () => {
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+  });
+
+  test('renaming a followee re-sorts it alphabetically without a refresh', () => {
+    // Two following-only entries, alphabetical: Bob then Carol.
+    const entries = [
+      { userId: 'bob',   code: 'BBB222', label: 'Bob' },
+      { userId: 'carol', code: 'CCC333', label: 'Carol' },
+    ];
+    getFollowing.mockReturnValue(entries);
+    watchPresence.mockReturnValue(jest.fn());
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    fire([]); // no followers → both are "Following"
+
+    const orderBefore = Array.from(document.querySelectorAll('#people-list [data-user-id]'))
+      .map((el) => el.dataset.userId);
+    expect(orderBefore).toEqual(['bob', 'carol']);
+
+    // Rename Bob → Zed via the inline editor (click label, type, Enter).
+    const bobRow = document.querySelector('#people-list [data-user-id="bob"]');
+    bobRow.querySelector('.person-label').click();
+    const input = bobRow.querySelector('.rename-input');
+    input.value = 'Zed';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    // Zed now sorts after Carol — the row must have moved, no refresh.
+    const orderAfter = Array.from(document.querySelectorAll('#people-list [data-user-id]'))
+      .map((el) => el.dataset.userId);
+    expect(orderAfter).toEqual(['carol', 'bob']);
+    expect(document.querySelector('#people-list [data-user-id="bob"] .person-label').textContent)
+      .toBe('Zed');
+  });
+});
+
 describe('call mode: swipe gesture', () => {
   function firePointer(el, type, clientX, clientY) {
     el.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX, clientY, pointerId: 1 }));
