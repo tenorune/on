@@ -1044,6 +1044,10 @@ document.addEventListener('my-combo-changed', () => {
   }
 });
 
+// A knock float expired (knock.js). The card is no longer floated; re-sort so it
+// lands in its correct current position instead of a stale captured one.
+document.addEventListener('knock-float-restored', () => scheduleResort());
+
 // On drawer close, reconcile deferred receiver-side call-mode against the
 // latest known state — but ONLY for rows that actually have an incoming call
 // cached. Re-rendering unrelated rows would re-stamp swipe-hint eligibility and
