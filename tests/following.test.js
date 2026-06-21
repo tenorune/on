@@ -1361,6 +1361,88 @@ describe('call mode: sortFollowees pins callee to top', () => {
   });
 });
 
+describe('incoming call pin + call-above-knocks', () => {
+  const flush = () => Promise.resolve();
+  const order = () => Array.from(document.querySelectorAll('#people-list [data-user-id]'))
+    .map((el) => el.dataset.userId);
+
+  function initFull(following, followers, myUserId = 'myUid') {
+    const presenceCbs = new Map();
+    watchPresence.mockImplementation((uid, cb) => { presenceCbs.set(uid, cb); return jest.fn(); });
+    let followersCb, ownCallCb;
+    watchFollowers.mockImplementation((_u, cb) => { followersCb = cb; return jest.fn(); });
+    watchOwnCall.mockImplementation((_u, cb) => { ownCallCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue(following);
+    initList(myUserId, 'MYCODE');
+    followersCb(followers);
+    return {
+      firePresence: (uid, data) => { const cb = presenceCbs.get(uid); if (cb) cb(data); },
+      fireOwnCall: (call) => ownCallCb(call),
+    };
+  }
+  const mutuals = () => ([
+    { userId: 'alice', code: 'A', label: 'Alice' },
+    { userId: 'bob',   code: 'B', label: 'Bob' },
+    { userId: 'carol', code: 'C', label: 'Carol' },
+  ]);
+  const followersOf = () => ([
+    { userId: 'alice', code: 'A' }, { userId: 'bob', code: 'B' }, { userId: 'carol', code: 'C' },
+  ]);
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+    require('../js/knock.js').getFloatedUserIds.mockReturnValue([]);
+  });
+
+  test('an incoming caller pins to the top of its section', async () => {
+    const h = initFull(mutuals(), followersOf());
+    expect(order()).toEqual(['alice', 'bob', 'carol']);
+    h.fireOwnCall({ from: 'carol' });
+    await flush();
+    expect(order()).toEqual(['carol', 'alice', 'bob']);
+  });
+
+  test('the pin drops when the ring ends', async () => {
+    const h = initFull(mutuals(), followersOf());
+    h.fireOwnCall({ from: 'carol' });
+    await flush();
+    expect(order()).toEqual(['carol', 'alice', 'bob']);
+    h.fireOwnCall(null);
+    await flush();
+    expect(order()).toEqual(['alice', 'bob', 'carol']);
+  });
+
+  test('a ringing call sits above floated knocks (incoming)', async () => {
+    const h = initFull(mutuals(), followersOf());
+    require('../js/knock.js').getFloatedUserIds.mockReturnValue(['bob']);
+    h.fireOwnCall({ from: 'carol' });
+    await flush();
+    expect(order()).toEqual(['carol', 'bob', 'alice']);
+  });
+
+  test('an outgoing callee sits above floated knocks', () => {
+    initFull(mutuals(), followersOf());
+    require('../js/knock.js').getFloatedUserIds.mockReturnValue(['bob']);
+    enterCallMode({ userId: 'carol', code: 'C', label: 'Carol' }, 'myUid');
+    expect(order()).toEqual(['carol', 'bob', 'alice']);
+  });
+
+  test('a ring arriving during a rename defers the pin until the edit closes', async () => {
+    const h = initFull(mutuals(), followersOf());
+    document.querySelector('#people-list [data-user-id="alice"] .person-label').click();
+    const input = document.querySelector('#people-list [data-user-id="alice"] .rename-input');
+    h.fireOwnCall({ from: 'carol' });
+    await flush();
+    expect(order()).toEqual(['alice', 'bob', 'carol']);
+    expect(document.querySelector('#people-list [data-user-id="alice"] .rename-input')).not.toBeNull();
+    input.value = 'Alice';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(order()).toEqual(['carol', 'alice', 'bob']);
+  });
+});
+
 describe('rename re-sorts the list (P2)', () => {
   beforeEach(() => {
     setupDom();

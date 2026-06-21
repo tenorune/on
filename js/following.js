@@ -207,6 +207,10 @@ export function initList(myUserId, myCode) {
       const data = lastUserData.get(uid);
       if (entry && data) updateFolloweeRow(entry, data, myUserId);
     }
+    // The ringing caller pins to the top; it drops back when the ring ends.
+    // Re-sort via the coalesced/edit-safe scheduler (deferred — the watcher is
+    // top-level, but this keeps it consistent with the availability path).
+    scheduleResort();
     if (!call && callModeCalleeId !== null) handlePeerEnded(myUserId);
   });
 
@@ -407,11 +411,15 @@ function renderList() {
 
   // Sort uses lastUserData which still has status for entries with active subscriptions.
   // New entries (not yet subscribed) will sort as unavailable until Firebase delivers status.
+  // The active call card pins to the top of its section: the person I'm calling
+  // (callModeCalleeId) or the person ringing me (_incomingCall). These are
+  // mutually exclusive — a ring is only registered when not already in a call.
+  const pinnedCallUid = callModeCalleeId ?? (_incomingCall?.from ?? null);
   function sortFollowees(entries) {
     return [...entries].sort((a, b) => {
-      if (callModeCalleeId) {
-        if (a.userId === callModeCalleeId) return -1;
-        if (b.userId === callModeCalleeId) return 1;
+      if (pinnedCallUid) {
+        if (a.userId === pinnedCallUid) return -1;
+        if (b.userId === pinnedCallUid) return 1;
       }
       const aData = lastUserData.get(a.userId);
       const bData = lastUserData.get(b.userId);
@@ -453,6 +461,20 @@ function renderList() {
     for (const uid of floated) {
       const idx = keys.findIndex((k) => !k.startsWith('label:') && k.endsWith(`:${uid}`));
       if (idx < 0 || idx === anchor) continue;
+      const [k] = keys.splice(idx, 1);
+      keys.splice(anchor, 0, k);
+    }
+  }
+
+  // Call-above-knocks: a floated knock may now sit above the call-pinned card.
+  // Lift the active call card (callee I'm calling, or caller ringing me) back to
+  // the very top of its section so the live call stays the top row. Calls are
+  // mutual-only, so the card lives in the first section.
+  if (pinnedCallUid && keys.length) {
+    const firstLabelIdx = keys.findIndex((k) => k.startsWith('label:'));
+    const anchor = firstLabelIdx >= 0 ? firstLabelIdx + 1 : 0;
+    const idx = keys.findIndex((k) => !k.startsWith('label:') && k.endsWith(`:${pinnedCallUid}`));
+    if (idx > anchor) {
       const [k] = keys.splice(idx, 1);
       keys.splice(anchor, 0, k);
     }
