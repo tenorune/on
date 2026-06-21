@@ -354,11 +354,16 @@ export function applyFloatToTop(li) {
   // row. Insert right after the first pinned row if one exists; otherwise
   // prepend (non-owner group roster, no pins).
   const pin = list.querySelector('.list-section-label, #group-roster-invite-row');
-  if (pin) {
-    list.insertBefore(li, pin.nextSibling);
-  } else {
-    list.prepend(li);
+  // Element siblings (not nextSibling) so whitespace text nodes between rows
+  // don't throw off the call-card check.
+  let ref = pin ? pin.nextElementSibling : list.firstElementChild; // insert before this
+  // Keep floats below an active call card (.call-mode) at the top — a live or
+  // ringing call is the stable top row, above floated knocks (call-above-knocks,
+  // both directions). Mirrors the call-pin lift in following.js renderList.
+  if (ref && ref !== li && ref.classList.contains('call-mode')) {
+    ref = ref.nextElementSibling;
   }
+  list.insertBefore(li, ref); // ref === null appends (matches the old no-pin tail)
   const timerId = setTimeout(() => restoreFromFloat(userId), FLOAT_MS);
   floatTimers.get(userId).timerId = timerId;
 }

@@ -1046,6 +1046,22 @@ describe('applyFloatToTop section-label handling', () => {
     expect(list.children[2].dataset.userId).toBe('alice');
   });
 
+  test('keeps a floated row below an active .call-mode card at the top', () => {
+    document.body.innerHTML = `
+      <ul id="people-list">
+        <li class="list-section-label">Mutuals</li>
+        <li data-user-id="carol" class="call-mode"></li>
+        <li data-user-id="alice"></li>
+        <li data-user-id="bob"></li>
+      </ul>`;
+    const bobLi = document.querySelector('[data-user-id="bob"]');
+    applyFloatToTop(bobLi);
+    const list = document.getElementById('people-list');
+    expect(list.children[0].textContent).toBe('Mutuals');
+    expect(list.children[1].dataset.userId).toBe('carol'); // active call stays the top row
+    expect(list.children[2].dataset.userId).toBe('bob');   // float lands just below it
+  });
+
   test('prepends when there is no section label (group roster shape)', () => {
     document.body.innerHTML = `
       <ul id="group-roster">
