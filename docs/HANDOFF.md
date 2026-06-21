@@ -2,19 +2,23 @@
 
 A handoff to whoever picks this up next. Read top-to-bottom; specific subsections can be re-skimmed when working in a particular area.
 
-**Most recent work (session 2026-06-18):** the **onboarding & install redesign** plus an **invite-preview fix**, shipped as **`v1.2.0`** (merged `dev → main`). Highlights: platform-aware install lanes (`onboardingLane()`), a capability-driven **Install button that shows from page load** on Chromium (with an inline manual-step fallback), an **in-flow corner install icon + toast** inside `#main-ui-direct` (Direct-only), a rebuilt **restore/sign-in screen** (always-visible field, one adaptive "Paste & Sign in"/"Sign in" button), Telegram/in-app-browser handling with a clipboard + `?setup=install` handoff, and a new **unauthenticated `resolveInvitePreview` Cloud callable** so invite framing works for brand-new users. Full rundown in **§21**. (Prior sessions: §18 = 2026-06-13 perf/hygiene, §19 = 2026-06-14 push/notifications, §20 = the v1.1.0 release note.)
+**Most recent work (sessions 2026-06-18):** two waves on branch `onboarding-platform-matrix`.
+1. **Onboarding & install redesign + invite-preview fix — shipped as `v1.2.0`** (merged `dev → main`): platform-aware install lanes (`onboardingLane()`), a capability-driven Install button shown from page load on Chromium, an in-flow corner install icon + toast inside `#main-ui-direct` (Direct-only), a rebuilt restore/sign-in screen (always-visible field, one adaptive "Paste & Sign in"/"Sign in" button), Telegram/in-app-browser handling with a clipboard + `?setup=install` handoff, and a new **unauthenticated `resolveInvitePreview` Cloud callable** so invite framing works for brand-new users. Full rundown in **§21**.
+2. **`/about` page + invite framing — POST-v1.2.0, about to merge `dev → main`**: a shareable `/about` landing page (merged from `claude/adoring-fermi-panh4e`), an in-app-browser "Open app" escape (iOS `x-safari-https://` / Android `intent://`, device-tested on iOS+Android), and invite framing on `/about?i=TOKEN` (fetches `resolveInvitePreview`, carries the token into the app). Full rundown in **§22**. Rides the next release tag.
 
-**Next likely action:** none pending a decision. Everything from this session — including the two small copy commits (`resolveInvitePreview` deploy docs + group-invite prompt reword; shortened malformed-phrase error) — is **in v1.2.0** (the release was cut after they merged to `main`). **No manual cache step is needed** — `firebase.json` serves everything `no-cache` and `sw.js`'s `CACHE` is auto-stamped with a content hash at build (see §Service worker cache).
+(Prior sessions: §18 = 2026-06-13 perf/hygiene, §19 = 2026-06-14 push/notifications, §20 = the v1.1.0 release note.)
+
+**Next likely action:** merge `onboarding-platform-matrix` `dev → main` (the /about work), then cut the next tag (suggest **`v1.3.0`** — additive). Open follow-up #265 (configurable invite-link surface) is background, not a blocker. **No manual cache step is needed** — `firebase.json` serves everything `no-cache` and `sw.js`'s `CACHE` is auto-stamped with a content hash at build (see §Service worker cache).
 
 **Open follow-up work** (issues, not blockers — full list in §18):
 - **#214 R4** — suspend Direct presence watches while in a group context. Deliberately separated from R3 because it's entangled with context-switching, call-mode, and flash-avoidance. The biggest dedup win (R3) already shipped.
-- **#215** — Direct availability pushes carry no shared-context label (group pushes do).
 - **#217** — doc drift (Phase 2 toggle-OFF + invite-push phasing). **Reconciled 2026-06-13** (HANDOFF §15, Phase 2 plan, groups spec); pending maintainer close.
 - **#218** — consolidated post-MVP groups backlog (admin role, owner group color, >5-card collapse, dup-name UI, approval-gated joins).
+- **#265** — make the invite-modal link surface configurable (canonical `/?i=` vs a framed `/invite` landing). Background only; canonical flow unaffected (see §22).
 
 **Phase 4+:** request-to-follow (`js/followRequests.js`), group color/palette, and the per-audience (per-group) color picker have since **shipped**. Admin role and ownership transfer remain documented in groups spec §16 but unplanned (tracked: #180, #218).
 
-**Recently closed bugs:** #64 (knock float-to-top tab-return) and #116 (Direct swatch `<div>` a11y) are now resolved — earlier handoffs cited them as open; they are not.
+**Recently closed bugs:** #64 (knock float-to-top tab-return) and #116 (Direct swatch `<div>` a11y) are now resolved — earlier handoffs cited them as open; they are not. **#215** (Direct availability push has no shared-context label) is **closed as accept-and-document** — the unlabelled Direct push is *intended* (see §18).
 
 ---
 
@@ -24,7 +28,7 @@ A vanilla-JS PWA for **ambient presence**. Users mark themselves "available for 
 
 - **Target user base:** 50–100 users (a small, hands-on sandbox, not a public app).
 - **Stack:** vanilla ES modules (no framework), Firebase Realtime Database + Hosting, esbuild, jest + jsdom.
-- **Tests:** 1128 currently passing on `dev` (web suite, 39 suites). Cloud Functions have their own suite — 67 tests (`cd functions && npm test`). Run the web suite with `npx jest`.
+- **Tests:** web suite **43 suites / 1203 tests** on `onboarding-platform-matrix` (run `npx jest`). Cloud Functions have their own suite — **4 suites / 76 tests** (`cd functions && npm test`; run `npm install` there first if `node_modules` is absent). (Counts grow as branches merge to `dev`; older handoffs cite lower numbers.)
 - **Phrase-based identity with Firebase custom-token auth** (`validateRecovery` callable + `auth.uid`-scoped rules) — see §4.
 
 ## 2. Repo & branch model
@@ -284,13 +288,13 @@ Use `v<MAJOR>.<MINOR>.<PATCH>` per the existing tag history. Most recent release
 
 **Deferred follow-up tracked as issues** (full current list in §18):
 - **#214 R4** — suspend Direct presence watches in a group context (R1/R2/R3/R5/R6 done).
-- **#215** — Direct availability pushes carry no shared-context label.
 - **#217** — doc drift (Phase 2 toggle-OFF + invite-push phasing).
 - **#218** — post-MVP groups backlog.
+- **#265** — configurable invite-modal link surface (canonical vs framed `/invite` landing).
 - **#124** — Phase 3 inviter-side "sent invites" view + cross-device revoke. The MVP Phase 3 doesn't include this; the picker's in-modal "Invited" pill is the only revoke surface. Mirror at `userPrefs/{ownerUid}/sentInvites/{groupId}/{inviteeUid}` is the suggested shape.
 - **#180 / #181 / #193 / #161 / #160 / #156 / #148 / #34** — longer-standing deferrals (moderation, invite controls, App Check, install nudge, Telegram channel, desktop-notif debug, lastVisited migration, npm deprecations).
 
-*(Resolved since earlier handoffs: #64 knock float-to-top, #116 Direct swatch a11y, #182/#183 perf+hygiene waves, #216 status-dot renderer.)*
+*(Resolved since earlier handoffs: #64 knock float-to-top, #116 Direct swatch a11y, #182/#183 perf+hygiene waves, #216 status-dot renderer, **#215 Direct-push label — closed accept-and-document**.)*
 
 **Possible (not committed) follow-up:** collapse `palettes.renderSwatchRow` and `groupContext.renderGroupSwatchRow` into a single renderer (the "option 3" discussion). A compat test (`tests/swatch-renderers.compat.test.js`) locks down the structural-shape contract between the two; revisit only if a third caller appears or drift becomes a recurring source of bugs. *(Note: the status-**dot** painter and "Available for…" text were already unified into `paintStatusDot` / `availableForText` in #216 — that's the dot/text, not the swatch row.)*
 
@@ -383,14 +387,14 @@ The user uses the **superpowers** skills. Workflow:
 ## 16. Known unknowns / open decisions / open bugs
 
 **Open issues (filed; full annotated list in §18):**
-- **#214 R4 — suspend Direct presence watches in a group context** (R1/R2/R3/R5/R6 shipped this session). Entangled with context-switch + call-mode + flash-avoidance; deliberately its own pass.
-- **#215 — Direct availability pushes carry no shared-context label** (group pushes do).
+- **#214 R4 — suspend Direct presence watches in a group context** (R1/R2/R3/R5/R6 shipped). Entangled with context-switch + call-mode + flash-avoidance; deliberately its own pass.
+- **#265 — configurable invite-modal link surface** (canonical `/?i=` vs framed `/invite` landing; see §22). Background, canonical flow unaffected.
 - **#217 — doc drift (reconciled 2026-06-13, pending maintainer close):** the Phase 2 plan described the old `clearStatusOverride` toggle-OFF (code uses `mergeStatusOverride`, which preserves `statusColor`/`paletteKey`) and framed the per-group picker + push-on-invite as Phase 4+ though both shipped. HANDOFF §15, the Phase 2 plan, and the groups spec §16 now describe the shipped behavior.
 - **#218 — post-MVP groups backlog** (admin role, owner group color, >5-card collapse, dup-name UI, approval-gated joins).
 - **#124 — Phase 3 inviter-side "sent invites" view + cross-device revoke.** The picker's in-modal "Invited" pill is the only revoke surface today (same-modal-session only, no cross-device).
 - Longer-standing: **#180** (group moderation: kick + ownership transfer), **#181** (invite TTL/cap UI + confirm card + label edit + index sweep + stale "Requested"), **#193** (App Check enforcement — flag-day risk, deferred), **#161** (standalone install nudge), **#160** (Telegram notification channel), **#156** (desktop PWA notification debug), **#148** (lastVisited userPrefs migration, Option A), **#34** (npm deprecation warnings).
 
-*(Closed since earlier handoffs: **#64** knock float-to-top tab-return, **#116** Direct swatch `<div>` a11y. Both were previously listed here as open.)*
+*(Closed since earlier handoffs: **#64** knock float-to-top tab-return, **#116** Direct swatch `<div>` a11y, **#215** Direct-push shared-context label (accept-and-document — see §18). All were previously listed here as open.)*
 
 **Open decisions:**
 - When (if) to do Phase B identity tightening.
@@ -438,7 +442,7 @@ A hygiene/perf/bugfix/docs sweep. Everything below is **merged to `dev`** unless
 | # | Title | Notes |
 |---|---|---|
 | **#214** | Client RTDB listener efficiency | R1/R2/R3/R5/R6 done; **R4 + 2 minor DOM items remain** |
-| **#215** | Direct availability pushes carry no shared-context label | Group pushes label the context ("…in Family"); Direct don't. Plus a documented cross-invocation duplicate-push caveat |
+| **#215** | Direct availability pushes carry no shared-context label | **CLOSED — accept-and-document (not a gap).** `handleAvailability` only fires on the sender's *primary* and its group pass skips override-ON groups (those go via `onMemberOverride`), so every group it could label is override-OFF = already equal to primary → "X is available in {group}" adds no info and can mislead a dual follower+co-member into reading it as group-bounded. The label only earns its place on divergence (override-ON), which `onMemberOverride` already labels. Finding #7's rare cross-invocation duplicate push (a Direct follower who is also an override-ON co-member) was also **accepted** for a 50–100-user app. Both decisions documented in `functions/notifier.js` ("One push per recipient" note). Comment-only. |
 | **#217** | Doc drift: Phase-2 toggle-OFF + invite-push phasing | D1 `clearStatusOverride`→`mergeStatusOverride`; D2 per-group picker shipped; D3 push-on-invite shipped. **Code is correct, docs were stale — reconciled 2026-06-13:** HANDOFF §15, the Phase 2 plan (top banner + inline `[Superseded]` notes), and the groups spec §16 push-on-invite lines now describe the shipped behavior. Pending maintainer close |
 | **#218** | Post-MVP groups backlog (tracking) | G-A admin role, G-B owner group color, G-C >5-card collapse, G-D dup-name UI, G-E approval-gated joins. Holding list — promote items when prioritized |
 
@@ -551,3 +555,7 @@ A standalone, shareable landing/about page — candidate for the link that gets 
 - **In-app-browser escape on the "Open app" links** (`js/about-cta.js`, a plain classic script loaded via `<script src>` — allowed by `script-src 'self'`, so **no CSP hash to maintain**). Detection is impossible (Telegram's in-app Safari has a byte-identical Safari UA), so it rewrites `a[data-open-app]` **by platform, always**: **iOS → `x-safari-https://<host>/`** (opens Safari; in real Safari it just prompts "Open in Safari?" — verified harmless on iOS/macOS 26), **Android → `intent://<host>/#Intent;scheme=https;…browser_fallback_url…;end`** (hands off to the default browser; real Chrome resolves it too). **Desktop (incl. macOS) is left as the normal new-tab link** so a Chrome/Firefox user isn't hijacked into Safari. The trade-off: every iOS visitor (even those already in Safari) sees the one-time "Open in Safari?" prompt.
 - **Invite framing on `/about?i=TOKEN`** (option (b) — alternate share surface; `buildInviteUrl` still emits `/?i=`). `js/about-invite.js` plain-`fetch`es the unauthenticated `resolveInvitePreview` callable (URL substituted into `#about-invite-framing[data-preview-url]` at build via `__INVITE_PREVIEW_URL__` = `https://europe-west1-<projectId>.cloudfunctions.net/resolveInvitePreview`; CSP `connect-src` already allows `*.cloudfunctions.net`) and fills "You've been invited to follow/join …" (`textContent`, XSS-safe). `js/about-cta.js` carries `?i=TOKEN` through to the app on **every** platform (the about page doesn't redeem — it frames + funnels; the app redeems after account creation). Null preview / no token / unsubstituted URL → framing stays hidden.
 - Tests: `tests/about-page.test.js` (renderAbout + `invitePreviewUrl` substitution, template content, `/about` rewrite ordering, theme-script parity, easter-egg + CSP-hash, and a vm-driven test of `about-cta.js` token-carry + platform escape).
+- Framing style: `.invite-framing` in `css/about.css` is centered, semibold, status-tinted (`var(--status-echo, var(--accent))`), no left bar. (`css/about.css` also gained the `.hidden { display:none }` rule it was missing.)
+- **Device-tested** on iOS + Android (the escape works from real in-app browsers). Accepted trade-off: an iOS visitor already in real Safari sees a one-time "Open in Safari?" prompt on the Open-app tap.
+- **Follow-up #265** — make the invite *modal* able to emit a framed-landing link (e.g. `/invite?i=TOKEN`) instead of the canonical `/?i=`, configurably; canonical links stay default. The framing/token-carry scripts aren't path-specific, so a `/invite` → `about.html` rewrite would light up framing for free.
+- **Build wrinkle:** `__INVITE_PREVIEW_URL__` is built from the env's `FIREBASE_PROJECT_ID` (+ fixed `europe-west1`). A build with no project id (e.g. this sandbox, missing `.env.*`) emits `data-preview-url=""` → framing inert (the script bails). Real dev/prod builds inject the live URL — verify `/about?i=<real token>` shows framing on the dev deploy.

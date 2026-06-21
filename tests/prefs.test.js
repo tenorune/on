@@ -179,6 +179,46 @@ test('syncFromServer preserves local-only entries at the head (pending-write rac
   expect(stored[2]).toEqual(existing2);
 });
 
+test('syncFromServer does NOT resurrect a cap-dropped tail entry (issue #253)', () => {
+  const FAVS_KEY = 'statusapp_favorites';
+  // Both devices held a full 8-entry list. On the OTHER device a new combo
+  // was saved (going active / adopting a color in a group), which prepended
+  // it and dropped the oldest (f8) off the 8-cap tail. The server snapshot
+  // is now [G, f1..f7] — f8 is gone.
+  const mk = (c) => ({ statusColor: c, surface2: '#334155',
+                       paletteKey: null, selectedKey: 'forest', activeSet: 1 });
+  const f = i => mk(`#00000${i}`);
+  const G = mk('#abcdef');
+  const localFull = [f(1), f(2), f(3), f(4), f(5), f(6), f(7), f(8)];
+  // This device still has the full pre-save list including the dropped f8.
+  localStorage.setItem(FAVS_KEY, JSON.stringify(localFull));
+  const serverAfterSave = [G, f(1), f(2), f(3), f(4), f(5), f(6), f(7)];
+  syncFromServer({ favorites: serverAfterSave });
+  const stored = JSON.parse(localStorage.getItem(FAVS_KEY));
+  // The new combo G must be at the head, NOT shoved to slot 2 by a
+  // resurrected f8. f8 is a stale tail drop, not a pending local write.
+  expect(stored[0]).toEqual(G);
+  expect(stored).toEqual(serverAfterSave);
+});
+
+test('syncFromServer drops a stale local-only entry that sits after a server-known entry (issue #253)', () => {
+  const FAVS_KEY = 'statusapp_favorites';
+  // Well under the 8-cap. This device diverged from the canonical list during
+  // an earlier raced sync and is left holding a stale entry wedged in the
+  // middle. The server's current list is the source of truth. The stale entry
+  // is NOT a pending write (it isn't at the head), so it must fall away rather
+  // than be resurrected to slot 1.
+  const mk = (c) => ({ statusColor: c, surface2: '#334155',
+                       paletteKey: null, selectedKey: 'forest', activeSet: 1 });
+  const s1 = mk('#111111'), s2 = mk('#222222'), s3 = mk('#333333');
+  const stale = mk('#deadbe');
+  localStorage.setItem(FAVS_KEY, JSON.stringify([s1, stale, s2, s3]));
+  syncFromServer({ favorites: [s1, s2, s3] });
+  const stored = JSON.parse(localStorage.getItem(FAVS_KEY));
+  // Server list reproduced exactly — stale entry gone, nothing pinned ahead of it.
+  expect(stored).toEqual([s1, s2, s3]);
+});
+
 describe('notify prefs', () => {
   beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); initPrefs('me123'); });
 

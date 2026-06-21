@@ -16,6 +16,13 @@
   --accent: #6366f1;
   --error-bg: #7f1d1d;
   --error-text: #fca5a5;
+  /* Authoritative height of the sticky #nav-row: 2.5rem locked child (see
+     `.nav-row > *`) + 0.75rem×2 vertical padding + 1px border-bottom. #nav-row
+     is set FROM this, and #app-header (sticky top) + #main-ui-direct (min-height
+     fill) reference it so Direct's content box matches the viewport exactly. A
+     stale 3rem estimate here used to leave the page ~17px over-tall, so Direct
+     scrolled a little while group context (no min-height calc) stayed fixed. */
+  --nav-h: calc(4rem + 1px);
 }
 
 html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; overscroll-behavior-y: none; min-width: 360px; }
@@ -465,7 +472,7 @@ main {
 /* App header */
 #app-header {
   position: sticky;
-  top: 3rem;
+  top: var(--nav-h);
   z-index: 100;
   background: var(--surface);
   padding: 1rem;
@@ -476,6 +483,10 @@ main {
   position: sticky;
   top: 0;
   z-index: 101;
+  /* Height is authoritative (--nav-h): the locked 2.5rem children + the
+     padding + border below sum to it, so #app-header's sticky top and
+     #main-ui-direct's min-height can fill to the pixel. */
+  height: var(--nav-h);
   background: var(--surface);
   /* 0.75rem (12px) vertical padding gives a knock-pending chip's outset
      halo (call-pulse pattern: 1.5px solid ring + up-to-24px blur) room
@@ -1092,6 +1103,12 @@ main {
 /* Group context view */
 .group-context-root { padding: 0; }
 .group-context-header {
+  /* Pinned under the sticky .nav-row, mirroring Direct's #app-header, so the
+     group availability box stays put while the roster scrolls under it (#274).
+     z-index 100 sits below .nav-row (101) and above the roster rows. */
+  position: sticky;
+  top: var(--nav-h);
+  z-index: 100;
   background: var(--surface);
   padding: 1rem;
   border-bottom: 1px solid var(--surface2);
@@ -1230,19 +1247,22 @@ main {
 .notify-promo.hidden { display: none; }
 /* Flex column so the install icon can sit at the bottom of the viewport when the
    roster/contact lists are short (margin-top:auto), yet get pushed down when they
-   grow tall. min-height fills the space below the ~3rem sticky nav-row (matching
-   #app-header's top:3rem). The sticky header still works inside the flex column. */
-#main-ui-direct { display: flex; flex-direction: column; min-height: 100vh; min-height: calc(100dvh - 3rem); }
+   grow tall. min-height fills exactly the space below the sticky nav-row (--nav-h,
+   matching #app-header's sticky top) so the page is viewport-height when content
+   is short — no spurious scroll. The sticky header still works in the flex column. */
+#main-ui-direct { display: flex; flex-direction: column; min-height: calc(100vh - var(--nav-h)); min-height: calc(100dvh - var(--nav-h)); }
 .install-fab {
   /* In-flow at the bottom of the Direct content: margin-top:auto seats it at the
      bottom of the screen when content is short; the lists push it down otherwise.
      Left-aligned within the centered app column (so it stays in the bottom-left
      corner and stops tracking right once the column hits its max width), NOT
      fixed — so any toast renders above it. The bottom margin clears the viewport
-     edge and the mobile safe-area (home indicator). */
+     edge and the mobile safe-area (home indicator). Kept to 1rem so the icon sits
+     near the bottom edge — the prior 2rem only looked balanced because a layout
+     bug left the Direct column ~17px over-tall, dropping the icon below the fold. */
   display: inline-flex; align-items: center; justify-content: center;
   width: 2.25rem; height: 2.25rem; border-radius: 50%;
-  margin: auto 1rem calc(2rem + env(safe-area-inset-bottom, 0px));
+  margin: auto 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
   background: var(--surface2); color: var(--text-muted);
   border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 16px rgba(0,0,0,0.25);
   cursor: pointer; padding: 0;

@@ -385,18 +385,19 @@ describe('visibilitychange re-init', () => {
     expect(writeKnock).toHaveBeenCalledWith('u1', 'me', {});
   });
 
-  test('becoming visible restores a li whose float deadline elapsed while hidden', async () => {
+  test('becoming visible drains a float whose deadline elapsed while hidden', async () => {
     // setTimeout in a hidden tab is throttled; the 20s float timer may not
-    // have fired yet when the user returns. The visibility handler should
-    // drain expired floats so the floated li returns to its sorted position
-    // instead of staying stuck at the top.
+    // have fired yet when the user returns. The visibility handler drains
+    // expired floats: clears them and requests a re-sort (so the card lands in
+    // its sorted position instead of staying stuck at the top).
     getKnocks.mockResolvedValue({ exists: () => false });
     watchKnocksAdded.mockReturnValue(jest.fn());
     await initKnocks('myUid');
-    const { applyFloatToTop } = require('../js/knock.js');
+    const { applyFloatToTop, getFloatedUserIds } = require('../js/knock.js');
+    const seen = [];
+    const handler = (e) => seen.push(e.detail.userId);
+    document.addEventListener('knock-float-restored', handler);
 
-    // Build a roster with one li that will be floated, plus another li
-    // BEFORE it (so the float visibly moves it to the top).
     const list = document.createElement('ul');
     const before = document.createElement('li');
     before.dataset.userId = 'first';
@@ -408,6 +409,7 @@ describe('visibilitychange re-init', () => {
 
     applyFloatToTop(target);
     expect(list.firstElementChild).toBe(target); // floated to top
+    expect(getFloatedUserIds()).toContain('second');
 
     // Advance time past the 20s float deadline WITHOUT firing the timer
     // (simulates background throttling — the timer is registered but the
@@ -416,9 +418,10 @@ describe('visibilitychange re-init', () => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
 
-    // Drain should have restored target to its original position (after `before`).
-    expect(list.firstElementChild).toBe(before);
-    expect(list.lastElementChild).toBe(target);
+    // Drain cleared the expired float and requested a re-sort (delegated).
+    expect(getFloatedUserIds()).not.toContain('second');
+    expect(seen).toContain('second');
+    document.removeEventListener('knock-float-restored', handler);
   });
 });
 
@@ -730,19 +733,26 @@ describe('float-to-top', () => {
     expect(order).toEqual(['b', 'a', 'c']);
   });
 
-  test('restores the row to its original position after 20s', () => {
+  test('on expiry, clears the float and dispatches knock-float-restored (re-sort delegated)', () => {
+    const { getFloatedUserIds } = require('../js/knock.js');
+    const seen = [];
+    const handler = (e) => seen.push(e.detail.userId);
+    document.addEventListener('knock-float-restored', handler);
     const li = document.querySelector('[data-user-id="b"]');
     applyFloatToTop(li);
+    expect(getFloatedUserIds()).toContain('b');
     jest.advanceTimersByTime(20000);
-    const order = Array.from(document.querySelectorAll('#list li')).map((el) => el.dataset.userId);
-    expect(order).toEqual(['a', 'b', 'c']);
+    // No manual restore: the float is cleared and the active context is asked to
+    // re-sort (so the card lands in its correct CURRENT slot, not a stale one).
+    expect(getFloatedUserIds()).not.toContain('b');
+    expect(seen).toContain('b');
+    document.removeEventListener('knock-float-restored', handler);
   });
 
-  test('restore stays in its own list when the same userId exists in another context', () => {
-    // A mutual: a Direct follower row (#main-ui-direct, earlier in the DOM) AND
-    // a group roster row (#group-roster) share data-user-id="b". Float the GROUP
-    // row; the 20s restore must not yank the Direct row across into the group
-    // list (the phantom-member bug).
+  test('expiry does not manually move/reparent rows (no cross-context phantom)', () => {
+    // Same userId in two contexts (Direct + group). The old manual restore risked
+    // yanking the Direct row into the group list; with re-sort delegation there is
+    // no manual DOM move at all, so neither row is touched on expiry.
     document.body.innerHTML = `
       <div id="main-ui-direct"><ul id="people-list">
         <li data-user-id="b">B-direct</li>
@@ -754,15 +764,11 @@ describe('float-to-top', () => {
     `;
     const groupLi = document.querySelector('#group-roster [data-user-id="b"]');
     applyFloatToTop(groupLi);
-    // floated to top of the group roster
     expect(document.querySelector('#group-roster').firstElementChild).toBe(groupLi);
     jest.advanceTimersByTime(20000);
-    // Direct row untouched; group row restored below x — and crucially the
-    // Direct row was NOT moved into #group-roster.
+    // Each list still holds exactly its own row — no reparenting.
     expect(document.querySelectorAll('#people-list [data-user-id="b"]').length).toBe(1);
     expect(document.querySelectorAll('#group-roster [data-user-id="b"]').length).toBe(1);
-    const groupOrder = Array.from(document.querySelectorAll('#group-roster li')).map((el) => el.dataset.userId);
-    expect(groupOrder).toEqual(['x', 'b']);
   });
 
   test('repeated float resets the 20s timer', () => {
@@ -1044,6 +1050,22 @@ describe('applyFloatToTop section-label handling', () => {
     expect(list.children[0].textContent).toBe('Mutuals');
     expect(list.children[1].dataset.userId).toBe('carol');
     expect(list.children[2].dataset.userId).toBe('alice');
+  });
+
+  test('keeps a floated row below an active .call-mode card at the top', () => {
+    document.body.innerHTML = `
+      <ul id="people-list">
+        <li class="list-section-label">Mutuals</li>
+        <li data-user-id="carol" class="call-mode"></li>
+        <li data-user-id="alice"></li>
+        <li data-user-id="bob"></li>
+      </ul>`;
+    const bobLi = document.querySelector('[data-user-id="bob"]');
+    applyFloatToTop(bobLi);
+    const list = document.getElementById('people-list');
+    expect(list.children[0].textContent).toBe('Mutuals');
+    expect(list.children[1].dataset.userId).toBe('carol'); // active call stays the top row
+    expect(list.children[2].dataset.userId).toBe('bob');   // float lands just below it
   });
 
   test('prepends when there is no section label (group roster shape)', () => {

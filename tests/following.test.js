@@ -22,6 +22,12 @@ if (typeof PointerEvent === 'undefined') {
   };
 }
 
+jest.mock('../js/hintRotation.js', () => ({
+  refreshHints: jest.fn(),
+  initHintRotation: jest.fn(),
+  stopHintRotation: jest.fn(),
+  clearActiveHint: jest.fn(),
+}));
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true, NOTIFICATIONS_ENABLED: true }));
 jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn() }));
 jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
@@ -150,7 +156,7 @@ jest.mock('../js/prefs.js', () => ({
 
 const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations } = require('../js/db.js');
 const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, removeFollowing } = require('../js/store.js');
-const { getMadeCallCount, getAnsweredCallCount } = require('../js/prefs.js');
+const { getMadeCallCount, getAnsweredCallCount, isHintSeen } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
   initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees,
@@ -610,6 +616,29 @@ describe('updateFolloweeRow: palette-aware dot and status text', () => {
     watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000 });
     const dot = document.querySelector('[data-user-id="u1"] .person-dot');
     expect(dot.style.background).toBe('rgb(34, 197, 94)');
+  });
+
+  // Stamping contract: an available mutual whose combo differs from mine, with
+  // the FTU prerequisites (customAvail/theme/stripPeek) seen but longpress/swipe
+  // not yet seen, must get all three hint eligibility attrs stamped to '1'.
+  // getFavorites is mocked empty so isMyCombo is false.
+  test('available mutual with differing combo gets hint eligibility stamped', () => {
+    // Drive the FTU chain: prerequisites seen, longpress/swipe not yet.
+    isHintSeen.mockImplementation((key) =>
+      key === 'customAvail' || key === 'theme' || key === 'stripPeek');
+
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#a855f7' });
+    const li = document.querySelector('[data-user-id="u1"]');
+
+    // All three attributes present and string-valued.
+    expect(typeof li.dataset.hintAvail).toBe('string');
+    expect(typeof li.dataset.hintLongpress).toBe('string');
+    expect(typeof li.dataset.hintSwipe).toBe('string');
+
+    // Available peer, eligible longpress (combo differs), eligible swipe (mutual).
+    expect(li.dataset.hintAvail).toBe('1');
+    expect(li.dataset.hintLongpress).toBe('1');
+    expect(li.dataset.hintSwipe).toBe('1');
   });
 });
 
@@ -1329,6 +1358,256 @@ describe('call mode: sortFollowees pins callee to top', () => {
     // Find first mutual row (after the "Mutuals" label)
     const rows = Array.from(document.querySelectorAll('#people-list [data-user-id]'));
     expect(rows[0].dataset.userId).toBe('bob');
+  });
+});
+
+describe('incoming call pin + call-above-knocks', () => {
+  const flush = () => Promise.resolve();
+  const order = () => Array.from(document.querySelectorAll('#people-list [data-user-id]'))
+    .map((el) => el.dataset.userId);
+
+  function initFull(following, followers, myUserId = 'myUid') {
+    const presenceCbs = new Map();
+    watchPresence.mockImplementation((uid, cb) => { presenceCbs.set(uid, cb); return jest.fn(); });
+    let followersCb, ownCallCb;
+    watchFollowers.mockImplementation((_u, cb) => { followersCb = cb; return jest.fn(); });
+    watchOwnCall.mockImplementation((_u, cb) => { ownCallCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue(following);
+    initList(myUserId, 'MYCODE');
+    followersCb(followers);
+    return {
+      firePresence: (uid, data) => { const cb = presenceCbs.get(uid); if (cb) cb(data); },
+      fireOwnCall: (call) => ownCallCb(call),
+    };
+  }
+  const mutuals = () => ([
+    { userId: 'alice', code: 'A', label: 'Alice' },
+    { userId: 'bob',   code: 'B', label: 'Bob' },
+    { userId: 'carol', code: 'C', label: 'Carol' },
+  ]);
+  const followersOf = () => ([
+    { userId: 'alice', code: 'A' }, { userId: 'bob', code: 'B' }, { userId: 'carol', code: 'C' },
+  ]);
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+    require('../js/knock.js').getFloatedUserIds.mockReturnValue([]);
+  });
+
+  test('an incoming caller pins to the top of its section', async () => {
+    const h = initFull(mutuals(), followersOf());
+    expect(order()).toEqual(['alice', 'bob', 'carol']);
+    h.fireOwnCall({ from: 'carol' });
+    await flush();
+    expect(order()).toEqual(['carol', 'alice', 'bob']);
+  });
+
+  test('the pin drops when the ring ends', async () => {
+    const h = initFull(mutuals(), followersOf());
+    h.fireOwnCall({ from: 'carol' });
+    await flush();
+    expect(order()).toEqual(['carol', 'alice', 'bob']);
+    h.fireOwnCall(null);
+    await flush();
+    expect(order()).toEqual(['alice', 'bob', 'carol']);
+  });
+
+  test('a ringing call sits above floated knocks (incoming)', async () => {
+    const h = initFull(mutuals(), followersOf());
+    require('../js/knock.js').getFloatedUserIds.mockReturnValue(['bob']);
+    h.fireOwnCall({ from: 'carol' });
+    await flush();
+    expect(order()).toEqual(['carol', 'bob', 'alice']);
+  });
+
+  test('an outgoing callee sits above floated knocks', () => {
+    initFull(mutuals(), followersOf());
+    require('../js/knock.js').getFloatedUserIds.mockReturnValue(['bob']);
+    enterCallMode({ userId: 'carol', code: 'C', label: 'Carol' }, 'myUid');
+    expect(order()).toEqual(['carol', 'bob', 'alice']);
+  });
+
+  test('a ring arriving during a rename defers the pin until the edit closes', async () => {
+    const h = initFull(mutuals(), followersOf());
+    document.querySelector('#people-list [data-user-id="alice"] .person-label').click();
+    const input = document.querySelector('#people-list [data-user-id="alice"] .rename-input');
+    h.fireOwnCall({ from: 'carol' });
+    await flush();
+    expect(order()).toEqual(['alice', 'bob', 'carol']);
+    expect(document.querySelector('#people-list [data-user-id="alice"] .rename-input')).not.toBeNull();
+    input.value = 'Alice';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(order()).toEqual(['carol', 'alice', 'bob']);
+  });
+
+  test('a knock-float-restored event re-sorts so an expired float lands in its sorted slot', async () => {
+    const knock = require('../js/knock.js');
+    let followersCb;
+    watchFollowers.mockImplementation((_u, cb) => { followersCb = cb; return jest.fn(); });
+    watchPresence.mockReturnValue(jest.fn());
+    getFollowing.mockReturnValue([
+      { userId: 'amy', code: 'AM', label: 'Amy' },
+      { userId: 'zoe', code: 'ZO', label: 'Zoe' },
+    ]);
+    knock.getFloatedUserIds.mockReturnValue(['zoe']); // zoe knocked → floated to top
+    initList('myUid', 'MYCODE');
+    followersCb([]);
+    expect(order()).toEqual(['zoe', 'amy']);
+    // Float expires: knock.js clears it and dispatches the event.
+    knock.getFloatedUserIds.mockReturnValue([]);
+    document.dispatchEvent(new CustomEvent('knock-float-restored', { detail: { userId: 'zoe' } }));
+    await flush();
+    expect(order()).toEqual(['amy', 'zoe']); // re-sorted to alphabetical, no longer floated
+  });
+});
+
+describe('rename re-sorts the list (P2)', () => {
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+  });
+
+  test('renaming a followee re-sorts it alphabetically without a refresh', () => {
+    // Two following-only entries, alphabetical: Bob then Carol.
+    const entries = [
+      { userId: 'bob',   code: 'BBB222', label: 'Bob' },
+      { userId: 'carol', code: 'CCC333', label: 'Carol' },
+    ];
+    getFollowing.mockReturnValue(entries);
+    watchPresence.mockReturnValue(jest.fn());
+    const fire = initAndCaptureFollowersCallback('myUid', 'MYCODE');
+    fire([]); // no followers → both are "Following"
+
+    const orderBefore = Array.from(document.querySelectorAll('#people-list [data-user-id]'))
+      .map((el) => el.dataset.userId);
+    expect(orderBefore).toEqual(['bob', 'carol']);
+
+    // Rename Bob → Zed via the inline editor (click label, type, Enter).
+    const bobRow = document.querySelector('#people-list [data-user-id="bob"]');
+    bobRow.querySelector('.person-label').click();
+    const input = bobRow.querySelector('.rename-input');
+    input.value = 'Zed';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    // Zed now sorts after Carol — the row must have moved, no refresh.
+    const orderAfter = Array.from(document.querySelectorAll('#people-list [data-user-id]'))
+      .map((el) => el.dataset.userId);
+    expect(orderAfter).toEqual(['carol', 'bob']);
+    expect(document.querySelector('#people-list [data-user-id="bob"] .person-label').textContent)
+      .toBe('Zed');
+  });
+});
+
+describe('availability re-sorts the list (P1)', () => {
+  const flush = () => Promise.resolve();
+  const order = () => Array.from(document.querySelectorAll('#people-list [data-user-id]'))
+    .map((el) => el.dataset.userId);
+  const avail = (until = Date.now() + 3600000) => ({ status: 'available', availableUntil: until, statusColor: '#22c55e' });
+  const unavail = (extra = {}) => ({ status: 'unavailable', availableUntil: null, ...extra });
+
+  // Capture per-uid presence callbacks (through the real presence hub) so tests
+  // can fire status ticks, plus the followers callback to drive renderList.
+  function initWithPresence(following, myUserId = 'myUid') {
+    const presenceCbs = new Map();
+    watchPresence.mockImplementation((uid, cb) => { presenceCbs.set(uid, cb); return jest.fn(); });
+    let followersCb;
+    watchFollowers.mockImplementation((_u, cb) => { followersCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue(following);
+    initList(myUserId, 'MYCODE');
+    return {
+      fireFollowers: (arr) => followersCb(arr),
+      firePresence: (uid, data) => { const cb = presenceCbs.get(uid); if (cb) cb(data); },
+    };
+  }
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+  });
+
+  test('a followee going available floats to the top of its section', async () => {
+    const h = initWithPresence([
+      { userId: 'alice', code: 'A', label: 'Alice' },
+      { userId: 'bob',   code: 'B', label: 'Bob' },
+      { userId: 'carol', code: 'C', label: 'Carol' },
+    ]);
+    h.fireFollowers([]);
+    expect(order()).toEqual(['alice', 'bob', 'carol']);
+    h.firePresence('carol', avail());
+    await flush();
+    expect(order()).toEqual(['carol', 'alice', 'bob']);
+  });
+
+  test('a followee going unavailable drops back to alphabetical', async () => {
+    const h = initWithPresence([
+      { userId: 'alice', code: 'A', label: 'Alice' },
+      { userId: 'bob',   code: 'B', label: 'Bob' },
+      { userId: 'carol', code: 'C', label: 'Carol' },
+    ]);
+    h.fireFollowers([]);
+    h.firePresence('carol', avail());
+    await flush();
+    expect(order()).toEqual(['carol', 'alice', 'bob']);
+    h.firePresence('carol', unavail());
+    await flush();
+    expect(order()).toEqual(['alice', 'bob', 'carol']);
+  });
+
+  test('a synchronous first presence value during the initial render does not throw and ends sorted', async () => {
+    // bob's value arrives synchronously inside subscribe (during renderList's
+    // reconcile). The re-sort must be deferred, not re-enter reconcile.
+    watchPresence.mockImplementation((uid, cb) => {
+      if (uid === 'bob') cb({ status: 'available', availableUntil: Date.now() + 3600000, statusColor: '#22c55e' });
+      return jest.fn();
+    });
+    let followersCb;
+    watchFollowers.mockImplementation((_u, cb) => { followersCb = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([
+      { userId: 'alice', code: 'A', label: 'Alice' },
+      { userId: 'bob',   code: 'B', label: 'Bob' },
+    ]);
+    initList('myUid', 'MYCODE');
+    expect(() => followersCb([])).not.toThrow();
+    await flush();
+    expect(order()).toEqual(['bob', 'alice']);
+  });
+
+  test('a status tick while a rename is open does not reorder; order catches up after the edit', async () => {
+    const h = initWithPresence([
+      { userId: 'alice', code: 'A', label: 'Alice' },
+      { userId: 'bob',   code: 'B', label: 'Bob' },
+      { userId: 'carol', code: 'C', label: 'Carol' },
+    ]);
+    h.fireFollowers([]);
+    expect(order()).toEqual(['alice', 'bob', 'carol']);
+
+    document.querySelector('#people-list [data-user-id="alice"] .person-label').click();
+    const input = document.querySelector('#people-list [data-user-id="alice"] .rename-input');
+    expect(input).not.toBeNull();
+
+    h.firePresence('carol', avail()); // carol goes available mid-edit
+    await flush();
+    expect(order()).toEqual(['alice', 'bob', 'carol']); // NOT reordered while editing
+    expect(document.querySelector('#people-list [data-user-id="alice"] .rename-input')).not.toBeNull();
+
+    input.value = 'Alice';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(order()).toEqual(['carol', 'alice', 'bob']); // deferred re-sort flushed on edit end
+  });
+
+  test('a non-availability tick (color only, still unavailable) does not reorder', async () => {
+    const h = initWithPresence([
+      { userId: 'alice', code: 'A', label: 'Alice' },
+      { userId: 'bob',   code: 'B', label: 'Bob' },
+    ]);
+    h.fireFollowers([]);
+    h.firePresence('alice', unavail({ statusColor: '#ff0000' }));
+    await flush();
+    expect(order()).toEqual(['alice', 'bob']);
   });
 });
 

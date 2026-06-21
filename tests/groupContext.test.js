@@ -1,4 +1,10 @@
 // tests/groupContext.test.js
+jest.mock('../js/hintRotation.js', () => ({
+  refreshHints: jest.fn(),
+  initHintRotation: jest.fn(),
+  stopHintRotation: jest.fn(),
+  clearActiveHint: jest.fn(),
+}));
 jest.mock('../js/ownStatus.js', () => ({
   subscribeOwnStatus: jest.fn(() => () => {}),
 }));
@@ -1882,7 +1888,7 @@ describe('group-context FTU hints', () => {
     expect(prefs.markHintSeen).not.toHaveBeenCalledWith('customAvail');
   });
 
-  test('roster member shows .longpress-hint when FTU chain is complete + override ON + combo differs', () => {
+  test('roster member stamps data-hint-longpress when FTU chain complete + override ON + combo differs', () => {
     // FTU chain progressed past stripPeek, longpress NOT yet seen.
     prefs.isHintSeen.mockImplementation((name) => name !== 'longpress');
     seedRoster({
@@ -1892,10 +1898,51 @@ describe('group-context FTU hints', () => {
     });
     const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
     expect(aliceLi).not.toBeNull();
-    expect(aliceLi.querySelector('.longpress-hint')).not.toBeNull();
+    expect(aliceLi.dataset.hintLongpress).toBe('1');
+    expect(aliceLi.dataset.hintAvail).toBe('1');
+    expect(aliceLi.dataset.hintSwipe).toBe('0');
   });
 
-  test('roster does NOT show .longpress-hint when override is OFF', () => {
+  test('longpress adoption re-stamps the roster so data-hint-longpress drops to 0 synchronously', () => {
+    // FTU chain complete, longpress NOT yet seen. Model the real prefs behavior:
+    // markHintSeen('longpress') flips isHintSeen('longpress') to true, so the
+    // synchronous re-stamp in triggerGroupAdoption sees longpress as seen and
+    // drops every row's data-hint-longpress to '0' before the engine's next step
+    // (rather than waiting for the async override echo to repaint).
+    let longpressSeen = false;
+    prefs.isHintSeen.mockImplementation((name) => {
+      if (name === 'longpress') return longpressSeen;
+      return true; // rest of the FTU chain already complete
+    });
+    prefs.markHintSeen.mockImplementation((name) => {
+      if (name === 'longpress') longpressSeen = true;
+    });
+    seedRoster({
+      ownOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#22c55e', paletteKey: 'forest' },
+      members: { alice: { displayName: 'Alice', statusOverride: null } },
+      memberStatus: { alice: { status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00', paletteKey: 'volt' } },
+    });
+    const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
+    // Precondition: while longpress is still unseen, the row is eligible and stamps '1'.
+    expect(aliceLi.dataset.hintLongpress).toBe('1');
+
+    // Drive the actual long-press adoption gesture on the member's row. The
+    // 500ms press timer needs fake timers (this describe block runs on real ones).
+    jest.useFakeTimers();
+    try {
+      aliceLi.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
+      jest.advanceTimersByTime(600);
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(prefs.markHintSeen).toHaveBeenCalledWith('longpress');
+    // The synchronous re-stamp must have run: eligibility is now false, so '0'.
+    const aliceAfter = document.querySelector('#group-roster li[data-user-id="alice"]');
+    expect(aliceAfter.dataset.hintLongpress).toBe('0');
+  });
+
+  test('roster does NOT stamp data-hint-longpress when override is OFF', () => {
     prefs.isHintSeen.mockImplementation((name) => name !== 'longpress');
     seedRoster({
       ownOverride: { enabled: false, status: null, availableUntil: null },
@@ -1903,10 +1950,10 @@ describe('group-context FTU hints', () => {
       memberStatus: { alice: { status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00' } },
     });
     const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
-    expect(aliceLi.querySelector('.longpress-hint')).toBeNull();
+    expect(aliceLi.dataset.hintLongpress).not.toBe('1');
   });
 
-  test('roster does NOT show .longpress-hint when member combo matches user combo', () => {
+  test('roster does NOT stamp data-hint-longpress when combo matches', () => {
     prefs.isHintSeen.mockImplementation((name) => name !== 'longpress');
     seedRoster({
       ownOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00', paletteKey: 'volt' },
@@ -1914,10 +1961,10 @@ describe('group-context FTU hints', () => {
       memberStatus: { alice: { status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00', paletteKey: 'volt' } },
     });
     const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
-    expect(aliceLi.querySelector('.longpress-hint')).toBeNull();
+    expect(aliceLi.dataset.hintLongpress).not.toBe('1');
   });
 
-  test('roster does NOT show .longpress-hint when longpress already seen', () => {
+  test('roster does NOT stamp data-hint-longpress when longpress already seen', () => {
     prefs.isHintSeen.mockImplementation(() => true); // EVERYTHING seen including longpress
     seedRoster({
       ownOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#22c55e', paletteKey: 'forest' },
@@ -1925,7 +1972,7 @@ describe('group-context FTU hints', () => {
       memberStatus: { alice: { status: 'available', availableUntil: Date.now() + 60000, statusColor: '#aaff00', paletteKey: 'volt' } },
     });
     const aliceLi = document.querySelector('#group-roster li[data-user-id="alice"]');
-    expect(aliceLi.querySelector('.longpress-hint')).toBeNull();
+    expect(aliceLi.dataset.hintLongpress).not.toBe('1');
   });
 
   test('group dot gets dot-go-hint when user has picked a non-default swatch and is unavailable', () => {

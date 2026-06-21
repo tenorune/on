@@ -340,12 +340,7 @@ export function applyFloatToTop(li) {
   if (floatTimers.has(userId)) {
     clearTimeout(floatTimers.get(userId).timerId);
   } else {
-    floatTimers.set(userId, {
-      originalParent: list,
-      originalSibling: li.nextSibling,
-      timerId: null,
-      startedAt: Date.now(),
-    });
+    floatTimers.set(userId, { timerId: null, startedAt: Date.now() });
   }
   // Refresh startedAt on every prepend so a re-knock extends the float.
   floatTimers.get(userId).startedAt = Date.now();
@@ -354,34 +349,33 @@ export function applyFloatToTop(li) {
   // row. Insert right after the first pinned row if one exists; otherwise
   // prepend (non-owner group roster, no pins).
   const pin = list.querySelector('.list-section-label, #group-roster-invite-row');
-  if (pin) {
-    list.insertBefore(li, pin.nextSibling);
-  } else {
-    list.prepend(li);
+  // Element siblings (not nextSibling) so whitespace text nodes between rows
+  // don't throw off the call-card check.
+  let ref = pin ? pin.nextElementSibling : list.firstElementChild; // insert before this
+  // Keep floats below an active call card (.call-mode) at the top — a live or
+  // ringing call is the stable top row, above floated knocks (call-above-knocks,
+  // both directions). Mirrors the call-pin lift in following.js renderList.
+  if (ref && ref !== li && ref.classList.contains('call-mode')) {
+    ref = ref.nextElementSibling;
   }
+  list.insertBefore(li, ref); // ref === null appends (matches the old no-pin tail)
   const timerId = setTimeout(() => restoreFromFloat(userId), FLOAT_MS);
   floatTimers.get(userId).timerId = timerId;
 }
 
 function restoreFromFloat(userId) {
-  const entry = floatTimers.get(userId);
+  if (!floatTimers.has(userId)) return;
   floatTimers.delete(userId);
-  if (!entry || !entry.originalParent) return;
-  // Scope the lookup to the list the row was floated in. A global
-  // document.querySelector could match a same-userId row in the OTHER context
-  // (a Direct follower who is also a group member) and, because #main-ui-direct
-  // precedes #group-context-root in the DOM, reparent the Direct row into the
-  // group roster — leaving a phantom row in the wrong context and a gap in the
-  // right one. The list element itself survives renderList/renderRoster rebuilds
-  // (they clear innerHTML, not the <ul>), so it stays a valid scope.
-  const li = entry.originalParent.querySelector(`[data-user-id="${userId}"]`);
-  if (!li) return;
-  // Re-anchor to the saved sibling only if it still lives in this list (a
-  // rebuild may have replaced it).
-  const sibling = entry.originalSibling && entry.originalSibling.parentNode === entry.originalParent
-    ? entry.originalSibling
-    : null;
-  entry.originalParent.insertBefore(li, sibling);
+  // Don't restore to a captured position — by now the list may have re-sorted
+  // (availability / call pins), making the old neighbor stale and landing the
+  // card in the wrong slot (or appended to the bottom). The card is no longer in
+  // getFloatedUserIds(), so just ask the active context to re-sort; it lands in
+  // its correct CURRENT position. following.js → scheduleResort, groupContext →
+  // syncRosterOrder. (This also makes restore honor status changes during the
+  // float, and removes the cross-context manual-move/phantom-row risk entirely.)
+  if (typeof document !== 'undefined') {
+    document.dispatchEvent(new CustomEvent('knock-float-restored', { detail: { userId } }));
+  }
 }
 
 export function getFloatedUserIds() {
