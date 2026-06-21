@@ -1103,6 +1103,12 @@ main {
 /* Group context view */
 .group-context-root { padding: 0; }
 .group-context-header {
+  /* Pinned under the sticky .nav-row, mirroring Direct's #app-header, so the
+     group availability box stays put while the roster scrolls under it (#274).
+     z-index 100 sits below .nav-row (101) and above the roster rows. */
+  position: sticky;
+  top: var(--nav-h);
+  z-index: 100;
   background: var(--surface);
   padding: 1rem;
   border-bottom: 1px solid var(--surface2);
