@@ -140,9 +140,9 @@ Rules added to `database.rules.json` with rules tests.
 - Server side is **inert without the bot-token secret configured** — merging the
   functions code is safe regardless of the flag.
 - Server config (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
-  `TELEGRAM_APP_URL`) comes from `functions/.env.*` env vars, not Functions
-  secrets — matching the repo's existing config pattern (see
-  `functions/.env.example`).
+  `TELEGRAM_APP_URL`) comes from the gitignored `functions/.env`, not Functions
+  secrets and not the git-tracked `functions/.env.<projectId>` (see
+  `functions/.env.example` and `docs/telegram-setup.md`).
 - Docs: a setup page under `docs/` covering BotFather bot creation, secrets,
   `setWebhook` registration, and the bot menu button.
 
