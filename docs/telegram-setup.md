@@ -89,9 +89,13 @@ the bundle carries the dev project's Firebase config and the branch's
   `https://<devProject>--telegram-<hash>.web.app`. It stays **stable** for
   the channel's lifetime — redeploys reuse it.
 - Copy it to the clipboard for the next steps (or re-find it any time with
-  `npx firebase hosting:channel:list --project "$DEV_PROJECT"`):
+  `npx firebase hosting:channel:list --project "$DEV_PROJECT"`). Substitute
+  YOUR real URL from the deploy output — don't run this line with the
+  `<placeholders>` still in it, and verify with `pbpaste` that the clipboard
+  holds exactly the URL and nothing else:
 
       printf '%s' 'https://<devProject>--telegram-<hash>.web.app' | pbcopy
+      pbpaste
 
 - The branch's `firebase.json` headers (CSP `script-src https://telegram.org`,
   `frame-ancestors` for telegram.org) ride along with the channel
