@@ -41,7 +41,18 @@ itself — additive, inert without env config, and disposable by nature on dev.
       DEV_PROJECT=$(grep '^FIREBASE_PROJECT_ID=' .env.local | cut -d= -f2)
       echo "$DEV_PROJECT"
 
-- Logged in to the Firebase CLI (`npx firebase login:list` to check).
+- **Node 20/22 LTS** as the active `node` (`node --version`). Newer Nodes
+  break firebase-tools' HTTP stack with misleading errors ("Premature close"
+  on login, "Failed to make request to https://auth.firebase.tools/attest",
+  failing `projects:list`). Fix: `brew install node@22` and put
+  `export PATH="$(brew --prefix node@22)/bin:$PATH"` in `~/.zshrc`.
+- Logged in to the Firebase CLI — verify with a real API call, not
+  `login:list` (which only reads the local cache):
+
+      npx firebase projects:list
+
+  If it errors, `npx firebase login --no-localhost` is the most reliable
+  flow (no localhost callback involved).
 
 ### A2. Create the TEST bot
 
