@@ -171,3 +171,106 @@ describe('handleUpdate: /notifications and /help', () => {
     expect(deps.tg.sendMessage).not.toHaveBeenCalled();
   });
 });
+
+describe('handleUpdate: /who', () => {
+  test('lists available contacts, notes when nobody is', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/following`] = {
+      f1: { code: 'CODE01', label: 'Bea' },
+      f2: { code: 'CODE02', label: 'Cal' },
+    };
+    deps.store['users/f1/presence'] = { status: 'available', availableUntil: 2_000_000 };
+    deps.store['users/f2/presence'] = { status: 'unavailable', availableUntil: null };
+    await handleUpdate(deps, msgUpdate('/who'));
+    const text = deps.tg.sendMessage.mock.calls[0][1];
+    expect(text).toContain('Bea');
+    expect(text).not.toContain('Cal');
+
+    deps.tg.sendMessage.mockClear();
+    deps.store['users/f1/presence'] = { status: 'available', availableUntil: 500 }; // expired
+    await handleUpdate(deps, msgUpdate('/who'));
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/no one|nobody/i);
+  });
+});
+
+describe('handleUpdate: /knock', () => {
+  const following = { f1: { code: 'CODE01', label: 'Bea' }, f2: { code: 'CODE02', label: 'Beatrice' } };
+  test('unique match → knock written with client shape', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/following`] = { f1: following.f1 };
+    await handleUpdate(deps, msgUpdate('/knock bea'));
+    expect(deps.store[`knocks/f1/${uid}`]).toEqual({ count: 1, ts: 1_000_000 });
+  });
+  test('knock caps at 5 like the client transaction', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/following`] = { f1: following.f1 };
+    deps.store[`knocks/f1/${uid}`] = { count: 5, ts: 1 };
+    await handleUpdate(deps, msgUpdate('/knock bea'));
+    expect(deps.store[`knocks/f1/${uid}`].count).toBe(5);
+  });
+  test('ambiguous → inline keyboard of candidates', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/following`] = following;
+    await handleUpdate(deps, msgUpdate('/knock bea'));
+    const extra = deps.tg.sendMessage.mock.calls[0][2];
+    const buttons = extra.reply_markup.inline_keyboard.flat();
+    expect(buttons).toEqual(expect.arrayContaining([
+      { text: 'Bea', callback_data: 'knock:f1' },
+      { text: 'Beatrice', callback_data: 'knock:f2' },
+    ]));
+  });
+  test('no match / no arg → helpful reply', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/following`] = following;
+    await handleUpdate(deps, msgUpdate('/knock zed'));
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/find/i);
+    deps.tg.sendMessage.mockClear();
+    await handleUpdate(deps, msgUpdate('/knock'));
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/knock <name>/i);
+  });
+});
+
+describe('handleUpdate: /groups', () => {
+  test('lists groups with own effective in-group availability', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 2 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G2/name'] = 'Family';
+    deps.store[`groups/G1/members/${uid}/statusOverride`] = { enabled: true, status: 'available', availableUntil: 2_000_000 };
+    deps.store[`groups/G2/members/${uid}/statusOverride`] = { enabled: false };
+    deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'unavailable', availableUntil: null };
+    await handleUpdate(deps, msgUpdate('/groups'));
+    const text = deps.tg.sendMessage.mock.calls[0][1];
+    expect(text).toMatch(/Divers — available/i);
+    expect(text).toMatch(/Family — unavailable/i);
+  });
+  test('no groups → pointer to the app', async () => {
+    const deps = makeBotDeps();
+    seedUser(deps.store);
+    await handleUpdate(deps, msgUpdate('/groups'));
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/app/i);
+  });
+});
+
+describe('callback: knock', () => {
+  const cbUpdate = (data, from = { id: 42, first_name: 'Ada' }) =>
+    ({ callback_query: { id: 'cb1', data, from } });
+  test('writes the knock and confirms', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    await handleUpdate(deps, cbUpdate('knock:f9'));
+    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 1, ts: 1_000_000 });
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/knock/i));
+  });
+  test('unknown telegram user → prompted to open the app', async () => {
+    const deps = makeBotDeps();
+    await handleUpdate(deps, cbUpdate('knock:f9'));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/open/i));
+  });
+});

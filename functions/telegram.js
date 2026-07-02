@@ -2,6 +2,7 @@
 // the webhook command/callback router. Deps are injected; no network here.
 
 import { ensureTelegramUser } from './telegram-auth.js';
+import { isFutureMs, effectiveAvailable } from './presence-core.js';
 
 // Inline keyboard for a notification, keyed by the same data.type the FCM
 // payload carries. Simple reactions are callbacks handled by the webhook;
@@ -137,12 +138,92 @@ async function handleMessage(deps, msg) {
   }
 }
 
-async function handleCallback(deps, cq) {
-  // Implemented in Tasks 7–8.
-  if (cq?.id) await deps.tg.answerCallbackQuery(cq.id, 'Not available yet.');
+// Same shape + cap as the client's writeKnock transaction (js/db/social.js).
+async function writeKnock(deps, recipientUid, senderUid) {
+  await deps.transaction(`knocks/${recipientUid}/${senderUid}`, (current) => {
+    if (current === null) return { count: 1, ts: deps.now() };
+    if (current.count >= 5) return undefined; // abort — capped
+    const next = { count: current.count + 1, ts: deps.now() };
+    if (current.contextGroupId) next.contextGroupId = current.contextGroupId;
+    return next;
+  });
+}
+
+async function readFollowing(deps, uid) {
+  const data = (await deps.getVal(`userPrefs/${uid}/following`)) || {};
+  return Object.entries(data).map(([fid, v]) => ({ userId: fid, code: v?.code ?? '', label: v?.label ?? '' }));
 }
 
 async function handleSocialCommand(deps, uid, cmd, args, reply) {
-  // Implemented in Task 7.
-  await reply('Not available yet.');
+  if (cmd === '/who') {
+    const following = await readFollowing(deps, uid);
+    const lines = [];
+    for (const entry of following) {
+      const presence = await deps.getVal(`users/${entry.userId}/presence`);
+      if (presence?.status === 'available' && isFutureMs(presence.availableUntil, deps.now())) {
+        lines.push(`🟢 ${entry.label || entry.code}`);
+      }
+    }
+    await reply(lines.length ? `Available now:\n${lines.join('\n')}` : 'No one is available right now.');
+    return;
+  }
+  if (cmd === '/knock') {
+    const query = args.join(' ').trim().toLowerCase();
+    if (!query) { await reply('Usage: /knock <name>'); return; }
+    const following = await readFollowing(deps, uid);
+    const matches = following.filter((e) => (e.label || e.code).toLowerCase().includes(query));
+    if (matches.length === 0) { await reply(`Couldn't find "${args.join(' ')}" among the people you follow.`); return; }
+    if (matches.length > 1) {
+      await reply('Which one?', { reply_markup: { inline_keyboard: matches.slice(0, 8).map((e) => [{ text: e.label || e.code, callback_data: `knock:${e.userId}` }]) } });
+      return;
+    }
+    await writeKnock(deps, matches[0].userId, uid);
+    await reply(`Knocked on ${matches[0].label || matches[0].code}.`);
+    return;
+  }
+  if (cmd === '/groups') {
+    const groups = (await deps.getVal(`users/${uid}/groups`)) || {};
+    const groupIds = Object.keys(groups);
+    if (!groupIds.length) { await reply('No groups yet — create one in the app.'); return; }
+    const presence = await deps.getVal(`users/${uid}/presence`);
+    const lines = [];
+    for (const gid of groupIds) {
+      const name = (await deps.getVal(`groups/${gid}/name`)) || gid;
+      const override = await deps.getVal(`groups/${gid}/members/${uid}/statusOverride`);
+      const on = effectiveAvailable(override, presence?.status, presence?.availableUntil, deps.now());
+      lines.push(`${name} — ${on ? 'available' : 'unavailable'} (you)`);
+    }
+    await reply(lines.join('\n'));
+  }
+}
+
+const LABEL_MAX = 40;
+const clampName = (s) => String(s ?? '').slice(0, LABEL_MAX).trim();
+
+async function handleCallback(deps, cq) {
+  if (!cq?.id || !cq.from) return;
+  const answer = (text) => deps.tg.answerCallbackQuery(cq.id, text);
+  const mapping = await deps.getVal(`telegramUsers/${String(cq.from.id)}`);
+  if (!mapping) { await answer('Open KnockKnock first.'); return; }
+  const me = mapping.uid;
+  const [action, arg] = String(cq.data || '').split(':');
+  switch (action) {
+    case 'knock':
+      await writeKnock(deps, arg, me);
+      await answer('Knock sent.');
+      return;
+    case 'invite_accept':
+    case 'invite_decline':
+    case 'fr_approve':
+    case 'fr_decline':
+      await handleInboxCallback(deps, me, action, arg, cq, answer); // Task 8
+      return;
+    default:
+      await answer('Unknown action.');
+  }
+}
+
+async function handleInboxCallback(deps, me, action, arg, cq, answer) {
+  // Implemented in Task 8.
+  await answer('Not available yet.');
 }
