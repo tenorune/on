@@ -9,6 +9,7 @@ import { onCall as httpsOnCall } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
 import { resolveInvitePreviewHandler } from './invites.js';
+import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler } from './telegram-auth.js';
 
 // Pin all functions to the RTDB's region. A 2nd-gen RTDB trigger MUST run in the
 // same region as the database instance. Region is per-project config: the Firebase
@@ -148,3 +149,25 @@ export const resolveInvitePreview = httpsOnCall((request) =>
   resolveInvitePreviewHandler(request, {
     getVal: (path) => db.ref(path).get().then((snap) => snap.val()),
   }));
+
+// ── Telegram (experimental; inert unless TELEGRAM_BOT_TOKEN is set in the
+// functions env — see functions/.env.example and docs/telegram-setup.md) ──────
+function makeTelegramAuthDeps() {
+  return {
+    botToken: process.env.TELEGRAM_BOT_TOKEN || null,
+    now: () => Date.now(),
+    getVal: async (path) => (await db.ref(path).get()).val(),
+    set: async (path, value) => { await db.ref(path).set(value); },
+    update: async (path, obj) => { await db.ref(path).update(obj); },
+    transaction: async (path, fn) => {
+      const res = await db.ref(path).transaction(fn);
+      return { committed: res.committed };
+    },
+    mintToken: (uid) => getAuth().createCustomToken(uid),
+    allowAttempt: (uid) => allowRecoveryAttempt(getDatabase(), uid),
+  };
+}
+
+export const validateTelegram = httpsOnCall((request) => validateTelegramHandler(request, makeTelegramAuthDeps()));
+export const linkTelegram = httpsOnCall((request) => linkTelegramHandler(request, makeTelegramAuthDeps()));
+export const unlinkTelegram = httpsOnCall((request) => unlinkTelegramHandler(request, makeTelegramAuthDeps()));

@@ -83,3 +83,64 @@ export async function ensureTelegramUser(deps, tgUser) {
   }
   return { uid: mapping.uid, created, linked: mapping.uid !== derivedUid };
 }
+
+function requireTelegramUser(request, deps) {
+  if (!deps.botToken) throw new HttpsError('failed-precondition', 'Telegram is not configured.');
+  const tgUser = verifyInitData(request.data?.initData, deps.botToken, deps.now());
+  if (!tgUser) throw new HttpsError('unauthenticated', 'Invalid Telegram signature.');
+  return tgUser;
+}
+
+// Mini App boot: verify initData, ensure the account exists, mint a token.
+export async function validateTelegramHandler(request, deps) {
+  const tgUser = requireTelegramUser(request, deps);
+  const { uid, created, linked } = await ensureTelegramUser(deps, tgUser);
+  const token = await deps.mintToken(uid);
+  return { token, uid, created, linked };
+}
+
+// Link the Telegram identity to an existing phrase account. The phrase goes
+// through the same derived-uid rate limiter as validateRecovery (brute-force
+// parity). The old derived account is left orphaned (spec: accepted trade-off);
+// its reverse index is removed so notifications can't route to it.
+export async function linkTelegramHandler(request, deps) {
+  const tgUser = requireTelegramUser(request, deps);
+  const normalized = normalizeRecoveryCode(request.data?.code);
+  if (!normalized) throw new HttpsError('invalid-argument', 'Invalid recovery code.');
+  const uid = await deriveUid(normalized);
+  if (!(await deps.allowAttempt(uid))) throw new HttpsError('resource-exhausted', 'Too many attempts. Try again shortly.');
+  const presence = await deps.getVal(`users/${uid}/presence`);
+  if (!presence) throw new HttpsError('not-found', 'No account with that phrase.');
+  const tgId = String(tgUser.id);
+  const prior = await deps.getVal(`telegramUsers/${tgId}`);
+  const chatId = prior?.chatId || tgId;
+  if (prior && prior.uid !== uid) await deps.set(`telegramByUid/${prior.uid}`, null);
+  await deps.set(`telegramUsers/${tgId}`, { uid, chatId, linkedAt: deps.now() });
+  await deps.set(`telegramByUid/${uid}`, { tgId, chatId });
+  await deps.update(`userPrefs/${uid}`, {
+    'telegram/tgId': tgId,
+    'telegram/linkedAt': deps.now(),
+    notifyChannel: 'telegram',
+  });
+  const token = await deps.mintToken(uid);
+  return { token };
+}
+
+// Revert the mapping to the Telegram-derived account. The phrase account goes
+// back to push delivery (it no longer has a Telegram route).
+export async function unlinkTelegramHandler(request, deps) {
+  const tgUser = requireTelegramUser(request, deps);
+  const tgId = String(tgUser.id);
+  const prior = await deps.getVal(`telegramUsers/${tgId}`);
+  const derivedUid = deriveTelegramUid(tgId);
+  const chatId = prior?.chatId || tgId;
+  if (prior && prior.uid !== derivedUid) {
+    await deps.set(`telegramByUid/${prior.uid}`, null);
+    await deps.update(`userPrefs/${prior.uid}`, { telegram: null, notifyChannel: 'push' });
+  }
+  await deps.set(`telegramUsers/${tgId}`, { uid: derivedUid, chatId, createdAt: deps.now() });
+  await deps.set(`telegramByUid/${derivedUid}`, { tgId, chatId });
+  const { uid } = await ensureTelegramUser(deps, tgUser); // re-bootstrap presence if needed
+  const token = await deps.mintToken(uid);
+  return { token };
+}

@@ -1,6 +1,6 @@
 import { createHmac } from 'crypto';
 import { jest } from '@jest/globals';
-import { verifyInitData, deriveTelegramUid, ensureTelegramUser } from '../telegram-auth.js';
+import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler } from '../telegram-auth.js';
 
 const BOT_TOKEN = '12345:TEST_TOKEN';
 
@@ -111,5 +111,79 @@ describe('ensureTelegramUser', () => {
     });
     const res = await ensureTelegramUser(deps, { id: 42 });
     expect(res).toEqual({ uid: 'phraseuid00000000000000000000000', created: false, linked: true });
+  });
+});
+
+function makeHandlerDeps(store = {}) {
+  const deps = makeStoreDeps(store);
+  return {
+    ...deps,
+    botToken: BOT_TOKEN,
+    mintToken: jest.fn(async (uid) => `token-for-${uid}`),
+    allowAttempt: jest.fn(async () => true),
+  };
+}
+const freshInitData = () => makeInitData({ auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify({ id: 42, first_name: 'Ada' }) });
+
+describe('validateTelegramHandler', () => {
+  test('valid initData → bootstraps account and mints token', async () => {
+    const deps = makeHandlerDeps();
+    const res = await validateTelegramHandler({ data: { initData: freshInitData() } }, deps);
+    expect(res.token).toBe(`token-for-${res.uid}`);
+    expect(res.created).toBe(true);
+    expect(res.linked).toBe(false);
+  });
+  test('bad initData → unauthenticated', async () => {
+    const deps = makeHandlerDeps();
+    await expect(validateTelegramHandler({ data: { initData: 'garbage' } }, deps)).rejects.toThrow(/signature|Telegram/i);
+  });
+  test('no bot token configured → failed-precondition', async () => {
+    const deps = { ...makeHandlerDeps(), botToken: null };
+    await expect(validateTelegramHandler({ data: { initData: freshInitData() } }, deps)).rejects.toThrow(/not configured/i);
+  });
+});
+
+describe('linkTelegramHandler', () => {
+  const PHRASE = 'able-baker-charlie-delta';
+  test('valid phrase with existing account → repoints mapping, cleans old reverse index, mints token', async () => {
+    const deps = makeHandlerDeps();
+    // Telegram user has already opened the Mini App once (derived account exists):
+    const { uid: derivedUid } = await validateTelegramHandler({ data: { initData: freshInitData() } }, deps);
+    // The phrase account exists:
+    const { deriveUid } = await import('../auth.js');
+    const phraseUid = await deriveUid(PHRASE);
+    deps.store[`users/${phraseUid}/presence`] = { code: 'PHRAZ1', status: 'unavailable', availableUntil: null };
+    const res = await linkTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps);
+    expect(res.token).toBe(`token-for-${phraseUid}`);
+    expect(deps.store['telegramUsers/42']).toMatchObject({ uid: phraseUid, chatId: '42' });
+    expect(deps.store[`telegramByUid/${phraseUid}`]).toEqual({ tgId: '42', chatId: '42' });
+    expect(deps.store[`telegramByUid/${derivedUid}`]).toBeNull();
+    expect(deps.store[`userPrefs/${phraseUid}/notifyChannel`]).toBe('telegram');
+  });
+  test('unknown phrase account → not-found; rate limiter consulted', async () => {
+    const deps = makeHandlerDeps();
+    await expect(linkTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps)).rejects.toThrow(/No account/i);
+    expect(deps.allowAttempt).toHaveBeenCalled();
+  });
+  test('rate limited → resource-exhausted', async () => {
+    const deps = makeHandlerDeps();
+    deps.allowAttempt = jest.fn(async () => false);
+    await expect(linkTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps)).rejects.toThrow(/Too many/i);
+  });
+});
+
+describe('unlinkTelegramHandler', () => {
+  test('reverts mapping to the derived uid and flips the phrase account back to push', async () => {
+    const deps = makeHandlerDeps();
+    const { deriveUid } = await import('../auth.js');
+    const phraseUid = await deriveUid('able-baker-charlie-delta');
+    deps.store[`users/${phraseUid}/presence`] = { code: 'PHRAZ1', status: 'unavailable', availableUntil: null };
+    await validateTelegramHandler({ data: { initData: freshInitData() } }, deps);
+    await linkTelegramHandler({ data: { initData: freshInitData(), code: 'able-baker-charlie-delta' } }, deps);
+    const res = await unlinkTelegramHandler({ data: { initData: freshInitData() } }, deps);
+    expect(deps.store['telegramUsers/42'].uid).not.toBe(phraseUid);
+    expect(deps.store[`telegramByUid/${phraseUid}`]).toBeNull();
+    expect(deps.store[`userPrefs/${phraseUid}/notifyChannel`]).toBe('push');
+    expect(typeof res.token).toBe('string');
   });
 });
