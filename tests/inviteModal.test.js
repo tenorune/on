@@ -1,4 +1,7 @@
 // tests/inviteModal.test.js
+// inviteModal.js now imports telegram.js; stub it out inertly (no Telegram context
+// in these tests, so the share button stays hidden and unwired).
+jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false), openTelegramShare: jest.fn() }));
 jest.mock('../js/invites.js', () => ({
   createPersonalInvite: jest.fn(),
   regeneratePersonalInvite: jest.fn(),

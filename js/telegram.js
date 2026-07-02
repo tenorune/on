@@ -51,3 +51,12 @@ export async function ensureTelegramIdentity() {
   const user = await getUser(userId); // presence is bootstrapped server-side
   return { identity: { userId, code: user?.code ?? '', recoveryCode: null }, isNew: created === true };
 }
+
+// Open Telegram's native share sheet for a link (invite links, share code).
+// Silent no-op outside Telegram or on old clients without openTelegramLink.
+export function openTelegramShare(url, text = '') {
+  const wa = tgWebApp();
+  if (!wa?.openTelegramLink) return;
+  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}${text ? `&text=${encodeURIComponent(text)}` : ''}`;
+  wa.openTelegramLink(shareUrl);
+}

@@ -59,3 +59,16 @@ test('initTelegramChrome: calls ready + expand, tolerates missing APIs', () => {
   delete window.Telegram.WebApp.setHeaderColor;
   expect(() => tg.initTelegramChrome()).not.toThrow();
 });
+
+test('openTelegramShare builds a t.me share link and opens it in Telegram', () => {
+  setTelegramGlobal();
+  window.Telegram.WebApp.openTelegramLink = jest.fn();
+  const tg = require('../js/telegram.js');
+  tg.openTelegramShare('https://app.example.com/?i=TOK123', 'Follow me');
+  expect(window.Telegram.WebApp.openTelegramLink).toHaveBeenCalledWith(
+    `https://t.me/share/url?url=${encodeURIComponent('https://app.example.com/?i=TOK123')}&text=${encodeURIComponent('Follow me')}`,
+  );
+  // Missing API → silent no-op.
+  delete window.Telegram.WebApp.openTelegramLink;
+  expect(() => tg.openTelegramShare('https://x.example')).not.toThrow();
+});

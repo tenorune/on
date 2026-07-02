@@ -9,6 +9,7 @@ import {
 import { readPendingInviteesForGroup } from './db.js';
 import { renderInvitePicker } from './invitePicker.js';
 import { flashRegenerated } from './regenFlash.js';
+import { isTelegramContext, openTelegramShare } from './telegram.js';
 
 const SCOPE_COPY = {
   personal: {
@@ -163,6 +164,15 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
       setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
     } catch { /* clipboard denied */ }
   });
+
+  // Telegram context: native share sheet next to Copy (clipboard still works).
+  const shareBtn = document.getElementById('invite-modal-share-btn');
+  if (shareBtn && isTelegramContext()) {
+    shareBtn.classList.remove('hidden');
+    on(shareBtn, 'click', () => {
+      if (currentInvite) openTelegramShare(currentInvite.url, 'Follow me on KnockKnock');
+    });
+  }
 
   // Regenerate — branch by scope
   on(document.getElementById('invite-modal-regen-btn'), 'click', async () => {
