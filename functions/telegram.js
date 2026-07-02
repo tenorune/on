@@ -224,6 +224,57 @@ async function handleCallback(deps, cq) {
 }
 
 async function handleInboxCallback(deps, me, action, arg, cq, answer) {
-  // Implemented in Task 8.
-  await answer('Not available yet.');
+  if (action === 'invite_accept' || action === 'invite_decline') {
+    const groupId = arg;
+    const clearPending = () => Promise.all([
+      deps.set(`pendingInvites/${me}/${groupId}`, null),
+      deps.set(`pendingInvitesByGroup/${groupId}/${me}`, null),
+    ]);
+    if (action === 'invite_decline') { await clearPending(); await answer('Declined.'); return; }
+    const pending = await deps.getVal(`pendingInvites/${me}/${groupId}`);
+    if (!pending) { await answer('This invite is gone.'); return; }
+    // Race checks mirror js/inbox.js handleJoin: already-member and deleted-group
+    // both just clear the pending invite.
+    const [existing, name] = await Promise.all([
+      deps.getVal(`groups/${groupId}/members/${me}`),
+      deps.getVal(`groups/${groupId}/name`),
+    ]);
+    if (existing) { await clearPending(); await answer("You're already in that group."); return; }
+    if (!name) { await clearPending(); await answer('That group no longer exists.'); return; }
+    // Join mirrors js/groups.js joinGroup (fresh membership branch): the display
+    // name is the Telegram first name (the bot has no prompt UI); editable later
+    // in the app.
+    const now = deps.now();
+    await deps.set(`groups/${groupId}/members/${me}`, {
+      role: 'member',
+      displayName: clampName(cq.from.first_name) || 'Someone',
+      joinedAt: now,
+      statusOverride: { enabled: true, status: 'available', availableUntil: now + 2 * 60 * 60 * 1000 },
+    });
+    await deps.set(`users/${me}/groups/${groupId}`, { lastVisited: now });
+    await clearPending();
+    await answer(`Joined ${name}.`);
+    return;
+  }
+  if (action === 'fr_approve' || action === 'fr_decline') {
+    const requesterUid = arg;
+    if (action === 'fr_decline') {
+      await deps.set(`followRequests/${me}/${requesterUid}`, null);
+      await answer('Declined.');
+      return;
+    }
+    const request = await deps.getVal(`followRequests/${me}/${requesterUid}`);
+    if (!request) { await answer('This request is gone.'); return; }
+    // Mirrors js/inbox.js handleApprove: grant carries my share code + my display
+    // name in the shared group; the requester's grant-watcher completes the follow.
+    const [presence, myName] = await Promise.all([
+      deps.getVal(`users/${me}/presence`),
+      request.groupId ? deps.getVal(`groups/${request.groupId}/members/${me}/displayName`) : Promise.resolve(null),
+    ]);
+    await deps.set(`followGrants/${requesterUid}/${me}`, {
+      from: me, code: presence?.code || '', name: myName ?? null, ts: deps.now(),
+    });
+    await deps.set(`followRequests/${me}/${requesterUid}`, null);
+    await answer('Approved.');
+  }
 }

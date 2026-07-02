@@ -274,3 +274,73 @@ describe('callback: knock', () => {
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/open/i));
   });
 });
+
+describe('inbox callbacks', () => {
+  const cb = (data) => ({ callback_query: { id: 'cb1', data, from: { id: 42, first_name: 'Ada' } } });
+
+  test('invite_accept: joins with Telegram first_name, default override, dual-deletes pending', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`pendingInvites/${uid}/G1`] = { from: 'inviter', ts: 1 };
+    deps.store['groups/G1/name'] = 'Divers';
+    await handleUpdate(deps, cb('invite_accept:G1'));
+    expect(deps.store[`groups/G1/members/${uid}`]).toEqual({
+      role: 'member', displayName: 'Ada', joinedAt: 1_000_000,
+      statusOverride: { enabled: true, status: 'available', availableUntil: 1_000_000 + 2 * 60 * 60 * 1000 },
+    });
+    expect(deps.store[`users/${uid}/groups/G1`]).toEqual({ lastVisited: 1_000_000 });
+    expect(deps.store[`pendingInvites/${uid}/G1`]).toBeNull();
+    expect(deps.store[`pendingInvitesByGroup/G1/${uid}`]).toBeNull();
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringContaining('Divers'));
+  });
+  test('invite_accept when already a member → just clears the pending invite', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`pendingInvites/${uid}/G1`] = { from: 'inviter', ts: 1 };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store[`groups/G1/members/${uid}`] = { role: 'member', displayName: 'Old' };
+    await handleUpdate(deps, cb('invite_accept:G1'));
+    expect(deps.store[`groups/G1/members/${uid}`].displayName).toBe('Old');
+    expect(deps.store[`pendingInvites/${uid}/G1`]).toBeNull();
+  });
+  test('invite_accept when group is gone → clears pending, says so', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`pendingInvites/${uid}/G1`] = { from: 'inviter', ts: 1 };
+    await handleUpdate(deps, cb('invite_accept:G1'));
+    expect(deps.store[`pendingInvites/${uid}/G1`]).toBeNull();
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/no longer/i));
+  });
+  test('invite_decline → dual-delete only', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`pendingInvites/${uid}/G1`] = { from: 'inviter', ts: 1 };
+    await handleUpdate(deps, cb('invite_decline:G1'));
+    expect(deps.store[`pendingInvites/${uid}/G1`]).toBeNull();
+    expect(deps.store[`groups/G1/members/${uid}`]).toBeUndefined();
+  });
+  test('fr_approve: writes grant with code + group display name, deletes request', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`followRequests/${uid}/req1`] = { from: 'req1', groupId: 'G1', ts: 1 };
+    deps.store[`groups/G1/members/${uid}/displayName`] = 'Captain Ada';
+    await handleUpdate(deps, cb('fr_approve:req1'));
+    expect(deps.store[`followGrants/req1/${uid}`]).toEqual({
+      from: uid, code: 'AAAAAA', name: 'Captain Ada', ts: 1_000_000,
+    });
+    expect(deps.store[`followRequests/${uid}/req1`]).toBeNull();
+  });
+  test('fr_approve on a vanished request → polite no-op', async () => {
+    const deps = makeBotDeps();
+    seedUser(deps.store);
+    await handleUpdate(deps, cb('fr_approve:req1'));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/gone|expired/i));
+  });
+  test('fr_decline → deletes the request', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`followRequests/${uid}/req1`] = { from: 'req1', ts: 1 };
+    await handleUpdate(deps, cb('fr_decline:req1'));
+    expect(deps.store[`followRequests/${uid}/req1`]).toBeNull();
+  });
+});
