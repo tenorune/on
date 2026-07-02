@@ -15,6 +15,24 @@ const INVITE_COOLDOWN_MS = 30 * 1000;
 const FOLLOW_REQ_COOLDOWN_MS = 30 * 1000;
 
 export async function sendToUser(deps, uid, message, data) {
+  // Experimental Telegram channel (spec 2026-07-02): a linked user whose
+  // notifyChannel is 'telegram' gets a bot message instead of web push. The
+  // uid→chat route lives in server-only telegramByUid (NOT userPrefs) so a
+  // client can't point its notifications at someone else's chat. Any failure
+  // (user blocked the bot, missing route, bot unconfigured) falls back to FCM.
+  if (deps.sendTelegram) {
+    const [channel, tgRoute] = await Promise.all([
+      deps.getVal(`userPrefs/${uid}/notifyChannel`),
+      deps.getVal(`telegramByUid/${uid}`),
+    ]);
+    if (channel === 'telegram' && tgRoute && tgRoute.chatId) {
+      try {
+        if (await deps.sendTelegram(tgRoute.chatId, message, data)) return true;
+      } catch (e) {
+        console.error(`[notify] telegram send failed for ${uid}: ${e?.message || e}`);
+      }
+    }
+  }
   const tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
   const tokens = tokensMap ? Object.keys(tokensMap) : [];
   if (tokens.length === 0) return false;

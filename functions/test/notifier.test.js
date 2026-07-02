@@ -628,3 +628,43 @@ describe('directed-event send cooldowns', () => {
     expect(deps.send).toHaveBeenCalled();
   });
 });
+
+describe('sendToUser telegram channel', () => {
+  const tgStore = {
+    'userPrefs/u1/notifyChannel': 'telegram',
+    'telegramByUid/u1': { tgId: '42', chatId: '42' },
+    'userPrefs/u1/pushTokens': { tokA: {} },
+  };
+  test('channel=telegram with chatId → telegram send, no FCM', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    deps.sendTelegram = jest.fn(async () => true);
+    const ok = await sendToUser(deps, 'u1', { title: 'hi', body: '' }, { type: 'knock', targetUid: 's' });
+    expect(ok).toBe(true);
+    expect(deps.sendTelegram).toHaveBeenCalledWith('42', { title: 'hi', body: '' }, { type: 'knock', targetUid: 's' });
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('telegram send fails → falls back to FCM', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    deps.sendTelegram = jest.fn(async () => false);
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.send).toHaveBeenCalled();
+  });
+  test('telegram send throws → falls back to FCM', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    deps.sendTelegram = jest.fn(async () => { throw new Error('blocked'); });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.send).toHaveBeenCalled();
+  });
+  test('channel=push → FCM even when a telegram route exists', async () => {
+    const deps = makeDeps({ store: { ...tgStore, 'userPrefs/u1/notifyChannel': 'push' } });
+    deps.sendTelegram = jest.fn(async () => true);
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.sendTelegram).not.toHaveBeenCalled();
+    expect(deps.send).toHaveBeenCalled();
+  });
+  test('no sendTelegram dep (bot not configured) → FCM', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.send).toHaveBeenCalled();
+  });
+});

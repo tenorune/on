@@ -10,6 +10,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
 import { resolveInvitePreviewHandler } from './invites.js';
 import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler } from './telegram-auth.js';
+import { buildNotificationKeyboard } from './telegram.js';
 
 // Pin all functions to the RTDB's region. A 2nd-gen RTDB trigger MUST run in the
 // same region as the database instance. Region is per-project config: the Firebase
@@ -24,6 +25,22 @@ initializeApp();
 // rather than per trigger invocation inside makeDeps.
 const db = getDatabase();
 const messaging = getMessaging();
+
+// Raw Bot API call. Returns the result object, or null on any failure (logged).
+// Node 18+ global fetch; no SDK dependency.
+async function tgApi(method, payload) {
+  const res = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => null);
+  if (!body || !body.ok) {
+    console.error(`[telegram] ${method} failed: HTTP ${res.status} ${JSON.stringify(body?.description || body)}`);
+    return null;
+  }
+  return body.result;
+}
 
 function makeDeps() {
   return {
@@ -54,6 +71,19 @@ function makeDeps() {
       });
       return { failedTokens };
     },
+    // Present only when the bot is configured; sendToUser treats absence as
+    // "FCM only". message.title carries the whole notification text (body is '').
+    sendTelegram: process.env.TELEGRAM_BOT_TOKEN
+      ? async (chatId, message, data) => {
+          const keyboard = buildNotificationKeyboard(data, process.env.TELEGRAM_APP_URL || '');
+          const result = await tgApi('sendMessage', {
+            chat_id: chatId,
+            text: message.title || '',
+            ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+          });
+          return !!result;
+        }
+      : null,
   };
 }
 
