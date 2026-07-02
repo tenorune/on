@@ -28,6 +28,7 @@ import { flashRegenerated } from './regenFlash.js';
 import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
 import { isTelegramContext, ensureTelegramIdentity, initTelegramChrome } from './telegram.js';
+import { initTelegramSettings } from './telegramSettings.js';
 import { initHintRotation } from './hintRotation.js';
 
 
@@ -783,6 +784,7 @@ async function main() {
   });
 
   initCodeDrawer(userId, code);
+  if (isTelegramContext()) initTelegramSettings(userId);
   initHeader(userId);
   if (!splashDone) {
     const followeeCount = getFollowing().length;
