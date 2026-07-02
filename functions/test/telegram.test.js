@@ -273,6 +273,13 @@ describe('callback: knock', () => {
     await handleUpdate(deps, cbUpdate('knock:f9'));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/open/i));
   });
+  test('empty arg → Unknown action, no write', async () => {
+    const deps = makeBotDeps();
+    seedUser(deps.store);
+    await handleUpdate(deps, cbUpdate('knock:'));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
+    expect(Object.keys(deps.store).some((k) => k.startsWith('knocks/'))).toBe(false);
+  });
 });
 
 describe('inbox callbacks', () => {

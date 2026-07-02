@@ -1,6 +1,7 @@
 // functions/telegram.js — Telegram bot: notification keyboards + (Tasks 6–8)
 // the webhook command/callback router. Deps are injected; no network here.
 
+import { timingSafeEqual } from 'crypto';
 import { ensureTelegramUser } from './telegram-auth.js';
 import { isFutureMs, effectiveAvailable } from './presence-core.js';
 
@@ -207,6 +208,7 @@ async function handleCallback(deps, cq) {
   if (!mapping) { await answer('Open KnockKnock first.'); return; }
   const me = mapping.uid;
   const [action, arg] = String(cq.data || '').split(':');
+  if (!arg) { await answer('Unknown action.'); return; }
   switch (action) {
     case 'knock':
       await writeKnock(deps, arg, me);
@@ -282,5 +284,8 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
 // Constant-shape check of Telegram's X-Telegram-Bot-Api-Secret-Token header.
 // An unset secret refuses everything — the webhook is dead until configured.
 export function webhookAuthorized(headerValue, secret) {
-  return !!secret && typeof headerValue === 'string' && headerValue === secret;
+  if (!secret || typeof headerValue !== 'string') return false;
+  const a = Buffer.from(headerValue);
+  const b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
 }

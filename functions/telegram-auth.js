@@ -6,6 +6,8 @@ import { HttpsError } from 'firebase-functions/v2/https';
 import { normalizeRecoveryCode, deriveUid } from './auth.js';
 
 const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000; // initData replay window
+// auth_date is HMAC-protected, this is defense-in-depth against clock nonsense.
+const FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 // Verify Telegram WebApp initData per https://core.telegram.org/bots/webapps
 // #validating-data-received-via-the-mini-app. Returns the parsed `user` object
@@ -23,7 +25,7 @@ export function verifyInitData(initData, botToken, now, maxAgeMs = DEFAULT_MAX_A
   const given = Buffer.from(hash, 'hex');
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
   const authDateMs = Number(params.get('auth_date') || 0) * 1000;
-  if (!authDateMs || now - authDateMs > maxAgeMs) return null;
+  if (!authDateMs || now - authDateMs > maxAgeMs || authDateMs - now > FUTURE_SKEW_MS) return null;
   let user;
   try { user = JSON.parse(params.get('user') || ''); } catch { return null; }
   if (!user || user.id == null) return null;

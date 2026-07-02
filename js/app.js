@@ -113,7 +113,19 @@ async function ensureIdentity(pendingInviteToken = null) {
   // no welcome/restore/phrase screens, no localStorage session. Invite links
   // don't reach this surface (the Mini App is opened from the bot, not from
   // an invite URL), so the pendingInviteToken flow stays browser-only.
-  if (isTelegramContext()) return await ensureTelegramIdentity();
+  if (isTelegramContext()) {
+    try {
+      return await ensureTelegramIdentity();
+    } catch (e) {
+      // Telegram boot failed (bot not configured server-side, or network).
+      // Surface it instead of leaving the splash up forever, then rethrow so
+      // main() doesn't continue with no identity.
+      console.error('telegram boot failed:', e);
+      dismissSplash();
+      window.alert("Couldn't start KnockKnock. Please try again in a moment.");
+      throw e;
+    }
+  }
   const existing = loadIdentity();
   if (existing) {
     let valid = true;

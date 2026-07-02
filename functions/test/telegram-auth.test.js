@@ -36,6 +36,10 @@ describe('verifyInitData', () => {
     const stale = { ...FRESH, auth_date: String(Math.floor(NOW / 1000) - 25 * 60 * 60) };
     expect(verifyInitData(makeInitData(stale), BOT_TOKEN, NOW)).toBeNull();
   });
+  test('auth_date 1 hour in the future → null', () => {
+    const future = { ...FRESH, auth_date: String(Math.floor(NOW / 1000) + 60 * 60) };
+    expect(verifyInitData(makeInitData(future), BOT_TOKEN, NOW)).toBeNull();
+  });
   test('missing hash / empty / missing token → null', () => {
     expect(verifyInitData('auth_date=1', BOT_TOKEN, NOW)).toBeNull();
     expect(verifyInitData('', BOT_TOKEN, NOW)).toBeNull();
@@ -118,6 +122,10 @@ function makeHandlerDeps(store = {}) {
   const deps = makeStoreDeps(store);
   return {
     ...deps,
+    // freshInitData() stamps auth_date from the real wall clock, so
+    // verifyInitData's freshness/future-skew check needs a matching `now`
+    // (the fixed 1000 from makeStoreDeps would look wildly "future").
+    now: () => Date.now(),
     botToken: BOT_TOKEN,
     mintToken: jest.fn(async (uid) => `token-for-${uid}`),
     allowAttempt: jest.fn(async () => true),
