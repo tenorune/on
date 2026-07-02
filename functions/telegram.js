@@ -278,3 +278,9 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
     await answer('Approved.');
   }
 }
+
+// Constant-shape check of Telegram's X-Telegram-Bot-Api-Secret-Token header.
+// An unset secret refuses everything — the webhook is dead until configured.
+export function webhookAuthorized(headerValue, secret) {
+  return !!secret && typeof headerValue === 'string' && headerValue === secret;
+}

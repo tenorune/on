@@ -1,7 +1,11 @@
 {
   "rules": {
     "userPrefs": {
-      "$uid": { ".read": "auth != null && auth.uid === $uid", ".write": "auth != null && auth.uid === $uid" }
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "notifyChannel": { ".validate": "newData.isString() && (newData.val() === 'push' || newData.val() === 'telegram')" }
+      }
     },
     "users": {
       "$uid": {
@@ -165,6 +169,8 @@
       }
     },
     "notifierState": { ".read": false, ".write": false },
+    "telegramUsers": { ".read": false, ".write": false },
+    "telegramByUid": { ".read": false, ".write": false },
     "$other": { ".read": false, ".write": false }
   }
 }

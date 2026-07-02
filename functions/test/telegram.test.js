@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { buildNotificationKeyboard, handleUpdate, parseDurationMinutes } from '../telegram.js';
+import { buildNotificationKeyboard, handleUpdate, parseDurationMinutes, webhookAuthorized } from '../telegram.js';
 
 const APP = 'https://app.example.com';
 
@@ -342,5 +342,15 @@ describe('inbox callbacks', () => {
     deps.store[`followRequests/${uid}/req1`] = { from: 'req1', ts: 1 };
     await handleUpdate(deps, cb('fr_decline:req1'));
     expect(deps.store[`followRequests/${uid}/req1`]).toBeNull();
+  });
+});
+
+describe('webhookAuthorized', () => {
+  test('exact secret match only; unset secret always refuses', () => {
+    expect(webhookAuthorized('s3cret', 's3cret')).toBe(true);
+    expect(webhookAuthorized('wrong', 's3cret')).toBe(false);
+    expect(webhookAuthorized(undefined, 's3cret')).toBe(false);
+    expect(webhookAuthorized('', '')).toBe(false);
+    expect(webhookAuthorized('anything', undefined)).toBe(false);
   });
 });

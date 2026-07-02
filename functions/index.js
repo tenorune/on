@@ -5,12 +5,12 @@ import { getMessaging } from 'firebase-admin/messaging';
 import { onValueCreated, onValueWritten } from 'firebase-functions/v2/database';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest } from './notifier.js';
-import { onCall as httpsOnCall } from 'firebase-functions/v2/https';
+import { onCall as httpsOnCall, onRequest } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
 import { resolveInvitePreviewHandler } from './invites.js';
 import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler } from './telegram-auth.js';
-import { buildNotificationKeyboard } from './telegram.js';
+import { buildNotificationKeyboard, handleUpdate, webhookAuthorized } from './telegram.js';
 
 // Pin all functions to the RTDB's region. A 2nd-gen RTDB trigger MUST run in the
 // same region as the database instance. Region is per-project config: the Firebase
@@ -201,3 +201,30 @@ function makeTelegramAuthDeps() {
 export const validateTelegram = httpsOnCall((request) => validateTelegramHandler(request, makeTelegramAuthDeps()));
 export const linkTelegram = httpsOnCall((request) => linkTelegramHandler(request, makeTelegramAuthDeps()));
 export const unlinkTelegram = httpsOnCall((request) => unlinkTelegramHandler(request, makeTelegramAuthDeps()));
+
+// Telegram bot webhook. Always 200s on authorized requests (Telegram retries
+// non-200s aggressively); errors are logged inside handleUpdate. Inert unless
+// TELEGRAM_BOT_TOKEN + TELEGRAM_WEBHOOK_SECRET are configured.
+export const telegramWebhook = onRequest(async (req, res) => {
+  if (!process.env.TELEGRAM_BOT_TOKEN
+      || !webhookAuthorized(req.get('x-telegram-bot-api-secret-token'), process.env.TELEGRAM_WEBHOOK_SECRET)) {
+    res.status(403).send('forbidden');
+    return;
+  }
+  await handleUpdate({
+    getVal: async (path) => (await db.ref(path).get()).val(),
+    set: async (path, value) => { await db.ref(path).set(value); },
+    update: async (path, obj) => { await db.ref(path).update(obj); },
+    transaction: async (path, fn) => {
+      const r = await db.ref(path).transaction(fn);
+      return { committed: r.committed };
+    },
+    now: () => Date.now(),
+    appUrl: process.env.TELEGRAM_APP_URL || '',
+    tg: {
+      sendMessage: (chatId, text, extra = {}) => tgApi('sendMessage', { chat_id: chatId, text, ...extra }),
+      answerCallbackQuery: (id, text) => tgApi('answerCallbackQuery', { callback_query_id: id, text }),
+    },
+  }, req.body);
+  res.status(200).send('ok');
+});
