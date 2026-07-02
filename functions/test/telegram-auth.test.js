@@ -170,6 +170,30 @@ describe('linkTelegramHandler', () => {
     deps.allowAttempt = jest.fn(async () => false);
     await expect(linkTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps)).rejects.toThrow(/Too many/i);
   });
+  test('no bot token configured → failed-precondition', async () => {
+    const deps = { ...makeHandlerDeps(), botToken: null };
+    await expect(linkTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps)).rejects.toThrow(/not configured/i);
+  });
+  test('direct relink (A→B without unlink) strands account A: mapping repoints to B, A is reset off telegram', async () => {
+    const deps = makeHandlerDeps();
+    const { deriveUid } = await import('../auth.js');
+    const PHRASE_A = 'able-baker-charlie-delta';
+    const PHRASE_B = 'echo-foxtrot-golf-hotel';
+    const uidA = await deriveUid(PHRASE_A);
+    const uidB = await deriveUid(PHRASE_B);
+    deps.store[`users/${uidA}/presence`] = { code: 'PHRZ01', status: 'unavailable', availableUntil: null };
+    deps.store[`users/${uidB}/presence`] = { code: 'PHRZ02', status: 'unavailable', availableUntil: null };
+    // Link tg user 42 to phrase account A:
+    await linkTelegramHandler({ data: { initData: freshInitData(), code: PHRASE_A } }, deps);
+    // Link again directly to phrase account B, without ever unlinking:
+    const res = await linkTelegramHandler({ data: { initData: freshInitData(), code: PHRASE_B } }, deps);
+    expect(res.token).toBe(`token-for-${uidB}`);
+    expect(deps.store['telegramUsers/42']).toMatchObject({ uid: uidB, chatId: '42' });
+    expect(deps.store[`telegramByUid/${uidA}`]).toBeNull();
+    expect(deps.store[`userPrefs/${uidA}/notifyChannel`]).toBe('push');
+    expect(deps.store[`userPrefs/${uidA}/telegram`]).toBeNull();
+    expect(deps.store[`userPrefs/${uidB}/notifyChannel`]).toBe('telegram');
+  });
 });
 
 describe('unlinkTelegramHandler', () => {
@@ -185,5 +209,9 @@ describe('unlinkTelegramHandler', () => {
     expect(deps.store[`telegramByUid/${phraseUid}`]).toBeNull();
     expect(deps.store[`userPrefs/${phraseUid}/notifyChannel`]).toBe('push');
     expect(typeof res.token).toBe('string');
+  });
+  test('no bot token configured → failed-precondition', async () => {
+    const deps = { ...makeHandlerDeps(), botToken: null };
+    await expect(unlinkTelegramHandler({ data: { initData: freshInitData() } }, deps)).rejects.toThrow(/not configured/i);
   });
 });

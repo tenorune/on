@@ -114,7 +114,13 @@ export async function linkTelegramHandler(request, deps) {
   const tgId = String(tgUser.id);
   const prior = await deps.getVal(`telegramUsers/${tgId}`);
   const chatId = prior?.chatId || tgId;
-  if (prior && prior.uid !== uid) await deps.set(`telegramByUid/${prior.uid}`, null);
+  if (prior && prior.uid !== uid) {
+    // Direct relink (A→B) without an intervening unlink: account A must not be
+    // left stranded pointing at a dead telegram channel, so reset its prefs
+    // the same way unlinkTelegramHandler does.
+    await deps.set(`telegramByUid/${prior.uid}`, null);
+    await deps.update(`userPrefs/${prior.uid}`, { telegram: null, notifyChannel: 'push' });
+  }
   await deps.set(`telegramUsers/${tgId}`, { uid, chatId, linkedAt: deps.now() });
   await deps.set(`telegramByUid/${uid}`, { tgId, chatId });
   await deps.update(`userPrefs/${uid}`, {
