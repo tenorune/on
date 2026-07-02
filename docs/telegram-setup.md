@@ -18,11 +18,17 @@ inert unless the env vars below are set — safe to deploy unconfigured.
    help - Commands
 
 ## 2. Configure functions env
-In `functions/.env.<projectId>` (gitignored, like FUNCTIONS_REGION):
+In `functions/.env` (gitignored in this repo; loaded on every functions deploy):
 
     TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
     TELEGRAM_WEBHOOK_SECRET=<long random string>
     TELEGRAM_APP_URL=https://<project>.web.app
+
+**Warning:** do NOT put the bot token or webhook secret in
+`functions/.env.<projectId>` — that file is tracked in this repo (it carries
+the non-secret `FUNCTIONS_REGION`); committing a bot token there would leak
+it. `TELEGRAM_APP_URL` isn't secret and can live wherever convenient, but the
+simplest setup is all three vars in `functions/.env`.
 
 Note: env-file storage (not Secret Manager) matches this repo's existing
 config pattern; acceptable for the experiment, revisit before a broad rollout.

@@ -57,8 +57,8 @@ the user to open the app in a browser instead.
 - **`telegramWebhook`** HTTPS Cloud Function (v2 `onRequest`), registered via the Bot
   API `setWebhook`. Requests validated by the `X-Telegram-Bot-Api-Secret-Token`
   header against a configured webhook secret.
-- Bot token and webhook secret are **Functions secrets** (`TELEGRAM_BOT_TOKEN`,
-  `TELEGRAM_WEBHOOK_SECRET`).
+- Bot token and webhook secret are **env vars** (`TELEGRAM_BOT_TOKEN`,
+  `TELEGRAM_WEBHOOK_SECRET`) from `functions/.env` — see §5.
 - Raw Bot API via `fetch` — **no bot framework**, matching the repo's no-dependency
   ethos.
 - Command router in a new **`functions/telegram.js`**, dependency-injected like
