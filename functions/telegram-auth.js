@@ -34,3 +34,52 @@ export function verifyInitData(initData, botToken, now, maxAgeMs = DEFAULT_MAX_A
 export function deriveTelegramUid(tgId) {
   return createHash('sha256').update(`telegram:${tgId}`, 'utf8').digest('hex').slice(0, 32);
 }
+
+const CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+function generateShareCode() {
+  let code = '';
+  for (let i = 0; i < 6; i += 1) code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+  return code;
+}
+
+// Claim a share code in codeIndex transactionally; loop on collision. Mirrors
+// the client's initUser (js/db/social.js) so a bot/Mini-App account is
+// indistinguishable from a web one.
+async function claimShareCode(deps, uid) {
+  for (;;) {
+    const code = (deps.generateCode || generateShareCode)();
+    const { committed } = await deps.transaction(`codeIndex/${code}`, (current) => {
+      if (current !== null) return undefined; // abort — taken
+      return uid;
+    });
+    if (committed) return code;
+  }
+}
+
+// Resolve (or create) the app account behind a Telegram user. Idempotent.
+//  - No mapping → derive uid, write mapping + reverse index + prefs defaults.
+//  - No presence → bootstrap it (claim code) so bot commands work pre-Mini-App.
+// Returns { uid, created, linked }.
+export async function ensureTelegramUser(deps, tgUser) {
+  const tgId = String(tgUser.id);
+  const derivedUid = deriveTelegramUid(tgId);
+  let mapping = await deps.getVal(`telegramUsers/${tgId}`);
+  if (!mapping) {
+    mapping = { uid: derivedUid, chatId: tgId, createdAt: deps.now() };
+    await deps.set(`telegramUsers/${tgId}`, mapping);
+    await deps.set(`telegramByUid/${derivedUid}`, { tgId, chatId: tgId });
+    await deps.update(`userPrefs/${derivedUid}`, {
+      'telegram/tgId': tgId,
+      'telegram/linkedAt': deps.now(),
+      notifyChannel: 'telegram',
+    });
+  }
+  let created = false;
+  const presence = await deps.getVal(`users/${mapping.uid}/presence`);
+  if (!presence) {
+    const code = await claimShareCode(deps, mapping.uid);
+    await deps.set(`users/${mapping.uid}/presence`, { code, status: 'unavailable', availableUntil: null });
+    created = true;
+  }
+  return { uid: mapping.uid, created, linked: mapping.uid !== derivedUid };
+}

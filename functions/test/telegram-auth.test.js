@@ -1,5 +1,6 @@
 import { createHmac } from 'crypto';
-import { verifyInitData, deriveTelegramUid } from '../telegram-auth.js';
+import { jest } from '@jest/globals';
+import { verifyInitData, deriveTelegramUid, ensureTelegramUser } from '../telegram-auth.js';
 
 const BOT_TOKEN = '12345:TEST_TOKEN';
 
@@ -52,5 +53,63 @@ describe('deriveTelegramUid', () => {
     expect(a).toMatch(/^[0-9a-f]{32}$/);
     expect(deriveTelegramUid('42')).toBe(a);   // string/number agnostic
     expect(deriveTelegramUid(43)).not.toBe(a);
+  });
+});
+
+function makeStoreDeps(store = {}) {
+  return {
+    store,
+    getVal: jest.fn(async (path) => store[path] ?? null),
+    set: jest.fn(async (path, value) => { store[path] = value; }),
+    update: jest.fn(async (path, obj) => {
+      for (const [k, v] of Object.entries(obj)) store[`${path}/${k}`.replace(/\/+/g, '/')] = v;
+    }),
+    transaction: jest.fn(async (path, fn) => {
+      const next = fn(store[path] ?? null);
+      if (next === undefined) return { committed: false };
+      store[path] = next;
+      return { committed: true };
+    }),
+    now: () => 1000,
+    generateCode: () => 'AAAAAA',
+  };
+}
+
+describe('ensureTelegramUser', () => {
+  test('first contact: creates mapping, reverse index, prefs, presence with claimed code', async () => {
+    const deps = makeStoreDeps();
+    const res = await ensureTelegramUser(deps, { id: 42, first_name: 'Ada' });
+    expect(res.created).toBe(true);
+    expect(res.linked).toBe(false);
+    expect(res.uid).toMatch(/^[0-9a-f]{32}$/);
+    expect(deps.store[`telegramUsers/42`]).toMatchObject({ uid: res.uid, chatId: '42' });
+    expect(deps.store[`telegramByUid/${res.uid}`]).toEqual({ tgId: '42', chatId: '42' });
+    expect(deps.store[`userPrefs/${res.uid}/notifyChannel`]).toBe('telegram');
+    expect(deps.store[`users/${res.uid}/presence`]).toEqual({ code: 'AAAAAA', status: 'unavailable', availableUntil: null });
+    expect(deps.store['codeIndex/AAAAAA']).toBe(res.uid);
+  });
+  test('returning user: no writes, created=false', async () => {
+    const deps = makeStoreDeps();
+    const first = await ensureTelegramUser(deps, { id: 42 });
+    deps.set.mockClear(); deps.transaction.mockClear();
+    const again = await ensureTelegramUser(deps, { id: 42 });
+    expect(again).toEqual({ uid: first.uid, created: false, linked: false });
+    expect(deps.set).not.toHaveBeenCalled();
+    expect(deps.transaction).not.toHaveBeenCalled();
+  });
+  test('share-code collision retries with a fresh code', async () => {
+    const deps = makeStoreDeps({ 'codeIndex/AAAAAA': 'someoneElse' });
+    const codes = ['AAAAAA', 'BBBBBB'];
+    deps.generateCode = () => codes.shift();
+    const res = await ensureTelegramUser(deps, { id: 7 });
+    expect(deps.store[`users/${res.uid}/presence`].code).toBe('BBBBBB');
+  });
+  test('linked mapping (phrase uid) is respected: linked=true, no presence bootstrap', async () => {
+    const deps = makeStoreDeps({
+      'telegramUsers/42': { uid: 'phraseuid00000000000000000000000', chatId: '42' },
+      'users/phraseuid00000000000000000000000/presence': { code: 'ZZZZZZ', status: 'unavailable', availableUntil: null },
+    });
+    const res = await ensureTelegramUser(deps, { id: 42 });
+    expect(res).toEqual({ uid: 'phraseuid00000000000000000000000', created: false, linked: true });
   });
 });
