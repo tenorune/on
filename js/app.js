@@ -27,6 +27,7 @@ import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { flashRegenerated } from './regenFlash.js';
 import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
+import { isTelegramContext, ensureTelegramIdentity, initTelegramChrome } from './telegram.js';
 import { initHintRotation } from './hintRotation.js';
 
 
@@ -107,6 +108,11 @@ function isSetupInstall() {
 }
 
 async function ensureIdentity(pendingInviteToken = null) {
+  // Telegram Mini App: identity comes from the webview's signed initData —
+  // no welcome/restore/phrase screens, no localStorage session. Invite links
+  // don't reach this surface (the Mini App is opened from the bot, not from
+  // an invite URL), so the pendingInviteToken flow stays browser-only.
+  if (isTelegramContext()) return await ensureTelegramIdentity();
   const existing = loadIdentity();
   if (existing) {
     let valid = true;
@@ -598,6 +604,7 @@ async function main() {
     } catch { /* no-op on unusual URLs */ }
   }
   const { identity, isNew } = await ensureIdentity(pendingInviteToken);
+  if (isTelegramContext()) initTelegramChrome();
   const { userId, code } = identity;
 
   // Wire navigation BEFORE the invite-redemption block, otherwise navigateToGroup
@@ -761,8 +768,12 @@ async function main() {
     syncPrefsFromServer(serverPrefs);
   });
 
-  initInstallAffordance();
-  initPushNotifications(userId);
+  // Inside Telegram: no PWA install (webview) and no Web Push (notifications
+  // arrive via the bot instead) — see js/telegramSettings.js for the channel UI.
+  if (!isTelegramContext()) {
+    initInstallAffordance();
+    initPushNotifications(userId);
+  }
 
   // currentContext changes from sibling devices arrive as a
   // 'current-context-synced' CustomEvent; forward into groupNav so the
@@ -829,7 +840,9 @@ async function main() {
     setStatus(userId, 'available', availableUntil).catch(() => {});
   }
 
-  initServiceWorker();
+  // No SW inside Telegram: no offline-shell need in the webview, and the
+  // update-reload cycle fights Telegram's own webview lifecycle.
+  if (!isTelegramContext()) initServiceWorker();
 }
 
 // ── Boot init steps (extracted from main() for readability; call order in

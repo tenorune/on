@@ -38,6 +38,14 @@ jest.mock('../js/groups.js', () => ({
 }));
 jest.mock('../js/auth.js', () => ({ ensureSignedIn: jest.fn().mockResolvedValue(undefined) }));
 
+// telegram.js imports firebase/auth directly (not through js/auth.js's mock
+// above), so without this it drags the real firebase/auth module into jsdom.
+jest.mock('../js/telegram.js', () => ({
+  isTelegramContext: jest.fn(() => false),
+  ensureTelegramIdentity: jest.fn(),
+  initTelegramChrome: jest.fn(),
+}));
+
 const db = require('../js/db.js');
 const store = require('../js/store.js');
 const groups = require('../js/groups.js');
