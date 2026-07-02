@@ -127,7 +127,8 @@ Command handlers resolve the Telegram sender through `telegramUsers` and write t
 | Node | Access | Content |
 |---|---|---|
 | `telegramUsers/{tgId}` | server-only (deny client read/write, like `notifierState`) | `{ uid, chatId, linkedAt }` |
-| `userPrefs/{uid}/telegram` | owner-readable, server-written | `{ tgId, linkedAt }` — lets the app show link state |
+| `telegramByUid/{uid}` | server-only, deny-all client read/write | `{ tgId, chatId }` — reverse index for notification sends — kept server-only so a client can't redirect notifications |
+| `userPrefs/{uid}/telegram` | owner-visible link state (display only; routing uses telegramByUid) | `{ tgId, linkedAt }` — lets the app show link state |
 | `userPrefs/{uid}/notifyChannel` | owner read/write, `.validate` ∈ `push\|telegram` | delivery channel |
 
 Rules added to `database.rules.json` with rules tests.
@@ -138,6 +139,10 @@ Rules added to `database.rules.json` with rules tests.
   flag convention. `true` on this feature branch; `false` at merge.
 - Server side is **inert without the bot-token secret configured** — merging the
   functions code is safe regardless of the flag.
+- Server config (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
+  `TELEGRAM_APP_URL`) comes from `functions/.env.*` env vars, not Functions
+  secrets — matching the repo's existing config pattern (see
+  `functions/.env.example`).
 - Docs: a setup page under `docs/` covering BotFather bot creation, secrets,
   `setWebhook` registration, and the bot menu button.
 
