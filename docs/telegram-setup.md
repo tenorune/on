@@ -159,10 +159,16 @@ Use the exact URL from A5.3 and the same secret you put in `functions/.env`.
 ### A9. Renew, reset, clean up
 
 - **Renew:** re-run A3 + A4 — same URL, expiry reset.
-- **Reset the first-open flow:** delete `telegramUsers/<yourTgId>` (and the
-  `telegramByUid/<uid>` it points to) in the dev RTDB console. The mapping is
-  keyed by your Telegram user id per PROJECT (not per bot), so it survives
-  channel deletion.
+- **Reset the first-open (FTU) flow:** the derived uid is deterministic
+  (`sha256("telegram:" + tgId)`), so deleting only the mapping produces a
+  RETURNING user (old presence found → no first-use mode). For true FTU,
+  delete all four in the dev RTDB console — `telegramUsers/<tgId>`,
+  `telegramByUid/<uid>`, `users/<uid>`, `userPrefs/<uid>` (optionally the
+  orphaned `codeIndex/<CODE>`; note the code before deleting `users/<uid>`).
+  The mapping is keyed by your Telegram user id per PROJECT (not per bot), so
+  it survives channel deletion. Easier still: test FTU from a second Telegram
+  account — fresh tgId, zero cleanup, and webview localStorage (hint flags)
+  starts clean too.
 - **Tear down:**
 
       npx firebase hosting:channel:delete telegram --project "$DEV_PROJECT"
