@@ -37,6 +37,25 @@ export async function callResolveInvitePreview(token) {
   return data?.preview ?? null;
 }
 
+const _validateTelegram = httpsCallable(_functions, 'validateTelegram');
+const _linkTelegram = httpsCallable(_functions, 'linkTelegram');
+const _unlinkTelegram = httpsCallable(_functions, 'unlinkTelegram');
+
+// Telegram Mini App auth (experimental — spec 2026-07-02). initData is the raw
+// signed string from Telegram.WebApp; the server verifies it and mints a token.
+export async function callValidateTelegram(initData) {
+  const { data } = await _validateTelegram({ initData });
+  return data; // { token, uid, linked, created }
+}
+export async function callLinkTelegram(initData, code) {
+  const { data } = await _linkTelegram({ initData, code });
+  return data; // { token }
+}
+export async function callUnlinkTelegram(initData) {
+  const { data } = await _unlinkTelegram({ initData });
+  return data; // { token }
+}
+
 let _messaging = null;
 // Returns a Messaging instance, or null where unsupported (e.g. iOS Safari tab).
 export async function getMessagingIfSupported() {

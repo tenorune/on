@@ -11,7 +11,7 @@ import { deriveUserIdFromRecoveryCode } from './identity.js';
 // a tiny own auth-required read (`users/{uid}/presence` → rule: auth != null) that
 // retries until the token has propagated, so every read/watcher set up after
 // sign-in attaches post-handshake. Bounded so a genuine network failure can't hang.
-async function whenRtdbAuthReady() {
+export async function whenRtdbAuthReady() {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
   for (let attempt = 0; attempt < 15; attempt += 1) {

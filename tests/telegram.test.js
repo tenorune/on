@@ -1,0 +1,61 @@
+// tests/telegram.test.js — Telegram Mini App adapter (js/telegram.js).
+jest.mock('../js/features.js', () => ({ TELEGRAM_ENABLED: true }));
+jest.mock('../js/firebase-config.js', () => ({
+  auth: { currentUser: { uid: 'tg-uid' } },
+  callValidateTelegram: jest.fn(async () => ({ token: 'tok', uid: 'tg-uid', linked: false, created: true })),
+}));
+jest.mock('firebase/auth', () => ({ signInWithCustomToken: jest.fn(async () => {}) }));
+jest.mock('../js/auth.js', () => ({ whenRtdbAuthReady: jest.fn(async () => {}) }));
+jest.mock('../js/db.js', () => ({ getUser: jest.fn(async () => ({ code: 'AAAAAA' })) }));
+
+function setTelegramGlobal(initData = 'query_id=1&hash=abc') {
+  window.Telegram = {
+    WebApp: {
+      initData,
+      ready: jest.fn(), expand: jest.fn(),
+      setHeaderColor: jest.fn(), setBackgroundColor: jest.fn(),
+    },
+  };
+}
+
+beforeEach(() => { jest.resetModules(); delete window.Telegram; });
+
+test('isTelegramContext: true only with flag AND non-empty initData', () => {
+  setTelegramGlobal();
+  expect(require('../js/telegram.js').isTelegramContext()).toBe(true);
+  jest.resetModules();
+  setTelegramGlobal('');
+  expect(require('../js/telegram.js').isTelegramContext()).toBe(false);
+  jest.resetModules();
+  delete window.Telegram;
+  expect(require('../js/telegram.js').isTelegramContext()).toBe(false);
+});
+
+test('flag off → never telegram context', () => {
+  jest.doMock('../js/features.js', () => ({ TELEGRAM_ENABLED: false }));
+  setTelegramGlobal();
+  expect(require('../js/telegram.js').isTelegramContext()).toBe(false);
+});
+
+test('ensureTelegramIdentity: validates, signs in, returns identity with code and isNew', async () => {
+  setTelegramGlobal();
+  const tg = require('../js/telegram.js');
+  // Captured per-test: jest.resetModules() in beforeEach invalidates top-level mock references.
+  const { callValidateTelegram } = require('../js/firebase-config.js');
+  const { signInWithCustomToken } = require('firebase/auth');
+  const res = await tg.ensureTelegramIdentity();
+  expect(callValidateTelegram).toHaveBeenCalledWith('query_id=1&hash=abc');
+  expect(signInWithCustomToken).toHaveBeenCalled();
+  expect(res).toEqual({ identity: { userId: 'tg-uid', code: 'AAAAAA', recoveryCode: null }, isNew: true });
+  expect(tg.telegramLinkState()).toEqual({ linked: false });
+});
+
+test('initTelegramChrome: calls ready + expand, tolerates missing APIs', () => {
+  setTelegramGlobal();
+  const tg = require('../js/telegram.js');
+  tg.initTelegramChrome();
+  expect(window.Telegram.WebApp.ready).toHaveBeenCalled();
+  expect(window.Telegram.WebApp.expand).toHaveBeenCalled();
+  delete window.Telegram.WebApp.setHeaderColor;
+  expect(() => tg.initTelegramChrome()).not.toThrow();
+});
