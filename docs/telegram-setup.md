@@ -47,72 +47,97 @@ config pattern; acceptable for the experiment, revisit before a broad rollout.
 
 3. Verify: `curl -sS "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"`
 
-## 4. Preview channel from the feature branch (test without merging)
+## 4. Preview channel from the feature branch (dev project, test bot)
 
-Test the flagged-on branch build end-to-end while `dev`/`main` and the live
-site stay untouched. Preview channels cover **Hosting only** — Functions and
-database rules have no preview equivalent, so those deploy to the live
-project. That's safe here by design: the branch's functions/rules changes are
-additive and fully inert until the §2 env vars are set, and the live site
-keeps serving its own (flag-off) build.
+Test the flagged-on branch build end-to-end on the **dev Firebase project**,
+without merging — `dev`/`main` and the production project stay untouched.
+Preview channels cover **Hosting only**; Functions and database rules have no
+preview equivalent, so those deploy to the dev project itself (they're
+additive and inert until the §2 env vars are set, and everything on dev is
+disposable anyway).
 
-Commands assume macOS (zsh in iTerm) at the repo root.
+Use a **test bot**, not the eventual production bot. A bot's webhook and menu
+button are global singletons you'll be repointing during testing, and
+`initData` validation is keyed by the bot token, so bot ↔ project is
+effectively 1:1: test bot ↔ dev project now, a fresh prod bot ↔ prod project
+at launch. Create it per §1 (e.g. `KnockKnockDevBot`) and use ITS token in the
+§2 env vars.
 
-1. **Build from the branch** (the bundle bakes in `TELEGRAM_ENABLED=true`):
+Commands assume macOS (zsh in iTerm) at the repo root. The dev project id
+lives in `.env.local`; put it in a shell variable once:
+
+    DEV_PROJECT=$(grep '^FIREBASE_PROJECT_ID=' .env.local | cut -d= -f2)
+    echo "$DEV_PROJECT"
+
+1. **Build from the branch with the dev web config** (the bundle bakes in
+   `TELEGRAM_ENABLED=true`; `dev-build.js` reads `.env.local`, same as
+   `npm run deploy:dev`):
 
        git fetch origin claude/telegram-app-adaptation-t1r1jp
        git switch claude/telegram-app-adaptation-t1r1jp
        npm install && (cd functions && npm install)
-       npm run build        # uses .env.production for the Firebase web config
+       node scripts/dev-build.js
 
-2. **Deploy Hosting to a preview channel** (30d is the max lifetime):
+2. **Deploy Hosting to a preview channel on the dev project** (30d is the max
+   lifetime):
 
-       npx firebase hosting:channel:deploy telegram --expires 30d --project <projectId>
+       npx firebase hosting:channel:deploy telegram --expires 30d --project "$DEV_PROJECT"
 
    The output prints the channel URL, shaped like
-   `https://<projectId>--telegram-<hash>.web.app`. It stays stable for the
+   `https://<devProject>--telegram-<hash>.web.app`. It stays stable for the
    channel's lifetime (redeploys reuse it). Grab it onto the clipboard for the
    BotFather step:
 
-       npx firebase hosting:channel:list --project <projectId>
-       printf '%s' 'https://<projectId>--telegram-<hash>.web.app' | pbcopy
+       npx firebase hosting:channel:list --project "$DEV_PROJECT"
+       printf '%s' 'https://<devProject>--telegram-<hash>.web.app' | pbcopy
 
    The branch's `firebase.json` headers (CSP `script-src https://telegram.org`,
-   `frame-ancestors` for telegram.org) apply to the channel automatically —
-   Telegram Web can frame the preview, and the live site's headers are
-   unchanged.
+   `frame-ancestors` for telegram.org) apply to the channel automatically, so
+   Telegram Web can frame the preview.
 
-3. **Configure env, then deploy functions + rules to the live project.** Set
-   the three §2 vars in `functions/.env` with `TELEGRAM_APP_URL` = the preview
-   URL from step 2 (env is baked in at deploy time, so set it first):
+3. **Configure env, then deploy functions + rules to the dev project.** Set
+   the three §2 vars in `functions/.env` — the TEST bot's token/secret, and
+   `TELEGRAM_APP_URL` = the preview URL from step 2 (env is baked in at deploy
+   time, so set it first):
 
-       npx firebase deploy --only functions,database --project <projectId>
+       npx firebase deploy --only functions,database --project "$DEV_PROJECT"
 
-4. **Point the bot at the preview URL:** BotFather → `/setmenubutton` → your
-   bot → paste the preview URL (⌘V from step 2). The Mini App button now opens
-   the flagged-on preview build; the production URL is not involved.
+4. **Point the test bot at the preview URL:** BotFather → `/setmenubutton` →
+   the test bot → paste the preview URL (⌘V from step 2).
 
-5. **Register the webhook** exactly as in §3 — it targets
-   `cloudfunctions.net`, which is independent of hosting channels, so nothing
-   changes for a preview test.
+5. **Register the webhook** as in §3, against the dev project's function URL
+   (the region is the dev RTDB's region — check the deploy output or
+   `functions/.env.<devProject>`):
+
+       curl -sS "https://api.telegram.org/bot<TEST_BOT_TOKEN>/setWebhook" \
+         -d "url=https://<region>-$DEV_PROJECT.cloudfunctions.net/telegramWebhook" \
+         -d "secret_token=<TELEGRAM_WEBHOOK_SECRET>" \
+         -d "allowed_updates=[\"message\",\"callback_query\"]"
 
 Renewing / cleaning up:
 
 - Re-running step 2 redeploys to the **same** URL and resets the expiry.
-- When done: `npx firebase hosting:channel:delete telegram --project <projectId>`,
-  then point BotFather's menu button back (and update `TELEGRAM_APP_URL` +
-  redeploy functions if the bot should keep working against the live site).
+- When done: `npx firebase hosting:channel:delete telegram --project "$DEV_PROJECT"`.
+  The test bot can keep its webhook — it only talks to dev.
+- To re-test the first-open flow from scratch, delete your mapping in the dev
+  RTDB: `telegramUsers/<yourTgId>` (+ `telegramByUid/<uid>`). The mapping is
+  keyed by your Telegram user id per PROJECT, not per bot, so it survives
+  channel deletion.
 
 Caveats:
 
-- The preview build talks to the **live** Firebase project — accounts created
-  from Telegram are real RTDB records (fine for the experiment; production web
-  users still run the flag-off build and notice nothing).
-- The `sendToUser` Telegram channel switch goes live for any account that
-  links Telegram, since Functions aren't channel-scoped — that's the point of
-  the test, but remember unlinking/`/notifications push` restores Web Push.
-- If the Firebase web API key has HTTP-referrer restrictions (Google Cloud
-  console → Credentials), add the preview domain, or sign-in calls will 403.
+- The preview build talks to the dev database end-to-end (accounts, knocks,
+  groups, notifications) — disposable by design.
+- `functions/.env` is loaded on EVERY functions deploy regardless of
+  `--project`. It holds the TEST bot's values during this experiment — swap in
+  the prod bot's values (or move to Secret Manager) before ever deploying
+  functions to the prod project.
+- If the dev web API key has HTTP-referrer restrictions (Google Cloud console
+  → Credentials), add the preview domain, or sign-in calls will 403.
+
+Prod cutover later is pure config: create the prod bot fresh (§1), set its
+values in the prod deploy's env, deploy, re-run §3 against the prod project,
+set its menu button to the production URL.
 
 ## How it fits together
 - Mini App boot: client sends `Telegram.WebApp.initData` → `validateTelegram`
