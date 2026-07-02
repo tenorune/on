@@ -31,7 +31,7 @@ function mountDom() {
     </div>`;
 }
 
-beforeEach(() => { jest.clearAllMocks(); mountDom(); });
+beforeEach(() => { jest.resetAllMocks(); mountDom(); });
 
 test('renders row, hides phrase pill, shows link button when unlinked', async () => {
   const { initTelegramSettings } = require('../js/telegramSettings.js');
