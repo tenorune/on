@@ -2,19 +2,21 @@
 
 A handoff to whoever picks this up next. Read top-to-bottom; specific subsections can be re-skimmed when working in a particular area.
 
-**Most recent work (session 2026-07-02): the experimental Telegram adaptation** — branch `claude/telegram-app-adaptation-t1r1jp`, pushed, all task-level + whole-branch reviews clean ("ready to merge"), **not merged** (maintainer merges per convention). A Telegram Mini App (auto sign-in by verifying Telegram's signed `initData` server-side → Firebase custom token; optional phrase-account linking — linking or unlinking now **expunges** the temporary Telegram-derived account), a companion bot (webhook Cloud Function, `/start /status /off /who /knock /groups /notifications /help`, inline action buttons on notifications), and a notification channel switch in `sendToUser()` (Telegram bot message when `notifyChannel==='telegram'`, FCM fallback on any failure). Feature flag `TELEGRAM_ENABLED` in `js/features.js` — **true on the branch**, to be flipped false at merge. Full rundown **§23**; operator runbooks (dev preview channel + prod) in `docs/telegram-setup.md`.
+**Most recent work (session 2026-07-02): the experimental Telegram adaptation** — branch `claude/telegram-app-adaptation-t1r1jp` (now includes a merge of post-v1.3.0 `dev`), pushed, all task-level + whole-branch reviews clean ("ready to merge"), **not merged** (maintainer merges per convention). A Telegram Mini App (auto sign-in by verifying Telegram's signed `initData` server-side → Firebase custom token; optional phrase-account linking — linking or unlinking now **expunges** the temporary Telegram-derived account), a companion bot (webhook Cloud Function, `/start /status /off /who /knock /groups /notifications /help`, inline action buttons on notifications), and a notification channel switch in `sendToUser()` (Telegram bot message when `notifyChannel==='telegram'`, FCM fallback on any failure). Feature flag `TELEGRAM_ENABLED` in `js/features.js` — **true on the branch**, to be flipped false at merge. Full rundown **§24**; operator runbooks (dev preview channel + prod) in `docs/telegram-setup.md`.
 
 **Next likely action (Telegram):** the user was mid-**manual dev testing** (runbook Part A, smoke test A8) — the last three commits (cache-owner guard, link-expunge, unlink-expunge) still need a dev redeploy (`node scripts/dev-build.js` + channel deploy + functions deploy, runbook A3–A5). Then the merge decision, and **at flag-flip time** the one open Important finding from the final review: the Telegram script tag (`index.template.html`) and CSP/frame-ancestors relaxation (`firebase.json`) ship regardless of the flag — remove them in the flag-flip commit or explicitly accept the residue.
 
 ---
 
-**Prior work (sessions 2026-06-18):** two waves on branch `onboarding-platform-matrix`. (The "next likely action" from that handoff — merge `dev → main` + tag `v1.3.0` — may have since shipped; `main`'s tip was a dev merge (#281) when the Telegram session started. Verify before acting on it.)
+**Prior work (session 2026-06-21 — shipped as `v1.3.0`, `dev → main` PR #281):** a sorting / hints / cross-device-polish pass on branch `claude/stoic-edison-fd4173` — FTU **hint rotation** (new `js/hintRotation.js`), **Direct contact-list live sorting** (rename / availability / incoming-call pin / knock-float-restore), layout consistency (authoritative `--nav-h`; group header now sticky, **#274**), and the cross-device **favorites sync fix (#253)**. Full rundown in **§23**.
+
+**Prior work (sessions 2026-06-18):** two waves on branch `onboarding-platform-matrix`.
 1. **Onboarding & install redesign + invite-preview fix — shipped as `v1.2.0`** (merged `dev → main`): platform-aware install lanes (`onboardingLane()`), a capability-driven Install button shown from page load on Chromium, an in-flow corner install icon + toast inside `#main-ui-direct` (Direct-only), a rebuilt restore/sign-in screen (always-visible field, one adaptive "Paste & Sign in"/"Sign in" button), Telegram/in-app-browser handling with a clipboard + `?setup=install` handoff, and a new **unauthenticated `resolveInvitePreview` Cloud callable** so invite framing works for brand-new users. Full rundown in **§21**.
-2. **`/about` page + invite framing — POST-v1.2.0, about to merge `dev → main`**: a shareable `/about` landing page (merged from `claude/adoring-fermi-panh4e`), an in-app-browser "Open app" escape (iOS `x-safari-https://` / Android `intent://`, device-tested on iOS+Android), and invite framing on `/about?i=TOKEN` (fetches `resolveInvitePreview`, carries the token into the app). Full rundown in **§22**. Rides the next release tag.
+2. **`/about` page + invite framing — POST-v1.2.0, about to merge `dev → main`**: a shareable `/about` landing page (merged from `claude/adoring-fermi-panh4e`), an in-app-browser "Open app" escape (iOS `x-safari-https://` / Android `intent://`, device-tested on iOS+Android), and invite framing on `/about?i=TOKEN` (fetches `resolveInvitePreview`, carries the token into the app). Full rundown in **§22**. Shipped in **`v1.3.0`** (this release).
 
 (Prior sessions: §18 = 2026-06-13 perf/hygiene, §19 = 2026-06-14 push/notifications, §20 = the v1.1.0 release note.)
 
-**Next likely action:** merge `onboarding-platform-matrix` `dev → main` (the /about work), then cut the next tag (suggest **`v1.3.0`** — additive). Open follow-up #265 (configurable invite-link surface) is background, not a blocker. **No manual cache step is needed** — `firebase.json` serves everything `no-cache` and `sw.js`'s `CACHE` is auto-stamped with a content hash at build (see §Service worker cache).
+**Next likely action:** `v1.3.0` is merged to `main` (PR #281) and being tagged/deployed — no blockers. Background follow-ups remain: **#265** (configurable invite-link surface), **#214 R4** (suspend Direct presence watches in group), **#217** (doc-drift close), **#218** (groups backlog). **No manual cache step is needed** — `firebase.json` serves everything `no-cache` and `sw.js`'s `CACHE` is auto-stamped with a content hash at build (see §Service worker cache).
 
 **Open follow-up work** (issues, not blockers — full list in §18):
 - **#214 R4** — suspend Direct presence watches while in a group context. Deliberately separated from R3 because it's entangled with context-switching, call-mode, and flash-avoidance. The biggest dedup win (R3) already shipped.
@@ -24,7 +26,7 @@ A handoff to whoever picks this up next. Read top-to-bottom; specific subsection
 
 **Phase 4+:** request-to-follow (`js/followRequests.js`), group color/palette, and the per-audience (per-group) color picker have since **shipped**. Admin role and ownership transfer remain documented in groups spec §16 but unplanned (tracked: #180, #218).
 
-**Recently closed bugs:** #64 (knock float-to-top tab-return) and #116 (Direct swatch `<div>` a11y) are now resolved — earlier handoffs cited them as open; they are not. **#215** (Direct availability push has no shared-context label) is **closed as accept-and-document** — the unlabelled Direct push is *intended* (see §18).
+**Recently closed bugs:** #64 (knock float-to-top tab-return) and #116 (Direct swatch `<div>` a11y) are now resolved — earlier handoffs cited them as open; they are not. **#215** (Direct availability push has no shared-context label) is **closed as accept-and-document** — the unlabelled Direct push is *intended* (see §18). **#253** (cross-device favorites resurrecting stale pills) and **#274** (group availability box not sticky) were **fixed in `v1.3.0`** — see §23 (close them).
 
 ---
 
@@ -566,7 +568,49 @@ A standalone, shareable landing/about page — candidate for the link that gets 
 - **Follow-up #265** — make the invite *modal* able to emit a framed-landing link (e.g. `/invite?i=TOKEN`) instead of the canonical `/?i=`, configurably; canonical links stay default. The framing/token-carry scripts aren't path-specific, so a `/invite` → `about.html` rewrite would light up framing for free.
 - **Build wrinkle:** `__INVITE_PREVIEW_URL__` is built from the env's `FIREBASE_PROJECT_ID` (+ fixed `europe-west1`). A build with no project id (e.g. this sandbox, missing `.env.*`) emits `data-preview-url=""` → framing inert (the script bails). Real dev/prod builds inject the live URL — verify `/about?i=<real token>` shows framing on the dev deploy.
 
-## 23. Session 2026-07-02 — Telegram adaptation (experimental, flagged)
+## 23. Session 2026-06-21 — list sorting, FTU hint rotation, layout consistency, favorites sync (shipped as v1.3.0)
+
+A polish-heavy session on branch `claude/stoic-edison-fd4173`, merged to `dev` in pieces (PRs #272–#280) and promoted `dev → main` as **`v1.3.0`** (PR #281). Web suite **44 suites / 1247 tests**, Functions **4 / 76**.
+
+### 23.1 FTU hint rotation (the big feature) — `js/hintRotation.js`
+The longpress (adopt-color) and swipe (call) first-use hints were re-architected from "every eligible card pulses at once" into a **single rotating spotlight**. Spec + plan: `docs/superpowers/specs|plans/2026-06-19-hint-rotation*`.
+- **New central engine `js/hintRotation.js` owns ALL hint DOM.** Pure core (unit-tested, no DOM): `resolvePool` (visibility + prefer-available), `selectNextHint` (type alternation + per-type round-robin), `isPaused`. Engine: candidate collection, visibility, pause detection, 6.85s timer, single-hint placement.
+- **Row painters only stamp eligibility attributes now** — `updateFolloweeRow` (Direct) and `paintRosterRow` (group) set `data-hint-longpress` / `data-hint-swipe` / `data-hint-avail`; the engine reads them from the active context's list (`#people-list` / `#group-roster`). The old inline `.longpress-hint`/`.swipe-hint` placement + the `_hintAlternate*` timer + `refreshLongpressHints` are gone.
+- **Behavior (B1–B8 in the spec):** one hint at a time, alternating type each step; two **identity-stable** round-robin pointers (state `{ lastType, lastIds }`, advanced via `pool.indexOf(lastId)` so re-sorts don't desync); fully-visible cards only; **visibility-first prefer-available** (Interpretation Y — among visible cards prefer available, else visible-unavailable; an off-screen available card does NOT block a visible unavailable one); 6.85s cadence; Direct = both types, Group = longpress only; `prefers-reduced-motion` is **NOT** honored (deliberate).
+- **Pauses** (clear + halt): any focus-stealing overlay open (card / share-code drawer, add-person form, create-group / invite modals, group Settings `<details>`, notify popover, revealed recovery phrase — detected centrally via a debounced `MutationObserver` on class/`open`/childList), a call active/incoming, app backgrounded, or active scroll.
+- **Visible-region top is runtime-measured** (`_regionTop`): bottom of the lowest *currently-pinned* header in the active context (reads `getComputedStyle().position`), so it adapts whether or not the group header is sticky (decoupled from #274 — see 23.3).
+- **Gestures retire a hint via `clearActiveHint()`** (never remove the DIV directly). Group adoption re-stamps the roster synchronously so the engine can't re-pulse before the async override echo. App boot wires `initHintRotation()`.
+- **Import-cycle note:** `hintRotation.js` imports `getCallModeCalleeId`/`getIncomingCallFrom` from `following.js`, which imports `refreshHints`/`clearActiveHint` back — safe (runtime-only). **App-boot test suites (e.g. `tests/app-call-recovery.test.js`) must mock `../js/hintRotation.js` or `main()` throws.**
+
+### 23.2 Direct contact-list live sorting (4 fixes) — `js/following.js`
+Group already re-sorted on every change (`syncRosterOrder` → `renderRoster`); Direct painted rows in place and never re-invoked `renderList`. Brought Direct in line.
+- **`scheduleResort()` is the shared re-sort entry point** (new). Coalesced (one pending), **deferred to a microtask** (a presence value can arrive *synchronously* during `subscribePresence`, which runs inside `renderList`'s reconcile — a synchronous `renderList` there re-enters `reconcileChildren` and **throws** the re-entrancy guard), and **skip-while-editing** (a reorder blurs an open rename input; held + flushed by `confirmRename`/`cancelRename`).
+- **Rename** (`confirmRename`) now `renderList()`s after committing — was: only on browser refresh.
+- **Availability** — the `subscribeToFollowee` presence callback `scheduleResort()`s only when availability **flips** (not on every color/lastSeen tick).
+- **Incoming-call pin** — `sortFollowees` pins `callModeCalleeId ?? _incomingCall?.from` (mutually exclusive) to its section top; the own-call watcher `scheduleResort()`s on ring start/end. **Calls sit above knocks, both directions:** `renderList`'s float loop lifts the call card above floated knockers, and `knock.js applyFloatToTop` inserts a float *below* a top `.call-mode` card.
+- **Knock-float expiry** — see 23.4.
+
+### 23.3 Layout / CSS — `css/app.css`
+- **Direct availability box no longer drifts/scrolls.** `#nav-row` renders ~`4rem+1px` but `#app-header`'s sticky `top` and `#main-ui-direct`'s `min-height` hardcoded `3rem` → content box ~17px over-tall → spurious page scroll. Fix: a single authoritative **`--nav-h`** sourced on `#nav-row`, referenced by both. (Install-fab bottom margin dropped `2rem → 1rem` since the column is now the right height.)
+- **Group availability box is now sticky like Direct's (#274).** `.group-context-header` gained `position:sticky; top:var(--nav-h); z-index:100`. The hint engine's runtime clip (23.1) picks it up automatically.
+
+### 23.4 Knock-float restore is now re-sort-based — `js/knock.js`
+`restoreFromFloat` used to manually `insertBefore` the card at a neighbor captured when the float *started* — stale after any re-sort during the float (now frequent with 23.2), landing the card wrong or appended to the bottom, and ignoring status changes during the float. **Intermittent** because a later unrelated re-sort sometimes corrected it. Now expiry just clears the float and dispatches **`knock-float-restored`**; `following.js` (→ `scheduleResort`) and `groupContext.js` (→ `syncRosterOrder`) re-sort so the now-unfloated card lands correctly. The manual DOM move (and its cross-context phantom-row risk) is gone.
+
+### 23.5 Cross-device favorites sync fix (#253) — `js/prefs.js`
+`syncFromServer` preserved *every* local-only favorite at the head as a "pending write". A local-only entry *after* a server-known entry is actually a stale remnant (cap-dropped on the other device) → it zombied at slot 1. Fix: preserve only the **leading run** of local-only entries; the server owns everything from the first server-known entry down. (Surfaced in groups because per-group `paletteState` writes wake the favorites merge constantly.)
+
+### Load-bearing context (read before touching sort / hints)
+- **`scheduleResort()` MUST stay deferred** (microtask) — a synchronous re-sort from a presence/own-call callback can re-enter `renderList`'s reconcile and crash. It's coalesced + skip-while-editing; the edit flush lives in `confirmRename`/`cancelRename`.
+- **The engine is the sole owner of hint DOM.** Row code only stamps `data-hint-*`; don't place hint elements elsewhere. `prefers-reduced-motion` is intentionally not honored.
+- **`--nav-h` is the single source of nav height** — `#app-header` top, `#main-ui-direct` min-height, and `.group-context-header` top all reference it; the hint clip measures pinned headers at runtime. Don't reintroduce a hardcoded `3rem`.
+- **Calls-above-knocks precedence is enforced in BOTH** `renderList` (float-loop lift) and `applyFloatToTop` (`.call-mode` anchor). Change one, change both.
+
+### Open / deferred from this session
+- **#253** and **#274** are fixed — close them. **#265** (configurable invite-link surface) still open, background.
+- The hint engine's layout-dependent paths (`_isFullyVisible`/`_regionTop`) are **verified manually, not in jsdom** (no layout engine) — the pure rotation algorithm is fully unit-tested. If you change header pinning, re-check on-device.
+
+## 24. Session 2026-07-02 — Telegram adaptation (experimental, flagged)
 
 Branch `claude/telegram-app-adaptation-t1r1jp` (from `dev`-equivalent `main` tip `184546c`), ~25 commits, built task-by-task against a reviewed spec + plan. **Point at the source docs instead of restating them:**
 
