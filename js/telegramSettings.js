@@ -81,6 +81,12 @@ function showLinkScreen() {
   submit.disabled = false;
   el.classList.remove('hidden');
 
+  const subtext = document.getElementById('restore-subtext');
+  if (subtext) {
+    subtext.textContent = 'Linking replaces this temporary Telegram account — its contacts and groups will be removed.';
+    subtext.classList.remove('hidden');
+  }
+
   const showError = (msg) => { error.textContent = msg; error.classList.remove('hidden'); };
   const onFormSubmit = (e) => e.preventDefault();
   async function onSubmit() {
@@ -104,6 +110,7 @@ function showLinkScreen() {
     submit.removeEventListener('click', onSubmit);
     cancel.removeEventListener('click', onCancel);
     if (form) form.removeEventListener('submit', onFormSubmit);
+    if (subtext) subtext.classList.add('hidden');
     el.classList.add('hidden');
   }
   submit.addEventListener('click', onSubmit);

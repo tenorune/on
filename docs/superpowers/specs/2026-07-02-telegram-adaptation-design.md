@@ -43,6 +43,8 @@ the user to open the app in a browser instead.
   code })`** verifies both (phrase goes through the same rate limiter as
   `validateRecovery`), repoints `telegramUsers/{tgId}.uid` to the phrase-derived uid,
   and re-signs in. From then on the Telegram entry point lands in the linked account.
+  Linking retires (expunges) the temporary Telegram-derived account after an in-UI
+  warning; its contacts/groups do not carry over (no merge in the experiment).
 - **Unlink:** because the Telegram-derived uid is deterministic
   (`deriveTelegramUid(tgId)`), simply reverting the mapping would resurrect a shadow
   account that keeps its pre-link state forever — confusing and wrong. Instead unlink

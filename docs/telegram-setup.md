@@ -328,7 +328,9 @@ In order of increasing severity:
   Firebase custom token. Mapping lives in server-only `telegramUsers/{tgId}`
   (+ reverse index `telegramByUid/{uid}` for notification routing).
 - Linking: drawer → "I have a secret phrase" → `linkTelegram` (same rate
-  limiter as validateRecovery) repoints the mapping to the phrase account.
+  limiter as validateRecovery) repoints the mapping to the phrase account;
+  the temporary Telegram-derived account is expunged (after an in-app
+  warning) — its contacts/groups don't carry over.
 - Unlink: drawer → "Unlink account" expunges the Telegram identity from the RTDB
   (mapping + derived shadow account + its social residue); reopening the Mini App
   afterwards starts a fresh Telegram-derived account.

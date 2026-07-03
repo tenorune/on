@@ -202,6 +202,49 @@ describe('linkTelegramHandler', () => {
     expect(deps.store[`userPrefs/${uidA}/telegram`]).toBeNull();
     expect(deps.store[`userPrefs/${uidB}/notifyChannel`]).toBe('telegram');
   });
+  test('linking when prior mapping is the derived account with residue: derived account is fully expunged', async () => {
+    const deps = makeHandlerDeps();
+    const { deriveUid } = await import('../auth.js');
+    const derivedUid = deriveTelegramUid('42');
+    const phraseUid = await deriveUid(PHRASE);
+
+    // Seed the derived account as the current mapping, with residue:
+    deps.store['telegramUsers/42'] = { uid: derivedUid, chatId: '42', createdAt: 1 };
+    deps.store[`telegramByUid/${derivedUid}`] = { tgId: '42', chatId: '42' };
+    deps.store[`users/${derivedUid}/presence`] = { code: 'SHDW01', status: 'unavailable', availableUntil: null };
+    deps.store['codeIndex/SHDW01'] = derivedUid;
+    deps.store[`userPrefs/${derivedUid}/notifyChannel`] = 'telegram';
+    // Follower backref:
+    deps.store[`users/${derivedUid}/followers`] = { f1: 'F1CODE' };
+    deps.store[`userPrefs/f1/following/${derivedUid}`] = { label: 'shadow' };
+    // Group membership (not owner):
+    deps.store[`users/${derivedUid}/groups`] = { G1: true };
+    deps.store['groups/G1/ownerId'] = 'someoneElse';
+    deps.store[`groups/G1/members/${derivedUid}`] = true;
+    // Own mailbox:
+    deps.store[`knocks/${derivedUid}`] = { from: 'someone' };
+
+    // The phrase account exists:
+    deps.store[`users/${phraseUid}/presence`] = { code: 'PHRAZ1', status: 'unavailable', availableUntil: null };
+
+    const res = await linkTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps);
+
+    expect(res.token).toBe(`token-for-${phraseUid}`);
+    expect(deps.store['telegramUsers/42']).toMatchObject({ uid: phraseUid, chatId: '42' });
+
+    // Derived account fully expunged:
+    expect(deps.store[`users/${derivedUid}`]).toBeNull();
+    expect(deps.store[`userPrefs/${derivedUid}`]).toBeNull();
+    expect(deps.store['codeIndex/SHDW01']).toBeNull();
+    expect(deps.store[`groups/G1/members/${derivedUid}`]).toBeNull();
+    expect(deps.store[`telegramByUid/${derivedUid}`]).toBeNull();
+    expect(deps.store[`userPrefs/f1/following/${derivedUid}`]).toBeNull();
+    expect(deps.store[`knocks/${derivedUid}`]).toBeNull();
+
+    // Phrase account: linked and token minted:
+    expect(deps.store[`userPrefs/${phraseUid}/notifyChannel`]).toBe('telegram');
+    expect(deps.store[`telegramByUid/${phraseUid}`]).toEqual({ tgId: '42', chatId: '42' });
+  });
 });
 
 describe('unlinkTelegramHandler', () => {

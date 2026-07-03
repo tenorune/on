@@ -23,6 +23,7 @@ function mountDom() {
     <div id="code-drawer"><div class="drawer-inner"></div></div>
     <div id="recovery-pill-row"></div>
     <div id="restore-screen" class="hidden">
+      <p id="restore-subtext" class="hidden"></p>
       <form id="restore-form"><input id="restore-input" />
         <p id="restore-error" class="hidden"></p>
         <button id="restore-submit-btn" type="submit"></button>
@@ -74,6 +75,9 @@ test('link flow: opens restore screen, validates phrase, calls linkTelegram', as
   document.getElementById('tg-link-btn').click();
   const screen = document.getElementById('restore-screen');
   expect(screen.classList.contains('hidden')).toBe(false);
+  const subtext = document.getElementById('restore-subtext');
+  expect(subtext.classList.contains('hidden')).toBe(false);
+  expect(subtext.textContent).toMatch(/will be removed/);
   // Invalid phrase → inline error, no call.
   document.getElementById('restore-input').value = 'not a phrase';
   document.getElementById('restore-submit-btn').click();
