@@ -28,6 +28,7 @@ import { flashRegenerated } from './regenFlash.js';
 import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
 import { isTelegramContext, ensureTelegramIdentity, initTelegramChrome } from './telegram.js';
+import { ensureCacheOwner } from './cacheOwner.js';
 import { initTelegramSettings } from './telegramSettings.js';
 import { initHintRotation } from './hintRotation.js';
 
@@ -619,6 +620,9 @@ async function main() {
   const { identity, isNew } = await ensureIdentity(pendingInviteToken);
   if (isTelegramContext()) initTelegramChrome();
   const { userId, code } = identity;
+
+  // Wipe another account's cached state before anything reads it (see cacheOwner.js).
+  ensureCacheOwner(userId);
 
   // Wire navigation BEFORE the invite-redemption block, otherwise navigateToGroup
   // writes to users/null/... (because initNav hasn't set the local userId yet) AND
