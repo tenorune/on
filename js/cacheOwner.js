@@ -37,7 +37,10 @@
 // script can render one frame of the *previous* account's theme before this
 // module's wipe lands. That one-frame flash is accepted as a cosmetic cost;
 // fixing it would require moving owner-checking into the inline script
-// itself, which is out of scope here.
+// itself, which is out of scope here. (about.template.html has the same
+// inline reads of statusapp_theme/statusapp_palette_state and never runs
+// this module at all — also cosmetic-only: the about page never writes or
+// migrates account state.)
 
 const OWNER_KEY = 'statusapp_cache_owner';
 

@@ -103,8 +103,9 @@ export async function validateTelegramHandler(request, deps) {
 
 // Link the Telegram identity to an existing phrase account. The phrase goes
 // through the same derived-uid rate limiter as validateRecovery (brute-force
-// parity). The old derived account is left orphaned (spec: accepted trade-off);
-// its reverse index is removed so notifications can't route to it.
+// parity). A prior Telegram-derived account is EXPUNGED (see the branch
+// below) — the client warns first; a prior phrase account (direct relink)
+// is left intact with its telegram routing/prefs reset.
 export async function linkTelegramHandler(request, deps) {
   const tgUser = requireTelegramUser(request, deps);
   const normalized = normalizeRecoveryCode(request.data?.code);
