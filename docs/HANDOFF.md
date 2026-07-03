@@ -2,7 +2,13 @@
 
 A handoff to whoever picks this up next. Read top-to-bottom; specific subsections can be re-skimmed when working in a particular area.
 
-**Most recent work (sessions 2026-06-18):** two waves on branch `onboarding-platform-matrix`.
+**Most recent work (session 2026-07-02): the experimental Telegram adaptation** — branch `claude/telegram-app-adaptation-t1r1jp`, pushed, all task-level + whole-branch reviews clean ("ready to merge"), **not merged** (maintainer merges per convention). A Telegram Mini App (auto sign-in by verifying Telegram's signed `initData` server-side → Firebase custom token; optional phrase-account linking — linking or unlinking now **expunges** the temporary Telegram-derived account), a companion bot (webhook Cloud Function, `/start /status /off /who /knock /groups /notifications /help`, inline action buttons on notifications), and a notification channel switch in `sendToUser()` (Telegram bot message when `notifyChannel==='telegram'`, FCM fallback on any failure). Feature flag `TELEGRAM_ENABLED` in `js/features.js` — **true on the branch**, to be flipped false at merge. Full rundown **§23**; operator runbooks (dev preview channel + prod) in `docs/telegram-setup.md`.
+
+**Next likely action (Telegram):** the user was mid-**manual dev testing** (runbook Part A, smoke test A8) — the last three commits (cache-owner guard, link-expunge, unlink-expunge) still need a dev redeploy (`node scripts/dev-build.js` + channel deploy + functions deploy, runbook A3–A5). Then the merge decision, and **at flag-flip time** the one open Important finding from the final review: the Telegram script tag (`index.template.html`) and CSP/frame-ancestors relaxation (`firebase.json`) ship regardless of the flag — remove them in the flag-flip commit or explicitly accept the residue.
+
+---
+
+**Prior work (sessions 2026-06-18):** two waves on branch `onboarding-platform-matrix`. (The "next likely action" from that handoff — merge `dev → main` + tag `v1.3.0` — may have since shipped; `main`'s tip was a dev merge (#281) when the Telegram session started. Verify before acting on it.)
 1. **Onboarding & install redesign + invite-preview fix — shipped as `v1.2.0`** (merged `dev → main`): platform-aware install lanes (`onboardingLane()`), a capability-driven Install button shown from page load on Chromium, an in-flow corner install icon + toast inside `#main-ui-direct` (Direct-only), a rebuilt restore/sign-in screen (always-visible field, one adaptive "Paste & Sign in"/"Sign in" button), Telegram/in-app-browser handling with a clipboard + `?setup=install` handoff, and a new **unauthenticated `resolveInvitePreview` Cloud callable** so invite framing works for brand-new users. Full rundown in **§21**.
 2. **`/about` page + invite framing — POST-v1.2.0, about to merge `dev → main`**: a shareable `/about` landing page (merged from `claude/adoring-fermi-panh4e`), an in-app-browser "Open app" escape (iOS `x-safari-https://` / Android `intent://`, device-tested on iOS+Android), and invite framing on `/about?i=TOKEN` (fetches `resolveInvitePreview`, carries the token into the app). Full rundown in **§22**. Rides the next release tag.
 
@@ -559,3 +565,24 @@ A standalone, shareable landing/about page — candidate for the link that gets 
 - **Device-tested** on iOS + Android (the escape works from real in-app browsers). Accepted trade-off: an iOS visitor already in real Safari sees a one-time "Open in Safari?" prompt on the Open-app tap.
 - **Follow-up #265** — make the invite *modal* able to emit a framed-landing link (e.g. `/invite?i=TOKEN`) instead of the canonical `/?i=`, configurably; canonical links stay default. The framing/token-carry scripts aren't path-specific, so a `/invite` → `about.html` rewrite would light up framing for free.
 - **Build wrinkle:** `__INVITE_PREVIEW_URL__` is built from the env's `FIREBASE_PROJECT_ID` (+ fixed `europe-west1`). A build with no project id (e.g. this sandbox, missing `.env.*`) emits `data-preview-url=""` → framing inert (the script bails). Real dev/prod builds inject the live URL — verify `/about?i=<real token>` shows framing on the dev deploy.
+
+## 23. Session 2026-07-02 — Telegram adaptation (experimental, flagged)
+
+Branch `claude/telegram-app-adaptation-t1r1jp` (from `dev`-equivalent `main` tip `184546c`), ~25 commits, built task-by-task against a reviewed spec + plan. **Point at the source docs instead of restating them:**
+
+- **Spec:** `docs/superpowers/specs/2026-07-02-telegram-adaptation-design.md` (updated in place as semantics evolved — link/unlink expunge, env-var config, data model).
+- **Plan (executed, all 14 tasks):** `docs/superpowers/plans/2026-07-02-telegram-adaptation.md`.
+- **Operator runbooks:** `docs/telegram-setup.md` — Part A (dev preview channel + TEST bot, fully self-contained) and Part B (prod, fresh bot, rollback ladder). Hard-won prerequisites baked in: Node 20/22 LTS for firebase-tools (newer Nodes → "Premature close"/attest failures), verify CLI auth with `projects:list` not `login:list`.
+
+Shape of the implementation (all server logic dependency-injected, tests network-free):
+
+- `functions/telegram-auth.js` — initData HMAC verification (timing-safe, freshness-bounded both directions), deterministic derived uid `sha256("telegram:"+tgId)`, idempotent account bootstrap, `validateTelegram`/`linkTelegram`/`unlinkTelegram` callables. **Link and unlink both expunge the Telegram-derived account** (`expungeDerivedAccount`: mapping, reverse index, own subtree, cross-user residue — follower/following backrefs, canvases, group memberships, owned groups, invite tokens). Rationale: the derived uid is deterministic, so anything left behind resurrects as a shadow account (bit the user in testing — one-way "Following" doppelgänger).
+- `functions/telegram.js` — bot router (commands + callback queries + notification keyboards), mirrors client RTDB write shapes exactly (knock cap-5 transaction, join defaults, follow-grant shape).
+- `functions/notifier.js` `sendToUser()` — channel switch; route read from server-only `telegramByUid/{uid}` (client-tamper-safe), FCM fallback on any failure.
+- `functions/index.js` — webhook endpoint (constant-time secret check, always-200), callable wiring, `tgApi` fetch helper. Config via `functions/.env` env vars (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_APP_URL`) — **inert when unset; never put secrets in the git-tracked `functions/.env.<projectId>`**.
+- Client: `js/telegram.js` (context detection, initData boot auth, share sheet), `js/telegramSettings.js` (drawer: link with expunge warning, unlink, channel toggle), `js/cacheOwner.js` (**account-scoped localStorage wiped on uid change** — fixes cross-account cache bleed where `following.js`'s empty-server migration uploaded one account's contacts to another; latent in the web app too), boot gating in `js/app.js` (no install/push/SW affordances inside Telegram).
+- Rules: `telegramUsers`/`telegramByUid` deny-all; `userPrefs/$uid/notifyChannel` validated `push|telegram`. Rules tests in `tests/rules/telegram.test.js`.
+
+**Deferred minors** (triaged acceptable in the final review; batch-hardening already applied for webhook compare, callback arg guard, auth_date future bound, boot-failure alert): unbounded `claimShareCode` retry (pathological only), non-atomic link/unlink write sequences (self-healing states), unclamped bot reply labels, `about.template.html` inline theme reads bypass `cacheOwner` (cosmetic).
+
+**Known product boundary:** an unlinked Telegram user always auto-creates a fresh derived account on next Mini App open (Telegram identity = an account, by design). No merge of a Telegram-only account's contacts/groups into a linked phrase account — linking expunges after an in-UI warning (user-approved decision; full merge specced as a possible future project).
