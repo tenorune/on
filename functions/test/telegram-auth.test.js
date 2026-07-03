@@ -1,6 +1,6 @@
 import { createHmac } from 'crypto';
 import { jest } from '@jest/globals';
-import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler } from '../telegram-auth.js';
+import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, expungeDerivedAccount } from '../telegram-auth.js';
 
 const BOT_TOKEN = '12345:TEST_TOKEN';
 
@@ -205,21 +205,118 @@ describe('linkTelegramHandler', () => {
 });
 
 describe('unlinkTelegramHandler', () => {
-  test('reverts mapping to the derived uid and flips the phrase account back to push', async () => {
+  test('linked account unlink expunges the derived shadow account and its social residue, and cleans the phrase account', async () => {
     const deps = makeHandlerDeps();
     const { deriveUid } = await import('../auth.js');
     const phraseUid = await deriveUid('able-baker-charlie-delta');
     deps.store[`users/${phraseUid}/presence`] = { code: 'PHRAZ1', status: 'unavailable', availableUntil: null };
-    await validateTelegramHandler({ data: { initData: freshInitData() } }, deps);
+    // Telegram user opens the Mini App (derived shadow account is created)...
+    const { uid: derivedUid } = await validateTelegramHandler({ data: { initData: freshInitData() } }, deps);
+    // ...then links to the phrase account, leaving the derived account behind as a shadow.
     await linkTelegramHandler({ data: { initData: freshInitData(), code: 'able-baker-charlie-delta' } }, deps);
+
+    // Seed residue on the derived shadow account:
+    deps.store[`users/${derivedUid}/presence`] = { code: 'SHDW01', status: 'unavailable', availableUntil: null };
+    deps.store['codeIndex/SHDW01'] = derivedUid;
+    // Follower f1:
+    deps.store[`users/${derivedUid}/followers`] = { f1: 'F1CODE' };
+    deps.store[`userPrefs/f1/following/${derivedUid}`] = { label: 'shadow' };
+    // Followee t1:
+    deps.store[`userPrefs/${derivedUid}/following`] = { t1: { label: 't1' } };
+    deps.store[`users/t1/followers/${derivedUid}`] = 'DERVCODE';
+    // Canvases with both:
+    deps.store[`canvases/${derivedUid}_f1`] = { strokes: [] };
+    deps.store[`canvases/t1_${derivedUid}`] = { strokes: [] };
+    // Membership in group G1 (not owner) + owned group G2:
+    deps.store[`users/${derivedUid}/groups`] = { G1: true, G2: true };
+    deps.store['groups/G1/ownerId'] = 'someoneElse';
+    deps.store[`groups/G1/members/${derivedUid}`] = true;
+    deps.store[`pendingInvitesByGroup/G1/${derivedUid}`] = true;
+    deps.store['groups/G2/ownerId'] = derivedUid;
+    // Invite token:
+    deps.store[`users/${derivedUid}/invites`] = { TOK1: true };
+    deps.store['inviteIndex/TOK1'] = derivedUid;
+    // Own mailboxes/state:
+    deps.store[`knocks/${derivedUid}`] = { from: 'someone' };
+    deps.store[`pendingInvites/${derivedUid}`] = { tok: 'x' };
+
+    deps.mintToken.mockClear();
     const res = await unlinkTelegramHandler({ data: { initData: freshInitData() } }, deps);
-    expect(deps.store['telegramUsers/42'].uid).not.toBe(phraseUid);
+
+    expect(res).toEqual({ ok: true });
+    expect(deps.mintToken).not.toHaveBeenCalled();
+
+    // Mapping + reverse indexes gone:
+    expect(deps.store['telegramUsers/42']).toBeNull();
     expect(deps.store[`telegramByUid/${phraseUid}`]).toBeNull();
+    expect(deps.store[`telegramByUid/${derivedUid}`]).toBeNull();
+
+    // Derived account itself gone:
+    expect(deps.store[`users/${derivedUid}`]).toBeNull();
+    expect(deps.store[`userPrefs/${derivedUid}`]).toBeNull();
+    expect(deps.store['codeIndex/SHDW01']).toBeNull();
+    expect(deps.store['inviteIndex/TOK1']).toBeNull();
+    expect(deps.store[`knocks/${derivedUid}`]).toBeNull();
+    expect(deps.store[`pendingInvites/${derivedUid}`]).toBeNull();
+
+    // Cross-user residue cleaned:
+    expect(deps.store[`userPrefs/f1/following/${derivedUid}`]).toBeNull();
+    expect(deps.store[`users/t1/followers/${derivedUid}`]).toBeNull();
+    expect(deps.store[`canvases/${derivedUid}_f1`]).toBeNull();
+    expect(deps.store[`canvases/t1_${derivedUid}`]).toBeNull();
+
+    // Non-owned group: membership cleaned, group itself intact:
+    expect(deps.store[`groups/G1/members/${derivedUid}`]).toBeNull();
+    expect(deps.store[`pendingInvitesByGroup/G1/${derivedUid}`]).toBeNull();
+    expect(deps.store['groups/G1']).toBeUndefined();
+    expect(deps.store['groups/G1/ownerId']).toBe('someoneElse');
+
+    // Owned group: whole group + pending invites gone:
+    expect(deps.store['groups/G2']).toBeNull();
+    expect(deps.store['pendingInvitesByGroup/G2']).toBeNull();
+
+    // Phrase account is untouched by the expunge, but was flipped off telegram per the
+    // link/unlink "old identity gets reset" convention:
+    expect(deps.store[`users/${phraseUid}/presence`]).toEqual({ code: 'PHRAZ1', status: 'unavailable', availableUntil: null });
     expect(deps.store[`userPrefs/${phraseUid}/notifyChannel`]).toBe('push');
-    expect(typeof res.token).toBe('string');
+    expect(deps.store[`userPrefs/${phraseUid}/telegram`]).toBeNull();
   });
+
+  test('never-linked (derived-only) unlink expunges the derived account and mapping, leaves other accounts alone', async () => {
+    const deps = makeHandlerDeps();
+    const { uid: derivedUid } = await validateTelegramHandler({ data: { initData: freshInitData() } }, deps);
+    deps.store['userPrefs/someoneElse/notifyChannel'] = 'push';
+
+    deps.mintToken.mockClear();
+    const res = await unlinkTelegramHandler({ data: { initData: freshInitData() } }, deps);
+
+    expect(res).toEqual({ ok: true });
+    expect(deps.mintToken).not.toHaveBeenCalled();
+    expect(deps.store['telegramUsers/42']).toBeNull();
+    expect(deps.store[`telegramByUid/${derivedUid}`]).toBeNull();
+    expect(deps.store[`users/${derivedUid}`]).toBeNull();
+    expect(deps.store[`userPrefs/${derivedUid}`]).toBeNull();
+    expect(deps.store['userPrefs/someoneElse/notifyChannel']).toBe('push');
+  });
+
+  test('unlink with no mapping at all returns ok without throwing', async () => {
+    const deps = makeHandlerDeps();
+    const res = await unlinkTelegramHandler({ data: { initData: freshInitData() } }, deps);
+    expect(res).toEqual({ ok: true });
+    expect(deps.mintToken).not.toHaveBeenCalled();
+  });
+
   test('no bot token configured → failed-precondition', async () => {
     const deps = { ...makeHandlerDeps(), botToken: null };
     await expect(unlinkTelegramHandler({ data: { initData: freshInitData() } }, deps)).rejects.toThrow(/not configured/i);
+  });
+});
+
+describe('expungeDerivedAccount', () => {
+  test('removes the account even when nothing exists yet (no throw)', async () => {
+    const deps = makeStoreDeps();
+    await expect(expungeDerivedAccount(deps, 'somederiveduid00000000000000000')).resolves.toBeUndefined();
+    expect(deps.store['users/somederiveduid00000000000000000']).toBeNull();
+    expect(deps.store['userPrefs/somederiveduid00000000000000000']).toBeNull();
   });
 });

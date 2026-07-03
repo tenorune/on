@@ -329,6 +329,9 @@ In order of increasing severity:
   (+ reverse index `telegramByUid/{uid}` for notification routing).
 - Linking: drawer → "I have a secret phrase" → `linkTelegram` (same rate
   limiter as validateRecovery) repoints the mapping to the phrase account.
+- Unlink: drawer → "Unlink account" expunges the Telegram identity from the RTDB
+  (mapping + derived shadow account + its social residue); reopening the Mini App
+  afterwards starts a fresh Telegram-derived account.
 - Notifications: `sendToUser` sends via the bot when
   `userPrefs/{uid}/notifyChannel === 'telegram'`, falling back to FCM on any
   failure. Toggle: drawer button or `/notifications push|telegram`.

@@ -43,9 +43,13 @@ the user to open the app in a browser instead.
   code })`** verifies both (phrase goes through the same rate limiter as
   `validateRecovery`), repoints `telegramUsers/{tgId}.uid` to the phrase-derived uid,
   and re-signs in. From then on the Telegram entry point lands in the linked account.
-- **Unlink:** reverts the mapping to the Telegram-derived uid.
-- The auto-created starter account is **orphaned** if the user later links a phrase
-  account. Accepted for an experiment; documented here.
+- **Unlink:** because the Telegram-derived uid is deterministic
+  (`deriveTelegramUid(tgId)`), simply reverting the mapping would resurrect a shadow
+  account that keeps its pre-link state forever — confusing and wrong. Instead unlink
+  **expunges the Telegram identity**: the `telegramUsers`/`telegramByUid` mapping, and
+  the derived shadow account itself, including cross-user residue (follower/following
+  backrefs, shared canvases, group memberships, owned groups, invite tokens). Reopening
+  the Mini App afterwards bootstraps a genuinely fresh account at the same derived uid.
 - Inside Telegram the client **always auths from `initData` on boot** — never the
   locally stored session. Zero friction, always fresh, immune to webview-storage
   quirks.

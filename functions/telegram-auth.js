@@ -134,21 +134,85 @@ export async function linkTelegramHandler(request, deps) {
   return { token };
 }
 
-// Revert the mapping to the Telegram-derived account. The phrase account goes
-// back to push delivery (it no longer has a Telegram route).
+// Delete every RTDB record of the Telegram-derived shadow account, including
+// residue it left on other users' records (follower/following backrefs,
+// shared canvases, group memberships/ownership, invite tokens). Reads first,
+// then deletes, so a half-populated account doesn't blow up on missing nodes.
+//
+// Deliberately NOT cleaned (transient/server-only, self-healing):
+//  - Knocks this uid sent that are sitting in OTHER users' `knocks/{them}`
+//    inboxes — those are addressed to the recipient, not owned by this uid.
+//  - `notifierState` cooldown bookkeeping.
+export async function expungeDerivedAccount(deps, uid) {
+  const [presence, invites, followers, following, groups] = await Promise.all([
+    deps.getVal(`users/${uid}/presence`),
+    deps.getVal(`users/${uid}/invites`),
+    deps.getVal(`users/${uid}/followers`),
+    deps.getVal(`userPrefs/${uid}/following`),
+    deps.getVal(`users/${uid}/groups`),
+  ]);
+
+  if (presence?.code) await deps.set(`codeIndex/${presence.code}`, null);
+
+  for (const token of Object.keys(invites || {})) {
+    await deps.set(`inviteIndex/${token}`, null);
+  }
+
+  for (const fid of Object.keys(followers || {})) {
+    await deps.set(`userPrefs/${fid}/following/${uid}`, null);
+  }
+
+  for (const tid of Object.keys(following || {})) {
+    await deps.set(`users/${tid}/followers/${uid}`, null);
+  }
+
+  const peers = new Set([...Object.keys(followers || {}), ...Object.keys(following || {})]);
+  for (const peer of peers) {
+    await deps.set(`canvases/${uid}_${peer}`, null);
+    await deps.set(`canvases/${peer}_${uid}`, null);
+  }
+
+  for (const gid of Object.keys(groups || {})) {
+    const ownerId = await deps.getVal(`groups/${gid}/ownerId`);
+    if (ownerId === uid) {
+      await deps.set(`groups/${gid}`, null);
+      await deps.set(`pendingInvitesByGroup/${gid}`, null);
+    } else {
+      await deps.set(`groups/${gid}/members/${uid}`, null);
+      await deps.set(`pendingInvitesByGroup/${gid}/${uid}`, null);
+    }
+  }
+
+  await deps.set(`knocks/${uid}`, null);
+  await deps.set(`calls/${uid}`, null);
+  await deps.set(`followRequests/${uid}`, null);
+  await deps.set(`followGrants/${uid}`, null);
+  await deps.set(`pendingInvites/${uid}`, null);
+  await deps.set(`revocations/${uid}`, null);
+
+  await deps.set(`users/${uid}`, null);
+  await deps.set(`userPrefs/${uid}`, null);
+}
+
+// Unlink expunges the Telegram identity entirely: the derived uid is
+// deterministic (deriveTelegramUid), so simply reverting the mapping used to
+// resurrect a shadow account that kept its pre-link state forever — able to
+// set availability and knock with no real contact watching it. Instead we
+// delete every RTDB record of the derived account (and its cross-user
+// residue) and leave the mapping gone; reopening the Mini App afterwards
+// bootstraps a genuinely fresh account at the same derived uid.
 export async function unlinkTelegramHandler(request, deps) {
   const tgUser = requireTelegramUser(request, deps);
   const tgId = String(tgUser.id);
-  const prior = await deps.getVal(`telegramUsers/${tgId}`);
   const derivedUid = deriveTelegramUid(tgId);
-  const chatId = prior?.chatId || tgId;
+  const prior = await deps.getVal(`telegramUsers/${tgId}`);
   if (prior && prior.uid !== derivedUid) {
+    // Linked phrase account: clean it the same way a direct relink would.
     await deps.set(`telegramByUid/${prior.uid}`, null);
     await deps.update(`userPrefs/${prior.uid}`, { telegram: null, notifyChannel: 'push' });
   }
-  await deps.set(`telegramUsers/${tgId}`, { uid: derivedUid, chatId, createdAt: deps.now() });
-  await deps.set(`telegramByUid/${derivedUid}`, { tgId, chatId });
-  const { uid } = await ensureTelegramUser(deps, tgUser); // re-bootstrap presence if needed
-  const token = await deps.mintToken(uid);
-  return { token };
+  await expungeDerivedAccount(deps, derivedUid);
+  await deps.set(`telegramUsers/${tgId}`, null);
+  await deps.set(`telegramByUid/${derivedUid}`, null);
+  return { ok: true };
 }

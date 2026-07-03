@@ -53,7 +53,7 @@ export async function callLinkTelegram(initData, code) {
 }
 export async function callUnlinkTelegram(initData) {
   const { data } = await _unlinkTelegram({ initData });
-  return data; // { token }
+  return data; // { ok: true }
 }
 
 let _messaging = null;
