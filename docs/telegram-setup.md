@@ -5,10 +5,13 @@ The Telegram adaptation ships behind `TELEGRAM_ENABLED` in `js/features.js`
 env vars are set at functions-deploy time — deploying unconfigured code is
 always safe.
 
-Two independent runbooks follow. Each is complete on its own:
+Three parts follow. A and B are independent runbooks, each complete on its
+own; the merge-prep section sits between them in time:
 
 - **Part A — Dev: preview channel + test bot.** Test the feature branch
   end-to-end on the dev Firebase project without merging anything.
+- **Merge prep — the flag-flip commit.** What to change when the branch
+  merges to mainline with the feature dark, and how to undo it at launch.
 - **Part B — Production.** Launch for real users on the prod Firebase
   project, with a fresh production bot.
 
@@ -184,6 +187,91 @@ Use the exact URL from A5.3 and the same secret you put in `functions/.env`.
 
 ---
 
+## Merge prep — the flag-flip commit (feature dark on mainline)
+
+**Decision (2026-07-04): revert the ungated hosting artifacts at flag-flip.**
+`TELEGRAM_ENABLED = false` silences all the JavaScript, but two artifacts are
+static hosting config the flag cannot reach — the Telegram bridge `<script>`
+tag and the relaxed security headers. Left in place, every visitor of a
+dark-flag deploy would still load third-party JS from telegram.org and the
+app would still be embeddable by telegram.org sites. So the flag-flip commit
+removes them too: a dark mainline serves a hosting surface identical to the
+pre-Telegram one.
+
+When the branch is ready to merge, make **one commit** on the feature branch
+containing exactly these three changes:
+
+1. **`js/features.js`** — turn the flag off:
+
+       export const TELEGRAM_ENABLED = false;
+
+2. **`index.template.html`** — delete the Telegram bridge script tag *and*
+   its comment (in `<head>`, right after `<title>`):
+
+       <!-- Telegram Mini App bridge. Inert outside Telegram (defines window.Telegram
+            with empty initData). Must load before the bundle so isTelegramContext()
+            can detect the webview at boot. -->
+       <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+   Delete ONLY that — the branch's other `index.template.html` additions
+   (e.g. the hidden `#invite-modal-share-btn`) are flag-gated markup and must
+   stay.
+
+3. **`firebase.json`** — restore the two pre-branch headers in the
+   `"headers"` array:
+   - In the `Content-Security-Policy` value: remove `https://telegram.org`
+     from `script-src`, and change
+
+         frame-ancestors https://web.telegram.org https://*.telegram.org;
+
+     back to
+
+         frame-ancestors 'none';
+
+   - Re-add the header the branch deleted (between `X-Content-Type-Options`
+     and `Referrer-Policy`):
+
+         { "key": "X-Frame-Options", "value": "DENY" },
+
+Verify before committing:
+
+    # no telegram reference left in either file's diff vs mainline — expect empty
+    git diff origin/dev -- firebase.json index.template.html | grep -i telegram
+    # the restored headers — expect one match each
+    grep -c "X-Frame-Options" firebase.json
+    grep -c "frame-ancestors 'none'" firebase.json
+
+Then run the test suites (`npx jest`; `cd functions && npm test`) — they do
+not depend on the flag's value — commit, and **record the sha in the line
+below** (it is the launch key for Part B):
+
+    Flag-flip commit: ____________________  <- fill in at merge time
+
+After this merges, mainline deploys are Telegram-free for users: no
+telegram.org script, `frame-ancestors 'none'`, `X-Frame-Options: DENY`. The
+Telegram code still ships inside the JS bundle but is unreachable behind the
+flag, and the functions stay inert while `functions/.env` lacks the Telegram
+vars.
+
+### Turning the feature ON later (launch prep for Part B)
+
+Flipping the flag alone is **not** enough anymore — the script tag and the
+relaxed headers have to come back with it. Because all three changes live in
+the single flag-flip commit, launching is one command on the launch branch:
+
+    git revert <flag-flip commit sha>
+
+If the revert conflicts (someone edited the CSP line since), re-apply the
+three changes of the flag-flip commit in reverse by hand: flag `true`,
+script tag back into `index.template.html`, `script-src` gains
+`https://telegram.org`, `frame-ancestors` lists
+`https://web.telegram.org https://*.telegram.org`, and the
+`X-Frame-Options: DENY` line is deleted.
+
+Part B below assumes this reverted state.
+
+---
+
 ## Part B — Production
 
 Everything here targets the **prod Firebase project**, with a **fresh
@@ -191,11 +279,12 @@ production bot**. Do not reuse the test bot or any of its values.
 
 ### B1. Prerequisites
 
-- The feature branch merged to `main` via the normal `dev` → `main` flow.
-- **`TELEGRAM_ENABLED = true` in `js/features.js` in the build you deploy** —
-  the flag is the launch switch. (The merge itself may land with the flag
-  `false`; flipping it true in a prod deploy is what turns the feature on for
-  users.)
+- The feature branch merged to `main` via the normal `dev` → `main` flow,
+  dark, with the flag-flip commit as its tip (see "Merge prep" above).
+- **The flag-flip commit reverted in the build you deploy** (`git revert
+  <flag-flip sha>` — restores `TELEGRAM_ENABLED = true`, the telegram.org
+  script tag, and the relaxed headers). That revert is the launch switch;
+  flipping the flag alone is not enough.
 - `.env.production` present (prod web config). Capture the prod project id:
 
       PROD_PROJECT=$(grep '^FIREBASE_PROJECT_ID=' .env.production | cut -d= -f2)
@@ -306,18 +395,22 @@ In order of increasing severity:
   automatically (`sendToUser`'s FCM fallback).
 - **Hide the client surface:** set `TELEGRAM_ENABLED = false` in
   `js/features.js` and redeploy hosting — Telegram opens the app like a plain
-  browser with phrase onboarding; nothing Telegram-specific renders.
+  browser with phrase onboarding; nothing Telegram-specific renders. (This
+  quick flip leaves the telegram.org script tag and relaxed headers serving;
+  fine for an emergency. To fully restore the pre-Telegram hosting surface,
+  re-apply the flag-flip commit — the three changes in "Merge prep" — and
+  redeploy hosting.)
 
 ### Part B caveats
 
 - Existing users are unaffected until they open the app inside Telegram:
   Web Push keeps working as-is, and `notifyChannel` only flips to `telegram`
   for accounts that link.
-- The Telegram script tag and the relaxed CSP (`frame-ancestors` for
-  telegram.org, `script-src https://telegram.org`) ship with the hosting
-  deploy regardless of the flag — that's what lets Telegram embed the app. If
-  you ever retire the feature entirely, remove those from
-  `index.template.html` / `firebase.json` too.
+- In a launched (flag-on) build, the Telegram script tag and the relaxed CSP
+  (`frame-ancestors` for telegram.org, `script-src https://telegram.org`)
+  necessarily ship to every visitor, Telegram or not — that's what lets
+  Telegram embed the app. Retiring or pausing the feature means re-applying
+  the flag-flip commit (see "Merge prep"), which removes them again.
 
 ---
 
