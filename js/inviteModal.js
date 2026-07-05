@@ -69,10 +69,11 @@ function showError(msg) {
   errEl.textContent = msg;
 }
 
-function closeModal() {
+export function closeInviteModal() {
   document.getElementById('invite-modal').classList.add('hidden');
   clearListeners();
 }
+const closeModal = closeInviteModal;
 
 export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, mutuals = [], currentMemberUids = new Set() }) {
   const copy = SCOPE_COPY[scope];

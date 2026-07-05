@@ -116,7 +116,7 @@ export async function openInboxModal() {
   await renderInboxModalRows();
 }
 
-function closeInboxModal() {
+export function closeInboxModal() {
   const modal = document.getElementById('inbox-modal');
   if (!modal) return;
   modal.classList.add('hidden');

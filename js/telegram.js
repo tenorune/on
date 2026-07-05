@@ -16,23 +16,6 @@ export function isTelegramContext() {
   return TELEGRAM_ENABLED && !!tgWebApp()?.initData;
 }
 
-// Telegram chrome: signal readiness, take the full viewport, and match the
-// webview header/background to the app background. App theming stays the
-// app's own — palettes are the product; only the chrome color is synced.
-export function initTelegramChrome() {
-  const wa = tgWebApp();
-  if (!wa) return;
-  try {
-    wa.ready();
-    wa.expand();
-    const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
-    if (bg) {
-      wa.setHeaderColor?.(bg);
-      wa.setBackgroundColor?.(bg);
-    }
-  } catch { /* chrome sugar must never block boot */ }
-}
-
 let _linkState = null;
 // { linked } from the last ensureTelegramIdentity() — telegramSettings reads it.
 export function telegramLinkState() {

@@ -50,16 +50,6 @@ test('ensureTelegramIdentity: validates, signs in, returns identity with code an
   expect(tg.telegramLinkState()).toEqual({ linked: false });
 });
 
-test('initTelegramChrome: calls ready + expand, tolerates missing APIs', () => {
-  setTelegramGlobal();
-  const tg = require('../js/telegram.js');
-  tg.initTelegramChrome();
-  expect(window.Telegram.WebApp.ready).toHaveBeenCalled();
-  expect(window.Telegram.WebApp.expand).toHaveBeenCalled();
-  delete window.Telegram.WebApp.setHeaderColor;
-  expect(() => tg.initTelegramChrome()).not.toThrow();
-});
-
 test('openTelegramShare builds a t.me share link and opens it in Telegram', () => {
   setTelegramGlobal();
   window.Telegram.WebApp.openTelegramLink = jest.fn();
