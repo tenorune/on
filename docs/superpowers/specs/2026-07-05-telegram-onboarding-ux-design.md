@@ -205,10 +205,11 @@ keeps its current behavior (opens the drawer) — no per-surface fork.
   yours — sign in with your secret phrase in any browser. This Telegram will
   start over with a fresh, empty account." Destructive-styled confirm + Cancel.
   The link screen's existing warning + explicit button are unchanged.
-- **Server hygiene:** `unlinkTelegram` also resets the phrase account's
-  `notifyChannel` to `'push'`. (Today it stays `'telegram'` and survives only
-  via per-send FCM fallback — an invisible misconfiguration, doubly invisible
-  given web link-blindness.)
+- **Server hygiene (verified already present):** `unlinkTelegram` already
+  resets the unlinked phrase account's prefs to
+  `{ telegram: null, notifyChannel: 'push' }`
+  (`functions/telegram-auth.js:223`). No new work — the existing behavior is
+  pinned by tests and relied on by the §4 Notifications section.
 - **Landings — one mechanism, two messages.** Link and unlink both end in
   `location.reload()`, and the uid change makes `cacheOwner` wipe
   account-scoped localStorage. The handoff marker is therefore a
@@ -320,8 +321,27 @@ the recovery pill stays hidden in TG after graduation, same as linked accounts.
 - **No new RTDB nodes, no rules changes, in any part of this session**
   (`start_param` rides signed initData; graduation only moves existing data).
 
-**Server deltas:** `/start` branching; `unlinkTelegram` notifyChannel reset;
-`graduateTelegram` + walker refactor (follow-on).
+**Server deltas:** `/start` branching; synthetic Auth identifier at bootstrap
+(below); `graduateTelegram` + walker refactor (follow-on). (`unlinkTelegram`'s
+`notifyChannel: 'push'` reset already exists — no delta.)
+
+**Synthetic Auth identifier (console differentiation).** Telegram-derived and
+phrase accounts are indistinguishable in Firebase console → Authentication →
+Users (both are custom-token users: blank Identifier, bare 32-hex uid). At
+first derived-account bootstrap (`ensureTelegramUser` creation path), the
+server also stamps the Auth user record with an **anonymous synthetic email**
+derived from the app uid — e.g. `tg-<uid>@telegram.invalid` — so derived
+accounts are identifiable at a glance in the console's Identifier column.
+Deliberately anonymous: it carries **no Telegram identifiers** (neither the
+user handle nor the numeric tgId — the uid is already the row's own key, so
+the marker adds zero new information to Auth records). No cleanup pass needed:
+expunge leaves Auth records in place, and a derived uid slot is *permanently*
+the Telegram-derived slot for that identity, so the marker stays truthful
+across link/unlink/graduation cycles (a graduated account's new phrase-uid
+record is created unmarked, correctly reading as a phrase account).
+Implementation note: the record may not exist before the client's first
+`signInWithCustomToken`, so this is a create-or-update Admin SDK call, injected
+via deps like everything else in `telegram-auth.js`.
 
 **Testing:**
 - Web Jest: `firstRun` (empty-state lifecycle, landing banners from
@@ -333,8 +353,9 @@ the recovery pill stays hidden in TG after graduation, same as linked accounts.
   call-state closing-confirmation transitions); drawer sections mount per
   surface; recovery-modal knobs (web signup byte-identical, graduation variant
   renders intro/warning/cancel).
-- Functions Jest: `/start` stranger-vs-returning; unlink resets notifyChannel;
-  (follow-on: graduation — walker rewrite vs delete parity with expunge, write
+- Functions Jest: `/start` stranger-vs-returning; bootstrap stamps the
+  synthetic Auth email (and only on creation); unlink notifyChannel reset
+  stays pinned; (follow-on: graduation — walker rewrite vs delete parity with expunge, write
   ordering, collision/linked-mapping rejections, rate limiting).
 - Rules suite: unchanged.
 - **A9 on-device checklist** added to `docs/telegram-setup.md`: deep-link
