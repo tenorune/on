@@ -14,6 +14,7 @@ import {
   initInstallPrompt, isInstallPromptAvailable, isAppInstalled,
   promptInstall, onInstallPromptChange,
 } from './installPrompt.js';
+import { isFirstRunActive } from './firstRun.js';
 
 function isMac() { return /Macintosh|Mac OS X/.test((navigator.userAgent) || ''); }
 
@@ -74,7 +75,9 @@ export function initInstallAffordance() {
     const relevant = !isAppInstalled()
       && (lane === 'installable' || lane === 'push-in-tab' || lane === 'ios-install' || lane === 'macos-install');
     if (!relevant) { toast.classList.add('hidden'); fab.classList.add('hidden'); return; }
-    if (dismissed) {
+    if (dismissed || isFirstRunActive()) {
+      // First-run defers the toast without consuming the lead-in: one teaching
+      // surface at a time (spec §3). The quiet corner icon stays available.
       toast.classList.add('hidden');
       fab.classList.remove('hidden');
     } else {
@@ -93,5 +96,6 @@ export function initInstallAffordance() {
   // fillToast), so its click always has a live prompt to fire.
   if (actionEl) actionEl.addEventListener('click', async () => { await promptInstall(); apply(); });
   onInstallPromptChange(apply);
+  document.addEventListener('first-run-change', apply);
   apply();
 }

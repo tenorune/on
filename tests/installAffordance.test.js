@@ -1,6 +1,8 @@
 function setUA(ua) { Object.defineProperty(global.navigator, 'userAgent', { value: ua, configurable: true }); }
 function setStandalone(matches) { global.window.matchMedia = () => ({ matches }); }
 
+jest.mock('../js/firstRun.js', () => ({ isFirstRunActive: jest.fn(() => false) }));
+
 const { pushInTabCopy } = require('../js/installAffordance.js');
 
 describe('pushInTabCopy', () => {
@@ -32,7 +34,14 @@ describe('install affordance rendering', () => {
   function setInstallPromptSupport(on) {
     if (on) window.onbeforeinstallprompt = null; else delete window.onbeforeinstallprompt;
   }
-  beforeEach(() => { __resetInstallPromptForTests(); dom(); setStandalone(false); delete window.onbeforeinstallprompt; });
+  beforeEach(() => {
+    const { isFirstRunActive } = require('../js/firstRun.js');
+    isFirstRunActive.mockReturnValue(false);
+    __resetInstallPromptForTests();
+    dom();
+    setStandalone(false);
+    delete window.onbeforeinstallprompt;
+  });
 
   test('Firefox desktop: toast shows first (fab hidden); dismiss reveals fab; fab reopens toast', () => {
     setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0');
@@ -114,5 +123,36 @@ describe('install affordance rendering', () => {
     expect(toast.classList.contains('hidden')).toBe(false);
     expect(document.getElementById('install-toast-text').innerHTML).toMatch(/Add to Home Screen/i);
     expect(document.getElementById('install-toast-action').classList.contains('hidden')).toBe(true);
+  });
+
+  test('toast defers to the corner icon while first-run is active (not dismissed)', () => {
+    const { isFirstRunActive } = require('../js/firstRun.js');
+    isFirstRunActive.mockReturnValue(true);
+    setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
+    // Fire a beforeinstallprompt so the install prompt is available → lane 'installable'.
+    const evt = new Event('beforeinstallprompt');
+    evt.preventDefault = jest.fn();
+    evt.prompt = jest.fn();
+    evt.userChoice = Promise.resolve({ outcome: 'accepted' });
+    initInstallAffordance();        // registers the beforeinstallprompt listener
+    window.dispatchEvent(evt);      // now available; onInstallPromptChange → apply()
+    expect(document.getElementById('install-toast').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('install-fab').classList.contains('hidden')).toBe(false);
+  });
+
+  test('first-run-change re-applies: toast resumes when the empty state clears', () => {
+    const { isFirstRunActive } = require('../js/firstRun.js');
+    isFirstRunActive.mockReturnValue(true);
+    setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
+    // Fire a beforeinstallprompt so the install prompt is available → lane 'installable'.
+    const evt = new Event('beforeinstallprompt');
+    evt.preventDefault = jest.fn();
+    evt.prompt = jest.fn();
+    evt.userChoice = Promise.resolve({ outcome: 'accepted' });
+    initInstallAffordance();        // registers the beforeinstallprompt listener
+    window.dispatchEvent(evt);      // now available; onInstallPromptChange → apply()
+    isFirstRunActive.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('first-run-change'));
+    expect(document.getElementById('install-toast').classList.contains('hidden')).toBe(false);
   });
 });
