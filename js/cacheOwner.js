@@ -34,13 +34,19 @@
 // Cosmetic nuance: the inline theme-restore script in index.template.html
 // reads statusapp_theme directly (before any bundle code runs, to avoid a
 // flash of the wrong theme on normal boots). On an account switch, that
-// script can render one frame of the *previous* account's theme before this
-// module's wipe lands. That one-frame flash is accepted as a cosmetic cost;
-// fixing it would require moving owner-checking into the inline script
-// itself, which is out of scope here. (about.template.html has the same
-// inline reads of statusapp_theme/statusapp_palette_state and never runs
-// this module at all — also cosmetic-only: the about page never writes or
-// migrates account state.)
+// script paints the *previous* account's theme vars onto <html> before this
+// module's wipe lands — and the wipe only clears storage, not the painted
+// vars. That's why ensureCacheOwner RETURNS whether it wiped: app.js boot
+// calls resetThemeVars() on a wipe, so the residue lasts one splash-covered
+// boot moment instead of the whole session. (The own-status watcher can't
+// cover this: for an account with no palette it sees null === null and
+// skips its reset — bit us after a Telegram unlink, where the fresh derived
+// account kept the old linked account's theme.) Eliminating even the brief
+// flash would require moving owner-checking into the inline script itself,
+// which stays out of scope. (about.template.html has the same inline reads
+// of statusapp_theme/statusapp_palette_state and never runs this module at
+// all — also cosmetic-only: the about page never writes or migrates account
+// state.)
 
 const OWNER_KEY = 'statusapp_cache_owner';
 
@@ -112,8 +118,11 @@ function removeAccountScopedKeys() {
 // whenever the active uid differs from whoever last owned this origin's
 // cache. Call this as the very first thing after identity resolves, before
 // initOwnStatus/initNav/initPrefs or any other cache consumer.
+// Returns true iff an owner change wiped the cache — the caller must then
+// reset DOM state derived from the wiped keys (see the header note on the
+// inline theme-restore script).
 export function ensureCacheOwner(uid) {
-  if (!uid) return;
+  if (!uid) return false;
 
   let marker;
   try {
@@ -121,15 +130,17 @@ export function ensureCacheOwner(uid) {
   } catch {
     // Can't read localStorage (private mode / disabled) — nothing we can do,
     // and boot must not break because of it.
-    return;
+    return false;
   }
 
-  if (marker === uid) return;
+  if (marker === uid) return false;
 
+  let wiped = false;
   if (marker) {
     // A different account previously owned this cache — wipe it before
     // stamping the new owner.
     removeAccountScopedKeys();
+    wiped = true;
   }
   // else: no marker means first run on this origin, OR an existing
   // single-account install upgrading to this code for the first time.
@@ -137,4 +148,5 @@ export function ensureCacheOwner(uid) {
   // pre-existing single-account cache is preserved.
 
   try { localStorage.setItem(OWNER_KEY, uid); } catch { /* private mode / quota */ }
+  return wiped;
 }

@@ -621,8 +621,12 @@ async function main() {
   if (isTelegramContext()) initTelegramChrome();
   const { userId, code } = identity;
 
-  // Wipe another account's cached state before anything reads it (see cacheOwner.js).
-  ensureCacheOwner(userId);
+  // Wipe another account's cached state before anything reads it (see
+  // cacheOwner.js). On a wipe, also reset the theme vars the inline
+  // theme-restore script painted from the previous owner's (now-wiped)
+  // statusapp_theme — the own-status watcher below won't: for an account
+  // with no palette it sees paletteKey null === null and skips its reset.
+  if (ensureCacheOwner(userId)) resetThemeVars();
 
   // Wire navigation BEFORE the invite-redemption block, otherwise navigateToGroup
   // writes to users/null/... (because initNav hasn't set the local userId yet) AND

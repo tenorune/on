@@ -95,6 +95,28 @@ test('owner change: wipes account-scoped keys (incl. prefixed groups) but keeps 
   expect(localStorage.getItem(OWNER_KEY)).toBe('uidB');
 });
 
+// The return value tells the caller whether a wipe happened, so boot can
+// reset DOM state derived from the wiped cache (the inline theme-restore
+// script has already painted the previous owner's theme vars by the time
+// this runs — app.js resets them iff we report a wipe).
+test('returns true only when an owner change wiped the cache', () => {
+  seedAccountScopedKeys();
+
+  expect(ensureCacheOwner('uidA')).toBe(false); // first run: adopt, no wipe
+  expect(ensureCacheOwner('uidA')).toBe(false); // same owner: no wipe
+  expect(ensureCacheOwner('uidB')).toBe(true);  // owner change: wiped
+  expect(ensureCacheOwner('uidB')).toBe(false); // new owner settled: no wipe
+});
+
+test('falsy uid returns false', () => {
+  seedAccountScopedKeys();
+  ensureCacheOwner('uidA');
+
+  expect(ensureCacheOwner(null)).toBe(false);
+  expect(ensureCacheOwner(undefined)).toBe(false);
+  expect(ensureCacheOwner('')).toBe(false);
+});
+
 test('falsy uid is a no-op', () => {
   seedAccountScopedKeys();
   ensureCacheOwner('uidA');
