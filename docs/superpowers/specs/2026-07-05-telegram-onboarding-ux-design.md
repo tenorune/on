@@ -293,7 +293,20 @@ Telegram"** [approved]. `onConfirm` = `graduateTelegram(initData, rc)`;
 on target-uid-collision error the modal stays up with the error and ↻ regen is
 the retry (each regen = new candidate uid; nothing happens server-side until
 confirm). After success: `kk-landing = graduated` → reload → banner (draft):
-"This account now works in any browser too." The phrase is never stored
+"This account now works in any browser too."
+
+> **⚠️ Revisit before building (2026-07-05, on-device feedback):** the post-link
+> and post-unlink landing banners this reused were **removed** — the
+> `landing-notice` inline-toast is a **bespoke pattern used nowhere else** in the
+> app and read as unnecessary. Do **not** reach for it for the graduation
+> landing without reconsidering. The `showLandingNotice`/`stampLanding`
+> mechanism + the `graduated` copy still exist as the sole caller-less enabler,
+> but the standing preference is to **reuse an existing pattern** (e.g. the
+> shared toast/confirm surfaces already used elsewhere) rather than keep this
+> one-off. Decide graduation's success feedback at build time; if this mechanism
+> isn't chosen, delete it.
+
+The phrase is never stored
 server-side (uid IS its hash) — the reveal ceremony is the only time it exists;
 the recovery pill stays hidden in TG after graduation, same as linked accounts.
 
