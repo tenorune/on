@@ -75,16 +75,35 @@ async function handleMessage(deps, msg) {
   const reply = (text, extra = {}) => deps.tg.sendMessage(chatId, text, extra);
 
   if (cmd === '/start') {
+    // First-contact detection must precede ensureTelegramUser (which creates
+    // the mapping). ensure stays: idempotent, and bot commands need the
+    // account to exist even before the Mini App is ever opened.
+    const known = !!(await deps.getVal(`telegramUsers/${String(msg.from.id)}`));
     const { uid } = await ensureTelegramUser(deps, msg.from);
     // Keep the chat route current (first /start after a Mini-App-only signup,
     // or Telegram reassigning chat ids) — sendToUser reads telegramByUid.
     await deps.update(`telegramUsers/${String(msg.from.id)}`, { chatId });
     await deps.update(`telegramByUid/${uid}`, { chatId });
-    await reply(
-      'Welcome to KnockKnock — let the people who matter know when you\'re free.\n\n'
-      + `${HELP_TEXT}\n\nThe full app (calls, drawing, palettes, groups) lives in the Mini App:`,
-      openAppKeyboard(deps.appUrl),
-    );
+    if (!known) {
+      // Stranger: funnel, no command list (spec §2). /help keeps the full list.
+      await reply(
+        'Welcome to KnockKnock — see when the people who matter are free, and let them know when you are.\n\n'
+        + 'Everything starts in the app — tap below.\n\n'
+        + "Once you're set up, you can also knock and set your status right from this chat — /help shows how.",
+        openAppKeyboard(deps.appUrl),
+      );
+      return;
+    }
+    // Returning: compact live status, duration-based (no server-side timezone).
+    const presence = await deps.getVal(`users/${uid}/presence`);
+    const on = presence?.status === 'available' && isFutureMs(presence.availableUntil, deps.now());
+    if (on) {
+      const mins = Math.max(1, Math.round((presence.availableUntil - deps.now()) / 60000));
+      const dur = mins >= 60 ? `${Math.round((mins / 60) * 10) / 10}h` : `${mins}m`;
+      await reply(`You're available for another ${dur}. /off to stop.`, openAppKeyboard(deps.appUrl));
+    } else {
+      await reply("You're unavailable right now. /status to go available.", openAppKeyboard(deps.appUrl));
+    }
     return;
   }
 

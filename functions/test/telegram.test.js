@@ -102,6 +102,44 @@ describe('handleUpdate: /start', () => {
   });
 });
 
+describe('/start first contact vs returning', () => {
+  test('stranger: funnel message, no command list, Open button', async () => {
+    const deps = makeBotDeps({});
+    await handleUpdate(deps, msgUpdate('/start'));
+    const [, text, extra] = deps.tg.sendMessage.mock.calls[0];
+    expect(text).toMatch(/^Welcome to KnockKnock — see when the people who matter are free/);
+    expect(text).toContain('Everything starts in the app');
+    expect(text).toContain('/help shows how');
+    expect(text).not.toContain('/who');       // no command dump
+    expect(text).not.toContain('/status [');
+    expect(extra.reply_markup.inline_keyboard[0][0].web_app.url).toBe(deps.appUrl);
+  });
+
+  test('returning + available: compact status reply with remaining time', async () => {
+    const deps = makeBotDeps({});
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'available', availableUntil: deps.now() + 30 * 60000 };
+    await handleUpdate(deps, msgUpdate('/start'));
+    const [, text] = deps.tg.sendMessage.mock.calls[0];
+    expect(text).toBe("You're available for another 30m. /off to stop.");
+  });
+
+  test('returning + unavailable: compact status reply', async () => {
+    const deps = makeBotDeps({});
+    seedUser(deps.store);
+    await handleUpdate(deps, msgUpdate('/start'));
+    const [, text] = deps.tg.sendMessage.mock.calls[0];
+    expect(text).toBe("You're unavailable right now. /status to go available.");
+  });
+
+  test('stranger /start still bootstraps mapping + chat route', async () => {
+    const deps = makeBotDeps({});
+    await handleUpdate(deps, msgUpdate('/start'));
+    expect(deps.store['telegramUsers/42']).toBeTruthy();
+    expect(deps.store['telegramUsers/42/chatId']).toBe('42');
+  });
+});
+
 describe('handleUpdate: /status and /off', () => {
   test('/status 30m → available with future availableUntil + lastSeen', async () => {
     const deps = makeBotDeps();
