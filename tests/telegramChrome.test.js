@@ -12,9 +12,10 @@ jest.mock('../js/inviteModal.js', () => ({ closeInviteModal: (...a) => mocks.clo
 jest.mock('../js/inbox.js', () => ({ closeInboxModal: (...a) => mocks.closeInbox(...a) }));
 jest.mock('../js/groupNav.js', () => ({ navigateToDirect: (...a) => mocks.toDirect(...a), getCurrentContext: (...a) => mocks.ctx(...a) }));
 jest.mock('../js/following.js', () => ({ getCallModeCalleeId: (...a) => mocks.callee(...a), getIncomingCallFrom: (...a) => mocks.incoming(...a) }));
-jest.mock('../js/telegram.js', () => ({ tgWebApp: jest.fn(() => null), isTelegramContext: jest.fn(() => true) }));
+let mockWa = null;
+jest.mock('../js/telegram.js', () => ({ tgWebApp: jest.fn(() => mockWa), isTelegramContext: jest.fn(() => true) }));
 
-const { resolveBackAction } = require('../js/telegramChrome.js');
+const { resolveBackAction, initTelegramChrome } = require('../js/telegramChrome.js');
 
 const SHELL = `
   <div id="restore-screen" class="hidden"><button id="restore-cancel-btn"></button></div>
@@ -28,6 +29,7 @@ const SHELL = `
   <div id="add-person-form"><button id="add-cancel-btn"></button></div>`;
 
 beforeEach(() => { document.body.innerHTML = SHELL; jest.clearAllMocks();
+  mockWa = null;
   mocks.cardOpen.mockReturnValue(false); mocks.popOpen.mockReturnValue(false);
   mocks.ctx.mockReturnValue({ context: 'direct' }); });
 
@@ -92,4 +94,65 @@ test('group context → navigateToDirect', () => {
   mocks.ctx.mockReturnValue({ context: 'group', groupId: 'g1' });
   resolveBackAction()();
   expect(mocks.toDirect).toHaveBeenCalled();
+});
+
+test('create-group-modal visible → clicks its cancel button', () => {
+  show('create-group-modal');
+  const cancelSpy = jest.fn();
+  document.getElementById('create-group-cancel-btn').addEventListener('click', cancelSpy);
+  resolveBackAction()();
+  expect(cancelSpy).toHaveBeenCalled();
+});
+
+test('invite-failure-overlay visible → clicks its continue button', () => {
+  show('invite-failure-overlay');
+  const continueSpy = jest.fn();
+  document.getElementById('invite-failure-continue').addEventListener('click', continueSpy);
+  resolveBackAction()();
+  expect(continueSpy).toHaveBeenCalled();
+});
+
+describe('call-state gating (inCall)', () => {
+  const makeFakeWa = () => ({
+    isVersionAtLeast: () => true,
+    ready: jest.fn(),
+    expand: jest.fn(),
+    disableVerticalSwipes: jest.fn(),
+    setHeaderColor: jest.fn(),
+    setBackgroundColor: jest.fn(),
+    BackButton: { show: jest.fn(), hide: jest.fn(), onClick: jest.fn() },
+    enableClosingConfirmation: jest.fn(),
+    disableClosingConfirmation: jest.fn(),
+  });
+
+  test('in a call → BackButton hidden (not shown) and closing confirmation enabled', () => {
+    mockWa = makeFakeWa();
+    mocks.callee.mockReturnValue('callee-123');
+    mocks.incoming.mockReturnValue(null);
+    // Some overlay is open, so resolveBackAction would otherwise return an
+    // action — proving the hide comes from call-state gating, not lack of
+    // anything to close.
+    show('invite-modal');
+
+    initTelegramChrome();
+
+    expect(mockWa.BackButton.hide).toHaveBeenCalled();
+    expect(mockWa.BackButton.show).not.toHaveBeenCalled();
+    expect(mockWa.enableClosingConfirmation).toHaveBeenCalled();
+    expect(mockWa.disableClosingConfirmation).not.toHaveBeenCalled();
+  });
+
+  test('no call, overlay open → BackButton shown and closing confirmation disabled', () => {
+    mockWa = makeFakeWa();
+    mocks.callee.mockReturnValue(null);
+    mocks.incoming.mockReturnValue(null);
+    show('invite-modal');
+
+    initTelegramChrome();
+
+    expect(mockWa.BackButton.show).toHaveBeenCalled();
+    expect(mockWa.BackButton.hide).not.toHaveBeenCalled();
+    expect(mockWa.disableClosingConfirmation).toHaveBeenCalled();
+    expect(mockWa.enableClosingConfirmation).not.toHaveBeenCalled();
+  });
 });
