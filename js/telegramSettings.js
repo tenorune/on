@@ -6,7 +6,6 @@ import { tgWebApp, telegramLinkState } from './telegram.js';
 import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
 import { getUserPrefs, mergeUserPrefs } from './db.js';
 import { parseRecoveryCode } from './identity.js';
-import { stampLanding } from './firstRun.js';
 
 export function initTelegramSettings(userId) {
   const accountSlot = document.getElementById('tg-account-slot');
@@ -22,13 +21,6 @@ export function initTelegramSettings(userId) {
     <div class="tg-settings-btns">
       <button id="tg-link-btn" class="ghost-btn${linked ? ' hidden' : ''}" type="button">I have a secret phrase</button>
       <button id="tg-unlink-btn" class="ghost-btn${linked ? '' : ' hidden'}" type="button">Unlink account</button>
-    </div>
-    <div id="tg-unlink-confirm" class="hidden">
-      <p class="hint">Your account stays yours — sign in with your secret phrase in any browser. This Telegram will start over with a fresh, empty account.</p>
-      <div class="tg-settings-btns">
-        <button id="tg-unlink-confirm-btn" class="danger-btn" type="button">Unlink</button>
-        <button id="tg-unlink-cancel-btn" class="ghost-btn" type="button">Cancel</button>
-      </div>
     </div>`;
 
   notifySlot.innerHTML = `<button id="tg-channel-btn" class="chip" type="button">Notifications: Telegram</button>`;
@@ -36,24 +28,49 @@ export function initTelegramSettings(userId) {
   document.getElementById('drawer-section-account')?.classList.remove('hidden');
   document.getElementById('drawer-section-notifications')?.classList.remove('hidden');
 
+  ensureUnlinkConfirmModal();
   wireChannelToggle(userId, notifySlot.querySelector('#tg-channel-btn'));
   accountSlot.querySelector('#tg-link-btn').addEventListener('click', showLinkScreen);
   accountSlot.querySelector('#tg-unlink-btn').addEventListener('click', () => {
-    accountSlot.querySelector('#tg-unlink-confirm').classList.remove('hidden');
+    document.getElementById('tg-unlink-confirm').classList.remove('hidden');
   });
-  accountSlot.querySelector('#tg-unlink-cancel-btn').addEventListener('click', () => {
-    accountSlot.querySelector('#tg-unlink-confirm').classList.add('hidden');
+}
+
+// Unlink confirmation as a modal overlay (the same .confirm-overlay pattern as
+// Unfollow / Remove-follower), injected once on body — not an inline drawer block.
+function ensureUnlinkConfirmModal() {
+  if (document.getElementById('tg-unlink-confirm')) return;
+  const el = document.createElement('div');
+  el.id = 'tg-unlink-confirm';
+  el.className = 'confirm-overlay hidden';
+  el.innerHTML = `
+    <div class="confirm-sheet">
+      <h4>Unlink this Telegram?</h4>
+      <p>Your account stays yours — sign in with your secret phrase in any browser. This Telegram will start over with a fresh, empty account.</p>
+      <div class="confirm-btns">
+        <button class="confirm-btn-cancel" id="tg-unlink-cancel-btn" type="button">Cancel</button>
+        <button class="confirm-btn-remove" id="tg-unlink-confirm-btn" type="button">Unlink</button>
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+  const hide = () => el.classList.add('hidden');
+  el.addEventListener('click', (e) => { if (e.target === el) hide(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !el.classList.contains('hidden')) hide();
   });
-  accountSlot.querySelector('#tg-unlink-confirm-btn').addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      await callUnlinkTelegram(tgWebApp().initData);
-      stampLanding('unlinked');
-      window.location.reload(); // reboot as a fresh derived account
-    } catch {
-      e.target.disabled = false;
-    }
-  });
+  document.getElementById('tg-unlink-cancel-btn').addEventListener('click', hide);
+  document.getElementById('tg-unlink-confirm-btn').addEventListener('click', doUnlink);
+}
+
+async function doUnlink(e) {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    await callUnlinkTelegram(tgWebApp().initData);
+    window.location.reload(); // reboot as a fresh derived account
+  } catch {
+    btn.disabled = false;
+  }
 }
 
 async function wireChannelToggle(userId, btn) {
@@ -119,7 +136,6 @@ export function showLinkScreen() {
       return;
     }
     teardown();
-    stampLanding('linked');
     window.location.reload(); // reboot via initData into the linked account
   }
   function onCancel() { teardown(); }

@@ -71,20 +71,31 @@ test('initFirstRun wires the invite and link buttons', () => {
 });
 
 describe('landing notices', () => {
+  // The link/unlink banners were removed (unwanted inline-toast style). The
+  // mechanism survives only for the designed-but-unbuilt graduation landing.
   test('stampLanding + showLandingNotice renders once and clears the key', () => {
-    firstRun.stampLanding('unlinked');
+    firstRun.stampLanding('graduated');
     firstRun.showLandingNotice();
     const notice = document.getElementById('landing-notice');
-    expect(notice.textContent).toContain('Telegram unlinked');
+    expect(notice.textContent).toContain('works in any browser');
     expect(sessionStorage.getItem('kk-landing')).toBeNull();
     firstRun.showLandingNotice(); // second boot: nothing
     expect(document.querySelectorAll('.landing-notice').length).toBe(1);
   });
 
   test('dismiss removes the banner', () => {
-    firstRun.stampLanding('linked');
+    firstRun.stampLanding('graduated');
     firstRun.showLandingNotice();
     document.getElementById('landing-notice-dismiss').click();
+    expect(document.getElementById('landing-notice')).toBeNull();
+  });
+
+  test('link and unlink no longer render a landing banner', () => {
+    firstRun.stampLanding('linked');
+    firstRun.showLandingNotice();
+    expect(document.getElementById('landing-notice')).toBeNull();
+    firstRun.stampLanding('unlinked');
+    firstRun.showLandingNotice();
     expect(document.getElementById('landing-notice')).toBeNull();
   });
 

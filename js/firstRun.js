@@ -48,9 +48,10 @@ export function setListEmpty(isEmpty) {
 // transient cross-account handoff. If the webview drops sessionStorage across
 // the reload, the banner silently doesn't show (accepted degradation).
 const LANDING_KEY = 'kk-landing';
+// The post-link and post-unlink banners were removed (an inline-toast style used
+// nowhere else, judged unnecessary on-device). The mechanism is retained only for
+// the designed-but-unbuilt graduation landing (spec §7); link/unlink stamp nothing.
 const LANDING_COPY = {
-  linked: 'Linked — this Telegram now opens your KnockKnock account.',
-  unlinked: 'Telegram unlinked. Your account is still yours — sign in with your secret phrase in a browser. This is a fresh Telegram-only account.',
   graduated: 'This account now works in any browser too.',
 };
 
