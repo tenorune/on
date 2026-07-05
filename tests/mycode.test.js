@@ -52,6 +52,15 @@ jest.mock('../js/inviteModal.js', () => ({
   openInviteModal: jest.fn(),
 }));
 jest.mock('../js/regenFlash.js', () => ({ flashRegenerated: jest.fn() }));
+// mycode.js's dependency chain (invites.js -> groups.js -> groupNav.js ->
+// groupContext.js -> following.js) now pulls in firstRun.js, which imports
+// telegram.js -> firebase/auth. Mock firstRun.js so that real chain never
+// loads telegram.js here (this suite has nothing to do with first-run UI).
+jest.mock('../js/firstRun.js', () => ({
+  initFirstRun: jest.fn(),
+  setListEmpty: jest.fn(),
+  isFirstRunActive: jest.fn(() => false),
+}));
 
 const { rotateCode, watchUserInvites } = require('../js/db.js');
 const { saveIdentity } = require('../js/identity.js');

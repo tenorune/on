@@ -243,6 +243,14 @@ main {
   margin-top: 0.5rem;
 }
 
+/* Guided empty state (firstRun.js owns this DOM) */
+.first-run-panel { text-align: center; padding: 2rem 1rem 1rem; }
+.first-run-lede { color: var(--text); margin-bottom: .25rem; }
+.first-run-sub { color: var(--text-muted); margin-bottom: 1rem; }
+.first-run-panel .hint { margin-top: .75rem; }
+/* Demoted code-entry while the panel is up: quieter, reads as secondary. */
+#add-person-area.first-run-demoted .add-btn { opacity: .7; font-size: .9em; }
+
 /* Add person drawer */
 #add-person-form {
   overflow: hidden;

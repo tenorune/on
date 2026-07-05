@@ -28,6 +28,7 @@ jest.mock('../js/hintRotation.js', () => ({
   stopHintRotation: jest.fn(),
   clearActiveHint: jest.fn(),
 }));
+jest.mock('../js/firstRun.js', () => ({ setListEmpty: jest.fn() }));
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true, NOTIFICATIONS_ENABLED: true }));
 jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn() }));
 jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
@@ -178,7 +179,7 @@ beforeEach(() => {
 function setupDom() {
   document.body.innerHTML = `
     <ul id="people-list"></ul>
-    <p id="empty-list-msg" class="hidden">Add someone below to get started.</p>
+    <div id="first-run-panel" class="hidden"></div>
     <div id="add-person-area">
     <button id="add-person-btn"></button>
     <div id="add-person-form">
@@ -295,23 +296,25 @@ describe('renderList: sections', () => {
     expect(labels.some(l => l.textContent === 'Followers')).toBe(false);
   });
 
-  test('all groups empty → #empty-list-msg shown, #people-list hidden', () => {
+  test('all groups empty → setListEmpty(true), #people-list hidden', () => {
     getFollowing.mockReturnValue([]);
     const fire = initAndCaptureFollowersCallback();
     fire([]);
 
-    expect(document.getElementById('empty-list-msg').classList.contains('hidden')).toBe(false);
+    const { setListEmpty } = require('../js/firstRun.js');
+    expect(setListEmpty).toHaveBeenLastCalledWith(true);
     expect(document.getElementById('people-list').style.display).toBe('none');
   });
 
-  test('non-empty list → #empty-list-msg hidden, #people-list visible', () => {
+  test('non-empty list → setListEmpty(false)', () => {
     getFollowing.mockReturnValue([
       { userId: 'u1', code: 'XY9K2M', label: 'Alice' },
     ]);
     const fire = initAndCaptureFollowersCallback();
     fire([]);
 
-    expect(document.getElementById('empty-list-msg').classList.contains('hidden')).toBe(true);
+    const { setListEmpty } = require('../js/firstRun.js');
+    expect(setListEmpty).toHaveBeenLastCalledWith(false);
   });
 });
 

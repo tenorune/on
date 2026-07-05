@@ -7,6 +7,7 @@ import { flashRegenerated } from './regenFlash.js';
 
 let _myUserId = null;
 let _currentCode = null;
+let _currentActiveInvite = null;
 
 export function initCodeDrawer(myUserId, myCode) {
   _myUserId = myUserId;
@@ -97,12 +98,11 @@ export function initCodeDrawer(myUserId, myCode) {
   }
 
   // --- Invite-link row ---
-  let currentActiveInvite = null;
   const inviteBtn = document.getElementById('invite-link-btn');
 
   function renderInviteRow() {
     if (!inviteBtn) return;
-    inviteBtn.textContent = currentActiveInvite ? 'View invite link' : 'Create invite link';
+    inviteBtn.textContent = _currentActiveInvite ? 'View invite link' : 'Create invite link';
   }
 
   watchUserInvites(myUserId, (collection) => {
@@ -113,18 +113,22 @@ export function initCodeDrawer(myUserId, myCode) {
         break;
       }
     }
-    currentActiveInvite = active;
+    _currentActiveInvite = active;
     renderInviteRow();
   });
 
   if (inviteBtn) {
     inviteBtn.addEventListener('click', () => {
-      openInviteModal({ scope: 'personal', userId: myUserId, activeInvite: currentActiveInvite });
+      openPersonalInviteModal();
     });
   }
 
   const existing = loadIdentity();
   if (existing?.recoveryCode) initRecoveryPill(existing.recoveryCode);
+}
+
+export async function openPersonalInviteModal() {
+  await openInviteModal({ scope: 'personal', userId: _myUserId, activeInvite: _currentActiveInvite });
 }
 
 async function copyText(text) {

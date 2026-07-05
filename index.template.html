@@ -236,7 +236,13 @@
     <main id="main-list">
       <div id="offline-banner" class="offline-banner hidden">Offline — showing last known status</div>
       <ul id="people-list" class="person-list"></ul>
-      <p id="empty-list-msg" class="hidden"></p>
+      <div id="first-run-panel" class="first-run-panel hidden">
+        <p class="first-run-lede">KnockKnock shows your people when you're free — and shows you when they are.</p>
+        <p class="first-run-sub">No one's here yet.</p>
+        <button id="first-run-invite-btn" class="primary-btn">Invite your people</button>
+        <p id="first-run-link-line" class="hint hidden">Already use KnockKnock?
+          <button id="first-run-link-btn" class="ghost-btn" type="button">Link your account</button></p>
+      </div>
       <div id="add-person-area">
       <button id="add-person-btn" class="add-btn">Add a person</button>
       <div id="add-person-form">

@@ -4,7 +4,7 @@ import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setSt
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following.js';
 import { initKnocks } from './knock.js';
-import { initCodeDrawer, updateMyCode } from './mycode.js';
+import { initCodeDrawer, updateMyCode, openPersonalInviteModal } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { initNotifyPrompt, refreshPushToken, phraseReminderHtml, wirePhraseCopyButton } from './notifyPrompt.js';
 import { initInstallAffordance } from './installAffordance.js';
@@ -31,6 +31,7 @@ import { isTelegramContext, ensureTelegramIdentity, initTelegramChrome } from '.
 import { ensureCacheOwner } from './cacheOwner.js';
 import { initTelegramSettings } from './telegramSettings.js';
 import { initHintRotation } from './hintRotation.js';
+import { initFirstRun } from './firstRun.js';
 
 
 let splashCounter = 0;
@@ -805,6 +806,7 @@ async function main() {
 
   initCodeDrawer(userId, code);
   if (isTelegramContext()) initTelegramSettings(userId);
+  initFirstRun({ onInvite: () => openPersonalInviteModal() });
   initHeader(userId);
   if (!splashDone) {
     const followeeCount = getFollowing().length;

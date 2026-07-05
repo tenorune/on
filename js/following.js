@@ -28,6 +28,7 @@ import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 import { reconcileChildren } from './reconcile.js';
 import { refreshHints, clearActiveHint } from './hintRotation.js';
+import { setListEmpty } from './firstRun.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
@@ -389,7 +390,6 @@ function renderList() {
   });
 
   const list = document.getElementById('people-list');
-  const emptyMsg = document.getElementById('empty-list-msg');
 
   const isEmpty = mutuals.length === 0 && followingOnly.length === 0 && followerOnly.length === 0;
   document.getElementById('add-person-area').classList.toggle('has-list', !isEmpty);
@@ -402,12 +402,12 @@ function renderList() {
       },
     });
     list.style.display = 'none';
-    emptyMsg.classList.remove('hidden');
+    setListEmpty(true);
     return;
   }
 
   list.style.display = '';
-  emptyMsg.classList.add('hidden');
+  setListEmpty(false);
 
   // Sort uses lastUserData which still has status for entries with active subscriptions.
   // New entries (not yet subscribed) will sort as unavailable until Firebase delivers status.
