@@ -9,22 +9,19 @@ import { parseRecoveryCode } from './identity.js';
 import { stampLanding } from './firstRun.js';
 
 export function initTelegramSettings(userId) {
-  const drawer = document.querySelector('#code-drawer .drawer-inner');
-  if (!drawer) return;
+  const accountSlot = document.getElementById('tg-account-slot');
+  const notifySlot = document.getElementById('tg-notify-slot');
+  if (!accountSlot || !notifySlot) return;
   document.getElementById('recovery-pill-row')?.classList.add('hidden');
 
   const linked = telegramLinkState()?.linked === true;
-  const row = document.createElement('div');
-  row.id = 'tg-settings-row';
-  row.className = 'tg-settings-row';
-  row.innerHTML = `
+  accountSlot.innerHTML = `
     <p id="tg-link-state" class="hint">${linked
       ? 'This Telegram is linked to your KnockKnock account.'
       : 'Using your Telegram identity. Have an account already?'}</p>
     <div class="tg-settings-btns">
       <button id="tg-link-btn" class="ghost-btn${linked ? ' hidden' : ''}" type="button">I have a secret phrase</button>
       <button id="tg-unlink-btn" class="ghost-btn${linked ? '' : ' hidden'}" type="button">Unlink account</button>
-      <button id="tg-channel-btn" class="chip" type="button">Notifications: Telegram</button>
     </div>
     <div id="tg-unlink-confirm" class="hidden">
       <p class="hint">Your account stays yours — sign in with your secret phrase in any browser. This Telegram will start over with a fresh, empty account.</p>
@@ -33,17 +30,21 @@ export function initTelegramSettings(userId) {
         <button id="tg-unlink-cancel-btn" class="ghost-btn" type="button">Cancel</button>
       </div>
     </div>`;
-  drawer.appendChild(row);
 
-  wireChannelToggle(userId, row.querySelector('#tg-channel-btn'));
-  row.querySelector('#tg-link-btn').addEventListener('click', showLinkScreen);
-  row.querySelector('#tg-unlink-btn').addEventListener('click', () => {
-    row.querySelector('#tg-unlink-confirm').classList.remove('hidden');
+  notifySlot.innerHTML = `<button id="tg-channel-btn" class="chip" type="button">Notifications: Telegram</button>`;
+
+  document.getElementById('drawer-section-account')?.classList.remove('hidden');
+  document.getElementById('drawer-section-notifications')?.classList.remove('hidden');
+
+  wireChannelToggle(userId, notifySlot.querySelector('#tg-channel-btn'));
+  accountSlot.querySelector('#tg-link-btn').addEventListener('click', showLinkScreen);
+  accountSlot.querySelector('#tg-unlink-btn').addEventListener('click', () => {
+    accountSlot.querySelector('#tg-unlink-confirm').classList.remove('hidden');
   });
-  row.querySelector('#tg-unlink-cancel-btn').addEventListener('click', () => {
-    row.querySelector('#tg-unlink-confirm').classList.add('hidden');
+  accountSlot.querySelector('#tg-unlink-cancel-btn').addEventListener('click', () => {
+    accountSlot.querySelector('#tg-unlink-confirm').classList.add('hidden');
   });
-  row.querySelector('#tg-unlink-confirm-btn').addEventListener('click', async (e) => {
+  accountSlot.querySelector('#tg-unlink-confirm-btn').addEventListener('click', async (e) => {
     e.target.disabled = true;
     try {
       await callUnlinkTelegram(tgWebApp().initData);

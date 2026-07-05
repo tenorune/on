@@ -97,14 +97,7 @@ export function initCodeDrawer(myUserId, myCode) {
     document.getElementById('rotate-confirm').classList.add('hidden');
   }
 
-  // --- Invite-link row ---
-  const inviteBtn = document.getElementById('invite-link-btn');
-
-  function renderInviteRow() {
-    if (!inviteBtn) return;
-    inviteBtn.textContent = _currentActiveInvite ? 'View invite link' : 'Create invite link';
-  }
-
+  // --- Invite state tracking (feeds openPersonalInviteModal's activeInvite arg) ---
   watchUserInvites(myUserId, (collection) => {
     let active = null;
     for (const [token, inv] of Object.entries(collection || {})) {
@@ -114,14 +107,9 @@ export function initCodeDrawer(myUserId, myCode) {
       }
     }
     _currentActiveInvite = active;
-    renderInviteRow();
   });
 
-  if (inviteBtn) {
-    inviteBtn.addEventListener('click', () => {
-      openPersonalInviteModal();
-    });
-  }
+  document.getElementById('drawer-invite-btn')?.addEventListener('click', () => openPersonalInviteModal());
 
   const existing = loadIdentity();
   if (existing?.recoveryCode) initRecoveryPill(existing.recoveryCode);

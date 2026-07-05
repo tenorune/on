@@ -208,14 +208,25 @@
       </div>
       <div id="code-drawer">
         <div class="drawer-inner">
-          <div class="code-row">
-            <span id="my-code-display" class="code-display"></span>
-            <button id="rotate-code-btn" class="rotate-btn" title="Generate new code">↻</button>
-            <button id="copy-code-btn" class="ghost-btn">Copy</button>
-            <button id="invite-link-btn" class="ghost-btn">Create invite link</button>
+          <div class="drawer-section" id="drawer-section-invite">
+            <p class="drawer-section-label">Invite</p>
+            <button id="drawer-invite-btn" class="primary-btn" type="button">Invite your people</button>
+            <div class="code-row">
+              <span id="my-code-display" class="code-display"></span>
+              <button id="rotate-code-btn" class="rotate-btn" title="Generate new code">↻</button>
+              <button id="copy-code-btn" class="ghost-btn">Copy</button>
+            </div>
+            <p id="rotate-error-msg" class="error-msg hidden"></p>
+            <p class="hint">Or share this code so others can follow your status.</p>
           </div>
-          <p id="rotate-error-msg" class="error-msg hidden"></p>
-          <p class="hint">Share this so others can follow your status.</p>
+          <div class="drawer-section hidden" id="drawer-section-account">
+            <p class="drawer-section-label">Account</p>
+            <div id="tg-account-slot"></div>
+          </div>
+          <div class="drawer-section hidden" id="drawer-section-notifications">
+            <p class="drawer-section-label">Notifications</p>
+            <div id="tg-notify-slot"></div>
+          </div>
         </div>
       </div>
       <div id="recovery-pill-row" class="recovery-pill-row">

@@ -20,7 +20,17 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 function mountDom() {
   document.body.innerHTML = `
-    <div id="code-drawer"><div class="drawer-inner"></div></div>
+    <div id="code-drawer">
+      <div class="drawer-inner">
+        <div class="drawer-section" id="drawer-section-invite"></div>
+        <div class="drawer-section hidden" id="drawer-section-account">
+          <div id="tg-account-slot"></div>
+        </div>
+        <div class="drawer-section hidden" id="drawer-section-notifications">
+          <div id="tg-notify-slot"></div>
+        </div>
+      </div>
+    </div>
     <div id="recovery-pill-row"></div>
     <div id="restore-screen" class="hidden">
       <p id="restore-subtext" class="hidden"></p>
@@ -39,6 +49,11 @@ test('renders row, hides phrase pill, shows link button when unlinked', async ()
   initTelegramSettings('u1');
   await flush();
   expect(document.getElementById('recovery-pill-row').classList.contains('hidden')).toBe(true);
+  expect(document.getElementById('drawer-section-account').classList.contains('hidden')).toBe(false);
+  expect(document.getElementById('drawer-section-notifications').classList.contains('hidden')).toBe(false);
+  expect(document.getElementById('tg-account-slot').contains(document.getElementById('tg-link-btn'))).toBe(true);
+  expect(document.getElementById('tg-account-slot').contains(document.getElementById('tg-unlink-btn'))).toBe(true);
+  expect(document.getElementById('tg-notify-slot').contains(document.getElementById('tg-channel-btn'))).toBe(true);
   expect(document.getElementById('tg-link-btn').classList.contains('hidden')).toBe(false);
   expect(document.getElementById('tg-unlink-btn').classList.contains('hidden')).toBe(true);
   expect(document.getElementById('tg-channel-btn').textContent).toMatch(/Telegram/);
