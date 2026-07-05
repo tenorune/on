@@ -74,6 +74,11 @@ itself — additive, inert without env config, and disposable by nature on dev.
        help - Commands
 
    (The menu button comes later, in A6 — the preview URL doesn't exist yet.)
+3. `/setdescription` and `/setabouttext` → choose the test bot → paste
+   (draft copy; tune wording in BotFather any time, no code change needed):
+
+       /setdescription  → KnockKnock — see when the people who matter are free, and let them know when you are. Open the app to get started.
+       /setabouttext    → Ambient availability for your closest people. No feeds, no messages — just who's free right now.
 
 ### A3. Build the branch with the dev web config
 
@@ -127,9 +132,26 @@ the bundle carries the dev project's Firebase config and the branch's
 
 ### A6. Point the test bot's menu button at the preview URL
 
-BotFather → `/setmenubutton` → choose the test bot → paste the preview URL
-from A4 (⌘V). The bot's Mini App button now opens the flagged-on preview
-build.
+1. BotFather → `/setmenubutton` → choose the test bot → paste the preview URL
+   from A4 (⌘V). The bot's Mini App button now opens the flagged-on preview
+   build.
+2. BotFather → `/newapp` → choose the test bot → give it a title, short
+   description, and photo, then paste the same preview URL from A4 as the
+   Web App URL, and pick a short name when prompted (e.g. `app`). BotFather
+   returns a direct link shaped `https://t.me/<bot_username>/<app_short_name>`
+   — put that in the **root** `.env.local` (this is a **client build**
+   variable — root `.env.*`, **not** `functions/.env`, which never sees
+   client-build values) as:
+
+       TELEGRAM_APP_LINK=https://t.me/<bot_username>/<app_short_name>
+
+   `scripts/dev-build.js` bakes it into the bundle as
+   `process.env.TELEGRAM_APP_LINK`, which `js/inviteFlow.js` reads to build
+   `t.me/...?startapp=<token>` invite links. Left unset, invite shares
+   degrade gracefully to plain web URLs — nothing breaks, Telegram recipients
+   just get a slightly less native link. Since it's baked in at build time,
+   re-run A3 (and redeploy the preview with A4) after setting it for the
+   bundle to pick it up — not required to complete the rest of this runbook.
 
 ### A7. Register the webhook (test bot → dev function)
 
@@ -159,7 +181,33 @@ Use the exact URL from A5.3 and the same secret you put in `functions/.env`.
 
        npx firebase functions:log --project "$DEV_PROJECT" --only telegramWebhook,validateTelegram
 
-### A9. Renew, reset, clean up
+### A9. Onboarding & chrome smoke test (dev preview channel + test bot)
+
+ 1. Deep-link invite (fresh TG account): create invite in app A → share via
+    Telegram → tap in account B → interstitial shows inviter framing →
+    Accept & get started → contact present, no empty state.
+ 2. "I have a secret phrase" from the interstitial: link → reload → silent
+    redeem toast → invite contact present in the LINKED account.
+ 3. Re-tap the same deep link → nothing shown (no failure overlay).
+ 4. Cold /start from a never-seen account → funnel message (no command list);
+    /start again → compact status line.
+ 5. Fresh account, no invite → guided empty state; Invite your people →
+    share sheet carries t.me link; Add by code demoted; link line present.
+ 6. Unlink: confirm step → landing banner over the empty state; notifications
+    chip reads Push after relink.
+ 7. Link: landing banner "Linked —"; theme correct (no stale vars).
+ 8. Back button: open card drawer / inbox / invite modal / group context —
+    back closes top-most each time; back with nothing open exits the app;
+    back hidden during a call.
+ 9. Vertical swipe: draw on the canvas + overscroll the list — webview must
+    not collapse (Bot API ≥7.7 client).
+10. Call close-confirm: start a call, swipe down → Telegram asks to confirm.
+11. Change theme/palette → Telegram header/background follows without reboot.
+12. Web (browser): empty account shows the guided empty state; install toast
+    stays away until the first contact exists, then appears; corner icon
+    visible throughout.
+
+### A10. Renew, reset, clean up
 
 - **Renew:** re-run A3 + A4 — same URL, expiry reset.
 - **Reset the first-open (FTU) flow:** the derived uid is deterministic
@@ -279,6 +327,16 @@ script tag back into `index.template.html`, `script-src` gains
 
 Part B below assumes this reverted state.
 
+**Launch checklist — root `.env.production`:** before building for launch,
+repeat A6's `/newapp` step with the prod bot (BotFather → `/newapp` → prod
+bot → production hosting URL as the Web App URL) and add the resulting link
+to the **root** `.env.production` — not `functions/.env`:
+
+    TELEGRAM_APP_LINK=https://t.me/<prod_bot_username>/<app_short_name>
+
+This is a client build variable; unset, invite shares just fall back to web
+URLs (no build failure).
+
 ---
 
 ## Part B — Production
@@ -315,8 +373,13 @@ production bot**. Do not reuse the test bot or any of its values.
        notifications - Delivery channel (push|telegram)
        help - Commands
 
-3. Optional polish while you're there: `/setdescription`, `/setabouttext`,
-   `/setuserpic`.
+3. `/setdescription` and `/setabouttext` → choose the prod bot → paste
+   (draft copy; tune wording in BotFather any time, no code change needed):
+
+       /setdescription  → KnockKnock — see when the people who matter are free, and let them know when you are. Open the app to get started.
+       /setabouttext    → Ambient availability for your closest people. No feeds, no messages — just who's free right now.
+
+4. Optional polish while you're there: `/setuserpic`.
 
 ### B3. Configure functions env for the prod deploy
 
