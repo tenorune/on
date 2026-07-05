@@ -134,12 +134,13 @@
   <div id="recovery-modal" class="welcome-screen hidden">
     <div class="modal-card">
       <h3>This is your secret phrase</h3>
+      <p id="recovery-modal-intro" class="modal-subtitle hidden"></p>
       <div class="recovery-display">
         <span id="recovery-code-text" class="recovery-code-text"></span>
         <span class="regen-slot"><button id="recovery-rotate-btn" class="rotate-btn" title="Generate new secret phrase" aria-label="Generate new secret phrase">↻</button></span>
         <button id="recovery-copy-btn" class="ghost-btn">Copy</button>
       </div>
-      <p class="recovery-warning">Save this somewhere safe. It's the only way to restore your account if you lose this browser. We can't recover it for you.</p>
+      <p id="recovery-modal-warning" class="recovery-warning">Save this somewhere safe. It's the only way to restore your account if you lose this browser. We can't recover it for you.</p>
       <!-- Hidden credential form: lets iOS/macOS offer "Save Password" (iCloud
            Keychain), which crosses the install storage partition by domain. Never
            relied upon or asserted in copy. -->
@@ -150,6 +151,7 @@
                autocomplete="new-password" tabindex="-1" readonly aria-hidden="true" />
         <button id="recovery-saved-btn" class="primary-btn" type="submit">I've saved it</button>
       </form>
+      <button id="recovery-cancel-btn" class="ghost-btn hidden" type="button">Cancel</button>
     </div>
   </div>
 

@@ -24,7 +24,6 @@ import { initGroupRemovalDetector } from './groups.js';
 import { initInbox, openInboxModal } from './inbox.js';
 import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
-import { flashRegenerated } from './regenFlash.js';
 import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
 import { isTelegramContext, ensureTelegramIdentity, initTelegramChrome } from './telegram.js';
@@ -32,28 +31,14 @@ import { ensureCacheOwner } from './cacheOwner.js';
 import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
 import { initHintRotation } from './hintRotation.js';
 import { initFirstRun, showLandingNotice } from './firstRun.js';
+import { showRecoveryCodeModal } from './recoveryModal.js';
+import { setButtonBusy, clearButtonBusy } from './utils.js';
 
+export { showRecoveryCodeModal };
 
 let splashCounter = 0;
 let splashDone = false;
 let _followGrantsUnsub = null; // captured for a future user-switch teardown (#214 R2)
-
-// Busy/idle feedback for a primary action button while an async round-trip runs
-// (restore verification, new-account setup). Disabling it both dims the button
-// via the existing `.primary-btn:disabled` opacity rule and blocks double-taps;
-// the label swaps to a progress word. The idle label is stashed on first use so
-// clearButtonBusy restores whatever the markup shipped, and a re-open starts clean.
-function setButtonBusy(btn, busyText) {
-  if (!btn) return;
-  if (btn.dataset.idleLabel === undefined) btn.dataset.idleLabel = btn.textContent;
-  btn.textContent = busyText;
-  btn.disabled = true;
-}
-function clearButtonBusy(btn) {
-  if (!btn) return;
-  if (btn.dataset.idleLabel !== undefined) btn.textContent = btn.dataset.idleLabel;
-  btn.disabled = false;
-}
 
 function initSplash(followeeCount) {
   splashCounter = 1 + followeeCount;
@@ -297,91 +282,6 @@ export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName =
     function onRestore() { pick('restore'); }
     newBtn.addEventListener('click', onNew);
     restoreBtn.addEventListener('click', onRestore);
-  });
-}
-
-// `onConfirm` (optional) is an async hook run when the user taps "I've saved it",
-// WHILE the modal stays up with the button in a "Setting up…" busy state. The
-// modal only hides + resolves once it completes; if it throws, the modal stays
-// open and the button reverts so the user can retry. New-account setup
-// (sign-in + share-code claim) runs here so the screen doesn't go blank during
-// those round-trips (the FTU equivalent of restore's post-submit splash).
-export function showRecoveryCodeModal(initialCode, onConfirm) {
-  const el = document.getElementById('recovery-modal');
-  const text = document.getElementById('recovery-code-text');
-  const rotateBtn = document.getElementById('recovery-rotate-btn');
-  const copyBtn = document.getElementById('recovery-copy-btn');
-  const savedBtn = document.getElementById('recovery-saved-btn');
-  if (!el) return new Promise(() => {}); // not mounted (e.g. partial DOM under test) — stay inert
-
-  let current = initialCode;
-  text.textContent = current;
-  if (copyBtn) copyBtn.textContent = 'Copy';
-  el.classList.remove('hidden');
-
-  const kcPhrase = document.getElementById('recovery-keychain-phrase');
-  const kcForm = document.getElementById('recovery-keychain-form');
-  if (kcPhrase) kcPhrase.value = current;
-  const onKcSubmit = (e) => e.preventDefault();
-  if (kcForm) kcForm.addEventListener('submit', onKcSubmit);
-
-  return new Promise((resolve) => {
-    function onRotate() {
-      current = generateRecoveryCode();
-      text.textContent = current;
-      if (kcPhrase) kcPhrase.value = current;
-      if (copyBtn) copyBtn.textContent = 'Copy';
-      // Same visible-change cue as the invite modal: fade-in + a NEW badge that
-      // replaces the ↻ while it shows (which also drops the button's focus, so
-      // it never looks "stuck selected").
-      flashRegenerated(text, rotateBtn);
-    }
-    async function onCopy() {
-      try {
-        await navigator.clipboard?.writeText(current);
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
-      } catch (_) {
-        // ignore clipboard failures
-      }
-    }
-    // Trap the browser/PWA back-gesture so it can't dismiss the modal and discard
-    // the un-saved phrase: push a history entry on open, and re-push if a back
-    // pops it while the modal is still showing. Net history depth stays +1 (each
-    // back pops our entry and we push it again). Removed once the user saves.
-    function onPopState() {
-      if (!el.classList.contains('hidden') && typeof history !== 'undefined' && history.pushState) {
-        history.pushState({ recoveryModal: true }, '');
-      }
-    }
-    async function onSaved() {
-      // Run any setup hook first, keeping the modal up with feedback. On failure
-      // leave everything mounted so the user can tap again to retry.
-      if (onConfirm) {
-        setButtonBusy(savedBtn, 'Setting up…');
-        try {
-          await onConfirm(current);
-        } catch (e) {
-          console.error('account setup failed:', e);
-          clearButtonBusy(savedBtn);
-          return;
-        }
-      }
-      rotateBtn.removeEventListener('click', onRotate);
-      copyBtn.removeEventListener('click', onCopy);
-      savedBtn.removeEventListener('click', onSaved);
-      window.removeEventListener('popstate', onPopState);
-      if (kcForm) kcForm.removeEventListener('submit', onKcSubmit);
-      el.classList.add('hidden');
-      resolve(current);
-    }
-    if (typeof history !== 'undefined' && history.pushState) {
-      history.pushState({ recoveryModal: true }, '');
-      window.addEventListener('popstate', onPopState);
-    }
-    rotateBtn.addEventListener('click', onRotate);
-    copyBtn.addEventListener('click', onCopy);
-    savedBtn.addEventListener('click', onSaved);
   });
 }
 

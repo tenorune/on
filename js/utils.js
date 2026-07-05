@@ -1,5 +1,22 @@
 // js/utils.js
 
+// Busy/idle feedback for a primary action button while an async round-trip runs
+// (restore verification, new-account setup). Disabling it both dims the button
+// via the existing `.primary-btn:disabled` opacity rule and blocks double-taps;
+// the label swaps to a progress word. The idle label is stashed on first use so
+// clearButtonBusy restores whatever the markup shipped, and a re-open starts clean.
+export function setButtonBusy(btn, busyText) {
+  if (!btn) return;
+  if (btn.dataset.idleLabel === undefined) btn.dataset.idleLabel = btn.textContent;
+  btn.textContent = busyText;
+  btn.disabled = true;
+}
+export function clearButtonBusy(btn) {
+  if (!btn) return;
+  if (btn.dataset.idleLabel !== undefined) btn.textContent = btn.dataset.idleLabel;
+  btn.disabled = false;
+}
+
 // Display name for a following entry ({ label, code }): the user's chosen label,
 // else the share code. Returns '' (not undefined) for a missing/empty entry so
 // it never renders "undefined" in a template.
