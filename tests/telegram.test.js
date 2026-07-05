@@ -31,6 +31,25 @@ test('telegramFirstName: returns the Mini App user first name, empty when absent
   expect(require('../js/telegram.js').telegramFirstName()).toBe('');
 });
 
+describe('openTelegramShare caption separator', () => {
+  test('non-iOS clients (e.g. macOS) get a newline before the caption so it does not butt against the link', () => {
+    const openTelegramLink = jest.fn();
+    window.Telegram = { WebApp: { openTelegramLink, platform: 'macos' } };
+    require('../js/telegram.js').openTelegramShare('https://t.me/b/app?startapp=T', 'Follow me on KnockKnock');
+    const arg = openTelegramLink.mock.calls[0][0];
+    expect(arg).toContain(`text=${encodeURIComponent('\nFollow me on KnockKnock')}`);
+  });
+
+  test('iOS is left exactly as-is (the client already inserts a separator)', () => {
+    const openTelegramLink = jest.fn();
+    window.Telegram = { WebApp: { openTelegramLink, platform: 'ios' } };
+    require('../js/telegram.js').openTelegramShare('https://x', 'Follow me on KnockKnock');
+    const arg = openTelegramLink.mock.calls[0][0];
+    expect(arg).toContain(`text=${encodeURIComponent('Follow me on KnockKnock')}`);
+    expect(arg).not.toContain(encodeURIComponent('\nFollow'));
+  });
+});
+
 test('isTelegramContext: true only with flag AND non-empty initData', () => {
   setTelegramGlobal();
   expect(require('../js/telegram.js').isTelegramContext()).toBe(true);
@@ -64,6 +83,7 @@ test('ensureTelegramIdentity: validates, signs in, returns identity with code an
 test('openTelegramShare builds a t.me share link and opens it in Telegram', () => {
   setTelegramGlobal();
   window.Telegram.WebApp.openTelegramLink = jest.fn();
+  window.Telegram.WebApp.platform = 'ios'; // base construction; separator behavior is covered separately
   const tg = require('../js/telegram.js');
   tg.openTelegramShare('https://app.example.com/?i=TOK123', 'Follow me');
   expect(window.Telegram.WebApp.openTelegramLink).toHaveBeenCalledWith(

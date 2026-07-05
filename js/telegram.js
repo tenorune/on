@@ -47,6 +47,11 @@ export async function ensureTelegramIdentity() {
 export function openTelegramShare(url, text = '') {
   const wa = tgWebApp();
   if (!wa?.openTelegramLink) return;
-  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}${text ? `&text=${encodeURIComponent(text)}` : ''}`;
+  // Desktop clients (e.g. macOS) concatenate the shared url and caption with no
+  // separator, so the link butts straight against the text; iOS inserts one. Add
+  // a leading newline on the clients that need it, leaving iOS exactly as users
+  // see it today. Unknown platforms default to the separated form (never worse).
+  const caption = text && wa.platform !== 'ios' ? `\n${text}` : text;
+  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}${caption ? `&text=${encodeURIComponent(caption)}` : ''}`;
   wa.openTelegramLink(shareUrl);
 }
