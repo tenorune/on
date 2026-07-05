@@ -38,6 +38,10 @@ FIREBASE_KEYS.forEach(key => {
   define[`process.env.${key}`] = JSON.stringify(env[key] || 'REPLACE_ME');
 });
 
+// Optional Mini App deep-link base, e.g. "https://t.me/knockknock_test_bot/app".
+// Empty (not REPLACE_ME) when unset so client code can feature-detect it.
+define['process.env.TELEGRAM_APP_LINK'] = JSON.stringify(env.TELEGRAM_APP_LINK || '');
+
 function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

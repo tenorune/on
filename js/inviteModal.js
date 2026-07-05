@@ -9,7 +9,8 @@ import {
 import { readPendingInviteesForGroup } from './db.js';
 import { renderInvitePicker } from './invitePicker.js';
 import { flashRegenerated } from './regenFlash.js';
-import { isTelegramContext, openTelegramShare } from './telegram.js';
+import { isTelegramContext } from './telegram.js';
+import { shareInviteLink } from './inviteFlow.js';
 
 const SCOPE_COPY = {
   personal: {
@@ -170,7 +171,9 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   if (shareBtn && isTelegramContext()) {
     shareBtn.classList.remove('hidden');
     on(shareBtn, 'click', () => {
-      if (currentInvite) openTelegramShare(currentInvite.url, 'Follow me on KnockKnock');
+      if (!currentInvite) return;
+      const text = scope === 'group' ? `Join ${groupName} on KnockKnock` : 'Follow me on KnockKnock';
+      shareInviteLink(currentInvite, text);
     });
   }
 
