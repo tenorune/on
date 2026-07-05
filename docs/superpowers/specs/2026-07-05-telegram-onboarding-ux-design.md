@@ -82,7 +82,8 @@ phrase-flavored `#welcome-screen`):
 - One line of what-KnockKnock-is.
 - **[Accept & get started]** → `attemptRedeemFromUrl` → app opens with the
   contact present.
-- **[I already have an account]** → existing link screen → `linkTelegram` →
+- **[I have a secret phrase]** [approved] (matches the drawer's existing link
+  button wording) → existing link screen → `linkTelegram` →
   reload → boot re-sees `start_param`, account now linked → silent redeem +
   toast. No second interstitial.
 - Quiet "Not now" dismiss → proceed without redeeming.
@@ -359,7 +360,7 @@ via deps like everything else in `telegram-auth.js`.
   ordering, collision/linked-mapping rejections, rate limiting).
 - Rules suite: unchanged.
 - **A9 on-device checklist** added to `docs/telegram-setup.md`: deep-link
-  invite accept; "I already have an account" path end-to-end (link → auto
+  invite accept; "I have a secret phrase" path end-to-end (link → auto
   redeem); cold /start; returning /start; back button across overlays + group
   context; vertical-swipe behavior on canvas + list; close-confirm during a
   call; post-link and post-unlink landings; chrome color after theme change.
