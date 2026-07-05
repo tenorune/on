@@ -116,6 +116,38 @@ describe('ensureTelegramUser', () => {
     const res = await ensureTelegramUser(deps, { id: 42 });
     expect(res).toEqual({ uid: 'phraseuid00000000000000000000000', created: false, linked: true });
   });
+
+  test('first bootstrap stamps the anonymous synthetic Auth email', async () => {
+    const deps = makeStoreDeps({});
+    deps.setAuthEmail = jest.fn(async () => {});
+    const { uid } = await ensureTelegramUser(deps, { id: 42 });
+    expect(deps.setAuthEmail).toHaveBeenCalledTimes(1);
+    expect(deps.setAuthEmail).toHaveBeenCalledWith(uid, `tg-${uid}@telegram.invalid`);
+  });
+
+  test('existing mapping → no email stamp', async () => {
+    const deps = makeStoreDeps({});
+    deps.setAuthEmail = jest.fn(async () => {});
+    deps.store['telegramUsers/42'] = { uid: 'u-existing', chatId: '42' };
+    deps.store['users/u-existing/presence'] = { code: 'AAAAAA', status: 'unavailable', availableUntil: null };
+    await ensureTelegramUser(deps, { id: 42 });
+    expect(deps.setAuthEmail).not.toHaveBeenCalled();
+  });
+
+  test('email stamp failure is non-fatal', async () => {
+    const deps = makeStoreDeps({});
+    deps.setAuthEmail = jest.fn(async () => { throw new Error('auth down'); });
+    const { uid, created } = await ensureTelegramUser(deps, { id: 42 });
+    expect(uid).toBeTruthy();
+    expect(created).toBe(true);
+  });
+
+  test('setAuthEmail absent → bootstrap still works', async () => {
+    const deps = makeStoreDeps({});
+    delete deps.setAuthEmail;
+    const { created } = await ensureTelegramUser(deps, { id: 42 });
+    expect(created).toBe(true);
+  });
 });
 
 function makeHandlerDeps(store = {}) {

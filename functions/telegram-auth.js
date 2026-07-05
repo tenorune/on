@@ -75,6 +75,15 @@ export async function ensureTelegramUser(deps, tgUser) {
       'telegram/linkedAt': deps.now(),
       notifyChannel: 'telegram',
     });
+    // Console differentiation (spec §8): stamp the Auth record with an
+    // ANONYMOUS synthetic email — derived from the app uid only, never the
+    // Telegram handle or numeric id (zero new information in Auth records).
+    // Non-fatal: a console nicety must never break account bootstrap.
+    try {
+      await deps.setAuthEmail?.(derivedUid, `tg-${derivedUid}@telegram.invalid`);
+    } catch (e) {
+      console.error('[telegram] setAuthEmail failed (non-fatal):', e);
+    }
   }
   let created = false;
   const presence = await deps.getVal(`users/${mapping.uid}/presence`);

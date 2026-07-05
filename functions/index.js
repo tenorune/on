@@ -195,7 +195,20 @@ function makeTelegramAuthDeps() {
     },
     mintToken: (uid) => getAuth().createCustomToken(uid),
     allowAttempt: (uid) => allowRecoveryAttempt(getDatabase(), uid),
+    setAuthEmail: setTelegramAuthEmail,
   };
+}
+
+// Create-or-update: the Auth record doesn't exist until the client's first
+// signInWithCustomToken, so pre-create it; later re-bootstraps hit update.
+async function setTelegramAuthEmail(uid, email) {
+  const auth = getAuth();
+  try {
+    await auth.updateUser(uid, { email });
+  } catch (e) {
+    if (e?.code === 'auth/user-not-found') await auth.createUser({ uid, email });
+    else throw e;
+  }
 }
 
 export const validateTelegram = httpsOnCall((request) => validateTelegramHandler(request, makeTelegramAuthDeps()));
@@ -221,6 +234,7 @@ export const telegramWebhook = onRequest(async (req, res) => {
     },
     now: () => Date.now(),
     appUrl: process.env.TELEGRAM_APP_URL || '',
+    setAuthEmail: setTelegramAuthEmail,
     tg: {
       sendMessage: (chatId, text, extra = {}) => tgApi('sendMessage', { chat_id: chatId, text, ...extra }),
       answerCallbackQuery: (id, text) => tgApi('answerCallbackQuery', { callback_query_id: id, text }),
