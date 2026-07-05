@@ -16,7 +16,9 @@ jest.mock('../js/installGuidance.js', () => ({
   guidanceCopyFor: jest.fn((s) => ({ body: `copy-for-${s}` })),
 }));
 jest.mock('../js/identity.js', () => ({ loadIdentity: jest.fn() }));
+jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
 
+const { isTelegramContext } = require('../js/telegram.js');
 const { requestPermissionAndRegister } = require('../js/notifyPrompt.js');
 const { addPushToken } = require('../js/prefs.js');
 const { getMessagingIfSupported } = require('../js/firebase-config.js');
@@ -128,6 +130,18 @@ describe('ensureNotificationsReady', () => {
     expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
   });
 
+  test('Telegram context → no-op: no capability check, no permission prompt, no web-push banner', async () => {
+    // In Telegram the bot delivers notifications (notifyChannel:'telegram'); there
+    // is no web-push permission to request, so the whole capability/banner flow —
+    // which would otherwise show "this browser doesn't support…" — is skipped.
+    isTelegramContext.mockReturnValueOnce(true);
+    await ensureNotificationsReady();
+    expect(detectNotifyCapability).not.toHaveBeenCalled();
+    expect(global.Notification.requestPermission).not.toHaveBeenCalled();
+    expect(addPushToken).not.toHaveBeenCalled();
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
+  });
+
   test('already denied → shows blocked banner, no permission request, no token', async () => {
     detectNotifyCapability.mockReturnValue({ state: 'denied', supported: false });
     await ensureNotificationsReady();
@@ -231,6 +245,12 @@ describe('maybeRepromptForMissingPermission', () => {
 
   test('stays hidden when there are no enabled prefs', () => {
     hasAnyNotifyPrefEnabled.mockReturnValue(false);
+    maybeRepromptForMissingPermission();
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
+  });
+
+  test('Telegram context → promo stays hidden (bot delivers; no web-push framing)', () => {
+    isTelegramContext.mockReturnValueOnce(true);
     maybeRepromptForMissingPermission();
     expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
   });

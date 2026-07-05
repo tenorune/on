@@ -2,6 +2,7 @@
 import { NOTIFICATIONS_ENABLED } from './features.js';
 import { markHintSeen, addPushToken, removePushToken, getRegisteredPushToken, hasAnyNotifyPrefEnabled, touchPushToken, cullStalePushTokens } from './prefs.js';
 import { detectNotifyCapability, guidanceCopyFor } from './installGuidance.js';
+import { isTelegramContext } from './telegram.js';
 import { phraseReminderHtml, wirePhraseCopyButton } from './phraseReminder.js';
 import { getMessagingIfSupported } from './firebase-config.js';
 import { getToken } from 'firebase/messaging';
@@ -104,6 +105,11 @@ function showBannerForState(capState) {
 // Called when a user turns a per-person bell on. Always gives feedback: prompts
 // when push is available, otherwise (or on denial) surfaces the right guidance.
 export async function ensureNotificationsReady() {
+  // In Telegram, notifications are delivered by the bot (notifyChannel:'telegram').
+  // There's no web-push permission to grant, so skip the capability/banner flow
+  // entirely — otherwise it surfaces web-push framing ("this browser doesn't
+  // support web notifications"), the wrong lens inside the Mini App. (Spec §9.)
+  if (isTelegramContext()) return;
   const cap = detectNotifyCapability();
   if (cap.state === 'supported') {
     const ok = await requestPermissionAndRegister();
@@ -137,6 +143,9 @@ export function maybeRepromptForMissingPermission() { refreshPromoVisibility(); 
 function refreshPromoVisibility() {
   const banner = document.getElementById('notify-promo');
   if (!banner) return;
+  // Never surface the web-push promo/reprompt in Telegram — the bot is the
+  // notification channel there (spec §9); web-push framing would only mislead.
+  if (isTelegramContext()) { banner.classList.add('hidden'); return; }
   const cap = detectNotifyCapability();
   const permission = (typeof Notification !== 'undefined' && Notification.permission) || 'default';
   const reprompt = shouldReprompt({
