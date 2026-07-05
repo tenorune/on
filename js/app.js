@@ -20,13 +20,14 @@ import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, apply
 import { routeNotificationClick } from './notifyRouting.js';
 import { initOwnStatus, subscribeOwnStatus } from './ownStatus.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
-import { initGroupRemovalDetector } from './groups.js';
+import { initGroupRemovalDetector, showToast } from './groups.js';
 import { initInbox, openInboxModal } from './inbox.js';
 import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
-import { isTelegramContext, ensureTelegramIdentity, initTelegramChrome } from './telegram.js';
+import { isTelegramContext, ensureTelegramIdentity, initTelegramChrome, telegramLinkState } from './telegram.js';
+import { telegramInviteGate } from './telegramFirstRun.js';
 import { ensureCacheOwner } from './cacheOwner.js';
 import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
 import { initHintRotation } from './hintRotation.js';
@@ -498,7 +499,7 @@ function cleanInviteParamFromUrl() {
 }
 
 async function main() {
-  const pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
+  let pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
   // Cold tap on an invite / follow-request notification: the SW opened us at
   // /?inbox=1 (sw.template.js coldStartUrl). Land in Direct and open the Inbox
   // rather than restoring the user's last (possibly group) context, where the
@@ -528,6 +529,18 @@ async function main() {
   // statusapp_theme — the own-status watcher below won't: for an account
   // with no palette it sees paletteKey null === null and skips its reset.
   if (ensureCacheOwner(userId)) resetThemeVars();
+
+  // Telegram deep-linked invite (t.me ...?startapp=<token>): gate before the
+  // normal redemption flow. Linked accounts redeem silently; unlinked arrivals
+  // get the first-run interstitial (spec §1).
+  let tgInvite = null;
+  if (!pendingInviteToken && isTelegramContext()) {
+    tgInvite = await telegramInviteGate({
+      linked: telegramLinkState()?.linked === true,
+      dismissSplash,
+    });
+    if (tgInvite) pendingInviteToken = tgInvite.token;
+  }
 
   // Wire navigation BEFORE the invite-redemption block, otherwise navigateToGroup
   // writes to users/null/... (because initNav hasn't set the local userId yet) AND
@@ -600,7 +613,15 @@ async function main() {
       });
     }
     if (result) {
-      handleInviteRedemptionResult(result);
+      // A re-tapped Telegram deep link lands here as already-following: spec
+      // says show nothing (the contact is already in the list).
+      const silentNoop = tgInvite && result.ok === false && result.reason === 'already-following';
+      if (!silentNoop) handleInviteRedemptionResult(result);
+      if (result.ok && tgInvite?.silent) {
+        showToast(tgInvite.preview.scope === 'group'
+          ? `You joined ${tgInvite.preview.groupName}.`
+          : `You're now following ${tgInvite.preview.label}.`);
+      }
       // Clean the URL so a refresh doesn't re-trigger.
       cleanInviteParamFromUrl();
       if (result.ok && result.groupId) {
