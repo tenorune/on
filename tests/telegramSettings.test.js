@@ -44,7 +44,7 @@ test('renders row, hides phrase pill, shows link button when unlinked', async ()
   expect(document.getElementById('tg-channel-btn').textContent).toMatch(/Telegram/);
 });
 
-test('linked state shows unlink instead; unlink calls the callable', async () => {
+test('linked state shows unlink instead; confirmed unlink calls the callable', async () => {
   telegramLinkState.mockReturnValue({ linked: true });
   const { initTelegramSettings } = require('../js/telegramSettings.js');
   initTelegramSettings('u1');
@@ -53,6 +53,7 @@ test('linked state shows unlink instead; unlink calls the callable', async () =>
   const unlinkBtn = document.getElementById('tg-unlink-btn');
   expect(unlinkBtn.classList.contains('hidden')).toBe(false);
   unlinkBtn.click();
+  document.getElementById('tg-unlink-confirm-btn').click();
   await flush();
   expect(callUnlinkTelegram).toHaveBeenCalledWith('signed-init-data');
 });
@@ -89,4 +90,48 @@ test('link flow: opens restore screen, validates phrase, calls linkTelegram', as
   document.getElementById('restore-submit-btn').click();
   await flush();
   expect(callLinkTelegram).toHaveBeenCalledWith('signed-init-data', 'abacus-abdomen-abdominal-abide');
+});
+
+test('unlink: first tap expands confirm, does not call unlinkTelegram', async () => {
+  telegramLinkState.mockReturnValue({ linked: true });
+  const { initTelegramSettings } = require('../js/telegramSettings.js');
+  initTelegramSettings('u1');
+  await flush();
+  document.getElementById('tg-unlink-btn').click();
+  expect(document.getElementById('tg-unlink-confirm').classList.contains('hidden')).toBe(false);
+  expect(callUnlinkTelegram).not.toHaveBeenCalled();
+});
+
+test('unlink: cancel collapses confirm', async () => {
+  telegramLinkState.mockReturnValue({ linked: true });
+  const { initTelegramSettings } = require('../js/telegramSettings.js');
+  initTelegramSettings('u1');
+  await flush();
+  document.getElementById('tg-unlink-btn').click();
+  document.getElementById('tg-unlink-cancel-btn').click();
+  expect(document.getElementById('tg-unlink-confirm').classList.contains('hidden')).toBe(true);
+});
+
+test('unlink: confirm stamps kk-landing and calls unlinkTelegram', async () => {
+  telegramLinkState.mockReturnValue({ linked: true });
+  const { initTelegramSettings } = require('../js/telegramSettings.js');
+  initTelegramSettings('u1');
+  await flush();
+  document.getElementById('tg-unlink-btn').click();
+  document.getElementById('tg-unlink-confirm-btn').click();
+  await Promise.resolve(); await Promise.resolve();
+  expect(callUnlinkTelegram).toHaveBeenCalled();
+  expect(sessionStorage.getItem('kk-landing')).toBe('unlinked');
+});
+
+test('link success stamps kk-landing=linked before reload', async () => {
+  const { initTelegramSettings } = require('../js/telegramSettings.js');
+  initTelegramSettings('u1');
+  await flush();
+  document.getElementById('tg-link-btn').click();
+  document.getElementById('restore-input').value = 'abacus-abdomen-abdominal-abide';
+  document.getElementById('restore-submit-btn').click();
+  await flush();
+  expect(callLinkTelegram).toHaveBeenCalledWith('signed-init-data', 'abacus-abdomen-abdominal-abide');
+  expect(sessionStorage.getItem('kk-landing')).toBe('linked');
 });

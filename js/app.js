@@ -29,9 +29,9 @@ import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
 import { isTelegramContext, ensureTelegramIdentity, initTelegramChrome } from './telegram.js';
 import { ensureCacheOwner } from './cacheOwner.js';
-import { initTelegramSettings } from './telegramSettings.js';
+import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
 import { initHintRotation } from './hintRotation.js';
-import { initFirstRun } from './firstRun.js';
+import { initFirstRun, showLandingNotice } from './firstRun.js';
 
 
 let splashCounter = 0;
@@ -806,7 +806,8 @@ async function main() {
 
   initCodeDrawer(userId, code);
   if (isTelegramContext()) initTelegramSettings(userId);
-  initFirstRun({ onInvite: () => openPersonalInviteModal() });
+  initFirstRun({ onInvite: () => openPersonalInviteModal(), onLink: isTelegramContext() ? showLinkScreen : null });
+  showLandingNotice();
   initHeader(userId);
   if (!splashDone) {
     const followeeCount = getFollowing().length;

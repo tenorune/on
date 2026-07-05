@@ -41,3 +41,44 @@ export function setListEmpty(isEmpty) {
   }
   document.dispatchEvent(new CustomEvent('first-run-change'));
 }
+
+// ── One-time landing banners (spec §5) ──────────────────────────────────────
+// The marker survives the link/unlink location.reload() in sessionStorage.
+// DELIBERATELY not account-scoped and NOT in cacheOwner's wipe list: it is a
+// transient cross-account handoff. If the webview drops sessionStorage across
+// the reload, the banner silently doesn't show (accepted degradation).
+const LANDING_KEY = 'kk-landing';
+const LANDING_COPY = {
+  linked: 'Linked — this Telegram now opens your KnockKnock account.',
+  unlinked: 'Telegram unlinked. Your account is still yours — sign in with your secret phrase in a browser. This is a fresh Telegram-only account.',
+  graduated: 'This account now works in any browser too.',
+};
+
+export function stampLanding(kind) {
+  try { sessionStorage.setItem(LANDING_KEY, kind); } catch { /* storage denied */ }
+}
+
+export function showLandingNotice() {
+  let kind = null;
+  try {
+    kind = sessionStorage.getItem(LANDING_KEY);
+    sessionStorage.removeItem(LANDING_KEY);
+  } catch { return; }
+  const text = LANDING_COPY[kind];
+  if (!text) return;
+  const main = document.getElementById('main-list');
+  if (!main || document.getElementById('landing-notice')) return;
+  const el = document.createElement('div');
+  el.id = 'landing-notice';
+  el.className = 'landing-notice';
+  const span = document.createElement('span');
+  span.textContent = text;
+  const btn = document.createElement('button');
+  btn.id = 'landing-notice-dismiss';
+  btn.className = 'ghost-btn';
+  btn.type = 'button';
+  btn.textContent = 'OK';
+  btn.addEventListener('click', () => el.remove());
+  el.append(span, btn);
+  main.insertBefore(el, main.firstChild); // above the guided empty state
+}

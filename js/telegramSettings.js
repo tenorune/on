@@ -6,6 +6,7 @@ import { tgWebApp, telegramLinkState } from './telegram.js';
 import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
 import { getUserPrefs, mergeUserPrefs } from './db.js';
 import { parseRecoveryCode } from './identity.js';
+import { stampLanding } from './firstRun.js';
 
 export function initTelegramSettings(userId) {
   const drawer = document.querySelector('#code-drawer .drawer-inner');
@@ -24,16 +25,30 @@ export function initTelegramSettings(userId) {
       <button id="tg-link-btn" class="ghost-btn${linked ? ' hidden' : ''}" type="button">I have a secret phrase</button>
       <button id="tg-unlink-btn" class="ghost-btn${linked ? '' : ' hidden'}" type="button">Unlink account</button>
       <button id="tg-channel-btn" class="chip" type="button">Notifications: Telegram</button>
+    </div>
+    <div id="tg-unlink-confirm" class="hidden">
+      <p class="hint">Your account stays yours — sign in with your secret phrase in any browser. This Telegram will start over with a fresh, empty account.</p>
+      <div class="tg-settings-btns">
+        <button id="tg-unlink-confirm-btn" class="danger-btn" type="button">Unlink</button>
+        <button id="tg-unlink-cancel-btn" class="ghost-btn" type="button">Cancel</button>
+      </div>
     </div>`;
   drawer.appendChild(row);
 
   wireChannelToggle(userId, row.querySelector('#tg-channel-btn'));
   row.querySelector('#tg-link-btn').addEventListener('click', showLinkScreen);
-  row.querySelector('#tg-unlink-btn').addEventListener('click', async (e) => {
+  row.querySelector('#tg-unlink-btn').addEventListener('click', () => {
+    row.querySelector('#tg-unlink-confirm').classList.remove('hidden');
+  });
+  row.querySelector('#tg-unlink-cancel-btn').addEventListener('click', () => {
+    row.querySelector('#tg-unlink-confirm').classList.add('hidden');
+  });
+  row.querySelector('#tg-unlink-confirm-btn').addEventListener('click', async (e) => {
     e.target.disabled = true;
     try {
       await callUnlinkTelegram(tgWebApp().initData);
-      window.location.reload(); // reboot as the derived account
+      stampLanding('unlinked');
+      window.location.reload(); // reboot as a fresh derived account
     } catch {
       e.target.disabled = false;
     }
@@ -66,7 +81,7 @@ async function wireChannelToggle(userId, btn) {
 // goes to linkTelegram, which repoints the Telegram mapping and rate-limits
 // attempts server-side. On success we reload — boot re-auths via initData
 // straight into the linked account.
-function showLinkScreen() {
+export function showLinkScreen() {
   const el = document.getElementById('restore-screen');
   const input = document.getElementById('restore-input');
   const error = document.getElementById('restore-error');
@@ -103,6 +118,7 @@ function showLinkScreen() {
       return;
     }
     teardown();
+    stampLanding('linked');
     window.location.reload(); // reboot via initData into the linked account
   }
   function onCancel() { teardown(); }

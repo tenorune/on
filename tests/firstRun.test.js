@@ -69,3 +69,30 @@ test('initFirstRun wires the invite and link buttons', () => {
   document.getElementById('first-run-link-btn').click();
   expect(onLink).toHaveBeenCalled();
 });
+
+describe('landing notices', () => {
+  test('stampLanding + showLandingNotice renders once and clears the key', () => {
+    firstRun.stampLanding('unlinked');
+    firstRun.showLandingNotice();
+    const notice = document.getElementById('landing-notice');
+    expect(notice.textContent).toContain('Telegram unlinked');
+    expect(sessionStorage.getItem('kk-landing')).toBeNull();
+    firstRun.showLandingNotice(); // second boot: nothing
+    expect(document.querySelectorAll('.landing-notice').length).toBe(1);
+  });
+
+  test('dismiss removes the banner', () => {
+    firstRun.stampLanding('linked');
+    firstRun.showLandingNotice();
+    document.getElementById('landing-notice-dismiss').click();
+    expect(document.getElementById('landing-notice')).toBeNull();
+  });
+
+  test('no key → no banner; unknown kind → no banner', () => {
+    firstRun.showLandingNotice();
+    expect(document.getElementById('landing-notice')).toBeNull();
+    sessionStorage.setItem('kk-landing', 'bogus');
+    firstRun.showLandingNotice();
+    expect(document.getElementById('landing-notice')).toBeNull();
+  });
+});
