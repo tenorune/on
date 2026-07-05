@@ -25,7 +25,6 @@ jest.mock('../js/auth.js', () => ({ ensureSignedIn: jest.fn().mockResolvedValue(
 jest.mock('../js/telegram.js', () => ({
   isTelegramContext: jest.fn(() => false),
   ensureTelegramIdentity: jest.fn(),
-  initTelegramChrome: jest.fn(),
 }));
 
 // Mocks required so that require('../js/app') doesn't crash on Firebase imports.

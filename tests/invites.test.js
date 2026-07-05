@@ -43,7 +43,6 @@ jest.mock('../js/auth.js', () => ({ ensureSignedIn: jest.fn().mockResolvedValue(
 jest.mock('../js/telegram.js', () => ({
   isTelegramContext: jest.fn(() => false),
   ensureTelegramIdentity: jest.fn(),
-  initTelegramChrome: jest.fn(),
 }));
 
 const db = require('../js/db.js');

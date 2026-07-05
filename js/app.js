@@ -36,6 +36,7 @@ import { initFirstRun, showLandingNotice } from './firstRun.js';
 import { showRecoveryCodeModal } from './recoveryModal.js';
 import { setButtonBusy, clearButtonBusy } from './utils.js';
 
+// Re-exported for tests/recovery.test.js, which requires it from app.js directly.
 export { showRecoveryCodeModal };
 
 let splashCounter = 0;

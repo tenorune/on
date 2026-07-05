@@ -1421,5 +1421,5 @@ main {
 .inbox-approve-btn, .inbox-fr-decline-btn { padding: 0.25rem 0.75rem; font-size: 0.875rem; }
 
 /* Telegram Mini App settings row (drawer) */
-.tg-settings-row { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+#tg-account-slot { display: flex; flex-direction: column; gap: 8px; }
 .tg-settings-btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

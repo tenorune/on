@@ -243,7 +243,6 @@ jest.mock('../js/auth.js', () => ({ ensureSignedIn: jest.fn().mockResolvedValue(
 jest.mock('../js/telegram.js', () => ({
   isTelegramContext: jest.fn(() => false),
   ensureTelegramIdentity: jest.fn(),
-  initTelegramChrome: jest.fn(),
 }));
 
 // Boot app.js fresh (all mocks in place) and drain the microtask queue so
