@@ -159,8 +159,10 @@ function makeHandlerDeps(store = {}) {
     // (the fixed 1000 from makeStoreDeps would look wildly "future").
     now: () => Date.now(),
     botToken: BOT_TOKEN,
+    appUrl: 'https://app.example',
     mintToken: jest.fn(async (uid) => `token-for-${uid}`),
     allowAttempt: jest.fn(async () => true),
+    sendMessage: jest.fn(async () => ({})),
   };
 }
 const freshInitData = () => makeInitData({ auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify({ id: 42, first_name: 'Ada' }) });
@@ -180,6 +182,32 @@ describe('validateTelegramHandler', () => {
   test('no bot token configured → failed-precondition', async () => {
     const deps = { ...makeHandlerDeps(), botToken: null };
     await expect(validateTelegramHandler({ data: { initData: freshInitData() } }, deps)).rejects.toThrow(/not configured/i);
+  });
+
+  test('first open (created) sends a one-time welcome DM with the Open button', async () => {
+    const deps = makeHandlerDeps();
+    await validateTelegramHandler({ data: { initData: freshInitData() } }, deps);
+    expect(deps.sendMessage).toHaveBeenCalledTimes(1);
+    const [chatId, text, extra] = deps.sendMessage.mock.calls[0];
+    expect(chatId).toBe('42');
+    expect(text).toMatch(/^Welcome to KnockKnock/);
+    expect(extra.reply_markup.inline_keyboard[0][0].web_app.url).toBe('https://app.example');
+  });
+
+  test('returning open (not created) sends no welcome DM', async () => {
+    const deps = makeHandlerDeps();
+    await validateTelegramHandler({ data: { initData: freshInitData() } }, deps); // first → created
+    deps.sendMessage.mockClear();
+    await validateTelegramHandler({ data: { initData: freshInitData() } }, deps); // second → returning
+    expect(deps.sendMessage).not.toHaveBeenCalled();
+  });
+
+  test('a failing welcome DM is non-fatal — validate still returns the token', async () => {
+    const deps = makeHandlerDeps();
+    deps.sendMessage = jest.fn(async () => { throw new Error('forbidden: bot blocked'); });
+    const res = await validateTelegramHandler({ data: { initData: freshInitData() } }, deps);
+    expect(res.token).toBe(`token-for-${res.uid}`);
+    expect(res.created).toBe(true);
   });
 });
 

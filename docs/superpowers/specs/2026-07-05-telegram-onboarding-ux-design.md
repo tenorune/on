@@ -112,6 +112,17 @@ notification routing).
   message serves both.
 - The `/start` teaser line **replaces** any first-notification "commands exist"
   nudge — no additional machinery.
+- **First-open welcome DM (added 2026-07-05, on-device feedback).** An invited
+  user can accept via a `t.me/…?startapp=` deep link and live entirely in the
+  Mini App without ever opening the bot chat — so they have no persistent
+  re-entry point (Menu Button / bot chat) until a notification happens to arrive.
+  `validateTelegramHandler` now sends the **same** `WELCOME_STRANGER_TEXT` + Open
+  button as a one-time DM when it *creates* the account (`created === true`),
+  giving them a bot chat immediately. It fires only on the Mini-App-first path:
+  a `/start`-first user already has the account bootstrapped, so `created` is
+  false and they get no duplicate. Non-fatal if the DM can't send. (Opening the
+  bot's Mini App grants the bot PM write access, so no `/start` or
+  `requestWriteAccess()` is needed for delivery.)
 - **Operator step** (added to `docs/telegram-setup.md`): set the BotFather
   *short description* + *description* with matching copy — the bot profile is
   the true first impression and the runbook currently leaves it unset.

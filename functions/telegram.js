@@ -3,6 +3,7 @@
 
 import { timingSafeEqual } from 'crypto';
 import { ensureTelegramUser } from './telegram-auth.js';
+import { WELCOME_STRANGER_TEXT, openAppKeyboard } from './telegram-shared.js';
 import { isFutureMs, effectiveAvailable } from './presence-core.js';
 
 // Inline keyboard for a notification, keyed by the same data.type the FCM
@@ -53,10 +54,6 @@ const HELP_TEXT = [
   '/help — this list',
 ].join('\n');
 
-function openAppKeyboard(appUrl) {
-  return appUrl ? { reply_markup: { inline_keyboard: [[{ text: 'Open KnockKnock', web_app: { url: appUrl } }]] } } : {};
-}
-
 // Entry point for every webhook update. Never throws (the webhook must always 200).
 export async function handleUpdate(deps, update) {
   try {
@@ -86,12 +83,7 @@ async function handleMessage(deps, msg) {
     await deps.update(`telegramByUid/${uid}`, { chatId });
     if (!known) {
       // Stranger: funnel, no command list (spec §2). /help keeps the full list.
-      await reply(
-        'Welcome to KnockKnock — see when the people who matter are free, and let them know when you are.\n\n'
-        + 'Everything starts in the app — tap below.\n\n'
-        + "Once you're set up, you can also knock and set your status right from this chat — /help shows how.",
-        openAppKeyboard(deps.appUrl),
-      );
+      await reply(WELCOME_STRANGER_TEXT, openAppKeyboard(deps.appUrl));
       return;
     }
     // Returning: compact live status, duration-based (no server-side timezone).

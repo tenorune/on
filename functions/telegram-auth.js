@@ -4,6 +4,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { normalizeRecoveryCode, deriveUid } from './auth.js';
+import { WELCOME_STRANGER_TEXT, openAppKeyboard } from './telegram-shared.js';
 
 const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000; // initData replay window
 // auth_date is HMAC-protected, this is defense-in-depth against clock nonsense.
@@ -107,6 +108,18 @@ export async function validateTelegramHandler(request, deps) {
   const tgUser = requireTelegramUser(request, deps);
   const { uid, created, linked } = await ensureTelegramUser(deps, tgUser);
   const token = await deps.mintToken(uid);
+  // First-ever open that created this account (not one already bootstrapped by
+  // /start): send a one-time welcome DM. It gives an invited user who arrived via
+  // a deep link and never typed /start a bot chat — their persistent re-entry
+  // point (Menu Button + Open button). Non-fatal: a failed DM (e.g. the user
+  // never granted PM write access) must never break Mini App boot.
+  if (created && deps.sendMessage) {
+    try {
+      await deps.sendMessage(String(tgUser.id), WELCOME_STRANGER_TEXT, openAppKeyboard(deps.appUrl));
+    } catch (e) {
+      console.error('[telegram] welcome DM failed (non-fatal):', e);
+    }
+  }
   return { token, uid, created, linked };
 }
 

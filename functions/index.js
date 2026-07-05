@@ -185,6 +185,7 @@ export const resolveInvitePreview = httpsOnCall((request) =>
 function makeTelegramAuthDeps() {
   return {
     botToken: process.env.TELEGRAM_BOT_TOKEN || null,
+    appUrl: process.env.TELEGRAM_APP_URL || '',
     now: () => Date.now(),
     getVal: async (path) => (await db.ref(path).get()).val(),
     set: async (path, value) => { await db.ref(path).set(value); },
@@ -196,6 +197,11 @@ function makeTelegramAuthDeps() {
     mintToken: (uid) => getAuth().createCustomToken(uid),
     allowAttempt: (uid) => allowRecoveryAttempt(getDatabase(), uid),
     setAuthEmail: setTelegramAuthEmail,
+    // First-open welcome DM (validateTelegramHandler). Null when the bot isn't
+    // configured, so the handler skips it; mirrors the webhook's tg.sendMessage.
+    sendMessage: process.env.TELEGRAM_BOT_TOKEN
+      ? (chatId, text, extra = {}) => tgApi('sendMessage', { chat_id: chatId, text, ...extra })
+      : null,
   };
 }
 

@@ -1,0 +1,19 @@
+// functions/telegram-shared.js — bot copy + keyboards shared between the webhook
+// (/start, telegram.js) and the Mini App auth callable (first-open welcome DM,
+// telegram-auth.js), kept here to avoid a telegram.js ↔ telegram-auth.js import
+// cycle (telegram.js already imports ensureTelegramUser from telegram-auth.js).
+
+// First-contact welcome (spec §2). Sent by /start to a stranger AND reused
+// verbatim as the one-time welcome DM on first Mini App open, so an invited user
+// who arrived via a deep link and never typed /start still gets a bot chat —
+// their persistent re-entry point (Menu Button + the Open button below).
+export const WELCOME_STRANGER_TEXT =
+  'Welcome to KnockKnock — see when the people who matter are free, and let them know when you are.\n\n'
+  + 'Everything starts in the app — tap below.\n\n'
+  + "Once you're set up, you can also knock and set your status right from this chat — /help shows how.";
+
+// Inline keyboard with a single "Open KnockKnock" Mini App button. Empty (no
+// reply_markup) when the app URL is unconfigured, so the message still sends.
+export function openAppKeyboard(appUrl) {
+  return appUrl ? { reply_markup: { inline_keyboard: [[{ text: 'Open KnockKnock', web_app: { url: appUrl } }]] } } : {};
+}
