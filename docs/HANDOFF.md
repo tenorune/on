@@ -51,8 +51,8 @@ feature branches (off dev)  → merged to dev by the user
 - **Required repo secrets:** `FIREBASE_CONFIG_{DEV,PROD}` (env file contents), `FIREBASE_SERVICE_ACCOUNT_{DEV,PROD}` (GCP service account JSON).
 - **`production` environment** with required-reviewer rule gates prod deploys.
 - **Critical CI gotcha:** the deploy step extracts `FIREBASE_PROJECT_ID` via `grep + cut` — *not* by sourcing the env file. Sourcing was fragile against secret formatting. Don't revert.
-- **CI deploys `--only hosting,database`.** Database rules are pushed alongside hosting. If you change `database.rules.json`, the next deploy carries it.
-- **Local deploys also push rules.** `npm run deploy:dev` and `npm run deploy` both use `--only hosting,database`.
+- **CI deploys `--only hosting,database,functions --force`** (an earlier version of this note said hosting,database only — stale). Database rules ship with every deploy, and so do functions. **`--force` deletes deployed functions that are missing from the pushed source** — this is what tears down branch-only functions (e.g. the unmerged Telegram callables on the dev project) on every push to `dev`; see `docs/telegram-setup.md` Part A caveats (bit us 2026-07-05).
+- **Local deploys:** `npm run deploy:dev` uses `--only hosting,database` (does NOT touch functions); `npm run deploy` (prod) uses `--only hosting,database,functions`.
 - **Branch policy: NEVER push to `dev` or `main`.** Do feature work on branches cut from `dev`, push the feature branch, and the user merges it to `dev` themselves (then `dev` → `main`).
 
 ## 3. Code layout

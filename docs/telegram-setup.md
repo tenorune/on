@@ -184,6 +184,15 @@ Use the exact URL from A5.3 and the same secret you put in `functions/.env`.
   groups, notifications) — disposable by design.
 - If the dev web API key has HTTP-referrer restrictions (Google Cloud console
   → Credentials), add the preview domain, or sign-in calls will 403.
+- **Any push to `dev` silently tears down this setup** (bit us 2026-07-05).
+  The dev CI workflow deploys `--only hosting,database,functions --force`
+  from `dev`, whose source has no Telegram functions — `--force` therefore
+  DELETES `validateTelegram`/`linkTelegram`/`unlinkTelegram`/`telegramWebhook`
+  from the dev project and reverts the database rules to `dev`'s version.
+  The preview channel keeps serving (CI doesn't touch channels), so the Mini
+  App loads and then dies at boot with the "Couldn't start KnockKnock" alert.
+  Recovery: re-run the A5 deploy from the feature branch (same URLs come
+  back; webhook registration and menu button survive untouched).
 
 ---
 
