@@ -22,6 +22,13 @@ export function telegramLinkState() {
   return _linkState;
 }
 
+// The Telegram user's first name (from the unsigned initDataUnsafe). Used as the
+// default label when auto-creating a personal invite for a one-tap share.
+// Empty string outside Telegram or when the client withholds the user object.
+export function telegramFirstName() {
+  return tgWebApp()?.initDataUnsafe?.user?.first_name || '';
+}
+
 // Boot auth for the Telegram context. Returns the same { identity, isNew }
 // shape app.js's ensureIdentity produces; recoveryCode is null (a Telegram-
 // derived account has no phrase until the user links one).

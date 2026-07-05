@@ -20,6 +20,17 @@ function setTelegramGlobal(initData = 'query_id=1&hash=abc') {
 
 beforeEach(() => { jest.resetModules(); delete window.Telegram; });
 
+test('telegramFirstName: returns the Mini App user first name, empty when absent', () => {
+  window.Telegram = { WebApp: { initData: 'x', initDataUnsafe: { user: { first_name: 'Ana' } } } };
+  expect(require('../js/telegram.js').telegramFirstName()).toBe('Ana');
+  jest.resetModules();
+  setTelegramGlobal(); // no initDataUnsafe.user
+  expect(require('../js/telegram.js').telegramFirstName()).toBe('');
+  jest.resetModules();
+  delete window.Telegram;
+  expect(require('../js/telegram.js').telegramFirstName()).toBe('');
+});
+
 test('isTelegramContext: true only with flag AND non-empty initData', () => {
   setTelegramGlobal();
   expect(require('../js/telegram.js').isTelegramContext()).toBe(true);

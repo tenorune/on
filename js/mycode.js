@@ -2,7 +2,9 @@
 import { rotateCode, watchUserInvites } from './db.js';
 import { saveIdentity, loadIdentity } from './identity.js';
 import { openInviteModal } from './inviteModal.js';
-import { buildInviteUrl } from './invites.js';
+import { buildInviteUrl, createPersonalInvite } from './invites.js';
+import { shareInviteLink } from './inviteFlow.js';
+import { telegramFirstName } from './telegram.js';
 import { flashRegenerated } from './regenFlash.js';
 
 let _myUserId = null;
@@ -117,6 +119,22 @@ export function initCodeDrawer(myUserId, myCode) {
 
 export async function openPersonalInviteModal() {
   await openInviteModal({ scope: 'personal', userId: _myUserId, activeInvite: _currentActiveInvite });
+}
+
+// Telegram one-tap invite (spec §3/§4): share the active personal invite via the
+// deep link straight to the native share sheet, auto-creating one first when the
+// account has none yet. The Telegram first name is the default "name on the
+// invite" (editable later in the drawer modal); 'Someone' is a defensive
+// fallback since createPersonalInvite requires a non-empty label.
+export async function sharePersonalInvite() {
+  let invite = _currentActiveInvite;
+  if (!invite) {
+    const label = telegramFirstName().slice(0, 40).trim() || 'Someone';
+    const result = await createPersonalInvite(_myUserId, label);
+    invite = { token: result.token, url: result.url, scope: 'personal', creatorLabel: label };
+    _currentActiveInvite = invite; // optimistic; watchUserInvites confirms shortly
+  }
+  shareInviteLink(invite);
 }
 
 async function copyText(text) {

@@ -61,12 +61,24 @@ jest.mock('../js/firstRun.js', () => ({
   setListEmpty: jest.fn(),
   isFirstRunActive: jest.fn(() => false),
 }));
+// sharePersonalInvite pulls in invites.js (create), inviteFlow.js (share sheet),
+// and telegram.js (first-name label). Mock all three so this suite stays a unit
+// test and never loads firebase through telegram.js/inviteFlow.js.
+jest.mock('../js/invites.js', () => ({
+  buildInviteUrl: jest.fn((t) => `https://app/?i=${t}`),
+  createPersonalInvite: jest.fn(),
+}));
+jest.mock('../js/inviteFlow.js', () => ({ shareInviteLink: jest.fn() }));
+jest.mock('../js/telegram.js', () => ({ telegramFirstName: jest.fn(() => 'Ana') }));
 
 const { rotateCode, watchUserInvites } = require('../js/db.js');
 const { saveIdentity } = require('../js/identity.js');
 const { openInviteModal } = require('../js/inviteModal.js');
 const { flashRegenerated } = require('../js/regenFlash.js');
-const { initCodeDrawer } = require('../js/mycode.js');
+const { createPersonalInvite } = require('../js/invites.js');
+const { shareInviteLink } = require('../js/inviteFlow.js');
+const { telegramFirstName } = require('../js/telegram.js');
+const { initCodeDrawer, sharePersonalInvite } = require('../js/mycode.js');
 
 beforeEach(() => {
   document.body.innerHTML = `
@@ -172,5 +184,46 @@ describe('drawer invite button', () => {
       userId: 'uid1',
       activeInvite: null,
     }));
+  });
+});
+
+// spec §3/§4 — the Telegram empty-state "Invite your people" primary shares the
+// deep link straight to the native share sheet (no web modal).
+describe('sharePersonalInvite (Telegram one-tap)', () => {
+  test('shares the active personal invite directly, without creating a new one', async () => {
+    let cb;
+    watchUserInvites.mockImplementation((uid, _cb) => { cb = _cb; return () => {}; });
+    initCodeDrawer('uid1', 'ABC123');
+    cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Alex' } });
+
+    await sharePersonalInvite();
+
+    expect(createPersonalInvite).not.toHaveBeenCalled();
+    expect(shareInviteLink).toHaveBeenCalledWith(expect.objectContaining({ token: 'T1' }));
+  });
+
+  test('auto-creates an invite labelled with the Telegram first name when none is active, then shares it', async () => {
+    watchUserInvites.mockImplementation((uid, cb) => { cb({}); return () => {}; });
+    createPersonalInvite.mockResolvedValue({ token: 'NEW', url: 'https://app/?i=NEW' });
+    telegramFirstName.mockReturnValue('Ana');
+    initCodeDrawer('uid1', 'ABC123');
+
+    await sharePersonalInvite();
+
+    expect(createPersonalInvite).toHaveBeenCalledWith('uid1', 'Ana');
+    expect(shareInviteLink).toHaveBeenCalledWith(
+      expect.objectContaining({ token: 'NEW', url: 'https://app/?i=NEW' }),
+    );
+  });
+
+  test('falls back to a generic label when Telegram exposes no first name', async () => {
+    watchUserInvites.mockImplementation((uid, cb) => { cb({}); return () => {}; });
+    createPersonalInvite.mockResolvedValue({ token: 'N2', url: 'u2' });
+    telegramFirstName.mockReturnValue('');
+    initCodeDrawer('uid1', 'ABC123');
+
+    await sharePersonalInvite();
+
+    expect(createPersonalInvite).toHaveBeenCalledWith('uid1', 'Someone');
   });
 });
