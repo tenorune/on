@@ -6,7 +6,7 @@ const FIXTURE = `
   <main id="main-list">
     <ul id="people-list"></ul>
     <div id="first-run-panel" class="first-run-panel hidden">
-      <p class="first-run-lede">KnockKnock shows your people when you're free — and shows you when they are.</p>
+      <p class="first-run-lede">KnockKnock — for when you're around and open to company.</p>
       <p class="first-run-sub">No one's here yet.</p>
       <button id="first-run-invite-btn" class="primary-btn">Invite your people</button>
       <p id="first-run-link-line" class="hint hidden">Already use KnockKnock?

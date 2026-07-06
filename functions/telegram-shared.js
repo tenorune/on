@@ -8,7 +8,7 @@
 // who arrived via a deep link and never typed /start still gets a bot chat —
 // their persistent re-entry point (Menu Button + the Open button below).
 export const WELCOME_STRANGER_TEXT =
-  'Welcome to KnockKnock — see when the people who matter are free, and let them know when you are.\n\n'
+  "Welcome to KnockKnock — for when you're around and open to company.\n\n"
   + 'Everything starts in the app — tap below.\n\n'
   + "Once you're set up, you can also knock and set your status right from this chat — /help shows how.";
 

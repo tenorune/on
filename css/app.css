@@ -246,8 +246,11 @@ main {
 /* Guided empty state (firstRun.js owns this DOM) */
 .first-run-panel { text-align: center; padding: 2rem 1rem 1rem; }
 .first-run-lede { color: var(--text); margin-bottom: .25rem; }
-.first-run-sub { color: var(--text-muted); margin-bottom: 1rem; }
+.first-run-sub { color: var(--text-muted); margin: 1rem 0; }
+#first-run-invite-btn { margin: 1rem 0; }
 .first-run-panel .hint { margin-top: .75rem; }
+/* Drop the Link-account button onto its own line below "Already use KnockKnock?" */
+#first-run-link-btn { display: block; margin: .5rem auto 0; }
 /* Demoted code-entry while the panel is up: quieter, reads as secondary. */
 #add-person-area.first-run-demoted .add-btn { opacity: .7; font-size: .9em; }
 

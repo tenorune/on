@@ -107,7 +107,7 @@ describe('/start first contact vs returning', () => {
     const deps = makeBotDeps({});
     await handleUpdate(deps, msgUpdate('/start'));
     const [, text, extra] = deps.tg.sendMessage.mock.calls[0];
-    expect(text).toMatch(/^Welcome to KnockKnock — see when the people who matter are free/);
+    expect(text).toMatch(/^Welcome to KnockKnock — for when you're around and open to company\./);
     expect(text).toContain('Everything starts in the app');
     expect(text).toContain('/help shows how');
     expect(text).not.toContain('/who');       // no command dump
