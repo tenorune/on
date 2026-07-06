@@ -26,6 +26,7 @@ beforeEach(() => {
                  autocomplete="new-password" tabindex="-1" readonly aria-hidden="true" />
           <button id="recovery-saved-btn" class="primary-btn" type="submit">I've saved it</button>
         </form>
+        <p id="recovery-modal-error" class="error-msg hidden"></p>
         <button id="recovery-cancel-btn" class="ghost-btn hidden" type="button">Cancel</button>
       </div>
     </div>`;
@@ -50,6 +51,28 @@ test('cancel resolves null and hides the modal', async () => {
   document.getElementById('recovery-cancel-btn').click();
   await expect(p).resolves.toBeNull();
   expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(true);
+});
+
+test('onConfirm error with userMessage shows inline; a regen clears it', async () => {
+  const err = Object.assign(new Error('collision'), { userMessage: 'That phrase is taken.' });
+  const onConfirm = jest.fn().mockRejectedValueOnce(err).mockResolvedValueOnce(undefined);
+  showRecoveryCodeModal('a-b-c-d', onConfirm, { cancellable: true });
+  document.getElementById('recovery-saved-btn').click();
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  const errEl = document.getElementById('recovery-modal-error');
+  expect(errEl.classList.contains('hidden')).toBe(false);
+  expect(errEl.textContent).toBe('That phrase is taken.');
+  // Regenerating a new candidate phrase clears the collision error.
+  document.getElementById('recovery-rotate-btn').click();
+  expect(errEl.classList.contains('hidden')).toBe(true);
+});
+
+test('a plain onConfirm error (no userMessage) shows nothing inline — web signup unchanged', async () => {
+  const onConfirm = jest.fn().mockRejectedValueOnce(new Error('network'));
+  showRecoveryCodeModal('a-b-c-d', onConfirm);
+  document.getElementById('recovery-saved-btn').click();
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  expect(document.getElementById('recovery-modal-error').classList.contains('hidden')).toBe(true);
 });
 
 test('onConfirm failure keeps the modal up; success resolves the phrase', async () => {

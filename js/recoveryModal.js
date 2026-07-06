@@ -33,6 +33,13 @@ export function showRecoveryCodeModal(initialCode, onConfirm, { intro = null, wa
   if (warnEl) warnEl.textContent = warning || DEFAULT_WARNING;
   const cancelBtn = document.getElementById('recovery-cancel-btn');
   if (cancelBtn) cancelBtn.classList.toggle('hidden', !cancellable);
+  // Inline error surface (graduation): an onConfirm that throws with a
+  // `userMessage` shows it here so the modal stays up WITH the error and ↻ is
+  // the retry. Cleared on open and on regen. Web signup errors carry no
+  // userMessage, so this stays hidden — its rendering is unchanged.
+  const errEl = document.getElementById('recovery-modal-error');
+  const clearErr = () => { if (errEl) { errEl.textContent = ''; errEl.classList.add('hidden'); } };
+  clearErr();
 
   let current = initialCode;
   text.textContent = current;
@@ -51,6 +58,7 @@ export function showRecoveryCodeModal(initialCode, onConfirm, { intro = null, wa
       text.textContent = current;
       if (kcPhrase) kcPhrase.value = current;
       if (copyBtn) copyBtn.textContent = 'Copy';
+      clearErr(); // a new candidate phrase clears the last collision error
       // Same visible-change cue as the invite modal: fade-in + a NEW badge that
       // replaces the ↻ while it shows (which also drops the button's focus, so
       // it never looks "stuck selected").
@@ -83,6 +91,7 @@ export function showRecoveryCodeModal(initialCode, onConfirm, { intro = null, wa
           await onConfirm(current);
         } catch (e) {
           console.error('account setup failed:', e);
+          if (errEl && e?.userMessage) { errEl.textContent = e.userMessage; errEl.classList.remove('hidden'); }
           clearButtonBusy(savedBtn);
           return;
         }

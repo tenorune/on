@@ -133,40 +133,33 @@ test('initFirstRun wires the invite and link buttons', () => {
   expect(onLink).toHaveBeenCalled();
 });
 
-describe('landing notices', () => {
-  // The link/unlink banners were removed (unwanted inline-toast style). The
-  // mechanism survives only for the designed-but-unbuilt graduation landing.
-  test('stampLanding + showLandingNotice renders once and clears the key', () => {
+describe('landing notice', () => {
+  // The bespoke landing-notice banner was dropped (spec §7 flag); graduation's
+  // copy is surfaced through the shared boot toast. consumeLandingNotice just
+  // read-and-clears the marker and returns the copy for the caller to route.
+  test('stampLanding + consumeLandingNotice returns the copy once, then clears', () => {
     firstRun.stampLanding('graduated');
-    firstRun.showLandingNotice();
-    const notice = document.getElementById('landing-notice');
-    expect(notice.textContent).toContain('works in any browser');
+    expect(firstRun.consumeLandingNotice()).toContain('works in any browser');
     expect(sessionStorage.getItem('kk-landing')).toBeNull();
-    firstRun.showLandingNotice(); // second boot: nothing
-    expect(document.querySelectorAll('.landing-notice').length).toBe(1);
+    expect(firstRun.consumeLandingNotice()).toBeNull(); // second boot: nothing
   });
 
-  test('dismiss removes the banner', () => {
-    firstRun.stampLanding('graduated');
-    firstRun.showLandingNotice();
-    document.getElementById('landing-notice-dismiss').click();
-    expect(document.getElementById('landing-notice')).toBeNull();
-  });
-
-  test('link and unlink no longer render a landing banner', () => {
+  test('link and unlink no longer stamp a landing (only graduation does)', () => {
     firstRun.stampLanding('linked');
-    firstRun.showLandingNotice();
-    expect(document.getElementById('landing-notice')).toBeNull();
+    expect(firstRun.consumeLandingNotice()).toBeNull();
     firstRun.stampLanding('unlinked');
-    firstRun.showLandingNotice();
-    expect(document.getElementById('landing-notice')).toBeNull();
+    expect(firstRun.consumeLandingNotice()).toBeNull();
   });
 
-  test('no key → no banner; unknown kind → no banner', () => {
-    firstRun.showLandingNotice();
-    expect(document.getElementById('landing-notice')).toBeNull();
+  test('no key → null; unknown kind → null', () => {
+    expect(firstRun.consumeLandingNotice()).toBeNull();
     sessionStorage.setItem('kk-landing', 'bogus');
-    firstRun.showLandingNotice();
+    expect(firstRun.consumeLandingNotice()).toBeNull();
+  });
+
+  test('no bespoke landing-notice banner is rendered', () => {
+    firstRun.stampLanding('graduated');
+    firstRun.consumeLandingNotice();
     expect(document.getElementById('landing-notice')).toBeNull();
   });
 });

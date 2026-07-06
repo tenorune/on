@@ -65,15 +65,17 @@ export function setListEmpty(isEmpty) {
   document.dispatchEvent(new CustomEvent('first-run-change'));
 }
 
-// ── One-time landing banners (spec §5) ──────────────────────────────────────
-// The marker survives the link/unlink location.reload() in sessionStorage.
+// ── One-time landing notice (spec §5, §7) ───────────────────────────────────
+// The marker survives the graduation location.reload() in sessionStorage.
 // DELIBERATELY not account-scoped and NOT in cacheOwner's wipe list: it is a
-// transient cross-account handoff. If the webview drops sessionStorage across
-// the reload, the banner silently doesn't show (accepted degradation).
+// transient cross-account handoff (the reload lands as a DIFFERENT uid). If the
+// webview drops sessionStorage across the reload, the notice silently doesn't
+// show (accepted degradation).
 const LANDING_KEY = 'kk-landing';
-// The post-link and post-unlink banners were removed (an inline-toast style used
-// nowhere else, judged unnecessary on-device). The mechanism is retained only for
-// the designed-but-unbuilt graduation landing (spec §7); link/unlink stamp nothing.
+// Only graduation stamps a landing now: the post-link/post-unlink banners were
+// removed on-device (an inline-toast style used nowhere else). The bespoke
+// landing-notice banner it once rendered was likewise dropped (spec §7 flag) —
+// the copy is surfaced through the shared toast at boot instead (see app.js).
 const LANDING_COPY = {
   graduated: 'This account now works in any browser too.',
 };
@@ -82,27 +84,14 @@ export function stampLanding(kind) {
   try { sessionStorage.setItem(LANDING_KEY, kind); } catch { /* storage denied */ }
 }
 
-export function showLandingNotice() {
+// Read-and-clear the landing marker, returning the copy to surface (or null).
+// The caller decides the surface — boot routes it through the shared toast so
+// graduation reuses an existing pattern rather than a one-off banner.
+export function consumeLandingNotice() {
   let kind = null;
   try {
     kind = sessionStorage.getItem(LANDING_KEY);
     sessionStorage.removeItem(LANDING_KEY);
-  } catch { return; }
-  const text = LANDING_COPY[kind];
-  if (!text) return;
-  const main = document.getElementById('main-list');
-  if (!main || document.getElementById('landing-notice')) return;
-  const el = document.createElement('div');
-  el.id = 'landing-notice';
-  el.className = 'landing-notice';
-  const span = document.createElement('span');
-  span.textContent = text;
-  const btn = document.createElement('button');
-  btn.id = 'landing-notice-dismiss';
-  btn.className = 'ghost-btn';
-  btn.type = 'button';
-  btn.textContent = 'OK';
-  btn.addEventListener('click', () => el.remove());
-  el.append(span, btn);
-  main.insertBefore(el, main.firstChild); // above the guided empty state
+  } catch { return null; }
+  return LANDING_COPY[kind] || null;
 }

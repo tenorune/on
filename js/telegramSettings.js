@@ -3,8 +3,15 @@
 // The phrase pill is hidden here: a Telegram-derived account has no phrase,
 // and a linked account's phrase lives with the user already.
 import { tgWebApp, telegramLinkState } from './telegram.js';
-import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
-import { parseRecoveryCode } from './identity.js';
+import { callLinkTelegram, callUnlinkTelegram, callGraduateTelegram } from './firebase-config.js';
+import { parseRecoveryCode, generateRecoveryCode } from './identity.js';
+import { showRecoveryCodeModal } from './recoveryModal.js';
+import { stampLanding } from './firstRun.js';
+
+// Approved copy (spec §7): the graduation entry point + recovery-modal knobs.
+const GRADUATE_LABEL = 'I also want to use the app outside of Telegram';
+const GRADUATE_INTRO = 'To use the app outside Telegram you get a secret phrase — it opens this same account in any browser.';
+const GRADUATE_WARNING = "Save this somewhere safe. It's how you sign in outside Telegram, and the only way to restore your account if you lose access to Telegram. We can't recover it for you.";
 
 export function initTelegramSettings(userId) {
   const accountSlot = document.getElementById('tg-account-slot');
@@ -20,7 +27,8 @@ export function initTelegramSettings(userId) {
     <div class="tg-settings-btns">
       <button id="tg-link-btn" class="ghost-btn${linked ? ' hidden' : ''}" type="button">I have a secret phrase</button>
       <button id="tg-unlink-btn" class="ghost-btn${linked ? '' : ' hidden'}" type="button">Unlink account</button>
-    </div>`;
+    </div>
+    <button id="tg-graduate-btn" class="ghost-btn tg-graduate-btn${linked ? ' hidden' : ''}" type="button">${GRADUATE_LABEL}</button>`;
 
   document.getElementById('drawer-section-account')?.classList.remove('hidden');
 
@@ -32,6 +40,32 @@ export function initTelegramSettings(userId) {
   accountSlot.querySelector('#tg-unlink-btn').addEventListener('click', () => {
     document.getElementById('tg-unlink-confirm').classList.remove('hidden');
   });
+  accountSlot.querySelector('#tg-graduate-btn')?.addEventListener('click', startGraduation);
+}
+
+// Graduation (spec §7): give this unlinked Telegram-derived account a secret
+// phrase, migrating it to the phrase-derived uid so it becomes a first-class
+// phrase account usable in any browser. Reuses the recovery modal with the
+// graduation knobs; the phrase the user lands on is the account's new uid.
+// A target-uid collision keeps the modal up (↻ regen is the retry); success
+// reloads — boot re-auths straight into the now-"linked" account.
+async function startGraduation() {
+  await showRecoveryCodeModal(generateRecoveryCode(), async (rc) => {
+    try {
+      await callGraduateTelegram(tgWebApp().initData, rc);
+    } catch (e) {
+      // Surface the reason inline (the modal stays up). already-exists means the
+      // phrase's uid is taken — a fresh one (↻) is the retry.
+      const collision = /already-exists|already in use|exists/i.test(e?.code || e?.message || '');
+      throw Object.assign(new Error('graduation failed'), {
+        userMessage: collision
+          ? 'That phrase is already taken — tap ↻ for a new one, then try again.'
+          : "Couldn't set that up right now. Try again.",
+      });
+    }
+    stampLanding('graduated'); // boot reads this and toasts the confirmation
+    window.location.reload();
+  }, { intro: GRADUATE_INTRO, warning: GRADUATE_WARNING, cancellable: true });
 }
 
 // Unlink confirmation as a modal overlay (the same .confirm-overlay pattern as

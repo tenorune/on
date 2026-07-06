@@ -6,13 +6,23 @@ jest.mock('../js/telegram.js', () => ({
 jest.mock('../js/firebase-config.js', () => ({
   callLinkTelegram: jest.fn(async () => ({ token: 't' })),
   callUnlinkTelegram: jest.fn(async () => ({ token: 't' })),
+  callGraduateTelegram: jest.fn(async () => ({ ok: true, uid: 'newuid' })),
 }));
 jest.mock('../js/db.js', () => ({
   getUserPrefs: jest.fn(async () => ({ notifyChannel: 'telegram' })),
   mergeUserPrefs: jest.fn(async () => {}),
 }));
+jest.mock('../js/recoveryModal.js', () => ({ showRecoveryCodeModal: jest.fn(async () => 'phrase') }));
+jest.mock('../js/identity.js', () => ({
+  parseRecoveryCode: (s) => (/^[a-z]+(-[a-z]+){3}$/.test((s || '').trim()) ? s.trim() : null),
+  generateRecoveryCode: jest.fn(() => 'able-baker-charlie-delta'),
+}));
+jest.mock('../js/firstRun.js', () => ({ stampLanding: jest.fn() }));
 const { telegramLinkState } = require('../js/telegram.js');
-const { callLinkTelegram, callUnlinkTelegram } = require('../js/firebase-config.js');
+const { callLinkTelegram, callUnlinkTelegram, callGraduateTelegram } = require('../js/firebase-config.js');
+const { showRecoveryCodeModal } = require('../js/recoveryModal.js');
+const { stampLanding } = require('../js/firstRun.js');
+const { generateRecoveryCode } = require('../js/identity.js');
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -144,4 +154,74 @@ test('link success calls linkTelegram and does NOT stamp a landing banner', asyn
   await flush();
   expect(callLinkTelegram).toHaveBeenCalledWith('signed-init-data', 'abacus-abdomen-abdominal-abide');
   expect(sessionStorage.getItem('kk-landing')).toBeNull();
+});
+
+describe('graduation ("use the app outside Telegram")', () => {
+  const GRAD_INTRO = 'To use the app outside Telegram you get a secret phrase — it opens this same account in any browser.';
+  const GRAD_WARNING = "Save this somewhere safe. It's how you sign in outside Telegram, and the only way to restore your account if you lose access to Telegram. We can't recover it for you.";
+  beforeEach(() => {
+    // resetAllMocks (outer beforeEach) wipes mock implementations — re-establish
+    // the ones this flow drives.
+    generateRecoveryCode.mockReturnValue('able-baker-charlie-delta');
+    showRecoveryCodeModal.mockImplementation(async () => 'phrase');
+    callGraduateTelegram.mockResolvedValue({ ok: true, uid: 'newuid' });
+  });
+
+  test('unlinked account shows the graduation entry with the approved copy', async () => {
+    const { initTelegramSettings } = require('../js/telegramSettings.js');
+    initTelegramSettings('u1');
+    await flush();
+    const btn = document.getElementById('tg-graduate-btn');
+    expect(btn).not.toBeNull();
+    expect(btn.classList.contains('hidden')).toBe(false);
+    expect(btn.textContent).toBe('I also want to use the app outside of Telegram');
+  });
+
+  test('linked account does NOT show the graduation entry', async () => {
+    telegramLinkState.mockReturnValue({ linked: true });
+    const { initTelegramSettings } = require('../js/telegramSettings.js');
+    initTelegramSettings('u1');
+    await flush();
+    const btn = document.getElementById('tg-graduate-btn');
+    expect(btn === null || btn.classList.contains('hidden')).toBe(true);
+  });
+
+  test('clicking opens the recovery modal with the graduation knobs', async () => {
+    const { initTelegramSettings } = require('../js/telegramSettings.js');
+    initTelegramSettings('u1');
+    await flush();
+    document.getElementById('tg-graduate-btn').click();
+    expect(showRecoveryCodeModal).toHaveBeenCalledTimes(1);
+    const [initial, onConfirm, opts] = showRecoveryCodeModal.mock.calls[0];
+    expect(initial).toBe('able-baker-charlie-delta'); // generateRecoveryCode()
+    expect(typeof onConfirm).toBe('function');
+    expect(opts).toMatchObject({ intro: GRAD_INTRO, warning: GRAD_WARNING, cancellable: true });
+  });
+
+  // jsdom's window.location.reload is a non-throwing no-op that can't be spied
+  // reliably here, so these assert stampLanding('graduated') — the observable
+  // gate immediately before the reload — rather than the reload itself.
+  test('onConfirm success: graduates then stamps the landing marker', async () => {
+    const { initTelegramSettings } = require('../js/telegramSettings.js');
+    initTelegramSettings('u1');
+    await flush();
+    document.getElementById('tg-graduate-btn').click();
+    const onConfirm = showRecoveryCodeModal.mock.calls[0][1];
+    await onConfirm('gamma-delta-echo-foxtrot');
+    expect(callGraduateTelegram).toHaveBeenCalledWith('signed-init-data', 'gamma-delta-echo-foxtrot');
+    expect(stampLanding).toHaveBeenCalledWith('graduated');
+  });
+
+  test('onConfirm collision: throws a userMessage, does NOT stamp the landing', async () => {
+    callGraduateTelegram.mockRejectedValueOnce(Object.assign(new Error('taken'), { code: 'functions/already-exists' }));
+    const { initTelegramSettings } = require('../js/telegramSettings.js');
+    initTelegramSettings('u1');
+    await flush();
+    document.getElementById('tg-graduate-btn').click();
+    const onConfirm = showRecoveryCodeModal.mock.calls[0][1];
+    await expect(onConfirm('gamma-delta-echo-foxtrot')).rejects.toMatchObject({
+      userMessage: expect.stringMatching(/taken|already|↻/i),
+    });
+    expect(stampLanding).not.toHaveBeenCalled();
+  });
 });

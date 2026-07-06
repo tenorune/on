@@ -230,6 +230,118 @@ export async function expungeDerivedAccount(deps, uid) {
   await deps.set(`userPrefs/${uid}`, null);
 }
 
+// Inbound/self mailboxes keyed by uid — deleted on expunge, moved on graduation
+// so a rename leaves no orphaned residue behind at the old uid.
+const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants', 'pendingInvites', 'revocations'];
+
+// Move a single key from one path to another, preserving the value. No-op when
+// the source is absent (a half-populated account doesn't blow up on missing
+// nodes). Used by graduation's rewrite pass.
+async function moveNode(deps, from, to) {
+  const val = await deps.getVal(from);
+  if (val === null || val === undefined) return;
+  await deps.set(to, val);
+  await deps.set(from, null);
+}
+
+// Rename a Telegram-derived account's data from oldUid to newUid — the "move,
+// not merge" core of graduation (spec §7). Copies the account's own subtree,
+// then rewrites every cross-user backref, index, canvas, and group entry that
+// names oldUid, and moves inbound mailboxes. Reads the own subtree WHOLE (as
+// real RTDB getVal does) so no per-key enumeration can miss a field.
+//
+// Deliberately does NOT delete the old own subtree — the caller drops it LAST,
+// after repointing telegramUsers/telegramByUid, so the old account stays
+// authoritative until the mapping flips (a crash before the repoint heals on
+// re-run).
+export async function graduateAccountData(deps, oldUid, newUid) {
+  const [own, prefs] = await Promise.all([
+    deps.getVal(`users/${oldUid}`),
+    deps.getVal(`userPrefs/${oldUid}`),
+  ]);
+
+  // 1. Copy the own subtree verbatim to the new uid.
+  if (own) await deps.set(`users/${newUid}`, own);
+  if (prefs) await deps.set(`userPrefs/${newUid}`, prefs);
+
+  // 2. Repoint indexes that resolve to the account.
+  const code = own?.presence?.code;
+  if (code) await deps.set(`codeIndex/${code}`, newUid);
+  for (const token of Object.keys(own?.invites || {})) {
+    await deps.set(`inviteIndex/${token}`, newUid);
+  }
+
+  // 3. Rewrite cross-user backrefs (write new key, drop old).
+  const followers = own?.followers || {};
+  const following = prefs?.following || {};
+  for (const fid of Object.keys(followers)) {
+    await moveNode(deps, `userPrefs/${fid}/following/${oldUid}`, `userPrefs/${fid}/following/${newUid}`);
+  }
+  for (const tid of Object.keys(following)) {
+    await moveNode(deps, `users/${tid}/followers/${oldUid}`, `users/${tid}/followers/${newUid}`);
+    await moveNode(deps, `users/${tid}/followerNames/${oldUid}`, `users/${tid}/followerNames/${newUid}`);
+  }
+
+  const peers = new Set([...Object.keys(followers), ...Object.keys(following)]);
+  for (const peer of peers) {
+    await moveNode(deps, `canvases/${oldUid}_${peer}`, `canvases/${newUid}_${peer}`);
+    await moveNode(deps, `canvases/${peer}_${oldUid}`, `canvases/${peer}_${newUid}`);
+  }
+
+  // 4. Group memberships/ownership.
+  for (const gid of Object.keys(own?.groups || {})) {
+    if ((await deps.getVal(`groups/${gid}/ownerId`)) === oldUid) {
+      await deps.set(`groups/${gid}/ownerId`, newUid);
+    }
+    await moveNode(deps, `groups/${gid}/members/${oldUid}`, `groups/${gid}/members/${newUid}`);
+    await moveNode(deps, `pendingInvitesByGroup/${gid}/${oldUid}`, `pendingInvitesByGroup/${gid}/${newUid}`);
+  }
+
+  // 5. Inbound mailboxes — move so the old uid is left with no residue.
+  for (const box of OWN_MAILBOXES) {
+    await moveNode(deps, `${box}/${oldUid}`, `${box}/${newUid}`);
+  }
+}
+
+// Graduation callable (spec §7): give an UNLINKED Telegram-derived account a
+// secret phrase, migrating it to the phrase-derived uid so it becomes a
+// first-class phrase account ("use the app outside Telegram"). A rename, not a
+// merge — the target uid must be free.
+export async function graduateTelegramHandler(request, deps) {
+  const tgUser = requireTelegramUser(request, deps);
+  const normalized = normalizeRecoveryCode(request.data?.code);
+  if (!normalized) throw new HttpsError('invalid-argument', 'Invalid recovery code.');
+  const newUid = await deriveUid(normalized);
+  // Same brute-force limiter as validateRecovery, keyed by the candidate uid.
+  if (!(await deps.allowAttempt(newUid))) throw new HttpsError('resource-exhausted', 'Too many attempts. Try again shortly.');
+
+  const tgId = String(tgUser.id);
+  const derivedUid = deriveTelegramUid(tgId);
+  const prior = await deps.getVal(`telegramUsers/${tgId}`);
+  // Require an unlinked derived account: the mapping must still point at the
+  // derived uid. A linked account already has a phrase — nothing to graduate.
+  if (!prior || prior.uid !== derivedUid) {
+    throw new HttpsError('failed-precondition', 'This Telegram account is not eligible to graduate.');
+  }
+  // The target uid must be free — graduation never merges into an existing
+  // account. The client regenerates a phrase and retries on collision.
+  if (await deps.getVal(`users/${newUid}/presence`)) {
+    throw new HttpsError('already-exists', 'That phrase is already in use. Try another.');
+  }
+
+  // Move old→new, then flip the mapping, then drop the old subtree LAST (write
+  // ordering is load-bearing — see graduateAccountData).
+  await graduateAccountData(deps, derivedUid, newUid);
+  const chatId = prior.chatId || tgId;
+  await deps.set(`telegramUsers/${tgId}`, { uid: newUid, chatId, linkedAt: deps.now() });
+  await deps.set(`telegramByUid/${derivedUid}`, null);
+  await deps.set(`telegramByUid/${newUid}`, { tgId, chatId });
+  await deps.set(`users/${derivedUid}`, null);
+  await deps.set(`userPrefs/${derivedUid}`, null);
+
+  return { ok: true, uid: newUid };
+}
+
 // Unlink expunges the Telegram identity entirely: the derived uid is
 // deterministic (deriveTelegramUid), so simply reverting the mapping used to
 // resurrect a shadow account that kept its pre-link state forever — able to

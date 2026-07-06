@@ -40,6 +40,7 @@ export async function callResolveInvitePreview(token) {
 const _validateTelegram = httpsCallable(_functions, 'validateTelegram');
 const _linkTelegram = httpsCallable(_functions, 'linkTelegram');
 const _unlinkTelegram = httpsCallable(_functions, 'unlinkTelegram');
+const _graduateTelegram = httpsCallable(_functions, 'graduateTelegram');
 
 // Telegram Mini App auth (experimental — spec 2026-07-02). initData is the raw
 // signed string from Telegram.WebApp; the server verifies it and mints a token.
@@ -54,6 +55,13 @@ export async function callLinkTelegram(initData, code) {
 export async function callUnlinkTelegram(initData) {
   const { data } = await _unlinkTelegram({ initData });
   return data; // { ok: true }
+}
+// Graduation: migrate the current unlinked derived account to the phrase-derived
+// uid (spec §7). Throws `already-exists` on a target-uid collision so the caller
+// can regenerate the phrase and retry.
+export async function callGraduateTelegram(initData, code) {
+  const { data } = await _graduateTelegram({ initData, code });
+  return data; // { ok: true, uid }
 }
 
 let _messaging = null;

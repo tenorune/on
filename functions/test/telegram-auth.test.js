@@ -1,6 +1,6 @@
 import { createHmac } from 'crypto';
 import { jest } from '@jest/globals';
-import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, expungeDerivedAccount } from '../telegram-auth.js';
+import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, expungeDerivedAccount, graduateAccountData, graduateTelegramHandler } from '../telegram-auth.js';
 
 const BOT_TOKEN = '12345:TEST_TOKEN';
 
@@ -423,5 +423,211 @@ describe('expungeDerivedAccount', () => {
     await expect(expungeDerivedAccount(deps, 'somederiveduid00000000000000000')).resolves.toBeUndefined();
     expect(deps.store['users/somederiveduid00000000000000000']).toBeNull();
     expect(deps.store['userPrefs/somederiveduid00000000000000000']).toBeNull();
+  });
+});
+
+// Seed a derived account with the full spread of residue the walker must move:
+// own subtree (whole objects, as real RTDB getVal returns them), indexes,
+// cross-user backrefs, canvases, group membership/ownership, mailboxes.
+function seedGraduationResidue(deps, oldUid) {
+  deps.store[`users/${oldUid}`] = {
+    presence: { code: 'DERV01', status: 'unavailable', availableUntil: null },
+    invites: { TOK1: { scope: 'personal', creatorLabel: 'Ada' } },
+    followers: { f1: 'F1CODE' },
+    followerNames: { f1: 'Fname' },
+    groups: { G1: true, G2: true },
+  };
+  deps.store[`userPrefs/${oldUid}`] = {
+    notifyChannel: 'telegram',
+    telegram: { tgId: '42', linkedAt: 1 },
+    following: { t1: { label: 't1' } },
+    paletteKey: 'ocean',
+  };
+  deps.store['codeIndex/DERV01'] = oldUid;
+  deps.store['inviteIndex/TOK1'] = oldUid;
+  // Follower f1's backref into us:
+  deps.store[`userPrefs/f1/following/${oldUid}`] = { label: 'shadow' };
+  // Followee t1's backrefs to us:
+  deps.store[`users/t1/followers/${oldUid}`] = 'DERVCODE';
+  deps.store[`users/t1/followerNames/${oldUid}`] = 'Shadow';
+  // Canvases with both peers:
+  deps.store[`canvases/${oldUid}_f1`] = { strokes: [1] };
+  deps.store[`canvases/t1_${oldUid}`] = { strokes: [2] };
+  // Group G1 (member only) + G2 (owned):
+  deps.store['groups/G1/ownerId'] = 'someoneElse';
+  deps.store[`groups/G1/members/${oldUid}`] = true;
+  deps.store[`pendingInvitesByGroup/G1/${oldUid}`] = true;
+  deps.store['groups/G2/ownerId'] = oldUid;
+  deps.store[`groups/G2/members/${oldUid}`] = { displayName: 'Me' };
+  // Inbound mailbox that must not be orphaned by the rename:
+  deps.store[`pendingInvites/${oldUid}`] = { G9: { from: 'x' } };
+  deps.store[`knocks/${oldUid}`] = { from: 'someone' };
+}
+
+describe('graduateAccountData', () => {
+  const OLD = deriveTelegramUid('42');
+  const NEW = 'phraseuid000000000000000000000ab';
+
+  test('moves own subtree, indexes, backrefs, canvases, groups and mailboxes old→new; leaves old own subtree for the caller to drop', async () => {
+    const deps = makeStoreDeps();
+    seedGraduationResidue(deps, OLD);
+    await graduateAccountData(deps, OLD, NEW);
+
+    // Own subtree copied verbatim to new; old still present (handler deletes it).
+    expect(deps.store[`users/${NEW}`]).toEqual({
+      presence: { code: 'DERV01', status: 'unavailable', availableUntil: null },
+      invites: { TOK1: { scope: 'personal', creatorLabel: 'Ada' } },
+      followers: { f1: 'F1CODE' },
+      followerNames: { f1: 'Fname' },
+      groups: { G1: true, G2: true },
+    });
+    expect(deps.store[`userPrefs/${NEW}`]).toEqual({
+      notifyChannel: 'telegram',
+      telegram: { tgId: '42', linkedAt: 1 },
+      following: { t1: { label: 't1' } },
+      paletteKey: 'ocean',
+    });
+    expect(deps.store[`users/${OLD}`]).not.toBeNull();
+
+    // Indexes repointed:
+    expect(deps.store['codeIndex/DERV01']).toBe(NEW);
+    expect(deps.store['inviteIndex/TOK1']).toBe(NEW);
+
+    // Follower backref moved:
+    expect(deps.store[`userPrefs/f1/following/${OLD}`]).toBeNull();
+    expect(deps.store[`userPrefs/f1/following/${NEW}`]).toEqual({ label: 'shadow' });
+
+    // Followee backrefs moved:
+    expect(deps.store[`users/t1/followers/${OLD}`]).toBeNull();
+    expect(deps.store[`users/t1/followers/${NEW}`]).toBe('DERVCODE');
+    expect(deps.store[`users/t1/followerNames/${OLD}`]).toBeNull();
+    expect(deps.store[`users/t1/followerNames/${NEW}`]).toBe('Shadow');
+
+    // Canvases moved:
+    expect(deps.store[`canvases/${OLD}_f1`]).toBeNull();
+    expect(deps.store[`canvases/${NEW}_f1`]).toEqual({ strokes: [1] });
+    expect(deps.store[`canvases/t1_${OLD}`]).toBeNull();
+    expect(deps.store[`canvases/t1_${NEW}`]).toEqual({ strokes: [2] });
+
+    // Group G1: membership + pending moved, ownership untouched.
+    expect(deps.store[`groups/G1/members/${OLD}`]).toBeNull();
+    expect(deps.store[`groups/G1/members/${NEW}`]).toBe(true);
+    expect(deps.store[`pendingInvitesByGroup/G1/${OLD}`]).toBeNull();
+    expect(deps.store[`pendingInvitesByGroup/G1/${NEW}`]).toBe(true);
+    expect(deps.store['groups/G1/ownerId']).toBe('someoneElse');
+
+    // Group G2: ownership + membership rewritten to new.
+    expect(deps.store['groups/G2/ownerId']).toBe(NEW);
+    expect(deps.store[`groups/G2/members/${OLD}`]).toBeNull();
+    expect(deps.store[`groups/G2/members/${NEW}`]).toEqual({ displayName: 'Me' });
+
+    // Inbound mailboxes moved (no orphan residue):
+    expect(deps.store[`pendingInvites/${OLD}`]).toBeNull();
+    expect(deps.store[`pendingInvites/${NEW}`]).toEqual({ G9: { from: 'x' } });
+    expect(deps.store[`knocks/${OLD}`]).toBeNull();
+    expect(deps.store[`knocks/${NEW}`]).toEqual({ from: 'someone' });
+  });
+
+  test('empty account: no throw, nothing created at new', async () => {
+    const deps = makeStoreDeps();
+    await expect(graduateAccountData(deps, OLD, NEW)).resolves.toBeUndefined();
+    expect(deps.store[`users/${NEW}`]).toBeFalsy();
+  });
+});
+
+describe('graduateTelegramHandler', () => {
+  const PHRASE = 'able-baker-charlie-delta';
+
+  async function phraseUid() {
+    const { deriveUid } = await import('../auth.js');
+    return deriveUid(PHRASE);
+  }
+
+  function seedUnlinkedDerived(deps, oldUid) {
+    deps.store['telegramUsers/42'] = { uid: oldUid, chatId: '42', createdAt: 1 };
+    deps.store[`telegramByUid/${oldUid}`] = { tgId: '42', chatId: '42' };
+    seedGraduationResidue(deps, oldUid);
+  }
+
+  test('unlinked account → renames to the phrase uid, repoints mapping, drops old subtree', async () => {
+    const deps = makeHandlerDeps();
+    const OLD = deriveTelegramUid('42');
+    const NEW = await phraseUid();
+    seedUnlinkedDerived(deps, OLD);
+
+    const res = await graduateTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps);
+    expect(res).toEqual({ ok: true, uid: NEW });
+
+    // Mapping repointed to the phrase uid, marked linked.
+    expect(deps.store['telegramUsers/42']).toMatchObject({ uid: NEW, chatId: '42' });
+    expect(deps.store['telegramUsers/42'].linkedAt).toBeTruthy();
+    expect(deps.store[`telegramByUid/${OLD}`]).toBeNull();
+    expect(deps.store[`telegramByUid/${NEW}`]).toEqual({ tgId: '42', chatId: '42' });
+
+    // Account now lives at the new uid; old subtree gone.
+    expect(deps.store[`users/${NEW}`].presence.code).toBe('DERV01');
+    expect(deps.store[`userPrefs/${NEW}`].notifyChannel).toBe('telegram');
+    expect(deps.store[`users/${OLD}`]).toBeNull();
+    expect(deps.store[`userPrefs/${OLD}`]).toBeNull();
+    expect(deps.store['codeIndex/DERV01']).toBe(NEW);
+  });
+
+  test('rate limiter is consulted on the NEW (phrase) uid', async () => {
+    const deps = makeHandlerDeps();
+    const OLD = deriveTelegramUid('42');
+    const NEW = await phraseUid();
+    seedUnlinkedDerived(deps, OLD);
+    await graduateTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps);
+    expect(deps.allowAttempt).toHaveBeenCalledWith(NEW);
+  });
+
+  test('rate limited → resource-exhausted, no move', async () => {
+    const deps = makeHandlerDeps();
+    const OLD = deriveTelegramUid('42');
+    seedUnlinkedDerived(deps, OLD);
+    deps.allowAttempt = jest.fn(async () => false);
+    await expect(graduateTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps)).rejects.toThrow(/Too many/i);
+    expect(deps.store[`users/${OLD}`]).not.toBeNull();
+  });
+
+  test('invalid code → invalid-argument', async () => {
+    const deps = makeHandlerDeps();
+    seedUnlinkedDerived(deps, deriveTelegramUid('42'));
+    await expect(graduateTelegramHandler({ data: { initData: freshInitData(), code: 'nope' } }, deps)).rejects.toThrow(/Invalid recovery/i);
+  });
+
+  test('bad initData → unauthenticated', async () => {
+    const deps = makeHandlerDeps();
+    await expect(graduateTelegramHandler({ data: { initData: 'garbage', code: PHRASE } }, deps)).rejects.toThrow(/signature|Telegram/i);
+  });
+
+  test('no bot token configured → failed-precondition', async () => {
+    const deps = { ...makeHandlerDeps(), botToken: null };
+    await expect(graduateTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps)).rejects.toThrow(/not configured/i);
+  });
+
+  test('already-linked mapping → failed-precondition (nothing to graduate)', async () => {
+    const deps = makeHandlerDeps();
+    // Mapping points at a phrase uid, not the derived uid → already linked.
+    deps.store['telegramUsers/42'] = { uid: 'somephraseuid0000000000000000000', chatId: '42' };
+    await expect(graduateTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps)).rejects.toThrow(/not eligible|linked|precondition/i);
+  });
+
+  test('no mapping at all → failed-precondition', async () => {
+    const deps = makeHandlerDeps();
+    await expect(graduateTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps)).rejects.toThrow(/not eligible|precondition/i);
+  });
+
+  test('target phrase uid already in use → already-exists, no move (retry with a new phrase)', async () => {
+    const deps = makeHandlerDeps();
+    const OLD = deriveTelegramUid('42');
+    const NEW = await phraseUid();
+    seedUnlinkedDerived(deps, OLD);
+    // A real phrase account already occupies the target uid:
+    deps.store[`users/${NEW}/presence`] = { code: 'TAKEN1', status: 'unavailable', availableUntil: null };
+    await expect(graduateTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps)).rejects.toThrow(/already|in use|exists/i);
+    // Old account untouched — the client regenerates a phrase and retries.
+    expect(deps.store[`users/${OLD}`]).not.toBeNull();
+    expect(deps.store['telegramUsers/42']).toMatchObject({ uid: OLD });
   });
 });

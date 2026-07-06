@@ -272,9 +272,6 @@ main {
   text-align: center; padding: 6px; border-radius: 6px; width: 100%; margin-bottom: 4px;
 }
 
-/* One-time landing banners (spec §5) */
-.landing-notice { display: flex; gap: .75rem; align-items: center; justify-content: space-between; padding: .75rem 1rem; margin: .5rem 0; border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); }
-
 /* Add person form */
 .add-btn {
   width: 100%; background: transparent; color: var(--text);
@@ -1442,3 +1439,5 @@ main {
 /* Telegram Mini App settings row (drawer) */
 #tg-account-slot { display: flex; flex-direction: column; gap: 8px; }
 .tg-settings-btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+/* Graduation entry — a quieter secondary line under the link/unlink row (spec §7). */
+.tg-graduate-btn { display: block; margin-top: 10px; font-size: .85rem; opacity: .85; text-align: left; padding-left: 0; }

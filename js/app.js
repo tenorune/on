@@ -33,7 +33,7 @@ import { ensureCacheOwner } from './cacheOwner.js';
 import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
 import { syncNotifyChannel } from './notifyChannel.js';
 import { initHintRotation } from './hintRotation.js';
-import { initFirstRun, showLandingNotice } from './firstRun.js';
+import { initFirstRun, consumeLandingNotice } from './firstRun.js';
 import { showRecoveryCodeModal } from './recoveryModal.js';
 import { setButtonBusy, clearButtonBusy } from './utils.js';
 
@@ -747,7 +747,8 @@ async function main() {
     onInvite: () => (isTelegramContext() ? sharePersonalInvite() : openPersonalInviteModal()),
     onLink: isTelegramContext() ? showLinkScreen : null,
   });
-  showLandingNotice();
+  const landingMsg = consumeLandingNotice();
+  if (landingMsg) showToast(landingMsg);
   initHeader(userId);
   if (!splashDone) {
     const followeeCount = getFollowing().length;
