@@ -16,7 +16,9 @@ const FIXTURE = `
   </main>
   <div id="code-drawer">
     <div class="drawer-section" id="drawer-section-invite">
+      <p class="drawer-section-label" id="drawer-invite-label">Invite</p>
       <button id="drawer-invite-btn" class="primary-btn" type="button">Invite your people</button>
+      <p class="hint" id="drawer-invite-hint">Or share this code so others can follow your status.</p>
     </div>
     <div class="drawer-section hidden" id="drawer-section-account"><div id="tg-account-slot"></div></div>
   </div>`;
@@ -54,6 +56,20 @@ test('guided empty state hides the drawer invite button (redundant with the on-s
   expect(btn.classList.contains('hidden')).toBe(true);
   firstRun.setListEmpty(false);
   expect(btn.classList.contains('hidden')).toBe(false);
+});
+
+test('guided empty state: drops the "Invite" label and the "Or …" hint framing; both restored when non-empty', () => {
+  const label = document.getElementById('drawer-invite-label');
+  const hint = document.getElementById('drawer-invite-hint');
+  firstRun.setListEmpty(false); // full drawer → label present, "Or share this code…"
+  expect(label.classList.contains('hidden')).toBe(false);
+  expect(hint.textContent).toBe('Or share this code so others can follow your status.');
+  firstRun.setListEmpty(true);  // only the share code remains → no label, no "Or"
+  expect(label.classList.contains('hidden')).toBe(true);
+  expect(hint.textContent).toBe('Share this code so others can follow your status.');
+  firstRun.setListEmpty(false); // restored
+  expect(label.classList.contains('hidden')).toBe(false);
+  expect(hint.textContent).toBe('Or share this code so others can follow your status.');
 });
 
 test('drawer invite button toggle applies on web too (not gated on Telegram)', () => {

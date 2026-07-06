@@ -35,12 +35,23 @@ export function setListEmpty(isEmpty) {
   if (addBtn) addBtn.textContent = isEmpty ? 'Add by code' : 'Add a person';
   // Declutter the code drawer during the guided empty state (spec §3): the
   // drawer's "Invite your people" duplicates the on-screen first-run CTA, so
-  // hide it on every surface. Restored once the list is non-empty.
-  document.getElementById('drawer-invite-btn')?.classList.toggle('hidden', !!isEmpty);
+  // hide it on every surface. With only the share code left, the section's
+  // "Invite" label and the "Or share this code…" framing (both of which read as
+  // an alternative to that button) no longer fit — drop the label and the "Or".
+  // All restored once the list is non-empty and the button returns.
+  const empty = !!isEmpty;
+  document.getElementById('drawer-invite-btn')?.classList.toggle('hidden', empty);
+  document.getElementById('drawer-invite-label')?.classList.toggle('hidden', empty);
+  const inviteHint = document.getElementById('drawer-invite-hint');
+  if (inviteHint) {
+    inviteHint.textContent = empty
+      ? 'Share this code so others can follow your status.'
+      : 'Or share this code so others can follow your status.';
+  }
   // The Telegram-only account section is noise before the user has anyone. Gated
   // on Telegram so web (where the section is never mounted) is left untouched.
   if (isTelegramContext()) {
-    document.getElementById('drawer-section-account')?.classList.toggle('hidden', !!isEmpty);
+    document.getElementById('drawer-section-account')?.classList.toggle('hidden', empty);
   }
   // "Link your account" only where linking is possible and not already done.
   const linkLine = document.getElementById('first-run-link-line');
