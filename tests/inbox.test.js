@@ -11,6 +11,7 @@ jest.mock('../js/db.js', () => ({
 }));
 jest.mock('../js/groups.js', () => ({
   joinGroup: jest.fn().mockResolvedValue(undefined),
+  showToast: jest.fn(),
 }));
 jest.mock('../js/groupNav.js', () => ({
   navigateToGroup: jest.fn().mockResolvedValue(undefined),
@@ -239,7 +240,6 @@ describe('Inbox', () => {
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
     db.readGroupName.mockResolvedValue({ name: 'Family' });
     groups.joinGroup.mockRejectedValueOnce(new Error('Network down'));
-    window.alert = jest.fn();
     initInbox('me');
     cb({ G1: { from: 'uOwner1', ts: 1 } });
     await openInboxModal();
@@ -251,7 +251,7 @@ describe('Inbox', () => {
     // stays for a retry), surface the error, and re-enable the Join button.
     expect(db.deletePendingInvite).not.toHaveBeenCalled();
     expect(groupNav.navigateToGroup).not.toHaveBeenCalled();
-    expect(window.alert).toHaveBeenCalledWith('Network down');
+    expect(groups.showToast).toHaveBeenCalledWith('Network down');
     expect(joinBtn.disabled).toBe(false);
   });
 
@@ -415,7 +415,6 @@ describe('Inbox — follow requests', () => {
   test('a failed Approve re-enables the button and does not delete the request', async () => {
     db.readMember.mockResolvedValue({ displayName: 'Req Name' });
     db.writeFollowGrant.mockRejectedValueOnce(new Error('offline'));
-    window.alert = jest.fn();
     const { inviteCb, frCb } = initWithCallbacks();
     inviteCb({});
     frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
@@ -427,7 +426,7 @@ describe('Inbox — follow requests', () => {
 
     expect(db.deleteFollowRequest).not.toHaveBeenCalled();
     expect(btn.disabled).toBe(false);
-    expect(window.alert).toHaveBeenCalled();
+    expect(groups.showToast).toHaveBeenCalled();
   });
 });
 

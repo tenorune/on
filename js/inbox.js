@@ -5,7 +5,7 @@
 
 import { watchPendingInvites, deletePendingInvite, readGroupName, readMember,
   watchFollowRequests, deleteFollowRequest, writeFollowGrant } from './db.js';
-import { joinGroup } from './groups.js';
+import { joinGroup, showToast } from './groups.js';
 import { navigateToGroup } from './groupNav.js';
 import { getFollowing } from './prefs.js';
 import { setFollowerName } from './store.js';
@@ -283,7 +283,7 @@ async function handleApprove(requesterUid, requesterLabel) {
     await deleteFollowRequest(_myUid, requesterUid);
   } catch (e) {
     if (btn) btn.disabled = false;
-    window.alert(e.message || 'Could not approve this request. Please try again.');
+    showToast(e.message || 'Could not approve this request. Please try again.');
   }
 }
 
@@ -334,7 +334,7 @@ async function handleJoin(groupId, groupName) {
     // Inbox row stays (re-opening re-renders a fresh, enabled Join), re-enable
     // the captured button, and surface the error rather than swallowing it.
     if (joinBtn) joinBtn.disabled = false;
-    window.alert(e.message || 'Could not join this group. Please try again.');
+    showToast(e.message || 'Could not join this group. Please try again.');
     return;
   }
   await Promise.all([

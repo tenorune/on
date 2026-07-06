@@ -112,7 +112,7 @@ async function ensureIdentity(pendingInviteToken = null) {
       // main() doesn't continue with no identity.
       console.error('telegram boot failed:', e);
       dismissSplash();
-      window.alert("Couldn't start KnockKnock. Please try again in a moment.");
+      showToast("Couldn't start KnockKnock. Please try again in a moment.");
       throw e;
     }
   }
