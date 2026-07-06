@@ -24,7 +24,9 @@ import {
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { openInviteModal } from './inviteModal.js';
 import { getCurrentFollowersMap, getCurrentMutuals } from './following.js';
-import { buildInviteUrl } from './invites.js';
+import { buildInviteUrl, createGroupInvite } from './invites.js';
+import { isTelegramContext } from './telegram.js';
+import { shareInviteLink } from './inviteFlow.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
 import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, NOTIFICATIONS_ENABLED, FOLLOW_REQUESTS_ENABLED } from './features.js';
 import { createCardDrawer, isCardDrawerOpen, closeCardDrawer } from './cardDrawer.js';
@@ -141,6 +143,16 @@ function rosterKeys(members, ownUserId) {
   return keys;
 }
 
+// Telegram one-tap group invite — the group analogue of mycode.js
+// sharePersonalInvite. createGroupInvite is idempotent per creator (returns the
+// existing active group invite or mints a fresh one), so repeat taps reuse the
+// same link. shareInviteLink prefers the t.me deep link, falling back to the
+// web URL only when TELEGRAM_APP_LINK is unconfigured.
+async function shareGroupInvite(ownUserId) {
+  const { token, url } = await createGroupInvite(ownUserId, _currentGroupId);
+  shareInviteLink({ token, url }, `Join ${_groupName || _currentGroupId} on KnockKnock`);
+}
+
 function createInviteRow(ownUserId) {
   const inviteRow = document.createElement('li');
   inviteRow.id = 'group-roster-invite-row';
@@ -150,6 +162,11 @@ function createInviteRow(ownUserId) {
   btn.className = 'add-btn';
   btn.textContent = 'Invite to group';
   btn.addEventListener('click', () => {
+    // Telegram: one-tap deep-link share, mirroring the personal invite
+    // (sharePersonalInvite) — straight to the native share sheet with a
+    // t.me/…?startapp=<token> link, no web-URL modal. Web keeps the modal
+    // (which also carries the in-app "invite specific people" picker).
+    if (isTelegramContext()) { shareGroupInvite(ownUserId); return; }
     openInviteModal({
       scope: 'group',
       userId: ownUserId,

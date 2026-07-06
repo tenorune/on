@@ -54,6 +54,13 @@ jest.mock('../js/db.js', () => ({
 }));
 jest.mock('../js/invites.js', () => ({
   buildInviteUrl: jest.fn((token) => `https://app.example/?i=${token}`),
+  createGroupInvite: jest.fn().mockResolvedValue({ token: 'GTOK', url: 'https://app.example/?i=GTOK' }),
+}));
+jest.mock('../js/telegram.js', () => ({
+  isTelegramContext: jest.fn(() => false),
+}));
+jest.mock('../js/inviteFlow.js', () => ({
+  shareInviteLink: jest.fn(),
 }));
 jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
@@ -533,6 +540,29 @@ describe('group roster render', () => {
     expect(inviteModalMock.openInviteModal).toHaveBeenCalledWith(
       expect.objectContaining({ scope: 'group', groupId: 'G1', groupName: 'Family' })
     );
+  });
+
+  test('in Telegram, the roster invite row one-tap shares the group deep link (no modal)', async () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    const { createGroupInvite } = require('../js/invites.js');
+    const { shareInviteLink } = require('../js/inviteFlow.js');
+    const inviteModalMock = require('../js/inviteModal.js');
+    isTelegramContext.mockReturnValue(true);
+
+    const cbs = captureRosterCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getMembersCb()({ me: { displayName: 'Me', role: 'owner', joinedAt: 1 } });
+    document.getElementById('group-roster-invite-row').querySelector('button').click();
+    await Promise.resolve(); await Promise.resolve();
+
+    expect(createGroupInvite).toHaveBeenCalledWith('me', 'G1');
+    expect(shareInviteLink).toHaveBeenCalledWith(
+      expect.objectContaining({ token: 'GTOK' }),
+      expect.stringContaining('Family'),
+    );
+    expect(inviteModalMock.openInviteModal).not.toHaveBeenCalled();
+    isTelegramContext.mockReturnValue(false); // don't leak into later tests (clearAllMocks keeps return values)
   });
 
   test('an eligible co-member gets a ⋮ drawer carrying the request-follow action', () => {

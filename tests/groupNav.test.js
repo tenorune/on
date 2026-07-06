@@ -1,5 +1,8 @@
 // tests/groupNav.test.js
 jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
+// groupContext.js (transitively imported) now imports telegram.js → firebase/auth;
+// mock it so this suite doesn't drag the real SDK into jsdom.
+jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
 jest.mock('../js/ownStatus.js', () => ({
   initOwnStatus: jest.fn(),
   subscribeOwnStatus: jest.fn(() => () => {}),
