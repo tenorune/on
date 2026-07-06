@@ -2,6 +2,7 @@
 // inviteModal.js now imports telegram.js; stub it out inertly (no Telegram context
 // in these tests, so the share button stays hidden and unwired).
 jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false), openTelegramShare: jest.fn() }));
+jest.mock('../js/inviteFlow.js', () => ({ shareInviteLink: jest.fn() }));
 jest.mock('../js/invites.js', () => ({
   createPersonalInvite: jest.fn(),
   regeneratePersonalInvite: jest.fn(),
@@ -46,6 +47,9 @@ function setupDom() {
           <button id="invite-modal-copy-btn"></button>
           <button id="invite-modal-regen-btn"></button>
           <button id="invite-modal-revoke-btn"></button>
+        </div>
+        <div id="invite-modal-tg-share" class="hidden">
+          <button id="invite-modal-tg-share-btn"></button>
         </div>
         <div id="invite-modal-picker" class="hidden">
           <p id="invite-modal-picker-framing"></p>
@@ -226,13 +230,49 @@ describe('openInviteModal — group scope', () => {
     expect(document.getElementById('invite-modal-regen-btn').style.visibility).toBe('hidden');
   });
 
-  test('pickerOnly shows only the in-app picker (link create/manage sections stay hidden)', async () => {
-    await openInviteModal({
-      scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family', pickerOnly: true,
-    });
+  test('web group scope: create link UI shown, tg-share hidden, picker shown', async () => {
+    await openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+    expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('invite-modal-tg-share').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(false);
+  });
+
+  test('Telegram group scope: "Share on Telegram" button shown, link create/manage hidden, picker shown', async () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    isTelegramContext.mockReturnValue(true);
+    await openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+    expect(document.getElementById('invite-modal-tg-share').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(false);
+    isTelegramContext.mockReturnValue(false);
+  });
+
+  test('Telegram group scope: tapping "Share on Telegram" mints the invite and shares the deep link', async () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    const { shareInviteLink } = require('../js/inviteFlow.js');
+    isTelegramContext.mockReturnValue(true);
+    invites.createGroupInvite.mockResolvedValue({ token: 'GTOK', url: 'https://x/?i=GTOK' });
+    await openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+    document.getElementById('invite-modal-tg-share-btn').click();
+    await new Promise(setImmediate);
+    expect(invites.createGroupInvite).toHaveBeenCalledWith('uid1', 'G1');
+    expect(shareInviteLink).toHaveBeenCalledWith(
+      expect.objectContaining({ token: 'GTOK' }),
+      expect.stringContaining('Family'),
+    );
+    isTelegramContext.mockReturnValue(false);
+  });
+
+  test('group scope shows the modal synchronously, before the async picker populate resolves (#2 jank fix)', async () => {
+    const db = require('../js/db.js');
+    let resolvePending;
+    db.readPendingInviteesForGroup.mockReturnValue(new Promise((r) => { resolvePending = r; }));
+    const p = openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+    // Visible already, even though the pending-invitees read hasn't resolved.
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
+    resolvePending([]);
+    await p;
   });
 
   test('Revoke calls revokeGroupInvite(userId, groupId)', async () => {
@@ -368,6 +408,9 @@ test('openInviteModal in group scope calls renderInvitePicker with the supplied 
           <button id="invite-modal-copy-btn"></button>
           <button id="invite-modal-regen-btn"></button>
           <button id="invite-modal-revoke-btn"></button>
+        </div>
+        <div id="invite-modal-tg-share" class="hidden">
+          <button id="invite-modal-tg-share-btn"></button>
         </div>
         <div id="invite-modal-picker" class="hidden">
           <p id="invite-modal-picker-framing"></p>

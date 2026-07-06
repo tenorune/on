@@ -75,7 +75,7 @@ export function closeInviteModal() {
 }
 const closeModal = closeInviteModal;
 
-export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, mutuals = [], currentMemberUids = new Set(), pickerOnly = false }) {
+export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, mutuals = [], currentMemberUids = new Set() }) {
   const copy = SCOPE_COPY[scope];
   if (!copy) throw new Error(`Unknown scope: ${scope}`);
   if (scope === 'group' && (!groupId || !groupName)) {
@@ -98,44 +98,48 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
     if (labelInputEl) labelInputEl.classList.add('hidden');
   }
 
-  // Section 2 (in-app picker) — group scope only.
+  // Telegram group scope shares the deep link via a single "Share on Telegram"
+  // button in place of the web-URL create/manage UI. Web (and personal) keep
+  // the existing link flow. Both group surfaces show the picker below.
+  const tgGroupShare = scope === 'group' && isTelegramContext();
+
+  // Section 2 (in-app picker) — group scope only. Toggle visibility now;
+  // populate it (async) AFTER the modal is shown, at the end of this function.
   const pickerEl = document.getElementById('invite-modal-picker');
   if (pickerEl) {
     pickerEl.classList.toggle('hidden', scope !== 'group');
   }
 
-  // Section 2 — populate the picker for group scope only.
-  if (scope === 'group') {
-    const pendingInvitees = await readPendingInviteesForGroup(groupId);
-    renderInvitePicker({
-      inviterUid: userId,
-      groupId,
-      followers,
-      mutuals,
-      currentMemberUids,
-      pendingInviteeUids: new Set(pendingInvitees),
-    });
-  }
-
   hideError();
   clearListeners();
-  document.getElementById('invite-modal').classList.remove('hidden');
 
   let currentInvite = activeInvite ? { ...activeInvite } : null;
 
-  if (pickerOnly) {
-    // Picker-only surface (Telegram "invite specific people"): the deep-link
-    // share is handled one-tap elsewhere, so suppress the link create/manage
-    // sections entirely — showState('none') hides both. The subtitle talks
-    // about "this link", so clear it; the picker carries its own framing.
+  const tgShareEl = document.getElementById('invite-modal-tg-share');
+  if (tgGroupShare) {
+    // Hide both create + manage (showState('none')); show the share button and
+    // clear the "this link" subtitle (no link is surfaced here). Tapping shares
+    // the t.me deep link, minting the group invite on demand (idempotent).
     showState('none');
+    if (tgShareEl) tgShareEl.classList.remove('hidden');
     document.getElementById('invite-modal-subtitle').textContent = '';
-  } else if (currentInvite) {
-    showState('manage');
-    renderManageUrl(currentInvite);
+    on(document.getElementById('invite-modal-tg-share-btn'), 'click', async () => {
+      try {
+        const { token, url } = await createGroupInvite(userId, groupId);
+        shareInviteLink({ token, url }, `Join ${groupName} on KnockKnock`);
+      } catch (err) {
+        showError(err.message || 'Could not create invite. Try again.');
+      }
+    });
   } else {
-    showState('create');
-    if (labelInputEl) labelInputEl.value = '';
+    if (tgShareEl) tgShareEl.classList.add('hidden');
+    if (currentInvite) {
+      showState('manage');
+      renderManageUrl(currentInvite);
+    } else {
+      showState('create');
+      if (labelInputEl) labelInputEl.value = '';
+    }
   }
 
   // Create handler — branch by scope. hideError() runs before the await so a
@@ -230,4 +234,23 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   on(document, 'keydown', (e) => {
     if (e.key === 'Escape') closeModal();
   });
+
+  // Show the modal synchronously — BEFORE the async picker populate — so on the
+  // group-create path it appears together with the new group context instead of
+  // a blank frame followed by a late pop-in once readPendingInviteesForGroup
+  // resolves (the transition jank this flow used to show).
+  document.getElementById('invite-modal').classList.remove('hidden');
+
+  // Populate the in-app picker (group scope) after the modal is already up.
+  if (scope === 'group') {
+    const pendingInvitees = await readPendingInviteesForGroup(groupId);
+    renderInvitePicker({
+      inviterUid: userId,
+      groupId,
+      followers,
+      mutuals,
+      currentMemberUids,
+      pendingInviteeUids: new Set(pendingInvitees),
+    });
+  }
 }

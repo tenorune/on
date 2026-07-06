@@ -24,9 +24,7 @@ import {
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { openInviteModal } from './inviteModal.js';
 import { getCurrentFollowersMap, getCurrentMutuals } from './following.js';
-import { buildInviteUrl, createGroupInvite } from './invites.js';
-import { isTelegramContext } from './telegram.js';
-import { shareInviteLink } from './inviteFlow.js';
+import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
 import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, NOTIFICATIONS_ENABLED, FOLLOW_REQUESTS_ENABLED } from './features.js';
 import { createCardDrawer, isCardDrawerOpen, closeCardDrawer } from './cardDrawer.js';
@@ -143,16 +141,6 @@ function rosterKeys(members, ownUserId) {
   return keys;
 }
 
-// Telegram one-tap group invite — the group analogue of mycode.js
-// sharePersonalInvite. createGroupInvite is idempotent per creator (returns the
-// existing active group invite or mints a fresh one), so repeat taps reuse the
-// same link. shareInviteLink prefers the t.me deep link, falling back to the
-// web URL only when TELEGRAM_APP_LINK is unconfigured.
-async function shareGroupInvite(ownUserId) {
-  const { token, url } = await createGroupInvite(ownUserId, _currentGroupId);
-  shareInviteLink({ token, url }, `Join ${_groupName || _currentGroupId} on KnockKnock`);
-}
-
 function createInviteRow(ownUserId) {
   const inviteRow = document.createElement('li');
   inviteRow.id = 'group-roster-invite-row';
@@ -162,11 +150,8 @@ function createInviteRow(ownUserId) {
   btn.className = 'add-btn';
   btn.textContent = 'Invite to group';
   btn.addEventListener('click', () => {
-    // Telegram: one-tap deep-link share, mirroring the personal invite
-    // (sharePersonalInvite) — straight to the native share sheet with a
-    // t.me/…?startapp=<token> link, no web-URL modal. Web keeps the modal
-    // (which also carries the in-app "invite specific people" picker).
-    if (isTelegramContext()) { shareGroupInvite(ownUserId); return; }
+    // One entry point in both contexts: the modal itself renders the Telegram
+    // "Share on Telegram" button or the web link UI, plus the in-app picker.
     openInviteModal({
       scope: 'group',
       userId: ownUserId,
@@ -179,31 +164,6 @@ function createInviteRow(ownUserId) {
     });
   });
   inviteRow.appendChild(btn);
-
-  // Telegram: the primary button is a one-tap deep-link share, which bypasses
-  // the web modal that also holds the in-app "invite specific people" picker.
-  // Offer that picker as a secondary link so it stays reachable (picker-only
-  // modal — no web-URL link section).
-  if (isTelegramContext()) {
-    const pickerBtn = document.createElement('button');
-    pickerBtn.type = 'button';
-    pickerBtn.id = 'group-roster-invite-picker-btn';
-    pickerBtn.className = 'link-btn';
-    pickerBtn.textContent = 'Invite specific people';
-    pickerBtn.addEventListener('click', () => {
-      openInviteModal({
-        scope: 'group',
-        userId: ownUserId,
-        groupId: _currentGroupId,
-        groupName: _groupName || _currentGroupId,
-        followers: getCurrentFollowersMap(),
-        mutuals: getCurrentMutuals(),
-        currentMemberUids: new Set(Object.keys(_lastMembers || {})),
-        pickerOnly: true,
-      });
-    });
-    inviteRow.appendChild(pickerBtn);
-  }
   return inviteRow;
 }
 

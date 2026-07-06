@@ -1,8 +1,5 @@
 // tests/groupNav.test.js
 jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
-// groupContext.js (transitively imported) now imports telegram.js → firebase/auth;
-// mock it so this suite doesn't drag the real SDK into jsdom.
-jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
 jest.mock('../js/ownStatus.js', () => ({
   initOwnStatus: jest.fn(),
   subscribeOwnStatus: jest.fn(() => () => {}),
@@ -202,19 +199,6 @@ describe('create-group modal', () => {
       mutuals: [{ userId: 'm1', label: 'Mut One' }],
       currentMemberUids: expect.any(Set),
     }));
-  });
-
-  test('in Telegram, Submit does NOT open the invite modal (one-tap share lives on the roster button)', async () => {
-    const { isTelegramContext } = require('../js/telegram.js');
-    isTelegramContext.mockReturnValue(true);
-    groups.createGroup.mockResolvedValue({ groupId: 'G1ABCDEF', name: 'Family' });
-    openCreateGroupModal();
-    document.getElementById('create-group-name-input').value = 'Family';
-    document.getElementById('create-group-displayname-input').value = 'Alex';
-    document.getElementById('create-group-submit-btn').click();
-    await new Promise(setImmediate);
-    expect(inviteModal.openInviteModal).not.toHaveBeenCalled();
-    isTelegramContext.mockReturnValue(false); // clearAllMocks keeps return values — restore
   });
 
   test('Submit failure: surfaces error from createGroup, stays open', async () => {

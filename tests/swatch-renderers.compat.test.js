@@ -1,9 +1,6 @@
 // tests/swatch-renderers.compat.test.js
 jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
-// groupContext.js now imports telegram.js directly (→ firebase/auth), so mocking
-// firstRun.js below no longer fully breaks the chain — mock telegram.js too.
-jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
-// groupContext.js's chain also reaches following.js -> firstRun.js ->
+// groupContext.js's chain reaches following.js -> firstRun.js ->
 // telegram.js -> firebase/auth; mock firstRun.js so this suite (unrelated to
 // first-run UI) never loads that real chain.
 jest.mock('../js/firstRun.js', () => ({
