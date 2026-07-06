@@ -63,7 +63,8 @@ describe('inviteFlow', () => {
     expect(ok).toBe(true);
     expect(open).toHaveBeenCalledTimes(1);
     const [url, target] = open.mock.calls[0];
-    expect(url).toBe(`https://t.me/share/url?url=${encodeURIComponent(`https://t.me/kk_bot/app?startapp=${'T'.repeat(22)}`)}&text=Follow%20me`);
+    // Caption gets a leading newline so the link and message are blank-lined apart.
+    expect(url).toBe(`https://t.me/share/url?url=${encodeURIComponent(`https://t.me/kk_bot/app?startapp=${'T'.repeat(22)}`)}&text=${encodeURIComponent('\nFollow me')}`);
     expect(target).toBe('_blank');
     open.mockRestore();
   });

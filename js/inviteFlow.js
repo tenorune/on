@@ -40,5 +40,9 @@ export function shareInviteLink(invite, text = 'Follow me on KnockKnock') {
 export function shareInviteToTelegramWeb(invite, text = 'Follow me on KnockKnock') {
   const deepLink = buildTelegramInviteLink(invite.token);
   if (!deepLink || typeof window === 'undefined' || !window.open) return false;
-  return !!window.open(buildTelegramShareUrl(deepLink, text), '_blank', 'noopener');
+  // Blank-line the link and the message: desktop Telegram otherwise butts the
+  // caption straight under the link (iOS already spaces it) — same treatment as
+  // openTelegramShare's non-iOS branch.
+  const caption = text ? `\n${text}` : text;
+  return !!window.open(buildTelegramShareUrl(deepLink, caption), '_blank', 'noopener');
 }

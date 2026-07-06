@@ -1032,6 +1032,9 @@ main {
   gap: 0.5rem;
   margin-top: 0.75rem;
 }
+/* "Share to Telegram" sits on its own row below the Copy/link row. */
+.invite-share-btn { display: block; width: 100%; margin-top: 0.5rem; text-align: center; }
+.invite-share-btn.hidden { display: none; }
 /* Group invite (no name field): the name input is hidden, so the Create button
    sits directly under the help text. Drop the actions' top margin — it only
    exists to separate the button from the input above it — leaving just the
