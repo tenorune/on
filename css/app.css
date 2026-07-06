@@ -249,8 +249,9 @@ main {
 .first-run-sub { color: var(--text-muted); margin: 1rem 0; }
 #first-run-invite-btn { margin: 1rem 0; }
 .first-run-panel .hint { margin-top: .75rem; }
-/* Drop the Link-account button onto its own line below "Already use KnockKnock?" */
-#first-run-link-btn { display: block; margin: .5rem auto 0; }
+/* "Link your account" + its "?" affordance sit together on their own centered
+   line below "Already use KnockKnock?". */
+.first-run-link-row { display: flex; justify-content: center; align-items: center; margin-top: .5rem; }
 /* A little breathing room below the Link-account affordance (TG guided empty). */
 #first-run-link-line { margin-bottom: 1.25rem; }
 /* Demoted code-entry while the panel is up: quieter, reads as secondary. */
