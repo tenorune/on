@@ -10,6 +10,7 @@ jest.mock('../js/db.js', () => ({
   writeUserInvite: jest.fn(),
   deleteUserInvite: jest.fn(),
   setInviteRevoked: jest.fn(),
+  setInviteLabel: jest.fn(),
   incrementInviteRedemptions: jest.fn(),
   getCreatorCode: jest.fn(),
   watchUserInvites: jest.fn(() => () => {}),
@@ -48,7 +49,7 @@ jest.mock('../js/telegram.js', () => ({
 const db = require('../js/db.js');
 const store = require('../js/store.js');
 const groups = require('../js/groups.js');
-const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, redeemPersonalInvite, attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, extractDirectIntentFromUrl, resolveInviteCreatorLabel } = require('../js/invites');
+const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, updateInviteLabel, redeemPersonalInvite, attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, extractDirectIntentFromUrl, resolveInviteCreatorLabel } = require('../js/invites');
 
 describe('generateInviteToken', () => {
   test('returns a 22-char URL-safe base64 string', () => {
@@ -192,6 +193,30 @@ describe('regeneratePersonalInvite', () => {
     expect(db.setInviteRevoked).not.toHaveBeenCalled();
     expect(db.releaseInviteToken).not.toHaveBeenCalled();
     expect(result.token).toMatch(/^[A-Za-z0-9_-]{22}$/);
+  });
+});
+
+describe('updateInviteLabel', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('rewrites just the creatorLabel on the existing invite (token unchanged)', async () => {
+    db.setInviteLabel.mockResolvedValue();
+
+    const result = await updateInviteLabel('uid1', 'T1', 'Tenorune');
+
+    expect(db.setInviteLabel).toHaveBeenCalledWith('uid1', 'T1', 'Tenorune');
+    expect(result).toBe('Tenorune');
+  });
+
+  test('validates the label (trims, rejects empty / over-long)', async () => {
+    db.setInviteLabel.mockResolvedValue();
+
+    await expect(updateInviteLabel('uid1', 'T1', '   ')).rejects.toThrow(/empty/i);
+    await expect(updateInviteLabel('uid1', 'T1', 'x'.repeat(41))).rejects.toThrow(/40/);
+    expect(db.setInviteLabel).not.toHaveBeenCalled();
+
+    await updateInviteLabel('uid1', 'T1', '  Ana  ');
+    expect(db.setInviteLabel).toHaveBeenCalledWith('uid1', 'T1', 'Ana');
   });
 });
 

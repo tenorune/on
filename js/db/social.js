@@ -81,6 +81,12 @@ export async function setInviteRevoked(userId, token) {
   await update(ref(db, `users/${userId}/invites/${token}`), { revoked: true });
 }
 
+// Rewrites just the creatorLabel on an existing invite (token/URL unchanged),
+// so a re-share can refresh a stale label without minting a new link.
+export async function setInviteLabel(userId, token, creatorLabel) {
+  await update(ref(db, `users/${userId}/invites/${token}`), { creatorLabel });
+}
+
 export async function incrementInviteRedemptions(userId, token) {
   const inviteRef = ref(db, `users/${userId}/invites/${token}/redemptionsUsed`);
   await runTransaction(inviteRef, (current) => {

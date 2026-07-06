@@ -67,6 +67,7 @@ jest.mock('../js/firstRun.js', () => ({
 jest.mock('../js/invites.js', () => ({
   buildInviteUrl: jest.fn((t) => `https://app/?i=${t}`),
   createPersonalInvite: jest.fn(),
+  updateInviteLabel: jest.fn(),
 }));
 jest.mock('../js/inviteFlow.js', () => ({ shareInviteLink: jest.fn() }));
 jest.mock('../js/telegram.js', () => ({ telegramFirstName: jest.fn(() => 'Ana'), isTelegramContext: jest.fn(() => false) }));
@@ -75,7 +76,7 @@ const { rotateCode, watchUserInvites } = require('../js/db.js');
 const { saveIdentity } = require('../js/identity.js');
 const { openInviteModal } = require('../js/inviteModal.js');
 const { flashRegenerated } = require('../js/regenFlash.js');
-const { createPersonalInvite } = require('../js/invites.js');
+const { createPersonalInvite, updateInviteLabel } = require('../js/invites.js');
 const { shareInviteLink } = require('../js/inviteFlow.js');
 const { telegramFirstName, isTelegramContext } = require('../js/telegram.js');
 const { initCodeDrawer, sharePersonalInvite } = require('../js/mycode.js');
@@ -206,6 +207,7 @@ describe('drawer invite button', () => {
 // deep link straight to the native share sheet (no web modal).
 describe('sharePersonalInvite (Telegram one-tap)', () => {
   test('shares the active personal invite directly, without creating a new one', async () => {
+    telegramFirstName.mockReturnValue('Alex'); // matches the stored label: no rewrite
     let cb;
     watchUserInvites.mockImplementation((uid, _cb) => { cb = _cb; return () => {}; });
     initCodeDrawer('uid1', 'ABC123');
@@ -214,7 +216,55 @@ describe('sharePersonalInvite (Telegram one-tap)', () => {
     await sharePersonalInvite();
 
     expect(createPersonalInvite).not.toHaveBeenCalled();
+    expect(updateInviteLabel).not.toHaveBeenCalled();
     expect(shareInviteLink).toHaveBeenCalledWith(expect.objectContaining({ token: 'T1' }));
+  });
+
+  // §29: an active invite carries whatever creatorLabel it was created with,
+  // which goes stale when the Telegram first name changes (observed "Pwa" vs the
+  // current "Tenorune"). Re-sharing refreshes the label on the existing invite
+  // (token/URL unchanged) so the arrival interstitial names the inviter right.
+  test('refreshes a stale label to the current Telegram first name, then shares', async () => {
+    telegramFirstName.mockReturnValue('Tenorune');
+    updateInviteLabel.mockResolvedValue('Tenorune');
+    let cb;
+    watchUserInvites.mockImplementation((uid, _cb) => { cb = _cb; return () => {}; });
+    initCodeDrawer('uid1', 'ABC123');
+    cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Pwa' } });
+
+    await sharePersonalInvite();
+
+    expect(createPersonalInvite).not.toHaveBeenCalled();
+    expect(updateInviteLabel).toHaveBeenCalledWith('uid1', 'T1', 'Tenorune');
+    expect(shareInviteLink).toHaveBeenCalledWith(
+      expect.objectContaining({ token: 'T1', creatorLabel: 'Tenorune' }),
+    );
+  });
+
+  test('leaves the label alone when the Telegram name already matches', async () => {
+    telegramFirstName.mockReturnValue('Tenorune');
+    let cb;
+    watchUserInvites.mockImplementation((uid, _cb) => { cb = _cb; return () => {}; });
+    initCodeDrawer('uid1', 'ABC123');
+    cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Tenorune' } });
+
+    await sharePersonalInvite();
+
+    expect(updateInviteLabel).not.toHaveBeenCalled();
+    expect(shareInviteLink).toHaveBeenCalledWith(expect.objectContaining({ token: 'T1' }));
+  });
+
+  test('keeps the existing label (no clobber) when Telegram exposes no first name', async () => {
+    telegramFirstName.mockReturnValue('');
+    let cb;
+    watchUserInvites.mockImplementation((uid, _cb) => { cb = _cb; return () => {}; });
+    initCodeDrawer('uid1', 'ABC123');
+    cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Pwa' } });
+
+    await sharePersonalInvite();
+
+    expect(updateInviteLabel).not.toHaveBeenCalled();
+    expect(shareInviteLink).toHaveBeenCalledWith(expect.objectContaining({ token: 'T1', creatorLabel: 'Pwa' }));
   });
 
   test('auto-creates an invite labelled with the Telegram first name when none is active, then shares it', async () => {

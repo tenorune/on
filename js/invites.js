@@ -4,7 +4,7 @@
 
 import {
   claimInviteToken, writeUserInvite, readUserInvites,
-  setInviteRevoked, releaseInviteToken,
+  setInviteRevoked, setInviteLabel, releaseInviteToken,
   readInviteIndex, readUserInvite, incrementInviteRedemptions, getCreatorCode,
   registerAsFollower, setFollowingEntry,
   writeGroupInvite, readGroupInvites, readGroupInvite, setGroupInviteRevoked, incrementGroupInviteRedemptions,
@@ -108,6 +108,16 @@ export async function regeneratePersonalInvite(userId, creatorLabelRaw) {
   const creatorLabel = validateLabel(creatorLabelRaw);
   await revokePersonalInvite(userId);
   return createPersonalInvite(userId, creatorLabel);
+}
+
+// Rewrites just the creatorLabel on an existing personal invite (token/URL
+// unchanged, so already-shared links keep working). Lets a re-share refresh a
+// stale label — e.g. the arrival interstitial naming the inviter by their
+// current Telegram first name rather than a name captured at create time (§29).
+export async function updateInviteLabel(userId, token, creatorLabelRaw) {
+  const creatorLabel = validateLabel(creatorLabelRaw);
+  await setInviteLabel(userId, token, creatorLabel);
+  return creatorLabel;
 }
 
 // Result shapes:

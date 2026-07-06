@@ -2,7 +2,7 @@
 import { rotateCode, watchUserInvites } from './db.js';
 import { saveIdentity, loadIdentity } from './identity.js';
 import { openInviteModal } from './inviteModal.js';
-import { buildInviteUrl, createPersonalInvite } from './invites.js';
+import { buildInviteUrl, createPersonalInvite, updateInviteLabel } from './invites.js';
 import { shareInviteLink } from './inviteFlow.js';
 import { telegramFirstName, isTelegramContext } from './telegram.js';
 import { flashRegenerated } from './regenFlash.js';
@@ -137,6 +137,19 @@ export async function sharePersonalInvite() {
     const result = await createPersonalInvite(_myUserId, label);
     invite = { token: result.token, url: result.url, scope: 'personal', creatorLabel: label };
     _currentActiveInvite = invite; // optimistic; watchUserInvites confirms shortly
+  } else {
+    // An existing invite carries the creatorLabel it was created with, which
+    // goes stale when the Telegram first name changes — the arrival
+    // interstitial then names the inviter wrong (§29). Refresh the label on the
+    // existing invite (token/URL unchanged) before sharing. Skip when the name
+    // is unchanged, and when Telegram exposes no name keep the existing label
+    // rather than clobber it with the 'Someone' fallback.
+    const current = telegramFirstName().slice(0, 40).trim();
+    if (current && current !== invite.creatorLabel) {
+      await updateInviteLabel(_myUserId, invite.token, current);
+      invite = { ...invite, creatorLabel: current };
+      _currentActiveInvite = invite;
+    }
   }
   shareInviteLink(invite);
 }
