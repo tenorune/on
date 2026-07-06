@@ -565,6 +565,33 @@ describe('group roster render', () => {
     isTelegramContext.mockReturnValue(false); // don't leak into later tests (clearAllMocks keeps return values)
   });
 
+  test('in Telegram, the roster also offers "Invite specific people" opening the picker-only modal', () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    const inviteModalMock = require('../js/inviteModal.js');
+    isTelegramContext.mockReturnValue(true);
+
+    const cbs = captureRosterCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getMembersCb()({ me: { displayName: 'Me', role: 'owner', joinedAt: 1 } });
+
+    const pickerBtn = document.getElementById('group-roster-invite-picker-btn');
+    expect(pickerBtn).not.toBeNull();
+    pickerBtn.click();
+    expect(inviteModalMock.openInviteModal).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'group', groupId: 'G1', groupName: 'Family', pickerOnly: true })
+    );
+    isTelegramContext.mockReturnValue(false);
+  });
+
+  test('in web, the roster has no "Invite specific people" secondary (picker lives in the full modal)', () => {
+    const cbs = captureRosterCallbacks();
+    enterGroupContext('G1', 'me');
+    cbs.getMetaCb()({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    cbs.getMembersCb()({ me: { displayName: 'Me', role: 'owner', joinedAt: 1 } });
+    expect(document.getElementById('group-roster-invite-picker-btn')).toBeNull();
+  });
+
   test('an eligible co-member gets a ⋮ drawer carrying the request-follow action', () => {
     const followRequests = require('../js/followRequests.js');
     followRequests.isFollowRequestEligible.mockReturnValue(true);

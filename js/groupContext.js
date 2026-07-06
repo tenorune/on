@@ -179,6 +179,31 @@ function createInviteRow(ownUserId) {
     });
   });
   inviteRow.appendChild(btn);
+
+  // Telegram: the primary button is a one-tap deep-link share, which bypasses
+  // the web modal that also holds the in-app "invite specific people" picker.
+  // Offer that picker as a secondary link so it stays reachable (picker-only
+  // modal — no web-URL link section).
+  if (isTelegramContext()) {
+    const pickerBtn = document.createElement('button');
+    pickerBtn.type = 'button';
+    pickerBtn.id = 'group-roster-invite-picker-btn';
+    pickerBtn.className = 'link-btn';
+    pickerBtn.textContent = 'Invite specific people';
+    pickerBtn.addEventListener('click', () => {
+      openInviteModal({
+        scope: 'group',
+        userId: ownUserId,
+        groupId: _currentGroupId,
+        groupName: _groupName || _currentGroupId,
+        followers: getCurrentFollowersMap(),
+        mutuals: getCurrentMutuals(),
+        currentMemberUids: new Set(Object.keys(_lastMembers || {})),
+        pickerOnly: true,
+      });
+    });
+    inviteRow.appendChild(pickerBtn);
+  }
   return inviteRow;
 }
 

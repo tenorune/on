@@ -226,6 +226,15 @@ describe('openInviteModal — group scope', () => {
     expect(document.getElementById('invite-modal-regen-btn').style.visibility).toBe('hidden');
   });
 
+  test('pickerOnly shows only the in-app picker (link create/manage sections stay hidden)', async () => {
+    await openInviteModal({
+      scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family', pickerOnly: true,
+    });
+    expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(false);
+  });
+
   test('Revoke calls revokeGroupInvite(userId, groupId)', async () => {
     invites.revokeGroupInvite.mockResolvedValue();
     await openInviteModal({

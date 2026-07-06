@@ -204,6 +204,19 @@ describe('create-group modal', () => {
     }));
   });
 
+  test('in Telegram, Submit does NOT open the invite modal (one-tap share lives on the roster button)', async () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    isTelegramContext.mockReturnValue(true);
+    groups.createGroup.mockResolvedValue({ groupId: 'G1ABCDEF', name: 'Family' });
+    openCreateGroupModal();
+    document.getElementById('create-group-name-input').value = 'Family';
+    document.getElementById('create-group-displayname-input').value = 'Alex';
+    document.getElementById('create-group-submit-btn').click();
+    await new Promise(setImmediate);
+    expect(inviteModal.openInviteModal).not.toHaveBeenCalled();
+    isTelegramContext.mockReturnValue(false); // clearAllMocks keeps return values — restore
+  });
+
   test('Submit failure: surfaces error from createGroup, stays open', async () => {
     groups.createGroup.mockRejectedValue(new Error('boom'));
     openCreateGroupModal();

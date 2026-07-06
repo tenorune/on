@@ -75,7 +75,7 @@ export function closeInviteModal() {
 }
 const closeModal = closeInviteModal;
 
-export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, mutuals = [], currentMemberUids = new Set() }) {
+export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, mutuals = [], currentMemberUids = new Set(), pickerOnly = false }) {
   const copy = SCOPE_COPY[scope];
   if (!copy) throw new Error(`Unknown scope: ${scope}`);
   if (scope === 'group' && (!groupId || !groupName)) {
@@ -123,7 +123,14 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
 
   let currentInvite = activeInvite ? { ...activeInvite } : null;
 
-  if (currentInvite) {
+  if (pickerOnly) {
+    // Picker-only surface (Telegram "invite specific people"): the deep-link
+    // share is handled one-tap elsewhere, so suppress the link create/manage
+    // sections entirely — showState('none') hides both. The subtitle talks
+    // about "this link", so clear it; the picker carries its own framing.
+    showState('none');
+    document.getElementById('invite-modal-subtitle').textContent = '';
+  } else if (currentInvite) {
     showState('manage');
     renderManageUrl(currentInvite);
   } else {
