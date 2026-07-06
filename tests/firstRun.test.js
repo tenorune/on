@@ -14,6 +14,7 @@ const FIXTURE = `
     </div>
     <div id="add-person-area"><button id="add-person-btn" class="add-btn">Add a person</button></div>
   </main>
+  <button id="mycode-chip" class="chip">Share code</button>
   <div id="code-drawer">
     <div class="drawer-section" id="drawer-section-invite">
       <p class="drawer-section-label" id="drawer-invite-label">Invite</p>
@@ -133,6 +134,34 @@ test('initFirstRun wires the invite, link, and graduation-help buttons', () => {
   expect(onLink).toHaveBeenCalled();
   document.getElementById('first-run-graduate-help').click();
   expect(onGraduateInfo).toHaveBeenCalled();
+});
+
+describe('#mycode-chip label', () => {
+  const chip = () => document.getElementById('mycode-chip').textContent;
+
+  test('guided empty state (code-only drawer) → "Share code"', () => {
+    firstRun.setListEmpty(true);
+    expect(chip()).toBe('Share code');
+  });
+
+  test('non-empty (grab-bag drawer) → "Bits n bobs"', () => {
+    firstRun.setListEmpty(false);
+    expect(chip()).toBe('Bits n bobs');
+  });
+
+  test('empty but Telegram-LINKED (account + notification sections stay) → "Bits n bobs"', () => {
+    mockTelegram.isTelegramContext.mockReturnValue(true);
+    mockTelegram.telegramLinkState.mockReturnValue({ linked: true });
+    firstRun.setListEmpty(true);
+    expect(chip()).toBe('Bits n bobs');
+  });
+
+  test('empty + Telegram-UNLINKED (code-only) → "Share code"', () => {
+    mockTelegram.isTelegramContext.mockReturnValue(true);
+    mockTelegram.telegramLinkState.mockReturnValue({ linked: false });
+    firstRun.setListEmpty(true);
+    expect(chip()).toBe('Share code');
+  });
 });
 
 describe('landing notice', () => {

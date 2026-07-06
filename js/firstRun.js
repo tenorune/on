@@ -58,10 +58,18 @@ export function setListEmpty(isEmpty) {
   // anyone — hide it in the guided empty state. But a LINKED account still needs
   // its unlink control reachable, so keep the section for them even when empty.
   // Gated on Telegram so web (where the section is never mounted) is untouched.
+  const tgLinked = isTelegramContext() && telegramLinkState()?.linked === true;
   if (isTelegramContext()) {
-    const linked = telegramLinkState()?.linked === true;
-    document.getElementById('drawer-section-account')?.classList.toggle('hidden', empty && !linked);
+    document.getElementById('drawer-section-account')?.classList.toggle('hidden', empty && !tgLinked);
   }
+  // The header chip opens the drawer. In the guided empty state the drawer is
+  // stripped to just the share code (its legacy role) — keep "Share code" there.
+  // A linked account keeps its account/unlink + notification sections even when
+  // empty, so it's never code-only. In every other state the drawer is a
+  // grab-bag (invite, link/unlink, notification pill), so name it as such.
+  const codeOnly = empty && !tgLinked;
+  const chip = document.getElementById('mycode-chip');
+  if (chip) chip.textContent = codeOnly ? 'Share code' : 'Bits n bobs';
   // "Link your account" only where linking is possible and not already done.
   const linkLine = document.getElementById('first-run-link-line');
   if (linkLine) {
