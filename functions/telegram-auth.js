@@ -197,6 +197,9 @@ export async function expungeDerivedAccount(deps, uid) {
 
   for (const tid of Object.keys(following || {})) {
     await deps.set(`users/${tid}/followers/${uid}`, null);
+    // The name this account published for itself when it followed via an invite
+    // (see client registerAsFollower) is residue on the followee's tree too.
+    await deps.set(`users/${tid}/followerNames/${uid}`, null);
   }
 
   const peers = new Set([...Object.keys(followers || {}), ...Object.keys(following || {})]);

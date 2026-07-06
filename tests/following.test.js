@@ -112,6 +112,7 @@ jest.mock('../js/db.js', () => ({
   deletePendingInvite: jest.fn().mockResolvedValue(undefined),
   readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
   watchRevocations: jest.fn(() => () => {}),
+  watchFollowerNames: jest.fn(() => () => {}),
 }));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
@@ -124,6 +125,7 @@ jest.mock('../js/store.js', () => ({
   getFollowing: jest.fn(),
   setFollowing: jest.fn(),
   getFollowerName: jest.fn(() => null),
+  setFollowerName: jest.fn(),
   addFollowing: jest.fn(),
   removeFollowing: jest.fn(),
   renameFollowing: jest.fn(),
@@ -155,8 +157,8 @@ jest.mock('../js/prefs.js', () => ({
   setPaletteState: jest.fn(),
 }));
 
-const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations } = require('../js/db.js');
-const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, removeFollowing } = require('../js/store.js');
+const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations, watchFollowerNames } = require('../js/db.js');
+const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, setFollowerName, removeFollowing } = require('../js/store.js');
 const { getMadeCallCount, getAnsweredCallCount, isHintSeen } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
@@ -385,6 +387,47 @@ describe('renderList: follower-only rows', () => {
 
     document.querySelector('[data-user-id="u2"] .follow-back-btn').click();
     expect(document.getElementById('add-label-input').value).toBe('Bea');
+  });
+
+  test('a published follower name (invite redemption) lands in the roster and re-renders the row', () => {
+    // Stateful roster so the render reflects what the watcher stores.
+    const roster = {};
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockImplementation((uid) => roster[uid] || null);
+    setFollowerName.mockImplementation((uid, name) => { roster[uid] = name; });
+
+    let followersCb;
+    let namesCb;
+    watchFollowers.mockImplementation((_uid, cb) => { followersCb = cb; return jest.fn(); });
+    watchFollowerNames.mockImplementation((_uid, cb) => { namesCb = cb; return jest.fn(); });
+    watchPresence.mockReturnValue(jest.fn());
+    initList('myUid', 'MYCODE');
+
+    // Follower arrives via invite with no roster name yet → bare code.
+    followersCb([{ userId: 'u2', code: 'Q3ZP7R' }]);
+    expect(document.querySelector('[data-user-id="u2"] .person-label').textContent).toBe('Q3ZP7R');
+
+    // Their published name arrives → roster populated + row re-rendered.
+    namesCb({ u2: 'Bea' });
+    expect(setFollowerName).toHaveBeenCalledWith('u2', 'Bea');
+    expect(document.querySelector('[data-user-id="u2"] .person-label').textContent).toBe('Q3ZP7R (Bea)');
+  });
+
+  test('a published name does NOT overwrite a roster name already known (approval wins)', () => {
+    const roster = { u2: 'Approved Name' };
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockImplementation((uid) => roster[uid] || null);
+    setFollowerName.mockImplementation((uid, name) => { roster[uid] = name; });
+
+    let namesCb;
+    watchFollowers.mockImplementation(() => jest.fn());
+    watchFollowerNames.mockImplementation((_uid, cb) => { namesCb = cb; return jest.fn(); });
+    watchPresence.mockReturnValue(jest.fn());
+    initList('myUid', 'MYCODE');
+
+    namesCb({ u2: 'Published Name' });
+    expect(setFollowerName).not.toHaveBeenCalled();
+    expect(roster.u2).toBe('Approved Name');
   });
 });
 

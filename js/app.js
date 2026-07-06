@@ -26,7 +26,7 @@ import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
-import { isTelegramContext, ensureTelegramIdentity, telegramLinkState } from './telegram.js';
+import { isTelegramContext, ensureTelegramIdentity, telegramLinkState, telegramFirstName } from './telegram.js';
 import { initTelegramChrome } from './telegramChrome.js';
 import { telegramInviteGate } from './telegramFirstRun.js';
 import { ensureCacheOwner } from './cacheOwner.js';
@@ -598,7 +598,14 @@ async function main() {
     const navRowEl = document.getElementById('nav-row');
     if (navRowEl) navRowEl.classList.add('hidden');
     let landedInGroup = false;
-    let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+    // redeemerName lets a personal-invite redemption publish the follower's own
+    // display name to the inviter, so their followers list shows "CODE (Name)"
+    // instead of a bare code (no follow-request approval happened to teach it).
+    // telegramFirstName() is '' outside Telegram — web redeemers pass no name,
+    // so their behaviour is unchanged (group redeems ignore it entirely).
+    let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {
+      redeemerName: telegramFirstName().slice(0, 40),
+    });
     // Captured from the needs-display-name response so we can prime
     // setLastKnownGroupName even on the success path (where the second
     // attemptRedeemFromUrl call returns its own groupName too).

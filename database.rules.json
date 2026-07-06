@@ -34,6 +34,12 @@
             ".write": "auth != null && (auth.uid === $follower || auth.uid === $uid)",
             ".validate": "newData.isString() && newData.val().length <= 16"
           }
+        },
+        "followerNames": {
+          "$follower": {
+            ".write": "auth != null && (auth.uid === $follower || auth.uid === $uid)",
+            ".validate": "newData.isString() && newData.val().length <= 40"
+          }
         }
       }
     },

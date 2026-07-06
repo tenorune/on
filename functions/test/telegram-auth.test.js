@@ -327,6 +327,7 @@ describe('unlinkTelegramHandler', () => {
     // Followee t1:
     deps.store[`userPrefs/${derivedUid}/following`] = { t1: { label: 't1' } };
     deps.store[`users/t1/followers/${derivedUid}`] = 'DERVCODE';
+    deps.store[`users/t1/followerNames/${derivedUid}`] = 'Shadow';
     // Canvases with both:
     deps.store[`canvases/${derivedUid}_f1`] = { strokes: [] };
     deps.store[`canvases/t1_${derivedUid}`] = { strokes: [] };
@@ -365,6 +366,7 @@ describe('unlinkTelegramHandler', () => {
     // Cross-user residue cleaned:
     expect(deps.store[`userPrefs/f1/following/${derivedUid}`]).toBeNull();
     expect(deps.store[`users/t1/followers/${derivedUid}`]).toBeNull();
+    expect(deps.store[`users/t1/followerNames/${derivedUid}`]).toBeNull();
     expect(deps.store[`canvases/${derivedUid}_f1`]).toBeNull();
     expect(deps.store[`canvases/t1_${derivedUid}`]).toBeNull();
 

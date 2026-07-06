@@ -243,6 +243,8 @@ jest.mock('../js/auth.js', () => ({ ensureSignedIn: jest.fn().mockResolvedValue(
 jest.mock('../js/telegram.js', () => ({
   isTelegramContext: jest.fn(() => false),
   ensureTelegramIdentity: jest.fn(),
+  telegramLinkState: jest.fn(() => null),
+  telegramFirstName: jest.fn(() => ''),
 }));
 
 // Boot app.js fresh (all mocks in place) and drain the microtask queue so
@@ -294,5 +296,39 @@ describe('app.js boot: cache-owner switch resets theme vars', () => {
     expect(resetThemeVars).not.toHaveBeenCalled();
     expect(localStorage.getItem('statusapp_theme')).toBe('{"bg":"#1a0f2e"}');
     expect(localStorage.getItem('statusapp_cache_owner')).toBe('me');
+  });
+});
+
+describe('app.js boot: invite redemption carries the redeemer name', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    localStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  test('passes the Telegram first name as redeemerName so the inviter names the follower', async () => {
+    const invites = require('../js/invites.js');
+    const telegram = require('../js/telegram.js');
+    invites.extractInviteTokenFromUrl.mockReturnValue('TOKEN');
+    telegram.telegramFirstName.mockReturnValue('Bea');
+
+    await bootApp();
+
+    expect(invites.attemptRedeemFromUrl).toHaveBeenCalledWith(
+      'TOKEN', 'me', 'MYCODE', { redeemerName: 'Bea' },
+    );
+  });
+
+  test('web invite (no Telegram name) redeems with an empty redeemerName', async () => {
+    const invites = require('../js/invites.js');
+    const telegram = require('../js/telegram.js');
+    invites.extractInviteTokenFromUrl.mockReturnValue('TOKEN');
+    telegram.telegramFirstName.mockReturnValue('');
+
+    await bootApp();
+
+    expect(invites.attemptRedeemFromUrl).toHaveBeenCalledWith(
+      'TOKEN', 'me', 'MYCODE', { redeemerName: '' },
+    );
   });
 });

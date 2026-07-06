@@ -212,9 +212,19 @@ describe('redeemPersonalInvite', () => {
     });
     const result = await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set());
     expect(result).toEqual({ ok: true, creatorUid: 'creator-uid', creatorCode: 'ABC123', creatorLabel: 'Alex' });
-    expect(db.registerAsFollower).toHaveBeenCalledWith('creator-uid', 'redeemer-uid', 'redeemer-code');
+    expect(db.registerAsFollower).toHaveBeenCalledWith('creator-uid', 'redeemer-uid', 'redeemer-code', undefined);
     expect(db.setFollowingEntry).toHaveBeenCalledWith('redeemer-uid', 'creator-uid', 'ABC123', 'Alex');
     expect(db.incrementInviteRedemptions).toHaveBeenCalledWith('creator-uid', 'TOKEN');
+  });
+
+  test('forwards the redeemer name to registerAsFollower so the creator can name the follower', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator-uid/invites/TOKEN' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Alex',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set(), 'Bea');
+    expect(db.registerAsFollower).toHaveBeenCalledWith('creator-uid', 'redeemer-uid', 'redeemer-code', 'Bea');
   });
 
   test('falls back to an empty follow label when the invite has no creatorLabel', async () => {
@@ -390,6 +400,17 @@ describe('attemptRedeemFromUrl', () => {
     });
     const result = await attemptRedeemFromUrl('T', 'me', 'mycode');
     expect(result).toEqual({ ok: false, reason: 'already-following' });
+  });
+
+  test('threads opts.redeemerName through to the personal redeem', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'T', creatorUid: 'creator', creatorLabel: 'Alex',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    db.getCreatorCode.mockResolvedValue('ABC123');
+    await attemptRedeemFromUrl('T', 'me', 'mycode', { redeemerName: 'Bea' });
+    expect(db.registerAsFollower).toHaveBeenCalledWith('creator', 'me', 'mycode', 'Bea');
   });
 });
 
@@ -638,7 +659,7 @@ describe('full flow: create → redeem (integration)', () => {
     expect(result.ok).toBe(true);
     expect(result.creatorCode).toBe('AAA111');
     expect(result.creatorLabel).toBe('Alice');
-    expect(db.registerAsFollower).toHaveBeenCalledWith('user-a', 'user-b', 'BBB222');
+    expect(db.registerAsFollower).toHaveBeenCalledWith('user-a', 'user-b', 'BBB222', undefined);
     expect(db.setFollowingEntry).toHaveBeenCalledWith('user-b', 'user-a', 'AAA111', 'Alice');
     expect(db.incrementInviteRedemptions).toHaveBeenCalledWith('user-a', token);
   });

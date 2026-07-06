@@ -1,6 +1,6 @@
 // js/following.js
 import {
-  lookupCode, watchFollowers, registerAsFollower, unregisterAsFollower,
+  lookupCode, watchFollowers, watchFollowerNames, registerAsFollower, unregisterAsFollower,
   removeFollower, isExpired, isAvailable,
   formatLastSeen, startCall, answerCall, endCall, watchOwnCall, setStatusColor,
   watchFollowing, setFollowingEntry, removeFollowingEntry, watchRevocations,
@@ -8,7 +8,7 @@ import {
 import { subscribePresence } from './presenceHub.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
-  setFollowing, getFollowerName,
+  setFollowing, getFollowerName, setFollowerName,
 } from './store.js';
 import {
   isHintSeen, markHintSeen,
@@ -46,6 +46,7 @@ function followeeRow(userId) {
 
 let latestFollowersSnapshot = [];
 let unsubFollowers = null;
+let unsubFollowerNames = null;
 let unsubFollowing = null;
 let unsubRevocations = null;
 let refreshInterval = null;
@@ -138,6 +139,20 @@ export function initList(myUserId, myCode) {
   unsubFollowers = watchFollowers(myUserId, (followers) => {
     latestFollowersSnapshot = followers;
     renderList();
+  });
+
+  // Fold self-published follower names (invite redemptions — see
+  // registerAsFollower) into the device-local roster so the followers list can
+  // show "CODE (Name)". Fill-if-empty: a name learned from a follow-request
+  // approval (or user edit) stays authoritative and is never clobbered by the
+  // published value. Re-render only when something new landed.
+  if (unsubFollowerNames) unsubFollowerNames();
+  unsubFollowerNames = watchFollowerNames(myUserId, (names) => {
+    let changed = false;
+    for (const [uid, name] of Object.entries(names || {})) {
+      if (name && !getFollowerName(uid)) { setFollowerName(uid, name); changed = true; }
+    }
+    if (changed) renderList();
   });
 
   // Subscribe to own following list (cross-device sync of contacts)

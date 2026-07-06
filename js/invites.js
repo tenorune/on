@@ -116,7 +116,7 @@ export async function regeneratePersonalInvite(userId, creatorLabelRaw) {
 //
 // alreadyFollowingSet: optional Set<string> of creator UIDs the redeemer already follows.
 //   Null/undefined is treated as "not following anyone" — the function won't throw.
-export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alreadyFollowingSet) {
+export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alreadyFollowingSet, redeemerName) {
   if (!token || typeof token !== 'string') return { ok: false, reason: 'not-found' };
 
   const indexEntry = await readInviteIndex(token);
@@ -147,7 +147,10 @@ export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alr
   // Use the inviter's creatorLabel as the follow's local label so the contact
   // card shows their name rather than the share code.
   const followLabel = invite.creatorLabel || '';
-  await registerAsFollower(creatorUid, redeemerUid, redeemerCode);
+  // redeemerName (the redeemer's own display name — Telegram first name) rides
+  // along so the creator's followers list can show "CODE (Name)" for a follow
+  // that never went through a follow-request approval to teach them the name.
+  await registerAsFollower(creatorUid, redeemerUid, redeemerCode, redeemerName);
   await setFollowingEntry(redeemerUid, creatorUid, creatorCode, followLabel);
   await incrementInviteRedemptions(creatorUid, token);
 
@@ -177,7 +180,7 @@ export async function attemptRedeemFromUrl(token, redeemerUid, redeemerCode, opt
 
   if (indexEntry.scope === 'personal') {
     const followingSet = new Set(getFollowing().map((e) => e.userId));
-    return redeemPersonalInvite(token, redeemerUid, redeemerCode, followingSet);
+    return redeemPersonalInvite(token, redeemerUid, redeemerCode, followingSet, opts.redeemerName);
   }
   if (indexEntry.scope === 'group') {
     const groupId = parseGroupIdFromOwnerPath(indexEntry.ownerPath);
