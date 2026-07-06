@@ -5,7 +5,6 @@
 import { tgWebApp, telegramLinkState } from './telegram.js';
 import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
 import { parseRecoveryCode } from './identity.js';
-import { initNotifyChannel } from './notifyChannel.js';
 
 export function initTelegramSettings(userId) {
   const accountSlot = document.getElementById('tg-account-slot');
@@ -26,11 +25,9 @@ export function initTelegramSettings(userId) {
   document.getElementById('drawer-section-account')?.classList.remove('hidden');
 
   ensureUnlinkConfirmModal();
-  // Notification-channel pill — shared with the web drawer. Only renders/reveals
-  // the section for a linked account (an unlinked Telegram-derived account can
-  // only receive via Telegram). Linking reboots (location.reload), so `linked`
-  // is re-evaluated fresh on the next boot — no dynamic toggle needed here.
-  initNotifyChannel(userId, { linked });
+  // The notification-channel pill lives in its own section and is reconciled
+  // reactively from userPrefs (see syncNotifyChannel on the watchUserPrefs tick),
+  // so it isn't wired here.
   accountSlot.querySelector('#tg-link-btn').addEventListener('click', showLinkScreen);
   accountSlot.querySelector('#tg-unlink-btn').addEventListener('click', () => {
     document.getElementById('tg-unlink-confirm').classList.remove('hidden');

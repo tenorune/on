@@ -11,11 +11,8 @@ jest.mock('../js/db.js', () => ({
   getUserPrefs: jest.fn(async () => ({ notifyChannel: 'telegram' })),
   mergeUserPrefs: jest.fn(async () => {}),
 }));
-jest.mock('../js/notifyChannel.js', () => ({ initNotifyChannel: jest.fn() }));
-
 const { telegramLinkState } = require('../js/telegram.js');
 const { callLinkTelegram, callUnlinkTelegram } = require('../js/firebase-config.js');
-const { initNotifyChannel } = require('../js/notifyChannel.js');
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -55,8 +52,6 @@ test('renders row, hides phrase pill, shows link button when unlinked', async ()
   expect(document.getElementById('tg-account-slot').contains(document.getElementById('tg-unlink-btn'))).toBe(true);
   expect(document.getElementById('tg-link-btn').classList.contains('hidden')).toBe(false);
   expect(document.getElementById('tg-unlink-btn').classList.contains('hidden')).toBe(true);
-  // Notification pill is delegated to the shared module, told this account is unlinked.
-  expect(initNotifyChannel).toHaveBeenCalledWith('u1', { linked: false });
 });
 
 test('linked state shows unlink instead; confirmed unlink calls the callable', async () => {
@@ -65,9 +60,6 @@ test('linked state shows unlink instead; confirmed unlink calls the callable', a
   initTelegramSettings('u1');
   await flush();
   expect(document.getElementById('tg-link-btn').classList.contains('hidden')).toBe(true);
-  // Linked: the notification pill is delegated with linked:true (the shared
-  // module reveals the section and renders the channel toggle).
-  expect(initNotifyChannel).toHaveBeenCalledWith('u1', { linked: true });
   const unlinkBtn = document.getElementById('tg-unlink-btn');
   expect(unlinkBtn.classList.contains('hidden')).toBe(false);
   unlinkBtn.click();

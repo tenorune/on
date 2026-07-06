@@ -1,14 +1,14 @@
 /** @jest-environment jsdom */
-// The notification-channel toggle pill, shared by the Telegram drawer and the
-// web drawer. Only present for a linked account.
-jest.mock('../js/db.js', () => ({
-  getUserPrefs: jest.fn(async () => ({ notifyChannel: 'telegram' })),
-  mergeUserPrefs: jest.fn(async () => {}),
-}));
-const { getUserPrefs, mergeUserPrefs } = require('../js/db.js');
-const { initNotifyChannel } = require('../js/notifyChannel.js');
+// The notification-channel toggle pill, driven reactively from userPrefs so it
+// stays live across surfaces/devices (link/unlink and channel switches reflect
+// without a reload). Shared by the Telegram drawer and the web drawer.
+jest.mock('../js/db.js', () => ({ mergeUserPrefs: jest.fn(async () => {}) }));
+const { mergeUserPrefs } = require('../js/db.js');
+const { syncNotifyChannel } = require('../js/notifyChannel.js');
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
+const LINKED = (channel) => ({ telegram: { linkedAt: 1 }, notifyChannel: channel });
+const UNLINKED = (channel) => ({ notifyChannel: channel }); // no telegram marker
 
 function mountDom() {
   document.body.innerHTML = `
@@ -17,53 +17,79 @@ function mountDom() {
       <div id="tg-notify-slot"></div>
     </div>`;
 }
-beforeEach(() => {
-  jest.clearAllMocks();
-  getUserPrefs.mockResolvedValue({ notifyChannel: 'telegram' });
-  mergeUserPrefs.mockResolvedValue(undefined);
-  mountDom();
-});
+beforeEach(() => { jest.clearAllMocks(); mergeUserPrefs.mockResolvedValue(undefined); mountDom(); });
 
-test('unlinked: section stays hidden, no pill, and prefs are not read', async () => {
-  await initNotifyChannel('u1', { linked: false });
-  expect(document.getElementById('drawer-section-notifications').classList.contains('hidden')).toBe(true);
+const active = () => document.querySelector('.toggle-pill-option.active')?.dataset.channel;
+const section = () => document.getElementById('drawer-section-notifications');
+
+test('unlinked prefs: section stays hidden, no pill', () => {
+  syncNotifyChannel('u1', UNLINKED('telegram'));
+  expect(section().classList.contains('hidden')).toBe(true);
   expect(document.getElementById('tg-notify-slot').children.length).toBe(0);
-  expect(getUserPrefs).not.toHaveBeenCalled();
 });
 
-test('linked: reveals the section and renders a two-segment pill, Telegram active by default', async () => {
-  await initNotifyChannel('u1', { linked: true });
-  expect(document.getElementById('drawer-section-notifications').classList.contains('hidden')).toBe(false);
-  const opts = [...document.querySelectorAll('.toggle-pill-option')];
-  expect(opts.map((o) => o.dataset.channel)).toEqual(['telegram', 'push']);
-  expect(document.querySelector('.toggle-pill-option.active').dataset.channel).toBe('telegram');
+test('null prefs: treated as unlinked, hidden', () => {
+  syncNotifyChannel('u1', null);
+  expect(section().classList.contains('hidden')).toBe(true);
 });
 
-test('linked with a stored push preference: Push segment active', async () => {
-  getUserPrefs.mockResolvedValue({ notifyChannel: 'push' });
-  await initNotifyChannel('u1', { linked: true });
-  expect(document.querySelector('.toggle-pill-option.active').dataset.channel).toBe('push');
+test('linked: reveals the section and renders a two-segment pill, active reflects the stored channel', () => {
+  syncNotifyChannel('u1', LINKED('telegram'));
+  expect(section().classList.contains('hidden')).toBe(false);
+  expect([...document.querySelectorAll('.toggle-pill-option')].map((o) => o.dataset.channel)).toEqual(['telegram', 'push']);
+  expect(active()).toBe('telegram');
 });
 
-test('clicking a segment persists the channel and moves the active state', async () => {
-  await initNotifyChannel('u1', { linked: true });
+test('linked with push stored: Push active', () => {
+  syncNotifyChannel('u1', LINKED('push'));
+  expect(active()).toBe('push');
+});
+
+test('reactive: a later prefs tick flips the active segment without remounting or duplicating handlers', async () => {
+  syncNotifyChannel('u1', LINKED('telegram'));
+  const firstPill = document.querySelector('.toggle-pill');
+  syncNotifyChannel('u1', LINKED('push')); // external change (other device)
+  expect(active()).toBe('push');
+  expect(document.querySelector('.toggle-pill')).toBe(firstPill); // same node, not rebuilt
+  // handlers weren't stacked: one click → one write
+  document.querySelector('[data-channel="telegram"]').click();
+  await flush();
+  expect(mergeUserPrefs).toHaveBeenCalledTimes(1);
+});
+
+test('link transition: hidden → shown when the telegram marker appears', () => {
+  syncNotifyChannel('u1', UNLINKED('telegram'));
+  expect(section().classList.contains('hidden')).toBe(true);
+  syncNotifyChannel('u1', LINKED('telegram'));
+  expect(section().classList.contains('hidden')).toBe(false);
+});
+
+test('unlink transition: shown → hidden when the telegram marker clears', () => {
+  syncNotifyChannel('u1', LINKED('telegram'));
+  expect(section().classList.contains('hidden')).toBe(false);
+  syncNotifyChannel('u1', UNLINKED('push'));
+  expect(section().classList.contains('hidden')).toBe(true);
+});
+
+test('clicking a segment persists the channel and optimistically moves the active state', async () => {
+  syncNotifyChannel('u1', LINKED('telegram'));
   document.querySelector('[data-channel="push"]').click();
+  expect(active()).toBe('push'); // optimistic, before the round-trip resolves
   await flush();
   expect(mergeUserPrefs).toHaveBeenCalledWith('u1', { notifyChannel: 'push' });
-  expect(document.querySelector('.toggle-pill-option.active').dataset.channel).toBe('push');
 });
 
 test('clicking the already-active segment is a no-op', async () => {
-  await initNotifyChannel('u1', { linked: true });
+  syncNotifyChannel('u1', LINKED('telegram'));
   document.querySelector('[data-channel="telegram"]').click();
   await flush();
   expect(mergeUserPrefs).not.toHaveBeenCalled();
 });
 
-test('write failure reverts the active segment', async () => {
+test('write failure reverts the optimistic active state', async () => {
   mergeUserPrefs.mockRejectedValue(new Error('offline'));
-  await initNotifyChannel('u1', { linked: true });
+  syncNotifyChannel('u1', LINKED('telegram'));
   document.querySelector('[data-channel="push"]').click();
   await flush();
-  expect(document.querySelector('.toggle-pill-option.active').dataset.channel).toBe('telegram');
+  expect(active()).toBe('telegram');
 });
