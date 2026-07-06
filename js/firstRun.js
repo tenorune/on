@@ -33,6 +33,15 @@ export function setListEmpty(isEmpty) {
   document.getElementById('add-person-area')?.classList.toggle('first-run-demoted', !!isEmpty);
   const addBtn = document.getElementById('add-person-btn');
   if (addBtn) addBtn.textContent = isEmpty ? 'Add by code' : 'Add a person';
+  // Declutter the code drawer during the guided empty state (spec §3): the
+  // drawer's "Invite your people" duplicates the on-screen first-run CTA, so
+  // hide it on every surface. Restored once the list is non-empty.
+  document.getElementById('drawer-invite-btn')?.classList.toggle('hidden', !!isEmpty);
+  // The Telegram-only account section is noise before the user has anyone. Gated
+  // on Telegram so web (where the section is never mounted) is left untouched.
+  if (isTelegramContext()) {
+    document.getElementById('drawer-section-account')?.classList.toggle('hidden', !!isEmpty);
+  }
   // "Link your account" only where linking is possible and not already done.
   const linkLine = document.getElementById('first-run-link-line');
   if (linkLine) {

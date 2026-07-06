@@ -13,7 +13,13 @@ const FIXTURE = `
         <button id="first-run-link-btn" class="ghost-btn" type="button">Link your account</button></p>
     </div>
     <div id="add-person-area"><button id="add-person-btn" class="add-btn">Add a person</button></div>
-  </main>`;
+  </main>
+  <div id="code-drawer">
+    <div class="drawer-section" id="drawer-section-invite">
+      <button id="drawer-invite-btn" class="primary-btn" type="button">Invite your people</button>
+    </div>
+    <div class="drawer-section hidden" id="drawer-section-account"><div id="tg-account-slot"></div></div>
+  </div>`;
 
 let firstRun;
 beforeEach(() => {
@@ -39,6 +45,39 @@ test('setListEmpty(false): panel hides, add button reverts', () => {
   expect(document.getElementById('add-person-area').classList.contains('first-run-demoted')).toBe(false);
   expect(document.getElementById('add-person-btn').textContent).toBe('Add a person');
   expect(firstRun.isFirstRunActive()).toBe(false);
+});
+
+test('guided empty state hides the drawer invite button (redundant with the on-screen CTA); restored when non-empty', () => {
+  const btn = document.getElementById('drawer-invite-btn');
+  expect(btn.classList.contains('hidden')).toBe(false); // visible by default
+  firstRun.setListEmpty(true);
+  expect(btn.classList.contains('hidden')).toBe(true);
+  firstRun.setListEmpty(false);
+  expect(btn.classList.contains('hidden')).toBe(false);
+});
+
+test('drawer invite button toggle applies on web too (not gated on Telegram)', () => {
+  mockTelegram.isTelegramContext.mockReturnValue(false);
+  firstRun.setListEmpty(true);
+  expect(document.getElementById('drawer-invite-btn').classList.contains('hidden')).toBe(true);
+});
+
+test('Telegram: guided empty state hides the account section; restored when non-empty', () => {
+  mockTelegram.isTelegramContext.mockReturnValue(true);
+  const account = document.getElementById('drawer-section-account');
+  firstRun.setListEmpty(false); // non-empty → account section present
+  expect(account.classList.contains('hidden')).toBe(false);
+  firstRun.setListEmpty(true);  // guided empty → hidden
+  expect(account.classList.contains('hidden')).toBe(true);
+});
+
+test('web: the account section is never revealed by setListEmpty', () => {
+  mockTelegram.isTelegramContext.mockReturnValue(false);
+  const account = document.getElementById('drawer-section-account');
+  firstRun.setListEmpty(false);
+  expect(account.classList.contains('hidden')).toBe(true);
+  firstRun.setListEmpty(true);
+  expect(account.classList.contains('hidden')).toBe(true);
 });
 
 test('link line: only in TG when unlinked', () => {

@@ -125,7 +125,7 @@ describe('install affordance rendering', () => {
     expect(document.getElementById('install-toast-action').classList.contains('hidden')).toBe(true);
   });
 
-  test('toast defers to the corner icon while first-run is active (not dismissed)', () => {
+  test('first-run suppresses the whole install affordance: toast AND corner icon hidden', () => {
     const { isFirstRunActive } = require('../js/firstRun.js');
     isFirstRunActive.mockReturnValue(true);
     setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
@@ -136,8 +136,26 @@ describe('install affordance rendering', () => {
     evt.userChoice = Promise.resolve({ outcome: 'accepted' });
     initInstallAffordance();        // registers the beforeinstallprompt listener
     window.dispatchEvent(evt);      // now available; onInstallPromptChange → apply()
+    // Guided empty state is the single teaching surface (spec §3). The corner icon
+    // is suppressed too — on its own it is a no-op tease, since its toast can't open
+    // while first-run holds.
     expect(document.getElementById('install-toast').classList.contains('hidden')).toBe(true);
-    expect(document.getElementById('install-fab').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('install-fab').classList.contains('hidden')).toBe(true);
+  });
+
+  test('first-run: clicking the (suppressed) corner icon does not force the toast open', () => {
+    const { isFirstRunActive } = require('../js/firstRun.js');
+    isFirstRunActive.mockReturnValue(true);
+    setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
+    const evt = new Event('beforeinstallprompt');
+    evt.preventDefault = jest.fn();
+    evt.prompt = jest.fn();
+    evt.userChoice = Promise.resolve({ outcome: 'accepted' });
+    initInstallAffordance();
+    window.dispatchEvent(evt);
+    document.getElementById('install-fab').click(); // clears `dismissed`, re-applies
+    expect(document.getElementById('install-toast').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('install-fab').classList.contains('hidden')).toBe(true);
   });
 
   test('first-run-change re-applies: toast resumes when the empty state clears', () => {

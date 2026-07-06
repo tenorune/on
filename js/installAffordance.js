@@ -75,9 +75,16 @@ export function initInstallAffordance() {
     const relevant = !isAppInstalled()
       && (lane === 'installable' || lane === 'push-in-tab' || lane === 'ios-install' || lane === 'macos-install');
     if (!relevant) { toast.classList.add('hidden'); fab.classList.add('hidden'); return; }
-    if (dismissed || isFirstRunActive()) {
-      // First-run defers the toast without consuming the lead-in: one teaching
-      // surface at a time (spec §3). The quiet corner icon stays available.
+    if (isFirstRunActive()) {
+      // First-run suppresses the whole affordance — toast AND corner icon. The
+      // guided empty state is the single teaching surface (spec §3); a lone corner
+      // icon here is a no-op tease, since its toast can't open while first-run
+      // holds. The lead-in isn't consumed: apply() re-runs on first-run-change and
+      // the toast resumes once the empty state clears.
+      toast.classList.add('hidden');
+      fab.classList.add('hidden');
+    } else if (dismissed) {
+      // Post-dismissal (outside first-run): the quiet corner icon takes over.
       toast.classList.add('hidden');
       fab.classList.remove('hidden');
     } else {

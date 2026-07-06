@@ -26,7 +26,11 @@ export function initTelegramSettings(userId) {
   notifySlot.innerHTML = `<button id="tg-channel-btn" class="chip" type="button">Notifications: Telegram</button>`;
 
   document.getElementById('drawer-section-account')?.classList.remove('hidden');
-  document.getElementById('drawer-section-notifications')?.classList.remove('hidden');
+  // The notification-channel toggle only makes sense once the account is linked:
+  // a Telegram-derived (unlinked) account can only receive via Telegram, so the
+  // Telegram-vs-Push choice is meaningless. Linking reboots (location.reload), so
+  // this is re-evaluated fresh on the next boot — no dynamic toggle needed here.
+  if (linked) document.getElementById('drawer-section-notifications')?.classList.remove('hidden');
 
   ensureUnlinkConfirmModal();
   wireChannelToggle(userId, notifySlot.querySelector('#tg-channel-btn'));

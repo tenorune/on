@@ -50,7 +50,9 @@ test('renders row, hides phrase pill, shows link button when unlinked', async ()
   await flush();
   expect(document.getElementById('recovery-pill-row').classList.contains('hidden')).toBe(true);
   expect(document.getElementById('drawer-section-account').classList.contains('hidden')).toBe(false);
-  expect(document.getElementById('drawer-section-notifications').classList.contains('hidden')).toBe(false);
+  // Unlinked: the notification-channel toggle has no meaning (a Telegram-derived
+  // account can only receive via Telegram), so its section stays hidden.
+  expect(document.getElementById('drawer-section-notifications').classList.contains('hidden')).toBe(true);
   expect(document.getElementById('tg-account-slot').contains(document.getElementById('tg-link-btn'))).toBe(true);
   expect(document.getElementById('tg-account-slot').contains(document.getElementById('tg-unlink-btn'))).toBe(true);
   expect(document.getElementById('tg-notify-slot').contains(document.getElementById('tg-channel-btn'))).toBe(true);
@@ -65,6 +67,9 @@ test('linked state shows unlink instead; confirmed unlink calls the callable', a
   initTelegramSettings('u1');
   await flush();
   expect(document.getElementById('tg-link-btn').classList.contains('hidden')).toBe(true);
+  // Linked: the notification-channel toggle is now meaningful (the account can
+  // also live on the web with push), so its section is revealed.
+  expect(document.getElementById('drawer-section-notifications').classList.contains('hidden')).toBe(false);
   const unlinkBtn = document.getElementById('tg-unlink-btn');
   expect(unlinkBtn.classList.contains('hidden')).toBe(false);
   unlinkBtn.click();
