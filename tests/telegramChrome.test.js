@@ -15,7 +15,7 @@ jest.mock('../js/following.js', () => ({ getCallModeCalleeId: (...a) => mocks.ca
 let mockWa = null;
 jest.mock('../js/telegram.js', () => ({ tgWebApp: jest.fn(() => mockWa), isTelegramContext: jest.fn(() => true) }));
 
-const { resolveBackAction, initTelegramChrome } = require('../js/telegramChrome.js');
+const { resolveBackAction, initTelegramChrome, syncChromeColor } = require('../js/telegramChrome.js');
 
 const SHELL = `
   <div id="restore-screen" class="hidden"><button id="restore-cancel-btn"></button></div>
@@ -154,5 +154,36 @@ describe('call-state gating (inCall)', () => {
     expect(mockWa.BackButton.hide).not.toHaveBeenCalled();
     expect(mockWa.disableClosingConfirmation).toHaveBeenCalled();
     expect(mockWa.enableClosingConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+describe('chrome color memoization (postEvent noise reduction)', () => {
+  const makeFakeWa = () => ({
+    isVersionAtLeast: () => true,
+    ready: jest.fn(), expand: jest.fn(), disableVerticalSwipes: jest.fn(),
+    setHeaderColor: jest.fn(), setBackgroundColor: jest.fn(),
+    BackButton: { show: jest.fn(), hide: jest.fn(), onClick: jest.fn() },
+    enableClosingConfirmation: jest.fn(), disableClosingConfirmation: jest.fn(),
+  });
+
+  afterEach(() => { document.documentElement.style.removeProperty('--bg'); });
+
+  test('re-posts header/background color only when --bg actually changes', () => {
+    mockWa = makeFakeWa();
+    document.documentElement.style.setProperty('--bg', '#111111');
+    initTelegramChrome(); // boot resets the memo and applies once
+    expect(mockWa.setHeaderColor).toHaveBeenCalledTimes(1);
+    expect(mockWa.setHeaderColor).toHaveBeenLastCalledWith('#111111');
+    expect(mockWa.setBackgroundColor).toHaveBeenCalledTimes(1);
+
+    syncChromeColor(); // identical --bg → no redundant postEvent pair
+    expect(mockWa.setHeaderColor).toHaveBeenCalledTimes(1);
+    expect(mockWa.setBackgroundColor).toHaveBeenCalledTimes(1);
+
+    document.documentElement.style.setProperty('--bg', '#222222');
+    syncChromeColor(); // changed → re-post exactly once
+    expect(mockWa.setHeaderColor).toHaveBeenCalledTimes(2);
+    expect(mockWa.setHeaderColor).toHaveBeenLastCalledWith('#222222');
+    expect(mockWa.setBackgroundColor).toHaveBeenCalledTimes(2);
   });
 });

@@ -60,12 +60,20 @@ function updateChromeState() {
   } catch { /* chrome sugar must never break the app */ }
 }
 
-function syncChromeColor() {
+// Last color pushed over the bridge. The chrome-color observer fires on every
+// class/style/open mutation of the subtree (toasts, drawers, canvas classes),
+// but --bg rarely changes — so memoize and post set_header_color /
+// set_background_color only on a real change. Without this each mutation
+// re-sent the same pair, flooding the webview bridge (and the console).
+let _lastAppliedBg = null;
+
+export function syncChromeColor() {
   const wa = tgWebApp();
   if (!wa) return;
   try {
     const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
-    if (bg) {
+    if (bg && bg !== _lastAppliedBg) {
+      _lastAppliedBg = bg;
       wa.setHeaderColor?.(bg);
       wa.setBackgroundColor?.(bg);
     }
@@ -80,6 +88,7 @@ function debounce(fn, ms = 80) {
 export function initTelegramChrome() {
   const wa = tgWebApp();
   if (!wa) return;
+  _lastAppliedBg = null; // fresh boot re-establishes chrome color
   try {
     wa.ready();
     wa.expand();
