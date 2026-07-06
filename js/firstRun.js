@@ -6,14 +6,20 @@ import { isTelegramContext, telegramLinkState } from './telegram.js';
 let _active = false;
 let _onInvite = null;
 let _onLink = null;
+let _onGraduateInfo = null;
 
-export function initFirstRun({ onInvite, onLink = null } = {}) {
+export function initFirstRun({ onInvite, onLink = null, onGraduateInfo = null } = {}) {
   _onInvite = onInvite;
   _onLink = onLink;
+  _onGraduateInfo = onGraduateInfo;
   document.getElementById('first-run-invite-btn')
     ?.addEventListener('click', () => _onInvite?.());
   document.getElementById('first-run-link-btn')
     ?.addEventListener('click', () => _onLink?.());
+  // The "?" beside the link line explains the graduation flow (injected so
+  // firstRun stays free of the graduation module — spec §7).
+  document.getElementById('first-run-graduate-help')
+    ?.addEventListener('click', () => _onGraduateInfo?.());
 }
 
 // True while the guided empty state is mounted. installAffordance defers its

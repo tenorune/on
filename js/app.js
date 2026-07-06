@@ -31,6 +31,7 @@ import { initTelegramChrome } from './telegramChrome.js';
 import { telegramInviteGate } from './telegramFirstRun.js';
 import { ensureCacheOwner } from './cacheOwner.js';
 import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
+import { showGraduationInfo } from './graduation.js';
 import { syncNotifyChannel } from './notifyChannel.js';
 import { initHintRotation } from './hintRotation.js';
 import { initFirstRun, consumeLandingNotice } from './firstRun.js';
@@ -746,6 +747,7 @@ async function main() {
   initFirstRun({
     onInvite: () => (isTelegramContext() ? sharePersonalInvite() : openPersonalInviteModal()),
     onLink: isTelegramContext() ? showLinkScreen : null,
+    onGraduateInfo: isTelegramContext() ? showGraduationInfo : null,
   });
   const landingMsg = consumeLandingNotice();
   if (landingMsg) showToast(landingMsg);

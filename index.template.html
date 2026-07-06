@@ -191,10 +191,12 @@
                autocomplete="username" tabindex="-1" readonly aria-hidden="true" />
         <input id="recovery-keychain-phrase" class="visually-hidden" type="password"
                autocomplete="new-password" tabindex="-1" readonly aria-hidden="true" />
-        <button id="recovery-saved-btn" class="primary-btn" type="submit">I've saved it</button>
+        <div class="recovery-modal-actions">
+          <button id="recovery-cancel-btn" class="ghost-btn hidden" type="button">Cancel</button>
+          <button id="recovery-saved-btn" class="primary-btn" type="submit">I've saved it</button>
+        </div>
       </form>
       <p id="recovery-modal-error" class="error-msg hidden"></p>
-      <button id="recovery-cancel-btn" class="ghost-btn hidden" type="button">Cancel</button>
     </div>
   </div>
 
@@ -297,7 +299,7 @@
         <p class="first-run-sub">No one's here yet.</p>
         <button id="first-run-invite-btn" class="primary-btn">Invite your people</button>
         <p id="first-run-link-line" class="hint hidden">Already use KnockKnock?
-          <button id="first-run-link-btn" class="ghost-btn" type="button">Link your account</button></p>
+          <button id="first-run-link-btn" class="ghost-btn" type="button">Link your account</button><button id="first-run-graduate-help" class="help-badge" type="button" aria-label="Use the app outside Telegram">?</button></p>
       </div>
       <div id="add-person-area">
       <button id="add-person-btn" class="add-btn">Add a person</button>

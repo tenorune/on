@@ -10,7 +10,7 @@ const FIXTURE = `
       <p class="first-run-sub">No one's here yet.</p>
       <button id="first-run-invite-btn" class="primary-btn">Invite your people</button>
       <p id="first-run-link-line" class="hint hidden">Already use KnockKnock?
-        <button id="first-run-link-btn" class="ghost-btn" type="button">Link your account</button></p>
+        <button id="first-run-link-btn" class="ghost-btn" type="button">Link your account</button><button id="first-run-graduate-help" class="help-badge" type="button">?</button></p>
     </div>
     <div id="add-person-area"><button id="add-person-btn" class="add-btn">Add a person</button></div>
   </main>
@@ -124,13 +124,15 @@ test('every flip dispatches first-run-change', () => {
   expect(seen).toHaveBeenCalledTimes(2);
 });
 
-test('initFirstRun wires the invite and link buttons', () => {
-  const onInvite = jest.fn(); const onLink = jest.fn();
-  firstRun.initFirstRun({ userId: 'u1', onInvite, onLink });
+test('initFirstRun wires the invite, link, and graduation-help buttons', () => {
+  const onInvite = jest.fn(); const onLink = jest.fn(); const onGraduateInfo = jest.fn();
+  firstRun.initFirstRun({ userId: 'u1', onInvite, onLink, onGraduateInfo });
   document.getElementById('first-run-invite-btn').click();
   expect(onInvite).toHaveBeenCalled();
   document.getElementById('first-run-link-btn').click();
   expect(onLink).toHaveBeenCalled();
+  document.getElementById('first-run-graduate-help').click();
+  expect(onGraduateInfo).toHaveBeenCalled();
 });
 
 describe('landing notice', () => {

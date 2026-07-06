@@ -1439,5 +1439,28 @@ main {
 /* Telegram Mini App settings row (drawer) */
 #tg-account-slot { display: flex; flex-direction: column; gap: 8px; }
 .tg-settings-btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-/* Graduation entry — a quieter secondary line under the link/unlink row (spec §7). */
-.tg-graduate-btn { display: block; margin-top: 10px; font-size: .85rem; opacity: .85; text-align: left; padding-left: 0; }
+/* Small "?" affordance — opens the graduation info toast (spec §7). */
+.help-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.15rem; height: 1.15rem; padding: 0; margin-left: .35rem;
+  border: none; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  font-size: .72rem; font-weight: 700; line-height: 1; cursor: pointer;
+  vertical-align: middle;
+}
+.help-badge.hidden { display: none; }
+/* Two-button graduation info toast (bottom snackbar). */
+.graduation-toast {
+  position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
+  background: var(--surface2); color: var(--text);
+  padding: .85rem 1rem; border-radius: .5rem;
+  display: flex; flex-direction: column; gap: .6rem; align-items: stretch;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 100;
+  max-width: calc(100vw - 2rem); width: 20rem;
+}
+.graduation-toast.hidden { display: none; }
+.graduation-toast-btns { display: flex; gap: .5rem; justify-content: flex-end; }
+/* Recovery modal action row — Cancel sits beside "I've saved it" (spec §7).
+   With Cancel hidden (web signup), the primary keeps its full-width look. */
+.recovery-modal-actions { display: flex; gap: .5rem; align-items: center; }
+.recovery-modal-actions #recovery-saved-btn { flex: 1; }
