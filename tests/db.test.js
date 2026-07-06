@@ -503,6 +503,18 @@ describe('group entity ops', () => {
     cb({ exists: () => false });
     expect(seen[1]).toBeNull();
   });
+
+  test('watchGroupMeta fires null when the listener is CANCELLED (owner deleted the group → read permission lost)', () => {
+    // Real Firebase never delivers a null value here: the group node is
+    // membership-gated, so its deletion cancels the member's listener with
+    // PERMISSION_DENIED (the onValue cancel callback), not a null snapshot.
+    let cancelCb;
+    onValue.mockImplementation((_ref, _fn, cancel) => { cancelCb = cancel; return () => {}; });
+    const seen = [];
+    watchGroupMeta('G1ABCD23', (meta) => seen.push(meta));
+    cancelCb(new Error('permission_denied'));
+    expect(seen).toEqual([null]);
+  });
 });
 
 describe('group members', () => {
