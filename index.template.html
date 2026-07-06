@@ -127,6 +127,32 @@
     </div>
   </div>
 
+  <!-- Reusable text-prompt modal (promise-based; replaces window.prompt, which
+       is unsupported in some webviews e.g. Telegram macOS Desktop). -->
+  <div id="text-prompt-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="text-prompt-title">
+    <div class="modal-card">
+      <h2 id="text-prompt-title" class="modal-title"></h2>
+      <input id="text-prompt-input" class="text-input" type="text" maxlength="40" />
+      <p id="text-prompt-error" class="error-msg hidden"></p>
+      <div class="modal-actions">
+        <button id="text-prompt-confirm-btn" class="primary-btn">Save</button>
+        <button id="text-prompt-cancel-btn" class="ghost-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reusable confirm modal (promise-based; replaces window.confirm). -->
+  <div id="confirm-modal" class="confirm-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+    <div class="confirm-sheet">
+      <h4 id="confirm-modal-title"></h4>
+      <p id="confirm-modal-message"></p>
+      <div class="confirm-btns">
+        <button id="confirm-modal-cancel-btn" class="confirm-btn-cancel">Cancel</button>
+        <button id="confirm-modal-confirm-btn" class="confirm-btn-remove">Confirm</button>
+      </div>
+    </div>
+  </div>
+
   <div id="create-group-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="create-group-title">
     <div class="modal-card">
       <h2 id="create-group-title" class="modal-title">Create a group</h2>
