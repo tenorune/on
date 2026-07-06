@@ -31,7 +31,6 @@ import { initTelegramChrome } from './telegramChrome.js';
 import { telegramInviteGate } from './telegramFirstRun.js';
 import { ensureCacheOwner } from './cacheOwner.js';
 import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
-import { showTelegramProbe } from './tgProbe.js'; // TEMP diagnostic — remove after readout
 import { initHintRotation } from './hintRotation.js';
 import { initFirstRun, showLandingNotice } from './firstRun.js';
 import { showRecoveryCodeModal } from './recoveryModal.js';
@@ -736,7 +735,7 @@ async function main() {
   });
 
   initCodeDrawer(userId, code);
-  if (isTelegramContext()) { initTelegramSettings(userId); showTelegramProbe(); /* TEMP */ }
+  if (isTelegramContext()) initTelegramSettings(userId);
   // Empty-state primary "Invite your people": Telegram shares the deep link
   // straight to the native share sheet (spec §3/§4); web opens the invite modal.
   initFirstRun({
