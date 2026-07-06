@@ -48,10 +48,13 @@ export function setListEmpty(isEmpty) {
       ? 'Share this code so others can follow your status.'
       : 'Or share this code so others can follow your status.';
   }
-  // The Telegram-only account section is noise before the user has anyone. Gated
-  // on Telegram so web (where the section is never mounted) is left untouched.
+  // The Telegram-only account section is noise before an unlinked user has
+  // anyone — hide it in the guided empty state. But a LINKED account still needs
+  // its unlink control reachable, so keep the section for them even when empty.
+  // Gated on Telegram so web (where the section is never mounted) is untouched.
   if (isTelegramContext()) {
-    document.getElementById('drawer-section-account')?.classList.toggle('hidden', empty);
+    const linked = telegramLinkState()?.linked === true;
+    document.getElementById('drawer-section-account')?.classList.toggle('hidden', empty && !linked);
   }
   // "Link your account" only where linking is possible and not already done.
   const linkLine = document.getElementById('first-run-link-line');

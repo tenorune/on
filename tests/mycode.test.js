@@ -69,7 +69,7 @@ jest.mock('../js/invites.js', () => ({
   createPersonalInvite: jest.fn(),
 }));
 jest.mock('../js/inviteFlow.js', () => ({ shareInviteLink: jest.fn() }));
-jest.mock('../js/telegram.js', () => ({ telegramFirstName: jest.fn(() => 'Ana') }));
+jest.mock('../js/telegram.js', () => ({ telegramFirstName: jest.fn(() => 'Ana'), isTelegramContext: jest.fn(() => false) }));
 
 const { rotateCode, watchUserInvites } = require('../js/db.js');
 const { saveIdentity } = require('../js/identity.js');
@@ -77,7 +77,7 @@ const { openInviteModal } = require('../js/inviteModal.js');
 const { flashRegenerated } = require('../js/regenFlash.js');
 const { createPersonalInvite } = require('../js/invites.js');
 const { shareInviteLink } = require('../js/inviteFlow.js');
-const { telegramFirstName } = require('../js/telegram.js');
+const { telegramFirstName, isTelegramContext } = require('../js/telegram.js');
 const { initCodeDrawer, sharePersonalInvite } = require('../js/mycode.js');
 
 beforeEach(() => {
@@ -90,6 +90,7 @@ beforeEach(() => {
   `;
   Object.defineProperty(navigator, 'onLine', { get: () => true, configurable: true });
   jest.clearAllMocks();
+  isTelegramContext.mockReturnValue(false);
   watchUserInvites.mockImplementation((_uid, cb) => { cb({}); return () => {}; });
 });
 
@@ -184,6 +185,20 @@ describe('drawer invite button', () => {
       userId: 'uid1',
       activeInvite: null,
     }));
+  });
+
+  // In Telegram the drawer invite matches the empty-state primary: one-tap deep
+  // link straight to the native share sheet (spec §3/§4), never the web modal.
+  test('in Telegram, tapping the button shares the deep link directly (one-tap), not the web modal', async () => {
+    isTelegramContext.mockReturnValue(true);
+    let cb;
+    watchUserInvites.mockImplementation((uid, _cb) => { cb = _cb; return () => {}; });
+    initCodeDrawer('uid1', 'ABC123');
+    cb({ T1: { scope: 'personal', token: 'T1', revoked: false, creatorLabel: 'Alex' } });
+    document.getElementById('drawer-invite-btn').click();
+    await Promise.resolve();
+    expect(openInviteModal).not.toHaveBeenCalled();
+    expect(shareInviteLink).toHaveBeenCalledWith(expect.objectContaining({ token: 'T1' }));
   });
 });
 

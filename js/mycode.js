@@ -4,7 +4,7 @@ import { saveIdentity, loadIdentity } from './identity.js';
 import { openInviteModal } from './inviteModal.js';
 import { buildInviteUrl, createPersonalInvite } from './invites.js';
 import { shareInviteLink } from './inviteFlow.js';
-import { telegramFirstName } from './telegram.js';
+import { telegramFirstName, isTelegramContext } from './telegram.js';
 import { flashRegenerated } from './regenFlash.js';
 
 let _myUserId = null;
@@ -111,7 +111,11 @@ export function initCodeDrawer(myUserId, myCode) {
     _currentActiveInvite = active;
   });
 
-  document.getElementById('drawer-invite-btn')?.addEventListener('click', () => openPersonalInviteModal());
+  document.getElementById('drawer-invite-btn')?.addEventListener('click', () => {
+    // In Telegram the drawer invite matches the empty-state primary: one-tap deep
+    // link straight to the native share sheet (spec §3/§4), not the web modal.
+    if (isTelegramContext()) sharePersonalInvite(); else openPersonalInviteModal();
+  });
 
   const existing = loadIdentity();
   if (existing?.recoveryCode) initRecoveryPill(existing.recoveryCode);

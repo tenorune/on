@@ -87,6 +87,14 @@ test('Telegram: guided empty state hides the account section; restored when non-
   expect(account.classList.contains('hidden')).toBe(true);
 });
 
+test('Telegram linked account: account section stays visible in the guided empty state (unlink still reachable)', () => {
+  mockTelegram.isTelegramContext.mockReturnValue(true);
+  mockTelegram.telegramLinkState.mockReturnValue({ linked: true });
+  const account = document.getElementById('drawer-section-account');
+  firstRun.setListEmpty(true);  // guided empty, but linked → keep the section
+  expect(account.classList.contains('hidden')).toBe(false);
+});
+
 test('web: the account section is never revealed by setListEmpty', () => {
   mockTelegram.isTelegramContext.mockReturnValue(false);
   const account = document.getElementById('drawer-section-account');
