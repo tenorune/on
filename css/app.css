@@ -1216,10 +1216,15 @@ main {
   border-radius: 0.5rem;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
   box-shadow: 0 4px 12px rgba(0,0,0,0.2);
   z-index: 100;
-  max-width: calc(100vw - 2rem);
+  /* Definite width: without it the fixed flex box shrink-wraps narrow and text
+     wraps to several lines. ~80% of the 600px content column (the full-width
+     "Add a person" button), capped so it doesn't overrun the app column. */
+  width: 80%;
+  max-width: 480px;
 }
 .group-removal-toast.hidden {
   display: none;
