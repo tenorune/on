@@ -3,7 +3,12 @@
 // stays live across surfaces/devices (link/unlink and channel switches reflect
 // without a reload). Shared by the Telegram drawer and the web drawer.
 jest.mock('../js/db.js', () => ({ mergeUserPrefs: jest.fn(async () => {}) }));
+jest.mock('../js/telegram.js', () => ({
+  isTelegramContext: jest.fn(() => false),
+  telegramLinkState: jest.fn(() => null),
+}));
 const { mergeUserPrefs } = require('../js/db.js');
+const { isTelegramContext, telegramLinkState } = require('../js/telegram.js');
 const { syncNotifyChannel } = require('../js/notifyChannel.js');
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -17,7 +22,13 @@ function mountDom() {
       <div id="tg-notify-slot"></div>
     </div>`;
 }
-beforeEach(() => { jest.clearAllMocks(); mergeUserPrefs.mockResolvedValue(undefined); mountDom(); });
+beforeEach(() => {
+  jest.clearAllMocks();
+  mergeUserPrefs.mockResolvedValue(undefined);
+  isTelegramContext.mockReturnValue(false); // web by default
+  telegramLinkState.mockReturnValue(null);
+  mountDom();
+});
 
 const active = () => document.querySelector('.toggle-pill-option.active')?.dataset.channel;
 const section = () => document.getElementById('drawer-section-notifications');
@@ -92,4 +103,31 @@ test('write failure reverts the optimistic active state', async () => {
   document.querySelector('[data-channel="push"]').click();
   await flush();
   expect(active()).toBe('telegram');
+});
+
+describe('Telegram context: link state, not the userPrefs marker, decides visibility', () => {
+  // A derived (never-linked) Telegram account ALSO carries userPrefs.telegram
+  // (stamped at creation for bot routing), so the marker can't distinguish it
+  // from a linked account — the section must key off telegramLinkState instead.
+  test('derived account (telegram marker present, but not linked) → section hidden', () => {
+    isTelegramContext.mockReturnValue(true);
+    telegramLinkState.mockReturnValue({ linked: false });
+    syncNotifyChannel('u1', LINKED('telegram')); // prefs.telegram present (derived stamp)
+    expect(section().classList.contains('hidden')).toBe(true);
+  });
+
+  test('unlink transition (reboots to a derived account) → section hidden', () => {
+    isTelegramContext.mockReturnValue(true);
+    telegramLinkState.mockReturnValue({ linked: false });
+    syncNotifyChannel('u1', { telegram: { linkedAt: 1 }, notifyChannel: 'push' });
+    expect(section().classList.contains('hidden')).toBe(true);
+  });
+
+  test('linked account → section shown, active reflects the stored channel', () => {
+    isTelegramContext.mockReturnValue(true);
+    telegramLinkState.mockReturnValue({ linked: true });
+    syncNotifyChannel('u1', LINKED('push'));
+    expect(section().classList.contains('hidden')).toBe(false);
+    expect(active()).toBe('push');
+  });
 });

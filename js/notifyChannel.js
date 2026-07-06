@@ -8,8 +8,23 @@
 // Telegram-derived (unlinked) account can only receive via Telegram, and a web
 // account with no link has nothing to choose.
 import { mergeUserPrefs } from './db.js';
+import { isTelegramContext, telegramLinkState } from './telegram.js';
 
 const OTHER = { telegram: 'push', push: 'telegram' };
+
+// "Linked" = the account has a separate phrase identity that a Telegram points
+// at, vs a bare Telegram-derived account. The signal differs by surface:
+//  - Telegram: a DERIVED account also carries userPrefs.telegram (stamped at
+//    creation for bot routing), so the marker can't tell linked from derived —
+//    key off the session link state (mapping.uid !== derivedUid). It's static
+//    within a session (link/unlink both reload), which is fine here.
+//  - Web: only a linked phrase account carries userPrefs.telegram (cleared on
+//    unlink) and derived accounts never reach the web, so the marker is the
+//    correct, live signal there.
+function isLinked(prefs) {
+  if (isTelegramContext()) return telegramLinkState()?.linked === true;
+  return prefs?.telegram != null;
+}
 
 function setActive(pill, channel) {
   pill.querySelectorAll('.toggle-pill-option').forEach((b) => {
@@ -49,7 +64,7 @@ export function syncNotifyChannel(userId, prefs) {
   const slot = document.getElementById('tg-notify-slot');
   const section = document.getElementById('drawer-section-notifications');
   if (!slot || !section) return;
-  if (prefs?.telegram == null) { section.classList.add('hidden'); return; }
+  if (!isLinked(prefs)) { section.classList.add('hidden'); return; }
 
   const pill = slot.querySelector('.toggle-pill') || mountPill(slot, userId);
   setActive(pill, prefs.notifyChannel === 'push' ? 'push' : 'telegram');
