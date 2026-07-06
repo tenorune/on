@@ -321,6 +321,16 @@ main {
 .drawer-section { padding: .5rem 0; }
 .drawer-section + .drawer-section { border-top: 1px solid var(--border, rgba(128,128,128,.25)); }
 .drawer-section-label { font-size: .75em; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim, #888); margin: 0 0 .4rem; }
+/* Notification-channel toggle pill (notifyChannel.js): a two-segment segmented
+   control, left-aligned. Active segment is the filled/contrasting one. */
+.toggle-pill { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--accent); }
+.toggle-pill-option {
+  border: 0; background: transparent; color: #fff;
+  padding: .35rem .95rem; border-radius: 999px;
+  font: inherit; font-size: .9em; line-height: 1; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.toggle-pill-option.active { background: #fff; color: var(--accent); font-weight: 600; }
 #drawer-invite-btn { margin-bottom: .6rem; }
 .code-display { font-size: 1.5rem; font-weight: 700; letter-spacing: 0.375rem; color: var(--text); transition: opacity 0.5s; }
 .code-display.fading { opacity: 0; }

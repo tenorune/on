@@ -4,8 +4,8 @@
 // and a linked account's phrase lives with the user already.
 import { tgWebApp, telegramLinkState } from './telegram.js';
 import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
-import { getUserPrefs, mergeUserPrefs } from './db.js';
 import { parseRecoveryCode } from './identity.js';
+import { initNotifyChannel } from './notifyChannel.js';
 
 export function initTelegramSettings(userId) {
   const accountSlot = document.getElementById('tg-account-slot');
@@ -23,17 +23,14 @@ export function initTelegramSettings(userId) {
       <button id="tg-unlink-btn" class="ghost-btn${linked ? '' : ' hidden'}" type="button">Unlink account</button>
     </div>`;
 
-  notifySlot.innerHTML = `<button id="tg-channel-btn" class="chip" type="button">Notifications: Telegram</button>`;
-
   document.getElementById('drawer-section-account')?.classList.remove('hidden');
-  // The notification-channel toggle only makes sense once the account is linked:
-  // a Telegram-derived (unlinked) account can only receive via Telegram, so the
-  // Telegram-vs-Push choice is meaningless. Linking reboots (location.reload), so
-  // this is re-evaluated fresh on the next boot — no dynamic toggle needed here.
-  if (linked) document.getElementById('drawer-section-notifications')?.classList.remove('hidden');
 
   ensureUnlinkConfirmModal();
-  wireChannelToggle(userId, notifySlot.querySelector('#tg-channel-btn'));
+  // Notification-channel pill — shared with the web drawer. Only renders/reveals
+  // the section for a linked account (an unlinked Telegram-derived account can
+  // only receive via Telegram). Linking reboots (location.reload), so `linked`
+  // is re-evaluated fresh on the next boot — no dynamic toggle needed here.
+  initNotifyChannel(userId, { linked });
   accountSlot.querySelector('#tg-link-btn').addEventListener('click', showLinkScreen);
   accountSlot.querySelector('#tg-unlink-btn').addEventListener('click', () => {
     document.getElementById('tg-unlink-confirm').classList.remove('hidden');
@@ -75,27 +72,6 @@ async function doUnlink(e) {
   } catch {
     btn.disabled = false;
   }
-}
-
-async function wireChannelToggle(userId, btn) {
-  // Default is 'telegram' in this context (set server-side on mapping creation).
-  let channel = 'telegram';
-  try {
-    if ((await getUserPrefs(userId))?.notifyChannel === 'push') channel = 'push';
-  } catch { /* offline — assume default */ }
-  const render = () => { btn.textContent = channel === 'telegram' ? 'Notifications: Telegram' : 'Notifications: Push'; };
-  render();
-  btn.addEventListener('click', async () => {
-    const prev = channel;
-    channel = channel === 'telegram' ? 'push' : 'telegram';
-    render();
-    try {
-      await mergeUserPrefs(userId, { notifyChannel: channel });
-    } catch {
-      channel = prev; // revert on write failure
-      render();
-    }
-  });
 }
 
 // Reuse the #restore-screen markup for phrase entry, with our own handlers:

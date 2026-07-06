@@ -31,6 +31,7 @@ import { initTelegramChrome } from './telegramChrome.js';
 import { telegramInviteGate } from './telegramFirstRun.js';
 import { ensureCacheOwner } from './cacheOwner.js';
 import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
+import { initNotifyChannel } from './notifyChannel.js';
 import { initHintRotation } from './hintRotation.js';
 import { initFirstRun, showLandingNotice } from './firstRun.js';
 import { showRecoveryCodeModal } from './recoveryModal.js';
@@ -735,7 +736,16 @@ async function main() {
   });
 
   initCodeDrawer(userId, code);
-  if (isTelegramContext()) initTelegramSettings(userId);
+  if (isTelegramContext()) {
+    initTelegramSettings(userId);
+  } else {
+    // Web: a Telegram-linked account can still choose its notification channel
+    // (bot vs web push). Linking records userPrefs.telegram server-side, so the
+    // web session reads that to decide whether to show the channel pill.
+    getUserPrefs(userId)
+      .then((prefs) => initNotifyChannel(userId, { linked: prefs?.telegram != null }))
+      .catch(() => {});
+  }
   // Empty-state primary "Invite your people": Telegram shares the deep link
   // straight to the native share sheet (spec §3/§4); web opens the invite modal.
   initFirstRun({
