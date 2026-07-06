@@ -182,11 +182,14 @@ Callers: empty-state primary button, drawer Invite section, and
 `inviteModal.js`'s share affordance (stops hardcoding the web URL). Group
 invites shared from group context get the deep link for free.
 
-**Designed-for, not built:** a "Copy Telegram link / Share to Telegram"
-affordance in the *web* invite modal later costs exactly one UI element calling
-`buildTelegramInviteLink`. It must render only when `__TELEGRAM_APP_LINK__` is
-non-empty and `TELEGRAM_ENABLED` is true (pre-launch `main` would otherwise
-emit links to a not-yet-live bot).
+**Built (follow-on):** the *web* invite modal now surfaces a "Share to
+Telegram" affordance — the manage-state share button (`#invite-modal-share-btn`)
+un-gates from Telegram-only to `isTelegramContext() || telegramSharingEnabled()`.
+On web it opens the `t.me/share/url` intent in a new tab carrying the
+`buildTelegramInviteLink` deep link (falling back to copying that link when the
+popup is blocked). `telegramSharingEnabled()` renders it only when
+`__TELEGRAM_APP_LINK__` is non-empty and `TELEGRAM_ENABLED` is true (pre-launch
+`main` would otherwise emit links to a not-yet-live bot).
 
 ### Drawer regroup (`#code-drawer`)
 

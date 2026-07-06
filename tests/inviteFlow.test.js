@@ -37,4 +37,52 @@ describe('inviteFlow', () => {
     fresh.shareInviteLink({ token: 'T'.repeat(22), url: 'https://app/?i=x' });
     expect(mockShare).toHaveBeenLastCalledWith('https://app/?i=x', 'Follow me on KnockKnock');
   });
+
+  test('telegramSharingEnabled: true only when TELEGRAM_ENABLED and a deep link is configured', () => {
+    process.env.TELEGRAM_APP_LINK = 'https://t.me/kk_bot/app';
+    let mod = require('../js/inviteFlow.js');
+    expect(mod.telegramSharingEnabled()).toBe(true); // TELEGRAM_ENABLED is true on the branch
+    process.env.TELEGRAM_APP_LINK = '';
+    jest.resetModules();
+    mod = require('../js/inviteFlow.js');
+    expect(mod.telegramSharingEnabled()).toBe(false);
+  });
+
+  test('buildTelegramShareUrl: t.me share intent with encoded url + text', () => {
+    const { buildTelegramShareUrl } = require('../js/inviteFlow.js');
+    expect(buildTelegramShareUrl('https://t.me/kk_bot/app?startapp=TOK', 'Follow me'))
+      .toBe('https://t.me/share/url?url=https%3A%2F%2Ft.me%2Fkk_bot%2Fapp%3Fstartapp%3DTOK&text=Follow%20me');
+    expect(buildTelegramShareUrl('https://x', '')).toBe('https://t.me/share/url?url=https%3A%2F%2Fx');
+  });
+
+  test('shareInviteToTelegramWeb: opens the share intent in a new tab, returns true', () => {
+    process.env.TELEGRAM_APP_LINK = 'https://t.me/kk_bot/app';
+    const { shareInviteToTelegramWeb } = require('../js/inviteFlow.js');
+    const open = jest.spyOn(window, 'open').mockReturnValue({});
+    const ok = shareInviteToTelegramWeb({ token: 'T'.repeat(22) }, 'Follow me');
+    expect(ok).toBe(true);
+    expect(open).toHaveBeenCalledTimes(1);
+    const [url, target] = open.mock.calls[0];
+    expect(url).toBe(`https://t.me/share/url?url=${encodeURIComponent(`https://t.me/kk_bot/app?startapp=${'T'.repeat(22)}`)}&text=Follow%20me`);
+    expect(target).toBe('_blank');
+    open.mockRestore();
+  });
+
+  test('shareInviteToTelegramWeb: returns false when the popup is blocked', () => {
+    process.env.TELEGRAM_APP_LINK = 'https://t.me/kk_bot/app';
+    const { shareInviteToTelegramWeb } = require('../js/inviteFlow.js');
+    const open = jest.spyOn(window, 'open').mockReturnValue(null);
+    expect(shareInviteToTelegramWeb({ token: 'T'.repeat(22) })).toBe(false);
+    open.mockRestore();
+  });
+
+  test('shareInviteToTelegramWeb: returns false (no open) when unconfigured', () => {
+    process.env.TELEGRAM_APP_LINK = '';
+    jest.resetModules();
+    const { shareInviteToTelegramWeb } = require('../js/inviteFlow.js');
+    const open = jest.spyOn(window, 'open').mockReturnValue({});
+    expect(shareInviteToTelegramWeb({ token: 'T'.repeat(22) })).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
 });

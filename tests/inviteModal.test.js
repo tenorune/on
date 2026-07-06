@@ -2,7 +2,12 @@
 // inviteModal.js now imports telegram.js; stub it out inertly (no Telegram context
 // in these tests, so the share button stays hidden and unwired).
 jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false), openTelegramShare: jest.fn() }));
-jest.mock('../js/inviteFlow.js', () => ({ shareInviteLink: jest.fn() }));
+jest.mock('../js/inviteFlow.js', () => ({
+  shareInviteLink: jest.fn(),
+  telegramSharingEnabled: jest.fn(() => false),
+  shareInviteToTelegramWeb: jest.fn(() => true),
+  buildTelegramInviteLink: jest.fn((t) => `https://t.me/kk_bot/app?startapp=${t}`),
+}));
 jest.mock('../js/invites.js', () => ({
   createPersonalInvite: jest.fn(),
   regeneratePersonalInvite: jest.fn(),
@@ -45,6 +50,7 @@ function setupDom() {
           <div id="invite-modal-url-prefix"></div>
           <code id="invite-modal-url"></code>
           <button id="invite-modal-copy-btn"></button>
+          <button id="invite-modal-share-btn" class="hidden">Share</button>
           <button id="invite-modal-regen-btn"></button>
           <button id="invite-modal-revoke-btn"></button>
         </div>
@@ -406,6 +412,7 @@ test('openInviteModal in group scope calls renderInvitePicker with the supplied 
         <div id="invite-modal-manage">
           <code id="invite-modal-url"></code>
           <button id="invite-modal-copy-btn"></button>
+          <button id="invite-modal-share-btn" class="hidden">Share</button>
           <button id="invite-modal-regen-btn"></button>
           <button id="invite-modal-revoke-btn"></button>
         </div>
@@ -504,5 +511,68 @@ describe('openInviteModal — Section 2 (in-app picker)', () => {
     `;
     openInviteModal({ scope: 'personal', userId: 'u1' });
     expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(true);
+  });
+});
+
+describe('openInviteModal — web "Share to Telegram" (spec §4)', () => {
+  const telegram = require('../js/telegram.js');
+  const inviteFlow = require('../js/inviteFlow.js');
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupDom();
+    telegram.isTelegramContext.mockReturnValue(false);
+    inviteFlow.telegramSharingEnabled.mockReturnValue(true);
+    inviteFlow.shareInviteToTelegramWeb.mockReturnValue(true);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: jest.fn().mockResolvedValue(undefined) },
+    });
+  });
+
+  const openManage = () => openInviteModal({
+    scope: 'personal', userId: 'uid1',
+    activeInvite: { token: 'TOKEN', creatorLabel: 'Alex', url: 'https://x/?i=TOKEN' },
+  });
+
+  test('web + deep link configured → share button shows, labeled "Share to Telegram"', () => {
+    openManage();
+    const btn = document.getElementById('invite-modal-share-btn');
+    expect(btn.classList.contains('hidden')).toBe(false);
+    expect(btn.textContent).toBe('Share to Telegram');
+  });
+
+  test('web + NOT configured → share button stays hidden', () => {
+    inviteFlow.telegramSharingEnabled.mockReturnValue(false);
+    openManage();
+    expect(document.getElementById('invite-modal-share-btn').classList.contains('hidden')).toBe(true);
+  });
+
+  test('clicking opens the web Telegram share intent, not the in-Telegram path', () => {
+    openManage();
+    document.getElementById('invite-modal-share-btn').click();
+    expect(inviteFlow.shareInviteToTelegramWeb).toHaveBeenCalledWith(
+      expect.objectContaining({ token: 'TOKEN' }), 'Follow me on KnockKnock',
+    );
+    expect(inviteFlow.shareInviteLink).not.toHaveBeenCalled();
+  });
+
+  test('blocked popup → falls back to copying the deep link with button feedback', async () => {
+    inviteFlow.shareInviteToTelegramWeb.mockReturnValue(false);
+    openManage();
+    document.getElementById('invite-modal-share-btn').click();
+    await Promise.resolve(); await Promise.resolve();
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://t.me/kk_bot/app?startapp=TOKEN');
+    expect(document.getElementById('invite-modal-share-btn').textContent).toBe('Link copied!');
+  });
+
+  test('group scope on web → share intent uses the group join text', async () => {
+    await openInviteModal({
+      scope: 'group', userId: 'uid1', groupId: 'g1', groupName: 'Squad',
+      activeInvite: { token: 'GTOKEN', url: 'https://x/?i=GTOKEN', groupId: 'g1', groupName: 'Squad' },
+    });
+    document.getElementById('invite-modal-share-btn').click();
+    expect(inviteFlow.shareInviteToTelegramWeb).toHaveBeenCalledWith(
+      expect.objectContaining({ token: 'GTOKEN' }), 'Join Squad on KnockKnock',
+    );
   });
 });

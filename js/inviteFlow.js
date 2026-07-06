@@ -1,8 +1,8 @@
 // js/inviteFlow.js — the single invite entry point (spec §4).
-// Layer 1: link construction — pure, build-time-configured, works on web too
-// (a future web "Share to Telegram" affordance costs one caller, spec §4).
-// Layer 2: per-surface share presentation (TG share sheet; web keeps the modal).
+// Layer 1: link construction — pure, build-time-configured, works on web too.
+// Layer 2: per-surface share presentation (TG share sheet; web new-tab intent).
 import { openTelegramShare } from './telegram.js';
+import { TELEGRAM_ENABLED } from './features.js';
 
 // esbuild `define` injects this; '' when the env var is unset (never REPLACE_ME).
 const TELEGRAM_APP_LINK = process.env.TELEGRAM_APP_LINK || '';
@@ -14,8 +14,31 @@ export function buildTelegramInviteLink(token) {
   return `${TELEGRAM_APP_LINK}?startapp=${token}`;
 }
 
+// Whether web builds may surface Telegram share affordances (spec §4 gate): the
+// flag is on AND a Mini App deep link is configured — otherwise a pre-launch
+// `main` would emit links to a not-yet-live bot.
+export function telegramSharingEnabled() {
+  return TELEGRAM_ENABLED && !!TELEGRAM_APP_LINK;
+}
+
+// Telegram share-intent URL. Used inside the Mini App (via openTelegramShare)
+// and by the web new-tab share below.
+export function buildTelegramShareUrl(url, text = '') {
+  return `https://t.me/share/url?url=${encodeURIComponent(url)}${text ? `&text=${encodeURIComponent(text)}` : ''}`;
+}
+
 // Open Telegram's share sheet for an invite, preferring the Mini App deep link.
 export function shareInviteLink(invite, text = 'Follow me on KnockKnock') {
   const url = buildTelegramInviteLink(invite.token) || invite.url;
   openTelegramShare(url, text);
+}
+
+// Web "Share to Telegram": open the t.me share intent in a new tab carrying the
+// Mini App deep link, so the recipient lands straight in the Mini App. Returns
+// false when unconfigured (no deep link) or the popup is blocked — the caller
+// can then fall back to copying the link.
+export function shareInviteToTelegramWeb(invite, text = 'Follow me on KnockKnock') {
+  const deepLink = buildTelegramInviteLink(invite.token);
+  if (!deepLink || typeof window === 'undefined' || !window.open) return false;
+  return !!window.open(buildTelegramShareUrl(deepLink, text), '_blank', 'noopener');
 }

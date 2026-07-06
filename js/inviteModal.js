@@ -10,7 +10,7 @@ import { readPendingInviteesForGroup } from './db.js';
 import { renderInvitePicker } from './invitePicker.js';
 import { flashRegenerated } from './regenFlash.js';
 import { isTelegramContext } from './telegram.js';
-import { shareInviteLink } from './inviteFlow.js';
+import { shareInviteLink, telegramSharingEnabled, shareInviteToTelegramWeb, buildTelegramInviteLink } from './inviteFlow.js';
 
 const SCOPE_COPY = {
   personal: {
@@ -178,14 +178,27 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
     } catch { /* clipboard denied */ }
   });
 
-  // Telegram context: native share sheet next to Copy (clipboard still works).
+  // Share affordance next to Copy. In Telegram: the native share sheet. On web,
+  // when a Mini App deep link is configured (spec §4 "designed-for"), a
+  // "Share to Telegram" that opens the t.me share intent in a new tab; a blocked
+  // popup falls back to copying the deep link. Copy still covers the web URL.
   const shareBtn = document.getElementById('invite-modal-share-btn');
-  if (shareBtn && isTelegramContext()) {
+  const webTgShare = !isTelegramContext() && telegramSharingEnabled();
+  if (shareBtn && (isTelegramContext() || webTgShare)) {
     shareBtn.classList.remove('hidden');
-    on(shareBtn, 'click', () => {
+    if (webTgShare) shareBtn.textContent = 'Share to Telegram';
+    on(shareBtn, 'click', async () => {
       if (!currentInvite) return;
       const text = scope === 'group' ? `Join ${groupName} on KnockKnock` : 'Follow me on KnockKnock';
-      shareInviteLink(currentInvite, text);
+      if (isTelegramContext()) { shareInviteLink(currentInvite, text); return; }
+      if (!shareInviteToTelegramWeb(currentInvite, text)) {
+        const deepLink = buildTelegramInviteLink(currentInvite.token);
+        try {
+          if (deepLink) await navigator.clipboard.writeText(deepLink);
+          shareBtn.textContent = 'Link copied!';
+          setTimeout(() => { shareBtn.textContent = 'Share to Telegram'; }, 1500);
+        } catch { /* clipboard denied */ }
+      }
     });
   }
 
