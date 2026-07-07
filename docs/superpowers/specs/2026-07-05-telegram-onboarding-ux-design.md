@@ -407,6 +407,34 @@ engine; covered by A9 on-device.
   design).
 - Telegram's in-app-Safari mode remains undetectable (unchanged from §21).
 - `start_param` carries exactly one token — multi-invite links out of scope.
+- **A web invite URL (`?i=TOKEN`) opened in Telegram's in-app browser can't reach
+  the opener's Telegram account.** When someone with a Telegram-derived account
+  taps a plain web invite link that a friend pasted into a Telegram chat, it
+  opens in Telegram's in-app *browser* (a plain webview, not the Mini App), so
+  `isTelegramContext()` is false (`telegram.js:16`) and the Telegram account —
+  which is Mini-App-only, never persisted to `localStorage`, phrase-less
+  (`telegram.js:42`) — is unreachable. Boot treats them as a brand-new web
+  visitor: the welcome screen offers only "New", minting a **duplicate web
+  account**, and the invite redeems onto *that* uid (`app.js` boot → identity
+  first, then `attemptRedeemFromUrl`), so the inviter gains a follower on the
+  wrong identity (nameless, since `telegramFirstName()` is `''` off-Mini-App).
+  The in-app browser is detected but only shows a dismissible informational
+  panel (`showInAppBrowserRedirect`, `app.js:448`); the `x-safari`/`intent://`
+  escape lives only on `/about` (`about-cta.js`), not the `/?i=` boot.
+  *Fix direction (option A1, not built):* the `startapp` ingredients already
+  exist — `?i=TOKEN` and `startapp=TOKEN` carry the **same** token, and
+  `buildTelegramInviteLink(token)` (`inviteFlow.js:12`) already builds
+  `t.me/<bot>/app?startapp=TOKEN`. On the invite-boot path, when a pending token
+  is present, `telegramSharingEnabled()`, and a **narrower**
+  `isTelegramInAppBrowser()` (UA contains `Telegram` — needed because the
+  generic `isInAppBrowser()` also matches Instagram/WhatsApp/etc., which can't
+  open a Mini App) is true, offer an explicit **"Open in Telegram"** CTA that
+  navigates to that deep link — routing into the Mini App, where
+  `telegramInviteGate` (§1) redeems onto the real account (and onboards a true
+  stranger correctly too). Keep a "continue in browser" escape. Detection is
+  reliable on Android but weak on iOS (byte-identical Safari, per §21), so an
+  explicit CTA is preferred over an auto-redirect, and the whole thing degrades
+  to today's web-account flow when the deep link can't open.
 
 ## Accepted trade-offs
 
