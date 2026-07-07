@@ -382,3 +382,49 @@ describe('install-nudge secret-phrase copy button', () => {
     expect(document.querySelector('.notify-promo-copy')).toBeNull();
   });
 });
+
+const { initNotifyPrompt } = require('../js/notifyPrompt.js');
+const { syncBotDelivery, __resetBotDeliveryForTests } = require('../js/notifySuppression.js');
+
+describe('bot-delivered suppression (linked account, telegram channel)', () => {
+  const LINKED_TG = { telegram: { linkedAt: 1 }, notifyChannel: 'telegram' };
+  const LINKED_PUSH = { telegram: { linkedAt: 1 }, notifyChannel: 'push' };
+  const banner = () => document.getElementById('notify-promo');
+
+  beforeEach(() => {
+    __resetBotDeliveryForTests();
+    addPushToken.mockClear();
+    detectNotifyCapability.mockReset();
+    detectNotifyCapability.mockReturnValue({ state: 'supported', supported: true });
+    hasAnyNotifyPrefEnabled.mockReturnValue(true); // reprompt conditions all hold…
+    localStorage.clear();                          // …and no device dismissal
+    mountBanner();
+    global.Notification = { permission: 'default', requestPermission: jest.fn().mockResolvedValue('granted') };
+    global.navigator.serviceWorker = { ready: Promise.resolve({ id: 'reg' }) };
+    getMessagingIfSupported.mockResolvedValue({});
+    getToken.mockResolvedValue('tok-1');
+  });
+  afterAll(() => __resetBotDeliveryForTests());
+
+  test('ensureNotificationsReady no-ops when suppressed: no prompt, no token, no banner', async () => {
+    syncBotDelivery(LINKED_TG);
+    await ensureNotificationsReady();
+    expect(global.Notification.requestPermission).not.toHaveBeenCalled();
+    expect(addPushToken).not.toHaveBeenCalled();
+    expect(banner().classList.contains('hidden')).toBe(true);
+  });
+
+  test('reprompt banner stays hidden when suppressed even though every reprompt condition holds', () => {
+    syncBotDelivery(LINKED_TG);
+    initNotifyPrompt('u1');
+    expect(banner().classList.contains('hidden')).toBe(true);
+  });
+
+  test('reprompt banner revives when suppression lifts (channel switched to push)', () => {
+    syncBotDelivery(LINKED_TG);
+    initNotifyPrompt('u1');
+    expect(banner().classList.contains('hidden')).toBe(true);
+    syncBotDelivery(LINKED_PUSH); // bot-delivery-change → refreshPromoVisibility
+    expect(banner().classList.contains('hidden')).toBe(false);
+  });
+});

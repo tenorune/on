@@ -3,6 +3,7 @@ import { NOTIFICATIONS_ENABLED } from './features.js';
 import { markHintSeen, addPushToken, removePushToken, getRegisteredPushToken, hasAnyNotifyPrefEnabled, touchPushToken, cullStalePushTokens } from './prefs.js';
 import { detectNotifyCapability, guidanceCopyFor } from './installGuidance.js';
 import { isTelegramContext } from './telegram.js';
+import { isBotDelivered } from './notifySuppression.js';
 import { phraseReminderHtml, wirePhraseCopyButton } from './phraseReminder.js';
 import { getMessagingIfSupported } from './firebase-config.js';
 import { getToken } from 'firebase/messaging';
@@ -110,6 +111,10 @@ export async function ensureNotificationsReady() {
   // entirely — otherwise it surfaces web-push framing ("this browser doesn't
   // support web notifications"), the wrong lens inside the Mini App. (Spec §9.)
   if (isTelegramContext()) return;
+  // Bot-delivered on web (linked account, telegram channel): bells just write
+  // prefs — the notifier routes them to the bot (functions/notifier.js), so
+  // there is no web-push permission to demand (spec 2026-07-07-web-nudge-suppression).
+  if (isBotDelivered()) return;
   const cap = detectNotifyCapability();
   if (cap.state === 'supported') {
     const ok = await requestPermissionAndRegister();
@@ -127,6 +132,7 @@ export function initNotifyPrompt(userId) {
   // restored device has "on" bells it can't yet deliver (no permission/token).
   if (!_repromptListenerWired && typeof document !== 'undefined') {
     document.addEventListener('notify-prefs-synced', maybeRepromptForMissingPermission);
+    document.addEventListener('bot-delivery-change', maybeRepromptForMissingPermission);
     _repromptListenerWired = true;
   }
   refreshPromoVisibility();
@@ -146,6 +152,10 @@ function refreshPromoVisibility() {
   // Never surface the web-push promo/reprompt in Telegram — the bot is the
   // notification channel there (spec §9); web-push framing would only mislead.
   if (isTelegramContext()) { banner.classList.add('hidden'); return; }
+  // Bot-delivered: the reprompt's premise ("your on-bells deliver nothing on
+  // this device") is false — the bot delivers them. Re-evaluated on
+  // bot-delivery-change, so switching to push revives the reprompt live.
+  if (isBotDelivered()) { banner.classList.add('hidden'); return; }
   const cap = detectNotifyCapability();
   const permission = (typeof Notification !== 'undefined' && Notification.permission) || 'default';
   const reprompt = shouldReprompt({
