@@ -7,8 +7,12 @@ jest.mock('../js/telegram.js', () => ({
   isTelegramContext: jest.fn(() => false),
   telegramLinkState: jest.fn(() => null),
 }));
+jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
+jest.mock('../js/notifySuppression.js', () => ({ syncBotDelivery: jest.fn() }));
 const { mergeUserPrefs } = require('../js/db.js');
 const { isTelegramContext, telegramLinkState } = require('../js/telegram.js');
+const { ensureNotificationsReady } = require('../js/notifyPrompt.js');
+const { syncBotDelivery } = require('../js/notifySuppression.js');
 const { syncNotifyChannel } = require('../js/notifyChannel.js');
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -129,5 +133,32 @@ describe('Telegram context: link state, not the userPrefs marker, decides visibi
     syncNotifyChannel('u1', LINKED('push'));
     expect(section().classList.contains('hidden')).toBe(false);
     expect(active()).toBe('push');
+  });
+});
+
+describe('channel switch feeds suppression and prompts on push', () => {
+  test('switch to push: optimistic syncBotDelivery with the merged prefs, then the permission flow', async () => {
+    syncNotifyChannel('u1', LINKED('telegram'));
+    document.querySelector('[data-channel="push"]').click();
+    await flush();
+    expect(syncBotDelivery).toHaveBeenCalledWith({ telegram: { linkedAt: 1 }, notifyChannel: 'push' });
+    expect(ensureNotificationsReady).toHaveBeenCalledTimes(1);
+  });
+
+  test('switch to telegram: optimistic suppression, no permission flow', async () => {
+    syncNotifyChannel('u1', LINKED('push'));
+    document.querySelector('[data-channel="telegram"]').click();
+    await flush();
+    expect(syncBotDelivery).toHaveBeenCalledWith({ telegram: { linkedAt: 1 }, notifyChannel: 'telegram' });
+    expect(ensureNotificationsReady).not.toHaveBeenCalled();
+  });
+
+  test('merge failure: no suppression change, no permission flow (matches the visual revert)', async () => {
+    mergeUserPrefs.mockRejectedValue(new Error('offline'));
+    syncNotifyChannel('u1', LINKED('telegram'));
+    document.querySelector('[data-channel="push"]').click();
+    await flush();
+    expect(syncBotDelivery).not.toHaveBeenCalled();
+    expect(ensureNotificationsReady).not.toHaveBeenCalled();
   });
 });

@@ -9,8 +9,14 @@
 // account with no link has nothing to choose.
 import { mergeUserPrefs } from './db.js';
 import { isTelegramContext, telegramLinkState } from './telegram.js';
+import { syncBotDelivery } from './notifySuppression.js';
+import { ensureNotificationsReady } from './notifyPrompt.js';
 
 const OTHER = { telegram: 'push', push: 'telegram' };
+
+// Latest prefs this pill was synced with — the click handler needs them to
+// feed suppression optimistically without waiting for the watchUserPrefs echo.
+let lastPrefs = null;
 
 // "Linked" = the account has a separate phrase identity that a Telegram points
 // at, vs a bare Telegram-derived account. The signal differs by surface:
@@ -50,6 +56,13 @@ function mountPill(slot, userId) {
       setActive(pill, next); // optimistic — instant feedback before the round-trip
       try {
         await mergeUserPrefs(userId, { notifyChannel: next });
+        // Optimistic: flip web nudge suppression now (the echo confirms later).
+        // For a switch TO push, run the permission flow immediately — the user
+        // just asked for web push; a permissionless device would otherwise go
+        // silent until some later prefs event. Inert in Telegram context
+        // (ensureNotificationsReady early-returns there).
+        syncBotDelivery({ ...(lastPrefs || {}), notifyChannel: next });
+        if (next === 'push') ensureNotificationsReady();
       } catch {
         setActive(pill, OTHER[next]); // revert; no echo will arrive to correct it
       }
@@ -61,6 +74,7 @@ function mountPill(slot, userId) {
 // Reconcile the section + pill against the latest userPrefs. Idempotent: safe to
 // call on every prefs tick.
 export function syncNotifyChannel(userId, prefs) {
+  lastPrefs = prefs;
   const slot = document.getElementById('tg-notify-slot');
   const section = document.getElementById('drawer-section-notifications');
   if (!slot || !section) return;
