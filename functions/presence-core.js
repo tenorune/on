@@ -33,7 +33,14 @@ export function overrideAvailable(override, now) {
 // otherwise their primary status. Mirrors what the group roster shows.
 export function effectiveAvailable(override, primaryStatus, primaryAU, now) {
   if (override && override.enabled === true) return overrideAvailable(override, now);
-  return primaryStatus === 'available' && isFutureMs(primaryAU, now);
+  return primaryAvailable({ status: primaryStatus, availableUntil: primaryAU }, now);
+}
+
+// "Globally available right now" over a whole presence (or override) node —
+// the same predicate as effectiveAvailable's no-override fallback, taken as
+// the object so callers holding users/{uid}/presence don't re-inline it.
+export function primaryAvailable(presence, now) {
+  return presence?.status === 'available' && isFutureMs(presence.availableUntil, now);
 }
 
 const TITLES = {
@@ -56,6 +63,12 @@ const GROUP_TITLES = {
 // chars comfortably exceeds what's visible on a notification (#164 R3b).
 const LABEL_MAX = 40;
 const clampLabel = (s) => String(s ?? '').slice(0, LABEL_MAX);
+
+// Trimming variant for labels that get STORED (group display names, etc.), so
+// a name that is cut mid-whitespace doesn't keep a dangling space. Same cap as
+// buildMessage's clampLabel — one constant, can't half-apply (telegram.js used
+// to re-implement this).
+export const clampName = (s) => clampLabel(s).trim();
 
 export function buildMessage(type, name, opts = {}) {
   const n = clampLabel(name);

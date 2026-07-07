@@ -4,7 +4,7 @@
 import { timingSafeEqual } from 'crypto';
 import { ensureTelegramUser } from './telegram-auth.js';
 import { WELCOME_STRANGER_TEXT, openAppKeyboard } from './telegram-shared.js';
-import { isFutureMs, effectiveAvailable } from './presence-core.js';
+import { effectiveAvailable, primaryAvailable, clampName } from './presence-core.js';
 
 // Group ids are 8 chars of A-Z0-9 (client generateGroupId; database.rules.json
 // pins the same format on client knock writes). callback_query.data is
@@ -117,7 +117,7 @@ async function handleMessage(deps, msg) {
     }
     // Returning: compact live status, duration-based (no server-side timezone).
     const presence = await deps.getVal(`users/${uid}/presence`);
-    const on = presence?.status === 'available' && isFutureMs(presence.availableUntil, deps.now());
+    const on = primaryAvailable(presence, deps.now());
     if (on) {
       const mins = Math.max(1, Math.round((presence.availableUntil - deps.now()) / 60000));
       await reply(`You're available for another ${fmtMinutes(mins)}. /off to stop.`, openAppKeyboard(deps.appUrl));
@@ -251,7 +251,7 @@ async function handleGroupStatus(deps, uid, query, minutes, reply) {
     return;
   }
   const presence = await deps.getVal(`users/${uid}/presence`);
-  const globallyOn = presence?.status === 'available' && isFutureMs(presence?.availableUntil, deps.now());
+  const globallyOn = primaryAvailable(presence, deps.now());
   await reply(globallyOn
     ? `${match.name} follows your global status — you're already available there.`
     : `${match.name} follows your global status. /status goes available everywhere, or turn on a group status in the app.`);
@@ -272,7 +272,7 @@ async function handleGroupOff(deps, uid, query, reply) {
     return;
   }
   const presence = await deps.getVal(`users/${uid}/presence`);
-  const globallyOn = presence?.status === 'available' && isFutureMs(presence?.availableUntil, deps.now());
+  const globallyOn = primaryAvailable(presence, deps.now());
   await reply(globallyOn
     ? `${match.name} follows your global status. /off goes unavailable everywhere, or turn on a group status in the app.`
     : `You're already unavailable in ${match.name}.`);
@@ -332,7 +332,7 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
     const lines = [];
     for (const entry of following) {
       const presence = await deps.getVal(`users/${entry.userId}/presence`);
-      if (presence?.status === 'available' && isFutureMs(presence.availableUntil, deps.now())) {
+      if (primaryAvailable(presence, deps.now())) {
         lines.push(`🟢 ${entry.label || entry.code}`);
       }
     }
@@ -368,9 +368,6 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
     await reply(lines.join('\n'));
   }
 }
-
-const LABEL_MAX = 40;
-const clampName = (s) => String(s ?? '').slice(0, LABEL_MAX).trim();
 
 async function handleCallback(deps, cq) {
   if (!cq?.id || !cq.from) return;

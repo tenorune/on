@@ -1,7 +1,7 @@
 import {
   withinCooldown, isFutureMs, availabilityTurnedOn,
   wantsKnock, wantsCall, wantsAvailability, buildMessage,
-  overrideAvailable, effectiveAvailable,
+  overrideAvailable, effectiveAvailable, primaryAvailable, clampName,
 } from '../presence-core.js';
 
 const NOW = 1_000_000;
@@ -100,6 +100,35 @@ describe('buildMessage group titles', () => {
   test('falsy group → no suffix', () => {
     expect(buildMessage('knock', 'Bea', { group: undefined })).toEqual({ title: 'Bea knocked', body: '' });
     expect(buildMessage('availability', 'Bea', { group: null })).toEqual({ title: 'Bea is available', body: '' });
+  });
+});
+
+describe('primaryAvailable', () => {
+  const NOW2 = 1000;
+  test('true only for status available with a future availableUntil', () => {
+    expect(primaryAvailable({ status: 'available', availableUntil: 2000 }, NOW2)).toBe(true);
+    expect(primaryAvailable({ status: 'available', availableUntil: 500 }, NOW2)).toBe(false); // expired
+    expect(primaryAvailable({ status: 'available', availableUntil: null }, NOW2)).toBe(false);
+    expect(primaryAvailable({ status: 'unavailable', availableUntil: 2000 }, NOW2)).toBe(false);
+    expect(primaryAvailable(null, NOW2)).toBe(false);
+    expect(primaryAvailable(undefined, NOW2)).toBe(false);
+  });
+  test('agrees with effectiveAvailable\'s no-override fallback', () => {
+    const presence = { status: 'available', availableUntil: 2000 };
+    expect(primaryAvailable(presence, NOW2))
+      .toBe(effectiveAvailable(null, presence.status, presence.availableUntil, NOW2));
+  });
+});
+
+describe('clampName', () => {
+  test('clamps to LABEL_MAX then trims (stored display names)', () => {
+    expect(clampName('  Ada  ')).toBe('Ada');
+    expect(clampName('x'.repeat(200))).toBe('x'.repeat(40));
+    // Trailing space landing on the cut point is trimmed AFTER the slice.
+    expect(clampName(`${'x'.repeat(39)} y`)).toBe('x'.repeat(39));
+    expect(clampName(null)).toBe('');
+    expect(clampName(undefined)).toBe('');
+    expect(clampName(7)).toBe('7');
   });
 });
 
