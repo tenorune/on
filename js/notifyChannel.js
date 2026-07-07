@@ -62,7 +62,7 @@ function mountPill(slot, userId) {
         // silent until some later prefs event. Inert in Telegram context
         // (ensureNotificationsReady early-returns there).
         syncBotDelivery({ ...(lastPrefs || {}), notifyChannel: next });
-        if (next === 'push') ensureNotificationsReady();
+        if (next === 'push') ensureNotificationsReady().catch(() => {});
       } catch {
         setActive(pill, OTHER[next]); // revert; no echo will arrive to correct it
       }
