@@ -6,8 +6,14 @@ import { ensureTelegramUser } from './telegram-auth.js';
 import { WELCOME_STRANGER_TEXT, openAppKeyboard } from './telegram-shared.js';
 import { isFutureMs, effectiveAvailable } from './presence-core.js';
 
+// Group ids are 8 chars of A-Z0-9 (client generateGroupId; database.rules.json
+// pins the same format on client knock writes). callback_query.data is
+// attacker-controllable, and writeKnock is an Admin-SDK write that bypasses
+// the rules — so the gid segment must re-check the format here.
+const GROUP_ID_RE = /^[A-Z0-9]{8}$/;
+
 // contextGroupId rides the callback so a knock-back lands as a group knock.
-// 64-byte callback_data cap: 'knock:' + 32-hex uid + ':' + 16-hex gid = 55.
+// 64-byte callback_data cap: 'knock:' + 32-hex uid + ':' + 8-char gid = 47.
 const knockCallback = (data) =>
   data.contextGroupId ? `knock:${data.targetUid}:${data.contextGroupId}` : `knock:${data.targetUid}`;
 
@@ -48,7 +54,7 @@ export function parseDurationMinutes(raw) {
   return clamp(parseInt(m[1] || '0', 10) * 60 + parseInt(m[2] || '0', 10));
 }
 
-// Format minutes as a human-readable duration: 30m or 2h (with decimals for < 60m).
+// Format minutes as a human-readable duration: 30m or 2h (with decimals for >= 60m).
 const fmtMinutes = (m) => (m >= 60 ? `${Math.round((m / 60) * 10) / 10}h` : `${m}m`);
 
 const HELP_TEXT = [
@@ -361,7 +367,7 @@ async function handleCallback(deps, cq) {
   if (!arg) { await answer('Unknown action.'); return; }
   switch (action) {
     case 'knock':
-      await writeKnock(deps, arg, me, arg2 || undefined);
+      await writeKnock(deps, arg, me, GROUP_ID_RE.test(arg2 || '') ? arg2 : undefined);
       await answer('Knock sent.');
       return;
     case 'invite_accept':

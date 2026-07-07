@@ -556,15 +556,22 @@ describe('callback: knock', () => {
   test('knock:uid:gid writes contextGroupId on create', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    await handleUpdate(deps, cbUpdate('knock:f9:G1'));
-    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 1, ts: 1_000_000, contextGroupId: 'G1' });
+    await handleUpdate(deps, cbUpdate('knock:f9:AAAA1111'));
+    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 1, ts: 1_000_000, contextGroupId: 'AAAA1111' });
   });
   test('knock:uid:gid overwrites contextGroupId on increment', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`knocks/f9/${uid}`] = { count: 1, ts: 1 };
-    await handleUpdate(deps, cbUpdate('knock:f9:G2'));
-    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 2, ts: 1_000_000, contextGroupId: 'G2' });
+    await handleUpdate(deps, cbUpdate('knock:f9:BBBB2222'));
+    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 2, ts: 1_000_000, contextGroupId: 'BBBB2222' });
+  });
+  test('malformed gid segment is dropped — knock still lands, no contextGroupId', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    await handleUpdate(deps, cbUpdate('knock:f9:bad.gid'));
+    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 1, ts: 1_000_000 });
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/knock/i));
   });
   test('plain knock:uid carries an existing contextGroupId on increment', async () => {
     const deps = makeBotDeps();

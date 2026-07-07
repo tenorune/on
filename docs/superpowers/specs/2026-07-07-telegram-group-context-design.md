@@ -62,7 +62,7 @@ Admin-SDK writes too, so an override-ON `/status <group>` gets the
 - `buildNotificationKeyboard`: when the payload has `contextGroupId`, the
   `knock` and `availability` buttons emit
   `knock:${targetUid}:${contextGroupId}`; without it, unchanged
-  `knock:${targetUid}`. (32-hex uid + 16-hex gid + `knock:` = 55 bytes,
+  `knock:${targetUid}`. (32-hex uid + 8-char gid + `knock:` = 47 bytes,
   under Telegram's 64-byte callback_data cap.)
 - `handleCallback`: parse an optional third `:`-segment; `knock` passes it
   through.
