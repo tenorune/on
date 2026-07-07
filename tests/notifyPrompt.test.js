@@ -427,4 +427,23 @@ describe('bot-delivered suppression (linked account, telegram channel)', () => {
     syncBotDelivery(LINKED_PUSH); // bot-delivery-change → refreshPromoVisibility
     expect(banner().classList.contains('hidden')).toBe(false);
   });
+
+  test('a granted permission flow hides the revived banner immediately (no server echo needed)', async () => {
+    // The switch-to-push moment: suppression lifts (banner shows "Enable"),
+    // then ensureNotificationsReady runs and the user GRANTS. The banner must
+    // hide on the success path itself — not wait for the notify-prefs-synced
+    // echo of the token write.
+    // Granting flips Notification.permission, like a real browser does.
+    global.Notification.requestPermission = jest.fn(async () => {
+      global.Notification.permission = 'granted';
+      return 'granted';
+    });
+    syncBotDelivery(LINKED_TG);
+    initNotifyPrompt('u1');
+    syncBotDelivery(LINKED_PUSH);
+    expect(banner().classList.contains('hidden')).toBe(false); // stale "Enable" showing
+    await ensureNotificationsReady();
+    expect(addPushToken).toHaveBeenCalledWith('tok-1');         // flow succeeded
+    expect(banner().classList.contains('hidden')).toBe(true);   // and hid the banner itself
+  });
 });

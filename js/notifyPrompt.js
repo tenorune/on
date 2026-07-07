@@ -119,6 +119,10 @@ export async function ensureNotificationsReady() {
   if (cap.state === 'supported') {
     const ok = await requestPermissionAndRegister();
     if (!ok) showBannerForState(detectNotifyCapability().state);
+    // On success, re-evaluate the banner now: the switch-to-push flow revives
+    // the reprompt an instant before this runs, and waiting for the token
+    // write's notify-prefs-synced echo would leave a stale "Enable" showing.
+    else maybeRepromptForMissingPermission();
     return;
   }
   showBannerForState(cap.state);
