@@ -241,10 +241,10 @@ export function initList(myUserId, myCode) {
   }, 60000);
 
   document.getElementById('add-person-btn').addEventListener('click', () => {
-    document.getElementById('add-person-form').classList.add('open');
+    openAddForm();
     document.getElementById('add-code-input').focus();
     setTimeout(() => {
-      document.getElementById('add-code-input').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      document.getElementById('add-code-input')?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     }, 50);
   });
 
@@ -820,7 +820,7 @@ function createFollowerOnlyRow(follower, myUserId) {
     // Read at click time: the row persists across renders, and the roster name
     // can be learned (approval flow) after this row was created.
     document.getElementById('add-label-input').value = getFollowerName(follower.userId) || '';
-    document.getElementById('add-person-form').classList.add('open');
+    openAddForm();
   });
 
   li.querySelector('.unfollow-btn').addEventListener('click', () => {
@@ -1181,8 +1181,22 @@ async function handleAddPerson(myUserId, myCode) {
   document.getElementById('add-submit-btn').disabled = false;
 }
 
+// Form mode: the sticky #nav-row / #app-header pin cannot be scrolled away,
+// and browsers only fake the "push up" with a visual-viewport pan while the
+// keyboard is open (the Telegram webview resizes instead and never pans). So
+// opening the form unpins both via body.add-form-open (css/app.css) and closes
+// the code drawer — open, it can occupy the whole scrollport from inside the
+// sticky header — letting the scrollIntoView genuinely center the code input.
+function openAddForm() {
+  document.getElementById('code-drawer')?.classList.remove('open');
+  document.getElementById('mycode-chip')?.classList.remove('active');
+  document.body.classList.add('add-form-open');
+  document.getElementById('add-person-form').classList.add('open');
+}
+
 function closeAddForm() {
   document.getElementById('add-person-form').classList.remove('open');
+  document.body.classList.remove('add-form-open');
   document.getElementById('add-code-input').value = '';
   document.getElementById('add-label-input').value = '';
   document.getElementById('add-error').classList.add('hidden');

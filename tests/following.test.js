@@ -2462,3 +2462,39 @@ describe('renderList reconciliation', () => {
     expect(isDrawerOpen()).toBe(false);
   });
 });
+
+describe('add-person form mode: unpin pinned surfaces + close the code drawer', () => {
+  beforeEach(() => {
+    setupDom();
+    document.body.classList.remove('add-form-open');
+    document.body.insertAdjacentHTML('beforeend',
+      '<div id="code-drawer" class="open"></div><button id="mycode-chip" class="active"></button>');
+    require('../js/store.js').getFollowing.mockReturnValue([]);
+  });
+
+  test('opening the form enters form mode and closes the drawer', () => {
+    initAndCaptureFollowersCallback();
+    document.getElementById('add-person-btn').click();
+    expect(document.getElementById('add-person-form').classList.contains('open')).toBe(true);
+    expect(document.body.classList.contains('add-form-open')).toBe(true);
+    expect(document.getElementById('code-drawer').classList.contains('open')).toBe(false);
+    expect(document.getElementById('mycode-chip').classList.contains('active')).toBe(false);
+  });
+
+  test('cancel leaves form mode', () => {
+    initAndCaptureFollowersCallback();
+    document.getElementById('add-person-btn').click();
+    document.getElementById('add-cancel-btn').click();
+    expect(document.getElementById('add-person-form').classList.contains('open')).toBe(false);
+    expect(document.body.classList.contains('add-form-open')).toBe(false);
+  });
+
+  test('follow-back open path also enters form mode and closes the drawer', () => {
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'f1', code: 'ABC123' }]);
+    document.querySelector('.follow-back-btn').click();
+    expect(document.getElementById('add-person-form').classList.contains('open')).toBe(true);
+    expect(document.body.classList.contains('add-form-open')).toBe(true);
+    expect(document.getElementById('code-drawer').classList.contains('open')).toBe(false);
+  });
+});

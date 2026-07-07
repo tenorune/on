@@ -506,6 +506,18 @@ main {
   border-bottom: 1px solid var(--surface2);
 }
 
+/* Form mode: while the add-person form is open (body class set by
+   js/following.js openAddForm), the pinned surfaces unpin so the form's
+   scrollIntoView can genuinely push nav + availability up and center the
+   code input. Browsers fake this with a visual-viewport pan while the
+   keyboard is up (and snap back on close); the Telegram webview resizes
+   instead and never pans — static positioning makes the push-up real on
+   both surfaces. */
+body.add-form-open .nav-row,
+body.add-form-open #app-header {
+  position: static;
+}
+
 .nav-row {
   position: sticky;
   top: 0;
