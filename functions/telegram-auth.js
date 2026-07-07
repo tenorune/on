@@ -62,11 +62,15 @@ async function claimShareCode(deps, uid) {
 // Resolve (or create) the app account behind a Telegram user. Idempotent.
 //  - No mapping → derive uid, write mapping + reverse index + prefs defaults.
 //  - No presence → bootstrap it (claim code) so bot commands work pre-Mini-App.
-// Returns { uid, created, linked }.
-export async function ensureTelegramUser(deps, tgUser) {
+// Callers that already read telegramUsers/{tgId} pass it as priorMapping
+// (null counts as "read and absent"; undefined means "not read") so the
+// mapping isn't fetched twice. Returns { uid, created, linked, presence } —
+// presence is whatever this function read or bootstrapped, so callers need
+// no second presence read either.
+export async function ensureTelegramUser(deps, tgUser, priorMapping) {
   const tgId = String(tgUser.id);
   const derivedUid = deriveTelegramUid(tgId);
-  let mapping = await deps.getVal(`telegramUsers/${tgId}`);
+  let mapping = priorMapping === undefined ? await deps.getVal(`telegramUsers/${tgId}`) : priorMapping;
   if (!mapping) {
     mapping = { uid: derivedUid, chatId: tgId, createdAt: deps.now() };
     await deps.set(`telegramUsers/${tgId}`, mapping);
@@ -87,13 +91,14 @@ export async function ensureTelegramUser(deps, tgUser) {
     }
   }
   let created = false;
-  const presence = await deps.getVal(`users/${mapping.uid}/presence`);
+  let presence = await deps.getVal(`users/${mapping.uid}/presence`);
   if (!presence) {
     const code = await claimShareCode(deps, mapping.uid);
-    await deps.set(`users/${mapping.uid}/presence`, { code, status: 'unavailable', availableUntil: null });
+    presence = { code, status: 'unavailable', availableUntil: null };
+    await deps.set(`users/${mapping.uid}/presence`, presence);
     created = true;
   }
-  return { uid: mapping.uid, created, linked: mapping.uid !== derivedUid };
+  return { uid: mapping.uid, created, linked: mapping.uid !== derivedUid, presence };
 }
 
 function requireTelegramUser(request, deps) {

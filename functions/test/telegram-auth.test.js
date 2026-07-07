@@ -65,8 +65,12 @@ function makeStoreDeps(store = {}) {
     store,
     getVal: jest.fn(async (path) => store[path] ?? null),
     set: jest.fn(async (path, value) => { store[path] = value; }),
+    // Multi-path root updates (`update('/', {...})`) land at the same store
+    // keys a direct set would — mirror real RTDB's path normalization.
     update: jest.fn(async (path, obj) => {
-      for (const [k, v] of Object.entries(obj)) store[`${path}/${k}`.replace(/\/+/g, '/')] = v;
+      for (const [k, v] of Object.entries(obj)) {
+        store[`${path}/${k}`.replace(/\/+/g, '/').replace(/^\//, '')] = v;
+      }
     }),
     transaction: jest.fn(async (path, fn) => {
       const next = fn(store[path] ?? null);
@@ -97,9 +101,33 @@ describe('ensureTelegramUser', () => {
     const first = await ensureTelegramUser(deps, { id: 42 });
     deps.set.mockClear(); deps.transaction.mockClear();
     const again = await ensureTelegramUser(deps, { id: 42 });
-    expect(again).toEqual({ uid: first.uid, created: false, linked: false });
+    expect(again).toMatchObject({ uid: first.uid, created: false, linked: false });
     expect(deps.set).not.toHaveBeenCalled();
     expect(deps.transaction).not.toHaveBeenCalled();
+  });
+  test('returns the presence it read/bootstrapped, so callers need no second read (F#4)', async () => {
+    const deps = makeStoreDeps();
+    const first = await ensureTelegramUser(deps, { id: 42 });
+    expect(first.presence).toEqual({ code: 'AAAAAA', status: 'unavailable', availableUntil: null });
+    deps.store[`users/${first.uid}/presence`] = { code: 'AAAAAA', status: 'available', availableUntil: 9999 };
+    const again = await ensureTelegramUser(deps, { id: 42 });
+    expect(again.presence).toEqual({ code: 'AAAAAA', status: 'available', availableUntil: 9999 });
+  });
+  test('accepts a pre-read mapping and skips the mapping re-read (F#4)', async () => {
+    const deps = makeStoreDeps();
+    const { uid } = await ensureTelegramUser(deps, { id: 42 });
+    const mapping = deps.store['telegramUsers/42'];
+    deps.getVal.mockClear();
+    const res = await ensureTelegramUser(deps, { id: 42 }, mapping);
+    expect(res.uid).toBe(uid);
+    expect(deps.getVal).not.toHaveBeenCalledWith('telegramUsers/42');
+  });
+  test('a pre-read NULL mapping still bootstraps without re-reading (F#4)', async () => {
+    const deps = makeStoreDeps();
+    const res = await ensureTelegramUser(deps, { id: 42 }, null);
+    expect(res.created).toBe(true);
+    expect(deps.getVal).not.toHaveBeenCalledWith('telegramUsers/42');
+    expect(deps.store['telegramUsers/42']).toMatchObject({ uid: res.uid });
   });
   test('share-code collision retries with a fresh code', async () => {
     const deps = makeStoreDeps({ 'codeIndex/AAAAAA': 'someoneElse' });
@@ -114,7 +142,7 @@ describe('ensureTelegramUser', () => {
       'users/phraseuid00000000000000000000000/presence': { code: 'ZZZZZZ', status: 'unavailable', availableUntil: null },
     });
     const res = await ensureTelegramUser(deps, { id: 42 });
-    expect(res).toEqual({ uid: 'phraseuid00000000000000000000000', created: false, linked: true });
+    expect(res).toMatchObject({ uid: 'phraseuid00000000000000000000000', created: false, linked: true });
   });
 
   test('first bootstrap stamps the anonymous synthetic Auth email', async () => {

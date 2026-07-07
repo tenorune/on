@@ -69,8 +69,12 @@ function makeBotDeps(store = {}) {
     store,
     getVal: jest.fn(async (path) => store[path] ?? null),
     set: jest.fn(async (path, value) => { store[path] = value; }),
+    // Multi-path root updates (`update('/', {...})`) land at the same store
+    // keys a direct set would — mirror real RTDB's path normalization.
     update: jest.fn(async (path, obj) => {
-      for (const [k, v] of Object.entries(obj)) store[`${path}/${k}`] = v;
+      for (const [k, v] of Object.entries(obj)) {
+        store[`${path}/${k}`.replace(/\/+/g, '/').replace(/^\//, '')] = v;
+      }
     }),
     transaction: jest.fn(async (path, fn) => {
       const next = fn(store[path] ?? null);
@@ -163,6 +167,21 @@ describe('/start first contact vs returning', () => {
     await handleUpdate(deps, msgUpdate('/start'));
     expect(deps.store['telegramUsers/42']).toBeTruthy();
     expect(deps.store['telegramUsers/42/chatId']).toBe('42');
+  });
+
+  // F#4: /start used to read telegramUsers/{tgId} and users/{uid}/presence
+  // twice each and write the chat route as two sequential updates.
+  test('returning /start: mapping and presence each read ONCE, chat route one update', async () => {
+    const deps = makeBotDeps({});
+    const uid = seedUser(deps.store);
+    await handleUpdate(deps, msgUpdate('/start'));
+    const reads = deps.getVal.mock.calls.map(([p]) => p);
+    expect(reads.filter((p) => p === 'telegramUsers/42')).toHaveLength(1);
+    expect(reads.filter((p) => p === `users/${uid}/presence`)).toHaveLength(1);
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    expect(deps.store['telegramUsers/42/chatId']).toBe('42');
+    expect(deps.store[`telegramByUid/${uid}/chatId`]).toBe('42');
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe("You're unavailable right now. /status to go available.");
   });
 });
 

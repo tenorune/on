@@ -100,20 +100,23 @@ async function handleMessage(deps, msg) {
   if (cmd === '/start') {
     // First-contact detection must precede ensureTelegramUser (which creates
     // the mapping). ensure stays: idempotent, and bot commands need the
-    // account to exist even before the Mini App is ever opened.
+    // account to exist even before the Mini App is ever opened. The mapping
+    // is passed through (and presence comes back) so nothing is read twice.
     const { mapping: known } = await resolveTelegramUid(deps, msg.from.id);
-    const { uid } = await ensureTelegramUser(deps, msg.from);
+    const { uid, presence } = await ensureTelegramUser(deps, msg.from, known);
     // Keep the chat route current (first /start after a Mini-App-only signup,
     // or Telegram reassigning chat ids) — sendToUser reads telegramByUid.
-    await deps.update(`telegramUsers/${String(msg.from.id)}`, { chatId });
-    await deps.update(`telegramByUid/${uid}`, { chatId });
+    // Both sides of the route in one multi-path write.
+    await deps.update('/', {
+      [`telegramUsers/${String(msg.from.id)}/chatId`]: chatId,
+      [`telegramByUid/${uid}/chatId`]: chatId,
+    });
     if (!known) {
       // Stranger: funnel, no command list (spec §2). /help keeps the full list.
       await reply(WELCOME_STRANGER_TEXT, openAppKeyboard(deps.appUrl));
       return;
     }
     // Returning: compact live status, duration-based (no server-side timezone).
-    const presence = await deps.getVal(`users/${uid}/presence`);
     const on = primaryAvailable(presence, deps.now());
     if (on) {
       const mins = Math.max(1, Math.round((presence.availableUntil - deps.now()) / 60000));
