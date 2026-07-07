@@ -48,6 +48,9 @@ export function parseDurationMinutes(raw) {
   return clamp(parseInt(m[1] || '0', 10) * 60 + parseInt(m[2] || '0', 10));
 }
 
+// Format minutes as a human-readable duration: 30m or 2h (with decimals for < 60m).
+const fmtMinutes = (m) => (m >= 60 ? `${Math.round((m / 60) * 10) / 10}h` : `${m}m`);
+
 const HELP_TEXT = [
   'KnockKnock commands:',
   '/status [30m|2h] — go available (default 1h)',
@@ -96,8 +99,7 @@ async function handleMessage(deps, msg) {
     const on = presence?.status === 'available' && isFutureMs(presence.availableUntil, deps.now());
     if (on) {
       const mins = Math.max(1, Math.round((presence.availableUntil - deps.now()) / 60000));
-      const dur = mins >= 60 ? `${Math.round((mins / 60) * 10) / 10}h` : `${mins}m`;
-      await reply(`You're available for another ${dur}. /off to stop.`, openAppKeyboard(deps.appUrl));
+      await reply(`You're available for another ${fmtMinutes(mins)}. /off to stop.`, openAppKeyboard(deps.appUrl));
     } else {
       await reply("You're unavailable right now. /status to go available.", openAppKeyboard(deps.appUrl));
     }
@@ -116,18 +118,22 @@ async function handleMessage(deps, msg) {
       await reply(HELP_TEXT);
       return;
     case '/status': {
-      const minutes = args.length ? parseDurationMinutes(args.join(' ')) : 60;
-      if (minutes == null) {
-        await reply('Give me a duration like "/status 30m" or "/status 2h".');
+      const asDuration = args.length ? parseDurationMinutes(args.join(' ')) : 60;
+      if (asDuration != null) {
+        // Bare or pure-duration form — global presence, mirrors js/db/social.js setStatus.
+        await deps.update(`users/${uid}/presence`, {
+          status: 'available',
+          availableUntil: deps.now() + asDuration * 60000,
+          lastSeen: deps.now(),
+        });
+        await reply(`You're available for ${fmtMinutes(asDuration)}. /off to stop.`);
         return;
       }
-      // Mirrors js/db/social.js setStatus exactly.
-      await deps.update(`users/${uid}/presence`, {
-        status: 'available',
-        availableUntil: deps.now() + minutes * 60000,
-        lastSeen: deps.now(),
-      });
-      await reply(`You're available for ${minutes >= 60 ? `${Math.round(minutes / 60 * 10) / 10}h` : `${minutes}m`}. /off to stop.`);
+      // Group form: a trailing duration token splits off; the rest names the group.
+      const trailing = args.length > 1 ? parseDurationMinutes(args[args.length - 1]) : null;
+      const minutes = trailing ?? 60;
+      const query = (trailing != null ? args.slice(0, -1) : args).join(' ');
+      await handleGroupStatus(deps, uid, query, minutes, reply);
       return;
     }
     case '/off':
@@ -201,6 +207,31 @@ async function resolveGroupArg(deps, uid, query, reply) {
     return null;
   }
   return matches[0];
+}
+
+// /status <group> and /off <group> respect the app-side `enabled` choice
+// (spec 2026-07-07): the bot never flips it. Override ON → merge status fields
+// only (enabled/statusColor/paletteKey untouched — the client's
+// mergeStatusOverride contract); override OFF → the group mirrors global
+// presence, so the bot only explains. Fan-out for the ON write rides the
+// onMemberOverride RTDB trigger — Admin-SDK writes fire it too.
+async function handleGroupStatus(deps, uid, query, minutes, reply) {
+  const match = await resolveGroupArg(deps, uid, query, reply);
+  if (!match) return;
+  const override = await deps.getVal(`groups/${match.gid}/members/${uid}/statusOverride`);
+  if (override && override.enabled === true) {
+    await deps.update(`groups/${match.gid}/members/${uid}/statusOverride`, {
+      status: 'available',
+      availableUntil: deps.now() + minutes * 60000,
+    });
+    await reply(`You're available in ${match.name} for ${fmtMinutes(minutes)}.`);
+    return;
+  }
+  const presence = await deps.getVal(`users/${uid}/presence`);
+  const globallyOn = presence?.status === 'available' && isFutureMs(presence?.availableUntil, deps.now());
+  await reply(globallyOn
+    ? `${match.name} follows your global status — you're already available there.`
+    : `${match.name} follows your global status. /status goes available everywhere, or turn on a group status in the app.`);
 }
 
 // /who <group>: co-members' effective in-group availability (the /groups idiom).

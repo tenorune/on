@@ -165,12 +165,12 @@ describe('handleUpdate: /status and /off', () => {
     expect(deps.update).toHaveBeenCalledWith(`users/${uid}/presence`,
       expect.objectContaining({ availableUntil: 1_000_000 + 60 * 60000 }));
   });
-  test('/status garbage → help reply, no write', async () => {
+  test('/status <unknown word> → treated as group name, no write', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
     await handleUpdate(deps, msgUpdate('/status whenever'));
     expect(deps.update).not.toHaveBeenCalled();
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/like/i);
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('No group matching "whenever".');
   });
   test('/off → unavailable, cleared availableUntil', async () => {
     const deps = makeBotDeps();
@@ -185,6 +185,76 @@ describe('handleUpdate: /status and /off', () => {
     await handleUpdate(deps, msgUpdate('/status 30m'));
     expect(deps.update).not.toHaveBeenCalled();
     expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/open/i);
+  });
+});
+
+describe('handleUpdate: /status <group>', () => {
+  function seedStatusGroup(store, uid, override) {
+    store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    store['groups/G1/name'] = 'Divers';
+    store[`groups/G1/members/${uid}/statusOverride`] = override;
+  }
+  test('override ON → merges status+availableUntil only, replies with duration', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedStatusGroup(deps.store, uid, { enabled: true, status: 'unavailable', statusColor: '#abc', paletteKey: 'p1' });
+    await handleUpdate(deps, msgUpdate('/status divers 2h'));
+    expect(deps.update).toHaveBeenCalledWith(`groups/G1/members/${uid}/statusOverride`, {
+      status: 'available', availableUntil: 1_000_000 + 120 * 60000,
+    });
+    expect(deps.update).toHaveBeenCalledTimes(1); // no global presence write
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe("You're available in Divers for 2h.");
+  });
+  test('override ON, no duration → defaults to 60m', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedStatusGroup(deps.store, uid, { enabled: true, status: 'unavailable' });
+    await handleUpdate(deps, msgUpdate('/status divers'));
+    expect(deps.update).toHaveBeenCalledWith(`groups/G1/members/${uid}/statusOverride`,
+      expect.objectContaining({ availableUntil: 1_000_000 + 60 * 60000 }));
+  });
+  test('multi-word group name with trailing duration', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G3: { lastVisited: 1 } };
+    deps.store['groups/G3/name'] = 'My Family';
+    deps.store[`groups/G3/members/${uid}/statusOverride`] = { enabled: true, status: 'unavailable' };
+    await handleUpdate(deps, msgUpdate('/status my family 30m'));
+    expect(deps.update).toHaveBeenCalledWith(`groups/G3/members/${uid}/statusOverride`,
+      expect.objectContaining({ availableUntil: 1_000_000 + 30 * 60000 }));
+  });
+  test('override OFF + globally available → no write, already-available message', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedStatusGroup(deps.store, uid, { enabled: false });
+    deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'available', availableUntil: 2_000_000 };
+    await handleUpdate(deps, msgUpdate('/status divers'));
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe("Divers follows your global status — you're already available there.");
+  });
+  test('override OFF + globally unavailable → no write, guidance message', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedStatusGroup(deps.store, uid, { enabled: false });
+    await handleUpdate(deps, msgUpdate('/status divers 2h'));
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Divers follows your global status. /status goes available everywhere, or turn on a group status in the app.');
+  });
+  test('missing override node behaves as override OFF', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    await handleUpdate(deps, msgUpdate('/status divers'));
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/follows your global status/);
+  });
+  test('regression: /status 1h 30m stays a global duration', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    await handleUpdate(deps, msgUpdate('/status 1h 30m'));
+    expect(deps.update).toHaveBeenCalledWith(`users/${uid}/presence`,
+      expect.objectContaining({ availableUntil: 1_000_000 + 90 * 60000 }));
   });
 });
 
