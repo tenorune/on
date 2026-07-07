@@ -27,6 +27,9 @@ let lastPrefs = null;
 //  - Web: only a linked phrase account carries userPrefs.telegram (cleared on
 //    unlink) and derived accounts never reach the web, so the marker is the
 //    correct, live signal there.
+// The web branch (with the pill's non-'push'-defaults-to-telegram rendering)
+// is mirrored by js/notifySuppression.js botDelivered and the server notifier
+// (functions/notifier.js sendToUser) — the three must never disagree.
 function isLinked(prefs) {
   if (isTelegramContext()) return telegramLinkState()?.linked === true;
   return prefs?.telegram != null;

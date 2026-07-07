@@ -20,12 +20,16 @@ export async function sendToUser(deps, uid, message, data) {
   // uid→chat route lives in server-only telegramByUid (NOT userPrefs) so a
   // client can't point its notifications at someone else's chat. Any failure
   // (user blocked the bot, missing route, bot unconfigured) falls back to FCM.
+  // channel !== 'push' (not === 'telegram'): a MISSING channel on a routed
+  // account reads as telegram, matching the client predicates in
+  // js/notifySuppression.js botDelivered and js/notifyChannel.js — this is the
+  // third reader of that default, and the three must never disagree.
   if (deps.sendTelegram) {
     const [channel, tgRoute] = await Promise.all([
       deps.getVal(`userPrefs/${uid}/notifyChannel`),
       deps.getVal(`telegramByUid/${uid}`),
     ]);
-    if (channel === 'telegram' && tgRoute && tgRoute.chatId) {
+    if (channel !== 'push' && tgRoute && tgRoute.chatId) {
       try {
         if (await deps.sendTelegram(tgRoute.chatId, message, data)) return true;
       } catch (e) {

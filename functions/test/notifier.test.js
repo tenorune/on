@@ -667,4 +667,12 @@ describe('sendToUser telegram channel', () => {
     await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
     expect(deps.send).toHaveBeenCalled();
   });
+  test('missing channel with a telegram route → telegram (mirrors the client default-to-telegram predicate)', async () => {
+    const deps = makeDeps({ store: { ...tgStore, 'userPrefs/u1/notifyChannel': null } });
+    deps.sendTelegram = jest.fn(async () => true);
+    const ok = await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(ok).toBe(true);
+    expect(deps.sendTelegram).toHaveBeenCalledWith('42', { title: 'hi', body: '' }, {});
+    expect(deps.send).not.toHaveBeenCalled();
+  });
 });

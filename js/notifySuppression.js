@@ -11,7 +11,9 @@ let suppressed = false;
 
 // Pure. Mirrors the pill's isLinked + default-channel semantics
 // (js/notifyChannel.js): on web the telegram marker means linked, and a linked
-// account with no stored channel reads as telegram. The two must never disagree.
+// account with no stored channel reads as telegram. The server notifier
+// (functions/notifier.js sendToUser) is the third reader of this default —
+// the three must never disagree.
 export function botDelivered(prefs) {
   return prefs?.telegram != null && prefs?.notifyChannel !== 'push';
 }
