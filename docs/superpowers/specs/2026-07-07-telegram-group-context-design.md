@@ -34,7 +34,7 @@ substring. No new state, readable in chat history.
   callback, and the plain-text retry is one short message.)
 
 Rejected: index from `/groups` (needs a stable sort + numbering, stale
-between messages), group-id prefix (nobody knows their 16-hex group id).
+between messages), group-id prefix (nobody knows their 8-char group id).
 
 ## Semantics: `/status <group>` and `/off <group>` respect `enabled`
 
