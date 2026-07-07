@@ -24,11 +24,17 @@ export async function sendToUser(deps, uid, message, data) {
   // account reads as telegram, matching the client predicates in
   // js/notifySuppression.js botDelivered and js/notifyChannel.js — this is the
   // third reader of that default, and the three must never disagree.
+  let tokensMap;
   if (deps.sendTelegram) {
-    const [channel, tgRoute] = await Promise.all([
+    // pushTokens rides the same parallel read phase: the FCM fall-through
+    // shouldn't pay a third sequential round-trip. When telegram delivery
+    // succeeds the read is wasted — the right trade, latency > throughput.
+    const [channel, tgRoute, tokens] = await Promise.all([
       deps.getVal(`userPrefs/${uid}/notifyChannel`),
       deps.getVal(`telegramByUid/${uid}`),
+      deps.getVal(`userPrefs/${uid}/pushTokens`),
     ]);
+    tokensMap = tokens;
     if (channel !== 'push' && tgRoute && tgRoute.chatId) {
       try {
         if (await deps.sendTelegram(tgRoute.chatId, message, data)) return true;
@@ -36,8 +42,9 @@ export async function sendToUser(deps, uid, message, data) {
         console.error(`[notify] telegram send failed for ${uid}: ${e?.message || e}`);
       }
     }
+  } else {
+    tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
   }
-  const tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
   const tokens = tokensMap ? Object.keys(tokensMap) : [];
   if (tokens.length === 0) return false;
   const { failedTokens } = await deps.send(tokens, message, data);

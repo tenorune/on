@@ -667,6 +667,33 @@ describe('sendToUser telegram channel', () => {
     await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
     expect(deps.send).toHaveBeenCalled();
   });
+  // F#9: with the bot configured, the pushTokens read joins the SAME parallel
+  // phase as notifyChannel + telegramByUid — the FCM fall-through must not pay
+  // a third sequential round-trip. The probe defers every getVal a macrotask,
+  // so reads issued together peak at 3 in-flight; a trailing read peaks lower.
+  test('bot configured: channel, route, and pushTokens are read in ONE parallel phase (F#9)', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    deps.sendTelegram = jest.fn(async () => false); // falls through to FCM
+    const probe = { inFlight: 0, max: 0 };
+    const store = deps.store;
+    deps.getVal = jest.fn(async (path) => {
+      probe.inFlight += 1;
+      probe.max = Math.max(probe.max, probe.inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      probe.inFlight -= 1;
+      return store[path];
+    });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(probe.max).toBe(3);
+    expect(deps.send).toHaveBeenCalledWith(['tokA'], { title: 'hi', body: '' }, {});
+  });
+  test('bot NOT configured: pushTokens is still the only read', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.getVal.mock.calls.map(([p]) => p)).toEqual(['userPrefs/u1/pushTokens']);
+    expect(deps.send).toHaveBeenCalled();
+  });
+
   test('missing channel with a telegram route → telegram (mirrors the client default-to-telegram predicate)', async () => {
     const deps = makeDeps({ store: { ...tgStore, 'userPrefs/u1/notifyChannel': null } });
     deps.sendTelegram = jest.fn(async () => true);
