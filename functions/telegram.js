@@ -393,10 +393,12 @@ async function handleCallback(deps, cq) {
 async function handleInboxCallback(deps, me, action, arg, cq, answer) {
   if (action === 'invite_accept' || action === 'invite_decline') {
     const groupId = arg;
-    const clearPending = () => Promise.all([
-      deps.set(`pendingInvites/${me}/${groupId}`, null),
-      deps.set(`pendingInvitesByGroup/${groupId}/${me}`, null),
-    ]);
+    // Both sides of the pending-invite record clear in one atomic update.
+    const pendingNulls = {
+      [`pendingInvites/${me}/${groupId}`]: null,
+      [`pendingInvitesByGroup/${groupId}/${me}`]: null,
+    };
+    const clearPending = () => deps.update('/', pendingNulls);
     if (action === 'invite_decline') { await clearPending(); await answer('Declined.'); return; }
     const pending = await deps.getVal(`pendingInvites/${me}/${groupId}`);
     if (!pending) { await answer('This invite is gone.'); return; }
@@ -410,16 +412,19 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
     if (!name) { await clearPending(); await answer('That group no longer exists.'); return; }
     // Join mirrors js/groups.js joinGroup (fresh membership branch): the display
     // name is the Telegram first name (the bot has no prompt UI); editable later
-    // in the app.
+    // in the app. Membership, nav entry, and the pending cleanup land as ONE
+    // atomic update — a crash can't leave a member with the invite still pending.
     const now = deps.now();
-    await deps.set(`groups/${groupId}/members/${me}`, {
-      role: 'member',
-      displayName: clampName(cq.from.first_name) || 'Someone',
-      joinedAt: now,
-      statusOverride: { enabled: true, status: 'available', availableUntil: now + 2 * 60 * 60 * 1000 },
+    await deps.update('/', {
+      [`groups/${groupId}/members/${me}`]: {
+        role: 'member',
+        displayName: clampName(cq.from.first_name) || 'Someone',
+        joinedAt: now,
+        statusOverride: { enabled: true, status: 'available', availableUntil: now + 2 * 60 * 60 * 1000 },
+      },
+      [`users/${me}/groups/${groupId}`]: { lastVisited: now },
+      ...pendingNulls,
     });
-    await deps.set(`users/${me}/groups/${groupId}`, { lastVisited: now });
-    await clearPending();
     await answer(`Joined ${name}.`);
     return;
   }

@@ -73,12 +73,14 @@ export async function ensureTelegramUser(deps, tgUser, priorMapping) {
   let mapping = priorMapping === undefined ? await deps.getVal(`telegramUsers/${tgId}`) : priorMapping;
   if (!mapping) {
     mapping = { uid: derivedUid, chatId: tgId, createdAt: deps.now() };
-    await deps.set(`telegramUsers/${tgId}`, mapping);
-    await deps.set(`telegramByUid/${derivedUid}`, { tgId, chatId: tgId });
-    await deps.update(`userPrefs/${derivedUid}`, {
-      'telegram/tgId': tgId,
-      'telegram/linkedAt': deps.now(),
-      notifyChannel: 'telegram',
+    // Mapping, reverse index, and prefs defaults land atomically — a crash
+    // can't leave a mapping without its notification route.
+    await deps.update('/', {
+      [`telegramUsers/${tgId}`]: mapping,
+      [`telegramByUid/${derivedUid}`]: { tgId, chatId: tgId },
+      [`userPrefs/${derivedUid}/telegram/tgId`]: tgId,
+      [`userPrefs/${derivedUid}/telegram/linkedAt`]: deps.now(),
+      [`userPrefs/${derivedUid}/notifyChannel`]: 'telegram',
     });
     // Console differentiation (spec §8): stamp the Auth record with an
     // ANONYMOUS synthetic email — derived from the app uid only, never the
@@ -139,11 +141,15 @@ export async function linkTelegramHandler(request, deps) {
   if (!normalized) throw new HttpsError('invalid-argument', 'Invalid recovery code.');
   const uid = await deriveUid(normalized);
   if (!(await deps.allowAttempt(uid))) throw new HttpsError('resource-exhausted', 'Too many attempts. Try again shortly.');
-  const presence = await deps.getVal(`users/${uid}/presence`);
-  if (!presence) throw new HttpsError('not-found', 'No account with that phrase.');
   const tgId = String(tgUser.id);
-  const prior = await deps.getVal(`telegramUsers/${tgId}`);
+  const [presence, prior] = await Promise.all([
+    deps.getVal(`users/${uid}/presence`),
+    deps.getVal(`telegramUsers/${tgId}`),
+  ]);
+  if (!presence) throw new HttpsError('not-found', 'No account with that phrase.');
   const chatId = prior?.chatId || tgId;
+  const now = deps.now();
+  const writes = {};
   if (prior && prior.uid !== uid) {
     if (prior.uid === deriveTelegramUid(tgId)) {
       // Linking retires the temporary Telegram-derived account completely:
@@ -151,31 +157,35 @@ export async function linkTelegramHandler(request, deps) {
       // social residue) would resurrect as a shadow account (same rationale
       // as unlink).
       await expungeDerivedAccount(deps, prior.uid);
-      await deps.set(`telegramByUid/${prior.uid}`, null);
+      writes[`telegramByUid/${prior.uid}`] = null;
     } else {
       // Direct relink (A→B) without an intervening unlink: account A is a
       // real phrase account and must never be expunged (it stays reachable
       // via its phrase) — just reset its prefs off telegram the same way
       // unlinkTelegramHandler does.
-      await deps.set(`telegramByUid/${prior.uid}`, null);
-      await deps.update(`userPrefs/${prior.uid}`, { telegram: null, notifyChannel: 'push' });
+      writes[`telegramByUid/${prior.uid}`] = null;
+      writes[`userPrefs/${prior.uid}/telegram`] = null;
+      writes[`userPrefs/${prior.uid}/notifyChannel`] = 'push';
     }
   }
-  await deps.set(`telegramUsers/${tgId}`, { uid, chatId, linkedAt: deps.now() });
-  await deps.set(`telegramByUid/${uid}`, { tgId, chatId });
-  await deps.update(`userPrefs/${uid}`, {
-    'telegram/tgId': tgId,
-    'telegram/linkedAt': deps.now(),
-    notifyChannel: 'telegram',
-  });
+  // The new mapping, reverse route, and prefs — plus any prior-account
+  // cleanup above — land as one atomic update.
+  writes[`telegramUsers/${tgId}`] = { uid, chatId, linkedAt: now };
+  writes[`telegramByUid/${uid}`] = { tgId, chatId };
+  writes[`userPrefs/${uid}/telegram/tgId`] = tgId;
+  writes[`userPrefs/${uid}/telegram/linkedAt`] = now;
+  writes[`userPrefs/${uid}/notifyChannel`] = 'telegram';
+  await deps.update('/', writes);
   const token = await deps.mintToken(uid);
   return { token };
 }
 
 // Delete every RTDB record of the Telegram-derived shadow account, including
 // residue it left on other users' records (follower/following backrefs,
-// shared canvases, group memberships/ownership, invite tokens). Reads first,
-// then deletes, so a half-populated account doesn't blow up on missing nodes.
+// shared canvases, group memberships/ownership, invite tokens). Two read
+// phases (the account's own lists, then the owned-group check), then ONE
+// atomic multi-path update — a crash can't leave a half-expunged account,
+// and a half-populated account doesn't blow up on missing nodes.
 //
 // Deliberately NOT cleaned (transient/server-only, self-healing):
 //  - Knocks this uid sent that are sitting in OTHER users' `knocks/{them}`
@@ -190,122 +200,139 @@ export async function expungeDerivedAccount(deps, uid) {
     deps.getVal(`users/${uid}/groups`),
   ]);
 
-  if (presence?.code) await deps.set(`codeIndex/${presence.code}`, null);
+  const gids = Object.keys(groups || {});
+  const ownerIds = await Promise.all(gids.map((gid) => deps.getVal(`groups/${gid}/ownerId`)));
+
+  const nulls = {};
+
+  if (presence?.code) nulls[`codeIndex/${presence.code}`] = null;
 
   for (const token of Object.keys(invites || {})) {
-    await deps.set(`inviteIndex/${token}`, null);
+    nulls[`inviteIndex/${token}`] = null;
   }
 
+  // Backref paths under the expunged uid's own subtree (a pathological
+  // self-follow) are skipped: `users/{uid}`/`userPrefs/{uid}` are nulled
+  // wholesale below, and RTDB rejects an update where one path is an
+  // ancestor of another.
   for (const fid of Object.keys(followers || {})) {
-    await deps.set(`userPrefs/${fid}/following/${uid}`, null);
+    if (fid !== uid) nulls[`userPrefs/${fid}/following/${uid}`] = null;
   }
 
   for (const tid of Object.keys(following || {})) {
-    await deps.set(`users/${tid}/followers/${uid}`, null);
+    if (tid === uid) continue;
+    nulls[`users/${tid}/followers/${uid}`] = null;
     // The name this account published for itself when it followed via an invite
     // (see client registerAsFollower) is residue on the followee's tree too.
-    await deps.set(`users/${tid}/followerNames/${uid}`, null);
+    nulls[`users/${tid}/followerNames/${uid}`] = null;
   }
 
   const peers = new Set([...Object.keys(followers || {}), ...Object.keys(following || {})]);
   for (const peer of peers) {
-    await deps.set(`canvases/${uid}_${peer}`, null);
-    await deps.set(`canvases/${peer}_${uid}`, null);
+    nulls[`canvases/${uid}_${peer}`] = null;
+    nulls[`canvases/${peer}_${uid}`] = null;
   }
 
-  for (const gid of Object.keys(groups || {})) {
-    const ownerId = await deps.getVal(`groups/${gid}/ownerId`);
-    if (ownerId === uid) {
-      await deps.set(`groups/${gid}`, null);
-      await deps.set(`pendingInvitesByGroup/${gid}`, null);
+  gids.forEach((gid, i) => {
+    if (ownerIds[i] === uid) {
+      nulls[`groups/${gid}`] = null;
+      nulls[`pendingInvitesByGroup/${gid}`] = null;
     } else {
-      await deps.set(`groups/${gid}/members/${uid}`, null);
-      await deps.set(`pendingInvitesByGroup/${gid}/${uid}`, null);
+      nulls[`groups/${gid}/members/${uid}`] = null;
+      nulls[`pendingInvitesByGroup/${gid}/${uid}`] = null;
     }
-  }
+  });
 
-  await deps.set(`knocks/${uid}`, null);
-  await deps.set(`calls/${uid}`, null);
-  await deps.set(`followRequests/${uid}`, null);
-  await deps.set(`followGrants/${uid}`, null);
-  await deps.set(`pendingInvites/${uid}`, null);
-  await deps.set(`revocations/${uid}`, null);
+  for (const box of OWN_MAILBOXES) nulls[`${box}/${uid}`] = null;
 
-  await deps.set(`users/${uid}`, null);
-  await deps.set(`userPrefs/${uid}`, null);
+  nulls[`users/${uid}`] = null;
+  nulls[`userPrefs/${uid}`] = null;
+
+  await deps.update('/', nulls);
 }
 
 // Inbound/self mailboxes keyed by uid — deleted on expunge, moved on graduation
 // so a rename leaves no orphaned residue behind at the old uid.
 const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants', 'pendingInvites', 'revocations'];
 
-// Move a single key from one path to another, preserving the value. No-op when
-// the source is absent (a half-populated account doesn't blow up on missing
-// nodes). Used by graduation's rewrite pass.
-async function moveNode(deps, from, to) {
-  const val = await deps.getVal(from);
-  if (val === null || val === undefined) return;
-  await deps.set(to, val);
-  await deps.set(from, null);
-}
-
 // Rename a Telegram-derived account's data from oldUid to newUid — the "move,
 // not merge" core of graduation (spec §7). Copies the account's own subtree,
-// then rewrites every cross-user backref, index, canvas, and group entry that
+// rewrites every cross-user backref, index, canvas, and group entry that
 // names oldUid, and moves inbound mailboxes. Reads the own subtree WHOLE (as
-// real RTDB getVal does) so no per-key enumeration can miss a field.
+// real RTDB getVal does) so no per-key enumeration can miss a field; every
+// movable path is known from own/prefs up front, so the rest is ONE parallel
+// read phase and ONE atomic multi-path update (the old per-node copy+delete
+// pairs could crash apart; this can't). Absent sources aren't moved, so a
+// half-populated account doesn't blow up on missing nodes.
 //
-// Deliberately does NOT delete the old own subtree — the caller drops it LAST,
-// after repointing telegramUsers/telegramByUid, so the old account stays
-// authoritative until the mapping flips (a crash before the repoint heals on
-// re-run).
+// Deliberately does NOT delete the old own subtree — the caller drops it
+// together with the telegramUsers/telegramByUid repoint, so the old account
+// stays authoritative until the mapping flips (a crash before the repoint
+// heals on re-run: already-moved backrefs simply read as absent).
 export async function graduateAccountData(deps, oldUid, newUid) {
   const [own, prefs] = await Promise.all([
     deps.getVal(`users/${oldUid}`),
     deps.getVal(`userPrefs/${oldUid}`),
   ]);
 
+  // Every from→to move pair, in the old walker's order: cross-user backrefs,
+  // canvases, group entries, inbound mailboxes.
+  const followers = own?.followers || {};
+  const following = prefs?.following || {};
+  const gids = Object.keys(own?.groups || {});
+  const moves = [];
+  for (const fid of Object.keys(followers)) {
+    moves.push([`userPrefs/${fid}/following/${oldUid}`, `userPrefs/${fid}/following/${newUid}`]);
+  }
+  for (const tid of Object.keys(following)) {
+    moves.push([`users/${tid}/followers/${oldUid}`, `users/${tid}/followers/${newUid}`]);
+    moves.push([`users/${tid}/followerNames/${oldUid}`, `users/${tid}/followerNames/${newUid}`]);
+  }
+  const peers = new Set([...Object.keys(followers), ...Object.keys(following)]);
+  for (const peer of peers) {
+    moves.push([`canvases/${oldUid}_${peer}`, `canvases/${newUid}_${peer}`]);
+    moves.push([`canvases/${peer}_${oldUid}`, `canvases/${peer}_${newUid}`]);
+  }
+  for (const gid of gids) {
+    moves.push([`groups/${gid}/members/${oldUid}`, `groups/${gid}/members/${newUid}`]);
+    moves.push([`pendingInvitesByGroup/${gid}/${oldUid}`, `pendingInvitesByGroup/${gid}/${newUid}`]);
+  }
+  for (const box of OWN_MAILBOXES) {
+    moves.push([`${box}/${oldUid}`, `${box}/${newUid}`]);
+  }
+
+  const [moveVals, ownerIds] = await Promise.all([
+    Promise.all(moves.map(([from]) => deps.getVal(from))),
+    Promise.all(gids.map((gid) => deps.getVal(`groups/${gid}/ownerId`))),
+  ]);
+
+  const writes = {};
+
   // 1. Copy the own subtree verbatim to the new uid.
-  if (own) await deps.set(`users/${newUid}`, own);
-  if (prefs) await deps.set(`userPrefs/${newUid}`, prefs);
+  if (own) writes[`users/${newUid}`] = own;
+  if (prefs) writes[`userPrefs/${newUid}`] = prefs;
 
   // 2. Repoint indexes that resolve to the account.
   const code = own?.presence?.code;
-  if (code) await deps.set(`codeIndex/${code}`, newUid);
+  if (code) writes[`codeIndex/${code}`] = newUid;
   for (const token of Object.keys(own?.invites || {})) {
-    await deps.set(`inviteIndex/${token}`, newUid);
+    writes[`inviteIndex/${token}`] = newUid;
   }
 
-  // 3. Rewrite cross-user backrefs (write new key, drop old).
-  const followers = own?.followers || {};
-  const following = prefs?.following || {};
-  for (const fid of Object.keys(followers)) {
-    await moveNode(deps, `userPrefs/${fid}/following/${oldUid}`, `userPrefs/${fid}/following/${newUid}`);
-  }
-  for (const tid of Object.keys(following)) {
-    await moveNode(deps, `users/${tid}/followers/${oldUid}`, `users/${tid}/followers/${newUid}`);
-    await moveNode(deps, `users/${tid}/followerNames/${oldUid}`, `users/${tid}/followerNames/${newUid}`);
-  }
+  // 3. The moves: write the new key, drop the old — skipping absent sources.
+  moves.forEach(([from, to], i) => {
+    const val = moveVals[i];
+    if (val === null || val === undefined) return;
+    writes[to] = val;
+    writes[from] = null;
+  });
 
-  const peers = new Set([...Object.keys(followers), ...Object.keys(following)]);
-  for (const peer of peers) {
-    await moveNode(deps, `canvases/${oldUid}_${peer}`, `canvases/${newUid}_${peer}`);
-    await moveNode(deps, `canvases/${peer}_${oldUid}`, `canvases/${peer}_${newUid}`);
-  }
+  // 4. Group ownership follows the member entry.
+  gids.forEach((gid, i) => {
+    if (ownerIds[i] === oldUid) writes[`groups/${gid}/ownerId`] = newUid;
+  });
 
-  // 4. Group memberships/ownership.
-  for (const gid of Object.keys(own?.groups || {})) {
-    if ((await deps.getVal(`groups/${gid}/ownerId`)) === oldUid) {
-      await deps.set(`groups/${gid}/ownerId`, newUid);
-    }
-    await moveNode(deps, `groups/${gid}/members/${oldUid}`, `groups/${gid}/members/${newUid}`);
-    await moveNode(deps, `pendingInvitesByGroup/${gid}/${oldUid}`, `pendingInvitesByGroup/${gid}/${newUid}`);
-  }
-
-  // 5. Inbound mailboxes — move so the old uid is left with no residue.
-  for (const box of OWN_MAILBOXES) {
-    await moveNode(deps, `${box}/${oldUid}`, `${box}/${newUid}`);
-  }
+  if (Object.keys(writes).length) await deps.update('/', writes);
 }
 
 // Graduation callable (spec §7): give an UNLINKED Telegram-derived account a
@@ -322,7 +349,10 @@ export async function graduateTelegramHandler(request, deps) {
 
   const tgId = String(tgUser.id);
   const derivedUid = deriveTelegramUid(tgId);
-  const prior = await deps.getVal(`telegramUsers/${tgId}`);
+  const [prior, targetPresence] = await Promise.all([
+    deps.getVal(`telegramUsers/${tgId}`),
+    deps.getVal(`users/${newUid}/presence`),
+  ]);
   // Require an unlinked derived account: the mapping must still point at the
   // derived uid. A linked account already has a phrase — nothing to graduate.
   if (!prior || prior.uid !== derivedUid) {
@@ -330,19 +360,24 @@ export async function graduateTelegramHandler(request, deps) {
   }
   // The target uid must be free — graduation never merges into an existing
   // account. The client regenerates a phrase and retries on collision.
-  if (await deps.getVal(`users/${newUid}/presence`)) {
+  if (targetPresence) {
     throw new HttpsError('already-exists', 'That phrase is already in use. Try another.');
   }
 
-  // Move old→new, then flip the mapping, then drop the old subtree LAST (write
-  // ordering is load-bearing — see graduateAccountData).
+  // Move old→new (one atomic update inside the walker), then flip the mapping
+  // and drop the old subtree in a second atomic update. Flip + drop being
+  // all-or-nothing is strictly stronger than the old "drop last" ordering;
+  // a crash between the two updates leaves the old account authoritative,
+  // and a re-run heals (see graduateAccountData).
   await graduateAccountData(deps, derivedUid, newUid);
   const chatId = prior.chatId || tgId;
-  await deps.set(`telegramUsers/${tgId}`, { uid: newUid, chatId, linkedAt: deps.now() });
-  await deps.set(`telegramByUid/${derivedUid}`, null);
-  await deps.set(`telegramByUid/${newUid}`, { tgId, chatId });
-  await deps.set(`users/${derivedUid}`, null);
-  await deps.set(`userPrefs/${derivedUid}`, null);
+  await deps.update('/', {
+    [`telegramUsers/${tgId}`]: { uid: newUid, chatId, linkedAt: deps.now() },
+    [`telegramByUid/${derivedUid}`]: null,
+    [`telegramByUid/${newUid}`]: { tgId, chatId },
+    [`users/${derivedUid}`]: null,
+    [`userPrefs/${derivedUid}`]: null,
+  });
 
   return { ok: true, uid: newUid };
 }

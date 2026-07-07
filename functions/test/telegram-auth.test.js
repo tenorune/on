@@ -563,6 +563,120 @@ describe('graduateAccountData', () => {
   });
 });
 
+// F#1/F#2/F#6: the account-lifecycle walkers used to issue dozens of awaited
+// per-path writes; each transition must now land as ONE multi-path update()
+// (two for graduation's handler: the move, then the flip+drop), so a crash
+// can't leave a half-expunged / half-graduated account.
+describe('atomic multi-path writes (F#1, F#2, F#6)', () => {
+  const PHRASE = 'able-baker-charlie-delta';
+
+  test('expungeDerivedAccount: all deletes land in ONE update, no per-path sets', async () => {
+    const deps = makeStoreDeps();
+    const uid = deriveTelegramUid('42');
+    deps.store[`users/${uid}/presence`] = { code: 'SHDW01', status: 'unavailable', availableUntil: null };
+    deps.store[`users/${uid}/invites`] = { TOK1: true };
+    deps.store['inviteIndex/TOK1'] = uid;
+    deps.store['codeIndex/SHDW01'] = uid;
+    deps.store[`users/${uid}/followers`] = { f1: 'F1CODE' };
+    deps.store[`userPrefs/f1/following/${uid}`] = { label: 'shadow' };
+    deps.store[`userPrefs/${uid}/following`] = { t1: { label: 't1' } };
+    deps.store[`users/t1/followers/${uid}`] = 'DERVCODE';
+    deps.store[`users/${uid}/groups`] = { G1: true, G2: true };
+    deps.store['groups/G1/ownerId'] = 'someoneElse';
+    deps.store[`groups/G1/members/${uid}`] = true;
+    deps.store['groups/G2/ownerId'] = uid;
+    deps.store[`knocks/${uid}`] = { from: 'someone' };
+
+    await expungeDerivedAccount(deps, uid);
+
+    expect(deps.set).not.toHaveBeenCalled();
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    // End state matches the old sequential deletes:
+    expect(deps.store['codeIndex/SHDW01']).toBeNull();
+    expect(deps.store['inviteIndex/TOK1']).toBeNull();
+    expect(deps.store[`userPrefs/f1/following/${uid}`]).toBeNull();
+    expect(deps.store[`users/t1/followers/${uid}`]).toBeNull();
+    expect(deps.store[`users/t1/followerNames/${uid}`]).toBeNull();
+    expect(deps.store[`canvases/${uid}_f1`]).toBeNull();
+    expect(deps.store[`canvases/t1_${uid}`]).toBeNull();
+    expect(deps.store[`groups/G1/members/${uid}`]).toBeNull();
+    expect(deps.store['groups/G1/ownerId']).toBe('someoneElse');
+    expect(deps.store['groups/G2']).toBeNull();
+    expect(deps.store['pendingInvitesByGroup/G2']).toBeNull();
+    expect(deps.store[`knocks/${uid}`]).toBeNull();
+    expect(deps.store[`users/${uid}`]).toBeNull();
+    expect(deps.store[`userPrefs/${uid}`]).toBeNull();
+  });
+
+  test('graduateAccountData: the whole move is ONE update; old own subtree untouched', async () => {
+    const deps = makeStoreDeps();
+    const OLD = deriveTelegramUid('42');
+    const NEW = 'phraseuid000000000000000000000ab';
+    seedGraduationResidue(deps, OLD);
+
+    await graduateAccountData(deps, OLD, NEW);
+
+    expect(deps.set).not.toHaveBeenCalled();
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    expect(deps.store[`users/${OLD}`]).not.toBeNull();
+    expect(deps.store[`userPrefs/${OLD}`]).not.toBeNull();
+  });
+
+  test('link with no prior mapping: mapping + route + prefs land as ONE update', async () => {
+    const deps = makeHandlerDeps();
+    const { deriveUid } = await import('../auth.js');
+    const phraseUid = await deriveUid(PHRASE);
+    deps.store[`users/${phraseUid}/presence`] = { code: 'PHRAZ1', status: 'unavailable', availableUntil: null };
+    deps.update.mockClear(); deps.set.mockClear();
+
+    await linkTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps);
+
+    expect(deps.set).not.toHaveBeenCalled();
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    expect(deps.store['telegramUsers/42']).toMatchObject({ uid: phraseUid, chatId: '42' });
+    expect(deps.store[`telegramByUid/${phraseUid}`]).toEqual({ tgId: '42', chatId: '42' });
+    expect(deps.store[`userPrefs/${phraseUid}/notifyChannel`]).toBe('telegram');
+  });
+
+  test('graduation handler: exactly TWO updates — the move, then flip+drop together', async () => {
+    const deps = makeHandlerDeps();
+    const { deriveUid } = await import('../auth.js');
+    const OLD = deriveTelegramUid('42');
+    const NEW = await deriveUid(PHRASE);
+    deps.store['telegramUsers/42'] = { uid: OLD, chatId: '42', createdAt: 1 };
+    deps.store[`telegramByUid/${OLD}`] = { tgId: '42', chatId: '42' };
+    seedGraduationResidue(deps, OLD);
+    deps.update.mockClear(); deps.set.mockClear();
+
+    await graduateTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps);
+
+    expect(deps.set).not.toHaveBeenCalled();
+    expect(deps.update).toHaveBeenCalledTimes(2);
+    // The SECOND update carries the mapping flip AND the old-subtree drop —
+    // all-or-nothing, strictly stronger than the old "flip last" ordering.
+    const flip = deps.update.mock.calls[1][1];
+    expect(Object.keys(flip).sort()).toEqual([
+      `telegramByUid/${NEW}`,
+      `telegramByUid/${OLD}`,
+      'telegramUsers/42',
+      `userPrefs/${OLD}`,
+      `users/${OLD}`,
+    ].sort());
+    expect(flip[`users/${OLD}`]).toBeNull();
+    expect(flip[`userPrefs/${OLD}`]).toBeNull();
+    expect(flip[`telegramByUid/${OLD}`]).toBeNull();
+    expect(flip[`telegramByUid/${NEW}`]).toEqual({ tgId: '42', chatId: '42' });
+  });
+
+  test('ensureTelegramUser first contact: mapping trio is ONE update; presence set separate', async () => {
+    const deps = makeStoreDeps();
+    await ensureTelegramUser(deps, { id: 42 });
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    expect(deps.set).toHaveBeenCalledTimes(1); // the presence bootstrap only
+    expect(deps.set.mock.calls[0][0]).toMatch(/^users\/[0-9a-f]{32}\/presence$/);
+  });
+});
+
 describe('graduateTelegramHandler', () => {
   const PHRASE = 'able-baker-charlie-delta';
 

@@ -707,6 +707,36 @@ describe('inbox callbacks', () => {
     await handleUpdate(deps, cb(`fr_decline:${REQ}`));
     expect(deps.store[`followRequests/${uid}/${REQ}`]).toBeNull();
   });
+  // F#14: the join used to be three sequential writes (member node, nav entry,
+  // then the pending dual-delete) — a crash could leave a member with the
+  // invite still pending. All four paths must land in ONE update().
+  test('invite_accept: join + nav entry + pending cleanup land as ONE atomic update (F#14)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
+    deps.store[`groups/${GID}/name`] = 'Divers';
+    await handleUpdate(deps, cb(`invite_accept:${GID}`));
+    expect(deps.set).not.toHaveBeenCalled();
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    expect(Object.keys(deps.update.mock.calls[0][1]).sort()).toEqual([
+      `groups/${GID}/members/${uid}`,
+      `pendingInvites/${uid}/${GID}`,
+      `pendingInvitesByGroup/${GID}/${uid}`,
+      `users/${uid}/groups/${GID}`,
+    ]);
+  });
+  test('invite_decline: the pending dual-delete is ONE update (F#14)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
+    deps.store[`pendingInvitesByGroup/${GID}/${uid}`] = true;
+    await handleUpdate(deps, cb(`invite_decline:${GID}`));
+    expect(deps.set).not.toHaveBeenCalled();
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    expect(deps.store[`pendingInvites/${uid}/${GID}`]).toBeNull();
+    expect(deps.store[`pendingInvitesByGroup/${GID}/${uid}`]).toBeNull();
+  });
+
   // Same trust boundary as the knock callback: these args become Admin-SDK
   // path segments, so a malformed gid/uid is refused before any read or write.
   test('invite_accept with malformed gid → Unknown action, nothing written', async () => {
