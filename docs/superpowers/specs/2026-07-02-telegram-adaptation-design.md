@@ -5,6 +5,18 @@
 **Branch:** `claude/telegram-app-adaptation-t1r1jp`
 **Flag:** `TELEGRAM_ENABLED` in `js/features.js` — `true` on this branch, `false` when merged to `dev`/`main`.
 
+> **Foundational spec — parts extended/reshaped since (read this first).** This
+> design shipped almost exactly as written (verified 2026-07-06), with two
+> caveats: (1) the adapter named `isTelegram()` in §3 shipped as
+> **`isTelegramContext()`** (`js/telegram.js`) — same `TELEGRAM_ENABLED && !!initData`
+> semantics; (2) several parts were later reshaped or extended by
+> `docs/superpowers/specs/2026-07-05-telegram-onboarding-ux-design.md` (its
+> "Builds on") and subsequent sessions — most notably **§2 `/start`**, which was
+> rebuilt into stranger-vs-returning branching with no command dump (onboarding
+> §2), plus the first-open welcome DM, graduation, the unlink `notifyChannel:'push'`
+> reset, invite deep links, and the guided empty state. See that spec's
+> **As-built deltas** for the current picture.
+
 ## Summary
 
 An experimental, full-featured adaptation of KnockKnock on Telegram:
