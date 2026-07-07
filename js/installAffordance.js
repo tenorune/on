@@ -15,6 +15,7 @@ import {
   promptInstall, onInstallPromptChange,
 } from './installPrompt.js';
 import { isFirstRunActive } from './firstRun.js';
+import { isBotDelivered } from './notifySuppression.js';
 
 function isMac() { return /Macintosh|Mac OS X/.test((navigator.userAgent) || ''); }
 
@@ -72,7 +73,10 @@ export function initInstallAffordance() {
 
   const apply = () => {
     const lane = currentLane();
-    const relevant = !isAppInstalled()
+    // Bot-delivered accounts (linked, telegram channel) hide the whole install
+    // affordance: its copy is notification-framed, and the bot already delivers
+    // (spec 2026-07-07-web-nudge-suppression). Reactive via bot-delivery-change.
+    const relevant = !isAppInstalled() && !isBotDelivered()
       && (lane === 'installable' || lane === 'push-in-tab' || lane === 'ios-install' || lane === 'macos-install');
     if (!relevant) { toast.classList.add('hidden'); fab.classList.add('hidden'); return; }
     if (isFirstRunActive()) {
@@ -104,5 +108,6 @@ export function initInstallAffordance() {
   if (actionEl) actionEl.addEventListener('click', async () => { await promptInstall(); apply(); });
   onInstallPromptChange(apply);
   document.addEventListener('first-run-change', apply);
+  document.addEventListener('bot-delivery-change', apply);
   apply();
 }

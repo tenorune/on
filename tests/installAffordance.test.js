@@ -2,6 +2,7 @@ function setUA(ua) { Object.defineProperty(global.navigator, 'userAgent', { valu
 function setStandalone(matches) { global.window.matchMedia = () => ({ matches }); }
 
 jest.mock('../js/firstRun.js', () => ({ isFirstRunActive: jest.fn(() => false) }));
+jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
 
 const { pushInTabCopy } = require('../js/installAffordance.js');
 
@@ -172,5 +173,43 @@ describe('install affordance rendering', () => {
     isFirstRunActive.mockReturnValue(false);
     document.dispatchEvent(new CustomEvent('first-run-change'));
     expect(document.getElementById('install-toast').classList.contains('hidden')).toBe(false);
+  });
+
+  describe('bot-delivered suppression (linked account, telegram channel)', () => {
+    const { syncBotDelivery, __resetBotDeliveryForTests } = require('../js/notifySuppression.js');
+    const LINKED_TG = { telegram: { linkedAt: 1 }, notifyChannel: 'telegram' };
+    const LINKED_PUSH = { telegram: { linkedAt: 1 }, notifyChannel: 'push' };
+    const toast = () => document.getElementById('install-toast');
+    const fab = () => document.getElementById('install-fab');
+
+    beforeEach(() => {
+      __resetBotDeliveryForTests();
+      setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0'); // push-in-tab lane
+    });
+    afterAll(() => __resetBotDeliveryForTests());
+
+    test('suppressed at init: toast AND fab hidden in an otherwise-showing lane', () => {
+      syncBotDelivery(LINKED_TG);
+      initInstallAffordance();
+      expect(toast().classList.contains('hidden')).toBe(true);
+      expect(fab().classList.contains('hidden')).toBe(true);
+    });
+
+    test('suppression arriving after init hides a visible toast (prefs tick landed late)', () => {
+      initInstallAffordance();
+      expect(toast().classList.contains('hidden')).toBe(false);
+      syncBotDelivery(LINKED_TG); // bot-delivery-change → apply()
+      expect(toast().classList.contains('hidden')).toBe(true);
+      expect(fab().classList.contains('hidden')).toBe(true);
+    });
+
+    test('suppression lifting (switch to push) revives the affordance without re-init', () => {
+      syncBotDelivery(LINKED_TG);
+      initInstallAffordance();
+      expect(toast().classList.contains('hidden')).toBe(true);
+      syncBotDelivery(LINKED_PUSH);
+      expect(toast().classList.contains('hidden')).toBe(false);
+      expect(fab().classList.contains('hidden')).toBe(true); // toast leads, as usual
+    });
   });
 });
