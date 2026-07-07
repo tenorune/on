@@ -1,7 +1,20 @@
-// functions/telegram-shared.js — bot copy + keyboards shared between the webhook
-// (/start, telegram.js) and the Mini App auth callable (first-open welcome DM,
-// telegram-auth.js), kept here to avoid a telegram.js ↔ telegram-auth.js import
-// cycle (telegram.js already imports ensureTelegramUser from telegram-auth.js).
+// functions/telegram-shared.js — bot copy, keyboards, and id-format regexes
+// shared between the webhook (/start, telegram.js) and the Mini App auth
+// callable (first-open welcome DM, telegram-auth.js), kept here to avoid a
+// telegram.js ↔ telegram-auth.js import cycle (telegram.js already imports
+// ensureTelegramUser from telegram-auth.js).
+
+// Group ids are 8 chars of A-Z0-9 (client generateGroupId; database.rules.json
+// pins the same format on client knock writes). callback_query.data is
+// attacker-controllable, and the bot's writes are Admin-SDK writes that bypass
+// the rules — so gid segments must re-check the format server-side. ONE copy
+// for all of functions/.
+export const GROUP_ID_RE = /^[A-Z0-9]{8}$/;
+
+// App uids are SHA-256 hex truncated to 32 chars (js/identity.js
+// deriveUserIdFromRecoveryCode; telegram-auth.js deriveTelegramUid) — the same
+// trust boundary as GROUP_ID_RE: callback args become Admin-SDK path segments.
+export const UID_RE = /^[0-9a-f]{32}$/;
 
 // First-contact welcome (spec §2). Sent by /start to a stranger AND reused
 // verbatim as the one-time welcome DM on first Mini App open, so an invited user

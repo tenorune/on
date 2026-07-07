@@ -1,5 +1,23 @@
 import { jest } from '@jest/globals';
 import { buildNotificationKeyboard, handleUpdate, parseDurationMinutes, webhookAuthorized } from '../telegram.js';
+import { GROUP_ID_RE, UID_RE } from '../telegram-shared.js';
+
+// The id-format regexes are the callback trust boundary (Admin-SDK writes
+// bypass DB rules) — functions/ keeps ONE copy, in telegram-shared.js.
+describe('shared id-format regexes', () => {
+  test('GROUP_ID_RE: 8 chars of A-Z0-9 exactly', () => {
+    expect(GROUP_ID_RE.test('AAAA1111')).toBe(true);
+    expect(GROUP_ID_RE.test('aaaa1111')).toBe(false);
+    expect(GROUP_ID_RE.test('AAAA111')).toBe(false);
+    expect(GROUP_ID_RE.test('AAAA11111')).toBe(false);
+  });
+  test('UID_RE: 32 lowercase hex exactly', () => {
+    expect(UID_RE.test('f'.repeat(32))).toBe(true);
+    expect(UID_RE.test('F'.repeat(32))).toBe(false);
+    expect(UID_RE.test('f'.repeat(31))).toBe(false);
+    expect(UID_RE.test('g'.repeat(32))).toBe(false);
+  });
+});
 
 const APP = 'https://app.example.com';
 

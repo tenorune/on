@@ -3,19 +3,8 @@
 
 import { timingSafeEqual } from 'crypto';
 import { ensureTelegramUser } from './telegram-auth.js';
-import { WELCOME_STRANGER_TEXT, openAppKeyboard } from './telegram-shared.js';
+import { WELCOME_STRANGER_TEXT, openAppKeyboard, GROUP_ID_RE, UID_RE } from './telegram-shared.js';
 import { effectiveAvailable, primaryAvailable, clampName } from './presence-core.js';
-
-// Group ids are 8 chars of A-Z0-9 (client generateGroupId; database.rules.json
-// pins the same format on client knock writes). callback_query.data is
-// attacker-controllable, and writeKnock is an Admin-SDK write that bypasses
-// the rules — so the gid segment must re-check the format here.
-const GROUP_ID_RE = /^[A-Z0-9]{8}$/;
-
-// App uids are SHA-256 hex truncated to 32 chars (js/identity.js
-// deriveUserIdFromRecoveryCode; telegram-auth.js deriveTelegramUid) — the same
-// trust boundary as GROUP_ID_RE: callback args become Admin-SDK path segments.
-const UID_RE = /^[0-9a-f]{32}$/;
 
 // Required format of each callback action's arg, checked before dispatch.
 // A malformed arg — or an unknown action — is refused without touching the DB.
@@ -83,6 +72,14 @@ const HELP_TEXT = [
   '/help — this list',
 ].join('\n');
 
+// The one way a webhook entry point resolves its Telegram sender to an app
+// account: telegramUsers/{tgId} → { mapping, uid }. Both null/undefined-safe —
+// callers decide how to bail when the sender isn't mapped.
+async function resolveTelegramUid(deps, tgId) {
+  const mapping = await deps.getVal(`telegramUsers/${String(tgId)}`);
+  return { mapping, uid: mapping?.uid };
+}
+
 // Entry point for every webhook update. Never throws (the webhook must always 200).
 export async function handleUpdate(deps, update) {
   try {
@@ -104,7 +101,7 @@ async function handleMessage(deps, msg) {
     // First-contact detection must precede ensureTelegramUser (which creates
     // the mapping). ensure stays: idempotent, and bot commands need the
     // account to exist even before the Mini App is ever opened.
-    const known = !!(await deps.getVal(`telegramUsers/${String(msg.from.id)}`));
+    const { mapping: known } = await resolveTelegramUid(deps, msg.from.id);
     const { uid } = await ensureTelegramUser(deps, msg.from);
     // Keep the chat route current (first /start after a Mini-App-only signup,
     // or Telegram reassigning chat ids) — sendToUser reads telegramByUid.
@@ -127,12 +124,11 @@ async function handleMessage(deps, msg) {
     return;
   }
 
-  const mapping = await deps.getVal(`telegramUsers/${String(msg.from.id)}`);
-  if (!mapping) {
+  const { uid } = await resolveTelegramUid(deps, msg.from.id);
+  if (!uid) {
     await reply('First, open the app once so I know who you are:', openAppKeyboard(deps.appUrl));
     return;
   }
-  const uid = mapping.uid;
 
   switch (cmd) {
     case '/help':
@@ -372,9 +368,8 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
 async function handleCallback(deps, cq) {
   if (!cq?.id || !cq.from) return;
   const answer = (text) => deps.tg.answerCallbackQuery(cq.id, text);
-  const mapping = await deps.getVal(`telegramUsers/${String(cq.from.id)}`);
-  if (!mapping) { await answer('Open KnockKnock first.'); return; }
-  const me = mapping.uid;
+  const { uid: me } = await resolveTelegramUid(deps, cq.from.id);
+  if (!me) { await answer('Open KnockKnock first.'); return; }
   const [action, arg, arg2] = String(cq.data || '').split(':');
   const argRe = CALLBACK_ARG_RE[action];
   if (!argRe || !argRe.test(arg || '')) { await answer('Unknown action.'); return; }
@@ -389,8 +384,8 @@ async function handleCallback(deps, cq) {
     case 'fr_decline':
       await handleInboxCallback(deps, me, action, arg, cq, answer); // Task 8
       return;
-    default:
-      await answer('Unknown action.');
+    // No default: the CALLBACK_ARG_RE gate above already refused every action
+    // not in the table, so each action reaching the switch has a case.
   }
 }
 
