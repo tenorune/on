@@ -42,11 +42,29 @@ async function tgApi(method, payload) {
   return body.result;
 }
 
-function makeDeps() {
+// The one sendMessage lambda: the auth callable's welcome DM and the webhook's
+// replies go through the same call shape (tgApi reads the env token lazily).
+const tgSendMessage = (chatId, text, extra = {}) => tgApi('sendMessage', { chat_id: chatId, text, ...extra });
+
+// The RTDB adapter quintet every handler family shares — ONE definition of
+// how paths map onto the Admin SDK, spread into the notifier deps, the
+// Telegram-auth deps, and the webhook deps below.
+function makeDbDeps() {
   return {
     now: () => Date.now(),
     getVal: async (path) => (await db.ref(path).get()).val(),
+    set: async (path, value) => { await db.ref(path).set(value); },
     update: async (path, obj) => { await db.ref(path).update(obj); },
+    transaction: async (path, fn) => {
+      const res = await db.ref(path).transaction(fn);
+      return { committed: res.committed };
+    },
+  };
+}
+
+function makeDeps() {
+  return {
+    ...makeDbDeps(),
     send: async (tokens, message, data) => {
       const res = await messaging.sendEachForMulticast({
         tokens,
@@ -184,24 +202,15 @@ export const resolveInvitePreview = httpsOnCall((request) =>
 // functions env — see functions/.env.example and docs/telegram-setup.md) ──────
 function makeTelegramAuthDeps() {
   return {
+    ...makeDbDeps(),
     botToken: process.env.TELEGRAM_BOT_TOKEN || null,
     appUrl: process.env.TELEGRAM_APP_URL || '',
-    now: () => Date.now(),
-    getVal: async (path) => (await db.ref(path).get()).val(),
-    set: async (path, value) => { await db.ref(path).set(value); },
-    update: async (path, obj) => { await db.ref(path).update(obj); },
-    transaction: async (path, fn) => {
-      const res = await db.ref(path).transaction(fn);
-      return { committed: res.committed };
-    },
     mintToken: (uid) => getAuth().createCustomToken(uid),
     allowAttempt: (uid) => allowRecoveryAttempt(getDatabase(), uid),
     setAuthEmail: setTelegramAuthEmail,
     // First-open welcome DM (validateTelegramHandler). Null when the bot isn't
     // configured, so the handler skips it; mirrors the webhook's tg.sendMessage.
-    sendMessage: process.env.TELEGRAM_BOT_TOKEN
-      ? (chatId, text, extra = {}) => tgApi('sendMessage', { chat_id: chatId, text, ...extra })
-      : null,
+    sendMessage: process.env.TELEGRAM_BOT_TOKEN ? tgSendMessage : null,
   };
 }
 
@@ -233,18 +242,11 @@ export const telegramWebhook = onRequest(async (req, res) => {
     return;
   }
   await handleUpdate({
-    getVal: async (path) => (await db.ref(path).get()).val(),
-    set: async (path, value) => { await db.ref(path).set(value); },
-    update: async (path, obj) => { await db.ref(path).update(obj); },
-    transaction: async (path, fn) => {
-      const r = await db.ref(path).transaction(fn);
-      return { committed: r.committed };
-    },
-    now: () => Date.now(),
+    ...makeDbDeps(),
     appUrl: process.env.TELEGRAM_APP_URL || '',
     setAuthEmail: setTelegramAuthEmail,
     tg: {
-      sendMessage: (chatId, text, extra = {}) => tgApi('sendMessage', { chat_id: chatId, text, ...extra }),
+      sendMessage: tgSendMessage,
       answerCallbackQuery: (id, text) => tgApi('answerCallbackQuery', { callback_query_id: id, text }),
     },
   }, req.body);
