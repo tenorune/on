@@ -334,6 +334,60 @@ describe('handleUpdate: /knock', () => {
     await handleUpdate(deps, msgUpdate('/knock'));
     expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/knock <name>/i);
   });
+  test('Direct match wins over a roster match — knock has no group context', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/following`] = { f1: { code: 'CODE01', label: 'Bea' } };
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G1/members'] = { g9: { displayName: 'Bea' } };
+    await handleUpdate(deps, msgUpdate('/knock bea'));
+    expect(deps.store[`knocks/f1/${uid}`]).toEqual({ count: 1, ts: 1_000_000 });
+    expect(deps.store[`knocks/g9/${uid}`]).toBeUndefined();
+  });
+  test('roster-only match → knock carries contextGroupId, reply names the group', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/following`] = {};
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G1/members'] = { [uid]: { displayName: 'Me' }, g9: { displayName: 'Cora' } };
+    await handleUpdate(deps, msgUpdate('/knock cora'));
+    expect(deps.store[`knocks/g9/${uid}`]).toEqual({ count: 1, ts: 1_000_000, contextGroupId: 'G1' });
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Knocked on Cora (Divers).');
+  });
+  test('own displayName never matches (self excluded from rosters)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G1/members'] = { [uid]: { displayName: 'Ada' } };
+    await handleUpdate(deps, msgUpdate('/knock ada'));
+    expect(Object.keys(deps.store).some((k) => k.startsWith('knocks/'))).toBe(false);
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/find/i);
+  });
+  test('ambiguous roster matches → keyboard with uid:gid callbacks', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 2 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G2/name'] = 'Family';
+    deps.store['groups/G1/members'] = { a1: { displayName: 'Cora' } };
+    deps.store['groups/G2/members'] = { a2: { displayName: 'Coraline' } };
+    await handleUpdate(deps, msgUpdate('/knock cora'));
+    const buttons = deps.tg.sendMessage.mock.calls[0][2].reply_markup.inline_keyboard.flat();
+    expect(buttons).toEqual(expect.arrayContaining([
+      { text: 'Cora (Divers)', callback_data: 'knock:a1:G1' },
+      { text: 'Coraline (Family)', callback_data: 'knock:a2:G2' },
+    ]));
+  });
+  test('no match anywhere → mentions groups in the reply', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/following`] = { f1: { code: 'CODE01', label: 'Bea' } };
+    await handleUpdate(deps, msgUpdate('/knock zed'));
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Couldn\'t find "zed" among the people you follow or your groups.');
+  });
 });
 
 describe('handleUpdate: /groups', () => {

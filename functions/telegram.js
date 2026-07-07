@@ -221,6 +221,34 @@ async function handleWhoGroup(deps, uid, query, reply) {
     : `No one is available in ${match.name} right now.`);
 }
 
+// No Direct match — search shared-group rosters (spec 2026-07-07 §2): anyone
+// visible in a group you're in is knockable, with that group as context.
+async function knockGroupReach(deps, uid, query, rawQuery, reply) {
+  const groups = (await deps.getVal(`users/${uid}/groups`)) || {};
+  const found = [];
+  for (const gid of Object.keys(groups)) {
+    const [members, groupName] = await Promise.all([
+      deps.getVal(`groups/${gid}/members`),
+      deps.getVal(`groups/${gid}/name`),
+    ]);
+    for (const [mid, m] of Object.entries(members || {})) {
+      if (mid === uid) continue;
+      const name = m?.displayName || '';
+      if (name.toLowerCase().includes(query)) found.push({ uid: mid, gid, name, groupName: groupName || gid });
+    }
+  }
+  if (found.length === 0) {
+    await reply(`Couldn't find "${rawQuery}" among the people you follow or your groups.`);
+    return;
+  }
+  if (found.length > 1) {
+    await reply('Which one?', { reply_markup: { inline_keyboard: found.slice(0, 8).map((e) => [{ text: `${e.name} (${e.groupName})`, callback_data: `knock:${e.uid}:${e.gid}` }]) } });
+    return;
+  }
+  await writeKnock(deps, found[0].uid, uid, found[0].gid);
+  await reply(`Knocked on ${found[0].name} (${found[0].groupName}).`);
+}
+
 async function handleSocialCommand(deps, uid, cmd, args, reply) {
   if (cmd === '/who') {
     const groupQuery = args.join(' ').trim();
@@ -241,7 +269,7 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
     if (!query) { await reply('Usage: /knock <name>'); return; }
     const following = await readFollowing(deps, uid);
     const matches = following.filter((e) => (e.label || e.code).toLowerCase().includes(query));
-    if (matches.length === 0) { await reply(`Couldn't find "${args.join(' ')}" among the people you follow.`); return; }
+    if (matches.length === 0) { await knockGroupReach(deps, uid, query, args.join(' '), reply); return; }
     if (matches.length > 1) {
       await reply('Which one?', { reply_markup: { inline_keyboard: matches.slice(0, 8).map((e) => [{ text: e.label || e.code, callback_data: `knock:${e.userId}` }]) } });
       return;
