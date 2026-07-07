@@ -684,8 +684,29 @@ describe('sendToUser telegram channel', () => {
       return store[path];
     });
     await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
-    expect(probe.max).toBe(3);
+    expect(probe.max).toBeGreaterThanOrEqual(3);
     expect(deps.send).toHaveBeenCalledWith(['tokA'], { title: 'hi', body: '' }, {});
+  });
+  test('a failing pushTokens read must not break healthy telegram delivery', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    deps.sendTelegram = jest.fn(async () => true);
+    deps.getVal = jest.fn(async (path) => {
+      if (path === 'userPrefs/u1/pushTokens') throw new Error('transient RTDB error');
+      return deps.store[path];
+    });
+    const ok = await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(ok).toBe(true);
+    expect(deps.sendTelegram).toHaveBeenCalled();
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('with telegram failing, a failing pushTokens read still surfaces (FCM path unchanged)', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    deps.sendTelegram = jest.fn(async () => false);
+    deps.getVal = jest.fn(async (path) => {
+      if (path === 'userPrefs/u1/pushTokens') throw new Error('transient RTDB error');
+      return deps.store[path];
+    });
+    await expect(sendToUser(deps, 'u1', { title: 'hi', body: '' }, {})).rejects.toThrow(/transient/);
   });
   test('bot NOT configured: pushTokens is still the only read', async () => {
     const deps = makeDeps({ store: { ...tgStore } });

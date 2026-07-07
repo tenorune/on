@@ -694,6 +694,21 @@ describe('inbox callbacks', () => {
     });
     expect(deps.store[`followRequests/${uid}/${REQ}`]).toBeNull();
   });
+  // Sibling of the invite-accept F#14 fix: the grant write and the request
+  // delete must be ONE atomic update, or a crash between them leaves the grant
+  // written with the request still pending — re-approvable.
+  test('fr_approve: grant write + request delete land as ONE atomic update', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`followRequests/${uid}/${REQ}`] = { from: REQ, groupId: GID, ts: 1 };
+    await handleUpdate(deps, cb(`fr_approve:${REQ}`));
+    expect(deps.set).not.toHaveBeenCalled();
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    expect(Object.keys(deps.update.mock.calls[0][1]).sort()).toEqual([
+      `followGrants/${REQ}/${uid}`,
+      `followRequests/${uid}/${REQ}`,
+    ]);
+  });
   test('fr_approve on a vanished request → polite no-op', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
@@ -856,6 +871,25 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     await handleUpdate(deps, msgUpdate('/knock cora'));
     expect(probe.max).toBeGreaterThanOrEqual(4);
     expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Knocked on Cora (Divers).');
+  });
+
+  // availableUntil must be stamped from now() AT WRITE TIME (after the reads),
+  // as the pre-refactor code did — not captured at command dispatch. The
+  // ticking clock advances 1s per read: telegramUsers, groups, name,
+  // override, presence = 5 reads before the write.
+  test('group /status stamps availableUntil at write time, not dispatch time', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store[`groups/G1/members/${uid}/statusOverride`] = { enabled: true, status: 'unavailable' };
+    let t = 1_000_000;
+    deps.getVal = jest.fn(async (path) => { t += 1000; return deps.store[path] ?? null; });
+    deps.now = () => t;
+    await handleUpdate(deps, msgUpdate('/status divers 30m'));
+    expect(deps.update).toHaveBeenCalledWith(`groups/G1/members/${uid}/statusOverride`, {
+      status: 'available', availableUntil: 1_005_000 + 30 * 60000,
+    });
   });
 
   test('group /status prefetches override + presence together (F#7)', async () => {

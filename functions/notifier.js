@@ -24,17 +24,19 @@ export async function sendToUser(deps, uid, message, data) {
   // account reads as telegram, matching the client predicates in
   // js/notifySuppression.js botDelivered and js/notifyChannel.js — this is the
   // third reader of that default, and the three must never disagree.
-  let tokensMap;
+  // The pushTokens read starts up front so the FCM fall-through never pays it
+  // as an extra sequential round-trip, but it is only AWAITED on that
+  // fall-through — a failed tokens read must not break healthy telegram
+  // delivery, and the FCM path still surfaces the original error. The empty
+  // catch keeps a never-awaited rejection (telegram succeeded) from becoming
+  // an unhandled-rejection crash; awaiting the promise below still throws.
+  const tokensPromise = deps.getVal(`userPrefs/${uid}/pushTokens`);
+  tokensPromise.catch(() => {});
   if (deps.sendTelegram) {
-    // pushTokens rides the same parallel read phase: the FCM fall-through
-    // shouldn't pay a third sequential round-trip. When telegram delivery
-    // succeeds the read is wasted — the right trade, latency > throughput.
-    const [channel, tgRoute, tokens] = await Promise.all([
+    const [channel, tgRoute] = await Promise.all([
       deps.getVal(`userPrefs/${uid}/notifyChannel`),
       deps.getVal(`telegramByUid/${uid}`),
-      deps.getVal(`userPrefs/${uid}/pushTokens`),
     ]);
-    tokensMap = tokens;
     if (channel !== 'push' && tgRoute && tgRoute.chatId) {
       try {
         if (await deps.sendTelegram(tgRoute.chatId, message, data)) return true;
@@ -42,9 +44,8 @@ export async function sendToUser(deps, uid, message, data) {
         console.error(`[notify] telegram send failed for ${uid}: ${e?.message || e}`);
       }
     }
-  } else {
-    tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
   }
+  const tokensMap = await tokensPromise;
   const tokens = tokensMap ? Object.keys(tokensMap) : [];
   if (tokens.length === 0) return false;
   const { failedTokens } = await deps.send(tokens, message, data);

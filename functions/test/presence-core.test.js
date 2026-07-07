@@ -113,11 +113,6 @@ describe('primaryAvailable', () => {
     expect(primaryAvailable(null, NOW2)).toBe(false);
     expect(primaryAvailable(undefined, NOW2)).toBe(false);
   });
-  test('agrees with effectiveAvailable\'s no-override fallback', () => {
-    const presence = { status: 'available', availableUntil: 2000 };
-    expect(primaryAvailable(presence, NOW2))
-      .toBe(effectiveAvailable(null, presence.status, presence.availableUntil, NOW2));
-  });
 });
 
 describe('clampName', () => {

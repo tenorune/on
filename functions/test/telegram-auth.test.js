@@ -102,6 +102,8 @@ describe('ensureTelegramUser', () => {
     deps.set.mockClear(); deps.transaction.mockClear();
     const again = await ensureTelegramUser(deps, { id: 42 });
     expect(again).toMatchObject({ uid: first.uid, created: false, linked: false });
+    // Exactly these fields — nothing internal (e.g. the raw mapping) may leak.
+    expect(Object.keys(again).sort()).toEqual(['created', 'linked', 'presence', 'uid']);
     expect(deps.set).not.toHaveBeenCalled();
     expect(deps.transaction).not.toHaveBeenCalled();
   });
@@ -415,6 +417,28 @@ describe('unlinkTelegramHandler', () => {
     expect(deps.store[`userPrefs/${phraseUid}/telegram`]).toBeNull();
   });
 
+  test('unlink teardown folds into expunge as ONE atomic update, no per-path sets', async () => {
+    const deps = makeHandlerDeps();
+    const { deriveUid } = await import('../auth.js');
+    const phraseUid = await deriveUid('able-baker-charlie-delta');
+    deps.store[`users/${phraseUid}/presence`] = { code: 'PHRAZ1', status: 'unavailable', availableUntil: null };
+    const { uid: derivedUid } = await validateTelegramHandler({ data: { initData: freshInitData() } }, deps);
+    await linkTelegramHandler({ data: { initData: freshInitData(), code: 'able-baker-charlie-delta' } }, deps);
+    deps.set.mockClear(); deps.update.mockClear();
+
+    await unlinkTelegramHandler({ data: { initData: freshInitData() } }, deps);
+
+    expect(deps.set).not.toHaveBeenCalled();
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    expect(deps.update.mock.calls[0][0]).toBe('/');
+    // Mapping teardown + phrase-account reset rode the same update:
+    expect(deps.store['telegramUsers/42']).toBeNull();
+    expect(deps.store[`telegramByUid/${derivedUid}`]).toBeNull();
+    expect(deps.store[`telegramByUid/${phraseUid}`]).toBeNull();
+    expect(deps.store[`userPrefs/${phraseUid}/notifyChannel`]).toBe('push');
+    expect(deps.store[`userPrefs/${phraseUid}/telegram`]).toBeNull();
+  });
+
   test('never-linked (derived-only) unlink expunges the derived account and mapping, leaves other accounts alone', async () => {
     const deps = makeHandlerDeps();
     const { uid: derivedUid } = await validateTelegramHandler({ data: { initData: freshInitData() } }, deps);
@@ -560,6 +584,24 @@ describe('graduateAccountData', () => {
     const deps = makeStoreDeps();
     await expect(graduateAccountData(deps, OLD, NEW)).resolves.toBeUndefined();
     expect(deps.store[`users/${NEW}`]).toBeFalsy();
+  });
+
+  // A self-follow makes both canvas move pairs share the source
+  // canvases/{old}_{old}. The old sequential walker moved it once (the second
+  // move read an already-nulled source and no-op'd); the batched walker must
+  // reproduce that, not materialize both destinations.
+  test('self-follow residue: the shared canvas moves ONCE, no duplicate at the retired uid', async () => {
+    const deps = makeStoreDeps();
+    deps.store[`users/${OLD}`] = {
+      presence: { code: 'DERV01', status: 'unavailable', availableUntil: null },
+      followers: { [OLD]: 'MECODE' },
+    };
+    deps.store[`userPrefs/${OLD}`] = { following: { [OLD]: { label: 'me' } } };
+    deps.store[`canvases/${OLD}_${OLD}`] = { strokes: [9] };
+    await graduateAccountData(deps, OLD, NEW);
+    expect(deps.store[`canvases/${NEW}_${OLD}`]).toEqual({ strokes: [9] }); // first pair, old order
+    expect(deps.store[`canvases/${OLD}_${NEW}`]).toBeUndefined();           // second pair no-ops
+    expect(deps.store[`canvases/${OLD}_${OLD}`]).toBeNull();
   });
 });
 

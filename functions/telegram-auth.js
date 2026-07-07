@@ -191,7 +191,11 @@ export async function linkTelegramHandler(request, deps) {
 //  - Knocks this uid sent that are sitting in OTHER users' `knocks/{them}`
 //    inboxes — those are addressed to the recipient, not owned by this uid.
 //  - `notifierState` cooldown bookkeeping.
-export async function expungeDerivedAccount(deps, uid) {
+//
+// `extraNulls` lets a caller fold its own disjoint deletes (mapping teardown,
+// reverse-index nulls) into the SAME atomic update, so the whole teardown is
+// one write with no dangling-mapping crash window (unlinkTelegramHandler).
+export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
   const [presence, invites, followers, following, groups] = await Promise.all([
     deps.getVal(`users/${uid}/presence`),
     deps.getVal(`users/${uid}/invites`),
@@ -248,6 +252,8 @@ export async function expungeDerivedAccount(deps, uid) {
   nulls[`users/${uid}`] = null;
   nulls[`userPrefs/${uid}`] = null;
 
+  if (extraNulls) Object.assign(nulls, extraNulls);
+
   await deps.update('/', nulls);
 }
 
@@ -267,8 +273,14 @@ const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants', 'pen
 //
 // Deliberately does NOT delete the old own subtree — the caller drops it
 // together with the telegramUsers/telegramByUid repoint, so the old account
-// stays authoritative until the mapping flips (a crash before the repoint
-// heals on re-run: already-moved backrefs simply read as absent).
+// stays authoritative until the mapping flips. NOTE: a crash BETWEEN this
+// update and the caller's flip is NOT self-healing — codeIndex/backrefs now
+// point at newUid while the mapping still points at derivedUid, and a retry
+// with the same phrase hits the already-exists guard. This is a PRE-EXISTING
+// graduation gap (the old per-node walker had the same split-brain window,
+// with a wider set of partial states); W2 only narrows the window to two
+// updates. Flagged for the operator — a true fix wants an idempotent
+// resume/rollback, out of scope for this efficiency pass.
 export async function graduateAccountData(deps, oldUid, newUid) {
   const [own, prefs] = await Promise.all([
     deps.getVal(`users/${oldUid}`),
@@ -301,9 +313,9 @@ export async function graduateAccountData(deps, oldUid, newUid) {
     moves.push([`${box}/${oldUid}`, `${box}/${newUid}`]);
   }
 
-  const [moveVals, ownerIds] = await Promise.all([
-    Promise.all(moves.map(([from]) => deps.getVal(from))),
-    Promise.all(gids.map((gid) => deps.getVal(`groups/${gid}/ownerId`))),
+  const [resolvedMoves, owners] = await Promise.all([
+    Promise.all(moves.map(async ([from, to]) => ({ from, to, val: await deps.getVal(from) }))),
+    Promise.all(gids.map(async (gid) => ({ gid, ownerId: await deps.getVal(`groups/${gid}/ownerId`) }))),
   ]);
 
   const writes = {};
@@ -320,17 +332,21 @@ export async function graduateAccountData(deps, oldUid, newUid) {
   }
 
   // 3. The moves: write the new key, drop the old — skipping absent sources.
-  moves.forEach(([from, to], i) => {
-    const val = moveVals[i];
-    if (val === null || val === undefined) return;
+  // A source can appear twice (self-follow: both canvas directions are
+  // canvases/{old}_{old}); the old sequential walker moved it once and the
+  // second move read an already-nulled source — the first pair wins here too.
+  const consumed = new Set();
+  for (const { from, to, val } of resolvedMoves) {
+    if (val === null || val === undefined || consumed.has(from)) continue;
+    consumed.add(from);
     writes[to] = val;
     writes[from] = null;
-  });
+  }
 
   // 4. Group ownership follows the member entry.
-  gids.forEach((gid, i) => {
-    if (ownerIds[i] === oldUid) writes[`groups/${gid}/ownerId`] = newUid;
-  });
+  for (const { gid, ownerId } of owners) {
+    if (ownerId === oldUid) writes[`groups/${gid}/ownerId`] = newUid;
+  }
 
   if (Object.keys(writes).length) await deps.update('/', writes);
 }
@@ -366,9 +382,11 @@ export async function graduateTelegramHandler(request, deps) {
 
   // Move old→new (one atomic update inside the walker), then flip the mapping
   // and drop the old subtree in a second atomic update. Flip + drop being
-  // all-or-nothing is strictly stronger than the old "drop last" ordering;
-  // a crash between the two updates leaves the old account authoritative,
-  // and a re-run heals (see graduateAccountData).
+  // all-or-nothing is strictly stronger than the old "drop last" ordering
+  // (which could leave the mapping flipped but the old subtree half-dropped).
+  // A crash BETWEEN the two updates still leaves the old mapping in place but
+  // with indexes/backrefs already repointed — a pre-existing split-brain
+  // window this pass narrows but does not close (see graduateAccountData).
   await graduateAccountData(deps, derivedUid, newUid);
   const chatId = prior.chatId || tgId;
   await deps.update('/', {
@@ -394,13 +412,20 @@ export async function unlinkTelegramHandler(request, deps) {
   const tgId = String(tgUser.id);
   const derivedUid = deriveTelegramUid(tgId);
   const prior = await deps.getVal(`telegramUsers/${tgId}`);
+  // The mapping teardown (and, for a linked phrase account, its off-telegram
+  // reset) fold into expunge's single atomic update — no dangling-mapping
+  // window between the expunge and the mapping nulls. All these paths are
+  // disjoint from the derived account's own subtree (prior.uid ≠ derivedUid
+  // for the linked case; telegramUsers/telegramByUid are separate roots).
+  const teardown = {
+    [`telegramUsers/${tgId}`]: null,
+    [`telegramByUid/${derivedUid}`]: null,
+  };
   if (prior && prior.uid !== derivedUid) {
-    // Linked phrase account: clean it the same way a direct relink would.
-    await deps.set(`telegramByUid/${prior.uid}`, null);
-    await deps.update(`userPrefs/${prior.uid}`, { telegram: null, notifyChannel: 'push' });
+    teardown[`telegramByUid/${prior.uid}`] = null;
+    teardown[`userPrefs/${prior.uid}/telegram`] = null;
+    teardown[`userPrefs/${prior.uid}/notifyChannel`] = 'push';
   }
-  await expungeDerivedAccount(deps, derivedUid);
-  await deps.set(`telegramUsers/${tgId}`, null);
-  await deps.set(`telegramByUid/${derivedUid}`, null);
+  await expungeDerivedAccount(deps, derivedUid, teardown);
   return { ok: true };
 }

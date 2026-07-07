@@ -238,6 +238,8 @@ async function resolveGroupArg(deps, uid, query, reply) {
 // write rides the onMemberOverride RTDB trigger — Admin-SDK writes fire it too.
 // Presence is prefetched beside the override even though only the OFF branch
 // needs it — one wasted read on the ON path buys a round-trip of latency.
+// `fields` is a thunk evaluated at write time so availableUntil is stamped
+// from now() AFTER the reads, exactly as the pre-merge handlers did.
 async function setGroupPresence(deps, uid, query, reply, fields, messages) {
   const match = await resolveGroupArg(deps, uid, query, reply);
   if (!match) return;
@@ -246,7 +248,7 @@ async function setGroupPresence(deps, uid, query, reply, fields, messages) {
     deps.getVal(`users/${uid}/presence`),
   ]);
   if (override && override.enabled === true) {
-    await deps.update(`groups/${match.gid}/members/${uid}/statusOverride`, fields);
+    await deps.update(`groups/${match.gid}/members/${uid}/statusOverride`, fields());
     await reply(messages.confirm(match.name));
     return;
   }
@@ -256,7 +258,7 @@ async function setGroupPresence(deps, uid, query, reply, fields, messages) {
 
 async function handleGroupStatus(deps, uid, query, minutes, reply) {
   await setGroupPresence(deps, uid, query, reply,
-    { status: 'available', availableUntil: deps.now() + minutes * 60000 },
+    () => ({ status: 'available', availableUntil: deps.now() + minutes * 60000 }),
     {
       confirm: (name) => `You're available in ${name} for ${fmtMinutes(minutes)}.`,
       globalOn: (name) => `${name} follows your global status — you're already available there.`,
@@ -268,7 +270,7 @@ async function handleGroupOff(deps, uid, query, reply) {
   await setGroupPresence(deps, uid, query, reply,
     // null availableUntil deletes the key on RTDB — same shape the client's
     // setOverrideStatusUnavailable merge writes.
-    { status: 'unavailable', availableUntil: null },
+    () => ({ status: 'unavailable', availableUntil: null }),
     {
       confirm: (name) => `You're unavailable in ${name}.`,
       globalOn: (name) => `${name} follows your global status. /off goes unavailable everywhere, or turn on a group status in the app.`,
@@ -443,10 +445,16 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
       deps.getVal(`users/${me}/presence`),
       request.groupId ? deps.getVal(`groups/${request.groupId}/members/${me}/displayName`) : Promise.resolve(null),
     ]);
-    await deps.set(`followGrants/${requesterUid}/${me}`, {
-      from: me, code: presence?.code || '', name: myName ?? null, ts: deps.now(),
+    // Grant write + request delete in one atomic update — a crash between
+    // them would otherwise leave the grant written with the request still
+    // pending, so the target could approve the same request twice (sibling
+    // of the invite-accept atomicity above).
+    await deps.update('/', {
+      [`followGrants/${requesterUid}/${me}`]: {
+        from: me, code: presence?.code || '', name: myName ?? null, ts: deps.now(),
+      },
+      [`followRequests/${me}/${requesterUid}`]: null,
     });
-    await deps.set(`followRequests/${me}/${requesterUid}`, null);
     await answer('Approved.');
   }
 }

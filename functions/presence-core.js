@@ -23,10 +23,10 @@ export function wantsKnock(prefs) { return !!(prefs && prefs.knock); }
 export function wantsCall(prefs) { return !!(prefs && prefs.call); }
 export function wantsAvailability(prefs) { return !!(prefs && prefs.availability); }
 
-// Is the group override itself an "available" signal right now?
+// Is the group override itself an "available" signal right now? Same
+// status/availableUntil predicate as primaryAvailable, gated on enabled.
 export function overrideAvailable(override, now) {
-  return !!(override && override.enabled === true
-    && override.status === 'available' && isFutureMs(override.availableUntil, now));
+  return !!(override && override.enabled === true && primaryAvailable(override, now));
 }
 
 // A member's EFFECTIVE in-group availability: their override when enabled,
