@@ -534,121 +534,172 @@ describe('handleUpdate: /groups', () => {
 describe('callback: knock', () => {
   const cbUpdate = (data, from = { id: 42, first_name: 'Ada' }) =>
     ({ callback_query: { id: 'cb1', data, from } });
+  const F9 = 'f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9'; // format-valid 32-hex recipient
   test('writes the knock and confirms', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    await handleUpdate(deps, cbUpdate('knock:f9'));
-    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 1, ts: 1_000_000 });
+    await handleUpdate(deps, cbUpdate(`knock:${F9}`));
+    expect(deps.store[`knocks/${F9}/${uid}`]).toEqual({ count: 1, ts: 1_000_000 });
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/knock/i));
   });
   test('unknown telegram user → prompted to open the app', async () => {
     const deps = makeBotDeps();
-    await handleUpdate(deps, cbUpdate('knock:f9'));
+    await handleUpdate(deps, cbUpdate(`knock:${F9}`));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/open/i));
   });
   test('empty arg → Unknown action, no write', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
-    await handleUpdate(deps, cbUpdate('knock:'));
+    await handleUpdate(deps, cbUpdate(`knock:`));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
     expect(Object.keys(deps.store).some((k) => k.startsWith('knocks/'))).toBe(false);
   });
   test('knock:uid:gid writes contextGroupId on create', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    await handleUpdate(deps, cbUpdate('knock:f9:AAAA1111'));
-    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 1, ts: 1_000_000, contextGroupId: 'AAAA1111' });
+    await handleUpdate(deps, cbUpdate(`knock:${F9}:AAAA1111`));
+    expect(deps.store[`knocks/${F9}/${uid}`]).toEqual({ count: 1, ts: 1_000_000, contextGroupId: 'AAAA1111' });
   });
   test('knock:uid:gid overwrites contextGroupId on increment', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    deps.store[`knocks/f9/${uid}`] = { count: 1, ts: 1 };
-    await handleUpdate(deps, cbUpdate('knock:f9:BBBB2222'));
-    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 2, ts: 1_000_000, contextGroupId: 'BBBB2222' });
+    deps.store[`knocks/${F9}/${uid}`] = { count: 1, ts: 1 };
+    await handleUpdate(deps, cbUpdate(`knock:${F9}:BBBB2222`));
+    expect(deps.store[`knocks/${F9}/${uid}`]).toEqual({ count: 2, ts: 1_000_000, contextGroupId: 'BBBB2222' });
   });
   test('malformed gid segment is dropped — knock still lands, no contextGroupId', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    await handleUpdate(deps, cbUpdate('knock:f9:bad.gid'));
-    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 1, ts: 1_000_000 });
+    await handleUpdate(deps, cbUpdate(`knock:${F9}:bad.gid`));
+    expect(deps.store[`knocks/${F9}/${uid}`]).toEqual({ count: 1, ts: 1_000_000 });
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/knock/i));
   });
   test('plain knock:uid carries an existing contextGroupId on increment', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    deps.store[`knocks/f9/${uid}`] = { count: 1, ts: 1, contextGroupId: 'G1' };
-    await handleUpdate(deps, cbUpdate('knock:f9'));
-    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 2, ts: 1_000_000, contextGroupId: 'G1' });
+    deps.store[`knocks/${F9}/${uid}`] = { count: 1, ts: 1, contextGroupId: 'G1' };
+    await handleUpdate(deps, cbUpdate(`knock:${F9}`));
+    expect(deps.store[`knocks/${F9}/${uid}`]).toEqual({ count: 2, ts: 1_000_000, contextGroupId: 'G1' });
+  });
+  // callback_query.data is attacker-controllable and writeKnock is an Admin-SDK
+  // write, so the recipient segment must be a well-formed 32-hex uid — anything
+  // else (path material, wrong length, wrong alphabet) is refused before the write.
+  test.each([
+    ['victim/deeper', 'path segment'],
+    ['abc', 'too short'],
+    ['F'.repeat(32), 'uppercase hex'],
+    ['g'.repeat(32), 'non-hex alphabet'],
+    ['f'.repeat(33), 'too long'],
+  ])('malformed recipient uid %s (%s) → Unknown action, no write', async (badUid) => {
+    const deps = makeBotDeps();
+    seedUser(deps.store);
+    await handleUpdate(deps, cbUpdate(`knock:${badUid}`));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
+    expect(deps.transaction).not.toHaveBeenCalled();
+    expect(Object.keys(deps.store).some((k) => k.startsWith('knocks/'))).toBe(false);
   });
 });
 
 describe('inbox callbacks', () => {
   const cb = (data) => ({ callback_query: { id: 'cb1', data, from: { id: 42, first_name: 'Ada' } } });
+  const GID = 'AAAA1111';                             // format-valid group id
+  const REQ = 'ab12ab12ab12ab12ab12ab12ab12ab12';     // format-valid 32-hex requester
 
   test('invite_accept: joins with Telegram first_name, default override, dual-deletes pending', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    deps.store[`pendingInvites/${uid}/G1`] = { from: 'inviter', ts: 1 };
-    deps.store['groups/G1/name'] = 'Divers';
-    await handleUpdate(deps, cb('invite_accept:G1'));
-    expect(deps.store[`groups/G1/members/${uid}`]).toEqual({
+    deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
+    deps.store[`groups/${GID}/name`] = 'Divers';
+    await handleUpdate(deps, cb(`invite_accept:${GID}`));
+    expect(deps.store[`groups/${GID}/members/${uid}`]).toEqual({
       role: 'member', displayName: 'Ada', joinedAt: 1_000_000,
       statusOverride: { enabled: true, status: 'available', availableUntil: 1_000_000 + 2 * 60 * 60 * 1000 },
     });
-    expect(deps.store[`users/${uid}/groups/G1`]).toEqual({ lastVisited: 1_000_000 });
-    expect(deps.store[`pendingInvites/${uid}/G1`]).toBeNull();
-    expect(deps.store[`pendingInvitesByGroup/G1/${uid}`]).toBeNull();
+    expect(deps.store[`users/${uid}/groups/${GID}`]).toEqual({ lastVisited: 1_000_000 });
+    expect(deps.store[`pendingInvites/${uid}/${GID}`]).toBeNull();
+    expect(deps.store[`pendingInvitesByGroup/${GID}/${uid}`]).toBeNull();
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringContaining('Divers'));
   });
   test('invite_accept when already a member → just clears the pending invite', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    deps.store[`pendingInvites/${uid}/G1`] = { from: 'inviter', ts: 1 };
-    deps.store['groups/G1/name'] = 'Divers';
-    deps.store[`groups/G1/members/${uid}`] = { role: 'member', displayName: 'Old' };
-    await handleUpdate(deps, cb('invite_accept:G1'));
-    expect(deps.store[`groups/G1/members/${uid}`].displayName).toBe('Old');
-    expect(deps.store[`pendingInvites/${uid}/G1`]).toBeNull();
+    deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
+    deps.store[`groups/${GID}/name`] = 'Divers';
+    deps.store[`groups/${GID}/members/${uid}`] = { role: 'member', displayName: 'Old' };
+    await handleUpdate(deps, cb(`invite_accept:${GID}`));
+    expect(deps.store[`groups/${GID}/members/${uid}`].displayName).toBe('Old');
+    expect(deps.store[`pendingInvites/${uid}/${GID}`]).toBeNull();
   });
   test('invite_accept when group is gone → clears pending, says so', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    deps.store[`pendingInvites/${uid}/G1`] = { from: 'inviter', ts: 1 };
-    await handleUpdate(deps, cb('invite_accept:G1'));
-    expect(deps.store[`pendingInvites/${uid}/G1`]).toBeNull();
+    deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
+    await handleUpdate(deps, cb(`invite_accept:${GID}`));
+    expect(deps.store[`pendingInvites/${uid}/${GID}`]).toBeNull();
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/no longer/i));
   });
   test('invite_decline → dual-delete only', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    deps.store[`pendingInvites/${uid}/G1`] = { from: 'inviter', ts: 1 };
-    await handleUpdate(deps, cb('invite_decline:G1'));
-    expect(deps.store[`pendingInvites/${uid}/G1`]).toBeNull();
-    expect(deps.store[`groups/G1/members/${uid}`]).toBeUndefined();
+    deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
+    await handleUpdate(deps, cb(`invite_decline:${GID}`));
+    expect(deps.store[`pendingInvites/${uid}/${GID}`]).toBeNull();
+    expect(deps.store[`groups/${GID}/members/${uid}`]).toBeUndefined();
   });
   test('fr_approve: writes grant with code + group display name, deletes request', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    deps.store[`followRequests/${uid}/req1`] = { from: 'req1', groupId: 'G1', ts: 1 };
-    deps.store[`groups/G1/members/${uid}/displayName`] = 'Captain Ada';
-    await handleUpdate(deps, cb('fr_approve:req1'));
-    expect(deps.store[`followGrants/req1/${uid}`]).toEqual({
+    deps.store[`followRequests/${uid}/${REQ}`] = { from: REQ, groupId: GID, ts: 1 };
+    deps.store[`groups/${GID}/members/${uid}/displayName`] = 'Captain Ada';
+    await handleUpdate(deps, cb(`fr_approve:${REQ}`));
+    expect(deps.store[`followGrants/${REQ}/${uid}`]).toEqual({
       from: uid, code: 'AAAAAA', name: 'Captain Ada', ts: 1_000_000,
     });
-    expect(deps.store[`followRequests/${uid}/req1`]).toBeNull();
+    expect(deps.store[`followRequests/${uid}/${REQ}`]).toBeNull();
   });
   test('fr_approve on a vanished request → polite no-op', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
-    await handleUpdate(deps, cb('fr_approve:req1'));
+    await handleUpdate(deps, cb(`fr_approve:${REQ}`));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/gone|expired/i));
   });
   test('fr_decline → deletes the request', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    deps.store[`followRequests/${uid}/req1`] = { from: 'req1', ts: 1 };
-    await handleUpdate(deps, cb('fr_decline:req1'));
-    expect(deps.store[`followRequests/${uid}/req1`]).toBeNull();
+    deps.store[`followRequests/${uid}/${REQ}`] = { from: REQ, ts: 1 };
+    await handleUpdate(deps, cb(`fr_decline:${REQ}`));
+    expect(deps.store[`followRequests/${uid}/${REQ}`]).toBeNull();
+  });
+  // Same trust boundary as the knock callback: these args become Admin-SDK
+  // path segments, so a malformed gid/uid is refused before any read or write.
+  test('invite_accept with malformed gid → Unknown action, nothing written', async () => {
+    const deps = makeBotDeps();
+    seedUser(deps.store);
+    await handleUpdate(deps, cb('invite_accept:bad/gid'));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
+    expect(deps.set).not.toHaveBeenCalled();
+  });
+  test('invite_decline with malformed gid → Unknown action, no deletes', async () => {
+    const deps = makeBotDeps();
+    seedUser(deps.store);
+    await handleUpdate(deps, cb('invite_decline:lowercase1'));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
+    expect(deps.set).not.toHaveBeenCalled();
+  });
+  test('fr_approve with malformed requester uid → Unknown action, no grant', async () => {
+    const deps = makeBotDeps();
+    seedUser(deps.store);
+    await handleUpdate(deps, cb('fr_approve:REQ/../x'));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
+    expect(deps.set).not.toHaveBeenCalled();
+  });
+  test('fr_decline with malformed requester uid → Unknown action, request kept', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`followRequests/${uid}/${REQ}`] = { from: REQ, ts: 1 };
+    await handleUpdate(deps, cb('fr_decline:short'));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
+    expect(deps.store[`followRequests/${uid}/${REQ}`]).toEqual({ from: REQ, ts: 1 });
   });
 });
 

@@ -12,6 +12,21 @@ import { isFutureMs, effectiveAvailable } from './presence-core.js';
 // the rules — so the gid segment must re-check the format here.
 const GROUP_ID_RE = /^[A-Z0-9]{8}$/;
 
+// App uids are SHA-256 hex truncated to 32 chars (js/identity.js
+// deriveUserIdFromRecoveryCode; telegram-auth.js deriveTelegramUid) — the same
+// trust boundary as GROUP_ID_RE: callback args become Admin-SDK path segments.
+const UID_RE = /^[0-9a-f]{32}$/;
+
+// Required format of each callback action's arg, checked before dispatch.
+// A malformed arg — or an unknown action — is refused without touching the DB.
+const CALLBACK_ARG_RE = {
+  knock: UID_RE,
+  invite_accept: GROUP_ID_RE,
+  invite_decline: GROUP_ID_RE,
+  fr_approve: UID_RE,
+  fr_decline: UID_RE,
+};
+
 // contextGroupId rides the callback so a knock-back lands as a group knock.
 // 64-byte callback_data cap: 'knock:' + 32-hex uid + ':' + 8-char gid = 47.
 const knockCallback = (data) =>
@@ -364,7 +379,8 @@ async function handleCallback(deps, cq) {
   if (!mapping) { await answer('Open KnockKnock first.'); return; }
   const me = mapping.uid;
   const [action, arg, arg2] = String(cq.data || '').split(':');
-  if (!arg) { await answer('Unknown action.'); return; }
+  const argRe = CALLBACK_ARG_RE[action];
+  if (!argRe || !argRe.test(arg || '')) { await answer('Unknown action.'); return; }
   switch (action) {
     case 'knock':
       await writeKnock(deps, arg, me, GROUP_ID_RE.test(arg2 || '') ? arg2 : undefined);
