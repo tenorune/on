@@ -36,6 +36,14 @@ describe('buildNotificationKeyboard', () => {
   test('unknown type → null', () => {
     expect(buildNotificationKeyboard({ type: 'mystery' }, APP)).toBeNull();
   });
+  test('knock with contextGroupId → 3-segment callback', () => {
+    expect(buildNotificationKeyboard({ type: 'knock', targetUid: 'u9', contextGroupId: 'G1' }, APP))
+      .toEqual([[{ text: 'Knock back', callback_data: 'knock:u9:G1' }]]);
+  });
+  test('availability with contextGroupId → 3-segment callback', () => {
+    expect(buildNotificationKeyboard({ type: 'availability', targetUid: 'u9', contextGroupId: 'G1' }, APP))
+      .toEqual([[{ text: 'Knock', callback_data: 'knock:u9:G1' }]]);
+  });
 });
 
 function makeBotDeps(store = {}) {
@@ -317,6 +325,26 @@ describe('callback: knock', () => {
     await handleUpdate(deps, cbUpdate('knock:'));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
     expect(Object.keys(deps.store).some((k) => k.startsWith('knocks/'))).toBe(false);
+  });
+  test('knock:uid:gid writes contextGroupId on create', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    await handleUpdate(deps, cbUpdate('knock:f9:G1'));
+    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 1, ts: 1_000_000, contextGroupId: 'G1' });
+  });
+  test('knock:uid:gid overwrites contextGroupId on increment', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`knocks/f9/${uid}`] = { count: 1, ts: 1 };
+    await handleUpdate(deps, cbUpdate('knock:f9:G2'));
+    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 2, ts: 1_000_000, contextGroupId: 'G2' });
+  });
+  test('plain knock:uid carries an existing contextGroupId on increment', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`knocks/f9/${uid}`] = { count: 1, ts: 1, contextGroupId: 'G1' };
+    await handleUpdate(deps, cbUpdate('knock:f9'));
+    expect(deps.store[`knocks/f9/${uid}`]).toEqual({ count: 2, ts: 1_000_000, contextGroupId: 'G1' });
   });
 });
 

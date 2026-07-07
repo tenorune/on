@@ -6,15 +6,20 @@ import { ensureTelegramUser } from './telegram-auth.js';
 import { WELCOME_STRANGER_TEXT, openAppKeyboard } from './telegram-shared.js';
 import { isFutureMs, effectiveAvailable } from './presence-core.js';
 
+// contextGroupId rides the callback so a knock-back lands as a group knock.
+// 64-byte callback_data cap: 'knock:' + 32-hex uid + ':' + 16-hex gid = 55.
+const knockCallback = (data) =>
+  data.contextGroupId ? `knock:${data.targetUid}:${data.contextGroupId}` : `knock:${data.targetUid}`;
+
 // Inline keyboard for a notification, keyed by the same data.type the FCM
 // payload carries. Simple reactions are callbacks handled by the webhook;
 // answering a call needs the canvas, so it deep-links into the Mini App.
 export function buildNotificationKeyboard(data, appUrl) {
   switch (data?.type) {
     case 'knock':
-      return [[{ text: 'Knock back', callback_data: `knock:${data.targetUid}` }]];
+      return [[{ text: 'Knock back', callback_data: knockCallback(data) }]];
     case 'availability':
-      return [[{ text: 'Knock', callback_data: `knock:${data.targetUid}` }]];
+      return [[{ text: 'Knock', callback_data: knockCallback(data) }]];
     case 'call':
       return appUrl ? [[{ text: 'Answer in KnockKnock', web_app: { url: appUrl } }]] : null;
     case 'invite':
@@ -150,13 +155,19 @@ async function handleMessage(deps, msg) {
   }
 }
 
-// Same shape + cap as the client's writeKnock transaction (js/db/social.js).
-async function writeKnock(deps, recipientUid, senderUid) {
+// Same shape + cap as the client's writeKnock transaction (js/db/social.js),
+// including contextGroupId: set on create, overwrite on increment, else carry.
+async function writeKnock(deps, recipientUid, senderUid, contextGroupId) {
   await deps.transaction(`knocks/${recipientUid}/${senderUid}`, (current) => {
-    if (current === null) return { count: 1, ts: deps.now() };
+    if (current === null) {
+      const next = { count: 1, ts: deps.now() };
+      if (contextGroupId) next.contextGroupId = contextGroupId;
+      return next;
+    }
     if (current.count >= 5) return undefined; // abort — capped
     const next = { count: current.count + 1, ts: deps.now() };
-    if (current.contextGroupId) next.contextGroupId = current.contextGroupId;
+    if (contextGroupId) next.contextGroupId = contextGroupId;
+    else if (current.contextGroupId) next.contextGroupId = current.contextGroupId;
     return next;
   });
 }
@@ -218,11 +229,11 @@ async function handleCallback(deps, cq) {
   const mapping = await deps.getVal(`telegramUsers/${String(cq.from.id)}`);
   if (!mapping) { await answer('Open KnockKnock first.'); return; }
   const me = mapping.uid;
-  const [action, arg] = String(cq.data || '').split(':');
+  const [action, arg, arg2] = String(cq.data || '').split(':');
   if (!arg) { await answer('Unknown action.'); return; }
   switch (action) {
     case 'knock':
-      await writeKnock(deps, arg, me);
+      await writeKnock(deps, arg, me, arg2 || undefined);
       await answer('Knock sent.');
       return;
     case 'invite_accept':
