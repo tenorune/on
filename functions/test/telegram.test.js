@@ -721,6 +721,109 @@ describe('inbox callbacks', () => {
   });
 });
 
+// Round-trip hygiene (analysis F#3/F#7): list-shaped commands must issue their
+// per-item reads concurrently, not one awaited read per loop turn. The probe
+// defers every getVal by a macrotask, so a sequential loop peaks at 1 in-flight
+// read while a Promise.all fan-out peaks at the fan-out width.
+function withConcurrencyProbe(deps) {
+  const probe = { inFlight: 0, max: 0 };
+  deps.getVal = jest.fn(async (path) => {
+    probe.inFlight += 1;
+    probe.max = Math.max(probe.max, probe.inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    probe.inFlight -= 1;
+    return deps.store[path] ?? null;
+  });
+  return probe;
+}
+
+describe('webhook read parallelism (F#3, F#7)', () => {
+  test('/who reads all followed presences concurrently', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/following`] = {
+      f1: { code: 'C1', label: 'Bea' }, f2: { code: 'C2', label: 'Cal' }, f3: { code: 'C3', label: 'Dot' },
+    };
+    deps.store['users/f1/presence'] = { status: 'available', availableUntil: 2_000_000 };
+    const probe = withConcurrencyProbe(deps);
+    await handleUpdate(deps, msgUpdate('/who'));
+    expect(probe.max).toBeGreaterThanOrEqual(3);
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Available now:\n🟢 Bea');
+  });
+
+  test('/who <group> reads co-member presences concurrently', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G1/members'] = {
+      [uid]: { displayName: 'Me' },
+      m1: { displayName: 'Bea', statusOverride: { enabled: false } },
+      m2: { displayName: 'Cal', statusOverride: { enabled: false } },
+      m3: { displayName: 'Dot', statusOverride: { enabled: false } },
+    };
+    deps.store['users/m1/presence'] = { status: 'available', availableUntil: 2_000_000 };
+    const probe = withConcurrencyProbe(deps);
+    await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(probe.max).toBeGreaterThanOrEqual(3);
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Available in Divers:\n🟢 Bea');
+  });
+
+  test('/groups reads every group\'s name+override concurrently', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 2 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G2/name'] = 'Family';
+    const probe = withConcurrencyProbe(deps);
+    await handleUpdate(deps, msgUpdate('/groups'));
+    expect(probe.max).toBeGreaterThanOrEqual(4);
+    const text = deps.tg.sendMessage.mock.calls[0][1];
+    expect(text).toBe('Divers — unavailable (you)\nFamily — unavailable (you)');
+  });
+
+  test('group-name matching reads all names concurrently (/status <group>)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 2 }, G3: { lastVisited: 3 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G2/name'] = 'Family';
+    deps.store['groups/G3/name'] = 'Chess';
+    const probe = withConcurrencyProbe(deps);
+    await handleUpdate(deps, msgUpdate('/status chess 30m'));
+    expect(probe.max).toBeGreaterThanOrEqual(3);
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/follows your global status/);
+  });
+
+  test('/knock roster reach reads all group rosters concurrently', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 2 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G2/name'] = 'Family';
+    deps.store['groups/G1/members'] = { a1: { displayName: 'Cora' } };
+    deps.store['groups/G2/members'] = { a2: { displayName: 'Zed' } };
+    const probe = withConcurrencyProbe(deps);
+    await handleUpdate(deps, msgUpdate('/knock cora'));
+    expect(probe.max).toBeGreaterThanOrEqual(4);
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Knocked on Cora (Divers).');
+  });
+
+  test('group /status prefetches override + presence together (F#7)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store[`groups/G1/members/${uid}/statusOverride`] = { enabled: true, status: 'unavailable' };
+    const probe = withConcurrencyProbe(deps);
+    await handleUpdate(deps, msgUpdate('/status divers 30m'));
+    expect(probe.max).toBeGreaterThanOrEqual(2);
+    expect(deps.update).toHaveBeenCalledWith(`groups/G1/members/${uid}/statusOverride`, {
+      status: 'available', availableUntil: 1_000_000 + 30 * 60000,
+    });
+  });
+});
+
 describe('webhookAuthorized', () => {
   test('exact secret match only; unset secret always refuses', () => {
     expect(webhookAuthorized('s3cret', 's3cret')).toBe(true);

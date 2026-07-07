@@ -207,12 +207,11 @@ async function readFollowing(deps, uid) {
 async function matchGroupsByName(deps, uid, query) {
   const groups = (await deps.getVal(`users/${uid}/groups`)) || {};
   const q = query.toLowerCase();
-  const matches = [];
-  for (const gid of Object.keys(groups)) {
-    const name = (await deps.getVal(`groups/${gid}/name`)) || gid;
-    if (name.toLowerCase().includes(q)) matches.push({ gid, name });
-  }
-  return matches;
+  const named = await Promise.all(Object.keys(groups).map(async (gid) => ({
+    gid,
+    name: (await deps.getVal(`groups/${gid}/name`)) || gid,
+  })));
+  return named.filter((m) => m.name.toLowerCase().includes(q));
 }
 
 // Shared arity guard for group-arg commands: replies and returns null unless
@@ -229,49 +228,49 @@ async function resolveGroupArg(deps, uid, query, reply) {
 }
 
 // /status <group> and /off <group> respect the app-side `enabled` choice
-// (spec 2026-07-07): the bot never flips it. Override ON → merge status fields
-// only (enabled/statusColor/paletteKey untouched — the client's
+// (spec 2026-07-07): the bot never flips it. Override ON → merge the given
+// status fields only (enabled/statusColor/paletteKey untouched — the client's
 // mergeStatusOverride contract); override OFF → the group mirrors global
-// presence, so the bot only explains. Fan-out for the ON write rides the
-// onMemberOverride RTDB trigger — Admin-SDK writes fire it too.
-async function handleGroupStatus(deps, uid, query, minutes, reply) {
+// presence, so the bot only explains (globalOn/globalOff). Fan-out for the ON
+// write rides the onMemberOverride RTDB trigger — Admin-SDK writes fire it too.
+// Presence is prefetched beside the override even though only the OFF branch
+// needs it — one wasted read on the ON path buys a round-trip of latency.
+async function setGroupPresence(deps, uid, query, reply, fields, messages) {
   const match = await resolveGroupArg(deps, uid, query, reply);
   if (!match) return;
-  const override = await deps.getVal(`groups/${match.gid}/members/${uid}/statusOverride`);
+  const [override, presence] = await Promise.all([
+    deps.getVal(`groups/${match.gid}/members/${uid}/statusOverride`),
+    deps.getVal(`users/${uid}/presence`),
+  ]);
   if (override && override.enabled === true) {
-    await deps.update(`groups/${match.gid}/members/${uid}/statusOverride`, {
-      status: 'available',
-      availableUntil: deps.now() + minutes * 60000,
-    });
-    await reply(`You're available in ${match.name} for ${fmtMinutes(minutes)}.`);
+    await deps.update(`groups/${match.gid}/members/${uid}/statusOverride`, fields);
+    await reply(messages.confirm(match.name));
     return;
   }
-  const presence = await deps.getVal(`users/${uid}/presence`);
   const globallyOn = primaryAvailable(presence, deps.now());
-  await reply(globallyOn
-    ? `${match.name} follows your global status — you're already available there.`
-    : `${match.name} follows your global status. /status goes available everywhere, or turn on a group status in the app.`);
+  await reply((globallyOn ? messages.globalOn : messages.globalOff)(match.name));
+}
+
+async function handleGroupStatus(deps, uid, query, minutes, reply) {
+  await setGroupPresence(deps, uid, query, reply,
+    { status: 'available', availableUntil: deps.now() + minutes * 60000 },
+    {
+      confirm: (name) => `You're available in ${name} for ${fmtMinutes(minutes)}.`,
+      globalOn: (name) => `${name} follows your global status — you're already available there.`,
+      globalOff: (name) => `${name} follows your global status. /status goes available everywhere, or turn on a group status in the app.`,
+    });
 }
 
 async function handleGroupOff(deps, uid, query, reply) {
-  const match = await resolveGroupArg(deps, uid, query, reply);
-  if (!match) return;
-  const override = await deps.getVal(`groups/${match.gid}/members/${uid}/statusOverride`);
-  if (override && override.enabled === true) {
+  await setGroupPresence(deps, uid, query, reply,
     // null availableUntil deletes the key on RTDB — same shape the client's
     // setOverrideStatusUnavailable merge writes.
-    await deps.update(`groups/${match.gid}/members/${uid}/statusOverride`, {
-      status: 'unavailable',
-      availableUntil: null,
+    { status: 'unavailable', availableUntil: null },
+    {
+      confirm: (name) => `You're unavailable in ${name}.`,
+      globalOn: (name) => `${name} follows your global status. /off goes unavailable everywhere, or turn on a group status in the app.`,
+      globalOff: (name) => `You're already unavailable in ${name}.`,
     });
-    await reply(`You're unavailable in ${match.name}.`);
-    return;
-  }
-  const presence = await deps.getVal(`users/${uid}/presence`);
-  const globallyOn = primaryAvailable(presence, deps.now());
-  await reply(globallyOn
-    ? `${match.name} follows your global status. /off goes unavailable everywhere, or turn on a group status in the app.`
-    : `You're already unavailable in ${match.name}.`);
 }
 
 // /who <group>: co-members' effective in-group availability (the /groups idiom).
@@ -279,14 +278,13 @@ async function handleWhoGroup(deps, uid, query, reply) {
   const match = await resolveGroupArg(deps, uid, query, reply);
   if (!match) return;
   const members = (await deps.getVal(`groups/${match.gid}/members`)) || {};
-  const lines = [];
-  for (const [mid, m] of Object.entries(members)) {
-    if (mid === uid) continue;
+  const coMembers = Object.entries(members).filter(([mid]) => mid !== uid);
+  const lines = (await Promise.all(coMembers.map(async ([mid, m]) => {
     const presence = await deps.getVal(`users/${mid}/presence`);
-    if (effectiveAvailable(m?.statusOverride, presence?.status, presence?.availableUntil, deps.now())) {
-      lines.push(`🟢 ${m?.displayName || 'Someone'}`);
-    }
-  }
+    return effectiveAvailable(m?.statusOverride, presence?.status, presence?.availableUntil, deps.now())
+      ? `🟢 ${m?.displayName || 'Someone'}`
+      : null;
+  }))).filter(Boolean);
   await reply(lines.length
     ? `Available in ${match.name}:\n${lines.join('\n')}`
     : `No one is available in ${match.name} right now.`);
@@ -296,18 +294,20 @@ async function handleWhoGroup(deps, uid, query, reply) {
 // visible in a group you're in is knockable, with that group as context.
 async function knockGroupReach(deps, uid, query, rawQuery, reply) {
   const groups = (await deps.getVal(`users/${uid}/groups`)) || {};
-  const found = [];
-  for (const gid of Object.keys(groups)) {
+  const perGroup = await Promise.all(Object.keys(groups).map(async (gid) => {
     const [members, groupName] = await Promise.all([
       deps.getVal(`groups/${gid}/members`),
       deps.getVal(`groups/${gid}/name`),
     ]);
+    const matches = [];
     for (const [mid, m] of Object.entries(members || {})) {
       if (mid === uid) continue;
       const name = m?.displayName || '';
-      if (name.toLowerCase().includes(query)) found.push({ uid: mid, gid, name, groupName: groupName || gid });
+      if (name.toLowerCase().includes(query)) matches.push({ uid: mid, gid, name, groupName: groupName || gid });
     }
-  }
+    return matches;
+  }));
+  const found = perGroup.flat();
   if (found.length === 0) {
     await reply(`Couldn't find "${rawQuery}" among the people you follow or your groups.`);
     return;
@@ -325,13 +325,10 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
     const groupQuery = args.join(' ').trim();
     if (groupQuery) { await handleWhoGroup(deps, uid, groupQuery, reply); return; }
     const following = await readFollowing(deps, uid);
-    const lines = [];
-    for (const entry of following) {
+    const lines = (await Promise.all(following.map(async (entry) => {
       const presence = await deps.getVal(`users/${entry.userId}/presence`);
-      if (primaryAvailable(presence, deps.now())) {
-        lines.push(`🟢 ${entry.label || entry.code}`);
-      }
-    }
+      return primaryAvailable(presence, deps.now()) ? `🟢 ${entry.label || entry.code}` : null;
+    }))).filter(Boolean);
     await reply(lines.length ? `Available now:\n${lines.join('\n')}` : 'No one is available right now.');
     return;
   }
@@ -354,13 +351,14 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
     const groupIds = Object.keys(groups);
     if (!groupIds.length) { await reply('No groups yet — create one in the app.'); return; }
     const presence = await deps.getVal(`users/${uid}/presence`);
-    const lines = [];
-    for (const gid of groupIds) {
-      const name = (await deps.getVal(`groups/${gid}/name`)) || gid;
-      const override = await deps.getVal(`groups/${gid}/members/${uid}/statusOverride`);
+    const lines = await Promise.all(groupIds.map(async (gid) => {
+      const [name, override] = await Promise.all([
+        deps.getVal(`groups/${gid}/name`),
+        deps.getVal(`groups/${gid}/members/${uid}/statusOverride`),
+      ]);
       const on = effectiveAvailable(override, presence?.status, presence?.availableUntil, deps.now());
-      lines.push(`${name} — ${on ? 'available' : 'unavailable'} (you)`);
-    }
+      return `${name || gid} — ${on ? 'available' : 'unavailable'} (you)`;
+    }));
     await reply(lines.join('\n'));
   }
 }
