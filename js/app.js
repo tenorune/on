@@ -33,6 +33,7 @@ import { ensureCacheOwner } from './cacheOwner.js';
 import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
 import { showGraduationInfo } from './graduation.js';
 import { syncNotifyChannel } from './notifyChannel.js';
+import { syncBotDelivery } from './notifySuppression.js';
 import { initHintRotation } from './hintRotation.js';
 import { initFirstRun, consumeLandingNotice } from './firstRun.js';
 import { showRecoveryCodeModal } from './recoveryModal.js';
@@ -725,6 +726,9 @@ async function main() {
     // unlink (userPrefs.telegram) and cross-device channel switches — on both web
     // and Telegram, so neither needs a reload to reflect the current state.
     syncNotifyChannel(userId, serverPrefs);
+    // Web nudge suppression rides the same tick (no-op in Telegram context):
+    // install/web-push nudges hide while the bot delivers notifications.
+    syncBotDelivery(serverPrefs);
   });
 
   // Inside Telegram: no PWA install (webview) and no Web Push (notifications
