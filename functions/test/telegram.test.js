@@ -258,6 +258,50 @@ describe('handleUpdate: /status <group>', () => {
   });
 });
 
+describe('handleUpdate: /off <group>', () => {
+  function seedOffGroup(store, uid, override) {
+    store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    store['groups/G1/name'] = 'Divers';
+    if (override) store[`groups/G1/members/${uid}/statusOverride`] = override;
+  }
+  test('override ON → merges unavailable, clears availableUntil, nothing else', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedOffGroup(deps.store, uid, { enabled: true, status: 'available', availableUntil: 2_000_000, statusColor: '#abc' });
+    await handleUpdate(deps, msgUpdate('/off divers'));
+    expect(deps.update).toHaveBeenCalledWith(`groups/G1/members/${uid}/statusOverride`, {
+      status: 'unavailable', availableUntil: null,
+    });
+    expect(deps.update).toHaveBeenCalledTimes(1); // no global presence write
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe("You're unavailable in Divers.");
+  });
+  test('override OFF + globally available → no write, guidance message', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedOffGroup(deps.store, uid, { enabled: false });
+    deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'available', availableUntil: 2_000_000 };
+    await handleUpdate(deps, msgUpdate('/off divers'));
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Divers follows your global status. /off goes unavailable everywhere, or turn on a group status in the app.');
+  });
+  test('override OFF + globally unavailable → no write, already-unavailable message', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedOffGroup(deps.store, uid, { enabled: false });
+    await handleUpdate(deps, msgUpdate('/off divers'));
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe("You're already unavailable in Divers.");
+  });
+  test('no matching group → No group matching, no write', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedOffGroup(deps.store, uid, { enabled: true, status: 'available' });
+    await handleUpdate(deps, msgUpdate('/off chess'));
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('No group matching "chess".');
+  });
+});
+
 describe('handleUpdate: /notifications and /help', () => {
   test('/notifications push and telegram set the channel; bad arg explains', async () => {
     const deps = makeBotDeps();

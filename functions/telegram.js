@@ -136,11 +136,13 @@ async function handleMessage(deps, msg) {
       await handleGroupStatus(deps, uid, query, minutes, reply);
       return;
     }
-    case '/off':
+    case '/off': {
+      if (args.length) { await handleGroupOff(deps, uid, args.join(' '), reply); return; }
       // Mirrors js/db/social.js writeBackExpired + a lastSeen touch.
       await deps.update(`users/${uid}/presence`, { status: 'unavailable', availableUntil: null, lastSeen: deps.now() });
       await reply("You're unavailable.");
       return;
+    }
     case '/notifications': {
       const choice = (args[0] || '').toLowerCase();
       if (choice !== 'push' && choice !== 'telegram') {
@@ -232,6 +234,27 @@ async function handleGroupStatus(deps, uid, query, minutes, reply) {
   await reply(globallyOn
     ? `${match.name} follows your global status — you're already available there.`
     : `${match.name} follows your global status. /status goes available everywhere, or turn on a group status in the app.`);
+}
+
+async function handleGroupOff(deps, uid, query, reply) {
+  const match = await resolveGroupArg(deps, uid, query, reply);
+  if (!match) return;
+  const override = await deps.getVal(`groups/${match.gid}/members/${uid}/statusOverride`);
+  if (override && override.enabled === true) {
+    // null availableUntil deletes the key on RTDB — same shape the client's
+    // setOverrideStatusUnavailable merge writes.
+    await deps.update(`groups/${match.gid}/members/${uid}/statusOverride`, {
+      status: 'unavailable',
+      availableUntil: null,
+    });
+    await reply(`You're unavailable in ${match.name}.`);
+    return;
+  }
+  const presence = await deps.getVal(`users/${uid}/presence`);
+  const globallyOn = presence?.status === 'available' && isFutureMs(presence?.availableUntil, deps.now());
+  await reply(globallyOn
+    ? `${match.name} follows your global status. /off goes unavailable everywhere, or turn on a group status in the app.`
+    : `You're already unavailable in ${match.name}.`);
 }
 
 // /who <group>: co-members' effective in-group availability (the /groups idiom).
