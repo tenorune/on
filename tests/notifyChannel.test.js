@@ -7,7 +7,7 @@ jest.mock('../js/telegram.js', () => ({
   isTelegramContext: jest.fn(() => false),
   telegramLinkState: jest.fn(() => null),
 }));
-jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
+jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn(async () => {}) }));
 jest.mock('../js/notifySuppression.js', () => ({ syncBotDelivery: jest.fn() }));
 const { mergeUserPrefs } = require('../js/db.js');
 const { isTelegramContext, telegramLinkState } = require('../js/telegram.js');
@@ -143,6 +143,9 @@ describe('channel switch feeds suppression and prompts on push', () => {
     await flush();
     expect(syncBotDelivery).toHaveBeenCalledWith({ telegram: { linkedAt: 1 }, notifyChannel: 'push' });
     expect(ensureNotificationsReady).toHaveBeenCalledTimes(1);
+    // The guarded call must not trip the catch's revert — Push stays active.
+    // (Guards against a non-promise mock silently exercising the failure path.)
+    expect(active()).toBe('push');
   });
 
   test('switch to telegram: optimistic suppression, no permission flow', async () => {
