@@ -53,10 +53,10 @@ const fmtMinutes = (m) => (m >= 60 ? `${Math.round((m / 60) * 10) / 10}h` : `${m
 
 const HELP_TEXT = [
   'KnockKnock commands:',
-  '/status [30m|2h] — go available (default 1h)',
-  '/off — go unavailable',
-  '/who — which of your people are available now',
-  '/knock <name> — send a knock',
+  '/status [group] [30m|2h] — go available (default 1h)',
+  '/off [group] — go unavailable',
+  '/who [group] — who\'s available now',
+  '/knock <name> — send a knock (searches your people, then your groups)',
   '/groups — your groups',
   '/notifications push|telegram — where notifications go',
   '/help — this list',

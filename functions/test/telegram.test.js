@@ -322,6 +322,10 @@ describe('handleUpdate: /notifications and /help', () => {
     for (const cmd of ['/status', '/off', '/who', '/knock', '/groups', '/notifications']) {
       expect(text).toContain(cmd);
     }
+    expect(text).toContain('/status [group] [30m|2h]');
+    expect(text).toContain('/off [group]');
+    expect(text).toContain('/who [group]');
+    expect(text).toMatch(/groups/i);
   });
   test('non-private chats and non-message updates are ignored', async () => {
     const deps = makeBotDeps();
