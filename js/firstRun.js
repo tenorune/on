@@ -69,7 +69,7 @@ export function setListEmpty(isEmpty) {
   // grab-bag (invite, link/unlink, notification pill), so name it as such.
   const codeOnly = empty && !tgLinked;
   const chip = document.getElementById('mycode-chip');
-  if (chip) chip.textContent = codeOnly ? 'Share code' : 'Bits n bobs';
+  if (chip) chip.textContent = codeOnly ? 'Share code' : 'Levers & knobs';
   // "Link your account" only where linking is possible and not already done.
   const linkLine = document.getElementById('first-run-link-line');
   if (linkLine) {

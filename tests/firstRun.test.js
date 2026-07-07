@@ -144,16 +144,16 @@ describe('#mycode-chip label', () => {
     expect(chip()).toBe('Share code');
   });
 
-  test('non-empty (grab-bag drawer) → "Bits n bobs"', () => {
+  test('non-empty (grab-bag drawer) → "Levers & knobs"', () => {
     firstRun.setListEmpty(false);
-    expect(chip()).toBe('Bits n bobs');
+    expect(chip()).toBe('Levers & knobs');
   });
 
-  test('empty but Telegram-LINKED (account + notification sections stay) → "Bits n bobs"', () => {
+  test('empty but Telegram-LINKED (account + notification sections stay) → "Levers & knobs"', () => {
     mockTelegram.isTelegramContext.mockReturnValue(true);
     mockTelegram.telegramLinkState.mockReturnValue({ linked: true });
     firstRun.setListEmpty(true);
-    expect(chip()).toBe('Bits n bobs');
+    expect(chip()).toBe('Levers & knobs');
   });
 
   test('empty + Telegram-UNLINKED (code-only) → "Share code"', () => {

@@ -26,11 +26,11 @@ function mountDom() {
     <div id="code-drawer">
       <div class="drawer-inner">
         <div class="drawer-section" id="drawer-section-invite"></div>
-        <div class="drawer-section hidden" id="drawer-section-account">
-          <div id="tg-account-slot"></div>
-        </div>
         <div class="drawer-section hidden" id="drawer-section-notifications">
           <div id="tg-notify-slot"></div>
+        </div>
+        <div class="drawer-section hidden" id="drawer-section-account">
+          <div id="tg-account-slot"></div>
         </div>
       </div>
     </div>
