@@ -177,8 +177,54 @@ async function readFollowing(deps, uid) {
   return Object.entries(data).map(([fid, v]) => ({ userId: fid, code: v?.code ?? '', label: v?.label ?? '' }));
 }
 
+// Case-insensitive substring match over the user's own groups' names
+// (spec 2026-07-07 naming decision — the /knock idiom applied to groups).
+async function matchGroupsByName(deps, uid, query) {
+  const groups = (await deps.getVal(`users/${uid}/groups`)) || {};
+  const q = query.toLowerCase();
+  const matches = [];
+  for (const gid of Object.keys(groups)) {
+    const name = (await deps.getVal(`groups/${gid}/name`)) || gid;
+    if (name.toLowerCase().includes(q)) matches.push({ gid, name });
+  }
+  return matches;
+}
+
+// Shared arity guard for group-arg commands: replies and returns null unless
+// exactly one group matches. No inline keyboard — /status//off carry extra
+// args that don't fit a callback, so the retry is plain text for all three.
+async function resolveGroupArg(deps, uid, query, reply) {
+  const matches = await matchGroupsByName(deps, uid, query);
+  if (matches.length === 0) { await reply(`No group matching "${query}".`); return null; }
+  if (matches.length > 1) {
+    await reply(`Which group? ${matches.map((m) => m.name).join(', ')} — give me more letters.`);
+    return null;
+  }
+  return matches[0];
+}
+
+// /who <group>: co-members' effective in-group availability (the /groups idiom).
+async function handleWhoGroup(deps, uid, query, reply) {
+  const match = await resolveGroupArg(deps, uid, query, reply);
+  if (!match) return;
+  const members = (await deps.getVal(`groups/${match.gid}/members`)) || {};
+  const lines = [];
+  for (const [mid, m] of Object.entries(members)) {
+    if (mid === uid) continue;
+    const presence = await deps.getVal(`users/${mid}/presence`);
+    if (effectiveAvailable(m?.statusOverride, presence?.status, presence?.availableUntil, deps.now())) {
+      lines.push(`🟢 ${m?.displayName || 'Someone'}`);
+    }
+  }
+  await reply(lines.length
+    ? `Available in ${match.name}:\n${lines.join('\n')}`
+    : `No one is available in ${match.name} right now.`);
+}
+
 async function handleSocialCommand(deps, uid, cmd, args, reply) {
   if (cmd === '/who') {
+    const groupQuery = args.join(' ').trim();
+    if (groupQuery) { await handleWhoGroup(deps, uid, groupQuery, reply); return; }
     const following = await readFollowing(deps, uid);
     const lines = [];
     for (const entry of following) {

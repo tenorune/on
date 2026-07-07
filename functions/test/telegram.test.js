@@ -240,6 +240,61 @@ describe('handleUpdate: /who', () => {
   });
 });
 
+describe('handleUpdate: /who <group>', () => {
+  function seedGroup(store, uid) {
+    store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    store['groups/G1/name'] = 'Divers';
+    store['groups/G1/members'] = {
+      [uid]: { displayName: 'Me', statusOverride: { enabled: true, status: 'available', availableUntil: 2_000_000 } },
+      m1: { displayName: 'Overridden On', statusOverride: { enabled: true, status: 'available', availableUntil: 2_000_000 } },
+      m2: { displayName: 'Overridden Off-Status', statusOverride: { enabled: true, status: 'unavailable' } },
+      m3: { displayName: 'Follows Global', statusOverride: { enabled: false } },
+    };
+    store['users/m1/presence'] = { status: 'unavailable', availableUntil: null };
+    store['users/m2/presence'] = { status: 'available', availableUntil: 2_000_000 }; // masked by override
+    store['users/m3/presence'] = { status: 'available', availableUntil: 2_000_000 };
+  }
+  test('lists effectively-available co-members, self excluded', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroup(deps.store, uid);
+    await handleUpdate(deps, msgUpdate('/who div'));
+    const text = deps.tg.sendMessage.mock.calls[0][1];
+    expect(text).toContain('Available in Divers');
+    expect(text).toContain('Overridden On');     // override ON + available
+    expect(text).toContain('Follows Global');    // override OFF + globally available
+    expect(text).not.toContain('Overridden Off-Status'); // override masks global availability
+    expect(text).not.toContain('Me');            // self excluded
+  });
+  test('nobody available → says so with the group name', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroup(deps.store, uid);
+    deps.store['groups/G1/members'] = { [uid]: { displayName: 'Me' }, m1: { displayName: 'Bea', statusOverride: { enabled: true, status: 'unavailable' } } };
+    await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('No one is available in Divers right now.');
+  });
+  test('no matching group → No group matching', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroup(deps.store, uid);
+    await handleUpdate(deps, msgUpdate('/who chess'));
+    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('No group matching "chess".');
+  });
+  test('ambiguous group name → lists candidates, asks for more letters', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroup(deps.store, uid);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 2 } };
+    deps.store['groups/G2/name'] = 'Dive Club';
+    await handleUpdate(deps, msgUpdate('/who div'));
+    const text = deps.tg.sendMessage.mock.calls[0][1];
+    expect(text).toContain('Divers');
+    expect(text).toContain('Dive Club');
+    expect(text).toMatch(/more letters/i);
+  });
+});
+
 describe('handleUpdate: /knock', () => {
   const following = { f1: { code: 'CODE01', label: 'Bea' }, f2: { code: 'CODE02', label: 'Beatrice' } };
   test('unique match → knock written with client shape', async () => {
