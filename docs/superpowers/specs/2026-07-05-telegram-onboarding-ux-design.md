@@ -455,6 +455,11 @@ built against it and diverged in the places below. **§1–§9 above are left fr
 as-designed** — read this section for what actually shipped. Verified against the
 working tree; session tags reference HANDOFF rundowns.
 
+- **§1 interstitial accept label is contextual (2026-07-07):** "Accept & get
+  started" only when the account was bootstrapped this very boot (server
+  `created` flag → `isNew`); a returning unlinked arrival sees "Accept".
+  Linked arrivals still redeem silently (no interstitial). See
+  `2026-07-07-telegram-invite-interstitial-context-design.md`.
 - **Graduation shipped (§7 is not "next session's work").** §7's framing
   ("designed now, implemented as the first follow-on… this session lands the
   enablers only") is superseded — graduation is **built and on-device verified**

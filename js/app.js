@@ -541,6 +541,7 @@ async function main() {
   if (!pendingInviteToken && isTelegramContext()) {
     tgInvite = await telegramInviteGate({
       linked: telegramLinkState()?.linked === true,
+      isNew,
       dismissSplash,
     });
     if (tgInvite) pendingInviteToken = tgInvite.token;

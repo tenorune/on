@@ -105,3 +105,23 @@ test('"Not now" → resolves null, nothing redeemed', async () => {
   document.getElementById('tg-invite-dismiss-btn').click();
   expect(await p).toBeNull();
 });
+
+test('returning unlinked arrival sees "Accept", not "& get started"', async () => {
+  mockWa.initDataUnsafe = { start_param: TOKEN };
+  resolveInvitePreview.mockResolvedValue({ scope: 'personal', label: 'Ana' });
+  const p = telegramInviteGate({ linked: false, isNew: false, dismissSplash: jest.fn() });
+  await Promise.resolve(); await Promise.resolve();
+  expect(document.getElementById('tg-invite-accept-btn').textContent).toBe('Accept');
+  document.getElementById('tg-invite-dismiss-btn').click();
+  await p;
+});
+
+test('first-ever open keeps "Accept & get started"', async () => {
+  mockWa.initDataUnsafe = { start_param: TOKEN };
+  resolveInvitePreview.mockResolvedValue({ scope: 'personal', label: 'Ana' });
+  const p = telegramInviteGate({ linked: false, isNew: true, dismissSplash: jest.fn() });
+  await Promise.resolve(); await Promise.resolve();
+  expect(document.getElementById('tg-invite-accept-btn').textContent).toBe('Accept & get started');
+  document.getElementById('tg-invite-dismiss-btn').click();
+  await p;
+});

@@ -20,10 +20,14 @@ function framingText(preview) {
     : `${preview.label || 'Someone'} invited you to follow them.`;
 }
 
-function showInterstitial(preview) {
+function showInterstitial(preview, isNew) {
   const el = document.getElementById('tg-invite-screen');
   if (!el) return Promise.resolve('dismiss');
   document.getElementById('tg-invite-framing').textContent = framingText(preview);
+  // "& get started" only on a first-ever open — a returning Mini App user
+  // started long ago, so they get a plain "Accept" (spec 2026-07-07).
+  document.getElementById('tg-invite-accept-btn').textContent =
+    isNew ? 'Accept & get started' : 'Accept';
   el.classList.remove('hidden');
   return new Promise((resolve) => {
     const accept = document.getElementById('tg-invite-accept-btn');
@@ -47,17 +51,18 @@ function showInterstitial(preview) {
 
 // Returns { token, preview, silent } to feed pendingInviteToken, or null.
 //  - linked account: silent redeem (caller toasts on success) — no interstitial
-//  - unlinked: interstitial; Accept → redeem; phrase → link flow (its reload
-//    re-runs this gate with linked=true → silent redeem into the right
-//    account); Not now → proceed unredeemed (the empty state catches them).
-export async function telegramInviteGate({ linked, dismissSplash }) {
+//  - unlinked: interstitial (accept label contextual on isNew); Accept →
+//    redeem; phrase → link flow (its reload re-runs this gate with
+//    linked=true → silent redeem into the right account); Not now →
+//    proceed unredeemed (the empty state catches them).
+export async function telegramInviteGate({ linked, isNew, dismissSplash }) {
   const token = extractStartParamToken();
   if (!token) return null;
   const preview = await resolveInvitePreview(token); // null → invalid/revoked/expired
   if (!preview) return null;
   if (linked) return { token, preview, silent: true };
   dismissSplash();
-  const choice = await showInterstitial(preview);
+  const choice = await showInterstitial(preview, isNew);
   if (choice === 'accept') return { token, preview, silent: false };
   if (choice === 'phrase') showLinkScreen(); // reloads on success; cancel falls through
   return null;
