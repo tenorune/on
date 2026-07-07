@@ -447,3 +447,56 @@ engine; covered by A9 on-device.
 - The pre-mapping bot guard can't distinguish "never opened the app" from
   "just unlinked" — one message serves both.
 - Back button is hidden (not intercepted) during calls.
+
+## As-built deltas (post-implementation reconciliation)
+
+This spec is a **dated design artifact** (2026-07-05). Sessions 07-05b → 07-06d
+built against it and diverged in the places below. **§1–§9 above are left frozen
+as-designed** — read this section for what actually shipped. Verified against the
+working tree; session tags reference HANDOFF rundowns.
+
+- **Graduation shipped (§7 is not "next session's work").** §7's framing
+  ("designed now, implemented as the first follow-on… this session lands the
+  enablers only") is superseded — graduation is **built and on-device verified**
+  (07-06c/§30): `js/graduation.js`, `functions/telegram-auth.js`
+  `graduateAccountData`, the `graduateTelegram` callable, and the "?" info-toast
+  entry on both surfaces.
+- **Post-link / post-unlink landing banners were removed; only graduation
+  lands.** §5's banners and the `kk-landing ∈ {linked, unlinked, graduated}` set
+  are stale (07-05c/§27): the banners were cut as a bespoke one-off, and
+  `firstRun.js` `LANDING_COPY` now carries **only** `graduated`. This resolves
+  the §5 ⇄ §7-callout contradiction in favor of §7's callout.
+- **Graduation success feedback = shared toast, not a banner (§7 ⚠️ resolved).**
+  The callout at §7 (312–321) is closed: `showLandingNotice`/`landing-notice`
+  were **deleted**; success reuses the shared `showToast` at boot
+  (`app.js` `consumeLandingNotice()`). The final copy — "This account now works
+  in any browser too." — is correct; only §7's word "banner" is stale (it's a
+  toast).
+- **Account walker: two standalone functions, not a refactor of expunge.** §7
+  (331–335) planned one shared delete-or-rewrite walker. Shipped as separate
+  `expungeDerivedAccount` and `graduateAccountData` (`functions/telegram-auth.js`)
+  — deliberately: the flat functions test-mock can't do whole-subtree reads, and
+  refactoring expunge risked the pinned link/unlink tests (§30).
+- **Graduation collision handling is a single generic error.** §7 (307–309)
+  described collision-specific copy with ↻ regen as the retry; shipped with one
+  generic "Couldn't set that up right now. Try again." for every code (uid
+  collisions being effectively impossible). Regen still mints a new candidate
+  uid.
+- **`__TELEGRAM_APP_LINK__` placeholder never existed.** §1/§4/§8 describe a
+  build-time `__TELEGRAM_APP_LINK__` substitution "same pattern as
+  `__INVITE_PREVIEW_URL__`". Shipped as an esbuild `define` of
+  `process.env.TELEGRAM_APP_LINK` (`scripts/build.js`, consumed at
+  `inviteFlow.js:8`). Same effect, different mechanism.
+- **`shareInvite(invite)` shipped as `shareInviteLink()` (+ `shareInviteToTelegramWeb()`).**
+  §4 (177) names the surface function `shareInvite`; `inviteFlow.js` exposes
+  `shareInviteLink()` and `shareInviteToTelegramWeb()` — there is no
+  `shareInvite`.
+- **Inline line-number citations above have drifted.** e.g. §5's
+  `telegram-auth.js:223` for the `notifyChannel` reset predates the graduation
+  code added later in that file; treat mid-file line refs in §1–§8 as
+  approximate.
+
+**Verified still accurate (spot-checked):** §8 synthetic Auth email
+(`telegram-auth.js` stamps `tg-<uid>@telegram.invalid` on creation); §4 web
+"Share to Telegram"; §9 known gaps (incl. the in-app-browser gap, whose line
+refs are current as of 07-06d).
