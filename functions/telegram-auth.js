@@ -4,7 +4,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { normalizeRecoveryCode, deriveUid } from './auth.js';
-import { WELCOME_STRANGER_TEXT, openAppKeyboard } from './telegram-shared.js';
+import { WELCOME_STRANGER_TEXT, openAppKeyboard, rootUpdate } from './telegram-shared.js';
 
 const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000; // initData replay window
 // auth_date is HMAC-protected, this is defense-in-depth against clock nonsense.
@@ -75,7 +75,7 @@ export async function ensureTelegramUser(deps, tgUser, priorMapping) {
     mapping = { uid: derivedUid, chatId: tgId, createdAt: deps.now() };
     // Mapping, reverse index, and prefs defaults land atomically — a crash
     // can't leave a mapping without its notification route.
-    await deps.update('/', {
+    await rootUpdate(deps, {
       [`telegramUsers/${tgId}`]: mapping,
       [`telegramByUid/${derivedUid}`]: { tgId, chatId: tgId },
       [`userPrefs/${derivedUid}/telegram/tgId`]: tgId,
@@ -175,7 +175,7 @@ export async function linkTelegramHandler(request, deps) {
   writes[`userPrefs/${uid}/telegram/tgId`] = tgId;
   writes[`userPrefs/${uid}/telegram/linkedAt`] = now;
   writes[`userPrefs/${uid}/notifyChannel`] = 'telegram';
-  await deps.update('/', writes);
+  await rootUpdate(deps, writes);
   const token = await deps.mintToken(uid);
   return { token };
 }
@@ -218,7 +218,8 @@ export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
   // Backref paths under the expunged uid's own subtree (a pathological
   // self-follow) are skipped: `users/{uid}`/`userPrefs/{uid}` are nulled
   // wholesale below, and RTDB rejects an update where one path is an
-  // ancestor of another.
+  // ancestor of another. (rootUpdate would now also filter these as
+  // redundant deletes — the skip stays as documentation of the case.)
   for (const fid of Object.keys(followers || {})) {
     if (fid !== uid) nulls[`userPrefs/${fid}/following/${uid}`] = null;
   }
@@ -254,7 +255,7 @@ export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
 
   if (extraNulls) Object.assign(nulls, extraNulls);
 
-  await deps.update('/', nulls);
+  await rootUpdate(deps, nulls);
 }
 
 // Inbound/self mailboxes keyed by uid — deleted on expunge, moved on graduation
@@ -348,7 +349,7 @@ export async function graduateAccountData(deps, oldUid, newUid) {
     if (ownerId === oldUid) writes[`groups/${gid}/ownerId`] = newUid;
   }
 
-  if (Object.keys(writes).length) await deps.update('/', writes);
+  await rootUpdate(deps, writes);
 }
 
 // Graduation callable (spec §7): give an UNLINKED Telegram-derived account a
@@ -389,7 +390,7 @@ export async function graduateTelegramHandler(request, deps) {
   // window this pass narrows but does not close (see graduateAccountData).
   await graduateAccountData(deps, derivedUid, newUid);
   const chatId = prior.chatId || tgId;
-  await deps.update('/', {
+  await rootUpdate(deps, {
     [`telegramUsers/${tgId}`]: { uid: newUid, chatId, linkedAt: deps.now() },
     [`telegramByUid/${derivedUid}`]: null,
     [`telegramByUid/${newUid}`]: { tgId, chatId },

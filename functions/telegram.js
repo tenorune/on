@@ -3,7 +3,7 @@
 
 import { timingSafeEqual } from 'crypto';
 import { ensureTelegramUser } from './telegram-auth.js';
-import { WELCOME_STRANGER_TEXT, openAppKeyboard, GROUP_ID_RE, UID_RE } from './telegram-shared.js';
+import { WELCOME_STRANGER_TEXT, openAppKeyboard, GROUP_ID_RE, UID_RE, rootUpdate } from './telegram-shared.js';
 import { effectiveAvailable, primaryAvailable, clampName } from './presence-core.js';
 
 // Required format of each callback action's arg, checked before dispatch.
@@ -109,7 +109,7 @@ async function handleMessage(deps, msg) {
     // Keep the chat route current (first /start after a Mini-App-only signup,
     // or Telegram reassigning chat ids) — sendToUser reads telegramByUid.
     // Both sides of the route in one multi-path write.
-    await deps.update('/', {
+    await rootUpdate(deps, {
       [`telegramUsers/${String(msg.from.id)}/chatId`]: chatId,
       [`telegramByUid/${uid}/chatId`]: chatId,
     });
@@ -431,7 +431,7 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
       [`pendingInvites/${me}/${groupId}`]: null,
       [`pendingInvitesByGroup/${groupId}/${me}`]: null,
     };
-    const clearPending = () => deps.update('/', pendingNulls);
+    const clearPending = () => rootUpdate(deps, pendingNulls);
     // State FIRST (W1 B#1): a button on an old message answers from the current
     // state — decline-after-accept must not say "Declined." while membership stands.
     const [pending, existing, name] = await Promise.all([
@@ -478,7 +478,7 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
     // in the app. Membership, nav entry, and the pending cleanup land as ONE
     // atomic update — a crash can't leave a member with the invite still pending.
     const now = deps.now();
-    await deps.update('/', {
+    await rootUpdate(deps, {
       [`groups/${groupId}/members/${me}`]: {
         role: 'member',
         displayName: clampName(cq.from.first_name) || 'Someone',
@@ -538,7 +538,7 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
     // them would otherwise leave the grant written with the request still
     // pending, so the target could approve the same request twice (sibling
     // of the invite-accept atomicity above).
-    await deps.update('/', {
+    await rootUpdate(deps, {
       [`followGrants/${requesterUid}/${me}`]: {
         from: me, code: presence?.code || '', name: myName ?? null, ts: deps.now(),
       },
