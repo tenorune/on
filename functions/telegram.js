@@ -72,6 +72,8 @@ const HELP_TEXT = [
   '/help — this list',
 ].join('\n');
 
+const KNOCK_CAP_TEXT = "You've already knocked a few times — give them a moment.";
+
 // The one way a webhook entry point resolves its Telegram sender to an app
 // account: telegramUsers/{tgId} → { mapping, uid }. Both null/undefined-safe —
 // callers decide how to bail when the sender isn't mapped.
@@ -169,6 +171,16 @@ async function handleMessage(deps, msg) {
         await reply('Use "/notifications telegram" or "/notifications push".');
         return;
       }
+      if (choice === 'push') {
+        // W1 J#3 (mirrors the app's channel pill): don't write a push channel
+        // this account can't receive on — the notifier's token-less fallback
+        // would mask it, but the shown state would lie.
+        const tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
+        if (!tokensMap || Object.keys(tokensMap).length === 0) {
+          await reply("Push isn't set up on any device yet — open KnockKnock in a browser first. You'll keep getting messages here.");
+          return;
+        }
+      }
       await deps.update(`userPrefs/${uid}`, { notifyChannel: choice });
       await reply(choice === 'telegram' ? 'Notifications will arrive here.' : 'Notifications will use the app\'s push channel.');
       return;
@@ -185,8 +197,10 @@ async function handleMessage(deps, msg) {
 
 // Same shape + cap as the client's writeKnock transaction (js/db/social.js),
 // including contextGroupId: set on create, overwrite on increment, else carry.
+// Returns whether the transaction committed — an aborted (capped) knock must
+// not be confirmed as sent (W1 B#2).
 async function writeKnock(deps, recipientUid, senderUid, contextGroupId) {
-  await deps.transaction(`knocks/${recipientUid}/${senderUid}`, (current) => {
+  const res = await deps.transaction(`knocks/${recipientUid}/${senderUid}`, (current) => {
     if (current === null) {
       const next = { count: 1, ts: deps.now() };
       if (contextGroupId) next.contextGroupId = contextGroupId;
@@ -198,6 +212,7 @@ async function writeKnock(deps, recipientUid, senderUid, contextGroupId) {
     else if (current.contextGroupId) next.contextGroupId = current.contextGroupId;
     return next;
   });
+  return res.committed;
 }
 
 async function readFollowing(deps, uid) {
@@ -321,8 +336,8 @@ async function knockGroupReach(deps, uid, query, rawQuery, reply) {
     await reply('Which one?', { reply_markup: { inline_keyboard: found.slice(0, 8).map((e) => [{ text: `${e.name} (${e.groupName})`, callback_data: `knock:${e.uid}:${e.gid}` }]) } });
     return;
   }
-  await writeKnock(deps, found[0].uid, uid, found[0].gid);
-  await reply(`Knocked on ${found[0].name} (${found[0].groupName}).`);
+  const committed = await writeKnock(deps, found[0].uid, uid, found[0].gid);
+  await reply(committed ? `Knocked on ${found[0].name} (${found[0].groupName}).` : KNOCK_CAP_TEXT);
 }
 
 async function handleSocialCommand(deps, uid, cmd, args, reply) {
@@ -347,8 +362,8 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
       await reply('Which one?', { reply_markup: { inline_keyboard: matches.slice(0, 8).map((e) => [{ text: e.label || e.code, callback_data: `knock:${e.userId}` }]) } });
       return;
     }
-    await writeKnock(deps, matches[0].userId, uid);
-    await reply(`Knocked on ${matches[0].label || matches[0].code}.`);
+    const committed = await writeKnock(deps, matches[0].userId, uid);
+    await reply(committed ? `Knocked on ${matches[0].label || matches[0].code}.` : KNOCK_CAP_TEXT);
     return;
   }
   if (cmd === '/groups') {
@@ -368,6 +383,21 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
   }
 }
 
+// Rewrite a callback's source notification message to record its resolved
+// outcome, and drop the inline keyboard (editMessageText with no reply_markup
+// removes it) so stale buttons can't be tapped (W1 B#1/B#9). The original text
+// is kept for context; the outcome is appended. Every failure is swallowed:
+// the action itself already succeeded and the answerCallbackQuery toast fired —
+// a >48h edit window, a user-deleted message, or a double-tap race must never
+// fail the action.
+export async function resolveSourceMessage(deps, cq, outcome) {
+  const msg = cq?.message;
+  if (!msg?.message_id || !msg.chat?.id || !deps.tg.editMessageText) return;
+  const text = msg.text ? `${msg.text}\n\n${outcome}` : outcome;
+  try { await deps.tg.editMessageText(String(msg.chat.id), msg.message_id, text); }
+  catch { /* cosmetic — see above */ }
+}
+
 async function handleCallback(deps, cq) {
   if (!cq?.id || !cq.from) return;
   const answer = (text) => deps.tg.answerCallbackQuery(cq.id, text);
@@ -377,10 +407,11 @@ async function handleCallback(deps, cq) {
   const argRe = CALLBACK_ARG_RE[action];
   if (!argRe || !argRe.test(arg || '')) { await answer('Unknown action.'); return; }
   switch (action) {
-    case 'knock':
-      await writeKnock(deps, arg, me, GROUP_ID_RE.test(arg2 || '') ? arg2 : undefined);
-      await answer('Knock sent.');
+    case 'knock': {
+      const committed = await writeKnock(deps, arg, me, GROUP_ID_RE.test(arg2 || '') ? arg2 : undefined);
+      await answer(committed ? 'Knock sent.' : KNOCK_CAP_TEXT);
       return;
+    }
     case 'invite_accept':
     case 'invite_decline':
     case 'fr_approve':
@@ -395,23 +426,44 @@ async function handleCallback(deps, cq) {
 async function handleInboxCallback(deps, me, action, arg, cq, answer) {
   if (action === 'invite_accept' || action === 'invite_decline') {
     const groupId = arg;
-    // Both sides of the pending-invite record clear in one atomic update.
+    // Both sides of the pending-invite record clear in one atomic update (W2).
     const pendingNulls = {
       [`pendingInvites/${me}/${groupId}`]: null,
       [`pendingInvitesByGroup/${groupId}/${me}`]: null,
     };
     const clearPending = () => deps.update('/', pendingNulls);
-    if (action === 'invite_decline') { await clearPending(); await answer('Declined.'); return; }
-    const pending = await deps.getVal(`pendingInvites/${me}/${groupId}`);
-    if (!pending) { await answer('This invite is gone.'); return; }
-    // Race checks mirror js/inbox.js handleJoin: already-member and deleted-group
-    // both just clear the pending invite.
-    const [existing, name] = await Promise.all([
+    // State FIRST (W1 B#1): a button on an old message answers from the current
+    // state — decline-after-accept must not say "Declined." while membership stands.
+    const [pending, existing, name] = await Promise.all([
+      deps.getVal(`pendingInvites/${me}/${groupId}`),
       deps.getVal(`groups/${groupId}/members/${me}`),
       deps.getVal(`groups/${groupId}/name`),
     ]);
-    if (existing) { await clearPending(); await answer("You're already in that group."); return; }
-    if (!name) { await clearPending(); await answer('That group no longer exists.'); return; }
+    if (existing) {
+      await clearPending();
+      await resolveSourceMessage(deps, cq, `✅ Joined ${name || 'the group'}.`);
+      await answer(action === 'invite_accept'
+        ? "You're already in that group."
+        : 'Already handled — you joined this group.');
+      return;
+    }
+    if (!pending) {
+      await resolveSourceMessage(deps, cq, 'Already handled.');
+      await answer('Already handled.');
+      return;
+    }
+    if (action === 'invite_decline') {
+      await clearPending();
+      await resolveSourceMessage(deps, cq, 'Invite declined.');
+      await answer('Declined.');
+      return;
+    }
+    if (!name) {
+      await clearPending();
+      await resolveSourceMessage(deps, cq, 'That group no longer exists.');
+      await answer('That group no longer exists.');
+      return;
+    }
     // Join mirrors js/groups.js joinGroup (fresh membership branch): the display
     // name is the Telegram first name (the bot has no prompt UI); editable later
     // in the app. Membership, nav entry, and the pending cleanup land as ONE
@@ -427,18 +479,35 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
       [`users/${me}/groups/${groupId}`]: { lastVisited: now },
       ...pendingNulls,
     });
+    await resolveSourceMessage(deps, cq, `✅ Joined ${name}.`);
     await answer(`Joined ${name}.`);
     return;
   }
   if (action === 'fr_approve' || action === 'fr_decline') {
     const requesterUid = arg;
+    // State FIRST (W1 B#1): an existing grant means this was already approved
+    // (here or in the app) — a late Decline must not claim otherwise.
+    const [request, grant] = await Promise.all([
+      deps.getVal(`followRequests/${me}/${requesterUid}`),
+      deps.getVal(`followGrants/${requesterUid}/${me}`),
+    ]);
+    if (grant) {
+      await deps.set(`followRequests/${me}/${requesterUid}`, null);
+      await resolveSourceMessage(deps, cq, '✅ Approved.');
+      await answer('Already approved.');
+      return;
+    }
+    if (!request) {
+      await resolveSourceMessage(deps, cq, 'This request is gone.');
+      await answer('This request is gone.');
+      return;
+    }
     if (action === 'fr_decline') {
       await deps.set(`followRequests/${me}/${requesterUid}`, null);
+      await resolveSourceMessage(deps, cq, 'Declined.');
       await answer('Declined.');
       return;
     }
-    const request = await deps.getVal(`followRequests/${me}/${requesterUid}`);
-    if (!request) { await answer('This request is gone.'); return; }
     // Mirrors js/inbox.js handleApprove: grant carries my share code + my display
     // name in the shared group; the requester's grant-watcher completes the follow.
     const [presence, myName] = await Promise.all([
@@ -455,6 +524,7 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
       },
       [`followRequests/${me}/${requesterUid}`]: null,
     });
+    await resolveSourceMessage(deps, cq, '✅ Approved.');
     await answer('Approved.');
   }
 }

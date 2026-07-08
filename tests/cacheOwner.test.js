@@ -26,6 +26,7 @@ const ACCOUNT_SCOPED_KEYS = [
   'statusapp_seen_swipe',
   'statusapp_went_avail_custom',
   'statusapp_seen_notify_promo',
+  'statusapp_invite_outcomes',
 ];
 
 const DEVICE_SCOPED_KEYS = [

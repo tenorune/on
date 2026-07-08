@@ -248,6 +248,8 @@ export const telegramWebhook = onRequest(async (req, res) => {
     tg: {
       sendMessage: tgSendMessage,
       answerCallbackQuery: (id, text) => tgApi('answerCallbackQuery', { callback_query_id: id, text }),
+      editMessageText: (chatId, messageId, text, extra = {}) =>
+        tgApi('editMessageText', { chat_id: chatId, message_id: messageId, text, ...extra }),
     },
   }, req.body);
   res.status(200).send('ok');

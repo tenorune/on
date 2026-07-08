@@ -519,10 +519,30 @@ describe('resolveInvitePreview', () => {
     expect(await resolveInvitePreview('NOPE')).toBeNull();
   });
 
-  test('returns null when the callable rejects (network/unavailable)', async () => {
+});
+
+describe('resolveInvitePreview error contract (W1 J#1)', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('invalid token (callable returns null) → null', async () => {
     const { resolveInvitePreview } = require('../js/invites');
-    db.callResolveInvitePreview.mockRejectedValue(new Error('unavailable'));
-    expect(await resolveInvitePreview('T')).toBeNull();
+    db.callResolveInvitePreview.mockResolvedValue(null);
+    await expect(resolveInvitePreview('tok')).resolves.toBeNull();
+  });
+
+  test('one transport failure then success → preview (internal retry)', async () => {
+    const { resolveInvitePreview } = require('../js/invites');
+    db.callResolveInvitePreview
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce({ scope: 'personal', label: 'Ana' });
+    await expect(resolveInvitePreview('tok')).resolves.toEqual({ scope: 'personal', label: 'Ana' });
+    expect(db.callResolveInvitePreview).toHaveBeenCalledTimes(2);
+  });
+
+  test('two transport failures → throws invite-preview-unavailable', async () => {
+    const { resolveInvitePreview } = require('../js/invites');
+    db.callResolveInvitePreview.mockRejectedValue(new Error('network'));
+    await expect(resolveInvitePreview('tok')).rejects.toThrow('invite-preview-unavailable');
   });
 });
 

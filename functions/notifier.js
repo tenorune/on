@@ -32,12 +32,16 @@ export async function sendToUser(deps, uid, message, data) {
   // an unhandled-rejection crash; awaiting the promise below still throws.
   const tokensPromise = deps.getVal(`userPrefs/${uid}/pushTokens`);
   tokensPromise.catch(() => {});
+  let tgRoute = null;
+  let triedTelegram = false;
   if (deps.sendTelegram) {
-    const [channel, tgRoute] = await Promise.all([
+    const [channel, route] = await Promise.all([
       deps.getVal(`userPrefs/${uid}/notifyChannel`),
       deps.getVal(`telegramByUid/${uid}`),
     ]);
+    tgRoute = route;
     if (channel !== 'push' && tgRoute && tgRoute.chatId) {
+      triedTelegram = true;
       try {
         if (await deps.sendTelegram(tgRoute.chatId, message, data)) return true;
       } catch (e) {
@@ -47,7 +51,22 @@ export async function sendToUser(deps, uid, message, data) {
   }
   const tokensMap = await tokensPromise;
   const tokens = tokensMap ? Object.keys(tokensMap) : [];
-  if (tokens.length === 0) return false;
+  if (tokens.length === 0) {
+    // W1 J#3: a LINKED account that chose 'push' but has no registered device
+    // must not go silent — deliver via the bot rather than dropping. This is a
+    // DELIVERY-level fallback only; the channel-default predicate above (the
+    // three-reader contract) is untouched. triedTelegram guards the
+    // telegram-channel case: a failed bot send must not just retry itself.
+    if (!triedTelegram && deps.sendTelegram && tgRoute && tgRoute.chatId) {
+      try {
+        return !!(await deps.sendTelegram(tgRoute.chatId, message, data));
+      } catch (e) {
+        console.error(`[notify] telegram fallback failed for ${uid}: ${e?.message || e}`);
+        return false;
+      }
+    }
+    return false;
+  }
   const { failedTokens } = await deps.send(tokens, message, data);
   if (failedTokens && failedTokens.length) {
     const nulls = {};

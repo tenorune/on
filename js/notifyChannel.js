@@ -11,6 +11,7 @@ import { mergeUserPrefs } from './db.js';
 import { isTelegramContext, telegramLinkState } from './telegram.js';
 import { syncBotDelivery } from './notifySuppression.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
+import { showToast } from './groups.js';
 
 const OTHER = { telegram: 'push', push: 'telegram' };
 
@@ -34,6 +35,9 @@ function isLinked(prefs) {
   if (isTelegramContext()) return telegramLinkState()?.linked === true;
   return prefs?.telegram != null;
 }
+// Note: the notifier additionally falls back to the bot when channel IS 'push'
+// but the account has zero push tokens (W1 J#3) — delivery-level only; it does
+// not change this predicate.
 
 function setActive(pill, channel) {
   pill.querySelectorAll('.toggle-pill-option').forEach((b) => {
@@ -56,6 +60,17 @@ function mountPill(slot, userId) {
     b.addEventListener('click', async () => {
       if (b.classList.contains('active')) return;
       const next = b.dataset.channel;
+      // W1 J#3: inside Telegram the permission flow can't run, so a switch to
+      // Push with no registered device would write a channel the account can't
+      // receive on. Refuse (no write, no flip) and say why — the server-side
+      // token-less fallback (functions/notifier.js) covers every other path.
+      if (next === 'push' && isTelegramContext()) {
+        const tokens = lastPrefs?.pushTokens ? Object.keys(lastPrefs.pushTokens) : [];
+        if (tokens.length === 0) {
+          showToast("Push isn't set up on any device yet — open KnockKnock in a browser first. Messages keep arriving via Telegram.");
+          return;
+        }
+      }
       setActive(pill, next); // optimistic — instant feedback before the round-trip
       try {
         await mergeUserPrefs(userId, { notifyChannel: next });

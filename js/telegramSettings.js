@@ -6,6 +6,7 @@ import { tgWebApp, telegramLinkState } from './telegram.js';
 import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
 import { parseRecoveryCode } from './identity.js';
 import { showGraduationInfo } from './graduation.js';
+import { setButtonBusy, clearButtonBusy } from './utils.js';
 
 export function initTelegramSettings(userId) {
   const accountSlot = document.getElementById('tg-account-slot');
@@ -32,6 +33,8 @@ export function initTelegramSettings(userId) {
   // so it isn't wired here.
   accountSlot.querySelector('#tg-link-btn').addEventListener('click', showLinkScreen);
   accountSlot.querySelector('#tg-unlink-btn').addEventListener('click', () => {
+    const err = document.getElementById('tg-unlink-error');
+    if (err) { err.textContent = ''; err.classList.add('hidden'); }
     document.getElementById('tg-unlink-confirm').classList.remove('hidden');
   });
   // "?" beside the link entry opens the graduation info toast (spec §7).
@@ -49,6 +52,7 @@ function ensureUnlinkConfirmModal() {
     <div class="confirm-sheet">
       <h4>Unlink this Telegram?</h4>
       <p>Your account stays yours — sign in with your secret phrase in any browser. This Telegram will start over with a fresh, empty account.</p>
+      <p id="tg-unlink-error" class="error-msg hidden"></p>
       <div class="confirm-btns">
         <button class="confirm-btn-cancel" id="tg-unlink-cancel-btn" type="button">Cancel</button>
         <button class="confirm-btn-remove" id="tg-unlink-confirm-btn" type="button">Unlink</button>
@@ -66,12 +70,18 @@ function ensureUnlinkConfirmModal() {
 
 async function doUnlink(e) {
   const btn = e.currentTarget;
-  btn.disabled = true;
+  const err = document.getElementById('tg-unlink-error');
+  if (err) { err.textContent = ''; err.classList.add('hidden'); }
+  setButtonBusy(btn, 'Unlinking…');
   try {
     await callUnlinkTelegram(tgWebApp().initData);
     window.location.reload(); // reboot as a fresh derived account
   } catch {
-    btn.disabled = false;
+    // W1 J#7: a destructive confirm that visibly does nothing is the worst
+    // outcome — restore the button and say what happened; the sheet stays
+    // open so the user can retry or cancel.
+    clearButtonBusy(btn);
+    if (err) { err.textContent = "Couldn't unlink right now. Try again."; err.classList.remove('hidden'); }
   }
 }
 
@@ -87,7 +97,7 @@ export function showLinkScreen() {
   const submit = document.getElementById('restore-submit-btn');
   const cancel = document.getElementById('restore-cancel-btn');
   const form = document.getElementById('restore-form');
-  if (!el) return;
+  if (!el) return Promise.resolve(false);
   input.value = '';
   error.textContent = '';
   error.classList.add('hidden');
@@ -101,33 +111,36 @@ export function showLinkScreen() {
     subtext.classList.remove('hidden');
   }
 
-  const showError = (msg) => { error.textContent = msg; error.classList.remove('hidden'); };
-  const onFormSubmit = (e) => e.preventDefault();
-  async function onSubmit() {
-    const normalized = parseRecoveryCode(input.value);
-    if (!normalized) { showError("That doesn't look like a secret phrase."); return; }
-    submit.disabled = true;
-    submit.textContent = 'Linking…';
-    try {
-      await callLinkTelegram(tgWebApp().initData, normalized);
-    } catch (e) {
-      submit.disabled = false;
-      submit.textContent = 'Link account';
-      showError(/not-found/.test(e?.code || '') ? 'No account found with that phrase.' : "Couldn't link right now. Try again.");
-      return;
+  return new Promise((resolve) => {
+    const showError = (msg) => { error.textContent = msg; error.classList.remove('hidden'); };
+    const onFormSubmit = (e) => e.preventDefault();
+    async function onSubmit() {
+      const normalized = parseRecoveryCode(input.value);
+      if (!normalized) { showError("That doesn't look like a secret phrase."); return; }
+      submit.disabled = true;
+      submit.textContent = 'Linking…';
+      try {
+        await callLinkTelegram(tgWebApp().initData, normalized);
+      } catch (e) {
+        submit.disabled = false;
+        submit.textContent = 'Link account';
+        showError(/not-found/.test(e?.code || '') ? 'No account found with that phrase.' : "Couldn't link right now. Try again.");
+        return;
+      }
+      teardown();
+      resolve(true); // observable in tests; the reload ends the session
+      window.location.reload(); // reboot via initData into the linked account
     }
-    teardown();
-    window.location.reload(); // reboot via initData into the linked account
-  }
-  function onCancel() { teardown(); }
-  function teardown() {
-    submit.removeEventListener('click', onSubmit);
-    cancel.removeEventListener('click', onCancel);
-    if (form) form.removeEventListener('submit', onFormSubmit);
-    if (subtext) subtext.classList.add('hidden');
-    el.classList.add('hidden');
-  }
-  submit.addEventListener('click', onSubmit);
-  cancel.addEventListener('click', onCancel);
-  if (form) form.addEventListener('submit', onFormSubmit);
+    function onCancel() { teardown(); resolve(false); }
+    function teardown() {
+      submit.removeEventListener('click', onSubmit);
+      cancel.removeEventListener('click', onCancel);
+      if (form) form.removeEventListener('submit', onFormSubmit);
+      if (subtext) subtext.classList.add('hidden');
+      el.classList.add('hidden');
+    }
+    submit.addEventListener('click', onSubmit);
+    cancel.addEventListener('click', onCancel);
+    if (form) form.addEventListener('submit', onFormSubmit);
+  });
 }

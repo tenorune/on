@@ -26,7 +26,15 @@ const SHELL = `
   <div id="inbox-modal" class="hidden"></div>
   <div id="invite-failure-overlay" class="hidden"><button id="invite-failure-continue"></button></div>
   <div id="code-drawer"><button id="mycode-chip"></button></div>
-  <div id="add-person-form"><button id="add-cancel-btn"></button></div>`;
+  <div id="add-person-form"><button id="add-cancel-btn"></button></div>
+  <div id="confirm-modal" class="hidden"><button id="confirm-modal-cancel-btn"></button></div>
+  <div id="text-prompt-modal" class="hidden"><button id="text-prompt-cancel-btn"></button></div>
+  <div id="tg-unlink-confirm" class="hidden"><button id="tg-unlink-cancel-btn"></button></div>
+  <div id="unfollow-confirm" class="hidden"><button id="unfollow-cancel-btn"></button></div>
+  <div id="rotate-confirm" class="hidden"><button id="rotate-cancel-btn"></button></div>
+  <div id="graduation-info-toast" class="hidden"><button id="graduation-info-close"></button></div>
+  <div id="tg-invite-error" class="hidden"><button id="tg-invite-error-dismiss"></button></div>
+  <div id="boot-error-overlay" class="hidden"></div>`;
 
 beforeEach(() => { document.body.innerHTML = SHELL; jest.clearAllMocks();
   mockWa = null;
@@ -110,6 +118,38 @@ test('invite-failure-overlay visible → clicks its continue button', () => {
   document.getElementById('invite-failure-continue').addEventListener('click', continueSpy);
   resolveBackAction()();
   expect(continueSpy).toHaveBeenCalled();
+});
+
+describe('back button covers the W1 overlays (C#1)', () => {
+  test.each([
+    ['confirm-modal', 'confirm-modal-cancel-btn'],
+    ['text-prompt-modal', 'text-prompt-cancel-btn'],
+    ['tg-unlink-confirm', 'tg-unlink-cancel-btn'],
+    ['unfollow-confirm', 'unfollow-cancel-btn'],
+    ['rotate-confirm', 'rotate-cancel-btn'],
+    ['graduation-info-toast', 'graduation-info-close'],
+    ['tg-invite-error', 'tg-invite-error-dismiss'],
+  ])('%s open → back clicks %s', (overlayId, cancelId) => {
+    show(overlayId);
+    const clicked = jest.fn();
+    document.getElementById(cancelId).click = clicked;
+    resolveBackAction()();
+    expect(clicked).toHaveBeenCalled();
+  });
+
+  test('confirm-modal wins over an open group context', () => {
+    show('confirm-modal');
+    mocks.ctx.mockReturnValue({ context: 'group', groupId: 'g' });
+    const clicked = jest.fn();
+    document.getElementById('confirm-modal-cancel-btn').click = clicked;
+    resolveBackAction()();
+    expect(clicked).toHaveBeenCalled();
+  });
+
+  test('boot-error-overlay open → back hidden (null)', () => {
+    show('boot-error-overlay');
+    expect(resolveBackAction()).toBeNull();
+  });
 });
 
 describe('call-state gating (inCall)', () => {

@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { buildNotificationKeyboard, handleUpdate, parseDurationMinutes, webhookAuthorized } from '../telegram.js';
+import { buildNotificationKeyboard, handleUpdate, parseDurationMinutes, webhookAuthorized, resolveSourceMessage } from '../telegram.js';
 import { GROUP_ID_RE, UID_RE } from '../telegram-shared.js';
 
 // The id-format regexes are the callback trust boundary (Admin-SDK writes
@@ -88,6 +88,7 @@ function makeBotDeps(store = {}) {
     tg: {
       sendMessage: jest.fn(async () => ({})),
       answerCallbackQuery: jest.fn(async () => ({})),
+      editMessageText: jest.fn(async () => ({})),
     },
   };
 }
@@ -343,6 +344,7 @@ describe('handleUpdate: /notifications and /help', () => {
   test('/notifications push and telegram set the channel; bad arg explains', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/pushTokens`] = { tok1: true };
     await handleUpdate(deps, msgUpdate('/notifications push'));
     expect(deps.store[`userPrefs/${uid}/notifyChannel`]).toBe('push');
     await handleUpdate(deps, msgUpdate('/notifications telegram'));
@@ -370,6 +372,28 @@ describe('handleUpdate: /notifications and /help', () => {
     await handleUpdate(deps, { edited_message: {} });
     await handleUpdate(deps, null);
     expect(deps.tg.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('/notifications push without tokens (W1 J#3)', () => {
+  test('refuses with guidance and writes nothing', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, msgUpdate('/notifications push'));
+    expect(deps.tg.sendMessage).toHaveBeenCalledWith('42',
+      "Push isn't set up on any device yet — open KnockKnock in a browser first. You'll keep getting messages here.",
+      expect.anything());
+    expect(store[`userPrefs/${uid}/notifyChannel`]).toBeUndefined();
+  });
+
+  test('switches normally when a token exists', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`userPrefs/${uid}/pushTokens`] = { tok1: true };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, msgUpdate('/notifications push'));
+    expect(store[`userPrefs/${uid}/notifyChannel`]).toBe('push');
   });
 });
 
@@ -904,6 +928,180 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     expect(deps.update).toHaveBeenCalledWith(`groups/G1/members/${uid}/statusOverride`, {
       status: 'available', availableUntil: 1_000_000 + 30 * 60000,
     });
+  });
+});
+
+const cqUpdate = (data, message) => ({
+  callback_query: {
+    id: 'cq1',
+    from: { id: 42, first_name: 'Ada' },
+    data,
+    ...(message ? { message } : {}),
+  },
+});
+
+describe('invite callbacks are state-checked and self-recording (W1 B#1)', () => {
+  const GID = 'ABCD1234';
+  const inviteMsg = { message_id: 7, chat: { id: 42 }, text: 'Ada invited you to Divers' };
+
+  function seedInvite(store, uid) {
+    store[`pendingInvites/${uid}/${GID}`] = { from: 'f'.repeat(32) };
+    store[`groups/${GID}/name`] = 'Divers';
+  }
+
+  test('fresh accept joins, edits the message to the outcome, and strips the keyboard', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    seedInvite(store, uid);
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
+    expect(store[`groups/${GID}/members/${uid}`]).toMatchObject({ role: 'member' });
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 7, 'Ada invited you to Divers\n\n✅ Joined Divers.');
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Joined Divers.');
+  });
+
+  test('decline after accept answers honestly instead of "Declined."', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`groups/${GID}/name`] = 'Divers';
+    store[`groups/${GID}/members/${uid}`] = { role: 'member', displayName: 'Ada' };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`invite_decline:${GID}`, inviteMsg));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith(
+      'cq1', 'Already handled — you joined this group.');
+    expect(store[`groups/${GID}/members/${uid}`]).toBeTruthy(); // still a member
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 7, 'Ada invited you to Divers\n\n✅ Joined Divers.');
+  });
+
+  test('fresh decline records "Invite declined." on the message', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    seedInvite(store, uid);
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`invite_decline:${GID}`, inviteMsg));
+    expect(store[`pendingInvites/${uid}/${GID}`]).toBeNull();
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 7, 'Ada invited you to Divers\n\nInvite declined.');
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Declined.');
+  });
+
+  test('tap on a fully-handled invite (no pending, not member) answers "Already handled."', async () => {
+    const store = {};
+    seedUser(store);
+    store[`groups/${GID}/name`] = 'Divers';
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Already handled.');
+    expect(store[`groups/${GID}/members/u-tg-42`]).toBeUndefined(); // no write
+  });
+});
+
+describe('follow-request callbacks are state-checked (W1 B#1)', () => {
+  const REQ = 'b'.repeat(32);
+  const frMsg = { message_id: 9, chat: { id: 42 }, text: 'Cara wants to follow you' };
+
+  test('decline after approve answers "Already approved." and keeps the grant', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`followGrants/${REQ}/${uid}`] = { from: uid, code: 'AAAAAA', ts: 1 };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`fr_decline:${REQ}`, frMsg));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Already approved.');
+    expect(store[`followGrants/${REQ}/${uid}`]).toBeTruthy();
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 9, 'Cara wants to follow you\n\n✅ Approved.');
+  });
+
+  test('fresh approve writes the grant and resolves the message', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`followRequests/${uid}/${REQ}`] = { from: REQ };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`fr_approve:${REQ}`, frMsg));
+    expect(store[`followGrants/${REQ}/${uid}`]).toMatchObject({ from: uid });
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 9, 'Cara wants to follow you\n\n✅ Approved.');
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Approved.');
+  });
+
+  test('fresh decline resolves the message with "Declined."', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`followRequests/${uid}/${REQ}`] = { from: REQ };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`fr_decline:${REQ}`, frMsg));
+    expect(store[`followRequests/${uid}/${REQ}`]).toBeNull();
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 9, 'Cara wants to follow you\n\nDeclined.');
+  });
+
+  test('tap on a vanished request answers "This request is gone."', async () => {
+    const store = {};
+    seedUser(store);
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`fr_approve:${REQ}`, frMsg));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'This request is gone.');
+  });
+});
+
+describe('knock cap honesty (W1 B#2)', () => {
+  const RECIP = 'a'.repeat(32); // format-valid uid for CALLBACK_ARG_RE
+
+  test('capped knock via callback answers the cap message, not "Knock sent."', async () => {
+    const store = {};
+    seedUser(store);
+    store[`knocks/${RECIP}/u-tg-42`] = { count: 5, ts: 999 };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`knock:${RECIP}`));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith(
+      'cq1', "You've already knocked a few times — give them a moment.");
+    expect(store[`knocks/${RECIP}/u-tg-42`].count).toBe(5); // unchanged
+  });
+
+  test('uncapped knock via callback still answers "Knock sent."', async () => {
+    const store = {};
+    seedUser(store);
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`knock:${RECIP}`));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Knock sent.');
+  });
+
+  test('capped /knock command replies the cap message', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`userPrefs/${uid}/following`] = { [RECIP]: { code: 'BBBBBB', label: 'Ana' } };
+    store[`knocks/${RECIP}/${uid}`] = { count: 5, ts: 999 };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, msgUpdate('/knock ana'));
+    expect(deps.tg.sendMessage).toHaveBeenCalledWith('42',
+      "You've already knocked a few times — give them a moment.", expect.anything());
+  });
+});
+
+describe('resolveSourceMessage (W1 B#1)', () => {
+  const cqMsg = { message_id: 7, chat: { id: 42 }, text: 'Ada invited you to join Divers' };
+
+  test('appends the outcome and strips the keyboard via editMessageText', async () => {
+    const deps = makeBotDeps({});
+    deps.tg.editMessageText = jest.fn(async () => ({}));
+    await resolveSourceMessage(deps, { id: 'cq1', message: cqMsg }, '✅ Joined Divers.');
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 7, 'Ada invited you to join Divers\n\n✅ Joined Divers.');
+  });
+
+  test('missing message (privacy mode / >48h) is a silent no-op', async () => {
+    const deps = makeBotDeps({});
+    deps.tg.editMessageText = jest.fn(async () => ({}));
+    await resolveSourceMessage(deps, { id: 'cq1' }, 'x');
+    expect(deps.tg.editMessageText).not.toHaveBeenCalled();
+  });
+
+  test('edit failure is swallowed', async () => {
+    const deps = makeBotDeps({});
+    deps.tg.editMessageText = jest.fn(async () => { throw new Error('message to edit not found'); });
+    await expect(resolveSourceMessage(deps, { id: 'cq1', message: cqMsg }, 'x')).resolves.toBeUndefined();
   });
 });
 
