@@ -33,6 +33,9 @@ beforeEach(() => {
   mergeUserPrefs.mockResolvedValue(undefined);
   isTelegramContext.mockReturnValue(false); // web by default
   telegramLinkState.mockReturnValue(null);
+  // jsdom has no Notification; the pill's honesty guards read its permission.
+  // Baseline: a normal grantable/granted browser (per-test overrides below).
+  global.Notification = { permission: 'granted' };
   mountDom();
 });
 
@@ -165,6 +168,65 @@ describe('channel switch feeds suppression and prompts on push', () => {
     await flush();
     expect(syncBotDelivery).not.toHaveBeenCalled();
     expect(ensureNotificationsReady).not.toHaveBeenCalled();
+  });
+});
+
+// The web pill must not leave the account SHOWING "Push" when push is
+// undeliverable: channel 'push' + zero account tokens delivers via the bot
+// (the notifier's token-less fallback), so every surface would display a
+// channel that doesn't describe delivery. Two guards: a blocked browser is
+// refused up front; a prompt that ends without a grant reverts the write.
+describe('web: Push switch stays honest when no device can receive push', () => {
+  test('permission already denied + no tokens anywhere: refused up front — toast, no write, no prompt', async () => {
+    global.Notification = { permission: 'denied' };
+    syncNotifyChannel('u1', LINKED('telegram')); // no pushTokens
+    document.querySelector('[data-channel="push"]').click();
+    await flush();
+    expect(showToast).toHaveBeenCalledWith(
+      'Notifications are blocked in this browser — allow them in your browser settings first. Messages keep arriving via Telegram.');
+    expect(mergeUserPrefs).not.toHaveBeenCalled();
+    expect(ensureNotificationsReady).not.toHaveBeenCalled();
+    expect(active()).toBe('telegram');
+  });
+
+  test('prompt dismissed/denied (permission not granted after the flow) + no tokens: the write is reverted', async () => {
+    global.Notification = { permission: 'default' };
+    ensureNotificationsReady.mockImplementation(async () => {}); // flow ran, no grant
+    syncNotifyChannel('u1', LINKED('telegram')); // no pushTokens
+    document.querySelector('[data-channel="push"]').click();
+    await flush();
+    expect(mergeUserPrefs).toHaveBeenNthCalledWith(1, 'u1', { notifyChannel: 'push' });
+    expect(mergeUserPrefs).toHaveBeenNthCalledWith(2, 'u1', { notifyChannel: 'telegram' });
+    expect(active()).toBe('telegram'); // pill reverted with the write
+    expect(syncBotDelivery).toHaveBeenLastCalledWith(
+      { telegram: { linkedAt: 1 }, notifyChannel: 'telegram' });
+    expect(showToast).toHaveBeenCalledWith(
+      'Push needs notification permission — messages keep arriving via Telegram.');
+  });
+
+  test('prompt granted during the flow: single write, Push stays, no toast', async () => {
+    global.Notification = { permission: 'default' };
+    ensureNotificationsReady.mockImplementation(async () => {
+      global.Notification.permission = 'granted'; // user accepted the prompt
+    });
+    syncNotifyChannel('u1', LINKED('telegram')); // no pushTokens yet (echo pending)
+    document.querySelector('[data-channel="push"]').click();
+    await flush();
+    expect(mergeUserPrefs).toHaveBeenCalledTimes(1);
+    expect(mergeUserPrefs).toHaveBeenCalledWith('u1', { notifyChannel: 'push' });
+    expect(active()).toBe('push');
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  test('another device holds a token: denied here is fine — no refusal, no revert', async () => {
+    global.Notification = { permission: 'denied' };
+    syncNotifyChannel('u1', { ...LINKED('telegram'), pushTokens: { t1: true } });
+    document.querySelector('[data-channel="push"]').click();
+    await flush();
+    expect(mergeUserPrefs).toHaveBeenCalledTimes(1);
+    expect(mergeUserPrefs).toHaveBeenCalledWith('u1', { notifyChannel: 'push' });
+    expect(active()).toBe('push');
+    expect(showToast).not.toHaveBeenCalled();
   });
 });
 

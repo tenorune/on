@@ -56,18 +56,30 @@ function mountPill(slot, userId) {
       <button class="toggle-pill-option" type="button" data-channel="push">Push</button>
     </div>`;
   const pill = slot.querySelector('.toggle-pill');
+  // Any device on the ACCOUNT can receive push — deciding deliverability on
+  // this browser's permission alone would wrongly block/revert a user whose
+  // other device is registered.
+  const accountHasPushTokens = () =>
+    Object.keys(lastPrefs?.pushTokens || {}).length > 0;
+  const permissionGranted = () =>
+    typeof Notification !== 'undefined' && Notification.permission === 'granted';
   pill.querySelectorAll('.toggle-pill-option').forEach((b) => {
     b.addEventListener('click', async () => {
       if (b.classList.contains('active')) return;
       const next = b.dataset.channel;
-      // W1 J#3: inside Telegram the permission flow can't run, so a switch to
-      // Push with no registered device would write a channel the account can't
-      // receive on. Refuse (no write, no flip) and say why — the server-side
-      // token-less fallback (functions/notifier.js) covers every other path.
-      if (next === 'push' && isTelegramContext()) {
-        const tokens = lastPrefs?.pushTokens ? Object.keys(lastPrefs.pushTokens) : [];
-        if (tokens.length === 0) {
+      // W1 J#3: a channel of 'push' with zero registered devices still DELIVERS
+      // (the notifier's token-less fallback routes to the bot) but every pill
+      // would then SHOW a channel that doesn't describe delivery. Refuse the
+      // switch wherever the permission flow can't fix that:
+      //  - inside Telegram the flow can't run at all;
+      //  - on web with permission already denied, the prompt can't be shown.
+      if (next === 'push' && !accountHasPushTokens()) {
+        if (isTelegramContext()) {
           showToast("Push isn't set up on any device yet — open KnockKnock in a browser first. Messages keep arriving via Telegram.");
+          return;
+        }
+        if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+          showToast('Notifications are blocked in this browser — allow them in your browser settings first. Messages keep arriving via Telegram.');
           return;
         }
       }
@@ -80,7 +92,19 @@ function mountPill(slot, userId) {
         // silent until some later prefs event. Inert in Telegram context
         // (ensureNotificationsReady early-returns there).
         syncBotDelivery({ ...(lastPrefs || {}), notifyChannel: next });
-        if (next === 'push') ensureNotificationsReady().catch(() => {});
+        if (next === 'push') {
+          await ensureNotificationsReady().catch(() => {});
+          // Honesty check (web): the prompt ended without a grant and no other
+          // device holds a token — 'push' is undeliverable, so leaving it
+          // written would make every surface display a lie (delivery quietly
+          // rides the bot fallback). Revert the write and say why.
+          if (!isTelegramContext() && !permissionGranted() && !accountHasPushTokens()) {
+            await mergeUserPrefs(userId, { notifyChannel: 'telegram' });
+            setActive(pill, 'telegram');
+            syncBotDelivery({ ...(lastPrefs || {}), notifyChannel: 'telegram' });
+            showToast('Push needs notification permission — messages keep arriving via Telegram.');
+          }
+        }
       } catch {
         setActive(pill, OTHER[next]); // revert; no echo will arrive to correct it
       }
