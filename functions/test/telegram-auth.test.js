@@ -1,5 +1,6 @@
 import { createHmac } from 'crypto';
 import { jest } from '@jest/globals';
+import { makeStoreDeps as makeCoreStoreDeps } from './store-deps.js';
 import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, expungeDerivedAccount, graduateAccountData, graduateTelegramHandler } from '../telegram-auth.js';
 
 const BOT_TOKEN = '12345:TEST_TOKEN';
@@ -62,22 +63,7 @@ describe('deriveTelegramUid', () => {
 
 function makeStoreDeps(store = {}) {
   return {
-    store,
-    getVal: jest.fn(async (path) => store[path] ?? null),
-    set: jest.fn(async (path, value) => { store[path] = value; }),
-    // Multi-path root updates (`update('/', {...})`) land at the same store
-    // keys a direct set would — mirror real RTDB's path normalization.
-    update: jest.fn(async (path, obj) => {
-      for (const [k, v] of Object.entries(obj)) {
-        store[`${path}/${k}`.replace(/\/+/g, '/').replace(/^\//, '')] = v;
-      }
-    }),
-    transaction: jest.fn(async (path, fn) => {
-      const next = fn(store[path] ?? null);
-      if (next === undefined) return { committed: false };
-      store[path] = next;
-      return { committed: true };
-    }),
+    ...makeCoreStoreDeps(store),
     now: () => 1000,
     generateCode: () => 'AAAAAA',
   };
@@ -526,8 +512,10 @@ describe('graduateAccountData', () => {
     await graduateAccountData(deps, OLD, NEW);
 
     // Own subtree copied verbatim to new; old still present (handler deletes it).
+    // (No `availableUntil: null` here: real RTDB prunes null fields on read,
+    // so the copied node is what a real getVal of the old subtree returns.)
     expect(deps.store[`users/${NEW}`]).toEqual({
-      presence: { code: 'DERV01', status: 'unavailable', availableUntil: null },
+      presence: { code: 'DERV01', status: 'unavailable' },
       invites: { TOK1: { scope: 'personal', creatorLabel: 'Ada' } },
       followers: { f1: 'F1CODE' },
       followerNames: { f1: 'Fname' },

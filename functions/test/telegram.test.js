@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import { makeStoreDeps as makeCoreStoreDeps } from './store-deps.js';
 import { buildNotificationKeyboard, handleUpdate, parseDurationMinutes, webhookAuthorized, resolveSourceMessage } from '../telegram.js';
 import { GROUP_ID_RE, UID_RE } from '../telegram-shared.js';
 
@@ -66,22 +67,7 @@ describe('buildNotificationKeyboard', () => {
 
 function makeBotDeps(store = {}) {
   return {
-    store,
-    getVal: jest.fn(async (path) => store[path] ?? null),
-    set: jest.fn(async (path, value) => { store[path] = value; }),
-    // Multi-path root updates (`update('/', {...})`) land at the same store
-    // keys a direct set would — mirror real RTDB's path normalization.
-    update: jest.fn(async (path, obj) => {
-      for (const [k, v] of Object.entries(obj)) {
-        store[`${path}/${k}`.replace(/\/+/g, '/').replace(/^\//, '')] = v;
-      }
-    }),
-    transaction: jest.fn(async (path, fn) => {
-      const next = fn(store[path] ?? null);
-      if (next === undefined) return { committed: false };
-      store[path] = next;
-      return { committed: true };
-    }),
+    ...makeCoreStoreDeps(store),
     now: () => 1_000_000,
     appUrl: 'https://app.example.com',
     generateCode: () => 'AAAAAA',
