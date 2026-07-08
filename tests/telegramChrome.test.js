@@ -30,6 +30,8 @@ const SHELL = `
   <div id="confirm-modal" class="hidden"><button id="confirm-modal-cancel-btn"></button></div>
   <div id="text-prompt-modal" class="hidden"><button id="text-prompt-cancel-btn"></button></div>
   <div id="tg-unlink-confirm" class="hidden"><button id="tg-unlink-cancel-btn"></button></div>
+  <div id="unfollow-confirm" class="hidden"><button id="unfollow-cancel-btn"></button></div>
+  <div id="rotate-confirm" class="hidden"><button id="rotate-cancel-btn"></button></div>
   <div id="graduation-info-toast" class="hidden"><button id="graduation-info-close"></button></div>
   <div id="tg-invite-error" class="hidden"><button id="tg-invite-error-dismiss"></button></div>
   <div id="boot-error-overlay" class="hidden"></div>`;
@@ -123,6 +125,8 @@ describe('back button covers the W1 overlays (C#1)', () => {
     ['confirm-modal', 'confirm-modal-cancel-btn'],
     ['text-prompt-modal', 'text-prompt-cancel-btn'],
     ['tg-unlink-confirm', 'tg-unlink-cancel-btn'],
+    ['unfollow-confirm', 'unfollow-cancel-btn'],
+    ['rotate-confirm', 'rotate-cancel-btn'],
     ['graduation-info-toast', 'graduation-info-close'],
     ['tg-invite-error', 'tg-invite-error-dismiss'],
   ])('%s open → back clicks %s', (overlayId, cancelId) => {
