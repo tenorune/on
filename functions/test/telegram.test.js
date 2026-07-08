@@ -99,21 +99,59 @@ describe('parseDurationMinutes', () => {
   });
 });
 
+// F#5 webhook-reply: a command's single terminal reply is RETURNED by
+// handleUpdate as a sendMessage payload — the webhook answers the HTTP
+// request with it instead of making a separate Bot API call. Callbacks are
+// out of scope (they need two tg calls whose text depends on the DB result)
+// and keep going through deps.tg.
+describe('handleUpdate: webhook-reply payload (F#5)', () => {
+  test('a command reply is returned as a sendMessage payload, not sent via tg', async () => {
+    const deps = makeBotDeps();
+    seedUser(deps.store);
+    const reply = await handleUpdate(deps, msgUpdate('/help'));
+    expect(deps.tg.sendMessage).not.toHaveBeenCalled();
+    expect(reply.chat_id).toBe('42');
+    expect(reply.text).toMatch(/KnockKnock commands/);
+  });
+  test('reply extras (inline keyboard) ride the payload top-level', async () => {
+    const deps = makeBotDeps();
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
+    expect(deps.tg.sendMessage).not.toHaveBeenCalled();
+    expect(reply.reply_markup.inline_keyboard[0][0].web_app.url).toBe('https://app.example.com');
+  });
+  test('callbacks return no payload and keep their tg calls', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    const target = 'f'.repeat(32);
+    const reply = await handleUpdate(deps, {
+      callback_query: { id: 'cq1', from: { id: 42 }, data: `knock:${target}` },
+    });
+    expect(reply).toBeUndefined();
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Knock sent.');
+    expect(deps.store[`knocks/${target}/${uid}`]).toMatchObject({ count: 1 });
+  });
+  test('a non-actionable update (group chat) returns no payload', async () => {
+    const deps = makeBotDeps();
+    const reply = await handleUpdate(deps, { message: { text: '/help', from: { id: 42 }, chat: { id: 42, type: 'group' } } });
+    expect(reply).toBeUndefined();
+    expect(deps.tg.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
 describe('handleUpdate: /start', () => {
   test('bootstraps the account and replies with an open-app button', async () => {
     const deps = makeBotDeps();
-    await handleUpdate(deps, msgUpdate('/start'));
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
     expect(deps.store['telegramUsers/42']).toBeTruthy();
-    const [chatId, text, extra] = deps.tg.sendMessage.mock.calls[0];
-    expect(chatId).toBe('42');
-    expect(text).toMatch(/KnockKnock/);
-    expect(extra.reply_markup.inline_keyboard[0][0].web_app.url).toBe('https://app.example.com');
+    expect(reply.chat_id).toBe('42');
+    expect(reply.text).toMatch(/KnockKnock/);
+    expect(reply.reply_markup.inline_keyboard[0][0].web_app.url).toBe('https://app.example.com');
   });
   test('updates chatId to the message chat id', async () => {
     const deps = makeBotDeps();
     deps.store['telegramUsers/42'] = { uid: 'u-tg-42', chatId: 'old' };
     deps.store['users/u-tg-42/presence'] = { code: 'AAAAAA', status: 'unavailable', availableUntil: null };
-    await handleUpdate(deps, msgUpdate('/start'));
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
     expect(deps.store['telegramUsers/42/chatId']).toBe('42');
     expect(deps.store['telegramByUid/u-tg-42/chatId']).toBe('42');
   });
@@ -122,8 +160,9 @@ describe('handleUpdate: /start', () => {
 describe('/start first contact vs returning', () => {
   test('stranger: funnel message, no command list, Open button', async () => {
     const deps = makeBotDeps({});
-    await handleUpdate(deps, msgUpdate('/start'));
-    const [, text, extra] = deps.tg.sendMessage.mock.calls[0];
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
+    const text = reply.text;
+    const extra = reply;
     expect(text).toMatch(/^Welcome to KnockKnock — for when you're around and open to company\./);
     expect(text).toContain('Everything starts in the app');
     expect(text).toContain('/help shows how');
@@ -136,22 +175,22 @@ describe('/start first contact vs returning', () => {
     const deps = makeBotDeps({});
     const uid = seedUser(deps.store);
     deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'available', availableUntil: deps.now() + 30 * 60000 };
-    await handleUpdate(deps, msgUpdate('/start'));
-    const [, text] = deps.tg.sendMessage.mock.calls[0];
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
+    const text = reply.text;
     expect(text).toBe("You're available for another 30m. /off to stop.");
   });
 
   test('returning + unavailable: compact status reply', async () => {
     const deps = makeBotDeps({});
     seedUser(deps.store);
-    await handleUpdate(deps, msgUpdate('/start'));
-    const [, text] = deps.tg.sendMessage.mock.calls[0];
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
+    const text = reply.text;
     expect(text).toBe("You're unavailable right now. /status to go available.");
   });
 
   test('stranger /start still bootstraps mapping + chat route', async () => {
     const deps = makeBotDeps({});
-    await handleUpdate(deps, msgUpdate('/start'));
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
     expect(deps.store['telegramUsers/42']).toBeTruthy();
     expect(deps.store['telegramUsers/42/chatId']).toBe('42');
   });
@@ -161,14 +200,14 @@ describe('/start first contact vs returning', () => {
   test('returning /start: mapping and presence each read ONCE, chat route one update', async () => {
     const deps = makeBotDeps({});
     const uid = seedUser(deps.store);
-    await handleUpdate(deps, msgUpdate('/start'));
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
     const reads = deps.getVal.mock.calls.map(([p]) => p);
     expect(reads.filter((p) => p === 'telegramUsers/42')).toHaveLength(1);
     expect(reads.filter((p) => p === `users/${uid}/presence`)).toHaveLength(1);
     expect(deps.update).toHaveBeenCalledTimes(1);
     expect(deps.store['telegramUsers/42/chatId']).toBe('42');
     expect(deps.store[`telegramByUid/${uid}/chatId`]).toBe('42');
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe("You're unavailable right now. /status to go available.");
+    expect(reply.text).toBe("You're unavailable right now. /status to go available.");
   });
 });
 
@@ -176,39 +215,39 @@ describe('handleUpdate: /status and /off', () => {
   test('/status 30m → available with future availableUntil + lastSeen', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    await handleUpdate(deps, msgUpdate('/status 30m'));
+    const reply = await handleUpdate(deps, msgUpdate('/status 30m'));
     expect(deps.update).toHaveBeenCalledWith(`users/${uid}/presence`, {
       status: 'available', availableUntil: 1_000_000 + 30 * 60000, lastSeen: 1_000_000,
     });
-    expect(deps.tg.sendMessage).toHaveBeenCalled();
+    expect(reply.text).toBe("You're available for 30m. /off to stop.");
   });
   test('/status with no arg defaults to 60m', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    await handleUpdate(deps, msgUpdate('/status'));
+    const reply = await handleUpdate(deps, msgUpdate('/status'));
     expect(deps.update).toHaveBeenCalledWith(`users/${uid}/presence`,
       expect.objectContaining({ availableUntil: 1_000_000 + 60 * 60000 }));
   });
   test('/status <unknown word> → treated as group name, no write', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
-    await handleUpdate(deps, msgUpdate('/status whenever'));
+    const reply = await handleUpdate(deps, msgUpdate('/status whenever'));
     expect(deps.update).not.toHaveBeenCalled();
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('No group matching "whenever".');
+    expect(reply.text).toBe('No group matching "whenever".');
   });
   test('/off → unavailable, cleared availableUntil', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    await handleUpdate(deps, msgUpdate('/off'));
+    const reply = await handleUpdate(deps, msgUpdate('/off'));
     expect(deps.update).toHaveBeenCalledWith(`users/${uid}/presence`, {
       status: 'unavailable', availableUntil: null, lastSeen: 1_000_000,
     });
   });
   test('command from an unknown tg user → open-app prompt, no presence write', async () => {
     const deps = makeBotDeps();
-    await handleUpdate(deps, msgUpdate('/status 30m'));
+    const reply = await handleUpdate(deps, msgUpdate('/status 30m'));
     expect(deps.update).not.toHaveBeenCalled();
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/open/i);
+    expect(reply.text).toMatch(/open/i);
   });
 });
 
@@ -222,18 +261,18 @@ describe('handleUpdate: /status <group>', () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedStatusGroup(deps.store, uid, { enabled: true, status: 'unavailable', statusColor: '#abc', paletteKey: 'p1' });
-    await handleUpdate(deps, msgUpdate('/status divers 2h'));
+    const reply = await handleUpdate(deps, msgUpdate('/status divers 2h'));
     expect(deps.update).toHaveBeenCalledWith(`groups/G1/members/${uid}/statusOverride`, {
       status: 'available', availableUntil: 1_000_000 + 120 * 60000,
     });
     expect(deps.update).toHaveBeenCalledTimes(1); // no global presence write
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe("You're available in Divers for 2h.");
+    expect(reply.text).toBe("You're available in Divers for 2h.");
   });
   test('override ON, no duration → defaults to 60m', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedStatusGroup(deps.store, uid, { enabled: true, status: 'unavailable' });
-    await handleUpdate(deps, msgUpdate('/status divers'));
+    const reply = await handleUpdate(deps, msgUpdate('/status divers'));
     expect(deps.update).toHaveBeenCalledWith(`groups/G1/members/${uid}/statusOverride`,
       expect.objectContaining({ availableUntil: 1_000_000 + 60 * 60000 }));
   });
@@ -243,7 +282,7 @@ describe('handleUpdate: /status <group>', () => {
     deps.store[`users/${uid}/groups`] = { G3: { lastVisited: 1 } };
     deps.store['groups/G3/name'] = 'My Family';
     deps.store[`groups/G3/members/${uid}/statusOverride`] = { enabled: true, status: 'unavailable' };
-    await handleUpdate(deps, msgUpdate('/status my family 30m'));
+    const reply = await handleUpdate(deps, msgUpdate('/status my family 30m'));
     expect(deps.update).toHaveBeenCalledWith(`groups/G3/members/${uid}/statusOverride`,
       expect.objectContaining({ availableUntil: 1_000_000 + 30 * 60000 }));
   });
@@ -252,31 +291,31 @@ describe('handleUpdate: /status <group>', () => {
     const uid = seedUser(deps.store);
     seedStatusGroup(deps.store, uid, { enabled: false });
     deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'available', availableUntil: 2_000_000 };
-    await handleUpdate(deps, msgUpdate('/status divers'));
+    const reply = await handleUpdate(deps, msgUpdate('/status divers'));
     expect(deps.update).not.toHaveBeenCalled();
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe("Divers follows your global status — you're already available there.");
+    expect(reply.text).toBe("Divers follows your global status — you're already available there.");
   });
   test('override OFF + globally unavailable → no write, guidance message', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedStatusGroup(deps.store, uid, { enabled: false });
-    await handleUpdate(deps, msgUpdate('/status divers 2h'));
+    const reply = await handleUpdate(deps, msgUpdate('/status divers 2h'));
     expect(deps.update).not.toHaveBeenCalled();
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Divers follows your global status. /status goes available everywhere, or turn on a group status in the app.');
+    expect(reply.text).toBe('Divers follows your global status. /status goes available everywhere, or turn on a group status in the app.');
   });
   test('missing override node behaves as override OFF', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
     deps.store['groups/G1/name'] = 'Divers';
-    await handleUpdate(deps, msgUpdate('/status divers'));
+    const reply = await handleUpdate(deps, msgUpdate('/status divers'));
     expect(deps.update).not.toHaveBeenCalled();
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/follows your global status/);
+    expect(reply.text).toMatch(/follows your global status/);
   });
   test('regression: /status 1h 30m stays a global duration', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    await handleUpdate(deps, msgUpdate('/status 1h 30m'));
+    const reply = await handleUpdate(deps, msgUpdate('/status 1h 30m'));
     expect(deps.update).toHaveBeenCalledWith(`users/${uid}/presence`,
       expect.objectContaining({ availableUntil: 1_000_000 + 90 * 60000 }));
   });
@@ -292,37 +331,37 @@ describe('handleUpdate: /off <group>', () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedOffGroup(deps.store, uid, { enabled: true, status: 'available', availableUntil: 2_000_000, statusColor: '#abc' });
-    await handleUpdate(deps, msgUpdate('/off divers'));
+    const reply = await handleUpdate(deps, msgUpdate('/off divers'));
     expect(deps.update).toHaveBeenCalledWith(`groups/G1/members/${uid}/statusOverride`, {
       status: 'unavailable', availableUntil: null,
     });
     expect(deps.update).toHaveBeenCalledTimes(1); // no global presence write
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe("You're unavailable in Divers.");
+    expect(reply.text).toBe("You're unavailable in Divers.");
   });
   test('override OFF + globally available → no write, guidance message', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedOffGroup(deps.store, uid, { enabled: false });
     deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'available', availableUntil: 2_000_000 };
-    await handleUpdate(deps, msgUpdate('/off divers'));
+    const reply = await handleUpdate(deps, msgUpdate('/off divers'));
     expect(deps.update).not.toHaveBeenCalled();
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Divers follows your global status. /off goes unavailable everywhere, or turn on a group status in the app.');
+    expect(reply.text).toBe('Divers follows your global status. /off goes unavailable everywhere, or turn on a group status in the app.');
   });
   test('override OFF + globally unavailable → no write, already-unavailable message', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedOffGroup(deps.store, uid, { enabled: false });
-    await handleUpdate(deps, msgUpdate('/off divers'));
+    const reply = await handleUpdate(deps, msgUpdate('/off divers'));
     expect(deps.update).not.toHaveBeenCalled();
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe("You're already unavailable in Divers.");
+    expect(reply.text).toBe("You're already unavailable in Divers.");
   });
   test('no matching group → No group matching, no write', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedOffGroup(deps.store, uid, { enabled: true, status: 'available' });
-    await handleUpdate(deps, msgUpdate('/off chess'));
+    const reply = await handleUpdate(deps, msgUpdate('/off chess'));
     expect(deps.update).not.toHaveBeenCalled();
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('No group matching "chess".');
+    expect(reply.text).toBe('No group matching "chess".');
   });
 });
 
@@ -331,19 +370,18 @@ describe('handleUpdate: /notifications and /help', () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`userPrefs/${uid}/pushTokens`] = { tok1: true };
-    await handleUpdate(deps, msgUpdate('/notifications push'));
+    let reply = await handleUpdate(deps, msgUpdate('/notifications push'));
     expect(deps.store[`userPrefs/${uid}/notifyChannel`]).toBe('push');
-    await handleUpdate(deps, msgUpdate('/notifications telegram'));
+    reply = await handleUpdate(deps, msgUpdate('/notifications telegram'));
     expect(deps.store[`userPrefs/${uid}/notifyChannel`]).toBe('telegram');
-    deps.tg.sendMessage.mockClear();
-    await handleUpdate(deps, msgUpdate('/notifications carrier-pigeon'));
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/push|telegram/);
+    reply = await handleUpdate(deps, msgUpdate('/notifications carrier-pigeon'));
+    expect(reply.text).toMatch(/push|telegram/);
   });
   test('/help lists the commands', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
-    await handleUpdate(deps, msgUpdate('/help'));
-    const text = deps.tg.sendMessage.mock.calls[0][1];
+    const reply = await handleUpdate(deps, msgUpdate('/help'));
+    const text = reply.text;
     for (const cmd of ['/status', '/off', '/who', '/knock', '/groups', '/notifications']) {
       expect(text).toContain(cmd);
     }
@@ -354,9 +392,9 @@ describe('handleUpdate: /notifications and /help', () => {
   });
   test('non-private chats and non-message updates are ignored', async () => {
     const deps = makeBotDeps();
-    await handleUpdate(deps, { message: { text: '/help', from: { id: 42 }, chat: { id: -9, type: 'group' } } });
-    await handleUpdate(deps, { edited_message: {} });
-    await handleUpdate(deps, null);
+    let reply = await handleUpdate(deps, { message: { text: '/help', from: { id: 42 }, chat: { id: -9, type: 'group' } } });
+    reply = await handleUpdate(deps, { edited_message: {} });
+    reply = await handleUpdate(deps, null);
     expect(deps.tg.sendMessage).not.toHaveBeenCalled();
   });
 });
@@ -366,10 +404,9 @@ describe('/notifications push without tokens (W1 J#3)', () => {
     const store = {};
     const uid = seedUser(store);
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, msgUpdate('/notifications push'));
-    expect(deps.tg.sendMessage).toHaveBeenCalledWith('42',
-      "Push isn't set up on any device yet — open KnockKnock in a browser first. You'll keep getting messages here.",
-      expect.anything());
+    const reply = await handleUpdate(deps, msgUpdate('/notifications push'));
+    expect(reply.chat_id).toBe('42');
+    expect(reply.text).toBe("Push isn't set up on any device yet — open KnockKnock in a browser first. You'll keep getting messages here.");
     expect(store[`userPrefs/${uid}/notifyChannel`]).toBeUndefined();
   });
 
@@ -378,7 +415,7 @@ describe('/notifications push without tokens (W1 J#3)', () => {
     const uid = seedUser(store);
     store[`userPrefs/${uid}/pushTokens`] = { tok1: true };
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, msgUpdate('/notifications push'));
+    const reply = await handleUpdate(deps, msgUpdate('/notifications push'));
     expect(store[`userPrefs/${uid}/notifyChannel`]).toBe('push');
   });
 });
@@ -393,15 +430,14 @@ describe('handleUpdate: /who', () => {
     };
     deps.store['users/f1/presence'] = { status: 'available', availableUntil: 2_000_000 };
     deps.store['users/f2/presence'] = { status: 'unavailable', availableUntil: null };
-    await handleUpdate(deps, msgUpdate('/who'));
-    const text = deps.tg.sendMessage.mock.calls[0][1];
+    let reply = await handleUpdate(deps, msgUpdate('/who'));
+    const text = reply.text;
     expect(text).toContain('Bea');
     expect(text).not.toContain('Cal');
 
-    deps.tg.sendMessage.mockClear();
     deps.store['users/f1/presence'] = { status: 'available', availableUntil: 500 }; // expired
-    await handleUpdate(deps, msgUpdate('/who'));
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/no one|nobody/i);
+    reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).toMatch(/no one|nobody/i);
   });
 });
 
@@ -423,8 +459,8 @@ describe('handleUpdate: /who <group>', () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedGroup(deps.store, uid);
-    await handleUpdate(deps, msgUpdate('/who div'));
-    const text = deps.tg.sendMessage.mock.calls[0][1];
+    const reply = await handleUpdate(deps, msgUpdate('/who div'));
+    const text = reply.text;
     expect(text).toContain('Available in Divers');
     expect(text).toContain('Overridden On');     // override ON + available
     expect(text).toContain('Follows Global');    // override OFF + globally available
@@ -436,15 +472,15 @@ describe('handleUpdate: /who <group>', () => {
     const uid = seedUser(deps.store);
     seedGroup(deps.store, uid);
     deps.store['groups/G1/members'] = { [uid]: { displayName: 'Me' }, m1: { displayName: 'Bea', statusOverride: { enabled: true, status: 'unavailable' } } };
-    await handleUpdate(deps, msgUpdate('/who divers'));
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('No one is available in Divers right now.');
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toBe('No one is available in Divers right now.');
   });
   test('no matching group → No group matching', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedGroup(deps.store, uid);
-    await handleUpdate(deps, msgUpdate('/who chess'));
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('No group matching "chess".');
+    const reply = await handleUpdate(deps, msgUpdate('/who chess'));
+    expect(reply.text).toBe('No group matching "chess".');
   });
   test('ambiguous group name → lists candidates, asks for more letters', async () => {
     const deps = makeBotDeps();
@@ -452,8 +488,8 @@ describe('handleUpdate: /who <group>', () => {
     seedGroup(deps.store, uid);
     deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 2 } };
     deps.store['groups/G2/name'] = 'Dive Club';
-    await handleUpdate(deps, msgUpdate('/who div'));
-    const text = deps.tg.sendMessage.mock.calls[0][1];
+    const reply = await handleUpdate(deps, msgUpdate('/who div'));
+    const text = reply.text;
     expect(text).toContain('Divers');
     expect(text).toContain('Dive Club');
     expect(text).toMatch(/more letters/i);
@@ -466,7 +502,7 @@ describe('handleUpdate: /knock', () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`userPrefs/${uid}/following`] = { f1: following.f1 };
-    await handleUpdate(deps, msgUpdate('/knock bea'));
+    const reply = await handleUpdate(deps, msgUpdate('/knock bea'));
     expect(deps.store[`knocks/f1/${uid}`]).toEqual({ count: 1, ts: 1_000_000 });
   });
   test('knock caps at 5 like the client transaction', async () => {
@@ -474,15 +510,15 @@ describe('handleUpdate: /knock', () => {
     const uid = seedUser(deps.store);
     deps.store[`userPrefs/${uid}/following`] = { f1: following.f1 };
     deps.store[`knocks/f1/${uid}`] = { count: 5, ts: 1 };
-    await handleUpdate(deps, msgUpdate('/knock bea'));
+    const reply = await handleUpdate(deps, msgUpdate('/knock bea'));
     expect(deps.store[`knocks/f1/${uid}`].count).toBe(5);
   });
   test('ambiguous → inline keyboard of candidates', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`userPrefs/${uid}/following`] = following;
-    await handleUpdate(deps, msgUpdate('/knock bea'));
-    const extra = deps.tg.sendMessage.mock.calls[0][2];
+    const reply = await handleUpdate(deps, msgUpdate('/knock bea'));
+    const extra = reply;
     const buttons = extra.reply_markup.inline_keyboard.flat();
     expect(buttons).toEqual(expect.arrayContaining([
       { text: 'Bea', callback_data: 'knock:f1' },
@@ -493,11 +529,10 @@ describe('handleUpdate: /knock', () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`userPrefs/${uid}/following`] = following;
-    await handleUpdate(deps, msgUpdate('/knock zed'));
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/find/i);
-    deps.tg.sendMessage.mockClear();
-    await handleUpdate(deps, msgUpdate('/knock'));
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/knock <name>/i);
+    let reply = await handleUpdate(deps, msgUpdate('/knock zed'));
+    expect(reply.text).toMatch(/find/i);
+    reply = await handleUpdate(deps, msgUpdate('/knock'));
+    expect(reply.text).toMatch(/knock <name>/i);
   });
   test('Direct match wins over a roster match — knock has no group context', async () => {
     const deps = makeBotDeps();
@@ -506,7 +541,7 @@ describe('handleUpdate: /knock', () => {
     deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
     deps.store['groups/G1/name'] = 'Divers';
     deps.store['groups/G1/members'] = { g9: { displayName: 'Bea' } };
-    await handleUpdate(deps, msgUpdate('/knock bea'));
+    const reply = await handleUpdate(deps, msgUpdate('/knock bea'));
     expect(deps.store[`knocks/f1/${uid}`]).toEqual({ count: 1, ts: 1_000_000 });
     expect(deps.store[`knocks/g9/${uid}`]).toBeUndefined();
   });
@@ -517,9 +552,9 @@ describe('handleUpdate: /knock', () => {
     deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
     deps.store['groups/G1/name'] = 'Divers';
     deps.store['groups/G1/members'] = { [uid]: { displayName: 'Me' }, g9: { displayName: 'Cora' } };
-    await handleUpdate(deps, msgUpdate('/knock cora'));
+    const reply = await handleUpdate(deps, msgUpdate('/knock cora'));
     expect(deps.store[`knocks/g9/${uid}`]).toEqual({ count: 1, ts: 1_000_000, contextGroupId: 'G1' });
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Knocked on Cora (Divers).');
+    expect(reply.text).toBe('Knocked on Cora (Divers).');
   });
   test('own displayName never matches (self excluded from rosters)', async () => {
     const deps = makeBotDeps();
@@ -527,9 +562,9 @@ describe('handleUpdate: /knock', () => {
     deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
     deps.store['groups/G1/name'] = 'Divers';
     deps.store['groups/G1/members'] = { [uid]: { displayName: 'Ada' } };
-    await handleUpdate(deps, msgUpdate('/knock ada'));
+    const reply = await handleUpdate(deps, msgUpdate('/knock ada'));
     expect(Object.keys(deps.store).some((k) => k.startsWith('knocks/'))).toBe(false);
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/find/i);
+    expect(reply.text).toMatch(/find/i);
   });
   test('ambiguous roster matches → keyboard with uid:gid callbacks', async () => {
     const deps = makeBotDeps();
@@ -539,8 +574,8 @@ describe('handleUpdate: /knock', () => {
     deps.store['groups/G2/name'] = 'Family';
     deps.store['groups/G1/members'] = { a1: { displayName: 'Cora' } };
     deps.store['groups/G2/members'] = { a2: { displayName: 'Coraline' } };
-    await handleUpdate(deps, msgUpdate('/knock cora'));
-    const buttons = deps.tg.sendMessage.mock.calls[0][2].reply_markup.inline_keyboard.flat();
+    const reply = await handleUpdate(deps, msgUpdate('/knock cora'));
+    const buttons = reply.reply_markup.inline_keyboard.flat();
     expect(buttons).toEqual(expect.arrayContaining([
       { text: 'Cora (Divers)', callback_data: 'knock:a1:G1' },
       { text: 'Coraline (Family)', callback_data: 'knock:a2:G2' },
@@ -550,8 +585,8 @@ describe('handleUpdate: /knock', () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`userPrefs/${uid}/following`] = { f1: { code: 'CODE01', label: 'Bea' } };
-    await handleUpdate(deps, msgUpdate('/knock zed'));
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Couldn\'t find "zed" among the people you follow or your groups.');
+    const reply = await handleUpdate(deps, msgUpdate('/knock zed'));
+    expect(reply.text).toBe('Couldn\'t find "zed" among the people you follow or your groups.');
   });
 });
 
@@ -565,16 +600,16 @@ describe('handleUpdate: /groups', () => {
     deps.store[`groups/G1/members/${uid}/statusOverride`] = { enabled: true, status: 'available', availableUntil: 2_000_000 };
     deps.store[`groups/G2/members/${uid}/statusOverride`] = { enabled: false };
     deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'unavailable', availableUntil: null };
-    await handleUpdate(deps, msgUpdate('/groups'));
-    const text = deps.tg.sendMessage.mock.calls[0][1];
+    const reply = await handleUpdate(deps, msgUpdate('/groups'));
+    const text = reply.text;
     expect(text).toMatch(/Divers — available/i);
     expect(text).toMatch(/Family — unavailable/i);
   });
   test('no groups → pointer to the app', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
-    await handleUpdate(deps, msgUpdate('/groups'));
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/app/i);
+    const reply = await handleUpdate(deps, msgUpdate('/groups'));
+    expect(reply.text).toMatch(/app/i);
   });
 });
 
@@ -585,39 +620,39 @@ describe('callback: knock', () => {
   test('writes the knock and confirms', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    await handleUpdate(deps, cbUpdate(`knock:${F9}`));
+    const reply = await handleUpdate(deps, cbUpdate(`knock:${F9}`));
     expect(deps.store[`knocks/${F9}/${uid}`]).toEqual({ count: 1, ts: 1_000_000 });
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/knock/i));
   });
   test('unknown telegram user → prompted to open the app', async () => {
     const deps = makeBotDeps();
-    await handleUpdate(deps, cbUpdate(`knock:${F9}`));
+    const reply = await handleUpdate(deps, cbUpdate(`knock:${F9}`));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/open/i));
   });
   test('empty arg → Unknown action, no write', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
-    await handleUpdate(deps, cbUpdate(`knock:`));
+    const reply = await handleUpdate(deps, cbUpdate(`knock:`));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
     expect(Object.keys(deps.store).some((k) => k.startsWith('knocks/'))).toBe(false);
   });
   test('knock:uid:gid writes contextGroupId on create', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    await handleUpdate(deps, cbUpdate(`knock:${F9}:AAAA1111`));
+    const reply = await handleUpdate(deps, cbUpdate(`knock:${F9}:AAAA1111`));
     expect(deps.store[`knocks/${F9}/${uid}`]).toEqual({ count: 1, ts: 1_000_000, contextGroupId: 'AAAA1111' });
   });
   test('knock:uid:gid overwrites contextGroupId on increment', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`knocks/${F9}/${uid}`] = { count: 1, ts: 1 };
-    await handleUpdate(deps, cbUpdate(`knock:${F9}:BBBB2222`));
+    const reply = await handleUpdate(deps, cbUpdate(`knock:${F9}:BBBB2222`));
     expect(deps.store[`knocks/${F9}/${uid}`]).toEqual({ count: 2, ts: 1_000_000, contextGroupId: 'BBBB2222' });
   });
   test('malformed gid segment is dropped — knock still lands, no contextGroupId', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    await handleUpdate(deps, cbUpdate(`knock:${F9}:bad.gid`));
+    const reply = await handleUpdate(deps, cbUpdate(`knock:${F9}:bad.gid`));
     expect(deps.store[`knocks/${F9}/${uid}`]).toEqual({ count: 1, ts: 1_000_000 });
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/knock/i));
   });
@@ -625,7 +660,7 @@ describe('callback: knock', () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`knocks/${F9}/${uid}`] = { count: 1, ts: 1, contextGroupId: 'G1' };
-    await handleUpdate(deps, cbUpdate(`knock:${F9}`));
+    let reply = await handleUpdate(deps, cbUpdate(`knock:${F9}`));
     expect(deps.store[`knocks/${F9}/${uid}`]).toEqual({ count: 2, ts: 1_000_000, contextGroupId: 'G1' });
   });
   // callback_query.data is attacker-controllable and writeKnock is an Admin-SDK
@@ -640,7 +675,7 @@ describe('callback: knock', () => {
   ])('malformed recipient uid %s (%s) → Unknown action, no write', async (badUid) => {
     const deps = makeBotDeps();
     seedUser(deps.store);
-    await handleUpdate(deps, cbUpdate(`knock:${badUid}`));
+    reply = await handleUpdate(deps, cbUpdate(`knock:${badUid}`));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
     expect(deps.transaction).not.toHaveBeenCalled();
     expect(Object.keys(deps.store).some((k) => k.startsWith('knocks/'))).toBe(false);
@@ -657,7 +692,7 @@ describe('inbox callbacks', () => {
     const uid = seedUser(deps.store);
     deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
     deps.store[`groups/${GID}/name`] = 'Divers';
-    await handleUpdate(deps, cb(`invite_accept:${GID}`));
+    const reply = await handleUpdate(deps, cb(`invite_accept:${GID}`));
     expect(deps.store[`groups/${GID}/members/${uid}`]).toEqual({
       role: 'member', displayName: 'Ada', joinedAt: 1_000_000,
       statusOverride: { enabled: true, status: 'available', availableUntil: 1_000_000 + 2 * 60 * 60 * 1000 },
@@ -673,7 +708,7 @@ describe('inbox callbacks', () => {
     deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
     deps.store[`groups/${GID}/name`] = 'Divers';
     deps.store[`groups/${GID}/members/${uid}`] = { role: 'member', displayName: 'Old' };
-    await handleUpdate(deps, cb(`invite_accept:${GID}`));
+    const reply = await handleUpdate(deps, cb(`invite_accept:${GID}`));
     expect(deps.store[`groups/${GID}/members/${uid}`].displayName).toBe('Old');
     expect(deps.store[`pendingInvites/${uid}/${GID}`]).toBeNull();
   });
@@ -681,7 +716,7 @@ describe('inbox callbacks', () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
-    await handleUpdate(deps, cb(`invite_accept:${GID}`));
+    const reply = await handleUpdate(deps, cb(`invite_accept:${GID}`));
     expect(deps.store[`pendingInvites/${uid}/${GID}`]).toBeNull();
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/no longer/i));
   });
@@ -689,7 +724,7 @@ describe('inbox callbacks', () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
-    await handleUpdate(deps, cb(`invite_decline:${GID}`));
+    const reply = await handleUpdate(deps, cb(`invite_decline:${GID}`));
     expect(deps.store[`pendingInvites/${uid}/${GID}`]).toBeNull();
     expect(deps.store[`groups/${GID}/members/${uid}`]).toBeUndefined();
   });
@@ -698,7 +733,7 @@ describe('inbox callbacks', () => {
     const uid = seedUser(deps.store);
     deps.store[`followRequests/${uid}/${REQ}`] = { from: REQ, groupId: GID, ts: 1 };
     deps.store[`groups/${GID}/members/${uid}/displayName`] = 'Captain Ada';
-    await handleUpdate(deps, cb(`fr_approve:${REQ}`));
+    const reply = await handleUpdate(deps, cb(`fr_approve:${REQ}`));
     expect(deps.store[`followGrants/${REQ}/${uid}`]).toEqual({
       from: uid, code: 'AAAAAA', name: 'Captain Ada', ts: 1_000_000,
     });
@@ -711,7 +746,7 @@ describe('inbox callbacks', () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`followRequests/${uid}/${REQ}`] = { from: REQ, groupId: GID, ts: 1 };
-    await handleUpdate(deps, cb(`fr_approve:${REQ}`));
+    const reply = await handleUpdate(deps, cb(`fr_approve:${REQ}`));
     expect(deps.set).not.toHaveBeenCalled();
     expect(deps.update).toHaveBeenCalledTimes(1);
     expect(Object.keys(deps.update.mock.calls[0][1]).sort()).toEqual([
@@ -722,14 +757,14 @@ describe('inbox callbacks', () => {
   test('fr_approve on a vanished request → polite no-op', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
-    await handleUpdate(deps, cb(`fr_approve:${REQ}`));
+    const reply = await handleUpdate(deps, cb(`fr_approve:${REQ}`));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringMatching(/gone|expired/i));
   });
   test('fr_decline → deletes the request', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`followRequests/${uid}/${REQ}`] = { from: REQ, ts: 1 };
-    await handleUpdate(deps, cb(`fr_decline:${REQ}`));
+    const reply = await handleUpdate(deps, cb(`fr_decline:${REQ}`));
     expect(deps.store[`followRequests/${uid}/${REQ}`]).toBeNull();
   });
   // F#14: the join used to be three sequential writes (member node, nav entry,
@@ -740,7 +775,7 @@ describe('inbox callbacks', () => {
     const uid = seedUser(deps.store);
     deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
     deps.store[`groups/${GID}/name`] = 'Divers';
-    await handleUpdate(deps, cb(`invite_accept:${GID}`));
+    const reply = await handleUpdate(deps, cb(`invite_accept:${GID}`));
     expect(deps.set).not.toHaveBeenCalled();
     expect(deps.update).toHaveBeenCalledTimes(1);
     expect(Object.keys(deps.update.mock.calls[0][1]).sort()).toEqual([
@@ -755,7 +790,7 @@ describe('inbox callbacks', () => {
     const uid = seedUser(deps.store);
     deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
     deps.store[`pendingInvitesByGroup/${GID}/${uid}`] = true;
-    await handleUpdate(deps, cb(`invite_decline:${GID}`));
+    const reply = await handleUpdate(deps, cb(`invite_decline:${GID}`));
     expect(deps.set).not.toHaveBeenCalled();
     expect(deps.update).toHaveBeenCalledTimes(1);
     expect(deps.store[`pendingInvites/${uid}/${GID}`]).toBeNull();
@@ -767,21 +802,21 @@ describe('inbox callbacks', () => {
   test('invite_accept with malformed gid → Unknown action, nothing written', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
-    await handleUpdate(deps, cb('invite_accept:bad/gid'));
+    const reply = await handleUpdate(deps, cb('invite_accept:bad/gid'));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
     expect(deps.set).not.toHaveBeenCalled();
   });
   test('invite_decline with malformed gid → Unknown action, no deletes', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
-    await handleUpdate(deps, cb('invite_decline:lowercase1'));
+    const reply = await handleUpdate(deps, cb('invite_decline:lowercase1'));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
     expect(deps.set).not.toHaveBeenCalled();
   });
   test('fr_approve with malformed requester uid → Unknown action, no grant', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
-    await handleUpdate(deps, cb('fr_approve:REQ/../x'));
+    const reply = await handleUpdate(deps, cb('fr_approve:REQ/../x'));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
     expect(deps.set).not.toHaveBeenCalled();
   });
@@ -789,7 +824,7 @@ describe('inbox callbacks', () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`followRequests/${uid}/${REQ}`] = { from: REQ, ts: 1 };
-    await handleUpdate(deps, cb('fr_decline:short'));
+    const reply = await handleUpdate(deps, cb('fr_decline:short'));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
     expect(deps.store[`followRequests/${uid}/${REQ}`]).toEqual({ from: REQ, ts: 1 });
   });
@@ -820,9 +855,9 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     };
     deps.store['users/f1/presence'] = { status: 'available', availableUntil: 2_000_000 };
     const probe = withConcurrencyProbe(deps);
-    await handleUpdate(deps, msgUpdate('/who'));
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
     expect(probe.max).toBeGreaterThanOrEqual(3);
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Available now:\n🟢 Bea');
+    expect(reply.text).toBe('Available now:\n🟢 Bea');
   });
 
   test('/who <group> reads co-member presences concurrently', async () => {
@@ -838,9 +873,9 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     };
     deps.store['users/m1/presence'] = { status: 'available', availableUntil: 2_000_000 };
     const probe = withConcurrencyProbe(deps);
-    await handleUpdate(deps, msgUpdate('/who divers'));
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
     expect(probe.max).toBeGreaterThanOrEqual(3);
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Available in Divers:\n🟢 Bea');
+    expect(reply.text).toBe('Available in Divers:\n🟢 Bea');
   });
 
   test('/groups reads every group\'s name+override concurrently', async () => {
@@ -850,9 +885,9 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     deps.store['groups/G1/name'] = 'Divers';
     deps.store['groups/G2/name'] = 'Family';
     const probe = withConcurrencyProbe(deps);
-    await handleUpdate(deps, msgUpdate('/groups'));
+    const reply = await handleUpdate(deps, msgUpdate('/groups'));
     expect(probe.max).toBeGreaterThanOrEqual(4);
-    const text = deps.tg.sendMessage.mock.calls[0][1];
+    const text = reply.text;
     expect(text).toBe('Divers — unavailable (you)\nFamily — unavailable (you)');
   });
 
@@ -864,9 +899,9 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     deps.store['groups/G2/name'] = 'Family';
     deps.store['groups/G3/name'] = 'Chess';
     const probe = withConcurrencyProbe(deps);
-    await handleUpdate(deps, msgUpdate('/status chess 30m'));
+    const reply = await handleUpdate(deps, msgUpdate('/status chess 30m'));
     expect(probe.max).toBeGreaterThanOrEqual(3);
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toMatch(/follows your global status/);
+    expect(reply.text).toMatch(/follows your global status/);
   });
 
   test('/knock roster reach reads all group rosters concurrently', async () => {
@@ -878,9 +913,9 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     deps.store['groups/G1/members'] = { a1: { displayName: 'Cora' } };
     deps.store['groups/G2/members'] = { a2: { displayName: 'Zed' } };
     const probe = withConcurrencyProbe(deps);
-    await handleUpdate(deps, msgUpdate('/knock cora'));
+    const reply = await handleUpdate(deps, msgUpdate('/knock cora'));
     expect(probe.max).toBeGreaterThanOrEqual(4);
-    expect(deps.tg.sendMessage.mock.calls[0][1]).toBe('Knocked on Cora (Divers).');
+    expect(reply.text).toBe('Knocked on Cora (Divers).');
   });
 
   // availableUntil must be stamped from now() AT WRITE TIME (after the reads),
@@ -896,7 +931,7 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     let t = 1_000_000;
     deps.getVal = jest.fn(async (path) => { t += 1000; return deps.store[path] ?? null; });
     deps.now = () => t;
-    await handleUpdate(deps, msgUpdate('/status divers 30m'));
+    const reply = await handleUpdate(deps, msgUpdate('/status divers 30m'));
     expect(deps.update).toHaveBeenCalledWith(`groups/G1/members/${uid}/statusOverride`, {
       status: 'available', availableUntil: 1_005_000 + 30 * 60000,
     });
@@ -909,7 +944,7 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     deps.store['groups/G1/name'] = 'Divers';
     deps.store[`groups/G1/members/${uid}/statusOverride`] = { enabled: true, status: 'unavailable' };
     const probe = withConcurrencyProbe(deps);
-    await handleUpdate(deps, msgUpdate('/status divers 30m'));
+    const reply = await handleUpdate(deps, msgUpdate('/status divers 30m'));
     expect(probe.max).toBeGreaterThanOrEqual(2);
     expect(deps.update).toHaveBeenCalledWith(`groups/G1/members/${uid}/statusOverride`, {
       status: 'available', availableUntil: 1_000_000 + 30 * 60000,
@@ -940,7 +975,7 @@ describe('invite callbacks are state-checked and self-recording (W1 B#1)', () =>
     const uid = seedUser(store);
     seedInvite(store, uid);
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
+    const reply = await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
     expect(store[`groups/${GID}/members/${uid}`]).toMatchObject({ role: 'member' });
     expect(deps.tg.editMessageText).toHaveBeenCalledWith(
       '42', 7, 'Ada invited you to Divers\n\n✅ Joined Divers.');
@@ -953,7 +988,7 @@ describe('invite callbacks are state-checked and self-recording (W1 B#1)', () =>
     store[`groups/${GID}/name`] = 'Divers';
     store[`groups/${GID}/members/${uid}`] = { role: 'member', displayName: 'Ada' };
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, cqUpdate(`invite_decline:${GID}`, inviteMsg));
+    const reply = await handleUpdate(deps, cqUpdate(`invite_decline:${GID}`, inviteMsg));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith(
       'cq1', 'Already handled — you joined this group.');
     expect(store[`groups/${GID}/members/${uid}`]).toBeTruthy(); // still a member
@@ -966,7 +1001,7 @@ describe('invite callbacks are state-checked and self-recording (W1 B#1)', () =>
     const uid = seedUser(store);
     seedInvite(store, uid);
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, cqUpdate(`invite_decline:${GID}`, inviteMsg));
+    const reply = await handleUpdate(deps, cqUpdate(`invite_decline:${GID}`, inviteMsg));
     expect(store[`pendingInvites/${uid}/${GID}`]).toBeNull();
     expect(deps.tg.editMessageText).toHaveBeenCalledWith(
       '42', 7, 'Ada invited you to Divers\n\nInvite declined.');
@@ -978,7 +1013,7 @@ describe('invite callbacks are state-checked and self-recording (W1 B#1)', () =>
     seedUser(store);
     store[`groups/${GID}/name`] = 'Divers';
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
+    const reply = await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Already handled.');
     expect(store[`groups/${GID}/members/u-tg-42`]).toBeUndefined(); // no write
   });
@@ -991,7 +1026,7 @@ describe('invite callbacks are state-checked and self-recording (W1 B#1)', () =>
     const store = {};
     seedUser(store);
     const deps = makeBotDeps(store); // neither pending nor group name
-    await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
+    const reply = await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'That group no longer exists.');
     expect(deps.tg.editMessageText).toHaveBeenCalledWith(
       '42', 7, 'Ada invited you to Divers\n\nThat group no longer exists.');
@@ -1008,7 +1043,7 @@ describe('follow-request callbacks are state-checked (W1 B#1)', () => {
     const uid = seedUser(store);
     store[`followGrants/${REQ}/${uid}`] = { from: uid, code: 'AAAAAA', ts: 1 };
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, cqUpdate(`fr_decline:${REQ}`, frMsg));
+    const reply = await handleUpdate(deps, cqUpdate(`fr_decline:${REQ}`, frMsg));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Already approved.');
     expect(store[`followGrants/${REQ}/${uid}`]).toBeTruthy();
     expect(deps.tg.editMessageText).toHaveBeenCalledWith(
@@ -1020,7 +1055,7 @@ describe('follow-request callbacks are state-checked (W1 B#1)', () => {
     const uid = seedUser(store);
     store[`followRequests/${uid}/${REQ}`] = { from: REQ };
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, cqUpdate(`fr_approve:${REQ}`, frMsg));
+    const reply = await handleUpdate(deps, cqUpdate(`fr_approve:${REQ}`, frMsg));
     expect(store[`followGrants/${REQ}/${uid}`]).toMatchObject({ from: uid });
     expect(deps.tg.editMessageText).toHaveBeenCalledWith(
       '42', 9, 'Cara wants to follow you\n\n✅ Approved.');
@@ -1032,7 +1067,7 @@ describe('follow-request callbacks are state-checked (W1 B#1)', () => {
     const uid = seedUser(store);
     store[`followRequests/${uid}/${REQ}`] = { from: REQ };
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, cqUpdate(`fr_decline:${REQ}`, frMsg));
+    const reply = await handleUpdate(deps, cqUpdate(`fr_decline:${REQ}`, frMsg));
     expect(store[`followRequests/${uid}/${REQ}`]).toBeNull();
     expect(deps.tg.editMessageText).toHaveBeenCalledWith(
       '42', 9, 'Cara wants to follow you\n\nDeclined.');
@@ -1042,7 +1077,7 @@ describe('follow-request callbacks are state-checked (W1 B#1)', () => {
     const store = {};
     seedUser(store);
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, cqUpdate(`fr_approve:${REQ}`, frMsg));
+    const reply = await handleUpdate(deps, cqUpdate(`fr_approve:${REQ}`, frMsg));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'This request is gone.');
   });
 
@@ -1056,7 +1091,7 @@ describe('follow-request callbacks are state-checked (W1 B#1)', () => {
     const uid = seedUser(store);
     store[`users/${uid}/followers/${REQ}`] = 'REQCODE'; // C completed the follow
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, cqUpdate(`fr_decline:${REQ}`, frMsg));
+    const reply = await handleUpdate(deps, cqUpdate(`fr_decline:${REQ}`, frMsg));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Already approved.');
     expect(deps.tg.editMessageText).toHaveBeenCalledWith(
       '42', 9, 'Cara wants to follow you\n\n✅ Approved.');
@@ -1072,7 +1107,7 @@ describe('knock cap honesty (W1 B#2)', () => {
     seedUser(store);
     store[`knocks/${RECIP}/u-tg-42`] = { count: 5, ts: 999 };
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, cqUpdate(`knock:${RECIP}`));
+    const reply = await handleUpdate(deps, cqUpdate(`knock:${RECIP}`));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith(
       'cq1', "You've already knocked a few times — give them a moment.");
     expect(store[`knocks/${RECIP}/u-tg-42`].count).toBe(5); // unchanged
@@ -1082,7 +1117,7 @@ describe('knock cap honesty (W1 B#2)', () => {
     const store = {};
     seedUser(store);
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, cqUpdate(`knock:${RECIP}`));
+    const reply = await handleUpdate(deps, cqUpdate(`knock:${RECIP}`));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Knock sent.');
   });
 
@@ -1092,9 +1127,9 @@ describe('knock cap honesty (W1 B#2)', () => {
     store[`userPrefs/${uid}/following`] = { [RECIP]: { code: 'BBBBBB', label: 'Ana' } };
     store[`knocks/${RECIP}/${uid}`] = { count: 5, ts: 999 };
     const deps = makeBotDeps(store);
-    await handleUpdate(deps, msgUpdate('/knock ana'));
-    expect(deps.tg.sendMessage).toHaveBeenCalledWith('42',
-      "You've already knocked a few times — give them a moment.", expect.anything());
+    const reply = await handleUpdate(deps, msgUpdate('/knock ana'));
+    expect(reply.chat_id).toBe('42');
+    expect(reply.text).toBe("You've already knocked a few times — give them a moment.");
   });
 });
 

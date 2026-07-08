@@ -241,7 +241,7 @@ export const telegramWebhook = onRequest(async (req, res) => {
     res.status(403).send('forbidden');
     return;
   }
-  await handleUpdate({
+  const replyPayload = await handleUpdate({
     ...makeDbDeps(),
     appUrl: process.env.TELEGRAM_APP_URL || '',
     setAuthEmail: setTelegramAuthEmail,
@@ -252,5 +252,15 @@ export const telegramWebhook = onRequest(async (req, res) => {
         tgApi('editMessageText', { chat_id: chatId, message_id: messageId, text, ...extra }),
     },
   }, req.body);
+  // F#5 webhook-reply: a command's terminal reply rides the webhook response
+  // (one Bot API method per update, fire-and-forget) instead of a separate
+  // sendMessage HTTPS call. Nested objects must be JSON-serialized in a
+  // webhook reply (Bot API convention), hence the reply_markup stringify.
+  if (replyPayload) {
+    const method = { method: 'sendMessage', ...replyPayload };
+    if (method.reply_markup) method.reply_markup = JSON.stringify(method.reply_markup);
+    res.status(200).json(method);
+    return;
+  }
   res.status(200).send('ok');
 });

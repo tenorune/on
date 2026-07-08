@@ -82,23 +82,37 @@ async function resolveTelegramUid(deps, tgId) {
   return { mapping, uid: mapping?.uid };
 }
 
-// Entry point for every webhook update. Never throws (the webhook must always 200).
+// Entry point for every webhook update. Never throws (the webhook must always
+// 200). For a message command it returns the single terminal reply as a
+// sendMessage payload (F#5 webhook-reply): the webhook answers the HTTP
+// request with it — one method per update — instead of a separate Bot API
+// call. Callbacks return nothing: they need two tg calls (answerCallbackQuery
+// + editMessageText) whose text depends on the DB result, so they keep tgApi.
 export async function handleUpdate(deps, update) {
   try {
-    if (update?.message) await handleMessage(deps, update.message);
-    else if (update?.callback_query) await handleCallback(deps, update.callback_query);
+    if (update?.message) return await handleMessage(deps, update.message);
+    if (update?.callback_query) await handleCallback(deps, update.callback_query);
   } catch (e) {
     console.error('[telegram] handleUpdate error:', e);
   }
+  return undefined;
 }
 
 async function handleMessage(deps, msg) {
-  if (msg.chat?.type !== 'private' || typeof msg.text !== 'string' || !msg.from) return;
+  if (msg.chat?.type !== 'private' || typeof msg.text !== 'string' || !msg.from) return undefined;
   const chatId = String(msg.chat.id);
   const [cmdRaw, ...args] = msg.text.trim().split(/\s+/);
   const cmd = cmdRaw.toLowerCase().replace(/@.*$/, ''); // strip @botname suffix
-  const reply = (text, extra = {}) => deps.tg.sendMessage(chatId, text, extra);
+  // Every command flow ends in exactly ONE reply() — captured here and
+  // returned as the webhook-reply payload rather than sent (F#5). A flow
+  // that never replies (can't happen today) would just answer plain 200.
+  let pending;
+  const reply = (text, extra = {}) => { pending = { chat_id: chatId, text, ...extra }; };
+  await routeCommand(deps, msg, chatId, cmd, args, reply);
+  return pending;
+}
 
+async function routeCommand(deps, msg, chatId, cmd, args, reply) {
   if (cmd === '/start') {
     // First-contact detection must precede ensureTelegramUser (which creates
     // the mapping). ensure stays: idempotent, and bot commands need the
