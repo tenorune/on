@@ -21,6 +21,15 @@ const visible = (doc, id) => {
 //  - recovery-modal: guards an unsaved phrase with its own history trap;
 //    a back affordance that discards it would be worse than none.
 export function resolveBackAction(doc = document) {
+  // Confirm/prompt overlays first (W1 C#1): back must dismiss the top-most
+  // decision surface with CANCEL semantics — never act on what's underneath,
+  // and never confirm. boot-error has nothing behind it → Telegram default.
+  if (visible(doc, 'boot-error-overlay')) return null;
+  if (visible(doc, 'confirm-modal')) return () => doc.getElementById('confirm-modal-cancel-btn')?.click();
+  if (visible(doc, 'text-prompt-modal')) return () => doc.getElementById('text-prompt-cancel-btn')?.click();
+  if (visible(doc, 'tg-unlink-confirm')) return () => doc.getElementById('tg-unlink-cancel-btn')?.click();
+  if (visible(doc, 'graduation-info-toast')) return () => doc.getElementById('graduation-info-close')?.click();
+  if (visible(doc, 'tg-invite-error')) return () => doc.getElementById('tg-invite-error-dismiss')?.click();
   if (visible(doc, 'restore-screen')) return () => doc.getElementById('restore-cancel-btn')?.click();
   if (visible(doc, 'tg-invite-screen')) return null;
   if (visible(doc, 'recovery-modal')) return null;
