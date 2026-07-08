@@ -151,6 +151,32 @@ describe('telegramInviteGate outcomes (W1 J#1/J#4/J#5/J#6)', () => {
     expect(resolveInvitePreview).not.toHaveBeenCalled();
   });
 
+  test('dismissed + linked does not auto-redeem and does not resolve the preview', async () => {
+    stampInviteOutcome(TOKEN, 'dismissed');
+    const out = await telegramInviteGate({ linked: true, isNew: false, dismissSplash: jest.fn() });
+    expect(out).toBeNull();
+    expect(resolveInvitePreview).not.toHaveBeenCalled();
+  });
+
+  test('redeemed token shows nothing and does not resolve the preview', async () => {
+    stampInviteOutcome(TOKEN, 'redeemed');
+    const out = await telegramInviteGate({ linked: false, isNew: false, dismissSplash: jest.fn() });
+    expect(out).toBeNull();
+    expect(resolveInvitePreview).not.toHaveBeenCalled();
+  });
+
+  test('dismissed + UNLINKED re-offers the interstitial (accept proceeds)', async () => {
+    stampInviteOutcome(TOKEN, 'dismissed');
+    resolveInvitePreview.mockResolvedValue({ scope: 'personal', label: 'Ann' });
+    const dismissSplash = jest.fn();
+    const gate = telegramInviteGate({ linked: false, isNew: false, dismissSplash });
+    await flush();
+    expect(resolveInvitePreview).toHaveBeenCalledWith(TOKEN);
+    expect(document.getElementById('tg-invite-screen').classList.contains('hidden')).toBe(false);
+    document.getElementById('tg-invite-accept-btn').click();
+    await expect(gate).resolves.toEqual({ token: TOKEN, preview: { scope: 'personal', label: 'Ann' }, silent: false });
+  });
+
   test('preview unavailable → error overlay; Try again re-resolves; success proceeds', async () => {
     resolveInvitePreview
       .mockRejectedValueOnce(new Error('invite-preview-unavailable'))

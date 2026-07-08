@@ -124,7 +124,16 @@ function showInviteError() {
 export async function telegramInviteGate({ linked, isNew, dismissSplash }) {
   const token = extractStartParamToken();
   if (!token) return null;
-  if (stampedInviteOutcome(token)) return null;
+  const outcome = stampedInviteOutcome(token);
+  // Redeemed → silent forever (J#4): the contact is already in the list, a
+  // re-tapped chat link shows nothing. Dismissed + linked → skip WITHOUT
+  // resolving the preview (J#5: a declined invite must never auto-redeem when
+  // the user later links an account). Dismissed + UNLINKED falls through and
+  // RE-OFFERS the interstitial: personal invites are one-active-per-user with no
+  // reissue UI, so the dismissed link is the only link the inviter can share —
+  // a mis-tap must not lock the invitee out permanently.
+  if (outcome === 'redeemed') return null;
+  if (outcome === 'dismissed' && linked) return null;
   while (true) {
     let preview;
     try {
