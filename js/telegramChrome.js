@@ -27,7 +27,6 @@ export function resolveBackAction(doc = document) {
   if (visible(doc, 'boot-error-overlay')) return null;
   if (visible(doc, 'confirm-modal')) return () => doc.getElementById('confirm-modal-cancel-btn')?.click();
   if (visible(doc, 'text-prompt-modal')) return () => doc.getElementById('text-prompt-cancel-btn')?.click();
-  if (visible(doc, 'tg-unlink-confirm')) return () => doc.getElementById('tg-unlink-cancel-btn')?.click();
   if (visible(doc, 'unfollow-confirm')) return () => doc.getElementById('unfollow-cancel-btn')?.click();
   if (visible(doc, 'rotate-confirm')) return () => doc.getElementById('rotate-cancel-btn')?.click();
   if (visible(doc, 'graduation-info-toast')) return () => doc.getElementById('graduation-info-close')?.click();

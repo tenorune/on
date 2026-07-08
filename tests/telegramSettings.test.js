@@ -44,6 +44,17 @@ function mountDom() {
         <button id="restore-submit-btn" type="submit"></button>
         <button id="restore-cancel-btn" type="button"></button>
       </form>
+    </div>
+    <div id="confirm-modal" class="confirm-overlay hidden">
+      <div class="confirm-sheet">
+        <h4 id="confirm-modal-title"></h4>
+        <p id="confirm-modal-message"></p>
+        <p id="confirm-modal-error" class="error-msg hidden"></p>
+        <div class="confirm-btns">
+          <button id="confirm-modal-cancel-btn"></button>
+          <button id="confirm-modal-confirm-btn"></button>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -59,20 +70,6 @@ test('renders row, hides phrase pill, shows link button when unlinked', async ()
   expect(document.getElementById('tg-account-slot').contains(document.getElementById('tg-unlink-btn'))).toBe(true);
   expect(document.getElementById('tg-link-btn').classList.contains('hidden')).toBe(false);
   expect(document.getElementById('tg-unlink-btn').classList.contains('hidden')).toBe(true);
-});
-
-test('linked state shows unlink instead; confirmed unlink calls the callable', async () => {
-  isTelegramLinked.mockReturnValue(true);
-  const { initTelegramSettings } = require('../js/telegramSettings.js');
-  initTelegramSettings('u1');
-  await flush();
-  expect(document.getElementById('tg-link-btn').classList.contains('hidden')).toBe(true);
-  const unlinkBtn = document.getElementById('tg-unlink-btn');
-  expect(unlinkBtn.classList.contains('hidden')).toBe(false);
-  unlinkBtn.click();
-  document.getElementById('tg-unlink-confirm-btn').click();
-  await flush();
-  expect(callUnlinkTelegram).toHaveBeenCalledWith('signed-init-data');
 });
 
 test('link flow: opens restore screen, validates phrase, calls linkTelegram', async () => {
@@ -98,68 +95,69 @@ test('link flow: opens restore screen, validates phrase, calls linkTelegram', as
   expect(callLinkTelegram).toHaveBeenCalledWith('signed-init-data', 'abacus-abdomen-abdominal-abide');
 });
 
-test('unlink confirm is a modal overlay on the body, not inline in the account section', async () => {
-  isTelegramLinked.mockReturnValue(true);
-  const { initTelegramSettings } = require('../js/telegramSettings.js');
-  initTelegramSettings('u1');
-  await flush();
-  const confirm = document.getElementById('tg-unlink-confirm');
-  expect(confirm.classList.contains('confirm-overlay')).toBe(true);
-  expect(confirm.parentElement).toBe(document.body);
-  expect(document.getElementById('tg-account-slot').contains(confirm)).toBe(false);
-});
-
-test('unlink: first tap opens the confirm modal, does not call unlinkTelegram', async () => {
+test('unlink: first tap opens the shared confirm modal with the unlink copy, no callable yet', async () => {
   isTelegramLinked.mockReturnValue(true);
   const { initTelegramSettings } = require('../js/telegramSettings.js');
   initTelegramSettings('u1');
   await flush();
   document.getElementById('tg-unlink-btn').click();
-  expect(document.getElementById('tg-unlink-confirm').classList.contains('hidden')).toBe(false);
+  expect(document.getElementById('confirm-modal').classList.contains('hidden')).toBe(false);
+  expect(document.getElementById('confirm-modal-title').textContent).toBe('Unlink this Telegram?');
+  expect(document.getElementById('confirm-modal-message').textContent)
+    .toBe('Your account stays yours — sign in with your secret phrase in any browser. This Telegram will start over with a fresh, empty account.');
+  expect(document.getElementById('confirm-modal-confirm-btn').textContent).toBe('Unlink');
+  expect(callUnlinkTelegram).not.toHaveBeenCalled();
+  // No bespoke sheet is injected any more (W3-A CL#4).
+  expect(document.getElementById('tg-unlink-confirm')).toBeNull();
+});
+
+test('unlink: cancel closes without calling the callable', async () => {
+  isTelegramLinked.mockReturnValue(true);
+  const { initTelegramSettings } = require('../js/telegramSettings.js');
+  initTelegramSettings('u1');
+  await flush();
+  document.getElementById('tg-unlink-btn').click();
+  document.getElementById('confirm-modal-cancel-btn').click();
+  await flush();
+  expect(document.getElementById('confirm-modal').classList.contains('hidden')).toBe(true);
   expect(callUnlinkTelegram).not.toHaveBeenCalled();
 });
 
-test('unlink: cancel closes the confirm modal', async () => {
+test('unlink: confirm goes busy, calls the callable, does NOT stamp a landing banner', async () => {
   isTelegramLinked.mockReturnValue(true);
+  let release;
+  callUnlinkTelegram.mockImplementation(() => new Promise((r) => { release = r; }));
   const { initTelegramSettings } = require('../js/telegramSettings.js');
   initTelegramSettings('u1');
   await flush();
   document.getElementById('tg-unlink-btn').click();
-  document.getElementById('tg-unlink-cancel-btn').click();
-  expect(document.getElementById('tg-unlink-confirm').classList.contains('hidden')).toBe(true);
-});
-
-test('unlink: confirm calls unlinkTelegram and does NOT stamp a landing banner', async () => {
-  isTelegramLinked.mockReturnValue(true);
-  const { initTelegramSettings } = require('../js/telegramSettings.js');
-  initTelegramSettings('u1');
+  const confirmBtn = document.getElementById('confirm-modal-confirm-btn');
+  confirmBtn.click();
   await flush();
-  document.getElementById('tg-unlink-btn').click();
-  document.getElementById('tg-unlink-confirm-btn').click();
-  await Promise.resolve(); await Promise.resolve();
-  expect(callUnlinkTelegram).toHaveBeenCalled();
+  expect(callUnlinkTelegram).toHaveBeenCalledWith('signed-init-data');
+  expect(confirmBtn.disabled).toBe(true);
+  expect(confirmBtn.textContent).toBe('Unlinking…');
+  release();
+  await flush();
   expect(sessionStorage.getItem('kk-landing')).toBeNull();
 });
 
-test('unlink failure shows the inline error and re-enables the button (W1 J#7)', async () => {
+test('unlink failure: inline error in the shared modal, stays open for retry (carries W1 J#7 over)', async () => {
   isTelegramLinked.mockReturnValue(true);
   callUnlinkTelegram.mockRejectedValue(new Error('network'));
   const { initTelegramSettings } = require('../js/telegramSettings.js');
   initTelegramSettings('u1');
   await flush();
-  document.getElementById('tg-unlink-btn').click(); // opens the sheet
-  const confirmBtn = document.getElementById('tg-unlink-confirm-btn');
+  document.getElementById('tg-unlink-btn').click();
+  const confirmBtn = document.getElementById('confirm-modal-confirm-btn');
   confirmBtn.click();
-  expect(confirmBtn.disabled).toBe(true);
-  expect(confirmBtn.textContent).toBe('Unlinking…');
   await flush();
-  expect(confirmBtn.disabled).toBe(false);
-  expect(confirmBtn.textContent).toBe('Unlink');
-  const err = document.getElementById('tg-unlink-error');
+  const err = document.getElementById('confirm-modal-error');
   expect(err.classList.contains('hidden')).toBe(false);
   expect(err.textContent).toBe("Couldn't unlink right now. Try again.");
-  // sheet stays open for retry/cancel
-  expect(document.getElementById('tg-unlink-confirm').classList.contains('hidden')).toBe(false);
+  expect(document.getElementById('confirm-modal').classList.contains('hidden')).toBe(false);
+  expect(confirmBtn.disabled).toBe(false);
+  expect(confirmBtn.textContent).toBe('Unlink');
 });
 
 test('link success calls linkTelegram and does NOT stamp a landing banner', async () => {

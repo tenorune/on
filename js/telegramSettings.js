@@ -6,7 +6,7 @@ import { tgWebApp, isTelegramLinked } from './telegram.js';
 import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
 import { parseRecoveryCode } from './identity.js';
 import { showGraduationInfo } from './graduation.js';
-import { setButtonBusy, clearButtonBusy } from './utils.js';
+import { showConfirmModal } from './promptModal.js';
 
 export function initTelegramSettings(userId) {
   const accountSlot = document.getElementById('tg-account-slot');
@@ -27,62 +27,34 @@ export function initTelegramSettings(userId) {
 
   document.getElementById('drawer-section-account')?.classList.remove('hidden');
 
-  ensureUnlinkConfirmModal();
   // The notification-channel pill lives in its own section and is reconciled
   // reactively from userPrefs (see syncNotifyChannel on the watchUserPrefs tick),
   // so it isn't wired here.
   accountSlot.querySelector('#tg-link-btn').addEventListener('click', showLinkScreen);
-  accountSlot.querySelector('#tg-unlink-btn').addEventListener('click', () => {
-    const err = document.getElementById('tg-unlink-error');
-    if (err) { err.textContent = ''; err.classList.add('hidden'); }
-    document.getElementById('tg-unlink-confirm').classList.remove('hidden');
+  accountSlot.querySelector('#tg-unlink-btn').addEventListener('click', async () => {
+    // Confirm + round-trip in the shared modal (W3-A CL#4): busy label on the
+    // confirm button, inline error + stay-open on failure — the behaviors the
+    // bespoke sheet carried (W1 J#7), now without a second modal implementation
+    // or a permanent document keydown listener.
+    const ok = await showConfirmModal({
+      title: 'Unlink this Telegram?',
+      message: 'Your account stays yours — sign in with your secret phrase in any browser. This Telegram will start over with a fresh, empty account.',
+      confirmLabel: 'Unlink',
+      busyLabel: 'Unlinking…',
+      onConfirm: async () => {
+        try {
+          await callUnlinkTelegram(tgWebApp().initData);
+        } catch (e) {
+          throw Object.assign(e instanceof Error ? e : new Error('unlink failed'), {
+            userMessage: "Couldn't unlink right now. Try again.",
+          });
+        }
+      },
+    });
+    if (ok) window.location.reload(); // reboot as a fresh derived account
   });
   // "?" beside the link entry opens the graduation info toast (spec §7).
   accountSlot.querySelector('#tg-graduate-help')?.addEventListener('click', showGraduationInfo);
-}
-
-// Unlink confirmation as a modal overlay (the same .confirm-overlay pattern as
-// Unfollow / Remove-follower), injected once on body — not an inline drawer block.
-function ensureUnlinkConfirmModal() {
-  if (document.getElementById('tg-unlink-confirm')) return;
-  const el = document.createElement('div');
-  el.id = 'tg-unlink-confirm';
-  el.className = 'confirm-overlay hidden';
-  el.innerHTML = `
-    <div class="confirm-sheet">
-      <h4>Unlink this Telegram?</h4>
-      <p>Your account stays yours — sign in with your secret phrase in any browser. This Telegram will start over with a fresh, empty account.</p>
-      <p id="tg-unlink-error" class="error-msg hidden"></p>
-      <div class="confirm-btns">
-        <button class="confirm-btn-cancel" id="tg-unlink-cancel-btn" type="button">Cancel</button>
-        <button class="confirm-btn-remove" id="tg-unlink-confirm-btn" type="button">Unlink</button>
-      </div>
-    </div>`;
-  document.body.appendChild(el);
-  const hide = () => el.classList.add('hidden');
-  el.addEventListener('click', (e) => { if (e.target === el) hide(); });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !el.classList.contains('hidden')) hide();
-  });
-  document.getElementById('tg-unlink-cancel-btn').addEventListener('click', hide);
-  document.getElementById('tg-unlink-confirm-btn').addEventListener('click', doUnlink);
-}
-
-async function doUnlink(e) {
-  const btn = e.currentTarget;
-  const err = document.getElementById('tg-unlink-error');
-  if (err) { err.textContent = ''; err.classList.add('hidden'); }
-  setButtonBusy(btn, 'Unlinking…');
-  try {
-    await callUnlinkTelegram(tgWebApp().initData);
-    window.location.reload(); // reboot as a fresh derived account
-  } catch {
-    // W1 J#7: a destructive confirm that visibly does nothing is the worst
-    // outcome — restore the button and say what happened; the sheet stays
-    // open so the user can retry or cancel.
-    clearButtonBusy(btn);
-    if (err) { err.textContent = "Couldn't unlink right now. Try again."; err.classList.remove('hidden'); }
-  }
 }
 
 // Reuse the #restore-screen markup for phrase entry, with our own handlers:
