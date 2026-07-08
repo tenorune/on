@@ -29,7 +29,7 @@
 **Interfaces:**
 - Produces: `startPersonalInviteFlow(): void|Promise` exported from `js/mycode.js` — the ONE surface dispatch for the personal-invite CTA.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `tests/mycode.test.js` (the file already mocks `../js/telegram.js` with `telegramFirstName` + `isTelegramContext`, and `../js/inviteModal.js` with `openInviteModal`; `shareInviteLink` comes from its `../js/inviteFlow.js` mock — check the top of the file and reuse the existing handles):
 
@@ -56,12 +56,12 @@ describe('startPersonalInviteFlow (W3-B CL#8)', () => {
 
 (If `shareInviteLink` isn't already destructured from the `inviteFlow.js` mock at the top of the file, add it to the mock: `jest.mock('../js/inviteFlow.js', () => ({ shareInviteLink: jest.fn(), … }))` — mirror the file's existing mock shape exactly. Arrange whatever `createPersonalInvite` mock resolution the file's existing `sharePersonalInvite` tests use so the share path completes.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/mycode.test.js`
 Expected: FAIL — `startPersonalInviteFlow` is not exported.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `js/mycode.js` — add the export next to `openPersonalInviteModal`/`sharePersonalInvite`, and route the drawer button through it:
 
@@ -99,11 +99,11 @@ import { initCodeDrawer, updateMyCode, startPersonalInviteFlow } from './mycode.
   });
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/mycode.test.js tests/app-boot-cacheOwner.test.js` — green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/mycode.js js/app.js tests/mycode.test.js
@@ -121,7 +121,7 @@ git commit -m "refactor(web): one startPersonalInviteFlow() — the invite-CTA s
 **Interfaces:**
 - Produces: `telegramFirstName(): string` now display-ready — trimmed, capped at 40 (`TG_NAME_CAP`, module-private). Still `''` outside Telegram / when the client withholds the user object.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `tests/telegram.test.js`, extend the existing `telegramFirstName` test (same `jest.resetModules()` pattern the file uses):
 
@@ -136,12 +136,12 @@ test('telegramFirstName: trimmed and capped at 40 (mirrors the DB creatorLabel c
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/telegram.test.js`
 Expected: FAIL — raw padded/overlong value returned.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `js/telegram.js`:
 
@@ -170,11 +170,11 @@ Drop the ad hoc suffixes at the three call sites:
   ```
   (The surrounding comments stay; the `|| 'Someone'` fallback and the skip-when-unchanged logic are untouched.)
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/telegram.test.js tests/mycode.test.js tests/app-boot-cacheOwner.test.js` — green (both suites mock `telegramFirstName` wholesale with already-short names, so the contract change is invisible to them).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/telegram.js js/app.js js/mycode.js tests/telegram.test.js
@@ -192,7 +192,7 @@ git commit -m "refactor(web): telegramFirstName returns the trimmed, 40-capped n
 **Interfaces:**
 - Produces: `copyWithFeedback(btn, text, { done = 'Copied!', idle = 'Copy' } = {}): Promise<void>` in `js/utils.js`. Clipboard failure = no label change. No timer dedup (matches every current site).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/utils.test.js` currently runs in the default (node) environment — add the jsdom docblock as the FIRST line of the file (existing pure-function tests are unaffected):
 
@@ -243,12 +243,12 @@ describe('copyWithFeedback (W3-B CL#10)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/utils.test.js`
 Expected: FAIL — `copyWithFeedback` is not exported.
 
-- [ ] **Step 3: Implement the helper**
+- [x] **Step 3: Implement the helper**
 
 `js/utils.js`, below `clearButtonBusy`:
 
@@ -271,7 +271,7 @@ export async function copyWithFeedback(btn, text, { done = 'Copied!', idle = 'Co
 }
 ```
 
-- [ ] **Step 4: Convert the four sites**
+- [x] **Step 4: Convert the four sites**
 
 `js/inviteModal.js` — add `copyWithFeedback` to an import from `./utils.js` (the file has none yet: `import { copyWithFeedback } from './utils.js';`). Copy button handler (currently `invite-modal-copy-btn` with inline writeText/swap/revert):
 
@@ -316,11 +316,11 @@ Share-fallback block inside the share handler (the blocked-popup branch):
   // reveal panel's toIdle() state machine (W3-B CL#10 exclusion).
 ```
 
-- [ ] **Step 5: Run to verify pass**
+- [x] **Step 5: Run to verify pass**
 
 Run: `npx jest tests/utils.test.js tests/inviteModal.test.js tests/recoveryModal.test.js tests/mycode.test.js` — green. (If an inviteModal/recoveryModal test asserts the 1500ms revert with real timers, it still passes — the helper's timing is identical.)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add js/utils.js js/inviteModal.js js/recoveryModal.js js/phraseReminder.js js/mycode.js tests/utils.test.js
@@ -338,7 +338,7 @@ git commit -m "refactor(web): copyWithFeedback in utils — four copy-with-Copie
 **Interfaces:**
 - Produces: no API change. Internal: one `teardown()` closure both exit paths call.
 
-- [ ] **Step 1: Write the failing test (listener hygiene on the cancel path)**
+- [x] **Step 1: Write the failing test (listener hygiene on the cancel path)**
 
 Add to `tests/recoveryModal.test.js` (uses the file's existing fixture):
 
@@ -356,11 +356,11 @@ test('cancel tears everything down: a later saved-btn click is dead (W3-B CL#11)
 
 (This passes on the current code too — it pins the behavior the refactor must preserve. The refactor's real acceptance is Step 4's full-file green with no other test edits.)
 
-- [ ] **Step 2: Run to verify it passes pre-refactor**
+- [x] **Step 2: Run to verify it passes pre-refactor**
 
 Run: `npx jest tests/recoveryModal.test.js` — green (baseline pinned).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `js/recoveryModal.js` — inside the `return new Promise((resolve) => { … })`, hoist the shared teardown and shrink both exit paths (removing a never-added listener is a spec'd no-op, so no `cancellable` guard):
 
@@ -396,11 +396,11 @@ Run: `npx jest tests/recoveryModal.test.js` — green (baseline pinned).
 
 (Delete the two inline removeEventListener sequences those replace. `onPopState`, `onRotate`, `onCopy`, the history push, and the listener adds are untouched. Note `teardown` must be defined before `onSaved`/`onCancel` reference it at call time — function declarations hoist, so placement anywhere inside the Promise executor works; put it above `onSaved` for readability.)
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/recoveryModal.test.js` — green, the whole file, with no test edits beyond Step 1's addition.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/recoveryModal.js tests/recoveryModal.test.js
@@ -418,7 +418,7 @@ git commit -m "refactor(web): recoveryModal exit paths share one teardown"
 **Interfaces:**
 - Produces: `stampGraduationNotice(): void` and `consumeGraduationNotice(): string|null` exported from `js/firstRun.js`, REPLACING `stampLanding(kind)` / `consumeLandingNotice()`. Storage key/value unchanged (`kk-landing` = `'graduated'`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/firstRun.test.js` — REPLACE the two landing tests (`'stampLanding + consumeLandingNotice returns the copy once, then clears'` and the removed-kinds test around lines 171-182) with:
 
@@ -448,12 +448,12 @@ const { stampGraduationNotice } = require('../js/firstRun.js');
 ```
 and in the two `startGraduation onConfirm` tests: `expect(stampGraduationNotice).toHaveBeenCalledWith()` becomes `expect(stampGraduationNotice).toHaveBeenCalled();` / `expect(stampGraduationNotice).not.toHaveBeenCalled();` (the doc-comment about location.reload stays).
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/firstRun.test.js tests/graduation.test.js`
 Expected: FAIL — renamed exports missing.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `js/firstRun.js` — replace the landing block (keep the surviving comments about the cross-account reload handoff / not-in-cacheOwner / accepted sessionStorage degradation verbatim above the key):
 
@@ -504,11 +504,11 @@ import { initFirstRun, consumeGraduationNotice } from './firstRun.js';
 
 Then `grep -rn 'stampLanding\|consumeLandingNotice' js/ tests/` — zero hits outside this diff.
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/firstRun.test.js tests/graduation.test.js tests/telegramSettings.test.js tests/app-boot-cacheOwner.test.js` — green (telegramSettings asserts `kk-landing` stays null on link/unlink — unaffected).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/firstRun.js js/graduation.js js/app.js tests/firstRun.test.js tests/graduation.test.js
@@ -527,7 +527,7 @@ git commit -m "refactor(web): collapse the landing-notice kind map to stamp/cons
 - Consumes: the post-W3-A `js/inviteFlow.js` (W3-A Task 4 moved `buildTelegramShareUrl` out; `shareInviteLink`/`shareInviteToTelegramWeb` remain here).
 - Produces: `shareCaption(scope, groupName): string` exported from `js/inviteFlow.js`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `tests/inviteFlow.test.js` (inside the existing describe):
 
@@ -550,12 +550,12 @@ test('shareInviteLink default caption comes from the invite scope', () => {
 
 (The existing `shareInviteLink` default-caption assertion — `'Follow me on KnockKnock'` for a scopeless invite — keeps passing unchanged.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/inviteFlow.test.js`
 Expected: FAIL — `shareCaption` not exported; group-scoped default still 'Follow me on KnockKnock'.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `js/inviteFlow.js`:
 
@@ -592,11 +592,11 @@ Update `tests/inviteModal.test.js`'s `../js/inviteFlow.js` mock: add `shareCapti
 
 Then `grep -rn 'on KnockKnock' js/` — hits only in `js/inviteFlow.js` (`shareCaption`).
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/inviteFlow.test.js tests/inviteModal.test.js tests/mycode.test.js` — green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/inviteFlow.js js/inviteModal.js tests/inviteFlow.test.js tests/inviteModal.test.js
@@ -615,7 +615,7 @@ git commit -m "refactor(web): one shareCaption — invite captions spelled once"
 - Consumes: `setButtonBusy`/`clearButtonBusy` from `js/utils.js:8-18`. Baseline (OBSERVED at `97482f0`): the landed W1-Task-9 `showLinkScreen` (`js/telegramSettings.js:93-146` — promise-returning, resolves `false` on cancel / `true` before reload) with the four hand-rolled busy lines at `:120-121`/`:125-126`.
 - Produces: no API change.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `tests/telegramSettings.test.js`:
 
@@ -641,12 +641,12 @@ test('link submit: shared busy pair + stale idleLabel from the restore flow cann
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/telegramSettings.test.js`
 Expected: FAIL — after the rejected call the button reads `'Paste & Sign in'`? No: the current hand-rolled revert sets `'Link account'` directly, so this test PASSES pre-change on the label but the point is pinning it before the busy-pair swap. Verify instead that it fails AFTER a naive swap without the scrub: proceed to Step 3, and if the test passed in Step 2, treat it as the pinned baseline (same pattern as Task 4) — the swap below must keep it green.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `js/telegramSettings.js` — imports gain the pair (if Task 6 of W3-A removed it, re-add): `import { setButtonBusy, clearButtonBusy } from './utils.js';`
 
@@ -683,11 +683,11 @@ In `onSubmit` (post-W1-Task-9 body), the four hand-rolled lines become the pair:
 
 (Only the busy/revert lines changed; error copy, teardown, resolve, reload identical to the W1 Task 9 shape.)
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/telegramSettings.test.js` — green, whole file.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/telegramSettings.js tests/telegramSettings.test.js
@@ -706,11 +706,11 @@ git commit -m "refactor(web): showLinkScreen uses the shared busy pair, with the
 - Consumes: the POST-W3-A-Task-5 `showConfirmModal` (busy/inert/error machinery). Pre-W3-A fallback: dedupe the two original harnesses; the helper below simply loses its busy branch.
 - Produces: no exported API change. Internal `runModal` only.
 
-- [ ] **Step 1: Pin the baseline**
+- [x] **Step 1: Pin the baseline**
 
 Run: `npx jest tests/promptModal.test.js` — green (this exact file must stay green with ZERO edits; that is the whole acceptance).
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 `js/promptModal.js` — add the internal helper and rewrite both public functions onto it. Complete post-refactor module body (imports and file-top comment unchanged):
 
@@ -825,11 +825,11 @@ export function showConfirmModal({ title, message = '', confirmLabel = 'Confirm'
 
 (Keep each function's existing doc comments — `showTextPrompt`'s contract comment and W3-A Task 5's `showConfirmModal` comment — above their definitions.)
 
-- [ ] **Step 3: Run to verify pass**
+- [x] **Step 3: Run to verify pass**
 
 Run: `npx jest tests/promptModal.test.js` — green with `git diff tests/promptModal.test.js` EMPTY. Then `npx jest tests/telegramSettings.test.js tests/telegramChrome.test.js` — green (the unlink caller and back-button behavior ride the same public surface).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add js/promptModal.js
@@ -843,19 +843,19 @@ git commit -m "refactor(web): one internal runModal harness under showTextPrompt
 **Files:**
 - Modify: `docs/HANDOFF.md` (top block + new rundown section), this plan's checkboxes
 
-- [ ] **Step 1: Run the full web suite**
+- [x] **Step 1: Run the full web suite**
 
 Run: `npx jest` — all green (1446 at `97482f0` + W3-A's additions + this wave's).
 
-- [ ] **Step 2: Grep the scope fence + dedup proofs**
+- [x] **Step 2: Grep the scope fence + dedup proofs**
 
 `git diff <first-W3B-commit>^..HEAD --stat` — only `js/`, `tests/`, `docs/`. Spot-checks: `grep -rn 'slice(0, 40)' js/` → no hits; `grep -rn 'on KnockKnock' js/` → only `shareCaption`; `grep -rn "textContent = 'Copied!'" js/` → only `js/mycode.js` (the documented exclusion); `grep -rn 'stampLanding' js/ tests/` → none.
 
-- [ ] **Step 3: Update HANDOFF.md**
+- [x] **Step 3: Update HANDOFF.md**
 
 Top block + new rundown section: W3-B implemented (list CL#6–CL#13 with the two operator-decided exclusions: no restore-screen factoring, `initRecoveryPill` kept bespoke), test counts, UNVERIFIED on-device — the operator's walkthrough (link-screen failure path, webview copy buttons, graduation toast after the rename) is the acceptance gate.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/HANDOFF.md docs/superpowers/plans/2026-07-08-telegram-w3b-client-cleanups.md
