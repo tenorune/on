@@ -50,6 +50,23 @@ describe('openTelegramShare caption separator', () => {
   });
 });
 
+describe('buildTelegramShareUrl — the one share-intent builder (W3-A CL#5)', () => {
+  const build = () => require('../js/telegram.js').buildTelegramShareUrl;
+  test('encodes url + text; empty text → no text param', () => {
+    expect(build()('https://t.me/kk_bot/app?startapp=TOK', 'Follow me', { platform: 'ios' }))
+      .toBe('https://t.me/share/url?url=https%3A%2F%2Ft.me%2Fkk_bot%2Fapp%3Fstartapp%3DTOK&text=Follow%20me');
+    expect(build()('https://x', '')).toBe('https://t.me/share/url?url=https%3A%2F%2Fx');
+  });
+  test('non-iOS platform gets the newline separator', () => {
+    expect(build()('https://x', 'Follow me', { platform: 'macos' }))
+      .toContain(`text=${encodeURIComponent('\nFollow me')}`);
+  });
+  test('absent platform (web caller) defaults to the separated form', () => {
+    expect(build()('https://x', 'Follow me'))
+      .toContain(`text=${encodeURIComponent('\nFollow me')}`);
+  });
+});
+
 test('isTelegramLinked: false before boot and for an unlinked session; true for a linked one (W3-A CL#3)', async () => {
   setTelegramGlobal();
   let tg = require('../js/telegram.js');

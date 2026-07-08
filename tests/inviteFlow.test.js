@@ -3,6 +3,11 @@ const mockShare = jest.fn();
 jest.mock('../js/telegram.js', () => ({
   isTelegramContext: jest.fn(() => true),
   openTelegramShare: (...a) => mockShare(...a),
+  // Faithful stub of the shared builder (exactness is covered in telegram.test.js).
+  buildTelegramShareUrl: (url, text = '', { platform } = {}) => {
+    const caption = text && platform !== 'ios' ? `\n${text}` : text;
+    return `https://t.me/share/url?url=${encodeURIComponent(url)}${caption ? `&text=${encodeURIComponent(caption)}` : ''}`;
+  },
 }));
 
 describe('inviteFlow', () => {
@@ -46,13 +51,6 @@ describe('inviteFlow', () => {
     jest.resetModules();
     mod = require('../js/inviteFlow.js');
     expect(mod.telegramSharingEnabled()).toBe(false);
-  });
-
-  test('buildTelegramShareUrl: t.me share intent with encoded url + text', () => {
-    const { buildTelegramShareUrl } = require('../js/inviteFlow.js');
-    expect(buildTelegramShareUrl('https://t.me/kk_bot/app?startapp=TOK', 'Follow me'))
-      .toBe('https://t.me/share/url?url=https%3A%2F%2Ft.me%2Fkk_bot%2Fapp%3Fstartapp%3DTOK&text=Follow%20me');
-    expect(buildTelegramShareUrl('https://x', '')).toBe('https://t.me/share/url?url=https%3A%2F%2Fx');
   });
 
   test('shareInviteToTelegramWeb: opens the share intent in a new tab, returns true', () => {

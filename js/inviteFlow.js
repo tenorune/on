@@ -1,7 +1,7 @@
 // js/inviteFlow.js — the single invite entry point (spec §4).
 // Layer 1: link construction — pure, build-time-configured, works on web too.
 // Layer 2: per-surface share presentation (TG share sheet; web new-tab intent).
-import { openTelegramShare } from './telegram.js';
+import { openTelegramShare, buildTelegramShareUrl } from './telegram.js';
 import { TELEGRAM_ENABLED } from './features.js';
 
 // esbuild `define` injects this; '' when the env var is unset (never REPLACE_ME).
@@ -21,11 +21,9 @@ export function telegramSharingEnabled() {
   return TELEGRAM_ENABLED && !!TELEGRAM_APP_LINK;
 }
 
-// Telegram share-intent URL. Used inside the Mini App (via openTelegramShare)
-// and by the web new-tab share below.
-export function buildTelegramShareUrl(url, text = '') {
-  return `https://t.me/share/url?url=${encodeURIComponent(url)}${text ? `&text=${encodeURIComponent(text)}` : ''}`;
-}
+// The builder lives with the platform knowledge in telegram.js (W3-A CL#5);
+// re-exported here for existing importers.
+export { buildTelegramShareUrl } from './telegram.js';
 
 // Open Telegram's share sheet for an invite, preferring the Mini App deep link.
 export function shareInviteLink(invite, text = 'Follow me on KnockKnock') {
@@ -40,9 +38,7 @@ export function shareInviteLink(invite, text = 'Follow me on KnockKnock') {
 export function shareInviteToTelegramWeb(invite, text = 'Follow me on KnockKnock') {
   const deepLink = buildTelegramInviteLink(invite.token);
   if (!deepLink || typeof window === 'undefined' || !window.open) return false;
-  // Blank-line the link and the message: desktop Telegram otherwise butts the
-  // caption straight under the link (iOS already spaces it) — same treatment as
-  // openTelegramShare's non-iOS branch.
-  const caption = text ? `\n${text}` : text;
-  return !!window.open(buildTelegramShareUrl(deepLink, caption), '_blank', 'noopener');
+  // No platform arg: the recipient's client is unknown from the web, so the
+  // builder uses the separated (non-iOS) form — same output as before.
+  return !!window.open(buildTelegramShareUrl(deepLink, text), '_blank', 'noopener');
 }

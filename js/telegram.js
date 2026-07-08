@@ -51,16 +51,20 @@ export async function ensureTelegramIdentity() {
   return { identity: { userId, code: user?.code ?? '', recoveryCode: null }, isNew: created === true };
 }
 
+// The ONE t.me share-intent builder (W3-A CL#5). Caption-spacing rule folded
+// in: desktop clients (e.g. macOS) concatenate the shared url and caption with
+// no separator, so the link butts straight against the text; iOS inserts one.
+// Non-iOS AND unknown/absent platform (the web share opens in whatever client
+// the recipient runs) get a leading newline — never worse than today.
+export function buildTelegramShareUrl(url, text = '', { platform } = {}) {
+  const caption = text && platform !== 'ios' ? `\n${text}` : text;
+  return `https://t.me/share/url?url=${encodeURIComponent(url)}${caption ? `&text=${encodeURIComponent(caption)}` : ''}`;
+}
+
 // Open Telegram's native share sheet for a link (invite links, share code).
 // Silent no-op outside Telegram or on old clients without openTelegramLink.
 export function openTelegramShare(url, text = '') {
   const wa = tgWebApp();
   if (!wa?.openTelegramLink) return;
-  // Desktop clients (e.g. macOS) concatenate the shared url and caption with no
-  // separator, so the link butts straight against the text; iOS inserts one. Add
-  // a leading newline on the clients that need it, leaving iOS exactly as users
-  // see it today. Unknown platforms default to the separated form (never worse).
-  const caption = text && wa.platform !== 'ios' ? `\n${text}` : text;
-  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}${caption ? `&text=${encodeURIComponent(caption)}` : ''}`;
-  wa.openTelegramLink(shareUrl);
+  wa.openTelegramLink(buildTelegramShareUrl(url, text, { platform: wa.platform }));
 }
