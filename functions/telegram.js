@@ -432,7 +432,7 @@ async function handleCallback(deps, cq) {
   if (!me) { await answer('Open KnockKnock first.'); return; }
   const [action, arg, arg2] = String(cq.data || '').split(':');
   const argRe = CALLBACK_ARG_RE[action];
-  if (!argRe || !argRe.test(arg || '')) { await answer('Unknown action.'); return; }
+  if (!argRe || !argRe.test(arg || '')) { await answer('This button has expired — try /help.'); return; }
   switch (action) {
     case 'knock': {
       const committed = await writeKnock(deps, arg, me, GROUP_ID_RE.test(arg2 || '') ? arg2 : undefined);

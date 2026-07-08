@@ -667,8 +667,17 @@ describe('callback: knock', () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
     const reply = await handleUpdate(deps, cbUpdate(`knock:`));
-    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'This button has expired — try /help.');
     expect(Object.keys(deps.store).some((k) => k.startsWith('knocks/'))).toBe(false);
+  });
+  // B#12: a stale or malformed callback (unrecognized action, or an arg that
+  // fails the action's format check) must not say the generic "Unknown
+  // action." — it should point the user at /help.
+  test('unknown/malformed callback answers the expired-button copy', async () => {
+    const deps = makeBotDeps();
+    deps.store['telegramUsers/9'] = { uid: 'u-tg-9', chatId: '9' };
+    const reply = await handleUpdate(deps, cbUpdate('bogus:zzz', { id: 9, first_name: 'Bea' }));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'This button has expired — try /help.');
   });
   test('knock:uid:gid writes contextGroupId on create', async () => {
     const deps = makeBotDeps();
@@ -710,7 +719,7 @@ describe('callback: knock', () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
     reply = await handleUpdate(deps, cbUpdate(`knock:${badUid}`));
-    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'This button has expired — try /help.');
     expect(deps.transaction).not.toHaveBeenCalled();
     expect(Object.keys(deps.store).some((k) => k.startsWith('knocks/'))).toBe(false);
   });
@@ -837,21 +846,21 @@ describe('inbox callbacks', () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
     const reply = await handleUpdate(deps, cb('invite_accept:bad/gid'));
-    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'This button has expired — try /help.');
     expect(deps.set).not.toHaveBeenCalled();
   });
   test('invite_decline with malformed gid → Unknown action, no deletes', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
     const reply = await handleUpdate(deps, cb('invite_decline:lowercase1'));
-    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'This button has expired — try /help.');
     expect(deps.set).not.toHaveBeenCalled();
   });
   test('fr_approve with malformed requester uid → Unknown action, no grant', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
     const reply = await handleUpdate(deps, cb('fr_approve:REQ/../x'));
-    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'This button has expired — try /help.');
     expect(deps.set).not.toHaveBeenCalled();
   });
   test('fr_decline with malformed requester uid → Unknown action, request kept', async () => {
@@ -859,7 +868,7 @@ describe('inbox callbacks', () => {
     const uid = seedUser(deps.store);
     deps.store[`followRequests/${uid}/${REQ}`] = { from: REQ, ts: 1 };
     const reply = await handleUpdate(deps, cb('fr_decline:short'));
-    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'Unknown action.');
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', 'This button has expired — try /help.');
     expect(deps.store[`followRequests/${uid}/${REQ}`]).toEqual({ from: REQ, ts: 1 });
   });
 });
