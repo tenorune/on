@@ -31,7 +31,7 @@
 - Consumes: existing `deps.transaction(path, fn)` → `{ committed: boolean }` (both prod adapters at `functions/index.js:190-196` and `:239-242` already return this; the test mock at `functions/test/telegram.test.js:57-62` too).
 - Produces: `writeKnock(deps, recipientUid, senderUid, contextGroupId)` → `Promise<boolean>` (committed). Tasks 2–4 do not depend on it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `functions/test/telegram.test.js` (inside the existing webhook describe block, after the existing knock tests; reuse `makeBotDeps`, `msgUpdate`, `seedUser`, and the existing callback-update helper if one exists — otherwise use the `cqUpdate` shape below):
 
@@ -82,12 +82,12 @@ describe('knock cap honesty (W1 B#2)', () => {
 
 Note: if the existing `reply` plumbing calls `sendMessage(chatId, text)` with only two args in these paths, drop the `expect.anything()` third matcher to match the actual arity — check a neighboring passing test's assertion shape first and mirror it.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd functions && npx jest test/telegram.test.js -t "knock cap honesty"`
 Expected: FAIL — answers/replies are `'Knock sent.'` / `'Knocked on Ana.'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `functions/telegram.js`, make `writeKnock` return the commit outcome (only the first and last lines change):
 
@@ -146,12 +146,12 @@ Three reply sites:
   await reply(committed ? `Knocked on ${found[0].name} (${found[0].groupName}).` : KNOCK_CAP_TEXT);
 ```
 
-- [ ] **Step 4: Run to verify pass, and the whole functions suite**
+- [x] **Step 4: Run to verify pass, and the whole functions suite**
 
 Run: `cd functions && npm test`
 Expected: all green (207 + 3 new). If a pre-existing test asserted `'Knock sent.'` on a capped fixture, fix THAT fixture's count (it was asserting the bug).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add functions/telegram.js functions/test/telegram.test.js
@@ -170,7 +170,7 @@ git commit -m "fix(bot): capped knocks answer honestly instead of 'Knock sent.'"
 - Produces: `deps.tg.editMessageText(chatId, messageId, text)` → Promise (Telegram `editMessageText`; sending NO `reply_markup` removes the inline keyboard). Exported-for-test is NOT needed — exercise via `handleUpdate`.
 - Produces: `resolveSourceMessage(deps, cq, outcome)` → Promise<void> — appends `\n\n${outcome}` to the source message's text (or uses `outcome` alone if the update carried no text) and strips its keyboard; swallows all edit failures. Tasks 3–4 call it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 The helper is internal; test it through the knock callback? No — knock keyboards must stay live (spec). Test through Task 3's invite flow instead? Tasks must be independently landable, so give the helper a thin direct test by exporting it:
 
@@ -214,12 +214,12 @@ Also extend `makeBotDeps`'s `tg` object so every later test has the mock by defa
     },
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd functions && npx jest test/telegram.test.js -t "resolveSourceMessage"`
 Expected: FAIL — `resolveSourceMessage` is not exported.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `functions/telegram.js`, above `handleCallback`:
 
@@ -248,12 +248,12 @@ export async function resolveSourceMessage(deps, cq, outcome) {
         tgApi('editMessageText', { chat_id: chatId, message_id: messageId, text, ...extra }),
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd functions && npm test`
 Expected: all green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add functions/telegram.js functions/index.js functions/test/telegram.test.js
@@ -282,7 +282,7 @@ Behavior table (spec S4): with `pending`/`existing`/`name` read up front —
 | pending, fresh decline | — | `Declined.` (+ clearPending) | `Invite declined.` |
 | pending, fresh accept | `Joined ⟨name⟩.` (+ join writes + clearPending) | — | `✅ Joined ⟨name⟩.` |
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 describe('invite callbacks are state-checked and self-recording (W1 B#1)', () => {
@@ -344,12 +344,12 @@ describe('invite callbacks are state-checked and self-recording (W1 B#1)', () =>
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd functions && npx jest test/telegram.test.js -t "state-checked"`
 Expected: FAIL — decline-after-accept answers `'Declined.'`; no `editMessageText` calls.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace the invite branch of `handleInboxCallback` (`functions/telegram.js:401-432`):
 
@@ -410,12 +410,12 @@ Replace the invite branch of `handleInboxCallback` (`functions/telegram.js:401-4
   }
 ```
 
-- [ ] **Step 4: Run to verify pass, whole suite**
+- [x] **Step 4: Run to verify pass, whole suite**
 
 Run: `cd functions && npm test`
 Expected: green. Pre-existing invite-callback tests asserting the old `'This invite is gone.'` copy must be updated to `'Already handled.'` — that copy change is this task's deliverable, not a regression.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add functions/telegram.js functions/test/telegram.test.js
@@ -442,7 +442,7 @@ Behavior table: with `request` and `grant` (`followGrants/{requester}/{me}`) rea
 | fresh decline | — | `Declined.` | `Declined.` |
 | fresh approve | `Approved.` | — | `✅ Approved.` |
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```js
 describe('follow-request callbacks are state-checked (W1 B#1)', () => {
@@ -494,12 +494,12 @@ describe('follow-request callbacks are state-checked (W1 B#1)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd functions && npx jest test/telegram.test.js -t "follow-request callbacks"`
 Expected: FAIL — decline blindly answers `'Declined.'`; no edits.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace the follow-request branch (`functions/telegram.js:433-453`):
 
@@ -544,11 +544,11 @@ Replace the follow-request branch (`functions/telegram.js:433-453`):
   }
 ```
 
-- [ ] **Step 4: Run to verify pass, whole suite**
+- [x] **Step 4: Run to verify pass, whole suite**
 
 Run: `cd functions && npm test` — green; update any pre-existing assertion on the old blind-decline behavior.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add functions/telegram.js functions/test/telegram.test.js
@@ -567,7 +567,7 @@ git commit -m "fix(bot): follow-request callbacks answer from current state and 
 - Consumes: existing `deps.sendTelegram(chatId, message, data)` → boolean | throws; existing read of `telegramByUid/{uid}` (already fetched when `deps.sendTelegram` exists).
 - Produces: no signature change. New behavior: `channel === 'push'` + linked route + zero tokens → deliver via bot.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Mirror the existing `sendToUser` test setup in `functions/test/notifier.test.js` (a deps object with `getVal`/`send`/`sendTelegram` jest mocks — follow the file's existing helper):
 
@@ -623,12 +623,12 @@ describe('token-less push fallback (W1 J#3)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd functions && npx jest test/notifier.test.js -t "token-less"`
 Expected: first test FAILS (returns false, `sendTelegram` not called).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Rework `sendToUser` (`functions/notifier.js:17-51`) — keep the channel predicate EXACTLY as-is; the fallback reuses the already-read route:
 
@@ -700,12 +700,12 @@ Then add one line to the three-reader comment blocks in the two client readers (
 
 `js/notifyChannel.js` — same line appended to the `isLinked` comment block (after `:32`).
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd functions && npm test` AND `npx jest tests/notifySuppression.test.js tests/notifyChannel.test.js`
 Expected: green (client tests unaffected — comment-only).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add functions/notifier.js functions/test/notifier.test.js js/notifySuppression.js js/notifyChannel.js
@@ -722,7 +722,7 @@ git commit -m "fix(notify): token-less push accounts fall back to the bot instea
 
 **Interfaces:** none new.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```js
 describe('/notifications push without tokens (W1 J#3)', () => {
@@ -750,12 +750,12 @@ describe('/notifications push without tokens (W1 J#3)', () => {
 
 (Match the `reply` arity convention as in Task 1's note.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd functions && npx jest test/telegram.test.js -t "notifications push without tokens"`
 Expected: first test FAILS (channel written, success copy sent).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace the `/notifications` case (`functions/telegram.js:167-176`):
 
@@ -782,11 +782,11 @@ Replace the `/notifications` case (`functions/telegram.js:167-176`):
     }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `cd functions && npm test` — green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add functions/telegram.js functions/test/telegram.test.js
@@ -805,7 +805,7 @@ git commit -m "fix(bot): /notifications push refuses when no device has push set
 - Consumes: `showToast(message)` from `js/groups.js`; existing `isTelegramContext()` import; `lastPrefs` module state (whole `userPrefs/{uid}` node, so `lastPrefs.pushTokens` is available).
 - Produces: no API change.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Follow the file's existing setup (it mocks `./db.js`, `./telegram.js`, `./notifySuppression.js`, `./notifyPrompt.js` with promise-returning mocks per HANDOFF §35). Add `jest.unstable_mockModule('./groups.js', …)` for `showToast` if the file doesn't already mock it — mirror the import style at the top of the file exactly. New tests:
 
@@ -836,12 +836,12 @@ test('Telegram context WITH pushTokens: Push tap proceeds', async () => {
 
 (Adjust arrange/mock names to the file's actual fixtures — the DOM ids `tg-notify-slot`/`drawer-section-notifications` and the mock handles already exist there; reuse them.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/notifyChannel.test.js`
 Expected: first new test FAILS (write happens, no toast).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `js/notifyChannel.js`: add the import and the guard at the top of the click handler, BEFORE the optimistic `setActive`:
 
@@ -870,11 +870,11 @@ import { showToast } from './groups.js';
         // (existing body unchanged)
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/notifyChannel.test.js` — green, including all pre-existing tests (web-context tests are unaffected: the guard requires `isTelegramContext()`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/notifyChannel.js tests/notifyChannel.test.js
@@ -892,7 +892,7 @@ git commit -m "fix(web): channel pill refuses a Push switch inside Telegram when
 **Interfaces:**
 - Produces (new contract, consumed by Task 10): `resolveInvitePreview(token)` → preview object | `null` (callable succeeded and said invalid/revoked/expired) | **throws** `Error('invite-preview-unavailable')` after one internal retry (transport/server failure).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/invites.test.js`, following the file's existing mock of `./firebase-config.js` (`callResolveInvitePreview`):
 
@@ -918,12 +918,12 @@ describe('resolveInvitePreview error contract (W1 J#1)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/invites.test.js -t "error contract"`
 Expected: third test FAILS (resolves null instead of throwing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `js/invites.js:232-239`:
 
@@ -956,11 +956,11 @@ export async function resolveInvitePreview(token) {
   const invitePreview = await resolveInvitePreview(pendingInviteToken).catch(() => null);
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/invites.test.js` and `npx jest tests/onboardingFlow.test.js tests/app-boot-cacheOwner.test.js` (boot-path consumers) — green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/invites.js js/app.js tests/invites.test.js
@@ -979,7 +979,7 @@ git commit -m "fix(web): invite preview distinguishes invalid tokens from lookup
 - Produces: `stampInviteOutcome(token, outcome)` and `stampedInviteOutcome(token)` → `'redeemed' | 'dismissed' | null`, exported from `js/telegramFirstRun.js`; localStorage key `statusapp_invite_outcomes` (account-scoped). Consumed by Task 10 (gate) and Task 11 (app.js).
 - Produces: `showLinkScreen()` → `Promise<boolean>` — resolves `false` on cancel; on success it reloads (and resolves `true` for tests). Existing fire-and-forget callers (`tg-link-btn`) are unaffected.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/telegramFirstRun.test.js` (follow the file's existing jsdom setup):
 
@@ -1019,12 +1019,12 @@ test('showLinkScreen resolves false on cancel (W1 J#6)', async () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/telegramFirstRun.test.js tests/telegramSettings.test.js tests/cacheOwner.test.js`
 Expected: FAIL — exports missing; `showLinkScreen` returns undefined.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `js/telegramFirstRun.js` — add below `extractStartParamToken`:
 
@@ -1115,11 +1115,11 @@ export function showLinkScreen() {
 
 (The `subtext` const stays where it is in the setup section, above the `return new Promise`.)
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/telegramFirstRun.test.js tests/telegramSettings.test.js tests/cacheOwner.test.js` — green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/telegramFirstRun.js js/cacheOwner.js js/telegramSettings.js tests/
@@ -1140,7 +1140,7 @@ git commit -m "feat(web): invite-token outcome stamps + showLinkScreen resolves 
 
 Gate outcome map (spec S1): stamped token → `null` silently · preview throws → error overlay with Try again (loops) / Not now (`null`) · preview `null` → expired toast, `null` · linked → silent redeem (unchanged) · interstitial: accept → redeem · Not now → stamp `dismissed`, `null` · phrase → await link; cancel loops back to the interstitial.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Extend `tests/telegramFirstRun.test.js` (reuse its existing DOM fixture for `#tg-invite-screen` and its mocks of `./telegram.js`, `./invites.js`, `./telegramSettings.js` — all promise-returning):
 
@@ -1197,12 +1197,12 @@ describe('telegramInviteGate outcomes (W1 J#1/J#4/J#5/J#6)', () => {
 
 (`TOKEN` = the fixture start_param the file already stubs into `tgWebApp().initDataUnsafe.start_param`; add the `#tg-invite-error` markup below to the test DOM fixture.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/telegramFirstRun.test.js`
 Expected: new tests FAIL (no overlay, no stamps consulted, phrase falls through).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `index.template.html` — insert after line 68 (the `#tg-invite-screen` closing `</div>`), same overlay pattern as `#invite-failure-overlay` (lines 121-128):
 
@@ -1285,11 +1285,11 @@ export async function telegramInviteGate({ linked, isNew, dismissSplash }) {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/telegramFirstRun.test.js` — green. Then `npx jest` (whole web suite) — the template change may require regenerating any fixture that snapshots the template region; fix forward.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/telegramFirstRun.js index.template.html tests/telegramFirstRun.test.js
@@ -1307,7 +1307,7 @@ git commit -m "fix(web): invite gate — error overlay, expired toast, dismissal
 **Interfaces:**
 - Consumes: `stampInviteOutcome` (Task 9) — add to the existing `telegramFirstRun.js` import in `app.js:31`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 The redemption block runs deep in `main()`; the boot harness in `tests/app-boot-cacheOwner.test.js` is the only suite that executes it. If wiring a full boot fixture there costs more than it verifies, test the extracted decision instead: add a pure helper to `js/telegramFirstRun.js` and unit-test it —
 
@@ -1336,11 +1336,11 @@ describe('redemptionConsumedToken (W1 J#4)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/telegramFirstRun.test.js -t redemptionConsumedToken` — FAIL (not exported).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add the helper above to `js/telegramFirstRun.js`. In `js/app.js`, extend the import at line 31:
 
@@ -1356,11 +1356,11 @@ In the `if (result)` block (after the `silentNoop` handling at `:631-637`, befor
       if (tgInvite && redemptionConsumedToken(result)) stampInviteOutcome(tgInvite.token, 'redeemed');
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/telegramFirstRun.test.js && npx jest tests/app-boot-cacheOwner.test.js` — green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/app.js js/telegramFirstRun.js tests/telegramFirstRun.test.js
@@ -1377,7 +1377,7 @@ git commit -m "fix(web): stamp consumed invite tokens so re-tapped links show no
 
 **Interfaces:** none for later tasks.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Find the existing test asserting `showToast("Couldn't start KnockKnock. Please try again in a moment.")` on Telegram boot failure (grep `Couldn't start KnockKnock` in `tests/`). Replace/extend it:
 
@@ -1395,11 +1395,11 @@ test('telegram boot failure shows the retry overlay, not just a toast (W1 J#2)',
 
 (Reuse the file's existing mechanism for stubbing `location.reload` — `tests/telegramSettings.test.js` already does this for the unlink reload.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest -t "boot failure"` — FAIL (no overlay in DOM fixture / not shown).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `index.template.html`, after `#invite-failure-overlay` (line 128):
 
@@ -1440,11 +1440,11 @@ Run: `npx jest -t "boot failure"` — FAIL (no overlay in DOM fixture / not show
   }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest` (the touched suites at minimum: the boot suite + any template-coupled fixtures) — green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/app.js index.template.html tests/
@@ -1462,7 +1462,7 @@ git commit -m "fix(web): telegram boot failure gets a Try-again overlay instead 
 **Interfaces:**
 - Consumes: existing cancel affordances — `#confirm-modal-cancel-btn` (`js/promptModal.js:66`), `#text-prompt-cancel-btn` (`:19`), `#tg-unlink-cancel-btn` (`js/telegramSettings.js:53`), `#graduation-info-close` (`js/graduation.js:32`), `#tg-invite-error-dismiss` (Task 10), plus `#boot-error-overlay` (Task 12; back = null, nothing behind it).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Follow `tests/telegramChrome.test.js`'s existing `resolveBackAction` fixture pattern (it builds a doc with ids and asserts which action wins):
 
@@ -1497,11 +1497,11 @@ describe('back button covers the W1 overlays (C#1)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/telegramChrome.test.js` — FAIL (falls through to lower entries).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 At the TOP of `resolveBackAction` (`js/telegramChrome.js:24`, before the `restore-screen` line):
 
@@ -1520,11 +1520,11 @@ export function resolveBackAction(doc = document) {
   // (…rest unchanged…)
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/telegramChrome.test.js` — green (existing ordering tests must still pass; the new entries only ADD higher-priority checks).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/telegramChrome.js tests/telegramChrome.test.js
@@ -1542,7 +1542,7 @@ git commit -m "fix(web): Telegram back button dismisses confirm/prompt overlays 
 **Interfaces:**
 - Consumes: `setButtonBusy`/`clearButtonBusy` from `js/utils.js:8-18`; existing `.error-msg` class (used by `#restore-error`, `index.template.html:210`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```js
 test('unlink failure shows the inline error and re-enables the button (W1 J#7)', async () => {
@@ -1566,11 +1566,11 @@ test('unlink failure shows the inline error and re-enables the button (W1 J#7)',
 
 (`callUnlinkTelegram` is already mocked promise-returning in this file per §35.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/telegramSettings.test.js` — FAIL (no error element, no busy label).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `ensureUnlinkConfirmModal` markup — add the error line before `.confirm-btns`:
 
@@ -1618,11 +1618,11 @@ async function doUnlink(e) {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/telegramSettings.test.js` — green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/telegramSettings.js tests/telegramSettings.test.js
@@ -1636,19 +1636,19 @@ git commit -m "fix(web): unlink shows busy state and an inline error instead of 
 **Files:**
 - Modify: `docs/HANDOFF.md` (top block + new rundown section), this plan's checkboxes
 
-- [ ] **Step 1: Run both full suites**
+- [x] **Step 1: Run both full suites**
 
 Run: `npx jest` (expect 1408 baseline + all new tests green) and `cd functions && npm test` (207 baseline + new green). Fix any cross-suite fallout before proceeding — a template-fixture drift from Tasks 10/12 is the likely candidate.
 
-- [ ] **Step 2: Reconcile the copy inventory**
+- [x] **Step 2: Reconcile the copy inventory**
 
 Grep each spec copy-inventory string (`docs/superpowers/specs/2026-07-07-telegram-w1-high-tier-ux-design.md` §Copy inventory) and confirm it appears exactly once in source. Straight apostrophes everywhere (`Couldn't`, `isn't`).
 
-- [ ] **Step 3: Update HANDOFF.md**
+- [x] **Step 3: Update HANDOFF.md**
 
 Top block + new §37: W1 implemented (list the 10 findings), tests counts, UNVERIFIED on-device — the operator's walkthrough is the acceptance gate. Note the A5 redeploy requirement: Tasks 1–6 change branch-only functions.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/HANDOFF.md docs/superpowers/plans/2026-07-07-telegram-w1-high-tier-ux.md
