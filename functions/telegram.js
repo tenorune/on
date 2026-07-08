@@ -360,7 +360,10 @@ async function knockGroupReach(deps, uid, query, rawQuery, reply) {
     return;
   }
   if (found.length > 1) {
-    await reply('Which one?', { reply_markup: { inline_keyboard: found.slice(0, 8).map((e) => [{ text: `${e.name} (${e.groupName})`, callback_data: `knock:${e.uid}:${e.gid}` }]) } });
+    const CAP = 8;
+    const overflow = found.length - CAP;
+    const text = overflow > 0 ? `Which one? …and ${overflow} more — type more letters.` : 'Which one?';
+    await reply(text, { reply_markup: { inline_keyboard: found.slice(0, CAP).map((e) => [{ text: `${e.name} (${e.groupName})`, callback_data: `knock:${e.uid}:${e.gid}` }]) } });
     return;
   }
   const committed = await writeKnock(deps, found[0].uid, uid, found[0].gid);
@@ -386,7 +389,10 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
     const matches = following.filter((e) => (e.label || e.code).toLowerCase().includes(query));
     if (matches.length === 0) { await knockGroupReach(deps, uid, query, args.join(' '), reply); return; }
     if (matches.length > 1) {
-      await reply('Which one?', { reply_markup: { inline_keyboard: matches.slice(0, 8).map((e) => [{ text: e.label || e.code, callback_data: `knock:${e.userId}` }]) } });
+      const CAP = 8;
+      const overflow = matches.length - CAP;
+      const text = overflow > 0 ? `Which one? …and ${overflow} more — type more letters.` : 'Which one?';
+      await reply(text, { reply_markup: { inline_keyboard: matches.slice(0, CAP).map((e) => [{ text: e.label || e.code, callback_data: `knock:${e.userId}` }]) } });
       return;
     }
     const committed = await writeKnock(deps, matches[0].userId, uid);

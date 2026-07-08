@@ -559,6 +559,26 @@ describe('handleUpdate: /knock', () => {
       { text: 'Beatrice', callback_data: 'knock:f2' },
     ]));
   });
+  test('/knock disambiguation appends a truncation hint past 8', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    const many = {};
+    for (let i = 0; i < 10; i++) many[`f${i}`] = { code: `CODE${i}`, label: `Ann${i}` };
+    deps.store[`userPrefs/${uid}/following`] = many;
+    const reply = await handleUpdate(deps, msgUpdate('/knock ann'));
+    expect(reply.text).toBe('Which one? …and 2 more — type more letters.');
+    expect(reply.reply_markup.inline_keyboard).toHaveLength(8);
+  });
+  test('/knock disambiguation with 8 or fewer matches → no hint', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    const eight = {};
+    for (let i = 0; i < 8; i++) eight[`f${i}`] = { code: `CODE${i}`, label: `Ann${i}` };
+    deps.store[`userPrefs/${uid}/following`] = eight;
+    const reply = await handleUpdate(deps, msgUpdate('/knock ann'));
+    expect(reply.text).toBe('Which one?');
+    expect(reply.reply_markup.inline_keyboard).toHaveLength(8);
+  });
   test('no match / no arg → helpful reply', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
@@ -614,6 +634,30 @@ describe('handleUpdate: /knock', () => {
       { text: 'Cora (Divers)', callback_data: 'knock:a1:G1' },
       { text: 'Coraline (Family)', callback_data: 'knock:a2:G2' },
     ]));
+  });
+  test('knockGroupReach disambiguation appends a truncation hint past 8', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    const members = {};
+    for (let i = 0; i < 10; i++) members[`a${i}`] = { displayName: `Cora${i}` };
+    deps.store['groups/G1/members'] = members;
+    const reply = await handleUpdate(deps, msgUpdate('/knock cora'));
+    expect(reply.text).toBe('Which one? …and 2 more — type more letters.');
+    expect(reply.reply_markup.inline_keyboard).toHaveLength(8);
+  });
+  test('knockGroupReach disambiguation with 8 or fewer matches → no hint', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    const members = {};
+    for (let i = 0; i < 8; i++) members[`a${i}`] = { displayName: `Cora${i}` };
+    deps.store['groups/G1/members'] = members;
+    const reply = await handleUpdate(deps, msgUpdate('/knock cora'));
+    expect(reply.text).toBe('Which one?');
+    expect(reply.reply_markup.inline_keyboard).toHaveLength(8);
   });
   test('no match anywhere → mentions groups in the reply', async () => {
     const deps = makeBotDeps();
