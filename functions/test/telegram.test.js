@@ -996,6 +996,21 @@ describe('invite callbacks are state-checked and self-recording (W1 B#1)', () =>
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Already handled.');
     expect(store[`groups/${GID}/members/u-tg-42`]).toBeUndefined(); // no write
   });
+
+  // The client's deleteGroup sweeps invitee mailboxes BEFORE dropping the group,
+  // so a deleted group reaches the bot as no-pending + no-name. The group being
+  // gone is already in hand (the name read) and is the dominant truth — answer
+  // it, not "Already handled." (which implies the user acted on it).
+  test('tap after the owner deleted the group (no pending, no name) → "That group no longer exists."', async () => {
+    const store = {};
+    seedUser(store);
+    const deps = makeBotDeps(store); // neither pending nor group name
+    await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'That group no longer exists.');
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 7, 'Ada invited you to Divers\n\nThat group no longer exists.');
+    expect(store[`groups/${GID}/members/u-tg-42`]).toBeUndefined(); // no write
+  });
 });
 
 describe('follow-request callbacks are state-checked (W1 B#1)', () => {
@@ -1043,6 +1058,23 @@ describe('follow-request callbacks are state-checked (W1 B#1)', () => {
     const deps = makeBotDeps(store);
     await handleUpdate(deps, cqUpdate(`fr_approve:${REQ}`, frMsg));
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'This request is gone.');
+  });
+
+  // followGrants is a CONSUMED mailbox — the requester's app completes the
+  // follow and deletes the grant within seconds, so a late tap usually sees
+  // neither request nor grant. The durable trace of an approval is the
+  // follower entry registerAsFollower wrote: answer from that, so a late
+  // Decline after a consumed approval doesn't collapse into "gone".
+  test('late tap after the grant was CONSUMED (follower entry exists) → "Already approved."', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`users/${uid}/followers/${REQ}`] = 'REQCODE'; // C completed the follow
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`fr_decline:${REQ}`, frMsg));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Already approved.');
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 9, 'Cara wants to follow you\n\n✅ Approved.');
+    expect(store[`users/${uid}/followers/${REQ}`]).toBe('REQCODE'); // untouched
   });
 });
 

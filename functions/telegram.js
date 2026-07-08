@@ -448,6 +448,15 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
       return;
     }
     if (!pending) {
+      // No pending AND no group: the owner deleted it (the client's
+      // deleteGroup sweeps invitee mailboxes before dropping the group, so
+      // this is the state a deletion normally reaches the bot in). The group
+      // being gone is the dominant truth — answer it, not "Already handled."
+      if (!name) {
+        await resolveSourceMessage(deps, cq, 'That group no longer exists.');
+        await answer('That group no longer exists.');
+        return;
+      }
       await resolveSourceMessage(deps, cq, 'Already handled.');
       await answer('Already handled.');
       return;
@@ -498,6 +507,17 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
       return;
     }
     if (!request) {
+      // The grant is a CONSUMED mailbox — the requester's app completes the
+      // follow and deletes it within seconds, so a late tap usually finds
+      // neither request nor grant. The durable trace of an approval is the
+      // follower entry registerAsFollower wrote; read it (only on this stale
+      // path) so a late Decline after a consumed approval answers honestly.
+      const follower = await deps.getVal(`users/${me}/followers/${requesterUid}`);
+      if (follower) {
+        await resolveSourceMessage(deps, cq, '✅ Approved.');
+        await answer('Already approved.');
+        return;
+      }
       await resolveSourceMessage(deps, cq, 'This request is gone.');
       await answer('This request is gone.');
       return;
