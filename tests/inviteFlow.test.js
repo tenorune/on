@@ -43,6 +43,21 @@ describe('inviteFlow', () => {
     expect(mockShare).toHaveBeenLastCalledWith('https://app/?i=x', 'Follow me on KnockKnock');
   });
 
+  test('shareCaption: the one place captions are spelled (W3-B CL#12)', () => {
+    const { shareCaption } = require('../js/inviteFlow.js');
+    expect(shareCaption('personal')).toBe('Follow me on KnockKnock');
+    expect(shareCaption('group', 'Family')).toBe('Join Family on KnockKnock');
+    expect(shareCaption(undefined)).toBe('Follow me on KnockKnock'); // scopeless invite (minted {token,url}) reads personal
+  });
+
+  test('shareInviteLink default caption comes from the invite scope', () => {
+    process.env.TELEGRAM_APP_LINK = '';
+    jest.resetModules();
+    const fresh = require('../js/inviteFlow.js');
+    fresh.shareInviteLink({ token: 'T'.repeat(22), url: 'https://app/?i=x', scope: 'group', groupName: 'Family' });
+    expect(mockShare).toHaveBeenLastCalledWith('https://app/?i=x', 'Join Family on KnockKnock');
+  });
+
   test('telegramSharingEnabled: true only when TELEGRAM_ENABLED and a deep link is configured', () => {
     process.env.TELEGRAM_APP_LINK = 'https://t.me/kk_bot/app';
     let mod = require('../js/inviteFlow.js');

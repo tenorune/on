@@ -25,8 +25,15 @@ export function telegramSharingEnabled() {
 // re-exported here for existing importers.
 export { buildTelegramShareUrl } from './telegram.js';
 
+// The ONLY place share captions are spelled (W3-B CL#12) — W4's copy sweep has
+// one string per caption to touch. A scopeless invite (e.g. a freshly minted
+// { token, url }) reads as personal, matching the old per-function defaults.
+export function shareCaption(scope, groupName) {
+  return scope === 'group' ? `Join ${groupName} on KnockKnock` : 'Follow me on KnockKnock';
+}
+
 // Open Telegram's share sheet for an invite, preferring the Mini App deep link.
-export function shareInviteLink(invite, text = 'Follow me on KnockKnock') {
+export function shareInviteLink(invite, text = shareCaption(invite.scope, invite.groupName)) {
   const url = buildTelegramInviteLink(invite.token) || invite.url;
   openTelegramShare(url, text);
 }
@@ -35,7 +42,7 @@ export function shareInviteLink(invite, text = 'Follow me on KnockKnock') {
 // Mini App deep link, so the recipient lands straight in the Mini App. Returns
 // false when unconfigured (no deep link) or the popup is blocked — the caller
 // can then fall back to copying the link.
-export function shareInviteToTelegramWeb(invite, text = 'Follow me on KnockKnock') {
+export function shareInviteToTelegramWeb(invite, text = shareCaption(invite.scope, invite.groupName)) {
   const deepLink = buildTelegramInviteLink(invite.token);
   if (!deepLink || typeof window === 'undefined' || !window.open) return false;
   // No platform arg: the recipient's client is unknown from the web, so the

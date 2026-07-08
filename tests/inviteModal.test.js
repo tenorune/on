@@ -7,6 +7,7 @@ jest.mock('../js/inviteFlow.js', () => ({
   telegramSharingEnabled: jest.fn(() => false),
   shareInviteToTelegramWeb: jest.fn(() => true),
   buildTelegramInviteLink: jest.fn((t) => `https://t.me/kk_bot/app?startapp=${t}`),
+  shareCaption: (scope, groupName) => (scope === 'group' ? `Join ${groupName} on KnockKnock` : 'Follow me on KnockKnock'),
 }));
 jest.mock('../js/invites.js', () => ({
   createPersonalInvite: jest.fn(),

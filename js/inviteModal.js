@@ -10,7 +10,7 @@ import { readPendingInviteesForGroup } from './db.js';
 import { renderInvitePicker } from './invitePicker.js';
 import { flashRegenerated } from './regenFlash.js';
 import { isTelegramContext } from './telegram.js';
-import { shareInviteLink, telegramSharingEnabled, shareInviteToTelegramWeb, buildTelegramInviteLink } from './inviteFlow.js';
+import { shareInviteLink, telegramSharingEnabled, shareInviteToTelegramWeb, buildTelegramInviteLink, shareCaption } from './inviteFlow.js';
 import { copyWithFeedback } from './utils.js';
 
 const SCOPE_COPY = {
@@ -127,7 +127,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
     on(document.getElementById('invite-modal-tg-share-btn'), 'click', async () => {
       try {
         const { token, url } = await createGroupInvite(userId, groupId);
-        shareInviteLink({ token, url }, `Join ${groupName} on KnockKnock`);
+        shareInviteLink({ token, url }, shareCaption('group', groupName));
       } catch (err) {
         showError(err.message || 'Could not create invite. Try again.');
       }
@@ -185,7 +185,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
     if (webTgShare) shareBtn.textContent = 'Share to Telegram';
     on(shareBtn, 'click', async () => {
       if (!currentInvite) return;
-      const text = scope === 'group' ? `Join ${groupName} on KnockKnock` : 'Follow me on KnockKnock';
+      const text = shareCaption(scope, groupName);
       if (isTelegramContext()) { shareInviteLink(currentInvite, text); return; }
       if (!shareInviteToTelegramWeb(currentInvite, text)) {
         const deepLink = buildTelegramInviteLink(currentInvite.token);
