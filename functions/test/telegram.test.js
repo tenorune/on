@@ -713,6 +713,64 @@ const cqUpdate = (data, message) => ({
   },
 });
 
+describe('invite callbacks are state-checked and self-recording (W1 B#1)', () => {
+  const GID = 'ABCD1234';
+  const inviteMsg = { message_id: 7, chat: { id: 42 }, text: 'Ada invited you to Divers' };
+
+  function seedInvite(store, uid) {
+    store[`pendingInvites/${uid}/${GID}`] = { from: 'f'.repeat(32) };
+    store[`groups/${GID}/name`] = 'Divers';
+  }
+
+  test('fresh accept joins, edits the message to the outcome, and strips the keyboard', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    seedInvite(store, uid);
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
+    expect(store[`groups/${GID}/members/${uid}`]).toMatchObject({ role: 'member' });
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 7, 'Ada invited you to Divers\n\n✅ Joined Divers.');
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Joined Divers.');
+  });
+
+  test('decline after accept answers honestly instead of "Declined."', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`groups/${GID}/name`] = 'Divers';
+    store[`groups/${GID}/members/${uid}`] = { role: 'member', displayName: 'Ada' };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`invite_decline:${GID}`, inviteMsg));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith(
+      'cq1', 'Already handled — you joined this group.');
+    expect(store[`groups/${GID}/members/${uid}`]).toBeTruthy(); // still a member
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 7, 'Ada invited you to Divers\n\n✅ Joined Divers.');
+  });
+
+  test('fresh decline records "Invite declined." on the message', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    seedInvite(store, uid);
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`invite_decline:${GID}`, inviteMsg));
+    expect(store[`pendingInvites/${uid}/${GID}`]).toBeNull();
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 7, 'Ada invited you to Divers\n\nInvite declined.');
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Declined.');
+  });
+
+  test('tap on a fully-handled invite (no pending, not member) answers "Already handled."', async () => {
+    const store = {};
+    seedUser(store);
+    store[`groups/${GID}/name`] = 'Divers';
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Already handled.');
+    expect(store[`groups/${GID}/members/u-tg-42`]).toBeUndefined(); // no write
+  });
+});
+
 describe('knock cap honesty (W1 B#2)', () => {
   const RECIP = 'a'.repeat(32); // format-valid uid for CALLBACK_ARG_RE
 

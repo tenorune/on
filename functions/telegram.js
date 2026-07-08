@@ -425,17 +425,38 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
       deps.set(`pendingInvites/${me}/${groupId}`, null),
       deps.set(`pendingInvitesByGroup/${groupId}/${me}`, null),
     ]);
-    if (action === 'invite_decline') { await clearPending(); await answer('Declined.'); return; }
-    const pending = await deps.getVal(`pendingInvites/${me}/${groupId}`);
-    if (!pending) { await answer('This invite is gone.'); return; }
-    // Race checks mirror js/inbox.js handleJoin: already-member and deleted-group
-    // both just clear the pending invite.
-    const [existing, name] = await Promise.all([
+    // State FIRST (W1 B#1): a button on an old message answers from the current
+    // state — decline-after-accept must not say "Declined." while membership stands.
+    const [pending, existing, name] = await Promise.all([
+      deps.getVal(`pendingInvites/${me}/${groupId}`),
       deps.getVal(`groups/${groupId}/members/${me}`),
       deps.getVal(`groups/${groupId}/name`),
     ]);
-    if (existing) { await clearPending(); await answer("You're already in that group."); return; }
-    if (!name) { await clearPending(); await answer('That group no longer exists.'); return; }
+    if (existing) {
+      await clearPending();
+      await resolveSourceMessage(deps, cq, `✅ Joined ${name || 'the group'}.`);
+      await answer(action === 'invite_accept'
+        ? "You're already in that group."
+        : 'Already handled — you joined this group.');
+      return;
+    }
+    if (!pending) {
+      await resolveSourceMessage(deps, cq, 'Already handled.');
+      await answer('Already handled.');
+      return;
+    }
+    if (action === 'invite_decline') {
+      await clearPending();
+      await resolveSourceMessage(deps, cq, 'Invite declined.');
+      await answer('Declined.');
+      return;
+    }
+    if (!name) {
+      await clearPending();
+      await resolveSourceMessage(deps, cq, 'That group no longer exists.');
+      await answer('That group no longer exists.');
+      return;
+    }
     // Join mirrors js/groups.js joinGroup (fresh membership branch): the display
     // name is the Telegram first name (the bot has no prompt UI); editable later
     // in the app.
@@ -448,6 +469,7 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
     });
     await deps.set(`users/${me}/groups/${groupId}`, { lastVisited: now });
     await clearPending();
+    await resolveSourceMessage(deps, cq, `✅ Joined ${name}.`);
     await answer(`Joined ${name}.`);
     return;
   }
