@@ -288,7 +288,7 @@ export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName =
   if (framingEl) {
     let text = '';
     if (inviteCreatorLabel) text = `You've been invited to follow ${inviteCreatorLabel}. First, let's set up your account.`;
-    else if (inviteGroupName) text = `You've been invited to join '${inviteGroupName}'. First, let's set up your account.`;
+    else if (inviteGroupName) text = `You've been invited to join ${inviteGroupName}. First, let's set up your account.`;
     framingEl.textContent = text;
     framingEl.classList.toggle('hidden', !text);
   }

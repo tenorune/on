@@ -129,7 +129,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
         const { token, url } = await createGroupInvite(userId, groupId);
         shareInviteLink({ token, url }, shareCaption('group', groupName));
       } catch (err) {
-        showError(err.message || 'Could not create invite. Try again.');
+        showError(err.message || "Couldn't create invite. Try again.");
       }
     });
   } else {
@@ -164,7 +164,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
       showState('manage');
       renderManageUrl(currentInvite);
     } catch (err) {
-      showError(err.message || 'Could not create invite. Try again.');
+      showError(err.message || "Couldn't create invite. Try again.");
     }
   });
 
@@ -209,7 +209,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
       );
       document.getElementById('invite-modal-copy-btn').textContent = 'Copy';
     } catch (err) {
-      showError(err.message || 'Could not regenerate invite. Try again.');
+      showError(err.message || "Couldn't regenerate invite. Try again.");
       // On error the badge swap didn't run, so drop the tapped ↻'s focus here
       // (otherwise it looks "stuck selected" until you tap elsewhere).
       document.getElementById('invite-modal-regen-btn').blur();
@@ -225,7 +225,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
       showState('create');
       if (labelInputEl) labelInputEl.value = '';
     } catch (err) {
-      showError(err.message || 'Could not revoke invite. Try again.');
+      showError(err.message || "Couldn't revoke invite. Try again.");
     }
   });
 

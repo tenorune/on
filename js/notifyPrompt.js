@@ -88,7 +88,7 @@ export async function refreshPushToken() {
 function showRegistrationFailed(banner) {
   const textEl = banner.querySelector('#notify-promo-text');
   const actionEl = banner.querySelector('#notify-promo-action');
-  if (textEl) textEl.textContent = 'Couldn’t turn on notifications on this device — it may not fully support web push. You can try again.';
+  if (textEl) textEl.textContent = "Couldn't turn on notifications on this device — it may not fully support web push. You can try again.";
   if (actionEl) actionEl.classList.remove('hidden');
   banner.classList.remove('hidden');
 }

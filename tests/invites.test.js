@@ -580,7 +580,7 @@ describe('welcome screen invite framing', () => {
     showWelcomeScreen({ inviteGroupName: 'Family' });
     const framing = document.getElementById('welcome-invite-framing');
     expect(framing.classList.contains('hidden')).toBe(false);
-    expect(framing.textContent).toContain("join 'Family'");
+    expect(framing.textContent).toContain('join Family');
     expect(framing.textContent).toContain('First, let');
   });
 });

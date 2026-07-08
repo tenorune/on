@@ -14,11 +14,11 @@ const FIXTURE = `
       <p class="first-run-sub">No one's here yet.</p>
       <button id="first-run-invite-btn" class="primary-btn">Invite your people</button>
       <p id="first-run-link-line" class="hint hidden">Already use KnockKnock?
-        <span class="first-run-link-row"><button id="first-run-link-btn" class="ghost-btn" type="button">Link your account</button><button id="first-run-graduate-help" class="help-badge" type="button">?</button></span></p>
+        <span class="first-run-link-row"><button id="first-run-link-btn" class="ghost-btn" type="button">I have a secret phrase</button><button id="first-run-graduate-help" class="help-badge" type="button">?</button></span></p>
     </div>
     <div id="add-person-area"><button id="add-person-btn" class="add-btn">Add a person</button></div>
   </main>
-  <button id="mycode-chip" class="chip">Share code</button>
+  <button id="mycode-chip" class="chip">Levers &amp; knobs</button>
   <div id="code-drawer">
     <div class="drawer-section" id="drawer-section-invite">
       <p class="drawer-section-label" id="drawer-invite-label">Invite</p>

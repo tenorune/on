@@ -905,7 +905,7 @@ function wireActions(groupId, userId, isOwner, groupName) {
 
   document.getElementById('group-action-delete').addEventListener('click', async () => {
     closeSettingsMenu();
-    const ok = await showConfirmModal({ title: `Delete '${groupName || 'this group'}'?`, message: 'This cannot be undone.', confirmLabel: 'Delete' });
+    const ok = await showConfirmModal({ title: `Delete ${groupName || 'this group'}?`, message: 'This cannot be undone.', confirmLabel: 'Delete' });
     if (!ok) return;
     try {
       await deleteGroup(groupId, userId);
@@ -922,7 +922,7 @@ function wireActions(groupId, userId, isOwner, groupName) {
 
   document.getElementById('group-action-leave').addEventListener('click', async () => {
     closeSettingsMenu();
-    const ok = await showConfirmModal({ title: `Leave '${groupName || 'this group'}'?`, confirmLabel: 'Leave' });
+    const ok = await showConfirmModal({ title: `Leave ${groupName || 'this group'}?`, message: "You'll stop seeing this group. You can be re-invited later.", confirmLabel: 'Leave' });
     if (!ok) return;
     try {
       await leaveGroup(groupId, userId);

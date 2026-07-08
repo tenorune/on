@@ -203,7 +203,7 @@ function buildInboxRow({ groupId, inviterLabel, groupName }) {
 
   const text = document.createElement('span');
   text.className = 'inbox-row-text';
-  text.textContent = `${inviterLabel} invited you to join '${groupName}'.`;
+  text.textContent = `${inviterLabel} invited you to join ${groupName}.`;
   li.appendChild(text);
 
   const actions = document.createElement('div');
@@ -283,7 +283,7 @@ async function handleApprove(requesterUid, requesterLabel) {
     await deleteFollowRequest(_myUid, requesterUid);
   } catch (e) {
     if (btn) btn.disabled = false;
-    showToast(e.message || 'Could not approve this request. Please try again.');
+    showToast(e.message || "Couldn't approve this request. Try again.");
   }
 }
 
@@ -334,7 +334,7 @@ async function handleJoin(groupId, groupName) {
     // Inbox row stays (re-opening re-renders a fresh, enabled Join), re-enable
     // the captured button, and surface the error rather than swallowing it.
     if (joinBtn) joinBtn.disabled = false;
-    showToast(e.message || 'Could not join this group. Please try again.');
+    showToast(e.message || "Couldn't join this group. Try again.");
     return;
   }
   await Promise.all([
