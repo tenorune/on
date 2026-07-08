@@ -6,6 +6,7 @@ import { tgWebApp, telegramLinkState } from './telegram.js';
 import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
 import { parseRecoveryCode } from './identity.js';
 import { showGraduationInfo } from './graduation.js';
+import { setButtonBusy, clearButtonBusy } from './utils.js';
 
 export function initTelegramSettings(userId) {
   const accountSlot = document.getElementById('tg-account-slot');
@@ -32,6 +33,8 @@ export function initTelegramSettings(userId) {
   // so it isn't wired here.
   accountSlot.querySelector('#tg-link-btn').addEventListener('click', showLinkScreen);
   accountSlot.querySelector('#tg-unlink-btn').addEventListener('click', () => {
+    const err = document.getElementById('tg-unlink-error');
+    if (err) { err.textContent = ''; err.classList.add('hidden'); }
     document.getElementById('tg-unlink-confirm').classList.remove('hidden');
   });
   // "?" beside the link entry opens the graduation info toast (spec §7).
@@ -49,6 +52,7 @@ function ensureUnlinkConfirmModal() {
     <div class="confirm-sheet">
       <h4>Unlink this Telegram?</h4>
       <p>Your account stays yours — sign in with your secret phrase in any browser. This Telegram will start over with a fresh, empty account.</p>
+      <p id="tg-unlink-error" class="error-msg hidden"></p>
       <div class="confirm-btns">
         <button class="confirm-btn-cancel" id="tg-unlink-cancel-btn" type="button">Cancel</button>
         <button class="confirm-btn-remove" id="tg-unlink-confirm-btn" type="button">Unlink</button>
@@ -66,12 +70,18 @@ function ensureUnlinkConfirmModal() {
 
 async function doUnlink(e) {
   const btn = e.currentTarget;
-  btn.disabled = true;
+  const err = document.getElementById('tg-unlink-error');
+  if (err) { err.textContent = ''; err.classList.add('hidden'); }
+  setButtonBusy(btn, 'Unlinking…');
   try {
     await callUnlinkTelegram(tgWebApp().initData);
     window.location.reload(); // reboot as a fresh derived account
   } catch {
-    btn.disabled = false;
+    // W1 J#7: a destructive confirm that visibly does nothing is the worst
+    // outcome — restore the button and say what happened; the sheet stays
+    // open so the user can retry or cancel.
+    clearButtonBusy(btn);
+    if (err) { err.textContent = "Couldn't unlink right now. Try again."; err.classList.remove('hidden'); }
   }
 }
 

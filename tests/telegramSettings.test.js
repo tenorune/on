@@ -140,6 +140,27 @@ test('unlink: confirm calls unlinkTelegram and does NOT stamp a landing banner',
   expect(sessionStorage.getItem('kk-landing')).toBeNull();
 });
 
+test('unlink failure shows the inline error and re-enables the button (W1 J#7)', async () => {
+  telegramLinkState.mockReturnValue({ linked: true });
+  callUnlinkTelegram.mockRejectedValue(new Error('network'));
+  const { initTelegramSettings } = require('../js/telegramSettings.js');
+  initTelegramSettings('u1');
+  await flush();
+  document.getElementById('tg-unlink-btn').click(); // opens the sheet
+  const confirmBtn = document.getElementById('tg-unlink-confirm-btn');
+  confirmBtn.click();
+  expect(confirmBtn.disabled).toBe(true);
+  expect(confirmBtn.textContent).toBe('Unlinking…');
+  await flush();
+  expect(confirmBtn.disabled).toBe(false);
+  expect(confirmBtn.textContent).toBe('Unlink');
+  const err = document.getElementById('tg-unlink-error');
+  expect(err.classList.contains('hidden')).toBe(false);
+  expect(err.textContent).toBe("Couldn't unlink right now. Try again.");
+  // sheet stays open for retry/cancel
+  expect(document.getElementById('tg-unlink-confirm').classList.contains('hidden')).toBe(false);
+});
+
 test('link success calls linkTelegram and does NOT stamp a landing banner', async () => {
   const { initTelegramSettings } = require('../js/telegramSettings.js');
   initTelegramSettings('u1');
