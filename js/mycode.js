@@ -139,7 +139,7 @@ export async function openPersonalInviteModal() {
 export async function sharePersonalInvite() {
   let invite = _currentActiveInvite;
   if (!invite) {
-    const label = telegramFirstName().slice(0, 40).trim() || 'Someone';
+    const label = telegramFirstName() || 'Someone';
     const result = await createPersonalInvite(_myUserId, label);
     invite = { token: result.token, url: result.url, scope: 'personal', creatorLabel: label };
     _currentActiveInvite = invite; // optimistic; watchUserInvites confirms shortly
@@ -150,7 +150,7 @@ export async function sharePersonalInvite() {
     // existing invite (token/URL unchanged) before sharing. Skip when the name
     // is unchanged, and when Telegram exposes no name keep the existing label
     // rather than clobber it with the 'Someone' fallback.
-    const current = telegramFirstName().slice(0, 40).trim();
+    const current = telegramFirstName();
     if (current && current !== invite.creatorLabel) {
       await updateInviteLabel(_myUserId, invite.token, current);
       invite = { ...invite, creatorLabel: current };

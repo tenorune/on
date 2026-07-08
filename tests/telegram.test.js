@@ -31,6 +31,15 @@ test('telegramFirstName: returns the Mini App user first name, empty when absent
   expect(require('../js/telegram.js').telegramFirstName()).toBe('');
 });
 
+test('telegramFirstName: trimmed and capped at 40 (mirrors the DB creatorLabel cap, W3-B CL#9)', () => {
+  window.Telegram = { WebApp: { initData: 'x', initDataUnsafe: { user: { first_name: `  ${'x'.repeat(50)}  ` } } } };
+  const name = require('../js/telegram.js').telegramFirstName();
+  expect(name).toBe('x'.repeat(40)); // trim first, then cap
+  jest.resetModules();
+  window.Telegram = { WebApp: { initData: 'x', initDataUnsafe: { user: { first_name: '  Ana  ' } } } };
+  expect(require('../js/telegram.js').telegramFirstName()).toBe('Ana');
+});
+
 describe('openTelegramShare caption separator', () => {
   test('non-iOS clients (e.g. macOS) get a newline before the caption so it does not butt against the link', () => {
     const openTelegramLink = jest.fn();

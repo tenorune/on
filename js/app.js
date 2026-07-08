@@ -624,7 +624,7 @@ async function main() {
     // telegramFirstName() is '' outside Telegram — web redeemers pass no name,
     // so their behaviour is unchanged (group redeems ignore it entirely).
     let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {
-      redeemerName: telegramFirstName().slice(0, 40),
+      redeemerName: telegramFirstName(),
     });
     // Captured from the needs-display-name response so we can prime
     // setLastKnownGroupName even on the success path (where the second
