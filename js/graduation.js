@@ -18,14 +18,17 @@ const GRADUATE_WARNING = "Save this somewhere safe. It's how you sign in outside
 // Info dialog on the shared confirm-overlay primitive (js/promptModal.js):
 // gets backdrop-tap / Escape / Cancel dismissal for free (same #confirm-modal
 // markup as the unlink confirm in telegramSettings.js). "I want an account" →
-// startGraduation; Cancel (or backdrop/Escape) just closes it. The primitive
-// has no cancelLabel knob, so the button reads the shared "Cancel" — same as
-// every other confirm-overlay use in the app.
+// startGraduation; Close (or backdrop/Escape) just closes it. Unlike the
+// destructive confirms elsewhere (unlink/delete/leave), this CTA is positive,
+// so it opts into the affirmative button variant + a "Close" cancel label
+// instead of the shared default "Cancel".
 export function showGraduationInfo() {
   showConfirmModal({
     title: '',
     message: INFO_TEXT,
     confirmLabel: 'I want an account',
+    confirmVariant: 'affirmative',
+    cancelLabel: 'Close',
   }).then((ok) => { if (ok) startGraduation(); });
 }
 

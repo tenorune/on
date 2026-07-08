@@ -56,6 +56,10 @@ describe('showGraduationInfo', () => {
     expect(document.getElementById('confirm-modal-message').textContent)
       .toBe('With an account you can use KnockKnock outside of Telegram.');
     expect(document.getElementById('confirm-modal-confirm-btn').textContent).toBe('I want an account');
+    const confirmBtn = document.getElementById('confirm-modal-confirm-btn');
+    expect(confirmBtn.classList.contains('confirm-btn-generate')).toBe(true);
+    expect(confirmBtn.classList.contains('confirm-btn-remove')).toBe(false);
+    expect(document.getElementById('confirm-modal-cancel-btn').textContent).toBe('Close');
   });
 
   test('confirming "I want an account" closes the overlay and starts graduation (recovery modal opens with the graduation knobs)', async () => {

@@ -92,6 +92,37 @@ describe('showConfirmModal', () => {
     document.getElementById('confirm-modal-cancel-btn').click();
     await expect(p).resolves.toBe(false);
   });
+
+  test('default variant: confirm button is confirm-btn-remove (not confirm-btn-generate); cancel label is "Cancel"', () => {
+    showConfirmModal({ title: 'Sure?', confirmLabel: 'Yes' });
+    const confirmBtn = document.getElementById('confirm-modal-confirm-btn');
+    expect(confirmBtn.classList.contains('confirm-btn-remove')).toBe(true);
+    expect(confirmBtn.classList.contains('confirm-btn-generate')).toBe(false);
+    expect(document.getElementById('confirm-modal-cancel-btn').textContent).toBe('Cancel');
+  });
+
+  test('confirmVariant: "affirmative" renders confirm-btn-generate (not confirm-btn-remove)', () => {
+    showConfirmModal({ title: 'Graduate?', confirmLabel: 'I want an account', confirmVariant: 'affirmative' });
+    const confirmBtn = document.getElementById('confirm-modal-confirm-btn');
+    expect(confirmBtn.classList.contains('confirm-btn-generate')).toBe(true);
+    expect(confirmBtn.classList.contains('confirm-btn-remove')).toBe(false);
+  });
+
+  test('cancelLabel overrides the cancel button text', () => {
+    showConfirmModal({ title: 'Info', confirmLabel: 'I want an account', cancelLabel: 'Close' });
+    expect(document.getElementById('confirm-modal-cancel-btn').textContent).toBe('Close');
+  });
+
+  test('no-leak: an affirmative call does not stick — a later default call is confirm-btn-remove again', async () => {
+    const p1 = showConfirmModal({ title: 'Graduate?', confirmLabel: 'I want an account', confirmVariant: 'affirmative' });
+    document.getElementById('confirm-modal-cancel-btn').click();
+    await expect(p1).resolves.toBe(false);
+
+    showConfirmModal({ title: 'Delete?', confirmLabel: 'Delete' });
+    const confirmBtn = document.getElementById('confirm-modal-confirm-btn');
+    expect(confirmBtn.classList.contains('confirm-btn-remove')).toBe(true);
+    expect(confirmBtn.classList.contains('confirm-btn-generate')).toBe(false);
+  });
 });
 
 describe('showConfirmModal with async onConfirm (W3-A CL#4)', () => {

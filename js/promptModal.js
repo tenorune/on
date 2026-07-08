@@ -79,16 +79,21 @@ export function showTextPrompt({ title, value = '', confirmLabel = 'Save', maxLe
   });
 }
 
-// showConfirmModal({ title, message?, confirmLabel?, busyLabel?, onConfirm? })
-//   → Promise<boolean>
+// showConfirmModal({ title, message?, confirmLabel?, confirmVariant?,
+//   cancelLabel?, busyLabel?, onConfirm? }) → Promise<boolean>
 // Resolves true on confirm, false on cancel / overlay-tap / Escape.
+// `confirmVariant` ('destructive' default | 'affirmative') selects the
+// confirm button's styling — the reused #confirm-modal singleton gets its
+// variant class (re)applied every call so a prior caller's variant can't
+// leak into the next one. `cancelLabel` (default 'Cancel') overrides the
+// cancel button's text the same way.
 // With an async `onConfirm` (W3-A CL#4): the confirm tap runs it with the
 // button busy (`busyLabel`, else the confirm label) and the modal stays up;
 // cancel/overlay/Escape are inert while it runs — a destructive action must
 // not be dismissible mid-round-trip. Resolve → true + close. Throw → inline
 // error (e.userMessage or a generic) and the modal stays open for retry or
 // cancel. Same onConfirm/userMessage convention as recoveryModal.
-export function showConfirmModal({ title, message = '', confirmLabel = 'Confirm', busyLabel = null, onConfirm = null }) {
+export function showConfirmModal({ title, message = '', confirmLabel = 'Confirm', confirmVariant = 'destructive', cancelLabel = 'Cancel', busyLabel = null, onConfirm = null }) {
   const overlay = document.getElementById('confirm-modal');
   const titleEl = document.getElementById('confirm-modal-title');
   const messageEl = document.getElementById('confirm-modal-message');
@@ -101,6 +106,9 @@ export function showConfirmModal({ title, message = '', confirmLabel = 'Confirm'
   if (errEl) { errEl.textContent = ''; errEl.classList.add('hidden'); }
   delete confirmBtn.dataset.idleLabel; // scrub a prior modal's busy stash
   confirmBtn.textContent = confirmLabel;
+  cancelBtn.textContent = cancelLabel;
+  confirmBtn.classList.remove('confirm-btn-remove', 'confirm-btn-generate');
+  confirmBtn.classList.add(confirmVariant === 'affirmative' ? 'confirm-btn-generate' : 'confirm-btn-remove');
   overlay.classList.remove('hidden');
 
   return runModal(overlay, {
