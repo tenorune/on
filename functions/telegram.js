@@ -377,6 +377,21 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
 const LABEL_MAX = 40;
 const clampName = (s) => String(s ?? '').slice(0, LABEL_MAX).trim();
 
+// Rewrite a callback's source notification message to record its resolved
+// outcome, and drop the inline keyboard (editMessageText with no reply_markup
+// removes it) so stale buttons can't be tapped (W1 B#1/B#9). The original text
+// is kept for context; the outcome is appended. Every failure is swallowed:
+// the action itself already succeeded and the answerCallbackQuery toast fired —
+// a >48h edit window, a user-deleted message, or a double-tap race must never
+// fail the action.
+export async function resolveSourceMessage(deps, cq, outcome) {
+  const msg = cq?.message;
+  if (!msg?.message_id || !msg.chat?.id || !deps.tg.editMessageText) return;
+  const text = msg.text ? `${msg.text}\n\n${outcome}` : outcome;
+  try { await deps.tg.editMessageText(String(msg.chat.id), msg.message_id, text); }
+  catch { /* cosmetic — see above */ }
+}
+
 async function handleCallback(deps, cq) {
   if (!cq?.id || !cq.from) return;
   const answer = (text) => deps.tg.answerCallbackQuery(cq.id, text);

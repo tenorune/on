@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { buildNotificationKeyboard, handleUpdate, parseDurationMinutes, webhookAuthorized } from '../telegram.js';
+import { buildNotificationKeyboard, handleUpdate, parseDurationMinutes, webhookAuthorized, resolveSourceMessage } from '../telegram.js';
 
 const APP = 'https://app.example.com';
 
@@ -66,6 +66,7 @@ function makeBotDeps(store = {}) {
     tg: {
       sendMessage: jest.fn(async () => ({})),
       answerCallbackQuery: jest.fn(async () => ({})),
+      editMessageText: jest.fn(async () => ({})),
     },
   };
 }
@@ -743,6 +744,31 @@ describe('knock cap honesty (W1 B#2)', () => {
     await handleUpdate(deps, msgUpdate('/knock ana'));
     expect(deps.tg.sendMessage).toHaveBeenCalledWith('42',
       "You've already knocked a few times — give them a moment.", expect.anything());
+  });
+});
+
+describe('resolveSourceMessage (W1 B#1)', () => {
+  const cqMsg = { message_id: 7, chat: { id: 42 }, text: 'Ada invited you to join Divers' };
+
+  test('appends the outcome and strips the keyboard via editMessageText', async () => {
+    const deps = makeBotDeps({});
+    deps.tg.editMessageText = jest.fn(async () => ({}));
+    await resolveSourceMessage(deps, { id: 'cq1', message: cqMsg }, '✅ Joined Divers.');
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 7, 'Ada invited you to join Divers\n\n✅ Joined Divers.');
+  });
+
+  test('missing message (privacy mode / >48h) is a silent no-op', async () => {
+    const deps = makeBotDeps({});
+    deps.tg.editMessageText = jest.fn(async () => ({}));
+    await resolveSourceMessage(deps, { id: 'cq1' }, 'x');
+    expect(deps.tg.editMessageText).not.toHaveBeenCalled();
+  });
+
+  test('edit failure is swallowed', async () => {
+    const deps = makeBotDeps({});
+    deps.tg.editMessageText = jest.fn(async () => { throw new Error('message to edit not found'); });
+    await expect(resolveSourceMessage(deps, { id: 'cq1', message: cqMsg }, 'x')).resolves.toBeUndefined();
   });
 });
 
