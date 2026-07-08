@@ -243,7 +243,8 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   // TG-group shortcut: if there's no one displayable to invite (Section 2 would
   // render empty), skip the modal entirely and share the deep link directly —
   // there's nothing useful to show. On createGroupInvite failure, fall through
-  // to open the modal so its inline error surface shows.
+  // to open the modal so the user can retry via its Share button (which
+  // surfaces its own errors).
   if (tgGroupShare && !hasDisplayableInvitees({ followers, mutuals, currentMemberUids, inviterUid: userId })) {
     try {
       const { token, url } = await createGroupInvite(userId, groupId);
