@@ -40,10 +40,20 @@ describe('resolveName', () => {
     expect(await resolveName(deps, 'v', 't')).toBe('Bea');
 
     const deps2 = makeDeps({ store: { 'users/t/presence/code': 'cool-code' } });
-    expect(await resolveName(deps2, 'v', 't')).toBe('cool-code');
+    expect(await resolveName(deps2, 'v', 't')).toBe('Your contact cool-code');
 
     const deps3 = makeDeps({ store: {} });
     expect(await resolveName(deps3, 'v', 't')).toBe('Someone');
+  });
+
+  test('resolveName prefixes a bare share-code fallback', async () => {
+    const deps = makeDeps({ store: { 'users/u2/presence/code': 'K7Q2ZP' } });
+    expect(await resolveName(deps, 'u1', 'u2')).toBe('Your contact K7Q2ZP');
+  });
+
+  test('resolveName returns a real label unchanged', async () => {
+    const deps = makeDeps({ store: { 'userPrefs/u1/following/u2': { label: 'Ana' } } });
+    expect(await resolveName(deps, 'u1', 'u2')).toBe('Ana');
   });
 });
 

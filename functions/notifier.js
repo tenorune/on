@@ -81,7 +81,7 @@ export async function resolveName(deps, viewerUid, targetUid) {
   const follow = await deps.getVal(`userPrefs/${viewerUid}/following/${targetUid}`);
   if (follow && follow.label) return follow.label;
   const code = await deps.getVal(`users/${targetUid}/presence/code`);
-  if (code) return code;
+  if (code) return `Your contact ${code}`; // B#10: a bare code reads like a glitch in chat
   return 'Someone';
 }
 
