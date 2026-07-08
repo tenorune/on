@@ -10,11 +10,11 @@
 
 ## Global Constraints
 
-- **Branch/sequencing:** execute on the Telegram integration line **after wave W1 is implemented** (`docs/superpowers/plans/2026-07-07-telegram-w1-high-tier-ux.md`). Tasks 5–6 hard-depend on W1 Tasks 13–14 (baselines quoted per task). If W1 was descoped, see the spec's Sequencing fallback: Task 6's baseline is then the pre-W1 `telegramSettings.js` (no `#tg-unlink-error`, no busy) and the Task 6 `telegramChrome` step drops out.
-- **Line numbers are advisory** (drift expected under W1); anchor on the quoted code.
+- **Branch/sequencing — UPDATE 2026-07-08: W1 (+W2) has LANDED.** Baseline is `claude/telegram-app-adaptation-t1r1jp` tip `97482f0` (HANDOFF §37–§40), on-device verified. Tasks 5–6's W1 Task 13/14 baselines are now OBSERVED in landed source, re-verified at the tip; the pre-W1 fallbacks recorded in earlier drafts no longer apply. Cut the execution branch from that tip (or its descendant).
+- **Line numbers** in this plan were re-verified against `97482f0`; still anchor on the quoted code if the tip has moved again.
 - **Scope fence:** `js/`, `index.template.html`, `tests/` only. NO `functions/`, NO `css/app.css`, no fixing other analysis findings in passing (CL#6–CL#13 are wave W3-B).
 - **Contract landmine:** in `js/notifyChannel.js`, ONLY the Telegram arm of `isLinked(prefs)` changes (Task 3). The web arm `prefs?.telegram != null` is one of THREE cross-referenced readers of the notify-channel default (`js/notifySuppression.js`, `functions/notifier.js`) and stays byte-for-byte, comment intact.
-- **Tests:** web suite `npx jest` from repo root (baseline 1408 + W1's additions, all green before starting).
+- **Tests:** web suite `npx jest` from repo root (baseline **1446** green at tip `97482f0`; functions 281 — untouched by this wave).
 - **Copy:** straight apostrophes; "Try again." voice. New copy in this wave: `Couldn't finish that right now. Try again.` (generic onConfirm failure) — everything else reuses existing strings verbatim.
 - **Commit identity:** `git config user.email noreply@anthropic.com && git config user.name Claude` before the first commit.
 - **Acceptance:** green suites are necessary, not sufficient — the operator's on-device walkthrough (Telegram webview + plain web) is the gate, focused on Tasks 2 and 6.
@@ -125,7 +125,7 @@ git commit -m "perf(web): setListEmpty no-ops on unchanged state instead of re-s
 ### Task 2: Defer the Telegram bridge + bundle scripts (CL#2)
 
 **Files:**
-- Modify: `index.template.html` (the `telegram-web-app.js` script in `<head>`, currently line 19; the `dist/bundle.js` script at end of body, currently line 387)
+- Modify: `index.template.html` (the `telegram-web-app.js` script in `<head>`, line 19 at `97482f0`; the `dist/bundle.js` script at end of body, line 406)
 
 **Interfaces:**
 - Produces: no API change. Ordering guarantee: `defer` scripts execute in document order after parse, so `window.Telegram` exists before the bundle runs; the inline theme-restore script (line 25, not deferrable) now runs before any network script.
@@ -220,7 +220,7 @@ export function isTelegramLinked() {
 
 - [ ] **Step 4: Switch the five call sites**
 
-`js/app.js` — import line (currently line 29) gains `isTelegramLinked`; the gate call (currently ~line 544) becomes:
+`js/app.js` — import line (line 29 at `97482f0`) gains `isTelegramLinked`; the gate call (line 560) becomes:
 
 ```js
     tgInvite = await telegramInviteGate({
@@ -241,7 +241,7 @@ Then `grep -n telegramLinkState js/app.js` — if the gate was its only use, dro
     const show = empty && isTelegramContext() && !isTelegramLinked();
 ```
 
-`js/notifyChannel.js` — import becomes `import { isTelegramContext, isTelegramLinked } from './telegram.js';`; in `isLinked(prefs)` ONLY the Telegram arm changes (keep the whole comment block above it, including the three-reader cross-reference):
+`js/notifyChannel.js` — import becomes `import { isTelegramContext, isTelegramLinked } from './telegram.js';`; in `isLinked(prefs)` ONLY the Telegram arm changes. Keep the whole comment block above it (three-reader cross-reference) AND the trailing note below it added post-W1 (`// Note: the notifier additionally falls back to the bot when channel IS 'push' …` — `js/notifyChannel.js:38-40` at `97482f0`):
 
 ```js
 function isLinked(prefs) {
@@ -249,6 +249,8 @@ function isLinked(prefs) {
   return prefs?.telegram != null;
 }
 ```
+
+(The §39 pill-honesty guards further down the file — `accountHasPushTokens`, `permissionGranted`, the deny/revert paths — are NOT touched by this task.)
 
 `js/telegramSettings.js` — import becomes `import { tgWebApp, isTelegramLinked } from './telegram.js';`; in `initTelegramSettings`:
 
@@ -269,7 +271,7 @@ Each of these files mocks `../js/telegram.js` as a whole; add `isTelegramLinked`
   };
   ```
   `beforeEach` adds `mockTelegram.isTelegramLinked.mockReturnValue(false);`. Then replace every arranging call `mockTelegram.telegramLinkState.mockReturnValue({ linked: X })` in this file with `mockTelegram.isTelegramLinked.mockReturnValue(X)` (find them: `grep -n 'telegramLinkState.mockReturnValue' tests/firstRun.test.js`).
-- `tests/notifyChannel.test.js` — add `isTelegramLinked: jest.fn(() => false)` to the mock and `isTelegramLinked.mockReturnValue(false)` to `beforeEach`; import it alongside the others; same mechanical replacement (`grep -n 'telegramLinkState.mockReturnValue' tests/notifyChannel.test.js` — includes W1 Task 7's tests).
+- `tests/notifyChannel.test.js` — add `isTelegramLinked: jest.fn(() => false)` to the mock and `isTelegramLinked.mockReturnValue(false)` to `beforeEach`; import it alongside the others; same mechanical replacement (`grep -n 'telegramLinkState.mockReturnValue' tests/notifyChannel.test.js` — six hits at `97482f0`, covering W1 Task 7's AND §39's pill tests).
 - `tests/telegramSettings.test.js` — the mock (top of file) gains `isTelegramLinked: jest.fn(() => false)`; same replacement for every `telegramLinkState.mockReturnValue({ linked: true })`.
 - `tests/app-boot-cacheOwner.test.js` — its telegram.js mock (around line 247) gains `isTelegramLinked: jest.fn(() => false)`; same replacement if any arranging call exists (`grep -n 'telegramLinkState' tests/app-boot-cacheOwner.test.js`).
 
@@ -400,7 +402,7 @@ git commit -m "refactor(web): one t.me share-URL builder with the caption-spacin
 ### Task 5: `showConfirmModal` gains async `onConfirm` (CL#4, modal half)
 
 **Files:**
-- Modify: `js/promptModal.js` (`showConfirmModal`), `index.template.html` (`#confirm-modal` markup, currently lines 145-152)
+- Modify: `js/promptModal.js` (`showConfirmModal`), `index.template.html` (`#confirm-modal` markup, lines 164-172 at `97482f0`)
 - Test: `tests/promptModal.test.js`
 
 **Interfaces:**
@@ -507,7 +509,7 @@ Expected: new tests FAIL (options ignored, no error element handling); the two p
 
 - [ ] **Step 3: Implement**
 
-`index.template.html` — inside `#confirm-modal`'s `.confirm-sheet` (currently lines 146-152), add the error line after `#confirm-modal-message`:
+`index.template.html` — inside `#confirm-modal`'s `.confirm-sheet` (lines 165-171 at `97482f0`), add the error line after `#confirm-modal-message`:
 
 ```html
       <p id="confirm-modal-message"></p>
@@ -618,7 +620,7 @@ git commit -m "feat(web): showConfirmModal optional async onConfirm — busy, in
 
 **Interfaces:**
 - Consumes: Task 5's `showConfirmModal` (with `busyLabel`/`onConfirm`); `callUnlinkTelegram` (existing); `tgWebApp` (existing).
-- Baseline: the POST-W1 `js/telegramSettings.js` — W1 Task 14 gave the bespoke sheet a `#tg-unlink-error` line, `setButtonBusy(btn, 'Unlinking…')`, and error-clear-on-open. ALL of that is deleted here; the shared modal now carries those behaviors. (Pre-W1 fallback: same deletion, the bespoke sheet is just smaller.)
+- Baseline (OBSERVED at `97482f0`): the landed `js/telegramSettings.js` — W1 Task 14 gave the bespoke sheet a `#tg-unlink-error` line, `setButtonBusy(btn, 'Unlinking…')`, and error-clear-on-open (`ensureUnlinkConfirmModal` at `:46-69`, `doUnlink` at `:71-86`). ALL of that is deleted here; the shared modal now carries those behaviors.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -709,7 +711,7 @@ test('unlink failure: inline error in the shared modal, stays open for retry (ca
 
 (`isTelegramLinked` is required from the mocked `../js/telegram.js` at the top of the file, alongside `telegramLinkState` — Task 3 added it. jsdom's `window.location.reload` is a non-throwing no-op here — same note as `tests/graduation.test.js:69-71` — so the success path needs no reload stub.)
 
-`tests/telegramChrome.test.js` — in W1 Task 13's `test.each` table, DELETE the row `['tg-unlink-confirm', 'tg-unlink-cancel-btn']` (the bespoke sheet no longer exists; `#confirm-modal` — already the table's first row — now covers unlink).
+`tests/telegramChrome.test.js` — in the landed `test.each` table (`describe('back button covers the W1 overlays (C#1)')`, row at line 127 at `97482f0`), DELETE the row `['tg-unlink-confirm', 'tg-unlink-cancel-btn']` and its `#tg-unlink-confirm` fixture line (line 32). The `#confirm-modal` row — already the table's first — now covers unlink; the `unfollow-confirm`/`rotate-confirm` rows added by `8c34d99` are untouched.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -749,13 +751,13 @@ Expected: new tests FAIL (bespoke `#tg-unlink-confirm` still injected; shared mo
 
 - [ ] **Step 4: Implement `telegramChrome.js`**
 
-In `resolveBackAction`, DELETE the line W1 Task 13 added:
+In `resolveBackAction`, DELETE the line W1 Task 13 added (`js/telegramChrome.js:30` at `97482f0`):
 
 ```js
   if (visible(doc, 'tg-unlink-confirm')) return () => doc.getElementById('tg-unlink-cancel-btn')?.click();
 ```
 
-(`#confirm-modal` stays first in the checklist and now covers unlink; back during an in-flight unlink clicks a cancel that Task 5 made inert — correct.)
+(`#confirm-modal` stays first in the checklist and now covers unlink; the neighboring `unfollow-confirm`/`rotate-confirm` entries from `8c34d99` are untouched. Back during an in-flight unlink clicks a cancel that Task 5 made inert — correct.)
 
 - [ ] **Step 5: Run to verify pass**
 
@@ -777,7 +779,7 @@ git commit -m "refactor(web): unlink confirm rides showConfirmModal — bespoke 
 
 - [ ] **Step 1: Run the full web suite**
 
-Run: `npx jest` — all green (W1 baseline + this wave's additions). Fix any cross-suite fallout before proceeding (likely candidates: other fixtures embedding `#confirm-modal` markup without the error line — harmless since the code null-guards `errEl`, but verify).
+Run: `npx jest` — all green (1446 baseline + this wave's additions). Fix any cross-suite fallout before proceeding (likely candidates: other fixtures embedding `#confirm-modal` markup without the error line — harmless since the code null-guards `errEl`, but verify).
 
 - [ ] **Step 2: Grep the scope fence**
 

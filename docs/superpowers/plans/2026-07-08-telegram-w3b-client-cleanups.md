@@ -10,8 +10,8 @@
 
 ## Global Constraints
 
-- **Branch/sequencing:** execute on the Telegram integration line **after W1 AND W3-A** (`docs/superpowers/plans/2026-07-07-telegram-w1-high-tier-ux.md`, `docs/superpowers/plans/2026-07-08-telegram-w3a-client-consolidation.md`). Task 8 (E1) hard-depends on W3-A Task 5; Task 7 (E2) hard-depends on W1 Task 9; Task 6 (E7) soft-depends on W3-A Task 4 (same file). Fallbacks per the spec's Sequencing section.
-- **Line numbers are advisory** (drift expected under W1/W3-A); anchor on the quoted code.
+- **Branch/sequencing — UPDATE 2026-07-08: W1 (+W2) has LANDED** on `claude/telegram-app-adaptation-t1r1jp` tip `97482f0` (HANDOFF §37–§40, on-device verified; web 1446, functions 281). Execute **after W3-A** (`docs/superpowers/plans/2026-07-08-telegram-w3a-client-consolidation.md`): Task 8 (E1) hard-depends on W3-A Task 5; Task 6 (E7) soft-depends on W3-A Task 4 (same file). Task 7 (E2)'s W1 Task 9 baseline is OBSERVED in landed source — no fallback needed.
+- **Line numbers** were re-verified against `97482f0` where cited; W3-A will shift some — anchor on the quoted code.
 - **Scope fence:** `js/`, `tests/` only. NO `functions/`, NO `css/app.css`, NO `index.template.html` change needed in this wave; no fixing other findings in passing.
 - **Tests:** web suite `npx jest` from repo root, all green before starting.
 - **Copy:** no new user-facing strings in this wave — every string is moved, not changed.
@@ -160,7 +160,7 @@ export function telegramFirstName() {
 ```
 
 Drop the ad hoc suffixes at the three call sites:
-- `js/app.js` (redeemerName, currently ~line 611): `redeemerName: telegramFirstName(),`
+- `js/app.js` (redeemerName, line 627 at `97482f0`): `redeemerName: telegramFirstName(),`
 - `js/mycode.js` (`sharePersonalInvite`, both sites):
   ```js
     const label = telegramFirstName() || 'Someone';
@@ -612,7 +612,7 @@ git commit -m "refactor(web): one shareCaption — invite captions spelled once"
 - Test: `tests/telegramSettings.test.js`
 
 **Interfaces:**
-- Consumes: `setButtonBusy`/`clearButtonBusy` from `js/utils.js:8-18`. Baseline: the POST-W1-Task-9 `showLinkScreen` (promise-returning, resolves `false` on cancel / `true` before reload). Pre-W1 fallback: the same four lines exist in the current body; apply identically.
+- Consumes: `setButtonBusy`/`clearButtonBusy` from `js/utils.js:8-18`. Baseline (OBSERVED at `97482f0`): the landed W1-Task-9 `showLinkScreen` (`js/telegramSettings.js:93-146` — promise-returning, resolves `false` on cancel / `true` before reload) with the four hand-rolled busy lines at `:120-121`/`:125-126`.
 - Produces: no API change.
 
 - [ ] **Step 1: Write the failing test**
@@ -845,7 +845,7 @@ git commit -m "refactor(web): one internal runModal harness under showTextPrompt
 
 - [ ] **Step 1: Run the full web suite**
 
-Run: `npx jest` — all green (W1 + W3-A baseline + this wave's additions).
+Run: `npx jest` — all green (1446 at `97482f0` + W3-A's additions + this wave's).
 
 - [ ] **Step 2: Grep the scope fence + dedup proofs**
 

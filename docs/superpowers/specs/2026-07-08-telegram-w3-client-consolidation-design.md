@@ -17,26 +17,27 @@ Telegram integration line, **after wave W1 executes** (see Sequencing below).
    (busy label + inline error + stay-open-retry), carrying over the behaviors W1 Task 14
    gives the bespoke sheet. No second modal implementation.
 
-## Sequencing against wave W1 (planned, not executed)
+## Sequencing against wave W1 — UPDATE 2026-07-08: W1 (+W2) has LANDED
 
-`docs/superpowers/plans/2026-07-07-telegram-w1-high-tier-ux.md` will modify
-`js/notifyChannel.js`, `js/telegramSettings.js`, `js/telegramFirstRun.js`,
-`js/telegramChrome.js`, `js/app.js`, `js/invites.js`, `js/cacheOwner.js`, and
-`index.template.html` before W3 runs. W3's plan is therefore authored against the
-**post-W1 state**: no reliance on current line numbers in shared files, and W1 tasks are
-named as prerequisites where the code interacts.
+W1 executed as planned and is **on-device verified** on
+`claude/telegram-app-adaptation-t1r1jp` tip `97482f0` (HANDOFF §37; W2 + merge +
+verification fixes §38–§40; web 1446, functions 281). This spec's baseline is that tip —
+every "post-W1" assumption below is now OBSERVED, not predicted:
 
-- **Hard prerequisite — W1 Task 14** (unlink busy + inline error on the bespoke sheet)
-  and **W1 Task 13** (back-button checklist gains `#tg-unlink-confirm`): D4 consolidates
-  the very sheet Task 14 reshapes and deletes the checklist entry Task 13 adds.
-- **Soft overlap — W1 Task 7** (`notifyChannel.js` click-handler guard) and **Task 10**
-  (`telegramFirstRun.js` gate rewrite): D3's five call sites survive W1 verbatim — Task 7
-  touches the click handler, not `isLinked`; the Task 10 gate takes `linked` as an
-  argument computed at the `app.js` call site, which W1 does not touch.
-- **Fallback** (recorded for completeness): if W1 is descoped before W3 runs, D4 instead
-  consolidates the *pre-W1* bespoke sheet onto the same target shape — the `onConfirm`
-  extension is unchanged; only "carry over busy/error" becomes "introduce busy/error via
-  the shared modal," and the Task 13 checklist deletion drops out.
+- **D4's baseline** (W1 Task 14): the bespoke sheet carries `#tg-unlink-error`, the
+  `setButtonBusy` pair, and error-clear-on-open — confirmed in landed
+  `js/telegramSettings.js`. W1 Task 13's `#tg-unlink-confirm` back-checklist entry is
+  live in `js/telegramChrome.js` (the checklist also gained `#unfollow-confirm` /
+  `#rotate-confirm` via follow-up `8c34d99` — untouched by W3).
+- **D3's five call sites** survived W1 verbatim (re-verified at the tip:
+  `js/app.js:560`, `js/firstRun.js:61`/`:76`, `js/notifyChannel.js:35`,
+  `js/telegramSettings.js:17`).
+- **New since this spec was first written — §39 web pill honesty fix** in
+  `js/notifyChannel.js`: two deny-path guards keyed on account-level `pushTokens`, and
+  an awaited `ensureNotificationsReady()`. None of it touches `isLinked` — D3 still
+  changes only the Telegram arm — but `isLinked` gained a trailing three-line comment
+  (the notifier token-less fallback note) that the consolidation must preserve along
+  with the main comment block.
 
 ## D1 — CL#1: `setListEmpty` change guard
 

@@ -26,22 +26,23 @@ Telegram integration line, after both W1 and W3-A execute (see Sequencing below)
 4. **CL#13 shape:** collapse the dead generality — delete `LANDING_COPY`, drop the
    `kind` parameter — rather than leave it documented.
 
-## Sequencing against W1 and W3-A (both planned, not executed)
+## Sequencing against W1 and W3-A — UPDATE 2026-07-08: W1 (+W2) has LANDED
 
-Author order for shared files is W1 → W3-A → W3-B. W3-B's plan is written against the
-post-W1+W3-A state: no reliance on current line numbers in shared files, prerequisites
-named per task.
+W1 executed and is on-device verified on `claude/telegram-app-adaptation-t1r1jp` tip
+`97482f0` (HANDOFF §37–§40; web 1446, functions 281). Author order for shared files is
+now (landed) → W3-A → W3-B; only the W3-A prerequisites remain pending.
 
 - **Hard prerequisite — W3-A D4** (`showConfirmModal` gains async `onConfirm`/busy/inline
   error): E1 refactors that grown modal's harness. If W3-A is descoped, E1 falls back to
   deduping the two original (pre-D4) harnesses — smaller helper, same shape.
-- **Hard prerequisite — W1 Task 9** (`showLinkScreen` becomes promise-returning): E2
-  patches the post-Task-9 body. If W1 is descoped, E2 applies to the current body — the
-  four target lines are the same either way.
+- **E2's baseline is now OBSERVED**: the landed `showLinkScreen` is the promise-returning
+  W1 Task 9 shape with the hand-rolled busy lines intact (`js/telegramSettings.js:93-146`
+  at the tip) — exactly what E2 patches. No fallback needed.
 - **Soft — W3-A D5** (`buildTelegramShareUrl` moves to `telegram.js`): E7 edits the same
   `inviteFlow.js` functions (their `text` defaults); order-only interaction, no design
   interaction.
-- Everything else (E3, E4, E5, E6, E8) touches regions no earlier wave changes.
+- Everything else (E3, E4, E5, E6, E8) touches regions no landed wave changed
+  (re-verified at the tip).
 
 ## E1 — CL#6: one internal modal harness in `promptModal.js`
 
