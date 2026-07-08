@@ -1,5 +1,9 @@
 /** @jest-environment jsdom */
-const mockTelegram = { isTelegramContext: jest.fn(() => false), telegramLinkState: jest.fn(() => null) };
+const mockTelegram = {
+  isTelegramContext: jest.fn(() => false),
+  telegramLinkState: jest.fn(() => null),
+  isTelegramLinked: jest.fn(() => false),
+};
 jest.mock('../js/telegram.js', () => mockTelegram);
 
 const FIXTURE = `
@@ -30,6 +34,7 @@ beforeEach(() => {
   document.body.innerHTML = FIXTURE;
   mockTelegram.isTelegramContext.mockReturnValue(false);
   mockTelegram.telegramLinkState.mockReturnValue(null);
+  mockTelegram.isTelegramLinked.mockReturnValue(false);
   firstRun = require('../js/firstRun.js');
 });
 
@@ -105,7 +110,7 @@ test('Telegram: guided empty state hides the account section; restored when non-
 
 test('Telegram linked account: account section stays visible in the guided empty state (unlink still reachable)', () => {
   mockTelegram.isTelegramContext.mockReturnValue(true);
-  mockTelegram.telegramLinkState.mockReturnValue({ linked: true });
+  mockTelegram.isTelegramLinked.mockReturnValue(true);
   const account = document.getElementById('drawer-section-account');
   firstRun.setListEmpty(true);  // guided empty, but linked → keep the section
   expect(account.classList.contains('hidden')).toBe(false);
@@ -125,11 +130,11 @@ test('link line: only in TG when unlinked', () => {
   expect(document.getElementById('first-run-link-line').classList.contains('hidden')).toBe(true); // web
   firstRun.setListEmpty(false); // flip so the next call re-syncs (CL#1 guard)
   mockTelegram.isTelegramContext.mockReturnValue(true);
-  mockTelegram.telegramLinkState.mockReturnValue({ linked: false });
+  mockTelegram.isTelegramLinked.mockReturnValue(false);
   firstRun.setListEmpty(true);
   expect(document.getElementById('first-run-link-line').classList.contains('hidden')).toBe(false);
   firstRun.setListEmpty(false); // flip again
-  mockTelegram.telegramLinkState.mockReturnValue({ linked: true });
+  mockTelegram.isTelegramLinked.mockReturnValue(true);
   firstRun.setListEmpty(true);
   expect(document.getElementById('first-run-link-line').classList.contains('hidden')).toBe(true);
 });
@@ -168,14 +173,14 @@ describe('#mycode-chip label', () => {
 
   test('empty but Telegram-LINKED (account + notification sections stay) → "Levers & knobs"', () => {
     mockTelegram.isTelegramContext.mockReturnValue(true);
-    mockTelegram.telegramLinkState.mockReturnValue({ linked: true });
+    mockTelegram.isTelegramLinked.mockReturnValue(true);
     firstRun.setListEmpty(true);
     expect(chip()).toBe('Levers & knobs');
   });
 
   test('empty + Telegram-UNLINKED (code-only) → "Share code"', () => {
     mockTelegram.isTelegramContext.mockReturnValue(true);
-    mockTelegram.telegramLinkState.mockReturnValue({ linked: false });
+    mockTelegram.isTelegramLinked.mockReturnValue(false);
     firstRun.setListEmpty(true);
     expect(chip()).toBe('Share code');
   });

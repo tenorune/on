@@ -6,12 +6,13 @@ jest.mock('../js/db.js', () => ({ mergeUserPrefs: jest.fn(async () => {}) }));
 jest.mock('../js/telegram.js', () => ({
   isTelegramContext: jest.fn(() => false),
   telegramLinkState: jest.fn(() => null),
+  isTelegramLinked: jest.fn(() => false),
 }));
 jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn(async () => {}) }));
 jest.mock('../js/notifySuppression.js', () => ({ syncBotDelivery: jest.fn() }));
 jest.mock('../js/groups.js', () => ({ showToast: jest.fn() }));
 const { mergeUserPrefs } = require('../js/db.js');
-const { isTelegramContext, telegramLinkState } = require('../js/telegram.js');
+const { isTelegramContext, telegramLinkState, isTelegramLinked } = require('../js/telegram.js');
 const { ensureNotificationsReady } = require('../js/notifyPrompt.js');
 const { syncBotDelivery } = require('../js/notifySuppression.js');
 const { showToast } = require('../js/groups.js');
@@ -33,6 +34,7 @@ beforeEach(() => {
   mergeUserPrefs.mockResolvedValue(undefined);
   isTelegramContext.mockReturnValue(false); // web by default
   telegramLinkState.mockReturnValue(null);
+  isTelegramLinked.mockReturnValue(false);
   // jsdom has no Notification; the pill's honesty guards read its permission.
   // Baseline: a normal grantable/granted browser (per-test overrides below).
   global.Notification = { permission: 'granted' };
@@ -120,21 +122,21 @@ describe('Telegram context: link state, not the userPrefs marker, decides visibi
   // from a linked account — the section must key off telegramLinkState instead.
   test('derived account (telegram marker present, but not linked) → section hidden', () => {
     isTelegramContext.mockReturnValue(true);
-    telegramLinkState.mockReturnValue({ linked: false });
+    isTelegramLinked.mockReturnValue(false);
     syncNotifyChannel('u1', LINKED('telegram')); // prefs.telegram present (derived stamp)
     expect(section().classList.contains('hidden')).toBe(true);
   });
 
   test('unlink transition (reboots to a derived account) → section hidden', () => {
     isTelegramContext.mockReturnValue(true);
-    telegramLinkState.mockReturnValue({ linked: false });
+    isTelegramLinked.mockReturnValue(false);
     syncNotifyChannel('u1', { telegram: { linkedAt: 1 }, notifyChannel: 'push' });
     expect(section().classList.contains('hidden')).toBe(true);
   });
 
   test('linked account → section shown, active reflects the stored channel', () => {
     isTelegramContext.mockReturnValue(true);
-    telegramLinkState.mockReturnValue({ linked: true });
+    isTelegramLinked.mockReturnValue(true);
     syncNotifyChannel('u1', LINKED('push'));
     expect(section().classList.contains('hidden')).toBe(false);
     expect(active()).toBe('push');
@@ -233,7 +235,7 @@ describe('web: Push switch stays honest when no device can receive push', () => 
 describe('Telegram context: Push switch refused with no registered device', () => {
   test('Telegram context + no pushTokens: Push tap refuses — toast, no write, pill stays', async () => {
     isTelegramContext.mockReturnValue(true);
-    telegramLinkState.mockReturnValue({ linked: true });
+    isTelegramLinked.mockReturnValue(true);
     syncNotifyChannel('u1', LINKED('telegram')); // no pushTokens
     const pushBtn = document.querySelector('[data-channel="push"]');
     pushBtn.click();
@@ -246,7 +248,7 @@ describe('Telegram context: Push switch refused with no registered device', () =
 
   test('Telegram context WITH pushTokens: Push tap proceeds', async () => {
     isTelegramContext.mockReturnValue(true);
-    telegramLinkState.mockReturnValue({ linked: true });
+    isTelegramLinked.mockReturnValue(true);
     syncNotifyChannel('u1', { ...LINKED('telegram'), pushTokens: { t1: true } });
     document.querySelector('[data-channel="push"]').click();
     await flush();

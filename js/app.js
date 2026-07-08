@@ -26,7 +26,7 @@ import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
-import { isTelegramContext, ensureTelegramIdentity, telegramLinkState, telegramFirstName } from './telegram.js';
+import { isTelegramContext, ensureTelegramIdentity, isTelegramLinked, telegramFirstName } from './telegram.js';
 import { initTelegramChrome } from './telegramChrome.js';
 import { telegramInviteGate, stampInviteOutcome, redemptionConsumedToken } from './telegramFirstRun.js';
 import { ensureCacheOwner } from './cacheOwner.js';
@@ -557,7 +557,7 @@ async function main() {
   let tgInvite = null;
   if (!pendingInviteToken && isTelegramContext()) {
     tgInvite = await telegramInviteGate({
-      linked: telegramLinkState()?.linked === true,
+      linked: isTelegramLinked(),
       isNew,
       dismissSplash,
     });

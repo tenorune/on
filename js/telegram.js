@@ -22,6 +22,15 @@ export function telegramLinkState() {
   return _linkState;
 }
 
+// THE "is this Telegram session linked" predicate — the one place the linked
+// definition is spelled (W3-A CL#3). Static within a session: link, unlink,
+// and graduation all reload. NOTE: js/notifyChannel.js isLinked's WEB arm
+// (prefs?.telegram != null) is a different, prefs-driven signal and part of
+// the three-reader notify-channel contract — it deliberately does NOT use this.
+export function isTelegramLinked() {
+  return _linkState?.linked === true;
+}
+
 // The Telegram user's first name (from the unsigned initDataUnsafe). Used as the
 // default label when auto-creating a personal invite for a one-tap share.
 // Empty string outside Telegram or when the client withholds the user object.

@@ -1,7 +1,7 @@
 // js/firstRun.js — surface-agnostic first-run affordances (spec §3, §5).
 // Owns the guided-empty-state DOM (following.js only signals emptiness) and
 // the one-time landing banners. Used by web AND Telegram.
-import { isTelegramContext, telegramLinkState } from './telegram.js';
+import { isTelegramContext, isTelegramLinked } from './telegram.js';
 
 let _active = false;
 let _onInvite = null;
@@ -68,7 +68,7 @@ export function setListEmpty(isEmpty) {
   // anyone — hide it in the guided empty state. But a LINKED account still needs
   // its unlink control reachable, so keep the section for them even when empty.
   // Gated on Telegram so web (where the section is never mounted) is untouched.
-  const tgLinked = isTelegramContext() && telegramLinkState()?.linked === true;
+  const tgLinked = isTelegramContext() && isTelegramLinked();
   if (isTelegramContext()) {
     document.getElementById('drawer-section-account')?.classList.toggle('hidden', empty && !tgLinked);
   }
@@ -83,7 +83,7 @@ export function setListEmpty(isEmpty) {
   // "Link your account" only where linking is possible and not already done.
   const linkLine = document.getElementById('first-run-link-line');
   if (linkLine) {
-    const show = empty && isTelegramContext() && telegramLinkState()?.linked !== true;
+    const show = empty && isTelegramContext() && !isTelegramLinked();
     linkLine.classList.toggle('hidden', !show);
   }
   document.dispatchEvent(new CustomEvent('first-run-change'));

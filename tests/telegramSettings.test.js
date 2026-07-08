@@ -2,6 +2,7 @@
 jest.mock('../js/telegram.js', () => ({
   tgWebApp: () => ({ initData: 'signed-init-data' }),
   telegramLinkState: jest.fn(() => ({ linked: false })),
+  isTelegramLinked: jest.fn(() => false),
 }));
 jest.mock('../js/firebase-config.js', () => ({
   callLinkTelegram: jest.fn(async () => ({ token: 't' })),
@@ -15,7 +16,7 @@ jest.mock('../js/identity.js', () => ({
   parseRecoveryCode: (s) => (/^[a-z]+(-[a-z]+){3}$/.test((s || '').trim()) ? s.trim() : null),
 }));
 jest.mock('../js/graduation.js', () => ({ showGraduationInfo: jest.fn() }));
-const { telegramLinkState } = require('../js/telegram.js');
+const { telegramLinkState, isTelegramLinked } = require('../js/telegram.js');
 const { callLinkTelegram, callUnlinkTelegram } = require('../js/firebase-config.js');
 const { showGraduationInfo } = require('../js/graduation.js');
 const { showLinkScreen } = require('../js/telegramSettings.js');
@@ -61,7 +62,7 @@ test('renders row, hides phrase pill, shows link button when unlinked', async ()
 });
 
 test('linked state shows unlink instead; confirmed unlink calls the callable', async () => {
-  telegramLinkState.mockReturnValue({ linked: true });
+  isTelegramLinked.mockReturnValue(true);
   const { initTelegramSettings } = require('../js/telegramSettings.js');
   initTelegramSettings('u1');
   await flush();
@@ -98,7 +99,7 @@ test('link flow: opens restore screen, validates phrase, calls linkTelegram', as
 });
 
 test('unlink confirm is a modal overlay on the body, not inline in the account section', async () => {
-  telegramLinkState.mockReturnValue({ linked: true });
+  isTelegramLinked.mockReturnValue(true);
   const { initTelegramSettings } = require('../js/telegramSettings.js');
   initTelegramSettings('u1');
   await flush();
@@ -109,7 +110,7 @@ test('unlink confirm is a modal overlay on the body, not inline in the account s
 });
 
 test('unlink: first tap opens the confirm modal, does not call unlinkTelegram', async () => {
-  telegramLinkState.mockReturnValue({ linked: true });
+  isTelegramLinked.mockReturnValue(true);
   const { initTelegramSettings } = require('../js/telegramSettings.js');
   initTelegramSettings('u1');
   await flush();
@@ -119,7 +120,7 @@ test('unlink: first tap opens the confirm modal, does not call unlinkTelegram', 
 });
 
 test('unlink: cancel closes the confirm modal', async () => {
-  telegramLinkState.mockReturnValue({ linked: true });
+  isTelegramLinked.mockReturnValue(true);
   const { initTelegramSettings } = require('../js/telegramSettings.js');
   initTelegramSettings('u1');
   await flush();
@@ -129,7 +130,7 @@ test('unlink: cancel closes the confirm modal', async () => {
 });
 
 test('unlink: confirm calls unlinkTelegram and does NOT stamp a landing banner', async () => {
-  telegramLinkState.mockReturnValue({ linked: true });
+  isTelegramLinked.mockReturnValue(true);
   const { initTelegramSettings } = require('../js/telegramSettings.js');
   initTelegramSettings('u1');
   await flush();
@@ -141,7 +142,7 @@ test('unlink: confirm calls unlinkTelegram and does NOT stamp a landing banner',
 });
 
 test('unlink failure shows the inline error and re-enables the button (W1 J#7)', async () => {
-  telegramLinkState.mockReturnValue({ linked: true });
+  isTelegramLinked.mockReturnValue(true);
   callUnlinkTelegram.mockRejectedValue(new Error('network'));
   const { initTelegramSettings } = require('../js/telegramSettings.js');
   initTelegramSettings('u1');
@@ -192,7 +193,7 @@ describe('graduation "?" affordance', () => {
   });
 
   test('linked account hides the "?" badge', async () => {
-    telegramLinkState.mockReturnValue({ linked: true });
+    isTelegramLinked.mockReturnValue(true);
     const { initTelegramSettings } = require('../js/telegramSettings.js');
     initTelegramSettings('u1');
     await flush();

@@ -8,7 +8,7 @@
 // Telegram-derived (unlinked) account can only receive via Telegram, and a web
 // account with no link has nothing to choose.
 import { mergeUserPrefs } from './db.js';
-import { isTelegramContext, telegramLinkState } from './telegram.js';
+import { isTelegramContext, isTelegramLinked } from './telegram.js';
 import { syncBotDelivery } from './notifySuppression.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
 import { showToast } from './groups.js';
@@ -32,7 +32,7 @@ let lastPrefs = null;
 // is mirrored by js/notifySuppression.js botDelivered and the server notifier
 // (functions/notifier.js sendToUser) — the three must never disagree.
 function isLinked(prefs) {
-  if (isTelegramContext()) return telegramLinkState()?.linked === true;
+  if (isTelegramContext()) return isTelegramLinked();
   return prefs?.telegram != null;
 }
 // Note: the notifier additionally falls back to the bot when channel IS 'push'

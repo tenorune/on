@@ -50,6 +50,22 @@ describe('openTelegramShare caption separator', () => {
   });
 });
 
+test('isTelegramLinked: false before boot and for an unlinked session; true for a linked one (W3-A CL#3)', async () => {
+  setTelegramGlobal();
+  let tg = require('../js/telegram.js');
+  expect(tg.isTelegramLinked()).toBe(false); // no link state yet
+  await tg.ensureTelegramIdentity(); // mock: linked: false
+  expect(tg.isTelegramLinked()).toBe(false);
+
+  jest.resetModules();
+  setTelegramGlobal();
+  require('../js/firebase-config.js').callValidateTelegram
+    .mockResolvedValueOnce({ token: 'tok', uid: 'tg-uid', linked: true, created: false });
+  tg = require('../js/telegram.js');
+  await tg.ensureTelegramIdentity();
+  expect(tg.isTelegramLinked()).toBe(true);
+});
+
 test('isTelegramContext: true only with flag AND non-empty initData', () => {
   setTelegramGlobal();
   expect(require('../js/telegram.js').isTelegramContext()).toBe(true);

@@ -2,7 +2,7 @@
 // the notification-channel toggle. Only mounted when isTelegramContext().
 // The phrase pill is hidden here: a Telegram-derived account has no phrase,
 // and a linked account's phrase lives with the user already.
-import { tgWebApp, telegramLinkState } from './telegram.js';
+import { tgWebApp, isTelegramLinked } from './telegram.js';
 import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
 import { parseRecoveryCode } from './identity.js';
 import { showGraduationInfo } from './graduation.js';
@@ -14,7 +14,7 @@ export function initTelegramSettings(userId) {
   if (!accountSlot || !notifySlot) return;
   document.getElementById('recovery-pill-row')?.classList.add('hidden');
 
-  const linked = telegramLinkState()?.linked === true;
+  const linked = isTelegramLinked();
   accountSlot.innerHTML = `
     <p id="tg-link-state" class="hint">${linked
       ? 'This Telegram is linked to your KnockKnock account.'
