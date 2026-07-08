@@ -10,6 +10,7 @@ jest.mock('../js/groups.js', () => ({ showToast: jest.fn() }));
 
 const { resolveInvitePreview } = require('../js/invites.js');
 const { showLinkScreen } = require('../js/telegramSettings.js');
+const { showToast } = require('../js/groups.js');
 const { isTelegramContext } = require('../js/telegram.js');
 const { telegramInviteGate, extractStartParamToken, stampInviteOutcome, stampedInviteOutcome } = require('../js/telegramFirstRun.js');
 
@@ -20,13 +21,21 @@ const SCREEN = `
     <button id="tg-invite-accept-btn"></button>
     <button id="tg-invite-phrase-btn"></button>
     <button id="tg-invite-dismiss-btn"></button>
+  </div>
+  <div id="tg-invite-error" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <p id="tg-invite-error-message"></p>
+    <button id="tg-invite-error-retry"></button>
+    <button id="tg-invite-error-dismiss"></button>
   </div>`;
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
 
 beforeEach(() => {
   document.body.innerHTML = SCREEN;
   mockWa.initDataUnsafe = {};
   jest.clearAllMocks();
   isTelegramContext.mockReturnValue(true);
+  localStorage.clear(); // the gate now stamps outcomes; don't let tests bleed via storage
 });
 
 test('extractStartParamToken: valid token / garbage / missing / outside TG', () => {
@@ -87,14 +96,17 @@ test('group framing text', async () => {
   await p;
 });
 
-test('"I have a secret phrase" → showLinkScreen, resolves null', async () => {
+test('"I have a secret phrase" → showLinkScreen; cancel loops back, then Not now resolves null', async () => {
   mockWa.initDataUnsafe = { start_param: TOKEN };
   resolveInvitePreview.mockResolvedValue({ scope: 'personal', label: 'Ana' });
+  showLinkScreen.mockResolvedValue(false); // cancelled
   const p = telegramInviteGate({ linked: false, dismissSplash: jest.fn() });
   await Promise.resolve(); await Promise.resolve();
   document.getElementById('tg-invite-phrase-btn').click();
-  expect(await p).toBeNull();
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
   expect(showLinkScreen).toHaveBeenCalled();
+  document.getElementById('tg-invite-dismiss-btn').click();
+  expect(await p).toBeNull();
 });
 
 test('"Not now" → resolves null, nothing redeemed', async () => {
@@ -124,6 +136,60 @@ test('first-ever open keeps "Accept & get started"', async () => {
   expect(document.getElementById('tg-invite-accept-btn').textContent).toBe('Accept & get started');
   document.getElementById('tg-invite-dismiss-btn').click();
   await p;
+});
+
+describe('telegramInviteGate outcomes (W1 J#1/J#4/J#5/J#6)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockWa.initDataUnsafe = { start_param: TOKEN };
+  });
+
+  test('stamped-dismissed token shows nothing and does not resolve the preview', async () => {
+    stampInviteOutcome(TOKEN, 'dismissed');
+    const out = await telegramInviteGate({ linked: true, isNew: false, dismissSplash: jest.fn() });
+    expect(out).toBeNull();
+    expect(resolveInvitePreview).not.toHaveBeenCalled();
+  });
+
+  test('preview unavailable → error overlay; Try again re-resolves; success proceeds', async () => {
+    resolveInvitePreview
+      .mockRejectedValueOnce(new Error('invite-preview-unavailable'))
+      .mockResolvedValueOnce({ scope: 'personal', label: 'Ana' });
+    const gate = telegramInviteGate({ linked: true, isNew: false, dismissSplash: jest.fn() });
+    await flush();
+    expect(document.getElementById('tg-invite-error').classList.contains('hidden')).toBe(false);
+    document.getElementById('tg-invite-error-retry').click();
+    await expect(gate).resolves.toEqual({ token: TOKEN, preview: { scope: 'personal', label: 'Ana' }, silent: true });
+  });
+
+  test('invalid token → expired toast, no interstitial', async () => {
+    resolveInvitePreview.mockResolvedValue(null);
+    const out = await telegramInviteGate({ linked: false, isNew: false, dismissSplash: jest.fn() });
+    expect(out).toBeNull();
+    expect(showToast).toHaveBeenCalledWith('That invite link has expired.');
+  });
+
+  test('Not now stamps dismissed', async () => {
+    resolveInvitePreview.mockResolvedValue({ scope: 'personal', label: 'Ana' });
+    const gate = telegramInviteGate({ linked: false, isNew: false, dismissSplash: jest.fn() });
+    await flush();
+    document.getElementById('tg-invite-dismiss-btn').click();
+    await expect(gate).resolves.toBeNull();
+    expect(stampedInviteOutcome(TOKEN)).toBe('dismissed');
+  });
+
+  test('phrase → cancel loops back to the interstitial with the invite intact', async () => {
+    resolveInvitePreview.mockResolvedValue({ scope: 'personal', label: 'Ana' });
+    showLinkScreen.mockResolvedValue(false); // user cancelled the link screen
+    const gate = telegramInviteGate({ linked: false, isNew: false, dismissSplash: jest.fn() });
+    await flush();
+    document.getElementById('tg-invite-phrase-btn').click();
+    await flush();
+    // interstitial is showing again — accept now
+    expect(document.getElementById('tg-invite-screen').classList.contains('hidden')).toBe(false);
+    document.getElementById('tg-invite-accept-btn').click();
+    await expect(gate).resolves.toMatchObject({ silent: false });
+  });
 });
 
 describe('invite outcome stamps (W1 J#4/J#5)', () => {

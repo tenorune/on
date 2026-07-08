@@ -5,6 +5,7 @@
 import { isTelegramContext, tgWebApp } from './telegram.js';
 import { resolveInvitePreview } from './invites.js';
 import { showLinkScreen } from './telegramSettings.js';
+import { showToast } from './groups.js';
 
 // start_param rides the SIGNED initData (tamper-proof, reload-proof). Invite
 // tokens are 22 base64url chars; accept a lenient 10..64 of that alphabet.
@@ -79,21 +80,61 @@ function showInterstitial(preview, isNew) {
   });
 }
 
+// One-shot error overlay for a failed preview lookup (W1 J#1): a transient
+// webview blip must not silently eat a VALID invite. Resolves true (retry) or
+// false (Not now).
+function showInviteError() {
+  const el = document.getElementById('tg-invite-error');
+  if (!el) return Promise.resolve(false);
+  el.classList.remove('hidden');
+  return new Promise((resolve) => {
+    const retry = document.getElementById('tg-invite-error-retry');
+    const dismiss = document.getElementById('tg-invite-error-dismiss');
+    function pick(v) {
+      retry.removeEventListener('click', onRetry);
+      dismiss.removeEventListener('click', onDismiss);
+      el.classList.add('hidden');
+      resolve(v);
+    }
+    function onRetry() { pick(true); }
+    function onDismiss() { pick(false); }
+    retry.addEventListener('click', onRetry);
+    dismiss.addEventListener('click', onDismiss);
+  });
+}
+
 // Returns { token, preview, silent } to feed pendingInviteToken, or null.
-//  - linked account: silent redeem (caller toasts on success) — no interstitial
-//  - unlinked: interstitial (accept label contextual on isNew); Accept →
-//    redeem; phrase → link flow (its reload re-runs this gate with
-//    linked=true → silent redeem into the right account); Not now →
-//    proceed unredeemed (the empty state catches them).
+//  - stamped token (redeemed or dismissed): show nothing — a re-tapped chat
+//    link must not re-run the ceremony, and a declined invite must never
+//    auto-redeem (W1 J#4/J#5).
+//  - preview unavailable: error overlay with retry (W1 J#1).
+//  - invalid/expired: one-line toast (was: total silence).
+//  - linked account: silent redeem (caller toasts on success) — no interstitial.
+//  - unlinked: interstitial; Accept → redeem; phrase → link flow (success
+//    reloads and re-runs this gate with linked=true; CANCEL loops back to the
+//    interstitial with the invite intact, W1 J#6); Not now → stamp dismissed.
 export async function telegramInviteGate({ linked, isNew, dismissSplash }) {
   const token = extractStartParamToken();
   if (!token) return null;
-  const preview = await resolveInvitePreview(token); // null → invalid/revoked/expired
-  if (!preview) return null;
-  if (linked) return { token, preview, silent: true };
-  dismissSplash();
-  const choice = await showInterstitial(preview, isNew);
-  if (choice === 'accept') return { token, preview, silent: false };
-  if (choice === 'phrase') showLinkScreen(); // reloads on success; cancel falls through
-  return null;
+  if (stampedInviteOutcome(token)) return null;
+  while (true) {
+    let preview;
+    try {
+      preview = await resolveInvitePreview(token);
+    } catch {
+      dismissSplash();
+      if (await showInviteError()) continue; // retry the lookup
+      return null;
+    }
+    if (!preview) { showToast('That invite link has expired.'); return null; }
+    if (linked) return { token, preview, silent: true };
+    dismissSplash();
+    while (true) {
+      const choice = await showInterstitial(preview, isNew);
+      if (choice === 'accept') return { token, preview, silent: false };
+      if (choice === 'dismiss') { stampInviteOutcome(token, 'dismissed'); return null; }
+      // choice === 'phrase': success reloads (never returns); false = cancelled.
+      await showLinkScreen();
+    }
+  }
 }
