@@ -145,4 +145,19 @@ describe('invite outcome stamps (W1 J#4/J#5)', () => {
     localStorage.setItem('statusapp_invite_outcomes', '{not json');
     expect(stampedInviteOutcome('tokA')).toBeNull();
   });
+
+  test('prunes numeric tokens correctly (object key-order invariant)', () => {
+    // Stamp 8 non-numeric tokens first (these should be the 8 to keep)
+    for (let i = 0; i < 8; i++) stampInviteOutcome(`tokA${i}`, 'redeemed');
+    // Then stamp a numeric token (all-digit string, canonical numeric key, should be newest)
+    stampInviteOutcome('1234567890', 'redeemed');
+    // Numeric keys sort first in Object.keys(), so it comes before non-numeric keys.
+    // The pruning logic deletes keys[0..N-OUTCOME_MAX], which would delete the numeric key
+    // even though it's the newest. After fix, numeric token should survive as newest.
+    expect(stampedInviteOutcome('1234567890')).toBe('redeemed');
+    // The oldest non-numeric token should be pruned (tokA0)
+    expect(stampedInviteOutcome('tokA0')).toBeNull();
+    // The newest non-numeric token should still survive
+    expect(stampedInviteOutcome('tokA7')).toBe('redeemed');
+  });
 });

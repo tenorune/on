@@ -31,8 +31,9 @@ function readOutcomes() {
 export function stampInviteOutcome(token, outcome) {
   if (!token) return;
   const map = readOutcomes();
-  delete map[token]; // re-stamp moves it to newest position
-  map[token] = outcome;
+  const key = 't:' + token; // prefix prevents numeric-string keys from sorting first
+  delete map[key]; // re-stamp moves it to newest position
+  map[key] = outcome;
   const keys = Object.keys(map);
   for (let i = 0; i < keys.length - OUTCOME_MAX; i++) delete map[keys[i]];
   try { localStorage.setItem(OUTCOME_KEY, JSON.stringify(map)); }
@@ -40,7 +41,7 @@ export function stampInviteOutcome(token, outcome) {
 }
 
 export function stampedInviteOutcome(token) {
-  return (token && readOutcomes()[token]) || null;
+  return (token && readOutcomes()['t:' + token]) || null;
 }
 
 function framingText(preview) {
