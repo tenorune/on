@@ -272,17 +272,20 @@ const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants', 'pen
 // pairs could crash apart; this can't). Absent sources aren't moved, so a
 // half-populated account doesn't blow up on missing nodes.
 //
-// Deliberately does NOT delete the old own subtree — the caller drops it
-// together with the telegramUsers/telegramByUid repoint, so the old account
-// stays authoritative until the mapping flips. NOTE: a crash BETWEEN this
-// update and the caller's flip is NOT self-healing — codeIndex/backrefs now
-// point at newUid while the mapping still points at derivedUid, and a retry
-// with the same phrase hits the already-exists guard. This is a PRE-EXISTING
-// graduation gap (the old per-node walker had the same split-brain window,
-// with a wider set of partial states); W2 only narrows the window to two
-// updates. Flagged for the operator — a true fix wants an idempotent
-// resume/rollback, out of scope for this efficiency pass.
-export async function graduateAccountData(deps, oldUid, newUid) {
+// Deliberately does NOT delete the old own subtree itself — the caller folds
+// that drop, together with the telegramUsers/telegramByUid repoint, into the
+// SAME atomic update via `extraWrites` (the expunge `extraNulls` pattern), so
+// the whole graduation is all-or-nothing: either everything moved and the
+// mapping flipped, or nothing happened and a retry starts clean. (The §38
+// split-brain window — a crash between the move and a separate flip update
+// stranding backrefs at newUid while the mapping still pointed at the derived
+// uid, wedging same-phrase retries on the already-exists guard — is closed by
+// this folding.) A move's target that lands INSIDE a subtree extraWrites
+// deletes wholesale (a pathological self-follow's backrefs) is dropped: it
+// used to be written and then deleted across the two updates, and as part of
+// one update it would be an illegal ancestor overlap — the delete wins either
+// way.
+export async function graduateAccountData(deps, oldUid, newUid, extraWrites = null) {
   const [own, prefs] = await Promise.all([
     deps.getVal(`users/${oldUid}`),
     deps.getVal(`userPrefs/${oldUid}`),
@@ -336,11 +339,16 @@ export async function graduateAccountData(deps, oldUid, newUid) {
   // A source can appear twice (self-follow: both canvas directions are
   // canvases/{old}_{old}); the old sequential walker moved it once and the
   // second move read an already-nulled source — the first pair wins here too.
+  // A target inside a subtree extraWrites deletes wholesale is dropped (see
+  // the function comment); its source still nulls, and rootUpdate filters
+  // that null when the source sits under the same deleted subtree.
+  const nullRoots = Object.keys(extraWrites || {}).filter((k) => extraWrites[k] === null);
+  const doomed = (path) => nullRoots.some((r) => path === r || path.startsWith(`${r}/`));
   const consumed = new Set();
   for (const { from, to, val } of resolvedMoves) {
     if (val === null || val === undefined || consumed.has(from)) continue;
     consumed.add(from);
-    writes[to] = val;
+    if (!doomed(to)) writes[to] = val;
     writes[from] = null;
   }
 
@@ -348,6 +356,8 @@ export async function graduateAccountData(deps, oldUid, newUid) {
   for (const { gid, ownerId } of owners) {
     if (ownerId === oldUid) writes[`groups/${gid}/ownerId`] = newUid;
   }
+
+  if (extraWrites) Object.assign(writes, extraWrites);
 
   await rootUpdate(deps, writes);
 }
@@ -381,16 +391,17 @@ export async function graduateTelegramHandler(request, deps) {
     throw new HttpsError('already-exists', 'That phrase is already in use. Try another.');
   }
 
-  // Move old→new (one atomic update inside the walker), then flip the mapping
-  // and drop the old subtree in a second atomic update. Flip + drop being
-  // all-or-nothing is strictly stronger than the old "drop last" ordering
-  // (which could leave the mapping flipped but the old subtree half-dropped).
-  // A crash BETWEEN the two updates still leaves the old mapping in place but
-  // with indexes/backrefs already repointed — a pre-existing split-brain
-  // window this pass narrows but does not close (see graduateAccountData).
-  await graduateAccountData(deps, derivedUid, newUid);
+  // The whole graduation — data move, index repoints, mapping flip, and
+  // old-subtree drop — lands as ONE atomic update: the flip/drop writes fold
+  // into the walker's update via extraWrites (the expunge extraNulls
+  // pattern). Either everything moved and the mapping flipped, or nothing
+  // happened and a retry starts clean — the §38 split-brain window (crash
+  // between a move update and a separate flip update wedging same-phrase
+  // retries on the already-exists guard) no longer exists. The mapping stays
+  // authoritative until this update; flipping it in the same write is
+  // strictly stronger than "flip last".
   const chatId = prior.chatId || tgId;
-  await rootUpdate(deps, {
+  await graduateAccountData(deps, derivedUid, newUid, {
     [`telegramUsers/${tgId}`]: { uid: newUid, chatId, linkedAt: deps.now() },
     [`telegramByUid/${derivedUid}`]: null,
     [`telegramByUid/${newUid}`]: { tgId, chatId },

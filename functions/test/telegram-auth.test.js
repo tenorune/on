@@ -668,7 +668,7 @@ describe('atomic multi-path writes (F#1, F#2, F#6)', () => {
     expect(deps.store[`userPrefs/${phraseUid}/notifyChannel`]).toBe('telegram');
   });
 
-  test('graduation handler: exactly TWO updates — the move, then flip+drop together', async () => {
+  test('graduation handler: ONE atomic update — move, mapping flip and old-subtree drop together (§38 split-brain closed)', async () => {
     const deps = makeHandlerDeps();
     const { deriveUid } = await import('../auth.js');
     const OLD = deriveTelegramUid('42');
@@ -681,21 +681,59 @@ describe('atomic multi-path writes (F#1, F#2, F#6)', () => {
     await graduateTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps);
 
     expect(deps.set).not.toHaveBeenCalled();
-    expect(deps.update).toHaveBeenCalledTimes(2);
-    // The SECOND update carries the mapping flip AND the old-subtree drop —
-    // all-or-nothing, strictly stronger than the old "flip last" ordering.
-    const flip = deps.update.mock.calls[1][1];
-    expect(Object.keys(flip).sort()).toEqual([
-      `telegramByUid/${NEW}`,
-      `telegramByUid/${OLD}`,
-      'telegramUsers/42',
-      `userPrefs/${OLD}`,
-      `users/${OLD}`,
-    ].sort());
-    expect(flip[`users/${OLD}`]).toBeNull();
-    expect(flip[`userPrefs/${OLD}`]).toBeNull();
-    expect(flip[`telegramByUid/${OLD}`]).toBeNull();
-    expect(flip[`telegramByUid/${NEW}`]).toEqual({ tgId: '42', chatId: '42' });
+    // The old two-update shape had a crash window between them: backrefs and
+    // indexes already at NEW while the mapping still pointed at OLD, wedging
+    // same-phrase retries on the already-exists guard. One update = no window.
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    const writes = deps.update.mock.calls[0][1];
+    expect(writes['telegramUsers/42']).toMatchObject({ uid: NEW, chatId: '42' });
+    expect(writes[`users/${OLD}`]).toBeNull();
+    expect(writes[`userPrefs/${OLD}`]).toBeNull();
+    expect(writes[`telegramByUid/${OLD}`]).toBeNull();
+    expect(writes[`telegramByUid/${NEW}`]).toEqual({ tgId: '42', chatId: '42' });
+    expect(writes[`users/${NEW}`]).toBeTruthy(); // the move rides the same update
+  });
+
+  test('graduateAccountData: extraWrites fold into the walker\'s single update (expunge extraNulls pattern)', async () => {
+    const deps = makeStoreDeps();
+    const OLD = deriveTelegramUid('42');
+    const NEW = 'phraseuid000000000000000000000ab';
+    seedGraduationResidue(deps, OLD);
+
+    await graduateAccountData(deps, OLD, NEW, { 'telegramByUid/extra': { tgId: '42' } });
+
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    expect(deps.store['telegramByUid/extra']).toEqual({ tgId: '42' });
+  });
+
+  test('self-follow + wholesale old-subtree delete: doomed backref writes are dropped, not conflicting', async () => {
+    // A self-follow's backref/canvas "to" paths land INSIDE users/{OLD} /
+    // userPrefs/{OLD}; when extraWrites deletes those subtrees wholesale, the
+    // walker must drop the doomed writes (they used to be written then deleted
+    // across the two updates) instead of building an overlapping update map.
+    const deps = makeStoreDeps();
+    const OLD = deriveTelegramUid('42');
+    const NEW = 'phraseuid000000000000000000000ab';
+    deps.store[`users/${OLD}`] = {
+      presence: { code: 'DERV01', status: 'unavailable' },
+      followers: { [OLD]: 'MECODE' },
+    };
+    deps.store[`userPrefs/${OLD}`] = { following: { [OLD]: { label: 'me' } } };
+    deps.store[`canvases/${OLD}_${OLD}`] = { strokes: [9] };
+
+    await graduateAccountData(deps, OLD, NEW, {
+      [`users/${OLD}`]: null,
+      [`userPrefs/${OLD}`]: null,
+    });
+
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    // End state identical to the old two-update run: old subtree gone, the
+    // shared canvas moved once, the copied node keeps its verbatim content.
+    expect(await deps.getVal(`users/${OLD}`)).toBeNull();
+    expect(await deps.getVal(`userPrefs/${OLD}`)).toBeNull();
+    expect(deps.store[`canvases/${NEW}_${OLD}`]).toEqual({ strokes: [9] });
+    expect(deps.store[`canvases/${OLD}_${OLD}`]).toBeNull();
+    expect(deps.store[`users/${NEW}`].followers).toEqual({ [OLD]: 'MECODE' });
   });
 
   test('ensureTelegramUser first contact: mapping trio is ONE update; presence set separate', async () => {
