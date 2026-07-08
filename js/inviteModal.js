@@ -7,7 +7,7 @@ import {
   createGroupInvite, regenerateGroupInvite, revokeGroupInvite,
 } from './invites.js';
 import { readPendingInviteesForGroup } from './db.js';
-import { renderInvitePicker } from './invitePicker.js';
+import { renderInvitePicker, hasDisplayableInvitees } from './invitePicker.js';
 import { flashRegenerated } from './regenFlash.js';
 import { isTelegramContext } from './telegram.js';
 import { shareInviteLink, telegramSharingEnabled, shareInviteToTelegramWeb, buildTelegramInviteLink, shareCaption } from './inviteFlow.js';
@@ -239,6 +239,20 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   on(document, 'keydown', (e) => {
     if (e.key === 'Escape') closeModal();
   });
+
+  // TG-group shortcut: if there's no one displayable to invite (Section 2 would
+  // render empty), skip the modal entirely and share the deep link directly —
+  // there's nothing useful to show. On createGroupInvite failure, fall through
+  // to open the modal so its inline error surface shows.
+  if (tgGroupShare && !hasDisplayableInvitees({ followers, mutuals, currentMemberUids, inviterUid: userId })) {
+    try {
+      const { token, url } = await createGroupInvite(userId, groupId);
+      shareInviteLink({ token, url }, shareCaption('group', groupName));
+      return; // never paint the modal
+    } catch {
+      // fall through to open the modal so its inline error surface shows
+    }
+  }
 
   // Show the modal synchronously — BEFORE the async picker populate — so on the
   // group-create path it appears together with the new group context instead of

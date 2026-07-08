@@ -30,6 +30,9 @@ jest.mock('../js/db.js', () => ({
 
 jest.mock('../js/invitePicker.js', () => ({
   renderInvitePicker: jest.fn(),
+  // Keep the real predicate — these tests exercise the modal's TG-group
+  // short-circuit, which depends on hasDisplayableInvitees' actual logic.
+  hasDisplayableInvitees: jest.requireActual('../js/invitePicker.js').hasDisplayableInvitees,
 }));
 
 const invites = require('../js/invites.js');
@@ -268,6 +271,39 @@ describe('openInviteModal — group scope', () => {
       expect.objectContaining({ token: 'GTOK' }),
       expect.stringContaining('Family'),
     );
+    isTelegramContext.mockReturnValue(false);
+  });
+
+  test('TG group, no displayable contacts → skip modal, share directly', async () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    const { shareInviteLink } = require('../js/inviteFlow.js');
+    isTelegramContext.mockReturnValue(true);
+    invites.createGroupInvite.mockResolvedValue({ token: 'GTOK', url: 'https://x/?i=GTOK' });
+    // followers empty ⇒ hasDisplayableInvitees false
+    await openInviteModal({ scope: 'group', userId: 'me', groupId: 'g1', groupName: 'Divers',
+      followers: {}, mutuals: [], currentMemberUids: new Set() });
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
+    expect(invites.createGroupInvite).toHaveBeenCalledWith('me', 'g1');
+    expect(shareInviteLink).toHaveBeenCalled();
+    isTelegramContext.mockReturnValue(false);
+  });
+
+  test('TG group, has displayable contacts → modal shows as today', async () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    isTelegramContext.mockReturnValue(true);
+    await openInviteModal({ scope: 'group', userId: 'me', groupId: 'g1', groupName: 'Divers',
+      followers: { a: 'CODE-A' }, mutuals: [], currentMemberUids: new Set() });
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
+    isTelegramContext.mockReturnValue(false);
+  });
+
+  test('TG group, no contacts, createGroupInvite rejects → modal opens with error', async () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    isTelegramContext.mockReturnValue(true);
+    invites.createGroupInvite.mockRejectedValueOnce(new Error('offline'));
+    await openInviteModal({ scope: 'group', userId: 'me', groupId: 'g1', groupName: 'Divers',
+      followers: {}, mutuals: [], currentMemberUids: new Set() });
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
     isTelegramContext.mockReturnValue(false);
   });
 
