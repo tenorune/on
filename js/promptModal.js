@@ -7,6 +7,43 @@ import { setButtonBusy, clearButtonBusy } from './utils.js';
 // styles: the invite/create-group `.modal-overlay` for the text prompt and the
 // rotate/unfollow `.confirm-overlay` for the confirm.
 
+// runModal(overlay, { confirmBtn, cancelBtn, cancelValue, onConfirmTap }) — the
+// one promise/cleanup/overlay-tap/Escape harness both modals ride (W3-B CL#6).
+// onConfirmTap({ finish, setBusy, clearBusy }) decides per tap whether to
+// finish; cancel / overlay-tap / Escape → finish(cancelValue), inert while a
+// busy round-trip runs.
+function runModal(overlay, { confirmBtn, cancelBtn, cancelValue, onConfirmTap }) {
+  let busy = false;
+  return new Promise((resolve) => {
+    function cleanup() {
+      confirmBtn.removeEventListener('click', onConfirm);
+      cancelBtn.removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onOverlay);
+      document.removeEventListener('keydown', onKey);
+    }
+    function finish(result) {
+      cleanup();
+      overlay.classList.add('hidden');
+      resolve(result);
+    }
+    function onConfirm() {
+      if (busy) return;
+      onConfirmTap({
+        finish,
+        setBusy(label) { busy = true; setButtonBusy(confirmBtn, label); },
+        clearBusy() { busy = false; clearButtonBusy(confirmBtn); },
+      });
+    }
+    function onCancel() { if (!busy) finish(cancelValue); }
+    function onOverlay(e) { if (!busy && e.target === overlay) finish(cancelValue); }
+    function onKey(e) { if (!busy && e.key === 'Escape') finish(cancelValue); }
+    confirmBtn.addEventListener('click', onConfirm);
+    cancelBtn.addEventListener('click', onCancel);
+    overlay.addEventListener('click', onOverlay);
+    document.addEventListener('keydown', onKey);
+  });
+}
+
 // showTextPrompt({ title, value?, confirmLabel?, maxLength?, placeholder? })
 //   → Promise<string | null>
 // Resolves the trimmed input on confirm (rejects empty / over-length inline,
@@ -29,31 +66,16 @@ export function showTextPrompt({ title, value = '', confirmLabel = 'Save', maxLe
   overlay.classList.remove('hidden');
   if (input.focus) input.focus();
 
-  return new Promise((resolve) => {
-    function cleanup() {
-      confirmBtn.removeEventListener('click', onConfirm);
-      cancelBtn.removeEventListener('click', onCancel);
-      overlay.removeEventListener('click', onOverlay);
-      document.removeEventListener('keydown', onKey);
-    }
-    function finish(result) {
-      cleanup();
-      overlay.classList.add('hidden');
-      resolve(result);
-    }
-    function onConfirm() {
+  return runModal(overlay, {
+    confirmBtn,
+    cancelBtn,
+    cancelValue: null,
+    onConfirmTap({ finish }) {
       const trimmed = (input.value || '').trim();
       if (!trimmed) { errEl.textContent = 'Please enter a value.'; errEl.classList.remove('hidden'); return; }
       if (trimmed.length > maxLength) { errEl.textContent = `Must be at most ${maxLength} characters.`; errEl.classList.remove('hidden'); return; }
       finish(trimmed);
-    }
-    function onCancel() { finish(null); }
-    function onOverlay(e) { if (e.target === overlay) finish(null); }
-    function onKey(e) { if (e.key === 'Escape') finish(null); }
-    confirmBtn.addEventListener('click', onConfirm);
-    cancelBtn.addEventListener('click', onCancel);
-    overlay.addEventListener('click', onOverlay);
-    document.addEventListener('keydown', onKey);
+    },
   });
 }
 
@@ -76,54 +98,31 @@ export function showConfirmModal({ title, message = '', confirmLabel = 'Confirm'
 
   titleEl.textContent = title;
   messageEl.textContent = message;
-  // Scrub prior-modal residue: the error line, and the busy pair's stashed
-  // idle label (setButtonBusy stashes once per element — a stale stash from a
-  // different confirmLabel would resurface on this modal's busy revert).
   if (errEl) { errEl.textContent = ''; errEl.classList.add('hidden'); }
-  delete confirmBtn.dataset.idleLabel;
+  delete confirmBtn.dataset.idleLabel; // scrub a prior modal's busy stash
   confirmBtn.textContent = confirmLabel;
   overlay.classList.remove('hidden');
 
-  let busy = false;
-  return new Promise((resolve) => {
-    function cleanup() {
-      confirmBtn.removeEventListener('click', onConfirmTap);
-      cancelBtn.removeEventListener('click', onCancel);
-      overlay.removeEventListener('click', onOverlay);
-      document.removeEventListener('keydown', onKey);
-    }
-    function finish(result) {
-      cleanup();
-      overlay.classList.add('hidden');
-      resolve(result);
-    }
-    async function onConfirmTap() {
-      if (busy) return;
+  return runModal(overlay, {
+    confirmBtn,
+    cancelBtn,
+    cancelValue: false,
+    async onConfirmTap({ finish, setBusy, clearBusy }) {
       if (!onConfirm) { finish(true); return; }
       if (errEl) { errEl.textContent = ''; errEl.classList.add('hidden'); }
-      busy = true;
-      setButtonBusy(confirmBtn, busyLabel || confirmLabel);
+      setBusy(busyLabel || confirmLabel);
       try {
         await onConfirm();
       } catch (e) {
-        busy = false;
-        clearButtonBusy(confirmBtn);
+        clearBusy();
         if (errEl) {
           errEl.textContent = e?.userMessage || "Couldn't finish that right now. Try again.";
           errEl.classList.remove('hidden');
         }
         return; // stays open for retry or cancel
       }
-      busy = false;
-      clearButtonBusy(confirmBtn);
+      clearBusy();
       finish(true);
-    }
-    function onCancel() { if (!busy) finish(false); }
-    function onOverlay(e) { if (!busy && e.target === overlay) finish(false); }
-    function onKey(e) { if (!busy && e.key === 'Escape') finish(false); }
-    confirmBtn.addEventListener('click', onConfirmTap);
-    cancelBtn.addEventListener('click', onCancel);
-    overlay.addEventListener('click', onOverlay);
-    document.addEventListener('keydown', onKey);
+    },
   });
 }
