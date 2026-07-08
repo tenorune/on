@@ -222,19 +222,29 @@ function parseGroupIdFromOwnerPath(ownerPath) {
 
 // Resolves invite metadata for the pre-redemption welcome-screen framing. Handles
 // both personal-scope (returns { scope, label }) and group-scope (returns
-// { scope, groupName, groupId }). Returns null on any failure.
+// { scope, groupName, groupId }).
 //
 // Delegates to the unauthenticated `resolveInvitePreview` Cloud callable: this
 // runs BEFORE a brand-new user signs in, and every invite node is gated by
 // `auth != null` in the security rules, so a direct client read here would be
 // permission-denied for exactly the new users this framing targets. The callable
 // reads server-side via the Admin SDK and returns only the preview-safe fields.
+//
+// Outcome contract (W1 J#1): a resolved preview object; null when the callable
+// SUCCEEDED and judged the token invalid/revoked/expired; a THROWN
+// 'invite-preview-unavailable' when the callable itself failed (network,
+// server) — after one internal retry. Callers must not blanket-catch back to
+// null: "that invite is dead" and "couldn't check" are different answers.
 export async function resolveInvitePreview(token) {
   if (!token) return null;
   try {
     return await callResolveInvitePreview(token);
   } catch {
-    return null;
+    try {
+      return await callResolveInvitePreview(token);
+    } catch {
+      throw new Error('invite-preview-unavailable');
+    }
   }
 }
 

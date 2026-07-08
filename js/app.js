@@ -187,7 +187,7 @@ async function ensureIdentity(pendingInviteToken = null) {
   // screen renders with framing already populated. resolveInvitePreview
   // returns null synchronously when there is no pending token, so non-invite
   // boots do not pay the round-trip cost.
-  const invitePreview = await resolveInvitePreview(pendingInviteToken);
+  const invitePreview = await resolveInvitePreview(pendingInviteToken).catch(() => null);
   const inviteCreatorLabel = invitePreview?.scope === 'personal' ? invitePreview.label : null;
   const inviteGroupName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
   // Dismiss splash so the user can see and interact with the welcome screen.
