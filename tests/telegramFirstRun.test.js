@@ -164,8 +164,10 @@ describe('telegramInviteGate outcomes (W1 J#1/J#4/J#5/J#6)', () => {
 
   test('invalid token → expired toast, no interstitial', async () => {
     resolveInvitePreview.mockResolvedValue(null);
-    const out = await telegramInviteGate({ linked: false, isNew: false, dismissSplash: jest.fn() });
+    const dismissSplash = jest.fn();
+    const out = await telegramInviteGate({ linked: false, isNew: false, dismissSplash });
     expect(out).toBeNull();
+    expect(dismissSplash).toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith('That invite link has expired.');
   });
 

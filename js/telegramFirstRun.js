@@ -134,7 +134,7 @@ export async function telegramInviteGate({ linked, isNew, dismissSplash }) {
       if (await showInviteError()) continue; // retry the lookup
       return null;
     }
-    if (!preview) { showToast('That invite link has expired.'); return null; }
+    if (!preview) { dismissSplash(); showToast('That invite link has expired.'); return null; }
     if (linked) return { token, preview, silent: true };
     dismissSplash();
     while (true) {
