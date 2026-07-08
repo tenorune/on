@@ -1460,7 +1460,7 @@ body.add-form-open #app-header {
 /* Telegram Mini App settings row (drawer) */
 #tg-account-slot { display: flex; flex-direction: column; gap: 8px; }
 .tg-settings-btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-/* Small "?" affordance — opens the graduation info toast (spec §7). */
+/* Small "?" affordance — opens the graduation info dialog (spec §7). */
 .help-badge {
   display: inline-flex; align-items: center; justify-content: center;
   width: 1.15rem; height: 1.15rem; padding: 0; margin-left: .35rem;

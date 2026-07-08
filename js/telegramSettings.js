@@ -54,7 +54,7 @@ export function initTelegramSettings(userId) {
     });
     if (ok) window.location.reload(); // reboot as a fresh derived account
   });
-  // "?" beside the link entry opens the graduation info toast (spec §7).
+  // "?" beside the link entry opens the graduation info dialog (spec §7).
   accountSlot.querySelector('#tg-graduate-help')?.addEventListener('click', showGraduationInfo);
 }
 

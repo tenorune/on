@@ -29,7 +29,6 @@ export function resolveBackAction(doc = document) {
   if (visible(doc, 'text-prompt-modal')) return () => doc.getElementById('text-prompt-cancel-btn')?.click();
   if (visible(doc, 'unfollow-confirm')) return () => doc.getElementById('unfollow-cancel-btn')?.click();
   if (visible(doc, 'rotate-confirm')) return () => doc.getElementById('rotate-cancel-btn')?.click();
-  if (visible(doc, 'graduation-info-toast')) return () => doc.getElementById('graduation-info-close')?.click();
   if (visible(doc, 'tg-invite-error')) return () => doc.getElementById('tg-invite-error-dismiss')?.click();
   if (visible(doc, 'restore-screen')) return () => doc.getElementById('restore-cancel-btn')?.click();
   if (visible(doc, 'tg-invite-screen')) return null;
