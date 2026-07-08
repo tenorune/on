@@ -335,6 +335,31 @@ describe('app.js boot: Telegram boot failure shows the retry overlay (W1 J#2)', 
 
     consoleErrorSpy.mockRestore();
   });
+
+  // W1 J#2 (completion): a boot failure AFTER ensureTelegramIdentity resolves
+  // (but before initSplash's 3s fallback near the end of main()) used to leave
+  // the user stuck on the splash — main().catch(console.error) only logged.
+  // initOwnStatus runs synchronously right after identity resolves (app.js
+  // main(), ~L571), before initNav/initPrefs/the splash timer, so forcing it
+  // to throw is the cleanest way to exercise a genuinely post-identity failure
+  // through the real main().catch wiring (not a direct unit call).
+  test('post-identity boot failure (main() throws after identity resolves) shows the retry overlay', async () => {
+    const telegram = require('../js/telegram.js');
+    telegram.isTelegramContext.mockReturnValue(true);
+    telegram.ensureTelegramIdentity.mockResolvedValue({ identity: IDENTITY, isNew: false });
+    const { initOwnStatus } = require('../js/ownStatus.js');
+    initOwnStatus.mockImplementation(() => { throw new Error('post-identity boom'); });
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await bootApp();
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.any(Error));
+    const overlay = document.getElementById('boot-error-overlay');
+    expect(overlay.classList.contains('hidden')).toBe(false);
+    expect(() => document.getElementById('boot-error-retry').click()).not.toThrow();
+
+    consoleErrorSpy.mockRestore();
+  });
 });
 
 describe('app.js boot: invite redemption carries the redeemer name', () => {

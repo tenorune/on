@@ -89,6 +89,21 @@ function rearmSplash() {
   el.style.display = '';
 }
 
+// Surface the boot-failure retry overlay (W1 J#2). Idempotent: dismissSplash is
+// guarded, unhiding is a no-op if already shown, and onclick (not
+// addEventListener) can't stack duplicate reload handlers across calls.
+export function showBootError() {
+  dismissSplash();
+  const overlay = document.getElementById('boot-error-overlay');
+  if (overlay) {
+    overlay.classList.remove('hidden');
+    const retry = document.getElementById('boot-error-retry');
+    if (retry) retry.onclick = () => window.location.reload();
+  } else {
+    showToast("Couldn't start KnockKnock. Try again in a moment.");
+  }
+}
+
 // The ?setup=install marker is stamped on the URL after account creation on the
 // iOS/macOS install lanes. When the user opens that URL in a real browser to Add
 // to Home Screen (a fresh storage partition with no identity), it routes them to
@@ -116,14 +131,7 @@ async function ensureIdentity(pendingInviteToken = null) {
       // upsert, so retrying is safe). Still rethrow so main() doesn't continue
       // with no identity.
       console.error('telegram boot failed:', e);
-      dismissSplash();
-      const overlay = document.getElementById('boot-error-overlay');
-      if (overlay) {
-        overlay.classList.remove('hidden');
-        document.getElementById('boot-error-retry')?.addEventListener('click', () => window.location.reload());
-      } else {
-        showToast("Couldn't start KnockKnock. Try again in a moment.");
-      }
+      showBootError();
       throw e;
     }
   }
@@ -997,4 +1005,9 @@ function initServiceWorker() {
   }).catch(console.error);
 }
 
-main().catch(console.error);
+main().catch((e) => {
+  console.error(e);
+  // W1 J#2 (completion): ANY unhandled boot failure — not just identity
+  // acquisition — must not strand a Telegram user on the splash.
+  if (isTelegramContext()) showBootError();
+});
