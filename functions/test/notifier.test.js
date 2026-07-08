@@ -676,3 +676,53 @@ describe('sendToUser telegram channel', () => {
     expect(deps.send).not.toHaveBeenCalled();
   });
 });
+
+describe('token-less push fallback (W1 J#3)', () => {
+  test('channel push + linked + zero tokens delivers via telegram instead of dropping', async () => {
+    const store = {
+      'userPrefs/u1/notifyChannel': 'push',
+      'telegramByUid/u1': { chatId: '42' },
+      // no userPrefs/u1/pushTokens
+    };
+    const deps = {
+      getVal: jest.fn(async (p) => store[p] ?? null),
+      update: jest.fn(async () => {}),
+      send: jest.fn(async () => ({ failedTokens: [] })),
+      sendTelegram: jest.fn(async () => true),
+      now: () => 1_000_000,
+    };
+    const ok = await sendToUser(deps, 'u1', { title: 'Ana knocked' }, { type: 'knock', targetUid: 'a'.repeat(32) });
+    expect(ok).toBe(true);
+    expect(deps.sendTelegram).toHaveBeenCalledTimes(1);
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+
+  test('channel push + zero tokens + NOT linked still returns false', async () => {
+    const store = { 'userPrefs/u1/notifyChannel': 'push' };
+    const deps = {
+      getVal: jest.fn(async (p) => store[p] ?? null),
+      update: jest.fn(async () => {}),
+      send: jest.fn(async () => ({ failedTokens: [] })),
+      sendTelegram: jest.fn(async () => true),
+      now: () => 1_000_000,
+    };
+    expect(await sendToUser(deps, 'u1', { title: 't' }, {})).toBe(false);
+    expect(deps.sendTelegram).not.toHaveBeenCalled();
+  });
+
+  test('telegram-channel send failure does not retry telegram via the fallback', async () => {
+    const store = {
+      'userPrefs/u1/notifyChannel': 'telegram',
+      'telegramByUid/u1': { chatId: '42' },
+    };
+    const deps = {
+      getVal: jest.fn(async (p) => store[p] ?? null),
+      update: jest.fn(async () => {}),
+      send: jest.fn(async () => ({ failedTokens: [] })),
+      sendTelegram: jest.fn(async () => { throw new Error('blocked'); }),
+      now: () => 1_000_000,
+    };
+    expect(await sendToUser(deps, 'u1', { title: 't' }, {})).toBe(false);
+    expect(deps.sendTelegram).toHaveBeenCalledTimes(1); // no second attempt
+  });
+});

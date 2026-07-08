@@ -17,6 +17,9 @@ let suppressed = false;
 export function botDelivered(prefs) {
   return prefs?.telegram != null && prefs?.notifyChannel !== 'push';
 }
+// Note: the notifier additionally falls back to the bot when channel IS 'push'
+// but the account has zero push tokens (W1 J#3) — delivery-level only; it does
+// not change this predicate.
 
 export function isBotDelivered() { return suppressed; }
 
