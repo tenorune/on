@@ -307,6 +307,7 @@ describe('handleUpdate: /notifications and /help', () => {
   test('/notifications push and telegram set the channel; bad arg explains', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/pushTokens`] = { tok1: true };
     await handleUpdate(deps, msgUpdate('/notifications push'));
     expect(deps.store[`userPrefs/${uid}/notifyChannel`]).toBe('push');
     await handleUpdate(deps, msgUpdate('/notifications telegram'));
@@ -334,6 +335,28 @@ describe('handleUpdate: /notifications and /help', () => {
     await handleUpdate(deps, { edited_message: {} });
     await handleUpdate(deps, null);
     expect(deps.tg.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('/notifications push without tokens (W1 J#3)', () => {
+  test('refuses with guidance and writes nothing', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, msgUpdate('/notifications push'));
+    expect(deps.tg.sendMessage).toHaveBeenCalledWith('42',
+      "Push isn't set up on any device yet — open KnockKnock in a browser first. You'll keep getting messages here.",
+      expect.anything());
+    expect(store[`userPrefs/${uid}/notifyChannel`]).toBeUndefined();
+  });
+
+  test('switches normally when a token exists', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`userPrefs/${uid}/pushTokens`] = { tok1: true };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, msgUpdate('/notifications push'));
+    expect(store[`userPrefs/${uid}/notifyChannel`]).toBe('push');
   });
 });
 

@@ -172,6 +172,16 @@ async function handleMessage(deps, msg) {
         await reply('Use "/notifications telegram" or "/notifications push".');
         return;
       }
+      if (choice === 'push') {
+        // W1 J#3 (mirrors the app's channel pill): don't write a push channel
+        // this account can't receive on — the notifier's token-less fallback
+        // would mask it, but the shown state would lie.
+        const tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
+        if (!tokensMap || Object.keys(tokensMap).length === 0) {
+          await reply("Push isn't set up on any device yet — open KnockKnock in a browser first. You'll keep getting messages here.");
+          return;
+        }
+      }
       await deps.update(`userPrefs/${uid}`, { notifyChannel: choice });
       await reply(choice === 'telegram' ? 'Notifications will arrive here.' : 'Notifications will use the app\'s push channel.');
       return;
