@@ -9,10 +9,12 @@ jest.mock('../js/telegram.js', () => ({
 }));
 jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn(async () => {}) }));
 jest.mock('../js/notifySuppression.js', () => ({ syncBotDelivery: jest.fn() }));
+jest.mock('../js/groups.js', () => ({ showToast: jest.fn() }));
 const { mergeUserPrefs } = require('../js/db.js');
 const { isTelegramContext, telegramLinkState } = require('../js/telegram.js');
 const { ensureNotificationsReady } = require('../js/notifyPrompt.js');
 const { syncBotDelivery } = require('../js/notifySuppression.js');
+const { showToast } = require('../js/groups.js');
 const { syncNotifyChannel } = require('../js/notifyChannel.js');
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -163,5 +165,29 @@ describe('channel switch feeds suppression and prompts on push', () => {
     await flush();
     expect(syncBotDelivery).not.toHaveBeenCalled();
     expect(ensureNotificationsReady).not.toHaveBeenCalled();
+  });
+});
+
+describe('Telegram context: Push switch refused with no registered device', () => {
+  test('Telegram context + no pushTokens: Push tap refuses — toast, no write, pill stays', async () => {
+    isTelegramContext.mockReturnValue(true);
+    telegramLinkState.mockReturnValue({ linked: true });
+    syncNotifyChannel('u1', LINKED('telegram')); // no pushTokens
+    const pushBtn = document.querySelector('[data-channel="push"]');
+    pushBtn.click();
+    await flush();
+    expect(showToast).toHaveBeenCalledWith(
+      "Push isn't set up on any device yet — open KnockKnock in a browser first. Messages keep arriving via Telegram.");
+    expect(mergeUserPrefs).not.toHaveBeenCalled();
+    expect(pushBtn.classList.contains('active')).toBe(false); // no optimistic flip
+  });
+
+  test('Telegram context WITH pushTokens: Push tap proceeds', async () => {
+    isTelegramContext.mockReturnValue(true);
+    telegramLinkState.mockReturnValue({ linked: true });
+    syncNotifyChannel('u1', { ...LINKED('telegram'), pushTokens: { t1: true } });
+    document.querySelector('[data-channel="push"]').click();
+    await flush();
+    expect(mergeUserPrefs).toHaveBeenCalledWith('u1', { notifyChannel: 'push' });
   });
 });
