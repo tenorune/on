@@ -35,7 +35,7 @@ import { showGraduationInfo } from './graduation.js';
 import { syncNotifyChannel } from './notifyChannel.js';
 import { syncBotDelivery } from './notifySuppression.js';
 import { initHintRotation } from './hintRotation.js';
-import { initFirstRun, consumeLandingNotice } from './firstRun.js';
+import { initFirstRun, consumeGraduationNotice } from './firstRun.js';
 import { showRecoveryCodeModal } from './recoveryModal.js';
 import { setButtonBusy, clearButtonBusy } from './utils.js';
 
@@ -773,7 +773,7 @@ async function main() {
     onLink: isTelegramContext() ? showLinkScreen : null,
     onGraduateInfo: isTelegramContext() ? showGraduationInfo : null,
   });
-  const landingMsg = consumeLandingNotice();
+  const landingMsg = consumeGraduationNotice();
   if (landingMsg) showToast(landingMsg);
   initHeader(userId);
   if (!splashDone) {

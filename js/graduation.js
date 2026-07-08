@@ -6,7 +6,7 @@ import { tgWebApp } from './telegram.js';
 import { callGraduateTelegram } from './firebase-config.js';
 import { generateRecoveryCode } from './identity.js';
 import { showRecoveryCodeModal } from './recoveryModal.js';
-import { stampLanding } from './firstRun.js';
+import { stampGraduationNotice } from './firstRun.js';
 
 const INFO_TEXT = 'With an account you can use KnockKnock outside of Telegram.';
 // Approved copy (spec §7): the recovery-modal knobs for the graduation variant.
@@ -52,7 +52,7 @@ export async function startGraduation() {
         userMessage: "Couldn't set that up right now. Try again.",
       });
     }
-    stampLanding('graduated'); // boot reads this and toasts the confirmation
+    stampGraduationNotice(); // boot reads this and toasts the confirmation
     window.location.reload();
   }, { intro: GRADUATE_INTRO, warning: GRADUATE_WARNING, cancellable: true });
 }

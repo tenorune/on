@@ -96,26 +96,23 @@ export function setListEmpty(isEmpty) {
 // webview drops sessionStorage across the reload, the notice silently doesn't
 // show (accepted degradation).
 const LANDING_KEY = 'kk-landing';
-// Only graduation stamps a landing now: the post-link/post-unlink banners were
-// removed on-device (an inline-toast style used nowhere else). The bespoke
-// landing-notice banner it once rendered was likewise dropped (spec §7 flag) —
-// the copy is surfaced through the shared toast at boot instead (see app.js).
-const LANDING_COPY = {
-  graduated: 'This account now works in any browser too.',
-};
+// Only graduation stamps a landing (the post-link/post-unlink banners were
+// removed on-device); the kind-keyed LANDING_COPY map that once served them is
+// collapsed (W3-B CL#13). Key and stored value stay 'kk-landing'/'graduated'
+// so a stamp written before this deploy still reads after it.
+const GRADUATED_COPY = 'This account now works in any browser too.';
 
-export function stampLanding(kind) {
-  try { sessionStorage.setItem(LANDING_KEY, kind); } catch { /* storage denied */ }
+export function stampGraduationNotice() {
+  try { sessionStorage.setItem(LANDING_KEY, 'graduated'); } catch { /* storage denied */ }
 }
 
-// Read-and-clear the landing marker, returning the copy to surface (or null).
-// The caller decides the surface — boot routes it through the shared toast so
-// graduation reuses an existing pattern rather than a one-off banner.
-export function consumeLandingNotice() {
+// Read-and-clear the marker, returning the copy to surface (or null). The
+// caller decides the surface — boot routes it through the shared toast.
+export function consumeGraduationNotice() {
   let kind = null;
   try {
     kind = sessionStorage.getItem(LANDING_KEY);
     sessionStorage.removeItem(LANDING_KEY);
   } catch { return null; }
-  return LANDING_COPY[kind] || null;
+  return kind === 'graduated' ? GRADUATED_COPY : null;
 }

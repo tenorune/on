@@ -186,33 +186,21 @@ describe('#mycode-chip label', () => {
   });
 });
 
-describe('landing notice', () => {
+describe('graduation notice', () => {
   // The bespoke landing-notice banner was dropped (spec §7 flag); graduation's
-  // copy is surfaced through the shared boot toast. consumeLandingNotice just
+  // copy is surfaced through the shared boot toast. consumeGraduationNotice just
   // read-and-clears the marker and returns the copy for the caller to route.
-  test('stampLanding + consumeLandingNotice returns the copy once, then clears', () => {
-    firstRun.stampLanding('graduated');
-    expect(firstRun.consumeLandingNotice()).toContain('works in any browser');
+  test('stampGraduationNotice + consumeGraduationNotice: copy once, then clears (W3-B CL#13)', () => {
+    firstRun.stampGraduationNotice();
+    expect(sessionStorage.getItem('kk-landing')).toBe('graduated'); // key/value unchanged across the rename
+    expect(firstRun.consumeGraduationNotice()).toContain('works in any browser');
     expect(sessionStorage.getItem('kk-landing')).toBeNull();
-    expect(firstRun.consumeLandingNotice()).toBeNull(); // second boot: nothing
+    expect(firstRun.consumeGraduationNotice()).toBeNull(); // second boot: nothing
   });
 
-  test('link and unlink no longer stamp a landing (only graduation does)', () => {
-    firstRun.stampLanding('linked');
-    expect(firstRun.consumeLandingNotice()).toBeNull();
-    firstRun.stampLanding('unlinked');
-    expect(firstRun.consumeLandingNotice()).toBeNull();
-  });
-
-  test('no key → null; unknown kind → null', () => {
-    expect(firstRun.consumeLandingNotice()).toBeNull();
-    sessionStorage.setItem('kk-landing', 'bogus');
-    expect(firstRun.consumeLandingNotice()).toBeNull();
-  });
-
-  test('no bespoke landing-notice banner is rendered', () => {
-    firstRun.stampLanding('graduated');
-    firstRun.consumeLandingNotice();
-    expect(document.getElementById('landing-notice')).toBeNull();
+  test('a foreign marker value consumes to null', () => {
+    sessionStorage.setItem('kk-landing', 'linked'); // pre-collapse residue
+    expect(firstRun.consumeGraduationNotice()).toBeNull();
+    expect(sessionStorage.getItem('kk-landing')).toBeNull(); // still cleared
   });
 });

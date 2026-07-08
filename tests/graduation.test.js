@@ -4,11 +4,11 @@ jest.mock('../js/telegram.js', () => ({ tgWebApp: () => ({ initData: 'signed-ini
 jest.mock('../js/firebase-config.js', () => ({ callGraduateTelegram: jest.fn(async () => ({ ok: true, uid: 'newuid' })) }));
 jest.mock('../js/identity.js', () => ({ generateRecoveryCode: jest.fn(() => 'able-baker-charlie-delta') }));
 jest.mock('../js/recoveryModal.js', () => ({ showRecoveryCodeModal: jest.fn(async () => 'phrase') }));
-jest.mock('../js/firstRun.js', () => ({ stampLanding: jest.fn() }));
+jest.mock('../js/firstRun.js', () => ({ stampGraduationNotice: jest.fn() }));
 
 const { callGraduateTelegram } = require('../js/firebase-config.js');
 const { showRecoveryCodeModal } = require('../js/recoveryModal.js');
-const { stampLanding } = require('../js/firstRun.js');
+const { stampGraduationNotice } = require('../js/firstRun.js');
 const { generateRecoveryCode } = require('../js/identity.js');
 
 const GRAD_INTRO = 'To use the app outside Telegram you get a secret phrase — it opens this same account in any browser.';
@@ -67,15 +67,15 @@ describe('showGraduationInfo', () => {
 
 describe('startGraduation onConfirm', () => {
   // jsdom's window.location.reload is a non-throwing no-op that can't be spied
-  // reliably here, so success is asserted via stampLanding — the observable gate
-  // immediately before the reload.
+  // reliably here, so success is asserted via stampGraduationNotice — the
+  // observable gate immediately before the reload.
   test('success: graduates then stamps the landing marker', async () => {
     const { startGraduation } = require('../js/graduation.js');
     startGraduation();
     const onConfirm = showRecoveryCodeModal.mock.calls[0][1];
     await onConfirm('gamma-delta-echo-foxtrot');
     expect(callGraduateTelegram).toHaveBeenCalledWith('signed-init-data', 'gamma-delta-echo-foxtrot');
-    expect(stampLanding).toHaveBeenCalledWith('graduated');
+    expect(stampGraduationNotice).toHaveBeenCalled();
   });
 
   test('failure: throws the single generic userMessage for every code, no stamp', async () => {
@@ -86,6 +86,6 @@ describe('startGraduation onConfirm', () => {
     await expect(onConfirm('gamma-delta-echo-foxtrot')).rejects.toMatchObject({
       userMessage: "Couldn't set that up right now. Try again.",
     });
-    expect(stampLanding).not.toHaveBeenCalled();
+    expect(stampGraduationNotice).not.toHaveBeenCalled();
   });
 });
