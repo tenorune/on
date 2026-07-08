@@ -38,10 +38,10 @@ describe('buildNotificationKeyboard', () => {
   test('call with no app url → null (plain text message)', () => {
     expect(buildNotificationKeyboard({ type: 'call', targetUid: 'u9' }, '')).toBeNull();
   });
-  test('invite → accept/decline', () => {
+  test('invite keyboard uses Join / Decline', () => {
     expect(buildNotificationKeyboard({ type: 'invite', targetUid: 'u9', groupId: 'G1' }, APP))
       .toEqual([[
-        { text: 'Accept', callback_data: 'invite_accept:G1' },
+        { text: 'Join', callback_data: 'invite_accept:G1' },
         { text: 'Decline', callback_data: 'invite_decline:G1' },
       ]]);
   });

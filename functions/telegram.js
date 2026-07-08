@@ -34,7 +34,7 @@ export function buildNotificationKeyboard(data, appUrl) {
       return appUrl ? [[{ text: 'Answer in KnockKnock', web_app: { url: appUrl } }]] : null;
     case 'invite':
       return [[
-        { text: 'Accept', callback_data: `invite_accept:${data.groupId}` },
+        { text: 'Join', callback_data: `invite_accept:${data.groupId}` },
         { text: 'Decline', callback_data: `invite_decline:${data.groupId}` },
       ]];
     case 'followRequest':
