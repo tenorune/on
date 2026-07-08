@@ -74,6 +74,14 @@ const HELP_TEXT = [
 
 const KNOCK_CAP_TEXT = "You've already knocked a few times — give them a moment.";
 
+// B#8: a non-text private message (sticker, photo, voice note, …) still gets
+// a reply instead of silence — a playful one-liner nudging /help. Extend the
+// set here if more emoji are wanted; order/membership is asserted by tests.
+const PLAYFUL_EMOJI = ['🐥', '🍑', '🍆', '💦', '🫦', '🌚'];
+export function pickPlayfulEmoji(rand = Math.random) {
+  return PLAYFUL_EMOJI[Math.floor(rand() * PLAYFUL_EMOJI.length)];
+}
+
 // The one way a webhook entry point resolves its Telegram sender to an app
 // account: telegramUsers/{tgId} → { mapping, uid }. Both null/undefined-safe —
 // callers decide how to bail when the sender isn't mapped.
@@ -99,8 +107,13 @@ export async function handleUpdate(deps, update) {
 }
 
 async function handleMessage(deps, msg) {
-  if (msg.chat?.type !== 'private' || typeof msg.text !== 'string' || !msg.from) return undefined;
+  if (msg.chat?.type !== 'private' || !msg.from) return undefined;
   const chatId = String(msg.chat.id);
+  if (typeof msg.text !== 'string') {
+    // Non-text private message (sticker, photo, voice note, …) — B#8: don't
+    // go silent, nudge toward /help with a playful one-liner instead.
+    return { chat_id: chatId, text: `Someone else might enjoy that ${pickPlayfulEmoji()} — try /help.` };
+  }
   const [cmdRaw, ...args] = msg.text.trim().split(/\s+/);
   const cmd = cmdRaw.toLowerCase().replace(/@.*$/, ''); // strip @botname suffix
   // Every command flow ends in exactly ONE reply() — captured here and

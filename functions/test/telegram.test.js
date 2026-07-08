@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { makeStoreDeps as makeCoreStoreDeps } from './store-deps.js';
-import { buildNotificationKeyboard, handleUpdate, parseDurationMinutes, webhookAuthorized, resolveSourceMessage } from '../telegram.js';
+import { buildNotificationKeyboard, handleUpdate, parseDurationMinutes, webhookAuthorized, resolveSourceMessage, pickPlayfulEmoji } from '../telegram.js';
 import { GROUP_ID_RE, UID_RE } from '../telegram-shared.js';
 
 // The id-format regexes are the callback trust boundary (Admin-SDK writes
@@ -134,6 +134,40 @@ describe('handleUpdate: webhook-reply payload (F#5)', () => {
     const deps = makeBotDeps();
     const reply = await handleUpdate(deps, { message: { text: '/help', from: { id: 42 }, chat: { id: 42, type: 'group' } } });
     expect(reply).toBeUndefined();
+    expect(deps.tg.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+// B#8: a non-text private message (sticker, photo, voice note, …) used to be
+// silently ignored. Now it gets a playful one-liner nudging /help, so the
+// sender knows the bot saw something rather than wondering if it's broken.
+const PLAYFUL_EMOJI_SET = ['🐥', '🍑', '🍆', '💦', '🫦', '🌚'];
+
+describe('pickPlayfulEmoji', () => {
+  test('returns a member of the set at both ends of the rand() range', () => {
+    expect(PLAYFUL_EMOJI_SET).toContain(pickPlayfulEmoji(() => 0));
+    expect(PLAYFUL_EMOJI_SET).toContain(pickPlayfulEmoji(() => 0.999));
+  });
+});
+
+describe('handleUpdate: non-text private messages get an easter-egg reply (B#8)', () => {
+  test('a sticker in a private chat gets the playful nudge', async () => {
+    const deps = makeBotDeps();
+    const reply = await handleUpdate(deps, {
+      message: { chat: { id: 5, type: 'private' }, from: { id: 9 }, sticker: {} },
+    });
+    expect(reply.chat_id).toBe('5');
+    expect(reply.text).toMatch(/^Someone else might enjoy that .+ — try \/help\.$/);
+    expect(PLAYFUL_EMOJI_SET.some((e) => reply.text.includes(e))).toBe(true);
+  });
+  test('group chats and no-from messages still get no reply', async () => {
+    const deps = makeBotDeps();
+    expect(await handleUpdate(deps, {
+      message: { chat: { id: 5, type: 'group' }, from: { id: 9 }, text: '/who' },
+    })).toBeUndefined();
+    expect(await handleUpdate(deps, {
+      message: { chat: { id: 5, type: 'private' }, sticker: {} },
+    })).toBeUndefined();
     expect(deps.tg.sendMessage).not.toHaveBeenCalled();
   });
 });
