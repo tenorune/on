@@ -317,8 +317,8 @@ main {
   flex-wrap: wrap;
 }
 .drawer-section { padding: .5rem 0; }
-.drawer-section + .drawer-section { border-top: 1px solid var(--border, rgba(128,128,128,.25)); }
-.drawer-section-label { font-size: .75em; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim, #888); margin: 0 0 .4rem; }
+.drawer-section + .drawer-section { border-top: 1px solid var(--surface2); }
+.drawer-section-label { font-size: .75em; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0 0 .4rem; }
 /* Notification-channel toggle pill (notifyChannel.js): a two-segment segmented
    control, left-aligned. Active segment is the filled/contrasting one. */
 .toggle-pill { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--accent); }
@@ -1463,7 +1463,8 @@ body.add-form-open #app-header {
 /* Small "?" affordance — opens the graduation info toast (spec §7). */
 .help-badge {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 1.15rem; height: 1.15rem; padding: 0; margin-left: .35rem;
+  width: 1.15rem; height: 1.15rem; padding: 0.4rem; margin: -0.4rem;
+  box-sizing: content-box;
   border: none; border-radius: 50%;
   background: var(--accent); color: #fff;
   font-size: .72rem; font-weight: 700; line-height: 1; cursor: pointer;
