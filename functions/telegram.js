@@ -475,13 +475,29 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
   }
   if (action === 'fr_approve' || action === 'fr_decline') {
     const requesterUid = arg;
+    // State FIRST (W1 B#1): an existing grant means this was already approved
+    // (here or in the app) — a late Decline must not claim otherwise.
+    const [request, grant] = await Promise.all([
+      deps.getVal(`followRequests/${me}/${requesterUid}`),
+      deps.getVal(`followGrants/${requesterUid}/${me}`),
+    ]);
+    if (grant) {
+      await deps.set(`followRequests/${me}/${requesterUid}`, null);
+      await resolveSourceMessage(deps, cq, '✅ Approved.');
+      await answer('Already approved.');
+      return;
+    }
+    if (!request) {
+      await resolveSourceMessage(deps, cq, 'This request is gone.');
+      await answer('This request is gone.');
+      return;
+    }
     if (action === 'fr_decline') {
       await deps.set(`followRequests/${me}/${requesterUid}`, null);
+      await resolveSourceMessage(deps, cq, 'Declined.');
       await answer('Declined.');
       return;
     }
-    const request = await deps.getVal(`followRequests/${me}/${requesterUid}`);
-    if (!request) { await answer('This request is gone.'); return; }
     // Mirrors js/inbox.js handleApprove: grant carries my share code + my display
     // name in the shared group; the requester's grant-watcher completes the follow.
     const [presence, myName] = await Promise.all([
@@ -492,6 +508,7 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
       from: me, code: presence?.code || '', name: myName ?? null, ts: deps.now(),
     });
     await deps.set(`followRequests/${me}/${requesterUid}`, null);
+    await resolveSourceMessage(deps, cq, '✅ Approved.');
     await answer('Approved.');
   }
 }

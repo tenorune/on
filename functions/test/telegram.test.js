@@ -771,6 +771,54 @@ describe('invite callbacks are state-checked and self-recording (W1 B#1)', () =>
   });
 });
 
+describe('follow-request callbacks are state-checked (W1 B#1)', () => {
+  const REQ = 'b'.repeat(32);
+  const frMsg = { message_id: 9, chat: { id: 42 }, text: 'Cara wants to follow you' };
+
+  test('decline after approve answers "Already approved." and keeps the grant', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`followGrants/${REQ}/${uid}`] = { from: uid, code: 'AAAAAA', ts: 1 };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`fr_decline:${REQ}`, frMsg));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Already approved.');
+    expect(store[`followGrants/${REQ}/${uid}`]).toBeTruthy();
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 9, 'Cara wants to follow you\n\n✅ Approved.');
+  });
+
+  test('fresh approve writes the grant and resolves the message', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`followRequests/${uid}/${REQ}`] = { from: REQ };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`fr_approve:${REQ}`, frMsg));
+    expect(store[`followGrants/${REQ}/${uid}`]).toMatchObject({ from: uid });
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 9, 'Cara wants to follow you\n\n✅ Approved.');
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Approved.');
+  });
+
+  test('fresh decline resolves the message with "Declined."', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`followRequests/${uid}/${REQ}`] = { from: REQ };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`fr_decline:${REQ}`, frMsg));
+    expect(store[`followRequests/${uid}/${REQ}`]).toBeNull();
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith(
+      '42', 9, 'Cara wants to follow you\n\nDeclined.');
+  });
+
+  test('tap on a vanished request answers "This request is gone."', async () => {
+    const store = {};
+    seedUser(store);
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`fr_approve:${REQ}`, frMsg));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'This request is gone.');
+  });
+});
+
 describe('knock cap honesty (W1 B#2)', () => {
   const RECIP = 'a'.repeat(32); // format-valid uid for CALLBACK_ARG_RE
 
