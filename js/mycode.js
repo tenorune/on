@@ -229,6 +229,8 @@ export function initRecoveryPill(recoveryCode) {
     startIdleTimer();
   });
 
+  // Deliberately NOT utils.copyWithFeedback: this copied-timer chains into the
+  // reveal panel's toIdle() state machine (W3-B CL#10 exclusion).
   copyBtn.addEventListener('click', async () => {
     if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
     try {

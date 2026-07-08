@@ -2,7 +2,7 @@
 // signup (defaults) and the Telegram graduation flow (knobs). Spec §7.
 import { generateRecoveryCode } from './identity.js';
 import { flashRegenerated } from './regenFlash.js';
-import { setButtonBusy, clearButtonBusy } from './utils.js';
+import { setButtonBusy, clearButtonBusy, copyWithFeedback } from './utils.js';
 
 const DEFAULT_WARNING = "Save this somewhere safe. It's the only way to restore your account if you lose this browser. We can't recover it for you.";
 
@@ -65,13 +65,7 @@ export function showRecoveryCodeModal(initialCode, onConfirm, { intro = null, wa
       flashRegenerated(text, rotateBtn);
     }
     async function onCopy() {
-      try {
-        await navigator.clipboard?.writeText(current);
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
-      } catch (_) {
-        // ignore clipboard failures
-      }
+      await copyWithFeedback(copyBtn, current);
     }
     // Trap the browser/PWA back-gesture so it can't dismiss the modal and discard
     // the un-saved phrase: push a history entry on open, and re-push if a back

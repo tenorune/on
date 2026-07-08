@@ -11,6 +11,7 @@ import { renderInvitePicker } from './invitePicker.js';
 import { flashRegenerated } from './regenFlash.js';
 import { isTelegramContext } from './telegram.js';
 import { shareInviteLink, telegramSharingEnabled, shareInviteToTelegramWeb, buildTelegramInviteLink } from './inviteFlow.js';
+import { copyWithFeedback } from './utils.js';
 
 const SCOPE_COPY = {
   personal: {
@@ -170,12 +171,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   // Copy — unchanged from Phase 0
   on(document.getElementById('invite-modal-copy-btn'), 'click', async () => {
     if (!currentInvite) return;
-    const btn = document.getElementById('invite-modal-copy-btn');
-    try {
-      await navigator.clipboard.writeText(currentInvite.url);
-      btn.textContent = 'Copied!';
-      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-    } catch { /* clipboard denied */ }
+    await copyWithFeedback(document.getElementById('invite-modal-copy-btn'), currentInvite.url);
   });
 
   // Share affordance next to Copy. In Telegram: the native share sheet. On web,
@@ -193,11 +189,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
       if (isTelegramContext()) { shareInviteLink(currentInvite, text); return; }
       if (!shareInviteToTelegramWeb(currentInvite, text)) {
         const deepLink = buildTelegramInviteLink(currentInvite.token);
-        try {
-          if (deepLink) await navigator.clipboard.writeText(deepLink);
-          shareBtn.textContent = 'Link copied!';
-          setTimeout(() => { shareBtn.textContent = 'Share to Telegram'; }, 1500);
-        } catch { /* clipboard denied */ }
+        if (deepLink) await copyWithFeedback(shareBtn, deepLink, { done: 'Link copied!', idle: 'Share to Telegram' });
       }
     });
   }

@@ -17,6 +17,23 @@ export function clearButtonBusy(btn) {
   btn.disabled = false;
 }
 
+// Copy-to-clipboard with transient button feedback (W3-B CL#10): label → `done`,
+// reverted to `idle` after 1.5s. A denied/failed/missing clipboard changes
+// nothing — silent, like every call site before consolidation. No timer dedup:
+// rapid re-taps queue reverts, same as the inlined blocks did. (mycode.js's
+// recovery pill keeps its bespoke block — its copied-timer chains into the
+// reveal panel's idle state machine.)
+export async function copyWithFeedback(btn, text, { done = 'Copied!', idle = 'Copy' } = {}) {
+  try {
+    await navigator.clipboard?.writeText(text);
+  } catch {
+    return; // clipboard denied/blocked — no feedback, matching prior behavior
+  }
+  if (!navigator.clipboard) return; // no API at all: writeText never ran
+  btn.textContent = done;
+  setTimeout(() => { btn.textContent = idle; }, 1500);
+}
+
 // Display name for a following entry ({ label, code }): the user's chosen label,
 // else the share code. Returns '' (not undefined) for a missing/empty entry so
 // it never renders "undefined" in a template.
