@@ -111,11 +111,19 @@ async function ensureIdentity(pendingInviteToken = null) {
       return await ensureTelegramIdentity();
     } catch (e) {
       // Telegram boot failed (bot not configured server-side, or network).
-      // Surface it instead of leaving the splash up forever, then rethrow so
-      // main() doesn't continue with no identity.
+      // A passive toast left a blank dead screen (W1 J#2) — show a retry
+      // surface instead; reload re-runs boot (ensureTelegramIdentity is an
+      // upsert, so retrying is safe). Still rethrow so main() doesn't continue
+      // with no identity.
       console.error('telegram boot failed:', e);
       dismissSplash();
-      showToast("Couldn't start KnockKnock. Please try again in a moment.");
+      const overlay = document.getElementById('boot-error-overlay');
+      if (overlay) {
+        overlay.classList.remove('hidden');
+        document.getElementById('boot-error-retry')?.addEventListener('click', () => window.location.reload());
+      } else {
+        showToast("Couldn't start KnockKnock. Try again in a moment.");
+      }
       throw e;
     }
   }

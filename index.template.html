@@ -137,6 +137,15 @@
     </div>
   </div>
 
+  <div id="boot-error-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-card-small">
+      <p>Couldn't start KnockKnock.</p>
+      <div class="modal-actions">
+        <button id="boot-error-retry" class="primary-btn" type="button">Try again</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Reusable text-prompt modal (promise-based; replaces window.prompt, which
        is unsupported in some webviews e.g. Telegram macOS Desktop). -->
   <div id="text-prompt-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="text-prompt-title">
