@@ -112,13 +112,19 @@ export function initCodeDrawer(myUserId, myCode) {
   });
 
   document.getElementById('drawer-invite-btn')?.addEventListener('click', () => {
-    // In Telegram the drawer invite matches the empty-state primary: one-tap deep
-    // link straight to the native share sheet (spec §3/§4), not the web modal.
-    if (isTelegramContext()) sharePersonalInvite(); else openPersonalInviteModal();
+    startPersonalInviteFlow();
   });
 
   const existing = loadIdentity();
   if (existing?.recoveryCode) initRecoveryPill(existing.recoveryCode);
+}
+
+// THE personal-invite CTA dispatch (W3-B CL#8): Telegram shares the deep link
+// straight to the native share sheet (spec §3/§4); web opens the invite modal.
+// Both surfaces (first-run primary, drawer button) call this — a change to one
+// CTA can't silently miss the other.
+export function startPersonalInviteFlow() {
+  return isTelegramContext() ? sharePersonalInvite() : openPersonalInviteModal();
 }
 
 export async function openPersonalInviteModal() {

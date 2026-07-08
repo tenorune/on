@@ -292,3 +292,23 @@ describe('sharePersonalInvite (Telegram one-tap)', () => {
     expect(createPersonalInvite).toHaveBeenCalledWith('uid1', 'Someone');
   });
 });
+
+describe('startPersonalInviteFlow (W3-B CL#8)', () => {
+  test('web: opens the invite modal', async () => {
+    isTelegramContext.mockReturnValue(false);
+    const mycode = require('../js/mycode.js');
+    await mycode.startPersonalInviteFlow();
+    expect(openInviteModal).toHaveBeenCalledWith(expect.objectContaining({ scope: 'personal' }));
+  });
+
+  test('Telegram: goes straight to the share sheet path (no modal)', async () => {
+    isTelegramContext.mockReturnValue(true);
+    telegramFirstName.mockReturnValue('Ana');
+    createPersonalInvite.mockResolvedValue({ token: 'NEW', url: 'https://app/?i=NEW' });
+    const mycode = require('../js/mycode.js');
+    await mycode.startPersonalInviteFlow();
+    expect(openInviteModal).not.toHaveBeenCalled();
+    // sharePersonalInvite ran: it shares via shareInviteLink (inviteFlow mock).
+    expect(shareInviteLink).toHaveBeenCalled();
+  });
+});

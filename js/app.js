@@ -4,7 +4,7 @@ import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setSt
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following.js';
 import { initKnocks } from './knock.js';
-import { initCodeDrawer, updateMyCode, openPersonalInviteModal, sharePersonalInvite } from './mycode.js';
+import { initCodeDrawer, updateMyCode, startPersonalInviteFlow } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { initNotifyPrompt, refreshPushToken, phraseReminderHtml, wirePhraseCopyButton } from './notifyPrompt.js';
 import { initInstallAffordance } from './installAffordance.js';
@@ -769,7 +769,7 @@ async function main() {
   // Empty-state primary "Invite your people": Telegram shares the deep link
   // straight to the native share sheet (spec §3/§4); web opens the invite modal.
   initFirstRun({
-    onInvite: () => (isTelegramContext() ? sharePersonalInvite() : openPersonalInviteModal()),
+    onInvite: startPersonalInviteFlow,
     onLink: isTelegramContext() ? showLinkScreen : null,
     onGraduateInfo: isTelegramContext() ? showGraduationInfo : null,
   });
