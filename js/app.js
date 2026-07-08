@@ -28,7 +28,7 @@ import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
 import { isTelegramContext, ensureTelegramIdentity, telegramLinkState, telegramFirstName } from './telegram.js';
 import { initTelegramChrome } from './telegramChrome.js';
-import { telegramInviteGate } from './telegramFirstRun.js';
+import { telegramInviteGate, stampInviteOutcome, redemptionConsumedToken } from './telegramFirstRun.js';
 import { ensureCacheOwner } from './cacheOwner.js';
 import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
 import { showGraduationInfo } from './graduation.js';
@@ -635,6 +635,9 @@ async function main() {
           ? `You joined ${tgInvite.preview.groupName}.`
           : `You're now following ${tgInvite.preview.label}.`);
       }
+      // A consumed token never re-runs the ceremony on a re-tapped chat link
+      // (W1 J#4) — stamp it (covers the silent-redeem path too).
+      if (tgInvite && redemptionConsumedToken(result)) stampInviteOutcome(tgInvite.token, 'redeemed');
       // Clean the URL so a refresh doesn't re-trigger.
       cleanInviteParamFromUrl();
       if (result.ok && result.groupId) {

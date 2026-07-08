@@ -12,7 +12,7 @@ const { resolveInvitePreview } = require('../js/invites.js');
 const { showLinkScreen } = require('../js/telegramSettings.js');
 const { showToast } = require('../js/groups.js');
 const { isTelegramContext } = require('../js/telegram.js');
-const { telegramInviteGate, extractStartParamToken, stampInviteOutcome, stampedInviteOutcome } = require('../js/telegramFirstRun.js');
+const { telegramInviteGate, extractStartParamToken, stampInviteOutcome, stampedInviteOutcome, redemptionConsumedToken } = require('../js/telegramFirstRun.js');
 
 const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv';
 const SCREEN = `
@@ -225,5 +225,17 @@ describe('invite outcome stamps (W1 J#4/J#5)', () => {
     expect(stampedInviteOutcome('tokA0')).toBeNull();
     // The newest non-numeric token should still survive
     expect(stampedInviteOutcome('tokA7')).toBe('redeemed');
+  });
+});
+
+describe('redemptionConsumedToken (W1 J#4)', () => {
+  test.each([
+    [{ ok: true }, true],
+    [{ ok: false, reason: 'already-following' }, true],
+    [{ ok: false, reason: 'already-member' }, true],
+    [{ ok: false, reason: 'expired' }, false],
+    [null, false],
+  ])('%o → %s', (result, expected) => {
+    expect(redemptionConsumedToken(result)).toBe(expected);
   });
 });

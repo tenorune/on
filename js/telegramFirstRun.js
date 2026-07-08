@@ -45,6 +45,14 @@ export function stampedInviteOutcome(token) {
   return (token && readOutcomes()['t:' + token]) || null;
 }
 
+// Which redemption results consume the token (W1 J#4): success, or the
+// server telling us it was already consumed.
+export function redemptionConsumedToken(result) {
+  return !!result && (result.ok === true
+    || result.reason === 'already-following'
+    || result.reason === 'already-member');
+}
+
 function framingText(preview) {
   return preview.scope === 'group'
     ? `You've been invited to join ${preview.groupName}.`
