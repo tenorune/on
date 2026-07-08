@@ -14,6 +14,35 @@ export function extractStartParamToken() {
   return (typeof p === 'string' && /^[A-Za-z0-9_-]{10,64}$/.test(p)) ? p : null;
 }
 
+// Account-stamped record of invite-token outcomes (W1 J#4/J#5): a redeemed
+// token never re-shows the interstitial on a re-tapped chat link; a dismissed
+// ("Not now") token never auto-redeems later — following someone the user
+// declined would be a consent surprise. Keyed per account via cacheOwner's
+// wipe-on-switch (the key is in its ACCOUNT_SCOPED_KEYS). Pruned to the 8 most
+// recent tokens: one entry per tapped invite link, not unbounded growth.
+const OUTCOME_KEY = 'statusapp_invite_outcomes';
+const OUTCOME_MAX = 8;
+
+function readOutcomes() {
+  try { return JSON.parse(localStorage.getItem(OUTCOME_KEY)) || {}; }
+  catch { return {}; }
+}
+
+export function stampInviteOutcome(token, outcome) {
+  if (!token) return;
+  const map = readOutcomes();
+  delete map[token]; // re-stamp moves it to newest position
+  map[token] = outcome;
+  const keys = Object.keys(map);
+  for (let i = 0; i < keys.length - OUTCOME_MAX; i++) delete map[keys[i]];
+  try { localStorage.setItem(OUTCOME_KEY, JSON.stringify(map)); }
+  catch { /* private mode / quota — stamping is best-effort */ }
+}
+
+export function stampedInviteOutcome(token) {
+  return (token && readOutcomes()[token]) || null;
+}
+
 function framingText(preview) {
   return preview.scope === 'group'
     ? `You've been invited to join ${preview.groupName}.`

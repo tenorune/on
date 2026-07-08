@@ -18,6 +18,7 @@ jest.mock('../js/graduation.js', () => ({ showGraduationInfo: jest.fn() }));
 const { telegramLinkState } = require('../js/telegram.js');
 const { callLinkTelegram, callUnlinkTelegram } = require('../js/firebase-config.js');
 const { showGraduationInfo } = require('../js/graduation.js');
+const { showLinkScreen } = require('../js/telegramSettings.js');
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -149,6 +150,13 @@ test('link success calls linkTelegram and does NOT stamp a landing banner', asyn
   await flush();
   expect(callLinkTelegram).toHaveBeenCalledWith('signed-init-data', 'abacus-abdomen-abdominal-abide');
   expect(sessionStorage.getItem('kk-landing')).toBeNull();
+});
+
+test('showLinkScreen resolves false on cancel (W1 J#6)', async () => {
+  const p = showLinkScreen();
+  document.getElementById('restore-cancel-btn').click();
+  await expect(p).resolves.toBe(false);
+  expect(document.getElementById('restore-screen').classList.contains('hidden')).toBe(true);
 });
 
 describe('graduation "?" affordance', () => {

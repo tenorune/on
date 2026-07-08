@@ -87,7 +87,7 @@ export function showLinkScreen() {
   const submit = document.getElementById('restore-submit-btn');
   const cancel = document.getElementById('restore-cancel-btn');
   const form = document.getElementById('restore-form');
-  if (!el) return;
+  if (!el) return Promise.resolve(false);
   input.value = '';
   error.textContent = '';
   error.classList.add('hidden');
@@ -101,33 +101,36 @@ export function showLinkScreen() {
     subtext.classList.remove('hidden');
   }
 
-  const showError = (msg) => { error.textContent = msg; error.classList.remove('hidden'); };
-  const onFormSubmit = (e) => e.preventDefault();
-  async function onSubmit() {
-    const normalized = parseRecoveryCode(input.value);
-    if (!normalized) { showError("That doesn't look like a secret phrase."); return; }
-    submit.disabled = true;
-    submit.textContent = 'Linking…';
-    try {
-      await callLinkTelegram(tgWebApp().initData, normalized);
-    } catch (e) {
-      submit.disabled = false;
-      submit.textContent = 'Link account';
-      showError(/not-found/.test(e?.code || '') ? 'No account found with that phrase.' : "Couldn't link right now. Try again.");
-      return;
+  return new Promise((resolve) => {
+    const showError = (msg) => { error.textContent = msg; error.classList.remove('hidden'); };
+    const onFormSubmit = (e) => e.preventDefault();
+    async function onSubmit() {
+      const normalized = parseRecoveryCode(input.value);
+      if (!normalized) { showError("That doesn't look like a secret phrase."); return; }
+      submit.disabled = true;
+      submit.textContent = 'Linking…';
+      try {
+        await callLinkTelegram(tgWebApp().initData, normalized);
+      } catch (e) {
+        submit.disabled = false;
+        submit.textContent = 'Link account';
+        showError(/not-found/.test(e?.code || '') ? 'No account found with that phrase.' : "Couldn't link right now. Try again.");
+        return;
+      }
+      teardown();
+      resolve(true); // observable in tests; the reload ends the session
+      window.location.reload(); // reboot via initData into the linked account
     }
-    teardown();
-    window.location.reload(); // reboot via initData into the linked account
-  }
-  function onCancel() { teardown(); }
-  function teardown() {
-    submit.removeEventListener('click', onSubmit);
-    cancel.removeEventListener('click', onCancel);
-    if (form) form.removeEventListener('submit', onFormSubmit);
-    if (subtext) subtext.classList.add('hidden');
-    el.classList.add('hidden');
-  }
-  submit.addEventListener('click', onSubmit);
-  cancel.addEventListener('click', onCancel);
-  if (form) form.addEventListener('submit', onFormSubmit);
+    function onCancel() { teardown(); resolve(false); }
+    function teardown() {
+      submit.removeEventListener('click', onSubmit);
+      cancel.removeEventListener('click', onCancel);
+      if (form) form.removeEventListener('submit', onFormSubmit);
+      if (subtext) subtext.classList.add('hidden');
+      el.classList.add('hidden');
+    }
+    submit.addEventListener('click', onSubmit);
+    cancel.addEventListener('click', onCancel);
+    if (form) form.addEventListener('submit', onFormSubmit);
+  });
 }

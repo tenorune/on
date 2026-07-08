@@ -75,6 +75,7 @@ const ACCOUNT_SCOPED_KEYS = [
   'statusapp_seen_swipe',
   'statusapp_went_avail_custom',
   'statusapp_seen_notify_promo',
+  'statusapp_invite_outcomes',
 ];
 
 // Account-scoped key PREFIXES: one entry per group, so they can't be listed

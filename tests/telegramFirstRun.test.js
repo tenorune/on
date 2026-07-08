@@ -11,7 +11,7 @@ jest.mock('../js/groups.js', () => ({ showToast: jest.fn() }));
 const { resolveInvitePreview } = require('../js/invites.js');
 const { showLinkScreen } = require('../js/telegramSettings.js');
 const { isTelegramContext } = require('../js/telegram.js');
-const { telegramInviteGate, extractStartParamToken } = require('../js/telegramFirstRun.js');
+const { telegramInviteGate, extractStartParamToken, stampInviteOutcome, stampedInviteOutcome } = require('../js/telegramFirstRun.js');
 
 const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv';
 const SCREEN = `
@@ -124,4 +124,25 @@ test('first-ever open keeps "Accept & get started"', async () => {
   expect(document.getElementById('tg-invite-accept-btn').textContent).toBe('Accept & get started');
   document.getElementById('tg-invite-dismiss-btn').click();
   await p;
+});
+
+describe('invite outcome stamps (W1 J#4/J#5)', () => {
+  beforeEach(() => localStorage.clear());
+
+  test('stamp + read round-trip', () => {
+    stampInviteOutcome('tokA', 'dismissed');
+    expect(stampedInviteOutcome('tokA')).toBe('dismissed');
+    expect(stampedInviteOutcome('tokB')).toBeNull();
+  });
+
+  test('prunes to the 8 most recent tokens', () => {
+    for (let i = 0; i < 10; i++) stampInviteOutcome(`tok${i}`, 'redeemed');
+    expect(stampedInviteOutcome('tok0')).toBeNull();
+    expect(stampedInviteOutcome('tok9')).toBe('redeemed');
+  });
+
+  test('corrupt storage reads as unstamped', () => {
+    localStorage.setItem('statusapp_invite_outcomes', '{not json');
+    expect(stampedInviteOutcome('tokA')).toBeNull();
+  });
 });
