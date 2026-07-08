@@ -233,7 +233,9 @@ manual-visual-gate convention. D2 and D4 are the walkthrough's focus.
 - **CL#8** (invite-CTA surface fork), **CL#9** (40-char name cap), **CL#10**
   (copy-with-"Copied!" idiom), **CL#11** (recoveryModal teardown dedup), **CL#12**
   (share-caption strings), **CL#13** (landing-notice generality): operator scope decision
-  — headliners only; CL#12/13 are analysis-rated LOW worth.
+  — headliners only. CL#6–CL#13 are specced separately as wave **W3-B**
+  (`docs/superpowers/specs/2026-07-08-telegram-w3b-client-cleanups-design.md`), which
+  runs after this wave.
 - All W2 findings (functions), all W4 findings (copy/CSS/bot-delight sweeps), anything
   under `functions/`, and any `css/app.css` change (none of D1–D5 needs one).
 - Issue #283.
