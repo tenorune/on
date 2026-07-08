@@ -50,6 +50,21 @@ test('setListEmpty(false): panel hides, add button reverts', () => {
   expect(firstRun.isFirstRunActive()).toBe(false);
 });
 
+test('same-state re-call is a no-op: no dispatch, no DOM re-sync (W3-A CL#1)', () => {
+  firstRun.setListEmpty(true);
+  const seen = jest.fn();
+  document.addEventListener('first-run-change', seen);
+  // Sentinel: a re-sync would overwrite this back to 'Add by code'.
+  document.getElementById('add-person-btn').textContent = 'sentinel';
+  firstRun.setListEmpty(true);
+  expect(seen).not.toHaveBeenCalled();
+  expect(document.getElementById('add-person-btn').textContent).toBe('sentinel');
+  // A genuine transition still syncs + dispatches.
+  firstRun.setListEmpty(false);
+  expect(seen).toHaveBeenCalledTimes(1);
+  expect(document.getElementById('add-person-btn').textContent).toBe('Add a person');
+});
+
 test('guided empty state hides the drawer invite button (redundant with the on-screen CTA); restored when non-empty', () => {
   const btn = document.getElementById('drawer-invite-btn');
   expect(btn.classList.contains('hidden')).toBe(false); // visible by default
@@ -108,10 +123,12 @@ test('web: the account section is never revealed by setListEmpty', () => {
 test('link line: only in TG when unlinked', () => {
   firstRun.setListEmpty(true);
   expect(document.getElementById('first-run-link-line').classList.contains('hidden')).toBe(true); // web
+  firstRun.setListEmpty(false); // flip so the next call re-syncs (CL#1 guard)
   mockTelegram.isTelegramContext.mockReturnValue(true);
   mockTelegram.telegramLinkState.mockReturnValue({ linked: false });
   firstRun.setListEmpty(true);
   expect(document.getElementById('first-run-link-line').classList.contains('hidden')).toBe(false);
+  firstRun.setListEmpty(false); // flip again
   mockTelegram.telegramLinkState.mockReturnValue({ linked: true });
   firstRun.setListEmpty(true);
   expect(document.getElementById('first-run-link-line').classList.contains('hidden')).toBe(true);

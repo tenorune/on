@@ -28,24 +28,34 @@ export function isFirstRunActive() {
   return _active;
 }
 
-// Called by following.js's renderList isEmpty branch. Idempotent per state.
+// Last emptiness state actually applied. setListEmpty is called from every
+// renderList tick (presence flips, watcher ticks, a 60s interval) but its ~10
+// DOM writes + the first-run-change fan-out only matter on a genuine
+// empty↔non-empty transition — everything else it reads (isTelegramContext,
+// telegramLinkState) is static within a session (link/unlink/graduation all
+// reload). Same-state re-calls are no-ops (W3-A CL#1).
+let _appliedEmpty = null;
+
+// Called by following.js's renderList isEmpty branch. No-op per unchanged state.
 export function setListEmpty(isEmpty) {
   const panel = document.getElementById('first-run-panel');
   if (!panel) return;
-  _active = !!isEmpty;
-  panel.classList.toggle('hidden', !isEmpty);
+  const empty = !!isEmpty;
+  if (_appliedEmpty === empty) return;
+  _appliedEmpty = empty;
+  _active = empty;
+  panel.classList.toggle('hidden', !empty);
   // Demote the code-entry form to the secondary role while the panel shows —
   // presentation only: same element, ids, and behavior (spec §3).
-  document.getElementById('add-person-area')?.classList.toggle('first-run-demoted', !!isEmpty);
+  document.getElementById('add-person-area')?.classList.toggle('first-run-demoted', empty);
   const addBtn = document.getElementById('add-person-btn');
-  if (addBtn) addBtn.textContent = isEmpty ? 'Add by code' : 'Add a person';
+  if (addBtn) addBtn.textContent = empty ? 'Add by code' : 'Add a person';
   // Declutter the code drawer during the guided empty state (spec §3): the
   // drawer's "Invite your people" duplicates the on-screen first-run CTA, so
   // hide it on every surface. With only the share code left, the section's
   // "Invite" label and the "Or share this code…" framing (both of which read as
   // an alternative to that button) no longer fit — drop the label and the "Or".
   // All restored once the list is non-empty and the button returns.
-  const empty = !!isEmpty;
   document.getElementById('drawer-invite-btn')?.classList.toggle('hidden', empty);
   document.getElementById('drawer-invite-label')?.classList.toggle('hidden', empty);
   const inviteHint = document.getElementById('drawer-invite-hint');
@@ -73,7 +83,7 @@ export function setListEmpty(isEmpty) {
   // "Link your account" only where linking is possible and not already done.
   const linkLine = document.getElementById('first-run-link-line');
   if (linkLine) {
-    const show = !!isEmpty && isTelegramContext() && telegramLinkState()?.linked !== true;
+    const show = empty && isTelegramContext() && telegramLinkState()?.linked !== true;
     linkLine.classList.toggle('hidden', !show);
   }
   document.dispatchEvent(new CustomEvent('first-run-change'));
