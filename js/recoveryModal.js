@@ -76,6 +76,17 @@ export function showRecoveryCodeModal(initialCode, onConfirm, { intro = null, wa
         history.pushState({ recoveryModal: true }, '');
       }
     }
+    // One teardown for every exit path (W3-B CL#11): a future listener can't
+    // be forgotten on one of them.
+    function teardown() {
+      rotateBtn.removeEventListener('click', onRotate);
+      copyBtn.removeEventListener('click', onCopy);
+      savedBtn.removeEventListener('click', onSaved);
+      if (cancelBtn) cancelBtn.removeEventListener('click', onCancel);
+      window.removeEventListener('popstate', onPopState);
+      if (kcForm) kcForm.removeEventListener('submit', onKcSubmit);
+      el.classList.add('hidden');
+    }
     async function onSaved() {
       // Run any setup hook first, keeping the modal up with feedback. On failure
       // leave everything mounted so the user can tap again to retry.
@@ -90,22 +101,11 @@ export function showRecoveryCodeModal(initialCode, onConfirm, { intro = null, wa
           return;
         }
       }
-      rotateBtn.removeEventListener('click', onRotate);
-      copyBtn.removeEventListener('click', onCopy);
-      savedBtn.removeEventListener('click', onSaved);
-      window.removeEventListener('popstate', onPopState);
-      if (kcForm) kcForm.removeEventListener('submit', onKcSubmit);
-      el.classList.add('hidden');
+      teardown();
       resolve(current);
     }
     function onCancel() {
-      rotateBtn.removeEventListener('click', onRotate);
-      copyBtn.removeEventListener('click', onCopy);
-      savedBtn.removeEventListener('click', onSaved);
-      cancelBtn.removeEventListener('click', onCancel);
-      window.removeEventListener('popstate', onPopState);
-      if (kcForm) kcForm.removeEventListener('submit', onKcSubmit);
-      el.classList.add('hidden');
+      teardown();
       resolve(null);
     }
     if (typeof history !== 'undefined' && history.pushState) {

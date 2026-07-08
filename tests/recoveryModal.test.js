@@ -53,6 +53,16 @@ test('cancel resolves null and hides the modal', async () => {
   expect(document.getElementById('recovery-modal').classList.contains('hidden')).toBe(true);
 });
 
+test('cancel tears everything down: a later saved-btn click is dead (W3-B CL#11)', async () => {
+  const onConfirm = jest.fn(async () => {});
+  const p = showRecoveryCodeModal('a-b-c-d', onConfirm, { cancellable: true });
+  document.getElementById('recovery-cancel-btn').click();
+  await expect(p).resolves.toBeNull();
+  document.getElementById('recovery-saved-btn').click();
+  await Promise.resolve();
+  expect(onConfirm).not.toHaveBeenCalled(); // saved listener was removed
+});
+
 test('onConfirm error with userMessage shows inline; a regen clears it', async () => {
   const err = Object.assign(new Error('collision'), { userMessage: 'That phrase is taken.' });
   const onConfirm = jest.fn().mockRejectedValueOnce(err).mockResolvedValueOnce(undefined);
