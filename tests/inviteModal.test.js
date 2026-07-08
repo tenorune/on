@@ -250,7 +250,10 @@ describe('openInviteModal — group scope', () => {
   test('Telegram group scope: "Share on Telegram" button shown, link create/manage hidden, picker shown', async () => {
     const { isTelegramContext } = require('../js/telegram.js');
     isTelegramContext.mockReturnValue(true);
-    await openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+    await openInviteModal({
+      scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
+      followers: { 'follower-1': 'CODE-1' }, mutuals: [], currentMemberUids: new Set(),
+    });
     expect(document.getElementById('invite-modal-tg-share').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(true);
@@ -263,7 +266,10 @@ describe('openInviteModal — group scope', () => {
     const { shareInviteLink } = require('../js/inviteFlow.js');
     isTelegramContext.mockReturnValue(true);
     invites.createGroupInvite.mockResolvedValue({ token: 'GTOK', url: 'https://x/?i=GTOK' });
-    await openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+    await openInviteModal({
+      scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
+      followers: { 'follower-1': 'CODE-1' }, mutuals: [], currentMemberUids: new Set(),
+    });
     document.getElementById('invite-modal-tg-share-btn').click();
     await new Promise(setImmediate);
     expect(invites.createGroupInvite).toHaveBeenCalledWith('uid1', 'G1');

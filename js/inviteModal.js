@@ -250,7 +250,8 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
       shareInviteLink({ token, url }, shareCaption('group', groupName));
       return; // never paint the modal
     } catch {
-      // fall through to open the modal so its inline error surface shows
+      // on failure, fall through to open the modal so the user can retry via
+      // its Share button (which surfaces its own errors)
     }
   }
 
