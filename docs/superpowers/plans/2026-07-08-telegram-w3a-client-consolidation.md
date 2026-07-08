@@ -30,7 +30,7 @@
 **Interfaces:**
 - Produces: no API change. Contract change: `setListEmpty(isEmpty)` is a **no-op when the emptiness state is unchanged** (was: full re-sync + `first-run-change` dispatch on every call). Sole event consumer `js/installAffordance.js:110` treats the event as a change signal — unaffected.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `tests/firstRun.test.js` (uses the file's existing `mockTelegram` + `FIXTURE` setup):
 
@@ -71,12 +71,12 @@ test('link line: only in TG when unlinked', () => {
 
 (Every other test in the file already flips state between calls or runs once per `jest.resetModules()`; `'every flip dispatches first-run-change'` asserts two dispatches for a true→false pair, which still holds.)
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/firstRun.test.js`
 Expected: the new test FAILS (dispatch fires and the sentinel is overwritten); the reworked link-line test passes both before and after the guard.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `js/firstRun.js` — add the module-level guard above `setListEmpty`, early-return at its top, and reuse the normalized `empty` throughout (the function already computes `const empty = !!isEmpty;` mid-body — it moves to the top):
 
@@ -108,12 +108,12 @@ Then, in the rest of the function body, replace the remaining reads of the param
 
 Everything else (drawer toggles, chip label, dispatch) already uses `empty` and is unchanged.
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/firstRun.test.js` — green, all tests.
 Then `npx jest tests/installAffordance.test.js tests/following.test.js` (if the latter exists in the suite run it; otherwise skip) — green: the guard changes dispatch frequency only.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/firstRun.js tests/firstRun.test.js
@@ -130,11 +130,11 @@ git commit -m "perf(web): setListEmpty no-ops on unchanged state instead of re-s
 **Interfaces:**
 - Produces: no API change. Ordering guarantee: `defer` scripts execute in document order after parse, so `window.Telegram` exists before the bundle runs; the inline theme-restore script (line 25, not deferrable) now runs before any network script.
 
-- [ ] **Step 1: No unit surface — record the acceptance gate**
+- [x] **Step 1: No unit surface — record the acceptance gate**
 
 There is no jsdom test for script-tag loading semantics. The acceptance is the operator's on-device walkthrough: (a) Telegram webview boot — Mini App still auto-signs-in (`isTelegramContext()` detected), (b) plain-web boot — app boots normally and first paint no longer waits on telegram.org. Worst-case rollback: remove the two attributes.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 `index.template.html` — the head comment + script (replace the whole block):
 
@@ -153,12 +153,12 @@ And the bundle tag at end of body:
   <script src="dist/bundle.js" defer></script>
 ```
 
-- [ ] **Step 3: Verify the build + suite**
+- [x] **Step 3: Verify the build + suite**
 
 Run: `npm run build` — completes without error (template is copied/processed by `scripts/prod.js`).
 Run: `npx jest` — green (no test reads the script tags).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add index.template.html
@@ -176,7 +176,7 @@ git commit -m "perf(web): defer telegram-web-app.js and the bundle — first pai
 **Interfaces:**
 - Produces: `isTelegramLinked(): boolean` exported from `js/telegram.js` — true iff the session's `ensureTelegramIdentity` reported `linked: true`. `telegramLinkState()` stays exported (it is the underlying accessor).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `tests/telegram.test.js` (uses its existing `setTelegramGlobal` + mocked `callValidateTelegram`):
 
@@ -198,12 +198,12 @@ test('isTelegramLinked: false before boot and for an unlinked session; true for 
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/telegram.test.js`
 Expected: FAIL — `isTelegramLinked` is not exported.
 
-- [ ] **Step 3: Implement the predicate**
+- [x] **Step 3: Implement the predicate**
 
 `js/telegram.js`, directly below `telegramLinkState()`:
 
@@ -218,7 +218,7 @@ export function isTelegramLinked() {
 }
 ```
 
-- [ ] **Step 4: Switch the five call sites**
+- [x] **Step 4: Switch the five call sites**
 
 `js/app.js` — import line (line 29 at `97482f0`) gains `isTelegramLinked`; the gate call (line 560) becomes:
 
@@ -258,7 +258,7 @@ function isLinked(prefs) {
   const linked = isTelegramLinked();
 ```
 
-- [ ] **Step 5: Update the wholesale telegram.js mocks**
+- [x] **Step 5: Update the wholesale telegram.js mocks**
 
 Each of these files mocks `../js/telegram.js` as a whole; add `isTelegramLinked` and convert linked-state arranging (`telegramLinkState` stays in the mocks — extra keys are harmless and W1-era tests may still reference it):
 
@@ -275,11 +275,11 @@ Each of these files mocks `../js/telegram.js` as a whole; add `isTelegramLinked`
 - `tests/telegramSettings.test.js` — the mock (top of file) gains `isTelegramLinked: jest.fn(() => false)`; same replacement for every `telegramLinkState.mockReturnValue({ linked: true })`.
 - `tests/app-boot-cacheOwner.test.js` — its telegram.js mock (around line 247) gains `isTelegramLinked: jest.fn(() => false)`; same replacement if any arranging call exists (`grep -n 'telegramLinkState' tests/app-boot-cacheOwner.test.js`).
 
-- [ ] **Step 6: Run to verify pass**
+- [x] **Step 6: Run to verify pass**
 
 Run: `npx jest tests/telegram.test.js tests/firstRun.test.js tests/notifyChannel.test.js tests/telegramSettings.test.js tests/app-boot-cacheOwner.test.js` — green.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add js/telegram.js js/app.js js/firstRun.js js/notifyChannel.js js/telegramSettings.js tests/
@@ -298,7 +298,7 @@ git commit -m "refactor(web): one isTelegramLinked() predicate replaces five spe
 - Produces: `buildTelegramShareUrl(url, text = '', { platform } = {})` exported from `js/telegram.js` (re-exported from `js/inviteFlow.js`). Caption rule folded in: non-empty `text` on any platform other than `'ios'` (including absent/undefined — the web caller) gets a leading `\n`.
 - Consumes: nothing from earlier tasks (independent of Tasks 1–3).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/telegram.test.js`:
 
@@ -337,12 +337,12 @@ And update `tests/inviteFlow.test.js`:
 - DELETE the test `'buildTelegramShareUrl: t.me share intent with encoded url + text'` (its subject moved to `telegram.test.js` above; requiring it from `inviteFlow.js` now resolves to the mock).
 - The `shareInviteToTelegramWeb` URL test keeps passing unchanged — the stub reproduces the `\nFollow me` caption for the platform-less web call.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/telegram.test.js`
 Expected: FAIL — `buildTelegramShareUrl` not exported from `js/telegram.js`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `js/telegram.js` — replace `openTelegramShare` with the builder + a thin opener:
 
@@ -386,11 +386,11 @@ export function openTelegramShare(url, text = '') {
   ```
   (Delete the old local `caption` line and its comment.)
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/telegram.test.js tests/inviteFlow.test.js tests/inviteModal.test.js` — green (inviteModal mocks `inviteFlow.js` wholesale, unaffected).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/telegram.js js/inviteFlow.js tests/telegram.test.js tests/inviteFlow.test.js
@@ -409,7 +409,7 @@ git commit -m "refactor(web): one t.me share-URL builder with the caption-spacin
 - Consumes: `setButtonBusy`/`clearButtonBusy` from `js/utils.js:8-18`.
 - Produces: `showConfirmModal({ title, message?, confirmLabel?, busyLabel?, onConfirm? })`. Without `onConfirm`: byte-identical behavior. With it: confirm tap goes busy (`busyLabel || confirmLabel`), cancel/overlay/Escape inert while in flight, resolve → `finish(true)`, throw → inline error (`e.userMessage || "Couldn't finish that right now. Try again."`) in `#confirm-modal-error`, modal stays open. Task 6 consumes this exact signature.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/promptModal.test.js`. First extend `setupDom()`'s `#confirm-modal` block with the error line (between the message and the buttons):
 
@@ -502,12 +502,12 @@ describe('showConfirmModal with async onConfirm (W3-A CL#4)', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/promptModal.test.js`
 Expected: new tests FAIL (options ignored, no error element handling); the two pre-existing `showConfirmModal` tests still pass.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `index.template.html` — inside `#confirm-modal`'s `.confirm-sheet` (lines 165-171 at `97482f0`), add the error line after `#confirm-modal-message`:
 
@@ -599,11 +599,11 @@ export function showConfirmModal({ title, message = '', confirmLabel = 'Confirm'
 
 (`showTextPrompt` is untouched. Deduping the two harnesses is wave W3-B's E1.)
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx jest tests/promptModal.test.js` — green, including all pre-existing tests. Then `npx jest tests/groups.test.js tests/groupContext.test.js` if those exist in the suite (existing `showConfirmModal` callers) — or simply note the whole-suite run in Task 7 covers them.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add js/promptModal.js index.template.html tests/promptModal.test.js
@@ -622,7 +622,7 @@ git commit -m "feat(web): showConfirmModal optional async onConfirm — busy, in
 - Consumes: Task 5's `showConfirmModal` (with `busyLabel`/`onConfirm`); `callUnlinkTelegram` (existing); `tgWebApp` (existing).
 - Baseline (OBSERVED at `97482f0`): the landed `js/telegramSettings.js` — W1 Task 14 gave the bespoke sheet a `#tg-unlink-error` line, `setButtonBusy(btn, 'Unlinking…')`, and error-clear-on-open (`ensureUnlinkConfirmModal` at `:46-69`, `doUnlink` at `:71-86`). ALL of that is deleted here; the shared modal now carries those behaviors.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/telegramSettings.test.js` — first, `mountDom()` needs the shared confirm-modal markup (it was never in this fixture); append inside the template string:
 
@@ -713,12 +713,12 @@ test('unlink failure: inline error in the shared modal, stays open for retry (ca
 
 `tests/telegramChrome.test.js` — in the landed `test.each` table (`describe('back button covers the W1 overlays (C#1)')`, row at line 127 at `97482f0`), DELETE the row `['tg-unlink-confirm', 'tg-unlink-cancel-btn']` and its `#tg-unlink-confirm` fixture line (line 32). The `#confirm-modal` row — already the table's first — now covers unlink; the `unfollow-confirm`/`rotate-confirm` rows added by `8c34d99` are untouched.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx jest tests/telegramSettings.test.js`
 Expected: new tests FAIL (bespoke `#tg-unlink-confirm` still injected; shared modal never opens).
 
-- [ ] **Step 3: Implement `telegramSettings.js`**
+- [x] **Step 3: Implement `telegramSettings.js`**
 
 - Imports: add `import { showConfirmModal } from './promptModal.js';`. W1 Task 14's `setButtonBusy, clearButtonBusy` import becomes unused by the unlink path — remove it unless `showLinkScreen` already uses the pair (it does after W3-B E2; check with `grep -n 'setButtonBusy' js/telegramSettings.js` and keep the import if any use remains).
 - DELETE the entire `ensureUnlinkConfirmModal()` function, the `doUnlink()` function, and the `ensureUnlinkConfirmModal();` call inside `initTelegramSettings`.
@@ -749,7 +749,7 @@ Expected: new tests FAIL (bespoke `#tg-unlink-confirm` still injected; shared mo
   });
 ```
 
-- [ ] **Step 4: Implement `telegramChrome.js`**
+- [x] **Step 4: Implement `telegramChrome.js`**
 
 In `resolveBackAction`, DELETE the line W1 Task 13 added (`js/telegramChrome.js:30` at `97482f0`):
 
@@ -759,11 +759,11 @@ In `resolveBackAction`, DELETE the line W1 Task 13 added (`js/telegramChrome.js:
 
 (`#confirm-modal` stays first in the checklist and now covers unlink; the neighboring `unfollow-confirm`/`rotate-confirm` entries from `8c34d99` are untouched. Back during an in-flight unlink clicks a cancel that Task 5 made inert — correct.)
 
-- [ ] **Step 5: Run to verify pass**
+- [x] **Step 5: Run to verify pass**
 
 Run: `npx jest tests/telegramSettings.test.js tests/telegramChrome.test.js tests/promptModal.test.js` — green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add js/telegramSettings.js js/telegramChrome.js tests/telegramSettings.test.js tests/telegramChrome.test.js
@@ -777,19 +777,19 @@ git commit -m "refactor(web): unlink confirm rides showConfirmModal — bespoke 
 **Files:**
 - Modify: `docs/HANDOFF.md` (top block + new rundown section), this plan's checkboxes
 
-- [ ] **Step 1: Run the full web suite**
+- [x] **Step 1: Run the full web suite**
 
 Run: `npx jest` — all green (1446 baseline + this wave's additions). Fix any cross-suite fallout before proceeding (likely candidates: other fixtures embedding `#confirm-modal` markup without the error line — harmless since the code null-guards `errEl`, but verify).
 
-- [ ] **Step 2: Grep the scope fence**
+- [x] **Step 2: Grep the scope fence**
 
 `git diff <first-W3A-commit>^..HEAD --stat` — confirm only `js/`, `index.template.html`, `tests/`, `docs/` paths changed. `grep -rn "telegramLinkState()?.linked" js/` → no hits left. `grep -n "prefs?.telegram != null" js/notifyChannel.js` → exactly one hit, untouched.
 
-- [ ] **Step 3: Update HANDOFF.md**
+- [x] **Step 3: Update HANDOFF.md**
 
 Top block + new rundown section: W3-A implemented (list CL#1–CL#5), test counts, UNVERIFIED on-device — the operator's walkthrough (Telegram webview boot, plain-web first paint, unlink happy/failure paths, back-button over the shared modal) is the acceptance gate.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/HANDOFF.md docs/superpowers/plans/2026-07-08-telegram-w3a-client-consolidation.md
