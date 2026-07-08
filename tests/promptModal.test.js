@@ -1,6 +1,8 @@
 // tests/promptModal.test.js
 const { showTextPrompt, showConfirmModal } = require('../js/promptModal.js');
 
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
 function setupDom() {
   document.body.innerHTML = `
     <div id="text-prompt-modal" class="modal-overlay hidden">
@@ -18,6 +20,7 @@ function setupDom() {
       <div class="confirm-sheet">
         <h4 id="confirm-modal-title"></h4>
         <p id="confirm-modal-message"></p>
+        <p id="confirm-modal-error" class="error-msg hidden"></p>
         <div class="confirm-btns">
           <button id="confirm-modal-cancel-btn"></button>
           <button id="confirm-modal-confirm-btn"></button>
@@ -86,6 +89,86 @@ describe('showConfirmModal', () => {
 
   test('cancel resolves false', async () => {
     const p = showConfirmModal({ title: 'Sure?', confirmLabel: 'Yes' });
+    document.getElementById('confirm-modal-cancel-btn').click();
+    await expect(p).resolves.toBe(false);
+  });
+});
+
+describe('showConfirmModal with async onConfirm (W3-A CL#4)', () => {
+  test('busy label while pending; resolves true and closes on success', async () => {
+    let release;
+    const onConfirm = jest.fn(() => new Promise((r) => { release = r; }));
+    const p = showConfirmModal({ title: 'Unlink?', confirmLabel: 'Unlink', busyLabel: 'Unlinking…', onConfirm });
+    const btn = document.getElementById('confirm-modal-confirm-btn');
+    btn.click();
+    await Promise.resolve();
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(btn.disabled).toBe(true);
+    expect(btn.textContent).toBe('Unlinking…');
+    release();
+    await expect(p).resolves.toBe(true);
+    expect(btn.disabled).toBe(false);
+    expect(document.getElementById('confirm-modal').classList.contains('hidden')).toBe(true);
+  });
+
+  test('failure shows the inline userMessage, stays open, retry resolves', async () => {
+    const onConfirm = jest.fn()
+      .mockRejectedValueOnce(Object.assign(new Error('x'), { userMessage: "Couldn't unlink right now. Try again." }))
+      .mockResolvedValueOnce(undefined);
+    const p = showConfirmModal({ title: 'Unlink?', confirmLabel: 'Unlink', busyLabel: 'Unlinking…', onConfirm });
+    const btn = document.getElementById('confirm-modal-confirm-btn');
+    btn.click();
+    await flush();
+    const err = document.getElementById('confirm-modal-error');
+    expect(err.classList.contains('hidden')).toBe(false);
+    expect(err.textContent).toBe("Couldn't unlink right now. Try again.");
+    expect(document.getElementById('confirm-modal').classList.contains('hidden')).toBe(false);
+    expect(btn.disabled).toBe(false);
+    expect(btn.textContent).toBe('Unlink');
+    btn.click(); // retry
+    await expect(p).resolves.toBe(true);
+  });
+
+  test('failure without userMessage shows the generic copy; cancel afterwards resolves false', async () => {
+    const onConfirm = jest.fn().mockRejectedValue(new Error('network'));
+    const p = showConfirmModal({ title: 'x', confirmLabel: 'Go', onConfirm });
+    document.getElementById('confirm-modal-confirm-btn').click();
+    await flush();
+    expect(document.getElementById('confirm-modal-error').textContent)
+      .toBe("Couldn't finish that right now. Try again.");
+    document.getElementById('confirm-modal-cancel-btn').click();
+    await expect(p).resolves.toBe(false);
+  });
+
+  test('cancel / overlay / Escape are inert while onConfirm is in flight', async () => {
+    let release;
+    const onConfirm = () => new Promise((r) => { release = r; });
+    const p = showConfirmModal({ title: 'x', busyLabel: 'Working…', onConfirm });
+    document.getElementById('confirm-modal-confirm-btn').click();
+    await Promise.resolve();
+    document.getElementById('confirm-modal-cancel-btn').click();
+    document.getElementById('confirm-modal').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.getElementById('confirm-modal').classList.contains('hidden')).toBe(false);
+    release();
+    await expect(p).resolves.toBe(true);
+  });
+
+  test('error and stale idleLabel are scrubbed on open', async () => {
+    // Prior modal leaves an error + a stashed idle label behind.
+    const failing = showConfirmModal({ title: 'a', confirmLabel: 'Del', busyLabel: 'Deleting…', onConfirm: jest.fn().mockRejectedValue(new Error('x')) });
+    const btn = document.getElementById('confirm-modal-confirm-btn');
+    btn.click();
+    await flush();
+    document.getElementById('confirm-modal-cancel-btn').click();
+    await failing;
+    // Next modal with a DIFFERENT confirm label: no leftover error, and a
+    // failed busy cycle reverts to THIS modal's label, not the prior one's.
+    const p = showConfirmModal({ title: 'b', confirmLabel: 'Unlink', busyLabel: 'Unlinking…', onConfirm: jest.fn().mockRejectedValue(new Error('y')) });
+    expect(document.getElementById('confirm-modal-error').classList.contains('hidden')).toBe(true);
+    btn.click();
+    await flush();
+    expect(btn.textContent).toBe('Unlink');
     document.getElementById('confirm-modal-cancel-btn').click();
     await expect(p).resolves.toBe(false);
   });
