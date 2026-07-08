@@ -703,6 +703,49 @@ describe('inbox callbacks', () => {
   });
 });
 
+const cqUpdate = (data, message) => ({
+  callback_query: {
+    id: 'cq1',
+    from: { id: 42, first_name: 'Ada' },
+    data,
+    ...(message ? { message } : {}),
+  },
+});
+
+describe('knock cap honesty (W1 B#2)', () => {
+  const RECIP = 'a'.repeat(32); // format-valid uid for CALLBACK_ARG_RE
+
+  test('capped knock via callback answers the cap message, not "Knock sent."', async () => {
+    const store = {};
+    seedUser(store);
+    store[`knocks/${RECIP}/u-tg-42`] = { count: 5, ts: 999 };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`knock:${RECIP}`));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith(
+      'cq1', "You've already knocked a few times — give them a moment.");
+    expect(store[`knocks/${RECIP}/u-tg-42`].count).toBe(5); // unchanged
+  });
+
+  test('uncapped knock via callback still answers "Knock sent."', async () => {
+    const store = {};
+    seedUser(store);
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, cqUpdate(`knock:${RECIP}`));
+    expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Knock sent.');
+  });
+
+  test('capped /knock command replies the cap message', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`userPrefs/${uid}/following`] = { [RECIP]: { code: 'BBBBBB', label: 'Ana' } };
+    store[`knocks/${RECIP}/${uid}`] = { count: 5, ts: 999 };
+    const deps = makeBotDeps(store);
+    await handleUpdate(deps, msgUpdate('/knock ana'));
+    expect(deps.tg.sendMessage).toHaveBeenCalledWith('42',
+      "You've already knocked a few times — give them a moment.", expect.anything());
+  });
+});
+
 describe('webhookAuthorized', () => {
   test('exact secret match only; unset secret always refuses', () => {
     expect(webhookAuthorized('s3cret', 's3cret')).toBe(true);

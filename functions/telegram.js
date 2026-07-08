@@ -83,6 +83,8 @@ const HELP_TEXT = [
   '/help — this list',
 ].join('\n');
 
+const KNOCK_CAP_TEXT = "You've already knocked a few times — give them a moment.";
+
 // Entry point for every webhook update. Never throws (the webhook must always 200).
 export async function handleUpdate(deps, update) {
   try {
@@ -186,8 +188,10 @@ async function handleMessage(deps, msg) {
 
 // Same shape + cap as the client's writeKnock transaction (js/db/social.js),
 // including contextGroupId: set on create, overwrite on increment, else carry.
+// Returns whether the transaction committed — an aborted (capped) knock must
+// not be confirmed as sent (W1 B#2).
 async function writeKnock(deps, recipientUid, senderUid, contextGroupId) {
-  await deps.transaction(`knocks/${recipientUid}/${senderUid}`, (current) => {
+  const res = await deps.transaction(`knocks/${recipientUid}/${senderUid}`, (current) => {
     if (current === null) {
       const next = { count: 1, ts: deps.now() };
       if (contextGroupId) next.contextGroupId = contextGroupId;
@@ -199,6 +203,7 @@ async function writeKnock(deps, recipientUid, senderUid, contextGroupId) {
     else if (current.contextGroupId) next.contextGroupId = current.contextGroupId;
     return next;
   });
+  return res.committed;
 }
 
 async function readFollowing(deps, uid) {
@@ -320,8 +325,8 @@ async function knockGroupReach(deps, uid, query, rawQuery, reply) {
     await reply('Which one?', { reply_markup: { inline_keyboard: found.slice(0, 8).map((e) => [{ text: `${e.name} (${e.groupName})`, callback_data: `knock:${e.uid}:${e.gid}` }]) } });
     return;
   }
-  await writeKnock(deps, found[0].uid, uid, found[0].gid);
-  await reply(`Knocked on ${found[0].name} (${found[0].groupName}).`);
+  const committed = await writeKnock(deps, found[0].uid, uid, found[0].gid);
+  await reply(committed ? `Knocked on ${found[0].name} (${found[0].groupName}).` : KNOCK_CAP_TEXT);
 }
 
 async function handleSocialCommand(deps, uid, cmd, args, reply) {
@@ -349,8 +354,8 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
       await reply('Which one?', { reply_markup: { inline_keyboard: matches.slice(0, 8).map((e) => [{ text: e.label || e.code, callback_data: `knock:${e.userId}` }]) } });
       return;
     }
-    await writeKnock(deps, matches[0].userId, uid);
-    await reply(`Knocked on ${matches[0].label || matches[0].code}.`);
+    const committed = await writeKnock(deps, matches[0].userId, uid);
+    await reply(committed ? `Knocked on ${matches[0].label || matches[0].code}.` : KNOCK_CAP_TEXT);
     return;
   }
   if (cmd === '/groups') {
@@ -382,10 +387,11 @@ async function handleCallback(deps, cq) {
   const argRe = CALLBACK_ARG_RE[action];
   if (!argRe || !argRe.test(arg || '')) { await answer('Unknown action.'); return; }
   switch (action) {
-    case 'knock':
-      await writeKnock(deps, arg, me, GROUP_ID_RE.test(arg2 || '') ? arg2 : undefined);
-      await answer('Knock sent.');
+    case 'knock': {
+      const committed = await writeKnock(deps, arg, me, GROUP_ID_RE.test(arg2 || '') ? arg2 : undefined);
+      await answer(committed ? 'Knock sent.' : KNOCK_CAP_TEXT);
       return;
+    }
     case 'invite_accept':
     case 'invite_decline':
     case 'fr_approve':
