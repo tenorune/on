@@ -7,6 +7,7 @@ import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
 import { parseRecoveryCode } from './identity.js';
 import { showGraduationInfo } from './graduation.js';
 import { showConfirmModal } from './promptModal.js';
+import { setButtonBusy, clearButtonBusy } from './utils.js';
 
 export function initTelegramSettings(userId) {
   const accountSlot = document.getElementById('tg-account-slot');
@@ -73,6 +74,10 @@ export function showLinkScreen() {
   input.value = '';
   error.textContent = '';
   error.classList.add('hidden');
+  // Scrub the busy pair's stash: #restore-submit-btn is shared with
+  // showRestoreScreen, and setButtonBusy stashes idleLabel only once — a stale
+  // stash from the restore flow would resurface on a failed link (W3-B CL#7).
+  delete submit.dataset.idleLabel;
   submit.textContent = 'Link account';
   submit.disabled = false;
   el.classList.remove('hidden');
@@ -89,13 +94,11 @@ export function showLinkScreen() {
     async function onSubmit() {
       const normalized = parseRecoveryCode(input.value);
       if (!normalized) { showError("That doesn't look like a secret phrase."); return; }
-      submit.disabled = true;
-      submit.textContent = 'Linking…';
+      setButtonBusy(submit, 'Linking…');
       try {
         await callLinkTelegram(tgWebApp().initData, normalized);
       } catch (e) {
-        submit.disabled = false;
-        submit.textContent = 'Link account';
+        clearButtonBusy(submit);
         showError(/not-found/.test(e?.code || '') ? 'No account found with that phrase.' : "Couldn't link right now. Try again.");
         return;
       }

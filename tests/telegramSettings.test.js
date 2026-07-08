@@ -179,6 +179,26 @@ test('showLinkScreen resolves false on cancel (W1 J#6)', async () => {
   expect(document.getElementById('restore-screen').classList.contains('hidden')).toBe(true);
 });
 
+test('link submit: shared busy pair + stale idleLabel from the restore flow cannot leak (W3-B CL#7)', async () => {
+  const { initTelegramSettings, showLinkScreen } = require('../js/telegramSettings.js');
+  initTelegramSettings('u1');
+  await flush();
+  const submit = document.getElementById('restore-submit-btn');
+  // A prior showRestoreScreen busy cycle leaves its stashed idle label behind.
+  submit.dataset.idleLabel = 'Paste & Sign in';
+  callLinkTelegram.mockRejectedValue(new Error('network'));
+  showLinkScreen();
+  document.getElementById('restore-input').value = 'abacus-abdomen-abdominal-abide';
+  submit.click();
+  expect(submit.disabled).toBe(true);
+  expect(submit.textContent).toBe('Linking…');
+  await flush();
+  // Failure reverts to THIS screen's label, not the restore flow's stash.
+  expect(submit.disabled).toBe(false);
+  expect(submit.textContent).toBe('Link account');
+  expect(document.getElementById('restore-error').classList.contains('hidden')).toBe(false);
+});
+
 describe('graduation "?" affordance', () => {
   test('unlinked account shows the "?" badge next to the link entry', async () => {
     const { initTelegramSettings } = require('../js/telegramSettings.js');
