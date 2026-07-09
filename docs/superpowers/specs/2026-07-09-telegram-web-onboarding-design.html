@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design — "Use in Telegram" one-tap link</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --panel:#ffffff; --ink:#1a1a1a; --muted:#6b6b6b; --line:#e6e4e0;
+    --accent:#2a7de1; --accent-soft:#e8f1fc; --tg:#229ED9; --tg-soft:#e4f4fb;
+    --warn:#c2410c; --warn-soft:#fdecdf; --ok:#15803d; --ok-soft:#e5f4ea;
+    --code-bg:#f4f3f1; --shadow:0 1px 3px rgba(0,0,0,.06),0 6px 18px rgba(0,0,0,.05);
+    --radius:12px; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#17181a; --panel:#1f2124; --ink:#e9e8e6; --muted:#9a9a97; --line:#33353a;
+      --accent:#5aa0f0; --accent-soft:#1a2938; --tg:#4bb8e6; --tg-soft:#16303c;
+      --warn:#f59e6b; --warn-soft:#3a2417; --ok:#6fce90; --ok-soft:#16301f;
+      --code-bg:#26282c; --shadow:0 1px 3px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.6;font-size:16px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:2.4rem 1.4rem 5rem}
+  header.doc{border-bottom:1px solid var(--line);padding-bottom:1.4rem;margin-bottom:2rem}
+  .eyebrow{font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;color:var(--tg);font-weight:700}
+  h1{font-size:1.9rem;line-height:1.2;margin:.4rem 0 .3rem}
+  h2{font-size:1.3rem;margin:2.6rem 0 .8rem;padding-top:.4rem;border-top:1px solid var(--line)}
+  h2 .num{color:var(--muted);font-weight:600;margin-right:.5rem}
+  h3{font-size:1.02rem;margin:1.4rem 0 .5rem}
+  p{margin:.6rem 0}
+  .lede{color:var(--muted);font-size:1.05rem}
+  .meta{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem}
+  .pill{font-size:.78rem;padding:.22rem .6rem;border-radius:999px;background:var(--code-bg);
+    color:var(--muted);border:1px solid var(--line)}
+  .pill.draft{background:var(--warn-soft);color:var(--warn);border-color:transparent;font-weight:600}
+  code{font-family:var(--mono);background:var(--code-bg);padding:.1rem .35rem;border-radius:5px;font-size:.86em}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:1.1rem 1.3rem;margin:1rem 0;box-shadow:var(--shadow)}
+  .callout{border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:0 var(--radius) var(--radius) 0;
+    padding:.8rem 1.1rem;margin:1.1rem 0}
+  .callout.warn{border-color:var(--warn);background:var(--warn-soft)}
+  .callout.ok{border-color:var(--ok);background:var(--ok-soft)}
+  .callout .k{font-weight:700;font-size:.8rem;letter-spacing:.04em;text-transform:uppercase;display:block;margin-bottom:.2rem}
+  .callout.warn .k{color:var(--warn)} .callout.ok .k{color:var(--ok)} .callout .k{color:var(--accent)}
+  ul,ol{margin:.5rem 0 .8rem;padding-left:1.3rem}
+  li{margin:.3rem 0}
+  .decisions{list-style:none;padding:0;margin:1rem 0}
+  .decisions li{display:flex;gap:.7rem;align-items:flex-start;padding:.55rem 0;border-bottom:1px dashed var(--line)}
+  .decisions li:last-child{border-bottom:none}
+  .decisions .badge{flex:none;font-size:.72rem;font-weight:700;padding:.16rem .5rem;border-radius:6px;
+    background:var(--ok-soft);color:var(--ok);margin-top:.15rem}
+  .decisions .badge.open{background:var(--warn-soft);color:var(--warn)}
+
+  /* Flow diagram */
+  .flow{display:grid;grid-template-columns:1fr auto 1fr;gap:.4rem 1rem;align-items:stretch;margin:1.2rem 0}
+  .lane-head{font-weight:700;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;padding:.4rem .2rem;color:var(--muted)}
+  .lane-head.web{color:var(--accent)} .lane-head.tg{color:var(--tg)}
+  .lane-head.mid{grid-column:2}
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.6rem .75rem;
+    font-size:.9rem;box-shadow:var(--shadow);position:relative}
+  .node .s{display:block;font-size:.72rem;color:var(--muted);font-weight:700;margin-bottom:.1rem}
+  .node.web{border-top:3px solid var(--accent)}
+  .node.tg{border-top:3px solid var(--tg)}
+  .node.srv{border-top:3px solid var(--muted);background:var(--code-bg)}
+  .arrow{grid-column:2;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:1.4rem}
+  .arrow.down{flex-direction:column;font-size:1rem}
+  .span2{grid-column:1 / -1}
+  .hint{font-size:.82rem;color:var(--muted);font-style:italic}
+
+  /* Decision tree */
+  .tree{margin:1.1rem 0}
+  .tree .q{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:.7rem .9rem;
+    font-weight:600;text-align:center;max-width:520px;margin:0 auto}
+  .branches{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.9rem}
+  .branch{border:1px solid var(--line);border-radius:10px;padding:.9rem;background:var(--panel)}
+  .branch.empty{border-top:3px solid var(--ok)}
+  .branch.full{border-top:3px solid var(--warn)}
+  .branch h4{margin:.1rem 0 .4rem;font-size:.95rem}
+  .branch .cond{font-family:var(--mono);font-size:.78rem;color:var(--muted);display:block;margin-bottom:.5rem}
+
+  table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.9rem;overflow-x:auto;display:block}
+  @media(min-width:640px){table{display:table}}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:.76rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  td .surface{font-weight:600}
+  .mock{border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:var(--shadow);
+    padding:0;overflow:hidden;max-width:380px;margin:.8rem 0}
+  .mock .bar{background:var(--tg-soft);padding:.7rem .9rem;font-size:.9rem;border-bottom:1px solid var(--line)}
+  .mock .body{padding:.9rem}
+  .mock .btnrow{display:flex;gap:.5rem;margin-top:.7rem}
+  .btn{font-size:.85rem;font-weight:600;padding:.45rem .8rem;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel);color:var(--ink)}
+  .btn.tg{background:var(--tg);color:#fff;border-color:transparent}
+  .btn.danger{background:var(--warn);color:#fff;border-color:transparent}
+  .btn.ghost{background:transparent;color:var(--muted)}
+  footer{margin-top:3rem;padding-top:1.2rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+  .filepath{font-family:var(--mono);font-size:.82rem;color:var(--tg)}
+  .q-list{counter-reset:q}
+  .q-list li{margin:.6rem 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="eyebrow">KnockKnock · Telegram adaptation</div>
+  <h1>"Use in Telegram" — one-tap link for existing web users</h1>
+  <p class="lede">Onboard current web/PWA users onto the Telegram Mini App by carrying their
+  <em>existing account</em> across in a single tap — no phrase re-typing, no new identity mechanics.</p>
+  <div class="meta">
+    <span class="pill draft">DRAFT — for review</span>
+    <span class="pill">2026-07-09</span>
+    <span class="pill">branch: claude/telegram-web-onboarding-2wl6cf</span>
+    <span class="pill">base: t1r1jp @ 73cd010</span>
+  </div>
+</header>
+
+<h2><span class="num">§0</span>What this is (and isn't)</h2>
+<p>A web user already has a <strong>phrase account</strong> — contacts, groups, prefs — and is signed in
+(<code>auth.uid === userId</code>). The goal is to let them adopt the Telegram Mini App for that same account
+in one tap, instead of the current manual path (open Mini App → drawer → "I have a secret phrase" → type the
+4-word phrase → Link).</p>
+<ul>
+  <li><strong>In scope:</strong> a one-time promo + a durable drawer entry in the web app; a server-minted
+  single-use link token; auto-link on Mini-App arrival; and safe handling when the user already has a
+  Telegram-only account with data.</li>
+  <li><strong>Not in scope:</strong> new identity plumbing (reuses the existing <code>linkTelegram</code>
+  routine), and <strong>account merge</strong> — the "no merge" boundary from the identity model stays
+  uncrossed (see §4).</li>
+</ul>
+
+<h2><span class="num">§1</span>Decisions locked in brainstorming</h2>
+<ul class="decisions">
+  <li><span class="badge">LOCKED</span><div><strong>Mechanism = one-time link token (option B).</strong>
+    The phrase (the only credential) <em>never</em> travels. The web app is already authed as the account, so a
+    server callable mints an opaque single-use token bound to that uid.</div></li>
+  <li><span class="badge">LOCKED</span><div><strong>Two surfaces: a one-time dismissible promo (A) + a
+    persistent drawer card (C).</strong> The banner nudges once; the drawer card is the durable entry point that
+    survives dismissal.</div></li>
+  <li><span class="badge">LOCKED</span><div><strong>Web context only.</strong> Never shown inside Telegram
+    (the bot/Mini App is already there).</div></li>
+  <li><span class="badge">LOCKED</span><div><strong>Suppressed once linking has happened</strong> on that
+    account (detected via <code>userPrefs.telegram != null</code>).</div></li>
+  <li><span class="badge">LOCKED</span><div><strong>Cover the "existing Telegram-only account with data"
+    case</strong> — do not silently destroy it. <strong>Two-choice confirm, no graduate escape hatch</strong>
+    (see §3).</div></li>
+  <li><span class="badge">LOCKED</span><div><strong>Token: ~5-min TTL, single-use, prefix <code>lk_</code> —
+    and a <em>fresh token minted on every tap.</em></strong> If the user backs out or doesn't complete, that
+    token just expires; coming back later mints a new one. No client-side token caching or reuse.</div></li>
+  <li><span class="badge">LOCKED</span><div><strong>Copy reuses the existing linking-flow voice</strong> — the
+    replace confirm is the established sentence (see §3 / §7).</div></li>
+</ul>
+
+<h2><span class="num">§2</span>Architecture &amp; data flow</h2>
+<p>Nothing in the identity model is invented. The redeem step calls the <em>same</em> <code>performLink</code>
+routine the manual drawer link uses — the only difference is the account uid is resolved from a token instead of
+from a typed phrase.</p>
+
+<div class="flow">
+  <div class="lane-head web">Web / PWA — authed as phrase uid</div>
+  <div class="lane-head mid"></div>
+  <div class="lane-head tg">Mini App — booted as derived account</div>
+
+  <div class="node web span2" style="grid-column:1"><span class="s">1 · tap</span>User taps "Use in Telegram" (promo banner or drawer card)</div>
+  <div class="arrow">→</div>
+  <div class="node srv"><span class="s">server (Admin SDK)</span><code>mintTelegramLinkToken()</code><br>store <code>telegramLinkTokens/&lt;tok&gt; = {uid, exp:+5m}</code></div>
+
+  <div class="node web" style="grid-column:1"><span class="s">2 · open</span>opens <code>t.me/&lt;bot&gt;?startapp=lk_&lt;tok&gt;</code> in a new tab</div>
+  <div class="arrow">→</div>
+  <div class="node tg"><span class="s">3 · boot</span>Mini App boots, signs in via <code>initData</code>, dispatcher sees the <code>lk_</code> prefix</div>
+
+  <div class="node srv span2"><span class="s">4 · server (Admin SDK)</span>
+    <code>redeemTelegramLinkToken({initData, token})</code> — verify initData → tgUser · look up token → uid
+    (reject if missing/expired) · <strong>check derived-account emptiness (§3)</strong> ·
+    <code>performLink(uid, tgUser)</code> · delete token (single-use) · mint auth token</div>
+
+  <div class="node tg span2"><span class="s">5 · landed</span>Mini App signs in / reloads → now <strong>linked</strong> to the web account · shows "✓ Linked" confirmation</div>
+</div>
+
+<div class="callout ok">
+  <span class="k">Why this is safe on credentials</span>
+  The phrase is never sent anywhere. The mint call is authenticated by <code>request.auth.uid</code>; the token
+  is opaque, single-use, and short-lived. This is strictly stronger than putting the phrase in the deep link.
+</div>
+
+<h2><span class="num">§3</span>The edge case — user already has a Telegram-only account with data</h2>
+<p>When the Mini App boots, <code>initData</code> sign-in resolves to that Telegram's <em>deterministic</em>
+derived account. If the user had previously used the Mini App standalone, that account may already hold contacts
+and groups. Linking the web account <strong>expunges the derived account</strong>
+(<code>linkTelegram</code> → <code>expungeDerivedAccount</code>) — this is the identity model's deliberate
+"no merge" boundary. A silent auto-link would therefore <strong>destroy that data without warning.</strong></p>
+
+<div class="tree">
+  <div class="q">On redeem, is the Telegram-derived account non-empty?<br>
+  <span class="hint">(counts read server-side from the same followers / following / groups nodes expunge reads)</span></div>
+  <div class="branches">
+    <div class="branch empty">
+      <h4>✓ Empty → silent auto-link</h4>
+      <span class="cond">0 contacts &amp;&amp; 0 groups</span>
+      <p>The common case (fresh account, or opened once and never used). Link immediately, land in the web
+      account, show the "✓ Linked" toast. Keeps the "quick action" promise.</p>
+    </div>
+    <div class="branch full">
+      <h4>⚠ Non-empty → confirm before replacing</h4>
+      <span class="cond">≥1 contact || ≥1 group</span>
+      <p>Server returns <code>{needsConfirm, counts}</code> and does <strong>not</strong> link or consume the
+      token. The Mini App shows a modal naming exactly what will be lost. Only an explicit confirm re-calls with
+      <code>confirm:true</code> to perform the link.</p>
+    </div>
+  </div>
+</div>
+
+<h3>The confirmation (non-empty branch)</h3>
+<div class="mock">
+  <div class="body">
+    <p style="margin:.2rem 0;font-size:.9rem">Linking replaces this temporary Telegram account — its contacts
+    and groups will be removed.</p>
+    <div class="btnrow">
+      <span class="btn tg">Link account</span>
+      <span class="btn ghost">Cancel</span>
+    </div>
+  </div>
+</div>
+<p class="hint">The confirm uses the <strong>existing linking-flow sentence</strong> (the
+<code>showLinkScreen</code> subtext) verbatim — it already spells out the data loss, so no new warning copy is
+invented. Two choices only: <strong>no graduate escape hatch.</strong> Cancel leaves the user on the Telegram
+account untouched (its token is not consumed and simply expires).</p>
+
+<p class="hint">Enforcing the check server-side (not just client-side) means the destructive replace can never
+happen without the counts being computed and a confirm flag being present — robust even if a client is stale.</p>
+
+<h2><span class="num">§4</span>Server design <span class="filepath">functions/</span></h2>
+<ul>
+  <li><strong>Extract <code>performLink(uid, tgUser, deps)</code></strong> from the body of
+  <code>linkTelegramHandler</code> (the repoint + expunge-derived + prefs writes + <code>mintToken</code>).
+  <code>linkTelegramHandler</code> keeps deriving <code>uid</code> from the phrase, then delegates — a pure
+  extraction so the pinned link/unlink tests stay byte-identical (respects the "don't disturb expunge"
+  landmine).</li>
+  <li><strong><code>mintTelegramLinkTokenHandler</code></strong> — requires <code>request.auth.uid</code>;
+  writes <code>telegramLinkTokens/&lt;token&gt; = {uid, exp}</code> via Admin SDK; returns <code>{token}</code>.
+  Random 22-char base64url. <strong>A fresh token every call</strong> — the web CTA mints on each tap and never
+  caches; an unredeemed token expires on its own (optionally the mint clears this uid's prior tokens to avoid
+  buildup).</li>
+  <li><strong><code>redeemTelegramLinkTokenHandler({initData, token, confirm})</code></strong> —
+  <code>requireTelegramUser</code> (verifies initData) · read token (reject missing/expired) · read the derived
+  account's follower/following/group counts · if non-empty &amp;&amp; !confirm → return
+  <code>{needsConfirm, counts}</code> (token untouched) · else <code>performLink</code> + delete token + return
+  <code>{token: authToken}</code>.</li>
+  <li><strong>Wiring</strong> in <code>functions/index.js</code> — two new <code>httpsOnCall</code> exports
+  mirroring <code>linkTelegram</code>, same <code>makeTelegramAuthDeps()</code>.</li>
+  <li><strong>Rules</strong> — <code>telegramLinkTokens</code> stays server-only (no client read/write in
+  <code>database.rules.json</code>); both callables use the Admin SDK, so <strong>no rules relaxation</strong>.</li>
+</ul>
+
+<h2><span class="num">§5</span>Client — web surfaces <span class="filepath">js/</span></h2>
+<table>
+  <thead><tr><th>Surface</th><th>Behaviour</th><th>Gating</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="surface">A · one-time promo banner</span><br><span class="hint">modeled on <code>#notify-promo</code></span></td>
+      <td>Bar with copy + "Use in Telegram" button + dismiss ✕. Button mints the token &amp; opens the deep link.
+      Dismiss (or acting) marks it done-forever on this device.</td>
+      <td>web context · <code>TELEGRAM_ENABLED</code> · not already linked · not dismissed-on-device</td>
+    </tr>
+    <tr>
+      <td><span class="surface">C · drawer card</span><br><span class="hint">Account section</span></td>
+      <td>Persistent "Use in Telegram" row — the durable entry point that survives banner dismissal.</td>
+      <td>web context · <code>TELEGRAM_ENABLED</code> · not already linked</td>
+    </tr>
+  </tbody>
+</table>
+<ul>
+  <li><strong>Suppression:</strong> both hide when <code>userPrefs.telegram != null</code> (already-linked signal,
+  same predicate <code>notifySuppression.js</code> already reads).</li>
+  <li><strong>Deep-link build:</strong> reuse the <code>TELEGRAM_APP_LINK</code> + <code>startapp</code> pattern
+  from <code>inviteFlow.js</code>; open in a new tab like the existing "Share to Telegram" (popup-blocked → copy
+  the link with button feedback).</li>
+  <li><strong>Dismissal marker:</strong> device-local, mirroring <code>dismissPromoForever</code>.</li>
+</ul>
+
+<h2><span class="num">§6</span>Client — Mini App arrival <span class="filepath">js/</span></h2>
+<ul>
+  <li><strong>Boot dispatcher</strong> (<code>js/app.js</code>, before the invite gate): if <code>start_param</code>
+  begins with <code>lk_</code>, route to the link-redeem path instead of the invite path.</li>
+  <li><strong>Redeem:</strong> call <code>redeemTelegramLinkToken</code>. On <code>needsConfirm</code>, show the
+  §3 modal (reuse <code>showConfirmModal</code>, <code>confirmLabel: "Link account"</code>,
+  <code>busyLabel: "Linking…"</code>) and re-call with <code>confirm:true</code> on confirm; on Cancel, do
+  nothing (token expires). On success, sign in / reload into the linked account and stamp the landing toast
+  (reuse the graduation <code>stampLanding</code> → boot <code>showToast</code> mechanism).</li>
+  <li><strong>Prefix collision note:</strong> a base64url invite token starting literally with <code>lk_</code>
+  is ~1/262k; a misroute simply fails token lookup. Documented; acceptable for the sandbox.</li>
+</ul>
+
+<h2><span class="num">§7</span>Copy</h2>
+<p>The one destructive surface reuses the <strong>existing linking-flow sentence verbatim</strong>. Only the new
+web-side promo/card + the success toast need fresh copy (there's no existing equivalent); drafts below, your
+voice wins.</p>
+<table>
+  <thead><tr><th>Where</th><th>Copy</th><th>Source</th></tr></thead>
+  <tbody>
+    <tr><td>Arrival · replace confirm (non-empty)</td><td>"Linking replaces this temporary Telegram account — its contacts and groups will be removed." · buttons "Link account" / "Cancel"</td><td><strong>existing</strong> — <code>showLinkScreen</code> subtext + link button</td></tr>
+    <tr><td>Arrival · success toast</td><td>"This account now works in Telegram too."</td><td>mirrors graduation's "…works in any browser too."</td></tr>
+    <tr><td>Promo banner</td><td>copy + "Use in Telegram" button <span class="hint">(new — draft)</span></td><td>new</td></tr>
+    <tr><td>Drawer card</td><td>"Use in Telegram" row <span class="hint">(new — draft)</span></td><td>new</td></tr>
+    <tr><td>Arrival · expired/error</td><td>"That link expired — tap Use in Telegram again on the web." <span class="hint">(new — draft)</span></td><td>new</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">§8</span>Security notes</h2>
+<ul>
+  <li><strong>Token hijack race:</strong> the token sits in the <code>t.me</code> URL, so in principle it could
+  be lifted from web-side history and redeemed by another Telegram first. Mitigation: ~5-min TTL + single-use +
+  the legit redeem fires within seconds. Bounded, and strictly better than option A (phrase in URL).</li>
+  <li><strong>No rules change, no migration</strong> — consistent with the F1 posture; the deploy still needs
+  the A5 redeploy like the other branch-only Telegram functions.</li>
+  <li><strong>Relink edge:</strong> opening a Telegram <em>already linked to a different phrase account</em>
+  routes through <code>linkTelegram</code>'s existing A→B relink branch (resets A's prefs, doesn't expunge A).
+  Rare; handled by the reused routine.</li>
+</ul>
+
+<h2><span class="num">§9</span>Testing</h2>
+<ul>
+  <li><strong>functions</strong> (<code>cd functions &amp;&amp; npm test</code>): mint (auth required, token
+  shape/exp), redeem (happy path links + consumes token; expired/missing rejected; non-empty →
+  <code>needsConfirm</code> without linking; <code>confirm:true</code> links + expunges), and
+  <code>performLink</code> extraction leaves the existing link/unlink suites byte-identical.</li>
+  <li><strong>web</strong> (<code>npx jest</code>): banner + card gating/suppression, dismissal persistence,
+  deep-link build, mint call wiring; boot dispatcher <code>lk_</code> branch + confirm re-call.</li>
+  <li><strong>rules</strong> (<code>npm run test:rules</code>): <code>telegramLinkTokens</code> denies all
+  client access.</li>
+  <li><strong>Gate:</strong> the on-device walkthrough (web tap → Mini App → linked; and the non-empty
+  replace-confirm path) is the acceptance gate — green suites are necessary, not sufficient.</li>
+</ul>
+
+<h2><span class="num">§10</span>Resolved</h2>
+<ul>
+  <li><strong>Graduate escape hatch</strong> — <em>no.</em> Two-choice confirm.</li>
+  <li><strong>Token</strong> — <em>5-min TTL, single-use, <code>lk_</code> prefix, fresh mint on every tap.</em></li>
+  <li><strong>Confirm copy</strong> — <em>the existing linking-flow sentence, verbatim.</em></li>
+</ul>
+<p>Remaining drafts (non-blocking, easy to tune in implementation): the new promo/card wording and exact
+placement, and the expired-link message.</p>
+
+<footer>
+  Draft design for the "onboard web users to Telegram" task. Nothing implemented yet — this is the brainstorming
+  artifact. On approval it becomes the committed spec and feeds an implementation plan.
+</footer>
+
+</div>
+</body>
+</html>
