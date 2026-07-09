@@ -41,7 +41,7 @@ import { setButtonBusy, clearButtonBusy } from './utils.js';
 
 // Re-exported for tests/recovery.test.js, which requires it from app.js directly.
 export { showRecoveryCodeModal };
-export { handleInviteRedemptionResult };
+export { handleInviteRedemptionResult, reconcileSilentRedeemToast };
 
 let splashCounter = 0;
 let splashDone = false;
@@ -492,10 +492,35 @@ function handleInviteRedemptionResult(result) {
     if (!result.groupId && !sessionStorage.getItem(FIRST_FOLLOW_KEY)) {
       try { sessionStorage.setItem(FIRST_FOLLOW_KEY, '1'); } catch { /* storage denied */ }
       showToast(`You're following ${result.creatorLabel} — tap their card to knock.`);
+      // Return value tells the call site the beat toast already ran (see
+      // main()'s Telegram silent-redeem block), so it can skip the
+      // redundant "You're now following X." toast that would otherwise
+      // clobber this one in the same tick.
+      return true;
     }
-    return;
+    return false;
   }
   showInviteFailureOverlay(result.reason);
+  return false;
+}
+
+// Reconciles the Telegram silent-redeem confirm toast against the first-
+// accept beat above so a successful silent redemption never shows two
+// toasts in the same tick (the second would clobber the first before
+// paint, and — since handleInviteRedemptionResult already set the
+// one-time marker — permanently suppress the beat for the session without
+// the user ever seeing it). `beatShown` is handleInviteRedemptionResult's
+// return value from the same redemption, captured by the caller.
+function reconcileSilentRedeemToast(result, tgInvite, beatShown) {
+  if (!(result.ok && tgInvite?.silent)) return;
+  if (tgInvite.preview.scope === 'group') {
+    showToast(`You joined ${tgInvite.preview.groupName}.`);
+  } else if (!beatShown) {
+    // The beat toast ("You're following X — tap their card to knock.") is a
+    // strict superset of this plain confirm, so only show this one when the
+    // beat didn't already fire (non-first-follow-of-session case).
+    showToast(`You're now following ${tgInvite.preview.label}.`);
+  }
 }
 
 function showInviteFailureOverlay(reason) {
@@ -659,12 +684,9 @@ async function main() {
       // A re-tapped Telegram deep link lands here as already-following: spec
       // says show nothing (the contact is already in the list).
       const silentNoop = tgInvite && result.ok === false && result.reason === 'already-following';
-      if (!silentNoop) handleInviteRedemptionResult(result);
-      if (result.ok && tgInvite?.silent) {
-        showToast(tgInvite.preview.scope === 'group'
-          ? `You joined ${tgInvite.preview.groupName}.`
-          : `You're now following ${tgInvite.preview.label}.`);
-      }
+      let beatShown = false;
+      if (!silentNoop) beatShown = handleInviteRedemptionResult(result);
+      reconcileSilentRedeemToast(result, tgInvite, beatShown);
       // A consumed token never re-runs the ceremony on a re-tapped chat link
       // (W1 J#4) — stamp it (covers the silent-redeem path too).
       if (tgInvite && redemptionConsumedToken(result)) stampInviteOutcome(tgInvite.token, 'redeemed');
