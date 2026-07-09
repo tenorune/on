@@ -348,15 +348,28 @@ describe('handleUpdate: /status <group>', () => {
     expect(reply.text).toBe("You're 🟢 available in Divers for 2h. /off Divers to stop.");
   });
 
-  // Spec 2 Task 10 (B#14d): the group confirm's dot is the OVERRIDE's color
-  // (this command just wrote the override) — falling back to the user's
-  // primary statusColor only if the override itself carries none.
+  // Spec 2 Task 10 (B#14d): the group confirm's dot is the OVERRIDE's own
+  // color (this command just wrote the override). A missing/invalid override
+  // color falls through to statusCircle's 🟢 fallback — matching /who, /groups,
+  // and the client roster — NOT the user's primary presence color.
   test('/status <group> confirm: dot + duration + /off <group> hint', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedStatusGroup(deps.store, uid, { enabled: true, status: 'unavailable', statusColor: '#8800ff' });
     const reply = await handleUpdate(deps, msgUpdate('/status divers 2h'));
     expect(reply.text).toBe("You're 🟣 available in Divers for 2h. /off Divers to stop.");
+  });
+
+  // Aligned with /who + /groups + the client roster: an enabled override with
+  // no statusColor of its own shows 🟢, NOT the user's primary presence color.
+  test('/status <group> confirm: enabled override without its own color → 🟢 (not primary)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    // primary presence carries a distinct color; the override carries none
+    deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'unavailable', availableUntil: null, statusColor: '#3b82f6' };
+    seedStatusGroup(deps.store, uid, { enabled: true, status: 'unavailable' });
+    const reply = await handleUpdate(deps, msgUpdate('/status divers 2h'));
+    expect(reply.text).toBe("You're 🟢 available in Divers for 2h. /off Divers to stop.");
   });
   test('override ON, no duration → defaults to 60m', async () => {
     const deps = makeBotDeps();

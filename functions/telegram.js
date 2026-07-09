@@ -304,7 +304,10 @@ async function setGroupPresence(deps, uid, query, reply, fields, messages) {
   ]);
   if (override && override.enabled === true) {
     await deps.update(`groups/${match.gid}/members/${uid}/statusOverride`, fields());
-    await reply(messages.confirm(match.name, override.statusColor || presence?.statusColor));
+    // Dot color = the group override's own statusColor; a missing/invalid one
+    // falls through to statusCircle's 🟢 fallback (matching /who, /groups, and
+    // the client roster) rather than borrowing the primary presence color.
+    await reply(messages.confirm(match.name, override.statusColor));
     return;
   }
   const globallyOn = primaryAvailable(presence, deps.now());
