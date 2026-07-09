@@ -78,6 +78,36 @@
   td .fidref{font-family:var(--mono);font-weight:700;color:var(--tg);white-space:nowrap}
   .clu{font-family:var(--mono);font-weight:700}
   footer{margin-top:3rem;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:1rem}
+
+  /* Triage board */
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.6rem;margin:1rem 0}
+  .tile{min-height:64px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:.55rem .8rem;cursor:pointer;font:inherit;color:var(--ink);box-shadow:var(--shadow);
+    -webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  .tile .cl{font-family:var(--mono);font-weight:700;color:var(--tg);font-size:1.05rem;margin-right:.4rem}
+  .tile .ct{font-size:.75rem;color:var(--muted)}
+  .tile .nm{display:block;font-size:.8rem;color:var(--muted);line-height:1.3}
+  .tile[aria-pressed="true"]{border-color:var(--tg);background:var(--tg-soft)}
+  .tile[aria-pressed="true"] .nm{color:var(--ink)}
+  .triage-list{list-style:none;padding:0;margin:.8rem 0}
+  .triage-list li{display:flex;gap:.7rem;align-items:center;padding:.3rem .2rem;border-bottom:1px dashed var(--line);min-height:48px}
+  .triage-list li:last-child{border-bottom:none}
+  .triage-list .lbl{flex:1;min-width:0}
+  .triage-list li.out .lbl{opacity:.45;text-decoration:line-through}
+  .triage-list .meta-mini{font-size:.75rem;color:var(--muted);white-space:nowrap}
+  .tgl{flex:none;width:72px;min-height:44px;font:inherit;font-size:.78rem;font-weight:700;letter-spacing:.05em;
+    border-radius:8px;border:1px solid var(--line);cursor:pointer;background:var(--ok-soft);color:var(--ok);
+    -webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  .triage-list li.out .tgl{background:var(--code-bg);color:var(--muted)}
+  .triage-out{width:100%;font-family:var(--mono);font-size:16px;line-height:1.45;background:var(--code-bg);
+    color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:.7rem;height:230px;resize:vertical}
+  .copyrow{display:flex;align-items:center;flex-wrap:wrap;gap:.8rem;margin:.6rem 0}
+  .copybtn{min-height:44px;padding:.5rem 1.2rem;font:inherit;font-weight:700;border-radius:10px;border:1px solid var(--tg);
+    background:var(--tg-soft);color:var(--tg);cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  .resetbtn{min-height:44px;padding:.5rem 1rem;font:inherit;border-radius:10px;border:1px solid var(--line);
+    background:var(--panel);color:var(--muted);cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  .copystat{font-size:.85rem;font-weight:600;color:var(--ok);min-width:6.5rem;visibility:hidden}
+  .copystat.show{visibility:visible}
 </style>
 </head>
 <body>
@@ -522,6 +552,24 @@ maps to exactly one primary cluster (a few have a secondary); the full matrix in
   </ul>
 </div>
 
+<h2 id="triage"><span class="num">5b</span>Cluster triage board</h2>
+<p>Tap a cluster tile to list its items; toggle items <strong>IN</strong>/<strong>OUT</strong>; the text box below
+always holds the current IN list, ready to copy into a session. Toggle state is per finding — an item
+toggled OUT in one cluster stays OUT everywhere (multi-cluster items appear in each of their clusters).
+State resets on reload.</p>
+<noscript><div class="callout warn"><span class="k">JavaScript required</span>
+The triage board is interactive and needs JavaScript; the full static list is in §6 below.</div></noscript>
+<div class="panel" id="triage-board" hidden>
+  <div class="tiles" id="triage-tiles" role="group" aria-label="Cluster filter"></div>
+  <ul class="triage-list" id="triage-list" aria-live="polite"></ul>
+  <div class="copyrow">
+    <button type="button" class="copybtn" id="triage-copy">Copy IN list</button>
+    <button type="button" class="resetbtn" id="triage-reset">All back IN</button>
+    <span class="copystat" id="triage-stat" role="status">Copied ✓</span>
+  </div>
+  <textarea class="triage-out" id="triage-out" readonly aria-label="IN list, ready to paste"></textarea>
+</div>
+
 <h2><span class="num">6</span>Full cross-reference matrix</h2>
 <p>Every finding from both workstreams — including items that stand alone or need no action.</p>
 <div class="tblwrap">
@@ -587,5 +635,171 @@ maps to exactly one primary cluster (a few have a secondary); the full matrix in
 </footer>
 
 </div>
+<script>
+(function(){
+  'use strict';
+  var CLUSTERS = [
+    {k:'ALL', name:'All clusters'},
+    {k:'A', name:'telegram-auth.js combined pass'},
+    {k:'B', name:'Replace-confirm copy'},
+    {k:'C', name:'Channel honesty & the predicate'},
+    {k:'D', name:'Client-only quick wins'},
+    {k:'E', name:'Bot-surface polish'},
+    {k:'F', name:'Invariant guards'},
+    {k:'G', name:'Deferred / maintainer call'}
+  ];
+  var FINDINGS = [
+    {id:'U1.1', t:'Forwarded "Use in Telegram" link silently links a stranger', sev:'High',    eff:'S–M', dep:'functions + client', cl:['A']},
+    {id:'U1.2', t:'No web-side unlink / linked-state visibility',               sev:'High',    eff:'M',        dep:'functions + web',    cl:['A']},
+    {id:'U1.3', t:'Link/unlink silently reroutes notifications',                sev:'Med-High',eff:'M',        dep:'functions + clients',cl:['A','C']},
+    {id:'U1.4', t:'Web onramp failure paths are silent',                        sev:'Med',     eff:'S',        dep:'web only',           cl:['D']},
+    {id:'U1.5', t:'"View your phrase on the web" is a dead end in Telegram',    sev:'Med',     eff:'S',        dep:'Mini App only',      cl:['D']},
+    {id:'U1.6', t:'Bot-chat group join leads nowhere',                          sev:'Med',     eff:'S',        dep:'functions',          cl:['E']},
+    {id:'U1.7', t:'No web-side success beat after linking',                     sev:'Low-Med', eff:'S',        dep:'web only',           cl:['D']},
+    {id:'U1.8', t:'Catch-all "link expired" toast conflates every error',       sev:'Low',     eff:'S',        dep:'Mini App only',      cl:['D']},
+    {id:'U2.1', t:'Two warning philosophies + unused replace counts',           sev:'Med',     eff:'M',        dep:'functions + client', cl:['B']},
+    {id:'U2.2', t:'Onramp banner breaks the one-teaching-surface rule',         sev:'Med',     eff:'S',        dep:'web only',           cl:['D']},
+    {id:'U2.3', t:'Move-framing vs additive framing in promo copy',             sev:'Low',     eff:'S',        dep:'template copy',      cl:['D']},
+    {id:'U2.4', t:'Expired invite: toast vs blocking modal',                    sev:'Low',     eff:'S',        dep:'client copy',        cl:['D']},
+    {id:'U2.5', t:'Chat group-join publishes your name silently',               sev:'Low',     eff:'S',        dep:'functions',          cl:['E']},
+    {id:'U2.6', t:'"Linked to your account" — which one?',                 sev:'Low',     eff:'S',        dep:'client (+functions)',cl:['E']},
+    {id:'U2.7', t:'Two voices in the push-unavailable refusal',                 sev:'Low',     eff:'S',        dep:'decision',           cl:['E']},
+    {id:'U3.1', t:'Haptics on the knock loop',                                  sev:'Med impact',eff:'S',      dep:'Mini App only',      cl:['D']},
+    {id:'U3.2', t:'"Knock knock — ⟨name⟩" in bot chat',          sev:'Low-Med', eff:'S',        dep:'functions',          cl:['E']},
+    {id:'U3.3', t:'A tiny ceremony at graduation',                              sev:'Low-Med', eff:'S',        dep:'Mini App only',      cl:['D']},
+    {id:'U3.4', t:'MainButton for single-CTA screens',                          sev:'Low',     eff:'M',        dep:'Mini App',           cl:['G']},
+    {id:'U3.5', t:'Inline invite sharing (design input for #286)',              sev:'Low',     eff:'L',        dep:'functions + config', cl:['G']},
+    {id:'C1',   t:'Every web boot gates on a telegram.org fetch',               sev:'Value 1', eff:'M',        dep:'client + hosting',   cl:['D']},
+    {id:'C2',   t:'Twin account-data movers enumerate paths twice',             sev:'Value 2', eff:'M',        dep:'functions',          cl:['A']},
+    {id:'C3',   t:'Notifier read overhead (3 spots)',                           sev:'Value 3', eff:'S–M', dep:'functions',          cl:['C','E']},
+    {id:'C4',   t:'TELEGRAM_APP_LINK config + builder duplicated',              sev:'Value 4', eff:'S',        dep:'web only',           cl:['D']},
+    {id:'C5',   t:'/knock disambiguation block copy-pasted',                    sev:'Value 5', eff:'S',        dep:'functions',          cl:['E']},
+    {id:'C6',   t:'Destructive-link warning string spelled twice',              sev:'Value 6', eff:'S',        dep:'Mini App only',      cl:['B']},
+    {id:'C7',   t:'localStorage key lists hand-copied ×3',                 sev:'Value 7', eff:'S–M', dep:'web only',           cl:['F']},
+    {id:'C8',   t:'redeemTelegramLinkToken double-reads telegramUsers',         sev:'Value 8', eff:'S',        dep:'functions',          cl:['A']},
+    {id:'C9',   t:'Dead re-export, test-only fn, 2 redundant CSS rules',        sev:'Value 9', eff:'S',        dep:'client',             cl:['D']},
+    {id:'C10',  t:'Comment-only guards on cross-file invariants ×3',       sev:'Value 10',eff:'S–M', dep:'tests only',         cl:['F','C']},
+    {id:'C11',  t:'Modal wirings ×3; chrome observer scope',               sev:'Low',     eff:'M',        dep:'optional',           cl:['G']},
+    {id:'T-1',  t:'Shared telegram.js mock factory (22 files today)',           sev:'—',  eff:'S–M', dep:'tests only',         cl:['F']}
+  ];
+
+  var out = {};            // id -> true when toggled OUT (per finding, global across clusters)
+  var current = 'ALL';
+
+  var $tiles = document.getElementById('triage-tiles');
+  var $list  = document.getElementById('triage-list');
+  var $out   = document.getElementById('triage-out');
+  var $copy  = document.getElementById('triage-copy');
+  var $reset = document.getElementById('triage-reset');
+  var $stat  = document.getElementById('triage-stat');
+
+  function items(k){
+    return k === 'ALL' ? FINDINGS : FINDINGS.filter(function(f){ return f.cl.indexOf(k) !== -1; });
+  }
+  function clusterName(k){
+    for (var i=0;i<CLUSTERS.length;i++) if (CLUSTERS[i].k===k) return CLUSTERS[i].name;
+    return k;
+  }
+
+  function renderTiles(){
+    $tiles.textContent = '';
+    CLUSTERS.forEach(function(c){
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'tile';
+      b.setAttribute('aria-pressed', String(c.k === current));
+      var head = document.createElement('span');
+      var cl = document.createElement('span'); cl.className = 'cl'; cl.textContent = c.k === 'ALL' ? '∑' : c.k;
+      var ct = document.createElement('span'); ct.className = 'ct'; ct.textContent = items(c.k).length + ' items';
+      head.appendChild(cl); head.appendChild(ct);
+      var nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = c.name;
+      b.appendChild(head); b.appendChild(nm);
+      b.addEventListener('click', function(){ current = c.k; renderTiles(); renderList(); });
+      $tiles.appendChild(b);
+    });
+  }
+
+  function renderList(){
+    $list.textContent = '';
+    items(current).forEach(function(f){
+      var li = document.createElement('li');
+      if (out[f.id]) li.className = 'out';
+      var tgl = document.createElement('button');
+      tgl.type = 'button'; tgl.className = 'tgl';
+      tgl.textContent = out[f.id] ? 'OUT' : 'IN';
+      tgl.setAttribute('aria-pressed', String(!out[f.id]));
+      tgl.setAttribute('aria-label', (out[f.id] ? 'Include ' : 'Exclude ') + f.id);
+      tgl.addEventListener('click', function(){
+        out[f.id] = !out[f.id];
+        li.className = out[f.id] ? 'out' : '';
+        tgl.textContent = out[f.id] ? 'OUT' : 'IN';
+        tgl.setAttribute('aria-pressed', String(!out[f.id]));
+        tgl.setAttribute('aria-label', (out[f.id] ? 'Include ' : 'Exclude ') + f.id);
+        renderOut();
+      });
+      var lbl = document.createElement('span'); lbl.className = 'lbl';
+      var idr = document.createElement('span'); idr.className = 'fidref'; idr.textContent = f.id;
+      lbl.appendChild(idr);
+      lbl.appendChild(document.createTextNode(' — ' + f.t + ' '));
+      var mm = document.createElement('span'); mm.className = 'meta-mini';
+      mm.textContent = '(' + f.sev + ' · ' + f.eff + ' · ' + f.dep +
+        (current === 'ALL' ? ' · ' + f.cl.join('+') : '') + ')';
+      lbl.appendChild(mm);
+      li.appendChild(tgl); li.appendChild(lbl);
+      $list.appendChild(li);
+    });
+    renderOut();
+  }
+
+  function renderOut(){
+    var pool = items(current);
+    var ins  = pool.filter(function(f){ return !out[f.id]; });
+    var outs = pool.filter(function(f){ return  out[f.id]; });
+    var head = (current === 'ALL' ? 'All clusters' : 'Cluster ' + current + ' — ' + clusterName(current)) +
+               ' — ' + ins.length + ' of ' + pool.length + ' IN';
+    var lines = [head + ':'];
+    ins.forEach(function(f){
+      var tag = current === 'ALL' ? '[' + f.cl.join('+') + '] ' : '';
+      lines.push('- ' + tag + f.id + ' — ' + f.t + ' (' + f.eff + ' · ' + f.dep + ')');
+    });
+    if (outs.length){
+      lines.push('Excluded (OUT): ' + outs.map(function(f){ return f.id; }).join(', '));
+    }
+    lines.push('Source: docs/superpowers/2026-07-09-post-ship-analysis.html §6');
+    $out.value = lines.join('\n');
+  }
+
+  function flashStat(msg, ok){
+    $stat.textContent = msg;
+    $stat.style.color = ok ? '' : 'var(--warn)';
+    $stat.classList.add('show');
+    clearTimeout(flashStat._t);
+    flashStat._t = setTimeout(function(){ $stat.classList.remove('show'); }, 2000);
+  }
+
+  $copy.addEventListener('click', function(){
+    var txt = $out.value;
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(
+        function(){ flashStat('Copied ✓', true); },
+        function(){ $out.focus(); $out.select(); flashStat('Select & copy', false); }
+      );
+    } else {
+      $out.focus(); $out.select();
+      var okd = false;
+      try { okd = document.execCommand('copy'); } catch(e){}
+      flashStat(okd ? 'Copied ✓' : 'Select & copy', okd);
+    }
+  });
+
+  $reset.addEventListener('click', function(){
+    items(current).forEach(function(f){ delete out[f.id]; });
+    renderList();
+  });
+
+  document.getElementById('triage-board').hidden = false;
+  renderTiles();
+  renderList();
+})();
+</script>
 </body>
 </html>
