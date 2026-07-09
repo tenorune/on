@@ -139,17 +139,7 @@ export async function validateTelegramHandler(request, deps) {
   return { token, uid, created, linked };
 }
 
-// Link the Telegram identity to an existing phrase account. The phrase goes
-// through the same derived-uid rate limiter as validateRecovery (brute-force
-// parity). A prior Telegram-derived account is EXPUNGED (see the branch
-// below) — the client warns first; a prior phrase account (direct relink)
-// is left intact with its telegram routing/prefs reset.
-export async function linkTelegramHandler(request, deps) {
-  const tgUser = requireTelegramUser(request, deps);
-  const normalized = normalizeRecoveryCode(request.data?.code);
-  if (!normalized) throw new HttpsError('invalid-argument', 'Invalid recovery code.');
-  const uid = await deriveUid(normalized);
-  if (!(await deps.allowAttempt(uid))) throw new HttpsError('resource-exhausted', 'Too many attempts. Try again shortly.');
+export async function performLink(deps, uid, tgUser) {
   const tgId = String(tgUser.id);
   const [presence, prior] = await Promise.all([
     deps.getVal(`users/${uid}/presence`),
@@ -161,32 +151,38 @@ export async function linkTelegramHandler(request, deps) {
   const writes = {};
   if (prior && prior.uid !== uid) {
     if (prior.uid === deriveTelegramUid(tgId, deps.uidSecret)) {
-      // Linking retires the temporary Telegram-derived account completely:
-      // its uid is deterministic, so anything left behind (mapping, prefs,
-      // social residue) would resurrect as a shadow account (same rationale
-      // as unlink).
+      // Linking retires the temporary Telegram-derived account completely.
       await expungeDerivedAccount(deps, prior.uid);
       writes[`telegramByUid/${prior.uid}`] = null;
     } else {
-      // Direct relink (A→B) without an intervening unlink: account A is a
-      // real phrase account and must never be expunged (it stays reachable
-      // via its phrase) — just reset its prefs off telegram the same way
-      // unlinkTelegramHandler does.
+      // Direct relink (A→B): account A is a real phrase account — never expunge;
+      // just reset its prefs off telegram (as unlinkTelegramHandler does).
       writes[`telegramByUid/${prior.uid}`] = null;
       writes[`userPrefs/${prior.uid}/telegram`] = null;
       writes[`userPrefs/${prior.uid}/notifyChannel`] = 'push';
     }
   }
-  // The new mapping, reverse route, and prefs — plus any prior-account
-  // cleanup above — land as one atomic update.
   writes[`telegramUsers/${tgId}`] = { uid, chatId, linkedAt: now };
   writes[`telegramByUid/${uid}`] = { tgId, chatId };
   writes[`userPrefs/${uid}/telegram/tgId`] = tgId;
   writes[`userPrefs/${uid}/telegram/linkedAt`] = now;
   writes[`userPrefs/${uid}/notifyChannel`] = 'telegram';
   await rootUpdate(deps, writes);
-  const token = await deps.mintToken(uid);
-  return { token };
+  return { token: await deps.mintToken(uid) };
+}
+
+// Link the Telegram identity to an existing phrase account. The phrase goes
+// through the same derived-uid rate limiter as validateRecovery (brute-force
+// parity). A prior Telegram-derived account is EXPUNGED (see the branch
+// below) — the client warns first; a prior phrase account (direct relink)
+// is left intact with its telegram routing/prefs reset.
+export async function linkTelegramHandler(request, deps) {
+  const tgUser = requireTelegramUser(request, deps);
+  const normalized = normalizeRecoveryCode(request.data?.code);
+  if (!normalized) throw new HttpsError('invalid-argument', 'Invalid recovery code.');
+  const uid = await deriveUid(normalized);
+  if (!(await deps.allowAttempt(uid))) throw new HttpsError('resource-exhausted', 'Too many attempts. Try again shortly.');
+  return performLink(deps, uid, tgUser);
 }
 
 // Delete every RTDB record of the Telegram-derived shadow account, including

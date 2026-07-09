@@ -1,7 +1,7 @@
 import { createHmac } from 'crypto';
 import { jest } from '@jest/globals';
 import { makeStoreDeps as makeCoreStoreDeps } from './store-deps.js';
-import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, expungeDerivedAccount, graduateAccountData, graduateTelegramHandler } from '../telegram-auth.js';
+import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, performLink, linkTelegramHandler, unlinkTelegramHandler, expungeDerivedAccount, graduateAccountData, graduateTelegramHandler } from '../telegram-auth.js';
 
 const BOT_TOKEN = '12345:TEST_TOKEN';
 // F1 (#287): the derived uid is now keyed by a server-held secret so it's not
@@ -350,6 +350,21 @@ describe('linkTelegramHandler', () => {
     // Phrase account: linked and token minted:
     expect(deps.store[`userPrefs/${phraseUid}/notifyChannel`]).toBe('telegram');
     expect(deps.store[`telegramByUid/${phraseUid}`]).toEqual({ tgId: '42', chatId: '42' });
+  });
+});
+
+describe('performLink', () => {
+  test('no presence at uid → not-found', async () => {
+    const deps = makeHandlerDeps();
+    await expect(performLink(deps, 'a'.repeat(32), { id: 42 })).rejects.toThrow(/No account/);
+  });
+  test('links a phrase account and mints its token', async () => {
+    const uid = 'b'.repeat(32);
+    const deps = makeHandlerDeps({ [`users/${uid}/presence`]: { code: 'ZZ1111' } });
+    const res = await performLink(deps, uid, { id: 42 });
+    expect(res.token).toBe(`token-for-${uid}`);
+    expect(deps.store[`telegramUsers/42`]).toMatchObject({ uid, chatId: '42' });
+    expect(deps.store[`userPrefs/${uid}/notifyChannel`]).toBe('telegram');
   });
 });
 
