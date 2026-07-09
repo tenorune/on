@@ -2,7 +2,7 @@ import {
   withinCooldown, isFutureMs, availabilityTurnedOn,
   wantsKnock, wantsCall, wantsAvailability, buildMessage,
   overrideAvailable, effectiveAvailable, primaryAvailable, clampName,
-  formatTimeRemaining, formatTimeRemainingFuzzy,
+  formatTimeRemaining, formatTimeRemainingFuzzy, statusCircle,
 } from '../presence-core.js';
 import vectors from '../../test-fixtures/time-format-vectors.json' with { type: 'json' };
 
@@ -143,5 +143,20 @@ describe('time formatters (fixture-pinned, shared with js/utils.js)', () => {
   test.each(vectors)('presence-core time vectors: %j', ({ ms, precise, fuzzy }) => {
     expect(formatTimeRemaining(ms)).toBe(precise);
     expect(formatTimeRemainingFuzzy(ms)).toBe(fuzzy);
+  });
+});
+
+describe('statusCircle', () => {
+  const cases = [
+    ['#22c55e','🟢'],['#3b82f6','🔵'],['#818cf8','🔵'],['#f97316','🟠'],
+    ['#f43f5e','🔴'],['#06b6d4','🔵'],['#eab308','🟡'],['#10b981','🟢'],
+    ['#aaff00','🟢'],['#ff1aad','🔴'],['#0055ff','🔵'],['#00ff66','🟢'],
+    ['#ff3300','🔴'],['#00e5ff','🔵'],['#ffdd00','🟡'],['#8800ff','🟣'],
+    ['#fce7f3','⚪'],
+  ];
+  test.each(cases)('statusCircle(%s) = %s', (hex, circle) => expect(statusCircle(hex)).toBe(circle));
+  test('missing/invalid → green fallback', () => {
+    expect(statusCircle(null)).toBe('🟢');
+    expect(statusCircle('nope')).toBe('🟢');
   });
 });

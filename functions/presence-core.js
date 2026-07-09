@@ -111,3 +111,24 @@ export function buildMessage(type, name, opts = {}) {
   const title = opts.group ? GROUP_TITLES[type](n, clampLabel(opts.group)) : TITLES[type](n);
   return { title, body: '' };
 }
+
+// Quantizes a status-color hex to a single Telegram circle emoji. Fallback
+// for missing/invalid input is 🟢. Operator-reviewed against all 92 status-
+// color swatches (B#14b) — thresholds are pinned, do not "improve" them.
+export function statusCircle(hex) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return '🟢';
+  const r = parseInt(m[1].slice(0, 2), 16), g = parseInt(m[1].slice(2, 4), 16), b = parseInt(m[1].slice(4, 6), 16);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min, l = (max + min) / 2 / 255;
+  if (d < 30) return l > 0.82 ? '⚪' : l < 0.18 ? '⚫' : '⚪';
+  let h; if (max === r) h = ((g - b) / d) % 6; else if (max === g) h = (b - r) / d + 2; else h = (r - g) / d + 4;
+  h *= 60; if (h < 0) h += 360;
+  if (l < 0.28 && h >= 18 && h <= 45) return '🟤';
+  if (h < 15 || h >= 340) return '🔴';
+  if (h < 45) return '🟠';
+  if (h < 68) return '🟡';
+  if (h < 170) return '🟢';
+  if (h < 250) return '🔵';
+  if (h < 292) return '🟣';
+  return '🔴'; // magenta folds to red
+}
