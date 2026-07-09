@@ -61,16 +61,32 @@ export function parseDurationMinutes(raw) {
 // Format minutes as a human-readable duration: 30m or 2h (with decimals for >= 60m).
 const fmtMinutes = (m) => (m >= 60 ? `${Math.round((m / 60) * 10) / 10}h` : `${m}m`);
 
-const HELP_TEXT = [
-  'KnockKnock commands:',
-  '/status [group] [30m|2h] — go available (default 1h)',
-  '/off [group] — go unavailable',
-  '/who [group] — who\'s available now',
-  '/knock <name> — send a knock (searches your people, then your groups)',
-  '/groups — your groups',
-  '/notifications push|telegram — where notifications go',
-  '/help — this list',
-].join('\n');
+// B#11 (Spec 2 Task 6): the ONE source of truth for bot commands, feeding both
+// HELP_TEXT (chat reply below) and botCommandsPayload (deploy-time setMyCommands
+// registration — see setBotCommands in index.js). Previously HELP_TEXT was a
+// hand-maintained literal and the BotFather "/setcommands" menu was a SEPARATE
+// hand-maintained paste (docs/telegram-setup.md) — the two could silently drift.
+export const COMMANDS = [
+  { command: 'status',        args: '[group] [30m|2h]', description: 'go available (default 1h)' },
+  { command: 'off',           args: '[group]',          description: 'go unavailable' },
+  { command: 'who',           args: '[group]',          description: "who's available now" },
+  { command: 'knock',         args: '<name>',           description: 'send a knock (searches your people, then your groups)' },
+  { command: 'groups',        args: '',                 description: 'your groups' },
+  { command: 'notifications', args: 'push|telegram',    description: 'where notifications go' },
+  { command: 'help',          args: '',                 description: 'this list' },
+];
+const cmdLine = (c) => `/${c.command}${c.args ? ` ${c.args}` : ''} — ${c.description}`;
+export const HELP_TEXT = ['KnockKnock commands:', ...COMMANDS.map(cmdLine)].join('\n');
+
+// [{command, description}] for the Bot API's setMyCommands (bare command, no
+// slash; description folds in the arg hint since BotFather has no separate
+// "args" field). Consumed by setBotCommands (index.js) at deploy time.
+export function botCommandsPayload() {
+  return COMMANDS.map((c) => ({
+    command: c.command,
+    description: (c.args ? `${c.args} — ${c.description}` : c.description).slice(0, 256),
+  }));
+}
 
 const KNOCK_CAP_TEXT = "You've already knocked a few times — give them a moment.";
 

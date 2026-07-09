@@ -62,18 +62,10 @@ itself — additive, inert without env config, and disposable by nature on dev.
 1. In Telegram, talk to **@BotFather** → `/newbot` → pick a throwaway name
    and username (e.g. `KnockKnockDevBot`). Save the token it prints — this is
    the TEST bot token, used only with the dev project.
-2. `/setcommands` → choose the test bot → paste:
-
-       start - Open KnockKnock
-       status - Go available (e.g. /status 2h)
-       off - Go unavailable
-       who - Who's available now
-       knock - Knock someone (/knock name)
-       groups - Your groups
-       notifications - Delivery channel (push|telegram)
-       help - Commands
-
-   (The menu button comes later, in A6 — the preview URL doesn't exist yet.)
+2. Skip BotFather's `/setcommands` — the "/" command menu is registered from
+   code (the `COMMANDS` list in `functions/telegram.js`, the same source
+   `/help` renders from) by calling the `setBotCommands` function once
+   deployed. See A5.4.
 3. `/setdescription` and `/setabouttext` → choose the test bot → paste
    (draft copy; tune wording in BotFather any time, no code change needed):
 
@@ -129,6 +121,17 @@ the bundle carries the dev project's Firebase config and the branch's
 3. Note the webhook function's URL in the deploy output
    (`telegramWebhook`, shaped like
    `https://<region>-<devProject>.cloudfunctions.net/telegramWebhook`).
+
+4. Register the "/" command menu (replaces the old BotFather `/setcommands`
+   paste — the menu now comes from the `COMMANDS` list in
+   `functions/telegram.js`, which also drives `/help`). Guarded the same way
+   as the webhook, so pass the shared secret as a header:
+
+       curl -sS -X POST "https://<region>-$DEV_PROJECT.cloudfunctions.net/setBotCommands" \
+         -H "x-telegram-bot-api-secret-token: <TELEGRAM_WEBHOOK_SECRET>"
+
+   Re-run this after any redeploy where `COMMANDS` changed — it's not
+   automatic.
 
 ### A6. Point the test bot's menu button at the preview URL
 
@@ -362,17 +365,9 @@ production bot**. Do not reuse the test bot or any of its values.
 1. **@BotFather** → `/newbot` → the real name and username (e.g.
    `KnockKnockBot`). Save the token — this is the PROD bot token; treat it
    like a production credential.
-2. `/setcommands` → choose the prod bot → paste:
-
-       start - Open KnockKnock
-       status - Go available (e.g. /status 2h)
-       off - Go unavailable
-       who - Who's available now
-       knock - Knock someone (/knock name)
-       groups - Your groups
-       notifications - Delivery channel (push|telegram)
-       help - Commands
-
+2. Skip BotFather's `/setcommands` — the "/" command menu is registered from
+   code (the `COMMANDS` list in `functions/telegram.js`, the same source
+   `/help` renders from) by calling the `setBotCommands` function after B4.
 3. `/setdescription` and `/setabouttext` → choose the prod bot → paste
    (draft copy; tune wording in BotFather any time, no code change needed):
 
@@ -422,6 +417,15 @@ If you prefer explicit steps, that is equivalent to:
 
 Note the `telegramWebhook` URL in the deploy output
 (`https://<region>-<prodProject>.cloudfunctions.net/telegramWebhook`).
+
+Register the "/" command menu (replaces the old BotFather `/setcommands`
+paste — the menu now comes from the `COMMANDS` list in
+`functions/telegram.js`, which also drives `/help`):
+
+    curl -sS -X POST "https://<region>-$PROD_PROJECT.cloudfunctions.net/setBotCommands" \
+      -H "x-telegram-bot-api-secret-token: <PROD TELEGRAM_WEBHOOK_SECRET>"
+
+Re-run this after any redeploy where `COMMANDS` changed — it's not automatic.
 
 ### B5. Point the prod bot's menu button at the production URL
 

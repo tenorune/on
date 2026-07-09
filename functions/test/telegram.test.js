@@ -1,7 +1,32 @@
 import { jest } from '@jest/globals';
 import { makeStoreDeps as makeCoreStoreDeps } from './store-deps.js';
-import { buildNotificationKeyboard, handleUpdate, parseDurationMinutes, webhookAuthorized, resolveSourceMessage, pickPlayfulEmoji } from '../telegram.js';
+import { buildNotificationKeyboard, handleUpdate, parseDurationMinutes, webhookAuthorized, resolveSourceMessage, pickPlayfulEmoji, HELP_TEXT, COMMANDS, botCommandsPayload } from '../telegram.js';
 import { GROUP_ID_RE, UID_RE } from '../telegram-shared.js';
+
+// B#11 (Spec 2 Task 6): COMMANDS is the single source of truth feeding both
+// HELP_TEXT (chat reply) and botCommandsPayload (deploy-time setMyCommands) —
+// replacing a hand-maintained BotFather list that could drift from /help.
+describe('COMMANDS', () => {
+  test('HELP_TEXT derives from COMMANDS, byte-identical to today', () => {
+    expect(HELP_TEXT).toBe([
+      'KnockKnock commands:',
+      '/status [group] [30m|2h] — go available (default 1h)',
+      '/off [group] — go unavailable',
+      "/who [group] — who's available now",
+      '/knock <name> — send a knock (searches your people, then your groups)',
+      '/groups — your groups',
+      '/notifications push|telegram — where notifications go',
+      '/help — this list',
+    ].join('\n'));
+  });
+  test('botCommandsPayload → bare command + arg-hinted description', () => {
+    expect(botCommandsPayload()).toContainEqual({ command: 'status', description: '[group] [30m|2h] — go available (default 1h)' });
+    botCommandsPayload().forEach((c) => { expect(c.command).not.toMatch(/\//); expect(c.description.length).toBeLessThanOrEqual(256); });
+  });
+  test('botCommandsPayload has one entry per COMMANDS entry, in order', () => {
+    expect(botCommandsPayload().map((c) => c.command)).toEqual(COMMANDS.map((c) => c.command));
+  });
+});
 
 // The id-format regexes are the callback trust boundary (Admin-SDK writes
 // bypass DB rules) — functions/ keeps ONE copy, in telegram-shared.js.

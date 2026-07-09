@@ -10,7 +10,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
 import { resolveInvitePreviewHandler } from './invites.js';
 import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, graduateTelegramHandler } from './telegram-auth.js';
-import { buildNotificationKeyboard, handleUpdate, webhookAuthorized } from './telegram.js';
+import { buildNotificationKeyboard, handleUpdate, webhookAuthorized, botCommandsPayload } from './telegram.js';
 
 // Pin all functions to the RTDB's region. A 2nd-gen RTDB trigger MUST run in the
 // same region as the database instance. Region is per-project config: the Firebase
@@ -262,5 +262,23 @@ export const telegramWebhook = onRequest(async (req, res) => {
     res.status(200).json(method);
     return;
   }
+  res.status(200).send('ok');
+});
+
+// Deploy-time menu registration (B#11 / Spec 2 Task 6): pushes the Telegram
+// "/" command menu from COMMANDS — the same source of truth that derives
+// HELP_TEXT — via the Bot API's setMyCommands. Replaces the old manual
+// BotFather "/setcommands" paste (docs/telegram-setup.md), which could drift
+// from /help. Run once per deploy, at the A5 redeploy step. Guarded the same
+// way as telegramWebhook (token configured + shared-secret header) since it's
+// a mutating, unauthenticated-by-default HTTP endpoint; the deploy step must
+// pass the x-telegram-bot-api-secret-token header (see docs/telegram-setup.md).
+export const setBotCommands = onRequest(async (req, res) => {
+  if (!process.env.TELEGRAM_BOT_TOKEN) { res.status(503).send('bot not configured'); return; }
+  if (!webhookAuthorized(req.get('x-telegram-bot-api-secret-token'), process.env.TELEGRAM_WEBHOOK_SECRET)) {
+    res.status(403).send('forbidden');
+    return;
+  }
+  await tgApi('setMyCommands', { commands: botCommandsPayload() });
   res.status(200).send('ok');
 });
