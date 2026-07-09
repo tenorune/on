@@ -327,7 +327,7 @@ describe('app.js: J#15 first-accept "tap to knock" beat', () => {
 
     const beatShown = handleInviteRedemptionResult({ ok: true, creatorUid: 'u1', creatorCode: 'U1CODE', creatorLabel: 'Ana' });
 
-    expect(showToast).toHaveBeenCalledWith("You're following Ana — tap their card to knock.");
+    expect(showToast).toHaveBeenCalledWith("You're following Ana — you'll see when they're around.");
     expect(sessionStorage.getItem('kk-first-follow')).toBeTruthy();
     expect(beatShown).toBe(true);
   });
@@ -339,7 +339,7 @@ describe('app.js: J#15 first-accept "tap to knock" beat', () => {
 
     const beatShown = handleInviteRedemptionResult({ ok: true, creatorUid: 'u2', creatorCode: 'U2CODE', creatorLabel: 'Bo' });
 
-    expect(showToast).not.toHaveBeenCalledWith("You're following Bo — tap their card to knock.");
+    expect(showToast).not.toHaveBeenCalledWith("You're following Bo — you'll see when they're around.");
     expect(showToast).not.toHaveBeenCalled();
     expect(beatShown).toBe(false);
   });
@@ -396,7 +396,7 @@ describe('app.js: call-site reconciliation of the beat vs. the Telegram silent-r
     reconcileSilentRedeemToast(result, tgInvite, beatShown);
 
     expect(showToast).toHaveBeenCalledTimes(1);
-    expect(showToast).toHaveBeenCalledWith("You're following Ana — tap their card to knock.");
+    expect(showToast).toHaveBeenCalledWith("You're following Ana — you'll see when they're around.");
     expect(sessionStorage.getItem('kk-first-follow')).toBeTruthy();
   });
 
@@ -438,6 +438,6 @@ describe('app.js: call-site reconciliation of the beat vs. the Telegram silent-r
     reconcileSilentRedeemToast(result, tgInvite, beatShown);
 
     expect(showToast).toHaveBeenCalledTimes(1);
-    expect(showToast).toHaveBeenCalledWith("You're following Cy — tap their card to knock.");
+    expect(showToast).toHaveBeenCalledWith("You're following Cy — you'll see when they're around.");
   });
 });

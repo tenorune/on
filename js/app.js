@@ -493,7 +493,7 @@ function handleInviteRedemptionResult(result) {
     // in the user's Following list once their watch subscriptions tick.
     if (!result.groupId && !sessionStorage.getItem(FIRST_FOLLOW_KEY)) {
       try { sessionStorage.setItem(FIRST_FOLLOW_KEY, '1'); } catch { /* storage denied */ }
-      showToast(`You're following ${result.creatorLabel} — tap their card to knock.`);
+      showToast(`You're following ${result.creatorLabel} — you'll see when they're around.`);
       // Return value tells the call site the beat toast already ran (see
       // main()'s Telegram silent-redeem block), so it can skip the
       // redundant "You're now following X." toast that would otherwise
@@ -518,7 +518,7 @@ function reconcileSilentRedeemToast(result, tgInvite, beatShown) {
   if (tgInvite.preview.scope === 'group') {
     showToast(`You joined ${tgInvite.preview.groupName}.`);
   } else if (!beatShown) {
-    // The beat toast ("You're following X — tap their card to knock.") is a
+    // The beat toast ("You're following X — you'll see when they're around.") is a
     // strict superset of this plain confirm, so only show this one when the
     // beat didn't already fire (non-first-follow-of-session case).
     showToast(`You're now following ${tgInvite.preview.label}.`);
