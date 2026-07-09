@@ -50,6 +50,14 @@ test('extractStartParamToken: valid token / garbage / missing / outside TG', () 
   expect(extractStartParamToken()).toBeNull();
 });
 
+test('extractStartParamToken: ignores lk_ link-onramp tokens (telegramLinkArrival owns those)', () => {
+  isTelegramContext.mockReturnValue(true);
+  mockWa.initDataUnsafe = { start_param: 'lk_tok0000000000000000' };
+  expect(extractStartParamToken()).toBeNull();
+  mockWa.initDataUnsafe = { start_param: TOKEN };
+  expect(extractStartParamToken()).toBe(TOKEN);
+});
+
 test('no token → null, preview never fetched', async () => {
   expect(await telegramInviteGate({ linked: false, dismissSplash: jest.fn() })).toBeNull();
   expect(resolveInvitePreview).not.toHaveBeenCalled();

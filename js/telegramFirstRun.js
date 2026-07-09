@@ -12,6 +12,7 @@ import { showToast } from './groups.js';
 export function extractStartParamToken() {
   if (!isTelegramContext()) return null;
   const p = tgWebApp()?.initDataUnsafe?.start_param;
+  if (typeof p === 'string' && p.startsWith('lk_')) return null; // link-onramp token (telegramLinkArrival), not an invite
   return (typeof p === 'string' && /^[A-Za-z0-9_-]{10,64}$/.test(p)) ? p : null;
 }
 

@@ -3,7 +3,7 @@
 // the web account, with a confirm-before-replace when this Telegram already has
 // its own account. Returns true when it handled the lk_ path (caller then skips
 // the normal invite flow).
-import { isTelegramContext, tgWebApp } from './telegram.js';
+import { isTelegramContext, tgWebApp, isTelegramLinked } from './telegram.js';
 import { callRedeemTelegramLinkToken } from './firebase-config.js';
 import { showConfirmModal } from './promptModal.js';
 import { showToast } from './groups.js';
@@ -20,6 +20,10 @@ export function extractLinkToken() {
 export async function runLinkArrival({ dismissSplash } = {}) {
   const token = extractLinkToken();
   if (!token) return false;
+  // The post-success reload re-presents the same start_param, but the token
+  // is already consumed and this Telegram is already linked — don't
+  // re-attempt (would toast a spurious "expired").
+  if (isTelegramLinked()) return false;
   const initData = tgWebApp()?.initData;
   try {
     const res = await callRedeemTelegramLinkToken(initData, token, false);
@@ -32,7 +36,7 @@ export async function runLinkArrival({ dismissSplash } = {}) {
         busyLabel: 'Linking…',
         onConfirm: async () => { await callRedeemTelegramLinkToken(initData, token, true); },
       });
-      if (!ok) return true; // cancelled — stay on this Telegram account
+      if (!ok) return false; // cancelled — let boot render the derived account
     }
     stampLinkedNotice();
     window.location.reload(); // reboot via initData into the linked account
@@ -40,6 +44,6 @@ export async function runLinkArrival({ dismissSplash } = {}) {
   } catch {
     dismissSplash?.();
     showToast('That link expired — tap Use in Telegram again on the web.');
-    return true;
+    return false; // keep the toast; let boot render the derived account
   }
 }

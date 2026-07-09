@@ -7,6 +7,7 @@ let startParam = 'lk_tok0000000000000000';
 const mockTelegram = {
   isTelegramContext: jest.fn(() => true),
   tgWebApp: jest.fn(() => ({ initData: 'INIT', initDataUnsafe: { start_param: startParam } })),
+  isTelegramLinked: jest.fn(() => false),
 };
 const mockRedeem = jest.fn();
 const mockConfirm = jest.fn();
@@ -27,6 +28,7 @@ beforeEach(() => {
   startParam = 'lk_tok0000000000000000';
   mockTelegram.isTelegramContext.mockReturnValue(true);
   mockTelegram.tgWebApp.mockImplementation(() => ({ initData: 'INIT', initDataUnsafe: { start_param: startParam } }));
+  mockTelegram.isTelegramLinked.mockReturnValue(false);
   telegramLinkArrival = require('../js/telegramLinkArrival.js');
 });
 // Note: jsdom's window.location.reload is a non-configurable, non-writable
@@ -94,21 +96,28 @@ describe('runLinkArrival', () => {
     expect(mockStampLinked).toHaveBeenCalled();
   });
 
-  test('needsConfirm + cancel → handled, no stamp (cancelled before the reload gate)', async () => {
+  test('needsConfirm + cancel → not handled, no stamp (let boot render the derived account)', async () => {
     mockRedeem.mockResolvedValueOnce({ needsConfirm: true, counts: { contacts: 1, groups: 0 } });
     mockConfirm.mockResolvedValueOnce(false);
     const handled = await telegramLinkArrival.runLinkArrival({ dismissSplash: jest.fn() });
-    expect(handled).toBe(true);
+    expect(handled).toBe(false);
     expect(mockStampLinked).not.toHaveBeenCalled();
   });
 
-  test('expired token → toast, handled, no stamp', async () => {
+  test('expired token → toast, not handled, no stamp (let boot render the derived account)', async () => {
     mockRedeem.mockRejectedValueOnce(new Error('expired'));
     const dismissSplash = jest.fn();
     const handled = await telegramLinkArrival.runLinkArrival({ dismissSplash });
-    expect(handled).toBe(true);
+    expect(handled).toBe(false);
     expect(mockToast).toHaveBeenCalled();
     expect(dismissSplash).toHaveBeenCalled();
     expect(mockStampLinked).not.toHaveBeenCalled();
+  });
+
+  test('already linked (post-success reload re-presenting the same start_param) → false, no redeem call', async () => {
+    mockTelegram.isTelegramLinked.mockReturnValue(true);
+    const handled = await telegramLinkArrival.runLinkArrival({ dismissSplash: jest.fn() });
+    expect(handled).toBe(false);
+    expect(mockRedeem).not.toHaveBeenCalled();
   });
 });
