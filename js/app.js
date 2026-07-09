@@ -672,7 +672,9 @@ async function main() {
     if (result && result.ok === false && result.reason === 'needs-display-name') {
       previewGroupName = result.groupName;
       const promptName = previewGroupName || 'this group';
-      const displayName = await showGroupDisplayNamePrompt(promptName);
+      // C#8: prefill the Telegram first name (empty on web) so the Mini-App
+      // prompt agrees with the bot's silent auto-fill instead of opening blank.
+      const displayName = await showGroupDisplayNamePrompt(promptName, telegramFirstName());
       // Pass the cache forward so the second call doesn't re-fetch the
       // invite index + group record.
       result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {

@@ -58,6 +58,12 @@ export function parseDurationMinutes(raw) {
   return clamp(parseInt(m[1] || '0', 10) * 60 + parseInt(m[2] || '0', 10));
 }
 
+// A failed group query that reads like a botched duration (a digit, a time
+// word, or "for") earns a format hint rather than a bare "no group" (B#4).
+function looksLikeDuration(s) {
+  return /\d/.test(s) || /\b(for|hours?|hrs?|mins?|minutes?)\b/i.test(s);
+}
+
 // B#11 (Spec 2 Task 6): the ONE source of truth for bot commands, feeding both
 // HELP_TEXT (chat reply below) and botCommandsPayload (deploy-time setMyCommands
 // registration — see setBotCommands in index.js). Previously HELP_TEXT was a
@@ -275,9 +281,9 @@ async function matchGroupsByName(deps, uid, query) {
 // Shared arity guard for group-arg commands: replies and returns null unless
 // exactly one group matches. No inline keyboard — /status//off carry extra
 // args that don't fit a callback, so the retry is plain text for all three.
-async function resolveGroupArg(deps, uid, query, reply) {
+async function resolveGroupArg(deps, uid, query, reply, noMatchHint = '') {
   const matches = await matchGroupsByName(deps, uid, query);
-  if (matches.length === 0) { await reply(`No group matching "${query}".`); return null; }
+  if (matches.length === 0) { await reply(`No group matching "${query}".${noMatchHint}`); return null; }
   if (matches.length > 1) {
     await reply(`Which group? ${matches.map((m) => m.name).join(', ')} — give me more letters.`);
     return null;
@@ -295,8 +301,8 @@ async function resolveGroupArg(deps, uid, query, reply) {
 // needs it — one wasted read on the ON path buys a round-trip of latency.
 // `fields` is a thunk evaluated at write time so availableUntil is stamped
 // from now() AFTER the reads, exactly as the pre-merge handlers did.
-async function setGroupPresence(deps, uid, query, reply, fields, messages) {
-  const match = await resolveGroupArg(deps, uid, query, reply);
+async function setGroupPresence(deps, uid, query, reply, fields, messages, noMatchHint = '') {
+  const match = await resolveGroupArg(deps, uid, query, reply, noMatchHint);
   if (!match) return;
   const [override, presence] = await Promise.all([
     deps.getVal(`groups/${match.gid}/members/${uid}/statusOverride`),
@@ -315,13 +321,15 @@ async function setGroupPresence(deps, uid, query, reply, fields, messages) {
 }
 
 async function handleGroupStatus(deps, uid, query, minutes, reply) {
+  const noMatchHint = looksLikeDuration(query) ? ' Durations look like 2h or 30m — try /status 2h.' : '';
   await setGroupPresence(deps, uid, query, reply,
     () => ({ status: 'available', availableUntil: deps.now() + minutes * 60000 }),
     {
       confirm: (name, color) => `You're ${statusCircle(color)} available in ${name} for ${formatTimeRemaining(minutes * 60000)}. /off ${name} to stop.`,
       globalOn: (name) => `${name} follows your global status — you're already available there.`,
       globalOff: (name) => `${name} follows your global status. /status goes available everywhere, or turn on a group status in the app.`,
-    });
+    },
+    noMatchHint);
 }
 
 async function handleGroupOff(deps, uid, query, reply) {
@@ -396,6 +404,12 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
     const groupQuery = args.join(' ').trim();
     if (groupQuery) { await handleWhoGroup(deps, uid, groupQuery, reply); return; }
     const following = await readFollowing(deps, uid);
+    if (following.length === 0) {
+      // B#5: a zero-follow newcomer (the persona the funnel creates) gets the
+      // real next step, not the dead-end "No one is available right now."
+      await reply("You're not following anyone yet — invite people from the app.", openAppKeyboard(deps.appUrl));
+      return;
+    }
     const lines = (await Promise.all(following.map(async (entry) => {
       const presence = await deps.getVal(`users/${entry.userId}/presence`);
       if (!primaryAvailable(presence, deps.now())) return null;
@@ -558,7 +572,8 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
       [`users/${me}/groups/${groupId}`]: { lastVisited: now },
       ...pendingNulls,
     });
-    await resolveSourceMessage(deps, cq, `✅ Joined ${name}.`);
+    // B#6: disclose the 2h availability the join silently set, and point at /off.
+    await resolveSourceMessage(deps, cq, `✅ Joined ${name} — you're shown available there for 2h. /off ${name} to change.`);
     await answer(`Joined ${name}.`);
     return;
   }

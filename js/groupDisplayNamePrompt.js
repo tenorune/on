@@ -4,7 +4,10 @@
 //   - app.js boot-time link-join flow (Flow A in the groups design spec)
 //   - inbox.js Inbox-Join flow (Flow C)
 
-export function showGroupDisplayNamePrompt(groupName) {
+// `defaultValue` prefills the input — passed as telegramFirstName() in Telegram
+// context (C#8) so the Mini-App prompt agrees with the bot's silent auto-fill;
+// '' on web, so that path opens blank as before.
+export function showGroupDisplayNamePrompt(groupName, defaultValue = '') {
   const screen = document.getElementById('group-displayname-screen');
   const framing = document.getElementById('group-displayname-framing');
   const input = document.getElementById('group-displayname-input');
@@ -14,7 +17,7 @@ export function showGroupDisplayNamePrompt(groupName) {
   framing.textContent = `What name would you like to use in '${groupName}'?`;
   errEl.textContent = '';
   errEl.classList.add('hidden');
-  input.value = '';
+  input.value = defaultValue || '';
   screen.classList.remove('hidden');
 
   return new Promise((resolve, reject) => {

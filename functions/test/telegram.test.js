@@ -314,6 +314,17 @@ describe('handleUpdate: /status and /off', () => {
     expect(deps.update).not.toHaveBeenCalled();
     expect(reply.text).toBe('No group matching "whenever".');
   });
+  // B#4 (issue #285): a mistyped duration (`/status 2 hours`) fails the duration
+  // parse, is treated as a group query, matches nothing — the no-match reply now
+  // carries a format hint. A plain unknown word (above) still gets NO hint.
+  test('/status <duration typo> → no-match reply carries a duration format hint (B#4)', async () => {
+    const deps = makeBotDeps();
+    seedUser(deps.store);
+    const reply = await handleUpdate(deps, msgUpdate('/status 2 hours'));
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(reply.text).toContain('No group matching "2 hours".');
+    expect(reply.text).toMatch(/2h or 30m/);
+  });
   test('/off → unavailable, cleared availableUntil', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
@@ -327,6 +338,27 @@ describe('handleUpdate: /status and /off', () => {
     const reply = await handleUpdate(deps, msgUpdate('/status 30m'));
     expect(deps.update).not.toHaveBeenCalled();
     expect(reply.text).toMatch(/open/i);
+  });
+});
+
+// B#5 (issue #285): bare /who for a zero-follow newcomer distinguishes "you
+// don't follow anyone yet" from "nobody's free", instead of the dead-end
+// "No one is available right now."
+describe('handleUpdate: bare /who newcomer (B#5)', () => {
+  test('zero-follow user → "not following anyone yet", not "No one is available"', async () => {
+    const deps = makeBotDeps();
+    seedUser(deps.store); // mapping + presence, no following
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).toContain('not following anyone yet');
+    expect(reply.text).not.toContain('No one is available');
+  });
+  test('user who follows someone (none available) still gets "No one is available"', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/following`] = { f1: { code: 'BBBBBB', label: 'Ana' } };
+    deps.store['users/f1/presence'] = { status: 'unavailable', availableUntil: null };
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).toBe('No one is available right now.');
   });
 });
 
@@ -945,6 +977,20 @@ describe('inbox callbacks', () => {
     expect(deps.store[`pendingInvitesByGroup/${GID}/${uid}`]).toBeNull();
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringContaining('Divers'));
   });
+  // B#6 (issue #285): the bot join silently sets a 2h availability override —
+  // the outcome message now discloses it and points at /off, not just "Joined X."
+  test('invite_accept: joined message discloses the 2h availability + /off hint (B#6)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
+    deps.store[`groups/${GID}/name`] = 'Divers';
+    const update = { callback_query: { id: 'cb1', data: `invite_accept:${GID}`,
+      from: { id: 42, first_name: 'Ada' },
+      message: { message_id: 7, chat: { id: 42 }, text: 'Someone invited you to Divers' } } };
+    await handleUpdate(deps, update);
+    expect(deps.tg.editMessageText).toHaveBeenCalledWith('42', 7,
+      "Someone invited you to Divers\n\n✅ Joined Divers — you're shown available there for 2h. /off Divers to change.");
+  });
   test('invite_accept when already a member → just clears the pending invite', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
@@ -1221,7 +1267,7 @@ describe('invite callbacks are state-checked and self-recording (W1 B#1)', () =>
     const reply = await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
     expect(store[`groups/${GID}/members/${uid}`]).toMatchObject({ role: 'member' });
     expect(deps.tg.editMessageText).toHaveBeenCalledWith(
-      '42', 7, 'Ada invited you to Divers\n\n✅ Joined Divers.');
+      '42', 7, "Ada invited you to Divers\n\n✅ Joined Divers — you're shown available there for 2h. /off Divers to change.");
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Joined Divers.');
   });
 
