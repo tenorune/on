@@ -4,7 +4,7 @@
 import { timingSafeEqual } from 'crypto';
 import { ensureTelegramUser } from './telegram-auth.js';
 import { WELCOME_STRANGER_TEXT, openAppKeyboard, GROUP_ID_RE, UID_RE, rootUpdate } from './telegram-shared.js';
-import { effectiveAvailable, primaryAvailable, clampName } from './presence-core.js';
+import { effectiveAvailable, primaryAvailable, clampName, statusCircle, formatTimeRemainingFuzzy } from './presence-core.js';
 
 // Required format of each callback action's arg, checked before dispatch.
 // A malformed arg — or an unknown action — is refused without touching the DB.
@@ -344,9 +344,14 @@ async function handleWhoGroup(deps, uid, query, reply) {
   const coMembers = Object.entries(members).filter(([mid]) => mid !== uid);
   const lines = (await Promise.all(coMembers.map(async ([mid, m]) => {
     const presence = await deps.getVal(`users/${mid}/presence`);
-    return effectiveAvailable(m?.statusOverride, presence?.status, presence?.availableUntil, deps.now())
-      ? `🟢 ${m?.displayName || 'Someone'}`
-      : null;
+    if (!effectiveAvailable(m?.statusOverride, presence?.status, presence?.availableUntil, deps.now())) return null;
+    const ov = m?.statusOverride;
+    const on = ov && ov.enabled === true;
+    const color = on ? ov.statusColor : presence?.statusColor;
+    const until = on ? ov.availableUntil : presence?.availableUntil;
+    const remaining = formatTimeRemainingFuzzy(until - deps.now());
+    const tail = remaining ? ` — ${remaining} left` : '';
+    return `${statusCircle(color)} ${m?.displayName || 'Someone'}${tail}`;
   }))).filter(Boolean);
   await reply(lines.length
     ? `Available in ${match.name}:\n${lines.join('\n')}`
@@ -393,7 +398,10 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
     const following = await readFollowing(deps, uid);
     const lines = (await Promise.all(following.map(async (entry) => {
       const presence = await deps.getVal(`users/${entry.userId}/presence`);
-      return primaryAvailable(presence, deps.now()) ? `🟢 ${entry.label || entry.code}` : null;
+      if (!primaryAvailable(presence, deps.now())) return null;
+      const remaining = formatTimeRemainingFuzzy(presence.availableUntil - deps.now());
+      const tail = remaining ? ` — ${remaining} left` : '';
+      return `${statusCircle(presence.statusColor)} ${entry.label || entry.code}${tail}`;
     }))).filter(Boolean);
     await reply(lines.length ? `Available now:\n${lines.join('\n')}` : 'No one is available right now.');
     return;

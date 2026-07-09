@@ -498,6 +498,23 @@ describe('handleUpdate: /who', () => {
     reply = await handleUpdate(deps, msgUpdate('/who'));
     expect(reply.text).toMatch(/no one|nobody/i);
   });
+
+  // Spec 2 Task 9 (B#14c): each available follower's line gets a status-color
+  // circle (quantized from presence.statusColor) and a fuzzy time-remaining
+  // tail, so /who conveys more than a flat name list.
+  test('shows each person\'s status-color circle + fuzzy time remaining', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/following`] = {
+      f1: { code: 'CODE01', label: 'Ana' },
+      f2: { code: 'CODE02', label: 'Dee' },
+    };
+    // Ana: blue swatch, ~30m left ("about half an hour"). Dee: no color (default 🟢), ~4m left ("just a few minutes").
+    deps.store['users/f1/presence'] = { status: 'available', statusColor: '#3b82f6', availableUntil: 2_800_000 };
+    deps.store['users/f2/presence'] = { status: 'available', availableUntil: 1_240_000 };
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).toBe('Available now:\n🔵 Ana — about half an hour left\n🟢 Dee — just a few minutes left');
+  });
 });
 
 describe('handleUpdate: /who <group>', () => {
@@ -552,6 +569,29 @@ describe('handleUpdate: /who <group>', () => {
     expect(text).toContain('Divers');
     expect(text).toContain('Dive Club');
     expect(text).toMatch(/more letters/i);
+  });
+
+  // Spec 2 Task 9 (B#14c): the group roster line uses the member's EFFECTIVE
+  // color/time (enabled override wins over primary presence), same as the
+  // effectiveAvailable predicate already gating the line.
+  test('/who <group> uses effective (override) color + time', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G1/members'] = {
+      [uid]: { displayName: 'Me' },
+      m1: {
+        displayName: 'Ivy',
+        statusOverride: { enabled: true, status: 'available', statusColor: '#8800ff', availableUntil: 8_500_000 },
+      },
+    };
+    // Primary presence is unavailable — the override must win, both for the
+    // availability gate and for which color/time gets shown.
+    deps.store['users/m1/presence'] = { status: 'unavailable', availableUntil: null };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toContain('🟣 ');
+    expect(reply.text).toContain('just over two hours left');
   });
 });
 
@@ -969,7 +1009,7 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     const probe = withConcurrencyProbe(deps);
     const reply = await handleUpdate(deps, msgUpdate('/who'));
     expect(probe.max).toBeGreaterThanOrEqual(3);
-    expect(reply.text).toBe('Available now:\n🟢 Bea');
+    expect(reply.text).toBe('Available now:\n🟢 Bea — about 15 minutes left');
   });
 
   test('/who <group> reads co-member presences concurrently', async () => {
@@ -987,7 +1027,7 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     const probe = withConcurrencyProbe(deps);
     const reply = await handleUpdate(deps, msgUpdate('/who divers'));
     expect(probe.max).toBeGreaterThanOrEqual(3);
-    expect(reply.text).toBe('Available in Divers:\n🟢 Bea');
+    expect(reply.text).toBe('Available in Divers:\n🟢 Bea — about 15 minutes left');
   });
 
   test('/groups reads every group\'s name+override concurrently', async () => {
