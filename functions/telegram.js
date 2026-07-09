@@ -445,7 +445,10 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
     });
     const offNames = rows.filter((r) => !r.on).map((r) => r.name);
     const parts = [...availLines];
-    if (offNames.length) parts.push(`Unavailable in ${offNames.join(', ')}`);
+    if (offNames.length) {
+      if (availLines.length) parts.push(''); // blank separator, only when rows sit above the summary
+      parts.push(`Unavailable in ${offNames.join(', ')}`);
+    }
     await reply(parts.join('\n'));
   }
 }

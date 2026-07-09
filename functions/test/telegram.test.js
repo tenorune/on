@@ -791,7 +791,7 @@ describe('handleUpdate: /groups', () => {
     // Divers: enabled override, available, no statusColor → default 🟢 circle,
     // 16m left (2_000_000 - now=1_000_000). Family: disabled override → falls
     // back to primary presence (unavailable) → collapsed into the summary.
-    expect(reply.text).toBe('🟢 Divers — 16m left\nUnavailable in Family');
+    expect(reply.text).toBe('🟢 Divers — 16m left\n\nUnavailable in Family');
   });
   test('no groups → pointer to the app', async () => {
     const deps = makeBotDeps();
@@ -818,7 +818,7 @@ describe('handleUpdate: /groups', () => {
     // G3 (Hiking) and G4 (Chess) have no override → fall back to the seeded
     // unavailable primary presence.
     const reply = await handleUpdate(deps, msgUpdate('/groups'));
-    expect(reply.text).toBe('🔵 Divers — 1h 35m left\n🟠 Book Club — 45m left\nUnavailable in Hiking, Chess');
+    expect(reply.text).toBe('🔵 Divers — 1h 35m left\n🟠 Book Club — 45m left\n\nUnavailable in Hiking, Chess');
   });
   test('/groups: all available → no summary line', async () => {
     const deps = makeBotDeps();
