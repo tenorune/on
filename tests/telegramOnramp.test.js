@@ -84,3 +84,68 @@ describe('telegramOnramp', () => {
     open.mockRestore();
   });
 });
+
+describe('telegramOnramp DOM (initTelegramOnramp / syncTelegramOnramp)', () => {
+  function mountDom() {
+    document.body.innerHTML = `
+      <div id="tg-onramp-promo" class="hidden"><button id="tg-onramp-action"></button><button id="tg-onramp-dismiss"></button></div>
+      <div id="drawer-section-tg-onramp" class="hidden"><button id="tg-onramp-drawer-btn"></button></div>`;
+  }
+
+  beforeEach(() => {
+    jest.resetModules();
+    // An earlier test in this file (`disabled inside Telegram`) doMocks
+    // isTelegramContext → true; that override survives resetModules, so
+    // re-assert the false case here rather than relying on the top-level mock.
+    jest.doMock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
+    mockMint.mockClear();
+    localStorage.clear();
+    process.env.TELEGRAM_APP_LINK = 'https://t.me/knockbot/app';
+    mountDom();
+  });
+
+  test('init shows banner + card when enabled and unlinked', () => {
+    const { initTelegramOnramp } = require('../js/telegramOnramp.js');
+    initTelegramOnramp();
+    expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('drawer-section-tg-onramp').classList.contains('hidden')).toBe(false);
+  });
+
+  test('dismiss hides the banner forever (device-local), card stays', () => {
+    const { initTelegramOnramp } = require('../js/telegramOnramp.js');
+    initTelegramOnramp();
+    document.getElementById('tg-onramp-dismiss').click();
+    expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(true);
+    mountDom();
+    initTelegramOnramp(); // re-mount = new "session"
+    expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('drawer-section-tg-onramp').classList.contains('hidden')).toBe(false);
+  });
+
+  test('syncTelegramOnramp hides both once linked', () => {
+    const { initTelegramOnramp, syncTelegramOnramp } = require('../js/telegramOnramp.js');
+    initTelegramOnramp();
+    syncTelegramOnramp({ telegram: { tgId: '42' } });
+    expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('drawer-section-tg-onramp').classList.contains('hidden')).toBe(true);
+  });
+
+  test('init hides both when disabled (no app link configured)', () => {
+    process.env.TELEGRAM_APP_LINK = '';
+    const { initTelegramOnramp } = require('../js/telegramOnramp.js');
+    initTelegramOnramp();
+    expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('drawer-section-tg-onramp').classList.contains('hidden')).toBe(true);
+  });
+
+  test('action button starts the onramp flow', async () => {
+    const { initTelegramOnramp } = require('../js/telegramOnramp.js');
+    const open = jest.spyOn(window, 'open').mockReturnValue({});
+    initTelegramOnramp();
+    document.getElementById('tg-onramp-action').click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mockMint).toHaveBeenCalledTimes(1);
+    open.mockRestore();
+  });
+});

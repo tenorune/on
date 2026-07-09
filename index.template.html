@@ -288,6 +288,11 @@
             <p id="rotate-error-msg" class="error-msg hidden"></p>
             <p class="hint" id="drawer-invite-hint">Or share this code so others can follow your status.</p>
           </div>
+          <div class="drawer-section hidden" id="drawer-section-tg-onramp">
+            <p class="drawer-section-label">Telegram</p>
+            <button id="tg-onramp-drawer-btn" class="ghost-btn" type="button">Use in Telegram</button>
+            <p class="hint">Get knocks and presence in a Telegram chat.</p>
+          </div>
           <div class="drawer-section hidden" id="drawer-section-notifications">
             <p class="drawer-section-label">Notifications</p>
             <div id="tg-notify-slot"></div>
@@ -398,6 +403,12 @@
     <span id="notify-promo-text"></span>
     <button id="notify-promo-action" class="primary-btn hidden"></button>
     <button id="notify-promo-dismiss" class="ghost-btn" aria-label="Close">Close</button>
+  </div>
+
+  <div id="tg-onramp-promo" class="notify-promo hidden" role="region" aria-label="Telegram">
+    <span id="tg-onramp-text">KnockKnock works in Telegram now — bring this account over in one tap.</span>
+    <button id="tg-onramp-action" class="primary-btn" type="button">Use in Telegram</button>
+    <button id="tg-onramp-dismiss" class="ghost-btn" aria-label="Close">Close</button>
   </div>
 
   <div id="install-toast" class="notify-promo install-toast hidden" role="region" aria-label="Install">

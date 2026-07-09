@@ -34,6 +34,7 @@ import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
 import { showGraduationInfo } from './graduation.js';
 import { syncNotifyChannel } from './notifyChannel.js';
 import { syncBotDelivery } from './notifySuppression.js';
+import { initTelegramOnramp, syncTelegramOnramp } from './telegramOnramp.js';
 import { initHintRotation } from './hintRotation.js';
 import { initFirstRun, consumeGraduationNotice } from './firstRun.js';
 import { showRecoveryCodeModal } from './recoveryModal.js';
@@ -786,6 +787,9 @@ async function main() {
     // Web nudge suppression rides the same tick (no-op in Telegram context):
     // install/web-push nudges hide while the bot delivers notifications.
     syncBotDelivery(serverPrefs);
+    // "Use in Telegram" promo banner + drawer card suppress once this account
+    // links to Telegram — same tick, same prefs.telegram signal as above.
+    syncTelegramOnramp(serverPrefs);
   });
 
   // Inside Telegram: no PWA install (webview) and no Web Push (notifications
@@ -793,6 +797,7 @@ async function main() {
   if (!isTelegramContext()) {
     initInstallAffordance();
     initPushNotifications(userId);
+    initTelegramOnramp();
   }
 
   // currentContext changes from sibling devices arrive as a

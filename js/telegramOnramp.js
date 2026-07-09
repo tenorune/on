@@ -24,3 +24,44 @@ export async function startTelegramOnramp() {
   const win = window.open(url, '_blank');
   return !!win;
 }
+
+const DISMISS_KEY = 'statusapp_tg_onramp_dismissed';
+function bannerDismissed() {
+  try { return localStorage.getItem(DISMISS_KEY) === '1'; } catch { return false; }
+}
+function dismissBanner() {
+  try { localStorage.setItem(DISMISS_KEY, '1'); } catch { /* quota */ }
+}
+
+let _linked = false;
+function refresh() {
+  const promo = document.getElementById('tg-onramp-promo');
+  const card = document.getElementById('drawer-section-tg-onramp');
+  const show = telegramOnrampEnabled() && !_linked;
+  card?.classList.toggle('hidden', !show);
+  promo?.classList.toggle('hidden', !(show && !bannerDismissed()));
+}
+
+export function initTelegramOnramp() {
+  const promo = document.getElementById('tg-onramp-promo');
+  const card = document.getElementById('drawer-section-tg-onramp');
+  if (!promo && !card) return;
+  const go = async (btn) => {
+    if (btn) btn.disabled = true;
+    try { await startTelegramOnramp(); } finally { if (btn) btn.disabled = false; }
+  };
+  document.getElementById('tg-onramp-action')?.addEventListener('click', (e) => go(e.currentTarget));
+  document.getElementById('tg-onramp-drawer-btn')?.addEventListener('click', (e) => go(e.currentTarget));
+  document.getElementById('tg-onramp-dismiss')?.addEventListener('click', () => {
+    dismissBanner();
+    promo?.classList.add('hidden');
+  });
+  refresh();
+}
+
+// Suppress once this account is linked to Telegram (prefs.telegram set). Rides
+// the watchUserPrefs tick — mirrors notifySuppression's `prefs.telegram != null`.
+export function syncTelegramOnramp(serverPrefs) {
+  _linked = serverPrefs?.telegram != null;
+  refresh();
+}
