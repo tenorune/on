@@ -42,6 +42,7 @@ const _linkTelegram = httpsCallable(_functions, 'linkTelegram');
 const _unlinkTelegram = httpsCallable(_functions, 'unlinkTelegram');
 const _graduateTelegram = httpsCallable(_functions, 'graduateTelegram');
 const _mintTelegramLinkToken = httpsCallable(_functions, 'mintTelegramLinkToken');
+const _redeemTelegramLinkToken = httpsCallable(_functions, 'redeemTelegramLinkToken');
 
 // Telegram Mini App auth (experimental — spec 2026-07-02). initData is the raw
 // signed string from Telegram.WebApp; the server verifies it and mints a token.
@@ -70,6 +71,13 @@ export async function callGraduateTelegram(initData, code) {
 export async function callMintTelegramLinkToken() {
   const { data } = await _mintTelegramLinkToken({});
   return data; // { token }
+}
+
+// Redeem a link token inside the Mini App: { token } on success, or
+// { needsConfirm, counts } when this Telegram already has an account to replace.
+export async function callRedeemTelegramLinkToken(initData, token, confirm = false) {
+  const { data } = await _redeemTelegramLinkToken({ initData, token, confirm });
+  return data;
 }
 
 let _messaging = null;

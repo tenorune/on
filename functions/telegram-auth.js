@@ -198,6 +198,37 @@ export async function mintTelegramLinkTokenHandler(request, deps) {
   return { token };
 }
 
+// Redeem a mint-token from the web onramp: verify this Telegram (initData),
+// resolve the token → account uid, and link. If THIS Telegram already holds a
+// standalone account with contacts/groups, linking would expunge it — so return
+// needsConfirm (with counts) unless the caller passes confirm:true. Token is
+// single-use: deleted only on an actual link.
+export async function redeemTelegramLinkTokenHandler(request, deps) {
+  const tgUser = requireTelegramUser(request, deps);
+  const token = request.data?.token;
+  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(token)) {
+    throw new HttpsError('invalid-argument', 'Invalid link token.');
+  }
+  const rec = await deps.getVal(`telegramLinkTokens/${token}`);
+  if (!rec || !rec.uid || (rec.exp && rec.exp < deps.now())) {
+    throw new HttpsError('not-found', 'That link expired.');
+  }
+  const derivedUid = deriveTelegramUid(String(tgUser.id), deps.uidSecret);
+  const [followers, following, groups] = await Promise.all([
+    deps.getVal(`users/${derivedUid}/followers`),
+    deps.getVal(`userPrefs/${derivedUid}/following`),
+    deps.getVal(`users/${derivedUid}/groups`),
+  ]);
+  const contacts = new Set([...Object.keys(followers || {}), ...Object.keys(following || {})]).size;
+  const groupCount = Object.keys(groups || {}).length;
+  if ((contacts > 0 || groupCount > 0) && !request.data?.confirm) {
+    return { needsConfirm: true, counts: { contacts, groups: groupCount } };
+  }
+  const result = await performLink(deps, rec.uid, tgUser);
+  await rootUpdate(deps, { [`telegramLinkTokens/${token}`]: null }); // single-use
+  return result;
+}
+
 // Delete every RTDB record of the Telegram-derived shadow account, including
 // residue it left on other users' records (follower/following backrefs,
 // shared canvases, group memberships/ownership, invite tokens). Two read

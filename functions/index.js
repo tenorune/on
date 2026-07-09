@@ -10,7 +10,7 @@ import { onCall as httpsOnCall, onRequest } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
 import { resolveInvitePreviewHandler } from './invites.js';
-import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, graduateTelegramHandler, mintTelegramLinkTokenHandler } from './telegram-auth.js';
+import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, graduateTelegramHandler, mintTelegramLinkTokenHandler, redeemTelegramLinkTokenHandler } from './telegram-auth.js';
 import { buildNotificationKeyboard, handleUpdate, webhookAuthorized, botCommandsPayload } from './telegram.js';
 
 // Pin all functions to the RTDB's region. A 2nd-gen RTDB trigger MUST run in the
@@ -237,6 +237,7 @@ export const unlinkTelegram = httpsOnCall((request) => unlinkTelegramHandler(req
 // Graduation (spec §7): migrate an unlinked derived account to its phrase uid.
 export const graduateTelegram = httpsOnCall((request) => graduateTelegramHandler(request, makeTelegramAuthDeps()));
 export const mintTelegramLinkToken = httpsOnCall((request) => mintTelegramLinkTokenHandler(request, makeTelegramAuthDeps()));
+export const redeemTelegramLinkToken = httpsOnCall((request) => redeemTelegramLinkTokenHandler(request, makeTelegramAuthDeps()));
 
 // Telegram bot webhook. Always 200s on authorized requests (Telegram retries
 // non-200s aggressively); errors are logged inside handleUpdate. Inert unless

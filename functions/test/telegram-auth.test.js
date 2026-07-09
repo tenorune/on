@@ -1,7 +1,7 @@
 import { createHmac } from 'crypto';
 import { jest } from '@jest/globals';
 import { makeStoreDeps as makeCoreStoreDeps } from './store-deps.js';
-import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, performLink, linkTelegramHandler, unlinkTelegramHandler, expungeDerivedAccount, graduateAccountData, graduateTelegramHandler, mintTelegramLinkTokenHandler } from '../telegram-auth.js';
+import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, performLink, linkTelegramHandler, unlinkTelegramHandler, expungeDerivedAccount, graduateAccountData, graduateTelegramHandler, mintTelegramLinkTokenHandler, redeemTelegramLinkTokenHandler } from '../telegram-auth.js';
 
 const BOT_TOKEN = '12345:TEST_TOKEN';
 // F1 (#287): the derived uid is now keyed by a server-held secret so it's not
@@ -899,5 +899,47 @@ describe('mintTelegramLinkTokenHandler', () => {
   test('unauthenticated → throws', async () => {
     const deps = makeHandlerDeps();
     await expect(mintTelegramLinkTokenHandler({ auth: null }, deps)).rejects.toThrow(/Sign in|unauthenticated/i);
+  });
+});
+
+describe('redeemTelegramLinkTokenHandler', () => {
+  const tokenValid = 'aaaaaaaaaaaaaaaa'; // 16 chars, matches {16,64} regex
+  const seed = (extra) => ({
+    [`telegramLinkTokens/${tokenValid}`]: { uid: 'd'.repeat(32), exp: 9_999_999_999_999 },
+    [`users/${'d'.repeat(32)}/presence`]: { code: 'PP1111' },
+    ...extra,
+  });
+  test('missing/expired token → not-found', async () => {
+    const deps = makeHandlerDeps({});
+    await expect(redeemTelegramLinkTokenHandler(
+      { data: { initData: freshInitData(), token: 'nope1234567890ab' } }, deps)).rejects.toThrow(/expired/i);
+  });
+  test('empty derived account → links immediately and consumes the token', async () => {
+    const deps = makeHandlerDeps(seed());
+    const res = await redeemTelegramLinkTokenHandler(
+      { data: { initData: freshInitData(), token: tokenValid } }, deps);
+    expect(res.token).toBe(`token-for-${'d'.repeat(32)}`);
+    expect(deps.store[`telegramLinkTokens/${tokenValid}`]).toBeNull(); // single-use
+    expect(deps.store['telegramUsers/42']).toMatchObject({ uid: 'd'.repeat(32) });
+  });
+  test('non-empty derived account without confirm → needsConfirm, no link', async () => {
+    const derived = deriveTelegramUid('42', TEST_UID_SECRET);
+    const deps = makeHandlerDeps(seed({
+      [`users/${derived}/followers`]: { x: true },
+      [`users/${derived}/groups`]: { g1: true, g2: true },
+    }));
+    const res = await redeemTelegramLinkTokenHandler(
+      { data: { initData: freshInitData(), token: tokenValid } }, deps);
+    expect(res).toEqual({ needsConfirm: true, counts: { contacts: 1, groups: 2 } });
+    expect(deps.store[`telegramLinkTokens/${tokenValid}`]).toBeDefined(); // NOT consumed
+    expect(deps.store['telegramUsers/42']).toBeUndefined();      // NOT linked
+  });
+  test('non-empty with confirm:true → links and consumes', async () => {
+    const derived = deriveTelegramUid('42', TEST_UID_SECRET);
+    const deps = makeHandlerDeps(seed({ [`users/${derived}/groups`]: { g1: true } }));
+    const res = await redeemTelegramLinkTokenHandler(
+      { data: { initData: freshInitData(), token: tokenValid, confirm: true } }, deps);
+    expect(res.token).toBe(`token-for-${'d'.repeat(32)}`);
+    expect(deps.store[`telegramLinkTokens/${tokenValid}`]).toBeNull();
   });
 });
