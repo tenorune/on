@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Post-ship analysis — Telegram adaptation (2026-07-09)</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --panel:#ffffff; --ink:#1a1a1a; --muted:#6b6b6b; --line:#e6e4e0;
+    --accent:#2a7de1; --accent-soft:#e8f1fc; --tg:#229ED9; --tg-soft:#e4f4fb;
+    --warn:#c2410c; --warn-soft:#fdecdf; --ok:#15803d; --ok-soft:#e5f4ea;
+    --code-bg:#f4f3f1; --shadow:0 1px 3px rgba(0,0,0,.06),0 6px 18px rgba(0,0,0,.05);
+    --radius:12px; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#17181a; --panel:#1f2124; --ink:#e9e8e6; --muted:#9a9a97; --line:#33353a;
+      --accent:#5aa0f0; --accent-soft:#1a2938; --tg:#4bb8e6; --tg-soft:#16303c;
+      --warn:#f59e6b; --warn-soft:#3a2417; --ok:#6fce90; --ok-soft:#16301f;
+      --code-bg:#26282c; --shadow:0 1px 3px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.6;font-size:16px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:2.4rem 1.4rem 5rem}
+  header.doc{border-bottom:1px solid var(--line);padding-bottom:1.4rem;margin-bottom:2rem}
+  .eyebrow{font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;color:var(--tg);font-weight:700}
+  h1{font-size:1.9rem;line-height:1.2;margin:.4rem 0 .3rem}
+  h2{font-size:1.3rem;margin:2.6rem 0 .8rem;padding-top:.4rem;border-top:1px solid var(--line)}
+  h2 .num{color:var(--muted);font-weight:600;margin-right:.5rem}
+  h3{font-size:1.05rem;margin:1.6rem 0 .5rem}
+  p{margin:.6rem 0}
+  .lede{color:var(--muted);font-size:1.05rem}
+  .meta{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem}
+  .pill{font-size:.78rem;padding:.22rem .6rem;border-radius:999px;background:var(--code-bg);
+    color:var(--muted);border:1px solid var(--line)}
+  code{font-family:var(--mono);background:var(--code-bg);padding:.1rem .35rem;border-radius:5px;font-size:.86em}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:1.1rem 1.3rem;margin:1rem 0;box-shadow:var(--shadow)}
+  .callout{border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:0 var(--radius) var(--radius) 0;
+    padding:.8rem 1.1rem;margin:1.1rem 0}
+  .callout.warn{border-color:var(--warn);background:var(--warn-soft)}
+  .callout.ok{border-color:var(--ok);background:var(--ok-soft)}
+  .callout .k{font-weight:700;font-size:.8rem;letter-spacing:.04em;text-transform:uppercase;display:block;margin-bottom:.2rem;color:var(--accent)}
+  .callout.warn .k{color:var(--warn)} .callout.ok .k{color:var(--ok)}
+  ul,ol{margin:.5rem 0 .8rem;padding-left:1.3rem}
+  li{margin:.3rem 0}
+
+  /* Finding cards */
+  .finding{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:1rem 1.2rem;margin:.9rem 0;box-shadow:var(--shadow)}
+  .finding .head{display:flex;flex-wrap:wrap;gap:.5rem;align-items:baseline}
+  .finding .fid{font-family:var(--mono);font-weight:700;color:var(--tg);font-size:.9rem}
+  .finding .title{font-weight:700}
+  .badges{display:flex;flex-wrap:wrap;gap:.4rem;margin:.45rem 0 .2rem}
+  .b{font-size:.7rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;
+     padding:.14rem .5rem;border-radius:6px;border:1px solid transparent}
+  .b.high{background:var(--warn-soft);color:var(--warn)}
+  .b.med{background:var(--accent-soft);color:var(--accent)}
+  .b.low{background:var(--code-bg);color:var(--muted);border-color:var(--line)}
+  .b.obs{background:var(--ok-soft);color:var(--ok)}
+  .b.inf{background:var(--warn-soft);color:var(--warn)}
+  .b.tag{background:var(--tg-soft);color:var(--tg)}
+  .b.plain{background:var(--code-bg);color:var(--muted);border-color:var(--line);text-transform:none;letter-spacing:0}
+  .kv{display:grid;grid-template-columns:9.5rem 1fr;gap:.15rem .8rem;margin:.5rem 0 .1rem;font-size:.92rem}
+  .kv dt{color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;font-weight:600;padding-top:.15rem}
+  .kv dd{margin:0}
+  @media (max-width:640px){ .kv{grid-template-columns:1fr} .kv dt{padding-top:.4rem} }
+
+  /* Tables */
+  .tblwrap{overflow-x:auto;margin:1rem 0;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  table{border-collapse:collapse;width:100%;background:var(--panel);font-size:.88rem}
+  th,td{padding:.5rem .7rem;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--code-bg)}
+  tr:last-child td{border-bottom:none}
+  td .fidref{font-family:var(--mono);font-weight:700;color:var(--tg);white-space:nowrap}
+  .clu{font-family:var(--mono);font-weight:700}
+  footer{margin-top:3rem;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:1rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="eyebrow">KnockKnock · Telegram adaptation</div>
+  <h1>Post-ship analysis — gaps, opportunities &amp; code health</h1>
+  <p class="lede">Two independent read-only reviews of the shipped Telegram adaptation: a product/UX
+  gap-and-opportunity walk of the user journeys, and an inefficiency/redundancy review of the
+  production diff. All findings cite the code they were observed in; nothing here has been changed yet.</p>
+  <div class="meta">
+    <span class="pill">2026-07-09</span>
+    <span class="pill">branch <code>claude/telegram-adaptation-shipped-otg0ma</code> @ <code>52971b9</code></span>
+    <span class="pill">diff base <code>origin/dev</code> (merge-base = dev tip)</span>
+    <span class="pill">122 files · +26,781 / −299</span>
+    <span class="pill">suites at analysis time: web 1535 · functions 351 · rules 71</span>
+  </div>
+</header>
+
+<h2><span class="num">1</span>Scope, method &amp; how to read this</h2>
+<div class="panel">
+  <p><strong>Method.</strong> Two parallel, isolated review passes over the same tree (no shared state, no edits):</p>
+  <ul>
+    <li><strong>Workstream U (product/UX)</strong> — read <code>docs/HANDOFF.md</code> §45–§48 and
+      <code>docs/telegram-setup.md</code> for intent, then walked six journeys end-to-end in code
+      (onramp; web→Telegram link incl. both confirm branches; graduation→recovery; channel switch;
+      unlink/relink; error paths). Findings grouped under three lenses: unmet user needs,
+      cross-surface inconsistencies, delight opportunities.</li>
+    <li><strong>Workstream C (code health)</strong> — reviewed the ~40 production files in
+      <code>git diff origin/dev..HEAD</code> for redundancy, inefficiency, dead code and structural
+      smells. Explicitly briefed on the two intentional cross-runtime duplications (three-reader
+      channel predicate; time formatters) so they were audited for guard integrity, not flagged as defects.</li>
+  </ul>
+  <p><strong>Metadata per finding.</strong> <em>Severity/value</em> (reviewer's impact call) ·
+  <em>Evidence</em> (OBSERVED = behavior read directly in code, with refs; INFERRED = likely but not fully
+  verified by reading) · <em>Effort</em> (S ≈ &lt;½ day, M ≈ ½–2 days, L = larger/design work) ·
+  <em>Surfaces</em> touched · <em>Deploy</em> (client-only vs needs a functions deploy) ·
+  <em>Cluster</em> (synthesis cross-reference, §5–§6).</p>
+  <div class="callout warn">
+    <span class="k">Deploy dependency</span>
+    Anything marked <strong>functions</strong> stacks onto the maintainer's pending
+    <code>t1r1jp→dev→main</code> merge + A5 redeploy (<code>docs/telegram-setup.md</code> A5): a dev push
+    wipes branch-only Telegram functions until the redeploy, and the server-gated confirm branches can
+    only be walked on device after it. Client-only items have no such dependency.
+  </div>
+  <div class="callout">
+    <span class="k">Already-known items — excluded as discoveries</span>
+    Issue #286 (invite management from Telegram, open) · #288 (rules follow-up, maintainer's call) ·
+    unredeemed <code>telegramLinkTokens</code> expiry-checked on read, not swept (accepted) ·
+    onramp-linked accounts have no local phrase vault by design. Findings below may build on these
+    but do not re-report them.
+  </div>
+</div>
+
+<h2><span class="num">2</span>Workstream U — product/UX findings</h2>
+
+<h3>Lens 1 · Obvious user needs not yet met</h3>
+
+<div class="finding">
+  <div class="head"><span class="fid">U1.1</span><span class="title">Forwarded "Use in Telegram" link silently links a stranger's Telegram to your account</span></div>
+  <div class="badges"><span class="b high">High</span><span class="b obs">Observed</span><span class="b inf">Forwarding likelihood inferred</span><span class="b tag">Cluster A</span></div>
+  <dl class="kv">
+    <dt>User moment</dt><dd>The minted <code>t.me/&lt;bot&gt;?startapp=lk_…</code> URL is an ordinary Telegram link — forwardable, or opened on the wrong account by multi-account users.</dd>
+    <dt>Evidence</dt><dd>Token bound only to the minter's uid (<code>functions/telegram-auth.js:193-199</code>); redemption accepts whatever Telegram identity presents it, and when that Telegram's derived account is empty (<code>contacts === 0 &amp;&amp; groups === 0</code>) there is <strong>no confirm at all</strong> — straight to <code>performLink</code> (<code>functions/telegram-auth.js:226-240</code>). Recipient sees the owner's account plus "This account now works in Telegram too." (<code>js/firstRun.js:105</code>). The 5-min TTL/single-use narrows but does not close the window.</dd>
+    <dt>Direction</dt><dd>Always show a lightweight confirm on redeem naming the account being linked ("Link this Telegram to KnockKnock account ⟨code⟩?"), even for empty derived accounts — one tap for the owner, a decisive tell for anyone else.</dd>
+    <dt>Effort · Deploy</dt><dd>S–M · functions + Mini App client</dd>
+    <dt>Note</dt><dd>Overlaps security-audit territory — check whether #287 already adjudicated this exact vector before acting.</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U1.2</span><span class="title">No web-side unlink — and almost no web-side evidence of being linked</span></div>
+  <div class="badges"><span class="b high">High</span><span class="b obs">Observed</span><span class="b tag">Cluster A</span></div>
+  <dl class="kv">
+    <dt>User moment</dt><dd>A linked web user loses their Telegram account (or wants to disconnect) while on the web.</dd>
+    <dt>Evidence</dt><dd><code>unlinkTelegramHandler</code> requires live <code>initData</code> (<code>functions/telegram-auth.js:482-486</code>); the unlink UI mounts only in Telegram context (<code>js/app.js:813</code>). On web, once linked, the Account drawer section hides entirely (<code>js/telegramOnramp.js:48-52</code>) — the only trace of the link is the notification pill.</dd>
+    <dt>Direction</dt><dd>Replace the hidden section with a "Connected to Telegram" row (parity with Telegram's drawer line) plus a web-callable unlink authed by <code>request.auth.uid</code> (mirroring <code>mintTelegramLinkToken</code>'s trust model). The visible state line alone would halve the confusion.</dd>
+    <dt>Effort · Deploy</dt><dd>M · functions + web client</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U1.3</span><span class="title">Link/unlink silently reroutes notifications — sometimes into a void</span></div>
+  <div class="badges"><span class="b med">Med-High</span><span class="b obs">Observed</span><span class="b tag">Cluster A</span><span class="b tag">Cluster C</span></div>
+  <dl class="kv">
+    <dt>User moment</dt><dd>(a) Linking force-sets <code>notifyChannel: 'telegram'</code> (<code>functions/telegram-auth.js:171</code>) — working phone push stops with no copy saying so. (b) Unlink and relink-away force the prior account to <code>'push'</code> (<code>:164, :499</code>) while deleting its <code>telegramByUid</code> route — with zero push tokens, <code>sendToUser</code> returns false with no fallback (<code>functions/notifier.js:52-68</code>): fully silent until a web visit with permission granted.</dd>
+    <dt>Direction</dt><dd>One sentence in the linked toast / unlink confirm about where notifications now go; on unlink with zero push tokens, force the notify reprompt banner or leave the channel unset and let the existing reprompt machinery own it.</dd>
+    <dt>Effort · Deploy</dt><dd>M · functions + both clients</dd>
+    <dt>Note</dt><dd>Violates the codebase's own "shown state must not lie" principle at the account level.</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U1.4</span><span class="title">The web onramp's failure paths are silent</span></div>
+  <div class="badges"><span class="b med">Med</span><span class="b obs">Observed</span><span class="b tag">Cluster D</span></div>
+  <dl class="kv">
+    <dt>User moment</dt><dd>"Use in Telegram" tapped while offline, or the popup is blocked — the button re-enables and nothing happens.</dd>
+    <dt>Evidence</dt><dd><code>startTelegramOnramp</code> returns <code>false</code> on blocked <code>window.open</code>; both call sites ignore it; mint failure rejects inside <code>go()</code> which has <code>try/finally</code> but no <code>catch</code> (<code>js/telegramOnramp.js:20-26, 59-64</code>). The invite modal already has the popup-blocked copy-link fallback (<code>js/inviteModal.js:190-193</code>).</dd>
+    <dt>Direction</dt><dd>On <code>window.open</code> failure, copy the deep link + "Link copied — open it in Telegram" toast (established pattern); on mint failure, the standard error-voice toast.</dd>
+    <dt>Effort · Deploy</dt><dd>S · web client only</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U1.5</span><span class="title">"View your phrase on the web" is a dead end inside Telegram</span></div>
+  <div class="badges"><span class="b med">Med</span><span class="b obs">Observed</span><span class="b tag">Cluster D</span></div>
+  <dl class="kv">
+    <dt>User moment</dt><dd>An onramp-linked user opens the drawer for their recovery phrase and reads "…view it in KnockKnock on the web" — no link, no URL. They may never have seen the web app's address.</dd>
+    <dt>Evidence</dt><dd><code>index.template.html:311</code>, shown by <code>js/telegramSettings.js:36-40</code>; no <code>openLink</code> affordance.</dd>
+    <dt>Direction</dt><dd>Make the note actionable — <code>tgWebApp().openLink(&lt;web origin&gt;)</code> on tap, or at least show the domain. (Vault absence is by design; this is only the note's dead-endness.)</dd>
+    <dt>Effort · Deploy</dt><dd>S · Mini App client only</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U1.6</span><span class="title">Joining a group from the bot chat leaves you nowhere</span></div>
+  <div class="badges"><span class="b med">Med</span><span class="b obs">Observed</span><span class="b tag">Cluster E</span></div>
+  <dl class="kv">
+    <dt>User moment</dt><dd>Tap "Join" on a group-invite bot message → message edits to the joined-outcome line and the inline keyboard is removed. No way into the group from that moment.</dd>
+    <dt>Evidence</dt><dd><code>functions/telegram.js:571-583</code>; <code>resolveSourceMessage</code> drops <code>reply_markup</code> (<code>:483-489</code>). The <code>openAppKeyboard</code> helper already exists (<code>functions/telegram-shared.js:30-32</code>).</dd>
+    <dt>Direction</dt><dd>Keep one "Open KnockKnock" <code>web_app</code> button on the resolved message, and/or add "/who ⟨name⟩ to see who's around" to the outcome line.</dd>
+    <dt>Effort · Deploy</dt><dd>S · functions</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U1.7</span><span class="title">No web-side success beat after linking</span></div>
+  <div class="badges"><span class="b low">Low-Med</span><span class="b obs">Observed (absence)</span><span class="b tag">Cluster D</span></div>
+  <dl class="kv">
+    <dt>User moment</dt><dd>Link completes on the phone; back in the web tab that started it, the promo/card just quietly disappear on the prefs tick (<code>js/telegramOnramp.js:74-77</code>). All success feedback lives in the Mini App.</dd>
+    <dt>Direction</dt><dd>When <code>syncTelegramOnramp</code> observes <code>telegram</code> flipping null→set in a session where the CTA was tapped, toast "Linked — KnockKnock now works in your Telegram too."</dd>
+    <dt>Effort · Deploy</dt><dd>S · web client only</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U1.8</span><span class="title">One catch-all "link expired" toast conflates every redeem error</span></div>
+  <div class="badges"><span class="b low">Low</span><span class="b obs">Observed</span><span class="b tag">Cluster D</span></div>
+  <dl class="kv">
+    <dt>User moment</dt><dd>Expired token, <em>reused</em> token, offline, server unconfigured — all land in one catch: "That link expired — tap Use in Telegram again on the web." (<code>js/telegramLinkArrival.js:59-63</code>). A forwarded-link recipient never saw the web; an offline user's link isn't expired.</dd>
+    <dt>Direction</dt><dd>Branch on <code>e.code</code>: keep the expired copy for <code>not-found</code>, use the standard "Couldn't finish that right now…" voice otherwise.</dd>
+    <dt>Effort · Deploy</dt><dd>S · Mini App client only</dd>
+  </dl>
+</div>
+
+<h3>Lens 2 · Interaction &amp; UI inconsistencies</h3>
+
+<div class="finding">
+  <div class="head"><span class="fid">U2.1</span><span class="title">Two link flows, two warning philosophies — and unused counts</span></div>
+  <div class="badges"><span class="b med">Med</span><span class="b obs">Observed</span><span class="b tag">Cluster B</span></div>
+  <dl class="kv">
+    <dt>User moment</dt><dd>The manual phrase-link screen <em>always</em> shows the scary replace warning, even for a brand-new empty account (<code>js/telegramSettings.js:114-117</code>); the token-redeem flow warns conditionally and distinguishes relink from replace (<code>functions/telegram-auth.js:222-236</code>). The server returns exact <code>counts</code> on the replace branch and the client throws them away (<code>js/telegramLinkArrival.js:44-48</code>).</dd>
+    <dt>Direction</dt><dd>Make the manual flow's warning conditional the same way, and use the counts in both: "…its 3 contacts and 1 group will be removed." Concrete numbers make a replace-confirm trustworthy.</dd>
+    <dt>Effort · Deploy</dt><dd>M · functions + Mini App client</dd>
+    <dt>Cross-ref</dt><dd>Same copy as code finding <span class="fidref">C6</span> — one fix covers both.</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U2.2</span><span class="title">The onramp banner breaks the "one teaching surface" rule</span></div>
+  <div class="badges"><span class="b med">Med</span><span class="b obs">Observed</span><span class="b inf">Boot-order flash inferred</span><span class="b tag">Cluster D</span></div>
+  <dl class="kv">
+    <dt>User moment</dt><dd>A brand-new empty web account gets "KnockKnock works in Telegram now…" layered onto the first-run panel whose whole point is a single CTA.</dd>
+    <dt>Evidence</dt><dd><code>#tg-onramp-promo</code> has no <code>isFirstRunActive()</code> check and no <code>first-run-change</code> listener (<code>js/telegramOnramp.js:37-53</code>) — unlike the install affordance (<code>js/installAffordance.js:82-93</code>). INFERRED: <code>initTelegramOnramp</code> runs after <code>watchUserPrefs</code> subscribes but before its first async tick (<code>js/app.js:783, 802</code>), so a linked account may flash the banner one frame.</dd>
+    <dt>Direction</dt><dd>Gate on <code>!isFirstRunActive()</code> and re-evaluate on <code>first-run-change</code>, exactly like the install affordance.</dd>
+    <dt>Effort · Deploy</dt><dd>S · web client only</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U2.3</span><span class="title">Same action, two value propositions</span></div>
+  <div class="badges"><span class="b low">Low</span><span class="b obs">Observed</span><span class="b tag">Cluster D</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>Banner: "bring this account over in one tap" (<code>index.template.html:411</code>) — reads like <em>moving</em>, mildly contradicting the linked toast's "works in Telegram <em>too</em>". Drawer card: "Get knocks and presence in a Telegram chat." (<code>:299</code>) — the accurate additive framing.</dd>
+    <dt>Direction</dt><dd>Converge on the additive framing in both.</dd>
+    <dt>Effort · Deploy</dt><dd>S · template copy only</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U2.4</span><span class="title">Expired invites: toast on one surface, blocking modal on the other</span></div>
+  <div class="badges"><span class="b low">Low</span><span class="b obs">Observed</span><span class="b tag">Cluster D</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>Telegram preview path: <code>showToast('That invite link has expired.')</code> (<code>js/telegramFirstRun.js:147</code>). Web redemption: modal overlay "This invite link has expired." with Continue (<code>js/app.js:543</code>). Different determiner, different container, same event.</dd>
+    <dt>Direction</dt><dd>Align the sentence; consider whether the web overlay is heavier than the event deserves. (Container difference is defensible: pre-boot vs mid-flow.)</dd>
+    <dt>Effort · Deploy</dt><dd>S · client copy</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U2.5</span><span class="title">Group join: chat picks your name silently, app asks</span></div>
+  <div class="badges"><span class="b low">Low</span><span class="b obs">Observed</span><span class="b tag">Cluster E</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>Bot-chat join writes <code>displayName</code> = Telegram first name, no prompt or disclosure (<code>functions/telegram.js:574</code>); the in-app join always prompts (<code>js/inbox.js:325</code>; Mini App prefill <code>js/app.js:680</code>). The outcome message discloses the 2h availability but not the name it published.</dd>
+    <dt>Direction</dt><dd>One clause in the join reply: "…joined as ⟨name⟩ (editable in the app)."</dd>
+    <dt>Effort · Deploy</dt><dd>S · functions</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U2.6</span><span class="title">"Linked to your KnockKnock account" — which one?</span></div>
+  <div class="badges"><span class="b low">Low</span><span class="b obs">Observed</span><span class="b tag">Cluster E</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>Drawer says only "This Telegram is linked to your KnockKnock account." (<code>js/telegramSettings.js:45-47</code>); <code>/start</code> shows only status (<code>functions/telegram.js:168-173</code>). Now that relink/switch exists, a two-account user cannot tell which account this Telegram controls from either surface.</dd>
+    <dt>Direction</dt><dd>Append the share code (already public to the owner): "…linked to your KnockKnock account (⟨CODE⟩)."</dd>
+    <dt>Effort · Deploy</dt><dd>S · Mini App client (+ functions if <code>/start</code> also updated)</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U2.7</span><span class="title">Same rule, two voices in the push-unavailable refusal</span></div>
+  <div class="badges"><span class="b low">Low</span><span class="b obs">Observed</span><span class="b tag">Cluster E</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>Pill: "…Messages keep arriving via Telegram." (<code>js/notifyChannel.js:78</code>); bot: "…You'll keep getting messages here." (<code>functions/telegram.js:227</code>). Deliberate per-surface deixis or drift — worth one decision. (Code review adjudicated the difference surface-appropriate — see VN-5; a copy-voice decision is still worth recording.)</dd>
+    <dt>Effort · Deploy</dt><dd>S · decision + possibly copy</dd>
+  </dl>
+</div>
+
+<h3>Lens 3 · Delight opportunities</h3>
+<p class="lede">Inferred personality (struck-through brand mark, "Levers &amp; knobs", the sticker easter-egg, the first-follow "beat" toast): quiet, warm, a little cheeky, never gamified. Delight should be <em>felt, not seen</em>.</p>
+
+<div class="finding">
+  <div class="head"><span class="fid">U3.1</span><span class="title">Haptics on the knock loop</span></div>
+  <div class="badges"><span class="b med">Med impact · very cheap</span><span class="b obs">Observed (absence)</span><span class="b tag">Cluster D</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>Explicitly deferred ("Haptics deliberately out of scope", <code>js/telegramChrome.js:4</code>); nothing uses <code>HapticFeedback</code> anywhere (grep-verified).</dd>
+    <dt>Direction</dt><dd><code>impactOccurred('medium')</code> on sending a knock; <code>notificationOccurred('success')</code> on link/graduation; a light tick on the availability dot flip. Version-guarded one-liners, invisible on unsupported clients. A knock should <em>thud</em>.</dd>
+    <dt>Effort · Deploy</dt><dd>S · Mini App client only</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U3.2</span><span class="title">Let the bot say the brand's name</span></div>
+  <div class="badges"><span class="b low">Low-Med</span><span class="b obs">Observed</span><span class="b tag">Cluster E</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>Every knock reads "⟨name⟩ knocked" — shared with FCM via <code>buildMessage</code> (<code>functions/presence-core.js:82-95</code>). In a chat, "Knock knock — ⟨name⟩" is the obvious on-brand beat.</dd>
+    <dt>Direction</dt><dd>Channel-aware title only at the <code>sendTelegram</code> seam (<code>functions/index.js:95-105</code>), leaving FCM untouched.</dd>
+    <dt>Effort · Deploy</dt><dd>S · functions</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U3.3</span><span class="title">A tiny ceremony at graduation</span></div>
+  <div class="badges"><span class="b low">Low-Med</span><span class="b obs">Observed</span><span class="b tag">Cluster D</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>Graduation — the emotional high point of the onramp arc — resolves as reload + a safety-warning toast (<code>js/graduation.js:52-53</code>; copy <code>js/firstRun.js:104</code>).</dd>
+    <dt>Direction</dt><dd>Keep the warning; pair it with the success haptic (U3.1) and let the first line celebrate: "That's it — this account is yours anywhere now."</dd>
+    <dt>Effort · Deploy</dt><dd>S · Mini App client only</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U3.4</span><span class="title">MainButton for the single-CTA screens</span></div>
+  <div class="badges"><span class="b low">Low</span><span class="b obs">Observed (absence)</span><span class="b tag">Cluster G</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd><code>BackButton</code> is used thoughtfully; <code>MainButton</code> never (grep-verified). The interstitial's "Accept &amp; get started" and the empty state's "Invite your people" are exactly its use case.</dd>
+    <dt>Direction</dt><dd>Native bottom placement, theme-colored, free loading spinner — but needs a fit-check against the app's own chrome theming (<code>js/telegramChrome.js:79-90</code>). Take-it-or-leave-it.</dd>
+    <dt>Effort · Deploy</dt><dd>M · Mini App client</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">U3.5</span><span class="title">Inline invite sharing (design input for #286)</span></div>
+  <div class="badges"><span class="b low">Low · not cheap</span><span class="b tag">Cluster G</span></div>
+  <dl class="kv">
+    <dt>Direction</dt><dd>When invite management comes to Telegram (#286), inline mode (<code>@bot</code> in any chat → your invite card) is the Telegram-native endgame for "invite your people". A direction for #286's design, not a standalone item.</dd>
+    <dt>Effort · Deploy</dt><dd>L · functions + BotFather config</dd>
+  </dl>
+</div>
+
+<h2><span class="num">3</span>Workstream C — code inefficiencies &amp; redundancies</h2>
+<p class="lede">Overall: unusually disciplined for the size — W3-A/B already collapsed most client duplication
+into single owners, the notifier fan-out was pre-parallelized and documented, and functions tests share one
+high-fidelity RTDB mock. Debt concentrates in: the web boot path, the twin account-movers, a few
+within-runtime duplications the waves missed, and cross-file invariants held only by comments.
+Findings ordered by value of fixing.</p>
+
+<div class="finding">
+  <div class="head"><span class="fid">C1</span><span class="title">Every web boot gates on a telegram.org fetch</span></div>
+  <div class="badges"><span class="b high">Value 1</span><span class="b plain">inefficiency · boot path</span><span class="b tag">Cluster D</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd><code>index.template.html:21</code> loads <code>https://telegram.org/js/telegram-web-app.js</code> with <code>defer</code>; <code>:426</code> loads <code>dist/bundle.js</code> with <code>defer</code>. Deferred scripts execute in document order, so the bundle waits on the third-party fetch on <em>every</em> boot — including the 100%-web population. <code>firebase.json</code> also widens <code>script-src</code> to telegram.org for everyone.</dd>
+    <dt>Fix direction</dt><dd>Conditionally inject only when the URL hash carries <code>tgWebAppData</code>/<code>tgWebAppPlatform</code> (with <code>isTelegramContext()</code> awaiting it), or self-host a pinned copy so the fetch is same-origin and SW-cached.</dd>
+    <dt>Blast radius</dt><dd><code>index.template.html</code>, <code>js/telegram.js</code> detection, <code>firebase.json</code> CSP. No landmine contact.</dd>
+    <dt>Effort · Deploy</dt><dd>M · client + hosting config</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">C2</span><span class="title">Twin account-data movers enumerate the same path families twice</span></div>
+  <div class="badges"><span class="b high">Value 2</span><span class="b plain">redundant logic · structural</span><span class="b tag">Cluster A</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd><code>expungeDerivedAccount</code> (<code>functions/telegram-auth.js:258-319</code>) and <code>graduateAccountData</code> (<code>:348-423</code>) hand-enumerate identical cross-user residue families — <code>userPrefs/{fid}/following/{uid}</code> (287 vs 361), <code>followers</code>/<code>followerNames</code> (289–292 vs 364–365), both canvas directions (295–299 vs 367–371), group member + <code>pendingInvitesByGroup</code> (301–309 vs 372–375), <code>OWN_MAILBOXES</code> (311 vs 376–378). <code>followerNames</code>, added on this branch, already had to be added in both. Secondary: expunge reads five subtrees where graduate reads two whole nodes (<code>:259-265</code> vs <code>:349-352</code>).</dd>
+    <dt>Fix direction</dt><dd>One enumerator (<code>crossRefPaths(uid, {followers, following, gids})</code> returning path templates) feeding both — expunge maps each path → <code>null</code>, graduate maps old→new pairs; align expunge on the two whole-node reads.</dd>
+    <dt>Blast radius</dt><dd><code>functions/telegram-auth.js</code> + its tests only. Forgetting one side today = orphaned data after graduation or un-expunged data after unlink.</dd>
+    <dt>Effort · Deploy</dt><dd>M · functions</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">C3</span><span class="title">Notifier: fixed extra reads per recipient + two sequential/N-read spots</span></div>
+  <div class="badges"><span class="b high">Value 3</span><span class="b plain">inefficiency</span><span class="b tag">Cluster C</span><span class="b tag">Cluster E</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>(a) With the bot configured, every recipient of every notification costs 2 extra RTDB reads (<code>notifyChannel</code> + <code>telegramByUid</code>) on top of <code>pushTokens</code> (<code>functions/notifier.js:37-41</code>) — 3N reads where it was N; the <code>telegramByUid</code> read is consumed only when <code>channel !== 'push'</code> or the token map is empty, so it's pure waste in the common case. (b) <code>handleAvailability</code>'s group pass awaits <code>statusOverride</code> sequentially per group (<code>:293-298</code>) — the override reads are independent and could be prefetched (G round-trips → 1); notify calls must stay sequential (shared dedup set). (c) <code>knockGroupReach</code> reads <code>groups/{gid}/name</code> even for no-match groups (<code>functions/telegram.js:379-383</code>).</dd>
+    <dt>Fix direction</dt><dd>Defer the <code>telegramByUid</code> read to the two consuming branches; <code>Promise.all</code>-prefetch overrides; resolve names only for matched groups.</dd>
+    <dt>Blast radius</dt><dd><code>functions/notifier.js</code>, <code>functions/telegram.js</code> + tests. Only the <em>timing</em> of the route read changes — the guarded <code>channel !== 'push'</code> predicate itself must not be touched.</dd>
+    <dt>Effort · Deploy</dt><dd>S–M · functions</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">C4</span><span class="title"><code>TELEGRAM_APP_LINK</code> config + deep-link builder + gate duplicated in two client modules</span></div>
+  <div class="badges"><span class="b med">Value 4</span><span class="b plain">redundant · parallel config</span><span class="b tag">Cluster D</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd><code>js/inviteFlow.js:8-21</code> and <code>js/telegramOnramp.js:8-16</code> each read <code>process.env.TELEGRAM_APP_LINK || ''</code>, each build <code>`${TELEGRAM_APP_LINK}?startapp=…`</code> (differing only in the <code>lk_</code> prefix), each define an enabled gate. Normalization added to one silently misses the other.</dd>
+    <dt>Fix direction</dt><dd>Single <code>buildStartAppLink(param)</code> + one exported gate in <code>inviteFlow.js</code> (or a tiny shared module); <code>telegramOnramp</code> derives <code>lk_${token}</code> and ANDs <code>!isTelegramContext()</code>.</dd>
+    <dt>Blast radius</dt><dd>Two js files + their tests.</dd>
+    <dt>Effort · Deploy</dt><dd>S · web client only</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">C5</span><span class="title">Bot <code>/knock</code> disambiguation block copy-pasted</span></div>
+  <div class="badges"><span class="b med">Value 5</span><span class="b plain">duplicated logic</span><span class="b tag">Cluster E</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd><code>functions/telegram.js:397-402</code> (<code>knockGroupReach</code>) and <code>:435-440</code> (following-match branch): same <code>CAP = 8</code>, same overflow string ("Which one? …and ${overflow} more — type more letters."), same keyboard slice — differing only in the per-entry button mapper. Cap and user-visible string exist twice, no guard.</dd>
+    <dt>Fix direction</dt><dd>Extract <code>replyDisambiguation(reply, entries, toButton)</code> in the same file.</dd>
+    <dt>Blast radius</dt><dd><code>functions/telegram.js</code> + tests.</dd>
+    <dt>Effort · Deploy</dt><dd>S · functions</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">C6</span><span class="title">Destructive-link warning string spelled twice, same runtime, no constant</span></div>
+  <div class="badges"><span class="b med">Value 6</span><span class="b plain">duplicated strings</span><span class="b tag">Cluster B</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>"Linking replaces this temporary Telegram account — its contacts and groups will be removed." byte-identical at <code>js/telegramSettings.js:116</code> and <code>js/telegramLinkArrival.js:48</code>. Both are the pre-consent warning for the same destructive expunge; a copy edit to one leaves the other lying.</dd>
+    <dt>Fix direction</dt><dd>Shared exported constant (same runtime, so free). Tests assert on the copy in both suites.</dd>
+    <dt>Cross-ref</dt><dd><span class="fidref">U2.1</span> wants this copy conditional + count-specific anyway — one combined change.</dd>
+    <dt>Effort · Deploy</dt><dd>S · Mini App client (S alone; M combined with U2.1)</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">C7</span><span class="title">Account-scoped localStorage keys: three hand-copied lists held together by comments</span></div>
+  <div class="badges"><span class="b med">Value 7</span><span class="b plain">parallel constants</span><span class="b tag">Cluster F</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>Owning modules define keys privately (e.g. <code>js/telegramFirstRun.js:25</code>); <code>js/cacheOwner.js:55-79</code> re-spells all 23 as literals; <code>tests/cacheOwner.test.js:6-29</code> carries a third hand-copied list. A new account-scoped key that misses <code>cacheOwner.js</code> silently survives account switches — exactly the leak class the module exists to stop — and no test catches it because the test mirrors the copy, not the sources.</dd>
+    <dt>Fix direction</dt><dd>Owning modules export their key constants; <code>cacheOwner.js</code> imports them into <code>ACCOUNT_SCOPED_KEYS</code>; the test asserts over the imported list. Keep <code>graduationPhrase.js</code>'s prefix <em>out</em> — its exclusion is deliberate and documented (<code>js/graduationPhrase.js:11-13</code>).</dd>
+    <dt>Blast radius</dt><dd>cacheOwner + several small modules; pure mechanical.</dd>
+    <dt>Effort · Deploy</dt><dd>S–M · web client only</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">C8</span><span class="title"><code>redeemTelegramLinkToken</code> reads <code>telegramUsers/{tgId}</code> twice per call</span></div>
+  <div class="badges"><span class="b low">Value 8</span><span class="b plain">inefficiency · small</span><span class="b tag">Cluster A</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd><code>functions/telegram-auth.js:218</code> reads it for the needs-confirm decision; <code>performLink</code> (entered at <code>:238</code>) re-reads at <code>:146-149</code>. The avoidance pattern already exists in the same file — <code>ensureTelegramUser</code>'s <code>priorMapping</code> parameter (<code>:78-81</code>).</dd>
+    <dt>Fix direction</dt><dd>Pass <code>prior</code> into <code>performLink</code> the same way. One wasted read + round-trip per redeem.</dd>
+    <dt>Effort · Deploy</dt><dd>S · functions</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">C9</span><span class="title">Dead / vestigial items</span></div>
+  <div class="badges"><span class="b low">Value 9</span><span class="b plain">dead code</span><span class="b tag">Cluster D</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>All grep-verified repo-wide:
+      <ul>
+        <li><code>js/inviteFlow.js:26</code> — <code>export { buildTelegramShareUrl } from './telegram.js'</code> has zero importers via <code>inviteFlow</code> (tested from <code>telegram.js</code> directly). Dead re-export.</li>
+        <li><code>js/telegram.js:21</code> — <code>telegramLinkState()</code>: zero production callers left after W3-A; only test mocks carry it. Droppable with the mock keys.</li>
+        <li><code>js/app.js:98</code> — <code>export</code> on <code>showBootError</code> has no external importer or test consumer.</li>
+        <li><code>css/app.css:1062</code> <code>.invite-share-btn.hidden</code> and <code>:1499</code> <code>.help-badge.hidden</code> — redundant under the global <code>.hidden { display:none !important; }</code> (<code>:365</code>). (Pattern predates the branch; these two are new.)</li>
+      </ul>
+      Correctly test-only (do <em>not</em> remove): <code>functions/telegram.js</code> <code>pickPlayfulEmoji</code>/<code>parseDurationMinutes</code>/<code>resolveSourceMessage</code>/<code>HELP_TEXT</code>/<code>COMMANDS</code>; <code>js/app.js:46</code> <code>handleInviteRedemptionResult</code>/<code>reconcileSilentRedeemToast</code>; <code>js/mycode.js</code> <code>sharePersonalInvite</code>/<code>openPersonalInviteModal</code>.</dd>
+    <dt>Effort · Deploy</dt><dd>S · client (CSS/js) — trivial deletions</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">C10</span><span class="title">Comment-only guards on cross-file invariants (guard holes)</span></div>
+  <div class="badges"><span class="b med">Value 10</span><span class="b plain">structural · guards</span><span class="b tag">Cluster F</span><span class="b tag">Cluster C</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>
+      <ul>
+        <li><strong>Fourth reader of the <code>prefs.telegram</code> marker:</strong> <code>js/telegramOnramp.js:75</code> (<code>_linked = serverPrefs?.telegram != null</code>) mirrors the three-reader contract by comment only — not named in the cross-reference comments, no cross-pinning test. The likeliest site to drift if linked-marker semantics change.</li>
+        <li><strong>40-char name cap spelled three times:</strong> <code>database.rules.json</code> <code>followerNames</code> validate, <code>js/telegram.js:36</code> <code>TG_NAME_CAP</code>, <code>functions/presence-core.js</code> <code>LABEL_MAX</code>. Sync is a comment (W3-B CL#9); no agreement test; a rules-side change would make client-truncated names silently fail the cosmetic write (<code>js/db/social.js:221</code> is <code>.catch(() =&gt; {})</code>).</li>
+        <li><strong>Channel-predicate guard shape:</strong> each of the three sites is pinned by its own suite, but there is no <em>shared</em> fixture equivalent to <code>time-format-vectors.json</code> — a semantics change with its local test updated would not fail the other two suites. A small shared JSON of (prefs → expected channel) vectors consumed by all three suites closes this.</li>
+      </ul></dd>
+    <dt>Effort · Deploy</dt><dd>S–M · tests/fixtures only (no production behavior change)</dd>
+  </dl>
+</div>
+
+<div class="finding">
+  <div class="head"><span class="fid">C11</span><span class="title">Minor structural notes</span></div>
+  <div class="badges"><span class="b low">Low priority</span><span class="b plain">structural</span><span class="b tag">Cluster G</span></div>
+  <dl class="kv">
+    <dt>Evidence</dt><dd>
+      <ul>
+        <li><code>js/telegramFirstRun.js</code> hand-rolls two promise/listener/cleanup modal harnesses (<code>:63-90</code>, <code>:95-113</code>) beside the shared <code>runModal</code> (<code>js/promptModal.js:15-45</code>); with <code>telegramSettings.showLinkScreen</code> (<code>:120-155</code>) the branch ships three bespoke wirings plus the shared one. They differ enough that reuse is optional.</li>
+        <li><code>js/telegramChrome.js:113-116</code> — one MutationObserver over the whole <code>documentElement</code> subtree driving ~20 <code>getElementById</code> probes per debounced tick. Debounced and memoized, acceptable — but it fires on every roster re-render app-wide; scoping is available headroom if the webview ever feels chatty.</li>
+      </ul></dd>
+    <dt>Effort · Deploy</dt><dd>M · optional</dd>
+  </dl>
+</div>
+
+<h2><span class="num">4</span>Verified non-issues &amp; test-suite notes</h2>
+<div class="panel">
+  <p><strong>Verified non-issues</strong> — things that look redundant but are justified (checked, not assumed):</p>
+  <ul>
+    <li><strong>VN-1 · Time formatters (guarded landmine):</strong> <code>formatTimeRemaining</code>/<code>formatTimeRemainingFuzzy</code> verified byte-identical between <code>js/utils.js</code> and <code>functions/presence-core.js</code> (bodies diffed, incl. <code>HOUR_WORDS</code>); both suites consume <code>test-fixtures/time-format-vectors.json</code> (<code>tests/utils.test.js:4,40</code>; <code>functions/test/presence-core.test.js:7,143</code>). <em>Guard holds.</em></li>
+    <li><strong>VN-2 · <code>channel !== 'push'</code> three-reader predicate (guarded landmine):</strong> present at <code>functions/notifier.js:43</code>, <code>js/notifySuppression.js:18</code>, <code>js/notifyChannel.js:126</code>; each site test-pinned. Intentional cross-runtime duplication. (Guard-shape gap noted in C10.)</li>
+    <li><strong>VN-3 · <code>writeKnock</code></strong> (<code>functions/telegram.js:249-263</code>) mirrors the client transaction in <code>js/db/social.js</code> — cross-runtime, forced; shape commented at both ends.</li>
+    <li><strong>VN-4 · Deliberate read-for-latency trades:</strong> <code>setGroupPresence</code>'s presence prefetch (<code>functions/telegram.js:304-306</code>) and <code>sendToUser</code>'s up-front <code>pushTokens</code> read (<code>functions/notifier.js:27-34</code>) — documented, not oversights.</li>
+    <li><strong>VN-5 · Bot vs pill "Push isn't set up…" copy</strong> (<code>functions/telegram.js:227</code> vs <code>js/notifyChannel.js:78</code>) — near-identical; the differing last sentence is surface-appropriate deixis; cross-runtime, so no shared constant possible. Low drift cost. (UX finding U2.7 still asks for the voice decision to be recorded.)</li>
+    <li><strong>VN-6 · Invite picker populated after the modal shows</strong> (<code>js/inviteModal.js</code>) — deliberate anti-jank ordering, commented.</li>
+    <li><strong>VN-7 · <code>statusapp_grad_phrase_</code> excluded from cacheOwner's wipe</strong> — deliberate (must survive the graduation reload's uid change), documented (<code>js/graduationPhrase.js:9-13</code>), cleaned at the real teardown points (<code>js/auth.js:40</code>, <code>js/telegramSettings.js:76</code>).</li>
+  </ul>
+  <p><strong>Test-suite notes:</strong></p>
+  <ul>
+    <li><strong>T-1</strong> · 22 test files hand-declare the same <code>jest.mock('../js/telegram.js', …)</code> shape; W3-A already had to walk every one to add <code>isTelegramLinked</code>. A shared mock factory (<code>tests/helpers/telegramMock.js</code>) makes the next surface change a one-file edit. <span class="fidref">→ Cluster F</span></li>
+    <li><strong>T-2</strong> · <code>tests/cacheOwner.test.js:6-29</code> hand-copies the key list — third copy in the repo; guards the copy's behavior, not agreement with the owning modules. Subsumed by C7.</li>
+    <li><strong>T-3</strong> · Positive: <code>functions/test/store-deps.js</code> consolidates per-file RTDB mocks and models real ancestor-overlap rejection — this is what certifies the atomic multi-path writes in <code>telegram-auth.js</code>, and exactly the shared-guard shape the client-side lists lack.</li>
+  </ul>
+</div>
+
+<h2><span class="num">5</span>Synthesis — clusters</h2>
+<p>Where the two workstreams point at the same code, fixing together beats fixing piecemeal. Every finding
+maps to exactly one primary cluster (a few have a secondary); the full matrix in §6 covers <em>all</em> items.</p>
+
+<div class="panel">
+  <ul>
+    <li><span class="clu">A · telegram-auth.js combined pass</span> — U1.1 (redeem confirm), U1.2 (web unlink), U1.3 (channel rerouting) land in the same file as C2 (twin movers) and C8 (double read). One coherent server-side change-set, one test-suite touch, one deploy. <em>Gate: check #287's adjudication of U1.1 first.</em></li>
+    <li><span class="clu">B · Replace-confirm copy</span> — U2.1 (conditional, count-specific warning) and C6 (duplicated warning string) are the same sentence: making it conditional and count-driven naturally consolidates it behind one constant/helper.</li>
+    <li><span class="clu">C · Channel honesty &amp; the predicate</span> — U1.3's channel handling is exactly the code the three-reader predicate protects; C10's shared vector fixture and C3(a)'s read-timing change should land with (or before) it so the invariant is machine-guarded while it's being touched.</li>
+    <li><span class="clu">D · Client-only quick wins (no functions deploy)</span> — U1.4, U1.5, U1.7, U1.8, U2.2, U2.3, U2.4, U3.1, U3.3, C1, C4, C9. All small, independent, and shippable before the maintainer's A5 redeploy.</li>
+    <li><span class="clu">E · Bot-surface polish pass (one functions deploy)</span> — U1.6, U2.5, U2.6, U2.7, U3.2, C3(b)(c), C5. All inside <code>functions/telegram.js</code>/<code>notifier.js</code>; natural single change-set.</li>
+    <li><span class="clu">F · Invariant guards</span> — C7 (key lists), C10 (three guard holes), T-1 (shared mock factory). No behavior change; pure future-drift insurance.</li>
+    <li><span class="clu">G · Deferred / needs design or maintainer call</span> — U3.4 (MainButton fit-check), U3.5 (#286 design input), C11 (optional structure), plus the pre-existing #288.</li>
+  </ul>
+</div>
+
+<h2><span class="num">6</span>Full cross-reference matrix</h2>
+<p>Every finding from both workstreams — including items that stand alone or need no action.</p>
+<div class="tblwrap">
+<table>
+  <thead><tr><th>ID</th><th>Finding (short)</th><th>Sev / value</th><th>Effort</th><th>Deploy</th><th>Cluster</th><th>Cross-refs &amp; notes</th></tr></thead>
+  <tbody>
+    <tr><td class="fidref">U1.1</td><td>Forwarded link links a stranger</td><td>High</td><td>S–M</td><td>functions + client</td><td class="clu">A</td><td>Check #287 first; interacts with U1.8 (reused-token copy), U2.1 (confirm copy)</td></tr>
+    <tr><td class="fidref">U1.2</td><td>No web-side unlink / linked-state</td><td>High</td><td>M</td><td>functions + web</td><td class="clu">A</td><td>New callable mirrors <code>mintTelegramLinkToken</code> trust model; triggers U1.3(b) path</td></tr>
+    <tr><td class="fidref">U1.3</td><td>Silent notification rerouting</td><td>Med-High</td><td>M</td><td>functions + clients</td><td class="clu">A, C</td><td>Land with C10's predicate fixture; C3(a) touches the same reads</td></tr>
+    <tr><td class="fidref">U1.4</td><td>Onramp CTA fails silently</td><td>Med</td><td>S</td><td>web only</td><td class="clu">D</td><td>Reuse <code>inviteModal.js:190-193</code> fallback pattern; same file as C4</td></tr>
+    <tr><td class="fidref">U1.5</td><td>Phrase note is a dead end in Telegram</td><td>Med</td><td>S</td><td>Mini App only</td><td class="clu">D</td><td>—</td></tr>
+    <tr><td class="fidref">U1.6</td><td>Chat group-join dead end</td><td>Med</td><td>S</td><td>functions</td><td class="clu">E</td><td><code>openAppKeyboard</code> helper exists (<code>telegram-shared.js:30-32</code>)</td></tr>
+    <tr><td class="fidref">U1.7</td><td>No web success beat after link</td><td>Low-Med</td><td>S</td><td>web only</td><td class="clu">D</td><td>Same watcher as U2.2's gate (<code>telegramOnramp.js</code>)</td></tr>
+    <tr><td class="fidref">U1.8</td><td>Catch-all "expired" toast</td><td>Low</td><td>S</td><td>Mini App only</td><td class="clu">D</td><td>Same file as U2.1/C6; sharpens U1.1's reused-token story</td></tr>
+    <tr><td class="fidref">U2.1</td><td>Two warning philosophies + unused counts</td><td>Med</td><td>M</td><td>functions + client</td><td class="clu">B</td><td>= C6's string; server already returns counts</td></tr>
+    <tr><td class="fidref">U2.2</td><td>Onramp banner vs first-run rule</td><td>Med</td><td>S</td><td>web only</td><td class="clu">D</td><td>Mirror <code>installAffordance.js:82-93</code>; flash risk INFERRED</td></tr>
+    <tr><td class="fidref">U2.3</td><td>Move-framing vs additive framing</td><td>Low</td><td>S</td><td>template copy</td><td class="clu">D</td><td>—</td></tr>
+    <tr><td class="fidref">U2.4</td><td>Expired invite: toast vs modal</td><td>Low</td><td>S</td><td>client copy</td><td class="clu">D</td><td>Container difference defensible; align sentence</td></tr>
+    <tr><td class="fidref">U2.5</td><td>Chat join publishes name silently</td><td>Low</td><td>S</td><td>functions</td><td class="clu">E</td><td>One clause in the join reply</td></tr>
+    <tr><td class="fidref">U2.6</td><td>Linked to <em>which</em> account?</td><td>Low</td><td>S</td><td>client (+functions)</td><td class="clu">E</td><td>Matters more now that relink exists (U1.1/U1.2 world)</td></tr>
+    <tr><td class="fidref">U2.7</td><td>Two voices, push-unavailable refusal</td><td>Low</td><td>S</td><td>decision</td><td class="clu">E</td><td>Code review calls it surface-appropriate (VN-5); record the decision</td></tr>
+    <tr><td class="fidref">U3.1</td><td>Haptics on the knock loop</td><td>Med impact</td><td>S</td><td>Mini App only</td><td class="clu">D</td><td>Feeds U3.3's ceremony; explicitly deferred earlier (<code>telegramChrome.js:4</code>)</td></tr>
+    <tr><td class="fidref">U3.2</td><td>"Knock knock — ⟨name⟩" in chat</td><td>Low-Med</td><td>S</td><td>functions</td><td class="clu">E</td><td>Channel-aware title at <code>sendTelegram</code> seam only; FCM untouched</td></tr>
+    <tr><td class="fidref">U3.3</td><td>Graduation ceremony</td><td>Low-Med</td><td>S</td><td>Mini App only</td><td class="clu">D</td><td>Pairs with U3.1's success haptic</td></tr>
+    <tr><td class="fidref">U3.4</td><td>MainButton on single-CTA screens</td><td>Low</td><td>M</td><td>Mini App</td><td class="clu">G</td><td>Needs theming fit-check vs <code>telegramChrome.js:79-90</code></td></tr>
+    <tr><td class="fidref">U3.5</td><td>Inline invite sharing</td><td>Low</td><td>L</td><td>functions + config</td><td class="clu">G</td><td>Design input for #286, not standalone</td></tr>
+    <tr><td class="fidref">C1</td><td>Web boot gates on telegram.org</td><td>Value 1</td><td>M</td><td>client + hosting</td><td class="clu">D</td><td>Also narrows CSP for pure-web users</td></tr>
+    <tr><td class="fidref">C2</td><td>Twin account-data movers</td><td>Value 2</td><td>M</td><td>functions</td><td class="clu">A</td><td>Do before/with U1.1–U1.3 — same file, same tests</td></tr>
+    <tr><td class="fidref">C3</td><td>Notifier read overhead ×3</td><td>Value 3</td><td>S–M</td><td>functions</td><td class="clu">C, E</td><td>(a) with Cluster C; (b)(c) fit Cluster E. Predicate timing only — landmine untouched</td></tr>
+    <tr><td class="fidref">C4</td><td>Deep-link config duplicated</td><td>Value 4</td><td>S</td><td>web only</td><td class="clu">D</td><td>Same files as U1.4</td></tr>
+    <tr><td class="fidref">C5</td><td>/knock disambiguation copy-paste</td><td>Value 5</td><td>S</td><td>functions</td><td class="clu">E</td><td>—</td></tr>
+    <tr><td class="fidref">C6</td><td>Warning string ×2, same runtime</td><td>Value 6</td><td>S</td><td>Mini App only</td><td class="clu">B</td><td>= U2.1's copy; do as one change</td></tr>
+    <tr><td class="fidref">C7</td><td>localStorage key lists ×3</td><td>Value 7</td><td>S–M</td><td>web only</td><td class="clu">F</td><td>Subsumes T-2; keep grad-phrase exclusion</td></tr>
+    <tr><td class="fidref">C8</td><td>Double read in redeem</td><td>Value 8</td><td>S</td><td>functions</td><td class="clu">A</td><td><code>priorMapping</code> pattern exists in-file</td></tr>
+    <tr><td class="fidref">C9</td><td>Dead re-export, test-only fn, 2 CSS rules</td><td>Value 9</td><td>S</td><td>client</td><td class="clu">D</td><td>Trivial deletions; keep listed test-only exports</td></tr>
+    <tr><td class="fidref">C10</td><td>Comment-only invariant guards ×3</td><td>Value 10</td><td>S–M</td><td>tests only</td><td class="clu">F, C</td><td>Predicate fixture should precede U1.3/C3(a)</td></tr>
+    <tr><td class="fidref">C11</td><td>Modal wirings ×3; chrome observer scope</td><td>Low</td><td>M</td><td>optional</td><td class="clu">G</td><td>Headroom, not debt</td></tr>
+    <tr><td class="fidref">VN-1…7</td><td>Verified non-issues (§4)</td><td>—</td><td>—</td><td>—</td><td>—</td><td>No action; VN-1/VN-2 = both guarded landmines re-verified holding</td></tr>
+    <tr><td class="fidref">T-1</td><td>22× hand-rolled telegram.js mock</td><td>—</td><td>S–M</td><td>tests only</td><td class="clu">F</td><td>Shared mock factory</td></tr>
+    <tr><td class="fidref">T-2</td><td>cacheOwner test list is a 3rd copy</td><td>—</td><td>—</td><td>—</td><td class="clu">F</td><td>Subsumed by C7</td></tr>
+    <tr><td class="fidref">T-3</td><td>store-deps.js shared RTDB mock</td><td>—</td><td>—</td><td>—</td><td>—</td><td>Positive note; the model for Cluster F's guards</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2><span class="num">7</span>Suggested sequencing</h2>
+<div class="panel">
+  <ol>
+    <li><strong>Slice 1 — Cluster D</strong> (client-only, no deploy dependency, each item independent): U1.4, U2.2, U1.5, U1.7, U1.8, U2.3, U2.4, U3.1, U3.3, C4, C9, and C1 as the one M-sized item. Shippable before the A5 redeploy.</li>
+    <li><strong>Slice 2 — Cluster F</strong> (guards before surgery): C10's predicate vector fixture + C7 + T-1. Cheap insurance that makes Slices 3–4 safer.</li>
+    <li><strong>Slice 3 — Clusters A + B</strong> (one <code>telegram-auth.js</code> change-set): resolve U1.1 against #287, then U1.1 + U1.2 + U1.3 + C2 + C8, with U2.1/C6 as the copy layer. Needs the functions deploy; server-gated branches walkable on device only after A5.</li>
+    <li><strong>Slice 4 — Cluster E</strong> (one bot polish pass): U1.6, U2.5, U2.6, U2.7 decision, U3.2, C5, C3. Same deploy train as Slice 3 or the next one.</li>
+    <li><strong>Cluster G</strong> stays parked: U3.4 fit-check when convenient; U3.5 folds into #286's design; C11 only if the area is being touched anyway.</li>
+  </ol>
+  <p><em>Everything above is analysis — no code has been changed. Sequencing is a recommendation;
+  slicing and priority are the maintainer's call.</em></p>
+</div>
+
+<footer>
+  Produced 2026-07-09 on <code>claude/telegram-adaptation-shipped-otg0ma</code> @ <code>52971b9</code> ·
+  two independent read-only review passes (product/UX journeys · production-diff code health) ·
+  companion to <code>docs/HANDOFF.md</code> §45–§48 and <code>docs/superpowers/2026-07-07-telegram-feature-analysis.md</code>.
+</footer>
+
+</div>
+</body>
+</html>
