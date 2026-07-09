@@ -775,15 +775,62 @@ describe('handleUpdate: /groups', () => {
     deps.store[`groups/G2/members/${uid}/statusOverride`] = { enabled: false };
     deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'unavailable', availableUntil: null };
     const reply = await handleUpdate(deps, msgUpdate('/groups'));
-    const text = reply.text;
-    expect(text).toMatch(/Divers — available/i);
-    expect(text).toMatch(/Family — unavailable/i);
+    // Divers: enabled override, available, no statusColor → default 🟢 circle,
+    // 16m left (2_000_000 - now=1_000_000). Family: disabled override → falls
+    // back to primary presence (unavailable) → collapsed into the summary.
+    expect(reply.text).toBe('🟢 Divers — 16m left\nUnavailable in Family');
   });
   test('no groups → pointer to the app', async () => {
     const deps = makeBotDeps();
     seedUser(deps.store);
     const reply = await handleUpdate(deps, msgUpdate('/groups'));
     expect(reply.text).toMatch(/app/i);
+  });
+  test('/groups: dotted available rows then one Unavailable summary', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = {
+      G1: { lastVisited: 1 }, G2: { lastVisited: 2 }, G3: { lastVisited: 3 }, G4: { lastVisited: 4 },
+    };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G2/name'] = 'Book Club';
+    deps.store['groups/G3/name'] = 'Hiking';
+    deps.store['groups/G4/name'] = 'Chess';
+    deps.store[`groups/G1/members/${uid}/statusOverride`] = {
+      enabled: true, status: 'available', statusColor: '#3b82f6', availableUntil: deps.now() + 5_700_000, // 1h35m
+    };
+    deps.store[`groups/G2/members/${uid}/statusOverride`] = {
+      enabled: true, status: 'available', statusColor: '#f97316', availableUntil: deps.now() + 2_700_000, // 45m
+    };
+    // G3 (Hiking) and G4 (Chess) have no override → fall back to the seeded
+    // unavailable primary presence.
+    const reply = await handleUpdate(deps, msgUpdate('/groups'));
+    expect(reply.text).toBe('🔵 Divers — 1h 35m left\n🟠 Book Club — 45m left\nUnavailable in Hiking, Chess');
+  });
+  test('/groups: all available → no summary line', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 2 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G2/name'] = 'Book Club';
+    deps.store[`groups/G1/members/${uid}/statusOverride`] = {
+      enabled: true, status: 'available', statusColor: '#3b82f6', availableUntil: deps.now() + 5_700_000,
+    };
+    deps.store[`groups/G2/members/${uid}/statusOverride`] = {
+      enabled: true, status: 'available', statusColor: '#f97316', availableUntil: deps.now() + 2_700_000,
+    };
+    const reply = await handleUpdate(deps, msgUpdate('/groups'));
+    expect(reply.text).not.toContain('Unavailable in');
+  });
+  test('/groups: all unavailable → only the summary line', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 2 } };
+    deps.store['groups/G1/name'] = 'Divers';
+    deps.store['groups/G2/name'] = 'Book Club';
+    // No overrides; seeded primary presence is unavailable.
+    const reply = await handleUpdate(deps, msgUpdate('/groups'));
+    expect(reply.text).toBe('Unavailable in Divers, Book Club');
   });
 });
 
@@ -1071,7 +1118,7 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     const reply = await handleUpdate(deps, msgUpdate('/groups'));
     expect(probe.max).toBeGreaterThanOrEqual(4);
     const text = reply.text;
-    expect(text).toBe('Divers — unavailable (you)\nFamily — unavailable (you)');
+    expect(text).toBe('Unavailable in Divers, Family');
   });
 
   test('group-name matching reads all names concurrently (/status <group>)', async () => {

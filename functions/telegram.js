@@ -425,15 +425,25 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
     const groupIds = Object.keys(groups);
     if (!groupIds.length) { await reply('No groups yet — create one in the app.'); return; }
     const presence = await deps.getVal(`users/${uid}/presence`);
-    const lines = await Promise.all(groupIds.map(async (gid) => {
+    const rows = await Promise.all(groupIds.map(async (gid) => {
       const [name, override] = await Promise.all([
         deps.getVal(`groups/${gid}/name`),
         deps.getVal(`groups/${gid}/members/${uid}/statusOverride`),
       ]);
       const on = effectiveAvailable(override, presence?.status, presence?.availableUntil, deps.now());
-      return `${name || gid} — ${on ? 'available' : 'unavailable'} (you)`;
+      const enabled = override && override.enabled === true;
+      const color = enabled ? override.statusColor : presence?.statusColor;
+      const until = enabled ? override.availableUntil : presence?.availableUntil;
+      return { name: name || gid, on, color, until };
     }));
-    await reply(lines.join('\n'));
+    const availLines = rows.filter((r) => r.on).map((r) => {
+      const remaining = formatTimeRemaining(r.until - deps.now());
+      return `${statusCircle(r.color)} ${r.name}${remaining ? ` — ${remaining} left` : ''}`;
+    });
+    const offNames = rows.filter((r) => !r.on).map((r) => r.name);
+    const parts = [...availLines];
+    if (offNames.length) parts.push(`Unavailable in ${offNames.join(', ')}`);
+    await reply(parts.join('\n'));
   }
 }
 
