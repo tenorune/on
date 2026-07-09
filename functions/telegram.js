@@ -4,7 +4,7 @@
 import { timingSafeEqual } from 'crypto';
 import { ensureTelegramUser } from './telegram-auth.js';
 import { WELCOME_STRANGER_TEXT, openAppKeyboard, GROUP_ID_RE, UID_RE, rootUpdate } from './telegram-shared.js';
-import { effectiveAvailable, primaryAvailable, clampName, statusCircle, formatTimeRemainingFuzzy } from './presence-core.js';
+import { effectiveAvailable, primaryAvailable, clampName, statusCircle, formatTimeRemaining, formatTimeRemainingFuzzy } from './presence-core.js';
 
 // Required format of each callback action's arg, checked before dispatch.
 // A malformed arg — or an unknown action — is refused without touching the DB.
@@ -57,9 +57,6 @@ export function parseDurationMinutes(raw) {
   if (!m || (!m[1] && !m[2])) return null;
   return clamp(parseInt(m[1] || '0', 10) * 60 + parseInt(m[2] || '0', 10));
 }
-
-// Format minutes as a human-readable duration: 30m or 2h (with decimals for >= 60m).
-const fmtMinutes = (m) => (m >= 60 ? `${Math.round((m / 60) * 10) / 10}h` : `${m}m`);
 
 // B#11 (Spec 2 Task 6): the ONE source of truth for bot commands, feeding both
 // HELP_TEXT (chat reply below) and botCommandsPayload (deploy-time setMyCommands
@@ -164,8 +161,7 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
     // Returning: compact live status, duration-based (no server-side timezone).
     const on = primaryAvailable(presence, deps.now());
     if (on) {
-      const mins = Math.max(1, Math.round((presence.availableUntil - deps.now()) / 60000));
-      await reply(`You're available for another ${fmtMinutes(mins)}. /off to stop.`, openAppKeyboard(deps.appUrl));
+      await reply(`You're ${statusCircle(presence.statusColor)} available for another ${formatTimeRemaining(presence.availableUntil - deps.now())}. /off to stop.`, openAppKeyboard(deps.appUrl));
     } else {
       await reply("You're unavailable right now. /status to go available.", openAppKeyboard(deps.appUrl));
     }
@@ -186,12 +182,13 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
       const asDuration = args.length ? parseDurationMinutes(args.join(' ')) : 60;
       if (asDuration != null) {
         // Bare or pure-duration form — global presence, mirrors js/db/social.js setStatus.
+        const color = await deps.getVal(`users/${uid}/presence/statusColor`);
         await deps.update(`users/${uid}/presence`, {
           status: 'available',
           availableUntil: deps.now() + asDuration * 60000,
           lastSeen: deps.now(),
         });
-        await reply(`You're available for ${fmtMinutes(asDuration)}. /off to stop.`);
+        await reply(`You're ${statusCircle(color)} available for ${formatTimeRemaining(asDuration * 60000)}. /off to stop.`);
         return;
       }
       // Group form: a trailing duration token splits off; the rest names the group.
@@ -307,7 +304,7 @@ async function setGroupPresence(deps, uid, query, reply, fields, messages) {
   ]);
   if (override && override.enabled === true) {
     await deps.update(`groups/${match.gid}/members/${uid}/statusOverride`, fields());
-    await reply(messages.confirm(match.name));
+    await reply(messages.confirm(match.name, override.statusColor || presence?.statusColor));
     return;
   }
   const globallyOn = primaryAvailable(presence, deps.now());
@@ -318,7 +315,7 @@ async function handleGroupStatus(deps, uid, query, minutes, reply) {
   await setGroupPresence(deps, uid, query, reply,
     () => ({ status: 'available', availableUntil: deps.now() + minutes * 60000 }),
     {
-      confirm: (name) => `You're available in ${name} for ${fmtMinutes(minutes)}.`,
+      confirm: (name, color) => `You're ${statusCircle(color)} available in ${name} for ${formatTimeRemaining(minutes * 60000)}. /off ${name} to stop.`,
       globalOn: (name) => `${name} follows your global status — you're already available there.`,
       globalOff: (name) => `${name} follows your global status. /status goes available everywhere, or turn on a group status in the app.`,
     });

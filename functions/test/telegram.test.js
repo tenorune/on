@@ -236,7 +236,17 @@ describe('/start first contact vs returning', () => {
     deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'available', availableUntil: deps.now() + 30 * 60000 };
     const reply = await handleUpdate(deps, msgUpdate('/start'));
     const text = reply.text;
-    expect(text).toBe("You're available for another 30m. /off to stop.");
+    expect(text).toBe("You're 🟢 available for another 30m. /off to stop.");
+  });
+
+  // Spec 2 Task 10 (B#14d): the /start echo gets the status-color dot + a
+  // PRECISE (not fuzzy) time remaining, same as the /status confirms below.
+  test('/start echo: dot + precise remaining', async () => {
+    const deps = makeBotDeps({});
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'available', statusColor: '#3b82f6', availableUntil: deps.now() + 5_400_000 };
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
+    expect(reply.text).toBe("You're 🔵 available for another 1h 30m. /off to stop.");
   });
 
   test('returning + unavailable: compact status reply', async () => {
@@ -270,6 +280,16 @@ describe('/start first contact vs returning', () => {
   });
 });
 
+describe('handleUpdate: /status confirm (B#14d dot + precise duration)', () => {
+  test('/status confirm: dot + precise duration + /off hint', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'unavailable', availableUntil: null, statusColor: '#3b82f6' };
+    const reply = await handleUpdate(deps, msgUpdate('/status 2h'));
+    expect(reply.text).toBe("You're 🔵 available for 2h. /off to stop.");
+  });
+});
+
 describe('handleUpdate: /status and /off', () => {
   test('/status 30m → available with future availableUntil + lastSeen', async () => {
     const deps = makeBotDeps();
@@ -278,7 +298,7 @@ describe('handleUpdate: /status and /off', () => {
     expect(deps.update).toHaveBeenCalledWith(`users/${uid}/presence`, {
       status: 'available', availableUntil: 1_000_000 + 30 * 60000, lastSeen: 1_000_000,
     });
-    expect(reply.text).toBe("You're available for 30m. /off to stop.");
+    expect(reply.text).toBe("You're 🟢 available for 30m. /off to stop.");
   });
   test('/status with no arg defaults to 60m', async () => {
     const deps = makeBotDeps();
@@ -325,7 +345,18 @@ describe('handleUpdate: /status <group>', () => {
       status: 'available', availableUntil: 1_000_000 + 120 * 60000,
     });
     expect(deps.update).toHaveBeenCalledTimes(1); // no global presence write
-    expect(reply.text).toBe("You're available in Divers for 2h.");
+    expect(reply.text).toBe("You're 🟢 available in Divers for 2h. /off Divers to stop.");
+  });
+
+  // Spec 2 Task 10 (B#14d): the group confirm's dot is the OVERRIDE's color
+  // (this command just wrote the override) — falling back to the user's
+  // primary statusColor only if the override itself carries none.
+  test('/status <group> confirm: dot + duration + /off <group> hint', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedStatusGroup(deps.store, uid, { enabled: true, status: 'unavailable', statusColor: '#8800ff' });
+    const reply = await handleUpdate(deps, msgUpdate('/status divers 2h'));
+    expect(reply.text).toBe("You're 🟣 available in Divers for 2h. /off Divers to stop.");
   });
   test('override ON, no duration → defaults to 60m', async () => {
     const deps = makeBotDeps();
