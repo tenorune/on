@@ -201,7 +201,8 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
       const trailing = args.length > 1 ? parseDurationMinutes(args[args.length - 1]) : null;
       const minutes = trailing ?? 60;
       const query = (trailing != null ? args.slice(0, -1) : args).join(' ');
-      await handleGroupStatus(deps, uid, query, minutes, reply);
+      const durToken = trailing != null ? args[args.length - 1] : ''; // echo the user's own token in the B#3 retry
+      await handleGroupStatus(deps, uid, query, minutes, reply, durToken);
       return;
     }
     case '/off': {
@@ -281,11 +282,14 @@ async function matchGroupsByName(deps, uid, query) {
 // Shared arity guard for group-arg commands: replies and returns null unless
 // exactly one group matches. No inline keyboard — /status//off carry extra
 // args that don't fit a callback, so the retry is plain text for all three.
-async function resolveGroupArg(deps, uid, query, reply, noMatchHint = '') {
+async function resolveGroupArg(deps, uid, query, reply, noMatchHint = '', retryCmd = null) {
   const matches = await matchGroupsByName(deps, uid, query);
   if (matches.length === 0) { await reply(`No group matching "${query}".${noMatchHint}`); return null; }
   if (matches.length > 1) {
-    await reply(`Which group? ${matches.map((m) => m.name).join(', ')} — give me more letters.`);
+    // B#3: a free-text "give me more letters" reply can't be answered (it hits
+    // the unknown-command dump). Spell out the ready-made retry command per
+    // candidate — carrying the pending duration — so the user taps/edits it.
+    await reply(`Which group? Try ${matches.map((m) => retryCmd(m.name)).join(' or ')}.`);
     return null;
   }
   return matches[0];
@@ -301,8 +305,8 @@ async function resolveGroupArg(deps, uid, query, reply, noMatchHint = '') {
 // needs it — one wasted read on the ON path buys a round-trip of latency.
 // `fields` is a thunk evaluated at write time so availableUntil is stamped
 // from now() AFTER the reads, exactly as the pre-merge handlers did.
-async function setGroupPresence(deps, uid, query, reply, fields, messages, noMatchHint = '') {
-  const match = await resolveGroupArg(deps, uid, query, reply, noMatchHint);
+async function setGroupPresence(deps, uid, query, reply, fields, messages, noMatchHint = '', retryCmd = null) {
+  const match = await resolveGroupArg(deps, uid, query, reply, noMatchHint, retryCmd);
   if (!match) return;
   const [override, presence] = await Promise.all([
     deps.getVal(`groups/${match.gid}/members/${uid}/statusOverride`),
@@ -320,8 +324,9 @@ async function setGroupPresence(deps, uid, query, reply, fields, messages, noMat
   await reply((globallyOn ? messages.globalOn : messages.globalOff)(match.name));
 }
 
-async function handleGroupStatus(deps, uid, query, minutes, reply) {
+async function handleGroupStatus(deps, uid, query, minutes, reply, durToken = '') {
   const noMatchHint = looksLikeDuration(query) ? ' Durations look like 2h or 30m — try /status 2h.' : '';
+  const retryCmd = (name) => `/status ${name}${durToken ? ` ${durToken}` : ''}`;
   await setGroupPresence(deps, uid, query, reply,
     () => ({ status: 'available', availableUntil: deps.now() + minutes * 60000 }),
     {
@@ -329,7 +334,7 @@ async function handleGroupStatus(deps, uid, query, minutes, reply) {
       globalOn: (name) => `${name} follows your global status — you're already available there.`,
       globalOff: (name) => `${name} follows your global status. /status goes available everywhere, or turn on a group status in the app.`,
     },
-    noMatchHint);
+    noMatchHint, retryCmd);
 }
 
 async function handleGroupOff(deps, uid, query, reply) {
@@ -341,12 +346,13 @@ async function handleGroupOff(deps, uid, query, reply) {
       confirm: (name) => `You're unavailable in ${name}.`,
       globalOn: (name) => `${name} follows your global status. /off goes unavailable everywhere, or turn on a group status in the app.`,
       globalOff: (name) => `You're already unavailable in ${name}.`,
-    });
+    },
+    '', (name) => `/off ${name}`);
 }
 
 // /who <group>: co-members' effective in-group availability (the /groups idiom).
 async function handleWhoGroup(deps, uid, query, reply) {
-  const match = await resolveGroupArg(deps, uid, query, reply);
+  const match = await resolveGroupArg(deps, uid, query, reply, '', (name) => `/who ${name}`);
   if (!match) return;
   const members = (await deps.getVal(`groups/${match.gid}/members`)) || {};
   const coMembers = Object.entries(members).filter(([mid]) => mid !== uid);

@@ -325,6 +325,28 @@ describe('handleUpdate: /status and /off', () => {
     expect(reply.text).toContain('No group matching "2 hours".');
     expect(reply.text).toMatch(/2h or 30m/);
   });
+  // B#3 (issue #285, option B): a multi-group match spells out the full retry
+  // command per candidate (carrying the duration) instead of "give me more
+  // letters", which free text can't answer.
+  test('/status <ambiguous group> → spells out the retry command per match, with the duration (B#3)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Family';
+    deps.store['groups/G2/name'] = 'Fam club';
+    const reply = await handleUpdate(deps, msgUpdate('/status fam 2h'));
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(reply.text).toBe('Which group? Try /status Family 2h or /status Fam club 2h.');
+  });
+  test('/off <ambiguous group> → spells out /off retry commands, no duration (B#3)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Family';
+    deps.store['groups/G2/name'] = 'Fam club';
+    const reply = await handleUpdate(deps, msgUpdate('/off fam'));
+    expect(reply.text).toBe('Which group? Try /off Family or /off Fam club.');
+  });
   test('/off → unavailable, cleared availableUntil', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
@@ -634,7 +656,7 @@ describe('handleUpdate: /who <group>', () => {
     const reply = await handleUpdate(deps, msgUpdate('/who chess'));
     expect(reply.text).toBe('No group matching "chess".');
   });
-  test('ambiguous group name → lists candidates, asks for more letters', async () => {
+  test('ambiguous group name → spells out the /who retry command per candidate (B#3)', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedGroup(deps.store, uid);
@@ -644,7 +666,7 @@ describe('handleUpdate: /who <group>', () => {
     const text = reply.text;
     expect(text).toContain('Divers');
     expect(text).toContain('Dive Club');
-    expect(text).toMatch(/more letters/i);
+    expect(text).toBe('Which group? Try /who Divers or /who Dive Club.');
   });
 
   // Spec 2 Task 9 (B#14c): the group roster line uses the member's EFFECTIVE
