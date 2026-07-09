@@ -41,6 +41,7 @@ const _validateTelegram = httpsCallable(_functions, 'validateTelegram');
 const _linkTelegram = httpsCallable(_functions, 'linkTelegram');
 const _unlinkTelegram = httpsCallable(_functions, 'unlinkTelegram');
 const _graduateTelegram = httpsCallable(_functions, 'graduateTelegram');
+const _mintTelegramLinkToken = httpsCallable(_functions, 'mintTelegramLinkToken');
 
 // Telegram Mini App auth (experimental — spec 2026-07-02). initData is the raw
 // signed string from Telegram.WebApp; the server verifies it and mints a token.
@@ -62,6 +63,13 @@ export async function callUnlinkTelegram(initData) {
 export async function callGraduateTelegram(initData, code) {
   const { data } = await _graduateTelegram({ initData, code });
   return data; // { ok: true, uid }
+}
+
+// One-tap web→Telegram onboarding: mint a fresh single-use link token bound to
+// the current (authed) account. The phrase is never sent. See telegramOnramp.js.
+export async function callMintTelegramLinkToken() {
+  const { data } = await _mintTelegramLinkToken({});
+  return data; // { token }
 }
 
 let _messaging = null;

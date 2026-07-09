@@ -1,7 +1,7 @@
 import { createHmac } from 'crypto';
 import { jest } from '@jest/globals';
 import { makeStoreDeps as makeCoreStoreDeps } from './store-deps.js';
-import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, performLink, linkTelegramHandler, unlinkTelegramHandler, expungeDerivedAccount, graduateAccountData, graduateTelegramHandler } from '../telegram-auth.js';
+import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, performLink, linkTelegramHandler, unlinkTelegramHandler, expungeDerivedAccount, graduateAccountData, graduateTelegramHandler, mintTelegramLinkTokenHandler } from '../telegram-auth.js';
 
 const BOT_TOKEN = '12345:TEST_TOKEN';
 // F1 (#287): the derived uid is now keyed by a server-held secret so it's not
@@ -91,6 +91,7 @@ function makeStoreDeps(store = {}) {
     ...makeCoreStoreDeps(store),
     now: () => 1000,
     generateCode: () => 'AAAAAA',
+    randomToken: () => 'tok_fixed_000000000000',
     uidSecret: TEST_UID_SECRET,
   };
 }
@@ -884,5 +885,19 @@ describe('graduateTelegramHandler', () => {
     // Old account untouched — the client regenerates a phrase and retries.
     expect(deps.store[`users/${OLD}`]).not.toBeNull();
     expect(deps.store['telegramUsers/42']).toMatchObject({ uid: OLD });
+  });
+});
+
+describe('mintTelegramLinkTokenHandler', () => {
+  test('authed → writes a bound, expiring token record and returns it', async () => {
+    const deps = { ...makeHandlerDeps(), now: () => 1000, randomToken: () => 'tok_abc' };
+    const uid = 'c'.repeat(32);
+    const res = await mintTelegramLinkTokenHandler({ auth: { uid } }, deps);
+    expect(res).toEqual({ token: 'tok_abc' });
+    expect(deps.store['telegramLinkTokens/tok_abc']).toEqual({ uid, exp: 1000 + 5 * 60 * 1000 });
+  });
+  test('unauthenticated → throws', async () => {
+    const deps = makeHandlerDeps();
+    await expect(mintTelegramLinkTokenHandler({ auth: null }, deps)).rejects.toThrow(/Sign in|unauthenticated/i);
   });
 });

@@ -10,6 +10,8 @@ const DEFAULT_MAX_AGE_MS = 4 * 60 * 60 * 1000; // initData replay window (F3 #28
 // auth_date is HMAC-protected, this is defense-in-depth against clock nonsense.
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
 
+const LINK_TOKEN_TTL_MS = 5 * 60 * 1000; // one-tap web→TG link token lifetime
+
 // Verify Telegram WebApp initData per https://core.telegram.org/bots/webapps
 // #validating-data-received-via-the-mini-app. Returns the parsed `user` object
 // on success, null on any failure (bad signature, stale, malformed).
@@ -183,6 +185,17 @@ export async function linkTelegramHandler(request, deps) {
   const uid = await deriveUid(normalized);
   if (!(await deps.allowAttempt(uid))) throw new HttpsError('resource-exhausted', 'Too many attempts. Try again shortly.');
   return performLink(deps, uid, tgUser);
+}
+
+// Authenticated (web session) mint of a single-use token bound to this account's
+// uid. The phrase never leaves the device — the web app is already signed in, so
+// request.auth.uid identifies the account. Fresh token every call.
+export async function mintTelegramLinkTokenHandler(request, deps) {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const token = deps.randomToken();
+  await deps.set(`telegramLinkTokens/${token}`, { uid, exp: deps.now() + LINK_TOKEN_TTL_MS });
+  return { token };
 }
 
 // Delete every RTDB record of the Telegram-derived shadow account, including
