@@ -16,12 +16,12 @@ jest.mock('../js/identity.js', () => ({
   parseRecoveryCode: (s) => (/^[a-z]+(-[a-z]+){3}$/.test((s || '').trim()) ? s.trim() : null),
 }));
 jest.mock('../js/graduation.js', () => ({ showGraduationInfo: jest.fn() }));
-jest.mock('../js/graduationPhrase.js', () => ({ loadGraduatedPhrase: jest.fn(() => null) }));
+jest.mock('../js/graduationPhrase.js', () => ({ loadGraduatedPhrase: jest.fn(() => null), clearGraduatedPhrases: jest.fn() }));
 jest.mock('../js/mycode.js', () => ({ initRecoveryPill: jest.fn() }));
 const { telegramLinkState, isTelegramLinked } = require('../js/telegram.js');
 const { callLinkTelegram, callUnlinkTelegram } = require('../js/firebase-config.js');
 const { showGraduationInfo } = require('../js/graduation.js');
-const { loadGraduatedPhrase } = require('../js/graduationPhrase.js');
+const { loadGraduatedPhrase, clearGraduatedPhrases } = require('../js/graduationPhrase.js');
 const { initRecoveryPill } = require('../js/mycode.js');
 const { showLinkScreen } = require('../js/telegramSettings.js');
 
@@ -164,6 +164,21 @@ test('unlink: confirm goes busy, calls the callable, does NOT stamp a landing ba
   release();
   await flush();
   expect(sessionStorage.getItem('kk-landing')).toBeNull();
+});
+
+// F5 (#287): unlink hands this Telegram over to a fresh, empty account — the
+// prior account's stored graduation phrase must not survive into it.
+test('unlink success clears the stored graduation phrase (F5 #287)', async () => {
+  isTelegramLinked.mockReturnValue(true);
+  callUnlinkTelegram.mockResolvedValue({ token: 't' });
+  const { initTelegramSettings } = require('../js/telegramSettings.js');
+  initTelegramSettings('u1');
+  await flush();
+  document.getElementById('tg-unlink-btn').click();
+  document.getElementById('confirm-modal-confirm-btn').click();
+  await flush();
+  expect(callUnlinkTelegram).toHaveBeenCalledWith('signed-init-data');
+  expect(clearGraduatedPhrases).toHaveBeenCalled();
 });
 
 test('unlink failure: inline error in the shared modal, stays open for retry (carries W1 J#7 over)', async () => {

@@ -96,6 +96,8 @@ function makeBotDeps(store = {}) {
     now: () => 1_000_000,
     appUrl: 'https://app.example.com',
     generateCode: () => 'AAAAAA',
+    uidSecret: 'test-uid-secret', // F1 (#287): ensureTelegramUser derives via this
+
     tg: {
       sendMessage: jest.fn(async () => ({})),
       answerCallbackQuery: jest.fn(async () => ({})),

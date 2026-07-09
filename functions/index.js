@@ -204,6 +204,9 @@ function makeTelegramAuthDeps() {
   return {
     ...makeDbDeps(),
     botToken: process.env.TELEGRAM_BOT_TOKEN || null,
+    // Server secret keying the Telegram-derived uid so it's not computable from
+    // the public tgId (F1 #287). Must be set alongside the bot token.
+    uidSecret: process.env.TELEGRAM_UID_SECRET || null,
     appUrl: process.env.TELEGRAM_APP_URL || '',
     mintToken: (uid) => getAuth().createCustomToken(uid),
     allowAttempt: (uid) => allowRecoveryAttempt(getDatabase(), uid),
@@ -243,6 +246,8 @@ export const telegramWebhook = onRequest(async (req, res) => {
   }
   const replyPayload = await handleUpdate({
     ...makeDbDeps(),
+    // The /start bootstrap derives the uid via ensureTelegramUser too (F1 #287).
+    uidSecret: process.env.TELEGRAM_UID_SECRET || null,
     appUrl: process.env.TELEGRAM_APP_URL || '',
     setAuthEmail: setTelegramAuthEmail,
     tg: {

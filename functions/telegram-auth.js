@@ -1,12 +1,12 @@
 // functions/telegram-auth.js — Telegram Mini App auth: initData verification,
 // uid mapping/bootstrap, and the validate/link/unlink callable handlers.
 // Deps are injected (see index.js) so everything tests without firebase-admin.
-import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { normalizeRecoveryCode, deriveUid } from './auth.js';
 import { WELCOME_STRANGER_TEXT, openAppKeyboard, rootUpdate } from './telegram-shared.js';
 
-const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000; // initData replay window
+const DEFAULT_MAX_AGE_MS = 4 * 60 * 60 * 1000; // initData replay window (F3 #287: shortened from 24h)
 // auth_date is HMAC-protected, this is defense-in-depth against clock nonsense.
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
 
@@ -33,9 +33,15 @@ export function verifyInitData(initData, botToken, now, maxAgeMs = DEFAULT_MAX_A
   return user;
 }
 
-// Telegram-derived app uid — same 32-hex format as phrase uids (auth.js deriveUid).
-export function deriveTelegramUid(tgId) {
-  return createHash('sha256').update(`telegram:${tgId}`, 'utf8').digest('hex').slice(0, 32);
+// Telegram-derived app uid — same 32-hex format as phrase uids (auth.js
+// deriveUid). Keyed by a server-held secret (F1 #287): the tgId is a PUBLIC
+// numeric id, so an unkeyed hash would let any authed user compute another
+// account's uid and read its world-readable presence (share code, lastSeen).
+// HMAC with a secret restores the same unguessability phrase uids already have.
+// Fail-closed: a missing secret throws rather than derive a guessable uid.
+export function deriveTelegramUid(tgId, secret) {
+  if (!secret) throw new Error('TELEGRAM_UID_SECRET is not configured');
+  return createHmac('sha256', secret).update(`telegram:${tgId}`, 'utf8').digest('hex').slice(0, 32);
 }
 
 const CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -69,7 +75,7 @@ async function claimShareCode(deps, uid) {
 // no second presence read either.
 export async function ensureTelegramUser(deps, tgUser, priorMapping) {
   const tgId = String(tgUser.id);
-  const derivedUid = deriveTelegramUid(tgId);
+  const derivedUid = deriveTelegramUid(tgId, deps.uidSecret);
   let mapping = priorMapping === undefined ? await deps.getVal(`telegramUsers/${tgId}`) : priorMapping;
   if (!mapping) {
     mapping = { uid: derivedUid, chatId: tgId, createdAt: deps.now() };
@@ -104,7 +110,10 @@ export async function ensureTelegramUser(deps, tgUser, priorMapping) {
 }
 
 function requireTelegramUser(request, deps) {
-  if (!deps.botToken) throw new HttpsError('failed-precondition', 'Telegram is not configured.');
+  // Both the bot token and the uid secret must be configured before any
+  // handler derives a uid — fail-closed with a clean precondition error rather
+  // than let deriveTelegramUid throw mid-flight (F1 #287).
+  if (!deps.botToken || !deps.uidSecret) throw new HttpsError('failed-precondition', 'Telegram is not configured.');
   const tgUser = verifyInitData(request.data?.initData, deps.botToken, deps.now());
   if (!tgUser) throw new HttpsError('unauthenticated', 'Invalid Telegram signature.');
   return tgUser;
@@ -151,7 +160,7 @@ export async function linkTelegramHandler(request, deps) {
   const now = deps.now();
   const writes = {};
   if (prior && prior.uid !== uid) {
-    if (prior.uid === deriveTelegramUid(tgId)) {
+    if (prior.uid === deriveTelegramUid(tgId, deps.uidSecret)) {
       // Linking retires the temporary Telegram-derived account completely:
       // its uid is deterministic, so anything left behind (mapping, prefs,
       // social residue) would resurrect as a shadow account (same rationale
@@ -375,7 +384,7 @@ export async function graduateTelegramHandler(request, deps) {
   if (!(await deps.allowAttempt(newUid))) throw new HttpsError('resource-exhausted', 'Too many attempts. Try again shortly.');
 
   const tgId = String(tgUser.id);
-  const derivedUid = deriveTelegramUid(tgId);
+  const derivedUid = deriveTelegramUid(tgId, deps.uidSecret);
   const [prior, targetPresence] = await Promise.all([
     deps.getVal(`telegramUsers/${tgId}`),
     deps.getVal(`users/${newUid}/presence`),
@@ -422,7 +431,7 @@ export async function graduateTelegramHandler(request, deps) {
 export async function unlinkTelegramHandler(request, deps) {
   const tgUser = requireTelegramUser(request, deps);
   const tgId = String(tgUser.id);
-  const derivedUid = deriveTelegramUid(tgId);
+  const derivedUid = deriveTelegramUid(tgId, deps.uidSecret);
   const prior = await deps.getVal(`telegramUsers/${tgId}`);
   // The mapping teardown (and, for a linked phrase account, its off-telegram
   // reset) fold into expunge's single atomic update — no dangling-mapping

@@ -14,9 +14,11 @@
 
 const KEY_PREFIX = 'statusapp_grad_phrase_';
 
-// Remove every stored graduation phrase (all accounts). Keeps only the current
-// account's phrase around after a store.
-function clearAll() {
+// Remove every stored graduation phrase (all accounts). Called internally before
+// a store (only the current account's phrase lingers) and exported for the
+// identity-teardown points — unlink and sign-out (F5 #287) — so the phrase, which
+// is the account credential, never survives into a different account.
+export function clearGraduatedPhrases() {
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const key = localStorage.key(i);
@@ -27,7 +29,7 @@ function clearAll() {
 
 export function storeGraduatedPhrase(uid, recoveryCode) {
   if (!uid || !recoveryCode) return;
-  clearAll();
+  clearGraduatedPhrases();
   try { localStorage.setItem(KEY_PREFIX + uid, recoveryCode); } catch { /* private mode / quota */ }
 }
 

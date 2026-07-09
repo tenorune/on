@@ -3,6 +3,7 @@ import { signInWithCustomToken, signOut } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import { auth, db, callValidateRecovery } from './firebase-config.js';
 import { deriveUserIdFromRecoveryCode } from './identity.js';
+import { clearGraduatedPhrases } from './graduationPhrase.js';
 
 // After signInWithCustomToken resolves, the RTDB connection re-authenticates
 // ASYNCHRONOUSLY — reads/listeners attached in that window get permission_denied,
@@ -36,6 +37,9 @@ export async function ensureSignedIn(recoveryCode) {
     const wantUid = await deriveUserIdFromRecoveryCode(recoveryCode);
     if (auth.currentUser.uid === wantUid) return;
     await signOut(auth);
+    // Switching identities: the outgoing account's stashed graduation phrase
+    // (its credential) must not survive into the incoming one (F5 #287).
+    clearGraduatedPhrases();
   } else if (!recoveryCode) {
     throw new Error('No cached session and no recovery code to sign in with.');
   }

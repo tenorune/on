@@ -109,6 +109,15 @@ the bundle carries the dev project's Firebase config and the branch's
        TELEGRAM_BOT_TOKEN=<TEST bot token from A2>
        TELEGRAM_WEBHOOK_SECRET=<long random string, e.g. `openssl rand -hex 32`>
        TELEGRAM_APP_URL=https://<devProject>--telegram-<hash>.web.app
+       TELEGRAM_UID_SECRET=<a SEPARATE long random string, e.g. `openssl rand -hex 32`>
+
+   `TELEGRAM_UID_SECRET` keys the Telegram-derived app uid (#287 F1) so it can't
+   be computed from the public numeric Telegram id. Keep it **stable** once
+   accounts exist — changing it re-derives every uid and orphans the accounts at
+   their old uid. Since Telegram hasn't been deployed to real users yet, on the
+   first deploy carrying this change, clear any existing test `telegramUsers/*`
+   mappings (and their `users/*`/`userPrefs/*`) so testers re-bootstrap fresh at
+   the new uid.
 
    **Warning:** never put these in `functions/.env.<projectId>` — that file
    is tracked in git (it carries only the non-secret `FUNCTIONS_REGION`);
@@ -388,9 +397,11 @@ validate against (and send from) the test bot.
        TELEGRAM_BOT_TOKEN=<PROD bot token from B2>
        TELEGRAM_WEBHOOK_SECRET=<a NEW long random string — do not reuse dev's>
        TELEGRAM_APP_URL=https://<prodProject>.web.app
+       TELEGRAM_UID_SECRET=<a NEW long random string — do not reuse dev's>
 
    (`TELEGRAM_APP_URL` is the production hosting URL — your custom domain if
-   you serve one.)
+   you serve one. `TELEGRAM_UID_SECRET` keys the derived uid — see A5; keep it
+   stable once prod accounts exist.)
 
    **Warning:** as in dev, never put these in the tracked
    `functions/.env.<projectId>`.

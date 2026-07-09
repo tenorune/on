@@ -4,6 +4,10 @@ import { makeStoreDeps as makeCoreStoreDeps } from './store-deps.js';
 import { verifyInitData, deriveTelegramUid, ensureTelegramUser, validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, expungeDerivedAccount, graduateAccountData, graduateTelegramHandler } from '../telegram-auth.js';
 
 const BOT_TOKEN = '12345:TEST_TOKEN';
+// F1 (#287): the derived uid is now keyed by a server-held secret so it's not
+// computable from the public tgId. Tests seed accounts at the same uid the
+// handlers derive, so they share this secret via the deps harness.
+const TEST_UID_SECRET = 'test-uid-secret';
 
 // Build a validly-signed initData string the same way Telegram does:
 // data_check_string = sorted key=value lines (excluding hash), secret =
@@ -37,6 +41,14 @@ describe('verifyInitData', () => {
     const stale = { ...FRESH, auth_date: String(Math.floor(NOW / 1000) - 25 * 60 * 60) };
     expect(verifyInitData(makeInitData(stale), BOT_TOKEN, NOW)).toBeNull();
   });
+  test('initData older than the 4h replay window → null (F3 #287)', () => {
+    const old = { ...FRESH, auth_date: String(Math.floor(NOW / 1000) - 5 * 60 * 60) };
+    expect(verifyInitData(makeInitData(old), BOT_TOKEN, NOW)).toBeNull();
+  });
+  test('initData within the 4h replay window → parsed user (F3 #287)', () => {
+    const recent = { ...FRESH, auth_date: String(Math.floor(NOW / 1000) - 3 * 60 * 60) };
+    expect(verifyInitData(makeInitData(recent), BOT_TOKEN, NOW)).toEqual({ id: 42, first_name: 'Ada' });
+  });
   test('auth_date 1 hour in the future → null', () => {
     const future = { ...FRESH, auth_date: String(Math.floor(NOW / 1000) + 60 * 60) };
     expect(verifyInitData(makeInitData(future), BOT_TOKEN, NOW)).toBeNull();
@@ -54,10 +66,23 @@ describe('verifyInitData', () => {
 
 describe('deriveTelegramUid', () => {
   test('32 hex chars, deterministic, differs by tgId', () => {
-    const a = deriveTelegramUid(42);
+    const a = deriveTelegramUid(42, TEST_UID_SECRET);
     expect(a).toMatch(/^[0-9a-f]{32}$/);
-    expect(deriveTelegramUid('42')).toBe(a);   // string/number agnostic
-    expect(deriveTelegramUid(43)).not.toBe(a);
+    expect(deriveTelegramUid('42', TEST_UID_SECRET)).toBe(a);   // string/number agnostic
+    expect(deriveTelegramUid(43, TEST_UID_SECRET)).not.toBe(a);
+  });
+  // F1 (#287): keying by a server secret is what makes the uid non-computable
+  // from the public tgId — the whole point of the fix.
+  test('uid is keyed by the server secret: different secret → different uid', () => {
+    const a = deriveTelegramUid(42, 'secret-one');
+    const b = deriveTelegramUid(42, 'secret-two');
+    expect(a).toMatch(/^[0-9a-f]{32}$/);
+    expect(b).toMatch(/^[0-9a-f]{32}$/);
+    expect(a).not.toBe(b);
+  });
+  test('no secret → throws (fail-closed, never derives a guessable uid)', () => {
+    expect(() => deriveTelegramUid(42)).toThrow();
+    expect(() => deriveTelegramUid(42, '')).toThrow();
   });
 });
 
@@ -66,6 +91,7 @@ function makeStoreDeps(store = {}) {
     ...makeCoreStoreDeps(store),
     now: () => 1000,
     generateCode: () => 'AAAAAA',
+    uidSecret: TEST_UID_SECRET,
   };
 }
 
@@ -199,6 +225,10 @@ describe('validateTelegramHandler', () => {
     const deps = { ...makeHandlerDeps(), botToken: null };
     await expect(validateTelegramHandler({ data: { initData: freshInitData() } }, deps)).rejects.toThrow(/not configured/i);
   });
+  test('no uid secret configured → failed-precondition, before any derivation (F1 #287)', async () => {
+    const deps = { ...makeHandlerDeps(), uidSecret: null };
+    await expect(validateTelegramHandler({ data: { initData: freshInitData() } }, deps)).rejects.toThrow(/not configured/i);
+  });
 
   test('first open (created) sends a one-time welcome DM with the Open button', async () => {
     const deps = makeHandlerDeps();
@@ -281,7 +311,7 @@ describe('linkTelegramHandler', () => {
   test('linking when prior mapping is the derived account with residue: derived account is fully expunged', async () => {
     const deps = makeHandlerDeps();
     const { deriveUid } = await import('../auth.js');
-    const derivedUid = deriveTelegramUid('42');
+    const derivedUid = deriveTelegramUid('42', TEST_UID_SECRET);
     const phraseUid = await deriveUid(PHRASE);
 
     // Seed the derived account as the current mapping, with residue:
@@ -503,7 +533,7 @@ function seedGraduationResidue(deps, oldUid) {
 }
 
 describe('graduateAccountData', () => {
-  const OLD = deriveTelegramUid('42');
+  const OLD = deriveTelegramUid('42', TEST_UID_SECRET);
   const NEW = 'phraseuid000000000000000000000ab';
 
   test('moves own subtree, indexes, backrefs, canvases, groups and mailboxes old→new; leaves old own subtree for the caller to drop', async () => {
@@ -602,7 +632,7 @@ describe('atomic multi-path writes (F#1, F#2, F#6)', () => {
 
   test('expungeDerivedAccount: all deletes land in ONE update, no per-path sets', async () => {
     const deps = makeStoreDeps();
-    const uid = deriveTelegramUid('42');
+    const uid = deriveTelegramUid('42', TEST_UID_SECRET);
     deps.store[`users/${uid}/presence`] = { code: 'SHDW01', status: 'unavailable', availableUntil: null };
     deps.store[`users/${uid}/invites`] = { TOK1: true };
     deps.store['inviteIndex/TOK1'] = uid;
@@ -640,7 +670,7 @@ describe('atomic multi-path writes (F#1, F#2, F#6)', () => {
 
   test('graduateAccountData: the whole move is ONE update; old own subtree untouched', async () => {
     const deps = makeStoreDeps();
-    const OLD = deriveTelegramUid('42');
+    const OLD = deriveTelegramUid('42', TEST_UID_SECRET);
     const NEW = 'phraseuid000000000000000000000ab';
     seedGraduationResidue(deps, OLD);
 
@@ -671,7 +701,7 @@ describe('atomic multi-path writes (F#1, F#2, F#6)', () => {
   test('graduation handler: ONE atomic update — move, mapping flip and old-subtree drop together (§38 split-brain closed)', async () => {
     const deps = makeHandlerDeps();
     const { deriveUid } = await import('../auth.js');
-    const OLD = deriveTelegramUid('42');
+    const OLD = deriveTelegramUid('42', TEST_UID_SECRET);
     const NEW = await deriveUid(PHRASE);
     deps.store['telegramUsers/42'] = { uid: OLD, chatId: '42', createdAt: 1 };
     deps.store[`telegramByUid/${OLD}`] = { tgId: '42', chatId: '42' };
@@ -696,7 +726,7 @@ describe('atomic multi-path writes (F#1, F#2, F#6)', () => {
 
   test('graduateAccountData: extraWrites fold into the walker\'s single update (expunge extraNulls pattern)', async () => {
     const deps = makeStoreDeps();
-    const OLD = deriveTelegramUid('42');
+    const OLD = deriveTelegramUid('42', TEST_UID_SECRET);
     const NEW = 'phraseuid000000000000000000000ab';
     seedGraduationResidue(deps, OLD);
 
@@ -712,7 +742,7 @@ describe('atomic multi-path writes (F#1, F#2, F#6)', () => {
     // walker must drop the doomed writes (they used to be written then deleted
     // across the two updates) instead of building an overlapping update map.
     const deps = makeStoreDeps();
-    const OLD = deriveTelegramUid('42');
+    const OLD = deriveTelegramUid('42', TEST_UID_SECRET);
     const NEW = 'phraseuid000000000000000000000ab';
     deps.store[`users/${OLD}`] = {
       presence: { code: 'DERV01', status: 'unavailable' },
@@ -761,7 +791,7 @@ describe('graduateTelegramHandler', () => {
 
   test('unlinked account → renames to the phrase uid, repoints mapping, drops old subtree', async () => {
     const deps = makeHandlerDeps();
-    const OLD = deriveTelegramUid('42');
+    const OLD = deriveTelegramUid('42', TEST_UID_SECRET);
     const NEW = await phraseUid();
     seedUnlinkedDerived(deps, OLD);
 
@@ -784,7 +814,7 @@ describe('graduateTelegramHandler', () => {
 
   test('rate limiter is consulted on the NEW (phrase) uid', async () => {
     const deps = makeHandlerDeps();
-    const OLD = deriveTelegramUid('42');
+    const OLD = deriveTelegramUid('42', TEST_UID_SECRET);
     const NEW = await phraseUid();
     seedUnlinkedDerived(deps, OLD);
     await graduateTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps);
@@ -793,7 +823,7 @@ describe('graduateTelegramHandler', () => {
 
   test('rate limited → resource-exhausted, no move', async () => {
     const deps = makeHandlerDeps();
-    const OLD = deriveTelegramUid('42');
+    const OLD = deriveTelegramUid('42', TEST_UID_SECRET);
     seedUnlinkedDerived(deps, OLD);
     deps.allowAttempt = jest.fn(async () => false);
     await expect(graduateTelegramHandler({ data: { initData: freshInitData(), code: PHRASE } }, deps)).rejects.toThrow(/Too many/i);
@@ -802,7 +832,7 @@ describe('graduateTelegramHandler', () => {
 
   test('invalid code → invalid-argument', async () => {
     const deps = makeHandlerDeps();
-    seedUnlinkedDerived(deps, deriveTelegramUid('42'));
+    seedUnlinkedDerived(deps, deriveTelegramUid('42', TEST_UID_SECRET));
     await expect(graduateTelegramHandler({ data: { initData: freshInitData(), code: 'nope' } }, deps)).rejects.toThrow(/Invalid recovery/i);
   });
 
@@ -830,7 +860,7 @@ describe('graduateTelegramHandler', () => {
 
   test('target phrase uid already in use → already-exists, no move (retry with a new phrase)', async () => {
     const deps = makeHandlerDeps();
-    const OLD = deriveTelegramUid('42');
+    const OLD = deriveTelegramUid('42', TEST_UID_SECRET);
     const NEW = await phraseUid();
     seedUnlinkedDerived(deps, OLD);
     // A real phrase account already occupies the target uid:

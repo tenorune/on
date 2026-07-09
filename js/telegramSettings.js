@@ -7,7 +7,7 @@ import { tgWebApp, isTelegramLinked } from './telegram.js';
 import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
 import { parseRecoveryCode } from './identity.js';
 import { showGraduationInfo } from './graduation.js';
-import { loadGraduatedPhrase } from './graduationPhrase.js';
+import { loadGraduatedPhrase, clearGraduatedPhrases } from './graduationPhrase.js';
 import { initRecoveryPill } from './mycode.js';
 import { showConfirmModal } from './promptModal.js';
 import { setButtonBusy, clearButtonBusy } from './utils.js';
@@ -56,6 +56,10 @@ export function initTelegramSettings(userId) {
       onConfirm: async () => {
         try {
           await callUnlinkTelegram(tgWebApp().initData);
+          // This Telegram now belongs to a fresh, empty account (the reboot
+          // below bootstraps it) — the prior account's stashed graduation
+          // phrase must not linger into it (F5 #287).
+          clearGraduatedPhrases();
         } catch (e) {
           throw Object.assign(e instanceof Error ? e : new Error('unlink failed'), {
             userMessage: "Couldn't unlink right now. Try again.",
