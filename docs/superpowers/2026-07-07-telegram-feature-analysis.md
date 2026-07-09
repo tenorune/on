@@ -24,9 +24,24 @@ consistency (§3), `B#n` = bot (§4), `CL#n` = client code (§5), `F#n` = functi
 
 ---
 
+## Status accounting (added 2026-07-09)
+
+Every finding below now carries a **Status** line recording what waves **W1–W4** (all merged into `t1r1jp`) actually did with it. Sources: the wave-execution records in `docs/HANDOFF.md` — §37 (W1), §38 + §40 (W2 + loose ends), §42–§43 (W3), §45 (W4). Every "not implemented" call was re-verified against current source on 2026-07-09.
+
+**Rollup (71 findings):**
+- **Shipped — 57:** J#1–J#7, J#15 (W1 + W4) · C#1, C#2, C#4–C#7, C#9–C#14 (W1 + W4) · B#1, B#2, B#8–B#14 (W1 + W4) · CL#1–CL#13 (W3) · F#1–F#15 (W2; F#5 landed in the §40 loose-ends pass).
+- **Cut by decision — 1:** B#7 (deep-link "Open in KnockKnock" keyboard row, operator's call, §44).
+- **Not implemented — 13** (no wave assigned; verified still-absent 2026-07-09): J#8, J#9, J#10, J#11, J#12, J#13, J#14, C#3 (partial), C#8, B#3, B#4, B#5, B#6.
+
+**The shape of what's left.** The four waves covered §1.1 (HIGH tier), §1.6 (functions), §1.7 (client) and §1.4 + §1.5 (copy/CSS + bot delight) in full. What was **never scheduled into a wave** is the **§1.2/§1.3 consent-&-parity remainder** — the `/start`-first newcomer parity (J#8), invite management from Telegram (J#9), fire-and-forget invite CTAs (J#10, C#3), graduation re-view/discoverability/copy (J#11, J#12), link/unlink + web-pill feedback (J#13, J#14), the Mini-App name prefill (C#8), and the four bot conversation dead-ends (B#3–B#6). (J#4/5/6 from §1.2 rode W1.)
+
+---
+
 ## §1. Synthesis
 
 ### 1.1 The HIGH tier — user-facing dead ends and broken trust
+
+> **Status — 2026-07-09:** ✅ **All 7 shipped in W1** and on-device verified (item 1 = J#3, 2 = J#1, 3 = J#2, 4 = B#1/B#9, 5 = B#2, 6 = C#1, 7 = J#7/C#2).
 
 1. **Switching the channel pill to "Push" inside Telegram can silence ALL notifications with no
    warning** (J#3, ✓RV). `js/notifyChannel.js:62-68` — its own comment says the permission flow
@@ -61,6 +76,8 @@ consistency (§3), `B#n` = bot (§4), `CL#n` = client code (§5), `F#n` = functi
 
 ### 1.2 Consent & state surprises (MEDIUM)
 
+> **Status — 2026-07-09:** ◑ **Mostly shipped.** J#4, J#5, J#6 (= C#6) rode **W1**. ❌ **B#6** — the silent 2h-availability broadcast on a bot group-join — was never scheduled and is still open.
+
 - **"Not now" isn't remembered** (J#5): decline an invite, later link an account, and the
   still-present `start_param` silently redeems the invite the user declined.
 - **Re-tapping the original invite link re-shows the interstitial forever** (J#4), even after
@@ -72,6 +89,8 @@ consistency (§3), `B#n` = bot (§4), `CL#n` = client code (§5), `F#n` = functi
   silently sets a display name — with only "Joined X." as feedback.
 
 ### 1.3 Parity gaps between surfaces and paths (MEDIUM)
+
+> **Status — 2026-07-09:** ❌ **Largely not implemented** — this cluster was never assigned to a wave. Open: J#8, J#9, J#10 (C#3 partial), C#8, B#3, B#4, B#5, J#11, J#12, J#13, J#14. (The C#12 "?" hit-area and the CL#9 name-cap landed in W4/W3, but the parity substance here did not.)
 
 - **/start-first newcomers miss every new-user nicety** (J#8): `/start` bootstraps presence
   server-side, so the later Mini App open sees `created=false` — no first-use pulse, no auto 2h
@@ -96,6 +115,8 @@ consistency (§3), `B#n` = bot (§4), `CL#n` = client code (§5), `F#n` = functi
 
 ### 1.4 Copy & visual drift (mostly LOW; cheap to sweep)
 
+> **Status — 2026-07-09:** ✅ **All shipped in W4.** Spec 1: C#4/C#9/C#13/C#14 copy sweep, C#10/C#11 CSS bugs (+ C#12 hit-area). C#5 resolved by reframing (behavior change, no label edit); C#7 landed with the Spec 2 bot batch.
+
 - Same action, three labels: "Link your account" / "I have a secret phrase" / "Link account"
   (C#4).
 - Share buttons: "Share" / "Share on Telegram" / "Share to Telegram" (C#5).
@@ -112,6 +133,8 @@ consistency (§3), `B#n` = bot (§4), `CL#n` = client code (§5), `F#n` = functi
   no back coverage (C#11).
 
 ### 1.5 Delight quick wins (LOW severity, high smile-per-line)
+
+> **Status — 2026-07-09:** ✅ Shipped in **W4** (Spec 2): B#8, B#10, B#11, B#12, B#13, B#14, J#15. ✂️ **B#7 cut** by operator decision (§44).
 
 - "Open in KnockKnock" `web_app` button on invite/follow-request bot messages — the keyboard
   helper already exists in `telegram-shared.js` (B#7).
@@ -130,6 +153,8 @@ consistency (§3), `B#n` = bot (§4), `CL#n` = client code (§5), `F#n` = functi
   override-off explanations on `/status`/`/off`, and the three-line stranger funnel.
 
 ### 1.6 Code — Cloud Functions (the big wins)
+
+> **Status — 2026-07-09:** ✅ **All shipped in W2** (F#1–F#15; F#5 in the §40 loose-ends pass, callbacks keep `tgApi`). §40 also closed the flagged robustness gaps — graduation split-brain, the `rootUpdate` overlap guard, and mock fidelity.
 
 - **Account-lifecycle functions are chains of sequential RTDB round-trips that collapse to
   `Promise.all` reads + ONE multi-path `update()`** — and the rewrite buys atomicity for free
@@ -154,6 +179,8 @@ consistency (§3), `B#n` = bot (§4), `CL#n` = client code (§5), `F#n` = functi
   notifier's existing `Promise.all` saves a round-trip on every FCM send (F#9).
 
 ### 1.7 Code — client
+
+> **Status — 2026-07-09:** ✅ **All shipped in W3** (W3-A: CL#1–CL#5; W3-B: CL#6–CL#13). CL#7's larger restore-screen factoring was rejected by decision (busy pair only); CL#10 has two documented exclusions.
 
 - **`setListEmpty` does its full ~10-op DOM sync + dispatches `first-run-change` (which re-runs
   the whole install-affordance recompute) on every render tick with no change guard** (CL#1,
@@ -181,6 +208,8 @@ consistency (§3), `B#n` = bot (§4), `CL#n` = client code (§5), `F#n` = functi
 
 ### 1.8 Candidate fix waves
 
+> **Status — 2026-07-09:** **All four waves executed and merged into `t1r1jp`** — W1 (§37), W2 (§38 + §40 loose ends), W3 (§42–43), W4 (§45). What the four waves did **not** cover is the §1.2/§1.3 consent-&-parity remainder (J#8–J#14 minus J#4/5/6, plus C#3, C#8, B#3–B#6) — see the rollup at the top of this doc.
+
 - **W1 — the HIGH tier (§1.1, 7 items):** user trust and dead ends. Touches
   `notifyChannel`/`notifier`, the invite gate, boot error path, bot callback handling
   (+`editMessageText` plumbing), `writeKnock` committed-state, `telegramChrome` back checklist,
@@ -198,6 +227,8 @@ consistency (§3), `B#n` = bot (§4), `CL#n` = client code (§5), `F#n` = functi
 
 FINDINGS (ranked by severity)
 
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (Tasks 8, 10). `resolveInvitePreview` distinguishes an invalid/expired token from a lookup failure; the gate shows the error overlay + retries, with a splash-dismiss follow-up (`85ce049`). On-device verified; the transport-failure path is test-verified only.
+
 **J#1. HIGH — Deep-link invite silently evaporates when the preview fails (Journey 1, arrival).**
 A newcomer taps "Ana invited you" in Telegram; the Mini App boots, and if the token is
 expired/revoked — or the preview callable merely hits a network blip — they land in a cold empty
@@ -211,6 +242,8 @@ is a dead end: the user thinks the product (or their friend's link) is broken. F
 preview error from invalid; show the existing invite-failure overlay copy (and retry the preview
 on error). OBSERVED-IN-CODE.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (Task 12; follow-up `84254ee`). A `#boot-error-overlay` retry surface (reload-on-click) replaces the passive toast, extended via a shared `showBootError()` to cover boot failures at any phase.
+
 **J#2. HIGH — Telegram boot failure is a dead end with a one-line toast.**
 If `ensureTelegramIdentity` throws (bot unconfigured, webview network flake — common in Mini
 Apps), app.js dismisses the splash, shows "Couldn't start KnockKnock. Please try again in a
@@ -218,6 +251,8 @@ moment.", and rethrows so `main()` dies (`js/app.js:109-121`). `#main-ui-direct`
 so after tapping the toast's OK the user faces a blank dark screen with no retry affordance —
 they must know to kill and reopen the Mini App. Fix: add a "Try again" button that reloads
 (`location.reload()` re-runs boot) instead of a passive toast. OBSERVED-IN-CODE.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (Tasks 5–7) + the §39 web-pill honesty guards. Switching to Push with no push-capable device is refused (no write, no flip) on the Mini App, the bot `/notifications push`, and the web pill. Verified on-device across all three surfaces.
 
 **J#3. HIGH — Switching the channel pill to "Push" from inside Telegram can silence all
 notifications with no warning.**
@@ -231,6 +266,8 @@ same hole (`functions/telegram.js:167-175`). Fix direction: when switching to pu
 pushTokens exist, warn ("No device is set up for push yet — open KnockKnock in a browser first")
 or fall back to Telegram on token-less sends. OBSERVED-IN-CODE.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (Tasks 9, 11). Per-token outcomes are stamped (`stampInviteOutcome`), so a re-tapped already-accepted link shows nothing instead of re-running the interstitial.
+
 **J#4. MEDIUM — Re-tapping the invite deep link re-shows the interstitial forever (Journey 1,
 re-entry).**
 The original t.me invite message in chat is the invited user's most natural re-entry point (the
@@ -242,6 +279,8 @@ preview → full-screen "Ana invited you to follow them" interstitial with Accep
 interstitial when the preview's target is already in the following/groups list (or persist an
 accepted-token marker). OBSERVED-IN-CODE.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (Tasks 9, 10; follow-up `901339b`). Dismissed tokens are remembered: dismissed + linked skips silently (no auto-redeem), dismissed + unlinked re-offers the interstitial (personal invites are one-active-per-user with no reissue UI).
+
 **J#5. MEDIUM — "Not now" isn't remembered; a declined invite auto-redeems later.**
 The gate holds no dismissal state. A user who taps "Not now", then later links their phrase
 account from the drawer (unrelated action), reloads with `start_param` still in initData → gate
@@ -250,6 +289,8 @@ now following Ana" toast to explain it (`js/telegramFirstRun.js:58-63`, `js/app.
 Following someone the user explicitly declined is a consent surprise. Fix: stamp dismissed
 tokens (sessionStorage, like `kk-landing`) and have the gate skip them. OBSERVED-IN-CODE.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (Task 10). Cancelling the phrase screen now loops back to the interstitial with the invite still pending, matching the web onboarding loop. (= C#6.)
+
 **J#6. MEDIUM — Interstitial "I have a secret phrase" → Cancel drops the invite.**
 Choosing the phrase button resolves the gate to null immediately (`showLinkScreen()` isn't
 awaited — `js/telegramFirstRun.js:67-68`); if the user cancels the link screen, boot has already
@@ -257,12 +298,16 @@ proceeded without the token — no interstitial returns, no redeem, invite lost 
 the original chat link (which they aren't told to do). Fix: on cancel, re-show the interstitial
 (loop the gate) instead of falling through. OBSERVED-IN-CODE.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (Task 14). Unlink now shows a busy state and, on failure, an inline "Couldn't unlink right now. Try again." (= C#2.)
+
 **J#7. MEDIUM — Unlink failure gives zero feedback.**
 `doUnlink` disables the button, and on error just re-enables it (`js/telegramSettings.js:67-76`)
 — no error line, no busy label ("Unlinking…"). The user taps the destructive-styled Unlink in
 the confirm sheet, nothing visibly happens, and the sheet stays up; they can't tell whether
 they're still linked. Fix: busy label + an inline "Couldn't unlink right now. Try again." on
 failure. OBSERVED-IN-CODE.
+
+> **Status — 2026-07-09:** ❌ **Not implemented** — assigned to no wave. Verified absent in current source: `created` still derives purely from presence-existence (`functions/telegram-auth.js`, `created` true only when `!presence`), no `firstOpenAt` stamp; a `/start`-first arrival still misses the first-use pulse and the auto-2h availability.
 
 **J#8. MEDIUM — The /start-first newcomer misses every "new user" nicety (Journey 2).**
 `/start` bootstraps presence server-side (`functions/telegram.js:107-108`,
@@ -275,6 +320,8 @@ brand-new account immediately visible to whoever invites them next. Fix: derive 
 "presence created during this boot OR bootstrapped by /start with no prior app open" (e.g. a
 `firstOpenAt` stamp). OBSERVED-IN-CODE.
 
+> **Status — 2026-07-09:** ❌ **Not implemented** — assigned to no wave. Verified absent: both Telegram invite buttons still go straight to the share sheet (`sharePersonalInvite` → `shareInviteLink`; the group modal shows only the share button); no long-press/secondary control opens a manage (Copy/↻/Revoke) state on the Telegram surface.
+
 **J#9. MEDIUM — No way to manage (revoke/regenerate/rename) any invite from Telegram (Journey 6).**
 In TG, the empty-state and drawer invite buttons go straight to the share sheet
 (`js/mycode.js:114-118`), and the group invite modal replaces the whole create/manage UI with a
@@ -284,6 +331,8 @@ a personal or group link into the wrong chat has no revoke path at all on their 
 — that modal never opens in TG. Fix: long-press or secondary affordance on the drawer invite row
 opening the manage state (Copy/↻/Revoke) inside TG. OBSERVED-IN-CODE.
 
+> **Status — 2026-07-09:** ❌ **Not implemented** — assigned to no wave. Verified absent: `sharePersonalInvite()` still awaits `createPersonalInvite` fire-and-forget — no try/catch + toast on failure, no busy/disable guard against a double-tap minting two invites. See also C#3.
+
 **J#10. MEDIUM — "Invite your people" tap can fail silently.**
 `sharePersonalInvite()` is called fire-and-forget with no catch (`js/app.js:753`,
 `js/mycode.js:114-118`); if `createPersonalInvite`/`updateInviteLabel` reject (offline in the
@@ -291,6 +340,8 @@ webview), the tap does nothing — no error, no retry cue, on the single most im
 the guided empty state. Also `openTelegramShare` is a silent no-op on old clients without
 `openTelegramLink` (`js/telegram.js:47-49`). Fix: catch and toast "Couldn't create your invite —
 check your connection." OBSERVED-IN-CODE.
+
+> **Status — 2026-07-09:** ❌ **Not implemented** — assigned to no wave. Verified absent: the graduation phrase is still a one-shot reveal — "I've saved it" is ungated by a Copy tap, and post-graduation the recovery pill is hidden in Telegram, so nothing can re-show it.
 
 **J#11. MEDIUM — Graduation phrase is a one-shot reveal with no way to ever re-view it
 (Journey 4).**
@@ -303,6 +354,8 @@ ceremony but the drawer pill lets you re-view the phrase afterward. Fix directio
 saved it" behind a Copy tap, or offer a one-time re-reveal in the same session. OBSERVED-IN-CODE
 (the storage/UX consequence is by design; the unverified-save risk is the gap).
 
+> **Status — 2026-07-09:** ❌ **Not implemented** (copy/label) — assigned to no wave. Verified absent: entry is still a bare "?" badge, and the copy still reads "With an account you can use KnockKnock outside of Telegram" / "I want an account". Note: the "?" **hit area** was enlarged in W4 (C#12) — that's the tap target only, not the label or the account-denying copy.
+
 **J#12. LOW — Graduation is nearly undiscoverable and its copy denies the account exists.**
 The approved entry label "I also want to use the app outside of Telegram" shipped as a bare
 mystery-meat "?" badge (`js/telegramSettings.js:23`, template line 302), and the info toast says
@@ -310,6 +363,8 @@ mystery-meat "?" badge (`js/telegramSettings.js:23`, template line 302), and the
 (`js/graduation.js:11,33`) — but the user already *has* an account; the framing suggests their
 current state is account-less. Fix: label the button ("Use outside Telegram") and reword to "get
 a secret phrase for this account". OBSERVED-IN-CODE.
+
+> **Status — 2026-07-09:** ❌ **Not implemented** — assigned to no wave. Verified absent: link and unlink both still end in a bare `location.reload()` with no confirmation toast/banner; only graduation stamps a boot toast.
 
 **J#13. LOW — Link and unlink succeed with no confirmation, while graduation gets a toast.**
 Both flows end in a bare `location.reload()` (`js/telegramSettings.js:71-72,119-120`); the
@@ -319,6 +374,8 @@ suddenly populated; after unlinking, a fresh empty state with no "unlink complet
 acknowledgment. Reusing the shared boot toast (the pattern graduation settled on) for
 `linked`/`unlinked` would restore feedback consistently at trivial cost. OBSERVED-IN-CODE.
 
+> **Status — 2026-07-09:** ❌ **Not implemented** — assigned to no wave. Verified absent: the web Notifications section still renders only the bare pill (`#tg-notify-slot`), with no hint line explaining that "Telegram" means this device gets nothing / the bot messages you.
+
 **J#14. LOW — The web Notifications pill has no explanatory copy for the one state it exists to
 explain.**
 A linked user's web drawer shows a bare "Telegram | Push" pill under "Notifications"
@@ -327,6 +384,8 @@ device gets nothing; the bot messages you", even though this section is the spec
 for web-side link visibility and the user's install/push nudges have silently vanished
 (suppression). One hint line ("Notifications currently arrive via the Telegram bot") would
 explain both the pill and the missing nudges. OBSERVED-IN-CODE.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W4.** A one-time first-accept beat was added. Review caught a **CRITICAL**: on the Telegram silent-redeem path the beat was overwritten same-tick and its gate burned (it would never show for TG-linked newcomers, its main audience) — fixed via `reconcileSilentRedeemToast` + call-site regression tests.
 
 **J#15. LOW — Missed delight: an accepted invite gives the newcomer no "what now" beat.**
 After the interstitial's Accept, the contact simply appears in the list
@@ -344,6 +403,8 @@ OBSERVED-IN-CODE (absence traced; exact hint-engine timing INFERRED).
 Ranked findings. (All line numbers on branch `claude/telegram-app-adaptation-t1r1jp`; base for
 "the branch added" claims is 2dc5b8c.)
 
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (Task 13; follow-up `8c34d99`). `resolveBackAction` now dismisses the branch's confirm/prompt overlays first (cancel semantics), including the later-added `#unfollow-confirm` and `#rotate-confirm` sheets.
+
 **C#1. Telegram back button ignores every confirm/prompt surface the branch itself added — HIGH,
 OBSERVED-IN-CODE (consequence INFERRED)**
 (a) `resolveBackAction` closes modals/drawers but has no entry for any confirm-overlay or the
@@ -359,6 +420,8 @@ the destructive sheet stays open over Direct.
 dismisses `#invite-modal`. Add the confirm/prompt overlays at the top of the checklist.
 (d) HIGH.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (Task 14) — same fix as J#7: unlink busy state + inline error on failure.
+
 **C#2. Unlink is the only destructive action that fails silently — HIGH, OBSERVED-IN-CODE**
 (a) Every sibling async failure in the branch surfaces an error; unlink swallows it and just
 re-enables the button inside the still-open confirm.
@@ -369,6 +432,8 @@ failure inline error (`telegramSettings.js:104,116`), graduation inline `userMes
 (c) The link/graduate pattern should win (inline error or toast); an "Unlink" tap that visibly
 does nothing is the worst outcome for a destructive confirm.
 (d) HIGH.
+
+> **Status — 2026-07-09:** ◑ **Partial** — no dedicated wave. W3 gave the link-screen submit (CL#7) and the unlink confirm (CL#4) proper busy states, but the invite/share buttons flagged here remain bare: verified absent 2026-07-09 on `#invite-modal-tg-share-btn` (`js/inviteModal.js`, no disable/busy) and `sharePersonalInvite` (`js/mycode.js`, no busy handling).
 
 **C#3. Five different loading/disabled patterns on the branch's new async buttons — MEDIUM,
 OBSERVED-IN-CODE**
@@ -384,6 +449,8 @@ latter awaits `createPersonalInvite` unguarded, so a double-tap can mint two inv
 tap; it already exists in `js/utils.js:7-18`.
 (d) MEDIUM.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 1 copy sweep). "I have a secret phrase" is the unified entry label; "Link account" kept only for the submit.
+
 **C#4. Three labels for the one "enter your phrase to link" flow — MEDIUM, OBSERVED-IN-CODE**
 (a) The same `showLinkScreen()` is launched under "Link your account", "I have a secret phrase",
 and submits as "Link account".
@@ -395,6 +462,8 @@ the web welcome and stale screens (`index.template.html:37,56`); keep "Link acco
 the submit.
 (d) MEDIUM.
 
+> **Status — 2026-07-09:** ✅ **Resolved in W4, reframed** (Spec 1). The operator ruled the three labels are **not** drift — each is contextually correct — so **no label edits**. Instead the behavior changed: a TG group modal with no displayable contacts skips straight to the native share sheet (`hasDisplayableInvitees` in `js/invitePicker.js`).
+
 **C#5. "Share" vs "Share on Telegram" vs "Share to Telegram" — MEDIUM, OBSERVED-IN-CODE**
 (a) The identical share-this-invite-via-Telegram action carries three labels with a preposition
 drift.
@@ -404,6 +473,8 @@ drift.
 — the group button should also say "Share"; on web pick one preposition, and "Share to Telegram"
 (naming the destination from outside) reads better, matching commit 6f2ef29's own title.
 (d) MEDIUM.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (Task 10) — same fix as J#6: the phrase-screen Cancel loops back to the interstitial with the invite retained.
 
 **C#6. Cancelling the phrase screen from the invite interstitial loses the invite; web loops
 back — MEDIUM, OBSERVED-IN-CODE**
@@ -417,6 +488,8 @@ welcome screen") vs `js/telegramFirstRun.js:66-68` (`if (choice === 'phrase') sh
 invite still pending.
 (d) MEDIUM.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 2). The bot's group-invite button now reads "Join" (Decline unchanged).
+
 **C#7. Accepting a group invite: "Join" on web, "Accept" in the bot — MEDIUM, OBSERVED-IN-CODE**
 (a) The same pending-group-invite action is "Join" in the app inbox but "Accept"/"Decline" on
 the bot's inline keyboard.
@@ -426,6 +499,8 @@ interstitial adds a third flavor, "Accept & get started" / "Accept"
 (c) The bot should adopt the web's "Join"/"Decline" — "Join" states the outcome, and Decline
 already matches. (The interstitial's "Accept" is fine: it covers personal invites too.)
 (d) MEDIUM.
+
+> **Status — 2026-07-09:** ❌ **Not implemented** — assigned to no wave. Verified absent: the Mini-App group-join prompt still opens with `input.value = ''` (`js/groupDisplayNamePrompt.js`); the caller passes only the group name, no `telegramFirstName()` prefill. (W3's CL#9 made `telegramFirstName()` trimmed/capped, but nothing wired it into this prompt.)
 
 **C#8. Group-join display name: bot auto-fills, Mini App prompts with an empty field — MEDIUM,
 OBSERVED-IN-CODE**
@@ -439,6 +514,8 @@ applied via the bot button but a blank full-screen name prompt via the deep link
 Telegram context so both surfaces agree on the default.
 (d) MEDIUM.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 1). Error strings unified to the "Couldn't … Try again." contraction voice with straight apostrophes. One decided exception: the `js/app.js` boot string keeps "…Please try again in a moment."
+
 **C#9. Error-copy tone drift across branch-authored strings — MEDIUM, OBSERVED-IN-CODE**
 (a) New failure strings mix "Could not"/"Couldn't", "Try again."/"Please try again.", and
 straight/curly apostrophes.
@@ -451,6 +528,8 @@ again."), `js/graduation.js:52` ("Couldn't set that up right now. Try again."), 
 voice (bot copy, hints) and is the majority in the new code.
 (d) MEDIUM.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 1). `.drawer-section` now uses the real `--surface2` (border) and `--text-muted` (secondary text) tokens, so it rethemes.
+
 **C#10. New drawer sections invent CSS tokens that don't exist, so they never retheme — MEDIUM,
 OBSERVED-IN-CODE**
 (a) `.drawer-section` / `.drawer-section-label` reference `--border` and `--text-dim`, which are
@@ -462,6 +541,8 @@ the token set at `css/app.css:4-25` and the theme-restore script `index.template
 (c) The existing tokens should win: `border-top: 1px solid var(--surface2)` and
 `color: var(--text-muted)`.
 (d) MEDIUM.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 1). The graduation info now rides the shared `showConfirmModal` / `#confirm-modal` (an `'affirmative'` variant + "Close"), gaining backdrop/Escape/back coverage; the bespoke snackbar and its orphaned back-branch were retired.
 
 **C#11. Graduation "info toast" is a two-choice dialog wearing a snackbar skin — MEDIUM,
 OBSERVED-IN-CODE**
@@ -476,6 +557,8 @@ fixed/bottom/centered/surface2/shadow/z-100) vs `.confirm-overlay` usage in
 minimum the snackbar should share `.group-removal-toast`'s rules and gain Escape/back dismissal.
 (d) MEDIUM.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 1). The "?" hit area was grown via a transparent `::before { inset: -0.4rem }` pseudo-element (reworked in review so paint/layout stay unchanged, only the tap target expands).
+
 **C#12. The "?" help badge is an ~18px touch target — LOW, OBSERVED-IN-CODE (tap difficulty
 INFERRED)**
 (a) The new graduation "?" is by far the smallest interactive control in the app, on a
@@ -488,6 +571,8 @@ padding (app.css:290-293). Two placements: `index.template.html:302`,
 controls' sizes.
 (d) LOW.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 1). Group names are bare app-wide now; the Leave confirm gained its explanatory message.
+
 **C#13. Group-name quoting differs per surface — LOW, OBSERVED-IN-CODE**
 (a) Web copy wraps group names in straight single quotes; all Telegram-side copy leaves them
 bare.
@@ -499,6 +584,8 @@ and the unfollow sheet both do (groupContext.js:908; `js/following.js:119`).
 (c) Bare names should win (the Telegram/bot style) — quotes around a user-chosen name read as
 scare quotes and the majority of new copy omits them.
 (d) LOW.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 1). The chip boots as its majority-state label "Levers & knobs", so there's no rename flash.
 
 **C#14. Drawer chip boots as "Share code" then flips to "Levers & knobs" — LOW, OBSERVED-IN-CODE
 (flash INFERRED)**
@@ -528,6 +615,8 @@ all three readers.
 Findings ranked. All quotes are exact strings from code. Files: `functions/telegram.js` (T),
 `functions/notifier.js` (N), `functions/telegram-shared.js`, `functions/index.js` (I).
 
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (Tasks 2–4) + §39 refinements. Group-invite and follow-request callbacks are state-checked (fresh / already-handled / cross-path answer honestly) and edit the source message via `resolveSourceMessage`; decline-after-accept no longer lies. Verified on-device.
+
 **B#1. HIGH — Inline notification messages never update after a button tap; later taps give
 misleading answers.** OBSERVED-IN-CODE.
 (a) User taps "Accept" on a group invite, then later (or on another device) taps "Decline" on
@@ -541,6 +630,8 @@ no-op) and answers `'Declined.'` — while the user remains a member. Same for f
 worse. (d) T:400-453, I:246-249. (e) After handling a callback, edit the source message
 ("✅ Joined Divers") and strip the keyboard; make decline-after-accept answer honestly.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (Task 1). `writeKnock` returns whether the transaction actually committed; a cap-dropped knock now answers the cap message, not "Knock sent."
+
 **B#2. HIGH — "Knock sent." even when the knock was silently dropped by the 5-cap.**
 OBSERVED-IN-CODE.
 (a) User taps "Knock back" a 6th time, or runs `/knock ana` when the counter is maxed.
@@ -550,6 +641,8 @@ still replies `'Knocked on ${matches[0].label || matches[0].code}.'` (T:353, als
 (c) The bot confirms an action that did not happen; user believes they pinged someone.
 (d) T:189-202, 352-353, 386-387. (e) Return `committed` from `writeKnock` and answer "You've
 already knocked a few times — give them a moment." on abort.
+
+> **Status — 2026-07-09:** ❌ **Not implemented** — assigned to no wave (this HIGH did not make the §1.1 synthesis HIGH tier). Verified absent: the disambiguation reply is still "…give me more letters." with no keyboard and no pending-duration state; free text still falls through to the "I don't know that one." + `HELP_TEXT` dump.
 
 **B#3. HIGH — The group-disambiguation prompt dead-ends into the unknown-command dump.**
 OBSERVED-IN-CODE (user behavior INFERRED, but near-certain).
@@ -561,6 +654,8 @@ and the user's duration ("2h") is lost either way; they must reconstruct the who
 "try `/status family 2h`" with the full retry command spelled out, or (spec permitting) use an
 inline keyboard whose callbacks carry the pending duration.
 
+> **Status — 2026-07-09:** ❌ **Not implemented** — assigned to no wave. Verified absent: a failed group lookup on a numeric/duration-ish query still replies only `No group matching "…".`, with no `/status [group] [30m|2h]` usage hint.
+
 **B#4. MEDIUM — Duration typos are misread as group names, with no format hint.**
 OBSERVED-IN-CODE.
 (a) User types `/status 2 hours` or `/status for 1h`. (b) `parseDurationMinutes('2 hours')`
@@ -570,12 +665,16 @@ expected nor its format; nothing anywhere teaches `30m|2h` except `/help`. (d) T
 227. (e) When a group lookup fails and the query looks numeric/duration-ish, append the usage
 line `/status [group] [30m|2h]`.
 
+> **Status — 2026-07-09:** ❌ **Not implemented** — assigned to no wave. Verified absent: bare `/who` for a zero-follow user still emits "No one is available right now."; no "you're not following anyone yet — invite people" branch.
+
 **B#5. MEDIUM — Bare `/who` for a brand-new user replies with a dead end.** OBSERVED-IN-CODE.
 (a) A fresh Telegram-only user (zero follows, zero groups — the exact persona the funnel
 creates) tries `/who`. (b) `'No one is available right now.'` (T:339). (c) Technically true,
 functionally "nothing works"; the empty state should distinguish "nobody's free" from "you
 don't follow anyone yet." (d) T:328-340. (e) When `following` is empty, reply "You're not
 following anyone yet — invite people from the app." + Open button.
+
+> **Status — 2026-07-09:** ❌ **Not implemented** — assigned to no wave. Verified absent: the bot join still sets the 2h availability override but reports only "Joined ${name}." — no disclosure of the availability broadcast, no `/off` hint.
 
 **B#6. MEDIUM — Joining a group via "Accept" silently makes you available for 2 hours,
 unannounced.** OBSERVED-IN-CODE.
@@ -585,6 +684,8 @@ toast `'Joined ${name}.'` (T:430). (c) The user is broadcasting availability (an
 fan-out via `onMemberOverride`) without being told; the display name is also silently set to
 their Telegram first name. (d) T:420-431. (e) Follow the join with a sendMessage: "Joined Divers
 — you're shown available there for 2h. /off divers to change."
+
+> **Status — 2026-07-09:** ✂️ **Cut by decision** (operator, §44). The deep-link "Open in KnockKnock" `web_app` keyboard row on invite/follow-request messages was explicitly dropped from W4's bot-delight scope.
 
 **B#7. MEDIUM — No deep link back into the Mini App on knock / invite / follow-request
 notifications.** OBSERVED-IN-CODE.
@@ -597,6 +698,8 @@ button is nearly free (`openAppKeyboard` already exists in telegram-shared.js:17
 (d) T:38-58. (e) Add an "Open in KnockKnock" web_app row to invite/followRequest (and optionally
 knock) keyboards.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 2, as an easter egg). Private non-text messages get "Someone else might enjoy that {emoji} — try /help." with `{emoji}` random from an extensible set via `pickPlayfulEmoji`.
+
 **B#8. MEDIUM — Non-text messages are ignored with total silence.** OBSERVED-IN-CODE (user
 attempts INFERRED).
 (a) User shares a contact ("knock this person"), sends a sticker, a voice note, or a photo.
@@ -604,6 +707,8 @@ attempts INFERRED).
 (T:97) — no reply at all. (c) Silence reads as "bot is broken"; even the unknown-command
 fallback would be better. (d) T:96-97. (e) For private non-text messages, reply with a one-liner
 pointing at `/help`.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W1** (with B#1). Callback outcomes are now persisted in the chat by editing the source message, so the toast is confirmation garnish rather than the only record.
 
 **B#9. MEDIUM — Callback outcomes exist only as vanishing toasts; the chat history records
 nothing.** OBSERVED-IN-CODE.
@@ -614,12 +719,16 @@ later there is no way to tell from the chat whether the request was handled. (d)
 430, 437, 452; I:248. (e) Same fix as B#1 (edit the message text); toasts then become
 confirmation garnish rather than the only record.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 2, option A). `resolveName` prefixes an unlabeled actor as "Your contact {code}" (scoped to knock/call; web-push titles gain the prefix too). The three-reader notify predicate stayed byte-identical.
+
 **B#10. LOW — Actor identity can render as a raw share code.** OBSERVED-IN-CODE.
 (a) Someone you haven't labelled knocks. (b) `resolveName` falls back to the share code
 (N:53-59), so the bot message is literally "K7Q2ZP knocked". (c) Acceptable on a lock screen
 (matches web push), but in a conversational chat it reads like a glitch; low because it's
 pre-existing cross-channel behavior. (d) N:53-59, presence-core.js:40-44. (e) Prefix codes:
 "Your contact K7Q2ZP knocked" or prefer a group displayName when any shared group has one.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 2, option A). A single `COMMANDS` list feeds both `HELP_TEXT` (byte-identical to today) and a new deploy-time `setBotCommands` HTTP fn calling `setMyCommands`; the manual BotFather paste is de-drifted. (Takes effect only after the A5 redeploy + hitting `setBotCommands`.)
 
 **B#11. LOW — Command menu depends on a manual BotFather step whose copy has already drifted.**
 OBSERVED-IN-CODE (docs).
@@ -631,6 +740,8 @@ plan calls setcommands "optional" (plans/2026-07-02:2283). No `setMyCommands` AP
 manual copy will keep drifting. (d) docs/telegram-setup.md:65-73; T:75-84. (e) Call
 `setMyCommands` at webhook-registration time from the same source of truth as `HELP_TEXT`.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 2). The reachable stale-button case answers "This button has expired — try /help." instead of the bare "Unknown action."
+
 **B#12. LOW — `'Unknown action.'` is a dead-end where users can reach it legitimately.**
 OBSERVED-IN-CODE.
 (a) A user taps a button on an old notification after a future release renames an action, or
@@ -639,10 +750,14 @@ what to do. (c) Rare (guard is mostly anti-tamper), but when hit it's pure confu
 (d) T:381-383, 395-397. (e) "This button has expired — try /help." Note the adjacent guard
 `'Open KnockKnock first.'` (T:379) fires for unlinked users tapping any old button and is fine.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 2). The 8-item inline-keyboard caps now append an "…and N more" truncation hint on overflow.
+
 **B#13. LOW — `/who <group>` and `/knock` "Which one?" keyboards silently cap at 8.**
 OBSERVED-IN-CODE.
 (b) `found.slice(0, 8)` / `matches.slice(0, 8)` (T:320, 349) with no "and N more — type more
 letters". (d) T:319-321, 348-350. (e) Append a truncation hint when the list overflows.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W4** (Spec 2, option B). Each subject's status-color hex is quantized to the nearest Telegram circle emoji (`statusCircle` in `presence-core.js`, fallback 🟢), and remaining time is shown across `/who` `/status` `/start` `/groups` using the app's own formatters (duplicated byte-identical into `functions/presence-core.js`, fixture-guarded).
 
 **B#14. LOW — Formatting is plain-text-only and slightly inconsistent; cheap richness
 available.** OBSERVED-IN-CODE.
@@ -670,6 +785,8 @@ Findings, ranked. Scope verified against `git diff 2dc5b8c..HEAD`; the three san
 notify-channel-default readers check out with no fourth re-derivation, and no dead references to
 the removed `#empty-list-msg` / `#invite-link-btn` / landing-banner DOM remain.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W3-A.** A module-level `_appliedEmpty` guard early-returns before the DOM churn + `first-run-change` dispatch on unchanged emptiness state.
+
 **CL#1. `setListEmpty` does full DOM churn + event fan-out on every `renderList` tick, with no
 change detection — HIGH**
 (a) The guided-empty-state sync claims to be "idempotent per state" but never early-returns, so
@@ -686,6 +803,8 @@ _applied = !!isEmpty;`) at the top of `setListEmpty`.
 presence/watcher tick for the app's whole lifetime; 1-line fix.
 (e) HIGH.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W3-A.** `defer` added to both `telegram-web-app.js` and `dist/bundle.js` (document order preserved). Webview timing was the on-device gate, cleared in the W4 acceptance pass.
+
 **CL#2. Parser-blocking third-party `telegram-web-app.js` in `<head>` on every web load — HIGH**
 (a) The Telegram bridge script is a synchronous, non-deferred script from `telegram.org` placed
 before everything (including the inline theme-restore script), so every plain-web boot's first
@@ -699,6 +818,8 @@ way.
 (d) Removes one third-party RTT from the web boot critical path / unblocks first paint.
 (e) HIGH that it's real; MEDIUM on exact fix shape (verify Telegram webview timing on-device).
 
+> **Status — 2026-07-09:** ✅ **Shipped in W3-A.** One exported `isTelegramLinked()` replaces the five spelled-out checks; `notifyChannel.js`'s web arm and both three-reader-contract comments stayed byte-identical.
+
 **CL#3. "Is this Telegram session linked" predicate re-derived at 5 sites — HIGH**
 (a) `telegramLinkState()?.linked === true` (or `!== true`) is spelled out in five modules; the
 pattern the prompt warned about.
@@ -709,6 +830,8 @@ call it. In `notifyChannel.js` only the Telegram arm of `isLinked(prefs)` change
 (`prefs?.telegram != null`) is part of the documented three-reader contract and stays.
 (d) One predicate instead of five; prevents the linked-definition drifting per module.
 (e) HIGH.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W3-A.** `showConfirmModal` gained an optional async `onConfirm` (busy label, inert cancel/overlay/Escape in-flight, inline error + stay-open); the unlink confirm rides it, and the bespoke `#tg-unlink-confirm` sheet + its permanent keydown listener were deleted.
 
 **CL#4. `ensureUnlinkConfirmModal` hand-builds a confirm overlay the same branch already
 abstracted as `showConfirmModal` — HIGH**
@@ -726,6 +849,8 @@ handlers). If keeping the confirm button busy during the RTT matters, add an opt
 listener.
 (e) HIGH.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W3-A.** One `buildTelegramShareUrl(url, text, {platform})` in `js/telegram.js` (caption-spacing folded in); `openTelegramShare` is a thin opener and `inviteFlow.js` re-exports it.
+
 **CL#5. t.me share-intent URL construction and the "\n caption" spacing rule duplicated across
 `telegram.js` and `inviteFlow.js` — MEDIUM-HIGH**
 (a) The `https://t.me/share/url?url=…&text=…` template exists twice, and the
@@ -741,6 +866,8 @@ needed.
 (e) HIGH it's duplication; MEDIUM the platform-conditional difference is intentional — preserve
 it in the shared helper.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W3-B.** One internal `runModal` harness under `showTextPrompt`/`showConfirmModal`; `tests/promptModal.test.js` unchanged was the acceptance.
+
 **CL#6. `showTextPrompt` / `showConfirmModal` duplicate their entire
 promise/cleanup/overlay/Escape harness — MEDIUM**
 (a) The two new modal functions in the same new file repeat identical
@@ -750,6 +877,8 @@ promise/cleanup/overlay/Escape harness — MEDIUM**
 each public function supplies its confirm semantics and cancel value.
 (d) ~25 lines; future modal variants (e.g. CL#4's busy-confirm) get one place to grow.
 (e) HIGH it's real; MEDIUM on worth (module is small and stable).
+
+> **Status — 2026-07-09:** ✅ **Shipped in W3-B** (busy pair only, by decision). `showLinkScreen` now uses `setButtonBusy`/`clearButtonBusy` (with a scrub-on-open guard). The larger restore-screen open/teardown factoring was **rejected** — the divergent submit semantics are deliberate.
 
 **CL#7. `showLinkScreen` hand-rolls the busy-button state that `setButtonBusy`/`clearButtonBusy`
 were moved to utils (this branch) to share — MEDIUM**
@@ -765,6 +894,8 @@ shared restore-screen open/teardown helper both callers parameterize.
 (e) HIGH for the busy pair; LOW for the bigger factoring (the divergent submit semantics are
 deliberate).
 
+> **Status — 2026-07-09:** ✅ **Shipped in W3-B.** One `startPersonalInviteFlow()` in `js/mycode.js` holds the invite-CTA surface fork; both callers collapse to it.
+
 **CL#8. Surface-dispatch for the personal-invite CTA spelled twice — MEDIUM**
 (a) `isTelegramContext() ? sharePersonalInvite() : openPersonalInviteModal()` is duplicated as
 policy in two modules.
@@ -775,6 +906,8 @@ first-run `onInvite` and the drawer button call it.
 other.
 (e) HIGH.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W3-B.** `telegramFirstName()` returns the trimmed, 40-capped name (`TG_NAME_CAP` beside the DB-rule comment); the three call sites drop their ad-hoc suffixes.
+
 **CL#9. `telegramFirstName().slice(0, 40)` cap re-derived at 3 sites — MEDIUM**
 (a) The 40-char label cap (mirroring the DB rule) is re-applied ad hoc, once without `.trim()`.
 (b) `js/app.js:611`, `js/mycode.js:136`, `js/mycode.js:147`.
@@ -783,6 +916,8 @@ other.
 (d) Keeps the cap from drifting against `database.rules.json`/functions validation; 3 call sites
 simplified.
 (e) MEDIUM-HIGH.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W3-B.** `copyWithFeedback(btn, text, {done, idle})` in `js/utils.js` converges four sites; `initRecoveryPill` and the `copy-code-btn` share-code handler are the documented exclusions.
 
 **CL#10. Copy-to-clipboard-with-"Copied!"-revert idiom at five sites, two touched/added by this
 branch in the same file — MEDIUM**
@@ -795,6 +930,8 @@ dedupe the two blocks inside `inviteModal.js`.
 (d) ~20 lines; one timeout/label convention.
 (e) MEDIUM (pre-existing pattern; the branch grew it rather than introduced it).
 
+> **Status — 2026-07-09:** ✅ **Shipped in W3-B.** `recoveryModal`'s two exit paths share one hoisted `teardown()`.
+
 **CL#11. `recoveryModal` `onSaved`/`onCancel` duplicate the 5-listener teardown block —
 LOW-MEDIUM**
 (a) The two exit paths repeat identical `removeEventListener` sequences (cancel adds one extra
@@ -804,6 +941,8 @@ line).
 (d) ~8 lines; a future listener can't be forgotten on one path.
 (e) HIGH it's real; LOW urgency.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W3-B.** One `shareCaption(scope, groupName)` in `js/inviteFlow.js` feeds every caller; per-function defaults dropped.
+
 **CL#12. Share-caption strings spelled at four sites — LOW**
 (a) `'Follow me on KnockKnock'` (×3, incl. two defaults) and
 `` `Join ${groupName} on KnockKnock` `` (×2) are scattered.
@@ -811,6 +950,8 @@ line).
 (c) One `shareCaption(scope, groupName)` in `inviteFlow.js`; drop the per-function defaults.
 (d) Copy-drift-proofing only.
 (e) MEDIUM real / LOW worth.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W3-B.** The landing-notice kind map collapsed to `stampGraduationNotice()`/`consumeGraduationNotice()`; the `kk-landing`/`graduated` storage key/value stayed unchanged.
 
 **CL#13. Landing-notice machinery retains dead generality after the banner mechanism was
 removed — LOW**
@@ -838,6 +979,8 @@ confirm) are id-guarded against double wiring.
 
 FINDINGS (ranked)
 
+> **Status — 2026-07-09:** ✅ **Shipped in W2** (+ §40). `expungeDerivedAccount` collapsed to parallel reads + one root `update()` (~35 → 3, now atomic); the §40 loose-ends pass added the shared `rootUpdate` overlap guard.
+
 **F#1. `expungeDerivedAccount` issues ~2F+3T+2P+2G+9 sequential RTDB deletes that could be one
 multi-path `update()`** — every write in the function is a `set(path, null)`, so after the reads
 the whole cleanup can be a single atomic root-level `update('/', {path: null, ...})`.
@@ -850,6 +993,8 @@ the whole cleanup can be a single atomic root-level `update('/', {path: null, ..
   3; also makes expunge atomic (no half-expunged state on crash). Runs on both
   `linkTelegramHandler` (148) and `unlinkTelegramHandler` (362). Confidence: HIGH.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W2** (+ §40). The graduation walker became one parallel read + one update (~60 → ~3, `moveNode` deleted); the §40 pass **closed the graduation split-brain window** by folding the mapping flip into that single atomic update.
+
 **F#2. `graduateAccountData`'s walker is a chain of `moveNode` calls, each 3 sequential
 round-trips (get, set, delete), all awaited in sequence** — ~3×(F + 3T + 2P + 2G + 6)
 round-trips for a rename.
@@ -861,6 +1006,8 @@ round-trips for a rename.
   inside moveNode is not atomic today; one update() also fixes that.
 - Payoff: same-shaped account: ~60 sequential round-trips → ~3; graduation becomes near-atomic
   before the mapping flip. Confidence: HIGH.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W2.** The five N+1 loops (`matchGroupsByName`, `/who`, `/who <group>`, `/groups`, `/knock` roster reach) became `Promise.all`.
 
 **F#3. Every list-shaped webhook command does N+1 sequential reads inside a for-loop** — worst
 latency on the hot webhook path.
@@ -877,6 +1024,8 @@ latency on the hot webhook path.
 - Payoff: webhook reply latency roughly divided by roster size on the five commands users hit
   most. Confidence: HIGH.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W2.** `ensureTelegramUser` takes an optional pre-read mapping and returns the presence it read; `/start` stops double-reading and writes the chat route once.
+
 **F#4. `/start` reads the same two paths twice and writes the chat route as two sequential
 updates** — `telegramUsers/{tgId}` is read at telegram.js:107 and again inside
 `ensureTelegramUser` (telegram-auth.js:69); `users/{uid}/presence` is read inside ensure
@@ -887,6 +1036,8 @@ telegram.js:111-112.
   `known`); merge the two chatId updates into one
   `deps.update('/', {'telegramUsers/X/chatId':…, 'telegramByUid/Y/chatId':…})`.
 - Payoff: /start drops from 6 RTDB round-trips to 3. Confidence: HIGH.
+
+> **Status — 2026-07-09:** ✅ **Shipped in the §40 loose-ends pass** (skipped in W2). A command's single terminal reply now rides the webhook HTTP response (`{ method: 'sendMessage', … }`), one fewer round-trip. **Callbacks deliberately keep `tgApi`** (two calls whose text depends on the DB result); notifier sends and the welcome DM untouched.
 
 **F#5. Whole webhook turn — DB reads, DB writes, and the Telegram
 sendMessage/answerCallbackQuery HTTPS call — is awaited before the 200** (index.js:229-252
@@ -902,6 +1053,8 @@ Telegram's retry window.
   removed per update; callback UX latency cut to one DB read. Confidence: MEDIUM (webhook-reply
   supports one method per update; multi-message flows still need tgApi).
 
+> **Status — 2026-07-09:** ✅ **Shipped in W2.** `linkTelegramHandler` / `graduateTelegramHandler` / `ensureTelegramUser` create-path each collapsed to one atomic multi-path update; independent reads batched.
+
 **F#6. Sequential ordered writes in link/graduate/ensure that should each be one atomic
 multi-path `update()`** (`functions/telegram-auth.js`):
 - `linkTelegramHandler` 159-165: 3 sequential writes (`telegramUsers`, `telegramByUid`, prefs) →
@@ -914,6 +1067,8 @@ multi-path `update()`** (`functions/telegram-auth.js`):
 - Payoff: 3-5 round-trips saved per callable, and crash-window states eliminated. Confidence:
   HIGH.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W2.** `handleGroupStatus`/`handleGroupOff` merged into one `setGroupPresence` prefetching override + presence.
+
 **F#7. `handleGroupStatus` and `handleGroupOff` are ~80% copy-paste** — same resolve → read
 override → merge-or-explain skeleton (`functions/telegram.js:241-258` vs 260-279), including the
 identical override/presence read pair and `globallyOn` computation.
@@ -921,6 +1076,8 @@ identical override/presence read pair and `globallyOn` computation.
   helper; also `Promise.all` the override + presence reads (presence is needed in the else
   branch; with a tiny user base prefetching is the right latency trade).
 - Payoff: ~30 lines deduped, 1 round-trip saved per group command. Confidence: HIGH.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W2.** One `makeDbDeps()` + one `tgSendMessage` in `index.js` replace the triplicated adapter boilerplate.
 
 **F#8. RTDB adapter boilerplate defined three times in index.js** — `getVal/set/update/
 transaction/now` appear in `makeDeps` (`functions/index.js:45-48`), `makeTelegramAuthDeps`
@@ -930,6 +1087,8 @@ verbatim at 203 and 247.
   shared by 203/247.
 - Payoff: ~20 lines deduped, one place to change the adapter shape. Confidence: HIGH.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W2.** `pushTokens` folded into the channel `Promise.all` — started up front but only *awaited* on the FCM fall-through (review refinement, so a token-read blip can't abort a healthy Telegram send).
+
 **F#9. notifier `sendToUser` now runs three sequential read phases when it falls through to
 FCM** — the `Promise.all([notifyChannel, telegramByUid])` at `functions/notifier.js:28-31` is
 followed by a separate sequential `pushTokens` read at 40, on every notification for every
@@ -937,6 +1096,8 @@ push-channel user once the bot is configured.
 - Fix: fold `userPrefs/{uid}/pushTokens` into the same `Promise.all` (costs one wasted read only
   when Telegram delivery succeeds — the right trade given latency > throughput).
 - Payoff: 1 round-trip off every FCM notification. Confidence: MEDIUM.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W2.** `primaryAvailable(presence, now)` exported from `presence-core.js` and used at all four sites; `overrideAvailable` re-expressed via it.
 
 **F#10. The "globally available now" predicate is re-inlined four times** —
 `presence?.status === 'available' && isFutureMs(presence.availableUntil, deps.now())` at
@@ -947,12 +1108,16 @@ push-channel user once the bot is configured.
 - Payoff: 4 sites → 1 definition; the availability rule can't drift between commands.
   Confidence: MEDIUM.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W2.** `clampName`/`LABEL_MAX` exported from `presence-core.js`; the local copy in `telegram.js` deleted.
+
 **F#11. LABEL_MAX/clamp duplicated inside functions/** — `telegram.js:372-373`
 (`LABEL_MAX = 40`, `clampName`) re-implements `presence-core.js:57-58` (`LABEL_MAX`,
 `clampLabel`), a module telegram.js already imports from; only delta is a `.trim()`.
 - Fix: export `clampLabel` (or a trimming variant) from presence-core.js and delete the local
   copy.
 - Payoff: one cap constant; a future change to 40 can't half-apply. Confidence: MEDIUM.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W2.** The unreachable `handleCallback` `default` branch removed.
 
 **F#12. Dead default branch in handleCallback** — `functions/telegram.js:395-396`: the
 `CALLBACK_ARG_RE` gate at 382-383 already returns "Unknown action." for any action not in the
@@ -962,6 +1127,8 @@ duplicates the same string).
   table/switch drift).
 - Payoff: 2 dead lines, removes a misleading "reachable" path. Confidence: HIGH.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W2.** A `resolveTelegramUid` helper serves the three webhook sender-resolve sites (pairs with F#4's pass-through into `ensureTelegramUser`).
+
 **F#13. "Resolve Telegram sender → uid" block duplicated across entry points** —
 `deps.getVal(\`telegramUsers/${...from.id}\`)` + not-mapped bail is written out in
 `handleMessage` (`functions/telegram.js:130-135`), `handleCallback` (378-380), and again in
@@ -970,12 +1137,16 @@ duplicates the same string).
   webhook sites (pairs with F#4's pass-through into ensure).
 - Payoff: ~8 lines deduped; single seam if the mapping shape grows. Confidence: MEDIUM.
 
+> **Status — 2026-07-09:** ✅ **Shipped in W2.** The invite-accept join is one multi-path `update()` (member value, groups entry, two pending nulls) — atomic.
+
 **F#14. `handleInboxCallback` invite-accept join writes are three sequential writes** —
 `functions/telegram.js:422-429`: member node `set`, `users/{me}/groups/{gid}` `set`, then
 `clearPending()` (itself a `Promise.all` of two deletes) awaited in sequence.
 - Fix: one multi-path `update('/', {...4 paths})` (member value, groups entry, two pending
   nulls) — also atomic, so a crash can't leave a member without the pending-invite cleared.
 - Payoff: 3 write round-trips → 1 on the invite-accept callback. Confidence: HIGH.
+
+> **Status — 2026-07-09:** ✅ **Shipped in W2.** `GROUP_ID_RE`/`UID_RE` hoisted to `functions/telegram-shared.js` — one copy inside `functions/`.
 
 **F#15. UID/GID format regexes re-declared against the client** — `GROUP_ID_RE`/`UID_RE` at
 `functions/telegram.js:13,18` restate formats owned by `js/identity.js` / client
