@@ -1307,14 +1307,15 @@ body.add-form-open #app-header {
 .notify-switch.on { background: var(--accent); background: color-mix(in srgb, var(--accent) 30%, transparent); }
 .card-drawer .unfollow-btn { align-self: center; }
 .notify-promo { position: fixed; left: 50%; transform: translateX(-50%); bottom: 1rem; max-width: 560px; width: calc(100% - 2rem);
-  display: flex; align-items: center; gap: 0.75rem; background: var(--surface2); border: 1px solid rgba(0,0,0,0.15);
+  display: flex; flex-direction: column; align-items: stretch; gap: 0.75rem; background: var(--surface2); border: 1px solid rgba(0,0,0,0.15);
   border-radius: 0.75rem; padding: 0.75rem 1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.25); z-index: 60; }
 .notify-promo.hidden { display: none; }
-/* Onramp promo: stack the buttons UNDERNEATH the text (scoped to #tg-onramp-promo
-   so the shared #notify-promo / #install-toast row layout is untouched). */
-#tg-onramp-promo { flex-direction: column; align-items: stretch; gap: 0.7rem; }
-#tg-onramp-promo #tg-onramp-text { font-size: 0.9rem; }
-.tg-onramp-actions { display: flex; gap: 0.5rem; justify-content: flex-end; align-items: center; }
+/* Unified layout for #notify-promo / #install-toast / #tg-onramp-promo: the
+   action + Close buttons sit in a row UNDERNEATH the text, right-aligned;
+   align-items:stretch makes Close the same height as the primary button; the
+   buttons never wrap their labels. */
+.notify-promo-actions { display: flex; justify-content: flex-end; align-items: stretch; gap: 0.5rem; }
+.notify-promo-actions button { white-space: nowrap; }
 /* Flex column so the install icon can sit at the bottom of the viewport when the
    roster/contact lists are short (margin-top:auto), yet get pushed down when they
    grow tall. min-height fills exactly the space below the sticky nav-row (--nav-h,
@@ -1341,7 +1342,7 @@ body.add-form-open #app-header {
 /* #install-toast carries the base .notify-promo class, so it inherits the
    centered, max-width position (it's no longer pinned to the corner — the fab
    and the toast are mutually exclusive, so there's nothing to stack above). */
-.notify-promo #notify-promo-text, .notify-promo #install-toast-text { flex: 1; font-size: 0.9rem; }
+.notify-promo #notify-promo-text, .notify-promo #install-toast-text, #tg-onramp-text { font-size: 0.9rem; }
 /* Inline step icons in the install guidance (Share / Add-to-Home / Add-to-Dock). */
 .notify-promo .step-icon { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.18em; margin: 0 0.12em; }
 /* Shared phrase-reminder styling (phraseReminderHtml from notifyPrompt.js).
