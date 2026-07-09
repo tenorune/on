@@ -16,6 +16,12 @@ test('telegramUsers / telegramByUid: no client read or write, even for the mappe
   await assertFails(dbAs(env, 'u1').ref('telegramByUid/u1/chatId').set('666'));
 });
 
+test('telegramLinkTokens: no client read or write, even for the mapped user', async () => {
+  await seed(env, (db) => db.ref('telegramLinkTokens/tok1').set({ uid: 'u1', exp: 1 }));
+  await assertFails(dbAs(env, 'u1').ref('telegramLinkTokens/tok1').get());
+  await assertFails(dbAs(env, 'u1').ref('telegramLinkTokens/tok1').set({ uid: 'u1', exp: 2 }));
+});
+
 test('notifyChannel: owner can set push/telegram; other values rejected; stranger rejected', async () => {
   await assertSucceeds(dbAs(env, 'u1').ref('userPrefs/u1/notifyChannel').set('telegram'));
   await assertSucceeds(dbAs(env, 'u1').ref('userPrefs/u1/notifyChannel').set('push'));
