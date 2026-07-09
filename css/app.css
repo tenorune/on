@@ -319,6 +319,8 @@ main {
 .drawer-section { padding: .5rem 0; }
 .drawer-section + .drawer-section { border-top: 1px solid var(--surface2); }
 .drawer-section-label { font-size: .75em; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0 0 .4rem; }
+/* Web onramp card: breathing room between the help text and the button. */
+#tg-onramp-drawer .hint { margin: 0 0 .6rem; }
 /* Notification-channel toggle pill (notifyChannel.js): a two-segment segmented
    control, left-aligned. Active segment is the filled/contrasting one. */
 .toggle-pill { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--accent); }
@@ -1016,6 +1018,17 @@ body.add-form-open #app-header {
 }
 #code-drawer.open + .recovery-pill-row {
   display: flex;
+}
+/* The "phrase lives on the web" note (onramp-linked accounts) is a full-width
+   text block, not a chip. The row's left padding is 0 (to align the pill with
+   the drawer card edge), so give the note a 1rem left offset to line up with the
+   drawer-inner content above it ("This Telegram is linked…"); the row's 1rem
+   right padding already matches on that side. */
+#recovery-elsewhere-note {
+  flex: 1;
+  margin: 0;
+  padding-left: 1rem;
+  text-align: left;
 }
 .recovery-revealed {
   display: flex; align-items: center; gap: 0.5rem;
