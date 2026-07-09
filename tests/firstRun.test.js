@@ -199,8 +199,16 @@ describe('graduation notice', () => {
   });
 
   test('a foreign marker value consumes to null', () => {
-    sessionStorage.setItem('kk-landing', 'linked'); // pre-collapse residue
+    sessionStorage.setItem('kk-landing', 'bogus'); // unrecognized kind
     expect(firstRun.consumeGraduationNotice()).toBeNull();
     expect(sessionStorage.getItem('kk-landing')).toBeNull(); // still cleared
+  });
+
+  test('stampLinkedNotice → consume returns the Telegram copy (Task 7: Mini App onramp arrival)', () => {
+    firstRun.stampLinkedNotice();
+    expect(sessionStorage.getItem('kk-landing')).toBe('linked');
+    expect(firstRun.consumeGraduationNotice()).toBe('This account now works in Telegram too.');
+    expect(sessionStorage.getItem('kk-landing')).toBeNull();
+    expect(firstRun.consumeGraduationNotice()).toBeNull();
   });
 });

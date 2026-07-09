@@ -29,6 +29,7 @@ import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml }
 import { isTelegramContext, ensureTelegramIdentity, isTelegramLinked, telegramFirstName } from './telegram.js';
 import { initTelegramChrome } from './telegramChrome.js';
 import { telegramInviteGate, stampInviteOutcome, redemptionConsumedToken } from './telegramFirstRun.js';
+import { runLinkArrival } from './telegramLinkArrival.js';
 import { ensureCacheOwner } from './cacheOwner.js';
 import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
 import { showGraduationInfo } from './graduation.js';
@@ -596,6 +597,7 @@ async function main() {
   // get the first-run interstitial (spec §1).
   let tgInvite = null;
   if (!pendingInviteToken && isTelegramContext()) {
+    if (await runLinkArrival({ dismissSplash })) return; // onramp link handled — reboots on success
     tgInvite = await telegramInviteGate({
       linked: isTelegramLinked(),
       isNew,

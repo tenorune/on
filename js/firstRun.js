@@ -96,14 +96,20 @@ export function setListEmpty(isEmpty) {
 // webview drops sessionStorage across the reload, the notice silently doesn't
 // show (accepted degradation).
 const LANDING_KEY = 'kk-landing';
-// Only graduation stamps a landing (the post-link/post-unlink banners were
-// removed on-device); the kind-keyed LANDING_COPY map that once served them is
-// collapsed (W3-B CL#13). Key and stored value stay 'kk-landing'/'graduated'
-// so a stamp written before this deploy still reads after it.
-const GRADUATED_COPY = 'This account now works in any browser too.';
+// Kind-keyed landing copy. 'graduated' (web account graduates into a
+// full-featured account) and 'linked' (Task 7: the Mini App onramp arrival
+// links this Telegram to an existing web account) both stamp then reload;
+// the next boot reads and clears this marker.
+const LANDING_COPY = {
+  graduated: 'This account now works in any browser too.',
+  linked: 'This account now works in Telegram too.',
+};
 
 export function stampGraduationNotice() {
   try { sessionStorage.setItem(LANDING_KEY, 'graduated'); } catch { /* storage denied */ }
+}
+export function stampLinkedNotice() {
+  try { sessionStorage.setItem(LANDING_KEY, 'linked'); } catch { /* storage denied */ }
 }
 
 // Read-and-clear the marker, returning the copy to surface (or null). The
@@ -114,5 +120,5 @@ export function consumeGraduationNotice() {
     kind = sessionStorage.getItem(LANDING_KEY);
     sessionStorage.removeItem(LANDING_KEY);
   } catch { return null; }
-  return kind === 'graduated' ? GRADUATED_COPY : null;
+  return LANDING_COPY[kind] || null;
 }
