@@ -5,9 +5,9 @@
 // reveal pill for it; a linked account's phrase lives with the user already.
 import { tgWebApp, isTelegramLinked } from './telegram.js';
 import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
-import { parseRecoveryCode } from './identity.js';
+import { parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
 import { showGraduationInfo } from './graduation.js';
-import { loadGraduatedPhrase, clearGraduatedPhrases } from './graduationPhrase.js';
+import { loadGraduatedPhrase, clearGraduatedPhrases, storeGraduatedPhrase } from './graduationPhrase.js';
 import { initRecoveryPill } from './mycode.js';
 import { showConfirmModal } from './promptModal.js';
 import { setButtonBusy, clearButtonBusy } from './utils.js';
@@ -117,6 +117,12 @@ export function showLinkScreen() {
         showError(/not-found/.test(e?.code || '') ? 'No account found with that phrase.' : "Couldn't link right now. Try again.");
         return;
       }
+      // A linked account is a phrase account — stash the phrase in the local
+      // vault (keyed by its derived uid) so the drawer can re-show it after the
+      // reboot, just like a graduated account (#287 A). This is the only moment
+      // the client holds it; its lifetime is bounded by clearGraduatedPhrases()
+      // on unlink/sign-out (F5).
+      storeGraduatedPhrase(await deriveUserIdFromRecoveryCode(normalized), normalized);
       teardown();
       resolve(true); // observable in tests; the reload ends the session
       window.location.reload(); // reboot via initData into the linked account

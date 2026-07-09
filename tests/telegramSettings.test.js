@@ -14,9 +14,10 @@ jest.mock('../js/db.js', () => ({
 }));
 jest.mock('../js/identity.js', () => ({
   parseRecoveryCode: (s) => (/^[a-z]+(-[a-z]+){3}$/.test((s || '').trim()) ? s.trim() : null),
+  deriveUserIdFromRecoveryCode: jest.fn(async (s) => `uid-for-${s}`),
 }));
 jest.mock('../js/graduation.js', () => ({ showGraduationInfo: jest.fn() }));
-jest.mock('../js/graduationPhrase.js', () => ({ loadGraduatedPhrase: jest.fn(() => null), clearGraduatedPhrases: jest.fn() }));
+jest.mock('../js/graduationPhrase.js', () => ({ loadGraduatedPhrase: jest.fn(() => null), clearGraduatedPhrases: jest.fn(), storeGraduatedPhrase: jest.fn() }));
 jest.mock('../js/mycode.js', () => ({ initRecoveryPill: jest.fn() }));
 const { telegramLinkState, isTelegramLinked } = require('../js/telegram.js');
 const { callLinkTelegram, callUnlinkTelegram } = require('../js/firebase-config.js');
@@ -197,6 +198,27 @@ test('unlink failure: inline error in the shared modal, stays open for retry (ca
   expect(document.getElementById('confirm-modal').classList.contains('hidden')).toBe(false);
   expect(confirmBtn.disabled).toBe(false);
   expect(confirmBtn.textContent).toBe('Unlink');
+});
+
+// A #287: a linked account is a phrase account, so it should be able to re-view
+// its phrase in the drawer like web/graduated accounts. Stash it at link time
+// (the only moment the client holds it) keyed by the linked uid.
+test('link success stashes the phrase in the local vault keyed by the linked uid', async () => {
+  const { deriveUserIdFromRecoveryCode, storeGraduatedPhrase } = (() => {
+    const id = require('../js/identity.js');
+    const gp = require('../js/graduationPhrase.js');
+    return { deriveUserIdFromRecoveryCode: id.deriveUserIdFromRecoveryCode, storeGraduatedPhrase: gp.storeGraduatedPhrase };
+  })();
+  deriveUserIdFromRecoveryCode.mockResolvedValue('linked-uid-000');
+  const { initTelegramSettings } = require('../js/telegramSettings.js');
+  initTelegramSettings('u1');
+  await flush();
+  document.getElementById('tg-link-btn').click();
+  document.getElementById('restore-input').value = 'abacus-abdomen-abdominal-abide';
+  document.getElementById('restore-submit-btn').click();
+  await flush();
+  expect(deriveUserIdFromRecoveryCode).toHaveBeenCalledWith('abacus-abdomen-abdominal-abide');
+  expect(storeGraduatedPhrase).toHaveBeenCalledWith('linked-uid-000', 'abacus-abdomen-abdominal-abide');
 });
 
 test('link success calls linkTelegram and does NOT stamp a landing banner', async () => {
