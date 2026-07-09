@@ -3,11 +3,20 @@
 // the web account, with a confirm-before-replace when this Telegram already has
 // its own account. Returns true when it handled the lk_ path (caller then skips
 // the normal invite flow).
-import { isTelegramContext, tgWebApp, isTelegramLinked } from './telegram.js';
+import { isTelegramContext, tgWebApp } from './telegram.js';
 import { callRedeemTelegramLinkToken } from './firebase-config.js';
 import { showConfirmModal } from './promptModal.js';
 import { showToast } from './groups.js';
 import { stampLinkedNotice } from './firstRun.js';
+
+// One-shot marker for the token just consumed on the pre-reload pass. The
+// post-success reload re-presents the same start_param, but the token is now
+// single-use-deleted server-side; without this, the re-fire would redeem →
+// not-found → a spurious "expired" toast over the success toast. localStorage
+// (not sessionStorage) so it survives the reload robustly even in webviews.
+// NOT gated on isTelegramLinked: a Telegram linked to a DIFFERENT account is a
+// legitimate relink, not a re-fire — that path must still redeem.
+const CONSUMED_KEY = 'statusapp_onramp_consumed';
 
 export function extractLinkToken() {
   if (!isTelegramContext()) return null;
@@ -20,30 +29,36 @@ export function extractLinkToken() {
 export async function runLinkArrival({ dismissSplash } = {}) {
   const token = extractLinkToken();
   if (!token) return false;
-  // The post-success reload re-presents the same start_param, but the token
-  // is already consumed and this Telegram is already linked — don't
-  // re-attempt (would toast a spurious "expired").
-  if (isTelegramLinked()) return false;
+  try {
+    if (localStorage.getItem(CONSUMED_KEY) === token) {
+      localStorage.removeItem(CONSUMED_KEY); // one-shot: only the immediate post-link reload
+      return false;
+    }
+  } catch { /* private mode */ }
   const initData = tgWebApp()?.initData;
   try {
     const res = await callRedeemTelegramLinkToken(initData, token, false);
     if (res?.needsConfirm) {
       dismissSplash?.();
+      const relink = res.reason === 'relink';
       const ok = await showConfirmModal({
-        title: 'Use this account in Telegram?',
-        message: 'Linking replaces this temporary Telegram account — its contacts and groups will be removed.',
-        confirmLabel: 'Link account',
-        busyLabel: 'Linking…',
+        title: relink ? 'Switch this Telegram to this account?' : 'Use this account in Telegram?',
+        message: relink
+          ? 'This Telegram is linked to another KnockKnock account. Switch it to this one? The other account stays yours — sign in with its secret phrase on the web.'
+          : 'Linking replaces this temporary Telegram account — its contacts and groups will be removed.',
+        confirmLabel: relink ? 'Switch account' : 'Link account',
+        busyLabel: relink ? 'Switching…' : 'Linking…',
         onConfirm: async () => { await callRedeemTelegramLinkToken(initData, token, true); },
       });
-      if (!ok) return false; // cancelled — let boot render the derived account
+      if (!ok) return false; // cancelled — let boot render the current account
     }
+    try { localStorage.setItem(CONSUMED_KEY, token); } catch { /* private mode */ }
     stampLinkedNotice();
     window.location.reload(); // reboot via initData into the linked account
     return true;
   } catch {
     dismissSplash?.();
     showToast('That link expired — tap Use in Telegram again on the web.');
-    return false; // keep the toast; let boot render the derived account
+    return false; // keep the toast; let boot render the current account
   }
 }

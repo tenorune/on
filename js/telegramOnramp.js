@@ -36,16 +36,26 @@ function dismissBanner() {
 let _linked = false;
 function refresh() {
   const promo = document.getElementById('tg-onramp-promo');
-  const card = document.getElementById('drawer-section-tg-onramp');
-  const show = telegramOnrampEnabled() && !_linked;
-  card?.classList.toggle('hidden', !show);
+  const onrampWrap = document.getElementById('tg-onramp-drawer');
+  const acctSection = document.getElementById('drawer-section-account');
+  if (!telegramOnrampEnabled()) {
+    // Not our context (inside Telegram, or unconfigured): telegramSettings owns
+    // the Account section there — never touch it. Just keep our own bits hidden.
+    promo?.classList.add('hidden');
+    onrampWrap?.classList.add('hidden');
+    return;
+  }
+  const show = !_linked;
+  onrampWrap?.classList.toggle('hidden', !show);
+  // On web the Account section holds only the onramp, so its visibility tracks it.
+  acctSection?.classList.toggle('hidden', !show);
   promo?.classList.toggle('hidden', !(show && !bannerDismissed()));
 }
 
 export function initTelegramOnramp() {
   const promo = document.getElementById('tg-onramp-promo');
-  const card = document.getElementById('drawer-section-tg-onramp');
-  if (!promo && !card) return;
+  const onrampWrap = document.getElementById('tg-onramp-drawer');
+  if (!promo && !onrampWrap) return;
   const go = async (btn) => {
     if (btn) btn.disabled = true;
     try { await startTelegramOnramp(); } finally { if (btn) btn.disabled = false; }

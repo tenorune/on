@@ -101,7 +101,7 @@ const LANDING_KEY = 'kk-landing';
 // links this Telegram to an existing web account) both stamp then reload;
 // the next boot reads and clears this marker.
 const LANDING_COPY = {
-  graduated: 'This account now works in any browser too.',
+  graduated: 'This account now works in any browser too. Keep your secret phrase safe — it’s your only way back in if you lose Telegram.',
   linked: 'This account now works in Telegram too.',
 };
 

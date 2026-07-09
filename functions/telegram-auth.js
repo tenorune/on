@@ -213,16 +213,27 @@ export async function redeemTelegramLinkTokenHandler(request, deps) {
   if (!rec || !rec.uid || (rec.exp && rec.exp < deps.now())) {
     throw new HttpsError('not-found', 'That link expired.');
   }
-  const derivedUid = deriveTelegramUid(String(tgUser.id), deps.uidSecret);
-  const [followers, following, groups] = await Promise.all([
-    deps.getVal(`users/${derivedUid}/followers`),
-    deps.getVal(`userPrefs/${derivedUid}/following`),
-    deps.getVal(`users/${derivedUid}/groups`),
-  ]);
-  const contacts = new Set([...Object.keys(followers || {}), ...Object.keys(following || {})]).size;
-  const groupCount = Object.keys(groups || {}).length;
-  if ((contacts > 0 || groupCount > 0) && !request.data?.confirm) {
-    return { needsConfirm: true, counts: { contacts, groups: groupCount } };
+  const tgId = String(tgUser.id);
+  const derivedUid = deriveTelegramUid(tgId, deps.uidSecret);
+  const prior = await deps.getVal(`telegramUsers/${tgId}`);
+  // Relink: this Telegram is currently linked to a DIFFERENT real account.
+  // Linking switches it away from that account (which stays reachable via its
+  // own phrase on the web) — a surprising move, so confirm first.
+  if (prior?.uid && prior.uid !== rec.uid && prior.uid !== derivedUid) {
+    if (!request.data?.confirm) return { needsConfirm: true, reason: 'relink' };
+  } else {
+    // Standalone/derived account on this Telegram: warn only if linking would
+    // expunge data it holds (the same paths expungeDerivedAccount removes).
+    const [followers, following, groups] = await Promise.all([
+      deps.getVal(`users/${derivedUid}/followers`),
+      deps.getVal(`userPrefs/${derivedUid}/following`),
+      deps.getVal(`users/${derivedUid}/groups`),
+    ]);
+    const contacts = new Set([...Object.keys(followers || {}), ...Object.keys(following || {})]).size;
+    const groupCount = Object.keys(groups || {}).length;
+    if ((contacts > 0 || groupCount > 0) && !request.data?.confirm) {
+      return { needsConfirm: true, reason: 'replace', counts: { contacts, groups: groupCount } };
+    }
   }
   const result = await performLink(deps, rec.uid, tgUser);
   await rootUpdate(deps, { [`telegramLinkTokens/${token}`]: null }); // single-use

@@ -25,6 +25,7 @@ let telegramLinkArrival;
 beforeEach(() => {
   jest.resetModules();
   jest.clearAllMocks();
+  localStorage.clear(); // the one-shot consumed-token marker must not leak between tests
   startParam = 'lk_tok0000000000000000';
   mockTelegram.isTelegramContext.mockReturnValue(true);
   mockTelegram.tgWebApp.mockImplementation(() => ({ initData: 'INIT', initDataUnsafe: { start_param: startParam } }));
@@ -114,10 +115,32 @@ describe('runLinkArrival', () => {
     expect(mockStampLinked).not.toHaveBeenCalled();
   });
 
-  test('already linked (post-success reload re-presenting the same start_param) → false, no redeem call', async () => {
-    mockTelegram.isTelegramLinked.mockReturnValue(true);
+  test('needsConfirm reason:relink → shows the relink copy; confirming re-redeems with confirm:true', async () => {
+    mockRedeem.mockResolvedValueOnce({ needsConfirm: true, reason: 'relink' });
+    mockConfirm.mockImplementationOnce(async ({ onConfirm }) => { await onConfirm(); return true; });
+    mockRedeem.mockResolvedValueOnce({ token: 'auth' });
+    const handled = await telegramLinkArrival.runLinkArrival({ dismissSplash: jest.fn() });
+    expect(handled).toBe(true);
+    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'This Telegram is linked to another KnockKnock account. Switch it to this one? The other account stays yours — sign in with its secret phrase on the web.',
+      confirmLabel: 'Switch account',
+      busyLabel: 'Switching…',
+    }));
+    expect(mockRedeem).toHaveBeenLastCalledWith('INIT', 'tok0000000000000000', true);
+    expect(mockStampLinked).toHaveBeenCalled();
+  });
+
+  test('consumed-token marker (post-success reload re-presenting the same start_param) → false, no redeem, marker cleared one-shot', async () => {
+    localStorage.setItem('statusapp_onramp_consumed', 'tok0000000000000000');
     const handled = await telegramLinkArrival.runLinkArrival({ dismissSplash: jest.fn() });
     expect(handled).toBe(false);
     expect(mockRedeem).not.toHaveBeenCalled();
+    expect(localStorage.getItem('statusapp_onramp_consumed')).toBeNull(); // one-shot
+  });
+
+  test('sets the consumed-token marker before reload on success', async () => {
+    mockRedeem.mockResolvedValueOnce({ token: 'auth' });
+    await telegramLinkArrival.runLinkArrival({ dismissSplash: jest.fn() });
+    expect(localStorage.getItem('statusapp_onramp_consumed')).toBe('tok0000000000000000');
   });
 });

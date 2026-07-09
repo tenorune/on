@@ -59,7 +59,7 @@ describe('showGraduationInfo', () => {
     expect(overlay).not.toBeNull();
     expect(overlay.classList.contains('hidden')).toBe(false);
     expect(document.getElementById('confirm-modal-message').textContent)
-      .toBe('With an account you can use KnockKnock outside of Telegram.');
+      .toBe('An account gives you a secret phrase — it opens this same account in any browser, and it’s your only way back in if you ever lose access to Telegram.');
     expect(document.getElementById('confirm-modal-confirm-btn').textContent).toBe('I want an account');
     const confirmBtn = document.getElementById('confirm-modal-confirm-btn');
     expect(confirmBtn.classList.contains('confirm-btn-generate')).toBe(true);

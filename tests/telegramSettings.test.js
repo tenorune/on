@@ -41,7 +41,11 @@ function mountDom() {
         </div>
       </div>
     </div>
-    <div id="recovery-pill-row"></div>
+    <div id="recovery-pill-row">
+      <button id="recovery-show-pill" class="chip"></button>
+      <button id="drawer-recovery-copy-btn"></button>
+      <p id="recovery-elsewhere-note" class="hint hidden"></p>
+    </div>
     <div id="restore-screen" class="hidden">
       <p id="restore-subtext" class="hidden"></p>
       <form id="restore-form"><input id="restore-input" />
@@ -76,12 +80,28 @@ test('graduated account: a stored phrase un-hides the recovery pill and drives i
   expect(document.getElementById('recovery-pill-row').classList.contains('hidden')).toBe(false);
   expect(initRecoveryPill).toHaveBeenCalledWith('gamma-delta-echo-foxtrot');
 });
-test('no stored phrase: recovery pill stays hidden and initRecoveryPill is not called', async () => {
+test('no stored phrase + unlinked: recovery pill stays hidden and initRecoveryPill is not called', async () => {
   loadGraduatedPhrase.mockReturnValue(null);
+  isTelegramLinked.mockReturnValue(false);
   const { initTelegramSettings } = require('../js/telegramSettings.js');
   initTelegramSettings('u1');
   await flush();
   expect(document.getElementById('recovery-pill-row').classList.contains('hidden')).toBe(true);
+  expect(initRecoveryPill).not.toHaveBeenCalled();
+});
+
+// A web-onramp-linked account never carried its phrase into Telegram, so there's
+// nothing to reveal — but the account has a phrase (its recovery key). Point the
+// user to the web app instead of hiding the row.
+test('linked but no local phrase: shows the "view on web" note, hides the reveal pill', async () => {
+  loadGraduatedPhrase.mockReturnValue(null);
+  isTelegramLinked.mockReturnValue(true);
+  const { initTelegramSettings } = require('../js/telegramSettings.js');
+  initTelegramSettings('u1');
+  await flush();
+  expect(document.getElementById('recovery-pill-row').classList.contains('hidden')).toBe(false);
+  expect(document.getElementById('recovery-elsewhere-note').classList.contains('hidden')).toBe(false);
+  expect(document.getElementById('recovery-show-pill').classList.contains('hidden')).toBe(true);
   expect(initRecoveryPill).not.toHaveBeenCalled();
 });
 

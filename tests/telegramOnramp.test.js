@@ -89,7 +89,9 @@ describe('telegramOnramp DOM (initTelegramOnramp / syncTelegramOnramp)', () => {
   function mountDom() {
     document.body.innerHTML = `
       <div id="tg-onramp-promo" class="hidden"><button id="tg-onramp-action"></button><button id="tg-onramp-dismiss"></button></div>
-      <div id="drawer-section-tg-onramp" class="hidden"><button id="tg-onramp-drawer-btn"></button></div>`;
+      <div id="drawer-section-account" class="hidden">
+        <div id="tg-onramp-drawer" class="hidden"><button id="tg-onramp-drawer-btn"></button></div>
+      </div>`;
   }
 
   beforeEach(() => {
@@ -108,7 +110,7 @@ describe('telegramOnramp DOM (initTelegramOnramp / syncTelegramOnramp)', () => {
     const { initTelegramOnramp } = require('../js/telegramOnramp.js');
     initTelegramOnramp();
     expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(false);
-    expect(document.getElementById('drawer-section-tg-onramp').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('tg-onramp-drawer').classList.contains('hidden')).toBe(false);
   });
 
   test('dismiss hides the banner forever (device-local), card stays', () => {
@@ -119,7 +121,7 @@ describe('telegramOnramp DOM (initTelegramOnramp / syncTelegramOnramp)', () => {
     mountDom();
     initTelegramOnramp(); // re-mount = new "session"
     expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(true);
-    expect(document.getElementById('drawer-section-tg-onramp').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('tg-onramp-drawer').classList.contains('hidden')).toBe(false);
   });
 
   test('syncTelegramOnramp hides both once linked', () => {
@@ -127,7 +129,7 @@ describe('telegramOnramp DOM (initTelegramOnramp / syncTelegramOnramp)', () => {
     initTelegramOnramp();
     syncTelegramOnramp({ telegram: { tgId: '42' } });
     expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(true);
-    expect(document.getElementById('drawer-section-tg-onramp').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('tg-onramp-drawer').classList.contains('hidden')).toBe(true);
   });
 
   test('init hides both when disabled (no app link configured)', () => {
@@ -135,7 +137,7 @@ describe('telegramOnramp DOM (initTelegramOnramp / syncTelegramOnramp)', () => {
     const { initTelegramOnramp } = require('../js/telegramOnramp.js');
     initTelegramOnramp();
     expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(true);
-    expect(document.getElementById('drawer-section-tg-onramp').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('tg-onramp-drawer').classList.contains('hidden')).toBe(true);
   });
 
   test('action button starts the onramp flow', async () => {

@@ -11,7 +11,7 @@ import { stampGraduationNotice } from './firstRun.js';
 import { storeGraduatedPhrase } from './graduationPhrase.js';
 import { showConfirmModal } from './promptModal.js';
 
-const INFO_TEXT = 'With an account you can use KnockKnock outside of Telegram.';
+const INFO_TEXT = 'An account gives you a secret phrase — it opens this same account in any browser, and it’s your only way back in if you ever lose access to Telegram.';
 // Approved copy (spec §7): the recovery-modal knobs for the graduation variant.
 const GRADUATE_INTRO = 'To use the app outside Telegram you get a secret phrase — it opens this same account in any browser.';
 const GRADUATE_WARNING = "Save this somewhere safe. It's how you sign in outside Telegram, and the only way to restore your account if you lose access to Telegram. We can't recover it for you.";

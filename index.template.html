@@ -288,11 +288,6 @@
             <p id="rotate-error-msg" class="error-msg hidden"></p>
             <p class="hint" id="drawer-invite-hint">Or share this code so others can follow your status.</p>
           </div>
-          <div class="drawer-section hidden" id="drawer-section-tg-onramp">
-            <p class="drawer-section-label">Telegram</p>
-            <button id="tg-onramp-drawer-btn" class="ghost-btn" type="button">Use in Telegram</button>
-            <p class="hint">Get knocks and presence in a Telegram chat.</p>
-          </div>
           <div class="drawer-section hidden" id="drawer-section-notifications">
             <p class="drawer-section-label">Notifications</p>
             <div id="tg-notify-slot"></div>
@@ -300,6 +295,10 @@
           <div class="drawer-section hidden" id="drawer-section-account">
             <p class="drawer-section-label">Account</p>
             <div id="tg-account-slot"></div>
+            <div id="tg-onramp-drawer" class="hidden">
+              <p class="hint">Get knocks and presence in a Telegram chat.</p>
+              <button id="tg-onramp-drawer-btn" class="ghost-btn" type="button">Use in Telegram</button>
+            </div>
           </div>
         </div>
       </div>
@@ -309,6 +308,7 @@
           <span id="drawer-recovery-code" class="recovery-code-text"></span>
         </div>
         <button id="drawer-recovery-copy-btn" class="ghost-btn">Copy</button>
+        <p id="recovery-elsewhere-note" class="hint hidden">This account has a secret phrase — view it in KnockKnock on the web.</p>
       </div>
     </header>
 

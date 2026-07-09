@@ -930,7 +930,7 @@ describe('redeemTelegramLinkTokenHandler', () => {
     }));
     const res = await redeemTelegramLinkTokenHandler(
       { data: { initData: freshInitData(), token: tokenValid } }, deps);
-    expect(res).toEqual({ needsConfirm: true, counts: { contacts: 1, groups: 2 } });
+    expect(res).toEqual({ needsConfirm: true, reason: 'replace', counts: { contacts: 1, groups: 2 } });
     expect(deps.store[`telegramLinkTokens/${tokenValid}`]).toBeDefined(); // NOT consumed
     expect(deps.store['telegramUsers/42']).toBeUndefined();      // NOT linked
   });
@@ -940,6 +940,24 @@ describe('redeemTelegramLinkTokenHandler', () => {
     const res = await redeemTelegramLinkTokenHandler(
       { data: { initData: freshInitData(), token: tokenValid, confirm: true } }, deps);
     expect(res.token).toBe(`token-for-${'d'.repeat(32)}`);
+    expect(deps.store[`telegramLinkTokens/${tokenValid}`]).toBeNull();
+  });
+  test('Telegram linked to a DIFFERENT real account without confirm → needsConfirm reason relink, no switch', async () => {
+    const other = 'e'.repeat(32);
+    const deps = makeHandlerDeps(seed({ 'telegramUsers/42': { uid: other, chatId: '42' } }));
+    const res = await redeemTelegramLinkTokenHandler(
+      { data: { initData: freshInitData(), token: tokenValid } }, deps);
+    expect(res).toEqual({ needsConfirm: true, reason: 'relink' });
+    expect(deps.store[`telegramLinkTokens/${tokenValid}`]).toBeDefined(); // NOT consumed
+    expect(deps.store['telegramUsers/42']).toMatchObject({ uid: other }); // still the other account
+  });
+  test('relink with confirm:true → switches the mapping to the token account and consumes', async () => {
+    const other = 'e'.repeat(32);
+    const deps = makeHandlerDeps(seed({ 'telegramUsers/42': { uid: other, chatId: '42' } }));
+    const res = await redeemTelegramLinkTokenHandler(
+      { data: { initData: freshInitData(), token: tokenValid, confirm: true } }, deps);
+    expect(res.token).toBe(`token-for-${'d'.repeat(32)}`);
+    expect(deps.store['telegramUsers/42']).toMatchObject({ uid: 'd'.repeat(32) });
     expect(deps.store[`telegramLinkTokens/${tokenValid}`]).toBeNull();
   });
 });

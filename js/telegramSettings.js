@@ -16,17 +16,31 @@ export function initTelegramSettings(userId) {
   const accountSlot = document.getElementById('tg-account-slot');
   const notifySlot = document.getElementById('tg-notify-slot');
   if (!accountSlot || !notifySlot) return;
-  // J#11: a graduated account can re-view its phrase; a plain derived account can't.
+  const linked = isTelegramLinked();
+  // J#11: a graduated (or manual-linked) account stashed its phrase locally and
+  // can re-reveal it. A web-onramp-linked account never carried the phrase into
+  // Telegram, so there's nothing to reveal here — but the account DOES have a
+  // phrase (it's a web account) and that phrase is its only recovery credential.
+  // Point the user to where they can see it rather than hide the row silently.
   const gradPhrase = loadGraduatedPhrase(userId);
   const pillRow = document.getElementById('recovery-pill-row');
+  const pill = document.getElementById('recovery-show-pill');
+  const copyBtn = document.getElementById('drawer-recovery-copy-btn');
+  const elsewhereNote = document.getElementById('recovery-elsewhere-note');
   if (gradPhrase) {
     pillRow?.classList.remove('hidden');
+    pill?.classList.remove('hidden');
+    copyBtn?.classList.remove('hidden');
+    elsewhereNote?.classList.add('hidden');
     initRecoveryPill(gradPhrase);
+  } else if (linked) {
+    pillRow?.classList.remove('hidden');
+    pill?.classList.add('hidden');
+    copyBtn?.classList.add('hidden');
+    elsewhereNote?.classList.remove('hidden');
   } else {
     pillRow?.classList.add('hidden');
   }
-
-  const linked = isTelegramLinked();
   accountSlot.innerHTML = `
     <p id="tg-link-state" class="hint">${linked
       ? 'This Telegram is linked to your KnockKnock account.'
