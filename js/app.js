@@ -41,6 +41,7 @@ import { setButtonBusy, clearButtonBusy } from './utils.js';
 
 // Re-exported for tests/recovery.test.js, which requires it from app.js directly.
 export { showRecoveryCodeModal };
+export { handleInviteRedemptionResult };
 
 let splashCounter = 0;
 let splashDone = false;
@@ -475,10 +476,23 @@ function showInAppBrowserRedirect() {
   });
 }
 
+// One-time "tap to knock" beat (J#15): after a newcomer's FIRST successful
+// personal-invite redemption (a follow — result.groupId is absent), the
+// contact otherwise appears silently with nothing pointing at the knock loop.
+// Gated by a sessionStorage marker (following the kk-landing pattern,
+// firstRun.js:98) so it fires once per session and never again — including
+// on a group-join success, which has no single contact card to "tap ... to
+// knock" on.
+const FIRST_FOLLOW_KEY = 'kk-first-follow';
+
 function handleInviteRedemptionResult(result) {
   if (result.ok) {
     // On success, the follow is now in place. No banner — the contact will appear
     // in the user's Following list once their watch subscriptions tick.
+    if (!result.groupId && !sessionStorage.getItem(FIRST_FOLLOW_KEY)) {
+      try { sessionStorage.setItem(FIRST_FOLLOW_KEY, '1'); } catch { /* storage denied */ }
+      showToast(`You're following ${result.creatorLabel} — tap their card to knock.`);
+    }
     return;
   }
   showInviteFailureOverlay(result.reason);
