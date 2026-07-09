@@ -31,9 +31,9 @@ Every finding below now carries a **Status** line recording what waves **W1–W4
 **Rollup (71 findings):**
 - **Shipped — 57:** J#1–J#7, J#15 (W1 + W4) · C#1, C#2, C#4–C#7, C#9–C#14 (W1 + W4) · B#1, B#2, B#8–B#14 (W1 + W4) · CL#1–CL#13 (W3) · F#1–F#15 (W2; F#5 landed in the §40 loose-ends pass).
 - **Cut by decision — 1:** B#7 (deep-link "Open in KnockKnock" keyboard row, operator's call, §44).
-- **Not implemented — 13** (no wave assigned; verified still-absent 2026-07-09): J#8, J#9, J#10, J#11, J#12, J#13, J#14, C#3 (partial), C#8, B#3, B#4, B#5, B#6.
+- **Not implemented — 13** (no wave assigned; verified still-absent 2026-07-09): J#8, J#9, J#10, J#11, J#12, J#13, J#14, C#3 (partial), C#8, B#3, B#4, B#5, B#6. **All 13 are tracked in issue [#285](https://github.com/tenorune/on/issues/285).**
 
-**The shape of what's left.** The four waves covered §1.1 (HIGH tier), §1.6 (functions), §1.7 (client) and §1.4 + §1.5 (copy/CSS + bot delight) in full. What was **never scheduled into a wave** is the **§1.2/§1.3 consent-&-parity remainder** — the `/start`-first newcomer parity (J#8), invite management from Telegram (J#9), fire-and-forget invite CTAs (J#10, C#3), graduation re-view/discoverability/copy (J#11, J#12), link/unlink + web-pill feedback (J#13, J#14), the Mini-App name prefill (C#8), and the four bot conversation dead-ends (B#3–B#6). (J#4/5/6 from §1.2 rode W1.)
+**The shape of what's left.** The four waves covered §1.1 (HIGH tier), §1.6 (functions), §1.7 (client) and §1.4 + §1.5 (copy/CSS + bot delight) in full. What was **never scheduled into a wave** is the **§1.2/§1.3 consent-&-parity remainder** — the `/start`-first newcomer parity (J#8), invite management from Telegram (J#9), fire-and-forget invite CTAs (J#10, C#3), graduation re-view/discoverability/copy (J#11, J#12), link/unlink + web-pill feedback (J#13, J#14), the Mini-App name prefill (C#8), and the four bot conversation dead-ends (B#3–B#6). (J#4/5/6 from §1.2 rode W1.) This remainder is collected in tracking issue [#285](https://github.com/tenorune/on/issues/285).
 
 ---
 
