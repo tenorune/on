@@ -1,6 +1,8 @@
 /** @jest-environment jsdom */
 // tests/utils.test.js
 const { hexToRgb, resolveDisplayName } = require('../js/utils.js');
+import vectors from '../test-fixtures/time-format-vectors.json';
+import { formatTimeRemaining, formatTimeRemainingFuzzy } from '../js/utils.js';
 
 describe('resolveDisplayName', () => {
   test('prefers the label when set', () => {
@@ -31,6 +33,13 @@ describe('hexToRgb', () => {
 
   test('returns "0, 0, 0" for invalid input', () => {
     expect(hexToRgb('not-a-color')).toBe('0, 0, 0');
+  });
+});
+
+describe('time formatters (fixture-pinned, shared with functions/presence-core.js)', () => {
+  test.each(vectors)('js/utils time vectors: %j', ({ ms, precise, fuzzy }) => {
+    expect(formatTimeRemaining(ms)).toBe(precise);
+    expect(formatTimeRemainingFuzzy(ms)).toBe(fuzzy);
   });
 });
 

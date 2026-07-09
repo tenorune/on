@@ -79,6 +79,7 @@ export function timeRemainingMs(availableUntil) {
   return Math.max(0, availableUntil - Date.now());
 }
 
+// DUPLICATED in functions/presence-core.js — keep byte-identical (shared fixture: test-fixtures/time-format-vectors.json).
 // Both time-remaining formatters return a bare duration PHRASE with no trailing
 // " left" — the caller owns that suffix (e.g. `formatTimeRemaining(ms) + ' left'`
 // for a precise countdown, or `Available for ${formatTimeRemainingFuzzy(ms)}` for

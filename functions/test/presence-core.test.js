@@ -2,7 +2,9 @@ import {
   withinCooldown, isFutureMs, availabilityTurnedOn,
   wantsKnock, wantsCall, wantsAvailability, buildMessage,
   overrideAvailable, effectiveAvailable, primaryAvailable, clampName,
+  formatTimeRemaining, formatTimeRemainingFuzzy,
 } from '../presence-core.js';
+import vectors from '../../test-fixtures/time-format-vectors.json' with { type: 'json' };
 
 const NOW = 1_000_000;
 
@@ -134,5 +136,12 @@ describe('buildMessage invite titles', () => {
   });
   test('invite without group → generic', () => {
     expect(buildMessage('invite', 'Bobby')).toEqual({ title: 'Bobby invited you to a group', body: '' });
+  });
+});
+
+describe('time formatters (fixture-pinned, shared with js/utils.js)', () => {
+  test.each(vectors)('presence-core time vectors: %j', ({ ms, precise, fuzzy }) => {
+    expect(formatTimeRemaining(ms)).toBe(precise);
+    expect(formatTimeRemainingFuzzy(ms)).toBe(fuzzy);
   });
 });
