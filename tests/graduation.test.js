@@ -8,14 +8,18 @@
 // tests/promptModal.test.js and tests/telegramSettings.test.js.
 jest.mock('../js/telegram.js', () => ({ tgWebApp: () => ({ initData: 'signed-init-data' }) }));
 jest.mock('../js/firebase-config.js', () => ({ callGraduateTelegram: jest.fn(async () => ({ ok: true, uid: 'newuid' })) }));
-jest.mock('../js/identity.js', () => ({ generateRecoveryCode: jest.fn(() => 'able-baker-charlie-delta') }));
+jest.mock('../js/identity.js', () => ({
+  generateRecoveryCode: jest.fn(() => 'able-baker-charlie-delta'),
+  deriveUserIdFromRecoveryCode: jest.fn(async (rc) => `uid-${rc}`),
+}));
 jest.mock('../js/recoveryModal.js', () => ({ showRecoveryCodeModal: jest.fn(async () => 'phrase') }));
 jest.mock('../js/firstRun.js', () => ({ stampGraduationNotice: jest.fn() }));
+jest.mock('../js/graduationPhrase.js', () => ({ storeGraduatedPhrase: jest.fn() }));
 
 const { callGraduateTelegram } = require('../js/firebase-config.js');
 const { showRecoveryCodeModal } = require('../js/recoveryModal.js');
 const { stampGraduationNotice } = require('../js/firstRun.js');
-const { generateRecoveryCode } = require('../js/identity.js');
+const { generateRecoveryCode, deriveUserIdFromRecoveryCode } = require('../js/identity.js');
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -41,6 +45,7 @@ beforeEach(() => {
   jest.resetAllMocks();
   mountConfirmModalDom();
   generateRecoveryCode.mockReturnValue('able-baker-charlie-delta');
+  deriveUserIdFromRecoveryCode.mockImplementation(async (rc) => `uid-${rc}`);
   showRecoveryCodeModal.mockImplementation(async () => 'phrase');
   callGraduateTelegram.mockResolvedValue({ ok: true, uid: 'newuid' });
 });
@@ -114,6 +119,17 @@ describe('startGraduation onConfirm', () => {
     await onConfirm('gamma-delta-echo-foxtrot');
     expect(callGraduateTelegram).toHaveBeenCalledWith('signed-init-data', 'gamma-delta-echo-foxtrot');
     expect(stampGraduationNotice).toHaveBeenCalled();
+  });
+
+  // J#11 (#285): the phrase is stashed locally (keyed by the phrase-derived uid)
+  // so the drawer can re-reveal it after the reload.
+  test('success: stores the graduated phrase for the derived uid (J#11)', async () => {
+    const { storeGraduatedPhrase } = require('../js/graduationPhrase.js');
+    const { startGraduation } = require('../js/graduation.js');
+    startGraduation();
+    const onConfirm = showRecoveryCodeModal.mock.calls[0][1];
+    await onConfirm('gamma-delta-echo-foxtrot');
+    expect(storeGraduatedPhrase).toHaveBeenCalledWith('uid-gamma-delta-echo-foxtrot', 'gamma-delta-echo-foxtrot');
   });
 
   test('failure: throws the single generic userMessage for every code, no stamp', async () => {

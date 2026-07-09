@@ -1,11 +1,14 @@
 // js/telegramSettings.js — Telegram-context drawer row: account linking and
 // the notification-channel toggle. Only mounted when isTelegramContext().
-// The phrase pill is hidden here: a Telegram-derived account has no phrase,
-// and a linked account's phrase lives with the user already.
+// The phrase pill is hidden for a plain Telegram-derived account (no phrase),
+// but a GRADUATED account has one stashed locally (J#11) — surface the same web
+// reveal pill for it; a linked account's phrase lives with the user already.
 import { tgWebApp, isTelegramLinked } from './telegram.js';
 import { callLinkTelegram, callUnlinkTelegram } from './firebase-config.js';
 import { parseRecoveryCode } from './identity.js';
 import { showGraduationInfo } from './graduation.js';
+import { loadGraduatedPhrase } from './graduationPhrase.js';
+import { initRecoveryPill } from './mycode.js';
 import { showConfirmModal } from './promptModal.js';
 import { setButtonBusy, clearButtonBusy } from './utils.js';
 
@@ -13,7 +16,15 @@ export function initTelegramSettings(userId) {
   const accountSlot = document.getElementById('tg-account-slot');
   const notifySlot = document.getElementById('tg-notify-slot');
   if (!accountSlot || !notifySlot) return;
-  document.getElementById('recovery-pill-row')?.classList.add('hidden');
+  // J#11: a graduated account can re-view its phrase; a plain derived account can't.
+  const gradPhrase = loadGraduatedPhrase(userId);
+  const pillRow = document.getElementById('recovery-pill-row');
+  if (gradPhrase) {
+    pillRow?.classList.remove('hidden');
+    initRecoveryPill(gradPhrase);
+  } else {
+    pillRow?.classList.add('hidden');
+  }
 
   const linked = isTelegramLinked();
   accountSlot.innerHTML = `

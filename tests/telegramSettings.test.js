@@ -16,9 +16,13 @@ jest.mock('../js/identity.js', () => ({
   parseRecoveryCode: (s) => (/^[a-z]+(-[a-z]+){3}$/.test((s || '').trim()) ? s.trim() : null),
 }));
 jest.mock('../js/graduation.js', () => ({ showGraduationInfo: jest.fn() }));
+jest.mock('../js/graduationPhrase.js', () => ({ loadGraduatedPhrase: jest.fn(() => null) }));
+jest.mock('../js/mycode.js', () => ({ initRecoveryPill: jest.fn() }));
 const { telegramLinkState, isTelegramLinked } = require('../js/telegram.js');
 const { callLinkTelegram, callUnlinkTelegram } = require('../js/firebase-config.js');
 const { showGraduationInfo } = require('../js/graduation.js');
+const { loadGraduatedPhrase } = require('../js/graduationPhrase.js');
+const { initRecoveryPill } = require('../js/mycode.js');
 const { showLinkScreen } = require('../js/telegramSettings.js');
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -59,6 +63,26 @@ function mountDom() {
 }
 
 beforeEach(() => { jest.resetAllMocks(); sessionStorage.clear(); mountDom(); });
+
+// J#11 (#285): a graduated account can re-view its secret phrase — the drawer
+// surfaces the existing web reveal pill when a phrase is stored for this uid.
+test('graduated account: a stored phrase un-hides the recovery pill and drives initRecoveryPill', async () => {
+  loadGraduatedPhrase.mockReturnValue('gamma-delta-echo-foxtrot');
+  const { initTelegramSettings } = require('../js/telegramSettings.js');
+  initTelegramSettings('u1');
+  await flush();
+  expect(loadGraduatedPhrase).toHaveBeenCalledWith('u1');
+  expect(document.getElementById('recovery-pill-row').classList.contains('hidden')).toBe(false);
+  expect(initRecoveryPill).toHaveBeenCalledWith('gamma-delta-echo-foxtrot');
+});
+test('no stored phrase: recovery pill stays hidden and initRecoveryPill is not called', async () => {
+  loadGraduatedPhrase.mockReturnValue(null);
+  const { initTelegramSettings } = require('../js/telegramSettings.js');
+  initTelegramSettings('u1');
+  await flush();
+  expect(document.getElementById('recovery-pill-row').classList.contains('hidden')).toBe(true);
+  expect(initRecoveryPill).not.toHaveBeenCalled();
+});
 
 test('renders row, hides phrase pill, shows link button when unlinked', async () => {
   const { initTelegramSettings } = require('../js/telegramSettings.js');
