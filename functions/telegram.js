@@ -372,20 +372,28 @@ async function handleWhoGroup(deps, uid, query, reply) {
     : `No one is available in ${match.name} right now.`);
 }
 
+// A "Which one?" picker (with a truncation hint past the cap) for an ambiguous
+// name match — ONE copy of the cap + hint string + keyboard shape, shared by the
+// /knock following-match and group-reach branches (C5). `toButton(entry)` maps
+// each entry to its inline-button; only the button differs between callers.
+function replyDisambiguation(reply, entries, toButton) {
+  const CAP = 8;
+  const overflow = entries.length - CAP;
+  const text = overflow > 0 ? `Which one? …and ${overflow} more — type more letters.` : 'Which one?';
+  return reply(text, { reply_markup: { inline_keyboard: entries.slice(0, CAP).map((e) => [toButton(e)]) } });
+}
+
 // No Direct match — search shared-group rosters (spec 2026-07-07 §2): anyone
 // visible in a group you're in is knockable, with that group as context.
 async function knockGroupReach(deps, uid, query, rawQuery, reply) {
   const groups = (await deps.getVal(`users/${uid}/groups`)) || {};
   const perGroup = await Promise.all(Object.keys(groups).map(async (gid) => {
-    const [members, groupName] = await Promise.all([
-      deps.getVal(`groups/${gid}/members`),
-      deps.getVal(`groups/${gid}/name`),
-    ]);
+    const members = await deps.getVal(`groups/${gid}/members`);
     const matches = [];
     for (const [mid, m] of Object.entries(members || {})) {
       if (mid === uid) continue;
       const name = m?.displayName || '';
-      if (name.toLowerCase().includes(query)) matches.push({ uid: mid, gid, name, groupName: groupName || gid });
+      if (name.toLowerCase().includes(query)) matches.push({ uid: mid, gid, name });
     }
     return matches;
   }));
@@ -394,11 +402,15 @@ async function knockGroupReach(deps, uid, query, rawQuery, reply) {
     await reply(`Couldn't find "${rawQuery}" among the people you follow or your groups.`);
     return;
   }
+  // Resolve group names ONLY for the groups that actually matched, not every
+  // group searched (C3): a no-match group costs one read, not two.
+  const matchedGids = [...new Set(found.map((e) => e.gid))];
+  const names = Object.fromEntries(await Promise.all(
+    matchedGids.map(async (gid) => [gid, (await deps.getVal(`groups/${gid}/name`)) || gid]),
+  ));
+  found.forEach((e) => { e.groupName = names[e.gid]; });
   if (found.length > 1) {
-    const CAP = 8;
-    const overflow = found.length - CAP;
-    const text = overflow > 0 ? `Which one? …and ${overflow} more — type more letters.` : 'Which one?';
-    await reply(text, { reply_markup: { inline_keyboard: found.slice(0, CAP).map((e) => [{ text: `${e.name} (${e.groupName})`, callback_data: `knock:${e.uid}:${e.gid}` }]) } });
+    await replyDisambiguation(reply, found, (e) => ({ text: `${e.name} (${e.groupName})`, callback_data: `knock:${e.uid}:${e.gid}` }));
     return;
   }
   const committed = await writeKnock(deps, found[0].uid, uid, found[0].gid);
@@ -433,10 +445,7 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
     const matches = following.filter((e) => (e.label || e.code).toLowerCase().includes(query));
     if (matches.length === 0) { await knockGroupReach(deps, uid, query, args.join(' '), reply); return; }
     if (matches.length > 1) {
-      const CAP = 8;
-      const overflow = matches.length - CAP;
-      const text = overflow > 0 ? `Which one? …and ${overflow} more — type more letters.` : 'Which one?';
-      await reply(text, { reply_markup: { inline_keyboard: matches.slice(0, CAP).map((e) => [{ text: e.label || e.code, callback_data: `knock:${e.userId}` }]) } });
+      await replyDisambiguation(reply, matches, (e) => ({ text: e.label || e.code, callback_data: `knock:${e.userId}` }));
       return;
     }
     const committed = await writeKnock(deps, matches[0].userId, uid);
@@ -480,12 +489,19 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
 // the action itself already succeeded and the answerCallbackQuery toast fired —
 // a >48h edit window, a user-deleted message, or a double-tap race must never
 // fail the action.
-export async function resolveSourceMessage(deps, cq, outcome) {
+// `extra` (e.g. a keep-one-button keyboard) is optional: passed only when a
+// caller wants a button to survive on the resolved message (U1.6 — the join
+// outcome keeps an Open KnockKnock button so it isn't a dead end). Omitted → the
+// inline keyboard is dropped as before, so stale action buttons can't be tapped.
+export async function resolveSourceMessage(deps, cq, outcome, extra) {
   const msg = cq?.message;
   if (!msg?.message_id || !msg.chat?.id || !deps.tg.editMessageText) return;
   const text = msg.text ? `${msg.text}\n\n${outcome}` : outcome;
-  try { await deps.tg.editMessageText(String(msg.chat.id), msg.message_id, text); }
-  catch { /* cosmetic — see above */ }
+  try {
+    await (extra
+      ? deps.tg.editMessageText(String(msg.chat.id), msg.message_id, text, extra)
+      : deps.tg.editMessageText(String(msg.chat.id), msg.message_id, text));
+  } catch { /* cosmetic — see above */ }
 }
 
 async function handleCallback(deps, cq) {
@@ -568,10 +584,11 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
     // in the app. Membership, nav entry, and the pending cleanup land as ONE
     // atomic update — a crash can't leave a member with the invite still pending.
     const now = deps.now();
+    const displayName = clampName(cq.from.first_name) || 'Someone';
     await rootUpdate(deps, {
       [`groups/${groupId}/members/${me}`]: {
         role: 'member',
-        displayName: clampName(cq.from.first_name) || 'Someone',
+        displayName,
         joinedAt: now,
         statusOverride: { enabled: true, status: 'available', availableUntil: now + 2 * 60 * 60 * 1000 },
       },
@@ -579,7 +596,13 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
       ...pendingNulls,
     });
     // B#6: disclose the 2h availability the join silently set, and point at /off.
-    await resolveSourceMessage(deps, cq, `✅ Joined ${name} — you're shown available there for 2h. /off ${name} to change.`);
+    // U2.5: name the display name it published (editable in the app). U1.6: keep
+    // an Open KnockKnock button so the join isn't a dead end.
+    await resolveSourceMessage(
+      deps, cq,
+      `✅ Joined ${name} as ${displayName} — you're shown available there for 2h. /off ${name} to change; edit your name in the app.`,
+      openAppKeyboard(deps.appUrl),
+    );
     await answer(`Joined ${name}.`);
     return;
   }

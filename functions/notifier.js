@@ -291,9 +291,13 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   // group is showing their primary. Override-ON groups are driven by onMemberOverride.
   // The shared `notified` set dedups across Direct + every group.
   const groups = await deps.getVal(`users/${uid}/groups`);
-  for (const groupId of groups ? Object.keys(groups) : []) {
-    const override = await deps.getVal(`groups/${groupId}/members/${uid}/statusOverride`);
-    if (override && override.enabled === true) continue;
-    await notifyGroupAvailability(deps, groupId, uid, now, notified);
+  const gids = groups ? Object.keys(groups) : [];
+  // The override reads are independent — prefetch them in one parallel phase
+  // (G round-trips → 1). The notify calls stay sequential: they share the
+  // `notified` dedup set (C3).
+  const overrides = await Promise.all(gids.map((gid) => deps.getVal(`groups/${gid}/members/${uid}/statusOverride`)));
+  for (let i = 0; i < gids.length; i += 1) {
+    if (overrides[i] && overrides[i].enabled === true) continue;
+    await notifyGroupAvailability(deps, gids[i], uid, now, notified);
   }
 }

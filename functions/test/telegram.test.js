@@ -1002,8 +1002,10 @@ describe('inbox callbacks', () => {
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cb1', expect.stringContaining('Divers'));
   });
   // B#6 (issue #285): the bot join silently sets a 2h availability override —
-  // the outcome message now discloses it and points at /off, not just "Joined X."
-  test('invite_accept: joined message discloses the 2h availability + /off hint (B#6)', async () => {
+  // the outcome message discloses it and points at /off. W4: it also names the
+  // display name it published (U2.5) and keeps an Open KnockKnock button so the
+  // join isn't a dead end (U1.6).
+  test('invite_accept: joined message discloses name, 2h availability, /off hint + Open button (B#6/U1.6/U2.5)', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`pendingInvites/${uid}/${GID}`] = { from: 'inviter', ts: 1 };
@@ -1013,7 +1015,8 @@ describe('inbox callbacks', () => {
       message: { message_id: 7, chat: { id: 42 }, text: 'Someone invited you to Divers' } } };
     await handleUpdate(deps, update);
     expect(deps.tg.editMessageText).toHaveBeenCalledWith('42', 7,
-      "Someone invited you to Divers\n\n✅ Joined Divers — you're shown available there for 2h. /off Divers to change.");
+      "Someone invited you to Divers\n\n✅ Joined Divers as Ada — you're shown available there for 2h. /off Divers to change; edit your name in the app.",
+      { reply_markup: { inline_keyboard: [[{ text: 'Open KnockKnock', web_app: { url: deps.appUrl } }]] } });
   });
   test('invite_accept when already a member → just clears the pending invite', async () => {
     const deps = makeBotDeps();
@@ -1217,7 +1220,7 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     expect(reply.text).toMatch(/follows your global status/);
   });
 
-  test('/knock roster reach reads all group rosters concurrently', async () => {
+  test('/knock roster reach reads all group rosters concurrently; skips no-match group names (C3)', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 2 } };
@@ -1227,7 +1230,10 @@ describe('webhook read parallelism (F#3, F#7)', () => {
     deps.store['groups/G2/members'] = { a2: { displayName: 'Zed' } };
     const probe = withConcurrencyProbe(deps);
     const reply = await handleUpdate(deps, msgUpdate('/knock cora'));
-    expect(probe.max).toBeGreaterThanOrEqual(4);
+    expect(probe.max).toBeGreaterThanOrEqual(2); // both group rosters read in one parallel phase
+    // Only the matched group's name is resolved — the no-match group's name is not read.
+    expect(deps.getVal).toHaveBeenCalledWith('groups/G1/name');
+    expect(deps.getVal).not.toHaveBeenCalledWith('groups/G2/name');
     expect(reply.text).toBe('Knocked on Cora (Divers).');
   });
 
@@ -1283,7 +1289,7 @@ describe('invite callbacks are state-checked and self-recording (W1 B#1)', () =>
     store[`groups/${GID}/name`] = 'Divers';
   }
 
-  test('fresh accept joins, edits the message to the outcome, and strips the keyboard', async () => {
+  test('fresh accept joins, edits the message to the outcome, and keeps an Open button (U1.6)', async () => {
     const store = {};
     const uid = seedUser(store);
     seedInvite(store, uid);
@@ -1291,7 +1297,8 @@ describe('invite callbacks are state-checked and self-recording (W1 B#1)', () =>
     const reply = await handleUpdate(deps, cqUpdate(`invite_accept:${GID}`, inviteMsg));
     expect(store[`groups/${GID}/members/${uid}`]).toMatchObject({ role: 'member' });
     expect(deps.tg.editMessageText).toHaveBeenCalledWith(
-      '42', 7, "Ada invited you to Divers\n\n✅ Joined Divers — you're shown available there for 2h. /off Divers to change.");
+      '42', 7, "Ada invited you to Divers\n\n✅ Joined Divers as Ada — you're shown available there for 2h. /off Divers to change; edit your name in the app.",
+      { reply_markup: { inline_keyboard: [[{ text: 'Open KnockKnock', web_app: { url: deps.appUrl } }]] } });
     expect(deps.tg.answerCallbackQuery).toHaveBeenCalledWith('cq1', 'Joined Divers.');
   });
 
