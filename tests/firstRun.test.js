@@ -36,6 +36,20 @@ beforeEach(() => {
   firstRun = require('../js/firstRun.js');
 });
 
+test('isFirstRunResolved: false until setListEmpty runs once, then true (either verdict)', () => {
+  expect(firstRun.isFirstRunResolved()).toBe(false); // list hasn't rendered yet
+  firstRun.setListEmpty(false);                       // first render, non-empty
+  expect(firstRun.isFirstRunResolved()).toBe(true);
+  expect(firstRun.isFirstRunActive()).toBe(false);
+});
+
+test('isFirstRunResolved: true after an empty first render too', () => {
+  expect(firstRun.isFirstRunResolved()).toBe(false);
+  firstRun.setListEmpty(true);
+  expect(firstRun.isFirstRunResolved()).toBe(true);
+  expect(firstRun.isFirstRunActive()).toBe(true);
+});
+
 test('setListEmpty(true): panel shows, add button demotes to "Add by code"', () => {
   firstRun.setListEmpty(true);
   expect(document.getElementById('first-run-panel').classList.contains('hidden')).toBe(false);

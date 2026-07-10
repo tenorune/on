@@ -1,7 +1,12 @@
 function setUA(ua) { Object.defineProperty(global.navigator, 'userAgent', { value: ua, configurable: true }); }
 function setStandalone(matches) { global.window.matchMedia = () => ({ matches }); }
 
-jest.mock('../js/firstRun.js', () => ({ isFirstRunActive: jest.fn(() => false) }));
+// isFirstRunResolved defaults true (steady state: the list has rendered). The
+// boot-window flash test flips it to false.
+jest.mock('../js/firstRun.js', () => ({
+  isFirstRunActive: jest.fn(() => false),
+  isFirstRunResolved: jest.fn(() => true),
+}));
 jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
 jest.mock('../js/telegramOnramp.js', () => ({ isOnrampPromoActive: jest.fn(() => false) }));
 
@@ -47,6 +52,7 @@ describe('install affordance rendering', () => {
     const { isFirstRunActive } = require('../js/firstRun.js');
     isFirstRunActive.mockReturnValue(false);
     require('../js/telegramOnramp.js').isOnrampPromoActive.mockReturnValue(false);
+    require('../js/firstRun.js').isFirstRunResolved.mockReturnValue(true);
     __resetInstallPromptForTests();
     // mockReset (not mockClear) so a per-test mockReturnValue('') override can't
     // leak into a later test; re-establish the default return value here.
@@ -74,6 +80,28 @@ describe('install affordance rendering', () => {
     onramp.isOnrampPromoActive.mockReturnValue(false);
     document.dispatchEvent(new CustomEvent('onramp-change'));
     expect(toast.classList.contains('hidden')).toBe(false);
+  });
+
+  // Boot-window flash (iOS FTU): apply() runs before initList establishes the
+  // empty state. isFirstRunActive() is false only because it's UNRESOLVED — the
+  // whole affordance (toast AND fab) must hold, else the fab/toast flashes for a
+  // frame before the guided empty state mounts. Resumes on the first-run-change
+  // that the first render dispatches.
+  test('holds the whole affordance until the first-run state is resolved', () => {
+    require('../js/firstRun.js').isFirstRunResolved.mockReturnValue(false);
+    setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1'); // ios-install → fab lane
+    initInstallAffordance();
+    const fab = document.getElementById('install-fab');
+    const toast = document.getElementById('install-toast');
+    expect(toast.classList.contains('hidden')).toBe(true);
+    expect(fab.classList.contains('hidden')).toBe(true);
+    // First render lands (empty new user): resolved, and now first-run active →
+    // still held (the guided empty state is the surface). The point is: no flash
+    // in the unresolved window.
+    require('../js/firstRun.js').isFirstRunResolved.mockReturnValue(true);
+    require('../js/firstRun.js').isFirstRunActive.mockReturnValue(false); // pretend non-empty for resume proof
+    document.dispatchEvent(new CustomEvent('first-run-change'));
+    expect(fab.classList.contains('hidden')).toBe(false); // affordance resumes once resolved
   });
 
   test('Firefox desktop: toast shows first (fab hidden); dismiss reveals fab; fab reopens toast', () => {

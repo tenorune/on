@@ -28,6 +28,16 @@ export function isFirstRunActive() {
   return _active;
 }
 
+// True once setListEmpty has run at least once — i.e. the list has rendered and
+// the empty/non-empty verdict is known. Before that, isFirstRunActive() reads
+// false only because the state is UNRESOLVED, not because the list is non-empty;
+// teaching surfaces that defer to first-run (the Telegram onramp promo) must
+// hold until this is true, or they flash in the boot window before the guided
+// empty state mounts (iOS FTU finding).
+export function isFirstRunResolved() {
+  return _appliedEmpty !== null;
+}
+
 // Last emptiness state actually applied. setListEmpty is called from every
 // renderList tick (presence flips, watcher ticks, a 60s interval) but its ~10
 // DOM writes + the first-run-change fan-out only matter on a genuine

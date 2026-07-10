@@ -5,6 +5,9 @@
 const mockMint = jest.fn(async () => ({ token: 'tok_xyz' }));
 const mockToast = jest.fn();
 const mockFirstRunActive = jest.fn(() => false);
+// Default RESOLVED: steady-state (the list has rendered at least once). The
+// boot-window flash test flips this to unresolved.
+const mockFirstRunResolved = jest.fn(() => true);
 jest.mock('../js/telegram.js', () => ({
   isTelegramContext: jest.fn(() => false),
 }));
@@ -12,7 +15,10 @@ jest.mock('../js/firebase-config.js', () => ({
   callMintTelegramLinkToken: (...a) => mockMint(...a),
 }));
 jest.mock('../js/groups.js', () => ({ showToast: (...a) => mockToast(...a) }));
-jest.mock('../js/firstRun.js', () => ({ isFirstRunActive: (...a) => mockFirstRunActive(...a) }));
+jest.mock('../js/firstRun.js', () => ({
+  isFirstRunActive: (...a) => mockFirstRunActive(...a),
+  isFirstRunResolved: (...a) => mockFirstRunResolved(...a),
+}));
 
 describe('telegramOnramp', () => {
   beforeEach(() => {
@@ -20,6 +26,7 @@ describe('telegramOnramp', () => {
     mockMint.mockClear(); mockMint.mockResolvedValue({ token: 'tok_xyz' });
     mockToast.mockClear();
     mockFirstRunActive.mockReset(); mockFirstRunActive.mockReturnValue(false);
+    mockFirstRunResolved.mockReset(); mockFirstRunResolved.mockReturnValue(true);
   });
 
   test('enabled on web with a configured app link', () => {
@@ -191,6 +198,7 @@ describe('telegramOnramp DOM (initTelegramOnramp / syncTelegramOnramp)', () => {
     mockMint.mockClear(); mockMint.mockResolvedValue({ token: 'tok_xyz' });
     mockToast.mockClear();
     mockFirstRunActive.mockReset(); mockFirstRunActive.mockReturnValue(false);
+    mockFirstRunResolved.mockReset(); mockFirstRunResolved.mockReturnValue(true);
     localStorage.clear();
     process.env.TELEGRAM_APP_LINK = 'https://t.me/knockbot/app';
     mountDom();
@@ -278,6 +286,27 @@ describe('telegramOnramp DOM (initTelegramOnramp / syncTelegramOnramp)', () => {
     mockFirstRunActive.mockReturnValue(false);
     document.dispatchEvent(new CustomEvent('first-run-change'));
     expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(false);
+  });
+
+  // Boot-window flash (iOS FTU): initTelegramOnramp runs before initList's first
+  // render establishes the empty state, so isFirstRunActive() is still false but
+  // the guided empty state is merely UNRESOLVED, not absent. The promo must stay
+  // hidden until the list has rendered once (isFirstRunResolved), else it flashes
+  // before the guided empty state replaces it.
+  test('promo stays hidden until the first-run state is resolved (no boot flash)', () => {
+    mockFirstRunActive.mockReturnValue(false);   // not (yet) active…
+    mockFirstRunResolved.mockReturnValue(false); // …because the list hasn't rendered yet
+    const { initTelegramOnramp, isOnrampPromoActive } = require('../js/telegramOnramp.js');
+    initTelegramOnramp();
+    expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(true);
+    expect(isOnrampPromoActive()).toBe(false);
+    // The drawer card is opt-in and stays reachable throughout.
+    expect(document.getElementById('tg-onramp-drawer').classList.contains('hidden')).toBe(false);
+    // First render lands (non-empty account): resolved, not active → promo shows.
+    mockFirstRunResolved.mockReturnValue(true);
+    document.dispatchEvent(new CustomEvent('first-run-change'));
+    expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(false);
+    expect(isOnrampPromoActive()).toBe(true);
   });
 
   // Coordination signal for the install/notify nudge (the two must not co-show).

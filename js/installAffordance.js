@@ -14,7 +14,7 @@ import {
   initInstallPrompt, isInstallPromptAvailable, isAppInstalled,
   promptInstall, onInstallPromptChange,
 } from './installPrompt.js';
-import { isFirstRunActive } from './firstRun.js';
+import { isFirstRunActive, isFirstRunResolved } from './firstRun.js';
 import { isBotDelivered } from './notifySuppression.js';
 import { isOnrampPromoActive } from './telegramOnramp.js';
 import { escapeHatchHtml, wireEscapeHatch } from './telegramEscapeHatch.js';
@@ -86,7 +86,7 @@ export function initInstallAffordance() {
     const relevant = !isAppInstalled() && !isBotDelivered()
       && (lane === 'installable' || lane === 'push-in-tab' || lane === 'ios-install' || lane === 'macos-install');
     if (!relevant) { toast.classList.add('hidden'); fab.classList.add('hidden'); return; }
-    if (isFirstRunActive() || isOnrampPromoActive()) {
+    if (!isFirstRunResolved() || isFirstRunActive() || isOnrampPromoActive()) {
       // Suppress the whole affordance — toast AND corner icon — while a stronger
       // teaching surface is up: the guided empty state (spec §3), OR the "Use in
       // Telegram" promo, which offers the same notifications via the bot (showing
@@ -94,6 +94,11 @@ export function initInstallAffordance() {
       // since its toast can't lead while the other surface holds. The lead-in
       // isn't consumed: apply() re-runs on first-run-change / onramp-change and
       // the toast resumes once the other surface clears.
+      // Also hold until the first-run state is RESOLVED (the list has rendered
+      // once): at boot apply() runs before initList establishes the empty state,
+      // so isFirstRunActive() is still false — showing the FAB/toast then flashes
+      // it for a frame before the guided empty state mounts (iOS FTU finding).
+      // Same first-run-change tick that mounts the empty state re-runs apply().
       toast.classList.add('hidden');
       fab.classList.add('hidden');
     } else if (dismissed) {

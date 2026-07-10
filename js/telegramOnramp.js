@@ -5,7 +5,7 @@ import { isTelegramContext } from './telegram.js';
 import { callMintTelegramLinkToken } from './firebase-config.js';
 import { buildStartAppLink, telegramSharingEnabled } from './inviteFlow.js';
 import { showToast } from './groups.js';
-import { isFirstRunActive } from './firstRun.js';
+import { isFirstRunActive, isFirstRunResolved } from './firstRun.js';
 import { isRepromptActive } from './notifySuppression.js';
 
 // Same gate as web invite sharing, plus: never on the Telegram surface itself
@@ -94,7 +94,12 @@ function refresh() {
   // (U2.2) AND while the reprompt banner is up (concrete unmet intent beats a
   // passive promo): one teaching surface at a time (spec §3), same rule
   // installAffordance follows. The drawer card is opt-in and stays reachable.
-  const promoActive = show && !bannerDismissed() && !isFirstRunActive() && !isRepromptActive();
+  // It also holds until the first-run state is RESOLVED (the list has rendered
+  // once): at boot initTelegramOnramp runs before initList establishes the empty
+  // state, so isFirstRunActive() is still false — showing the promo then flashes
+  // it for a frame before the guided empty state mounts (iOS FTU finding).
+  const promoActive = show && !bannerDismissed() && isFirstRunResolved()
+    && !isFirstRunActive() && !isRepromptActive();
   promo?.classList.toggle('hidden', !promoActive);
   setPromoActive(promoActive);
 }
