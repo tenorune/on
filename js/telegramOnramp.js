@@ -6,6 +6,7 @@ import { callMintTelegramLinkToken } from './firebase-config.js';
 import { buildStartAppLink, telegramSharingEnabled } from './inviteFlow.js';
 import { showToast } from './groups.js';
 import { isFirstRunActive } from './firstRun.js';
+import { isRepromptActive } from './notifySuppression.js';
 
 // Same gate as web invite sharing, plus: never on the Telegram surface itself
 // (there the account is already inside Telegram). Single source for the config
@@ -39,6 +40,16 @@ export async function startTelegramOnramp() {
   return true;
 }
 
+// Shared CTA handler for every surface that starts the onramp from a nudge
+// (promo banner, drawer card, telegramEscapeHatch): disable the button in
+// flight; arm the success beat only when the deep link actually opened (U1.7).
+export async function startTelegramOnrampFromNudge(btn) {
+  if (btn) btn.disabled = true;
+  try {
+    if (await startTelegramOnramp()) _ctaTapped = true;
+  } finally { if (btn) btn.disabled = false; }
+}
+
 const DISMISS_KEY = 'statusapp_tg_onramp_dismissed';
 function bannerDismissed() {
   try { return localStorage.getItem(DISMISS_KEY) === '1'; } catch { return false; }
@@ -49,7 +60,7 @@ function dismissBanner() {
 
 let _linked = false;
 let _ctaTapped = false;
-let _firstRunBound = false;
+let _listenersBound = false;
 let _promoActive = false;
 
 // Whether the "Use in Telegram" promo banner is currently shown. The install/
@@ -80,9 +91,10 @@ function refresh() {
   // On web the Account section holds only the onramp, so its visibility tracks it.
   acctSection?.classList.toggle('hidden', !show);
   // The PROMO — but not the drawer card — defers during the guided empty state
-  // (U2.2): one teaching surface at a time (spec §3), same rule installAffordance
-  // follows. The drawer card is opt-in and stays reachable throughout.
-  const promoActive = show && !bannerDismissed() && !isFirstRunActive();
+  // (U2.2) AND while the reprompt banner is up (concrete unmet intent beats a
+  // passive promo): one teaching surface at a time (spec §3), same rule
+  // installAffordance follows. The drawer card is opt-in and stays reachable.
+  const promoActive = show && !bannerDismissed() && !isFirstRunActive() && !isRepromptActive();
   promo?.classList.toggle('hidden', !promoActive);
   setPromoActive(promoActive);
 }
@@ -91,24 +103,19 @@ export function initTelegramOnramp() {
   const promo = document.getElementById('tg-onramp-promo');
   const onrampWrap = document.getElementById('tg-onramp-drawer');
   if (!promo && !onrampWrap) return;
-  const go = async (btn) => {
-    if (btn) btn.disabled = true;
-    try {
-      // Arm the success beat only when the deep link actually opened (U1.7).
-      if (await startTelegramOnramp()) _ctaTapped = true;
-    } finally { if (btn) btn.disabled = false; }
-  };
-  document.getElementById('tg-onramp-action')?.addEventListener('click', (e) => go(e.currentTarget));
-  document.getElementById('tg-onramp-drawer-btn')?.addEventListener('click', (e) => go(e.currentTarget));
+  document.getElementById('tg-onramp-action')?.addEventListener('click', (e) => startTelegramOnrampFromNudge(e.currentTarget));
+  document.getElementById('tg-onramp-drawer-btn')?.addEventListener('click', (e) => startTelegramOnrampFromNudge(e.currentTarget));
   document.getElementById('tg-onramp-dismiss')?.addEventListener('click', () => {
     dismissBanner();
     refresh(); // hides the promo AND fires onramp-change so the install nudge resumes
   });
-  // Re-evaluate the promo gate when the empty state mounts/clears (U2.2). Bound
-  // once at document level so it survives DOM rebuilds and repeated init.
-  if (!_firstRunBound) {
+  // Re-evaluate the promo gate when the empty state mounts/clears (U2.2) or the
+  // reprompt banner's visibility changes. Bound once at document level so it
+  // survives DOM rebuilds and repeated init.
+  if (!_listenersBound) {
     document.addEventListener('first-run-change', refresh);
-    _firstRunBound = true;
+    document.addEventListener('reprompt-change', refresh);
+    _listenersBound = true;
   }
   refresh();
 }

@@ -109,6 +109,68 @@ describe('telegramOnramp', () => {
     expect(mockToast).toHaveBeenCalledWith("Couldn't reach Telegram right now. Try again.");
     open.mockRestore();
   });
+
+  function promoDom() {
+    document.body.innerHTML = `
+      <div id="tg-onramp-promo" class="hidden">
+        <button id="tg-onramp-action"></button>
+        <button id="tg-onramp-dismiss"></button>
+      </div>
+      <div id="tg-onramp-drawer" class="hidden">
+        <button id="tg-onramp-drawer-btn"></button>
+      </div>
+      <div id="drawer-section-account" class="hidden"></div>`;
+  }
+
+  test('startTelegramOnrampFromNudge disables the button in flight and arms the success beat', async () => {
+    process.env.TELEGRAM_APP_LINK = 'https://t.me/knockbot/app';
+    let release;
+    mockMint.mockReturnValue(new Promise((r) => { release = () => r({ token: 'tok_xyz' }); }));
+    const open = jest.spyOn(window, 'open').mockReturnValue({});
+    const mod = require('../js/telegramOnramp.js');
+    const btn = document.createElement('button');
+    const flight = mod.startTelegramOnrampFromNudge(btn);
+    expect(btn.disabled).toBe(true);
+    release(); await flight;
+    expect(btn.disabled).toBe(false);
+    // Success beat: the linked echo now toasts (same as the promo CTA path).
+    mod.syncTelegramOnramp({ telegram: { linkedAt: 1 } });
+    expect(mockToast).toHaveBeenCalledWith(expect.stringContaining('Linked'));
+    open.mockRestore();
+  });
+
+  test('startTelegramOnrampFromNudge on mint failure re-enables and does NOT arm the beat', async () => {
+    process.env.TELEGRAM_APP_LINK = 'https://t.me/knockbot/app';
+    mockMint.mockRejectedValue(new Error('nope'));
+    const mod = require('../js/telegramOnramp.js');
+    const btn = document.createElement('button');
+    await mod.startTelegramOnrampFromNudge(btn);
+    expect(btn.disabled).toBe(false);
+    mockToast.mockClear();
+    mod.syncTelegramOnramp({ telegram: { linkedAt: 1 } });
+    expect(mockToast).not.toHaveBeenCalled(); // no beat armed by the failed tap
+  });
+
+  test('promo defers while the reprompt is active and resumes on reprompt-change', () => {
+    process.env.TELEGRAM_APP_LINK = 'https://t.me/knockbot/app';
+    localStorage.clear();   // the promo's dismissed flag persists across tests in jsdom
+    // An earlier test ('disabled inside Telegram') doMocks isTelegramContext →
+    // true; that override survives resetModules (see the DOM describe block's
+    // beforeEach), so re-assert the false case here too.
+    jest.doMock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
+    promoDom();
+    const { setRepromptActive } = require('../js/notifySuppression.js');
+    const mod = require('../js/telegramOnramp.js');
+    setRepromptActive(true);
+    mod.initTelegramOnramp();
+    mod.syncTelegramOnramp({});          // unlinked
+    const promo = document.getElementById('tg-onramp-promo');
+    expect(promo.classList.contains('hidden')).toBe(true);   // reprompt holds it
+    expect(mod.isOnrampPromoActive()).toBe(false);
+    setRepromptActive(false);            // fires reprompt-change → refresh()
+    expect(promo.classList.contains('hidden')).toBe(false);  // resumes
+    expect(mod.isOnrampPromoActive()).toBe(true);
+  });
 });
 
 describe('telegramOnramp DOM (initTelegramOnramp / syncTelegramOnramp)', () => {
