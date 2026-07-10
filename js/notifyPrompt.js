@@ -57,6 +57,14 @@ export async function requestPermissionAndRegister() {
 
 function dismissPromoForever() { markHintSeen(PROMO_HINT); }
 
+// The onramp promo defers whenever the #notify-promo banner occupies the shared
+// banner slot — reprompt OR bell-triggered guidance. Keep isRepromptActive an
+// exact mirror of this banner's visibility by routing every show/hide through
+// these two helpers (telegramOnramp reads the flag; it re-evaluates on
+// reprompt-change).
+function showNotifyBanner(banner) { setRepromptActive(true); banner.classList.remove('hidden'); }
+function hideNotifyBanner(banner) { setRepromptActive(false); banner.classList.add('hidden'); }
+
 // Self-heal the server-side FCM token on app load. Permission/token state drifts
 // (especially on iOS), and the client otherwise only registers a token on
 // toggle-on — leaving the server with a stale/absent token and no recovery short
@@ -95,7 +103,7 @@ function showRegistrationFailed(banner) {
     wireEscapeHatch(textEl);
   }
   if (actionEl) actionEl.classList.remove('hidden');
-  banner.classList.remove('hidden');
+  showNotifyBanner(banner);
 }
 
 // Explicitly show the promo banner for a capability state, bypassing the
@@ -105,7 +113,7 @@ function showBannerForState(capState) {
   const banner = document.getElementById('notify-promo');
   if (!banner) return;
   renderBanner(banner, capState);
-  banner.classList.remove('hidden');
+  showNotifyBanner(banner);
 }
 
 // Called when a user turns a per-person bell on. Always gives feedback: prompts
@@ -169,11 +177,11 @@ function refreshPromoVisibility() {
   if (!banner) return;
   // Never surface the web-push promo/reprompt in Telegram — the bot is the
   // notification channel there (spec §9); web-push framing would only mislead.
-  if (isTelegramContext()) { setRepromptActive(false); banner.classList.add('hidden'); return; }
+  if (isTelegramContext()) { hideNotifyBanner(banner); return; }
   // Bot-delivered: the reprompt's premise ("your on-bells deliver nothing on
   // this device") is false — the bot delivers them. Re-evaluated on
   // bot-delivery-change, so switching to push revives the reprompt live.
-  if (isBotDelivered()) { setRepromptActive(false); banner.classList.add('hidden'); return; }
+  if (isBotDelivered()) { hideNotifyBanner(banner); return; }
   const cap = detectNotifyCapability();
   const permission = (typeof Notification !== 'undefined' && Notification.permission) || 'default';
   const reprompt = shouldReprompt({
@@ -182,12 +190,11 @@ function refreshPromoVisibility() {
   });
   // The onramp promo defers while the reprompt is up (concrete unmet intent
   // beats a passive promo) — notifySuppression carries the flag.
-  setRepromptActive(reprompt);
-  if (!reprompt) { banner.classList.add('hidden'); return; }
+  if (!reprompt) { hideNotifyBanner(banner); return; }
   renderBanner(banner, cap.state, () => {
-    dismissRepromptOnDevice(); setRepromptActive(false); banner.classList.add('hidden');
+    dismissRepromptOnDevice(); hideNotifyBanner(banner);
   });
-  banner.classList.remove('hidden');
+  showNotifyBanner(banner);
 }
 
 // The phrase-reminder block + clipboard wiring live in ./phraseReminder.js (no
@@ -204,7 +211,7 @@ function renderBanner(banner, capState, onDismiss) {
     actionEl.classList.remove('hidden');
     actionEl.onclick = async () => {
       const ok = await requestPermissionAndRegister();
-      if (ok) { setRepromptActive(false); banner.classList.add('hidden'); return; }
+      if (ok) { hideNotifyBanner(banner); return; }
       // Failure feedback — previously a silent no-op. A denied prompt flips
       // capability to 'denied' → show the re-enable guidance. If it's still
       // 'supported', permission was granted but token registration failed
@@ -225,5 +232,5 @@ function renderBanner(banner, capState, onDismiss) {
     actionEl.classList.add('hidden');
   }
   banner.querySelector('#notify-promo-dismiss').onclick = onDismiss
-    || (() => { dismissPromoForever(); banner.classList.add('hidden'); });
+    || (() => { dismissPromoForever(); hideNotifyBanner(banner); });
 }

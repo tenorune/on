@@ -562,3 +562,44 @@ describe('reprompt visibility feeds setRepromptActive', () => {
     expect(isRepromptActive()).toBe(false);
   });
 });
+
+describe('bell-triggered guidance feeds the reprompt-active flag (Finding 3)', () => {
+  const { isRepromptActive, __resetBotDeliveryForTests } = require('../js/notifySuppression.js');
+
+  beforeEach(() => {
+    mountBanner();
+    __resetBotDeliveryForTests();
+    localStorage.clear();
+    addPushToken.mockClear(); getToken.mockReset(); getMessagingIfSupported.mockReset();
+    detectNotifyCapability.mockReset();
+    global.Notification = { permission: 'default', requestPermission: jest.fn().mockResolvedValue('granted') };
+    global.navigator.serviceWorker = { ready: Promise.resolve({ id: 'reg' }) };
+  });
+  afterAll(() => __resetBotDeliveryForTests());
+
+  test('dead-end capability guidance (denied) sets the reprompt-active flag so the onramp promo defers', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'denied', supported: false });
+    await ensureNotificationsReady();
+    const banner = document.getElementById('notify-promo');
+    expect(banner.classList.contains('hidden')).toBe(false);
+    expect(isRepromptActive()).toBe(true);
+  });
+
+  test('registration-failed guidance sets the reprompt-active flag', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'supported', supported: true });
+    getMessagingIfSupported.mockResolvedValue(null); // token registration can't proceed → registration-failed dead end
+    await ensureNotificationsReady();
+    const banner = document.getElementById('notify-promo');
+    expect(banner.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('notify-promo-text').textContent).toContain("Couldn't turn on notifications");
+    expect(isRepromptActive()).toBe(true);
+  });
+
+  test('dismissing the guidance banner clears the reprompt-active flag', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'denied', supported: false });
+    await ensureNotificationsReady();
+    expect(isRepromptActive()).toBe(true);
+    document.getElementById('notify-promo-dismiss').click();
+    expect(isRepromptActive()).toBe(false);
+  });
+});
