@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KnockKnock — invite arrival flows (#283)</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface2: #eef0f4;
+    --border: #d6dae2;
+    --text: #1c2330;
+    --muted: #5b6575;
+    --accent: #22577a;      /* slate-blue: page/app chrome */
+    --tg: #2aabee;          /* Telegram */
+    --tg-ink: #17739e;
+    --trap: #b97b1f;        /* in-app webview (amber) */
+    --trap-bg: #fdf6ea;
+    --browser: #3d7a4f;     /* real browser (green) */
+    --browser-bg: #eef7f0;
+    --good: #2e7d46;
+    --good-bg: #e7f4ea;
+    --bad: #b3383e;
+    --bad-bg: #faecec;
+    --page: #4a5fc0;        /* mint-free static pages */
+    --page-bg: #eef1fb;
+    --tg-bg: #e9f6fd;
+    --unknown: #9a6a00;
+    --unknown-bg: #fbf3dc;
+    --code-bg: #eceef3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f;
+      --surface: #1c222c;
+      --surface2: #232b37;
+      --border: #38414f;
+      --text: #e6eaf1;
+      --muted: #9aa5b5;
+      --accent: #7fb1d4;
+      --tg: #2aabee;
+      --tg-ink: #6cc4f2;
+      --trap: #d9a24a;
+      --trap-bg: #2d2617;
+      --browser: #7fc490;
+      --browser-bg: #1c2a20;
+      --good: #7fc490;
+      --good-bg: #1c2a20;
+      --bad: #e08a8e;
+      --bad-bg: #33201f;
+      --page: #91a3e8;
+      --page-bg: #202638;
+      --tg-bg: #16303f;
+      --unknown: #d9b45a;
+      --unknown-bg: #2d2818;
+      --code-bg: #2a3140;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f7f9; --surface: #ffffff; --surface2: #eef0f4; --border: #d6dae2;
+    --text: #1c2330; --muted: #5b6575; --accent: #22577a; --tg: #2aabee; --tg-ink: #17739e;
+    --trap: #b97b1f; --trap-bg: #fdf6ea; --browser: #3d7a4f; --browser-bg: #eef7f0;
+    --good: #2e7d46; --good-bg: #e7f4ea; --bad: #b3383e; --bad-bg: #faecec;
+    --page: #4a5fc0; --page-bg: #eef1fb; --tg-bg: #e9f6fd;
+    --unknown: #9a6a00; --unknown-bg: #fbf3dc; --code-bg: #eceef3;
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181f; --surface: #1c222c; --surface2: #232b37; --border: #38414f;
+    --text: #e6eaf1; --muted: #9aa5b5; --accent: #7fb1d4; --tg: #2aabee; --tg-ink: #6cc4f2;
+    --trap: #d9a24a; --trap-bg: #2d2617; --browser: #7fc490; --browser-bg: #1c2a20;
+    --good: #7fc490; --good-bg: #1c2a20; --bad: #e08a8e; --bad-bg: #33201f;
+    --page: #91a3e8; --page-bg: #202638; --tg-bg: #16303f;
+    --unknown: #d9b45a; --unknown-bg: #2d2818; --code-bg: #2a3140;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.55 "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+    margin: 0; padding: 32px 20px 80px;
+  }
+  main { max-width: 1060px; margin: 0 auto; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 6px 0 4px; text-wrap: balance; }
+  h2 { font-size: 19px; margin: 0 0 4px; }
+  h3 { font-size: 15px; margin: 0 0 6px; }
+  p { margin: 6px 0; max-width: 72ch; }
+  code, .url {
+    font: 12.5px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--code-bg); border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+  }
+  .eyebrow {
+    text-transform: uppercase; letter-spacing: .09em; font-size: 11.5px;
+    color: var(--muted); font-weight: 600;
+  }
+  .meta { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  section {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 22px 24px; margin: 22px 0;
+  }
+  section > .lede { color: var(--muted); font-size: 13.5px; margin-top: 0; }
+
+  /* ---- decision log ---- */
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 7px 10px; border-top: 1px solid var(--border); vertical-align: top; }
+  th { border-top: none; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; }
+  td:first-child { white-space: nowrap; font-weight: 600; }
+  .tablewrap { overflow-x: auto; }
+
+  /* ---- legend & node chains ---- */
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 10px 0 4px; font-size: 12.5px; }
+  .legend .node { min-width: 0; }
+  .chain {
+    display: flex; align-items: center; gap: 0;
+    overflow-x: auto; padding: 10px 2px 14px;
+  }
+  .node {
+    flex: 0 0 auto; border: 1.5px solid var(--border); border-radius: 9px;
+    background: var(--surface); padding: 7px 11px; font-size: 12.5px; line-height: 1.35;
+    max-width: 200px;
+  }
+  .node b { display: block; font-size: 12.5px; }
+  .node small { color: var(--muted); font-size: 11px; display: block; }
+  .n-origin  { border-color: var(--border); background: var(--surface2); }
+  .n-trap    { border-color: var(--trap); background: var(--trap-bg); }
+  .n-page    { border-color: var(--page); background: var(--page-bg); }
+  .n-browser { border-color: var(--browser); background: var(--browser-bg); }
+  .n-tg      { border-color: var(--tg); background: var(--tg-bg); }
+  .n-app     { border-color: var(--accent); }
+  .n-good    { border-color: var(--good); background: var(--good-bg); font-weight: 600; }
+  .n-bad     { border-color: var(--bad); background: var(--bad-bg); font-weight: 600; }
+  .hop {
+    flex: 0 0 auto; display: flex; flex-direction: column; align-items: center;
+    padding: 0 7px; color: var(--muted); font-size: 10.5px; max-width: 130px; text-align: center;
+  }
+  .hop .arr { font-size: 15px; color: var(--muted); line-height: 1; }
+  .hop.h-unknown { color: var(--unknown); }
+  .flow { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
+  .flow:first-of-type { border-top: none; margin-top: 4px; padding-top: 0; }
+  .flow h3 .fid {
+    display: inline-block; background: var(--accent); color: var(--bg);
+    border-radius: 5px; padding: 1px 7px; font-size: 11.5px; margin-right: 8px;
+  }
+  .flow .why { color: var(--muted); font-size: 12.5px; margin: 2px 0 0; max-width: 80ch; }
+
+  .badge {
+    display: inline-block; border-radius: 5px; padding: 1px 7px; font-size: 11px;
+    font-weight: 600; vertical-align: 1px;
+  }
+  .b-unknown { background: var(--unknown-bg); color: var(--unknown); border: 1px solid var(--unknown); }
+  .b-new { background: var(--good-bg); color: var(--good); border: 1px solid var(--good); }
+  .b-phase2 { background: var(--page-bg); color: var(--page); border: 1px solid var(--page); }
+
+  /* ---- SVG tree ---- */
+  .svgwrap { overflow-x: auto; }
+  svg text { font: 12px "Avenir Next", "Segoe UI", system-ui, sans-serif; fill: var(--text); }
+  svg .cond rect { fill: var(--surface2); stroke: var(--border); stroke-width: 1.5; }
+  svg .out-neutral rect { fill: var(--surface); stroke: var(--border); stroke-width: 1.5; }
+  svg .out-tg rect   { fill: var(--tg-bg); stroke: var(--tg); stroke-width: 1.5; }
+  svg .out-page rect { fill: var(--page-bg); stroke: var(--page); stroke-width: 1.5; }
+  svg .edge { stroke: var(--muted); stroke-width: 1.3; fill: none; }
+  svg .elabel { fill: var(--muted); font-size: 10.5px; }
+  svg .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
+
+  /* ---- wireframes ---- */
+  .mocks { display: flex; flex-wrap: wrap; gap: 26px; align-items: flex-start; }
+  .mock { flex: 0 0 auto; width: 250px; }
+  .mock .cap { font-size: 12px; color: var(--muted); margin-top: 8px; max-width: 250px; }
+  .mock .cap b { color: var(--text); }
+  .phone {
+    border: 2px solid var(--border); border-radius: 22px; background: var(--surface);
+    padding: 14px 12px; min-height: 340px;
+  }
+  .phone.tg-frame { border-color: var(--tg); }
+  .wf-brand { font-size: 11px; letter-spacing: .12em; color: var(--muted); text-align: center; margin-bottom: 10px; }
+  .wf-h { font-weight: 700; font-size: 14.5px; margin: 4px 0; text-wrap: balance; }
+  .wf-frame { font-size: 12px; font-style: italic; color: var(--accent); margin: 2px 0 6px; }
+  .wf-hint { font-size: 10.5px; color: var(--muted); margin: 4px 0 8px; }
+  .wf-bar { height: 7px; border-radius: 4px; background: var(--surface2); margin: 6px 0; }
+  .wf-bar.w60 { width: 60%; } .wf-bar.w80 { width: 80%; } .wf-bar.w40 { width: 40%; }
+  .wf-btn {
+    display: block; text-align: center; border: 1.5px solid var(--border); border-radius: 8px;
+    padding: 7px 6px; font-size: 12.5px; font-weight: 600; margin: 7px 0;
+  }
+  .wf-btn.tg { border-color: var(--tg); color: var(--tg-ink); }
+  .wf-btn.dim { font-weight: 400; color: var(--muted); }
+  .wf-exp { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .wf-sec { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 12px; }
+  .wf-note {
+    font-size: 10.5px; border: 1px dashed var(--good); color: var(--good);
+    border-radius: 6px; padding: 3px 6px; display: inline-block; margin-top: 4px;
+  }
+  .wf-link { font-size: 11.5px; color: var(--tg-ink); text-decoration: underline; display: block; text-align: center; margin-top: 8px; }
+
+  ul { padding-left: 20px; margin: 8px 0; }
+  li { margin: 5px 0; max-width: 78ch; }
+  .cols { display: flex; flex-wrap: wrap; gap: 24px; }
+  .cols > div { flex: 1 1 320px; }
+  @media (max-width: 640px) { section { padding: 16px 14px; } body { padding: 18px 10px 60px; } }
+</style>
+
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Specification · v1 · this document is part of the spec</div>
+    <h1>KnockKnock invite arrivals — holistic in-app-browser design</h1>
+    <div class="meta">Issue #283 (duplicate account from Telegram's in-app browser) · folds in #265 (/invite route) · 2026-07-10 · branch <code>claude/telegram-duplicate-account-bug-s9i7bs</code> · repo copy: <code>docs/superpowers/specs/2026-07-10-invite-arrival-flows-design.html</code> (+ companion <code>.md</code>)</div>
+    <p class="lede">Decisions Q1–Q7 and amendments A1–A4 from the 2026-07-10 brainstorm. Wireframes are lo-fi on purpose — copy is draft-grade, tuned on device. Supersedes the same-day markdown draft; extends spec 2026-07-05 (§9 gap) and leaves spec 2026-07-07 (interstitial) as-built except the one addition noted.</p>
+  </header>
+
+  <section>
+    <h2>Decision log</h2>
+    <div class="tablewrap"><table>
+      <tr><th>Ref</th><th>Decision</th></tr>
+      <tr><td>Q1 = A</td><td>The #283 user (Telegram identity, taps a web invite inside Telegram) must end up <em>in the Mini App with the invite on their Telegram identity</em> — guidance alone is not enough. Scope is holistic: any in-app browser arrival, not just Telegram.</td></tr>
+      <tr><td>Q2 = C</td><td>Landing designed for invite <em>and</em> bare arrivals; invite-triggered redirect ships first (phase 1), bare-link trigger follows the on-device walkthrough (phase 2).</td></tr>
+      <tr><td>Q3 = C</td><td>iOS collateral accepted (all fresh iOS invite arrivals see the landing), and the two CTAs are <em>equal peers</em> — no primary/secondary steering.</td></tr>
+      <tr><td>Q4 = A</td><td>Positive Telegram-Android detection + token + configured deep link → boot auto-hops straight to <code>t.me/&lt;bot&gt;/app?startapp=TOKEN</code>. No landing, zero taps.</td></tr>
+      <tr><td>Q5 = B</td><td>Bare in-app arrivals (phase 2) redirect to plain <code>/about</code>, which offers both doors.</td></tr>
+      <tr><td>Q6 = A</td><td><code>stay=1</code> arrivals skip the old boot panel (phase 1); the panel retires entirely in phase 2.</td></tr>
+      <tr><td>A1</td><td><code>buildInviteUrl</code> → <code>${origin}/invite?i=TOKEN</code>. Newly shared web links land directly on the mint-free page; the <code>/?i=</code> boot matrix stays as the net for legacy/copied links.</td></tr>
+      <tr><td>A2</td><td><code>/invite?i=</code> renders <b>config #1</b> (invite-first, marketing minimized-but-expandable); <code>/about?i=</code> renders <b>config #2</b> (full page + invite block). Pages never redirect or auto-hop.</td></tr>
+      <tr><td>A3</td><td>Browser-opened <code>/about</code> always carries a standing bare “Open in Telegram” CTA (when the build has a real deep link).</td></tr>
+      <tr><td>A4</td><td>The Mini App invite interstitial gains a “What is KnockKnock?” link → <code>/invite?i=TOKEN</code> — shown only in the first-open (<code>isNew</code>, “Accept &amp; get started”) context; the flag already drives the accept label, so the gate is one line.</td></tr>
+      <tr><td>Q7 = C+A</td><td>Installed-PWA recipients: platform-native link capturing where it exists (desktop Chromium works; Android <code>intent://</code> hand-off to walk), plus a universal in-app fallback — the “Add a person” form learns to accept a pasted invite link, and the landing gains a quiet third door for installed users.</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Link taxonomy — what exists in the wild</h2>
+    <div class="tablewrap"><table>
+      <tr><th>Link</th><th>Origin</th><th>Surface it opens</th></tr>
+      <tr><td><code>/invite?i=TOKEN</code></td><td>all newly shared web links (A1)</td><td>static page, <b>config #1</b> — never redirects; the mint-free choice surface</td></tr>
+      <tr><td><code>t.me/&lt;bot&gt;/app?startapp=TOKEN</code></td><td>Telegram-native shares; the landing’s “Open in Telegram”</td><td>Mini App + invite gate (interstitial / silent redeem)</td></tr>
+      <tr><td><code>/?i=TOKEN</code></td><td>legacy &amp; copied links</td><td>app boot — the only surface that redirects (decision tree below)</td></tr>
+      <tr><td><code>/about?i=TOKEN</code></td><td>hand-shared</td><td>static page, <b>config #2</b> — never redirects</td></tr>
+      <tr><td><code>/about</code>, <code>/invite</code> (no/invalid token)</td><td>marketing, typed URLs</td><td>plain about page (+ standing Telegram CTA, A3); <code>/invite</code> tokenless falls back to the same</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Boot decision tree — <code>/?i=TOKEN</code> only</h2>
+    <p class="lede">Checked in order at the very top of <code>main()</code>, before any Firebase work. “Fresh” = conditions 1–3 all pass.</p>
+    <div class="svgwrap">
+    <svg viewBox="0 0 900 640" width="900" height="640" role="img" aria-label="Boot decision tree for /?i=TOKEN">
+      <defs>
+        <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="currentColor" style="color: var(--muted)"></path>
+        </marker>
+      </defs>
+
+      <!-- condition column -->
+      <g class="cond"><rect x="40" y="20" width="330" height="46" rx="9"></rect>
+        <text x="55" y="39">1 · Mini App context?</text>
+        <text x="55" y="56" class="mono">isTelegramContext()</text></g>
+      <g class="cond"><rect x="40" y="110" width="330" height="46" rx="9"></rect>
+        <text x="55" y="129">2 · Landing already chose “browser”?</text>
+        <text x="55" y="146" class="mono">?stay=1</text></g>
+      <g class="cond"><rect x="40" y="200" width="330" height="46" rx="9"></rect>
+        <text x="55" y="219">3 · Existing user / installed app?</text>
+        <text x="55" y="236" class="mono">loadIdentity() || isStandalone()</text></g>
+      <g class="cond"><rect x="40" y="290" width="330" height="46" rx="9"></rect>
+        <text x="55" y="309">4 · Telegram-Android + deep link configured?</text>
+        <text x="55" y="326" class="mono">isTelegramInAppBrowser() &amp;&amp; link</text></g>
+      <g class="cond"><rect x="40" y="380" width="330" height="46" rx="9"></rect>
+        <text x="55" y="399">5 · Any other in-app browser?</text>
+        <text x="55" y="416" class="mono">isInAppBrowser()</text></g>
+      <g class="cond"><rect x="40" y="470" width="330" height="46" rx="9"></rect>
+        <text x="55" y="489">6 · iOS (undetectable webviews) + Telegram on?</text>
+        <text x="55" y="506" class="mono">isIos() &amp;&amp; telegramSharingEnabled()</text></g>
+
+      <!-- outcomes -->
+      <g class="out-neutral"><rect x="500" y="20" width="370" height="46" rx="9"></rect>
+        <text x="515" y="39">Normal Telegram boot — invite gate handles</text>
+        <text x="515" y="56">startapp; never redirected</text></g>
+      <g class="out-neutral"><rect x="500" y="110" width="370" height="46" rx="9"></rect>
+        <text x="515" y="138">Today’s web flow · old boot panel skipped (Q6)</text></g>
+      <g class="out-neutral"><rect x="500" y="200" width="370" height="46" rx="9"></rect>
+        <text x="515" y="219">Today’s flow — redeems onto the</text>
+        <text x="515" y="236">existing identity</text></g>
+      <g class="out-tg"><rect x="500" y="290" width="370" height="46" rx="9"></rect>
+        <text x="515" y="309">Auto-hop (Q4=A):</text>
+        <text x="515" y="326" class="mono">location.replace(t.me/…?startapp=TOKEN)</text></g>
+      <g class="out-page"><rect x="500" y="380" width="370" height="46" rx="9"></rect>
+        <text x="515" y="399">Redirect to the landing:</text>
+        <text x="515" y="416" class="mono">location.replace(/invite?i=TOKEN)</text></g>
+      <g class="out-page"><rect x="500" y="470" width="370" height="46" rx="9"></rect>
+        <text x="515" y="489">Redirect to the landing:</text>
+        <text x="515" y="506" class="mono">location.replace(/invite?i=TOKEN)</text></g>
+      <g class="out-neutral"><rect x="40" y="565" width="330" height="46" rx="9"></rect>
+        <text x="55" y="584">Today’s welcome flow — desktop, real Android</text>
+        <text x="55" y="601">browser, iOS with Telegram disabled</text></g>
+
+      <!-- yes edges -->
+      <path class="edge" d="M370 43 H498" marker-end="url(#arr)"></path><text class="elabel" x="420" y="37">yes</text>
+      <path class="edge" d="M370 133 H498" marker-end="url(#arr)"></path><text class="elabel" x="420" y="127">yes</text>
+      <path class="edge" d="M370 223 H498" marker-end="url(#arr)"></path><text class="elabel" x="420" y="217">yes</text>
+      <path class="edge" d="M370 313 H498" marker-end="url(#arr)"></path><text class="elabel" x="420" y="307">yes</text>
+      <path class="edge" d="M370 403 H498" marker-end="url(#arr)"></path><text class="elabel" x="420" y="397">yes</text>
+      <path class="edge" d="M370 493 H498" marker-end="url(#arr)"></path><text class="elabel" x="420" y="487">yes</text>
+
+      <!-- no edges -->
+      <path class="edge" d="M205 66 V108" marker-end="url(#arr)"></path><text class="elabel" x="212" y="92">no</text>
+      <path class="edge" d="M205 156 V198" marker-end="url(#arr)"></path><text class="elabel" x="212" y="182">no</text>
+      <path class="edge" d="M205 246 V288" marker-end="url(#arr)"></path><text class="elabel" x="212" y="272">no</text>
+      <path class="edge" d="M205 336 V378" marker-end="url(#arr)"></path><text class="elabel" x="212" y="362">no</text>
+      <path class="edge" d="M205 426 V468" marker-end="url(#arr)"></path><text class="elabel" x="212" y="452">no</text>
+      <path class="edge" d="M205 516 V563" marker-end="url(#arr)"></path><text class="elabel" x="212" y="545">no</text>
+    </svg>
+    </div>
+    <p class="why" style="color: var(--muted); font-size: 12.5px;">Phase 2 adds one more branch for <em>tokenless</em> boots: fresh + detected in-app browser → <code>location.replace('/about')</code>. iOS-undetected bare arrivals are never redirected.</p>
+  </section>
+
+  <section>
+    <h2>Recipient flows</h2>
+    <div class="legend">
+      <span class="node n-origin">origin / chat</span>
+      <span class="node n-trap">in-app webview</span>
+      <span class="node n-page">mint-free page</span>
+      <span class="node n-browser">real browser</span>
+      <span class="node n-tg">Telegram / Mini App</span>
+      <span class="node n-app">web app boot</span>
+      <span class="node n-good">good outcome</span>
+      <span class="node n-bad">bug outcome</span>
+      <span class="badge b-unknown">UNKNOWN — walkthrough</span>
+    </div>
+
+    <div class="flow">
+      <h3><span class="fid">F0</span>The #283 bug — today, for reference</h3>
+      <div class="chain">
+        <span class="node n-origin"><b>Telegram chat</b><small>/?i=TOKEN pasted</small></span>
+        <span class="hop"><span class="arr">→</span>tap</span>
+        <span class="node n-trap"><b>Telegram webview</b><small>isTelegramContext() false; iOS: undetectable</small></span>
+        <span class="hop"><span class="arr">→</span>boot</span>
+        <span class="node n-app"><b>Welcome screen</b><small>“New” tap</small></span>
+        <span class="hop"><span class="arr">→</span>mints</span>
+        <span class="node n-bad"><b>Duplicate account</b><small>invite redeems onto nameless web identity</small></span>
+      </div>
+      <p class="why">The Telegram-derived account (Mini-App-only, phrase-less, never in localStorage) is unreachable from the webview, so boot treats the user as brand-new.</p>
+    </div>
+
+    <div class="flow">
+      <h3><span class="fid">F1</span>New shared link tapped inside Telegram — iOS <em>or</em> Android · the #283 fix</h3>
+      <div class="chain">
+        <span class="node n-origin"><b>Telegram chat</b><small>/invite?i=TOKEN (A1)</small></span>
+        <span class="hop"><span class="arr">→</span>tap</span>
+        <span class="node n-page"><b>Config #1 landing</b><small>no boot, no mint possible</small></span>
+        <span class="hop"><span class="arr">→</span>“Open in Telegram”</span>
+        <span class="node n-tg"><b>Mini App</b><small>t.me…?startapp=TOKEN</small></span>
+        <span class="hop"><span class="arr">→</span>gate</span>
+        <span class="node n-tg"><b>Silent redeem</b> <small>linked — or interstitial if unlinked (F6)</small></span>
+        <span class="hop"><span class="arr">→</span></span>
+        <span class="node n-good"><b>Invite on Telegram identity</b><small>Q1=A satisfied, zero UA sniffing</small></span>
+      </div>
+      <p class="why">The primary path is now detection-free end to end: the shared link itself lands on the choice page, identically on iOS and Android.</p>
+    </div>
+
+    <div class="flow">
+      <h3><span class="fid">F2</span>Shared link in another app’s webview (WhatsApp, Instagram, …)</h3>
+      <div class="chain">
+        <span class="node n-origin"><b>Host-app chat</b><small>/invite?i=TOKEN</small></span>
+        <span class="hop"><span class="arr">→</span>tap</span>
+        <span class="node n-trap"><b>Host webview</b><small>renders config #1</small></span>
+        <span class="hop"><span class="arr">→</span>“Continue in browser” + stay=1</span>
+        <span class="node n-browser"><b>Real browser</b><small>x-safari / intent:// break-out</small></span>
+        <span class="hop"><span class="arr">→</span>/?i=&amp;stay=1</span>
+        <span class="node n-app"><b>Welcome flow</b><small>new / restore</small></span>
+        <span class="hop"><span class="arr">→</span></span>
+        <span class="node n-good"><b>Web account, invite redeemed</b><small>a web account is correct here</small></span>
+      </div>
+      <p class="why">The Telegram door is also present and equally weighted <span class="badge b-new">TESTED: a t.me?startapp deep link tapped in an Instagram DM opens the Telegram Mini App ✓</span></p>
+    </div>
+
+    <div class="flow">
+      <h3><span class="fid">F3</span>Shared link in real iOS Safari</h3>
+      <div class="chain">
+        <span class="node n-origin"><b>Anywhere</b><small>/invite?i=TOKEN</small></span>
+        <span class="hop"><span class="arr">→</span></span>
+        <span class="node n-browser"><b>Safari</b><small>renders config #1</small></span>
+        <span class="hop"><span class="arr">→</span>“Continue in browser”</span>
+        <span class="node n-browser"><b>“Open in Safari?” prompt</b><small>pre-existing x-safari wrinkle, accepted</small></span>
+        <span class="hop"><span class="arr">→</span>/?i=&amp;stay=1</span>
+        <span class="node n-app"><b>Welcome flow</b></span>
+        <span class="hop"><span class="arr">→</span></span>
+        <span class="node n-good"><b>Web account, invite redeemed</b></span>
+      </div>
+      <p class="why">The Q3=C cost: one landing + one system prompt for a genuine Safari invitee. Equal-weight CTAs avoid steering them into Telegram.</p>
+    </div>
+
+    <div class="flow">
+      <h3><span class="fid">F4</span>Shared link on desktop / real Android browser</h3>
+      <div class="chain">
+        <span class="node n-origin"><b>Anywhere</b><small>/invite?i=TOKEN</small></span>
+        <span class="hop"><span class="arr">→</span></span>
+        <span class="node n-browser"><b>Browser</b><small>config #1</small></span>
+        <span class="hop"><span class="arr">→</span>“Continue in browser”<br>(plain link + stay=1)</span>
+        <span class="node n-app"><b>Welcome flow</b></span>
+        <span class="hop"><span class="arr">→</span></span>
+        <span class="node n-good"><b>Web account, invite redeemed</b></span>
+      </div>
+    </div>
+
+    <div class="flow">
+      <h3><span class="fid">F5</span>Shared link, recipient already has a web identity</h3>
+      <div class="chain">
+        <span class="node n-origin"><b>Anywhere</b><small>/invite?i=TOKEN</small></span>
+        <span class="hop"><span class="arr">→</span></span>
+        <span class="node n-page"><b>Config #1 landing</b><small>page can’t know identity exists</small></span>
+        <span class="hop"><span class="arr">→</span>“Continue in browser”</span>
+        <span class="node n-app"><b>App boots with identity</b><small>no welcome screen</small></span>
+        <span class="hop"><span class="arr">→</span></span>
+        <span class="node n-good"><b>Redeems onto existing account</b><small>cost vs. today: one extra tap</small></span>
+      </div>
+    </div>
+
+    <div class="flow">
+      <h3><span class="fid">F6</span>Telegram-native share — t.me deep link, any Telegram surface</h3>
+      <div class="chain">
+        <span class="node n-origin"><b>Telegram chat</b><small>t.me/&lt;bot&gt;/app?startapp=TOKEN</small></span>
+        <span class="hop"><span class="arr">→</span>tap</span>
+        <span class="node n-tg"><b>Mini App</b><small>invite gate</small></span>
+        <span class="hop"><span class="arr">→</span>unlinked</span>
+        <span class="node n-tg"><b>Interstitial</b><small>Accept / phrase / Not now · <span class="badge b-new">NEW</span> “What is KnockKnock?” → /invite?i= (A4)</small></span>
+        <span class="hop"><span class="arr">→</span>Accept</span>
+        <span class="node n-good"><b>Invite on Telegram identity</b><small>linked users skip straight here (silent redeem)</small></span>
+      </div>
+      <p class="why">The info link opens config #1 in Telegram’s webview — safe (pages never redirect). Wrinkle for the copy pass: that page offers “Open in Telegram”, which loops back to the Mini App. Harmless; possibly a variant later.</p>
+    </div>
+
+    <div class="flow">
+      <h3><span class="fid">F7</span>Legacy / copied <code>/?i=</code> link — the boot net</h3>
+      <div class="chain">
+        <span class="node n-origin"><b>Anywhere</b><small>/?i=TOKEN</small></span>
+        <span class="hop"><span class="arr">→</span>boot</span>
+        <span class="node n-app"><b>Decision tree above</b></span>
+        <span class="hop"><span class="arr">→</span>TG-Android</span>
+        <span class="node n-tg"><b>Auto-hop to Mini App</b><small>Q4=A <span class="badge b-unknown">UNKNOWN: does TG-Android intercept location.replace to t.me?</span></small></span>
+        <span class="hop"><span class="arr">→</span>other webview / iOS+TG</span>
+        <span class="node n-page"><b>→ /invite?i= (config #1)</b><small>then as F1–F3</small></span>
+      </div>
+      <p class="why">stay=1, existing identity, standalone, desktop, and real Android browsers fall straight through to today’s flow (tree rows 2, 3, else).</p>
+    </div>
+
+    <div class="flow">
+      <h3><span class="fid">F8</span>Bare link in a webview — <span class="badge b-phase2">PHASE 2</span></h3>
+      <div class="chain">
+        <span class="node n-origin"><b>Host-app chat</b><small>bare app URL, no token</small></span>
+        <span class="hop"><span class="arr">→</span>boot, fresh + in-app detected</span>
+        <span class="node n-page"><b>→ /about (config #2, no invite block)</b><small>standing bare Telegram CTA (A3) + browser break-out</small></span>
+        <span class="hop"><span class="arr">→</span>either door</span>
+        <span class="node n-good"><b>Right surface, chosen consciously</b></span>
+      </div>
+      <p class="why">Bare Telegram-Android gets the choice, not the auto-hop — Q4=A was answered for invite arrivals; auto-yanking a bare visitor into the bot felt presumptuous. iOS-undetected bare arrivals are never redirected. Old boot panel retires here (Q6=A).</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Page states — lo-fi wireframes</h2>
+    <p class="lede">Layout intent only; copy is draft-grade and the config-#1 content split (what stays visible vs. collapses) is deliberately undecided.</p>
+    <div class="mocks">
+
+      <div class="mock">
+        <div class="phone">
+          <div class="wf-brand">k̸n̶o̸c̵k̵ ̶k̸n̷o̵c̸k̵</div>
+          <div class="wf-h">You’re invited to KnockKnock</div>
+          <div class="wf-frame">You’ve been invited to follow Ana.</div>
+          <div class="wf-hint">Telegram user? The invite connects to your Telegram account — no separate sign-up.</div>
+          <span class="wf-btn tg">Open in Telegram</span>
+          <span class="wf-btn">Continue in browser</span>
+          <div class="wf-hint" style="margin-top:9px">Already have the app installed? Copy the invite and paste it under “Add a person”. <span style="border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-style:normal; font-weight:600;">Copy invite</span></div>
+          <div class="wf-exp">▸ More about KnockKnock</div>
+          <div class="wf-bar w60"></div>
+        </div>
+        <div class="cap"><b>Config #1 — <code>/invite?i=TOKEN</code>.</b> Invitation prominent; equal CTA pair (Q3=C); the installed-app third door (Q7-A) is a quiet tertiary line + copy button. v1 collapse boundary: <em>everything below the logo</em> (Intro, What you can do, Privacy, …) folds behind the expander uniformly; a finer split is a followup. Framing line appears when the preview resolves; headline is static so the page is never blank.</div>
+      </div>
+
+      <div class="mock">
+        <div class="phone">
+          <div class="wf-brand">k̸n̶o̸c̵k̵ ̶k̸n̷o̵c̸k̵</div>
+          <div class="wf-h" style="font-size:12.5px">You’re invited to KnockKnock</div>
+          <div class="wf-frame" style="font-size:11px">You’ve been invited to follow Ana.</div>
+          <span class="wf-btn tg" style="padding:5px">Open in Telegram</span>
+          <span class="wf-btn" style="padding:5px">Continue in browser</span>
+          <div class="wf-hint">Have the app? Copy the invite → “Add a person”. <span style="border:1px solid var(--border); border-radius:5px; padding:0 5px; font-style:normal; font-weight:600;">Copy</span></div>
+          <div class="wf-sec">Intro</div>
+          <div class="wf-bar"></div><div class="wf-bar w80"></div>
+          <div class="wf-note">both intro CTAs hidden — the invite block above owns both doors</div>
+          <div class="wf-sec">What you can do</div>
+          <div class="wf-bar"></div><div class="wf-bar w80"></div><div class="wf-bar w60"></div>
+          <div class="wf-sec">Privacy, briefly</div>
+          <div class="wf-bar w80"></div><div class="wf-bar w60"></div>
+        </div>
+        <div class="cap"><b>Config #2 — <code>/about?i=TOKEN</code>.</b> Today’s fully-expanded page with the invite block on top. When the invite block shows, the intro hides <em>both</em> its CTAs (“Open KnockKnock →” and the bare Telegram one) — the token-carrying pair above is the only set of doors.</div>
+      </div>
+
+      <div class="mock">
+        <div class="phone">
+          <div class="wf-brand">k̸n̶o̸c̵k̵ ̶k̸n̷o̵c̸k̵</div>
+          <div class="wf-sec">Intro</div>
+          <div class="wf-bar"></div><div class="wf-bar w80"></div>
+          <span class="wf-btn dim">Open KnockKnock →</span>
+          <span class="wf-btn tg">Open in Telegram</span>
+          <div class="wf-sec">What you can do</div>
+          <div class="wf-bar"></div><div class="wf-bar w80"></div><div class="wf-bar w60"></div>
+          <div class="wf-sec">Privacy, briefly</div>
+          <div class="wf-bar w80"></div><div class="wf-bar w60"></div>
+          <div class="wf-sec">Privacy, in detail</div>
+          <div class="wf-bar"></div><div class="wf-bar w40"></div>
+        </div>
+        <div class="cap"><b>Plain <code>/about</code> (and <code>/invite</code> tokenless).</b> Today’s page + the standing bare “Open in Telegram” CTA (A3) beside the browser one. Shown only when the build substituted a real deep link (fail-closed). Phase-2 redirect target for F8.</div>
+      </div>
+
+      <div class="mock">
+        <div class="phone tg-frame">
+          <div class="wf-brand" style="color: var(--tg-ink)">Telegram Mini App</div>
+          <div class="wf-h">Ana invited you to follow them</div>
+          <div class="wf-bar w80"></div><div class="wf-bar w60"></div>
+          <span class="wf-btn tg">Accept &amp; get started</span>
+          <span class="wf-btn">I have a secret phrase</span>
+          <span class="wf-btn dim">Not now</span>
+          <span class="wf-link">What is KnockKnock?</span>
+          <div class="wf-note">NEW (A4) → opens /invite?i=TOKEN · shown only with “Accept &amp; get started” (isNew)</div>
+        </div>
+        <div class="cap"><b>Mini App interstitial</b> — existing surface (spec 2026-07-07, already as-built: contextual “Accept” label). Only change: the info link, gated on the same <code>isNew</code> flag that drives the label (a returning-unlinked user sees plain “Accept”, no link). Linked arrivals never see this — silent redeem.</div>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <h2>Installed-PWA recipients <span class="badge b-new">RESOLVED: Q7 = C+A</span></h2>
+    <p class="lede">The #283 shape recurs for users whose account lives in an <em>installed PWA</em>. Applies to invite links and to the bare <code>/</code> URL alike.</p>
+    <div class="flow" style="border-top:none; padding-top:0; margin-top:6px;">
+      <div class="chain">
+        <span class="node n-origin"><b>Telegram / any webview</b><small>/invite?i=TOKEN or bare /</small></span>
+        <span class="hop"><span class="arr">→</span>landing → “Continue in browser”</span>
+        <span class="node n-browser"><b>Real browser</b><small>iOS: Home-Screen app’s storage is a separate container — no identity here</small></span>
+        <span class="hop"><span class="arr">→</span>welcome</span>
+        <span class="node n-bad"><b>“New” tap → second web account</b><small>their real account sits in the PWA, unreached</small></span>
+      </div>
+      <p class="why">Escape hatch today: the welcome screen’s <b>Restore</b> (type/paste the phrase) redeems onto the right account — friction, not loss. No in-app invite-redemption input exists (OBSERVED: the paste flow at <code>app.js:332</code> is for the phrase only; invites redeem exclusively from the URL at boot).</p>
+    </div>
+    <div class="tablewrap"><table>
+      <tr><th>Platform</th><th>Can a link reach the installed PWA?</th></tr>
+      <tr><td>iOS</td><td>No mechanism exists — Home-Screen web apps can’t be targeted by links, and their storage is partitioned from Safari.</td></tr>
+      <tr><td>Desktop Chromium</td><td>Yes — link capturing routes in-scope links into the installed app (operator-observed working).</td></tr>
+      <tr><td>Android (WebAPK)</td><td>Partially — in-scope navigation from a real browser / <code>intent://</code> can open the installed app; from inside a host-app webview it does not hand off on its own. Walkthrough item.</td></tr>
+    </table></div>
+    <h3 style="margin-top:14px">Chosen treatment (Q7 = C+A)</h3>
+    <ul style="font-size:13.5px">
+      <li><b>C — native capture where it exists.</b> Desktop Chromium link capturing already routes <code>/invite?i=</code> into the installed app (operator-observed). Android: verify on the walkthrough whether the existing <code>intent://</code> break-out hands off to the installed WebAPK.</li>
+      <li><b>A — universal in-app fallback: adapt “Add a person”.</b> The existing form (<code>index.template.html #add-person-form</code>: 6-char code + optional name → Follow) becomes dual-mode — pasting an invite link or raw token into the same input is recognized (<code>/invite?i=</code>, <code>/?i=</code>, <code>/about?i=</code>, or a bare token) and routed through the existing invite-redemption path instead of follow-by-code. Group invites come along for free (redemption already handles scope). Implementation note: the input’s <code>maxlength="6"</code> must lift to admit a pasted URL.</li>
+      <li><b>Landing’s third door.</b> Config #1 gains a quiet line under the CTA pair: “Already have the app installed? Copy the invite and paste it under <em>Add a person</em>.” — with a one-tap copy button. Deliberately tertiary: only installed users need it.</li>
+    </ul>
+    <div class="flow">
+      <h3><span class="fid">F9</span>Installed-PWA recipient — the paste path (works on every platform)</h3>
+      <div class="chain">
+        <span class="node n-trap"><b>Any webview / Safari</b><small>config #1 landing</small></span>
+        <span class="hop"><span class="arr">→</span>“Copy invite”</span>
+        <span class="node n-browser"><b>Home Screen / Dock</b><small>opens the installed app</small></span>
+        <span class="hop"><span class="arr">→</span>Add a person → paste</span>
+        <span class="node n-app"><b>Dual-mode input</b><small>recognizes the invite link</small></span>
+        <span class="hop"><span class="arr">→</span>redeem</span>
+        <span class="node n-good"><b>Invite on the existing account</b><small>no second identity, no phrase typing</small></span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Normative specification</h2>
+    <p class="lede">The rules the implementation must satisfy. File references are to the current tree.</p>
+
+    <h3>N1 · Shared link change (A1)</h3>
+    <ul>
+      <li><code>buildInviteUrl(token)</code> (<code>js/invites.js:51</code>) returns <code>${APP_URL_BASE}/invite?i=${token}</code>. It is the single construction point; all callers (invite modal, mycode, groupContext) build the URL from the token at display time — nothing persists the URL, so no migration.</li>
+      <li>Legacy/copied <code>/?i=</code> links keep working via the boot gate (N3).</li>
+    </ul>
+
+    <h3>N2 · Routing (<code>firebase.json</code>)</h3>
+    <ul>
+      <li>Additive rewrite above the <code>**</code> catch-all: <code>{ "source": "/invite", "destination": "/about.html" }</code>. Same physical page as <code>/about</code>; query strings pass through (standard Firebase behavior — walkthrough-verify).</li>
+      <li><code>/invite</code> is root-level, so the page’s relative asset URLs resolve unchanged.</li>
+    </ul>
+
+    <h3>N3 · Boot gate (<code>js/app.js main()</code>)</h3>
+    <ul>
+      <li>Sits immediately after <code>extractInviteTokenFromUrl</code> (<code>app.js:564</code>), before <code>ensureIdentity</code> and any Firebase work. Evaluates the decision tree above in order; on a redirect/auto-hop outcome it calls <code>location.replace(…)</code> and returns from <code>main()</code>.</li>
+      <li>Predicates: <code>isTelegramContext()</code> (existing) · <code>?stay=1</code> (URLSearchParams) · <code>loadIdentity()</code>/<code>isStandalone()</code> (existing) · <code>isTelegramInAppBrowser()</code> (new, N7) + deep link configured · <code>isInAppBrowser()</code> (existing) · <code>isIos()</code> (newly exported, N7) + <code>telegramSharingEnabled()</code> (existing).</li>
+      <li>Auto-hop target: <code>buildTelegramInviteLink(token)</code> (<code>js/inviteFlow.js:21</code>). Unconfigured link → falls through to the in-app-browser redirect row.</li>
+      <li>Phase 2 adds the tokenless branch: fresh + <code>isInAppBrowser()</code> → <code>location.replace('/about')</code>. iOS-undetected tokenless boots never redirect.</li>
+      <li><code>cleanInviteParamFromUrl</code> (<code>app.js:555</code>) additionally deletes <code>stay</code>.</li>
+      <li><code>stay=1</code> boots skip <code>showInAppBrowserRedirect</code> (phase 1); the panel and its call site are removed in phase 2 (Q6=A).</li>
+    </ul>
+
+    <h3>N4 · Page behavior (<code>about.html</code> serving <code>/about</code> + <code>/invite</code>)</h3>
+    <ul>
+      <li>Pages never redirect and never auto-hop — they are the mint-free choice surface.</li>
+      <li>Config selection is by <code>location.pathname</code> — the first path-sensitive behavior in the about scripts (they previously keyed off <code>?i=</code> alone). <code>/invite</code> + valid token → config #1; anything else with valid token → config #2; no/invalid token → plain page (tokenless <code>/invite</code> falls back to plain).</li>
+      <li>Token validity: <code>/^[A-Za-z0-9_-]{1,64}$/</code> — the shape <code>about-invite.js:11</code> and <code>about-cta.js:22</code> already use.</li>
+      <li><b>Invite block</b> (both configs): static headline; the existing <code>#about-invite-framing</code> element moves inside unchanged (<code>about-invite.js</code> untouched — it upgrades the line when the preview resolves); equal-weight CTA pair (Q3=C): “Open in Telegram” = <code>data-telegram-link + '?startapp=' + token</code>, “Continue in browser” = <code>data-open-app</code> break-out; tertiary installed-app line + one-tap “Copy invite” (copies the canonical <code>/invite?i=TOKEN</code> URL).</li>
+      <li><b>One set of doors:</b> while the invite block is visible, the intro hides <em>both</em> of its CTAs (“Open KnockKnock →” and the standing bare Telegram CTA).</li>
+      <li><b>Config #1 collapse (v1):</b> everything below the logo — intro, What you can do, privacy sections — folds behind one expander (“More about KnockKnock”). Script-off fallback = fully expanded page; nothing is ever unreachable. Finer split: followup.</li>
+      <li><b>Standing bare Telegram CTA (A3):</b> on token-less pages, the intro shows “Open in Telegram” → bare <code>t.me/&lt;bot&gt;/app</code> beside “Open KnockKnock →”.</li>
+      <li><b>Fail-closed:</b> every Telegram CTA renders hidden and only unhides when <code>data-telegram-link</code> is non-empty and not an unsubstituted <code>__…__</code> placeholder (mirrors <code>about-invite.js:15</code>).</li>
+      <li><b>Loop guard:</b> <code>about-cta.js</code> appends <code>&amp;stay=1</code> to every link it rewrites when a token is present (iOS <code>x-safari-https</code>, Android <code>intent://</code> incl. its <code>browser_fallback_url</code>, desktop plain). The x-safari break-out itself is unchanged, pre-existing behavior.</li>
+      <li>New logic lives in a new single-purpose classic script (<code>js/about-telegram.js</code>, mirroring <code>about-invite.js</code>’s pattern); <code>about-cta.js</code> changes only for <code>stay</code>.</li>
+    </ul>
+
+    <h3>N5 · Build substitution (<code>scripts/build.js</code>)</h3>
+    <ul>
+      <li><code>renderAbout()</code> gains <code>__TELEGRAM_APP_LINK__</code>, substituted as <code>TELEGRAM_ENABLED &amp;&amp; env.TELEGRAM_APP_LINK || ''</code>.</li>
+      <li>Wrinkle: <code>TELEGRAM_ENABLED</code> is a hardcoded const in <code>js/features.js</code> (ESM), not an env var — <code>build.js</code> (CJS) reads it from the source text via <code>/export const TELEGRAM_ENABLED = (true|false)/</code>. Keeps <code>features.js</code> the single source of truth so a post-merge build with the flag off cannot advertise a dead bot link, and the page can never disagree with <code>telegramSharingEnabled()</code>.</li>
+    </ul>
+
+    <h3>N6 · Installed-PWA treatment (Q7 = C+A)</h3>
+    <ul>
+      <li><b>Dual-mode “Add a person” input</b> (<code>index.template.html #add-person-form</code>, <code>js/following.js</code>): dispatch on the trimmed input — parseable URL containing an <code>i=</code> param → invite token; exact 22-char base64url (<code>/^[A-Za-z0-9_-]{22}$/</code>, the invite-token length from <code>js/invites.js</code>) → invite token; otherwise the existing follow-by-code path (6-char codes are unambiguous). Redemption reuses the existing pipeline (<code>attemptRedeemFromUrl</code>-equivalent + <code>handleInviteRedemptionResult</code>), so personal and group invites both work.</li>
+      <li>The code input’s <code>maxlength="6"</code> lifts to admit pasted URLs; the optional-name field applies only in code mode.</li>
+      <li><b>C-side:</b> desktop Chromium link capturing already routes <code>/invite?i=</code> into the installed app (operator-observed). Android <code>intent://</code>→WebAPK hand-off: walkthrough item. A manifest <code>launch_handler</code>/capture tune-up is a possible followup, not in scope.</li>
+    </ul>
+
+    <h3>N7 · Detection helpers (<code>js/installGuidance.js</code>)</h3>
+    <ul>
+      <li>New <code>export function isTelegramInAppBrowser()</code> = <code>/Telegram/.test(ua())</code> — an Android-only positive signal (already a substring of <code>isInAppBrowser()</code>’s pattern, line 36); iOS Telegram is indistinguishable from Safari and correctness never depends on this helper.</li>
+      <li>Export the existing module-private <code>isIos()</code> (line 20; already handles iPadOS-as-Macintosh).</li>
+    </ul>
+
+    <h3>N8 · Mini App interstitial (A4, on top of spec 2026-07-07 as-built)</h3>
+    <ul>
+      <li>“What is KnockKnock?” link → <code>/invite?i=TOKEN</code>, shown only when <code>isNew</code> (the flag already passed to <code>showInterstitial</code>, <code>js/telegramFirstRun.js:63</code>). Opens within Telegram so the user returns to the interstitial. The page’s loop-back “Open in Telegram” CTA is accepted for v1; a variant is a followup.</li>
+    </ul>
+  </section>
+
+  <section class="cols">
+    <div>
+      <h2>Phasing</h2>
+      <ul>
+        <li><b>Phase 1</b> — shared links become <code>/invite?i=</code> (N1); boot decision tree for <code>/?i=</code> (N3); config #1/#2 page work (N4); standing <code>/about</code> Telegram CTA; build gate (N5); dual-mode “Add a person” + landing copy door (N6); interstitial info link (N8); <code>stay=1</code> loop guard; panel skipped on <code>stay=1</code>.</li>
+        <li><b>Phase 2</b> — after the phase-1 on-device walkthrough: bare-arrival redirect (F8) + panel retirement.</li>
+        <li><b>Done =</b> the operator’s on-device walkthrough, not green suites.</li>
+      </ul>
+      <h2 style="margin-top:18px">Touch points</h2>
+      <ul style="font-size:13px">
+        <li><code>js/invites.js</code> — <code>buildInviteUrl</code> path (N1)</li>
+        <li><code>firebase.json</code> — <code>/invite</code> rewrite (N2)</li>
+        <li><code>js/app.js</code> — boot gate; <code>stay</code> strip; panel skip (N3)</li>
+        <li><code>about.template.html</code>, <code>css/about.css</code> — invite block, expander, standing CTA (N4)</li>
+        <li><code>js/about-telegram.js</code> (new), <code>js/about-cta.js</code> — config logic; <code>stay=1</code> (N4)</li>
+        <li><code>scripts/build.js</code> — <code>__TELEGRAM_APP_LINK__</code> (N5)</li>
+        <li><code>js/following.js</code>, <code>index.template.html</code> — dual-mode input (N6)</li>
+        <li><code>js/installGuidance.js</code> — helpers (N7)</li>
+        <li><code>js/telegramFirstRun.js</code> + Mini App template — info link (N8)</li>
+        <li>Tests: <code>about-page</code>, <code>installGuidance</code>, <code>invites</code>, <code>inviteFlow</code>, <code>following</code>, <code>telegramFirstRun</code>, app-boot suite, <code>build.js</code> unit</li>
+      </ul>
+      <h2 style="margin-top:18px">Deferred decisions</h2>
+      <ul>
+        <li>Config #1 fine-grained content split (e.g. privacy bullets staying visible) — <b>followup</b>; v1 collapses everything below the logo uniformly.</li>
+        <li>All copy (landing headline, hint line, CTA labels, expander label).</li>
+        <li>Whether the interstitial-opened <code>/invite?i=</code> view wants a variant without the loop-back “Open in Telegram” CTA.</li>
+      </ul>
+    </div>
+    <div>
+      <h2>UNKNOWNs — walkthrough matrix</h2>
+      <ul>
+        <li><span class="badge b-unknown">UNKNOWN</span> Telegram-Android: does it intercept <code>location.replace</code> to <code>t.me</code> and open the Mini App? (F7 auto-hop)</li>
+        <li><span class="badge b-new">TESTED ✓</span> <code>t.me/…?startapp=…</code> tapped in an Instagram DM opens the Telegram Mini App (operator-verified; second OS still to walk).</li>
+        <li>OBSERVED on device: Instagram’s in-app browser currently triggers the old boot panel — matches the code path this design replaces (F0 → F7/F8).</li>
+        <li><span class="badge b-unknown">UNKNOWN</span> Firebase rewrite <code>/invite → about.html</code> preserving the query string (standard behavior, unverified in this project).</li>
+        <li><span class="badge b-unknown">UNKNOWN</span> Android <code>intent://</code> + <code>stay=1</code> round-trip, incl. the <code>browser_fallback_url</code> path.</li>
+        <li><span class="badge b-unknown">UNKNOWN</span> Android: does the <code>intent://</code> break-out hand off to an installed WebAPK (Q7-C), or open the plain browser?</li>
+        <li>OBSERVED (existing code comment): <code>x-safari-https</code> from real Safari just prompts “Open in Safari?” — verified harmless on iOS/macOS 26.</li>
+      </ul>
+      <p style="font-size:12.5px; color: var(--muted)">Devices: iOS Telegram · iOS Safari · Android Telegram · Android Chrome · Android Instagram-class webview · desktop.</p>
+    </div>
+  </section>
+</main>
+</body>
+</html>

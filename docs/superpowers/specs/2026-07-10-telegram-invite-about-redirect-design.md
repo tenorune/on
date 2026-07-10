@@ -1,226 +1,162 @@
-# Telegram invite → framed /invite landing (fix #283, fold in #265)
+# Invite arrivals & in-app browsers: holistic design (fix #283, fold in #265)
 
-**Date:** 2026-07-10
-**Issues:** #283 (web invite opened in Telegram's in-app browser mints a duplicate account), #265 (dedicated /invite landing URL — folded in as the route only)
-**Predecessor spec:** `2026-07-05-telegram-onboarding-ux-design.md` §9 (known gaps — in-app-browser gap recorded there)
+**Date:** 2026-07-10 (v1 — supersedes the same-day draft previously at this path)
+**Issues:** #283 (Telegram in-app browser mints a duplicate account), #265 (/invite route — URL idea folded in)
+**Canonical visual spec:** `2026-07-10-invite-arrival-flows-design.html` (this directory) — the flow
+diagrams, boot decision tree, and wireframes there are normative parts of this spec, not
+illustrations. This file mirrors the rules in greppable form.
+**Related:** `2026-07-05-telegram-onboarding-ux-design.md` §9 (gap recorded there);
+`2026-07-07-telegram-invite-interstitial-context-design.md` (as-built; N8 adds one element).
 
 ## 1. Problem
 
-A web invite URL (`${origin}/?i=TOKEN`, built at `js/invites.js:51`) pasted into a Telegram
-chat opens in Telegram's **in-app browser** — a plain webview, not the Mini App. There
-`isTelegramContext()` is false, so a recipient whose account is Telegram-derived
-(Mini-App-only, never in localStorage, phrase-less) is unreachable. Boot treats them as a
-brand-new visitor; tapping "New" mints a duplicate web account
-(`createNewAccount`, `js/app.js:232`) and `attemptRedeemFromUrl` redeems the invite onto
-it. The inviter gains a follower on a wrong, nameless identity.
+A web invite (`/?i=TOKEN`) tapped inside Telegram opens the in-app browser, not the Mini App.
+`isTelegramContext()` is false, the recipient's Telegram-derived account (Mini-App-only,
+phrase-less, not in localStorage) is unreachable, and boot treats them as new: one "New" tap
+mints a duplicate account and the invite redeems onto it. iOS Telegram's webview UA is
+byte-identical to Safari, so no detection-gated fix can cover it. The same shape recurs for
+**any** in-app browser (Instagram, WhatsApp, …) and for **installed-PWA** users, whose identity
+lives in a storage partition no webview or (on iOS) even Safari can reach.
 
-The existing mitigation never fires where it matters most: on iOS, Telegram's webview UA
-is **byte-identical to Safari**, so both `isInAppBrowser()` (`js/installGuidance.js:35`)
-and any narrower check are false there. On Android the UA does contain `Telegram`, but
-the boot panel (`showInAppBrowserRedirect`, `js/app.js:468`) is informational and
-dismissible — the mint still happens one tap later.
+## 2. Decisions (operator-locked, 2026-07-10 brainstorm)
 
-## 2. Approach (decisions carried from the brainstorm)
-
-- **P2 — redirect, don't patch the panel.** On the `/?i=` boot path, redirect fresh
-  invite arrivals to a framed, **mint-free** landing page before any account can be
-  created. `/about` loads no Firebase SDK, so no duplicate can form while the user
-  decides. (Rejected: widening the boot panel — still one tap from a mint; changing only
-  shared links — can't catch a copied `/?i=` URL.)
-- **A′ — detection-free correctness.** The landing offers "Open in Telegram" as a
-  universal affordance, gated only on a pending token + a configured deep link — never
-  on detecting Telegram, because iOS can't be detected. It is correct for a
-  Telegram-identity holder (→ Mini App → real account), correct for a Telegram-having
-  stranger (→ proper Mini App onboarding), and harmless for a non-Telegram user
-  (secondary "Continue in browser" resumes today's flow).
-- **Fold in #265 as the route.** The landing URL is `/invite?i=TOKEN`, served by an
-  additive `firebase.json` rewrite to the existing `about.html`. Only #265's URL idea is
-  taken; its modal-toggle framing is dropped.
-- **S3 scope** (chosen fork): the boot redirect fires for **Android-Telegram and all
-  iOS** arrivals. Android non-Telegram in-app browsers (Instagram, WhatsApp, …) keep
-  today's flow — those are genuine web users, a web account is correct, and there is
-  nothing to rescue. Minimal blast radius; catches every #283 case.
-  (Alternative S1 — redirect on the generic `isInAppBrowser()` too — recorded in §10.)
-
-## 3. Boot redirect gate (`js/app.js`)
-
-In `main()`, immediately after `extractInviteTokenFromUrl` (`js/app.js:564`) and before
-`ensureIdentity` — i.e. before any Firebase work — redirect when **all** of:
-
-1. `pendingInviteToken` is present (fresh invite arrival);
-2. `!isTelegramContext()` — the Mini App handles identity itself and must never bounce;
-3. `!isStandalone()` — an installed app is definitionally not a Telegram webview, and
-   its no-identity path (restore-priming, `shouldPrimeRestore`) is already correct;
-4. no stored identity (`loadIdentity()` returns null) — a returning web user should
-   redeem onto their real account as today;
-5. `telegramSharingEnabled()` (`js/inviteFlow.js:28`) — no landing push when the Mini
-   App isn't live;
-6. **UA condition (S3):** `isTelegramInAppBrowser() || isIos()`;
-7. no `stay=1` param (loop guard, §6).
-
-Action: `location.replace('/invite?i=' + pendingInviteToken)` and halt boot (return from
-`main()`). `location.replace` keeps the webview's back button from bouncing through the
-redirecting page.
-
-The gate fires **only** from the app boot path. A hand-opened `/about?i=` or
-`/invite?i=` never redirects (those pages run no boot code).
-
-Consequences on the boot path: iOS invite arrivals no longer reach the welcome screen
-directly; Android-Telegram fresh arrivals no longer see `showInAppBrowserRedirect` (they
-land on `/invite` instead). Arrivals with `stay=1` and all non-matching contexts proceed
-exactly as today.
-
-## 4. Detection helper (`js/installGuidance.js`)
-
-- New `export function isTelegramInAppBrowser()` — `/Telegram/.test(ua())`. This is an
-  **Android-only** signal (already a substring of `isInAppBrowser()`'s pattern,
-  `js/installGuidance.js:36`); on iOS Telegram's webview UA carries no marker. The
-  helper exists to *increase* specificity where possible, never to gate correctness.
-- Export the existing module-private `isIos()` (`js/installGuidance.js:20`) so `app.js`
-  can use it (it already handles the iPadOS-reports-as-Macintosh case; `about-cta.js`
-  keeps its own inline copy — it is a no-build classic script).
-
-## 5. `/invite` route (`firebase.json`)
-
-Additive rewrite above the `**` catch-all:
-
-```json
-{ "source": "/invite", "destination": "/about.html" }
-```
-
-Same physical page as `/about`; Firebase rewrites preserve the query string, and both
-`about-invite.js` and `about-cta.js` key off `?i=` only (path-agnostic), so
-`/about?i=` keeps working identically and picks up the new CTA for free (explicit
-operator constraint). `/invite` is a root-level path, so the page's relative asset URLs
-(`css/about.css`, `js/*.js`) resolve unchanged.
-
-## 6. Loop guard — `&stay=1`
-
-"Continue in browser" reuses the existing `data-open-app` per-platform rewrite
-(`js/about-cta.js`): iOS gets `x-safari-https://…`, which opens a **fresh real-Safari
-context** where sessionStorage cannot guard — boot there would re-redirect
-`/?i=` → `/invite` forever. So the guard rides the URL:
-
-- `about-cta.js` appends `&stay=1` to every link it rewrites **when a token is
-  present** (iOS `x-safari-https`, Android `intent://` + its
-  `browser_fallback_url`, desktop plain). No token → no redirect risk → no param.
-- The boot gate (§3) skips when `stay=1` is present.
-- `cleanInviteParamFromUrl` (`js/app.js:555`) additionally deletes `stay` so the
-  param doesn't linger in the address bar after redemption.
-
-## 7. Landing page shape (`about.template.html` + scripts)
-
-New section at the top of `<main>`, above the existing `.intro`, hidden by default:
-
-```html
-<section id="invite-landing" class="invite-landing hidden">
-  <h2>You're invited to __APP_TITLE__</h2>
-  <!-- existing element, moved here from .intro; about-invite.js is untouched
-       and upgrades it to "You've been invited to follow Ana." on preview success -->
-  <p id="about-invite-framing" class="invite-framing hidden" data-preview-url="__INVITE_PREVIEW_URL__"></p>
-  <p class="invite-hint">Use Telegram? Open the invite there — it works with your
-     Telegram account, no separate sign-up.</p>
-  <a id="invite-telegram-cta" class="cta hidden" data-telegram-link="__TELEGRAM_APP_LINK__">Open in Telegram</a>
-  <a class="cta cta-secondary" href="/" target="_blank" rel="noopener" data-open-app>Continue in browser</a>
-</section>
-```
-
-- **Visibility:** a new small classic script, `js/about-telegram.js` (mirroring
-  `about-invite.js`'s single-purpose pattern), unhides `#invite-landing` when the URL
-  carries a valid token (`/^[A-Za-z0-9_-]{1,64}$/`, same shape both about-page scripts
-  already use). No token, or invalid → section stays hidden and the page is today's
-  `/about`, unchanged.
-- **Telegram CTA (fail-closed):** the same script reads `data-telegram-link`; only when
-  it is non-empty and not an unsubstituted placeholder (`indexOf('__') === 0`, mirroring
-  `about-invite.js:15`) does it set `href = link + '?startapp=' + token` and unhide the
-  CTA. `?i=` and `startapp=` carry the same token (`buildTelegramInviteLink`,
-  `js/inviteFlow.js:21`). Unconfigured builds show only "Continue in browser" — and the
-  boot redirect can't send anyone there anyway (§3 cond. 5).
-- **Continue in browser:** carries `data-open-app`, so `about-cta.js` gives it the
-  existing per-platform break-out (x-safari / intent / plain) plus `&stay=1` (§6).
-  Keeping the x-safari break-out is deliberate: it is existing `/about` behavior, and the
-  "Open in Safari?" system prompt is a pre-existing, accepted wrinkle.
-- **Marketing content:** unchanged, remains below the landing section as context on
-  what the invite is for — nothing collapses. The `.intro` section keeps its own "Open …" CTA;
-  it also gains `&stay=1` via the shared rewrite, which is harmless.
-- **Framing race:** the `h2` is static so the section is never headline-less; the
-  personalized `#about-invite-framing` line appears if/when the preview fetch succeeds
-  (non-critical, exactly as today).
-- **Styling:** `css/about.css` gets `.invite-landing`, `.invite-hint`, `.cta-secondary`
-  — visual details are the operator's on-device call.
-
-## 8. Build substitution (`scripts/build.js`)
-
-`renderAbout()` gains `__TELEGRAM_APP_LINK__`:
-
-```
-.replaceAll('__TELEGRAM_APP_LINK__', vars.TELEGRAM_APP_LINK || '')
-```
-
-with `writeAboutHtml` passing `TELEGRAM_APP_LINK` **only when the feature is on**:
-`TELEGRAM_ENABLED && (env.TELEGRAM_APP_LINK || '')`. Wrinkle: `TELEGRAM_ENABLED` is a
-hardcoded const in `js/features.js` (ESM), not an env var, and `build.js` is CJS — so
-`build.js` reads it from the source text
-(`/export const TELEGRAM_ENABLED = (true|false)/`). Fragile-looking but honest: it keeps
-`js/features.js` the single source of truth, so a post-merge `main` built with the flag
-flipped to `false` cannot advertise a dead bot link on `/about` even if
-`TELEGRAM_APP_LINK` is still set in `.env.production`. This matches the app-side gate
-(`telegramSharingEnabled()` requires both), so page and boot can never disagree.
-
-## 9. End-to-end flows after the change
-
-| Arrival | Today | After |
-|---|---|---|
-| iOS Telegram webview, fresh, `/?i=` | mints duplicate | → `/invite?i=` → "Open in Telegram" → Mini App, real account |
-| iOS Safari, fresh, `/?i=` | welcome → new account | → `/invite?i=` (accepted collateral, §10) → "Continue in browser" → `x-safari` hop with `stay=1` → today's flow |
-| Android Telegram webview, fresh | dismissible panel → mints duplicate | → `/invite?i=` → either CTA |
-| Android Chrome / desktop, fresh | welcome → new account | unchanged (UA condition false) |
-| Android Instagram/WhatsApp/etc., fresh | panel → web account | unchanged (S3) |
-| Any browser, stored identity | redeems onto real account | unchanged (gate cond. 4) |
-| Telegram Mini App | Telegram identity boot | unchanged (gate cond. 2) |
-| Hand-opened `/about?i=` | framing + open-app CTA | same + invite landing section (never redirects) |
-
-## 10. Accepted limits & recorded alternative
-
-- **iOS-Safari collateral:** catching undetectable iOS Telegram means *all* fresh iOS
-  invite arrivals (including plain Safari) hop through `/invite`. The framed landing is
-  arguably a better first touch than a bare welcome screen; the "Open in Safari?" prompt
-  on continue is pre-existing `/about` behavior.
-- **S1 alternative (not chosen):** gate on `isInAppBrowser() || isIos()` instead, also
-  routing Android non-Telegram in-app browsers through `/invite` for the stronger
-  `intent://` break-out. Broader change, more on-device walking; can be adopted later by
-  widening one condition (§3 cond. 6).
-- **Multi-invite links** are out of scope — `start_param` carries exactly one token
-  (predecessor spec §9).
-- **Android Telegram users who choose "Continue in browser"** land back in the webview
-  flow with `stay=1` and can still create a web account deliberately — that is the
-  informed-choice path, not a bug.
-
-## 11. Touch points
-
-| File | Change |
+| Ref | Decision |
 |---|---|
-| `firebase.json` | `/invite` rewrite above `**` |
-| `js/app.js` | boot redirect gate in `main()`; `cleanInviteParamFromUrl` also deletes `stay` |
-| `js/installGuidance.js` | new `isTelegramInAppBrowser()`; export `isIos` |
-| `about.template.html` | `#invite-landing` section; move `#about-invite-framing` into it |
-| `js/about-telegram.js` (new) | unhide landing on valid token; compose + unhide Telegram CTA (fail-closed) |
-| `js/about-cta.js` | append `&stay=1` when token present |
-| `scripts/build.js` | `__TELEGRAM_APP_LINK__` substitution gated on `TELEGRAM_ENABLED` (read from `js/features.js`) |
-| `css/about.css` | landing/CTA styles |
+| Q1=A | The #283 user must end up in the Mini App with the invite on their Telegram identity. Scope is holistic: all in-app browser arrivals. |
+| Q2=C | Landing serves invite and bare arrivals; invite-triggered redirect ships first (phase 1), bare-link trigger after the walkthrough (phase 2). |
+| Q3=C | iOS collateral accepted; the two landing CTAs are equal peers — no steering. |
+| Q4=A | Telegram-Android detected + token + deep link → boot auto-hops to `t.me/<bot>/app?startapp=TOKEN`, zero taps. |
+| Q5=B | Bare in-app arrivals (phase 2) redirect to plain `/about`, which offers both doors. |
+| Q6=A | `stay=1` boots skip the old in-app-browser panel (phase 1); panel retires in phase 2. |
+| Q7=C+A | Installed-PWA recipients: platform link-capturing where it exists + universal in-app fallback (dual-mode "Add a person" paste) + a tertiary landing door. |
+| A1 | `buildInviteUrl` → `/invite?i=TOKEN`; the `/?i=` boot gate remains as the net for legacy/copied links. |
+| A2 | `/invite?i=` renders config #1 (invite-first); `/about?i=` renders config #2 (full page + invite block). Pages never redirect or auto-hop. |
+| A3 | Browser-opened `/about` always shows a standing bare "Open in Telegram" CTA (fail-closed on the build substitution). |
+| A4 | Mini App interstitial gains a "What is KnockKnock?" link → `/invite?i=TOKEN`, shown only in the `isNew` ("Accept & get started") context. |
 
-## 12. Testing
+Flows F0–F9 and the boot decision tree: see the HTML spec. Tested during brainstorm:
+a `t.me/…?startapp=…` link tapped in an Instagram DM opens the Mini App.
 
-- `tests/installGuidance.test.js`: `isTelegramInAppBrowser()` — Telegram-Android UA
-  true; iOS-Safari-identical UA false; plain Chrome false.
-- `tests/about-page.test.js`: landing hidden without token / with invalid token; shown
-  with valid token; Telegram CTA composed from substituted link + token; CTA stays
-  hidden on placeholder/empty link; `data-open-app` rewrites carry `&stay=1` (all three
-  platforms); plain `/about` unchanged.
-- App boot suite: gate fires (fresh + token + enabled + UA) → `location.replace`
-  called with `/invite?i=TOKEN`; each negative condition (identity present, `stay=1`,
-  Mini App context, standalone, sharing disabled, non-matching UA) → no redirect.
-- `scripts/build.js` unit: substitution present when flag true + link set; empty
-  otherwise.
-- **Definition of done:** the operator's on-device walkthrough (iOS Telegram, iOS
-  Safari, Android Telegram, Android Chrome, desktop), not green suites.
+## 3. Normative rules
+
+### N1 — Shared link change
+`buildInviteUrl(token)` (`js/invites.js:51`) returns `${APP_URL_BASE}/invite?i=${token}`.
+Single construction point; callers build the URL from the token at display time, nothing
+persists it — no migration. Legacy `/?i=` links are handled by N3.
+
+### N2 — Routing
+`firebase.json`: additive rewrite above the `**` catch-all —
+`{ "source": "/invite", "destination": "/about.html" }`. Query strings pass through
+(standard Firebase behavior; walkthrough-verify). `/invite` is root-level, so the page's
+relative asset URLs resolve unchanged.
+
+### N3 — Boot gate (`js/app.js main()`, `/?i=` only)
+Placed immediately after `extractInviteTokenFromUrl` (`app.js:564`), before `ensureIdentity`
+and any Firebase work. Ordered checks; first match wins; redirect/auto-hop outcomes call
+`location.replace(…)` and return from `main()`:
+
+1. `isTelegramContext()` → normal Telegram boot (never redirected).
+2. `stay=1` in URL → today's web flow; `showInAppBrowserRedirect` skipped (Q6).
+3. `loadIdentity()` or `isStandalone()` → today's flow (redeems onto the existing identity).
+4. `isTelegramInAppBrowser()` and `buildTelegramInviteLink(token)` non-null → auto-hop to the
+   deep link (Q4=A). Unconfigured link falls through to 5.
+5. `isInAppBrowser()` → `location.replace('/invite?i=' + token)`.
+6. `isIos() && telegramSharingEnabled()` → same redirect. (The undetectable-iOS-Telegram rescue
+   is the only justification for the iOS collateral, so Telegram-off spares iOS Safari.)
+7. Else → today's welcome flow.
+
+Phase 2 adds the tokenless branch: fresh + `isInAppBrowser()` → `location.replace('/about')`;
+iOS-undetected tokenless boots never redirect. `cleanInviteParamFromUrl` (`app.js:555`) also
+deletes `stay`. Phase 2 removes `showInAppBrowserRedirect` and its call site.
+
+### N4 — Page behavior (`about.html` = `/about` + `/invite`)
+- Pages never redirect and never auto-hop.
+- Config by `location.pathname` (first path-sensitive behavior in the about scripts):
+  `/invite` + valid token → config #1; other path + valid token → config #2; no/invalid token
+  → plain page (tokenless `/invite` behaves as plain `/about`).
+- Token shape: `/^[A-Za-z0-9_-]{1,64}$/` (as `about-invite.js:11`, `about-cta.js:22`).
+- Invite block (both configs): static headline; existing `#about-invite-framing` moves inside
+  unchanged (`about-invite.js` untouched); equal CTA pair — "Open in Telegram"
+  (`data-telegram-link + '?startapp=' + token`) and "Continue in browser" (`data-open-app`
+  break-out); tertiary installed-app line with one-tap "Copy invite" (copies the canonical
+  `/invite?i=TOKEN` URL).
+- One set of doors: while the invite block shows, the intro hides both of its CTAs.
+- Config #1 collapse (v1): everything below the logo folds behind one expander
+  ("More about KnockKnock"). Script-off fallback = fully expanded. Finer split: followup.
+- Standing bare Telegram CTA (A3): token-less pages show "Open in Telegram" → bare
+  `t.me/<bot>/app` beside "Open KnockKnock →".
+- Fail-closed: every Telegram CTA renders hidden; unhide only when `data-telegram-link` is
+  non-empty and not an unsubstituted `__…__` placeholder (mirrors `about-invite.js:15`).
+- Loop guard: `about-cta.js` appends `&stay=1` to every link it rewrites when a token is
+  present (x-safari, `intent://` incl. `browser_fallback_url`, desktop plain). The x-safari
+  break-out itself is unchanged pre-existing behavior.
+- New logic in a new single-purpose classic script `js/about-telegram.js`;
+  `about-cta.js` changes only for `stay`.
+
+### N5 — Build substitution (`scripts/build.js`)
+`renderAbout()` gains `__TELEGRAM_APP_LINK__` = `TELEGRAM_ENABLED && env.TELEGRAM_APP_LINK || ''`.
+`TELEGRAM_ENABLED` is a hardcoded const in `js/features.js` (ESM) — `build.js` (CJS) reads it
+from the source text via `/export const TELEGRAM_ENABLED = (true|false)/`, keeping
+`features.js` the single source of truth so the page can never disagree with
+`telegramSharingEnabled()` (a post-merge flag-off build cannot advertise a dead bot link).
+
+### N6 — Installed-PWA treatment (Q7=C+A)
+- Dual-mode "Add a person" input (`index.template.html #add-person-form`, `js/following.js`):
+  dispatch on the trimmed input — a parseable URL with an `i=` param → invite token; an exact
+  22-char base64url string (`/^[A-Za-z0-9_-]{22}$/`, the token length from `js/invites.js`) →
+  invite token; otherwise the existing follow-by-code path. Redemption reuses the existing
+  pipeline (`attemptRedeemFromUrl`-equivalent + `handleInviteRedemptionResult`), so personal
+  and group invites both work. `maxlength="6"` lifts; the name field applies to code mode only.
+- C-side: desktop Chromium link capturing already opens `/invite?i=` in the installed app
+  (operator-observed). Android `intent://`→WebAPK hand-off: walkthrough item. Manifest
+  `launch_handler` tuning: possible followup, out of scope.
+
+### N7 — Detection helpers (`js/installGuidance.js`)
+- New `export function isTelegramInAppBrowser()` = `/Telegram/.test(ua())` — Android-only
+  positive signal (substring of `isInAppBrowser()`'s pattern, line 36); correctness never
+  depends on it (iOS Telegram is indistinguishable from Safari).
+- Export the module-private `isIos()` (line 20).
+
+### N8 — Mini App interstitial (on top of spec 2026-07-07 as-built)
+"What is KnockKnock?" link → `/invite?i=TOKEN`, shown only when `isNew` (flag already passed
+to `showInterstitial`, `js/telegramFirstRun.js:63`). Opens within Telegram so the user returns
+to the interstitial. The page's loop-back "Open in Telegram" CTA is accepted for v1.
+
+## 4. Phasing
+
+- **Phase 1:** N1–N8 except the tokenless boot branch and panel removal.
+- **Phase 2** (after the phase-1 walkthrough): tokenless bare-arrival redirect (F8) + panel
+  retirement.
+- **Followups:** config #1 fine-grained content split; interstitial-opened page variant
+  (loop-back CTA); copy tuning; manifest link-capturing.
+- **Done =** the operator's on-device walkthrough, not green suites.
+
+## 5. Testing
+
+Unit (jest, `node_modules/.bin/jest` from repo root):
+- `installGuidance`: `isTelegramInAppBrowser()` true on Telegram-Android UA, false on
+  Safari-identical iOS UA and plain Chrome; `isIos` export intact.
+- `invites`: `buildInviteUrl` shape.
+- `about-page`: config selection by path + token; invite block visibility; both intro CTAs
+  hidden with the block; Telegram CTA fail-closed (placeholder/empty), composed
+  `?startapp=` href; `stay=1` on all three rewrite platforms; copy-invite affordance;
+  tokenless `/invite` = plain page; plain `/about` shows the standing CTA only when substituted.
+- App-boot suite: each gate row fires/doesn't (order-sensitive: identity beats detection,
+  `stay` beats everything but Mini App); `location.replace` targets; `stay` stripped.
+- `following`: dual-mode dispatch (URL, 22-char token, 6-char code, garbage); redemption
+  pipeline reuse; maxlength lift.
+- `telegramFirstRun`: info link present iff `isNew`; choice resolutions unchanged.
+- `build.js`: substitution on/off with the features-flag read.
+
+Walkthrough matrix (operator, on device): iOS Telegram · iOS Safari · Android Telegram ·
+Android Chrome · Android Instagram-class webview · desktop · installed-PWA on each platform.
+UNKNOWNs to resolve there: Telegram-Android interception of the auto-hop `location.replace`;
+Android `intent://` + `stay=1` round-trip; Android `intent://`→WebAPK hand-off; Firebase
+rewrite query preservation.
+
+## 6. Touch points
+
+`js/invites.js` (N1) · `firebase.json` (N2) · `js/app.js` (N3) · `about.template.html` +
+`css/about.css` + `js/about-telegram.js` (new) + `js/about-cta.js` (N4) · `scripts/build.js`
+(N5) · `js/following.js` + `index.template.html` (N6) · `js/installGuidance.js` (N7) ·
+`js/telegramFirstRun.js` + Mini App template (N8) · tests per §5.
