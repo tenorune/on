@@ -1354,8 +1354,8 @@ body.add-form-open #app-header {
    onboarding install step). */
 .notify-promo-reminder { display: block; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-muted); }
 .notify-promo-phrase { display: block; margin-top: 0.5rem; font-size: 0.82rem; opacity: 0.9; }
-/* "Secret phrase:" reads as the label for the Copy affordance beside it. */
-.notify-promo-phrase-label { font-weight: 600; color: var(--text); }
+/* "Secret phrase:" blends with the muted reminder sentence above it. */
+.notify-promo-phrase-label { color: var(--text-muted); }
 .notify-promo-copy { font: inherit; color: var(--text); background: rgba(255,255,255,0.08); border: 1px solid var(--text-muted); border-radius: 8px; padding: 0.2rem 0.55rem; margin-left: 0.4em; cursor: pointer; }
 /* "Link Telegram instead" escape hatch on dead-end notify/install nudges
    (telegramEscapeHatch.js). The message text sits in the banner body; the
