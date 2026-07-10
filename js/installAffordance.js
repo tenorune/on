@@ -16,6 +16,7 @@ import {
 } from './installPrompt.js';
 import { isFirstRunActive } from './firstRun.js';
 import { isBotDelivered } from './notifySuppression.js';
+import { isOnrampPromoActive } from './telegramOnramp.js';
 
 function isMac() { return /Macintosh|Mac OS X/.test((navigator.userAgent) || ''); }
 
@@ -79,12 +80,14 @@ export function initInstallAffordance() {
     const relevant = !isAppInstalled() && !isBotDelivered()
       && (lane === 'installable' || lane === 'push-in-tab' || lane === 'ios-install' || lane === 'macos-install');
     if (!relevant) { toast.classList.add('hidden'); fab.classList.add('hidden'); return; }
-    if (isFirstRunActive()) {
-      // First-run suppresses the whole affordance — toast AND corner icon. The
-      // guided empty state is the single teaching surface (spec §3); a lone corner
-      // icon here is a no-op tease, since its toast can't open while first-run
-      // holds. The lead-in isn't consumed: apply() re-runs on first-run-change and
-      // the toast resumes once the empty state clears.
+    if (isFirstRunActive() || isOnrampPromoActive()) {
+      // Suppress the whole affordance — toast AND corner icon — while a stronger
+      // teaching surface is up: the guided empty state (spec §3), OR the "Use in
+      // Telegram" promo, which offers the same notifications via the bot (showing
+      // both at once is clutter). A lone corner icon here is a no-op tease anyway,
+      // since its toast can't lead while the other surface holds. The lead-in
+      // isn't consumed: apply() re-runs on first-run-change / onramp-change and
+      // the toast resumes once the other surface clears.
       toast.classList.add('hidden');
       fab.classList.add('hidden');
     } else if (dismissed) {
@@ -109,5 +112,6 @@ export function initInstallAffordance() {
   onInstallPromptChange(apply);
   document.addEventListener('first-run-change', apply);
   document.addEventListener('bot-delivery-change', apply);
+  document.addEventListener('onramp-change', apply);
   apply();
 }

@@ -76,11 +76,15 @@ describe('telegramOnramp', () => {
     open.mockRestore();
   });
 
-  test('startTelegramOnramp: returns false when the popup is blocked', async () => {
+  // Installed PWAs block window.open('_blank'). Rather than dead-end, navigate
+  // the current context (_self is a navigation, not a popup, so it's not
+  // blocked) — the deep link still opens Telegram.
+  test('startTelegramOnramp: blocked new tab → navigates current context (_self), returns true', async () => {
     process.env.TELEGRAM_APP_LINK = 'https://t.me/knockbot/app';
     const { startTelegramOnramp } = require('../js/telegramOnramp.js');
     const open = jest.spyOn(window, 'open').mockReturnValue(null);
-    expect(await startTelegramOnramp()).toBe(false);
+    expect(await startTelegramOnramp()).toBe(true);
+    expect(open).toHaveBeenCalledWith('https://t.me/knockbot/app?startapp=lk_tok_xyz', '_self');
     open.mockRestore();
   });
 
@@ -94,19 +98,6 @@ describe('telegramOnramp', () => {
   });
 
   // U1.4 — the onramp's failure paths must not be silent.
-  test('U1.4: popup blocked → copies the deep link and toasts', async () => {
-    process.env.TELEGRAM_APP_LINK = 'https://t.me/knockbot/app';
-    const writeText = jest.fn().mockResolvedValue();
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    const { startTelegramOnramp } = require('../js/telegramOnramp.js');
-    const open = jest.spyOn(window, 'open').mockReturnValue(null);
-    const ok = await startTelegramOnramp();
-    expect(ok).toBe(false);
-    expect(writeText).toHaveBeenCalledWith('https://t.me/knockbot/app?startapp=lk_tok_xyz');
-    expect(mockToast).toHaveBeenCalledWith('Link copied — open it in Telegram.');
-    open.mockRestore();
-  });
-
   test('U1.4: mint failure → error toast, returns false, does not open or throw', async () => {
     process.env.TELEGRAM_APP_LINK = 'https://t.me/knockbot/app';
     mockMint.mockRejectedValueOnce(new Error('offline'));
@@ -225,5 +216,19 @@ describe('telegramOnramp DOM (initTelegramOnramp / syncTelegramOnramp)', () => {
     mockFirstRunActive.mockReturnValue(false);
     document.dispatchEvent(new CustomEvent('first-run-change'));
     expect(document.getElementById('tg-onramp-promo').classList.contains('hidden')).toBe(false);
+  });
+
+  // Coordination signal for the install/notify nudge (the two must not co-show).
+  test('isOnrampPromoActive tracks promo visibility and dispatches onramp-change on change', () => {
+    const { initTelegramOnramp, isOnrampPromoActive, syncTelegramOnramp } = require('../js/telegramOnramp.js');
+    const onChange = jest.fn();
+    document.addEventListener('onramp-change', onChange);
+    initTelegramOnramp(); // enabled, unlinked, not first-run → promo active
+    expect(isOnrampPromoActive()).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(1); // false → true
+    syncTelegramOnramp({ telegram: { tgId: '42' } }); // linked → promo off
+    expect(isOnrampPromoActive()).toBe(false);
+    expect(onChange).toHaveBeenCalledTimes(2); // true → false
+    document.removeEventListener('onramp-change', onChange);
   });
 });

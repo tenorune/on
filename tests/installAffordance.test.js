@@ -3,6 +3,7 @@ function setStandalone(matches) { global.window.matchMedia = () => ({ matches })
 
 jest.mock('../js/firstRun.js', () => ({ isFirstRunActive: jest.fn(() => false) }));
 jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
+jest.mock('../js/telegramOnramp.js', () => ({ isOnrampPromoActive: jest.fn(() => false) }));
 
 const { pushInTabCopy } = require('../js/installAffordance.js');
 
@@ -38,10 +39,29 @@ describe('install affordance rendering', () => {
   beforeEach(() => {
     const { isFirstRunActive } = require('../js/firstRun.js');
     isFirstRunActive.mockReturnValue(false);
+    require('../js/telegramOnramp.js').isOnrampPromoActive.mockReturnValue(false);
     __resetInstallPromptForTests();
     dom();
     setStandalone(false);
     delete window.onbeforeinstallprompt;
+  });
+
+  // Finding: the "Use in Telegram" onramp promo and this install/notify nudge
+  // could show at once (cluttered). The install affordance defers to the promo —
+  // it offers the same notifications via the bot, so one teaching surface wins.
+  test('defers entirely while the onramp promo is active; resumes on onramp-change', () => {
+    setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0');
+    const onramp = require('../js/telegramOnramp.js');
+    onramp.isOnrampPromoActive.mockReturnValue(true);
+    initInstallAffordance();
+    const fab = document.getElementById('install-fab');
+    const toast = document.getElementById('install-toast');
+    expect(toast.classList.contains('hidden')).toBe(true);
+    expect(fab.classList.contains('hidden')).toBe(true);
+    // Promo dismissed/linked → onramp-change fires → the affordance resumes.
+    onramp.isOnrampPromoActive.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('onramp-change'));
+    expect(toast.classList.contains('hidden')).toBe(false);
   });
 
   test('Firefox desktop: toast shows first (fab hidden); dismiss reveals fab; fab reopens toast', () => {

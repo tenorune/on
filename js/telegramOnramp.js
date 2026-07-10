@@ -18,17 +18,12 @@ export function buildLinkDeepLink(token) {
   return token ? buildStartAppLink(`lk_${token}`) : null;
 }
 
-async function copyLink(url) {
-  try {
-    if (!navigator.clipboard) return false;
-    await navigator.clipboard.writeText(url);
-    return true;
-  } catch { return false; }
-}
-
 // Fresh token every call (no caching): if the user backs out, it just expires.
-// Returns true only when the deep link actually opened. Failure paths are not
-// silent (U1.4): a mint error toasts, a blocked popup hands the user the link.
+// A mint failure is not silent (U1.4): it toasts. On success the deep link
+// always opens — a new tab when the browser allows it (keeps the web app open
+// for the return "success beat"), else same-context navigation, which installed
+// PWAs don't block the way they block '_blank' popups (finding: PWA tap used to
+// dead-end). Returns true once the link is on its way to Telegram.
 export async function startTelegramOnramp() {
   let url;
   try {
@@ -39,12 +34,9 @@ export async function startTelegramOnramp() {
     return false;
   }
   if (!url) return false;
-  const win = window.open(url, '_blank');
-  if (win) return true;
-  // Popup blocked — fall back to copying the link (mirrors the invite modal).
-  const copied = await copyLink(url);
-  showToast(copied ? 'Link copied — open it in Telegram.' : 'Open KnockKnock in Telegram to finish.');
-  return false;
+  if (window.open(url, '_blank')) return true;
+  window.open(url, '_self'); // navigation, not a popup — not blocked in PWAs
+  return true;
 }
 
 const DISMISS_KEY = 'statusapp_tg_onramp_dismissed';
@@ -58,6 +50,19 @@ function dismissBanner() {
 let _linked = false;
 let _ctaTapped = false;
 let _firstRunBound = false;
+let _promoActive = false;
+
+// Whether the "Use in Telegram" promo banner is currently shown. The install/
+// notify nudge (js/installAffordance.js) reads this to defer while it's up — the
+// two teaching surfaces must not co-show (finding: cluttered). Changes fire an
+// 'onramp-change' document event so that reader re-evaluates reactively.
+export function isOnrampPromoActive() { return _promoActive; }
+function setPromoActive(active) {
+  if (active === _promoActive) return;
+  _promoActive = active;
+  document.dispatchEvent(new CustomEvent('onramp-change'));
+}
+
 function refresh() {
   const promo = document.getElementById('tg-onramp-promo');
   const onrampWrap = document.getElementById('tg-onramp-drawer');
@@ -67,6 +72,7 @@ function refresh() {
     // the Account section there — never touch it. Just keep our own bits hidden.
     promo?.classList.add('hidden');
     onrampWrap?.classList.add('hidden');
+    setPromoActive(false);
     return;
   }
   const show = !_linked;
@@ -76,7 +82,9 @@ function refresh() {
   // The PROMO — but not the drawer card — defers during the guided empty state
   // (U2.2): one teaching surface at a time (spec §3), same rule installAffordance
   // follows. The drawer card is opt-in and stays reachable throughout.
-  promo?.classList.toggle('hidden', !(show && !bannerDismissed() && !isFirstRunActive()));
+  const promoActive = show && !bannerDismissed() && !isFirstRunActive();
+  promo?.classList.toggle('hidden', !promoActive);
+  setPromoActive(promoActive);
 }
 
 export function initTelegramOnramp() {
@@ -94,7 +102,7 @@ export function initTelegramOnramp() {
   document.getElementById('tg-onramp-drawer-btn')?.addEventListener('click', (e) => go(e.currentTarget));
   document.getElementById('tg-onramp-dismiss')?.addEventListener('click', () => {
     dismissBanner();
-    promo?.classList.add('hidden');
+    refresh(); // hides the promo AND fires onramp-change so the install nudge resumes
   });
   // Re-evaluate the promo gate when the empty state mounts/clears (U2.2). Bound
   // once at document level so it survives DOM rebuilds and repeated init.
