@@ -981,7 +981,11 @@ body.add-form-open #app-header {
 .restore-btns button { flex: 1; }
 #restore-form { display: flex; flex-direction: column; gap: 0.75rem; }
 
-.install-step-instruction { display: block; margin-top: 0.5rem; }
+/* The actionable install step ("Tap the Share button…", "Choose File → Add to
+   Dock…", "Open the browser menu…") reads as its own centered, italic line,
+   set apart from the lead sentence — in the onboarding install step, the install
+   toast, and the notify guidance banner alike. */
+.install-step-instruction { display: block; margin-top: 0.5rem; text-align: center; font-style: italic; }
 #install-step-body .step-icon { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.18em; margin: 0 0.12em; }
 /* Spacing in the install step is governed by .modal-card's flex gap; kill the
    default <p> margins that otherwise pile on top of it. */
@@ -1348,13 +1352,14 @@ body.add-form-open #app-header {
    NOT scoped to .notify-promo, so the reminder + "Copy to clipboard" link render
    identically wherever the shared block appears (notification toast AND the
    onboarding install step). */
-.notify-promo-reminder { display: block; margin-top: 0.55rem; }
+.notify-promo-reminder { display: block; margin-top: 0.55rem; font-size: 0.85rem; color: var(--text-muted); }
 .notify-promo-phrase { display: block; margin-top: 0.5rem; font-size: 0.82rem; opacity: 0.9; }
 .notify-promo-copy { font: inherit; color: var(--text); background: rgba(255,255,255,0.08); border: 1px solid var(--text-muted); border-radius: 8px; padding: 0.2rem 0.55rem; margin-left: 0.4em; cursor: pointer; }
-/* "Link Telegram instead" escape hatch appended to dead-end notify/install
-   nudges (telegramEscapeHatch.js owns the markup). */
+/* "Link Telegram instead" escape hatch on dead-end notify/install nudges
+   (telegramEscapeHatch.js). The message text sits in the banner body; the
+   "Use in Telegram" CTA (.tg-escape-hatch-btn, .primary-btn) mounts in the
+   action row beside Close, so no extra button styling is needed here. */
 .tg-escape-hatch { display: block; margin-top: .6rem; }
-.tg-escape-hatch .tg-escape-hatch-btn { display: inline-block; margin-top: .35rem; }
 /* Match Direct's "Add a person": a surface2 rounded card wrapping a plain,
    full-width, left-aligned .add-btn (#add-person-area treatment). The 0.25rem
    top margin mirrors #add-person-area's empty-state margin-top so the button

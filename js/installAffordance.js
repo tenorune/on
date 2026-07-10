@@ -17,7 +17,7 @@ import {
 import { isFirstRunActive, isFirstRunResolved } from './firstRun.js';
 import { isBotDelivered } from './notifySuppression.js';
 import { isOnrampPromoActive } from './telegramOnramp.js';
-import { escapeHatchHtml, wireEscapeHatch } from './telegramEscapeHatch.js';
+import { escapeHatchTextHtml, syncEscapeHatchButton } from './telegramEscapeHatch.js';
 
 function isMac() { return /Macintosh|Mac OS X/.test((navigator.userAgent) || ''); }
 
@@ -33,6 +33,7 @@ function currentLane() {
 function fillToast(toast, lane) {
   const textEl = toast.querySelector('#install-toast-text');
   const actionEl = toast.querySelector('#install-toast-action');
+  const actionsEl = toast.querySelector('.notify-promo-actions');
   if (lane === 'installable') {
     const lead = 'To get notified about knocks, calls, and people coming online — even when this browser is closed — install KnockKnock.';
     if (isInstallPromptAvailable()) {
@@ -45,21 +46,22 @@ function fillToast(toast, lane) {
       textEl.innerHTML = lead + installPromptStepHtml();
       actionEl.classList.add('hidden');
     }
+    syncEscapeHatchButton(actionsEl, false); // headline path — no escape hatch
   } else if (lane === 'ios-install' || lane === 'macos-install') {
     // Same Add-to-Home-Screen / Add-to-Dock content as the onboarding install
     // modal, plus the save-your-phrase reminder (the toast is shown to a signed-in
-    // user, so Copy works here). No button — install is manual via the Share/File
-    // menu. Dead-end lane: the Telegram escape hatch rides along ('' when
-    // unavailable).
-    textEl.innerHTML = installStepBodyHtml(lane) + phraseReminderHtml() + escapeHatchHtml();
+    // user, so Copy works here). No install button — install is manual via the
+    // Share/File menu. Dead-end lane: the Telegram escape hatch (text here, the
+    // "Use in Telegram" CTA in the action row) rides along ('' when unavailable).
+    textEl.innerHTML = installStepBodyHtml(lane) + phraseReminderHtml() + escapeHatchTextHtml();
     wirePhraseCopyButton(textEl);
-    wireEscapeHatch(textEl);
     actionEl.classList.add('hidden');
-  } else { // push-in-tab — no in-app install possible, so no button; the hatch
-    // is the only actionable path ('' when unavailable).
-    textEl.innerHTML = pushInTabCopy() + escapeHatchHtml();
-    wireEscapeHatch(textEl);
+    syncEscapeHatchButton(actionsEl, true);
+  } else { // push-in-tab — no in-app install possible, so no install button; the
+    // "Use in Telegram" CTA in the action row is the only actionable path.
+    textEl.innerHTML = pushInTabCopy() + escapeHatchTextHtml();
     actionEl.classList.add('hidden');
+    syncEscapeHatchButton(actionsEl, true);
   }
 }
 

@@ -10,11 +10,11 @@ jest.mock('../js/firstRun.js', () => ({
 jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
 jest.mock('../js/telegramOnramp.js', () => ({ isOnrampPromoActive: jest.fn(() => false) }));
 
-const mockHatchHtml = jest.fn(() => '<span class="tg-escape-hatch"><button class="tg-escape-hatch-btn">Link Telegram</button></span>');
-const mockWireHatch = jest.fn();
+const mockHatchText = jest.fn(() => '<span class="tg-escape-hatch">You can also link Telegram…</span>');
+const mockSyncBtn = jest.fn();
 jest.mock('../js/telegramEscapeHatch.js', () => ({
-  escapeHatchHtml: (...a) => mockHatchHtml(...a),
-  wireEscapeHatch: (...a) => mockWireHatch(...a),
+  escapeHatchTextHtml: (...a) => mockHatchText(...a),
+  syncEscapeHatchButton: (...a) => mockSyncBtn(...a),
 }));
 
 const { pushInTabCopy } = require('../js/installAffordance.js');
@@ -41,10 +41,13 @@ describe('install affordance rendering', () => {
       <button id="install-fab" class="install-fab hidden"></button>
       <div id="install-toast" class="install-toast hidden">
         <span id="install-toast-text"></span>
-        <button id="install-toast-action" class="hidden"></button>
-        <button id="install-toast-dismiss"></button>
+        <div class="notify-promo-actions">
+          <button id="install-toast-dismiss"></button>
+          <button id="install-toast-action" class="hidden"></button>
+        </div>
       </div>`;
   }
+  const actions = () => document.querySelector('.notify-promo-actions');
   function setInstallPromptSupport(on) {
     if (on) window.onbeforeinstallprompt = null; else delete window.onbeforeinstallprompt;
   }
@@ -56,9 +59,9 @@ describe('install affordance rendering', () => {
     __resetInstallPromptForTests();
     // mockReset (not mockClear) so a per-test mockReturnValue('') override can't
     // leak into a later test; re-establish the default return value here.
-    mockHatchHtml.mockReset();
-    mockHatchHtml.mockReturnValue('<span class="tg-escape-hatch"><button class="tg-escape-hatch-btn">Link Telegram</button></span>');
-    mockWireHatch.mockClear();
+    mockHatchText.mockReset();
+    mockHatchText.mockReturnValue('<span class="tg-escape-hatch">You can also link Telegram…</span>');
+    mockSyncBtn.mockClear();
     dom();
     setStandalone(false);
     delete window.onbeforeinstallprompt;
@@ -235,22 +238,22 @@ describe('install affordance rendering', () => {
     expect(document.getElementById('install-toast').classList.contains('hidden')).toBe(false);
   });
 
-  test('push-in-tab lane (Firefox desktop) appends the hatch', () => {
+  test('push-in-tab lane (Firefox desktop) appends the hatch text + mounts the CTA', () => {
     setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0');
     initInstallAffordance();
     const text = document.getElementById('install-toast-text');
     expect(text.innerHTML).toContain('even when your browser is closed'); // existing copy kept
     expect(text.innerHTML).toContain('tg-escape-hatch');
-    expect(mockWireHatch).toHaveBeenCalledWith(text);
+    expect(mockSyncBtn).toHaveBeenCalledWith(actions(), true);
   });
 
-  test('ios-install lane appends the hatch after the phrase reminder (FAB → toast)', () => {
+  test('ios-install lane appends the hatch text after the phrase reminder + mounts the CTA (FAB → toast)', () => {
     setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1');
     initInstallAffordance();               // iOS lands dismissed → FAB only
     document.getElementById('install-fab').click();  // open the toast
     const text = document.getElementById('install-toast-text');
     expect(text.innerHTML).toContain('tg-escape-hatch');
-    expect(mockWireHatch).toHaveBeenCalledWith(text);
+    expect(mockSyncBtn).toHaveBeenCalledWith(actions(), true);
   });
 
   test('installable lane never gets the hatch (headline path untouched)', () => {
@@ -259,11 +262,12 @@ describe('install affordance rendering', () => {
     initInstallAffordance();
     const text = document.getElementById('install-toast-text');
     expect(text.innerHTML).not.toContain('tg-escape-hatch');
-    expect(mockWireHatch).not.toHaveBeenCalled();
+    // The lane explicitly clears any stale CTA (wanted=false) rather than leaving one.
+    expect(mockSyncBtn).toHaveBeenCalledWith(actions(), false);
   });
 
   test('unavailable hatch (empty string) leaves lanes at current behavior', () => {
-    mockHatchHtml.mockReturnValue('');
+    mockHatchText.mockReturnValue('');
     setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0');
     initInstallAffordance();
     const text = document.getElementById('install-toast-text');

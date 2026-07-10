@@ -4,7 +4,7 @@ import { markHintSeen, addPushToken, removePushToken, getRegisteredPushToken, ha
 import { detectNotifyCapability, guidanceCopyFor } from './installGuidance.js';
 import { isTelegramContext } from './telegram.js';
 import { isBotDelivered, setRepromptActive } from './notifySuppression.js';
-import { escapeHatchHtml, wireEscapeHatch } from './telegramEscapeHatch.js';
+import { escapeHatchTextHtml, syncEscapeHatchButton } from './telegramEscapeHatch.js';
 import { phraseReminderHtml, wirePhraseCopyButton } from './phraseReminder.js';
 import { getMessagingIfSupported } from './firebase-config.js';
 import { getToken } from 'firebase/messaging';
@@ -99,10 +99,10 @@ function showRegistrationFailed(banner) {
   const actionEl = banner.querySelector('#notify-promo-action');
   if (textEl) {
     textEl.innerHTML = "Couldn't turn on notifications on this device — it may not fully support web push. You can try again."
-      + escapeHatchHtml();
-    wireEscapeHatch(textEl);
+      + escapeHatchTextHtml();
   }
   if (actionEl) actionEl.classList.remove('hidden');
+  syncEscapeHatchButton(banner.querySelector('.notify-promo-actions'), true);
   showNotifyBanner(banner);
 }
 
@@ -205,10 +205,13 @@ export { phraseReminderHtml, wirePhraseCopyButton };
 function renderBanner(banner, capState, onDismiss) {
   const textEl = banner.querySelector('#notify-promo-text');
   const actionEl = banner.querySelector('#notify-promo-action');
+  const actionsEl = banner.querySelector('.notify-promo-actions');
   if (capState === 'supported') {
     textEl.textContent = 'Get notified about knocks, calls, and people coming online.';
     actionEl.textContent = 'Enable';
     actionEl.classList.remove('hidden');
+    // Web push is one tap away here — no escape hatch (and clear any stale one).
+    syncEscapeHatchButton(actionsEl, false);
     actionEl.onclick = async () => {
       const ok = await requestPermissionAndRegister();
       if (ok) { hideNotifyBanner(banner); return; }
@@ -225,11 +228,11 @@ function renderBanner(banner, capState, onDismiss) {
     const copy = guidanceCopyFor(capState);
     let html = copy.body;
     if (copy.remindPhrase) html += phraseReminderHtml();
-    html += escapeHatchHtml();   // '' when unavailable — dead-end lanes offer Telegram
+    html += escapeHatchTextHtml();   // '' when unavailable — dead-end lanes offer Telegram
     textEl.innerHTML = html;
     wirePhraseCopyButton(textEl);
-    wireEscapeHatch(textEl);
     actionEl.classList.add('hidden');
+    syncEscapeHatchButton(actionsEl, true); // "Use in Telegram" beside Close
   }
   banner.querySelector('#notify-promo-dismiss').onclick = onDismiss
     || (() => { dismissPromoForever(); hideNotifyBanner(banner); });
