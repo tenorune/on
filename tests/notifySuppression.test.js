@@ -5,6 +5,7 @@ jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) 
 const { isTelegramContext } = require('../js/telegram.js');
 const {
   botDelivered, isBotDelivered, syncBotDelivery, __resetBotDeliveryForTests,
+  isTelegramLinkedWeb, setRepromptActive, isRepromptActive,
 } = require('../js/notifySuppression.js');
 
 const LINKED_TG = { telegram: { linkedAt: 1 }, notifyChannel: 'telegram' };
@@ -71,5 +72,37 @@ describe('syncBotDelivery / isBotDelivered', () => {
     expect(isBotDelivered()).toBe(false);
     expect(seen).not.toHaveBeenCalled();
     document.removeEventListener('bot-delivery-change', seen);
+  });
+});
+
+describe('isTelegramLinkedWeb (5th reader of the linked marker)', () => {
+  test('starts false; follows prefs.telegram across syncBotDelivery ticks', () => {
+    expect(isTelegramLinkedWeb()).toBe(false);
+    syncBotDelivery(LINKED_PUSH);            // linked but channel push
+    expect(isTelegramLinkedWeb()).toBe(true); // linked ≠ botDelivered
+    expect(isBotDelivered()).toBe(false);
+    syncBotDelivery({ notifyChannel: 'push' }); // unlinked
+    expect(isTelegramLinkedWeb()).toBe(false);
+  });
+
+  test('Telegram context → not recorded (web-only concern)', () => {
+    isTelegramContext.mockReturnValue(true);
+    syncBotDelivery(LINKED_TG);
+    expect(isTelegramLinkedWeb()).toBe(false);
+  });
+});
+
+describe('setRepromptActive / isRepromptActive', () => {
+  test('starts false; flips and dispatches reprompt-change only on change', () => {
+    const seen = jest.fn();
+    document.addEventListener('reprompt-change', seen);
+    expect(isRepromptActive()).toBe(false);
+    setRepromptActive(true);
+    expect(isRepromptActive()).toBe(true);
+    setRepromptActive(true);   // same value — no second dispatch
+    setRepromptActive(false);
+    expect(isRepromptActive()).toBe(false);
+    expect(seen).toHaveBeenCalledTimes(2);
+    document.removeEventListener('reprompt-change', seen);
   });
 });

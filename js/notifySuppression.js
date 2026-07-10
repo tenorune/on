@@ -17,6 +17,8 @@ let suppressed = false;
 // (W2 C10). A FOURTH reader consumes only the `prefs.telegram != null` linked
 // half (not the channel): js/telegramOnramp.js syncTelegramOnramp, which
 // suppresses the onramp once linked — keep it in step if the marker changes.
+// A FIFTH reader, js/telegramEscapeHatch.js, consumes the linked half via
+// isTelegramLinkedWeb() below (recorded from the same prefs tick).
 export function botDelivered(prefs) {
   return prefs?.telegram != null && prefs?.notifyChannel !== 'push';
 }
@@ -26,14 +28,37 @@ export function botDelivered(prefs) {
 
 export function isBotDelivered() { return suppressed; }
 
+let linkedWeb = false;
+let repromptActive = false;
+
+// Web-only "this account is linked" (prefs.telegram != null) — the linked
+// marker's 5th reader, recorded on the same tick as botDelivered so
+// telegramEscapeHatch can gate without importing prefs. See the reader list
+// in the botDelivered comment above.
+export function isTelegramLinkedWeb() { return linkedWeb; }
+
+// Reprompt-banner visibility, fed by notifyPrompt refreshPromoVisibility.
+// telegramOnramp reads it at decision time (promo defers to the reprompt —
+// concrete unmet intent beats a passive promo) and re-runs on 'reprompt-change'.
+export function setRepromptActive(active) {
+  const next = !!active;
+  if (next === repromptActive) return;
+  repromptActive = next;
+  document.dispatchEvent(new CustomEvent('reprompt-change'));
+}
+export function isRepromptActive() { return repromptActive; }
+
 export function syncBotDelivery(prefs) {
   // Web-only concern: in Telegram the whole install/web-push machinery is
   // already gated off at init (app.js) and inside notifyPrompt.
   if (isTelegramContext()) return;
+  linkedWeb = prefs?.telegram != null;
   const next = botDelivered(prefs);
   if (next === suppressed) return;
   suppressed = next;
   document.dispatchEvent(new CustomEvent('bot-delivery-change'));
 }
 
-export function __resetBotDeliveryForTests() { suppressed = false; }
+export function __resetBotDeliveryForTests() {
+  suppressed = false; linkedWeb = false; repromptActive = false;
+}
