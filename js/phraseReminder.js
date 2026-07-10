@@ -8,7 +8,7 @@ import { copyWithFeedback } from './utils.js';
 
 export function phraseReminderHtml() {
   return '<span class="notify-promo-reminder">Make sure you’ve saved your secret phrase — you’ll need it to restore your account after installing.</span>'
-    + '<span class="notify-promo-phrase">Secret phrase: <button type="button" class="notify-promo-copy">Copy to clipboard</button></span>';
+    + '<span class="notify-promo-phrase"><span class="notify-promo-phrase-label">Secret phrase:</span> <button type="button" class="notify-promo-copy">Copy to clipboard</button></span>';
 }
 
 export function wirePhraseCopyButton(container) {
