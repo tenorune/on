@@ -17,6 +17,7 @@ import {
 import { isFirstRunActive } from './firstRun.js';
 import { isBotDelivered } from './notifySuppression.js';
 import { isOnrampPromoActive } from './telegramOnramp.js';
+import { escapeHatchHtml, wireEscapeHatch } from './telegramEscapeHatch.js';
 
 function isMac() { return /Macintosh|Mac OS X/.test((navigator.userAgent) || ''); }
 
@@ -47,12 +48,17 @@ function fillToast(toast, lane) {
   } else if (lane === 'ios-install' || lane === 'macos-install') {
     // Same Add-to-Home-Screen / Add-to-Dock content as the onboarding install
     // modal, plus the save-your-phrase reminder (the toast is shown to a signed-in
-    // user, so Copy works here). No button — install is manual via the Share/File menu.
-    textEl.innerHTML = installStepBodyHtml(lane) + phraseReminderHtml();
+    // user, so Copy works here). No button — install is manual via the Share/File
+    // menu. Dead-end lane: the Telegram escape hatch rides along ('' when
+    // unavailable).
+    textEl.innerHTML = installStepBodyHtml(lane) + phraseReminderHtml() + escapeHatchHtml();
     wirePhraseCopyButton(textEl);
+    wireEscapeHatch(textEl);
     actionEl.classList.add('hidden');
-  } else { // push-in-tab — no in-app install possible, so no button
-    textEl.textContent = pushInTabCopy();
+  } else { // push-in-tab — no in-app install possible, so no button; the hatch
+    // is the only actionable path ('' when unavailable).
+    textEl.innerHTML = pushInTabCopy() + escapeHatchHtml();
+    wireEscapeHatch(textEl);
     actionEl.classList.add('hidden');
   }
 }

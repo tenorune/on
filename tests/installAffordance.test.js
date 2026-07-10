@@ -5,6 +5,13 @@ jest.mock('../js/firstRun.js', () => ({ isFirstRunActive: jest.fn(() => false) }
 jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
 jest.mock('../js/telegramOnramp.js', () => ({ isOnrampPromoActive: jest.fn(() => false) }));
 
+const mockHatchHtml = jest.fn(() => '<span class="tg-escape-hatch"><button class="tg-escape-hatch-btn">Link Telegram</button></span>');
+const mockWireHatch = jest.fn();
+jest.mock('../js/telegramEscapeHatch.js', () => ({
+  escapeHatchHtml: (...a) => mockHatchHtml(...a),
+  wireEscapeHatch: (...a) => mockWireHatch(...a),
+}));
+
 const { pushInTabCopy } = require('../js/installAffordance.js');
 
 describe('pushInTabCopy', () => {
@@ -41,6 +48,8 @@ describe('install affordance rendering', () => {
     isFirstRunActive.mockReturnValue(false);
     require('../js/telegramOnramp.js').isOnrampPromoActive.mockReturnValue(false);
     __resetInstallPromptForTests();
+    mockHatchHtml.mockClear();
+    mockWireHatch.mockClear();
     dom();
     setStandalone(false);
     delete window.onbeforeinstallprompt;
@@ -193,6 +202,41 @@ describe('install affordance rendering', () => {
     isFirstRunActive.mockReturnValue(false);
     document.dispatchEvent(new CustomEvent('first-run-change'));
     expect(document.getElementById('install-toast').classList.contains('hidden')).toBe(false);
+  });
+
+  test('push-in-tab lane (Firefox desktop) appends the hatch', () => {
+    setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0');
+    initInstallAffordance();
+    const text = document.getElementById('install-toast-text');
+    expect(text.innerHTML).toContain('even when your browser is closed'); // existing copy kept
+    expect(text.innerHTML).toContain('tg-escape-hatch');
+    expect(mockWireHatch).toHaveBeenCalledWith(text);
+  });
+
+  test('ios-install lane appends the hatch after the phrase reminder (FAB → toast)', () => {
+    setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1');
+    initInstallAffordance();               // iOS lands dismissed → FAB only
+    document.getElementById('install-fab').click();  // open the toast
+    const text = document.getElementById('install-toast-text');
+    expect(text.innerHTML).toContain('tg-escape-hatch');
+    expect(mockWireHatch).toHaveBeenCalledWith(text);
+  });
+
+  test('installable lane never gets the hatch (headline path untouched)', () => {
+    setUA('Mozilla/5.0 (X11; Linux x86_64) Chrome/125.0');
+    window.onbeforeinstallprompt = null;   // capability present
+    initInstallAffordance();
+    const text = document.getElementById('install-toast-text');
+    expect(text.innerHTML).not.toContain('tg-escape-hatch');
+    expect(mockWireHatch).not.toHaveBeenCalled();
+  });
+
+  test('unavailable hatch (empty string) leaves lanes at current behavior', () => {
+    mockHatchHtml.mockReturnValue('');
+    setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0');
+    initInstallAffordance();
+    const text = document.getElementById('install-toast-text');
+    expect(text.innerHTML).not.toContain('tg-escape-hatch');
   });
 
   describe('bot-delivered suppression (linked account, telegram channel)', () => {
