@@ -3,7 +3,8 @@ import { NOTIFICATIONS_ENABLED } from './features.js';
 import { markHintSeen, addPushToken, removePushToken, getRegisteredPushToken, hasAnyNotifyPrefEnabled, touchPushToken, cullStalePushTokens } from './prefs.js';
 import { detectNotifyCapability, guidanceCopyFor } from './installGuidance.js';
 import { isTelegramContext } from './telegram.js';
-import { isBotDelivered } from './notifySuppression.js';
+import { isBotDelivered, setRepromptActive } from './notifySuppression.js';
+import { escapeHatchHtml, wireEscapeHatch } from './telegramEscapeHatch.js';
 import { phraseReminderHtml, wirePhraseCopyButton } from './phraseReminder.js';
 import { getMessagingIfSupported } from './firebase-config.js';
 import { getToken } from 'firebase/messaging';
@@ -88,7 +89,11 @@ export async function refreshPushToken() {
 function showRegistrationFailed(banner) {
   const textEl = banner.querySelector('#notify-promo-text');
   const actionEl = banner.querySelector('#notify-promo-action');
-  if (textEl) textEl.textContent = "Couldn't turn on notifications on this device — it may not fully support web push. You can try again.";
+  if (textEl) {
+    textEl.innerHTML = "Couldn't turn on notifications on this device — it may not fully support web push. You can try again."
+      + escapeHatchHtml();
+    wireEscapeHatch(textEl);
+  }
   if (actionEl) actionEl.classList.remove('hidden');
   banner.classList.remove('hidden');
 }
@@ -118,7 +123,16 @@ export async function ensureNotificationsReady() {
   const cap = detectNotifyCapability();
   if (cap.state === 'supported') {
     const ok = await requestPermissionAndRegister();
-    if (!ok) showBannerForState(detectNotifyCapability().state);
+    if (!ok) {
+      // Same distinction as the Enable button's own retry handler: if capability
+      // still reads 'supported' the permission prompt succeeded but token
+      // registration didn't — that's the registration-failed dead end (with its
+      // escape hatch), not a plain re-render of the Enable banner.
+      const state = detectNotifyCapability().state;
+      const banner = document.getElementById('notify-promo');
+      if (state === 'supported') { if (banner) showRegistrationFailed(banner); }
+      else showBannerForState(state);
+    }
     // On success, re-evaluate the banner now: the switch-to-push flow revives
     // the reprompt an instant before this runs, and waiting for the token
     // write's notify-prefs-synced echo would leave a stale "Enable" showing.
@@ -155,19 +169,24 @@ function refreshPromoVisibility() {
   if (!banner) return;
   // Never surface the web-push promo/reprompt in Telegram — the bot is the
   // notification channel there (spec §9); web-push framing would only mislead.
-  if (isTelegramContext()) { banner.classList.add('hidden'); return; }
+  if (isTelegramContext()) { setRepromptActive(false); banner.classList.add('hidden'); return; }
   // Bot-delivered: the reprompt's premise ("your on-bells deliver nothing on
   // this device") is false — the bot delivers them. Re-evaluated on
   // bot-delivery-change, so switching to push revives the reprompt live.
-  if (isBotDelivered()) { banner.classList.add('hidden'); return; }
+  if (isBotDelivered()) { setRepromptActive(false); banner.classList.add('hidden'); return; }
   const cap = detectNotifyCapability();
   const permission = (typeof Notification !== 'undefined' && Notification.permission) || 'default';
   const reprompt = shouldReprompt({
     enabled: NOTIFICATIONS_ENABLED, hasEnabledPrefs: hasAnyNotifyPrefEnabled(),
     permission, capState: cap.state, deviceDismissed: isRepromptDismissedOnDevice(),
   });
+  // The onramp promo defers while the reprompt is up (concrete unmet intent
+  // beats a passive promo) — notifySuppression carries the flag.
+  setRepromptActive(reprompt);
   if (!reprompt) { banner.classList.add('hidden'); return; }
-  renderBanner(banner, cap.state, () => { dismissRepromptOnDevice(); banner.classList.add('hidden'); });
+  renderBanner(banner, cap.state, () => {
+    dismissRepromptOnDevice(); setRepromptActive(false); banner.classList.add('hidden');
+  });
   banner.classList.remove('hidden');
 }
 
@@ -199,8 +218,10 @@ function renderBanner(banner, capState, onDismiss) {
     const copy = guidanceCopyFor(capState);
     let html = copy.body;
     if (copy.remindPhrase) html += phraseReminderHtml();
+    html += escapeHatchHtml();   // '' when unavailable — dead-end lanes offer Telegram
     textEl.innerHTML = html;
     wirePhraseCopyButton(textEl);
+    wireEscapeHatch(textEl);
     actionEl.classList.add('hidden');
   }
   banner.querySelector('#notify-promo-dismiss').onclick = onDismiss

@@ -17,6 +17,22 @@ jest.mock('../js/installGuidance.js', () => ({
 }));
 jest.mock('../js/identity.js', () => ({ loadIdentity: jest.fn() }));
 jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
+// Hygiene: default to '' (inert) rather than the brief's literal non-empty
+// default. This mock is shared by the WHOLE file (module scope), and several
+// pre-existing describes below (ensureNotificationsReady, promo Enable button
+// failure feedback) assert exact textContent for guidance/registration-failed
+// copy with no awareness of the hatch. A non-empty file-wide default bleeds
+// "Link Telegram" into those assertions regardless of test order. The "escape
+// hatch on dead-end banners" describe below opts back into the non-empty
+// return explicitly in its own beforeEach, which also fixes an intra-describe
+// pollution hazard (a test.each case relying on the same implicit default
+// after an earlier case in the same describe called mockReturnValue('')).
+const mockHatchHtml = jest.fn(() => '');
+const mockWireHatch = jest.fn();
+jest.mock('../js/telegramEscapeHatch.js', () => ({
+  escapeHatchHtml: (...a) => mockHatchHtml(...a),
+  wireEscapeHatch: (...a) => mockWireHatch(...a),
+}));
 
 const { isTelegramContext } = require('../js/telegram.js');
 const { requestPermissionAndRegister } = require('../js/notifyPrompt.js');
@@ -445,5 +461,90 @@ describe('bot-delivered suppression (linked account, telegram channel)', () => {
     await ensureNotificationsReady();
     expect(addPushToken).toHaveBeenCalledWith('tok-1');         // flow succeeded
     expect(banner().classList.contains('hidden')).toBe(true);   // and hid the banner itself
+  });
+});
+
+describe('escape hatch on dead-end banners', () => {
+  const { ensureNotificationsReady } = require('../js/notifyPrompt.js');
+  const { detectNotifyCapability, guidanceCopyFor } = require('../js/installGuidance.js');
+
+  function bannerDom() {
+    document.body.innerHTML = `
+      <div id="notify-promo" class="hidden">
+        <span id="notify-promo-text"></span>
+        <button id="notify-promo-dismiss"></button>
+        <button id="notify-promo-action" class="hidden"></button>
+      </div>`;
+  }
+  beforeEach(() => {
+    bannerDom();
+    mockHatchHtml.mockClear(); mockWireHatch.mockClear();
+    // Opt this describe back into the non-empty hatch by default (see the
+    // mock's module-scope declaration comment) — set fresh every test so an
+    // earlier case's mockReturnValue('') can't leak into a later one.
+    mockHatchHtml.mockReturnValue('<span class="tg-escape-hatch"><button class="tg-escape-hatch-btn">Link Telegram</button></span>');
+    guidanceCopyFor.mockImplementation((s) => ({ body: `copy-for-${s}` }));
+    delete global.Notification;
+  });
+
+  test.each(['needs-install-ios', 'needs-install-macos', 'in-app-browser', 'denied', 'unsupported'])(
+    'guidance state %s appends the hatch and wires it', async (state) => {
+      detectNotifyCapability.mockReturnValue({ state });
+      await ensureNotificationsReady();
+      const textEl = document.getElementById('notify-promo-text');
+      expect(textEl.innerHTML).toContain(`copy-for-${state}`);
+      expect(textEl.innerHTML).toContain('tg-escape-hatch');
+      expect(mockWireHatch).toHaveBeenCalledWith(textEl);
+    });
+
+  test('unavailable hatch (empty string) leaves guidance copy unchanged', async () => {
+    mockHatchHtml.mockReturnValue('');
+    detectNotifyCapability.mockReturnValue({ state: 'needs-install-ios' });
+    await ensureNotificationsReady();
+    const textEl = document.getElementById('notify-promo-text');
+    expect(textEl.innerHTML).not.toContain('tg-escape-hatch');
+  });
+
+  test('supported state never renders the hatch (web push is one tap away)', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'supported' });
+    global.Notification = { requestPermission: jest.fn().mockResolvedValue('granted') };
+    global.navigator.serviceWorker = { ready: Promise.resolve({}) };
+    const { getMessagingIfSupported } = require('../js/firebase-config.js');
+    getMessagingIfSupported.mockResolvedValue(null); // registration fails → failure surface
+    await ensureNotificationsReady();
+    const textEl = document.getElementById('notify-promo-text');
+    // Registration-failed IS a dead end — hatch expected there:
+    expect(textEl.textContent).toContain("Couldn't turn on notifications");
+    expect(textEl.innerHTML).toContain('tg-escape-hatch');
+    expect(mockWireHatch).toHaveBeenCalledWith(textEl);
+  });
+});
+
+describe('reprompt visibility feeds setRepromptActive', () => {
+  const { initNotifyPrompt } = require('../js/notifyPrompt.js');
+  const { isRepromptActive, __resetBotDeliveryForTests } = require('../js/notifySuppression.js');
+  const { hasAnyNotifyPrefEnabled } = require('../js/prefs.js');
+  const { detectNotifyCapability } = require('../js/installGuidance.js');
+
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="notify-promo" class="hidden">
+        <span id="notify-promo-text"></span>
+        <button id="notify-promo-dismiss"></button>
+        <button id="notify-promo-action" class="hidden"></button>
+      </div>`;
+    __resetBotDeliveryForTests();
+    localStorage.clear();
+    global.Notification = { permission: 'default' };
+  });
+
+  test('banner shown → flag true; hidden → flag false', () => {
+    detectNotifyCapability.mockReturnValue({ state: 'supported' });
+    hasAnyNotifyPrefEnabled.mockReturnValue(true);   // unmet intent → reprompt
+    initNotifyPrompt('u1');
+    expect(isRepromptActive()).toBe(true);
+    hasAnyNotifyPrefEnabled.mockReturnValue(false);  // intent gone
+    document.dispatchEvent(new CustomEvent('notify-prefs-synced'));
+    expect(isRepromptActive()).toBe(false);
   });
 });
