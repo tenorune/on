@@ -223,7 +223,21 @@
       <tr><td>A2</td><td><code>/invite?i=</code> renders <b>config #1</b> (invite-first, marketing minimized-but-expandable); <code>/about?i=</code> renders <b>config #2</b> (full page + invite block). Pages never redirect or auto-hop.</td></tr>
       <tr><td>A3</td><td>Browser-opened <code>/about</code> always carries a standing bare “Open in Telegram” CTA (when the build has a real deep link).</td></tr>
       <tr><td>A4</td><td>The Mini App invite interstitial gains a “What is KnockKnock?” link → <code>/invite?i=TOKEN</code> — shown only in the first-open (<code>isNew</code>, “Accept &amp; get started”) context; the flag already drives the accept label, so the gate is one line.</td></tr>
-      <tr><td>Q7 = C+A</td><td>Installed-PWA recipients: platform-native link capturing where it exists (desktop Chromium works; Android <code>intent://</code> hand-off to walk), plus a universal in-app fallback — the “Add a person” form learns to accept a pasted invite link, and the landing gains a quiet third door for installed users.</td></tr>
+      <tr><td>Q7 = C+A</td><td>Installed-PWA recipients: platform-native link capturing where it exists (desktop Telegram routes <code>/?i=</code> into the installed app; Android <code>intent://</code> hand-off to walk), plus a universal in-app fallback — the “Redeem Invite” tab (C9/N6) — and a quiet third landing door for installed users.</td></tr>
+    </table></div>
+    <h3 style="margin-top:16px">Challenge round (post-v1)</h3>
+    <div class="tablewrap"><table>
+      <tr><th>Ref</th><th>Disposition</th></tr>
+      <tr><td>C1</td><td>Adopted — <b>identity-aware pass-through</b> on config #1 (N4): with <code>statusapp_identity</code> in localStorage, the landing continues straight to <code>/?i=TOKEN&amp;stay=1</code>. Repairs F5’s extra tap, group invites to members, and the captured-app-window case. Desktop-Telegram evidence covers <code>/?i=</code> only → walkthrough item for <code>/invite?i=</code>.</td></tr>
+      <tr><td>C2</td><td>Adopted — <code>stay=1</code> appended unconditionally (tokenless <code>browser_fallback_url</code> would otherwise loop through the phase-2 redirect).</td></tr>
+      <tr><td>C3</td><td>Accepted limit — stored identity outranks the Telegram-Android auto-hop; a pre-existing #283 duplicate in that webview keeps receiving invites. No signal distinguishes it; no real-world report; revisit if one appears.</td></tr>
+      <tr><td>C4</td><td>Adopted — config #1 keeps the intro’s first sentence visible above the expander.</td></tr>
+      <tr><td>C5</td><td>Adopted, implement-and-evaluate — on iOS the installed-app door is visually promoted.</td></tr>
+      <tr><td>C6</td><td>Adopted — redeem input also accepts <code>t.me/…?startapp=TOKEN</code> links.</td></tr>
+      <tr><td>C7</td><td>Adopted — clipboard failure falls back to the URL as selectable text.</td></tr>
+      <tr><td>C8</td><td>Withdrawn — operator-verified: t.me group invites in Telegram work; web group invites work, incl. via <code>/about?i=</code>.</td></tr>
+      <tr><td>C9</td><td>Adopted with adjustment — explicit tab pair “Add a Person” / “Redeem Invite” instead of single-input dispatch (N6, wireframe below).</td></tr>
+      <tr><td>C10</td><td>Accepted limit — a copied <code>/?i=…&amp;stay=1</code> address-bar URL neutralizes the boot net for its one recipient; N4 wording tightened.</td></tr>
     </table></div>
   </section>
 
@@ -402,16 +416,17 @@
     </div>
 
     <div class="flow">
-      <h3><span class="fid">F5</span>Shared link, recipient already has a web identity</h3>
+      <h3><span class="fid">F5</span>Shared link, recipient already has a web identity in this browser</h3>
       <div class="chain">
         <span class="node n-origin"><b>Anywhere</b><small>/invite?i=TOKEN</small></span>
         <span class="hop"><span class="arr">→</span></span>
-        <span class="node n-page"><b>Config #1 landing</b><small>page can’t know identity exists</small></span>
-        <span class="hop"><span class="arr">→</span>“Continue in browser”</span>
-        <span class="node n-app"><b>App boots with identity</b><small>no welcome screen</small></span>
+        <span class="node n-page"><b>Config #1 landing</b><small>reads statusapp_identity (same-origin)</small></span>
+        <span class="hop"><span class="arr">→</span>pass-through (C1), zero taps</span>
+        <span class="node n-app"><b>App boots with identity</b><small>/?i=&amp;stay=1, same window</small></span>
         <span class="hop"><span class="arr">→</span></span>
-        <span class="node n-good"><b>Redeems onto existing account</b><small>cost vs. today: one extra tap</small></span>
+        <span class="node n-good"><b>Redeems onto existing account</b><small>same as today; also covers the captured app window</small></span>
       </div>
+      <p class="why">Identity in a <em>different</em> partition (e.g. iOS PWA user in Safari) can’t be seen — that case is F9.</p>
     </div>
 
     <div class="flow">
@@ -468,9 +483,9 @@
           <div class="wf-hint">Telegram user? The invite connects to your Telegram account — no separate sign-up.</div>
           <span class="wf-btn tg">Open in Telegram</span>
           <span class="wf-btn">Continue in browser</span>
-          <div class="wf-hint" style="margin-top:9px">Already have the app installed? Copy the invite and paste it under “Add a person”. <span style="border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-style:normal; font-weight:600;">Copy invite</span></div>
+          <div class="wf-hint" style="margin-top:9px">Already have the app installed? Copy the invite and paste it under “Redeem Invite”. <span style="border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-style:normal; font-weight:600;">Copy invite</span></div>
+          <div class="wf-hint" style="font-style:normal">KnockKnock is about <em>ambient presence</em> — a soft signal that you’re around and open to company. <span style="color:var(--good)">(stays visible — C4)</span></div>
           <div class="wf-exp">▸ More about KnockKnock</div>
-          <div class="wf-bar w60"></div>
         </div>
         <div class="cap"><b>Config #1 — <code>/invite?i=TOKEN</code>.</b> Invitation prominent; equal CTA pair (Q3=C); the installed-app third door (Q7-A) is a quiet tertiary line + copy button. v1 collapse boundary: <em>everything below the logo</em> (Intro, What you can do, Privacy, …) folds behind the expander uniformly; a finer split is a followup. Framing line appears when the preview resolves; headline is static so the page is never blank.</div>
       </div>
@@ -525,6 +540,25 @@
         <div class="cap"><b>Mini App interstitial</b> — existing surface (spec 2026-07-07, already as-built: contextual “Accept” label). Only change: the info link, gated on the same <code>isNew</code> flag that drives the label (a returning-unlinked user sees plain “Accept”, no link). Linked arrivals never see this — silent redeem.</div>
       </div>
 
+      <div class="mock">
+        <div class="phone" style="min-height:260px">
+          <div class="wf-sec">Direct list (bottom)</div>
+          <div style="display:flex; gap:4px; margin-top:8px">
+            <span class="wf-btn" style="flex:1; margin:0; border-bottom-left-radius:0; border-bottom-right-radius:0; border-color:var(--accent)">Add a Person</span>
+            <span class="wf-btn dim" style="flex:1; margin:0; border-bottom-left-radius:0; border-bottom-right-radius:0">Redeem Invite</span>
+          </div>
+          <div style="border:1.5px solid var(--accent); border-radius:0 0 10px 10px; padding:10px; margin-top:-1px">
+            <div class="wf-hint" style="margin-top:0">Code</div>
+            <div class="wf-bar" style="height:22px; border:1px solid var(--border); background:var(--surface)"></div>
+            <div class="wf-hint">Name (optional)</div>
+            <div class="wf-bar" style="height:22px; border:1px solid var(--border); background:var(--surface)"></div>
+            <span class="wf-btn" style="border-color:var(--accent); padding:5px">Follow</span>
+          </div>
+          <div class="wf-hint" style="margin-top:10px">“Redeem Invite” tab: same frame, one input (link or token), no Name field, button “Redeem”.</div>
+        </div>
+        <div class="cap"><b>Tab pair (C9/N6)</b> — the current “Add a person” button splits into two ~49%-width tab-style buttons that open the same form area. Left tab = today’s behavior unchanged (incl. the first-run “Add by code” relabel); right tab = invite paste (<code>i=</code> URLs, <code>startapp=</code> links, raw tokens).</div>
+      </div>
+
     </div>
   </section>
 
@@ -544,7 +578,7 @@
     <div class="tablewrap"><table>
       <tr><th>Platform</th><th>Can a link reach the installed PWA?</th></tr>
       <tr><td>iOS</td><td>No mechanism exists — Home-Screen web apps can’t be targeted by links, and their storage is partitioned from Safari.</td></tr>
-      <tr><td>Desktop Chromium</td><td>Yes — link capturing routes in-scope links into the installed app (operator-observed working).</td></tr>
+      <tr><td>Desktop</td><td>Telegram routes <code>/?i=</code> into the installed app (operator-observed); plain browsers do not. <code>/invite?i=</code> expected to follow the same scope-based routing — walkthrough item; the C1 pass-through makes the captured window boot-and-redeem either way.</td></tr>
       <tr><td>Android (WebAPK)</td><td>Partially — in-scope navigation from a real browser / <code>intent://</code> can open the installed app; from inside a host-app webview it does not hand off on its own. Walkthrough item.</td></tr>
     </table></div>
     <h3 style="margin-top:14px">Chosen treatment (Q7 = C+A)</h3>
@@ -559,8 +593,8 @@
         <span class="node n-trap"><b>Any webview / Safari</b><small>config #1 landing</small></span>
         <span class="hop"><span class="arr">→</span>“Copy invite”</span>
         <span class="node n-browser"><b>Home Screen / Dock</b><small>opens the installed app</small></span>
-        <span class="hop"><span class="arr">→</span>Add a person → paste</span>
-        <span class="node n-app"><b>Dual-mode input</b><small>recognizes the invite link</small></span>
+        <span class="hop"><span class="arr">→</span>“Redeem Invite” tab → paste</span>
+        <span class="node n-app"><b>Redeem input</b><small>accepts i= URLs, startapp= links, raw tokens</small></span>
         <span class="hop"><span class="arr">→</span>redeem</span>
         <span class="node n-good"><b>Invite on the existing account</b><small>no second identity, no phrase typing</small></span>
       </div>
@@ -595,15 +629,15 @@
 
     <h3>N4 · Page behavior (<code>about.html</code> serving <code>/about</code> + <code>/invite</code>)</h3>
     <ul>
-      <li>Pages never redirect and never auto-hop — they are the mint-free choice surface.</li>
-      <li>Config selection is by <code>location.pathname</code> — the first path-sensitive behavior in the about scripts (they previously keyed off <code>?i=</code> alone). <code>/invite</code> + valid token → config #1; anything else with valid token → config #2; no/invalid token → plain page (tokenless <code>/invite</code> falls back to plain).</li>
+      <li>Pages never redirect and never auto-hop for <em>fresh</em> visitors — they are the mint-free choice surface. One exception (C1): <b>identity-aware pass-through</b> — on config #1 only, when <code>localStorage.statusapp_identity</code> exists (<code>js/identity.js:4</code>; same-origin, the template’s theme script already reads app localStorage), continue immediately to <code>/?i=TOKEN&amp;stay=1</code> in the same window. With an identity there is no mint risk. Config #2 (<code>/about?i=</code>) deliberately does not pass through — it is a reading page.</li>
+      <li>Config selection is by <code>location.pathname</code> — the first path-sensitive behavior in the about scripts; applies to the about page only. <code>/invite</code> + valid token → config #1; <code>/about</code> + valid token → config #2; no/invalid token → plain page (tokenless <code>/invite</code> falls back to plain).</li>
       <li>Token validity: <code>/^[A-Za-z0-9_-]{1,64}$/</code> — the shape <code>about-invite.js:11</code> and <code>about-cta.js:22</code> already use.</li>
-      <li><b>Invite block</b> (both configs): static headline; the existing <code>#about-invite-framing</code> element moves inside unchanged (<code>about-invite.js</code> untouched — it upgrades the line when the preview resolves); equal-weight CTA pair (Q3=C): “Open in Telegram” = <code>data-telegram-link + '?startapp=' + token</code>, “Continue in browser” = <code>data-open-app</code> break-out; tertiary installed-app line + one-tap “Copy invite” (copies the canonical <code>/invite?i=TOKEN</code> URL).</li>
+      <li><b>Invite block</b> (both configs): static headline; the existing <code>#about-invite-framing</code> element moves inside unchanged (<code>about-invite.js</code> untouched — it upgrades the line when the preview resolves); equal-weight CTA pair (Q3=C): “Open in Telegram” = <code>data-telegram-link + '?startapp=' + token</code>, “Continue in browser” = <code>data-open-app</code> break-out; tertiary installed-app line + one-tap “Copy invite” (copies the canonical <code>/invite?i=TOKEN</code> URL). Clipboard failure (common in webviews) falls back to the URL as selectable text (C7). On iOS the installed-app door is visually promoted — implement-and-evaluate (C5).</li>
       <li><b>One set of doors:</b> while the invite block is visible, the intro hides <em>both</em> of its CTAs (“Open KnockKnock →” and the standing bare Telegram CTA).</li>
-      <li><b>Config #1 collapse (v1):</b> everything below the logo — intro, What you can do, privacy sections — folds behind one expander (“More about KnockKnock”). Script-off fallback = fully expanded page; nothing is ever unreachable. Finer split: followup.</li>
+      <li><b>Config #1 collapse (v1):</b> everything below the logo folds behind one expander (“More about KnockKnock”) — except the intro’s first sentence, which stays visible so a stranger has minimum context to choose a door (C4). Script-off fallback = fully expanded page; nothing is ever unreachable. Finer split: followup.</li>
       <li><b>Standing bare Telegram CTA (A3):</b> on token-less pages, the intro shows “Open in Telegram” → bare <code>t.me/&lt;bot&gt;/app</code> beside “Open KnockKnock →”.</li>
       <li><b>Fail-closed:</b> every Telegram CTA renders hidden and only unhides when <code>data-telegram-link</code> is non-empty and not an unsubstituted <code>__…__</code> placeholder (mirrors <code>about-invite.js:15</code>).</li>
-      <li><b>Loop guard:</b> <code>about-cta.js</code> appends <code>&amp;stay=1</code> to every link it rewrites when a token is present (iOS <code>x-safari-https</code>, Android <code>intent://</code> incl. its <code>browser_fallback_url</code>, desktop plain). The x-safari break-out itself is unchanged, pre-existing behavior.</li>
+      <li><b>Loop guard:</b> <code>about-cta.js</code> appends <code>stay=1</code> to <em>every</em> link it rewrites, token or not (C2) — a tokenless <code>browser_fallback_url</code> re-entering the webview would otherwise loop through the phase-2 bare redirect. iOS <code>x-safari-https</code>, Android <code>intent://</code> incl. fallback, desktop plain; the x-safari break-out itself is unchanged, pre-existing behavior.</li>
       <li>New logic lives in a new single-purpose classic script (<code>js/about-telegram.js</code>, mirroring <code>about-invite.js</code>’s pattern); <code>about-cta.js</code> changes only for <code>stay</code>.</li>
     </ul>
 
@@ -613,11 +647,12 @@
       <li>Wrinkle: <code>TELEGRAM_ENABLED</code> is a hardcoded const in <code>js/features.js</code> (ESM), not an env var — <code>build.js</code> (CJS) reads it from the source text via <code>/export const TELEGRAM_ENABLED = (true|false)/</code>. Keeps <code>features.js</code> the single source of truth so a post-merge build with the flag off cannot advertise a dead bot link, and the page can never disagree with <code>telegramSharingEnabled()</code>.</li>
     </ul>
 
-    <h3>N6 · Installed-PWA treatment (Q7 = C+A)</h3>
+    <h3>N6 · Installed-PWA treatment (Q7 = C+A, shape per C9)</h3>
     <ul>
-      <li><b>Dual-mode “Add a person” input</b> (<code>index.template.html #add-person-form</code>, <code>js/following.js</code>): dispatch on the trimmed input — parseable URL containing an <code>i=</code> param → invite token; exact 22-char base64url (<code>/^[A-Za-z0-9_-]{22}$/</code>, the invite-token length from <code>js/invites.js</code>) → invite token; otherwise the existing follow-by-code path (6-char codes are unambiguous). Redemption reuses the existing pipeline (<code>attemptRedeemFromUrl</code>-equivalent + <code>handleInviteRedemptionResult</code>), so personal and group invites both work.</li>
-      <li>The code input’s <code>maxlength="6"</code> lifts to admit pasted URLs; the optional-name field applies only in code mode.</li>
-      <li><b>C-side:</b> desktop Chromium link capturing already routes <code>/invite?i=</code> into the installed app (operator-observed). Android <code>intent://</code>→WebAPK hand-off: walkthrough item. A manifest <code>launch_handler</code>/capture tune-up is a possible followup, not in scope.</li>
+      <li><b>Tab pair</b> replacing the single “Add a person” button (<code>index.template.html #add-person-area</code>, <code>js/following.js</code>): two side-by-side tab-style buttons, each ~49% of the current button’s width — left <b>“Add a Person”</b>, right <b>“Redeem Invite”</b>. Opening either shows the shared form area with the active tab marked (wireframe below).</li>
+      <li>“Add a Person” = exactly today’s form and behavior (6-char code + optional name → Follow; <code>maxlength="6"</code> stays). The first-run relabel (<code>js/firstRun.js:62</code>, “Add by code”) applies to this tab only.</li>
+      <li>“Redeem Invite” = the same visual form, <em>no Name field</em>: one input accepting a pasted invite in any shape — a URL with an <code>i=</code> param, a <code>t.me/…?startapp=TOKEN</code> link (C6), or a raw 22-char base64url token (<code>/^[A-Za-z0-9_-]{22}$/</code>, the token length from <code>js/invites.js</code>). Anything else → inline error. Redemption reuses the existing pipeline (<code>attemptRedeemFromUrl</code> + <code>handleInviteRedemptionResult</code>) — personal and group invites both work.</li>
+      <li><b>C-side:</b> desktop Telegram routes <code>/?i=</code> into the installed app (operator-observed); <code>/invite?i=</code> expected to follow — walkthrough. Android <code>intent://</code>→WebAPK hand-off: walkthrough item. A manifest <code>launch_handler</code>/capture tune-up is a possible followup, not in scope.</li>
     </ul>
 
     <h3>N7 · Detection helpers (<code>js/installGuidance.js</code>)</h3>
@@ -636,7 +671,7 @@
     <div>
       <h2>Phasing</h2>
       <ul>
-        <li><b>Phase 1</b> — shared links become <code>/invite?i=</code> (N1); boot decision tree for <code>/?i=</code> (N3); config #1/#2 page work (N4); standing <code>/about</code> Telegram CTA; build gate (N5); dual-mode “Add a person” + landing copy door (N6); interstitial info link (N8); <code>stay=1</code> loop guard; panel skipped on <code>stay=1</code>.</li>
+        <li><b>Phase 1</b> — shared links become <code>/invite?i=</code> (N1); boot decision tree for <code>/?i=</code> (N3); config #1/#2 page work incl. identity pass-through (N4); standing <code>/about</code> Telegram CTA; build gate (N5); “Redeem Invite” tab + landing copy door (N6); interstitial info link (N8); unconditional <code>stay=1</code> loop guard; panel skipped on <code>stay=1</code>.</li>
         <li><b>Phase 2</b> — after the phase-1 on-device walkthrough: bare-arrival redirect (F8) + panel retirement.</li>
         <li><b>Done =</b> the operator’s on-device walkthrough, not green suites.</li>
       </ul>
@@ -669,6 +704,11 @@
         <li><span class="badge b-unknown">UNKNOWN</span> Firebase rewrite <code>/invite → about.html</code> preserving the query string (standard behavior, unverified in this project).</li>
         <li><span class="badge b-unknown">UNKNOWN</span> Android <code>intent://</code> + <code>stay=1</code> round-trip, incl. the <code>browser_fallback_url</code> path.</li>
         <li><span class="badge b-unknown">UNKNOWN</span> Android: does the <code>intent://</code> break-out hand off to an installed WebAPK (Q7-C), or open the plain browser?</li>
+        <li><span class="badge b-unknown">UNKNOWN</span> Desktop Telegram: where does <code>/invite?i=</code> land after N1/N2 (evidence covers <code>/?i=</code> only) — and does the C1 pass-through boot-and-redeem inside a captured app window?</li>
+        <li><span class="badge b-unknown">UNKNOWN</span> Clipboard-write success inside Telegram/Instagram webviews (C7 fallback exists either way).</li>
+        <li><span class="badge b-unknown">UNKNOWN</span> Does the iOS-promoted installed-app door get found (C5 — implement and evaluate)?</li>
+        <li><span class="badge b-new">VERIFIED ✓</span> t.me group invites accepted in Telegram work; web group invites work, incl. via <code>/about?i=</code> (C8 withdrawn).</li>
+        <li><span class="badge b-new">VERIFIED ✓</span> Desktop Telegram routes <code>/?i=</code> into the installed app; plain browsers do not.</li>
         <li>OBSERVED (existing code comment): <code>x-safari-https</code> from real Safari just prompts “Open in Safari?” — verified harmless on iOS/macOS 26.</li>
       </ul>
       <p style="font-size:12.5px; color: var(--muted)">Devices: iOS Telegram · iOS Safari · Android Telegram · Android Chrome · Android Instagram-class webview · desktop.</p>

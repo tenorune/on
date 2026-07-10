@@ -28,14 +28,33 @@ lives in a storage partition no webview or (on iOS) even Safari can reach.
 | Q4=A | Telegram-Android detected + token + deep link → boot auto-hops to `t.me/<bot>/app?startapp=TOKEN`, zero taps. |
 | Q5=B | Bare in-app arrivals (phase 2) redirect to plain `/about`, which offers both doors. |
 | Q6=A | `stay=1` boots skip the old in-app-browser panel (phase 1); panel retires in phase 2. |
-| Q7=C+A | Installed-PWA recipients: platform link-capturing where it exists + universal in-app fallback (dual-mode "Add a person" paste) + a tertiary landing door. |
+| Q7=C+A | Installed-PWA recipients: platform link-capturing where it exists + universal in-app fallback (the "Redeem Invite" tab, N6) + a tertiary landing door. |
 | A1 | `buildInviteUrl` → `/invite?i=TOKEN`; the `/?i=` boot gate remains as the net for legacy/copied links. |
 | A2 | `/invite?i=` renders config #1 (invite-first); `/about?i=` renders config #2 (full page + invite block). Pages never redirect or auto-hop. |
 | A3 | Browser-opened `/about` always shows a standing bare "Open in Telegram" CTA (fail-closed on the build substitution). |
 | A4 | Mini App interstitial gains a "What is KnockKnock?" link → `/invite?i=TOKEN`, shown only in the `isNew` ("Accept & get started") context. |
 
-Flows F0–F9 and the boot decision tree: see the HTML spec. Tested during brainstorm:
-a `t.me/…?startapp=…` link tapped in an Instagram DM opens the Mini App.
+Flows F0–F9 and the boot decision tree: see the HTML spec.
+
+### Challenge round (2026-07-10, post-v1)
+
+| Ref | Disposition |
+|---|---|
+| C1 | Adopted: **identity-aware pass-through** on config #1 (N4). Desktop-Telegram routing evidence covers `/?i=` only; routing is scope-based so `/invite?i=` should follow — walkthrough item. |
+| C2 | Adopted: `stay=1` appended unconditionally (was: token-only) — closes a phase-2 redirect loop via the `intent://` `browser_fallback_url`. |
+| C3 | Accepted limit: a stored identity outranks the Telegram-Android auto-hop, so a pre-existing #283 duplicate in that webview would keep receiving invites. No distinguishing signal exists; no such case reported; revisit if one appears. |
+| C4 | Adopted: config #1 keeps the intro's first sentence visible above the expander. |
+| C5 | Adopted, implement-and-evaluate: on iOS the installed-app door is visually promoted. |
+| C6 | Adopted: the redeem input also accepts `t.me/…?startapp=TOKEN` links. |
+| C7 | Adopted: copy-invite failure falls back to the URL as selectable text. |
+| C8 | Withdrawn — operator-verified (see below). |
+| C9 | Adopted with adjustment: explicit **tab pair** "Add a Person" / "Redeem Invite" instead of single-input dispatch (N6). |
+| C10 | Accepted limit (a copied `/?i=…&stay=1` address-bar URL neutralizes the net for its recipient — small window) + N4 wording tightened. |
+
+Operator-verified during brainstorm: a `t.me/…?startapp=…` link tapped in an Instagram DM
+opens the Mini App; t.me group invites accepted in Telegram work; web group invites work,
+including via `/about?i=`; desktop Telegram routes `/?i=` links into the installed app,
+plain browsers do not.
 
 ## 3. Normative rules
 
@@ -70,26 +89,37 @@ iOS-undetected tokenless boots never redirect. `cleanInviteParamFromUrl` (`app.j
 deletes `stay`. Phase 2 removes `showInAppBrowserRedirect` and its call site.
 
 ### N4 — Page behavior (`about.html` = `/about` + `/invite`)
-- Pages never redirect and never auto-hop.
-- Config by `location.pathname` (first path-sensitive behavior in the about scripts):
-  `/invite` + valid token → config #1; other path + valid token → config #2; no/invalid token
-  → plain page (tokenless `/invite` behaves as plain `/about`).
+- Pages never redirect and never auto-hop for *fresh* visitors. One exception, C1's
+  **identity-aware pass-through**: on config #1 only (`/invite` + valid token), when
+  `localStorage.statusapp_identity` exists in this context (`js/identity.js:4`; same-origin —
+  the template's theme script already reads app localStorage), immediately continue to
+  `/?i=TOKEN&stay=1` in the same window. With an identity there is no mint risk, and this
+  repairs the F5 extra-tap, group-invites-to-members, and the desktop app-window capture case.
+  Hand-shared `/about?i=` (config #2) deliberately does not pass through — it is a reading page.
+- Config by `location.pathname` (first path-sensitive behavior in the about scripts; applies
+  to the about page only): `/invite` + valid token → config #1; `/about` + valid token →
+  config #2; no/invalid token → plain page (tokenless `/invite` behaves as plain `/about`).
 - Token shape: `/^[A-Za-z0-9_-]{1,64}$/` (as `about-invite.js:11`, `about-cta.js:22`).
 - Invite block (both configs): static headline; existing `#about-invite-framing` moves inside
   unchanged (`about-invite.js` untouched); equal CTA pair — "Open in Telegram"
   (`data-telegram-link + '?startapp=' + token`) and "Continue in browser" (`data-open-app`
   break-out); tertiary installed-app line with one-tap "Copy invite" (copies the canonical
-  `/invite?i=TOKEN` URL).
+  `/invite?i=TOKEN` URL). Clipboard write failure (common in webviews) falls back to showing
+  the URL as selectable text (C7). On iOS (`isIos`-equivalent inline check, as `about-cta.js`
+  already does) the installed-app door is visually promoted — implement-and-evaluate (C5).
 - One set of doors: while the invite block shows, the intro hides both of its CTAs.
 - Config #1 collapse (v1): everything below the logo folds behind one expander
-  ("More about KnockKnock"). Script-off fallback = fully expanded. Finer split: followup.
+  ("More about KnockKnock"), except the intro's first sentence, which stays visible so a
+  stranger has minimum context to choose a door (C4). Script-off fallback = fully expanded.
+  Finer split: followup.
 - Standing bare Telegram CTA (A3): token-less pages show "Open in Telegram" → bare
   `t.me/<bot>/app` beside "Open KnockKnock →".
 - Fail-closed: every Telegram CTA renders hidden; unhide only when `data-telegram-link` is
   non-empty and not an unsubstituted `__…__` placeholder (mirrors `about-invite.js:15`).
-- Loop guard: `about-cta.js` appends `&stay=1` to every link it rewrites when a token is
-  present (x-safari, `intent://` incl. `browser_fallback_url`, desktop plain). The x-safari
-  break-out itself is unchanged pre-existing behavior.
+- Loop guard: `about-cta.js` appends `stay=1` to **every** link it rewrites, token or not
+  (x-safari, `intent://` incl. `browser_fallback_url`, desktop plain) — a tokenless
+  `browser_fallback_url` re-entering the webview would otherwise loop through the phase-2
+  bare-arrival redirect (C2). The x-safari break-out itself is unchanged pre-existing behavior.
 - New logic in a new single-purpose classic script `js/about-telegram.js`;
   `about-cta.js` changes only for `stay`.
 
@@ -100,16 +130,22 @@ from the source text via `/export const TELEGRAM_ENABLED = (true|false)/`, keepi
 `features.js` the single source of truth so the page can never disagree with
 `telegramSharingEnabled()` (a post-merge flag-off build cannot advertise a dead bot link).
 
-### N6 — Installed-PWA treatment (Q7=C+A)
-- Dual-mode "Add a person" input (`index.template.html #add-person-form`, `js/following.js`):
-  dispatch on the trimmed input — a parseable URL with an `i=` param → invite token; an exact
-  22-char base64url string (`/^[A-Za-z0-9_-]{22}$/`, the token length from `js/invites.js`) →
-  invite token; otherwise the existing follow-by-code path. Redemption reuses the existing
-  pipeline (`attemptRedeemFromUrl`-equivalent + `handleInviteRedemptionResult`), so personal
-  and group invites both work. `maxlength="6"` lifts; the name field applies to code mode only.
-- C-side: desktop Chromium link capturing already opens `/invite?i=` in the installed app
-  (operator-observed). Android `intent://`→WebAPK hand-off: walkthrough item. Manifest
-  `launch_handler` tuning: possible followup, out of scope.
+### N6 — Installed-PWA treatment (Q7=C+A, shape per C9)
+- **Tab pair** replacing the single "Add a person" button (`index.template.html
+  #add-person-area`, `js/following.js`): two side-by-side tab-style buttons, each ~49% of the
+  current button's width — left **"Add a Person"**, right **"Redeem Invite"**. Opening either
+  shows the shared form area with the active tab marked. "Add a Person" = exactly today's form
+  and behavior (6-char code + optional name → Follow; `maxlength="6"` stays). "Redeem Invite" =
+  the same visual form with no Name field: one input accepting a pasted invite in any shape —
+  a URL carrying an `i=` param, a `t.me/…?startapp=TOKEN` link (C6), or a raw 22-char base64url
+  token (`/^[A-Za-z0-9_-]{22}$/`, the token length from `js/invites.js`). Anything else →
+  inline error. Redemption reuses the existing pipeline (`attemptRedeemFromUrl` +
+  `handleInviteRedemptionResult`), so personal and group invites both work.
+- First-run interplay: `js/firstRun.js:62` relabels the add button in the demoted empty state —
+  the relabel applies to the "Add a Person" tab; "Redeem Invite" keeps its label.
+- C-side: desktop Telegram routes `/?i=` into the installed app (operator-observed; `/invite?i=`
+  expected to follow — walkthrough). Android `intent://`→WebAPK hand-off: walkthrough item.
+  Manifest `launch_handler` tuning: possible followup, out of scope.
 
 ### N7 — Detection helpers (`js/installGuidance.js`)
 - New `export function isTelegramInAppBrowser()` = `/Telegram/.test(ua())` — Android-only
@@ -131,6 +167,11 @@ to the interstitial. The page's loop-back "Open in Telegram" CTA is accepted for
   (loop-back CTA); copy tuning; manifest link-capturing.
 - **Done =** the operator's on-device walkthrough, not green suites.
 
+Accepted limits: C3 (stored identity outranks the Telegram-Android auto-hop — a pre-existing
+#283 duplicate in that webview keeps receiving invites; revisit on first real report); C10
+(a copied `/?i=…&stay=1` address-bar URL neutralizes the boot net for its one recipient);
+`start_param` carries exactly one token — multi-invite links out of scope (spec 2026-07-05 §9).
+
 ## 5. Testing
 
 Unit (jest, `node_modules/.bin/jest` from repo root):
@@ -139,12 +180,17 @@ Unit (jest, `node_modules/.bin/jest` from repo root):
 - `invites`: `buildInviteUrl` shape.
 - `about-page`: config selection by path + token; invite block visibility; both intro CTAs
   hidden with the block; Telegram CTA fail-closed (placeholder/empty), composed
-  `?startapp=` href; `stay=1` on all three rewrite platforms; copy-invite affordance;
-  tokenless `/invite` = plain page; plain `/about` shows the standing CTA only when substituted.
+  `?startapp=` href; `stay=1` on all three rewrite platforms, with and without a token (C2);
+  identity-aware pass-through fires on config #1 with `statusapp_identity` present and never
+  on config #2 or without identity (C1); copy-invite affordance + selectable-text fallback
+  (C7); iOS door promotion (C5); tokenless `/invite` = plain page; plain `/about` shows the
+  standing CTA only when substituted.
 - App-boot suite: each gate row fires/doesn't (order-sensitive: identity beats detection,
   `stay` beats everything but Mini App); `location.replace` targets; `stay` stripped.
-- `following`: dual-mode dispatch (URL, 22-char token, 6-char code, garbage); redemption
-  pipeline reuse; maxlength lift.
+- `following`: tab pair renders; "Add a Person" behavior unchanged incl. first-run relabel;
+  "Redeem Invite" accepts `i=` URLs, `startapp=` URLs, raw 22-char tokens; rejects garbage
+  and 6-char codes with an inline error; redemption pipeline reuse; no Name field in redeem
+  mode.
 - `telegramFirstRun`: info link present iff `isNew`; choice resolutions unchanged.
 - `build.js`: substitution on/off with the features-flag read.
 
@@ -152,7 +198,10 @@ Walkthrough matrix (operator, on device): iOS Telegram · iOS Safari · Android 
 Android Chrome · Android Instagram-class webview · desktop · installed-PWA on each platform.
 UNKNOWNs to resolve there: Telegram-Android interception of the auto-hop `location.replace`;
 Android `intent://` + `stay=1` round-trip; Android `intent://`→WebAPK hand-off; Firebase
-rewrite query preservation.
+rewrite query preservation; desktop-Telegram routing of `/invite?i=` (C1 — evidence covers
+`/?i=` only) and that the pass-through inside a captured app window boots and redeems;
+clipboard-write success inside Telegram/Instagram webviews (C7); whether the iOS-promoted
+installed-app door gets found (C5).
 
 ## 6. Touch points
 
