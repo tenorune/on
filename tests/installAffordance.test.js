@@ -48,7 +48,10 @@ describe('install affordance rendering', () => {
     isFirstRunActive.mockReturnValue(false);
     require('../js/telegramOnramp.js').isOnrampPromoActive.mockReturnValue(false);
     __resetInstallPromptForTests();
-    mockHatchHtml.mockClear();
+    // mockReset (not mockClear) so a per-test mockReturnValue('') override can't
+    // leak into a later test; re-establish the default return value here.
+    mockHatchHtml.mockReset();
+    mockHatchHtml.mockReturnValue('<span class="tg-escape-hatch"><button class="tg-escape-hatch-btn">Link Telegram</button></span>');
     mockWireHatch.mockClear();
     dom();
     setStandalone(false);
