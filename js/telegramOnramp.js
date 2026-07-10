@@ -106,7 +106,10 @@ export function initTelegramOnramp() {
 }
 
 // Suppress once this account is linked to Telegram (prefs.telegram set). Rides
-// the watchUserPrefs tick — mirrors notifySuppression's `prefs.telegram != null`.
+// the watchUserPrefs tick. Fourth reader of the `prefs.telegram != null` linked
+// marker (the linked half of the notify-channel contract) — see the cross-ref
+// in js/notifySuppression.js botDelivered (W2 C10); consumes only the marker,
+// not the channel default.
 export function syncTelegramOnramp(serverPrefs) {
   const nowLinked = serverPrefs?.telegram != null;
   const justLinked = nowLinked && !_linked;

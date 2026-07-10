@@ -35,6 +35,17 @@ describe('botDelivered (pure predicate)', () => {
   });
 });
 
+// Shared cross-reader guard (W2 C10): botDelivered must agree with the pill's
+// render default (js/notifyChannel.js) and the server notifier
+// (functions/notifier.js) on the channel!=='push' truth table for a linked
+// account. All three consume test-fixtures/notify-channel-vectors.json.
+const channelVectors = require('../test-fixtures/notify-channel-vectors.json').vectors;
+describe('botDelivered agrees with the shared notify-channel default (C10)', () => {
+  test.each(channelVectors)('linked, channel=$notifyChannel → botDelivered=$telegramDelivered', (v) => {
+    expect(botDelivered({ telegram: { linkedAt: 1 }, notifyChannel: v.notifyChannel })).toBe(v.telegramDelivered);
+  });
+});
+
 describe('syncBotDelivery / isBotDelivered', () => {
   test('starts false', () => {
     expect(isBotDelivered()).toBe(false);

@@ -17,10 +17,6 @@ export function isTelegramContext() {
 }
 
 let _linkState = null;
-// { linked } from the last ensureTelegramIdentity() — telegramSettings reads it.
-export function telegramLinkState() {
-  return _linkState;
-}
 
 // THE "is this Telegram session linked" predicate — the one place the linked
 // definition is spelled (W3-A CL#3). Static within a session: link, unlink,

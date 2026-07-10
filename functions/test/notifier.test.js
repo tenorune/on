@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals';
 import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest } from '../notifier.js';
+import channelDefault from '../../test-fixtures/notify-channel-vectors.json' with { type: 'json' };
 
 function makeDeps(overrides = {}) {
   const store = overrides.store || {};
@@ -672,6 +673,25 @@ describe('sendToUser telegram channel', () => {
     expect(deps.sendTelegram).not.toHaveBeenCalled();
     expect(deps.send).toHaveBeenCalled();
   });
+
+  // Shared cross-reader guard (W2 C10): the server route gate must agree with
+  // the client readers (js/notifySuppression.js botDelivered, js/notifyChannel.js
+  // pill) on the channel!=='push' default. All three consume the same fixture.
+  test.each(channelDefault.vectors)(
+    'C10: linked route, channel=$notifyChannel → telegram-delivered=$telegramDelivered',
+    async (v) => {
+      const deps = makeDeps({ store: { ...tgStore, 'userPrefs/u1/notifyChannel': v.notifyChannel } });
+      deps.sendTelegram = jest.fn(async () => true);
+      await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+      if (v.telegramDelivered) {
+        expect(deps.sendTelegram).toHaveBeenCalled();
+        expect(deps.send).not.toHaveBeenCalled();
+      } else {
+        expect(deps.sendTelegram).not.toHaveBeenCalled();
+        expect(deps.send).toHaveBeenCalled();
+      }
+    },
+  );
   test('no sendTelegram dep (bot not configured) → FCM', async () => {
     const deps = makeDeps({ store: { ...tgStore } });
     await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});

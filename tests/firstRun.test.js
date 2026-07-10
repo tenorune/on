@@ -1,7 +1,6 @@
 /** @jest-environment jsdom */
 const mockTelegram = {
   isTelegramContext: jest.fn(() => false),
-  telegramLinkState: jest.fn(() => null),
   isTelegramLinked: jest.fn(() => false),
 };
 jest.mock('../js/telegram.js', () => mockTelegram);
@@ -33,7 +32,6 @@ beforeEach(() => {
   jest.resetModules();
   document.body.innerHTML = FIXTURE;
   mockTelegram.isTelegramContext.mockReturnValue(false);
-  mockTelegram.telegramLinkState.mockReturnValue(null);
   mockTelegram.isTelegramLinked.mockReturnValue(false);
   firstRun = require('../js/firstRun.js');
 });

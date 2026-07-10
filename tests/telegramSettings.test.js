@@ -1,7 +1,6 @@
 // tests/telegramSettings.test.js — Telegram drawer settings row.
 jest.mock('../js/telegram.js', () => ({
   tgWebApp: () => ({ initData: 'signed-init-data' }),
-  telegramLinkState: jest.fn(() => ({ linked: false })),
   isTelegramLinked: jest.fn(() => false),
 }));
 jest.mock('../js/firebase-config.js', () => ({
@@ -19,7 +18,7 @@ jest.mock('../js/identity.js', () => ({
 jest.mock('../js/graduation.js', () => ({ showGraduationInfo: jest.fn() }));
 jest.mock('../js/graduationPhrase.js', () => ({ loadGraduatedPhrase: jest.fn(() => null), clearGraduatedPhrases: jest.fn(), storeGraduatedPhrase: jest.fn() }));
 jest.mock('../js/mycode.js', () => ({ initRecoveryPill: jest.fn() }));
-const { telegramLinkState, isTelegramLinked } = require('../js/telegram.js');
+const { isTelegramLinked } = require('../js/telegram.js');
 const { callLinkTelegram, callUnlinkTelegram } = require('../js/firebase-config.js');
 const { showGraduationInfo } = require('../js/graduation.js');
 const { loadGraduatedPhrase, clearGraduatedPhrases } = require('../js/graduationPhrase.js');

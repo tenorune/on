@@ -48,11 +48,11 @@
 // all — also cosmetic-only: the about page never writes or migrates account
 // state.)
 
-const OWNER_KEY = 'statusapp_cache_owner';
+export const OWNER_KEY = 'statusapp_cache_owner';
 
 // Exact account-scoped keys. Anything account-shaped that isn't device
 // identity/push-plumbing lives here.
-const ACCOUNT_SCOPED_KEYS = [
+export const ACCOUNT_SCOPED_KEYS = [
   'statusapp_following',
   'statusapp_favorites',
   'statusapp_favorites_collapsed',
@@ -80,12 +80,16 @@ const ACCOUNT_SCOPED_KEYS = [
 
 // Account-scoped key PREFIXES: one entry per group, so they can't be listed
 // exactly. Scanned and removed by prefix match.
-const ACCOUNT_SCOPED_PREFIXES = [
+export const ACCOUNT_SCOPED_PREFIXES = [
   'statusapp_group_chip_',
   'statusapp_group_palette_',
 ];
 
-// Deliberately KEPT — device-scoped, not account-scoped:
+// Deliberately KEPT — device/transient-scoped, not account-scoped, so an owner
+// change must NOT wipe them. Exported so the drift-guard test (tests/
+// cacheOwner.test.js) can assert every statusapp_ key in the source is
+// classified as exactly one of account/device/owner — a new key that skips a
+// classification decision fails that test instead of silently leaking.
 //   statusapp_identity                  — the account pointer itself; this
 //                                          module reads it indirectly via the
 //                                          uid the caller passes in, and
@@ -96,6 +100,31 @@ const ACCOUNT_SCOPED_PREFIXES = [
 //   statusapp_notify_reprompt_dismissed — a device-level "don't ask again"
 //                                          flag for the notification prompt.
 //   statusapp_notify_debug              — a device-level debug opt-in.
+//   statusapp_tg_onramp_dismissed       — device-local "hide the Use-in-Telegram
+//                                          banner" (js/telegramOnramp.js); the
+//                                          promo is a device affordance, not
+//                                          account state.
+//   statusapp_onramp_consumed           — one-shot link-token marker for the
+//                                          immediate post-link reload (js/
+//                                          telegramLinkArrival.js); transient and
+//                                          self-clearing, keyed to a token.
+export const DEVICE_SCOPED_KEYS = [
+  'statusapp_identity',
+  'statusapp_push_token',
+  'statusapp_notify_reprompt_dismissed',
+  'statusapp_notify_debug',
+  'statusapp_tg_onramp_dismissed',
+  'statusapp_onramp_consumed',
+];
+
+// Device/account-independent key PREFIXES that survive an owner change.
+//   statusapp_grad_phrase_ — the graduation recovery phrase, which MUST outlive
+//                            the graduation reload's uid change (js/
+//                            graduationPhrase.js); cleared at its own teardown
+//                            points, never by the owner-change wipe.
+export const DEVICE_SCOPED_PREFIXES = [
+  'statusapp_grad_phrase_',
+];
 
 function removeAccountScopedKeys() {
   for (const key of ACCOUNT_SCOPED_KEYS) {

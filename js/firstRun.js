@@ -32,7 +32,7 @@ export function isFirstRunActive() {
 // renderList tick (presence flips, watcher ticks, a 60s interval) but its ~10
 // DOM writes + the first-run-change fan-out only matter on a genuine
 // empty↔non-empty transition — everything else it reads (isTelegramContext,
-// telegramLinkState) is static within a session (link/unlink/graduation all
+// isTelegramLinked) is static within a session (link/unlink/graduation all
 // reload). Same-state re-calls are no-ops (W3-A CL#1).
 let _appliedEmpty = null;
 

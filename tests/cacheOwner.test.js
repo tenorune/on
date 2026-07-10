@@ -1,40 +1,16 @@
 // tests/cacheOwner.test.js
-const { ensureCacheOwner } = require('../js/cacheOwner');
-
-const OWNER_KEY = 'statusapp_cache_owner';
-
-const ACCOUNT_SCOPED_KEYS = [
-  'statusapp_following',
-  'statusapp_favorites',
-  'statusapp_favorites_collapsed',
-  'statusapp_palette_state',
-  'statusapp_palette',
-  'statusapp_theme',
-  'statusapp_last_timeout',
-  'statusapp_current_context',
-  'statusapp_notify_prefs',
-  'statusapp_follower_names',
-  'statusapp_made_call_count',
-  'statusapp_answered_call_count',
-  'statusapp_inbox_seen',
-  'statusapp_follow_requested',
-  'statusapp_seen_bolt',
-  'statusapp_seen_flower',
-  'statusapp_seen_theme',
-  'statusapp_seen_strip_peek_done',
-  'statusapp_seen_longpress',
-  'statusapp_seen_swipe',
-  'statusapp_went_avail_custom',
-  'statusapp_seen_notify_promo',
-  'statusapp_invite_outcomes',
-];
-
-const DEVICE_SCOPED_KEYS = [
-  'statusapp_identity',
-  'statusapp_push_token',
-  'statusapp_notify_reprompt_dismissed',
-  'statusapp_notify_debug',
-];
+const fs = require('fs');
+const path = require('path');
+// Single source of truth (W2 C7): the classification lists live in cacheOwner
+// and are imported here — no third hand-copy to drift out of step.
+const {
+  ensureCacheOwner,
+  OWNER_KEY,
+  ACCOUNT_SCOPED_KEYS,
+  ACCOUNT_SCOPED_PREFIXES,
+  DEVICE_SCOPED_KEYS,
+  DEVICE_SCOPED_PREFIXES,
+} = require('../js/cacheOwner');
 
 function seedAccountScopedKeys() {
   for (const key of ACCOUNT_SCOPED_KEYS) {
@@ -130,4 +106,35 @@ test('falsy uid is a no-op', () => {
     expect(localStorage.getItem(key)).toBe('value-for-' + key);
   }
   expect(localStorage.getItem(OWNER_KEY)).toBe('uidA');
+});
+
+// Drift guard (W2 C7): every statusapp_* localStorage key in the client source
+// must be explicitly classified — account-scoped (wiped on owner change),
+// device-scoped (kept), or the owner marker itself. A new key that lands in a
+// module without a classification decision fails here, instead of silently
+// surviving account switches (the exact leak cacheOwner exists to stop).
+test('every statusapp_ key in js/ is classified (no silent drift)', () => {
+  const jsDir = path.join(__dirname, '..', 'js');
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) return walk(full);
+    return e.isFile() && e.name.endsWith('.js') ? [full] : [];
+  });
+  const keys = new Set();
+  for (const file of walk(jsDir)) {
+    const src = fs.readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/statusapp_[a-z0-9_]+/g)) keys.add(m[0]);
+  }
+  expect(keys.size).toBeGreaterThan(20); // sanity: the scan actually found keys
+
+  const classify = (k) =>
+    k === OWNER_KEY ? 'owner'
+    : ACCOUNT_SCOPED_KEYS.includes(k) ? 'account'
+    : DEVICE_SCOPED_KEYS.includes(k) ? 'device'
+    : ACCOUNT_SCOPED_PREFIXES.some((p) => k.startsWith(p)) ? 'account-prefix'
+    : DEVICE_SCOPED_PREFIXES.some((p) => k.startsWith(p)) ? 'device-prefix'
+    : null;
+
+  const unclassified = [...keys].filter((k) => classify(k) === null).sort();
+  expect(unclassified).toEqual([]);
 });

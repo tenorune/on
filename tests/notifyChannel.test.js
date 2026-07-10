@@ -5,14 +5,13 @@
 jest.mock('../js/db.js', () => ({ mergeUserPrefs: jest.fn(async () => {}) }));
 jest.mock('../js/telegram.js', () => ({
   isTelegramContext: jest.fn(() => false),
-  telegramLinkState: jest.fn(() => null),
   isTelegramLinked: jest.fn(() => false),
 }));
 jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn(async () => {}) }));
 jest.mock('../js/notifySuppression.js', () => ({ syncBotDelivery: jest.fn() }));
 jest.mock('../js/groups.js', () => ({ showToast: jest.fn() }));
 const { mergeUserPrefs } = require('../js/db.js');
-const { isTelegramContext, telegramLinkState, isTelegramLinked } = require('../js/telegram.js');
+const { isTelegramContext, isTelegramLinked } = require('../js/telegram.js');
 const { ensureNotificationsReady } = require('../js/notifyPrompt.js');
 const { syncBotDelivery } = require('../js/notifySuppression.js');
 const { showToast } = require('../js/groups.js');
@@ -33,7 +32,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   mergeUserPrefs.mockResolvedValue(undefined);
   isTelegramContext.mockReturnValue(false); // web by default
-  telegramLinkState.mockReturnValue(null);
   isTelegramLinked.mockReturnValue(false);
   // jsdom has no Notification; the pill's honesty guards read its permission.
   // Baseline: a normal grantable/granted browser (per-test overrides below).
@@ -65,6 +63,16 @@ test('linked: reveals the section and renders a two-segment pill, active reflect
 test('linked with push stored: Push active', () => {
   syncNotifyChannel('u1', LINKED('push'));
   expect(active()).toBe('push');
+});
+
+// Shared cross-reader guard (W2 C10): the pill's active segment must agree with
+// botDelivered (js/notifySuppression.js) and the server notifier
+// (functions/notifier.js) on the channel!=='push' default for a linked account.
+// All three consume test-fixtures/notify-channel-vectors.json.
+const channelVectors = require('../test-fixtures/notify-channel-vectors.json').vectors;
+test.each(channelVectors)('C10: linked, channel=$notifyChannel → pill active reflects the shared default', (v) => {
+  syncNotifyChannel('u1', LINKED(v.notifyChannel));
+  expect(active()).toBe(v.telegramDelivered ? 'telegram' : 'push');
 });
 
 test('reactive: a later prefs tick flips the active segment without remounting or duplicating handlers', async () => {
@@ -119,7 +127,7 @@ test('write failure reverts the optimistic active state', async () => {
 describe('Telegram context: link state, not the userPrefs marker, decides visibility', () => {
   // A derived (never-linked) Telegram account ALSO carries userPrefs.telegram
   // (stamped at creation for bot routing), so the marker can't distinguish it
-  // from a linked account — the section must key off telegramLinkState instead.
+  // from a linked account — the section must key off isTelegramLinked instead.
   test('derived account (telegram marker present, but not linked) → section hidden', () => {
     isTelegramContext.mockReturnValue(true);
     isTelegramLinked.mockReturnValue(false);

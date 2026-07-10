@@ -13,7 +13,10 @@ let suppressed = false;
 // (js/notifyChannel.js): on web the telegram marker means linked, and a linked
 // account with no stored channel reads as telegram. The server notifier
 // (functions/notifier.js sendToUser) is the third reader of this default —
-// the three must never disagree.
+// the three must never disagree, pinned by test-fixtures/notify-channel-vectors.json
+// (W2 C10). A FOURTH reader consumes only the `prefs.telegram != null` linked
+// half (not the channel): js/telegramOnramp.js syncTelegramOnramp, which
+// suppresses the onramp once linked — keep it in step if the marker changes.
 export function botDelivered(prefs) {
   return prefs?.telegram != null && prefs?.notifyChannel !== 'push';
 }

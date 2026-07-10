@@ -119,7 +119,7 @@ test('ensureTelegramIdentity: validates, signs in, returns identity with code an
   expect(callValidateTelegram).toHaveBeenCalledWith('query_id=1&hash=abc');
   expect(signInWithCustomToken).toHaveBeenCalled();
   expect(res).toEqual({ identity: { userId: 'tg-uid', code: 'AAAAAA', recoveryCode: null }, isNew: true });
-  expect(tg.telegramLinkState()).toEqual({ linked: false });
+  expect(tg.isTelegramLinked()).toBe(false); // link state set from ensureTelegramIdentity
 });
 
 test('openTelegramShare builds a t.me share link and opens it in Telegram', () => {
