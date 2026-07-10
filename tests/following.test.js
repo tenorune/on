@@ -250,6 +250,19 @@ describe('renderList: sections', () => {
     jest.clearAllMocks();
   });
 
+  // iOS FTU flash: the guided empty state must be established in the synchronous
+  // boot pass, before the first async watcher callback — otherwise the bare empty
+  // list ("Add a person", no guidance) paints for a frame first.
+  test('initList sets the empty verdict synchronously, before any watcher fires', () => {
+    getFollowing.mockReturnValue([]);
+    watchFollowers.mockReturnValue(jest.fn());  // captured, callback NOT fired
+    watchPresence.mockReturnValue(jest.fn());
+    const { setListEmpty } = require('../js/firstRun.js');
+    initList('myUid', 'MYCODE');
+    expect(setListEmpty).toHaveBeenCalledWith(true);
+    expect(document.getElementById('people-list').style.display).toBe('none');
+  });
+
   test('user in both getFollowing and followers → row under "Mutuals" label', () => {
     getFollowing.mockReturnValue([
       { userId: 'u1', code: 'XY9K2M', label: 'Alice' },
@@ -1028,10 +1041,10 @@ describe('call mode: receiver-side glow via updateFolloweeRow', () => {
   test('removes .call-mode when there is no incoming call', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
     getFollowing.mockReturnValue([entry]);
-    const li = makeFolloweeLi('alice');
+    captureOwnCall('myUid', 'MYCODE'); // initList renders alice's row; no ring → _incomingCall null
+    const li = document.querySelector('[data-user-id="alice"]');
     li.classList.add('call-mode');
     li.style.setProperty('--call-color-rgb', '59, 130, 246');
-    captureOwnCall('myUid', 'MYCODE'); // no ring fired → _incomingCall stays null
     updateFolloweeRow(entry, {
       status: 'available',
       availableUntil: Date.now() + 3600000,
@@ -1044,9 +1057,9 @@ describe('call mode: receiver-side glow via updateFolloweeRow', () => {
   test('removes .call-mode when the ring is from someone else', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
     getFollowing.mockReturnValue([entry]);
-    const li = makeFolloweeLi('alice');
+    const ring = captureOwnCall('myUid', 'MYCODE'); // initList renders alice's row
+    const li = document.querySelector('[data-user-id="alice"]');
     li.classList.add('call-mode');
-    const ring = captureOwnCall('myUid', 'MYCODE');
     ring({ from: 'someoneElse', ts: 1 });
     updateFolloweeRow(entry, {
       status: 'available',
@@ -1130,7 +1143,9 @@ describe('call deferral while a drawer is open', () => {
   });
 
   test('drawer close does not re-render rows without an incoming call', () => {
-    const li = makeFolloweeLi('alice');
+    // The row is rendered by the beforeEach's initList (optimistic first render);
+    // grab it rather than adding a manual duplicate.
+    const li = document.querySelector('[data-user-id="alice"]');
     // Prime lastUserData + renderedFollowees with a NON-call state for alice
     // (no ring fired, so _incomingCall is null).
     updateFolloweeRow(entry, STATUS, 'myUid');

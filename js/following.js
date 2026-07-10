@@ -283,6 +283,16 @@ export function initList(myUserId, myCode) {
   window.addEventListener('online', () => document.getElementById('offline-banner').classList.add('hidden'));
   window.addEventListener('offline', () => document.getElementById('offline-banner').classList.remove('hidden'));
   if (!navigator.onLine) document.getElementById('offline-banner').classList.remove('hidden');
+
+  // Optimistic first render from cached following (the watchers above render
+  // asynchronously). Without this, the empty/non-empty verdict — and so the
+  // guided empty state (setListEmpty) — is established only when the first
+  // Firebase callback lands, a task AFTER the browser has painted the bare empty
+  // list ("Add a person", no guidance). Rendering synchronously here mounts the
+  // guided empty state before first paint (iOS FTU / Mini-App flash finding);
+  // the watcher callbacks then refine it. Idempotent — reconcileChildren diffs
+  // and setListEmpty no-ops on an unchanged verdict.
+  renderList();
 }
 
 export function setFolloweeReadyCallback(fn) {
