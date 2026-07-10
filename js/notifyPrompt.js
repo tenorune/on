@@ -204,7 +204,7 @@ function renderBanner(banner, capState, onDismiss) {
     actionEl.classList.remove('hidden');
     actionEl.onclick = async () => {
       const ok = await requestPermissionAndRegister();
-      if (ok) { banner.classList.add('hidden'); return; }
+      if (ok) { setRepromptActive(false); banner.classList.add('hidden'); return; }
       // Failure feedback — previously a silent no-op. A denied prompt flips
       // capability to 'denied' → show the re-enable guidance. If it's still
       // 'supported', permission was granted but token registration failed

@@ -283,6 +283,7 @@ describe('maybeRepromptForMissingPermission', () => {
 
 describe('promo Enable button failure feedback (Defect 2 — no more silent no-op)', () => {
   const flush = () => new Promise((r) => setImmediate(r));
+  const { isRepromptActive } = require('../js/notifySuppression.js');
   beforeEach(() => {
     mountBanner();
     localStorage.clear();
@@ -325,10 +326,14 @@ describe('promo Enable button failure feedback (Defect 2 — no more silent no-o
     global.Notification = { permission: 'default', requestPermission: jest.fn().mockResolvedValue('granted') };
     getToken.mockResolvedValue('tok-ok');
     maybeRepromptForMissingPermission();
+    expect(isRepromptActive()).toBe(true); // reprompt banner is up before the click
     document.getElementById('notify-promo-action').click();
     await flush();
     expect(addPushToken).toHaveBeenCalledWith('tok-ok');
     expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
+    // The reprompt flag clears immediately on success, not on a round-trip
+    // through the notify-prefs-synced echo (onramp promo defer clears at once).
+    expect(isRepromptActive()).toBe(false);
   });
 });
 
@@ -545,6 +550,15 @@ describe('reprompt visibility feeds setRepromptActive', () => {
     expect(isRepromptActive()).toBe(true);
     hasAnyNotifyPrefEnabled.mockReturnValue(false);  // intent gone
     document.dispatchEvent(new CustomEvent('notify-prefs-synced'));
+    expect(isRepromptActive()).toBe(false);
+  });
+
+  test('dismissing the reprompt banner (Close) clears the reprompt flag', () => {
+    detectNotifyCapability.mockReturnValue({ state: 'supported' });
+    hasAnyNotifyPrefEnabled.mockReturnValue(true);   // unmet intent → reprompt
+    initNotifyPrompt('u1');
+    expect(isRepromptActive()).toBe(true);
+    document.getElementById('notify-promo-dismiss').click();
     expect(isRepromptActive()).toBe(false);
   });
 });

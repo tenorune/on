@@ -73,6 +73,18 @@ describe('syncBotDelivery / isBotDelivered', () => {
     expect(seen).not.toHaveBeenCalled();
     document.removeEventListener('bot-delivery-change', seen);
   });
+
+  test('linking on push channel (botDelivered stays false) still dispatches bot-delivery-change once, value-gated thereafter', () => {
+    const seen = jest.fn();
+    document.addEventListener('bot-delivery-change', seen);
+    syncBotDelivery(LINKED_PUSH); // linked + push: botDelivered stays false, but linkedWeb flips false→true
+    expect(isBotDelivered()).toBe(false);
+    expect(isTelegramLinkedWeb()).toBe(true);
+    expect(seen).toHaveBeenCalledTimes(1);
+    syncBotDelivery(LINKED_PUSH); // repeat, nothing changed — no further dispatch
+    expect(seen).toHaveBeenCalledTimes(1);
+    document.removeEventListener('bot-delivery-change', seen);
+  });
 });
 
 describe('isTelegramLinkedWeb (5th reader of the linked marker)', () => {

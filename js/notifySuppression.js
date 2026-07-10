@@ -52,11 +52,20 @@ export function syncBotDelivery(prefs) {
   // Web-only concern: in Telegram the whole install/web-push machinery is
   // already gated off at init (app.js) and inside notifyPrompt.
   if (isTelegramContext()) return;
+  const prevLinked = linkedWeb;
   linkedWeb = prefs?.telegram != null;
   const next = botDelivered(prefs);
-  if (next === suppressed) return;
+  const suppressionChanged = next !== suppressed;
   suppressed = next;
-  document.dispatchEvent(new CustomEvent('bot-delivery-change'));
+  // Fires on EITHER a suppression flip OR a linked-marker-only change (e.g.
+  // linking on notifyChannel:'push', where botDelivered stays false) — the
+  // escape-hatch gate (telegramEscapeHatch, via isTelegramLinkedWeb) must
+  // re-evaluate even when botDelivered itself doesn't move, otherwise a
+  // stale "Link Telegram" affordance can persist for an already-linked
+  // account.
+  if (suppressionChanged || linkedWeb !== prevLinked) {
+    document.dispatchEvent(new CustomEvent('bot-delivery-change'));
+  }
 }
 
 export function __resetBotDeliveryForTests() {
