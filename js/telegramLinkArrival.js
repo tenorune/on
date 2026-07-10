@@ -8,6 +8,7 @@ import { callRedeemTelegramLinkToken } from './firebase-config.js';
 import { showConfirmModal } from './promptModal.js';
 import { showToast } from './groups.js';
 import { stampLinkedNotice } from './firstRun.js';
+import { linkReplaceWarning } from './telegramLinkCopy.js';
 
 // One-shot marker for the token just consumed on the pre-reload pass. The
 // post-success reload re-presents the same start_param, but the token is now
@@ -45,7 +46,7 @@ export async function runLinkArrival({ dismissSplash } = {}) {
         title: relink ? 'Switch this Telegram to this account?' : 'Use this account in Telegram?',
         message: relink
           ? 'This Telegram is linked to another KnockKnock account. Switch it to this one? The other account stays yours — sign in with its secret phrase on the web.'
-          : 'Linking replaces this temporary Telegram account — its contacts and groups will be removed.',
+          : linkReplaceWarning(res.counts),
         confirmLabel: relink ? 'Switch account' : 'Link account',
         busyLabel: relink ? 'Switching…' : 'Linking…',
         onConfirm: async () => { await callRedeemTelegramLinkToken(initData, token, true); },

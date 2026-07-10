@@ -922,6 +922,12 @@ describe('redeemTelegramLinkTokenHandler', () => {
     expect(deps.store[`telegramLinkTokens/${tokenValid}`]).toBeNull(); // single-use
     expect(deps.store['telegramUsers/42']).toMatchObject({ uid: 'd'.repeat(32) });
   });
+  test('reads telegramUsers/{tgId} exactly once — redeem hands it to performLink (C8)', async () => {
+    const deps = makeHandlerDeps(seed());
+    await redeemTelegramLinkTokenHandler({ data: { initData: freshInitData(), token: tokenValid } }, deps);
+    const reads = deps.getVal.mock.calls.filter(([p]) => p === 'telegramUsers/42').length;
+    expect(reads).toBe(1); // was 2 before performLink accepted priorMapping
+  });
   test('non-empty derived account without confirm → needsConfirm, no link', async () => {
     const derived = deriveTelegramUid('42', TEST_UID_SECRET);
     const deps = makeHandlerDeps(seed({

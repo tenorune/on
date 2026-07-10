@@ -141,11 +141,14 @@ export async function validateTelegramHandler(request, deps) {
   return { token, uid, created, linked };
 }
 
-export async function performLink(deps, uid, tgUser) {
+// Callers that already read telegramUsers/{tgId} pass it as priorMapping so it
+// isn't fetched twice (redeemTelegramLinkTokenHandler); undefined means "not
+// read", null means "read and absent" — same convention as ensureTelegramUser.
+export async function performLink(deps, uid, tgUser, priorMapping) {
   const tgId = String(tgUser.id);
   const [presence, prior] = await Promise.all([
     deps.getVal(`users/${uid}/presence`),
-    deps.getVal(`telegramUsers/${tgId}`),
+    priorMapping === undefined ? deps.getVal(`telegramUsers/${tgId}`) : Promise.resolve(priorMapping),
   ]);
   if (!presence) throw new HttpsError('not-found', 'No account with that phrase.');
   const chatId = prior?.chatId || tgId;
@@ -235,7 +238,7 @@ export async function redeemTelegramLinkTokenHandler(request, deps) {
       return { needsConfirm: true, reason: 'replace', counts: { contacts, groups: groupCount } };
     }
   }
-  const result = await performLink(deps, rec.uid, tgUser);
+  const result = await performLink(deps, rec.uid, tgUser, prior); // prior already read above (C8)
   await rootUpdate(deps, { [`telegramLinkTokens/${token}`]: null }); // single-use
   return result;
 }
@@ -275,40 +278,23 @@ export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
     nulls[`inviteIndex/${token}`] = null;
   }
 
-  // Backref paths under the expunged uid's own subtree (a pathological
-  // self-follow) are skipped: `users/{uid}`/`userPrefs/{uid}` are nulled
-  // wholesale below, and RTDB rejects an update where one path is an
-  // ancestor of another. (rootUpdate would now also filter these as
-  // redundant deletes — the skip stays as documentation of the case.)
-  for (const fid of Object.keys(followers || {})) {
-    if (fid !== uid) nulls[`userPrefs/${fid}/following/${uid}`] = null;
+  // Cross-user residue (backrefs, canvases, group membership, mailboxes) — the
+  // SAME family graduation moves, from one enumerator so the two can't drift.
+  // A self-follow renders paths under `users/{uid}`/`userPrefs/{uid}` (nulled
+  // wholesale below); rootUpdate drops those as redundant deletes.
+  for (const render of crossRefRenderers({ followers, following, groups })) {
+    nulls[render(uid)] = null;
   }
 
-  for (const tid of Object.keys(following || {})) {
-    if (tid === uid) continue;
-    nulls[`users/${tid}/followers/${uid}`] = null;
-    // The name this account published for itself when it followed via an invite
-    // (see client registerAsFollower) is residue on the followee's tree too.
-    nulls[`users/${tid}/followerNames/${uid}`] = null;
-  }
-
-  const peers = new Set([...Object.keys(followers || {}), ...Object.keys(following || {})]);
-  for (const peer of peers) {
-    nulls[`canvases/${uid}_${peer}`] = null;
-    nulls[`canvases/${peer}_${uid}`] = null;
-  }
-
+  // Owned groups are removed WHOLE — the enumerator's per-uid membership/pending
+  // nulls under them are redundant and dropped by rootUpdate; membership in
+  // groups owned by others stays nulled per-uid by the enumerator above.
   gids.forEach((gid, i) => {
     if (ownerIds[i] === uid) {
       nulls[`groups/${gid}`] = null;
       nulls[`pendingInvitesByGroup/${gid}`] = null;
-    } else {
-      nulls[`groups/${gid}/members/${uid}`] = null;
-      nulls[`pendingInvitesByGroup/${gid}/${uid}`] = null;
     }
   });
-
-  for (const box of OWN_MAILBOXES) nulls[`${box}/${uid}`] = null;
 
   nulls[`users/${uid}`] = null;
   nulls[`userPrefs/${uid}`] = null;
@@ -321,6 +307,44 @@ export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
 // Inbound/self mailboxes keyed by uid — deleted on expunge, moved on graduation
 // so a rename leaves no orphaned residue behind at the old uid.
 const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants', 'pendingInvites', 'revocations'];
+
+// The cross-user residue a Telegram-derived account leaves on OTHER records:
+// follower/following backrefs (incl. the self-published followerName), shared
+// canvases, group membership + pending-invite entries, and inbound mailboxes.
+// ONE enumerator so expunge (nulls each path) and graduation (moves each
+// old→new) can't drift apart when a new residue family is added — the reason
+// followerNames had to be touched in both. Returned as (uid)=>path renderers:
+// the entry SET is fixed by the account's own lists, only the uid embedded in
+// each path varies. Self-references (a pathological self-follow) and expunge's
+// owned-group wholesale deletes are deliberately NOT special-cased here —
+// expunge's rootUpdate drops the redundant nulls and graduation's
+// doomed/consumed guards handle the overlaps, so both stay correct without the
+// enumerator knowing. Order matters: it is the graduation walker's original
+// move order, so the consumed-source dedup picks the same winner.
+function crossRefRenderers({ followers, following, groups }) {
+  const followerIds = Object.keys(followers || {});
+  const followingIds = Object.keys(following || {});
+  const peers = new Set([...followerIds, ...followingIds]);
+  const gids = Object.keys(groups || {});
+  const r = [];
+  for (const fid of followerIds) r.push((u) => `userPrefs/${fid}/following/${u}`);
+  for (const tid of followingIds) {
+    r.push((u) => `users/${tid}/followers/${u}`);
+    r.push((u) => `users/${tid}/followerNames/${u}`);
+  }
+  for (const peer of peers) {
+    r.push((u) => `canvases/${u}_${peer}`);
+    r.push((u) => `canvases/${peer}_${u}`);
+  }
+  for (const gid of gids) {
+    r.push((u) => `groups/${gid}/members/${u}`);
+    r.push((u) => `pendingInvitesByGroup/${gid}/${u}`);
+  }
+  for (const box of OWN_MAILBOXES) {
+    r.push((u) => `${box}/${u}`);
+  }
+  return r;
+}
 
 // Rename a Telegram-derived account's data from oldUid to newUid — the "move,
 // not merge" core of graduation (spec §7). Copies the account's own subtree,
@@ -351,31 +375,11 @@ export async function graduateAccountData(deps, oldUid, newUid, extraWrites = nu
     deps.getVal(`userPrefs/${oldUid}`),
   ]);
 
-  // Every from→to move pair, in the old walker's order: cross-user backrefs,
-  // canvases, group entries, inbound mailboxes.
-  const followers = own?.followers || {};
-  const following = prefs?.following || {};
+  // Every from→to move pair, from the SAME enumerator expunge nulls (so a new
+  // residue family lands in both): render each cross-user path at old→new.
   const gids = Object.keys(own?.groups || {});
-  const moves = [];
-  for (const fid of Object.keys(followers)) {
-    moves.push([`userPrefs/${fid}/following/${oldUid}`, `userPrefs/${fid}/following/${newUid}`]);
-  }
-  for (const tid of Object.keys(following)) {
-    moves.push([`users/${tid}/followers/${oldUid}`, `users/${tid}/followers/${newUid}`]);
-    moves.push([`users/${tid}/followerNames/${oldUid}`, `users/${tid}/followerNames/${newUid}`]);
-  }
-  const peers = new Set([...Object.keys(followers), ...Object.keys(following)]);
-  for (const peer of peers) {
-    moves.push([`canvases/${oldUid}_${peer}`, `canvases/${newUid}_${peer}`]);
-    moves.push([`canvases/${peer}_${oldUid}`, `canvases/${peer}_${newUid}`]);
-  }
-  for (const gid of gids) {
-    moves.push([`groups/${gid}/members/${oldUid}`, `groups/${gid}/members/${newUid}`]);
-    moves.push([`pendingInvitesByGroup/${gid}/${oldUid}`, `pendingInvitesByGroup/${gid}/${newUid}`]);
-  }
-  for (const box of OWN_MAILBOXES) {
-    moves.push([`${box}/${oldUid}`, `${box}/${newUid}`]);
-  }
+  const moves = crossRefRenderers({ followers: own?.followers, following: prefs?.following, groups: own?.groups })
+    .map((render) => [render(oldUid), render(newUid)]);
 
   const [resolvedMoves, owners] = await Promise.all([
     Promise.all(moves.map(async ([from, to]) => ({ from, to, val: await deps.getVal(from) }))),

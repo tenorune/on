@@ -39,6 +39,24 @@ beforeEach(() => {
 // those tests do — success is asserted via the observable gate immediately
 // before the real reload() call (stampLinkedNotice), not the reload itself.
 
+describe('linkReplaceWarning (U2.1/C6 — one count-aware string, shared with telegramSettings)', () => {
+  const { linkReplaceWarning } = require('../js/telegramLinkCopy.js');
+  test('count-aware, pluralized', () => {
+    expect(linkReplaceWarning({ contacts: 2, groups: 1 }))
+      .toBe('Linking replaces this temporary Telegram account — its 2 contacts and 1 group will be removed.');
+    expect(linkReplaceWarning({ contacts: 1, groups: 0 }))
+      .toBe('Linking replaces this temporary Telegram account — its 1 contact will be removed.');
+    expect(linkReplaceWarning({ contacts: 0, groups: 3 }))
+      .toBe('Linking replaces this temporary Telegram account — its 3 groups will be removed.');
+  });
+  test('generic when counts are unknown (manual link screen has none)', () => {
+    expect(linkReplaceWarning())
+      .toBe('Linking replaces this temporary Telegram account — its contacts and groups will be removed.');
+    expect(linkReplaceWarning(null))
+      .toBe('Linking replaces this temporary Telegram account — its contacts and groups will be removed.');
+  });
+});
+
 describe('extractLinkToken', () => {
   test('reads the lk_ prefix', () => {
     expect(telegramLinkArrival.extractLinkToken()).toBe('tok0000000000000000');
@@ -83,13 +101,13 @@ describe('runLinkArrival', () => {
   });
 
   test('needsConfirm → shows replace confirm; confirming re-redeems with confirm:true', async () => {
-    mockRedeem.mockResolvedValueOnce({ needsConfirm: true, counts: { contacts: 2, groups: 1 } });
+    mockRedeem.mockResolvedValueOnce({ needsConfirm: true, reason: 'replace', counts: { contacts: 2, groups: 1 } });
     mockConfirm.mockImplementationOnce(async ({ onConfirm }) => { await onConfirm(); return true; });
     mockRedeem.mockResolvedValueOnce({ token: 'auth' });
     const handled = await telegramLinkArrival.runLinkArrival({ dismissSplash: jest.fn() });
     expect(handled).toBe(true);
     expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
-      message: 'Linking replaces this temporary Telegram account — its contacts and groups will be removed.',
+      message: 'Linking replaces this temporary Telegram account — its 2 contacts and 1 group will be removed.',
       confirmLabel: 'Link account',
       busyLabel: 'Linking…',
     }));

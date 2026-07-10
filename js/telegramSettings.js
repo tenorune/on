@@ -10,6 +10,7 @@ import { showGraduationInfo } from './graduation.js';
 import { loadGraduatedPhrase, clearGraduatedPhrases, storeGraduatedPhrase } from './graduationPhrase.js';
 import { initRecoveryPill } from './mycode.js';
 import { showConfirmModal } from './promptModal.js';
+import { linkReplaceWarning } from './telegramLinkCopy.js';
 import { setButtonBusy, clearButtonBusy } from './utils.js';
 
 export function initTelegramSettings(userId) {
@@ -113,7 +114,10 @@ export function showLinkScreen() {
 
   const subtext = document.getElementById('restore-subtext');
   if (subtext) {
-    subtext.textContent = 'Linking replaces this temporary Telegram account — its contacts and groups will be removed.';
+    // Generic form: the manual link screen has no server counts (unlike the
+    // redeem flow). Making this conditional/count-aware is deferred — it needs
+    // linkTelegram to return counts, a separate change.
+    subtext.textContent = linkReplaceWarning();
     subtext.classList.remove('hidden');
   }
 
