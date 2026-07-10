@@ -56,9 +56,15 @@ export async function runLinkArrival({ dismissSplash } = {}) {
     stampLinkedNotice();
     window.location.reload(); // reboot via initData into the linked account
     return true;
-  } catch {
+  } catch (e) {
     dismissSplash?.();
-    showToast('That link expired — tap Use in Telegram again on the web.');
+    // Only a genuinely consumed/expired token is 'not-found' (telegram-auth.js
+    // redeem). Offline, unconfigured, or bad-signature failures get the generic
+    // voice instead of a misleading "expired" (U1.8).
+    const expired = e?.code === 'functions/not-found';
+    showToast(expired
+      ? 'That link expired — tap Use in Telegram again on the web.'
+      : "Couldn't finish that right now — check your connection and try again.");
     return false; // keep the toast; let boot render the current account
   }
 }

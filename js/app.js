@@ -95,7 +95,7 @@ function rearmSplash() {
 // Surface the boot-failure retry overlay (W1 J#2). Idempotent: dismissSplash is
 // guarded, unhiding is a no-op if already shown, and onclick (not
 // addEventListener) can't stack duplicate reload handlers across calls.
-export function showBootError() {
+function showBootError() {
   dismissSplash();
   const overlay = document.getElementById('boot-error-overlay');
   if (overlay) {

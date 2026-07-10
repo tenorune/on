@@ -105,12 +105,24 @@ describe('runLinkArrival', () => {
     expect(mockStampLinked).not.toHaveBeenCalled();
   });
 
-  test('expired token → toast, not handled, no stamp (let boot render the derived account)', async () => {
-    mockRedeem.mockRejectedValueOnce(new Error('expired'));
+  test('expired/reused token (not-found) → the "expired" toast, not handled, no stamp', async () => {
+    mockRedeem.mockRejectedValueOnce(Object.assign(new Error('gone'), { code: 'functions/not-found' }));
     const dismissSplash = jest.fn();
     const handled = await telegramLinkArrival.runLinkArrival({ dismissSplash });
     expect(handled).toBe(false);
-    expect(mockToast).toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledWith('That link expired — tap Use in Telegram again on the web.');
+    expect(dismissSplash).toHaveBeenCalled();
+    expect(mockStampLinked).not.toHaveBeenCalled();
+  });
+
+  // U1.8 — a non-not-found failure (offline, unconfigured, bad signature) must
+  // NOT claim the link expired; it gets the generic try-again voice.
+  test('other redeem failure → generic try-again toast, not the expired copy', async () => {
+    mockRedeem.mockRejectedValueOnce(Object.assign(new Error('offline'), { code: 'functions/unavailable' }));
+    const dismissSplash = jest.fn();
+    const handled = await telegramLinkArrival.runLinkArrival({ dismissSplash });
+    expect(handled).toBe(false);
+    expect(mockToast).toHaveBeenCalledWith("Couldn't finish that right now — check your connection and try again.");
     expect(dismissSplash).toHaveBeenCalled();
     expect(mockStampLinked).not.toHaveBeenCalled();
   });

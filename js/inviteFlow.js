@@ -7,11 +7,19 @@ import { TELEGRAM_ENABLED } from './features.js';
 // esbuild `define` injects this; '' when the env var is unset (never REPLACE_ME).
 const TELEGRAM_APP_LINK = process.env.TELEGRAM_APP_LINK || '';
 
+// The one place a t.me Mini App deep link is assembled (C4): any start_param —
+// a bare invite token, or the onramp's `lk_`-prefixed link token. Null when
+// unconfigured or paramless so callers can fall back. telegramOnramp.js builds
+// on this rather than re-reading TELEGRAM_APP_LINK itself.
+export function buildStartAppLink(param) {
+  if (!TELEGRAM_APP_LINK || !param) return null;
+  return `${TELEGRAM_APP_LINK}?startapp=${param}`;
+}
+
 // t.me Mini App deep link carrying the invite token as start_param.
 // Null when unconfigured or tokenless — callers fall back to invite.url.
 export function buildTelegramInviteLink(token) {
-  if (!TELEGRAM_APP_LINK || !token) return null;
-  return `${TELEGRAM_APP_LINK}?startapp=${token}`;
+  return buildStartAppLink(token);
 }
 
 // Whether web builds may surface Telegram share affordances (spec §4 gate): the
@@ -20,10 +28,6 @@ export function buildTelegramInviteLink(token) {
 export function telegramSharingEnabled() {
   return TELEGRAM_ENABLED && !!TELEGRAM_APP_LINK;
 }
-
-// The builder lives with the platform knowledge in telegram.js (W3-A CL#5);
-// re-exported here for existing importers.
-export { buildTelegramShareUrl } from './telegram.js';
 
 // The ONLY place share captions are spelled (W3-B CL#12) — W4's copy sweep has
 // one string per caption to touch. A scopeless invite (e.g. a freshly minted

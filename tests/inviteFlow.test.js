@@ -58,6 +58,17 @@ describe('inviteFlow', () => {
     expect(mockShare).toHaveBeenLastCalledWith('https://app/?i=x', 'Join Family on KnockKnock');
   });
 
+  test('buildStartAppLink: the single start_param builder (C4)', () => {
+    process.env.TELEGRAM_APP_LINK = 'https://t.me/kk_bot/app';
+    const { buildStartAppLink } = require('../js/inviteFlow.js');
+    expect(buildStartAppLink('lk_tok')).toBe('https://t.me/kk_bot/app?startapp=lk_tok');
+    expect(buildStartAppLink('')).toBeNull();
+    process.env.TELEGRAM_APP_LINK = '';
+    jest.resetModules();
+    const fresh = require('../js/inviteFlow.js');
+    expect(fresh.buildStartAppLink('lk_tok')).toBeNull();
+  });
+
   test('telegramSharingEnabled: true only when TELEGRAM_ENABLED and a deep link is configured', () => {
     process.env.TELEGRAM_APP_LINK = 'https://t.me/kk_bot/app';
     let mod = require('../js/inviteFlow.js');
