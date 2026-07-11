@@ -251,10 +251,22 @@ export function initList(myUserId, myCode, { onInviteRedeemed = null } = {}) {
   }, 60000);
 
   document.getElementById('add-person-btn').addEventListener('click', () => {
+    const form = document.getElementById('add-person-form');
+    const input = document.getElementById('add-code-input');
     openAddForm();
-    document.getElementById('add-code-input').focus();
+    // iOS Safari/Chrome only honor a programmatic focus() on a laid-out (non-
+    // clipped) element within the tap gesture. The form reveals via a
+    // max-height:0 slide, so the input is still clipped to 0 height this tick and
+    // the focus is silently dropped — Telegram's embedded webview is lenient,
+    // which is why it worked there. Un-clip the form synchronously (instant open)
+    // so the input has layout before we focus, then hand max-height back to the
+    // CSS class (which still animates the close).
+    form.style.maxHeight = 'none';
+    void form.offsetHeight; // force layout so the input is measurable/focusable now
+    input.focus();
+    form.style.maxHeight = '';
     setTimeout(() => {
-      document.getElementById('add-code-input')?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      input?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     }, 50);
   });
 
