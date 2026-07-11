@@ -145,12 +145,22 @@ p { margin-bottom: 0.9rem; }
 .made-by { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0; }
 
 /* ---- Invite landing (spec N4) ---- */
-.invite-landing { text-align: center; }
+/* The invitation block is an app-style card (matches .person-list li in the
+   app: surface fill, 10px radius), sitting above the lede on the ?i= configs. */
+.invite-landing {
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--surface2);
+  border-radius: 10px;
+  padding: 1.5rem 1.25rem;
+  margin: 1.5rem 0 2rem;
+}
 /* Symmetric margins → the gap between the two door buttons is constant, and
    stays constant when the Telegram door is hidden (no deep link). */
 .invite-landing .cta { margin: 1rem auto; }
-/* The "Copy invite" block gets room to breathe above and below its help text. */
-.invite-installed-hint { font-size: 0.9rem; opacity: 0.85; margin: 2rem auto 1.5rem; max-width: 320px; }
+/* The "Copy invite" block gets room to breathe above its help text; the card's
+   bottom padding supplies the space below. */
+.invite-installed-hint { font-size: 0.9rem; opacity: 0.85; margin: 2rem auto 0; max-width: 320px; }
 /* In-app Copy component: matches .ghost-btn in css/app.css (buttons don't
    inherit font-family, so it's set explicitly), label toggles Copy → Copied!. */
 .ghost-btn {

@@ -23,27 +23,10 @@
   </header>
 
   <main>
-    <section class="intro">
-      <!-- Config #1 (/invite?i=) appends the "More about …" disclosure link to
-           the end of this lede (CSS shows it only under body.invite-first); the
-           lede stays first on every config so the app information lines up. -->
-      <p class="intro-lede">__APP_TITLE__ is about <em>ambient presence</em> &mdash; a soft signal that you're around and open to company, without the pressure of a chat thread. <button id="about-more-btn" type="button" class="about-more-link">More about __APP_TITLE__</button></p>
-      <p class="intro-more">Mark yourself available for a little while, and the handful of people you've chosen simply see it. When the timer runs out, you fade back to quiet.</p>
-      <!-- intentional: open the app in a new tab to keep this page in place.
-           data-open-app: on iOS/Android, js/about-cta.js rewrites this to a
-           platform scheme that opens the real browser (escapes in-app browsers
-           like Telegram); on desktop it is rewritten to /?stay=1 (phase 3), so
-           the root landing never bounces the new tab back. -->
-      <a id="about-open-cta" class="cta" href="/" target="_blank" rel="noopener" data-open-app>Open __APP_TITLE__ &rarr;</a>
-      <!-- Standing bare Telegram door (A3): unhidden by js/about-telegram.js on
-           token-less pages when the build substituted a real deep link. -->
-      <a id="about-telegram-cta" class="cta hidden" data-telegram-link="__TELEGRAM_APP_LINK__" target="_blank" rel="noopener">Open in Telegram</a>
-    </section>
-
     <!-- Invite landing block (spec N4): hidden until js/about-telegram.js sees a
-         valid ?i=TOKEN, then shown just below the lede. On /invite (config #1)
-         the "More about" link in the lede reveals the collapsed marketing; on
-         /about?i= (config #2) the full page stays. -->
+         valid ?i=TOKEN, then shown as an app-style card above the lede. On
+         /invite (config #1) the "More about" link in the lede below reveals the
+         collapsed marketing; on /about?i= (config #2) the full page stays. -->
     <section id="invite-landing" class="invite-landing hidden">
       <!-- js/about-invite.js is untouched and upgrades this line ("You've been
            invited to follow …") when the preview resolves. -->
@@ -54,6 +37,23 @@
       <p class="invite-installed-hint">Already have the app installed? Copy the invite and paste it under &ldquo;Redeem an invite&rdquo;.
         <button id="invite-copy-btn" type="button" class="ghost-btn">Copy</button></p>
       <p id="invite-copy-fallback" class="invite-copy-fallback hidden"></p>
+    </section>
+
+    <section class="intro">
+      <!-- Config #1 (/invite?i=) appends the "More about …" disclosure link to
+           the end of this lede (CSS shows it only under body.invite-first); the
+           lede sits just below the invitation card. -->
+      <p class="intro-lede">__APP_TITLE__ is about <em>ambient presence</em> &mdash; a soft signal that you're around and open to company, without the pressure of a chat thread. <button id="about-more-btn" type="button" class="about-more-link">More about __APP_TITLE__</button></p>
+      <p class="intro-more">Mark yourself available for a little while, and the handful of people you've chosen simply see it. When the timer runs out, you fade back to quiet.</p>
+      <!-- intentional: open the app in a new tab to keep this page in place.
+           data-open-app: on iOS/Android, js/about-cta.js rewrites this to a
+           platform scheme that opens the real browser (escapes in-app browsers
+           like Telegram); on desktop it is rewritten to /?stay=1 (phase 3), so
+           the root landing never bounces the new tab back. -->
+      <a id="about-open-cta" class="cta" href="/" target="_blank" rel="noopener" data-open-app>Continue in browser</a>
+      <!-- Standing bare Telegram door (A3): unhidden by js/about-telegram.js on
+           token-less pages when the build substituted a real deep link. -->
+      <a id="about-telegram-cta" class="cta hidden" data-telegram-link="__TELEGRAM_APP_LINK__" target="_blank" rel="noopener">Open in Telegram</a>
     </section>
 
     <section class="features">
@@ -138,8 +138,6 @@
 
   <footer class="footer">
     <nav class="footer-links">
-      <!-- intentional: open the app in a new tab to keep this page in place -->
-      <a href="/" target="_blank" rel="noopener" data-open-app>Open __APP_TITLE__ &rarr;</a>
       <a href="https://github.com/tenorune/on" target="_blank" rel="noopener">Source on GitHub</a>
     </nav>
     <p class="muted">An experimental personal project.</p>
