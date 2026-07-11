@@ -238,6 +238,7 @@
       <tr><td>C8</td><td>Withdrawn — operator-verified: t.me group invites in Telegram work; web group invites work, incl. via <code>/about?i=</code>.</td></tr>
       <tr><td>C9</td><td>Adopted with adjustment — explicit tab pair “Add a Person” / “Redeem Invite” instead of single-input dispatch (N6, wireframe below).</td></tr>
       <tr><td>C10</td><td>Accepted limit — a copied <code>/?i=…&amp;stay=1</code> address-bar URL neutralizes the boot net for its one recipient; N4 wording tightened.</td></tr>
+      <tr><td>Q8 = C</td><td>Bare-<code>/</code> blind spot (undetectable iOS webviews, no token → no net): closed by a <b>phase 3</b> — every fresh tokenless boot redirects to <code>/about</code>; signed-in users pass through. Exemptions: <code>stay=1</code>, <code>setup=install</code> (the Safari install-hop is deliberately a fresh identity-less boot). Own evaluation gate after phase 2: it adds one hop + the iOS “Open in Safari?” prompt to the primary new-user funnel.</td></tr>
     </table></div>
   </section>
 
@@ -323,7 +324,7 @@
       <path class="edge" d="M205 516 V563" marker-end="url(#arr)"></path><text class="elabel" x="212" y="545">no</text>
     </svg>
     </div>
-    <p class="why" style="color: var(--muted); font-size: 12.5px;">Phase 2 adds one more branch for <em>tokenless</em> boots: fresh + detected in-app browser → <code>location.replace('/about')</code>. iOS-undetected bare arrivals are never redirected.</p>
+    <p class="why" style="color: var(--muted); font-size: 12.5px;">Phase 2 adds one more branch for <em>tokenless</em> boots: fresh + detected in-app browser → <code>location.replace('/about')</code>. Phase 3 (Q8=C) drops the detection condition — <em>all</em> fresh tokenless boots redirect, with <code>stay=1</code> and <code>setup=install</code> exempt — making <code>/</code> signed-out-landing / signed-in-app. SW cold-start intents need no exemption: identity always exists there (row 3).</p>
   </section>
 
   <section>
@@ -672,7 +673,8 @@
       <h2>Phasing</h2>
       <ul>
         <li><b>Phase 1</b> — shared links become <code>/invite?i=</code> (N1); boot decision tree for <code>/?i=</code> (N3); config #1/#2 page work incl. identity pass-through (N4); standing <code>/about</code> Telegram CTA; build gate (N5); “Redeem Invite” tab + landing copy door (N6); interstitial info link (N8); unconditional <code>stay=1</code> loop guard; panel skipped on <code>stay=1</code>.</li>
-        <li><b>Phase 2</b> — after the phase-1 on-device walkthrough: bare-arrival redirect (F8) + panel retirement.</li>
+        <li><b>Phase 2</b> — after the phase-1 on-device walkthrough: bare-arrival redirect for detected in-app browsers (F8) + panel retirement.</li>
+        <li><b>Phase 3</b> (Q8=C) — after the phase-2 walkthrough, own evaluation gate: the tokenless redirect widens to <em>all</em> fresh boots (closes the iOS bare blind spot; costs the funnel one hop + the iOS prompt — evaluate on device before keeping).</li>
         <li><b>Done =</b> the operator’s on-device walkthrough, not green suites.</li>
       </ul>
       <h2 style="margin-top:18px">Touch points</h2>

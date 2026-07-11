@@ -50,6 +50,7 @@ Flows F0–F9 and the boot decision tree: see the HTML spec.
 | C8 | Withdrawn — operator-verified (see below). |
 | C9 | Adopted with adjustment: explicit **tab pair** "Add a Person" / "Redeem Invite" instead of single-input dispatch (N6). |
 | C10 | Accepted limit (a copied `/?i=…&stay=1` address-bar URL neutralizes the net for its recipient — small window) + N4 wording tightened. |
+| Q8=C | Bare-`/` blind spot (undetectable iOS webviews; no token → no net): closed by a **phase 3** — every fresh tokenless boot redirects to `/about` (exemptions: `stay=1`, `setup=install`); signed-in users pass through as today. Own evaluation gate after the phase-2 walkthrough, because it lengthens the primary new-user funnel (one hop + the iOS "Open in Safari?" prompt) for everyone. |
 
 Operator-verified during brainstorm: a `t.me/…?startapp=…` link tapped in an Instagram DM
 opens the Mini App; t.me group invites accepted in Telegram work; web group invites work,
@@ -85,8 +86,13 @@ and any Firebase work. Ordered checks; first match wins; redirect/auto-hop outco
 7. Else → today's welcome flow.
 
 Phase 2 adds the tokenless branch: fresh + `isInAppBrowser()` → `location.replace('/about')`;
-iOS-undetected tokenless boots never redirect. `cleanInviteParamFromUrl` (`app.js:555`) also
-deletes `stay`. Phase 2 removes `showInAppBrowserRedirect` and its call site.
+iOS-undetected tokenless boots do not yet redirect. Phase 3 (Q8=C) widens that branch to
+**all** fresh tokenless boots — the `isInAppBrowser()` condition drops, and the exemption set
+becomes `stay=1` OR `setup=install` (the Safari install-hop, `app.js:191-203`, is deliberately
+a fresh identity-less boot and must keep showing install guidance). SW cold-start intents
+(`?inbox`/`?direct`/`?group`) need no exemption — identity always exists there (gate row 3).
+`cleanInviteParamFromUrl` (`app.js:555`) also deletes `stay`. Phase 2 removes
+`showInAppBrowserRedirect` and its call site.
 
 ### N4 — Page behavior (`about.html` = `/about` + `/invite`)
 - Pages never redirect and never auto-hop for *fresh* visitors. One exception, C1's
@@ -161,8 +167,11 @@ to the interstitial. The page's loop-back "Open in Telegram" CTA is accepted for
 ## 4. Phasing
 
 - **Phase 1:** N1–N8 except the tokenless boot branch and panel removal.
-- **Phase 2** (after the phase-1 walkthrough): tokenless bare-arrival redirect (F8) + panel
-  retirement.
+- **Phase 2** (after the phase-1 walkthrough): tokenless bare-arrival redirect for detected
+  in-app browsers (F8) + panel retirement.
+- **Phase 3** (Q8=C; own evaluation gate after the phase-2 walkthrough): the tokenless
+  redirect widens to all fresh boots — root `/` becomes signed-out-landing / signed-in-app.
+  Evaluate the funnel cost on device before keeping it.
 - **Followups:** config #1 fine-grained content split; interstitial-opened page variant
   (loop-back CTA); copy tuning; manifest link-capturing.
 - **Done =** the operator's on-device walkthrough, not green suites.
@@ -170,7 +179,9 @@ to the interstitial. The page's loop-back "Open in Telegram" CTA is accepted for
 Accepted limits: C3 (stored identity outranks the Telegram-Android auto-hop — a pre-existing
 #283 duplicate in that webview keeps receiving invites; revisit on first real report); C10
 (a copied `/?i=…&stay=1` address-bar URL neutralizes the boot net for its one recipient);
-`start_param` carries exactly one token — multi-invite links out of scope (spec 2026-07-05 §9).
+`start_param` carries exactly one token — multi-invite links out of scope (spec 2026-07-05 §9);
+interim (until phase 3 ships): a bare `/` link in an undetectable iOS webview still boots the
+welcome flow and can mint a stray web account — no token, no UA signal, nothing to gate on.
 
 ## 5. Testing
 
@@ -201,7 +212,9 @@ Android `intent://` + `stay=1` round-trip; Android `intent://`→WebAPK hand-off
 rewrite query preservation; desktop-Telegram routing of `/invite?i=` (C1 — evidence covers
 `/?i=` only) and that the pass-through inside a captured app window boots and redeems;
 clipboard-write success inside Telegram/Instagram webviews (C7); whether the iOS-promoted
-installed-app door gets found (C5).
+installed-app door gets found (C5). Phase-3 gate additionally walks: new-user first touch on
+every platform (the extra hop + iOS prompt), `setup=install` exemption regression, and
+fresh-device restore reachability via `/about`.
 
 ## 6. Touch points
 
