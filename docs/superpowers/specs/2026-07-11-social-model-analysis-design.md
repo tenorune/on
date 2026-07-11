@@ -19,6 +19,9 @@ grown inconsistent and hard to state. Examples (from the operator):
   but there is no in-app surface for that same act.
 - Request-to-follow exists only inside groups; no general mechanism.
 - Moments where a user cannot predict what the other party sees.
+- The circled-plus icon is reused for two different acts: "follow this
+  follower" (automatic) and the group roster's "request to follow" (a request
+  the other side may decline) — same glyph, different social semantics.
 
 Not all of these are wrong. The primary goal is to surface the **grand ruleset
 / ethos / principle** the app should embody, and judge the mechanisms against
@@ -93,8 +96,9 @@ until then.
 the *ruled* values. Each carries a citable ID (`SM#n`), evidence, and a
 social/UX weight. Operator seeds enter here: the mutuals-call vs member-knock
 anomaly, the picker's own-followers-only rule, the missing in-app
-invite-to-follow surface, group-only request-to-follow, and
-unpredictable-other-side moments.
+invite-to-follow surface, group-only request-to-follow,
+unpredictable-other-side moments, and the circled-plus icon naming both an
+automatic follow and a declinable request.
 
 **Part IV — Target model.** The grand ruleset: what each tier grants and why,
 one consistent invitation rule, one consistent answer on request-to-follow,
