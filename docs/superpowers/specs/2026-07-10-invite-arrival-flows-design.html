@@ -223,7 +223,7 @@
       <tr><td>A2</td><td><code>/invite?i=</code> renders <b>config #1</b> (invite-first, marketing minimized-but-expandable); <code>/about?i=</code> renders <b>config #2</b> (full page + invite block). Pages never redirect or auto-hop.</td></tr>
       <tr><td>A3</td><td>Browser-opened <code>/about</code> always carries a standing bare “Open in Telegram” CTA (when the build has a real deep link).</td></tr>
       <tr><td>A4</td><td>The Mini App invite interstitial gains a “What is KnockKnock?” link → <code>/invite?i=TOKEN</code> — shown only in the first-open (<code>isNew</code>, “Accept &amp; get started”) context; the flag already drives the accept label, so the gate is one line.</td></tr>
-      <tr><td>Q7 = C+A</td><td>Installed-PWA recipients: platform-native link capturing where it exists (desktop Telegram routes <code>/?i=</code> into the installed app; Android <code>intent://</code> hand-off to walk), plus a universal in-app fallback — the “Redeem Invite” tab (C9/N6) — and a quiet third landing door for installed users.</td></tr>
+      <tr><td>Q7 = C+A</td><td>Installed-PWA recipients: platform-native link capturing where it exists (desktop Telegram routes <code>/?i=</code> into the installed app; Android <code>intent://</code> hand-off to walk), plus a universal in-app fallback — the unified “Add a person” form redeems pasted invites (C9/N6) — and a quiet third landing door for installed users.</td></tr>
     </table></div>
     <h3 style="margin-top:16px">Challenge round (post-v1)</h3>
     <div class="tablewrap"><table>
@@ -236,7 +236,7 @@
       <tr><td>C6</td><td>Adopted — redeem input also accepts <code>t.me/…?startapp=TOKEN</code> links.</td></tr>
       <tr><td>C7</td><td>Adopted — clipboard failure falls back to the URL as selectable text.</td></tr>
       <tr><td>C8</td><td>Withdrawn — operator-verified: t.me group invites in Telegram work; web group invites work, incl. via <code>/about?i=</code>.</td></tr>
-      <tr><td>C9</td><td>Adopted with adjustment — explicit tab pair “Add a Person” / “Redeem Invite” instead of single-input dispatch (N6, wireframe below).</td></tr>
+      <tr><td>C9</td><td>Adopted; shape revised twice — a tab pair was considered, then superseded by a <b>unified single form</b>: content-detected mode + invite preview (U1+preview, N6, wireframe below).</td></tr>
       <tr><td>C10</td><td>Accepted limit — a copied <code>/?i=…&amp;stay=1</code> address-bar URL neutralizes the boot net for its one recipient; N4 wording tightened.</td></tr>
       <tr><td>Q8 = C</td><td>Bare-<code>/</code> blind spot (undetectable iOS webviews, no token → no net): closed by a <b>phase 3</b> — every fresh tokenless boot redirects to <code>/about</code>; signed-in users pass through. Exemptions: <code>stay=1</code>, <code>setup=install</code> (the Safari install-hop is deliberately a fresh identity-less boot). Own evaluation gate after phase 2: it adds one hop + the iOS “Open in Safari?” prompt to the primary new-user funnel.</td></tr>
     </table></div>
@@ -484,7 +484,7 @@
           <div class="wf-hint">Telegram user? The invite connects to your Telegram account — no separate sign-up.</div>
           <span class="wf-btn tg">Open in Telegram</span>
           <span class="wf-btn">Continue in browser</span>
-          <div class="wf-hint" style="margin-top:9px">Already have the app installed? Copy the invite and paste it under “Redeem Invite”. <span style="border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-style:normal; font-weight:600;">Copy invite</span></div>
+          <div class="wf-hint" style="margin-top:9px">Already have the app installed? Copy the invite and paste it under “Add a person”. <span style="border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-style:normal; font-weight:600;">Copy invite</span></div>
           <div class="wf-hint" style="font-style:normal">KnockKnock is about <em>ambient presence</em> — a soft signal that you’re around and open to company. <span style="color:var(--good)">(stays visible — C4)</span></div>
           <div class="wf-exp">▸ More about KnockKnock</div>
         </div>
@@ -543,21 +543,16 @@
 
       <div class="mock">
         <div class="phone" style="min-height:260px">
-          <div class="wf-sec">Direct list (bottom)</div>
-          <div style="display:flex; gap:4px; margin-top:8px">
-            <span class="wf-btn" style="flex:1; margin:0; border-bottom-left-radius:0; border-bottom-right-radius:0; border-color:var(--accent)">Add a Person</span>
-            <span class="wf-btn dim" style="flex:1; margin:0; border-bottom-left-radius:0; border-bottom-right-radius:0">Redeem Invite</span>
+          <div class="wf-sec">Direct list (bottom) · “Add a person” opened, invite pasted</div>
+          <div style="border:1.5px solid var(--accent); border-radius:10px; padding:10px; margin-top:8px">
+            <div class="wf-hint" style="margin-top:0">Code or invite link</div>
+            <div style="height:22px; border:1px solid var(--border); border-radius:4px; background:var(--surface); font-size:9.5px; color:var(--muted); padding:4px 6px; overflow:hidden; white-space:nowrap">https://…/invite?i=2KjeRRQM2I2o3A7vErrDjw</div>
+            <div class="wf-hint" style="color:var(--good)">You’ll follow <b>Ana</b></div>
+            <span class="wf-btn" style="border-color:var(--accent); padding:5px">Redeem invite</span>
+            <div class="wf-note">Name field hidden in invite mode; with a 6-char code the form is byte-for-byte today’s (Name + “Follow”)</div>
           </div>
-          <div style="border:1.5px solid var(--accent); border-radius:0 0 10px 10px; padding:10px; margin-top:-1px">
-            <div class="wf-hint" style="margin-top:0">Code</div>
-            <div class="wf-bar" style="height:22px; border:1px solid var(--border); background:var(--surface)"></div>
-            <div class="wf-hint">Name (optional)</div>
-            <div class="wf-bar" style="height:22px; border:1px solid var(--border); background:var(--surface)"></div>
-            <span class="wf-btn" style="border-color:var(--accent); padding:5px">Follow</span>
-          </div>
-          <div class="wf-hint" style="margin-top:10px">“Redeem Invite” tab: same frame, one input (link or token), no Name field, button “Redeem”.</div>
         </div>
-        <div class="cap"><b>Tab pair (C9/N6)</b> — the current “Add a person” button splits into two ~49%-width tab-style buttons that open the same form area. Left tab = today’s behavior unchanged (incl. the first-run “Add by code” relabel); right tab = invite paste (<code>i=</code> URLs, <code>startapp=</code> links, raw tokens).</div>
+        <div class="cap"><b>Unified form (C9/N6, U1 + preview)</b> — no tabs. The one input detects what it holds: 6-char code → today’s exact form; recognized invite (<code>i=</code> URL, <code>startapp=</code> link, raw token) → Name hides, button becomes “Redeem invite”, and a status line previews the target via <code>resolveInvitePreview</code> (“Invite link detected” until/unless it resolves).</div>
       </div>
 
     </div>
@@ -594,8 +589,8 @@
         <span class="node n-trap"><b>Any webview / Safari</b><small>config #1 landing</small></span>
         <span class="hop"><span class="arr">→</span>“Copy invite”</span>
         <span class="node n-browser"><b>Home Screen / Dock</b><small>opens the installed app</small></span>
-        <span class="hop"><span class="arr">→</span>“Redeem Invite” tab → paste</span>
-        <span class="node n-app"><b>Redeem input</b><small>accepts i= URLs, startapp= links, raw tokens</small></span>
+        <span class="hop"><span class="arr">→</span>“Add a person” → paste</span>
+        <span class="node n-app"><b>Unified form, invite mode</b><small>detects i= URLs, startapp= links, raw tokens; previews the target</small></span>
         <span class="hop"><span class="arr">→</span>redeem</span>
         <span class="node n-good"><b>Invite on the existing account</b><small>no second identity, no phrase typing</small></span>
       </div>
@@ -648,11 +643,13 @@
       <li>Wrinkle: <code>TELEGRAM_ENABLED</code> is a hardcoded const in <code>js/features.js</code> (ESM), not an env var — <code>build.js</code> (CJS) reads it from the source text via <code>/export const TELEGRAM_ENABLED = (true|false)/</code>. Keeps <code>features.js</code> the single source of truth so a post-merge build with the flag off cannot advertise a dead bot link, and the page can never disagree with <code>telegramSharingEnabled()</code>.</li>
     </ul>
 
-    <h3>N6 · Installed-PWA treatment (Q7 = C+A, shape per C9)</h3>
+    <h3>N6 · Installed-PWA treatment (Q7 = C+A; form shape = U1 + invite preview)</h3>
     <ul>
-      <li><b>Tab pair</b> replacing the single “Add a person” button (<code>index.template.html #add-person-area</code>, <code>js/following.js</code>): two side-by-side tab-style buttons, each ~49% of the current button’s width — left <b>“Add a Person”</b>, right <b>“Redeem Invite”</b>. Opening either shows the shared form area with the active tab marked (wireframe below).</li>
-      <li>“Add a Person” = exactly today’s form and behavior (6-char code + optional name → Follow; <code>maxlength="6"</code> stays). The first-run relabel (<code>js/firstRun.js:62</code>, “Add by code”) applies to this tab only.</li>
-      <li>“Redeem Invite” = the same visual form, <em>no Name field</em>: one input accepting a pasted invite in any shape — a URL with an <code>i=</code> param, a <code>t.me/…?startapp=TOKEN</code> link (C6), or a raw 22-char base64url token (<code>/^[A-Za-z0-9_-]{22}$/</code>, the token length from <code>js/invites.js</code>). Anything else → inline error. Redemption reuses the existing pipeline (<code>attemptRedeemFromUrl</code> + <code>handleInviteRedemptionResult</code>) — personal and group invites both work.</li>
+      <li><b>One form, content-detected mode — no tabs.</b> Today’s single “Add a person” button and form stay (<code>index.template.html #add-person-form</code>, <code>js/following.js</code>); the code input accepts anything (<code>maxlength="6"</code> lifts) and the form adapts to what it holds.</li>
+      <li><b>Code mode</b> (6-char shape): byte-for-byte today’s behavior — Name field, “Follow” button, same validation; the first-run relabel (<code>js/firstRun.js:62</code>) untouched.</li>
+      <li><b>Invite mode</b> (a URL with an <code>i=</code> param, a <code>t.me/…?startapp=TOKEN</code> link (C6), or a raw 22-char base64url token <code>/^[A-Za-z0-9_-]{22}$/</code>): the Name field hides, the button reads “Redeem invite”, and a status line under the input announces the detection. <code>resolveInvitePreview</code> (unauthenticated, already exists) upgrades the line to “You’ll follow <b>Ana</b>” / “You’ll join <b>‘Hikers’</b>” — fail-soft: on preview failure the line stays “Invite link detected” and submit still redeems.</li>
+      <li>Anything else on submit → inline error: “That doesn’t look like a code or an invite link.” Redemption reuses the existing pipeline (<code>attemptRedeemFromUrl</code> + <code>handleInviteRedemptionResult</code>) — personal and group invites both work.</li>
+      <li>Followup (not v1): keep the Name field in invite mode as a local-label override (U3) — needs a post-redeem rename; label plumbing exists in <code>following.js</code>.</li>
       <li><b>C-side:</b> desktop Telegram routes <code>/?i=</code> into the installed app (operator-observed); <code>/invite?i=</code> expected to follow — walkthrough. Android <code>intent://</code>→WebAPK hand-off: walkthrough item. A manifest <code>launch_handler</code>/capture tune-up is a possible followup, not in scope.</li>
     </ul>
 
@@ -672,7 +669,7 @@
     <div>
       <h2>Phasing</h2>
       <ul>
-        <li><b>Phase 1</b> — shared links become <code>/invite?i=</code> (N1); boot decision tree for <code>/?i=</code> (N3); config #1/#2 page work incl. identity pass-through (N4); standing <code>/about</code> Telegram CTA; build gate (N5); “Redeem Invite” tab + landing copy door (N6); interstitial info link (N8); unconditional <code>stay=1</code> loop guard; panel skipped on <code>stay=1</code>.</li>
+        <li><b>Phase 1</b> — shared links become <code>/invite?i=</code> (N1); boot decision tree for <code>/?i=</code> (N3); config #1/#2 page work incl. identity pass-through (N4); standing <code>/about</code> Telegram CTA; build gate (N5); unified add/redeem form + landing copy door (N6); interstitial info link (N8); unconditional <code>stay=1</code> loop guard; panel skipped on <code>stay=1</code>.</li>
         <li><b>Phase 2</b> — after the phase-1 on-device walkthrough: bare-arrival redirect for detected in-app browsers (F8) + panel retirement.</li>
         <li><b>Phase 3</b> (Q8=C) — after the phase-2 walkthrough, own evaluation gate: the tokenless redirect widens to <em>all</em> fresh boots (closes the iOS bare blind spot; costs the funnel one hop + the iOS prompt — evaluate on device before keeping).</li>
         <li><b>Done =</b> the operator’s on-device walkthrough, not green suites.</li>

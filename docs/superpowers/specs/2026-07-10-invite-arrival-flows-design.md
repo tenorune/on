@@ -28,7 +28,7 @@ lives in a storage partition no webview or (on iOS) even Safari can reach.
 | Q4=A | Telegram-Android detected + token + deep link → boot auto-hops to `t.me/<bot>/app?startapp=TOKEN`, zero taps. |
 | Q5=B | Bare in-app arrivals (phase 2) redirect to plain `/about`, which offers both doors. |
 | Q6=A | `stay=1` boots skip the old in-app-browser panel (phase 1); panel retires in phase 2. |
-| Q7=C+A | Installed-PWA recipients: platform link-capturing where it exists + universal in-app fallback (the "Redeem Invite" tab, N6) + a tertiary landing door. |
+| Q7=C+A | Installed-PWA recipients: platform link-capturing where it exists + universal in-app fallback (the unified "Add a person" form redeems pasted invites, N6) + a tertiary landing door. |
 | A1 | `buildInviteUrl` → `/invite?i=TOKEN`; the `/?i=` boot gate remains as the net for legacy/copied links. |
 | A2 | `/invite?i=` renders config #1 (invite-first); `/about?i=` renders config #2 (full page + invite block). Pages never redirect or auto-hop. |
 | A3 | Browser-opened `/about` always shows a standing bare "Open in Telegram" CTA (fail-closed on the build substitution). |
@@ -48,7 +48,7 @@ Flows F0–F9 and the boot decision tree: see the HTML spec.
 | C6 | Adopted: the redeem input also accepts `t.me/…?startapp=TOKEN` links. |
 | C7 | Adopted: copy-invite failure falls back to the URL as selectable text. |
 | C8 | Withdrawn — operator-verified (see below). |
-| C9 | Adopted with adjustment: explicit **tab pair** "Add a Person" / "Redeem Invite" instead of single-input dispatch (N6). |
+| C9 | Adopted; shape revised twice — tab pair considered, then superseded by a **unified single form** with content-detected mode + invite preview (U1+preview, N6). |
 | C10 | Accepted limit (a copied `/?i=…&stay=1` address-bar URL neutralizes the net for its recipient — small window) + N4 wording tightened. |
 | Q8=C | Bare-`/` blind spot (undetectable iOS webviews; no token → no net): closed by a **phase 3** — every fresh tokenless boot redirects to `/about` (exemptions: `stay=1`, `setup=install`); signed-in users pass through as today. Own evaluation gate after the phase-2 walkthrough, because it lengthens the primary new-user funnel (one hop + the iOS "Open in Safari?" prompt) for everyone. |
 
@@ -136,19 +136,25 @@ from the source text via `/export const TELEGRAM_ENABLED = (true|false)/`, keepi
 `features.js` the single source of truth so the page can never disagree with
 `telegramSharingEnabled()` (a post-merge flag-off build cannot advertise a dead bot link).
 
-### N6 — Installed-PWA treatment (Q7=C+A, shape per C9)
-- **Tab pair** replacing the single "Add a person" button (`index.template.html
-  #add-person-area`, `js/following.js`): two side-by-side tab-style buttons, each ~49% of the
-  current button's width — left **"Add a Person"**, right **"Redeem Invite"**. Opening either
-  shows the shared form area with the active tab marked. "Add a Person" = exactly today's form
-  and behavior (6-char code + optional name → Follow; `maxlength="6"` stays). "Redeem Invite" =
-  the same visual form with no Name field: one input accepting a pasted invite in any shape —
-  a URL carrying an `i=` param, a `t.me/…?startapp=TOKEN` link (C6), or a raw 22-char base64url
-  token (`/^[A-Za-z0-9_-]{22}$/`, the token length from `js/invites.js`). Anything else →
-  inline error. Redemption reuses the existing pipeline (`attemptRedeemFromUrl` +
+### N6 — Installed-PWA treatment (Q7=C+A; form shape = U1 + invite preview)
+- **One form, content-detected mode.** Today's single "Add a person" button and form stay
+  (`index.template.html #add-person-form`, `js/following.js`); no tabs. The code input accepts
+  anything (`maxlength="6"` lifts). The form watches the trimmed input:
+  - 6-char code (today's shape) → **code mode**: byte-for-byte today's behavior — Name field,
+    "Follow" button, same validation and errors. The first-run relabel (`js/firstRun.js:62`)
+    is untouched.
+  - Recognized invite — a URL with an `i=` param, a `t.me/…?startapp=TOKEN` link (C6), or a
+    raw 22-char base64url token (`/^[A-Za-z0-9_-]{22}$/`, the token length from
+    `js/invites.js`) → **invite mode**: the Name field hides, the button reads "Redeem
+    invite", and a status line under the input announces the detection. The unauthenticated
+    `resolveInvitePreview` fires and upgrades that line to "You'll follow **Ana**" /
+    "You'll join **'Hikers'**" when it resolves (fail-soft: line stays at "Invite link
+    detected" on any preview failure; redemption still proceeds on submit).
+  - Anything else on submit → inline error: "That doesn't look like a code or an invite link."
+- Redemption reuses the existing pipeline (`attemptRedeemFromUrl` +
   `handleInviteRedemptionResult`), so personal and group invites both work.
-- First-run interplay: `js/firstRun.js:62` relabels the add button in the demoted empty state —
-  the relabel applies to the "Add a Person" tab; "Redeem Invite" keeps its label.
+- Followup (not v1): keep the Name field in invite mode as a local-label override (U3) —
+  needs a post-redeem rename step; label plumbing exists in `following.js`.
 - C-side: desktop Telegram routes `/?i=` into the installed app (operator-observed; `/invite?i=`
   expected to follow — walkthrough). Android `intent://`→WebAPK hand-off: walkthrough item.
   Manifest `launch_handler` tuning: possible followup, out of scope.
@@ -198,10 +204,11 @@ Unit (jest, `node_modules/.bin/jest` from repo root):
   standing CTA only when substituted.
 - App-boot suite: each gate row fires/doesn't (order-sensitive: identity beats detection,
   `stay` beats everything but Mini App); `location.replace` targets; `stay` stripped.
-- `following`: tab pair renders; "Add a Person" behavior unchanged incl. first-run relabel;
-  "Redeem Invite" accepts `i=` URLs, `startapp=` URLs, raw 22-char tokens; rejects garbage
-  and 6-char codes with an inline error; redemption pipeline reuse; no Name field in redeem
-  mode.
+- `following`: mode detection — 6-char codes keep today's behavior byte-for-byte (incl.
+  first-run relabel); `i=` URLs, `startapp=` URLs, and raw 22-char tokens switch to invite
+  mode (Name hidden, button "Redeem invite", status line shown); preview upgrade on resolve
+  and fail-soft on preview error; garbage on submit → inline error; redemption pipeline
+  reuse; mode switches back cleanly when the input changes.
 - `telegramFirstRun`: info link present iff `isNew`; choice resolutions unchanged.
 - `build.js`: substitution on/off with the features-flag read.
 
