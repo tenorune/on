@@ -65,11 +65,35 @@ const root = path.resolve(__dirname, '..');
 const readRoot = (f) => fs.readFileSync(path.join(root, f), 'utf8');
 
 describe('readTelegramEnabled (spec N5: features.js is the single source of truth)', () => {
-  const { readTelegramEnabled } = require('../scripts/build.js');
   test('matches the flag literal in js/features.js source', () => {
+    const { readTelegramEnabled } = require('../scripts/build.js');
     const src = readRoot('js/features.js');
     const expected = /export const TELEGRAM_ENABLED = true/.test(src);
     expect(readTelegramEnabled()).toBe(expected);
+  });
+
+  test('returns false when readFileSync fails (fail-closed)', () => {
+    jest.resetModules();
+    jest.doMock('fs', () => ({
+      ...jest.requireActual('fs'),
+      readFileSync: jest.fn(() => {
+        throw new Error('boom');
+      }),
+    }));
+    const { readTelegramEnabled } = require('../scripts/build.js');
+    expect(readTelegramEnabled()).toBe(false);
+    jest.resetModules();
+  });
+
+  test('returns false when source has no TELEGRAM_ENABLED line (fail-closed)', () => {
+    jest.resetModules();
+    jest.doMock('fs', () => ({
+      ...jest.requireActual('fs'),
+      readFileSync: jest.fn(() => 'export const SOME_OTHER_FLAG = true;'),
+    }));
+    const { readTelegramEnabled } = require('../scripts/build.js');
+    expect(readTelegramEnabled()).toBe(false);
+    jest.resetModules();
   });
 });
 
