@@ -156,6 +156,13 @@ jest.mock('../js/prefs.js', () => ({
   }),
   setPaletteState: jest.fn(),
 }));
+jest.mock('../js/invites.js', () => ({
+  attemptRedeemFromUrl: jest.fn(),
+  resolveInvitePreview: jest.fn(() => Promise.resolve(null)),
+}));
+jest.mock('../js/groupDisplayNamePrompt.js', () => ({
+  showGroupDisplayNamePrompt: jest.fn(() => Promise.resolve('Me')),
+}));
 
 const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations, watchFollowerNames } = require('../js/db.js');
 const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, setFollowerName, removeFollowing } = require('../js/store.js');
@@ -186,6 +193,8 @@ function setupDom() {
     <button id="add-person-btn"></button>
     <div id="add-person-form">
       <input id="add-code-input" />
+      <p id="add-invite-status" class="hint hidden"></p>
+      <label id="add-label-label"></label>
       <input id="add-label-input" />
       <p id="add-error" class="hidden"></p>
       <button id="add-submit-btn"></button>
@@ -2511,5 +2520,92 @@ describe('add-person form mode: unpin pinned surfaces + close the code drawer', 
     expect(document.getElementById('add-person-form').classList.contains('open')).toBe(true);
     expect(document.body.classList.contains('add-form-open')).toBe(true);
     expect(document.getElementById('code-drawer').classList.contains('open')).toBe(false);
+  });
+});
+
+describe('unified redeem form (spec N6)', () => {
+  const { attemptRedeemFromUrl, resolveInvitePreview } = require('../js/invites.js');
+  const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv';
+  const INVITE_URL = `https://knock.example/invite?i=${TOKEN}`;
+  const input = () => document.getElementById('add-code-input');
+  const type = (v) => { input().value = v; input().dispatchEvent(new Event('input', { bubbles: true })); };
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+  let onInviteRedeemed;
+
+  beforeEach(() => {
+    setupDom();
+    require('../js/store.js').getFollowing.mockReturnValue([]);
+    attemptRedeemFromUrl.mockReset();
+    resolveInvitePreview.mockReset();
+    resolveInvitePreview.mockImplementation(() => Promise.resolve(null));
+    onInviteRedeemed = jest.fn();
+    initList('myUid', 'MYCODE', { onInviteRedeemed });
+  });
+
+  test('typing a code keeps code mode: uppercased, Name visible, button "Follow"', () => {
+    type('xk7p2m');
+    expect(input().value).toBe('XK7P2M');
+    expect(document.getElementById('add-label-input').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('add-submit-btn').textContent).toBe('Follow');
+    expect(document.getElementById('add-invite-status').classList.contains('hidden')).toBe(true);
+  });
+
+  test('pasting an invite link switches to invite mode: no uppercasing, Name hidden, button "Redeem invite", status line shown', () => {
+    type(INVITE_URL);
+    expect(input().value).toBe(INVITE_URL); // case preserved — tokens are case-sensitive
+    expect(document.getElementById('add-label-input').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('add-label-label').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('add-submit-btn').textContent).toBe('Redeem invite');
+    expect(document.getElementById('add-invite-status').textContent).toBe('Invite link detected');
+  });
+
+  test('preview upgrades the status line (fail-soft covered by the default null mock elsewhere)', async () => {
+    resolveInvitePreview.mockResolvedValueOnce({ scope: 'personal', label: 'Ana' });
+    type(INVITE_URL);
+    await flush();
+    expect(document.getElementById('add-invite-status').textContent).toBe("You'll follow Ana");
+  });
+
+  test('clearing the input restores code mode', () => {
+    type(INVITE_URL);
+    type('');
+    expect(document.getElementById('add-label-input').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('add-submit-btn').textContent).toBe('Follow');
+  });
+
+  test('submit in invite mode redeems through the existing pipeline and fires the callback on ok', async () => {
+    attemptRedeemFromUrl.mockResolvedValueOnce({ ok: true, creatorLabel: 'Ana' });
+    type(INVITE_URL);
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    expect(attemptRedeemFromUrl).toHaveBeenCalledWith(TOKEN, expect.anything(), expect.anything(), {});
+    expect(onInviteRedeemed).toHaveBeenCalledWith({ ok: true, creatorLabel: 'Ana' }); // the spy passed to initList
+  });
+
+  test('group invite prompts for a display name mid-flight, passing the cache forward', async () => {
+    attemptRedeemFromUrl
+      .mockResolvedValueOnce({ ok: false, reason: 'needs-display-name', groupId: 'G1', groupName: 'Hikers', cache: { marker: 1 } })
+      .mockResolvedValueOnce({ ok: true, groupId: 'G1', groupName: 'Hikers' });
+    type(INVITE_URL);
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    expect(attemptRedeemFromUrl).toHaveBeenLastCalledWith(TOKEN, expect.anything(), expect.anything(),
+      { displayName: 'Me', cache: { marker: 1 } });
+  });
+
+  test('failure maps to an inline error, form stays open', async () => {
+    attemptRedeemFromUrl.mockResolvedValueOnce({ ok: false, reason: 'expired' });
+    type(INVITE_URL);
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    expect(document.getElementById('add-error').textContent).toBe('This invite link has expired.');
+    expect(document.getElementById('add-error').classList.contains('hidden')).toBe(false);
+  });
+
+  test('garbage on submit gets the unified error', async () => {
+    type('hello there');
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    expect(document.getElementById('add-error').textContent).toBe("That doesn't look like a code or an invite link.");
   });
 });

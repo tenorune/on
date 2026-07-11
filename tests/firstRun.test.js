@@ -15,7 +15,7 @@ const FIXTURE = `
       <p id="first-run-link-line" class="hint hidden">Already use KnockKnock?
         <span class="first-run-link-row"><button id="first-run-link-btn" class="ghost-btn" type="button">I have a secret phrase</button><button id="first-run-graduate-help" class="help-badge" type="button">?</button></span></p>
     </div>
-    <div id="add-person-area"><button id="add-person-btn" class="add-btn">Add a person</button></div>
+    <div id="add-person-area"><button id="add-person-btn" class="add-btn">Redeem an invite</button></div>
   </main>
   <button id="mycode-chip" class="chip">Levers &amp; knobs</button>
   <div id="code-drawer">
@@ -50,20 +50,20 @@ test('isFirstRunResolved: true after an empty first render too', () => {
   expect(firstRun.isFirstRunActive()).toBe(true);
 });
 
-test('setListEmpty(true): panel shows, add button demotes to "Add by code"', () => {
+test('setListEmpty(true): panel shows, add button text is untouched', () => {
   firstRun.setListEmpty(true);
   expect(document.getElementById('first-run-panel').classList.contains('hidden')).toBe(false);
   expect(document.getElementById('add-person-area').classList.contains('first-run-demoted')).toBe(true);
-  expect(document.getElementById('add-person-btn').textContent).toBe('Add by code');
+  expect(document.getElementById('add-person-btn').textContent).toBe('Redeem an invite');
   expect(firstRun.isFirstRunActive()).toBe(true);
 });
 
-test('setListEmpty(false): panel hides, add button reverts', () => {
+test('setListEmpty(false): panel hides, add button text is untouched', () => {
   firstRun.setListEmpty(true);
   firstRun.setListEmpty(false);
   expect(document.getElementById('first-run-panel').classList.contains('hidden')).toBe(true);
   expect(document.getElementById('add-person-area').classList.contains('first-run-demoted')).toBe(false);
-  expect(document.getElementById('add-person-btn').textContent).toBe('Add a person');
+  expect(document.getElementById('add-person-btn').textContent).toBe('Redeem an invite');
   expect(firstRun.isFirstRunActive()).toBe(false);
 });
 
@@ -71,15 +71,16 @@ test('same-state re-call is a no-op: no dispatch, no DOM re-sync (W3-A CL#1)', (
   firstRun.setListEmpty(true);
   const seen = jest.fn();
   document.addEventListener('first-run-change', seen);
-  // Sentinel: a re-sync would overwrite this back to 'Add by code'.
+  // Sentinel: a re-sync would overwrite this (setListEmpty no longer touches
+  // button text at all, so the sentinel must survive both branches below).
   document.getElementById('add-person-btn').textContent = 'sentinel';
   firstRun.setListEmpty(true);
   expect(seen).not.toHaveBeenCalled();
   expect(document.getElementById('add-person-btn').textContent).toBe('sentinel');
-  // A genuine transition still syncs + dispatches.
+  // A genuine transition still syncs + dispatches, but leaves the button text alone.
   firstRun.setListEmpty(false);
   expect(seen).toHaveBeenCalledTimes(1);
-  expect(document.getElementById('add-person-btn').textContent).toBe('Add a person');
+  expect(document.getElementById('add-person-btn').textContent).toBe('sentinel');
 });
 
 test('guided empty state hides the drawer invite button (redundant with the on-screen CTA); restored when non-empty', () => {

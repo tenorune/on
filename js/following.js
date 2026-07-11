@@ -29,12 +29,16 @@ import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 import { reconcileChildren } from './reconcile.js';
 import { refreshHints, clearActiveHint } from './hintRotation.js';
 import { setListEmpty } from './firstRun.js';
+import { extractInviteTokenFromText } from './inviteText.js';
+import { attemptRedeemFromUrl, resolveInvitePreview } from './invites.js';
+import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
 const lastUserData = new Map(); // userId → most recent userData from Firebase
 const renderedFollowees = new Set();
 let onFolloweeReady = null;
+let _onInviteRedeemed = null;
 
 // Direct-list rows are keyed by data-user-id, but a group roster reuses the same
 // attribute for the same uid. Scope every Direct-list row lookup to #people-list
@@ -92,8 +96,9 @@ async function doConfirm() {
   }
 }
 
-export function initList(myUserId, myCode) {
+export function initList(myUserId, myCode, { onInviteRedeemed = null } = {}) {
   myUserIdRef = myUserId;
+  _onInviteRedeemed = onInviteRedeemed;
 
   renderedFollowees.clear();
 
@@ -106,6 +111,11 @@ export function initList(myUserId, myCode) {
   _incomingCall = null;
   latestFollowersSnapshot = [];
   pendingAction = null;
+  // Reset the add-form's invite/code mode tracking too: a fresh init means a
+  // fresh DOM (add-invite-status etc. start blank), so any token remembered
+  // from a prior session must not short-circuit updateAddFormMode's first call.
+  _inviteModeToken = null;
+  _previewSeq++;
   if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
 
   // Inject confirm sheet once
@@ -251,7 +261,8 @@ export function initList(myUserId, myCode) {
   document.getElementById('add-cancel-btn').addEventListener('click', closeAddForm);
 
   document.getElementById('add-code-input').addEventListener('input', (e) => {
-    e.target.value = e.target.value.toUpperCase();
+    // Invite links/tokens are case-sensitive — only code mode uppercases.
+    if (updateAddFormMode(e.target.value) === 'code') e.target.value = e.target.value.toUpperCase();
   });
 
   document.getElementById('add-code-input').addEventListener('keydown', async (e) => {
@@ -261,7 +272,7 @@ export function initList(myUserId, myCode) {
     const code = codeInput.value.trim().toUpperCase();
     errorEl.classList.add('hidden');
     if (!code) { showError(errorEl, 'Please enter a code.'); return; }
-    if (code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) { showError(errorEl, 'Code must be 6 letters and numbers.'); return; }
+    if (code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) { showError(errorEl, "That doesn't look like a code or an invite link."); return; }
     if (code === myCode.toUpperCase()) { showError(errorEl, "That's your own code."); return; }
     const existing = getFollowing().find((f) => f.code.toUpperCase() === code);
     if (existing) { showError(errorEl, `You're already following ${resolveDisplayName(existing)}.`); return; }
@@ -1142,12 +1153,87 @@ function activateRename(entry, labelEl) {
   });
 }
 
+// Invite-vs-code mode for the unified "Redeem an invite" form (spec N6). The
+// status line doubles as the preview surface: it upgrades to "You'll follow …"
+// when resolveInvitePreview lands, and stays at the generic detection text on
+// any preview failure (fail-soft — submit still redeems).
+let _inviteModeToken = null;
+let _previewSeq = 0;
+function updateAddFormMode(raw) {
+  const token = extractInviteTokenFromText(raw);
+  if (token !== null && token === _inviteModeToken) return 'invite'; // unchanged — don't re-fire the preview
+  _inviteModeToken = token;
+  const statusEl = document.getElementById('add-invite-status');
+  const submit = document.getElementById('add-submit-btn');
+  const labelEls = [document.getElementById('add-label-label'), document.getElementById('add-label-input')];
+  if (!token) {
+    statusEl.textContent = '';
+    statusEl.classList.add('hidden');
+    labelEls.forEach((el) => el && el.classList.remove('hidden'));
+    submit.textContent = 'Follow';
+    return 'code';
+  }
+  labelEls.forEach((el) => el && el.classList.add('hidden'));
+  submit.textContent = 'Redeem invite';
+  statusEl.textContent = 'Invite link detected';
+  statusEl.classList.remove('hidden');
+  const seq = ++_previewSeq;
+  resolveInvitePreview(token).then((p) => {
+    if (seq !== _previewSeq || !p) return; // stale input or dead token — keep the generic text
+    statusEl.textContent = p.scope === 'group'
+      ? `You'll join '${p.groupName || 'a group'}'`
+      : `You'll follow ${p.label || 'someone'}`;
+  }).catch(() => { /* fail-soft (spec N6) */ });
+  return 'invite';
+}
+
+function redeemFailureMessage(reason) {
+  switch (reason) {
+    case 'already-following': return "You're already following them.";
+    case 'already-member': return "You're already in that group.";
+    case 'self': return "That's your own invite.";
+    case 'revoked':
+    case 'expired': return 'This invite link has expired.';
+    case 'cap': return 'This invite has reached its limit.';
+    default: return "That invite link isn't valid.";
+  }
+}
+
+// Invite-mode submit (spec N6): the exact boot-redemption pipeline, reused.
+// Group invites prompt for a display name mid-flight, same as the URL flow
+// (app.js:675) — the cache handoff skips the duplicate index/group reads.
+async function handleRedeemInvite(myUserId, myCode, token) {
+  const errorEl = document.getElementById('add-error');
+  const submit = document.getElementById('add-submit-btn');
+  errorEl.classList.add('hidden');
+  submit.disabled = true;
+  try {
+    let result = await attemptRedeemFromUrl(token, myUserId, myCode, {});
+    if (result && result.ok === false && result.reason === 'needs-display-name') {
+      const displayName = await showGroupDisplayNamePrompt(result.groupName || 'this group', '');
+      result = await attemptRedeemFromUrl(token, myUserId, myCode, { displayName, cache: result.cache });
+    }
+    if (result && result.ok) {
+      closeAddForm();
+      renderList();
+      if (_onInviteRedeemed) await _onInviteRedeemed(result);
+      return;
+    }
+    showError(errorEl, redeemFailureMessage(result && result.reason));
+  } finally {
+    submit.disabled = false;
+  }
+}
+
 async function handleAddPerson(myUserId, myCode) {
   const codeInput = document.getElementById('add-code-input');
   const labelInput = document.getElementById('add-label-input');
   const errorEl = document.getElementById('add-error');
 
-  const code = codeInput.value.trim().toUpperCase();
+  const raw = codeInput.value.trim();
+  const inviteToken = extractInviteTokenFromText(raw);
+  if (inviteToken) return handleRedeemInvite(myUserId, myCode, inviteToken);
+  const code = raw.toUpperCase();
   const label = labelInput.value.trim();
 
   errorEl.classList.add('hidden');
@@ -1158,7 +1244,7 @@ async function handleAddPerson(myUserId, myCode) {
   }
 
   if (code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) {
-    showError(errorEl, 'Code must be 6 letters and numbers.');
+    showError(errorEl, "That doesn't look like a code or an invite link.");
     return;
   }
 
@@ -1210,6 +1296,7 @@ function closeAddForm() {
   document.getElementById('add-code-input').value = '';
   document.getElementById('add-label-input').value = '';
   document.getElementById('add-error').classList.add('hidden');
+  updateAddFormMode(''); // back to code mode (labels, button, status line)
 }
 
 function showError(el, msg) {

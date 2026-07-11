@@ -58,8 +58,6 @@ export function setListEmpty(isEmpty) {
   // Demote the code-entry form to the secondary role while the panel shows —
   // presentation only: same element, ids, and behavior (spec §3).
   document.getElementById('add-person-area')?.classList.toggle('first-run-demoted', empty);
-  const addBtn = document.getElementById('add-person-btn');
-  if (addBtn) addBtn.textContent = empty ? 'Add by code' : 'Add a person';
   // Declutter the code drawer during the guided empty state (spec §3): the
   // drawer's "Invite your people" duplicates the on-screen first-run CTA, so
   // hide it on every surface. With only the share code left, the section's

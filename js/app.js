@@ -840,7 +840,17 @@ async function main() {
     setOwnStatusReadyCallback(signalReady);
     setFolloweeReadyCallback(signalReady);
   }
-  initList(userId, code);
+  initList(userId, code, {
+    // In-app redemption (spec N6): same success surface as the URL flow —
+    // the first-follow beat toast, and group joins navigate into the group.
+    onInviteRedeemed: async (result) => {
+      handleInviteRedemptionResult(result);
+      if (result.groupId) {
+        if (result.groupName) setLastKnownGroupName(result.groupId, result.groupName);
+        await navigateToGroup(result.groupId);
+      }
+    },
+  });
   initHintRotation();
   if (KNOCK_ENABLED) initKnocks(userId);
 
