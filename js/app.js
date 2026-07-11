@@ -14,6 +14,7 @@ import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, apply
 import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, extractDirectIntentFromUrl, resolveInvitePreview } from './invites.js';
+import { decideBootRedirect, readBootRedirectContext, hasStayParam } from './inviteBootGate.js';
 import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext } from './prefs.js';
 import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, navigateToDirect, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
@@ -211,7 +212,9 @@ async function ensureIdentity(pendingInviteToken = null) {
   const inviteGroupName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
   // Dismiss splash so the user can see and interact with the welcome screen.
   dismissSplash();
-  if (onboardingLane({ installPromptAvailable: false }) === 'in-app-browser') {
+  // stay=1 = the user just chose "Continue in browser" on the landing, which
+  // already said everything this panel says (Q6=A) — don't nag twice.
+  if (onboardingLane({ installPromptAvailable: false }) === 'in-app-browser' && !hasStayParam()) {
     await showInAppBrowserRedirect(); // informational; user may continue here anyway
   }
   // Loop so that cancelling the restore screen returns the user to the
@@ -556,12 +559,22 @@ function cleanInviteParamFromUrl() {
   try {
     const clean = new URL(window.location.href);
     clean.searchParams.delete('i');
+    clean.searchParams.delete('stay');
     window.history.replaceState({}, document.title, clean.toString());
   } catch { /* no-op on unusual URLs */ }
 }
 
 async function main() {
   let pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
+  // Mint-free rescue for legacy /?i= links (spec N3): decide BEFORE any
+  // Firebase work whether this boot belongs on the /invite landing or in the
+  // Mini App. replace() keeps the webview's back button from bouncing
+  // through this half-booted page.
+  const bootRedirect = decideBootRedirect(readBootRedirectContext(pendingInviteToken));
+  if (bootRedirect) {
+    window.location.replace(bootRedirect.url);
+    return;
+  }
   // Cold tap on an invite / follow-request notification: the SW opened us at
   // /?inbox=1 (sw.template.js coldStartUrl). Land in Direct and open the Inbox
   // rather than restoring the user's last (possibly group) context, where the
