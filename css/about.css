@@ -210,5 +210,14 @@ html.cfg-invite-first .intro-more,
 html.cfg-invite-first .features,
 html.cfg-invite-first .privacy-short,
 html.cfg-invite-first .privacy-detail { display: none; }
+/* Telegram invite "What is KnockKnock?" pitch (/about?i=…&pitch=1): the reading
+   page never auto-redeems, and pitch mode additionally hides every web-facing
+   exit — the "Continue in browser" door, the "Copy invite" block, and its
+   fallback (the copy target is /invite?i=, which WOULD pass through if pasted
+   into a web app). The framing and the token-carrying "Open in Telegram" return
+   door stay, so the only way forward is back into Telegram. */
+html.cfg-pitch .invite-landing .cta[data-open-app],
+html.cfg-pitch .invite-installed-hint,
+html.cfg-pitch #invite-copy-fallback { display: none; }
 /* C5 (implement-and-evaluate): on iOS, promote the installed-app door. */
 body.ios-door-promoted .invite-installed-hint { font-size: 0.85rem; opacity: 1; }

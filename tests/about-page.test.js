@@ -450,6 +450,15 @@ describe('pre-paint config decision (inline <head> script)', () => {
     expect(css).toMatch(/html\.cfg-invite #about-invite-framing\s*\{[^}]*min-height/);
     expect(css).toContain('html.cfg-invite #about-invite-framing:not(.hidden)');
   });
+
+  test('pitch mode hides the web-facing exits, keeps the Telegram return door', () => {
+    const css = readRoot('css/about.css');
+    expect(css).toContain('html.cfg-pitch .invite-landing .cta[data-open-app]');
+    expect(css).toContain('html.cfg-pitch .invite-installed-hint');
+    expect(css).toContain('html.cfg-pitch #invite-copy-fallback');
+    // the "Open in Telegram" return door is NOT among the pitch-hidden selectors
+    expect(css).not.toMatch(/html\.cfg-pitch[^;{]*#invite-telegram-cta/);
+  });
 });
 
 describe('about-telegram behavior (spec N4: configs, doors, pass-through)', () => {
