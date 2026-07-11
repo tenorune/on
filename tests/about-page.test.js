@@ -328,3 +328,130 @@ describe('status-color easter egg', () => {
     expect(() => runEcho({ statusapp_palette_state: '{not json' })).not.toThrow();
   });
 });
+
+describe('about-telegram behavior (spec N4: configs, doors, pass-through)', () => {
+  const vm = require('vm');
+  const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv';
+
+  function makeEl(attrs = {}) {
+    const cls = new Set(['hidden']);
+    return {
+      attrs: { ...attrs }, handlers: {}, textContent: '',
+      classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c) },
+      getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
+      setAttribute(k, v) { this.attrs[k] = v; },
+      addEventListener(t, f) { this.handlers[t] = f; },
+    };
+  }
+
+  function runScript({ pathname = '/invite', search = '', link = 'https://t.me/bot/app', identity = null, ua = 'Mozilla/5.0 (Linux; Android 14) Chrome/120', clipboardOk = true } = {}) {
+    const els = {
+      'about-telegram-cta': makeEl({ 'data-telegram-link': link }),
+      'about-open-cta': makeEl(),
+      'invite-landing': makeEl(),
+      'invite-telegram-cta': makeEl({ 'data-telegram-link': link }),
+      'invite-copy-btn': makeEl(),
+      'invite-copy-fallback': makeEl(),
+      'about-more-btn': makeEl(),
+    };
+    const bodyCls = new Set();
+    const replaced = [];
+    const sandbox = {
+      URLSearchParams, Promise,
+      setTimeout: (f) => f(),
+      navigator: {
+        userAgent: ua, maxTouchPoints: 0,
+        clipboard: { writeText: () => (clipboardOk ? Promise.resolve() : Promise.reject(new Error('denied'))) },
+      },
+      localStorage: { getItem: (k) => (k === 'statusapp_identity' ? identity : null) },
+      location: { pathname, search, origin: 'https://knock.example', replace: (u) => replaced.push(u) },
+      document: {
+        getElementById: (id) => els[id] || null,
+        body: { classList: { add: (c) => bodyCls.add(c), remove: (c) => bodyCls.delete(c), contains: (c) => bodyCls.has(c) } },
+      },
+    };
+    vm.runInNewContext(readRoot('js/about-telegram.js'), sandbox);
+    return { els, bodyCls, replaced };
+  }
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  test('token-less page: standing bare CTA unhides with a real link (A3)', () => {
+    const { els } = runScript({ pathname: '/about', search: '' });
+    expect(els['about-telegram-cta'].classList.contains('hidden')).toBe(false);
+    expect(els['about-telegram-cta'].attrs.href).toBe('https://t.me/bot/app');
+    expect(els['invite-landing'].classList.contains('hidden')).toBe(true);
+  });
+
+  test('token-less + unsubstituted placeholder: everything stays hidden (fail-closed)', () => {
+    const { els } = runScript({ pathname: '/about', search: '', link: '__TELEGRAM_APP_LINK__' });
+    expect(els['about-telegram-cta'].classList.contains('hidden')).toBe(true);
+  });
+
+  test('config #1 (/invite + token): landing shows, token CTA composed, intro doors hidden, marketing collapsed', () => {
+    const { els, bodyCls } = runScript({ search: `?i=${TOKEN}` });
+    expect(els['invite-landing'].classList.contains('hidden')).toBe(false);
+    expect(els['invite-telegram-cta'].attrs.href).toBe(`https://t.me/bot/app?startapp=${TOKEN}`);
+    expect(els['invite-telegram-cta'].classList.contains('hidden')).toBe(false);
+    expect(els['about-telegram-cta'].classList.contains('hidden')).toBe(true);
+    expect(els['about-open-cta'].classList.contains('hidden')).toBe(true);
+    expect(bodyCls.has('invite-first')).toBe(true);
+  });
+
+  test('config #2 (/about + token): landing shows, marketing NOT collapsed', () => {
+    const { els, bodyCls } = runScript({ pathname: '/about', search: `?i=${TOKEN}` });
+    expect(els['invite-landing'].classList.contains('hidden')).toBe(false);
+    expect(bodyCls.has('invite-first')).toBe(false);
+  });
+
+  test('placeholder link with a token: Telegram CTA stays hidden, landing still shows', () => {
+    const { els } = runScript({ search: `?i=${TOKEN}`, link: '__TELEGRAM_APP_LINK__' });
+    expect(els['invite-telegram-cta'].classList.contains('hidden')).toBe(true);
+    expect(els['invite-landing'].classList.contains('hidden')).toBe(false);
+  });
+
+  test('C1 pass-through: /invite + token + identity → replace(/?i=…&stay=1), landing untouched', () => {
+    const { els, replaced } = runScript({ search: `?i=${TOKEN}`, identity: '{"userId":"u1"}' });
+    expect(replaced).toEqual([`/?i=${TOKEN}&stay=1`]);
+    expect(els['invite-landing'].classList.contains('hidden')).toBe(true);
+  });
+
+  test('no pass-through on /about?i= (config #2 is a reading page)', () => {
+    const { replaced, els } = runScript({ pathname: '/about', search: `?i=${TOKEN}`, identity: '{"userId":"u1"}' });
+    expect(replaced).toEqual([]);
+    expect(els['invite-landing'].classList.contains('hidden')).toBe(false);
+  });
+
+  test('malformed token behaves as token-less', () => {
+    const { els } = runScript({ search: '?i=' + encodeURIComponent('bad token!') });
+    expect(els['invite-landing'].classList.contains('hidden')).toBe(true);
+    expect(els['about-telegram-cta'].classList.contains('hidden')).toBe(false);
+  });
+
+  test('copy: success gives button feedback', async () => {
+    const { els } = runScript({ search: `?i=${TOKEN}` });
+    els['invite-copy-btn'].handlers.click();
+    await flush();
+    expect(els['invite-copy-btn'].textContent).toBe('Copy invite'); // set to 'Copied' then restored by the immediate fake setTimeout
+    expect(els['invite-copy-fallback'].classList.contains('hidden')).toBe(true);
+  });
+
+  test('copy: denied clipboard falls back to a selectable URL (C7)', async () => {
+    const { els } = runScript({ search: `?i=${TOKEN}`, clipboardOk: false });
+    els['invite-copy-btn'].handlers.click();
+    await flush();
+    expect(els['invite-copy-fallback'].textContent).toBe(`https://knock.example/invite?i=${TOKEN}`);
+    expect(els['invite-copy-fallback'].classList.contains('hidden')).toBe(false);
+  });
+
+  test('iOS UA promotes the installed-app door (C5)', () => {
+    const { bodyCls } = runScript({ search: `?i=${TOKEN}`, ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) Safari/604.1' });
+    expect(bodyCls.has('ios-door-promoted')).toBe(true);
+  });
+
+  test('expander click un-collapses config #1', () => {
+    const { els, bodyCls } = runScript({ search: `?i=${TOKEN}` });
+    expect(bodyCls.has('invite-first')).toBe(true);
+    els['about-more-btn'].handlers.click();
+    expect(bodyCls.has('invite-first')).toBe(false);
+  });
+});
