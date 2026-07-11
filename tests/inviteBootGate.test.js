@@ -27,9 +27,6 @@ const fresh = (over = {}) => ({
 });
 
 describe('decideBootRedirect — ordered rules (spec N3)', () => {
-  test('rule 0: no token → null (tokenless is phase 2/3)', () => {
-    expect(decideBootRedirect(fresh({ token: null }))).toBeNull();
-  });
   test('rule 1: Mini App context never redirects', () => {
     expect(decideBootRedirect(fresh({ telegramContext: true, telegramAndroid: true }))).toBeNull();
   });
@@ -59,6 +56,29 @@ describe('decideBootRedirect — ordered rules (spec N3)', () => {
   });
   test('rule 7: desktop / real Android browser → null', () => {
     expect(decideBootRedirect(fresh())).toBeNull();
+  });
+});
+
+describe('tokenless boots (phase 2, Q5=B / F8)', () => {
+  test('fresh + detected in-app browser → /about (no query — nothing to carry)', () => {
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, inAppBrowser: true })))
+      .toEqual({ kind: 'landing', url: '/about' });
+  });
+  test('fresh + Telegram-Android → /about too (bare gets the CHOICE, not the Q4 auto-hop)', () => {
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, telegramAndroid: true, inAppBrowser: true })))
+      .toEqual({ kind: 'landing', url: '/about' });
+  });
+  test('fresh + iOS undetected → null (phase 3, not yet)', () => {
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, ios: true }))).toBeNull();
+  });
+  test('guards still outrank: identity / standalone / stay / Mini App → null even in a webview', () => {
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, inAppBrowser: true, hasIdentity: true }))).toBeNull();
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, inAppBrowser: true, standalone: true }))).toBeNull();
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, inAppBrowser: true, stay: true }))).toBeNull();
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, inAppBrowser: true, telegramContext: true }))).toBeNull();
+  });
+  test('fresh desktop / real browser bare boot → null', () => {
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null }))).toBeNull();
   });
 });
 
