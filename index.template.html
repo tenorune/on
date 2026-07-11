@@ -393,11 +393,12 @@
     <ul id="group-roster" class="group-roster"></ul>
   </div>
 
-  <!-- Bottom stack: the confirmation toast and the notify/install/onramp promos
-       are all pinned to the bottom center. Wrapping them in one flex column
-       keeps a visible toast and a visible promo stacked (with a gap) instead of
-       overlapping (they used to collide — e.g. the invite-accept toast over the
-       Telegram onramp promo). Reflows automatically as children show/hide. -->
+  <!-- Bottom notification area: the confirmation toast and the notify/install/
+       onramp promos all share one fixed bottom-center slot (positioning is owned
+       here, not repeated on each). Only one shows at a time — the confirmation
+       toast follows directly from the user's action, so it takes precedence: CSS
+       hides the promos while the toast is visible (they used to overlap — e.g.
+       the invite-accept toast over the Telegram onramp promo). -->
   <div id="bottom-stack" class="bottom-stack">
     <div id="group-removal-toast" class="group-removal-toast hidden" role="alert">
       <span id="group-removal-toast-text"></span>

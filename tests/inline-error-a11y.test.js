@@ -24,10 +24,10 @@ test('confirm-modal inline error is an announced live region (role="alert")', ()
 });
 
 // The confirmation toast and the notify/install/onramp promos share one fixed
-// bottom-center slot; they must live inside #bottom-stack so a visible toast and
-// a visible promo STACK instead of overlapping (e.g. the invite-accept toast
-// over the Telegram onramp promo). If any drifts back out, they collide again.
-test('bottom-anchored toast + promos are all inside #bottom-stack (no overlap)', () => {
+// bottom-center slot; they must live inside #bottom-stack (which owns the
+// positioning) so they don't collide (e.g. the invite-accept toast over the
+// Telegram onramp promo). Only one shows at a time.
+test('bottom-anchored toast + promos are all inside #bottom-stack', () => {
   const { JSDOM } = require('jsdom');
   const doc = new JSDOM(template).window.document;
   const stack = doc.getElementById('bottom-stack');
@@ -37,4 +37,11 @@ test('bottom-anchored toast + promos are all inside #bottom-stack (no overlap)',
     expect(el).not.toBeNull();
     expect(stack.contains(el)).toBe(true);
   }
+});
+
+// Toast precedence: while the confirmation toast is visible the promos are
+// suppressed, so the two never show together.
+test('CSS suppresses the promos while the confirmation toast is visible', () => {
+  const css = fs.readFileSync(path.resolve(__dirname, '..', 'css', 'app.css'), 'utf8');
+  expect(css).toMatch(/\.bottom-stack:has\(#group-removal-toast:not\(\.hidden\)\)\s+\.notify-promo\s*\{\s*display:\s*none/);
 });

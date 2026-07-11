@@ -1236,11 +1236,11 @@ body.add-form-open #app-header {
 .group-roster-row.knockable.knock-pressing { background: var(--surface2); }
 .role-badge { color: var(--text-muted); font-size: 0.85rem; font-weight: normal; }
 
-/* Bottom stack: the confirmation toast and the notify/install/onramp promos are
-   all pinned to the bottom center; this flex column keeps a visible toast and a
-   visible promo stacked (with a gap) instead of overlapping. Height-agnostic and
-   auto-reflows as children show/hide. pointer-events pass through the empty gaps
-   beside the centered children (only the children themselves are interactive). */
+/* Bottom notification area: the confirmation toast and the notify/install/onramp
+   promos share one fixed bottom-center slot (positioning owned here, not repeated
+   on each). Only one shows at a time — see the precedence rule below. centering
+   via flex; pointer-events pass through the empty area beside the centered child
+   (only the child itself is interactive). */
 .bottom-stack {
   position: fixed;
   left: 0;
@@ -1250,10 +1250,13 @@ body.add-form-open #app-header {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.75rem;
   pointer-events: none;
 }
 .bottom-stack > * { pointer-events: auto; }
+/* Toast precedence: the confirmation toast follows directly from the user's
+   action, so while it is visible the promos are suppressed (one at a time). They
+   resume once the toast is dismissed. */
+.bottom-stack:has(#group-removal-toast:not(.hidden)) .notify-promo { display: none; }
 
 /* Group removal toast */
 .group-removal-toast {
