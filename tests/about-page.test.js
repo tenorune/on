@@ -206,9 +206,9 @@ describe('about-cta link rewriting (token carry + in-app escape)', () => {
   const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) Version/17.4 Mobile Safari/604.1';
   const ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel) Chrome/120 Mobile Safari/537.36';
 
-  test('desktop with no token: link is left untouched', () => {
+  test('desktop with no token: rewritten to /?stay=1 (phase 3 — the landing must not bounce back)', () => {
     const link = runCta({ ua: DESKTOP, search: '' });
-    expect(link.attrs.href).toBeUndefined();
+    expect(link.attrs.href).toBe('/?stay=1');
   });
   test('desktop with token: carries ?i= AND stay=1 on the normal link (C2)', () => {
     const link = runCta({ ua: DESKTOP, search: '?i=ABC123' });
@@ -234,9 +234,9 @@ describe('about-cta link rewriting (token carry + in-app escape)', () => {
     expect(link.attrs.href).toContain('intent://knock.example/?stay=1#Intent');
     expect(link.attrs.href).toContain('browser_fallback_url=' + encodeURIComponent('https://knock.example/?stay=1'));
   });
-  test('malformed token on desktop: treated as none → untouched', () => {
+  test('malformed token on desktop: treated as none → /?stay=1', () => {
     const link = runCta({ ua: DESKTOP, search: '?i=' + encodeURIComponent('bad token!') });
-    expect(link.attrs.href).toBeUndefined();
+    expect(link.attrs.href).toBe('/?stay=1');
   });
 });
 

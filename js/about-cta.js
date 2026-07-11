@@ -28,9 +28,8 @@
   // re-enter the SAME webview when the intent is blocked (the phase-2 loop).
   var query = valid ? '?i=' + token + '&stay=1' : '?stay=1';
 
-  // Desktop only rewrites when a token needs carrying; a desktop tab is never
-  // a webview, so an as-authored link has no loop risk.
-  if (!isAndroid && !isIOS && !valid) return;
+  // Every platform rewrites (phase 3): fresh tokenless boots of / redirect to
+  // this page, so even a desktop link must carry stay=1 or it bounces back.
 
   var host = location.host;
   var links = document.querySelectorAll('a[data-open-app]');
