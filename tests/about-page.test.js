@@ -191,6 +191,14 @@ describe('firebase.json routing', () => {
     expect(aboutIdx).toBeGreaterThanOrEqual(0);
     expect(catchAllIdx).toBeGreaterThan(aboutIdx);
   });
+
+  test('/invite rewrite serves about.html and precedes the ** catch-all (spec N2)', () => {
+    const rewrites = cfg.hosting.rewrites;
+    const inviteIdx = rewrites.findIndex((r) => r.source === '/invite' && r.destination === '/about.html');
+    const catchAllIdx = rewrites.findIndex((r) => r.source === '**');
+    expect(inviteIdx).toBeGreaterThanOrEqual(0);
+    expect(catchAllIdx).toBeGreaterThan(inviteIdx);
+  });
 });
 
 describe('status-color easter egg', () => {
