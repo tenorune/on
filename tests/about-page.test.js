@@ -210,28 +210,33 @@ describe('about-cta link rewriting (token carry + in-app escape)', () => {
     const link = runCta({ ua: DESKTOP, search: '' });
     expect(link.attrs.href).toBeUndefined();
   });
-  test('desktop with token: carries ?i= on the normal link', () => {
+  test('desktop with token: carries ?i= AND stay=1 on the normal link (C2)', () => {
     const link = runCta({ ua: DESKTOP, search: '?i=ABC123' });
-    expect(link.attrs.href).toBe('/?i=ABC123');
+    expect(link.attrs.href).toBe('/?i=ABC123&stay=1');
   });
-  test('iOS: rewrites to x-safari-https and drops target, carrying the token', () => {
+  test('iOS: x-safari-https carries token + stay=1, drops target', () => {
     const link = runCta({ ua: IPHONE, search: '?i=ABC123' });
-    expect(link.attrs.href).toBe('x-safari-https://knock.example/?i=ABC123');
+    expect(link.attrs.href).toBe('x-safari-https://knock.example/?i=ABC123&stay=1');
     expect(link.attrs.target).toBeUndefined();
   });
-  test('iOS with no token: bare x-safari-https', () => {
+  test('iOS with no token: stay=1 still rides (C2 — tokenless loop guard)', () => {
     const link = runCta({ ua: IPHONE, search: '' });
-    expect(link.attrs.href).toBe('x-safari-https://knock.example/');
+    expect(link.attrs.href).toBe('x-safari-https://knock.example/?stay=1');
   });
-  test('Android: intent:// with token + https fallback', () => {
+  test('Android: intent:// with token + stay=1, fallback URL carries both too', () => {
     const link = runCta({ ua: ANDROID, search: '?i=ABC123' });
-    expect(link.attrs.href).toContain('intent://knock.example/?i=ABC123#Intent;scheme=https;');
-    expect(link.attrs.href).toContain('browser_fallback_url=' + encodeURIComponent('https://knock.example/?i=ABC123'));
+    expect(link.attrs.href).toContain('intent://knock.example/?i=ABC123&stay=1#Intent;scheme=https;');
+    expect(link.attrs.href).toContain('browser_fallback_url=' + encodeURIComponent('https://knock.example/?i=ABC123&stay=1'));
     expect(link.attrs.href).toMatch(/;end$/);
   });
-  test('ignores a malformed token (treated as none)', () => {
+  test('Android with no token: stay=1 still rides, incl. the fallback URL', () => {
+    const link = runCta({ ua: ANDROID, search: '' });
+    expect(link.attrs.href).toContain('intent://knock.example/?stay=1#Intent');
+    expect(link.attrs.href).toContain('browser_fallback_url=' + encodeURIComponent('https://knock.example/?stay=1'));
+  });
+  test('malformed token on desktop: treated as none → untouched', () => {
     const link = runCta({ ua: DESKTOP, search: '?i=' + encodeURIComponent('bad token!') });
-    expect(link.attrs.href).toBeUndefined(); // desktop + no valid token → untouched
+    expect(link.attrs.href).toBeUndefined();
   });
 });
 
