@@ -41,7 +41,7 @@ code {
 }
 
 /* Hero */
-.hero { text-align: center; padding: 3.5rem 0 2rem; }
+.hero { text-align: center; padding: 30px 0; }
 .brand-mark { font-size: 1.85rem; display: block; letter-spacing: 0.02em; }
 .tagline { color: var(--text-muted); margin-top: 0.75rem; font-size: 1.15rem; }
 /* Buttons match the in-app "Invite your people" primary button (.primary-btn):
@@ -153,14 +153,16 @@ p { margin-bottom: 0.9rem; }
   border: 1px solid var(--surface2);
   border-radius: 10px;
   padding: 1.5rem 1.25rem;
-  margin: 1.5rem 0 2rem;
+  /* No top margin: the card's top edge lines up with vanilla's lede (both sit
+     flush under the hero), so content below the hero aligns across configs. */
+  margin: 0 0 2rem;
 }
 /* Symmetric margins → the gap between the two door buttons is constant, and
    stays constant when the Telegram door is hidden (no deep link). */
 .invite-landing .cta { margin: 1rem auto; }
 /* The "Copy invite" block gets room to breathe above its help text; the card's
    bottom padding supplies the space below. */
-.invite-installed-hint { font-size: 0.9rem; opacity: 0.85; margin: 2rem auto 0; max-width: 320px; }
+.invite-installed-hint { font-size: 0.8rem; opacity: 0.85; margin: 2rem auto 0; max-width: 320px; }
 /* In-app Copy component: matches .ghost-btn in css/app.css (buttons don't
    inherit font-family, so it's set explicitly), label toggles Copy → Copied!. */
 .ghost-btn {
@@ -168,7 +170,7 @@ p { margin-bottom: 0.9rem; }
   border: 1px solid var(--surface2); padding: 10px 16px;
   border-radius: 10px; font-family: inherit; font-size: 14px; cursor: pointer;
 }
-#invite-copy-btn { display: block; margin: 0.6rem auto 0; }
+#invite-copy-btn { display: block; margin: 0.6rem auto 0; font-size: 13px; }
 .invite-copy-fallback { user-select: all; word-break: break-all; font-size: 0.85rem; margin-top: 0.75rem; }
 /* Config #1 (/invite?i=): the "More about …" disclosure link sits inline at the
    end of the lede and reveals the collapsed marketing on click (about-telegram.js
@@ -184,4 +186,4 @@ body.invite-first .features,
 body.invite-first .privacy-short,
 body.invite-first .privacy-detail { display: none; }
 /* C5 (implement-and-evaluate): on iOS, promote the installed-app door. */
-body.ios-door-promoted .invite-installed-hint { font-size: 1rem; opacity: 1; }
+body.ios-door-promoted .invite-installed-hint { font-size: 0.85rem; opacity: 1; }
