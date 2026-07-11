@@ -419,6 +419,21 @@ describe('pre-paint config decision (inline <head> script)', () => {
     expect(css).toContain('html.cfg-invite #about-open-cta');
     expect(css).toContain('html.cfg-invite-first .intro-more');
   });
+
+  test('Telegram door visibility is CSS-driven (pre-paint), fail-closed on empty/placeholder link', () => {
+    const css = readRoot('css/about.css');
+    expect(css).toContain('#invite-telegram-cta[data-telegram-link=""]');
+    expect(css).toContain('#invite-telegram-cta[data-telegram-link^="__"]');
+    // no default 'hidden' class on the door → CSS + card visibility own it
+    const tpl = readRoot('about.template.html');
+    expect(tpl).toMatch(/id="invite-telegram-cta" class="cta" data-telegram-link/);
+  });
+
+  test('the invite-framing line is reserved so its async fill does not shift the doors', () => {
+    const css = readRoot('css/about.css');
+    expect(css).toMatch(/html\.cfg-invite #about-invite-framing\s*\{[^}]*min-height/);
+    expect(css).toContain('html.cfg-invite #about-invite-framing:not(.hidden)');
+  });
 });
 
 describe('about-telegram behavior (spec N4: configs, doors, pass-through)', () => {

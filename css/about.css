@@ -160,6 +160,19 @@ p { margin-bottom: 0.9rem; }
 /* Symmetric margins → the gap between the two door buttons is constant, and
    stays constant when the Telegram door is hidden (no deep link). */
 .invite-landing .cta { margin: 1rem auto; }
+/* The Telegram door shows from first paint (no late flash pushing content down)
+   whenever the build wired a real deep link. Fail-closed: it stays hidden when
+   data-telegram-link is empty or an unsubstituted __…__ placeholder. This drives
+   visibility pre-paint; js/about-telegram.js only composes its ?startapp=TOKEN
+   href afterward. */
+#invite-telegram-cta[data-telegram-link=""],
+#invite-telegram-cta[data-telegram-link^="__"] { display: none; }
+/* Reserve the invite-framing line (the "You've been invited…" preview is fetched
+   async) so it fills in place instead of pushing the doors down when it resolves.
+   Blank-but-reserved until then; if it never resolves the line stays empty (the
+   framing is non-critical). Sized for one line. */
+html.cfg-invite #about-invite-framing { display: block; visibility: hidden; min-height: 1.7rem; }
+html.cfg-invite #about-invite-framing:not(.hidden) { visibility: visible; }
 /* The "Copy invite" block gets room to breathe above its help text; the card's
    bottom padding supplies the space below. */
 .invite-installed-hint { font-size: 0.8rem; opacity: 0.85; margin: 2rem auto 0; max-width: 320px; }
