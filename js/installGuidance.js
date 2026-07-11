@@ -17,7 +17,7 @@ function isPushApiAvailable() {
 }
 
 function ua() { return (typeof navigator !== 'undefined' && navigator.userAgent) || ''; }
-function isIos() {
+export function isIos() {
   const u = ua();
   if (/iPhone|iPad|iPod/.test(u)) return true;
   // iPadOS Safari reports as "Macintosh"; distinguish a real touch device (iPad,
@@ -34,6 +34,14 @@ function isIos() {
 // browser. Markers: common host apps + Android System WebView (; wv).
 export function isInAppBrowser() {
   return /FBAN|FBAV|FB_IAB|Instagram|Line\/|Snapchat|Twitter|LinkedInApp|WhatsApp|musical_ly|Bytedance|TikTok|Pinterest|Telegram|MicroMessenger|; ?wv\)|GSA\//.test(ua());
+}
+// Positive Telegram signal — ANDROID ONLY: Telegram's Android webview carries
+// "Telegram" in its UA (already a substring of isInAppBrowser's pattern above);
+// the iOS client is byte-identical to Safari, so correctness must never depend
+// on this helper (spec N7). It exists to make the boot gate MORE specific
+// (the Q4 auto-hop), never to gate the rescue.
+export function isTelegramInAppBrowser() {
+  return /Telegram/.test(ua());
 }
 // Desktop (macOS) Safari — its re-enable path lives in an obscure menu, unlike
 // Chromium/Firefox which expose site permissions from the address bar. Excludes
