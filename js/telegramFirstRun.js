@@ -60,7 +60,7 @@ function framingText(preview) {
     : `${preview.label || 'Someone'} invited you to follow them.`;
 }
 
-function showInterstitial(preview, isNew) {
+function showInterstitial(preview, isNew, token) {
   const el = document.getElementById('tg-invite-screen');
   if (!el) return Promise.resolve('dismiss');
   document.getElementById('tg-invite-framing').textContent = framingText(preview);
@@ -68,6 +68,10 @@ function showInterstitial(preview, isNew) {
   // started long ago, so they get a plain "Accept" (spec 2026-07-07).
   document.getElementById('tg-invite-accept-btn').textContent =
     isNew ? 'Accept & get started' : 'Accept';
+  // "What is KnockKnock?" rides the same isNew flag (A4): only a first-ever
+  // open needs the pitch; it opens the /invite landing and returns here.
+  const about = document.getElementById('tg-invite-about-btn');
+  if (about) about.classList.toggle('hidden', !isNew);
   el.classList.remove('hidden');
   return new Promise((resolve) => {
     const accept = document.getElementById('tg-invite-accept-btn');
@@ -77,15 +81,24 @@ function showInterstitial(preview, isNew) {
       accept.removeEventListener('click', onAccept);
       phrase.removeEventListener('click', onPhrase);
       dismiss.removeEventListener('click', onDismiss);
+      if (about) about.removeEventListener('click', onAbout);
       el.classList.add('hidden');
       resolve(choice);
     }
     function onAccept() { pick('accept'); }
     function onPhrase() { pick('phrase'); }
     function onDismiss() { pick('dismiss'); }
+    function onAbout() {
+      // Deliberately does NOT resolve — the user reads and comes back.
+      const url = window.location.origin + '/invite?i=' + token;
+      const wa = tgWebApp();
+      if (wa && typeof wa.openLink === 'function') wa.openLink(url);
+      else window.open(url, '_blank', 'noopener');
+    }
     accept.addEventListener('click', onAccept);
     phrase.addEventListener('click', onPhrase);
     dismiss.addEventListener('click', onDismiss);
+    if (about) about.addEventListener('click', onAbout);
   });
 }
 
@@ -148,7 +161,7 @@ export async function telegramInviteGate({ linked, isNew, dismissSplash }) {
     if (linked) return { token, preview, silent: true };
     dismissSplash();
     while (true) {
-      const choice = await showInterstitial(preview, isNew);
+      const choice = await showInterstitial(preview, isNew, token);
       if (choice === 'accept') return { token, preview, silent: false };
       if (choice === 'dismiss') { stampInviteOutcome(token, 'dismissed'); return null; }
       // choice === 'phrase': success reloads (never returns); false = cancelled.

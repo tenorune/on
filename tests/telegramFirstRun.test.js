@@ -21,6 +21,7 @@ const SCREEN = `
     <button id="tg-invite-accept-btn"></button>
     <button id="tg-invite-phrase-btn"></button>
     <button id="tg-invite-dismiss-btn"></button>
+    <button id="tg-invite-about-btn" class="hidden"></button>
   </div>
   <div id="tg-invite-error" class="modal-overlay hidden" role="dialog" aria-modal="true">
     <p id="tg-invite-error-message"></p>
@@ -273,5 +274,39 @@ describe('redemptionConsumedToken (W1 J#4)', () => {
     [null, false],
   ])('%o → %s', (result, expected) => {
     expect(redemptionConsumedToken(result)).toBe(expected);
+  });
+});
+
+describe('interstitial info link (spec N8/A4)', () => {
+  const arm = (preview) => {
+    mockWa.initDataUnsafe = { start_param: TOKEN };
+    resolveInvitePreview.mockResolvedValue(preview || { scope: 'personal', label: 'Ana' });
+  };
+
+  test('first-ever open (isNew): link visible; returning-unlinked: hidden', async () => {
+    arm();
+    let gate = telegramInviteGate({ linked: false, isNew: true, dismissSplash: jest.fn() });
+    await flush();
+    expect(document.getElementById('tg-invite-about-btn').classList.contains('hidden')).toBe(false);
+    document.getElementById('tg-invite-dismiss-btn').click();
+    await gate;
+    localStorage.clear(); // un-stamp the dismissal so the gate re-offers
+    gate = telegramInviteGate({ linked: false, isNew: false, dismissSplash: jest.fn() });
+    await flush();
+    expect(document.getElementById('tg-invite-about-btn').classList.contains('hidden')).toBe(true);
+    document.getElementById('tg-invite-dismiss-btn').click();
+    await gate;
+  });
+
+  test('click opens /invite?i=TOKEN via openLink and does NOT resolve the interstitial', async () => {
+    arm();
+    mockWa.openLink = jest.fn();
+    const gate = telegramInviteGate({ linked: false, isNew: true, dismissSplash: jest.fn() });
+    await flush();
+    document.getElementById('tg-invite-about-btn').click();
+    expect(mockWa.openLink).toHaveBeenCalledWith(`${window.location.origin}/invite?i=${TOKEN}`);
+    // still open — accepting afterwards works normally
+    document.getElementById('tg-invite-accept-btn').click();
+    await expect(gate).resolves.toMatchObject({ token: TOKEN, silent: false });
   });
 });
