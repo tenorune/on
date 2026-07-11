@@ -36,6 +36,16 @@ describe('renderAbout substitution', () => {
     expect(out).toBe('U:');
   });
 
+  test('substitutes the Telegram deep link (spec N5)', () => {
+    const out = renderAbout('L:__TELEGRAM_APP_LINK__', { TELEGRAM_APP_LINK: 'https://t.me/bot/app' });
+    expect(out).toBe('L:https://t.me/bot/app');
+  });
+
+  test('Telegram link is blank when unset (placeholder cleared — fail-closed)', () => {
+    const out = renderAbout('L:__TELEGRAM_APP_LINK__', { APP_TITLE: 'X' });
+    expect(out).toBe('L:');
+  });
+
   test('region degrades gracefully when unset', () => {
     const out = renderAbout(tpl, { APP_TITLE: 'X', DATA_REGION: '', ABOUT_AUTHOR: '' });
     expect(out).toContain('a Google Cloud region');
@@ -53,6 +63,15 @@ describe('renderAbout substitution', () => {
 
 const root = path.resolve(__dirname, '..');
 const readRoot = (f) => fs.readFileSync(path.join(root, f), 'utf8');
+
+describe('readTelegramEnabled (spec N5: features.js is the single source of truth)', () => {
+  const { readTelegramEnabled } = require('../scripts/build.js');
+  test('matches the flag literal in js/features.js source', () => {
+    const src = readRoot('js/features.js');
+    const expected = /export const TELEGRAM_ENABLED = true/.test(src);
+    expect(readTelegramEnabled()).toBe(expected);
+  });
+});
 
 describe('about.template.html content', () => {
   let tpl;

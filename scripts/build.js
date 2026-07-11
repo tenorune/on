@@ -85,7 +85,8 @@ function renderAbout(template, vars) {
     .replaceAll('__APP_TITLE__', escapeHtml(title))
     .replaceAll('__DATA_REGION__', region)
     .replaceAll('__ABOUT_MADE_BY__', madeBy)
-    .replaceAll('__INVITE_PREVIEW_URL__', vars.INVITE_PREVIEW_URL || '');
+    .replaceAll('__INVITE_PREVIEW_URL__', vars.INVITE_PREVIEW_URL || '')
+    .replaceAll('__TELEGRAM_APP_LINK__', vars.TELEGRAM_APP_LINK || '');
 }
 
 // Absolute URL of the unauthenticated resolveInvitePreview callable, for the
@@ -97,6 +98,21 @@ function invitePreviewUrl(projectId) {
     : '';
 }
 
+// TELEGRAM_ENABLED is a hardcoded const in js/features.js (ESM — not
+// requirable from this CJS script), yet the about page must never advertise a
+// dead bot link when the flag is off (spec N5). Read it from the source text:
+// features.js stays the single source of truth, so the page can never disagree
+// with telegramSharingEnabled() (which requires flag AND link).
+function readTelegramEnabled() {
+  try {
+    const src = readFileSync(path.resolve(__dirname, '..', 'js', 'features.js'), 'utf8');
+    const m = src.match(/export const TELEGRAM_ENABLED = (true|false)/);
+    return m ? m[1] === 'true' : false;
+  } catch {
+    return false; // fail closed: no flag, no Telegram CTA
+  }
+}
+
 function writeAboutHtml(defaultTitle) {
   const templatePath = path.resolve(__dirname, '..', 'about.template.html');
   const outPath = path.resolve(__dirname, '..', 'about.html');
@@ -106,8 +122,11 @@ function writeAboutHtml(defaultTitle) {
     DATA_REGION: process.env.DATA_REGION || env.DATA_REGION || '',
     ABOUT_AUTHOR: process.env.ABOUT_AUTHOR || env.ABOUT_AUTHOR || '',
     INVITE_PREVIEW_URL: invitePreviewUrl(process.env.FIREBASE_PROJECT_ID || env.FIREBASE_PROJECT_ID || ''),
+    TELEGRAM_APP_LINK: readTelegramEnabled()
+      ? (process.env.TELEGRAM_APP_LINK || env.TELEGRAM_APP_LINK || '')
+      : '',
   });
   writeFileSync(outPath, out);
 }
 
-module.exports = { define, envFile, writeIndexHtml, writeServiceWorker, renderAbout, writeAboutHtml, invitePreviewUrl };
+module.exports = { define, envFile, writeIndexHtml, writeServiceWorker, renderAbout, writeAboutHtml, invitePreviewUrl, readTelegramEnabled };
