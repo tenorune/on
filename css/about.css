@@ -138,3 +138,21 @@ p { margin-bottom: 0.9rem; }
 .footer-links { display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1rem; }
 .footer-links a { font-weight: 600; text-decoration: none; }
 .made-by { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0; }
+
+/* ---- Invite landing (spec N4) ---- */
+.invite-landing { text-align: center; }
+.invite-landing .cta { display: block; margin: 12px auto; max-width: 320px; }
+.invite-hint,
+.invite-installed-hint { font-size: 0.9rem; opacity: 0.85; }
+.invite-copy-btn { font: inherit; }
+.invite-copy-fallback { user-select: all; word-break: break-all; font-size: 0.85rem; }
+.about-more-btn { display: none; font: inherit; margin: 18px auto 0; }
+/* Config #1 (/invite?i=): marketing collapses behind the expander; the lede
+   stays visible (C4) so a stranger has minimum context to choose a door. */
+body.invite-first .intro-more,
+body.invite-first .features,
+body.invite-first .privacy-short,
+body.invite-first .privacy-detail { display: none; }
+body.invite-first .about-more-btn { display: block; }
+/* C5 (implement-and-evaluate): on iOS, promote the installed-app door. */
+body.ios-door-promoted .invite-installed-hint { font-size: 1rem; opacity: 1; }

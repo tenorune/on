@@ -23,18 +23,35 @@
   </header>
 
   <main>
-    <section class="intro">
-      <!-- Invite framing: filled by js/about-invite.js when the page is opened as
-           /about?i=TOKEN and the unauthenticated resolveInvitePreview callable
-           returns a preview. Hidden otherwise. data-preview-url is substituted at
-           build time (the static page has no Firebase config to derive it). -->
+    <!-- Invite landing block (spec N4): hidden until js/about-telegram.js sees
+         a valid ?i=TOKEN. On /invite (config #1) the marketing below collapses
+         behind the expander; on /about?i= (config #2) the full page stays. -->
+    <section id="invite-landing" class="invite-landing hidden">
+      <h2>You&rsquo;re invited to __APP_TITLE__</h2>
+      <!-- Moved from .intro; js/about-invite.js is untouched and upgrades this
+           line ("You've been invited to follow …") when the preview resolves. -->
       <p id="about-invite-framing" class="invite-framing hidden" data-preview-url="__INVITE_PREVIEW_URL__"></p>
-      <p>__APP_TITLE__ is about <em>ambient presence</em> — a soft signal that you're around and open to company, without the pressure of a chat thread. Mark yourself available for a little while, and the handful of people you've chosen simply see it. When the timer runs out, you fade back to quiet.</p>
+      <p class="invite-hint">Use Telegram? Open the invite there &mdash; it works with your Telegram account, no separate sign-up.</p>
+      <a id="invite-telegram-cta" class="cta hidden" data-telegram-link="__TELEGRAM_APP_LINK__">Open in Telegram</a>
+      <!-- data-open-app: js/about-cta.js rewrites per platform and appends stay=1 -->
+      <a class="cta" href="/" target="_blank" rel="noopener" data-open-app>Continue in browser</a>
+      <p class="invite-installed-hint">Already have the app installed? Copy the invite and paste it under &ldquo;Redeem an invite&rdquo;.
+        <button id="invite-copy-btn" type="button" class="invite-copy-btn">Copy invite</button></p>
+      <p id="invite-copy-fallback" class="invite-copy-fallback hidden"></p>
+      <button id="about-more-btn" type="button" class="about-more-btn">More about __APP_TITLE__</button>
+    </section>
+
+    <section class="intro">
+      <p class="intro-lede">__APP_TITLE__ is about <em>ambient presence</em> &mdash; a soft signal that you're around and open to company, without the pressure of a chat thread.</p>
+      <p class="intro-more">Mark yourself available for a little while, and the handful of people you've chosen simply see it. When the timer runs out, you fade back to quiet.</p>
       <!-- intentional: open the app in a new tab to keep this page in place.
            data-open-app: on iOS/Android, js/about-cta.js rewrites this to a
            platform scheme that opens the real browser (escapes in-app browsers
            like Telegram); on desktop it stays this normal new-tab link. -->
-      <a class="cta" href="/" target="_blank" rel="noopener" data-open-app>Open __APP_TITLE__ &rarr;</a>
+      <a id="about-open-cta" class="cta" href="/" target="_blank" rel="noopener" data-open-app>Open __APP_TITLE__ &rarr;</a>
+      <!-- Standing bare Telegram door (A3): unhidden by js/about-telegram.js on
+           token-less pages when the build substituted a real deep link. -->
+      <a id="about-telegram-cta" class="cta hidden" data-telegram-link="__TELEGRAM_APP_LINK__" target="_blank" rel="noopener">Open in Telegram</a>
     </section>
 
     <section class="features">
@@ -126,6 +143,8 @@
     <p class="muted">An experimental personal project.</p>
     <p class="made-by">__ABOUT_MADE_BY__</p>
   </footer>
+  <!-- Invite landing + Telegram doors + identity pass-through (spec N4). -->
+  <script src="js/about-telegram.js"></script>
   <!-- Invite framing ("You've been invited…") when opened as /about?i=TOKEN. -->
   <script src="js/about-invite.js"></script>
   <!-- Breaks the Open-app links out of in-app browsers (Instagram/Telegram/etc.)

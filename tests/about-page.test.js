@@ -149,6 +149,29 @@ describe('about.template.html content', () => {
     expect(tpl).toContain('js/about-invite.js');
     expect(tpl).toContain('js/about-cta.js');
   });
+
+  test('has the invite landing block with fail-closed Telegram CTAs (spec N4)', () => {
+    expect(tpl).toMatch(/id="invite-landing"/);
+    expect(tpl).toMatch(/id="invite-telegram-cta"[^>]*data-telegram-link="__TELEGRAM_APP_LINK__"/);
+    expect(tpl).toMatch(/id="about-telegram-cta"[^>]*data-telegram-link="__TELEGRAM_APP_LINK__"/);
+    expect(tpl).toMatch(/id="about-open-cta"/);
+    expect(tpl).toMatch(/id="invite-copy-btn"/);
+    expect(tpl).toMatch(/id="about-more-btn"/);
+    expect(tpl).toContain('js/about-telegram.js');
+  });
+
+  test('the framing slot lives inside the landing block (about-invite.js untouched)', () => {
+    const landing = tpl.match(/<section id="invite-landing"[\s\S]*?<\/section>/);
+    expect(landing).not.toBeNull();
+    expect(landing[0]).toMatch(/id="about-invite-framing"/);
+    expect(landing[0]).toContain('data-preview-url="__INVITE_PREVIEW_URL__"');
+  });
+
+  test('the intro lede survives config #1 (C4: split from the collapsible rest)', () => {
+    expect(tpl).toMatch(/class="intro-lede"/);
+    expect(tpl).toMatch(/class="intro-more"/);
+    expect(readRoot('css/about.css')).toContain('body.invite-first .intro-more');
+  });
 });
 
 describe('invitePreviewUrl', () => {
