@@ -268,3 +268,48 @@ Every tier gate is client-side; rules check identity only (I.2). For a small tru
 # CHECKPOINT — ruling requested
 
 For each of **P1–P10**: **keep / amend (how) / reject.** Where a principle poses "the question under it," a sentence of guidance is enough. Phase 2 (findings `SM#n` + target model) proceeds only on the ruled set.
+
+---
+
+# Ruling pass 1 — operator rulings (2026-07-11)
+
+P1 **KEEP** — group visibility is a deliberate second contract: less intimate, different consent, and a consciously different identity/presence (per-group name, independently overridable status).
+P2 **KEEP** — request-to-follow, arriving in the group context, "is like asking for the key."
+P3 *(deferred — jargon unclear)* → clarified ("doorway string" = the name shown at first contact; all are self-authored) → ruled **KEEP (A)**.
+P4 **AMEND** — the actor's own consent actions (accept, deny, leave, join) must be legible *to themself* first; legibility to others is secondary.
+P5 **KEEP** — asks could belong to the opt-in regime, but no further examples; boundary confirmed.
+P6 **AMEND (held loosely)** — follower visibility "seemed like a good idea"; the implication ratified is: no interest or need to know the follower's status.
+P7 **KEEP** — a room, yes; ownership is **curatorial** (quasi-intimate, not public, limits on who enters; currently controlled by one). Calling was meant to be intimate, knocks less so — "but I am not so sure."
+P8 **KEEP** — see P7's note (scoping supplied there).
+P9 **AMEND** — "seems like a recommendation of parity more than a principle" → demoted.
+P10 **KEEP** — database rules are for security and privacy, not social meaning.
+
+---
+
+# Part II — revision 2 (the ruled set, for the second pass)
+
+Rendered interactively in `2026-07-11-social-model-analysis-v2.html`. Changes from v1 flagged per principle.
+
+**P1 — Two presence contracts.** *Direct:* presence flows toward those who chose you — you are visible to the people you handed your key. *Room:* joining a group is a conscious act of mutual exposure under a separately chosen identity — per-room name, per-room status, overridable independently of Direct. Deliberate, less intimate, room-scoped. *(Kept; "second contract / conscious identity" guidance folded in.)*
+
+**P2 — Possession of the key is consent; asking is requesting the key.** One consent model, two acquisition paths: holding someone's code/link *is* the grant; request-to-follow is the sanctioned way to ask for a key you don't hold (today offered only inside rooms). Derivation made explicit: **following someone necessarily hands them your key** (the act writes your code into their world) — which is why follow-back is automatic and legitimate. *(Kept; the reframe dissolves the "two consent philosophies" tension.)*
+
+**P3 — You pick the name you're introduced by.** Every first-contact name (invite label, room display name, redeemer's published name) is chosen by the person it describes. After first contact the rule flips: what people call you is their private business, invisible to you, and nobody can ever rename you. *(Kept, ruled A; jargon removed.)*
+
+**P4 — Your consent actions are legible to you first.** *(Amended.)* Accepting, declining, joining, leaving — the actor must always be able to see what they did and where it stands. Legibility to the other party is secondary; silence toward them remains the default. Silence to others, clarity to self.
+
+**P5 — Only warmth interrupts.** A push means presence (knock, call, availability) or an invitation (invite, follow-request) — never graph bookkeeping. Directed asks sit above the per-person opt-in regime as inherently consensual acts. *(Kept as-is.)*
+
+**P6 — Followers are visible as facts, not as presence.** *(Amended, held loosely.)* You may see *that* someone follows you — code and name — but their following you earns them no visibility of you, and gives you no window into their status. Provisional by the operator's own note; Phase 2 treats the line as re-drawable. Open thread attached: does the picker's enumeration of non-mutual followers sit on the right side of this line?
+
+**P7 — A room is curated and quasi-intimate.** Not public: someone gates who enters — today the curator is exactly the owner, and curated-*by-one* is an implementation fact, not the value. Curation licenses room gestures: a knock inside a vetted room is acceptable; a call remains an intimate, Direct-only gesture. *(Kept; curatorial framing added. Open thread: whether knock/call sit at the right intimacy ranks — "not so sure.")*
+
+**P8 — In Direct, reciprocity earns intimacy.** Watch < knock < call; each closer gesture requires the more mutual bond. **Scoped:** this ladder governs Direct, P7 governs rooms — the scoping is itself the rule. A room may license a knock because curation already filtered who's inside. *(Kept; v1's open question dissolved by the scoping.)*
+
+**R1 (was P9) — Invitations should carry the inviter's warmth.** *(Demoted from principle to recommendation, per ruling.)* Carried into Phase 2's target model as a parity recommendation: inviter name on group invites, an in-app invite surface — wherever feasible.
+
+**P10 — Affordance governs the social; contract governs security and privacy.** The UI is where social rules live; database rules protect security and privacy, not social meaning. Consequence: capability gates stay client-side by design; rule changes (e.g. #288) are argued on privacy/security grounds only. *(Kept; sharpened per ruling.)*
+
+**Tension status:** consent tension — dissolved (P2). Ladder-vs-room — resolved by P8's scoping. Silent endings — resolved by P4's amendment. **Open threads:** knock/call intimacy ranks (P7); the P6 line, held loosely; picker enumeration vs the P6 line.
+
+**CHECKPOINT 2:** same pass on the v2 set — keep / amend / reject per item (R1 included). Phase 2 runs against the v2 rulings.
