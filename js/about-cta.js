@@ -6,8 +6,10 @@
 //   - iOS  → x-safari-https://host/<?i=…&stay=1>   (opens Safari; in real Safari
 //            it just prompts "Open in Safari?" — verified harmless on iOS/macOS 26)
 //   - Android → intent://host/<?i=…&stay=1>#Intent;scheme=https;…browser_fallback_url…;end
-//   - desktop (incl. macOS) → normal new-tab link, with the token appended so the
-//            app still redeems the invite; we don't hijack Chrome/Firefox to Safari.
+//   - desktop (incl. macOS) → normal new-tab link carrying stay=1 (plus the token
+//            when present); rewritten unconditionally now that a fresh desktop boot
+//            of / redirects to /about (phase 3) — an as-authored link would bounce
+//            back. We don't hijack Chrome/Firefox to Safari.
 // The token (?i=TOKEN) carries the invite from /about?i=TOKEN into the app, which
 // performs the actual redemption after account creation. stay=1 rides every
 // rewritten link (token or not) so the app boot gate never bounces back to
