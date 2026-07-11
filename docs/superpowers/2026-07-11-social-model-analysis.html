@@ -66,6 +66,32 @@
   .rulebox{margin-top:.8rem;padding:.55rem .8rem;border:1px dashed var(--line);border-radius:8px;
     font-size:.85rem;color:var(--muted)}
   footer{margin-top:3rem;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:1rem}
+
+  /* Ruling controls (progressive enhancement — injected into .rulebox by script) */
+  .rb-row{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+  .rb-label{font-weight:700;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-right:.2rem}
+  .rb-btn{font:inherit;font-size:.8rem;font-weight:700;padding:.3rem .9rem;border-radius:999px;
+    border:1.5px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer}
+  .rb-btn:hover{border-color:var(--muted)}
+  .rb-btn.sel-keep{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
+  .rb-btn.sel-amend{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+  .rb-btn.sel-reject{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
+  .rb-note{display:block;width:100%;margin-top:.55rem;padding:.5rem .7rem;border:1px solid var(--line);
+    border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:.85rem;line-height:1.45;
+    resize:vertical;min-height:2.4rem}
+  .rb-note::placeholder{color:var(--muted);opacity:.7}
+  .compiler{position:sticky;bottom:0;margin-top:2rem;background:var(--panel);border:1px solid var(--line);
+    border-radius:var(--radius) var(--radius) 0 0;box-shadow:0 -6px 18px rgba(0,0,0,.08);padding:.9rem 1.2rem}
+  .compiler h3{margin:.1rem 0 .5rem;font-size:.95rem}
+  .compiler .bar{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.5rem}
+  .compiler .progress{font-size:.8rem;color:var(--muted)}
+  .compiler textarea{display:block;width:100%;height:9.5rem;padding:.6rem .8rem;border:1px solid var(--line);
+    border-radius:8px;background:var(--code-bg);color:var(--ink);font-family:var(--mono);font-size:.78rem;
+    line-height:1.5;resize:vertical;white-space:pre;overflow:auto}
+  .copy-btn{font:inherit;font-size:.85rem;font-weight:700;padding:.45rem 1.1rem;border-radius:8px;
+    border:1.5px solid var(--accent);background:var(--accent-soft);color:var(--accent);cursor:pointer}
+  .copy-btn:hover{filter:brightness(1.05)}
+  .copy-btn.copied{border-color:var(--ok);background:var(--ok-soft);color:var(--ok)}
 </style>
 </head>
 <body>
@@ -299,7 +325,141 @@ You control what strangers <em>first</em> call you (all doorway strings are self
 <div class="callout ok"><span class="k">Checkpoint — ruling requested</span>
 For each of P1–P10: <b>keep / amend (how) / reject</b>. A sentence of guidance per "question under it" is enough. Phase 2 (findings <code>SM#n</code> + target model) proceeds only on the ruled set.</div>
 
+<section class="compiler" id="compiler" hidden>
+  <h3>Compiled ruling response</h3>
+  <div class="bar">
+    <button type="button" class="copy-btn" id="copy-btn">Copy response</button>
+    <span class="progress" id="progress"></span>
+  </div>
+  <textarea id="compiled" readonly spellcheck="false" aria-label="Compiled ruling response"></textarea>
+</section>
+
 <footer>KnockKnock · Social model analysis, Phase 1 · 2026-07-11 · Canonical markdown: <code>docs/superpowers/2026-07-11-social-model-analysis.md</code></footer>
 </div>
+
+<script>
+(function () {
+  'use strict';
+  var STORE_KEY = 'sm-analysis-rulings-2026-07-11';
+  var CHOICES = ['keep', 'amend', 'reject'];
+
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.principle'));
+  if (!cards.length) return;
+
+  var state = {};
+  try { state = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch (e) { state = {}; }
+
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* private mode etc. */ }
+  }
+
+  var entries = []; // { id, title, getChoice, getNote }
+
+  cards.forEach(function (card) {
+    var id = (card.querySelector('.pid') || {}).textContent || '';
+    var title = (card.querySelector('.ptitle') || {}).textContent || '';
+    id = id.trim(); title = title.trim();
+    var box = card.querySelector('.rulebox');
+    if (!id || !box) return;
+
+    state[id] = state[id] || { choice: '', note: '' };
+
+    box.textContent = '';
+    var row = document.createElement('div');
+    row.className = 'rb-row';
+    var lab = document.createElement('span');
+    lab.className = 'rb-label';
+    lab.textContent = 'Ruling:';
+    row.appendChild(lab);
+
+    var btns = {};
+    CHOICES.forEach(function (choice) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'rb-btn';
+      b.textContent = choice.charAt(0).toUpperCase() + choice.slice(1);
+      b.addEventListener('click', function () {
+        state[id].choice = (state[id].choice === choice) ? '' : choice; // toggle off allowed
+        paint();
+        save();
+        recompile();
+      });
+      btns[choice] = b;
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+
+    var note = document.createElement('textarea');
+    note.className = 'rb-note';
+    note.rows = 1;
+    note.placeholder = 'Amendment / guidance / notes for ' + id + ' (optional — include answers to "the question under it")';
+    note.value = state[id].note || '';
+    note.addEventListener('input', function () {
+      state[id].note = note.value;
+      save();
+      recompile();
+    });
+    box.appendChild(note);
+
+    function paint() {
+      CHOICES.forEach(function (choice) {
+        btns[choice].classList.toggle('sel-' + choice, state[id].choice === choice);
+      });
+    }
+    paint();
+
+    entries.push({
+      id: id,
+      title: title,
+      getChoice: function () { return state[id].choice; },
+      getNote: function () { return (state[id].note || '').trim(); }
+    });
+  });
+
+  var compiler = document.getElementById('compiler');
+  var compiled = document.getElementById('compiled');
+  var progress = document.getElementById('progress');
+  var copyBtn = document.getElementById('copy-btn');
+  compiler.hidden = false;
+
+  function recompile() {
+    var ruled = 0;
+    var lines = ['Rulings on the derived value set (Phase 1 checkpoint):', ''];
+    entries.forEach(function (e) {
+      var choice = e.getChoice();
+      var note = e.getNote();
+      if (choice) ruled++;
+      var line = e.id + ' (' + e.title + '): ' + (choice ? choice.toUpperCase() : '(no ruling yet)');
+      if (note) line += ' — ' + note;
+      lines.push(line);
+    });
+    compiled.value = lines.join('\n');
+    progress.textContent = ruled + ' of ' + entries.length + ' ruled';
+  }
+
+  copyBtn.addEventListener('click', function () {
+    var done = function () {
+      copyBtn.classList.add('copied');
+      copyBtn.textContent = 'Copied!';
+      setTimeout(function () {
+        copyBtn.classList.remove('copied');
+        copyBtn.textContent = 'Copy response';
+      }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(compiled.value).then(done, function () { fallback(); });
+    } else {
+      fallback();
+    }
+    function fallback() {
+      compiled.focus();
+      compiled.select();
+      try { document.execCommand('copy'); done(); } catch (e) { /* user can copy manually */ }
+    }
+  });
+
+  recompile();
+})();
+</script>
 </body>
 </html>
