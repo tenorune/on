@@ -334,6 +334,61 @@ describe('status-color easter egg', () => {
   });
 });
 
+describe('pre-paint C1 pass-through (inline <head> script)', () => {
+  const vm = require('vm');
+  const crypto = require('crypto');
+
+  // The inline redirect lives in <head> so it runs before the landing paints.
+  // Identify it by its body (the /invite guard), independent of the theme/egg
+  // inline scripts.
+  const PT_RE = /<script>\(function\(\)\{try\{if\(location\.pathname[\s\S]*?<\/script>/;
+  function passThroughTag() {
+    const m = readRoot('about.template.html').match(PT_RE);
+    if (!m) throw new Error('inline pass-through script not found in about.template.html');
+    return m[0];
+  }
+  const passThroughBody = () => passThroughTag().replace(/^<script>/, '').replace(/<\/script>$/, '');
+
+  function run({ pathname = '/invite', search = '', identity = null } = {}) {
+    const replaced = [];
+    const sandbox = {
+      URLSearchParams,
+      localStorage: { getItem: (k) => (k === 'statusapp_identity' ? identity : null) },
+      location: { pathname, search, replace: (u) => replaced.push(u) },
+    };
+    vm.runInNewContext(passThroughBody(), sandbox);
+    return replaced;
+  }
+
+  test('runs inline in <head>, before paint (not the bottom-of-body copy)', () => {
+    const tpl = readRoot('about.template.html');
+    const at = tpl.search(PT_RE);
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(at).toBeLessThan(tpl.indexOf('</head>'));
+  });
+
+  test("the script's hash is whitelisted in the CSP (won't be silently blocked)", () => {
+    const hash = crypto.createHash('sha256').update(passThroughBody(), 'utf8').digest('base64');
+    expect(readRoot('firebase.json')).toContain(`'sha256-${hash}'`);
+  });
+
+  test('/invite + valid token + identity → replace(/?i=…&stay=1)', () => {
+    expect(run({ search: '?i=AbCdEf', identity: '{"userId":"u1"}' })).toEqual(['/?i=AbCdEf&stay=1']);
+  });
+
+  test('no identity → no redirect (renders the landing normally)', () => {
+    expect(run({ search: '?i=AbCdEf', identity: null })).toEqual([]);
+  });
+
+  test('/about?i= never passes through (reading page), even with identity', () => {
+    expect(run({ pathname: '/about', search: '?i=AbCdEf', identity: '{"userId":"u1"}' })).toEqual([]);
+  });
+
+  test('malformed token → no redirect', () => {
+    expect(run({ search: '?i=' + encodeURIComponent('bad token!'), identity: '{"userId":"u1"}' })).toEqual([]);
+  });
+});
+
 describe('about-telegram behavior (spec N4: configs, doors, pass-through)', () => {
   const vm = require('vm');
   const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv';

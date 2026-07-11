@@ -10,6 +10,14 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="description" content="A quiet way to let the people who matter know when you're free." />
   <title>__APP_TITLE__</title>
+  <!-- C1 pass-through, pre-paint: a returning user (an account already in THIS
+       browser) opening /invite?i=TOKEN is redirected into the app BEFORE the
+       landing renders — no flash. Same condition as js/about-telegram.js, which
+       keeps the check at the bottom of <body> as a fallback (e.g. if this inline
+       script is ever CSP-blocked). Inline + in <head> = runs before any paint;
+       its sha256 is whitelisted in firebase.json's script-src. /about?i= never
+       passes through (it is a reading page). -->
+  <script>(function(){try{if(location.pathname!=='/invite')return;var t=new URLSearchParams(location.search).get('i');if(!t||!/^[A-Za-z0-9_-]{1,64}$/.test(t))return;if(localStorage.getItem('statusapp_identity'))location.replace('/?i='+t+'&stay=1');}catch(e){}})();</script>
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png" />
   <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />

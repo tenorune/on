@@ -33,6 +33,9 @@
   // Identity-aware pass-through (C1): an account in THIS browser means no mint
   // risk — skip the landing entirely. stay=1 keeps the boot gate from bouncing
   // back. /about?i= deliberately does not pass through (it is a reading page).
+  // The inline pre-paint script in about.template.html's <head> normally does
+  // this redirect before the page renders (no flash); this bottom-of-body copy
+  // is the fallback for when that inline script didn't run (e.g. CSP-blocked).
   if (onInvitePath) {
     var hasIdentity = false;
     try { hasIdentity = !!localStorage.getItem('statusapp_identity'); } catch (e) { /* storage blocked */ }
