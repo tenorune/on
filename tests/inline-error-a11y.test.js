@@ -22,3 +22,19 @@ const openingTag = (id) => {
 test('confirm-modal inline error is an announced live region (role="alert")', () => {
   expect(openingTag('confirm-modal-error')).toMatch(/role="alert"/);
 });
+
+// The confirmation toast and the notify/install/onramp promos share one fixed
+// bottom-center slot; they must live inside #bottom-stack so a visible toast and
+// a visible promo STACK instead of overlapping (e.g. the invite-accept toast
+// over the Telegram onramp promo). If any drifts back out, they collide again.
+test('bottom-anchored toast + promos are all inside #bottom-stack (no overlap)', () => {
+  const { JSDOM } = require('jsdom');
+  const doc = new JSDOM(template).window.document;
+  const stack = doc.getElementById('bottom-stack');
+  expect(stack).not.toBeNull();
+  for (const id of ['group-removal-toast', 'notify-promo', 'tg-onramp-promo', 'install-toast']) {
+    const el = doc.getElementById(id);
+    expect(el).not.toBeNull();
+    expect(stack.contains(el)).toBe(true);
+  }
+});

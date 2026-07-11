@@ -1236,12 +1236,27 @@ body.add-form-open #app-header {
 .group-roster-row.knockable.knock-pressing { background: var(--surface2); }
 .role-badge { color: var(--text-muted); font-size: 0.85rem; font-weight: normal; }
 
+/* Bottom stack: the confirmation toast and the notify/install/onramp promos are
+   all pinned to the bottom center; this flex column keeps a visible toast and a
+   visible promo stacked (with a gap) instead of overlapping. Height-agnostic and
+   auto-reflows as children show/hide. pointer-events pass through the empty gaps
+   beside the centered children (only the children themselves are interactive). */
+.bottom-stack {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 1rem;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  pointer-events: none;
+}
+.bottom-stack > * { pointer-events: auto; }
+
 /* Group removal toast */
 .group-removal-toast {
-  position: fixed;
-  bottom: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
   background: var(--surface2);
   color: var(--text);
   padding: 0.75rem 1rem;
@@ -1251,7 +1266,6 @@ body.add-form-open #app-header {
   justify-content: space-between;
   gap: 0.5rem;
   box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-  z-index: 100;
   /* Definite width: without it the fixed flex box shrink-wraps narrow and text
      wraps to several lines. ~80% of the 600px content column (the full-width
      "Add a person" button), capped so it doesn't overrun the app column. */
@@ -1309,9 +1323,11 @@ body.add-form-open #app-header {
 /* Selected type: themed accent tint (no weight change — keeps the popover a constant size). */
 .notify-switch.on { background: var(--accent); background: color-mix(in srgb, var(--accent) 30%, transparent); }
 .card-drawer .unfollow-btn { align-self: center; }
-.notify-promo { position: fixed; left: 50%; transform: translateX(-50%); bottom: 1rem; max-width: 560px; width: calc(100% - 2rem);
+/* Positioning is owned by .bottom-stack (parent flex column); this is just the
+   promo card. width is relative to the full-width stack, so it stays centered. */
+.notify-promo { max-width: 560px; width: calc(100% - 2rem);
   display: flex; flex-direction: column; align-items: stretch; gap: 0.75rem; background: var(--surface2); border: 1px solid rgba(0,0,0,0.15);
-  border-radius: 0.75rem; padding: 0.75rem 1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.25); z-index: 60; }
+  border-radius: 0.75rem; padding: 0.75rem 1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.25); }
 .notify-promo.hidden { display: none; }
 /* Unified layout for #notify-promo / #install-toast / #tg-onramp-promo: the
    action + Close buttons sit in a row UNDERNEATH the text, right-aligned;
