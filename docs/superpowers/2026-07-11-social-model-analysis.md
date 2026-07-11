@@ -313,3 +313,125 @@ Rendered interactively in `2026-07-11-social-model-analysis-v2.html`. Changes fr
 **Tension status:** consent tension — dissolved (P2). Ladder-vs-room — resolved by P8's scoping. Silent endings — resolved by P4's amendment. **Open threads:** knock/call intimacy ranks (P7); the P6 line, held loosely; picker enumeration vs the P6 line.
 
 **CHECKPOINT 2:** same pass on the v2 set — keep / amend / reject per item (R1 included). Phase 2 runs against the v2 rulings.
+
+---
+
+# Ruling pass 2 — operator rulings (2026-07-11)
+
+P1 KEEP · P2 KEEP · P3 KEEP · P4 KEEP · P5 KEEP · P7 KEEP · P8 KEEP · P10 KEEP.
+P6 **AMEND** — "It may also simply be a step towards mutuality. So it is first a fact, and then could become a mutuality — since there is no one-step action to create mutuality."
+R1 — accepted ("Okay").
+
+**P6 final:** *Followers are visible as facts — and as the seedbed of mutuality.* Seeing who follows you is first a fact; because mutuality has no one-step creation, the follower row is also the door through which mutuality forms (follow-back). It still earns the follower no visibility of you.
+
+The value set is **RULED**: P1–P8 + P10 as revised above (P6 as amended here), R1 as a standing recommendation. Everything below judges the app against this set.
+
+---
+
+# Part III — Findings (`SM#n`)
+
+Weights are social/UX weights, not engineering effort. Every finding names the principle(s) it violates.
+
+## Vindications first — anomalies the ruled model *explains*
+
+These were operator seeds or v1 tensions; under the ruled values they are correct behavior, not defects:
+
+- **V1 — Co-members can knock without any follow edge.** P7+P8: the ladder governs Direct; a curated room licenses the knock — curation already filtered who's inside.
+- **V2 — Only mutuals can call.** P8's ladder, plus P7 keeping call an intimate, Direct-only gesture (knock/call ranks remain an open thread, held loosely).
+- **V3 — Request-to-follow exists only inside rooms.** P2 makes this *complete*, not arbitrary: asking is for keys you don't hold, and a room is the **only surface in the app where you can see someone whose key you don't hold**. Everywhere else, anyone visible to you has already exchanged keys with you (following someone hands them your key; their following you hands you theirs).
+- **V4 — Group links join without owner approval.** P2+P7: the curator minted the key; possession of the room key *is* the curator's standing consent.
+- **V5 — Declines, unfollows, revocations stay silent toward the other party.** P4 as amended: silence to others is the ratified default.
+
+## Findings
+
+### SM#1 — One glyph, two consent semantics (circled-plus) — **High** · P2, P4
+Follow-back (automatic — using a key you already hold, `js/following.js:845`) and request-to-follow (asking for a key, `js/followRequests.js:62`) render as the same circled-plus. Under the ruled one-key model these are *different speech acts* — an act vs an ask — and the UI asserts they are the same. Fix direction: visually and verbally distinguish the ask (e.g. "Ask to follow" affordance) from the act ("Follow back").
+
+### SM#2 — The immortal "Requested" state — **High** · P4
+After a decline, the requester's button reads "Requested" forever (`js/followRequests.js:8-11`, #181 I5) — the actor's own consent action has a permanently untruthful state. P4 demands self-legibility without requiring disclosure: the state must eventually resolve *for the requester* (e.g. request TTL after which the button quietly resets to askable) while staying silent about who/when/why.
+
+### SM#3 — Picker eligibility is follower-based where the ruled model is key-based — **High** · P2, P7
+The in-app picker can invite only followers/mutuals (`js/invitePicker.js:47-58`). But under P2, the natural eligibility is *everyone whose key you hold* — which includes people you follow who don't follow you back (their code sits in your following list). Today a room curator cannot invite someone they follow unless that person follows them back — the half of the operator's original seed that survives the rulings. Fix direction: eligibility = (followers ∪ following) − members − self. Rules already permit it (`database.rules.json:142` requires only membership).
+
+### SM#4 — Key-sharing has no first-class in-app surface — **Medium** · P2, R1
+Sharing your key is the model's single founding act, yet on web it hides in a drawer and on Telegram it exists only as a share-sheet reflex; there is no in-app "invite someone to follow me" affordance in the main UI (operator seed). Fix direction: a first-class invite surface, per R1 carrying the inviter's name.
+
+### SM#5 — Joining a room silently broadcasts 2h of availability — **Medium** · P1
+Every join defaults to override ON + available 2h (`js/groups.js:126-134`); the bot path discloses only after the fact (`functions/telegram.js:601-606`, B#6). P1 defines the room contract as *conscious* exposure — membership visibility is consented by joining, but a 2-hour availability assertion is a separate presence claim the joiner never chose. Fix direction: make the default visible/adjustable at the join moment (a pre-checked toggle preserves the warm-arrival behavior while making it chosen).
+
+### SM#6 — Curation is admit-only — **Medium** · P7
+The curator can admit (links, picker) but cannot expel (kick unbuilt, #180) and cannot hand off or leave (no transfer; delete is the only exit, `js/groups.js:71-76`). Under P7 the room is *curated*; half the curation verbs are missing. Receiving-side kick detection already exists (`js/groups.js:176-185`). Supports #180's two items directly.
+
+### SM#7 — One glyph for leaving and evicting (×) — **Medium** · P4
+Unfollow (self-directed; their follow of you survives) and remove-follower (evicts; force-tears their follow via revocation) share the × (`js/following.js:673-675` vs `:849`). These are the model's two most different teardown acts; the actor's own act deserves unambiguous vocabulary. Confirm sheets differ, but the affordance doesn't.
+
+### SM#8 — Group invitations arrive nameless; bot joins claim a name unasked — **Medium** · R1, P3
+A group invite link carries no inviter identity (`js/inviteModal.js:26-28`): the invitee joins a named room from an anonymous hand — against R1. And a bot-button join auto-assigns the Telegram first name without a choosing moment (`functions/telegram.js:587`) — P3 wants first-contact names *chosen*, not just accurate. Fix directions: inviter label on group invites; a name-confirm step (or default-with-edit affordance) on bot joins.
+
+### SM#9 — Rules let any member push-invite while the value says curator — **Low–Medium** · P7, P10
+UI restricts inviting to the owner (`js/groupContext.js:138`); rules permit any member (`database.rules.json:142`). Either tighten the rule to the curator (P10: this is an abuse/spam vector, so rules-worthy) or consciously delegate curation — but the current silent mismatch is neither.
+
+### SM#10 — The cold path carries no name — **Low** · P3
+Bare-code adds have no self-presentation channel; the sharer arrives as a naked code (`js/following.js:1240-1290`). Acceptable as the deliberately-cold path; if touched, an optional name at share time completes P3 rather than changes it.
+
+### SM#11 — Stale identities: rotated codes and uid fallbacks — **Low** · P3
+After a code rotation, your followers keep your old code forever (`js/db/social.js:316-320`); a roster row with no displayName falls back to a raw uid (`js/groupContext.js:186`). Both misname people in small ways.
+
+### SM#12 — Dormant rule slack: owners can rename members — **Low** · P3, P10
+`database.rules.json:80-83` lets an owner write any member's record, including displayName; no UI does. P3 says nobody can rename you; P10 says privacy-relevant slack is rules-worthy. Note: any tightening must preserve the owner-write needed for a future kick (SM#6).
+
+### SM#13 — Your outstanding asks are invisible across devices — **Low** · P4
+Sent pending invites live only under the invitee's uid; the inviter has no read-path (#124), and the "Requested" marker is per-device localStorage. P4's self-legibility extends to *seeing your own outstanding asks anywhere you are*. Already tracked as #124; recorded here for its principle-trace.
+
+---
+
+# Part IV — The target model
+
+The grand ruleset, stated as one page. **Divergences from current behavior are marked D#** — each individually decidable.
+
+## 1. The key rule (P2)
+Every relationship begins with a key — a code or a link. Holding someone's key is their standing consent to connect. **Following someone hands them your key back** (the act writes your code into their world), so every follow seeds a possible mutuality (P6). Where you can see a person but hold no key — today, only inside a room — you may **ask** (request-to-follow). The ask and the act must never look alike (**D2**: distinct glyph/label for request-to-follow vs follow-back — SM#1).
+
+## 2. Two contracts (P1)
+- **Direct** is key-based and ladder-governed (P8): *watch < knock < call*. Following grants seeing; mutuality grants knocking and calling. (Call-in-rooms stays out pending the P7 open thread.)
+- **Room** is curated mutual exposure under a chosen identity (P7): joining exposes you to the room, licenses room-knocks, and shows your room-chosen name and room-scoped status. Joining must not silently assert more presence than membership itself (**D5**: the 2h availability default becomes visible/adjustable at the join moment — SM#5).
+
+## 3. Curation (P7)
+A room has a curator. The curator can **admit** (mint keys, directly invite anyone whose key they hold — **D1**: picker eligibility widens from followers-only to followers ∪ following — SM#3), **expel** (**D6a**: kick, with the existing receiving-side toast — SM#6/#180), and **hand off** (**D6b**: ownership transfer, so a room can outlive its founder — #180). Delegation of curation is possible under the value but not assumed; until it's chosen deliberately, the contract should match the affordance (**D8a**: tighten `pendingInvites` rules to the curator — SM#9).
+
+## 4. Naming (P3)
+You pick the name you're introduced by — on personal invites (today), on group invites (**D7**: inviter label on group invites — SM#8), at bot joins (**D7b**: a choosing moment instead of a silent claim — SM#8), and optionally even on the cold path (**D9**: optional name at code-share — SM#10). After first contact, what people call you is theirs and private; nobody can rename you (**D8b**: close the owner-rename rule slack without breaking kick — SM#12).
+
+## 5. Legibility of self (P4)
+Every consent act you take has a visible, truthful, eventually-resolving state: requests expire rather than lie (**D3**: request TTL/reset — SM#2), leaving and evicting read as different acts (**D4a**: split the × vocabulary — SM#7), and your outstanding asks are visible from any device (**D10**: sent-invites mirror — #124/SM#13). Silence toward the other party remains the default throughout.
+
+## 6. Interrupts (P5)
+Unchanged — ratified as-is. A push means presence or an invitation; bookkeeping never notifies. Asks stay above the per-person opt-in as inherently consensual, watched for abuse via cooldowns.
+
+## 7. Sharing the founding act (P2, R1)
+Key-sharing gets a first-class in-app surface on both web and Telegram (**D4b**: an "invite someone to follow me" affordance in the main UI — SM#4), always carrying the inviter's name (R1).
+
+## 8. Surfaces (parity)
+Capabilities remain surface-identical (already true). Formation/management converge where feasible: invite management on Telegram (#286) is the standing gap; the in-app-browser dead tap (#290) is the arrival-side counterpart.
+
+## Divergence index
+
+| D# | Change | From finding | Weight |
+|---|---|---|---|
+| D1 | Picker eligibility → everyone whose key you hold | SM#3 | High |
+| D2 | Distinct ask vs act affordances (circled-plus split) | SM#1 | High |
+| D3 | Follow-requests expire; "Requested" self-resolves | SM#2 | High |
+| D4a | Split × vocabulary: leave vs evict | SM#7 | Medium |
+| D4b | First-class in-app invite surface | SM#4 | Medium |
+| D5 | Join-time visibility of the 2h availability default | SM#5 | Medium |
+| D6a | Kick (curation: expel) | SM#6/#180 | Medium |
+| D6b | Ownership transfer (curation: hand off) | SM#6/#180 | Medium |
+| D7 | Inviter name on group invites (+ bot-join name moment) | SM#8 | Medium |
+| D8a | Tighten pendingInvites rule to curator | SM#9 | Low–Med |
+| D8b | Close owner-rename rule slack | SM#12 | Low |
+| D9 | Optional name on bare-code share | SM#10 | Low |
+| D10 | Sent-invites mirror (cross-device ask visibility) | #124/SM#13 | Low |
+
+**Not proposed** (open threads held): call-in-rooms (P7 thread), any change to the P6 line (held loosely), asks joining the opt-in regime (P5, no examples), stale-code cosmetics (SM#11, cost/benefit thin).
+
+**CHECKPOINT 3 (final):** accept / amend / defer per divergence D1–D10. Accepted divergences become the migration backlog conversation (deliberately out of this analysis's scope, per the endgame ruling).

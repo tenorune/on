@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Social model — Phase 2: findings &amp; target model (checkpoint 3)</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --panel:#ffffff; --ink:#1a1a1a; --muted:#6b6b6b; --line:#e6e4e0;
+    --accent:#2a7de1; --accent-soft:#e8f1fc; --tg:#229ED9; --tg-soft:#e4f4fb;
+    --warn:#c2410c; --warn-soft:#fdecdf; --ok:#15803d; --ok-soft:#e5f4ea;
+    --code-bg:#f4f3f1; --shadow:0 1px 3px rgba(0,0,0,.06),0 6px 18px rgba(0,0,0,.05);
+    --radius:12px; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#17181a; --panel:#1f2124; --ink:#e9e8e6; --muted:#9a9a97; --line:#33353a;
+      --accent:#5aa0f0; --accent-soft:#1a2938; --tg:#4bb8e6; --tg-soft:#16303c;
+      --warn:#f59e6b; --warn-soft:#3a2417; --ok:#6fce90; --ok-soft:#16301f;
+      --code-bg:#26282c; --shadow:0 1px 3px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.6;font-size:16px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1050px;margin:0 auto;padding:2.4rem 1.4rem 5rem}
+  header.doc{border-bottom:1px solid var(--line);padding-bottom:1.4rem;margin-bottom:2rem}
+  .eyebrow{font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;color:var(--tg);font-weight:700}
+  h1{font-size:1.9rem;line-height:1.2;margin:.4rem 0 .3rem}
+  h2{font-size:1.3rem;margin:2.6rem 0 .8rem;padding-top:.4rem;border-top:1px solid var(--line)}
+  h3{font-size:1.05rem;margin:1.6rem 0 .5rem}
+  p{margin:.6rem 0}
+  .lede{color:var(--muted);font-size:1.05rem}
+  .meta{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem}
+  .pill{font-size:.78rem;padding:.22rem .6rem;border-radius:999px;background:var(--code-bg);
+    color:var(--muted);border:1px solid var(--line)}
+  code{font-family:var(--mono);background:var(--code-bg);padding:.1rem .35rem;border-radius:5px;font-size:.86em}
+  .callout{border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:0 var(--radius) var(--radius) 0;
+    padding:.8rem 1.1rem;margin:1.1rem 0}
+  .callout .k{font-weight:700;font-size:.8rem;letter-spacing:.04em;text-transform:uppercase;display:block;margin-bottom:.2rem;color:var(--accent)}
+  .callout.ok{border-color:var(--ok);background:var(--ok-soft)} .callout.ok .k{color:var(--ok)}
+  ul,ol{margin:.5rem 0 .8rem;padding-left:1.3rem}
+  li{margin:.3rem 0}
+  .tablewrap{overflow-x:auto;margin:1rem 0;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  table{border-collapse:collapse;width:100%;background:var(--panel);font-size:.9rem}
+  th,td{padding:.55rem .8rem;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{background:var(--code-bg);font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+  tr:last-child td{border-bottom:none}
+  .principle{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:1.1rem 1.3rem;margin:1.1rem 0;box-shadow:var(--shadow)}
+  .principle .pid{font-family:var(--mono);font-weight:700;color:var(--tg);font-size:.95rem;margin-right:.5rem}
+  .principle .ptitle{font-weight:700;font-size:1.05rem}
+  .principle .rule{font-style:italic;color:var(--muted);margin:.3rem 0 .7rem}
+  .tag{font-size:.7rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;
+     padding:.14rem .5rem;border-radius:6px;margin-right:.35rem}
+  .tag.high{background:var(--warn-soft);color:var(--warn)}
+  .tag.med{background:var(--accent-soft);color:var(--accent)}
+  .tag.low{background:var(--code-bg);color:var(--muted)}
+  .tag.src{background:var(--tg-soft);color:var(--tg)}
+  .rulebox{margin-top:.8rem;padding:.55rem .8rem;border:1px dashed var(--line);border-radius:8px;
+    font-size:.85rem;color:var(--muted)}
+  .rb-row{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+  .rb-label{font-weight:700;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-right:.2rem}
+  .rb-btn{font:inherit;font-size:.8rem;font-weight:700;padding:.3rem .9rem;border-radius:999px;
+    border:1.5px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer}
+  .rb-btn:hover{border-color:var(--muted)}
+  .rb-btn.sel-accept{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
+  .rb-btn.sel-amend{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+  .rb-btn.sel-defer{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
+  .rb-note{display:block;width:100%;margin-top:.55rem;padding:.5rem .7rem;border:1px solid var(--line);
+    border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:.85rem;line-height:1.45;
+    resize:vertical;min-height:2.4rem}
+  .rb-note::placeholder{color:var(--muted);opacity:.7}
+  .compiler{position:sticky;bottom:0;margin-top:2rem;background:var(--panel);border:1px solid var(--line);
+    border-radius:var(--radius) var(--radius) 0 0;box-shadow:0 -6px 18px rgba(0,0,0,.08);padding:.9rem 1.2rem}
+  .compiler h3{margin:.1rem 0 .5rem;font-size:.95rem}
+  .compiler .bar{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.5rem}
+  .compiler .progress{font-size:.8rem;color:var(--muted)}
+  .compiler textarea{display:block;width:100%;height:9.5rem;padding:.6rem .8rem;border:1px solid var(--line);
+    border-radius:8px;background:var(--code-bg);color:var(--ink);font-family:var(--mono);font-size:.78rem;
+    line-height:1.5;resize:vertical;white-space:pre;overflow:auto}
+  .copy-btn{font:inherit;font-size:.85rem;font-weight:700;padding:.45rem 1.1rem;border-radius:8px;
+    border:1.5px solid var(--accent);background:var(--accent-soft);color:var(--accent);cursor:pointer}
+  .copy-btn:hover{filter:brightness(1.05)}
+  .copy-btn.copied{border-color:var(--ok);background:var(--ok-soft);color:var(--ok)}
+  footer{margin-top:3rem;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:1rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="eyebrow">KnockKnock · Social &amp; UX analysis</div>
+  <h1>Phase 2 — findings &amp; target model</h1>
+  <p class="lede">Judged against the ruled value set (P1–P8, P10 + R1; P6 as amended in pass 2). Findings first, then the target model's divergences from current behavior — accept / amend / defer each.</p>
+  <div class="meta">
+    <span class="pill">2026-07-11 · checkpoint 3 (final)</span>
+    <span class="pill">Canonical: <code>2026-07-11-social-model-analysis.md</code></span>
+    <span class="pill">Value set: v2 + P6 amendment</span>
+  </div>
+</header>
+
+<div class="callout ok"><span class="k">Vindicated — correct behavior under the ruled model</span>
+<ul>
+<li><b>V1</b> Co-members knock without a follow edge — the curated room licenses it (P7/P8).</li>
+<li><b>V2</b> Only mutuals call — the Direct ladder; call stays intimate (P8, P7 thread open).</li>
+<li><b>V3</b> Request-to-follow is group-only — and that's <i>complete</i>: a room is the only surface where you can see someone whose key you don't hold. Everywhere else, keys were already exchanged (following hands over your key).</li>
+<li><b>V4</b> Group links join without approval — the curator minted the key (P2/P7).</li>
+<li><b>V5</b> Declines, unfollows, revocations stay silent to the other party (P4 as amended).</li>
+</ul></div>
+
+<h2>Findings</h2>
+<div class="tablewrap"><table>
+<tr><th>ID</th><th>Weight</th><th>Principle</th><th>Finding</th></tr>
+<tr><td><b>SM#1</b></td><td><span class="tag high">High</span></td><td>P2, P4</td><td>One glyph, two consent semantics: circled-plus is both automatic follow-back (an act) and request-to-follow (an ask).</td></tr>
+<tr><td><b>SM#2</b></td><td><span class="tag high">High</span></td><td>P4</td><td>The immortal "Requested" state — the actor's own consent action lies forever after a decline.</td></tr>
+<tr><td><b>SM#3</b></td><td><span class="tag high">High</span></td><td>P2, P7</td><td>Picker eligibility is follower-based; the ruled model is key-based — you can't invite someone you follow unless they follow you back.</td></tr>
+<tr><td><b>SM#4</b></td><td><span class="tag med">Med</span></td><td>P2, R1</td><td>Key-sharing — the founding act — has no first-class in-app surface.</td></tr>
+<tr><td><b>SM#5</b></td><td><span class="tag med">Med</span></td><td>P1</td><td>Joining a room silently asserts 2h of availability; bot path discloses after the fact.</td></tr>
+<tr><td><b>SM#6</b></td><td><span class="tag med">Med</span></td><td>P7</td><td>Curation is admit-only: no kick, no ownership transfer (#180).</td></tr>
+<tr><td><b>SM#7</b></td><td><span class="tag med">Med</span></td><td>P4</td><td>One × for leaving (unfollow) and evicting (remove follower) — the model's two most different teardowns.</td></tr>
+<tr><td><b>SM#8</b></td><td><span class="tag med">Med</span></td><td>R1, P3</td><td>Group invites arrive nameless; bot joins claim your Telegram name without a choosing moment.</td></tr>
+<tr><td><b>SM#9</b></td><td><span class="tag low">Low–Med</span></td><td>P7, P10</td><td>Rules let any member push-invite; UI says curator-only. Silent mismatch.</td></tr>
+<tr><td><b>SM#10</b></td><td><span class="tag low">Low</span></td><td>P3</td><td>Bare-code sharing carries no self-presentation.</td></tr>
+<tr><td><b>SM#11</b></td><td><span class="tag low">Low</span></td><td>P3</td><td>Stale rotated codes and raw-uid roster fallbacks misname people.</td></tr>
+<tr><td><b>SM#12</b></td><td><span class="tag low">Low</span></td><td>P3, P10</td><td>Dormant rule slack: owners can rename members (no UI does).</td></tr>
+<tr><td><b>SM#13</b></td><td><span class="tag low">Low</span></td><td>P4</td><td>Your outstanding asks are invisible across devices (#124).</td></tr>
+</table></div>
+
+<h2>The target model, in one page</h2>
+<div class="callout"><span class="k">The grand ruleset</span>
+<ol>
+<li><b>The key rule (P2):</b> every relationship begins with a key. Holding it is standing consent. Following hands your key back — every follow seeds a possible mutuality (P6). Where you see someone and hold no key (rooms only), you may ask.</li>
+<li><b>Two contracts (P1):</b> Direct is key-based and ladder-governed (watch &lt; knock &lt; call, P8). A room is curated mutual exposure under a chosen identity (P7).</li>
+<li><b>Curation (P7):</b> the curator admits, expels, and can hand off. The room outlives its founder.</li>
+<li><b>Naming (P3):</b> you pick the name you're introduced by, everywhere; afterwards names are private property of their holders; nobody can rename you.</li>
+<li><b>Legibility of self (P4):</b> every consent act you take has a truthful, eventually-resolving state. Silence to others stays.</li>
+<li><b>Interrupts (P5):</b> unchanged — presence and invitations only.</li>
+<li><b>The founding act (P2/R1):</b> key-sharing gets a first-class in-app surface, always carrying your name.</li>
+<li><b>Surfaces:</b> capabilities stay identical everywhere; formation/management converge (#286, #290 adjacent).</li>
+</ol></div>
+
+<h2>Divergences — accept / amend / defer</h2>
+
+<div class="principle"><span class="pid">D1</span><span class="ptitle">Picker eligibility → everyone whose key you hold</span>
+<div class="rule">Invite candidates = (followers ∪ following) − members − self, instead of followers-only.</div>
+<p><span class="tag high">High</span><span class="tag src">SM#3 · P2, P7</span>Lets a curator invite someone they follow who hasn't followed back. Rules already permit it; UI-only change.</p>
+<div class="rulebox">RULING</div></div>
+
+<div class="principle"><span class="pid">D2</span><span class="ptitle">Distinct ask vs act affordances</span>
+<div class="rule">Request-to-follow (an ask) and follow-back (an act) stop sharing the circled-plus.</div>
+<p><span class="tag high">High</span><span class="tag src">SM#1 · P2, P4</span>Different speech acts get different glyphs/labels — e.g. "Ask to follow" vs "Follow back".</p>
+<div class="rulebox">RULING</div></div>
+
+<div class="principle"><span class="pid">D3</span><span class="ptitle">Follow-requests expire; "Requested" self-resolves</span>
+<div class="rule">A pending request quietly times out (TTL) and the button resets to askable — still silent about who/when/why.</div>
+<p><span class="tag high">High</span><span class="tag src">SM#2 · P4</span>Fixes the immortal "Requested" without breaching silence-to-others. Extends #181 I5.</p>
+<div class="rulebox">RULING</div></div>
+
+<div class="principle"><span class="pid">D4a</span><span class="ptitle">Split the × vocabulary: leave vs evict</span>
+<div class="rule">Unfollow and remove-follower get distinct affordances, not just distinct confirm copy.</div>
+<p><span class="tag med">Med</span><span class="tag src">SM#7 · P4</span></p>
+<div class="rulebox">RULING</div></div>
+
+<div class="principle"><span class="pid">D4b</span><span class="ptitle">First-class in-app invite surface</span>
+<div class="rule">An "invite someone to follow me" affordance in the main UI, on both web and Telegram.</div>
+<p><span class="tag med">Med</span><span class="tag src">SM#4 · P2, R1</span>The founding act comes out of the drawer.</p>
+<div class="rulebox">RULING</div></div>
+
+<div class="principle"><span class="pid">D5</span><span class="ptitle">Join-time visibility of the availability default</span>
+<div class="rule">The 2h available-on-join default becomes visible/adjustable at the join moment (pre-checked, warm arrival preserved).</div>
+<p><span class="tag med">Med</span><span class="tag src">SM#5 · P1</span>Also resolves B#6 (bot's after-the-fact disclosure).</p>
+<div class="rulebox">RULING</div></div>
+
+<div class="principle"><span class="pid">D6a</span><span class="ptitle">Kick — curation gains "expel"</span>
+<div class="rule">Owner can remove a member; the existing receiving-side toast ("You've been removed…") activates.</div>
+<p><span class="tag med">Med</span><span class="tag src">SM#6 · P7 · #180</span></p>
+<div class="rulebox">RULING</div></div>
+
+<div class="principle"><span class="pid">D6b</span><span class="ptitle">Ownership transfer — curation gains "hand off"</span>
+<div class="rule">An owner can promote a member and leave; the room outlives its founder.</div>
+<p><span class="tag med">Med</span><span class="tag src">SM#6 · P7 · #180</span></p>
+<div class="rulebox">RULING</div></div>
+
+<div class="principle"><span class="pid">D7</span><span class="ptitle">Inviter name on group invites (+ a name moment on bot joins)</span>
+<div class="rule">Group invites carry who invited you; a bot-button join offers a choose/confirm-name step instead of silently claiming your Telegram name.</div>
+<p><span class="tag med">Med</span><span class="tag src">SM#8 · R1, P3</span></p>
+<div class="rulebox">RULING</div></div>
+
+<div class="principle"><span class="pid">D8a</span><span class="ptitle">Tighten pendingInvites rule to the curator</span>
+<div class="rule">Rules match the value: only the curator may push-invite (unless delegation is chosen deliberately later).</div>
+<p><span class="tag low">Low–Med</span><span class="tag src">SM#9 · P7, P10</span>Rules-worthy as an abuse/spam vector under P10.</p>
+<div class="rulebox">RULING</div></div>
+
+<div class="principle"><span class="pid">D8b</span><span class="ptitle">Close the owner-rename rule slack</span>
+<div class="rule">Members' displayName becomes self-write-only at the rules layer (kick-compatible).</div>
+<p><span class="tag low">Low</span><span class="tag src">SM#12 · P3, P10</span></p>
+<div class="rulebox">RULING</div></div>
+
+<div class="principle"><span class="pid">D9</span><span class="ptitle">Optional name on bare-code share</span>
+<div class="rule">The cold path gains an optional self-presentation channel.</div>
+<p><span class="tag low">Low</span><span class="tag src">SM#10 · P3</span>Completes P3 rather than changes it; genuinely optional.</p>
+<div class="rulebox">RULING</div></div>
+
+<div class="principle"><span class="pid">D10</span><span class="ptitle">Sent-invites mirror — see your own asks anywhere</span>
+<div class="rule">The inviter can see (and revoke) their outstanding pending invites from any device.</div>
+<p><span class="tag low">Low</span><span class="tag src">SM#13 · P4 · #124</span></p>
+<div class="rulebox">RULING</div></div>
+
+<p><b>Not proposed</b> (open threads held): call-in-rooms (P7 thread) · re-drawing the P6 line · asks joining the opt-in regime (P5) · stale-code cosmetics (SM#11).</p>
+
+<div class="callout ok"><span class="k">Checkpoint 3 — final</span>
+Accept / amend / defer per divergence. Accepted items become the migration-backlog conversation (out of this analysis's scope by the endgame ruling). Notes welcome — especially priorities.</div>
+
+<section class="compiler" id="compiler" hidden>
+  <h3>Compiled ruling response</h3>
+  <div class="bar">
+    <button type="button" class="copy-btn" id="copy-btn">Copy response</button>
+    <span class="progress" id="progress"></span>
+  </div>
+  <textarea id="compiled" readonly spellcheck="false" aria-label="Compiled ruling response"></textarea>
+</section>
+
+<footer>KnockKnock · Social model analysis, Phase 2 · 2026-07-11 · Canonical markdown: <code>docs/superpowers/2026-07-11-social-model-analysis.md</code></footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var STORE_KEY = 'sm-analysis-divergences-2026-07-11';
+  var CHOICES = ['accept', 'amend', 'defer'];
+
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.principle'));
+  if (!cards.length) return;
+
+  var state = {};
+  try { state = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch (e) { state = {}; }
+
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* private mode etc. */ }
+  }
+
+  var entries = [];
+
+  cards.forEach(function (card) {
+    var id = (card.querySelector('.pid') || {}).textContent || '';
+    var titleEl = card.querySelector('.ptitle');
+    var title = '';
+    if (titleEl) {
+      var clone = titleEl.cloneNode(true);
+      Array.prototype.slice.call(clone.querySelectorAll('.tag')).forEach(function (t) { t.remove(); });
+      title = clone.textContent;
+    }
+    id = id.trim(); title = title.trim();
+    var box = card.querySelector('.rulebox');
+    if (!id || !box) return;
+
+    state[id] = state[id] || { choice: '', note: '' };
+
+    box.textContent = '';
+    var row = document.createElement('div');
+    row.className = 'rb-row';
+    var lab = document.createElement('span');
+    lab.className = 'rb-label';
+    lab.textContent = 'Ruling:';
+    row.appendChild(lab);
+
+    var btns = {};
+    CHOICES.forEach(function (choice) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'rb-btn';
+      b.textContent = choice.charAt(0).toUpperCase() + choice.slice(1);
+      b.addEventListener('click', function () {
+        state[id].choice = (state[id].choice === choice) ? '' : choice;
+        paint();
+        save();
+        recompile();
+      });
+      btns[choice] = b;
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+
+    var note = document.createElement('textarea');
+    note.className = 'rb-note';
+    note.rows = 1;
+    note.placeholder = 'Notes / amendments / priority for ' + id + ' (optional)';
+    note.value = state[id].note || '';
+    note.addEventListener('input', function () {
+      state[id].note = note.value;
+      save();
+      recompile();
+    });
+    box.appendChild(note);
+
+    function paint() {
+      CHOICES.forEach(function (choice) {
+        btns[choice].classList.toggle('sel-' + choice, state[id].choice === choice);
+      });
+    }
+    paint();
+
+    entries.push({
+      id: id,
+      title: title,
+      getChoice: function () { return state[id].choice; },
+      getNote: function () { return (state[id].note || '').trim(); }
+    });
+  });
+
+  var compiler = document.getElementById('compiler');
+  var compiled = document.getElementById('compiled');
+  var progress = document.getElementById('progress');
+  var copyBtn = document.getElementById('copy-btn');
+  compiler.hidden = false;
+
+  function recompile() {
+    var ruled = 0;
+    var lines = ['Rulings on the target-model divergences (checkpoint 3):', ''];
+    entries.forEach(function (e) {
+      var choice = e.getChoice();
+      var note = e.getNote();
+      if (choice) ruled++;
+      var line = e.id + ' (' + e.title + '): ' + (choice ? choice.toUpperCase() : '(no ruling yet)');
+      if (note) line += ' — ' + note;
+      lines.push(line);
+    });
+    compiled.value = lines.join('\n');
+    progress.textContent = ruled + ' of ' + entries.length + ' ruled';
+  }
+
+  copyBtn.addEventListener('click', function () {
+    var done = function () {
+      copyBtn.classList.add('copied');
+      copyBtn.textContent = 'Copied!';
+      setTimeout(function () {
+        copyBtn.classList.remove('copied');
+        copyBtn.textContent = 'Copy response';
+      }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(compiled.value).then(done, function () { fallback(); });
+    } else {
+      fallback();
+    }
+    function fallback() {
+      compiled.focus();
+      compiled.select();
+      try { document.execCommand('copy'); done(); } catch (e) { /* manual copy */ }
+    }
+  });
+
+  recompile();
+})();
+</script>
+</body>
+</html>
