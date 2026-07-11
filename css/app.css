@@ -519,6 +519,13 @@ body.add-form-open .nav-row,
 body.add-form-open #app-header {
   position: static;
 }
+/* Installed iOS PWA, no-contacts (empty) state: the page is exactly viewport
+   height (min-height:100dvh, nothing to scroll), so focusing the redeem field
+   can't lift it clear of the on-screen keyboard and the keyboard/focus fails to
+   engage — it works once there are contacts and the page scrolls. Give the page
+   scroll room while the add-form is open so the field can scroll above the
+   keyboard. Harmless when the list already scrolls. */
+body.add-form-open #main-ui-direct { padding-bottom: 50dvh; }
 
 .nav-row {
   position: sticky;
