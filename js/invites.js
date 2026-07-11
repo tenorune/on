@@ -49,7 +49,10 @@ function validateLabel(raw) {
 }
 
 export function buildInviteUrl(token) {
-  return `${APP_URL_BASE}/?i=${token}`;
+  // /invite, not /?i= (spec N1/A1): the shared link itself lands on the
+  // mint-free landing — no boot, no detection needed, identically on every
+  // platform. Legacy /?i= links are caught by the boot gate (inviteBootGate).
+  return `${APP_URL_BASE}/invite?i=${token}`;
 }
 
 function findActivePersonalInvite(collection) {

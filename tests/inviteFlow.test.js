@@ -33,14 +33,14 @@ describe('inviteFlow', () => {
   test('shareInviteLink: deep link when configured, web URL fallback when not', () => {
     process.env.TELEGRAM_APP_LINK = 'https://t.me/kk_bot/app';
     const { shareInviteLink } = require('../js/inviteFlow.js');
-    shareInviteLink({ token: 'T'.repeat(22), url: 'https://app/?i=x' }, 'Join me');
+    shareInviteLink({ token: 'T'.repeat(22), url: 'https://app/invite?i=x' }, 'Join me');
     expect(mockShare).toHaveBeenCalledWith(`https://t.me/kk_bot/app?startapp=${'T'.repeat(22)}`, 'Join me');
 
     process.env.TELEGRAM_APP_LINK = '';
     jest.resetModules();
     const fresh = require('../js/inviteFlow.js');
-    fresh.shareInviteLink({ token: 'T'.repeat(22), url: 'https://app/?i=x' });
-    expect(mockShare).toHaveBeenLastCalledWith('https://app/?i=x', 'Follow me on KnockKnock');
+    fresh.shareInviteLink({ token: 'T'.repeat(22), url: 'https://app/invite?i=x' });
+    expect(mockShare).toHaveBeenLastCalledWith('https://app/invite?i=x', 'Follow me on KnockKnock');
   });
 
   test('shareCaption: the one place captions are spelled (W3-B CL#12)', () => {
@@ -54,8 +54,8 @@ describe('inviteFlow', () => {
     process.env.TELEGRAM_APP_LINK = '';
     jest.resetModules();
     const fresh = require('../js/inviteFlow.js');
-    fresh.shareInviteLink({ token: 'T'.repeat(22), url: 'https://app/?i=x', scope: 'group', groupName: 'Family' });
-    expect(mockShare).toHaveBeenLastCalledWith('https://app/?i=x', 'Join Family on KnockKnock');
+    fresh.shareInviteLink({ token: 'T'.repeat(22), url: 'https://app/invite?i=x', scope: 'group', groupName: 'Family' });
+    expect(mockShare).toHaveBeenLastCalledWith('https://app/invite?i=x', 'Join Family on KnockKnock');
   });
 
   test('buildStartAppLink: the single start_param builder (C4)', () => {

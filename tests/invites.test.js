@@ -880,3 +880,11 @@ describe('group-scope new-user flow integration (light)', () => {
     expect(result).toEqual({ ok: true, groupId: 'G1', groupName: 'Family' });
   });
 });
+
+describe('buildInviteUrl (spec N1/A1)', () => {
+  const { buildInviteUrl } = require('../js/invites.js');
+  test('builds a /invite landing link carrying the token', () => {
+    expect(buildInviteUrl('AbCdEfGhIjKlMnOpQrStUv')).toMatch(/\/invite\?i=AbCdEfGhIjKlMnOpQrStUv$/);
+    expect(buildInviteUrl('AbCdEfGhIjKlMnOpQrStUv')).not.toContain('/?i=');
+  });
+});

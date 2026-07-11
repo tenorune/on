@@ -53,7 +53,7 @@ jest.mock('../js/db.js', () => ({
   readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('../js/invites.js', () => ({
-  buildInviteUrl: jest.fn((token) => `https://app.example/?i=${token}`),
+  buildInviteUrl: jest.fn((token) => `https://app.example/invite?i=${token}`),
 }));
 jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),

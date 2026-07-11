@@ -65,7 +65,7 @@ jest.mock('../js/firstRun.js', () => ({
 // and telegram.js (first-name label). Mock all three so this suite stays a unit
 // test and never loads firebase through telegram.js/inviteFlow.js.
 jest.mock('../js/invites.js', () => ({
-  buildInviteUrl: jest.fn((t) => `https://app/?i=${t}`),
+  buildInviteUrl: jest.fn((t) => `https://app/invite?i=${t}`),
   createPersonalInvite: jest.fn(),
   updateInviteLabel: jest.fn(),
 }));
@@ -269,7 +269,7 @@ describe('sharePersonalInvite (Telegram one-tap)', () => {
 
   test('auto-creates an invite labelled with the Telegram first name when none is active, then shares it', async () => {
     watchUserInvites.mockImplementation((uid, cb) => { cb({}); return () => {}; });
-    createPersonalInvite.mockResolvedValue({ token: 'NEW', url: 'https://app/?i=NEW' });
+    createPersonalInvite.mockResolvedValue({ token: 'NEW', url: 'https://app/invite?i=NEW' });
     telegramFirstName.mockReturnValue('Ana');
     initCodeDrawer('uid1', 'ABC123');
 
@@ -277,7 +277,7 @@ describe('sharePersonalInvite (Telegram one-tap)', () => {
 
     expect(createPersonalInvite).toHaveBeenCalledWith('uid1', 'Ana');
     expect(shareInviteLink).toHaveBeenCalledWith(
-      expect.objectContaining({ token: 'NEW', url: 'https://app/?i=NEW' }),
+      expect.objectContaining({ token: 'NEW', url: 'https://app/invite?i=NEW' }),
     );
   });
 
@@ -304,7 +304,7 @@ describe('startPersonalInviteFlow (W3-B CL#8)', () => {
   test('Telegram: goes straight to the share sheet path (no modal)', async () => {
     isTelegramContext.mockReturnValue(true);
     telegramFirstName.mockReturnValue('Ana');
-    createPersonalInvite.mockResolvedValue({ token: 'NEW', url: 'https://app/?i=NEW' });
+    createPersonalInvite.mockResolvedValue({ token: 'NEW', url: 'https://app/invite?i=NEW' });
     const mycode = require('../js/mycode.js');
     await mycode.startPersonalInviteFlow();
     expect(openInviteModal).not.toHaveBeenCalled();
