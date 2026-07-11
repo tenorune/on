@@ -14,7 +14,7 @@ import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, apply
 import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, extractDirectIntentFromUrl, resolveInvitePreview } from './invites.js';
-import { decideBootRedirect, readBootRedirectContext, hasStayParam } from './inviteBootGate.js';
+import { decideBootRedirect, readBootRedirectContext } from './inviteBootGate.js';
 import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext } from './prefs.js';
 import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, navigateToDirect, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
@@ -212,11 +212,8 @@ async function ensureIdentity(pendingInviteToken = null) {
   const inviteGroupName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
   // Dismiss splash so the user can see and interact with the welcome screen.
   dismissSplash();
-  // stay=1 = the user just chose "Continue in browser" on the landing, which
-  // already said everything this panel says (Q6=A) — don't nag twice.
-  if (onboardingLane({ installPromptAvailable: false }) === 'in-app-browser' && !hasStayParam()) {
-    await showInAppBrowserRedirect(); // informational; user may continue here anyway
-  }
+  // The old in-app-browser interstitial is gone (spec Q6=A): fresh webview
+  // arrivals are redirected by inviteBootGate before reaching this point.
   // Loop so that cancelling the restore screen returns the user to the
   // welcome screen, not silently into the new-account flow.
   while (true) {
@@ -461,23 +458,6 @@ function showInstallStep(lane) {
   return new Promise((resolve) => {
     function later() { laterBtn.removeEventListener('click', later); el.classList.add('hidden'); resolve(); }
     laterBtn.addEventListener('click', later);
-  });
-}
-
-// Redirect for in-app/embedded browsers (Instagram, Facebook, etc.), which can't
-// Add to Home Screen. Surfaced before account creation so the account is ideally
-// created in a real browser. Real browsers (Safari, Chrome, Firefox) are NOT sent
-// here — they install normally.
-function showInAppBrowserRedirect() {
-  const el = document.getElementById('browser-redirect');
-  const bodyEl = document.getElementById('browser-redirect-body');
-  const continueBtn = document.getElementById('browser-redirect-continue-btn');
-  if (!el) return Promise.resolve();
-  bodyEl.textContent = 'This app’s built-in browser can’t install KnockKnock. To get notified about knocks, calls, and people coming online, open this page in your browser (Safari, Chrome, …), then add it to your Home Screen.';
-  el.classList.remove('hidden');
-  return new Promise((resolve) => {
-    function cont() { continueBtn.removeEventListener('click', cont); el.classList.add('hidden'); resolve(); }
-    continueBtn.addEventListener('click', cont);
   });
 }
 
