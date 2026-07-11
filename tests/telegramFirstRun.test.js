@@ -298,13 +298,13 @@ describe('interstitial info link (spec N8/A4)', () => {
     await gate;
   });
 
-  test('click opens /invite?i=TOKEN via openLink and does NOT resolve the interstitial', async () => {
+  test('click opens /about?i=TOKEN&pitch=1 via openLink (reading page — never auto-redeems) and does NOT resolve the interstitial', async () => {
     arm();
     mockWa.openLink = jest.fn();
     const gate = telegramInviteGate({ linked: false, isNew: true, dismissSplash: jest.fn() });
     await flush();
     document.getElementById('tg-invite-about-btn').click();
-    expect(mockWa.openLink).toHaveBeenCalledWith(`${window.location.origin}/invite?i=${TOKEN}`);
+    expect(mockWa.openLink).toHaveBeenCalledWith(`${window.location.origin}/about?i=${TOKEN}&pitch=1`);
     // still open — accepting afterwards works normally
     document.getElementById('tg-invite-accept-btn').click();
     await expect(gate).resolves.toMatchObject({ token: TOKEN, silent: false });

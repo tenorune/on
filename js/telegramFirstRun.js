@@ -90,7 +90,10 @@ function showInterstitial(preview, isNew, token) {
     function onDismiss() { pick('dismiss'); }
     function onAbout() {
       // Deliberately does NOT resolve — the user reads and comes back.
-      const url = window.location.origin + '/invite?i=' + token;
+      // The reading page (/about) NEVER runs the C1 pass-through, so the token
+      // can't auto-redeem on a web account; pitch=1 hides the web-facing exits
+      // so the only door is "Open in Telegram" (redeems on the Telegram account).
+      const url = window.location.origin + '/about?i=' + token + '&pitch=1';
       const wa = tgWebApp();
       if (wa && typeof wa.openLink === 'function') wa.openLink(url);
       else window.open(url, '_blank', 'noopener');
