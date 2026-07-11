@@ -334,30 +334,32 @@ describe('status-color easter egg', () => {
   });
 });
 
-describe('pre-paint C1 pass-through (inline <head> script)', () => {
+describe('pre-paint config decision (inline <head> script)', () => {
   const vm = require('vm');
   const crypto = require('crypto');
 
-  // The inline redirect lives in <head> so it runs before the landing paints.
-  // Identify it by its body (the /invite guard), independent of the theme/egg
-  // inline scripts.
-  const PT_RE = /<script>\(function\(\)\{try\{if\(location\.pathname[\s\S]*?<\/script>/;
-  function passThroughTag() {
+  // The inline script runs in <head> before the body paints: it does the C1
+  // pass-through redirect and tags <html> so CSS paints the right config with
+  // no flash. Identify it by its body, independent of the theme/egg scripts.
+  const PT_RE = /<script>\(function\(\)\{var t,tok=null[\s\S]*?<\/script>/;
+  function tag() {
     const m = readRoot('about.template.html').match(PT_RE);
-    if (!m) throw new Error('inline pass-through script not found in about.template.html');
+    if (!m) throw new Error('inline pre-paint script not found in about.template.html');
     return m[0];
   }
-  const passThroughBody = () => passThroughTag().replace(/^<script>/, '').replace(/<\/script>$/, '');
+  const body = () => tag().replace(/^<script>/, '').replace(/<\/script>$/, '');
 
   function run({ pathname = '/invite', search = '', identity = null } = {}) {
     const replaced = [];
+    const htmlCls = new Set();
     const sandbox = {
       URLSearchParams,
       localStorage: { getItem: (k) => (k === 'statusapp_identity' ? identity : null) },
       location: { pathname, search, replace: (u) => replaced.push(u) },
+      document: { documentElement: { classList: { add: (c) => htmlCls.add(c) } } },
     };
-    vm.runInNewContext(passThroughBody(), sandbox);
-    return replaced;
+    vm.runInNewContext(body(), sandbox);
+    return { replaced, htmlCls };
   }
 
   test('runs inline in <head>, before paint (not the bottom-of-body copy)', () => {
@@ -368,24 +370,43 @@ describe('pre-paint C1 pass-through (inline <head> script)', () => {
   });
 
   test("the script's hash is whitelisted in the CSP (won't be silently blocked)", () => {
-    const hash = crypto.createHash('sha256').update(passThroughBody(), 'utf8').digest('base64');
+    const hash = crypto.createHash('sha256').update(body(), 'utf8').digest('base64');
     expect(readRoot('firebase.json')).toContain(`'sha256-${hash}'`);
   });
 
-  test('/invite + valid token + identity → replace(/?i=…&stay=1)', () => {
-    expect(run({ search: '?i=AbCdEf', identity: '{"userId":"u1"}' })).toEqual(['/?i=AbCdEf&stay=1']);
+  test('/invite + valid token + identity → pass-through redirect, no classes tagged', () => {
+    const { replaced, htmlCls } = run({ search: '?i=AbCdEf', identity: '{"userId":"u1"}' });
+    expect(replaced).toEqual(['/?i=AbCdEf&stay=1']);
+    expect(htmlCls.size).toBe(0);
   });
 
-  test('no identity → no redirect (renders the landing normally)', () => {
-    expect(run({ search: '?i=AbCdEf', identity: null })).toEqual([]);
+  test('/invite + token, no identity → tags cfg-invite AND cfg-invite-first (config #1)', () => {
+    const { replaced, htmlCls } = run({ search: '?i=AbCdEf', identity: null });
+    expect(replaced).toEqual([]);
+    expect([...htmlCls].sort()).toEqual(['cfg-invite', 'cfg-invite-first']);
   });
 
-  test('/about?i= never passes through (reading page), even with identity', () => {
-    expect(run({ pathname: '/about', search: '?i=AbCdEf', identity: '{"userId":"u1"}' })).toEqual([]);
+  test('/about?i= → tags cfg-invite only, never passes through (config #2, reading page)', () => {
+    const { replaced, htmlCls } = run({ pathname: '/about', search: '?i=AbCdEf', identity: '{"userId":"u1"}' });
+    expect(replaced).toEqual([]);
+    expect([...htmlCls]).toEqual(['cfg-invite']);
   });
 
-  test('malformed token → no redirect', () => {
-    expect(run({ search: '?i=' + encodeURIComponent('bad token!'), identity: '{"userId":"u1"}' })).toEqual([]);
+  test('no token → nothing tagged', () => {
+    expect(run({ search: '' }).htmlCls.size).toBe(0);
+  });
+
+  test('malformed token → nothing tagged, no redirect', () => {
+    const { replaced, htmlCls } = run({ search: '?i=' + encodeURIComponent('bad token!'), identity: '{"userId":"u1"}' });
+    expect(replaced).toEqual([]);
+    expect(htmlCls.size).toBe(0);
+  });
+
+  test('CSS mirrors the pre-paint classes so first paint matches the config', () => {
+    const css = readRoot('css/about.css');
+    expect(css).toContain('html.cfg-invite #invite-landing');
+    expect(css).toContain('html.cfg-invite #about-open-cta');
+    expect(css).toContain('html.cfg-invite-first .intro-more');
   });
 });
 
@@ -415,6 +436,7 @@ describe('about-telegram behavior (spec N4: configs, doors, pass-through)', () =
       'about-more-btn': makeEl(),
     };
     const bodyCls = new Set();
+    const htmlCls = new Set();
     const replaced = [];
     const sandbox = {
       URLSearchParams, Promise,
@@ -427,11 +449,12 @@ describe('about-telegram behavior (spec N4: configs, doors, pass-through)', () =
       location: { pathname, search, origin: 'https://knock.example', replace: (u) => replaced.push(u) },
       document: {
         getElementById: (id) => els[id] || null,
+        documentElement: { classList: { add: (c) => htmlCls.add(c), remove: (c) => htmlCls.delete(c), contains: (c) => htmlCls.has(c) } },
         body: { classList: { add: (c) => bodyCls.add(c), remove: (c) => bodyCls.delete(c), contains: (c) => bodyCls.has(c) } },
       },
     };
     vm.runInNewContext(readRoot('js/about-telegram.js'), sandbox);
-    return { els, bodyCls, replaced };
+    return { els, bodyCls, htmlCls, replaced };
   }
   const flush = () => new Promise((r) => setTimeout(r, 0));
 

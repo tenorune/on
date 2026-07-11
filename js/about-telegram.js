@@ -75,6 +75,9 @@
   var moreBtn = document.getElementById('about-more-btn');
   if (moreBtn) {
     moreBtn.addEventListener('click', function () {
+      // Clear both drivers of the collapse: the pre-paint <html> class set by
+      // the inline head script, and the body class this script sets as fallback.
+      document.documentElement.classList.remove('cfg-invite-first');
       document.body.classList.remove('invite-first');
     });
   }

@@ -185,5 +185,17 @@ body.invite-first .intro-more,
 body.invite-first .features,
 body.invite-first .privacy-short,
 body.invite-first .privacy-detail { display: none; }
+/* Pre-paint mirror: the inline <head> script tags <html> before the body paints
+   so the invite config renders immediately (no flash of the vanilla page).
+   .cfg-invite → show the card, hide the intro's open door; .cfg-invite-first
+   (/invite only) → collapse the marketing. js/about-telegram.js sets the
+   equivalent element/body classes as the CSP-blocked fallback. */
+html.cfg-invite #invite-landing { display: block; }
+html.cfg-invite #about-open-cta { display: none; }
+html.cfg-invite-first .about-more-link { display: inline; }
+html.cfg-invite-first .intro-more,
+html.cfg-invite-first .features,
+html.cfg-invite-first .privacy-short,
+html.cfg-invite-first .privacy-detail { display: none; }
 /* C5 (implement-and-evaluate): on iOS, promote the installed-app door. */
 body.ios-door-promoted .invite-installed-hint { font-size: 0.85rem; opacity: 1; }
