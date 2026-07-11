@@ -15,18 +15,28 @@ export function hasStayParam() {
   catch { return false; }
 }
 
+// setup=install marks the Safari install-hop (app.js isSetupInstall): a
+// DELIBERATELY fresh, identity-less boot mid-install-ceremony. Gate-wide
+// exemption (Q8=C) — bouncing it to marketing would strand the install step.
+export function hasSetupInstallParam() {
+  try { return new URLSearchParams(window.location.search).get('setup') === 'install'; }
+  catch { return false; }
+}
+
 // Ordered; first match wins. Returns { kind: 'hop' | 'landing', url } or null
 // (= proceed with today's boot).
 export function decideBootRedirect(ctx) {
   if (ctx.telegramContext) return null;               // 1 · Mini App boots itself
   if (ctx.stay) return null;                          // 2 · landing already chose
+  if (ctx.setupInstall) return null;                  // 2b · Safari install-hop (Q8=C)
   if (ctx.hasIdentity || ctx.standalone) return null; // 3 · existing identity wins (C3)
   if (!ctx.token) {
-    // Phase 2 (Q5=B / F8): a bare arrival trapped in a DETECTED webview gets the
-    // standing /about page — both doors, no token to carry, no auto-hop (bare
-    // Telegram-Android gets the choice; Q4=A was answered for invites).
-    // iOS-undetected bare boots don't redirect until phase 3 (Q8=C).
-    return ctx.inAppBrowser ? { kind: 'landing', url: '/about' } : null;
+    // Phase 3 (Q8=C): root is signed-out-landing / signed-in-app. EVERY fresh
+    // tokenless boot goes to /about — detection no longer matters, which is
+    // exactly what closes the undetectable-iOS bare blind spot. Funnel cost
+    // (one hop + the iOS prompt) is under an explicit on-device evaluation
+    // gate; revert = restore the `ctx.inAppBrowser ?` condition on this line.
+    return { kind: 'landing', url: '/about' };
   }
   if (ctx.telegramAndroid && ctx.deepLink) {
     return { kind: 'hop', url: ctx.deepLink };        // 4 · Q4=A zero-tap rescue
@@ -47,6 +57,7 @@ export function readBootRedirectContext(token) {
     token: token || null,
     telegramContext: isTelegramContext(),
     stay: hasStayParam(),
+    setupInstall: hasSetupInstallParam(),
     hasIdentity: !!loadIdentity(),
     standalone: isStandalone(),
     telegramAndroid: isTelegramInAppBrowser(),

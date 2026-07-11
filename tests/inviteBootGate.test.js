@@ -21,7 +21,7 @@ const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv';
 // Fresh in-app arrival baseline; each test overrides one dimension.
 const fresh = (over = {}) => ({
   token: TOKEN, telegramContext: false, stay: false, hasIdentity: false,
-  standalone: false, telegramAndroid: false,
+  standalone: false, telegramAndroid: false, setupInstall: false,
   deepLink: `https://t.me/bot/app?startapp=${TOKEN}`,
   inAppBrowser: false, ios: false, sharingEnabled: true, ...over,
 });
@@ -59,26 +59,34 @@ describe('decideBootRedirect — ordered rules (spec N3)', () => {
   });
 });
 
-describe('tokenless boots (phase 2, Q5=B / F8)', () => {
-  test('fresh + detected in-app browser → /about (no query — nothing to carry)', () => {
+describe('tokenless boots (phase 3, Q8=C: root = signed-out landing)', () => {
+  test('EVERY fresh tokenless boot redirects to /about — no detection condition', () => {
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null })))
+      .toEqual({ kind: 'landing', url: '/about' });                    // desktop / real browser
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, ios: true })))
+      .toEqual({ kind: 'landing', url: '/about' });                    // iOS — the blind spot, closed
     expect(decideBootRedirect(fresh({ token: null, deepLink: null, inAppBrowser: true })))
-      .toEqual({ kind: 'landing', url: '/about' });
+      .toEqual({ kind: 'landing', url: '/about' });                    // webviews as in phase 2
   });
-  test('fresh + Telegram-Android → /about too (bare gets the CHOICE, not the Q4 auto-hop)', () => {
-    expect(decideBootRedirect(fresh({ token: null, deepLink: null, telegramAndroid: true, inAppBrowser: true })))
-      .toEqual({ kind: 'landing', url: '/about' });
+  test('signed-in / standalone / stay / Mini App pass through unchanged', () => {
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, hasIdentity: true }))).toBeNull();
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, standalone: true }))).toBeNull();
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, stay: true }))).toBeNull();
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, telegramContext: true }))).toBeNull();
   });
-  test('fresh + iOS undetected → null (phase 3, not yet)', () => {
-    expect(decideBootRedirect(fresh({ token: null, deepLink: null, ios: true }))).toBeNull();
+});
+
+describe('setup=install exemption (Q8=C: the Safari install-hop is deliberately fresh)', () => {
+  test('gate-wide: exempts tokenless AND token boots', () => {
+    expect(decideBootRedirect(fresh({ token: null, deepLink: null, setupInstall: true }))).toBeNull();
+    expect(decideBootRedirect(fresh({ setupInstall: true, ios: true }))).toBeNull();
+    expect(decideBootRedirect(fresh({ setupInstall: true, telegramAndroid: true, inAppBrowser: true }))).toBeNull();
   });
-  test('guards still outrank: identity / standalone / stay / Mini App → null even in a webview', () => {
-    expect(decideBootRedirect(fresh({ token: null, deepLink: null, inAppBrowser: true, hasIdentity: true }))).toBeNull();
-    expect(decideBootRedirect(fresh({ token: null, deepLink: null, inAppBrowser: true, standalone: true }))).toBeNull();
-    expect(decideBootRedirect(fresh({ token: null, deepLink: null, inAppBrowser: true, stay: true }))).toBeNull();
-    expect(decideBootRedirect(fresh({ token: null, deepLink: null, inAppBrowser: true, telegramContext: true }))).toBeNull();
-  });
-  test('fresh desktop / real browser bare boot → null', () => {
-    expect(decideBootRedirect(fresh({ token: null, deepLink: null }))).toBeNull();
+  test('readBootRedirectContext reads it from the URL', () => {
+    window.history.replaceState(null, '', '/?setup=install');
+    expect(readBootRedirectContext(null).setupInstall).toBe(true);
+    window.history.replaceState(null, '', '/');
+    expect(readBootRedirectContext(null).setupInstall).toBe(false);
   });
 });
 
