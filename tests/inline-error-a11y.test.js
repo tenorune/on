@@ -45,3 +45,12 @@ test('CSS suppresses the promos while the confirmation toast is visible', () => 
   const css = fs.readFileSync(path.resolve(__dirname, '..', 'css', 'app.css'), 'utf8');
   expect(css).toMatch(/\.bottom-stack:has\(#group-removal-toast:not\(\.hidden\)\)\s+\.notify-promo\s*\{\s*display:\s*none/);
 });
+
+// The redeem field takes a code OR an invite link, so it's a normal text input —
+// NOT the centered, letter-spaced, all-caps .code-input style (all-caps is
+// misleading for a case-sensitive link).
+test('redeem Code/invite-link field is a normal text input (not all-caps .code-input)', () => {
+  const tag = openingTag('add-code-input');
+  expect(tag).toMatch(/class="[^"]*\btext-input\b[^"]*"/);
+  expect(tag).not.toMatch(/class="[^"]*\bcode-input\b/); // scoped to the class attr (id contains "code-input")
+});

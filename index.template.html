@@ -331,7 +331,11 @@
       <div id="add-person-form">
         <div class="add-form">
           <label class="field-label" for="add-code-input">Code or invite link</label>
-          <input id="add-code-input" type="text" maxlength="200" placeholder="e.g. XK7P2M or an invite link" class="code-input" autocomplete="off" />
+          <!-- Normal text input (not the centered all-caps .code-input style):
+               the field also takes an invite link, where casing is meaningful
+               and all-caps is misleading. Codes are still uppercased in code
+               mode by the input handler in js/following.js. -->
+          <input id="add-code-input" type="text" maxlength="200" placeholder="e.g. XK7P2M or an invite link" class="text-input" autocomplete="off" />
           <p id="add-invite-status" class="hint hidden"></p>
           <label id="add-label-label" class="field-label" for="add-label-input">Name (optional)</label>
           <input id="add-label-input" type="text" maxlength="40" placeholder="e.g. Partner, Mom" class="text-input" />
