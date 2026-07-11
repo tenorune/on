@@ -352,7 +352,7 @@ describe('pre-paint config decision (inline <head> script)', () => {
   // The inline script runs in <head> before the body paints: it does the C1
   // pass-through redirect and tags <html> so CSS paints the right config with
   // no flash. Identify it by its body, independent of the theme/egg scripts.
-  const PT_RE = /<script>\(function\(\)\{var t,tok=null[\s\S]*?<\/script>/;
+  const PT_RE = /<script>\(function\(\)\{var sp,tok=null[\s\S]*?<\/script>/;
   function tag() {
     const m = readRoot('about.template.html').match(PT_RE);
     if (!m) throw new Error('inline pre-paint script not found in about.template.html');
@@ -411,6 +411,22 @@ describe('pre-paint config decision (inline <head> script)', () => {
     const { replaced, htmlCls } = run({ search: '?i=' + encodeURIComponent('bad token!'), identity: '{"userId":"u1"}' });
     expect(replaced).toEqual([]);
     expect(htmlCls.size).toBe(0);
+  });
+
+  test('/about?i= with pitch=1 → tags cfg-invite AND cfg-pitch, no redirect', () => {
+    const { replaced, htmlCls } = run({ pathname: '/about', search: '?i=AbCdEf&pitch=1' });
+    expect(replaced).toEqual([]);
+    expect([...htmlCls].sort()).toEqual(['cfg-invite', 'cfg-pitch']);
+  });
+
+  test('/about?i= without pitch → no cfg-pitch', () => {
+    expect(run({ pathname: '/about', search: '?i=AbCdEf' }).htmlCls.has('cfg-pitch')).toBe(false);
+  });
+
+  test('pitch=1 does nothing on /invite (config #1 is the actionable landing)', () => {
+    const { htmlCls } = run({ pathname: '/invite', search: '?i=AbCdEf&pitch=1' });
+    expect(htmlCls.has('cfg-pitch')).toBe(false);
+    expect(htmlCls.has('cfg-invite-first')).toBe(true);
   });
 
   test('CSS mirrors the pre-paint classes so first paint matches the config', () => {

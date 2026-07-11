@@ -22,7 +22,7 @@
        the bottom of <body> as a fallback for when this inline script is ever
        CSP-blocked. /about?i= never passes through (it is a reading page). Its
        sha256 is whitelisted in firebase.json's script-src. -->
-  <script>(function(){var t,tok=null,inv=false;try{t=new URLSearchParams(location.search).get('i');tok=(t&&/^[A-Za-z0-9_-]{1,64}$/.test(t))?t:null;inv=location.pathname==='/invite';}catch(e){return;}if(!tok)return;if(inv){var id=null;try{id=localStorage.getItem('statusapp_identity');}catch(e){}if(id){location.replace('/?i='+tok+'&stay=1');return;}}var c=document.documentElement.classList;c.add('cfg-invite');if(inv)c.add('cfg-invite-first');})();</script>
+  <script>(function(){var sp,tok=null,inv=false,pitch=false;try{sp=new URLSearchParams(location.search);var t=sp.get('i');tok=(t&&/^[A-Za-z0-9_-]{1,64}$/.test(t))?t:null;inv=location.pathname==='/invite';pitch=sp.get('pitch')==='1';}catch(e){return;}if(!tok)return;if(inv){var id=null;try{id=localStorage.getItem('statusapp_identity');}catch(e){}if(id){location.replace('/?i='+tok+'&stay=1');return;}}var c=document.documentElement.classList;c.add('cfg-invite');if(inv)c.add('cfg-invite-first');else if(pitch)c.add('cfg-pitch');})();</script>
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png" />
   <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
