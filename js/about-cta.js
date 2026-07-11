@@ -45,7 +45,7 @@
     } else if (isIOS) {
       links[i].setAttribute('href', 'x-safari-https://' + host + '/' + query);
       links[i].removeAttribute('target');
-    } else { // desktop with a token → carry it; keep the normal new-tab link
+    } else { // desktop → carry query (token if any) + stay=1 on the normal new-tab link
       links[i].setAttribute('href', '/' + query);
     }
   }

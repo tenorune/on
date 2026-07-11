@@ -47,7 +47,8 @@
       <!-- intentional: open the app in a new tab to keep this page in place.
            data-open-app: on iOS/Android, js/about-cta.js rewrites this to a
            platform scheme that opens the real browser (escapes in-app browsers
-           like Telegram); on desktop it stays this normal new-tab link. -->
+           like Telegram); on desktop it is rewritten to /?stay=1 (phase 3), so
+           the root landing never bounces the new tab back. -->
       <a id="about-open-cta" class="cta" href="/" target="_blank" rel="noopener" data-open-app>Open __APP_TITLE__ &rarr;</a>
       <!-- Standing bare Telegram door (A3): unhidden by js/about-telegram.js on
            token-less pages when the build substituted a real deep link. -->
