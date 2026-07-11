@@ -42,6 +42,11 @@ FIREBASE_KEYS.forEach(key => {
 // Empty (not REPLACE_ME) when unset so client code can feature-detect it.
 define['process.env.TELEGRAM_APP_LINK'] = JSON.stringify(env.TELEGRAM_APP_LINK || '');
 
+// Dev-only identity-reset link (js/devReset.js): gates a secret + hostname
+// allowlist behind these two vars. Fail closed — empty ⇒ feature inert.
+define['process.env.DEV_RESET_SECRET'] = JSON.stringify(env.DEV_RESET_SECRET || '');
+define['process.env.DEV_RESET_HOSTS']  = JSON.stringify(env.DEV_RESET_HOSTS  || '');
+
 function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

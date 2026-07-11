@@ -42,6 +42,10 @@ jest.mock('../js/firebase-config.js', () => ({
   getMessagingIfSupported: jest.fn().mockResolvedValue(null),
 }));
 
+// devReset.js imports firebase/auth directly (not through js/auth.js's mock),
+// so without this it drags the real firebase/auth module into jsdom.
+jest.mock('../js/devReset.js', () => ({ maybeRunDevReset: jest.fn().mockResolvedValue(false) }));
+
 jest.mock('../js/db.js', () => ({
   initUser: jest.fn().mockResolvedValue(true),
   isExpired: jest.fn().mockReturnValue(false),

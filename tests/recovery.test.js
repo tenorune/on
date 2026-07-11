@@ -27,6 +27,9 @@ jest.mock('../js/telegram.js', () => ({
   ensureTelegramIdentity: jest.fn(),
 }));
 
+// devReset.js also imports firebase/auth directly, same reasoning as above.
+jest.mock('../js/devReset.js', () => ({ maybeRunDevReset: jest.fn().mockResolvedValue(false) }));
+
 // Mocks required so that require('../js/app') doesn't crash on Firebase imports.
 // These do NOT mock identity.js so the real functions work for the tests above.
 jest.mock('../js/db.js', () => ({

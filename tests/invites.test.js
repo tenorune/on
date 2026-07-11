@@ -46,6 +46,9 @@ jest.mock('../js/telegram.js', () => ({
   ensureTelegramIdentity: jest.fn(),
 }));
 
+// devReset.js also imports firebase/auth directly, same reasoning as above.
+jest.mock('../js/devReset.js', () => ({ maybeRunDevReset: jest.fn().mockResolvedValue(false) }));
+
 const db = require('../js/db.js');
 const store = require('../js/store.js');
 const groups = require('../js/groups.js');

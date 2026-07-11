@@ -41,6 +41,7 @@ import { initHintRotation } from './hintRotation.js';
 import { initFirstRun, consumeGraduationNotice } from './firstRun.js';
 import { showRecoveryCodeModal } from './recoveryModal.js';
 import { setButtonBusy, clearButtonBusy } from './utils.js';
+import { maybeRunDevReset } from './devReset.js';
 
 // Re-exported for tests/recovery.test.js, which requires it from app.js directly.
 export { showRecoveryCodeModal };
@@ -545,6 +546,7 @@ function cleanInviteParamFromUrl() {
 }
 
 async function main() {
+  if (await maybeRunDevReset()) return; // dev-only identity reset (env-gated); halts boot
   let pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
   // Mint-free rescue for legacy /?i= links (spec N3): decide BEFORE any
   // Firebase work whether this boot belongs on the /invite landing or in the
