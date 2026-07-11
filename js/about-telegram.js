@@ -85,8 +85,8 @@
         ? navigator.clipboard.writeText(url)
         : Promise.reject(new Error('no clipboard api'));
       write.then(function () {
-        copyBtn.textContent = 'Copied';
-        setTimeout(function () { copyBtn.textContent = 'Copy invite'; }, 1500);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(function () { copyBtn.textContent = 'Copy'; }, 1500);
       }).catch(function () {
         // Webviews commonly deny clipboard writes (C7) — show the URL to select.
         if (copyOut) { copyOut.textContent = url; copyOut.classList.remove('hidden'); }

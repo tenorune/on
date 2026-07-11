@@ -436,7 +436,7 @@ describe('about-telegram behavior (spec N4: configs, doors, pass-through)', () =
     const { els } = runScript({ search: `?i=${TOKEN}` });
     els['invite-copy-btn'].handlers.click();
     await flush();
-    expect(els['invite-copy-btn'].textContent).toBe('Copy invite'); // set to 'Copied' then restored by the immediate fake setTimeout
+    expect(els['invite-copy-btn'].textContent).toBe('Copy'); // set to 'Copied!' then restored by the immediate fake setTimeout
     expect(els['invite-copy-fallback'].classList.contains('hidden')).toBe(true);
   });
 

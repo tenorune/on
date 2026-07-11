@@ -44,18 +44,23 @@ code {
 .hero { text-align: center; padding: 3.5rem 0 2rem; }
 .brand-mark { font-size: 1.85rem; display: block; letter-spacing: 0.02em; }
 .tagline { color: var(--text-muted); margin-top: 0.75rem; font-size: 1.15rem; }
+/* Buttons match the in-app "Invite your people" primary button (.primary-btn):
+   13px padding, 14px/600 text, 10px radius — no glow. Fixed max-width so every
+   pair of CTAs (the door pair, the vanilla open/Telegram pair) is equal width. */
 .cta {
   display: block;
-  width: fit-content;
-  margin: 1.75rem auto 0;
-  padding: 0.65rem 1.3rem;
+  width: 100%;
+  max-width: 280px;
+  margin: 1.25rem auto 0;
+  padding: 13px;
   background: var(--accent);
   color: #fff;
   font-weight: 600;
+  font-size: 14px;
+  text-align: center;
   text-decoration: none;
-  border-radius: 0.6rem;
-  box-shadow: 0 0 28px var(--green-glow);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  border-radius: 10px;
+  transition: transform 0.15s ease;
 }
 .cta:hover { transform: translateY(-1px); }
 
@@ -141,18 +146,32 @@ p { margin-bottom: 0.9rem; }
 
 /* ---- Invite landing (spec N4) ---- */
 .invite-landing { text-align: center; }
-.invite-landing .cta { display: block; margin: 12px auto; max-width: 320px; }
-.invite-hint,
-.invite-installed-hint { font-size: 0.9rem; opacity: 0.85; }
-.invite-copy-btn { font: inherit; }
-.invite-copy-fallback { user-select: all; word-break: break-all; font-size: 0.85rem; }
-.about-more-btn { display: none; font: inherit; margin: 18px auto 0; }
-/* Config #1 (/invite?i=): marketing collapses behind the expander; the lede
-   stays visible (C4) so a stranger has minimum context to choose a door. */
+/* Symmetric margins → the gap between the two door buttons is constant, and
+   stays constant when the Telegram door is hidden (no deep link). */
+.invite-landing .cta { margin: 1rem auto; }
+/* The "Copy invite" block gets room to breathe above and below its help text. */
+.invite-installed-hint { font-size: 0.9rem; opacity: 0.85; margin: 2rem auto 1.5rem; max-width: 320px; }
+/* In-app Copy component: matches .ghost-btn in css/app.css (buttons don't
+   inherit font-family, so it's set explicitly), label toggles Copy → Copied!. */
+.ghost-btn {
+  background: var(--surface); color: var(--text-muted);
+  border: 1px solid var(--surface2); padding: 10px 16px;
+  border-radius: 10px; font-family: inherit; font-size: 14px; cursor: pointer;
+}
+#invite-copy-btn { display: block; margin: 0.6rem auto 0; }
+.invite-copy-fallback { user-select: all; word-break: break-all; font-size: 0.85rem; margin-top: 0.75rem; }
+/* Config #1 (/invite?i=): the "More about …" disclosure link sits inline at the
+   end of the lede and reveals the collapsed marketing on click (about-telegram.js
+   drops body.invite-first, which also hides the now-redundant link). */
+.about-more-link {
+  display: none; background: none; border: 0; padding: 0;
+  color: var(--accent); font: inherit; font-weight: 600;
+  text-decoration: underline; cursor: pointer;
+}
+body.invite-first .about-more-link { display: inline; }
 body.invite-first .intro-more,
 body.invite-first .features,
 body.invite-first .privacy-short,
 body.invite-first .privacy-detail { display: none; }
-body.invite-first .about-more-btn { display: block; }
 /* C5 (implement-and-evaluate): on iOS, promote the installed-app door. */
 body.ios-door-promoted .invite-installed-hint { font-size: 1rem; opacity: 1; }
