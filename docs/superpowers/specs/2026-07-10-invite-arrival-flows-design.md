@@ -28,7 +28,7 @@ lives in a storage partition no webview or (on iOS) even Safari can reach.
 | Q4=A | Telegram-Android detected + token + deep link → boot auto-hops to `t.me/<bot>/app?startapp=TOKEN`, zero taps. |
 | Q5=B | Bare in-app arrivals (phase 2) redirect to plain `/about`, which offers both doors. |
 | Q6=A | `stay=1` boots skip the old in-app-browser panel (phase 1); panel retires in phase 2. |
-| Q7=C+A | Installed-PWA recipients: platform link-capturing where it exists + universal in-app fallback (the unified "Redeem an invite" form, N6) + a tertiary landing door. |
+| Q7=C+A | Installed-PWA recipients: platform link-capturing where it exists + the "Redeem an invite" form (N6 — a universal affordance for all users, not PWA-only) + a tertiary landing door. |
 | A1 | `buildInviteUrl` → `/invite?i=TOKEN`; the `/?i=` boot gate remains as the net for legacy/copied links. |
 | A2 | `/invite?i=` renders config #1 (invite-first); `/about?i=` renders config #2 (full page + invite block). Pages never redirect or auto-hop. |
 | A3 | Browser-opened `/about` always shows a standing bare "Open in Telegram" CTA (fail-closed on the build substitution). |
@@ -136,7 +136,10 @@ from the source text via `/export const TELEGRAM_ENABLED = (true|false)/`, keepi
 `features.js` the single source of truth so the page can never disagree with
 `telegramSharingEnabled()` (a post-merge flag-off build cannot advertise a dead bot link).
 
-### N6 — Installed-PWA treatment (Q7=C+A; form shape = U1 + invite preview)
+### N6 — In-app invite redemption: the unified "Redeem an invite" form (U1 + preview)
+A universal affordance for **every** signed-in user on every platform — paste any invite
+you were handed and redeem it in place. The installed-PWA recipient (Q7=C+A) is its most
+load-bearing consumer (no other path reaches their identity on iOS), not its only one.
 - **One form, content-detected mode.** Today's single button and form stay
   (`index.template.html #add-person-form`, `js/following.js`); no tabs. Copy changes
   (operator-set): the button reads **"Redeem an invite"** (was "Add a person"); the field
@@ -144,8 +147,9 @@ from the source text via `/export const TELEGRAM_ENABLED = (true|false)/`, keepi
   both shapes (e.g. `XK7P2M or an invite link` — final wording on device). The input accepts
   anything (`maxlength="6"` lifts). The form watches the trimmed input:
   - 6-char code (today's shape) → **code mode**: today's behavior — Name field, "Follow"
-    button, same validation and errors. The first-run demoted relabel (`js/firstRun.js:62`,
-    "Add by code") keeps its wording; its restore branch now restores "Redeem an invite".
+    button, same validation and errors. The first-run demoted *relabel* (`js/firstRun.js:62`,
+    "Add by code") is **removed** — the button reads "Redeem an invite" in every state
+    (operator: with the rename it makes sense always); the demoted styling toggle stays.
   - Recognized invite — a URL with an `i=` param, a `t.me/…?startapp=TOKEN` link (C6), or a
     raw 22-char base64url token (`/^[A-Za-z0-9_-]{22}$/`, the token length from
     `js/invites.js`) → **invite mode**: the Name field hides, the button reads "Redeem
@@ -208,8 +212,9 @@ Unit (jest, `node_modules/.bin/jest` from repo root):
 - App-boot suite: each gate row fires/doesn't (order-sensitive: identity beats detection,
   `stay` beats everything but Mini App); `location.replace` targets; `stay` stripped.
 - `following`: button/label/placeholder copy ("Redeem an invite" / "Code or invite link");
-  mode detection — 6-char codes keep today's behavior (first-run relabel restores the new
-  button label); `i=` URLs, `startapp=` URLs, and raw 22-char tokens switch to invite
+  mode detection — 6-char codes keep today's behavior; `firstRun` relabel removed (button
+  label constant; demote styling intact); `i=` URLs, `startapp=` URLs, and raw 22-char
+  tokens switch to invite
   mode (Name hidden, button "Redeem invite", status line shown); preview upgrade on resolve
   and fail-soft on preview error; garbage on submit → inline error; redemption pipeline
   reuse; mode switches back cleanly when the input changes.
