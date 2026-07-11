@@ -184,6 +184,9 @@ to the interstitial. The page's loop-back "Open in Telegram" CTA is accepted for
   in-app browsers (F8) + panel retirement.
 - **Phase 3** (Q8=C; own evaluation gate after the phase-2 walkthrough): the tokenless
   redirect widens to all fresh boots — root `/` becomes signed-out-landing / signed-in-app.
+  Consequence found in planning: `about-cta.js`'s desktop-tokenless links must then also be
+  rewritten to `/?stay=1` (through phase 2 they could stay as-authored — no desktop visitor
+  reached `/about` by redirect; in phase 3 an unrewritten link bounces back to the landing).
   Evaluate the funnel cost on device before keeping it.
 - **Followups:** config #1 fine-grained content split; interstitial-opened page variant
   (loop-back CTA); copy tuning; manifest link-capturing.
