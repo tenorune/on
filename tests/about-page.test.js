@@ -143,6 +143,17 @@ describe('about.template.html content', () => {
     expect(tpl).not.toContain('dist/bundle.js');
   });
 
+  // The meta description doubles as the link-preview text. It must be present on
+  // /about, /invite AND the root URL (index.html) — apps read name="description".
+  const DESC = 'is about ambient presence — a soft signal that you\'re around and open to company, without the pressure of a chat thread.';
+  test('meta description carries the lede (link-preview text)', () => {
+    expect(tpl).toContain(`<meta name="description" content="__APP_TITLE__ ${DESC}"`);
+  });
+
+  test('root index.html carries the same meta description (link preview on /)', () => {
+    expect(readRoot('index.template.html')).toContain(`<meta name="description" content="__APP_TITLE__ ${DESC}"`);
+  });
+
   test('has the invite-framing slot + preview-url placeholder + scripts', () => {
     expect(tpl).toMatch(/id="about-invite-framing"/);
     expect(tpl).toContain('data-preview-url="__INVITE_PREVIEW_URL__"');
