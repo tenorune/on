@@ -240,8 +240,11 @@ describe('openInviteModal — group scope', () => {
     expect(document.getElementById('invite-modal-regen-btn').style.visibility).toBe('hidden');
   });
 
-  test('web group scope: create link UI shown, tg-share hidden, picker shown', async () => {
-    await openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+  test('web group scope with an eligible contact: create link UI shown, tg-share hidden, picker shown', async () => {
+    await openInviteModal({
+      scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
+      followers: { 'follower-1': 'CODE-1' }, mutuals: [], currentMemberUids: new Set(),
+    });
     expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('invite-modal-tg-share').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(false);
@@ -309,8 +312,11 @@ describe('openInviteModal — group scope', () => {
     invites.createGroupInvite.mockRejectedValueOnce(new Error('offline'));
     await openInviteModal({ scope: 'group', userId: 'me', groupId: 'g1', groupName: 'Divers',
       followers: {}, mutuals: [], currentMemberUids: new Set() });
-    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
+    // Restore BEFORE asserting — a thrown expect below must not leak TG
+    // context into later tests.
     isTelegramContext.mockReturnValue(false);
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(true);
   });
 
   test('group scope shows the modal synchronously, before the async picker populate resolves (#2 jank fix)', async () => {
@@ -430,7 +436,12 @@ describe('openInviteModal — overlay dismiss', () => {
 test('openInviteModal in group scope calls renderInvitePicker with the supplied data', async () => {
   jest.resetModules();
   const renderInvitePickerMock = jest.fn();
-  jest.doMock('../js/invitePicker.js', () => ({ renderInvitePicker: renderInvitePickerMock }));
+  jest.doMock('../js/invitePicker.js', () => ({
+    renderInvitePicker: renderInvitePickerMock,
+    // Real predicate, matching the file-level mock above — the modal now calls
+    // it on every group-scope open to decide Section 2's visibility.
+    hasDisplayableInvitees: jest.requireActual('../js/invitePicker.js').hasDisplayableInvitees,
+  }));
   jest.doMock('../js/db.js', () => ({
     createPersonalInvite: jest.fn(),
     regeneratePersonalInvite: jest.fn(),
@@ -496,7 +507,7 @@ describe('openInviteModal — Section 2 (in-app picker)', () => {
     });
   });
 
-  test('Section 2 (in-app picker) renders when scope is group', async () => {
+  test('Section 2 (in-app picker) renders when scope is group and a contact is eligible', async () => {
     document.body.innerHTML = `
       <div id="invite-modal" class="modal-overlay hidden">
         <div class="modal-card">
@@ -522,7 +533,10 @@ describe('openInviteModal — Section 2 (in-app picker)', () => {
         </div>
       </div>
     `;
-    await openInviteModal({ scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family' });
+    await openInviteModal({
+      scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family',
+      followers: { 'follower-1': 'CODE-1' }, mutuals: [], currentMemberUids: new Set(),
+    });
     expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(false);
   });
 
@@ -553,6 +567,28 @@ describe('openInviteModal — Section 2 (in-app picker)', () => {
       </div>
     `;
     openInviteModal({ scope: 'personal', userId: 'u1' });
+    expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(true);
+  });
+
+  test('web group scope, no displayable invitees → Section 2 hidden, link UI still shown', async () => {
+    setupDom();
+    await openInviteModal({
+      scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family',
+      followers: {}, mutuals: [], currentMemberUids: new Set(),
+    });
+    expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(false);
+    // Hidden section is not populated: no pending-invitee fetch, no render.
+    const { renderInvitePicker } = require('../js/invitePicker.js');
+    expect(renderInvitePicker).not.toHaveBeenCalled();
+  });
+
+  test('web group scope, followers exist but all are already members → Section 2 hidden', async () => {
+    setupDom();
+    await openInviteModal({
+      scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family',
+      followers: { uA: 'CODE-A' }, mutuals: [], currentMemberUids: new Set(['uA']),
+    });
     expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(true);
   });
 });

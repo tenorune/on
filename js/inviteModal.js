@@ -101,14 +101,19 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
 
   // Telegram group scope shares the deep link via a single "Share on Telegram"
   // button in place of the web-URL create/manage UI. Web (and personal) keep
-  // the existing link flow. Both group surfaces show the picker below.
+  // the existing link flow.
   const tgGroupShare = scope === 'group' && isTelegramContext();
 
-  // Section 2 (in-app picker) — group scope only. Toggle visibility now;
-  // populate it (async) AFTER the modal is shown, at the end of this function.
+  // Section 2 (in-app picker) — group scope, and only when someone is actually
+  // eligible to invite (an empty picker is dead UI). Same predicate as the
+  // TG skip-to-share shortcut below; decided synchronously from caller-passed
+  // data so there's no post-paint flash. Populate (async) AFTER the modal is
+  // shown, at the end of this function.
+  const displayableInvitees = scope === 'group'
+    && hasDisplayableInvitees({ followers, mutuals, currentMemberUids, inviterUid: userId });
   const pickerEl = document.getElementById('invite-modal-picker');
   if (pickerEl) {
-    pickerEl.classList.toggle('hidden', scope !== 'group');
+    pickerEl.classList.toggle('hidden', !displayableInvitees);
   }
 
   hideError();
@@ -245,7 +250,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   // there's nothing useful to show. On createGroupInvite failure, fall through
   // to open the modal so the user can retry via its Share button (which
   // surfaces its own errors).
-  if (tgGroupShare && !hasDisplayableInvitees({ followers, mutuals, currentMemberUids, inviterUid: userId })) {
+  if (tgGroupShare && !displayableInvitees) {
     try {
       const { token, url } = await createGroupInvite(userId, groupId);
       shareInviteLink({ token, url }, shareCaption('group', groupName));
@@ -262,8 +267,10 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   // resolves (the transition jank this flow used to show).
   document.getElementById('invite-modal').classList.remove('hidden');
 
-  // Populate the in-app picker (group scope) after the modal is already up.
-  if (scope === 'group') {
+  // Populate the in-app picker after the modal is already up. Skipped when the
+  // section is hidden — rows are built solely from followers/mutuals, so with
+  // no displayable invitees there is nothing to render (or fetch).
+  if (displayableInvitees) {
     const pendingInvitees = await readPendingInviteesForGroup(groupId);
     renderInvitePicker({
       inviterUid: userId,
