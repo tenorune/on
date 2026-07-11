@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Social model inventory &amp; analysis — Phase 1 (2026-07-11)</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --panel:#ffffff; --ink:#1a1a1a; --muted:#6b6b6b; --line:#e6e4e0;
+    --accent:#2a7de1; --accent-soft:#e8f1fc; --tg:#229ED9; --tg-soft:#e4f4fb;
+    --warn:#c2410c; --warn-soft:#fdecdf; --ok:#15803d; --ok-soft:#e5f4ea;
+    --code-bg:#f4f3f1; --shadow:0 1px 3px rgba(0,0,0,.06),0 6px 18px rgba(0,0,0,.05);
+    --radius:12px; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#17181a; --panel:#1f2124; --ink:#e9e8e6; --muted:#9a9a97; --line:#33353a;
+      --accent:#5aa0f0; --accent-soft:#1a2938; --tg:#4bb8e6; --tg-soft:#16303c;
+      --warn:#f59e6b; --warn-soft:#3a2417; --ok:#6fce90; --ok-soft:#16301f;
+      --code-bg:#26282c; --shadow:0 1px 3px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.6;font-size:16px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1050px;margin:0 auto;padding:2.4rem 1.4rem 5rem}
+  header.doc{border-bottom:1px solid var(--line);padding-bottom:1.4rem;margin-bottom:2rem}
+  .eyebrow{font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;color:var(--tg);font-weight:700}
+  h1{font-size:1.9rem;line-height:1.2;margin:.4rem 0 .3rem}
+  h2{font-size:1.3rem;margin:2.6rem 0 .8rem;padding-top:.4rem;border-top:1px solid var(--line)}
+  h2 .num{color:var(--muted);font-weight:600;margin-right:.5rem}
+  h3{font-size:1.05rem;margin:1.6rem 0 .5rem}
+  p{margin:.6rem 0}
+  .lede{color:var(--muted);font-size:1.05rem}
+  .meta{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem}
+  .pill{font-size:.78rem;padding:.22rem .6rem;border-radius:999px;background:var(--code-bg);
+    color:var(--muted);border:1px solid var(--line)}
+  code{font-family:var(--mono);background:var(--code-bg);padding:.1rem .35rem;border-radius:5px;font-size:.86em}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:1.1rem 1.3rem;margin:1rem 0;box-shadow:var(--shadow)}
+  .callout{border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:0 var(--radius) var(--radius) 0;
+    padding:.8rem 1.1rem;margin:1.1rem 0}
+  .callout.warn{border-color:var(--warn);background:var(--warn-soft)}
+  .callout.ok{border-color:var(--ok);background:var(--ok-soft)}
+  .callout .k{font-weight:700;font-size:.8rem;letter-spacing:.04em;text-transform:uppercase;display:block;margin-bottom:.2rem;color:var(--accent)}
+  .callout.warn .k{color:var(--warn)} .callout.ok .k{color:var(--ok)}
+  ul,ol{margin:.5rem 0 .8rem;padding-left:1.3rem}
+  li{margin:.3rem 0}
+  .tablewrap{overflow-x:auto;margin:1rem 0;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  table{border-collapse:collapse;width:100%;background:var(--panel);font-size:.9rem}
+  th,td{padding:.55rem .8rem;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{background:var(--code-bg);font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+  tr:last-child td{border-bottom:none}
+  .yes{color:var(--ok);font-weight:700} .no{color:var(--muted)} .warn-t{color:var(--warn);font-weight:700}
+  .principle{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:1.1rem 1.3rem;margin:1.1rem 0;box-shadow:var(--shadow)}
+  .principle .pid{font-family:var(--mono);font-weight:700;color:var(--tg);font-size:.95rem;margin-right:.5rem}
+  .principle .ptitle{font-weight:700;font-size:1.05rem}
+  .principle .rule{font-style:italic;color:var(--muted);margin:.3rem 0 .7rem}
+  .tag{font-size:.7rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;
+     padding:.14rem .5rem;border-radius:6px;margin-right:.35rem}
+  .tag.conform{background:var(--ok-soft);color:var(--ok)}
+  .tag.strain{background:var(--warn-soft);color:var(--warn)}
+  .tag.q{background:var(--accent-soft);color:var(--accent)}
+  .rulebox{margin-top:.8rem;padding:.55rem .8rem;border:1px dashed var(--line);border-radius:8px;
+    font-size:.85rem;color:var(--muted)}
+  footer{margin-top:3rem;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:1rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="eyebrow">KnockKnock · Social &amp; UX analysis</div>
+  <h1>Social model inventory &amp; analysis — Phase 1</h1>
+  <p class="lede">What the app's social model actually is, and the value set it actually embodies — framed for ruling. Findings and the target model are Phase 2, built only on the ruled values.</p>
+  <div class="meta">
+    <span class="pill">2026-07-11</span>
+    <span class="pill">Phase 1 of 2 — stops at the values checkpoint</span>
+    <span class="pill">Canonical: <code>2026-07-11-social-model-analysis.md</code></span>
+    <span class="pill">Spec: <code>specs/2026-07-11-social-model-analysis-design.md</code></span>
+  </div>
+</header>
+
+<div class="callout"><span class="k">How to read this</span>
+Part I is descriptive — no judgments. Part II derives ten principles from Part I's evidence, each with conforming and violating behavior. The violations are not findings yet; whether they're bugs or evolution is what the ruling decides. Every claim is cited to source in the markdown canonical.</div>
+
+<h2><span class="num">I.0</span>Vocabulary — relationship states</h2>
+<div class="tablewrap"><table>
+<tr><th>State</th><th>Meaning</th><th>Notes</th></tr>
+<tr><td><b>Follower</b> (X→Y)</td><td>X watches Y</td><td>One-way; two co-written records, one per side (<code>js/db/social.js:204,255</code>)</td></tr>
+<tr><td><b>Mutual</b></td><td>both directions exist</td><td><b>No record</b> — computed as an intersection (<code>js/following.js:342</code>); mutuality is emergent, never declared</td></tr>
+<tr><td><b>Co-member</b></td><td>share a group</td><td>Per-group; no cross-group linkage</td></tr>
+<tr><td><b>Owner–member</b></td><td>group ownership</td><td>One owner, no transfer, no admin tier</td></tr>
+</table></div>
+<p>Origin-story correction: the share code is <b>6</b> characters, not 5 (<code>js/identity.js:9</code>).</p>
+
+<h2><span class="num">I.1</span>Edge formation — twelve mechanisms, three consent models</h2>
+<div class="tablewrap"><table>
+<tr><th>#</th><th>Mechanism</th><th>Edge</th><th>Consent model</th><th>Identity attached</th><th>Surfaces</th></tr>
+<tr><td>1</td><td>Manual code entry</td><td>follow</td><td><b>Unilateral-instant</b> — edge written on submit; target never asked</td><td>adder's private label only</td><td>web / PWA / Mini App</td></tr>
+<tr><td>2</td><td>Paste link in add-form</td><td>follow/member</td><td>routes into 3/4</td><td>per 3/4</td><td>web / PWA / Mini App</td></tr>
+<tr><td>3</td><td>Personal invite link</td><td>follow</td><td><b>Link-as-consent</b> — auto-redeems at boot</td><td>creatorLabel seeds redeemer's label; redeemer's TG name flows back</td><td>all (Mini App via 11)</td></tr>
+<tr><td>4</td><td>Group invite link</td><td>member</td><td><b>Link-as-consent</b> — joiner self-writes membership</td><td>joiner picks displayName; <b>no inviter identity on the invite</b></td><td>all (Mini App via 11)</td></tr>
+<tr><td>5</td><td>In-app picker invite</td><td>member</td><td><b>Two-sided</b> — pending record + Inbox Join</td><td>invitee names themself at Join</td><td>all; Join also in bot (9)</td></tr>
+<tr><td>6</td><td>Request-to-follow (roster)</td><td>follow</td><td><b>Two-sided</b> — Approve grant completes it</td><td>grant carries approver's code + group name</td><td>all; Approve also in bot (10)</td></tr>
+<tr><td>7</td><td>Follow-back (+)</td><td>follow → mutual</td><td><b>Unilateral-instant</b> — no approval</td><td>label prefilled from remembered name</td><td>web / PWA / Mini App</td></tr>
+<tr><td>8</td><td>Group creation</td><td>owner+member</td><td>unilateral (self)</td><td>group name + own displayName</td><td>web / PWA / Mini App</td></tr>
+<tr><td>9</td><td>Bot [Join]</td><td>member</td><td>consent side of 5</td><td>auto-named from Telegram first name, no prompt</td><td>bot DM</td></tr>
+<tr><td>10</td><td>Bot [Approve]</td><td>follow</td><td>consent side of 6</td><td>code + shared-group displayName</td><td>bot DM</td></tr>
+<tr><td>11</td><td>Mini App startapp link</td><td>follow/member</td><td>link-as-consent + interstitial for unlinked; <b>silent redeem when linked</b></td><td>TG first name both directions</td><td>Mini App</td></tr>
+<tr><td>12</td><td>N8 pitch page</td><td>none (funnel into 11)</td><td>—</td><td>—</td><td>Mini App</td></tr>
+</table></div>
+
+<div class="callout"><span class="k">Held observations</span>
+<ul>
+<li><b>Both two-sided mechanisms are late additions and group-scoped</b>; nothing in the Direct world asks permission.</li>
+<li>The picker can target <b>only the inviter's own followers</b> — no invite-by-code exists.</li>
+<li>The invite-to-group row is <b>owner-only in the UI</b> while rules permit <b>any member</b> to push-invite (<code>js/groupContext.js:138</code> vs <code>database.rules.json:142</code>).</li>
+<li>Every join defaults to <b>override ON, available 2h</b> — a presence broadcast bundled into the act of joining; disclosed after the fact on the bot path.</li>
+<li>Membership is always <b>written by the joiner themself</b>; nobody can place you in a group.</li>
+</ul></div>
+
+<h2><span class="num">I.2</span>Capability matrix</h2>
+<div class="tablewrap"><table>
+<tr><th>Tier (A's view of B)</th><th>Knock</th><th>Call</th><th>Long-press</th><th>See presence</th><th>Name them</th><th>Request-to-follow</th></tr>
+<tr><td>Stranger</td><td class="no">—</td><td class="no">—</td><td class="no">—</td><td class="no">—</td><td class="no">—</td><td class="no">—</td></tr>
+<tr><td>A follows B (A's side)</td><td class="no">no</td><td class="no">no</td><td>palette adoption</td><td class="yes">yes</td><td class="yes">yes (private)</td><td class="no">n/a</td></tr>
+<tr><td>A follows B (B's side)</td><td class="no">no</td><td class="no">no</td><td class="no">no</td><td class="no"><b>no</b></td><td class="no">no</td><td>Follow-back + (automatic)</td></tr>
+<tr><td><b>Mutual</b></td><td class="yes">yes — tap</td><td class="yes">yes — swipe</td><td>yes</td><td class="yes">both ways</td><td class="yes">yes</td><td class="no">n/a</td></tr>
+<tr><td><b>Co-member</b> (no follow)</td><td class="yes">yes — tap roster</td><td class="warn-t">no</td><td>yes (needs own override)</td><td class="yes">group-effective</td><td class="no">self-name only</td><td class="yes">yes (declinable)</td></tr>
+<tr><td>Co-member + mutual</td><td class="yes">both surfaces</td><td>Direct only</td><td>both</td><td class="yes">both, independently</td><td>label + their displayName</td><td class="no">hidden</td></tr>
+<tr><td>Owner ↔ member</td><td>as co-member</td><td class="warn-t">no</td><td>same</td><td>same</td><td class="warn-t">rules allow rename; no UI</td><td>+ invite row</td></tr>
+</table></div>
+
+<div class="callout warn"><span class="k">Where the gates live</span>
+Every tier restriction is <b>client-UI only</b>. Rules gate on identity, never on relationship, for knock and call (<code>database.rules.json:88-99, 159-169</code>). Functions gate notifications on opt-in prefs, never tier. The social model is enforced by affordance, not by contract.</div>
+
+<p><b>Both operator-named anomalies confirmed:</b> Direct knock requires mutual (<code>js/following.js:692</code>); roster knock requires only co-membership (<code>js/groupContext.js:219</code>). Call is mutual-only, Direct-only; groups deliberately have no call (<code>js/groupContext.js:198-199</code>).</p>
+<p><b>Presence asymmetry:</b> presence is world-readable at the rules layer (<code>database.rules.json:14</code>) but the UI subscribes only to followees — A follows B ⇒ A sees B, B sees nothing of A.</p>
+<p><b>Long-press</b> exists exactly twice, both palette adoption — a self-affecting act, nothing sent to the other party.</p>
+
+<h2><span class="num">I.3</span>Legibility — what the other side sees</h2>
+
+<h3>Five name sources, different owners</h3>
+<div class="tablewrap"><table>
+<tr><th>Source</th><th>Written by</th><th>Seen by</th></tr>
+<tr><td>Share code</td><td>system (owner-rotatable)</td><td>everyone, as fallback</td></tr>
+<tr><td>Following label</td><td><b>the viewer</b>, privately</td><td>only the viewer</td></tr>
+<tr><td>creatorLabel (personal invite)</td><td><b>the inviter</b>, about themself</td><td>the redeemer, at arrival + as initial label</td></tr>
+<tr><td>Group displayName</td><td><b>the member</b>, about themself, per group</td><td>that group's co-members</td></tr>
+<tr><td>followerNames</td><td><b>the redeemer</b>, about themself</td><td>the inviter's Followers row: <code>CODE (Name)</code></td></tr>
+</table></div>
+<div class="callout ok"><span class="k">The structural rule that falls out</span>
+You control what strangers <em>first</em> call you (all doorway strings are self-authored). Once someone follows you, what they call you is their private business — you can never see it. Even push notifications speak in the recipient's own private vocabulary.</div>
+
+<h3>Act visibility</h3>
+<div class="tablewrap"><table>
+<tr><th>Act</th><th>Other party experiences</th><th>Silent?</th></tr>
+<tr><td>Follow (code or link)</td><td>a Followers row appears — no push, no toast</td><td class="no">silent</td></tr>
+<tr><td>Unfollow</td><td>row vanishes; a mutual's own follow survives</td><td class="no">silent (promised: "They won't be notified.")</td></tr>
+<tr><td>Evict a follower</td><td>their follow of you is force-dropped by their own client</td><td class="warn-t">silent, forced</td></tr>
+<tr><td>Knock / Call</td><td>push (per-sender opt-in) + live UI</td><td class="yes">notified</td></tr>
+<tr><td>Request-to-follow / picker invite</td><td>push (<b>no opt-in gate</b>) + Inbox row</td><td class="yes">notified</td></tr>
+<tr><td>Accept invite / join</td><td>roster row appears; inviter is not told</td><td class="no">silent</td></tr>
+<tr><td>Decline (invite or request)</td><td>nothing — requester's "Requested" persists forever</td><td class="warn-t">silent, illegible</td></tr>
+<tr><td>Revoke link / rotate code</td><td>future redemptions fail / followers keep a stale code</td><td class="no">silent</td></tr>
+<tr><td>Leave group</td><td>roster shrinks</td><td class="no">silent</td></tr>
+<tr><td>Delete group</td><td>toast "'{name}' has been deleted." + cleanup</td><td class="yes">the one loud teardown</td></tr>
+</table></div>
+
+<h3>Audience awareness</h3>
+<p>The origin said the followee is unaware. Today the follower set is visible in three places: the Direct <b>Followers section</b> (code + follow-back + remove), the <b>invite picker</b> (enumerates followers, including non-mutuals, as targets), and <b>follow-request rows</b>. What survives of the origin: labels stay private, presence stays unearned.</p>
+
+<h3>Vocabulary collisions</h3>
+<div class="tablewrap"><table>
+<tr><th>Symbol</th><th>Meaning 1</th><th>Meaning 2</th></tr>
+<tr><td><b>Circled plus</b></td><td>Follow-back: automatic, no consent</td><td>Request-to-follow: declinable request</td></tr>
+<tr><td><b>×</b></td><td>Unfollow (self-directed; reverse edge survives)</td><td>Remove follower (evicts; force-drops their follow)</td></tr>
+<tr><td><b>"Invite"</b></td><td>share a link (standing consent)</td><td>directed in-app invitation (pending + accept); plus "Share to Telegram" as a third framing</td></tr>
+<tr><td><b>Bot knock labels</b></td><td colspan="2">"Knock back" vs "Knock" — here the labels <em>do</em> differentiate what the app elsewhere merges</td></tr>
+</table></div>
+
+<h2><span class="num">I.4</span>Notifications</h2>
+<p>One channel per person (bot DM if linked, else web push; never both). Six server triggers only; <b>no trigger watches followers, grants, membership, deletion, or revocations</b> — those are structurally incapable of notifying.</p>
+<div class="tablewrap"><table>
+<tr><th>Event</th><th>Recipients</th><th>Gate</th><th>Telegram extra</th></tr>
+<tr><td>Knock</td><td>the knocked</td><td>per-sender opt-in + 30s</td><td>[Knock back]</td></tr>
+<tr><td>Call</td><td>the callee</td><td>per-caller opt-in + 30s</td><td>[Answer] deep link</td></tr>
+<tr><td>Availability (direct)</td><td>all followers opted in for that person</td><td>opt-in + 5min</td><td>[Knock]</td></tr>
+<tr><td>Availability (group)</td><td>co-members opted in</td><td>opt-in + 5min</td><td>[Knock]</td></tr>
+<tr><td>Picker invite</td><td>the invitee</td><td class="warn-t">none (cooldown only)</td><td>[Join]/[Decline] inline</td></tr>
+<tr><td>Follow-request</td><td>the target</td><td class="warn-t">none (cooldown only)</td><td>[Approve]/[Decline] inline</td></tr>
+</table></div>
+<div class="callout"><span class="k">Two socially-loaded facts</span>
+<b>Warm signals are opt-in; asks are unconditional.</b> And <b>Telegram recipients can act socially from inside the notification</b> (join, approve, knock back) — the bot is a social surface, not just a delivery channel.</div>
+
+<h2><span class="num">I.5</span>Lifecycle — how edges end</h2>
+<ol>
+<li><b>Unfollow vs evict wear the same ×</b> but differ structurally: self-unfollow leaves the reverse edge; eviction force-drops it via the revocations mailbox — the one place the app reaches into someone else's relationships. Both silent.</li>
+<li><b>Rotation is asymmetric:</b> the new code propagates to people you follow; your followers keep a stale (cosmetic) code forever.</li>
+<li><b>Invite teardown never touches redeemed edges.</b></li>
+<li><b>Declines don't exist for the other side</b> — the requester's "Requested" state is immortal after a decline (#181 I5).</li>
+<li><b>Kick is half-built:</b> no UI (#180), but the receiving side would toast "You've been removed from '{name}'."</li>
+<li><b>Account-level:</b> graduation <em>moves</em> an identity (edges survive); unlink/replace <em>expunges</em> (every edge silently destroyed on both sides). Web has no account deletion at all.</li>
+</ol>
+
+<h2><span class="num">I.6</span>Surface parity</h2>
+<p><b>Interactions have total parity</b> — no Telegram branch touches knock, call, long-press, presence, naming, inbox, or request-to-follow. Formation and management diverge:</p>
+<div class="tablewrap"><table>
+<tr><th>Mechanism</th><th>Web</th><th>Telegram Mini App</th></tr>
+<tr><td>Personal invite</td><td>full modal: create/copy/regenerate/revoke/rename</td><td>straight to share sheet; auto-mints; <b>no manage surface at all</b> (#286)</td></tr>
+<tr><td>Group invite</td><td>link UI + picker</td><td>one "Share on Telegram" button; empty-picker case skips the modal</td></tr>
+<tr><td>Invite arrival</td><td>boot-gate redeem; /about welcome</td><td>interstitial for unlinked; <b>silent redemption when linked</b></td></tr>
+<tr><td>"Invite to follow me" in-app</td><td>drawer-only reach (operator seed)</td><td>share sheet only</td></tr>
+<tr><td>Identity</td><td>no account deletion; onramp</td><td>graduation / unlink / replace</td></tr>
+</table></div>
+<p><b>The bot is a third surface:</b> it can consent (Join, Approve) and react (Knock back) but cannot initiate edges. A bot-side join auto-names you and auto-broadcasts 2h availability, disclosed after the fact.</p>
+
+<h2><span class="num">II</span>The derived value set — for ruling</h2>
+<p class="lede">Reconstructed from behavior, not intention. For each principle: <b>keep / amend (how) / reject</b>.</p>
+
+<div class="principle"><span class="pid">P1</span><span class="ptitle">Presence flows toward those who chose you</span>
+<div class="rule">"You are visible to the people you decided to let watch."</div>
+<p><span class="tag conform">conforms</span>Direct presence subscribed only for followees; followers see nothing back; availability pushes need opt-in.</p>
+<p><span class="tag strain">strains</span>Groups: joining exposes you to the whole room with no per-person choice — and broadcasts 2h of availability by default.</p>
+<p><span class="tag q">question</span>Is group visibility a deliberate second contract ("a room is mutual exposure") or an unexamined leak of the Direct contract?</p>
+<div class="rulebox">RULING: keep / amend / reject</div></div>
+
+<div class="principle"><span class="pid">P2</span><span class="ptitle">Possession of the key is consent</span>
+<div class="rule">"Anyone holding your code may follow you; sharing it is the grant."</div>
+<p><span class="tag conform">conforms</span>Code entry writes instantly; links auto-redeem; follow-back is instant.</p>
+<p><span class="tag strain">strains</span>Request-to-follow introduced the opposite model — an explicit declinable ask — but only inside groups. Two consent philosophies now coexist; the circled-plus collision is the visible symptom.</p>
+<p><span class="tag q">question</span>Is key-possession canonical (request-to-follow = the exception for people without your key), or is per-event consent the direction of drift?</p>
+<div class="rulebox">RULING: keep / amend / reject</div></div>
+
+<div class="principle"><span class="pid">P3</span><span class="ptitle">Naming flows outward; self-presentation is claimed at the doorway</span>
+<div class="rule">"You choose what strangers first call you; those who know you decide privately what to call you; nobody can rename you."</div>
+<p><span class="tag conform">conforms</span>All doorway strings self-authored; all ongoing labels viewer-private; notifications speak the viewer's vocabulary.</p>
+<p><span class="tag strain">strains</span>Bare-code sharing has no self-presentation channel; group invites carry no inviter identity; the bot auto-claims your Telegram name; rules would let owners rename members (dormant).</p>
+<p><span class="tag q">question</span>Is the doorway-claim + private-label split a value worth defending, or an accident of accretion?</p>
+<div class="rulebox">RULING: keep / amend / reject</div></div>
+
+<div class="principle"><span class="pid">P4</span><span class="ptitle">Departures are silent</span>
+<div class="rule">"Nothing announces an ending."</div>
+<p><span class="tag conform">conforms</span>Everything — unfollow, evict, declines, revoke, rotation, leave. The copy even promises it.</p>
+<p><span class="tag strain">cost</span>Illegible states: the immortal "Requested" button; the never-informed inviter; the evicted contact who just stops existing.</p>
+<p><span class="tag q">question</span>Keep silence even at the cost of ambiguity — or split "silent to the other party" from "legible to yourself"?</p>
+<div class="rulebox">RULING: keep / amend / reject</div></div>
+
+<div class="principle"><span class="pid">P5</span><span class="ptitle">Only warmth interrupts</span>
+<div class="rule">"A push means presence or an invitation — never bookkeeping."</div>
+<p><span class="tag conform">conforms</span>Six triggers only: knock, call, availability, invite, follow-request. Graph changes never notify.</p>
+<p><span class="tag strain">strains</span>Within the warm set: knock/call/availability are opt-in per person; invite and follow-request are unconditional.</p>
+<p><span class="tag q">question</span>Confirm the boundary; decide whether "asks" belong in the opt-in regime.</p>
+<div class="rulebox">RULING: keep / amend / reject</div></div>
+
+<div class="principle"><span class="pid">P6</span><span class="ptitle">The audience became visible</span>
+<div class="rule">"You can see who follows you (code and name) — but never what they call you, and following you earns them no visibility of you."</div>
+<p><span class="tag conform">today</span>Followers section, follow-back, picker enumeration. The origin's audience-invisibility is gone in behavior; a narrower privacy survives.</p>
+<p><span class="tag q">question</span>Ratify the current compromise — or is the picker's enumeration of non-mutual followers as invite targets already past the comfortable line?</p>
+<div class="rulebox">RULING: keep / amend / reject</div></div>
+
+<div class="principle"><span class="pid">P7</span><span class="ptitle">A group is a room, not a network</span>
+<div class="rule">"Joining a room exposes you to the room, grants room-scoped gestures, and leaves no trace when you leave."</div>
+<p><span class="tag conform">conforms</span>Per-group self-naming; group-effective availability; roster knock as a room gesture; request-to-follow as the doorway from room-acquaintance to direct bond; clean evaporation on leave.</p>
+<p><span class="tag strain">strains</span>Under P7 co-member knock is <em>coherent</em>, but call's absence from rooms needs a reason, and the owner-only follower-limited picker is a network-shaped restriction on a room-shaped feature (rules already allow any member to invite).</p>
+<p><span class="tag q">question</span>Is the room metaphor canonical? If yes: member knock ✓, owner-only invite ✗?, call-in-rooms = deliberate absence or gap?</p>
+<div class="rulebox">RULING: keep / amend / reject</div></div>
+
+<div class="principle"><span class="pid">P8</span><span class="ptitle">Reciprocity earns intimacy</span>
+<div class="rule">"The closer gesture requires the more mutual bond: watch &lt; knock &lt; call."</div>
+<p><span class="tag conform">conforms</span>In Direct the ladder is real: following grants seeing; mutuality grants knocking and calling.</p>
+<p><span class="tag strain">collides</span>Co-member knock jumps the ladder. P7 and P8 are both live and they disagree about knock — the operator's original anomaly, restated.</p>
+<p><span class="tag q">question</span>When P7 and P8 conflict, which wins? Or are they scoped (P8 governs Direct, P7 governs rooms) — and the scoping is the grand rule?</p>
+<div class="rulebox">RULING: keep / amend / reject</div></div>
+
+<div class="principle"><span class="pid">P9</span><span class="ptitle">The invitation carries the warmth</span>
+<div class="rule">"Relationships arrive pre-named because someone reached out; cold adds arrive bare."</div>
+<p><span class="tag conform">conforms</span>Links carry creatorLabel; grants carry name+code; Telegram publishes first names both directions; bare-code adds attach nothing.</p>
+<p><span class="tag strain">strains</span>Group links carry no inviter identity; the in-app "invite to follow me" surface is missing (link and share-sheet only).</p>
+<p><span class="tag q">question</span>Complete the principle (inviter identity on group invites; an in-app invite surface), or is anonymity-by-default fine?</p>
+<div class="rulebox">RULING: keep / amend / reject</div></div>
+
+<div class="principle"><span class="pid">P10</span><span class="ptitle">The model is enforced by affordance, not by contract</span>
+<div class="rule">"The UI is the ruleset; the database trusts the client."</div>
+<p><span class="tag conform">today</span>Every tier gate is client-side; rules check identity only. For a small trusted user base this is a choice with social meaning.</p>
+<p><span class="tag q">question</span>Ratify (eyes open — #288 F2 shows where it bites), or treat capability rules as contract-worthy once they carry social meaning? Shapes whether Phase 2's target model speaks only of UI or also of rules.</p>
+<div class="rulebox">RULING: keep / amend / reject</div></div>
+
+<h2>The three cross-cutting tensions (Phase 2's agenda)</h2>
+<ol>
+<li><b>Two consent models</b> (P2 vs request/accept) — visible as the circled-plus collision.</li>
+<li><b>Ladder vs room</b> (P8 vs P7) — visible as mutuals-call / co-members-knock.</li>
+<li><b>Silent endings vs legible state</b> (P4) — visible as the immortal "Requested" and the never-informed inviter.</li>
+</ol>
+
+<div class="callout ok"><span class="k">Checkpoint — ruling requested</span>
+For each of P1–P10: <b>keep / amend (how) / reject</b>. A sentence of guidance per "question under it" is enough. Phase 2 (findings <code>SM#n</code> + target model) proceeds only on the ruled set.</div>
+
+<footer>KnockKnock · Social model analysis, Phase 1 · 2026-07-11 · Canonical markdown: <code>docs/superpowers/2026-07-11-social-model-analysis.md</code></footer>
+</div>
+</body>
+</html>
