@@ -1,7 +1,11 @@
 /** @jest-environment jsdom */
-// TELEGRAM_ENABLED is already true in js/features.js on this branch, so the
-// enabled=true cases need no features.js mock (matches inviteFlow.test.js's
-// approach of relying on the real flag rather than mocking it).
+// Pin TELEGRAM_ENABLED on so the enabled=true cases don't depend on the flag
+// literal in js/features.js (false on mainline, true on the feature/launch
+// branches). Other flags stay real via requireActual.
+jest.mock('../js/features.js', () => ({
+  ...jest.requireActual('../js/features.js'),
+  TELEGRAM_ENABLED: true,
+}));
 const mockMint = jest.fn(async () => ({ token: 'tok_xyz' }));
 const mockToast = jest.fn();
 const mockFirstRunActive = jest.fn(() => false);

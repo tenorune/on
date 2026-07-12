@@ -1,4 +1,11 @@
 /** @jest-environment jsdom */
+// Pin TELEGRAM_ENABLED on: the telegramSharingEnabled enabled-path case must
+// not depend on the flag literal in js/features.js (false on mainline).
+// Other flags stay real via requireActual.
+jest.mock('../js/features.js', () => ({
+  ...jest.requireActual('../js/features.js'),
+  TELEGRAM_ENABLED: true,
+}));
 const mockShare = jest.fn();
 jest.mock('../js/telegram.js', () => ({
   isTelegramContext: jest.fn(() => true),
