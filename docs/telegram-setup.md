@@ -314,7 +314,7 @@ Then run the test suites (`npx jest`; `cd functions && npm test`) — they do
 not depend on the flag's value — commit, and **record the sha in the line
 below** (it is the launch key for Part B):
 
-    Flag-flip commit: ____________________  <- fill in at merge time
+    Flag-flip commit: 9bc1d05  <- the launch key for Part B (git revert 9bc1d05)
 
 After this merges, mainline deploys are Telegram-free for users: no
 telegram.org script, `frame-ancestors 'none'`, `X-Frame-Options: DENY`. The
