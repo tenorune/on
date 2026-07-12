@@ -58,6 +58,12 @@ jobs:
         env:
           ABOUT_AUTHOR: ${{ vars.ABOUT_AUTHOR }}
           DATA_REGION: ${{ vars.DATA_REGION }}
+          # Optional (empty ⇒ feature inert): scripts/build.js lets these real
+          # env vars override the env file, so they live here as Actions
+          # variables/secrets instead of inside the write-only config secret.
+          TELEGRAM_APP_LINK: ${{ vars.TELEGRAM_APP_LINK_DEV }}
+          DEV_RESET_SECRET: ${{ secrets.DEV_RESET_SECRET_DEV }}
+          DEV_RESET_HOSTS: ${{ vars.DEV_RESET_HOSTS_DEV }}
         run: node scripts/dev-build.js
 
       - name: Deploy hosting + database rules
