@@ -13,7 +13,8 @@ import { navigateToDirect, applyOptimisticAppearance, subscribeGroupMeta, subscr
 import { subscribeOwnStatus } from './ownStatus.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
-         setOverrideAppearance } from './groups.js';
+         setOverrideAppearance, showToast } from './groups.js';
+import { showTextPrompt, showConfirmModal } from './promptModal.js';
 import {
   getPaletteState,
   getLastTimeout, setLastTimeout,
@@ -150,6 +151,8 @@ function createInviteRow(ownUserId) {
   btn.className = 'add-btn';
   btn.textContent = 'Invite to group';
   btn.addEventListener('click', () => {
+    // One entry point in both contexts: the modal itself renders the Telegram
+    // "Share on Telegram" button or the web link UI, plus the in-app picker.
     openInviteModal({
       scope: 'group',
       userId: ownUserId,
@@ -889,40 +892,42 @@ function wireActions(groupId, userId, isOwner, groupName) {
 
   // Handlers. Each handler closes the Settings details menu on activation
   // so the user doesn't have to tap Settings again to dismiss it.
+  // In-app prompts/confirms (not window.prompt/confirm/alert): those are
+  // no-ops in some webviews — notably Telegram's macOS Desktop client — so a
+  // rename/edit/delete/leave silently did nothing there. showTextPrompt returns
+  // a trimmed non-empty string or null; showConfirmModal returns a boolean.
   document.getElementById('group-action-rename').addEventListener('click', async () => {
     closeSettingsMenu();
-    const next = window.prompt('New group name', groupName || '');
+    const next = await showTextPrompt({ title: 'New group name', value: groupName || '', confirmLabel: 'Save' });
     if (next == null) return;
-    const trimmed = next.trim();
-    if (!trimmed) return;
-    try { await renameGroup(groupId, userId, trimmed); } catch (e) { window.alert(e.message); }
+    try { await renameGroup(groupId, userId, next); } catch (e) { showToast(e.message); }
   });
 
   document.getElementById('group-action-delete').addEventListener('click', async () => {
     closeSettingsMenu();
-    if (!window.confirm(`Delete '${groupName || 'this group'}'? This cannot be undone.`)) return;
+    const ok = await showConfirmModal({ title: `Delete ${groupName || 'this group'}?`, message: 'This cannot be undone.', confirmLabel: 'Delete' });
+    if (!ok) return;
     try {
       await deleteGroup(groupId, userId);
       await navigateToDirect();
-    } catch (e) { window.alert(e.message); }
+    } catch (e) { showToast(e.message); }
   });
 
   document.getElementById('group-action-edit-name').addEventListener('click', async () => {
     closeSettingsMenu();
-    const next = window.prompt('Your name in this group', _ownDisplayName || '');
+    const next = await showTextPrompt({ title: 'Your name in this group', value: _ownDisplayName || '', confirmLabel: 'Save' });
     if (next == null) return;
-    const trimmed = next.trim();
-    if (!trimmed) return;
-    try { await editOwnDisplayName(groupId, userId, trimmed); } catch (e) { window.alert(e.message); }
+    try { await editOwnDisplayName(groupId, userId, next); } catch (e) { showToast(e.message); }
   });
 
   document.getElementById('group-action-leave').addEventListener('click', async () => {
     closeSettingsMenu();
-    if (!window.confirm(`Leave '${groupName || 'this group'}'?`)) return;
+    const ok = await showConfirmModal({ title: `Leave ${groupName || 'this group'}?`, message: "You'll stop seeing this group. You can be re-invited later.", confirmLabel: 'Leave' });
+    if (!ok) return;
     try {
       await leaveGroup(groupId, userId);
       await navigateToDirect();
-    } catch (e) { window.alert(e.message); }
+    } catch (e) { showToast(e.message); }
   });
 }
 

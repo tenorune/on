@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals';
 import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest } from '../notifier.js';
+import channelDefault from '../../test-fixtures/notify-channel-vectors.json' with { type: 'json' };
 
 function makeDeps(overrides = {}) {
   const store = overrides.store || {};
@@ -40,10 +41,20 @@ describe('resolveName', () => {
     expect(await resolveName(deps, 'v', 't')).toBe('Bea');
 
     const deps2 = makeDeps({ store: { 'users/t/presence/code': 'cool-code' } });
-    expect(await resolveName(deps2, 'v', 't')).toBe('cool-code');
+    expect(await resolveName(deps2, 'v', 't')).toBe('Your contact cool-code');
 
     const deps3 = makeDeps({ store: {} });
     expect(await resolveName(deps3, 'v', 't')).toBe('Someone');
+  });
+
+  test('resolveName prefixes a bare share-code fallback', async () => {
+    const deps = makeDeps({ store: { 'users/u2/presence/code': 'K7Q2ZP' } });
+    expect(await resolveName(deps, 'u1', 'u2')).toBe('Your contact K7Q2ZP');
+  });
+
+  test('resolveName returns a real label unchanged', async () => {
+    const deps = makeDeps({ store: { 'userPrefs/u1/following/u2': { label: 'Ana' } } });
+    expect(await resolveName(deps, 'u1', 'u2')).toBe('Ana');
   });
 });
 
@@ -626,5 +637,170 @@ describe('directed-event send cooldowns', () => {
     }});
     await handleFollowRequest(deps, 'tgt', 'req', { from: 'req', groupId: 'g', ts: 1 });
     expect(deps.send).toHaveBeenCalled();
+  });
+});
+
+describe('sendToUser telegram channel', () => {
+  const tgStore = {
+    'userPrefs/u1/notifyChannel': 'telegram',
+    'telegramByUid/u1': { tgId: '42', chatId: '42' },
+    'userPrefs/u1/pushTokens': { tokA: {} },
+  };
+  test('channel=telegram with chatId → telegram send, no FCM', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    deps.sendTelegram = jest.fn(async () => true);
+    const ok = await sendToUser(deps, 'u1', { title: 'hi', body: '' }, { type: 'knock', targetUid: 's' });
+    expect(ok).toBe(true);
+    expect(deps.sendTelegram).toHaveBeenCalledWith('42', { title: 'hi', body: '' }, { type: 'knock', targetUid: 's' });
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('telegram send fails → falls back to FCM', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    deps.sendTelegram = jest.fn(async () => false);
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.send).toHaveBeenCalled();
+  });
+  test('telegram send throws → falls back to FCM', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    deps.sendTelegram = jest.fn(async () => { throw new Error('blocked'); });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.send).toHaveBeenCalled();
+  });
+  test('channel=push → FCM even when a telegram route exists', async () => {
+    const deps = makeDeps({ store: { ...tgStore, 'userPrefs/u1/notifyChannel': 'push' } });
+    deps.sendTelegram = jest.fn(async () => true);
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.sendTelegram).not.toHaveBeenCalled();
+    expect(deps.send).toHaveBeenCalled();
+  });
+
+  // Shared cross-reader guard (W2 C10): the server route gate must agree with
+  // the client readers (js/notifySuppression.js botDelivered, js/notifyChannel.js
+  // pill) on the channel!=='push' default. All three consume the same fixture.
+  test.each(channelDefault.vectors)(
+    'C10: linked route, channel=$notifyChannel → telegram-delivered=$telegramDelivered',
+    async (v) => {
+      const deps = makeDeps({ store: { ...tgStore, 'userPrefs/u1/notifyChannel': v.notifyChannel } });
+      deps.sendTelegram = jest.fn(async () => true);
+      await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+      if (v.telegramDelivered) {
+        expect(deps.sendTelegram).toHaveBeenCalled();
+        expect(deps.send).not.toHaveBeenCalled();
+      } else {
+        expect(deps.sendTelegram).not.toHaveBeenCalled();
+        expect(deps.send).toHaveBeenCalled();
+      }
+    },
+  );
+  test('no sendTelegram dep (bot not configured) → FCM', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.send).toHaveBeenCalled();
+  });
+  // F#9: with the bot configured, the pushTokens read joins the SAME parallel
+  // phase as notifyChannel + telegramByUid — the FCM fall-through must not pay
+  // a third sequential round-trip. The probe defers every getVal a macrotask,
+  // so reads issued together peak at 3 in-flight; a trailing read peaks lower.
+  test('bot configured: channel, route, and pushTokens are read in ONE parallel phase (F#9)', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    deps.sendTelegram = jest.fn(async () => false); // falls through to FCM
+    const probe = { inFlight: 0, max: 0 };
+    const store = deps.store;
+    deps.getVal = jest.fn(async (path) => {
+      probe.inFlight += 1;
+      probe.max = Math.max(probe.max, probe.inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      probe.inFlight -= 1;
+      return store[path];
+    });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(probe.max).toBeGreaterThanOrEqual(3);
+    expect(deps.send).toHaveBeenCalledWith(['tokA'], { title: 'hi', body: '' }, {});
+  });
+  test('a failing pushTokens read must not break healthy telegram delivery', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    deps.sendTelegram = jest.fn(async () => true);
+    deps.getVal = jest.fn(async (path) => {
+      if (path === 'userPrefs/u1/pushTokens') throw new Error('transient RTDB error');
+      return deps.store[path];
+    });
+    const ok = await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(ok).toBe(true);
+    expect(deps.sendTelegram).toHaveBeenCalled();
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  test('with telegram failing, a failing pushTokens read still surfaces (FCM path unchanged)', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    deps.sendTelegram = jest.fn(async () => false);
+    deps.getVal = jest.fn(async (path) => {
+      if (path === 'userPrefs/u1/pushTokens') throw new Error('transient RTDB error');
+      return deps.store[path];
+    });
+    await expect(sendToUser(deps, 'u1', { title: 'hi', body: '' }, {})).rejects.toThrow(/transient/);
+  });
+  test('bot NOT configured: pushTokens is still the only read', async () => {
+    const deps = makeDeps({ store: { ...tgStore } });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.getVal.mock.calls.map(([p]) => p)).toEqual(['userPrefs/u1/pushTokens']);
+    expect(deps.send).toHaveBeenCalled();
+  });
+
+  test('missing channel with a telegram route → telegram (mirrors the client default-to-telegram predicate)', async () => {
+    const deps = makeDeps({ store: { ...tgStore, 'userPrefs/u1/notifyChannel': null } });
+    deps.sendTelegram = jest.fn(async () => true);
+    const ok = await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(ok).toBe(true);
+    expect(deps.sendTelegram).toHaveBeenCalledWith('42', { title: 'hi', body: '' }, {});
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('token-less push fallback (W1 J#3)', () => {
+  test('channel push + linked + zero tokens delivers via telegram instead of dropping', async () => {
+    const store = {
+      'userPrefs/u1/notifyChannel': 'push',
+      'telegramByUid/u1': { chatId: '42' },
+      // no userPrefs/u1/pushTokens
+    };
+    const deps = {
+      getVal: jest.fn(async (p) => store[p] ?? null),
+      update: jest.fn(async () => {}),
+      send: jest.fn(async () => ({ failedTokens: [] })),
+      sendTelegram: jest.fn(async () => true),
+      now: () => 1_000_000,
+    };
+    const ok = await sendToUser(deps, 'u1', { title: 'Ana knocked' }, { type: 'knock', targetUid: 'a'.repeat(32) });
+    expect(ok).toBe(true);
+    expect(deps.sendTelegram).toHaveBeenCalledTimes(1);
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+
+  test('channel push + zero tokens + NOT linked still returns false', async () => {
+    const store = { 'userPrefs/u1/notifyChannel': 'push' };
+    const deps = {
+      getVal: jest.fn(async (p) => store[p] ?? null),
+      update: jest.fn(async () => {}),
+      send: jest.fn(async () => ({ failedTokens: [] })),
+      sendTelegram: jest.fn(async () => true),
+      now: () => 1_000_000,
+    };
+    expect(await sendToUser(deps, 'u1', { title: 't' }, {})).toBe(false);
+    expect(deps.sendTelegram).not.toHaveBeenCalled();
+  });
+
+  test('telegram-channel send failure does not retry telegram via the fallback', async () => {
+    const store = {
+      'userPrefs/u1/notifyChannel': 'telegram',
+      'telegramByUid/u1': { chatId: '42' },
+    };
+    const deps = {
+      getVal: jest.fn(async (p) => store[p] ?? null),
+      update: jest.fn(async () => {}),
+      send: jest.fn(async () => ({ failedTokens: [] })),
+      sendTelegram: jest.fn(async () => { throw new Error('blocked'); }),
+      now: () => 1_000_000,
+    };
+    expect(await sendToUser(deps, 'u1', { title: 't' }, {})).toBe(false);
+    expect(deps.sendTelegram).toHaveBeenCalledTimes(1); // no second attempt
   });
 });

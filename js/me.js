@@ -105,7 +105,13 @@ export function initHeader(myUserId) {
       // Drawer is closing — collapse the secret-phrase pill back to Idle so the
       // user doesn't see the revealed phrase next time they open the drawer.
       document.getElementById('recovery-revealed')?.classList.add('hidden');
-      document.getElementById('recovery-show-pill')?.classList.remove('hidden');
+      // …unless the row is showing the "phrase lives on the web" note instead
+      // (onramp-linked TG account — telegramSettings.js hid the pill on purpose;
+      // resurrecting it would show a no-op pill beside the note).
+      const elsewhereNote = document.getElementById('recovery-elsewhere-note');
+      if (!elsewhereNote || elsewhereNote.classList.contains('hidden')) {
+        document.getElementById('recovery-show-pill')?.classList.remove('hidden');
+      }
       const copyBtn = document.getElementById('drawer-recovery-copy-btn');
       if (copyBtn) copyBtn.textContent = 'Copy';
     }

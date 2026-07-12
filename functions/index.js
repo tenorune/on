@@ -1,14 +1,17 @@
 // functions/index.js — RTDB-triggered presence notifiers.
+import { randomBytes } from 'crypto';
 import { initializeApp } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
 import { getMessaging } from 'firebase-admin/messaging';
 import { onValueCreated, onValueWritten } from 'firebase-functions/v2/database';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest } from './notifier.js';
-import { onCall as httpsOnCall } from 'firebase-functions/v2/https';
+import { onCall as httpsOnCall, onRequest } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
 import { resolveInvitePreviewHandler } from './invites.js';
+import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, graduateTelegramHandler, mintTelegramLinkTokenHandler, redeemTelegramLinkTokenHandler } from './telegram-auth.js';
+import { buildNotificationKeyboard, handleUpdate, webhookAuthorized, botCommandsPayload } from './telegram.js';
 
 // Pin all functions to the RTDB's region. A 2nd-gen RTDB trigger MUST run in the
 // same region as the database instance. Region is per-project config: the Firebase
@@ -24,11 +27,45 @@ initializeApp();
 const db = getDatabase();
 const messaging = getMessaging();
 
-function makeDeps() {
+// Raw Bot API call. Returns the result object, or null on any failure (logged).
+// Node 18+ global fetch; no SDK dependency.
+async function tgApi(method, payload) {
+  const res = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => null);
+  if (!body || !body.ok) {
+    console.error(`[telegram] ${method} failed: HTTP ${res.status} ${JSON.stringify(body?.description || body)}`);
+    return null;
+  }
+  return body.result;
+}
+
+// The one sendMessage lambda: the auth callable's welcome DM and the webhook's
+// replies go through the same call shape (tgApi reads the env token lazily).
+const tgSendMessage = (chatId, text, extra = {}) => tgApi('sendMessage', { chat_id: chatId, text, ...extra });
+
+// The RTDB adapter quintet every handler family shares — ONE definition of
+// how paths map onto the Admin SDK, spread into the notifier deps, the
+// Telegram-auth deps, and the webhook deps below.
+function makeDbDeps() {
   return {
     now: () => Date.now(),
     getVal: async (path) => (await db.ref(path).get()).val(),
+    set: async (path, value) => { await db.ref(path).set(value); },
     update: async (path, obj) => { await db.ref(path).update(obj); },
+    transaction: async (path, fn) => {
+      const res = await db.ref(path).transaction(fn);
+      return { committed: res.committed };
+    },
+  };
+}
+
+function makeDeps() {
+  return {
+    ...makeDbDeps(),
     send: async (tokens, message, data) => {
       const res = await messaging.sendEachForMulticast({
         tokens,
@@ -53,6 +90,19 @@ function makeDeps() {
       });
       return { failedTokens };
     },
+    // Present only when the bot is configured; sendToUser treats absence as
+    // "FCM only". message.title carries the whole notification text (body is '').
+    sendTelegram: process.env.TELEGRAM_BOT_TOKEN
+      ? async (chatId, message, data) => {
+          const keyboard = buildNotificationKeyboard(data, process.env.TELEGRAM_APP_URL || '');
+          const result = await tgApi('sendMessage', {
+            chat_id: chatId,
+            text: message.title || '',
+            ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+          });
+          return !!result;
+        }
+      : null,
   };
 }
 
@@ -148,3 +198,96 @@ export const resolveInvitePreview = httpsOnCall((request) =>
   resolveInvitePreviewHandler(request, {
     getVal: (path) => db.ref(path).get().then((snap) => snap.val()),
   }));
+
+// ── Telegram (experimental; inert unless TELEGRAM_BOT_TOKEN is set in the
+// functions env — see functions/.env.example and docs/telegram-setup.md) ──────
+function makeTelegramAuthDeps() {
+  return {
+    ...makeDbDeps(),
+    botToken: process.env.TELEGRAM_BOT_TOKEN || null,
+    // Server secret keying the Telegram-derived uid so it's not computable from
+    // the public tgId (F1 #287). Must be set alongside the bot token.
+    uidSecret: process.env.TELEGRAM_UID_SECRET || null,
+    appUrl: process.env.TELEGRAM_APP_URL || '',
+    mintToken: (uid) => getAuth().createCustomToken(uid),
+    randomToken: () => randomBytes(16).toString('base64url'),
+    allowAttempt: (uid) => allowRecoveryAttempt(getDatabase(), uid),
+    setAuthEmail: setTelegramAuthEmail,
+    // First-open welcome DM (validateTelegramHandler). Null when the bot isn't
+    // configured, so the handler skips it; mirrors the webhook's tg.sendMessage.
+    sendMessage: process.env.TELEGRAM_BOT_TOKEN ? tgSendMessage : null,
+  };
+}
+
+// Create-or-update: the Auth record doesn't exist until the client's first
+// signInWithCustomToken, so pre-create it; later re-bootstraps hit update.
+async function setTelegramAuthEmail(uid, email) {
+  const auth = getAuth();
+  try {
+    await auth.updateUser(uid, { email });
+  } catch (e) {
+    if (e?.code === 'auth/user-not-found') await auth.createUser({ uid, email });
+    else throw e;
+  }
+}
+
+export const validateTelegram = httpsOnCall((request) => validateTelegramHandler(request, makeTelegramAuthDeps()));
+export const linkTelegram = httpsOnCall((request) => linkTelegramHandler(request, makeTelegramAuthDeps()));
+export const unlinkTelegram = httpsOnCall((request) => unlinkTelegramHandler(request, makeTelegramAuthDeps()));
+// Graduation (spec §7): migrate an unlinked derived account to its phrase uid.
+export const graduateTelegram = httpsOnCall((request) => graduateTelegramHandler(request, makeTelegramAuthDeps()));
+export const mintTelegramLinkToken = httpsOnCall((request) => mintTelegramLinkTokenHandler(request, makeTelegramAuthDeps()));
+export const redeemTelegramLinkToken = httpsOnCall((request) => redeemTelegramLinkTokenHandler(request, makeTelegramAuthDeps()));
+
+// Telegram bot webhook. Always 200s on authorized requests (Telegram retries
+// non-200s aggressively); errors are logged inside handleUpdate. Inert unless
+// TELEGRAM_BOT_TOKEN + TELEGRAM_WEBHOOK_SECRET are configured.
+export const telegramWebhook = onRequest(async (req, res) => {
+  if (!process.env.TELEGRAM_BOT_TOKEN
+      || !webhookAuthorized(req.get('x-telegram-bot-api-secret-token'), process.env.TELEGRAM_WEBHOOK_SECRET)) {
+    res.status(403).send('forbidden');
+    return;
+  }
+  const replyPayload = await handleUpdate({
+    ...makeDbDeps(),
+    // The /start bootstrap derives the uid via ensureTelegramUser too (F1 #287).
+    uidSecret: process.env.TELEGRAM_UID_SECRET || null,
+    appUrl: process.env.TELEGRAM_APP_URL || '',
+    setAuthEmail: setTelegramAuthEmail,
+    tg: {
+      sendMessage: tgSendMessage,
+      answerCallbackQuery: (id, text) => tgApi('answerCallbackQuery', { callback_query_id: id, text }),
+      editMessageText: (chatId, messageId, text, extra = {}) =>
+        tgApi('editMessageText', { chat_id: chatId, message_id: messageId, text, ...extra }),
+    },
+  }, req.body);
+  // F#5 webhook-reply: a command's terminal reply rides the webhook response
+  // (one Bot API method per update, fire-and-forget) instead of a separate
+  // sendMessage HTTPS call. Nested objects must be JSON-serialized in a
+  // webhook reply (Bot API convention), hence the reply_markup stringify.
+  if (replyPayload) {
+    const method = { method: 'sendMessage', ...replyPayload };
+    if (method.reply_markup) method.reply_markup = JSON.stringify(method.reply_markup);
+    res.status(200).json(method);
+    return;
+  }
+  res.status(200).send('ok');
+});
+
+// Deploy-time menu registration (B#11 / Spec 2 Task 6): pushes the Telegram
+// "/" command menu from COMMANDS — the same source of truth that derives
+// HELP_TEXT — via the Bot API's setMyCommands. Replaces the old manual
+// BotFather "/setcommands" paste (docs/telegram-setup.md), which could drift
+// from /help. Run once per deploy, at the A5 redeploy step. Guarded the same
+// way as telegramWebhook (token configured + shared-secret header) since it's
+// a mutating, unauthenticated-by-default HTTP endpoint; the deploy step must
+// pass the x-telegram-bot-api-secret-token header (see docs/telegram-setup.md).
+export const setBotCommands = onRequest(async (req, res) => {
+  if (!process.env.TELEGRAM_BOT_TOKEN) { res.status(503).send('bot not configured'); return; }
+  if (!webhookAuthorized(req.get('x-telegram-bot-api-secret-token'), process.env.TELEGRAM_WEBHOOK_SECRET)) {
+    res.status(403).send('forbidden');
+    return;
+  }
+  await tgApi('setMyCommands', { commands: botCommandsPayload() });
+  res.status(200).send('ok');
+});

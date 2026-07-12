@@ -17,7 +17,7 @@ const {
   writeFollowRequest, watchFollowRequests, deleteFollowRequest,
   writeFollowGrant, watchFollowGrants, deleteFollowGrant,
   writeKnock, getKnocks, watchKnocksAdded, clearKnock,
-  removeFollower, registerAsFollower, watchRevocations,
+  removeFollower, registerAsFollower, watchRevocations, watchFollowerNames,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -503,6 +503,18 @@ describe('group entity ops', () => {
     cb({ exists: () => false });
     expect(seen[1]).toBeNull();
   });
+
+  test('watchGroupMeta fires null when the listener is CANCELLED (owner deleted the group → read permission lost)', () => {
+    // Real Firebase never delivers a null value here: the group node is
+    // membership-gated, so its deletion cancels the member's listener with
+    // PERMISSION_DENIED (the onValue cancel callback), not a null snapshot.
+    let cancelCb;
+    onValue.mockImplementation((_ref, _fn, cancel) => { cancelCb = cancel; return () => {}; });
+    const seen = [];
+    watchGroupMeta('G1ABCD23', (meta) => seen.push(meta));
+    cancelCb(new Error('permission_denied'));
+    expect(seen).toEqual([null]);
+  });
 });
 
 describe('group members', () => {
@@ -652,6 +664,20 @@ describe('statusOverride helpers', () => {
   });
 });
 
+describe('watchFollowerNames', () => {
+  test('subscribes to users/{uid}/followerNames and emits the name map (empty when absent)', () => {
+    let cb;
+    onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });
+    const seen = [];
+    watchFollowerNames('myUid', (names) => seen.push(names));
+    expect(ref).toHaveBeenLastCalledWith({}, 'users/myUid/followerNames');
+    cb({ val: () => ({ f1: 'Bea', f2: 'Cy' }) });
+    expect(seen[0]).toEqual({ f1: 'Bea', f2: 'Cy' });
+    cb({ val: () => null });
+    expect(seen[1]).toEqual({});
+  });
+});
+
 describe('registerAsFollower', () => {
   test('writes the followers entry and clears any prior revocations entry, in that order', async () => {
     set.mockResolvedValue();
@@ -670,6 +696,42 @@ describe('registerAsFollower', () => {
     const revokeIdx = refPaths.indexOf('revocations/meUid/targetUid');
     const followersIdx = refPaths.indexOf('users/targetUid/followers/meUid');
     expect(revokeIdx).toBeLessThan(followersIdx);
+  });
+
+  test('also publishes the follower name to users/{target}/followerNames/{me} when a name is given', async () => {
+    set.mockResolvedValue();
+    remove.mockResolvedValue();
+    ref.mockClear();
+    await registerAsFollower('targetUid', 'meUid', 'ABC123', 'Bea');
+    const refPaths = ref.mock.calls.map((args) => args[1]);
+    expect(refPaths).toContain('users/targetUid/followerNames/meUid');
+    expect(set).toHaveBeenCalledWith('mock-ref', 'Bea');
+  });
+
+  test('does NOT write followerNames when no name is given', async () => {
+    set.mockResolvedValue();
+    remove.mockResolvedValue();
+    ref.mockClear();
+    await registerAsFollower('targetUid', 'meUid', 'ABC123');
+    const refPaths = ref.mock.calls.map((args) => args[1]);
+    expect(refPaths).not.toContain('users/targetUid/followerNames/meUid');
+  });
+
+  test('does NOT write followerNames when the name is an empty string', async () => {
+    set.mockResolvedValue();
+    remove.mockResolvedValue();
+    ref.mockClear();
+    await registerAsFollower('targetUid', 'meUid', 'ABC123', '');
+    const refPaths = ref.mock.calls.map((args) => args[1]);
+    expect(refPaths).not.toContain('users/targetUid/followerNames/meUid');
+  });
+
+  test('a failed followerNames write does not break the follow (the name is cosmetic)', async () => {
+    remove.mockResolvedValue();
+    // followers-code write succeeds; the cosmetic name write rejects (e.g. the
+    // name exceeds the 40-char rule cap). The follow must still resolve.
+    set.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('permission_denied'));
+    await expect(registerAsFollower('targetUid', 'meUid', 'ABC123', 'Bea')).resolves.toBeUndefined();
   });
 });
 

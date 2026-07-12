@@ -41,21 +41,26 @@ code {
 }
 
 /* Hero */
-.hero { text-align: center; padding: 3.5rem 0 2rem; }
+.hero { text-align: center; padding: 30px 0; }
 .brand-mark { font-size: 1.85rem; display: block; letter-spacing: 0.02em; }
 .tagline { color: var(--text-muted); margin-top: 0.75rem; font-size: 1.15rem; }
+/* Buttons match the in-app "Invite your people" primary button (.primary-btn):
+   13px padding, 14px/600 text, 10px radius — no glow. Fixed max-width so every
+   pair of CTAs (the door pair, the vanilla open/Telegram pair) is equal width. */
 .cta {
   display: block;
-  width: fit-content;
-  margin: 1.75rem auto 0;
-  padding: 0.65rem 1.3rem;
+  width: 100%;
+  max-width: 280px;
+  margin: 1.25rem auto 0;
+  padding: 13px;
   background: var(--accent);
   color: #fff;
   font-weight: 600;
+  font-size: 14px;
+  text-align: center;
   text-decoration: none;
-  border-radius: 0.6rem;
-  box-shadow: 0 0 28px var(--green-glow);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  border-radius: 10px;
+  transition: transform 0.15s ease;
 }
 .cta:hover { transform: translateY(-1px); }
 
@@ -138,3 +143,81 @@ p { margin-bottom: 0.9rem; }
 .footer-links { display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1rem; }
 .footer-links a { font-weight: 600; text-decoration: none; }
 .made-by { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0; }
+
+/* ---- Invite landing (spec N4) ---- */
+/* The invitation block is an app-style card (matches .person-list li in the
+   app: surface fill, 10px radius), sitting above the lede on the ?i= configs. */
+.invite-landing {
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--surface2);
+  border-radius: 10px;
+  padding: 1.5rem 1.25rem;
+  /* No top margin: the card's top edge lines up with vanilla's lede (both sit
+     flush under the hero), so content below the hero aligns across configs. */
+  margin: 0 0 2rem;
+}
+/* Symmetric margins → the gap between the two door buttons is constant, and
+   stays constant when the Telegram door is hidden (no deep link). */
+.invite-landing .cta { margin: 1rem auto; }
+/* The Telegram door shows from first paint (no late flash pushing content down)
+   whenever the build wired a real deep link. Fail-closed: it stays hidden when
+   data-telegram-link is empty or an unsubstituted __…__ placeholder. This drives
+   visibility pre-paint; js/about-telegram.js only composes its ?startapp=TOKEN
+   href afterward. */
+#invite-telegram-cta[data-telegram-link=""],
+#invite-telegram-cta[data-telegram-link^="__"] { display: none; }
+/* Reserve the invite-framing line (the "You've been invited…" preview is fetched
+   async) so it fills in place instead of pushing the doors down when it resolves.
+   Blank-but-reserved until then; if it never resolves the line stays empty (the
+   framing is non-critical). Sized for one line. */
+html.cfg-invite #about-invite-framing { display: block; visibility: hidden; min-height: 1.7rem; }
+html.cfg-invite #about-invite-framing:not(.hidden) { visibility: visible; }
+/* The "Copy invite" block gets room to breathe above its help text; the card's
+   bottom padding supplies the space below. */
+.invite-installed-hint { font-size: 0.8rem; opacity: 0.85; margin: 2rem auto 0; max-width: 320px; }
+/* In-app Copy component: matches .ghost-btn in css/app.css (buttons don't
+   inherit font-family, so it's set explicitly), label toggles Copy → Copied!. */
+.ghost-btn {
+  background: var(--surface); color: var(--text-muted);
+  border: 1px solid var(--surface2); padding: 10px 16px;
+  border-radius: 10px; font-family: inherit; font-size: 14px; cursor: pointer;
+}
+#invite-copy-btn { display: block; margin: 0.6rem auto 0; font-size: 13px; }
+.invite-copy-fallback { user-select: all; word-break: break-all; font-size: 0.85rem; margin-top: 0.75rem; }
+/* Config #1 (/invite?i=): the "More about …" disclosure link sits inline at the
+   end of the lede and reveals the collapsed marketing on click (about-telegram.js
+   drops body.invite-first, which also hides the now-redundant link). */
+.about-more-link {
+  display: none; background: none; border: 0; padding: 0;
+  color: var(--accent); font: inherit; font-weight: 600;
+  text-decoration: underline; cursor: pointer;
+}
+body.invite-first .about-more-link { display: inline; }
+body.invite-first .intro-more,
+body.invite-first .features,
+body.invite-first .privacy-short,
+body.invite-first .privacy-detail { display: none; }
+/* Pre-paint mirror: the inline <head> script tags <html> before the body paints
+   so the invite config renders immediately (no flash of the vanilla page).
+   .cfg-invite → show the card, hide the intro's open door; .cfg-invite-first
+   (/invite only) → collapse the marketing. js/about-telegram.js sets the
+   equivalent element/body classes as the CSP-blocked fallback. */
+html.cfg-invite #invite-landing { display: block; }
+html.cfg-invite #about-open-cta { display: none; }
+html.cfg-invite-first .about-more-link { display: inline; }
+html.cfg-invite-first .intro-more,
+html.cfg-invite-first .features,
+html.cfg-invite-first .privacy-short,
+html.cfg-invite-first .privacy-detail { display: none; }
+/* Telegram invite "What is KnockKnock?" pitch (/about?i=…&pitch=1): the reading
+   page never auto-redeems, and pitch mode additionally hides every web-facing
+   exit — the "Continue in browser" door, the "Copy invite" block, and its
+   fallback (the copy target is /invite?i=, which WOULD pass through if pasted
+   into a web app). The framing and the token-carrying "Open in Telegram" return
+   door stay, so the only way forward is back into Telegram. */
+html.cfg-pitch .invite-landing .cta[data-open-app],
+html.cfg-pitch .invite-installed-hint,
+html.cfg-pitch #invite-copy-fallback { display: none; }
+/* C5 (implement-and-evaluate): on iOS, promote the installed-app door. */
+body.ios-door-promoted .invite-installed-hint { font-size: 0.85rem; opacity: 1; }

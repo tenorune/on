@@ -17,7 +17,7 @@ function isPushApiAvailable() {
 }
 
 function ua() { return (typeof navigator !== 'undefined' && navigator.userAgent) || ''; }
-function isIos() {
+export function isIos() {
   const u = ua();
   if (/iPhone|iPad|iPod/.test(u)) return true;
   // iPadOS Safari reports as "Macintosh"; distinguish a real touch device (iPad,
@@ -34,6 +34,14 @@ function isIos() {
 // browser. Markers: common host apps + Android System WebView (; wv).
 export function isInAppBrowser() {
   return /FBAN|FBAV|FB_IAB|Instagram|Line\/|Snapchat|Twitter|LinkedInApp|WhatsApp|musical_ly|Bytedance|TikTok|Pinterest|Telegram|MicroMessenger|; ?wv\)|GSA\//.test(ua());
+}
+// Positive Telegram signal — ANDROID ONLY: Telegram's Android webview carries
+// "Telegram" in its UA (already a substring of isInAppBrowser's pattern above);
+// the iOS client is byte-identical to Safari, so correctness must never depend
+// on this helper (spec N7). It exists to make the boot gate MORE specific
+// (the Q4 auto-hop), never to gate the rescue.
+export function isTelegramInAppBrowser() {
+  return /Telegram/.test(ua());
 }
 // Desktop (macOS) Safari — its re-enable path lives in an obscure menu, unlike
 // Chromium/Firefox which expose site permissions from the address bar. Excludes
@@ -100,17 +108,17 @@ export const INSTALL_ICON = '<svg class="step-icon" aria-hidden="true" viewBox="
 const COPY = {
   'needs-install-ios': {
     title: 'Add to Home Screen',
-    body: `On iPhone, notifications need the app on your Home Screen. Tap the Share button ${SHARE_ICON}, then "Add to Home Screen" ${ADD_HOME_ICON}.`,
+    body: `On iPhone, notifications need the app on your Home Screen.<span class="install-step-instruction">Tap the Share button ${SHARE_ICON}, then “Add to Home Screen” ${ADD_HOME_ICON}.</span>`,
     remindPhrase: true,
   },
   'in-app-browser': {
     title: 'Open in your browser',
-    body: `This app’s built-in browser can’t install KnockKnock. Open this page in your browser — Safari, Chrome, or any other — then add it to your Home Screen ${ADD_HOME_ICON} to get notified.`,
+    body: `This app’s built-in browser can’t install KnockKnock.<span class="install-step-instruction">Open this page in Safari, Chrome, or any other browser, then add it to your Home Screen ${ADD_HOME_ICON}.</span>`,
     remindPhrase: true,
   },
   'needs-install-macos': {
     title: 'Add to Dock',
-    body: `In Safari on a Mac, notifications need the app in your Dock. Choose File → Add to Dock ${ADD_DOCK_ICON}, then open the app from there.`,
+    body: `In Safari on a Mac, notifications need the app in your Dock.<span class="install-step-instruction">Choose File → Add to Dock ${ADD_DOCK_ICON}, then open the app from there.</span>`,
     remindPhrase: true,
   },
   // 'denied' body is computed per-browser in guidanceCopyFor (the re-enable

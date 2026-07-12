@@ -2,6 +2,9 @@
 import { NOTIFICATIONS_ENABLED } from './features.js';
 import { markHintSeen, addPushToken, removePushToken, getRegisteredPushToken, hasAnyNotifyPrefEnabled, touchPushToken, cullStalePushTokens } from './prefs.js';
 import { detectNotifyCapability, guidanceCopyFor } from './installGuidance.js';
+import { isTelegramContext } from './telegram.js';
+import { isBotDelivered, setRepromptActive } from './notifySuppression.js';
+import { escapeHatchTextHtml, syncEscapeHatchButton } from './telegramEscapeHatch.js';
 import { phraseReminderHtml, wirePhraseCopyButton } from './phraseReminder.js';
 import { getMessagingIfSupported } from './firebase-config.js';
 import { getToken } from 'firebase/messaging';
@@ -54,6 +57,14 @@ export async function requestPermissionAndRegister() {
 
 function dismissPromoForever() { markHintSeen(PROMO_HINT); }
 
+// The onramp promo defers whenever the #notify-promo banner occupies the shared
+// banner slot — reprompt OR bell-triggered guidance. Keep isRepromptActive an
+// exact mirror of this banner's visibility by routing every show/hide through
+// these two helpers (telegramOnramp reads the flag; it re-evaluates on
+// reprompt-change).
+function showNotifyBanner(banner) { setRepromptActive(true); banner.classList.remove('hidden'); }
+function hideNotifyBanner(banner) { setRepromptActive(false); banner.classList.add('hidden'); }
+
 // Self-heal the server-side FCM token on app load. Permission/token state drifts
 // (especially on iOS), and the client otherwise only registers a token on
 // toggle-on — leaving the server with a stale/absent token and no recovery short
@@ -86,9 +97,13 @@ export async function refreshPushToken() {
 function showRegistrationFailed(banner) {
   const textEl = banner.querySelector('#notify-promo-text');
   const actionEl = banner.querySelector('#notify-promo-action');
-  if (textEl) textEl.textContent = 'Couldn’t turn on notifications on this device — it may not fully support web push. You can try again.';
+  if (textEl) {
+    textEl.innerHTML = "Couldn't turn on notifications on this device — it may not fully support web push. You can try again."
+      + escapeHatchTextHtml();
+  }
   if (actionEl) actionEl.classList.remove('hidden');
-  banner.classList.remove('hidden');
+  syncEscapeHatchButton(banner.querySelector('.notify-promo-actions'), true);
+  showNotifyBanner(banner);
 }
 
 // Explicitly show the promo banner for a capability state, bypassing the
@@ -98,16 +113,38 @@ function showBannerForState(capState) {
   const banner = document.getElementById('notify-promo');
   if (!banner) return;
   renderBanner(banner, capState);
-  banner.classList.remove('hidden');
+  showNotifyBanner(banner);
 }
 
 // Called when a user turns a per-person bell on. Always gives feedback: prompts
 // when push is available, otherwise (or on denial) surfaces the right guidance.
 export async function ensureNotificationsReady() {
+  // In Telegram, notifications are delivered by the bot (notifyChannel:'telegram').
+  // There's no web-push permission to grant, so skip the capability/banner flow
+  // entirely — otherwise it surfaces web-push framing ("this browser doesn't
+  // support web notifications"), the wrong lens inside the Mini App. (Spec §9.)
+  if (isTelegramContext()) return;
+  // Bot-delivered on web (linked account, telegram channel): bells just write
+  // prefs — the notifier routes them to the bot (functions/notifier.js), so
+  // there is no web-push permission to demand (spec 2026-07-07-web-nudge-suppression).
+  if (isBotDelivered()) return;
   const cap = detectNotifyCapability();
   if (cap.state === 'supported') {
     const ok = await requestPermissionAndRegister();
-    if (!ok) showBannerForState(detectNotifyCapability().state);
+    if (!ok) {
+      // Same distinction as the Enable button's own retry handler: if capability
+      // still reads 'supported' the permission prompt succeeded but token
+      // registration didn't — that's the registration-failed dead end (with its
+      // escape hatch), not a plain re-render of the Enable banner.
+      const state = detectNotifyCapability().state;
+      const banner = document.getElementById('notify-promo');
+      if (state === 'supported') { if (banner) showRegistrationFailed(banner); }
+      else showBannerForState(state);
+    }
+    // On success, re-evaluate the banner now: the switch-to-push flow revives
+    // the reprompt an instant before this runs, and waiting for the token
+    // write's notify-prefs-synced echo would leave a stale "Enable" showing.
+    else maybeRepromptForMissingPermission();
     return;
   }
   showBannerForState(cap.state);
@@ -121,6 +158,7 @@ export function initNotifyPrompt(userId) {
   // restored device has "on" bells it can't yet deliver (no permission/token).
   if (!_repromptListenerWired && typeof document !== 'undefined') {
     document.addEventListener('notify-prefs-synced', maybeRepromptForMissingPermission);
+    document.addEventListener('bot-delivery-change', maybeRepromptForMissingPermission);
     _repromptListenerWired = true;
   }
   refreshPromoVisibility();
@@ -137,15 +175,26 @@ export function maybeRepromptForMissingPermission() { refreshPromoVisibility(); 
 function refreshPromoVisibility() {
   const banner = document.getElementById('notify-promo');
   if (!banner) return;
+  // Never surface the web-push promo/reprompt in Telegram — the bot is the
+  // notification channel there (spec §9); web-push framing would only mislead.
+  if (isTelegramContext()) { hideNotifyBanner(banner); return; }
+  // Bot-delivered: the reprompt's premise ("your on-bells deliver nothing on
+  // this device") is false — the bot delivers them. Re-evaluated on
+  // bot-delivery-change, so switching to push revives the reprompt live.
+  if (isBotDelivered()) { hideNotifyBanner(banner); return; }
   const cap = detectNotifyCapability();
   const permission = (typeof Notification !== 'undefined' && Notification.permission) || 'default';
   const reprompt = shouldReprompt({
     enabled: NOTIFICATIONS_ENABLED, hasEnabledPrefs: hasAnyNotifyPrefEnabled(),
     permission, capState: cap.state, deviceDismissed: isRepromptDismissedOnDevice(),
   });
-  if (!reprompt) { banner.classList.add('hidden'); return; }
-  renderBanner(banner, cap.state, () => { dismissRepromptOnDevice(); banner.classList.add('hidden'); });
-  banner.classList.remove('hidden');
+  // The onramp promo defers while the reprompt is up (concrete unmet intent
+  // beats a passive promo) — notifySuppression carries the flag.
+  if (!reprompt) { hideNotifyBanner(banner); return; }
+  renderBanner(banner, cap.state, () => {
+    dismissRepromptOnDevice(); hideNotifyBanner(banner);
+  });
+  showNotifyBanner(banner);
 }
 
 // The phrase-reminder block + clipboard wiring live in ./phraseReminder.js (no
@@ -156,13 +205,16 @@ export { phraseReminderHtml, wirePhraseCopyButton };
 function renderBanner(banner, capState, onDismiss) {
   const textEl = banner.querySelector('#notify-promo-text');
   const actionEl = banner.querySelector('#notify-promo-action');
+  const actionsEl = banner.querySelector('.notify-promo-actions');
   if (capState === 'supported') {
     textEl.textContent = 'Get notified about knocks, calls, and people coming online.';
     actionEl.textContent = 'Enable';
     actionEl.classList.remove('hidden');
+    // Web push is one tap away here — no escape hatch (and clear any stale one).
+    syncEscapeHatchButton(actionsEl, false);
     actionEl.onclick = async () => {
       const ok = await requestPermissionAndRegister();
-      if (ok) { banner.classList.add('hidden'); return; }
+      if (ok) { hideNotifyBanner(banner); return; }
       // Failure feedback — previously a silent no-op. A denied prompt flips
       // capability to 'denied' → show the re-enable guidance. If it's still
       // 'supported', permission was granted but token registration failed
@@ -176,10 +228,12 @@ function renderBanner(banner, capState, onDismiss) {
     const copy = guidanceCopyFor(capState);
     let html = copy.body;
     if (copy.remindPhrase) html += phraseReminderHtml();
+    html += escapeHatchTextHtml();   // '' when unavailable — dead-end lanes offer Telegram
     textEl.innerHTML = html;
     wirePhraseCopyButton(textEl);
     actionEl.classList.add('hidden');
+    syncEscapeHatchButton(actionsEl, true); // "Use in Telegram" beside Close
   }
   banner.querySelector('#notify-promo-dismiss').onclick = onDismiss
-    || (() => { dismissPromoForever(); banner.classList.add('hidden'); });
+    || (() => { dismissPromoForever(); hideNotifyBanner(banner); });
 }

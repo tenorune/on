@@ -1,6 +1,9 @@
 // tests/canvas.test.js
 
 jest.mock('../js/firebase-config.js', () => ({ db: {} }));
+// inviteModal.js (reached transitively via favorites.js → groupNav.js → groupContext.js)
+// now imports telegram.js, which pulls in firebase/auth; stub it out inertly.
+jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false), openTelegramShare: jest.fn() }));
 jest.mock('firebase/database', () => ({
   ref: jest.fn(() => 'mockRef'),
   get: jest.fn(() => Promise.resolve({ exists: () => false, val: () => null })),

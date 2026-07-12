@@ -98,6 +98,17 @@ export function watchGroupMeta(groupId, callback) {
       if (val[k] !== undefined) meta[k] = val[k];
     }
     callback(meta);
+  }, () => {
+    // Listener CANCELLED (PERMISSION_DENIED). groups/{gid} is membership-gated,
+    // so when the owner deletes the group the node goes null and the read rule
+    // (data.child('members').child(me).exists()) now evaluates against nothing
+    // → the member loses read access. Firebase fires THIS cancel callback, not a
+    // null-value tick — so without handling it the deletion is invisible and the
+    // stale group lingers in the member's nav (shown as its raw id). Treat
+    // cancellation as "group gone for me" and emit null, driving groupNav's
+    // deletion self-clean (removeUserGroupsEntry). Also covers a member being
+    // removed from the group (likewise a read-access loss).
+    callback(null);
   });
 }
 

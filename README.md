@@ -10,6 +10,7 @@ A real-time **ambient-presence** [PWA](https://en.wikipedia.org/wiki/Progressive
 - **Palettes & favorites** — 16 palettes across two sets (Natural + Electric), each a full UI theme; up to 8 saved color combos. Long-press a contact's card to **adopt** their color + theme.
 - **Groups** — Create groups, invite via link or in-app picker, and set a **per-audience status** (a different availability/color for each group than your primary). An Inbox surfaces pending invites and follow requests.
 - **Push notifications** — Web Push (FCM) for knocks, calls, availability, group invites, and follow requests, with per-contact opt-in. Platform-aware install guidance where the OS requires it (iOS Home Screen, macOS Dock).
+- **Telegram Mini App (experimental)** — the same app running inside Telegram: auto sign-in via Telegram's signed identity, a companion bot that covers the core loop from chat (go available, see who's free, knock), invite deep links, and notifications as bot messages instead of Web Push. Behind the `TELEGRAM_ENABLED` flag.
 - **Phrase-based identity** — A 4-word secret phrase is your account; type it on any device to restore. No email, no social sign-up.
 - **PWA** — Installable, standalone, offline shell, auto-updating service worker.
 

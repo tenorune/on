@@ -10,6 +10,7 @@ jest.mock('../js/db.js', () => ({
   writeUserInvite: jest.fn(),
   deleteUserInvite: jest.fn(),
   setInviteRevoked: jest.fn(),
+  setInviteLabel: jest.fn(),
   incrementInviteRedemptions: jest.fn(),
   getCreatorCode: jest.fn(),
   watchUserInvites: jest.fn(() => () => {}),
@@ -38,10 +39,20 @@ jest.mock('../js/groups.js', () => ({
 }));
 jest.mock('../js/auth.js', () => ({ ensureSignedIn: jest.fn().mockResolvedValue(undefined) }));
 
+// telegram.js imports firebase/auth directly (not through js/auth.js's mock
+// above), so without this it drags the real firebase/auth module into jsdom.
+jest.mock('../js/telegram.js', () => ({
+  isTelegramContext: jest.fn(() => false),
+  ensureTelegramIdentity: jest.fn(),
+}));
+
+// devReset.js also imports firebase/auth directly, same reasoning as above.
+jest.mock('../js/devReset.js', () => ({ maybeRunDevReset: jest.fn().mockResolvedValue(false) }));
+
 const db = require('../js/db.js');
 const store = require('../js/store.js');
 const groups = require('../js/groups.js');
-const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, redeemPersonalInvite, attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, extractDirectIntentFromUrl, resolveInviteCreatorLabel } = require('../js/invites');
+const { generateInviteToken, createPersonalInvite, revokePersonalInvite, regeneratePersonalInvite, updateInviteLabel, redeemPersonalInvite, attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, extractDirectIntentFromUrl, resolveInviteCreatorLabel } = require('../js/invites');
 
 describe('generateInviteToken', () => {
   test('returns a 22-char URL-safe base64 string', () => {
@@ -188,6 +199,30 @@ describe('regeneratePersonalInvite', () => {
   });
 });
 
+describe('updateInviteLabel', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('rewrites just the creatorLabel on the existing invite (token unchanged)', async () => {
+    db.setInviteLabel.mockResolvedValue();
+
+    const result = await updateInviteLabel('uid1', 'T1', 'Tenorune');
+
+    expect(db.setInviteLabel).toHaveBeenCalledWith('uid1', 'T1', 'Tenorune');
+    expect(result).toBe('Tenorune');
+  });
+
+  test('validates the label (trims, rejects empty / over-long)', async () => {
+    db.setInviteLabel.mockResolvedValue();
+
+    await expect(updateInviteLabel('uid1', 'T1', '   ')).rejects.toThrow(/empty/i);
+    await expect(updateInviteLabel('uid1', 'T1', 'x'.repeat(41))).rejects.toThrow(/40/);
+    expect(db.setInviteLabel).not.toHaveBeenCalled();
+
+    await updateInviteLabel('uid1', 'T1', '  Ana  ');
+    expect(db.setInviteLabel).toHaveBeenCalledWith('uid1', 'T1', 'Ana');
+  });
+});
+
 describe('redeemPersonalInvite', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -205,9 +240,19 @@ describe('redeemPersonalInvite', () => {
     });
     const result = await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set());
     expect(result).toEqual({ ok: true, creatorUid: 'creator-uid', creatorCode: 'ABC123', creatorLabel: 'Alex' });
-    expect(db.registerAsFollower).toHaveBeenCalledWith('creator-uid', 'redeemer-uid', 'redeemer-code');
+    expect(db.registerAsFollower).toHaveBeenCalledWith('creator-uid', 'redeemer-uid', 'redeemer-code', undefined);
     expect(db.setFollowingEntry).toHaveBeenCalledWith('redeemer-uid', 'creator-uid', 'ABC123', 'Alex');
     expect(db.incrementInviteRedemptions).toHaveBeenCalledWith('creator-uid', 'TOKEN');
+  });
+
+  test('forwards the redeemer name to registerAsFollower so the creator can name the follower', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator-uid/invites/TOKEN' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'TOKEN', creatorUid: 'creator-uid', creatorLabel: 'Alex',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    await redeemPersonalInvite('TOKEN', 'redeemer-uid', 'redeemer-code', new Set(), 'Bea');
+    expect(db.registerAsFollower).toHaveBeenCalledWith('creator-uid', 'redeemer-uid', 'redeemer-code', 'Bea');
   });
 
   test('falls back to an empty follow label when the invite has no creatorLabel', async () => {
@@ -384,6 +429,17 @@ describe('attemptRedeemFromUrl', () => {
     const result = await attemptRedeemFromUrl('T', 'me', 'mycode');
     expect(result).toEqual({ ok: false, reason: 'already-following' });
   });
+
+  test('threads opts.redeemerName through to the personal redeem', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'personal', ownerPath: 'users/creator/invites/T' });
+    db.readUserInvite.mockResolvedValue({
+      scope: 'personal', token: 'T', creatorUid: 'creator', creatorLabel: 'Alex',
+      revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0,
+    });
+    db.getCreatorCode.mockResolvedValue('ABC123');
+    await attemptRedeemFromUrl('T', 'me', 'mycode', { redeemerName: 'Bea' });
+    expect(db.registerAsFollower).toHaveBeenCalledWith('creator', 'me', 'mycode', 'Bea');
+  });
 });
 
 describe('boot-time redemption (existing user, integration)', () => {
@@ -466,10 +522,30 @@ describe('resolveInvitePreview', () => {
     expect(await resolveInvitePreview('NOPE')).toBeNull();
   });
 
-  test('returns null when the callable rejects (network/unavailable)', async () => {
+});
+
+describe('resolveInvitePreview error contract (W1 J#1)', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  test('invalid token (callable returns null) → null', async () => {
     const { resolveInvitePreview } = require('../js/invites');
-    db.callResolveInvitePreview.mockRejectedValue(new Error('unavailable'));
-    expect(await resolveInvitePreview('T')).toBeNull();
+    db.callResolveInvitePreview.mockResolvedValue(null);
+    await expect(resolveInvitePreview('tok')).resolves.toBeNull();
+  });
+
+  test('one transport failure then success → preview (internal retry)', async () => {
+    const { resolveInvitePreview } = require('../js/invites');
+    db.callResolveInvitePreview
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce({ scope: 'personal', label: 'Ana' });
+    await expect(resolveInvitePreview('tok')).resolves.toEqual({ scope: 'personal', label: 'Ana' });
+    expect(db.callResolveInvitePreview).toHaveBeenCalledTimes(2);
+  });
+
+  test('two transport failures → throws invite-preview-unavailable', async () => {
+    const { resolveInvitePreview } = require('../js/invites');
+    db.callResolveInvitePreview.mockRejectedValue(new Error('network'));
+    await expect(resolveInvitePreview('tok')).rejects.toThrow('invite-preview-unavailable');
   });
 });
 
@@ -507,7 +583,7 @@ describe('welcome screen invite framing', () => {
     showWelcomeScreen({ inviteGroupName: 'Family' });
     const framing = document.getElementById('welcome-invite-framing');
     expect(framing.classList.contains('hidden')).toBe(false);
-    expect(framing.textContent).toContain("join 'Family'");
+    expect(framing.textContent).toContain('join Family');
     expect(framing.textContent).toContain('First, let');
   });
 });
@@ -631,7 +707,7 @@ describe('full flow: create → redeem (integration)', () => {
     expect(result.ok).toBe(true);
     expect(result.creatorCode).toBe('AAA111');
     expect(result.creatorLabel).toBe('Alice');
-    expect(db.registerAsFollower).toHaveBeenCalledWith('user-a', 'user-b', 'BBB222');
+    expect(db.registerAsFollower).toHaveBeenCalledWith('user-a', 'user-b', 'BBB222', undefined);
     expect(db.setFollowingEntry).toHaveBeenCalledWith('user-b', 'user-a', 'AAA111', 'Alice');
     expect(db.incrementInviteRedemptions).toHaveBeenCalledWith('user-a', token);
   });
@@ -805,5 +881,13 @@ describe('group-scope new-user flow integration (light)', () => {
     db.readMember.mockResolvedValue(null);
     const result = await attemptRedeemFromUrl('T', 'new-user', 'code', { displayName: 'Alex' });
     expect(result).toEqual({ ok: true, groupId: 'G1', groupName: 'Family' });
+  });
+});
+
+describe('buildInviteUrl (spec N1/A1)', () => {
+  const { buildInviteUrl } = require('../js/invites.js');
+  test('builds a /invite landing link carrying the token', () => {
+    expect(buildInviteUrl('AbCdEfGhIjKlMnOpQrStUv')).toMatch(/\/invite\?i=AbCdEfGhIjKlMnOpQrStUv$/);
+    expect(buildInviteUrl('AbCdEfGhIjKlMnOpQrStUv')).not.toContain('/?i=');
   });
 });

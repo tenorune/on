@@ -1,5 +1,13 @@
 // tests/swatch-renderers.compat.test.js
 jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.fn() }));
+// groupContext.js's chain reaches following.js -> firstRun.js ->
+// telegram.js -> firebase/auth; mock firstRun.js so this suite (unrelated to
+// first-run UI) never loads that real chain.
+jest.mock('../js/firstRun.js', () => ({
+  initFirstRun: jest.fn(),
+  setListEmpty: jest.fn(),
+  isFirstRunActive: jest.fn(() => false),
+}));
 // Cross-renderer compatibility test.
 //
 // The Direct (#swatch-row) and Group (#group-swatch-row) swatch pickers are

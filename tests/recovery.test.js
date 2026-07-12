@@ -20,6 +20,16 @@ jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.f
 jest.mock('../js/firebase-config.js', () => ({ db: {}, getMessagingIfSupported: jest.fn() }));
 jest.mock('../js/auth.js', () => ({ ensureSignedIn: jest.fn().mockResolvedValue(undefined) }));
 
+// telegram.js imports firebase/auth directly (not through js/auth.js's mock
+// above), so without this it drags the real firebase/auth module into jsdom.
+jest.mock('../js/telegram.js', () => ({
+  isTelegramContext: jest.fn(() => false),
+  ensureTelegramIdentity: jest.fn(),
+}));
+
+// devReset.js also imports firebase/auth directly, same reasoning as above.
+jest.mock('../js/devReset.js', () => ({ maybeRunDevReset: jest.fn().mockResolvedValue(false) }));
+
 // Mocks required so that require('../js/app') doesn't crash on Firebase imports.
 // These do NOT mock identity.js so the real functions work for the tests above.
 jest.mock('../js/db.js', () => ({

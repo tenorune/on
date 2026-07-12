@@ -1,6 +1,6 @@
 // js/following.js
 import {
-  lookupCode, watchFollowers, registerAsFollower, unregisterAsFollower,
+  lookupCode, watchFollowers, watchFollowerNames, registerAsFollower, unregisterAsFollower,
   removeFollower, isExpired, isAvailable,
   formatLastSeen, startCall, answerCall, endCall, watchOwnCall, setStatusColor,
   watchFollowing, setFollowingEntry, removeFollowingEntry, watchRevocations,
@@ -8,7 +8,7 @@ import {
 import { subscribePresence } from './presenceHub.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
-  setFollowing, getFollowerName,
+  setFollowing, getFollowerName, setFollowerName,
 } from './store.js';
 import {
   isHintSeen, markHintSeen,
@@ -28,12 +28,17 @@ import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 import { reconcileChildren } from './reconcile.js';
 import { refreshHints, clearActiveHint } from './hintRotation.js';
+import { setListEmpty } from './firstRun.js';
+import { extractInviteTokenFromText } from './inviteText.js';
+import { attemptRedeemFromUrl, resolveInvitePreview } from './invites.js';
+import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 
 const unsubscribers = new Map(); // userId → unsubscribe fn
 const editingSet = new Set();
 const lastUserData = new Map(); // userId → most recent userData from Firebase
 const renderedFollowees = new Set();
 let onFolloweeReady = null;
+let _onInviteRedeemed = null;
 
 // Direct-list rows are keyed by data-user-id, but a group roster reuses the same
 // attribute for the same uid. Scope every Direct-list row lookup to #people-list
@@ -45,6 +50,7 @@ function followeeRow(userId) {
 
 let latestFollowersSnapshot = [];
 let unsubFollowers = null;
+let unsubFollowerNames = null;
 let unsubFollowing = null;
 let unsubRevocations = null;
 let refreshInterval = null;
@@ -90,8 +96,9 @@ async function doConfirm() {
   }
 }
 
-export function initList(myUserId, myCode) {
+export function initList(myUserId, myCode, { onInviteRedeemed = null } = {}) {
   myUserIdRef = myUserId;
+  _onInviteRedeemed = onInviteRedeemed;
 
   renderedFollowees.clear();
 
@@ -104,6 +111,11 @@ export function initList(myUserId, myCode) {
   _incomingCall = null;
   latestFollowersSnapshot = [];
   pendingAction = null;
+  // Reset the add-form's invite/code mode tracking too: a fresh init means a
+  // fresh DOM (add-invite-status etc. start blank), so any token remembered
+  // from a prior session must not short-circuit updateAddFormMode's first call.
+  _inviteModeToken = null;
+  _previewSeq++;
   if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
 
   // Inject confirm sheet once
@@ -137,6 +149,20 @@ export function initList(myUserId, myCode) {
   unsubFollowers = watchFollowers(myUserId, (followers) => {
     latestFollowersSnapshot = followers;
     renderList();
+  });
+
+  // Fold self-published follower names (invite redemptions — see
+  // registerAsFollower) into the device-local roster so the followers list can
+  // show "CODE (Name)". Fill-if-empty: a name learned from a follow-request
+  // approval (or user edit) stays authoritative and is never clobbered by the
+  // published value. Re-render only when something new landed.
+  if (unsubFollowerNames) unsubFollowerNames();
+  unsubFollowerNames = watchFollowerNames(myUserId, (names) => {
+    let changed = false;
+    for (const [uid, name] of Object.entries(names || {})) {
+      if (name && !getFollowerName(uid)) { setFollowerName(uid, name); changed = true; }
+    }
+    if (changed) renderList();
   });
 
   // Subscribe to own following list (cross-device sync of contacts)
@@ -225,17 +251,30 @@ export function initList(myUserId, myCode) {
   }, 60000);
 
   document.getElementById('add-person-btn').addEventListener('click', () => {
-    document.getElementById('add-person-form').classList.add('open');
-    document.getElementById('add-code-input').focus();
+    const form = document.getElementById('add-person-form');
+    const input = document.getElementById('add-code-input');
+    openAddForm();
+    // iOS Safari/Chrome only honor a programmatic focus() on a laid-out (non-
+    // clipped) element within the tap gesture. The form reveals via a
+    // max-height:0 slide, so the input is still clipped to 0 height this tick and
+    // the focus is silently dropped — Telegram's embedded webview is lenient,
+    // which is why it worked there. Un-clip the form synchronously (instant open)
+    // so the input has layout before we focus, then hand max-height back to the
+    // CSS class (which still animates the close).
+    form.style.maxHeight = 'none';
+    void form.offsetHeight; // force layout so the input is measurable/focusable now
+    input.focus();
+    form.style.maxHeight = '';
     setTimeout(() => {
-      document.getElementById('add-code-input').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      input?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     }, 50);
   });
 
   document.getElementById('add-cancel-btn').addEventListener('click', closeAddForm);
 
   document.getElementById('add-code-input').addEventListener('input', (e) => {
-    e.target.value = e.target.value.toUpperCase();
+    // Invite links/tokens are case-sensitive — only code mode uppercases.
+    if (updateAddFormMode(e.target.value) === 'code') e.target.value = e.target.value.toUpperCase();
   });
 
   document.getElementById('add-code-input').addEventListener('keydown', async (e) => {
@@ -245,7 +284,7 @@ export function initList(myUserId, myCode) {
     const code = codeInput.value.trim().toUpperCase();
     errorEl.classList.add('hidden');
     if (!code) { showError(errorEl, 'Please enter a code.'); return; }
-    if (code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) { showError(errorEl, 'Code must be 6 letters and numbers.'); return; }
+    if (code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) { showError(errorEl, "That doesn't look like a code or an invite link."); return; }
     if (code === myCode.toUpperCase()) { showError(errorEl, "That's your own code."); return; }
     const existing = getFollowing().find((f) => f.code.toUpperCase() === code);
     if (existing) { showError(errorEl, `You're already following ${resolveDisplayName(existing)}.`); return; }
@@ -267,6 +306,16 @@ export function initList(myUserId, myCode) {
   window.addEventListener('online', () => document.getElementById('offline-banner').classList.add('hidden'));
   window.addEventListener('offline', () => document.getElementById('offline-banner').classList.remove('hidden'));
   if (!navigator.onLine) document.getElementById('offline-banner').classList.remove('hidden');
+
+  // Optimistic first render from cached following (the watchers above render
+  // asynchronously). Without this, the empty/non-empty verdict — and so the
+  // guided empty state (setListEmpty) — is established only when the first
+  // Firebase callback lands, a task AFTER the browser has painted the bare empty
+  // list ("Add a person", no guidance). Rendering synchronously here mounts the
+  // guided empty state before first paint (iOS FTU / Mini-App flash finding);
+  // the watcher callbacks then refine it. Idempotent — reconcileChildren diffs
+  // and setListEmpty no-ops on an unchanged verdict.
+  renderList();
 }
 
 export function setFolloweeReadyCallback(fn) {
@@ -389,7 +438,6 @@ function renderList() {
   });
 
   const list = document.getElementById('people-list');
-  const emptyMsg = document.getElementById('empty-list-msg');
 
   const isEmpty = mutuals.length === 0 && followingOnly.length === 0 && followerOnly.length === 0;
   document.getElementById('add-person-area').classList.toggle('has-list', !isEmpty);
@@ -402,12 +450,12 @@ function renderList() {
       },
     });
     list.style.display = 'none';
-    emptyMsg.classList.remove('hidden');
+    setListEmpty(true);
     return;
   }
 
   list.style.display = '';
-  emptyMsg.classList.add('hidden');
+  setListEmpty(false);
 
   // Sort uses lastUserData which still has status for entries with active subscriptions.
   // New entries (not yet subscribed) will sort as unavailable until Firebase delivers status.
@@ -805,7 +853,7 @@ function createFollowerOnlyRow(follower, myUserId) {
     // Read at click time: the row persists across renders, and the roster name
     // can be learned (approval flow) after this row was created.
     document.getElementById('add-label-input').value = getFollowerName(follower.userId) || '';
-    document.getElementById('add-person-form').classList.add('open');
+    openAddForm();
   });
 
   li.querySelector('.unfollow-btn').addEventListener('click', () => {
@@ -1117,12 +1165,87 @@ function activateRename(entry, labelEl) {
   });
 }
 
+// Invite-vs-code mode for the unified "Redeem an invite" form (spec N6). The
+// status line doubles as the preview surface: it upgrades to "You'll follow …"
+// when resolveInvitePreview lands, and stays at the generic detection text on
+// any preview failure (fail-soft — submit still redeems).
+let _inviteModeToken = null;
+let _previewSeq = 0;
+function updateAddFormMode(raw) {
+  const token = extractInviteTokenFromText(raw);
+  if (token !== null && token === _inviteModeToken) return 'invite'; // unchanged — don't re-fire the preview
+  _inviteModeToken = token;
+  const statusEl = document.getElementById('add-invite-status');
+  const submit = document.getElementById('add-submit-btn');
+  const labelEls = [document.getElementById('add-label-label'), document.getElementById('add-label-input')];
+  if (!token) {
+    statusEl.textContent = '';
+    statusEl.classList.add('hidden');
+    labelEls.forEach((el) => el && el.classList.remove('hidden'));
+    submit.textContent = 'Follow';
+    return 'code';
+  }
+  labelEls.forEach((el) => el && el.classList.add('hidden'));
+  submit.textContent = 'Redeem invite';
+  statusEl.textContent = 'Invite link detected';
+  statusEl.classList.remove('hidden');
+  const seq = ++_previewSeq;
+  resolveInvitePreview(token).then((p) => {
+    if (seq !== _previewSeq || !p) return; // stale input or dead token — keep the generic text
+    statusEl.textContent = p.scope === 'group'
+      ? `You'll join '${p.groupName || 'a group'}'`
+      : `You'll follow ${p.label || 'someone'}`;
+  }).catch(() => { /* fail-soft (spec N6) */ });
+  return 'invite';
+}
+
+function redeemFailureMessage(reason) {
+  switch (reason) {
+    case 'already-following': return "You're already following them.";
+    case 'already-member': return "You're already in that group.";
+    case 'self': return "That's your own invite.";
+    case 'revoked':
+    case 'expired': return 'This invite link has expired.';
+    case 'cap': return 'This invite has reached its limit.';
+    default: return "That invite link isn't valid.";
+  }
+}
+
+// Invite-mode submit (spec N6): the exact boot-redemption pipeline, reused.
+// Group invites prompt for a display name mid-flight, same as the URL flow
+// (app.js:675) — the cache handoff skips the duplicate index/group reads.
+async function handleRedeemInvite(myUserId, myCode, token) {
+  const errorEl = document.getElementById('add-error');
+  const submit = document.getElementById('add-submit-btn');
+  errorEl.classList.add('hidden');
+  submit.disabled = true;
+  try {
+    let result = await attemptRedeemFromUrl(token, myUserId, myCode, {});
+    if (result && result.ok === false && result.reason === 'needs-display-name') {
+      const displayName = await showGroupDisplayNamePrompt(result.groupName || 'this group', '');
+      result = await attemptRedeemFromUrl(token, myUserId, myCode, { displayName, cache: result.cache });
+    }
+    if (result && result.ok) {
+      closeAddForm();
+      renderList();
+      if (_onInviteRedeemed) await _onInviteRedeemed(result);
+      return;
+    }
+    showError(errorEl, redeemFailureMessage(result && result.reason));
+  } finally {
+    submit.disabled = false;
+  }
+}
+
 async function handleAddPerson(myUserId, myCode) {
   const codeInput = document.getElementById('add-code-input');
   const labelInput = document.getElementById('add-label-input');
   const errorEl = document.getElementById('add-error');
 
-  const code = codeInput.value.trim().toUpperCase();
+  const raw = codeInput.value.trim();
+  const inviteToken = extractInviteTokenFromText(raw);
+  if (inviteToken) return handleRedeemInvite(myUserId, myCode, inviteToken);
+  const code = raw.toUpperCase();
   const label = labelInput.value.trim();
 
   errorEl.classList.add('hidden');
@@ -1133,7 +1256,7 @@ async function handleAddPerson(myUserId, myCode) {
   }
 
   if (code.length !== 6 || !/^[A-Z0-9]{6}$/.test(code)) {
-    showError(errorEl, 'Code must be 6 letters and numbers.');
+    showError(errorEl, "That doesn't look like a code or an invite link.");
     return;
   }
 
@@ -1166,11 +1289,26 @@ async function handleAddPerson(myUserId, myCode) {
   document.getElementById('add-submit-btn').disabled = false;
 }
 
+// Form mode: the sticky #nav-row / #app-header pin cannot be scrolled away,
+// and browsers only fake the "push up" with a visual-viewport pan while the
+// keyboard is open (the Telegram webview resizes instead and never pans). So
+// opening the form unpins both via body.add-form-open (css/app.css) and closes
+// the code drawer — open, it can occupy the whole scrollport from inside the
+// sticky header — letting the scrollIntoView genuinely center the code input.
+function openAddForm() {
+  document.getElementById('code-drawer')?.classList.remove('open');
+  document.getElementById('mycode-chip')?.classList.remove('active');
+  document.body.classList.add('add-form-open');
+  document.getElementById('add-person-form').classList.add('open');
+}
+
 function closeAddForm() {
   document.getElementById('add-person-form').classList.remove('open');
+  document.body.classList.remove('add-form-open');
   document.getElementById('add-code-input').value = '';
   document.getElementById('add-label-input').value = '';
   document.getElementById('add-error').classList.add('hidden');
+  updateAddFormMode(''); // back to code mode (labels, button, status line)
 }
 
 function showError(el, msg) {

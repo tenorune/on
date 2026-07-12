@@ -4,6 +4,8 @@ jest.mock('../js/db.js', () => ({
   deletePendingInvite: jest.fn().mockResolvedValue(undefined),
 }));
 
+import { hasDisplayableInvitees } from '../js/invitePicker.js';
+
 const db = require('../js/db.js');
 const { renderInvitePicker } = require('../js/invitePicker.js');
 
@@ -202,5 +204,24 @@ describe('renderInvitePicker', () => {
     const follRow = document.querySelector('.invite-picker-row[data-uid="uFoll"]');
     expect(mutRow.querySelector('.invite-picker-name').textContent).toBe('Bea');
     expect(follRow.querySelector('.invite-picker-name').textContent).toBe('follCode');
+  });
+});
+
+describe('hasDisplayableInvitees', () => {
+  const base = { inviterUid: 'me', currentMemberUids: new Set() };
+  test('true when a non-member follower exists', () => {
+    expect(hasDisplayableInvitees({ ...base, followers: { a: 'CODE-A' }, mutuals: [] })).toBe(true);
+  });
+  test('true when a mutual (present in followers) exists', () => {
+    expect(hasDisplayableInvitees({ ...base, followers: { a: 'CODE-A' }, mutuals: [{ userId: 'a', label: 'Ana' }] })).toBe(true);
+  });
+  test('false when the only follower is already a member', () => {
+    expect(hasDisplayableInvitees({ ...base, followers: { a: 'CODE-A' }, mutuals: [], currentMemberUids: new Set(['a']) })).toBe(false);
+  });
+  test('false when the only follower is self', () => {
+    expect(hasDisplayableInvitees({ ...base, followers: { me: 'CODE-ME' }, mutuals: [] })).toBe(false);
+  });
+  test('false when followers is empty', () => {
+    expect(hasDisplayableInvitees({ ...base, followers: {}, mutuals: [] })).toBe(false);
   });
 });

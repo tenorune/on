@@ -14,6 +14,10 @@ import {
   initInstallPrompt, isInstallPromptAvailable, isAppInstalled,
   promptInstall, onInstallPromptChange,
 } from './installPrompt.js';
+import { isFirstRunActive, isFirstRunResolved } from './firstRun.js';
+import { isBotDelivered } from './notifySuppression.js';
+import { isOnrampPromoActive } from './telegramOnramp.js';
+import { escapeHatchTextHtml, syncEscapeHatchButton } from './telegramEscapeHatch.js';
 
 function isMac() { return /Macintosh|Mac OS X/.test((navigator.userAgent) || ''); }
 
@@ -29,6 +33,7 @@ function currentLane() {
 function fillToast(toast, lane) {
   const textEl = toast.querySelector('#install-toast-text');
   const actionEl = toast.querySelector('#install-toast-action');
+  const actionsEl = toast.querySelector('.notify-promo-actions');
   if (lane === 'installable') {
     const lead = 'To get notified about knocks, calls, and people coming online — even when this browser is closed — install KnockKnock.';
     if (isInstallPromptAvailable()) {
@@ -41,16 +46,22 @@ function fillToast(toast, lane) {
       textEl.innerHTML = lead + installPromptStepHtml();
       actionEl.classList.add('hidden');
     }
+    syncEscapeHatchButton(actionsEl, false); // headline path — no escape hatch
   } else if (lane === 'ios-install' || lane === 'macos-install') {
     // Same Add-to-Home-Screen / Add-to-Dock content as the onboarding install
     // modal, plus the save-your-phrase reminder (the toast is shown to a signed-in
-    // user, so Copy works here). No button — install is manual via the Share/File menu.
-    textEl.innerHTML = installStepBodyHtml(lane) + phraseReminderHtml();
+    // user, so Copy works here). No install button — install is manual via the
+    // Share/File menu. Dead-end lane: the Telegram escape hatch (text here, the
+    // "Use in Telegram" CTA in the action row) rides along ('' when unavailable).
+    textEl.innerHTML = installStepBodyHtml(lane) + phraseReminderHtml() + escapeHatchTextHtml();
     wirePhraseCopyButton(textEl);
     actionEl.classList.add('hidden');
-  } else { // push-in-tab — no in-app install possible, so no button
-    textEl.textContent = pushInTabCopy();
+    syncEscapeHatchButton(actionsEl, true);
+  } else { // push-in-tab — no in-app install possible, so no install button; the
+    // "Use in Telegram" CTA in the action row is the only actionable path.
+    textEl.innerHTML = pushInTabCopy() + escapeHatchTextHtml();
     actionEl.classList.add('hidden');
+    syncEscapeHatchButton(actionsEl, true);
   }
 }
 
@@ -71,10 +82,29 @@ export function initInstallAffordance() {
 
   const apply = () => {
     const lane = currentLane();
-    const relevant = !isAppInstalled()
+    // Bot-delivered accounts (linked, telegram channel) hide the whole install
+    // affordance: its copy is notification-framed, and the bot already delivers
+    // (spec 2026-07-07-web-nudge-suppression). Reactive via bot-delivery-change.
+    const relevant = !isAppInstalled() && !isBotDelivered()
       && (lane === 'installable' || lane === 'push-in-tab' || lane === 'ios-install' || lane === 'macos-install');
     if (!relevant) { toast.classList.add('hidden'); fab.classList.add('hidden'); return; }
-    if (dismissed) {
+    if (!isFirstRunResolved() || isFirstRunActive() || isOnrampPromoActive()) {
+      // Suppress the whole affordance — toast AND corner icon — while a stronger
+      // teaching surface is up: the guided empty state (spec §3), OR the "Use in
+      // Telegram" promo, which offers the same notifications via the bot (showing
+      // both at once is clutter). A lone corner icon here is a no-op tease anyway,
+      // since its toast can't lead while the other surface holds. The lead-in
+      // isn't consumed: apply() re-runs on first-run-change / onramp-change and
+      // the toast resumes once the other surface clears.
+      // Also hold until the first-run state is RESOLVED (the list has rendered
+      // once): at boot apply() runs before initList establishes the empty state,
+      // so isFirstRunActive() is still false — showing the FAB/toast then flashes
+      // it for a frame before the guided empty state mounts (iOS FTU finding).
+      // Same first-run-change tick that mounts the empty state re-runs apply().
+      toast.classList.add('hidden');
+      fab.classList.add('hidden');
+    } else if (dismissed) {
+      // Post-dismissal (outside first-run): the quiet corner icon takes over.
       toast.classList.add('hidden');
       fab.classList.remove('hidden');
     } else {
@@ -93,5 +123,8 @@ export function initInstallAffordance() {
   // fillToast), so its click always has a live prompt to fire.
   if (actionEl) actionEl.addEventListener('click', async () => { await promptInstall(); apply(); });
   onInstallPromptChange(apply);
+  document.addEventListener('first-run-change', apply);
+  document.addEventListener('bot-delivery-change', apply);
+  document.addEventListener('onramp-change', apply);
   apply();
 }

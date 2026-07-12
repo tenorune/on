@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security review — Telegram adaptation (t1r1jp vs dev) — 2026-07-10</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --surface2: #eef0f3; --text: #1a1d21;
+    --muted: #5c6470; --border: #d9dde3; --accent: #2563eb; --accent-soft: #dbeafe;
+    --ok: #16803c; --ok-soft: #dcfce7; --info: #475569; --info-soft: #e2e8f0;
+    --low: #92400e; --low-soft: #fef3c7; --in: #7c3aed; --in-soft: #ede9fe;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --surface: #1e2126; --surface2: #282c33; --text: #e8eaed;
+      --muted: #9aa3af; --border: #363b44; --accent: #60a5fa; --accent-soft: #1e3a5f;
+      --ok: #4ade80; --ok-soft: #14351f; --info: #94a3b8; --info-soft: #2b333e;
+      --low: #fbbf24; --low-soft: #3a2e12; --in: #a78bfa; --in-soft: #2e2447;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); padding-bottom: 6rem; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 1.5rem 1rem; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.1rem; margin: 2rem 0 .75rem; }
+  .sub { color: var(--muted); font-size: .9rem; }
+  .verdict { display: flex; gap: .75rem; align-items: flex-start; background: var(--ok-soft); border: 1px solid var(--ok); border-radius: 10px; padding: .9rem 1rem; margin: 1.25rem 0; }
+  .verdict .big { font-size: 1.05rem; font-weight: 600; color: var(--ok); }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .5rem; margin: 1rem 0; }
+  .meta-cell { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .5rem .75rem; font-size: .85rem; }
+  .meta-cell b { display: block; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  code { background: var(--surface2); border-radius: 4px; padding: .05em .35em; font-size: .88em; }
+  .hint-bar { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px; padding: .7rem 1rem; font-size: .9rem; margin: 1rem 0; }
+  .chips { display: none; gap: .5rem; flex-wrap: wrap; margin: .75rem 0 1rem; }
+  .js .chips { display: flex; }
+  .chip { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: .3rem .85rem; font-size: .85rem; cursor: pointer; }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: .85rem 1rem; margin: .6rem 0; transition: border-color .12s, box-shadow .12s; position: relative; }
+  .js .card { cursor: pointer; }
+  .js .card:hover { border-color: var(--accent); }
+  .card.in { border-color: var(--in); box-shadow: 0 0 0 1px var(--in); background: linear-gradient(0deg, var(--in-soft), var(--in-soft)), var(--surface); }
+  .card.hidden { display: none; }
+  .card .head { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .badge { font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border-radius: 5px; padding: .12em .5em; }
+  .badge.dim { background: var(--surface2); color: var(--muted); }
+  .badge.sev-none { background: var(--ok-soft); color: var(--ok); }
+  .badge.sev-low { background: var(--low-soft); color: var(--low); }
+  .badge.inflag { background: var(--in); color: #fff; display: none; margin-left: auto; }
+  .card.in .badge.inflag { display: inline-block; }
+  .card h3 { margin: .35rem 0 .3rem; font-size: .98rem; }
+  .card .files { font-size: .8rem; color: var(--muted); margin-bottom: .35rem; }
+  .card p { margin: .3rem 0; font-size: .88rem; }
+  .card .action { font-size: .85rem; color: var(--muted); }
+  .card .action b { color: var(--text); }
+  .card ul { margin: .3rem 0 .2rem 1.1rem; padding: 0; font-size: .87rem; }
+  .card li { margin: .15rem 0; }
+  details { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: .6rem .9rem; margin: .6rem 0; }
+  summary { cursor: pointer; font-weight: 600; font-size: .92rem; }
+  details pre { white-space: pre-wrap; word-break: break-word; font-size: .8rem; background: var(--surface2); border-radius: 8px; padding: .75rem; overflow-x: auto; }
+  .tray { display: none; position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgba(0,0,0,.08); z-index: 20; }
+  .js .tray { display: block; }
+  .tray-inner { max-width: 980px; margin: 0 auto; padding: .65rem 1rem; display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+  .tray .count { font-weight: 700; }
+  .tray .count .n { color: var(--in); }
+  .tray button { border: 0; border-radius: 8px; padding: .5rem .95rem; font-size: .88rem; cursor: pointer; font-weight: 600; }
+  .btn-copy { background: var(--in); color: #fff; }
+  .btn-copy:disabled { opacity: .45; cursor: default; }
+  .btn-ghost { background: var(--surface2); color: var(--text); }
+  .flash { font-size: .85rem; color: var(--ok); font-weight: 600; opacity: 0; transition: opacity .2s; }
+  .flash.show { opacity: 1; }
+  dialog { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); max-width: 760px; width: 92vw; padding: 1rem; }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog textarea { width: 100%; height: 46vh; font: .78rem/1.45 ui-monospace, Menlo, Consolas, monospace; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: .6rem; }
+  .noscript-note { background: var(--low-soft); border: 1px solid var(--low); color: var(--text); border-radius: 10px; padding: .7rem 1rem; font-size: .9rem; margin: 1rem 0; }
+  .footnote { color: var(--muted); font-size: .8rem; margin-top: 2rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Security review — Telegram adaptation</h1>
+  <div class="sub">Branch <code>claude/telegram-app-adaptation-t1r1jp</code> diffed against <code>origin/dev</code> · tip <code>524d6e7</code> · reviewed 2026-07-10</div>
+
+  <div class="meta-grid">
+    <div class="meta-cell"><b>Scope</b>278 commits · 126 files · ~28k insertions (the entire Telegram adaptation line; docs &amp; tests excluded from findings per policy)</div>
+    <div class="meta-cell"><b>Method</b>security-review skill (high-confidence, &gt;80% exploitability bar) + VibeSec checklists · 4 parallel reviewer subagents by dimension · + a 5th cross-cutting VibeSec category sweep run on Opus</div>
+    <div class="meta-cell"><b>Dimensions</b>Server callables &amp; auth · Bot webhook &amp; notifier · Client web (XSS/secrets) · RTDB rules &amp; config · VibeSec 10-category cross-check (Opus)</div>
+    <div class="meta-cell"><b>False-positive phase</b>Not run — zero candidate vulnerabilities emerged, so there was nothing to filter</div>
+  </div>
+
+  <div class="verdict">
+    <div>
+      <div class="big">0 confirmed vulnerabilities (High/Medium/Low)</div>
+      <div style="font-size:.88rem; margin-top:.2rem;">All four dimension reviewers independently returned empty finding sets at the skill's confidence bar, and a fifth cross-cutting VibeSec category sweep (run on Opus) returned CLEAN or N-A verdicts on all 10 checklist categories. What follows are <b>accepted-risk observations</b> (design decisions worth a deliberate sign-off, not exploits) and the <b>verified-clean mechanisms</b> per dimension, all triageable below.</div>
+    </div>
+  </div>
+
+  <noscript><div class="noscript-note"><b>Static view:</b> this viewer does not run scripts, so click-to-triage and the copy tray are inactive — but everything below (observations, verified-clean mechanisms, all five verbatim reports) is fully readable. Open the file in a regular browser for interactive triage.</div></noscript>
+
+  <div class="hint-bar">
+    <b>Triage:</b> click any card to mark it <b>IN</b> for follow-up (click again to remove). Selections persist in this browser. When done, use <b>“Copy IN items as Claude prompt”</b> in the bottom tray — the result pastes directly into a Claude Code session.
+  </div>
+
+  <div class="chips" id="chips">
+    <button class="chip active" data-filter="all">All</button>
+    <button class="chip" data-filter="observation">Observations</button>
+    <button class="chip" data-filter="clean">Verified clean</button>
+    <button class="chip" data-filter="in">IN only</button>
+  </div>
+
+  <h2 id="obs-h">Accepted-risk observations</h2>
+  <div id="cards-observation">
+
+    <div class="card" data-id="OBS-1" data-kind="observation">
+      <div class="head"><span class="badge dim">OBS-1</span><span class="badge dim">client-web</span><span class="badge sev-low">Low</span><span class="badge inflag">IN ✓</span></div>
+      <h3>Plaintext graduation phrase at rest in localStorage</h3>
+      <div class="files">js/graduationPhrase.js</div>
+      <p>The graduation phrase (an account-recovery credential) is persisted in plaintext in localStorage, keyed by uid. It is cleared on unlink, sign-out, and identity switch, and mirrors the pre-existing statusapp_identity posture — so it is residue-at-rest on a shared device only until teardown, and was judged not a diff-introduced vulnerability. Independently corroborated by the Opus VibeSec sweep (VS-1, observation-only, confidence 4/10): an XSS anywhere on the origin could lift the credential, but no XSS sink exists in this diff.</p>
+      <div class="action"><b>Suggested action:</b> Decide whether the threat model includes shared/compromised devices; if so, consider session-only storage (re-reveal only within the post-graduation session) or encrypting at rest. Otherwise sign off as accepted (matches existing identity posture).</div>
+    </div>
+
+    <div class="card" data-id="OBS-2" data-kind="observation">
+      <div class="head"><span class="badge dim">OBS-2</span><span class="badge dim">config</span><span class="badge sev-none">Not a vuln</span><span class="badge inflag">IN ✓</span></div>
+      <h3>Framing relaxed from 'none' to telegram.org origins</h3>
+      <div class="files">firebase.json</div>
+      <p>frame-ancestors moved from 'none' (plus X-Frame-Options: DENY) to https://web.telegram.org https://*.telegram.org — required for the Mini App to embed the app. Clickjacking would require control of a telegram.org subdomain, i.e. Telegram itself.</p>
+      <div class="action"><b>Suggested action:</b> Sign off as a deliberate, Telegram-scoped accepted risk; no code change proposed.</div>
+    </div>
+
+    <div class="card" data-id="OBS-3" data-kind="observation">
+      <div class="head"><span class="badge dim">OBS-3</span><span class="badge dim">config</span><span class="badge sev-none">Not a vuln</span><span class="badge inflag">IN ✓</span></div>
+      <h3>script-src now trusts https://telegram.org (WebApp SDK)</h3>
+      <div class="files">firebase.json, index.template.html</div>
+      <p>The Telegram WebApp SDK loads from telegram.org, adding a third-party script origin to the CSP. Telegram does not publish SRI-pinnable versioned builds, so integrity pinning is not practical; this is standard for Mini Apps.</p>
+      <div class="action"><b>Suggested action:</b> Sign off as accepted supply-chain trust in Telegram (already trusted as the platform), or investigate vendoring a pinned SDK copy.</div>
+    </div>
+
+    <div class="card" data-id="OBS-4" data-kind="observation">
+      <div class="head"><span class="badge dim">OBS-4</span><span class="badge dim">config</span><span class="badge sev-none">Not a vuln</span><span class="badge inflag">IN ✓</span></div>
+      <h3>Client-writable notifyChannel is trusted for routing (destination stays server-only)</h3>
+      <div class="files">database.rules.json, functions/notifier.js</div>
+      <p>userPrefs/$uid/notifyChannel is owner-writable and validated to 'push'|'telegram'; the notifier routes on it. Worst case is self-misrouting (unlinked user selects telegram → no chatId route → FCM fallback). The delivery destination telegramByUid/{uid}/chatId is server-only, so no cross-user redirection exists.</p>
+      <div class="action"><b>Suggested action:</b> No change needed; sign off. Re-verify only if the notifier ever starts reading a client-writable destination.</div>
+    </div>
+
+    <div class="card" data-id="OBS-5" data-kind="observation">
+      <div class="head"><span class="badge dim">OBS-5</span><span class="badge dim">server</span><span class="badge sev-none">Not a vuln</span><span class="badge inflag">IN ✓</span></div>
+      <h3>Link-token entropy is 128-bit (16 bytes, base64url)</h3>
+      <div class="files">functions/telegram-auth.js</div>
+      <p>mintTelegramLinkToken uses crypto.randomBytes(16) with a 5-minute TTL and single-use deletion — comfortably unguessable for a 5m window. Noted only because 32 bytes would be free headroom.</p>
+      <div class="action"><b>Suggested action:</b> Optional: bump to randomBytes(32) on the next server deploy touching this file. Not a vulnerability.</div>
+    </div>
+
+  </div>
+
+  <h2 id="clean-h">Verified-clean mechanisms (per dimension)</h2>
+  <div id="cards-clean">
+
+    <div class="card" data-id="SRV-CLEAN" data-kind="clean">
+      <div class="head"><span class="badge dim">SRV-CLEAN</span><span class="badge dim">server</span><span class="badge sev-none">Not a vuln</span><span class="badge inflag">IN ✓</span></div>
+      <h3>Server callables &amp; auth — mechanisms verified clean</h3>
+      <div class="files">functions/telegram-auth.js, functions/telegram-shared.js, functions/index.js</div>
+      <ul>
+        <li>verifyInitData: correct two-step Telegram HMAC (HMAC('WebAppData', botToken) → data-check-string), length-guarded timingSafeEqual, 4h freshness + 5m future-skew clamp, strict 64-hex hash regex</li>
+        <li>deriveTelegramUid: HMAC-keyed with server-held TELEGRAM_UID_SECRET, fail-closed (throws when unset) — public tgIds cannot be used to compute/collide uids</li>
+        <li>mintTelegramLinkToken: crypto.randomBytes entropy, 5m TTL, single-use deletion on performLink; redeem validates token shape before any path use</li>
+        <li>No callable trusts a client-supplied uid/path; graduation gated on prior.uid === derivedUid with a target-free guard</li>
+        <li>crossRefRenderers keeps expunge (nulls) and graduate (moves) symmetric — no cross-user residue</li>
+        <li>No secrets logged; synthetic Auth email uses .invalid TLD; webhook + setBotCommands gate on timing-safe x-telegram-bot-api-secret-token</li>
+      </ul>
+      <div class="action"><b>Suggested action:</b> Nothing to fix. Select only to request a re-verification pass after the A5 redeploy.</div>
+    </div>
+
+    <div class="card" data-id="BOT-CLEAN" data-kind="clean">
+      <div class="head"><span class="badge dim">BOT-CLEAN</span><span class="badge dim">bot</span><span class="badge sev-none">Not a vuln</span><span class="badge inflag">IN ✓</span></div>
+      <h3>Bot webhook &amp; notifier — mechanisms verified clean</h3>
+      <div class="files">functions/telegram.js, functions/notifier.js, functions/presence-core.js</div>
+      <ul>
+        <li>Webhook auth: length-check + timingSafeEqual on the secret token header; fail-closed when the secret is unset — callback_query.data is therefore only ever bot-generated</li>
+        <li>No parse_mode on any sendMessage/editMessageText: user-controlled names/titles/codes render as plain text (no HTML/MarkdownV2 injection surface)</li>
+        <li>handleMessage bails on non-private chats — no PII replies into groups</li>
+        <li>All command handlers scope reads to the sender's own subtree; callback args validated against UID_RE/GROUP_ID_RE before becoming Admin-SDK path segments</li>
+        <li>/start ignores its deep-link payload (no forgeable start-param auth)</li>
+        <li>Notifier's telegram route targets only server-written telegramByUid/{uid}/chatId</li>
+      </ul>
+      <div class="action"><b>Suggested action:</b> Nothing to fix. Select only to request a re-verification pass after bot changes.</div>
+    </div>
+
+    <div class="card" data-id="WEB-CLEAN" data-kind="clean">
+      <div class="head"><span class="badge dim">WEB-CLEAN</span><span class="badge dim">client-web</span><span class="badge sev-none">Not a vuln</span><span class="badge inflag">IN ✓</span></div>
+      <h3>Client web — sinks &amp; flows verified clean</h3>
+      <div class="files">js/following.js, js/telegramOnramp.js, js/telegramLinkArrival.js, js/telegramSettings.js, js/cacheOwner.js, …</div>
+      <ul>
+        <li>Every innerHTML sink in the diff is escaped or static: follower rows via escapeHtml/textContent (attacker-controlled Telegram first_name is the hot path — clean both on create and reconcile), settings/notify markup static or boolean-only</li>
+        <li>All other name/group/phrase rendering (first-run, inbox, graduation, toasts) goes through textContent or input.value</li>
+        <li>Deep links: window.open targets are build-time TELEGRAM_APP_LINK + server-minted token; params encodeURIComponent-wrapped; no javascript:/data: reachable, no attacker-controlled base</li>
+        <li>telegramLinkArrival/telegramFirstRun validate start_param tokens against strict regexes before use</li>
+        <li>No secrets added to the client bundle; cacheOwner classifies the new statusapp_invite_outcomes / statusapp_follower_names keys account-scoped (wiped on switch)</li>
+      </ul>
+      <div class="action"><b>Suggested action:</b> Nothing to fix. Select only to request a re-verification pass after client rendering changes.</div>
+    </div>
+
+    <div class="card" data-id="VS-CLEAN" data-kind="clean">
+      <div class="head"><span class="badge dim">VS-CLEAN</span><span class="badge dim">cross-cutting</span><span class="badge sev-none">Not a vuln</span><span class="badge inflag">IN ✓</span></div>
+      <h3>VibeSec 10-category sweep (Opus) — all categories CLEAN or N-A</h3>
+      <div class="files">entire diff (origin/dev...HEAD), category-by-category</div>
+      <ul>
+        <li>Access control — CLEAN: bot resolves identity only from Telegram-authenticated from.id; callables from signed initData or rate-limited phrase; invite_accept/fr_approve require pre-existing pending entries; unlink/graduate expunge residue in one atomic multi-path update</li>
+        <li>XSS — CLEAN: all Telegram-origin strings render via textContent or escapeHtml; new followerNames path escaped at render and length-capped by rules</li>
+        <li>CSRF — CLEAN: callables use Authorization bearer ID tokens (no ambient cookie credential); raw HTTP functions require the timing-safe secret header</li>
+        <li>Secrets — CLEAN (1 observation → OBS-1): server secrets stay in env; synthetic email uses telegram.invalid; link tokens 128-bit/single-use/5m</li>
+        <li>Open redirect — CLEAN: navigation built from build-time TELEGRAM_APP_LINK or t.me/share with encoded params; start_param regex-gated and used only as a token</li>
+        <li>SSRF — CLEAN: tgApi hits fixed host api.telegram.org with hardcoded method names; no user-controlled URL/host</li>
+        <li>File upload — N-A: no upload path introduced</li>
+        <li>Security headers — CLEAN: script-src adds only telegram.org + pinned sha256 inline hashes (no unsafe-inline); frame-ancestors correctly replaces X-Frame-Options for the multi-origin Mini App allowlist</li>
+        <li>JWT/session — CLEAN: fresh custom tokens per link/graduate/unlink call; Telegram re-auths from initData each time; no fixation, no split-brain on account replace</li>
+        <li>Mass assignment — CLEAN: fixed-shape RTDB writes; only id + clamped first_name consumed from initData user; multi-path update keys server-constructed and regex-validated</li>
+      </ul>
+      <div class="action"><b>Suggested action:</b> Nothing to fix. Select only to request a re-run of the category sweep after major changes.</div>
+    </div>
+
+    <div class="card" data-id="CFG-CLEAN" data-kind="clean">
+      <div class="head"><span class="badge dim">CFG-CLEAN</span><span class="badge dim">config</span><span class="badge sev-none">Not a vuln</span><span class="badge inflag">IN ✓</span></div>
+      <h3>RTDB rules &amp; config — verified clean</h3>
+      <div class="files">database.rules.json, firebase.json, scripts/build.js, functions/.env.example</div>
+      <ul>
+        <li>telegramUsers / telegramByUid / telegramLinkTokens: top-level deny-all for read AND write, no ancestor cascade re-grants, no child re-opens; emulator rules tests confirm deny even for the mapped user</li>
+        <li>userPrefs/$uid/notifyChannel: owner-only write, .validate enum 'push'|'telegram'</li>
+        <li>users/$uid/followerNames/$follower: writable only by the two legitimate parties, ≤40-char validate, cosmetic only — never feeds an authz decision</li>
+        <li>No client-writable path is trusted by a Cloud Function for an admin-privilege decision</li>
+        <li>Only new build-time constant is the public t.me deep link; no bot token / HMAC secret / webhook secret in the bundle; .env.example holds placeholders only</li>
+      </ul>
+      <div class="action"><b>Suggested action:</b> Nothing to fix. Select only to request a re-verification pass after rules changes.</div>
+    </div>
+
+  </div>
+
+  <h2>Full subagent reports (verbatim)</h2>
+
+  <details open><summary>Reviewer 1 — Server callables &amp; auth (functions/telegram-auth.js, telegram-shared.js, index.js) — 0 findings</summary>
+  <pre>Findings: []
+
+Summary: I examined the Cloud Functions auth and account-linking surface introduced by the Telegram adaptation across functions/telegram-auth.js, functions/telegram-shared.js, functions/index.js, and functions/.env.example, tracing into auth.js, telegram.js, and database.rules.json for context. Every core mechanism checked out clean: initData verification (verifyInitData) uses the correct two-step HMAC (HMAC('WebAppData', botToken) → data-check-string key), a length-guarded timingSafeEqual, a 4h freshness window plus 5m future-skew clamp, and a strict 64-hex hash regex — no algorithm confusion; deriveTelegramUid is HMAC-keyed with a server secret and fail-closed (throws on missing TELEGRAM_UID_SECRET), so a public numeric tgId cannot be used to compute/collide another account's uid; mintTelegramLinkToken entropy is 16 random bytes via crypto.randomBytes (128-bit base64url) with a 5m TTL and single-use deletion enforced on successful performLink, and the redeem path validates the token against /^[A-Za-z0-9_-]{16,64}$/ before any path use; link/redeem/graduate/unlink all bind identity to initData (caller's own tgId) or request.auth.uid — no callable trusts a client-supplied uid/path — with graduation gated on prior.uid === derivedUid and a target-free guard, and the shared crossRefRenderers enumerator keeps expunge (nulls) and graduation (moves) symmetric so no cross-user residue is left behind; confirm-before-replace correctly guards derived-account expunge (with contact/group counts) and direct-relink resets the prior phrase account without expunging it. Secrets handling is clean (no hardcoded keys, no || 'dev-secret' fallbacks, synthetic Auth email uses the .invalid TLD and never the tgId/handle, and no token/initData is logged), and both telegramWebhook and setBotCommands require a timing-safe x-telegram-bot-api-secret-token match. No High/Medium newly-introduced vulnerabilities met the confidence threshold.</pre></details>
+
+  <details open><summary>Reviewer 2 — Bot webhook &amp; notifier (functions/telegram.js, notifier.js, presence-core.js) — 0 findings</summary>
+  <pre>Findings: []
+
+Summary: I reviewed the Telegram webhook + notification pipeline across the four in-scope files and found no High/Medium vulnerabilities newly introduced by this diff. Specifically checked and found clean: (1) webhook authentication — telegramWebhook and setBotCommands both gate on webhookAuthorized(req.get('x-telegram-bot-api-secret-token'), TELEGRAM_WEBHOOK_SECRET), which uses a length-check plus timingSafeEqual and returns false when the secret is unset, so unauthenticated POSTs cannot forge updates and callback_query.data is only ever bot-generated (not attacker-forgeable); (2) markup injection — no parse_mode is ever set on any sendMessage/editMessageText, so user-controlled display names, group titles, and codes render as plain text and cannot inject HTML/MarkdownV2 entities. (3) authorization / IDOR / data exposure — handleMessage bails on any non-private chat (no group PII leaks), all command handlers scope reads to the sender's own subtree (users/${uid}/groups, pendingInvites/${me}, followRequests/${me}, followGrants/${requesterUid}/${me}), callback args are format-validated against UID_RE/GROUP_ID_RE before becoming Admin-SDK path segments, /start ignores its deep-link payload (no forgeable start-param auth), and the notifier's channel !== 'push' route targets only the server-written telegramByUid/${uid}/chatId (the victim's own private chat).</pre></details>
+
+  <details open><summary>Reviewer 3 — Client web (js/, index.template.html) — 0 findings</summary>
+  <pre>Findings: []
+
+Sinks examined (all clean):
+- following.js follower/followee rows: the newly-introduced follower-name feature (watchFollowerNames → setFollowerName → rendered next to the code) is the highest-value stored-XSS candidate, since the name is the redeemer's attacker-controllable Telegram first_name (40-char cap is length-only, arbitrary charset). Both render paths are safe: createFollowerOnlyRow (line 811) escapes via escapeHtml(rosterName), and the reconcile update path (line 524) uses textContent.
+- telegramSettings.js:45 accountSlot.innerHTML interpolates only the boolean linked; notifyChannel.js:53 slot markup is fully static.
+- All name/group-name rendering in telegramFirstRun.js (interstitial framing), app.js (welcome/toast beats), inbox.js, graduation.js, firstRun.js, and group prompts goes through textContent (or input.value), and groups.js showToast is textContent — so the reflected creatorLabel/groupName/preview.label/Telegram-name toasts are not HTML sinks.
+
+Deep-link / token flows (clean):
+- telegramOnramp.js/inviteFlow.js/telegram.js: window.open targets are built from the build-time constant TELEGRAM_APP_LINK plus a server-minted single-use token; share URLs are https://t.me/... with encodeURIComponent-wrapped params. No javascript:/data: reachable, no attacker-controlled base, no open redirect.
+- telegramLinkArrival.js/telegramFirstRun.js validate start_param tokens against strict regexes before use.
+- telegramChrome.js postMessage/back-button logic invokes only internal DOM handlers; no untrusted initDataUnsafe reaches a sink.
+
+Secrets: firebase-config.js adds only callable-name wiring (no embedded secrets). graduationPhrase.js persists the plaintext phrase in localStorage keyed by uid — but it is keyed so a different account reads its own absent key (no cross-account display), is cleared on unlink/sign-out/identity-switch (auth.js, telegramSettings.js), and the module explicitly mirrors the pre-existing statusapp_identity web posture; residue-at-rest across a shared-device Telegram-user switch is a known/bounded design property matching existing behavior, not a diff-introduced new class, so below the reporting bar. cacheOwner.js correctly classifies the new statusapp_invite_outcomes/statusapp_follower_names as account-scoped (wiped on switch).
+
+No High/Medium findings at confidence ≥ 6.</pre></details>
+
+  <details open><summary>Reviewer 4 — RTDB rules &amp; config (database.rules.json, firebase.json, build) — 0 findings</summary>
+  <pre>Findings: []
+
+Review summary — no newly-introduced vulnerabilities in this dimension.
+
+RTDB rules (database.rules.json)
+- telegramUsers, telegramByUid, telegramLinkTokens are each declared at the top level as { ".read": false, ".write": false }. They are siblings directly under rules — no ancestor grants a permissive .read/.write, so there is no cascade re-grant, and neither node has child rules that could re-open access. tests/rules/telegram.test.js confirms deny for both read and write, even for the mapped user. Server-only as intended.
+- userPrefs/$uid/notifyChannel (new, client-writable): only the owner can write it (inherits parent .write: auth.uid === $uid) and .validate restricts it to 'push'|'telegram'. It IS trusted by functions/notifier.js (channel !== 'push' routes to Telegram), but the delivery destination (telegramByUid/{uid}.chatId) lives in a server-only node the client cannot write. Worst case: a client sets its own channel to telegram while unlinked → no route → FCM fallback. No cross-user redirection, no privilege escalation. Cannot write another user's notifyChannel (test confirms stranger rejected).
+- users/$uid/followerNames/$follower (new, client-writable): writable only by the follower themselves or the target (both legitimate parties), .validate caps it to a ≤40-char string. It is purely cosmetic ("CODE (Name)" display) and is not trusted by any Cloud Function for an authorization decision — graduation/expunge only relocate the value. No spoofing vector the server acts on.
+- js/db/social.js setInviteLabel writes users/{userId}/invites/{token}/creatorLabel but adds no new rule; that write is still gated by the existing users/$uid owner-only .write, so a client can only relabel its own invite.
+
+Privilege-escalation trace: the callable handlers in functions/telegram-auth.js derive uids via HMAC over a server-held TELEGRAM_UID_SECRET (fail-closed if unset), verify Telegram initData signatures with timingSafeEqual, and only write the server-only nodes with admin privilege. No client-writable path feeds an admin trust decision.
+
+firebase.json: CSP adds https://telegram.org to script-src (the WebApp SDK) and relaxes framing from frame-ancestors 'none' (plus X-Frame-Options: DENY) to https://web.telegram.org https://*.telegram.org. This is the required, deliberately Telegram-scoped change to allow Mini App embedding; clickjacking would require control of a telegram.org subdomain, i.e. Telegram itself — not a concrete exploit. Not flagged.
+
+scripts/build.js / js/firebase-config.js: the only new baked value is TELEGRAM_APP_LINK (a public t.me/... deep link). No bot token, HMAC/uid secret, or webhook secret appears in the client bundle; firebase-config.js only adds httpsCallable wrappers.
+
+functions/.env.example: contains only placeholders (123456:ABC-DEF..., &lt;random string&gt;) and an explicit warning not to commit real tokens to the tracked .env.&lt;projectId&gt; files. No real secret committed.</pre></details>
+
+  <details open><summary>Reviewer 5 — VibeSec 10-category cross-cutting sweep, run on Opus — 0 vulnerabilities, 1 observation (VS-1 → merged into OBS-1)</summary>
+  <pre>Model: Opus (cross-cutting pass, launched after the four dimension reviewers to verify their zero-finding conclusion).
+
+Findings:
+[{"id":"VS-1","file":"js/graduationPhrase.js","line":33,"severity":"observation","category":"secrets","title":"Recovery phrase (account credential) persisted in localStorage for graduated/linked Telegram accounts","confidence":4}]
+
+VS-1 detail: storeGraduatedPhrase() writes the plaintext secret recovery phrase to localStorage (key statusapp_grad_phrase_&lt;uid&gt;) so the drawer can re-reveal it after graduation and after a manual link (telegramSettings.js:143, graduation.js:51). localStorage is readable by any script running on the origin, so an XSS anywhere in the app would exfiltrate the account's only credential. This is a NEW expansion of that surface to Telegram accounts, but it deliberately mirrors the existing web posture (statusapp_identity already persists the web recovery code) and its lifetime is bounded: clearGraduatedPhrases() runs on unlink and sign-out, and it is keyed by derived uid so no cross-account read occurs. Reported only as a concrete, actionable defense-in-depth note, explicitly not a vulnerability. Exploit scenario: a hypothetical XSS on the app origin reads localStorage and lifts statusapp_grad_phrase_* / statusapp_identity, permanently compromising the account (the phrase is the sole recovery credential). No such XSS sink was found in this diff; the app consistently escapes user/Telegram-origin strings with escapeHtml or uses textContent. Recommendation: accept explicitly as consistent with the existing recovery-code model, or consider not persisting the phrase (re-reveal only within the single post-graduation session) so an XSS window cannot lift a long-lived credential. The existing unlink/sign-out clearing is good; keep it.
+
+Per-category verdict (all 10):
+
+1. Access control — CLEAN — Bot resolves 'me' only from Telegram-authenticated msg.from.id/cq.from.id; every RTDB path is scoped to me. Callables derive uid from signed initData (verifyInitData HMAC + 4h freshness) or from a rate-limited phrase. invite_accept/fr_approve require a pre-existing pendingInvites/{me}/{gid} or followRequests/{me}/{uid} — no arbitrary group-join/approve. New server-only nodes telegramUsers/telegramByUid/telegramLinkTokens are .read:false/.write:false. Lifecycle: unlink/graduate expunge the derived account and its cross-user residue in one atomic multi-path update; Telegram sessions always re-auth from initData, so no stale session survives.
+2. XSS — CLEAN — Telegram-origin strings (first_name/displayName/label/groupName) render via textContent (groupContext label, telegramFirstRun framingText, about-invite) or escapeHtml() before innerHTML (following.js:629/808). New followerNames cross-user path is escaped at render (following.js:808) and length-capped (rules ≤40). No new innerHTML sink interpolates unescaped user/Telegram data.
+3. CSRF — CLEAN — Firebase callables authenticate via Authorization: Bearer &lt;ID token&gt; (not cookies) with CORS preflight — no ambient credential to forge; unauthenticated callables require signed initData or a phrase. Raw telegramWebhook/setBotCommands require the x-telegram-bot-api-secret-token header (constant-time compare, fail-closed when unset).
+4. Secrets &amp; sensitive data — CLEAN (1 observation) — BOT_TOKEN / UID_SECRET / WEBHOOK_SECRET stay server-side env only; synthetic Auth email is tg-&lt;uid&gt;@telegram.invalid (no tgId/handle). Link tokens are 128-bit, single-use, 5-min TTL, delivered only via the user's own t.me deep link. Observation VS-1: graduated/linked phrase stored in localStorage (matches existing web posture).
+5. Open redirect — CLEAN — All navigation targets built from build-time TELEGRAM_APP_LINK + a regex-validated token, or t.me/share/url?url=&lt;encodeURIComponent(...)&gt;; openTelegramLink only opens t.me. start_param is regex-gated (^[A-Za-z0-9_-]{10,64}$ / lk_ + 16-64) and used only as a token, never a redirect target.
+6. SSRF — CLEAN — tgApi hits a fixed host api.telegram.org/bot&lt;TOKEN&gt;/&lt;method&gt; with hardcoded method names; chat_id/text come from server-written telegramByUid or the authenticated webhook — no user-controlled URL or host.
+7. File upload — N-A — No upload or file-processing path introduced by this diff.
+8. Security headers — CLEAN — CSP script-src adds only the specific host https://telegram.org (SDK) plus two pinned inline-script sha256 hashes — no script 'unsafe-inline'/wildcard; nosniff and Referrer-Policy retained. X-Frame-Options: DENY correctly removed and replaced by frame-ancestors https://web.telegram.org https://*.telegram.org (XFO can't express the multi-origin allowlist the Mini App needs); scoped to telegram.org.
+9. JWT/session — CLEAN — Link/graduate/unlink mint fresh Firebase custom tokens per call; Telegram always re-auths from initData (no long-lived client session trusted). No token fixation; account-replace flows expunge/move data atomically and repoint the mapping in the same write (no split-brain).
+10. Mass assignment — CLEAN — Bot/callable RTDB writes use fixed-shape objects (membership, grant, presence fields); only id and clamped first_name are consumed from the initData user object. Multi-path rootUpdate keys are all server-constructed with regex-validated (UID_RE/GROUP_ID_RE) segments — no client-supplied keys or wholesale objects written.
+
+Bottom line: no newly introduced vulnerability at Low or above. One accepted-design observation (VS-1) on the localStorage credential, included only for completeness.</pre></details>
+
+  <div class="footnote">
+    Generated by the post-ship QA session. Sources: security-review skill run over <code>git diff origin/dev...HEAD</code>; VibeSec secure-coding checklists (access control, XSS, CSRF, secrets, open redirect, SSRF, file upload, headers, JWT/session, mass assignment) folded into each reviewer's brief and additionally run as a dedicated 10-category sweep on Opus. Severity “not a vuln” on observation cards means: not a vulnerability at the review's confidence bar — listed for deliberate maintainer sign-off.
+  </div>
+</div>
+
+<div class="tray">
+  <div class="tray-inner">
+    <span class="count"><span class="n" id="in-count">0</span> IN for follow-up</span>
+    <button class="btn-copy" id="btn-copy" disabled>Copy IN items as Claude prompt</button>
+    <button class="btn-ghost" id="btn-show" disabled>Show prompt text</button>
+    <button class="btn-ghost" id="btn-clear" disabled>Clear</button>
+    <span class="flash" id="flash">Copied ✓</span>
+  </div>
+</div>
+
+<dialog id="dlg">
+  <h3 style="margin-top:0">Prompt text — select all &amp; copy</h3>
+  <textarea id="dlg-text" readonly></textarea>
+  <div style="margin-top:.6rem; text-align:right"><button class="btn-ghost" id="btn-dlg-close">Close</button></div>
+</dialog>
+
+<script>
+(function () {
+  "use strict";
+  document.body.classList.add("js");
+
+  var STORE_KEY = "secreview-2026-07-10-in";
+  var storage = {
+    get: function () { try { return JSON.parse(localStorage.getItem(STORE_KEY) || "[]"); } catch (e) { return []; } },
+    set: function (arr) { try { localStorage.setItem(STORE_KEY, JSON.stringify(arr)); } catch (e) { /* sandboxed viewer: keep in-memory only */ } }
+  };
+  var inSet = new Set(storage.get());
+  var filter = "all";
+  var cards = Array.prototype.slice.call(document.querySelectorAll(".card[data-id]"));
+
+  function sync() {
+    cards.forEach(function (card) {
+      var id = card.dataset.id, kind = card.dataset.kind;
+      card.classList.toggle("in", inSet.has(id));
+      var visible = filter === "all" || filter === kind || (filter === "in" && inSet.has(id));
+      card.classList.toggle("hidden", !visible);
+    });
+    document.getElementById("obs-h").style.display = (filter === "clean") ? "none" : "";
+    document.getElementById("clean-h").style.display = (filter === "observation") ? "none" : "";
+    var n = inSet.size;
+    document.getElementById("in-count").textContent = n;
+    ["btn-copy", "btn-show", "btn-clear"].forEach(function (b) { document.getElementById(b).disabled = n === 0; });
+  }
+
+  cards.forEach(function (card) {
+    card.addEventListener("click", function () {
+      var id = card.dataset.id;
+      inSet.has(id) ? inSet.delete(id) : inSet.add(id);
+      storage.set(Array.from(inSet));
+      sync();
+    });
+  });
+
+  function cardText(card, sel) { var el = card.querySelector(sel); return el ? el.textContent.trim() : ""; }
+
+  function buildPrompt() {
+    var out = "Follow-up from the 2026-07-10 security review of the Telegram adaptation " +
+      "(branch claude/telegram-app-adaptation-t1r1jp, diff vs dev, tip 524d6e7). " +
+      "Review artifact: docs/superpowers/2026-07-10-security-review.html. " +
+      "The review found 0 confirmed vulnerabilities; the items below were marked IN for follow-up during triage.\n\n";
+    var idx = 0;
+    cards.forEach(function (card) {
+      if (!inSet.has(card.dataset.id)) return;
+      idx += 1;
+      var badges = Array.prototype.slice.call(card.querySelectorAll(".head .badge:not(.inflag)")).map(function (b) { return b.textContent.trim(); });
+      out += idx + ". [" + badges.join(" | ") + "] " + cardText(card, "h3") + "\n";
+      out += "   Files: " + cardText(card, ".files") + "\n";
+      var p = card.querySelector("p");
+      if (p) out += "   Detail: " + p.textContent.trim() + "\n";
+      var lis = card.querySelectorAll("li");
+      if (lis.length) {
+        out += "   Verified points:\n";
+        Array.prototype.forEach.call(lis, function (li) { out += "     - " + li.textContent.trim() + "\n"; });
+      }
+      out += "   Suggested action: " + cardText(card, ".action").replace(/^Suggested action:\s*/, "") + "\n\n";
+    });
+    out += "For each item: assess, propose a fix or an explicit accepted-risk note, and implement with tests where a code change is warranted.";
+    return out;
+  }
+
+  function showDialog(text) {
+    var dlg = document.getElementById("dlg"), ta = document.getElementById("dlg-text");
+    ta.value = text;
+    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "open");
+    ta.select();
+  }
+
+  document.getElementById("btn-copy").addEventListener("click", function () {
+    var text = buildPrompt();
+    var flash = function () {
+      var f = document.getElementById("flash");
+      f.classList.add("show"); setTimeout(function () { f.classList.remove("show"); }, 1800);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(flash, function () { showDialog(text); });
+    } else { showDialog(text); }
+  });
+  document.getElementById("btn-show").addEventListener("click", function () { showDialog(buildPrompt()); });
+  document.getElementById("btn-clear").addEventListener("click", function () {
+    inSet.clear(); storage.set([]); sync();
+  });
+  document.getElementById("btn-dlg-close").addEventListener("click", function () {
+    var dlg = document.getElementById("dlg");
+    if (dlg.close) dlg.close(); else dlg.removeAttribute("open");
+  });
+  document.getElementById("chips").addEventListener("click", function (e) {
+    var chip = e.target.closest ? e.target.closest(".chip") : null;
+    if (!chip) return;
+    filter = chip.dataset.filter;
+    Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (c) { c.classList.toggle("active", c === chip); });
+    sync();
+  });
+
+  sync();
+})();
+</script>
+</body>
+</html>

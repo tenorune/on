@@ -3,6 +3,7 @@ import { signInWithCustomToken, signOut } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import { auth, db, callValidateRecovery } from './firebase-config.js';
 import { deriveUserIdFromRecoveryCode } from './identity.js';
+import { clearGraduatedPhrases } from './graduationPhrase.js';
 
 // After signInWithCustomToken resolves, the RTDB connection re-authenticates
 // ASYNCHRONOUSLY — reads/listeners attached in that window get permission_denied,
@@ -11,7 +12,7 @@ import { deriveUserIdFromRecoveryCode } from './identity.js';
 // a tiny own auth-required read (`users/{uid}/presence` → rule: auth != null) that
 // retries until the token has propagated, so every read/watcher set up after
 // sign-in attaches post-handshake. Bounded so a genuine network failure can't hang.
-async function whenRtdbAuthReady() {
+export async function whenRtdbAuthReady() {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
   for (let attempt = 0; attempt < 15; attempt += 1) {
@@ -36,6 +37,9 @@ export async function ensureSignedIn(recoveryCode) {
     const wantUid = await deriveUserIdFromRecoveryCode(recoveryCode);
     if (auth.currentUser.uid === wantUid) return;
     await signOut(auth);
+    // Switching identities: the outgoing account's stashed graduation phrase
+    // (its credential) must not survive into the incoming one (F5 #287).
+    clearGraduatedPhrases();
   } else if (!recoveryCode) {
     throw new Error('No cached session and no recovery code to sign in with.');
   }
