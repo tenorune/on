@@ -38,14 +38,20 @@ FIREBASE_KEYS.forEach(key => {
   define[`process.env.${key}`] = JSON.stringify(env[key] || 'REPLACE_ME');
 });
 
+// Optional vars: a real environment variable overrides the env file (same
+// precedence as writeIndexHtml/writeAboutHtml). CI builds rely on this — the
+// FIREBASE_CONFIG_* secrets are write-only blobs, so the deploy workflows
+// pass these through the Build step's `env:` instead of the secret.
+const envVal = (key) => process.env[key] || env[key] || '';
+
 // Optional Mini App deep-link base, e.g. "https://t.me/knockknock_test_bot/app".
 // Empty (not REPLACE_ME) when unset so client code can feature-detect it.
-define['process.env.TELEGRAM_APP_LINK'] = JSON.stringify(env.TELEGRAM_APP_LINK || '');
+define['process.env.TELEGRAM_APP_LINK'] = JSON.stringify(envVal('TELEGRAM_APP_LINK'));
 
 // Dev-only identity-reset link (js/devReset.js): gates a secret + hostname
 // allowlist behind these two vars. Fail closed — empty ⇒ feature inert.
-define['process.env.DEV_RESET_SECRET'] = JSON.stringify(env.DEV_RESET_SECRET || '');
-define['process.env.DEV_RESET_HOSTS']  = JSON.stringify(env.DEV_RESET_HOSTS  || '');
+define['process.env.DEV_RESET_SECRET'] = JSON.stringify(envVal('DEV_RESET_SECRET'));
+define['process.env.DEV_RESET_HOSTS']  = JSON.stringify(envVal('DEV_RESET_HOSTS'));
 
 function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

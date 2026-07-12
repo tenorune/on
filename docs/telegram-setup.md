@@ -339,15 +339,27 @@ script tag back into `index.template.html`, `script-src` gains
 
 Part B below assumes this reverted state.
 
-**Launch checklist — root `.env.production`:** before building for launch,
-repeat A6's `/newapp` step with the prod bot (BotFather → `/newapp` → prod
-bot → production hosting URL as the Web App URL) and add the resulting link
-to the **root** `.env.production` — not `functions/.env`:
+**Launch checklist — the `TELEGRAM_APP_LINK` build variable:** before
+building for launch, repeat A6's `/newapp` step with the prod bot
+(BotFather → `/newapp` → prod bot → production hosting URL as the Web App
+URL). The resulting link is a **client build variable** — not
+`functions/.env`:
 
     TELEGRAM_APP_LINK=https://t.me/<prod_bot_username>/<app_short_name>
 
-This is a client build variable; unset, invite shares just fall back to web
-URLs (no build failure).
+Where to set it depends on how the launch build runs:
+
+- **GitHub Actions deploys (the normal path):** set the repository Actions
+  variable **`TELEGRAM_APP_LINK_PROD`** (Settings → Secrets and variables →
+  Actions → Variables). The prod workflow's Build step passes it through as
+  `TELEGRAM_APP_LINK`, which overrides the env file — the
+  `FIREBASE_CONFIG_PROD` secret never needs editing. (`_DEV` counterpart on
+  the dev workflow; the optional `DEV_RESET_SECRET_*` secret +
+  `DEV_RESET_HOSTS_*` variable ride the same mechanism.)
+- **Local builds:** add the line to the root `.env.production`
+  (or `.env.local` for dev builds), as before.
+
+Unset, invite shares just fall back to web URLs (no build failure).
 
 ---
 
