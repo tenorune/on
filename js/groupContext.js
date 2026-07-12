@@ -24,7 +24,7 @@ import {
 } from './prefs.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { openInviteModal } from './inviteModal.js';
-import { getCurrentFollowersMap, getCurrentMutuals } from './following.js';
+import { getCurrentFollowersMap, getCurrentFollowing } from './following.js';
 import { buildInviteUrl } from './invites.js';
 import { sendKnock, clearGroupCardBadge, drainPendingKnocks, getFloatedUserIds } from './knock.js';
 import { KNOCK_ENABLED, PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, NOTIFICATIONS_ENABLED, FOLLOW_REQUESTS_ENABLED } from './features.js';
@@ -160,7 +160,7 @@ function createInviteRow(ownUserId) {
       groupName: _groupName || _currentGroupId,
       activeInvite: _activeGroupInvite,
       followers: getCurrentFollowersMap(),
-      mutuals: getCurrentMutuals(),
+      following: getCurrentFollowing(),
       currentMemberUids: new Set(Object.keys(_lastMembers || {})),
     });
   });

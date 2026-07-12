@@ -243,7 +243,7 @@ describe('openInviteModal — group scope', () => {
   test('web group scope with an eligible contact: create link UI shown, tg-share hidden, picker shown', async () => {
     await openInviteModal({
       scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
-      followers: { 'follower-1': 'CODE-1' }, mutuals: [], currentMemberUids: new Set(),
+      followers: { 'follower-1': 'CODE-1' }, following: [], currentMemberUids: new Set(),
     });
     expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('invite-modal-tg-share').classList.contains('hidden')).toBe(true);
@@ -255,7 +255,7 @@ describe('openInviteModal — group scope', () => {
     isTelegramContext.mockReturnValue(true);
     await openInviteModal({
       scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
-      followers: { 'follower-1': 'CODE-1' }, mutuals: [], currentMemberUids: new Set(),
+      followers: { 'follower-1': 'CODE-1' }, following: [], currentMemberUids: new Set(),
     });
     expect(document.getElementById('invite-modal-tg-share').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(true);
@@ -271,7 +271,7 @@ describe('openInviteModal — group scope', () => {
     invites.createGroupInvite.mockResolvedValue({ token: 'GTOK', url: 'https://x/invite?i=GTOK' });
     await openInviteModal({
       scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
-      followers: { 'follower-1': 'CODE-1' }, mutuals: [], currentMemberUids: new Set(),
+      followers: { 'follower-1': 'CODE-1' }, following: [], currentMemberUids: new Set(),
     });
     document.getElementById('invite-modal-tg-share-btn').click();
     await new Promise(setImmediate);
@@ -290,7 +290,7 @@ describe('openInviteModal — group scope', () => {
     invites.createGroupInvite.mockResolvedValue({ token: 'GTOK', url: 'https://x/invite?i=GTOK' });
     // followers empty ⇒ hasDisplayableInvitees false
     await openInviteModal({ scope: 'group', userId: 'me', groupId: 'g1', groupName: 'Divers',
-      followers: {}, mutuals: [], currentMemberUids: new Set() });
+      followers: {}, following: [], currentMemberUids: new Set() });
     expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
     expect(invites.createGroupInvite).toHaveBeenCalledWith('me', 'g1');
     expect(shareInviteLink).toHaveBeenCalled();
@@ -301,7 +301,7 @@ describe('openInviteModal — group scope', () => {
     const { isTelegramContext } = require('../js/telegram.js');
     isTelegramContext.mockReturnValue(true);
     await openInviteModal({ scope: 'group', userId: 'me', groupId: 'g1', groupName: 'Divers',
-      followers: { a: 'CODE-A' }, mutuals: [], currentMemberUids: new Set() });
+      followers: { a: 'CODE-A' }, following: [], currentMemberUids: new Set() });
     expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
     isTelegramContext.mockReturnValue(false);
   });
@@ -311,7 +311,7 @@ describe('openInviteModal — group scope', () => {
     isTelegramContext.mockReturnValue(true);
     invites.createGroupInvite.mockRejectedValueOnce(new Error('offline'));
     await openInviteModal({ scope: 'group', userId: 'me', groupId: 'g1', groupName: 'Divers',
-      followers: {}, mutuals: [], currentMemberUids: new Set() });
+      followers: {}, following: [], currentMemberUids: new Set() });
     // Restore BEFORE asserting — a thrown expect below must not leak TG
     // context into later tests.
     isTelegramContext.mockReturnValue(false);
@@ -487,7 +487,7 @@ test('openInviteModal in group scope calls renderInvitePicker with the supplied 
     groupId: 'G1',
     groupName: 'Family',
     followers: { uA: 'codeA' },
-    mutuals: [],
+    following: [],
     currentMemberUids: new Set(['someoneElse']),
   });
   expect(renderInvitePickerMock).toHaveBeenCalledTimes(1);
@@ -535,7 +535,7 @@ describe('openInviteModal — Section 2 (in-app picker)', () => {
     `;
     await openInviteModal({
       scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family',
-      followers: { 'follower-1': 'CODE-1' }, mutuals: [], currentMemberUids: new Set(),
+      followers: { 'follower-1': 'CODE-1' }, following: [], currentMemberUids: new Set(),
     });
     expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(false);
   });
@@ -574,7 +574,7 @@ describe('openInviteModal — Section 2 (in-app picker)', () => {
     setupDom();
     await openInviteModal({
       scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family',
-      followers: {}, mutuals: [], currentMemberUids: new Set(),
+      followers: {}, following: [], currentMemberUids: new Set(),
     });
     expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(true);
     expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(false);
@@ -587,7 +587,7 @@ describe('openInviteModal — Section 2 (in-app picker)', () => {
     setupDom();
     await openInviteModal({
       scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family',
-      followers: { uA: 'CODE-A' }, mutuals: [], currentMemberUids: new Set(['uA']),
+      followers: { uA: 'CODE-A' }, following: [], currentMemberUids: new Set(['uA']),
     });
     expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(true);
   });

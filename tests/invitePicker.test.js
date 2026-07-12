@@ -24,12 +24,12 @@ beforeEach(() => {
 });
 
 describe('renderInvitePicker', () => {
-  test('renders mutuals first (by label), then non-mutual followers (by code)', () => {
+  test('renders labeled people first (by label), then follower-only rows (by code)', () => {
     renderInvitePicker({
       inviterUid: 'me',
       groupId: 'G1',
       followers: { uMutA: 'codeA', uMutB: 'codeB', uFollC: 'codeC', uFollD: 'codeD' },
-      mutuals: [{ userId: 'uMutB', label: 'Bea' }, { userId: 'uMutA', label: 'Alex' }],
+      following: [{ userId: 'uMutB', label: 'Bea' }, { userId: 'uMutA', label: 'Alex' }],
       currentMemberUids: new Set(['someoneElse']),
       pendingInviteeUids: new Set(),
     });
@@ -48,7 +48,7 @@ describe('renderInvitePicker', () => {
       inviterUid: 'me',
       groupId: 'G1',
       followers: { uMut: 'MUTCODE' },
-      mutuals: [{ userId: 'uMut', label: '' }], // followed-back, never given a name
+      following: [{ userId: 'uMut', label: '' }], // followed-back, never given a name
       currentMemberUids: new Set(),
       pendingInviteeUids: new Set(),
     });
@@ -62,7 +62,7 @@ describe('renderInvitePicker', () => {
       inviterUid: 'me',
       groupId: 'G1',
       followers: { uA: 'codeA', uB: 'codeB' },
-      mutuals: [],
+      following: [],
       currentMemberUids: new Set(['uB']),
       pendingInviteeUids: new Set(),
     });
@@ -76,7 +76,7 @@ describe('renderInvitePicker', () => {
       inviterUid: 'me',
       groupId: 'G1',
       followers: { uA: 'codeA', uB: 'codeB' },
-      mutuals: [],
+      following: [],
       currentMemberUids: new Set(),
       pendingInviteeUids: new Set(['uA']),
     });
@@ -91,7 +91,7 @@ describe('renderInvitePicker', () => {
       inviterUid: 'me',
       groupId: 'G1',
       followers: { uA: 'codeA' },
-      mutuals: [],
+      following: [],
       currentMemberUids: new Set(),
       pendingInviteeUids: new Set(),
     });
@@ -107,7 +107,7 @@ describe('renderInvitePicker', () => {
       inviterUid: 'me',
       groupId: 'G1',
       followers: { uA: 'codeA' },
-      mutuals: [],
+      following: [],
       currentMemberUids: new Set(),
       pendingInviteeUids: new Set(),
     });
@@ -125,7 +125,7 @@ describe('renderInvitePicker', () => {
       inviterUid: 'me',
       groupId: 'G1',
       followers: { uA: 'codeA' },
-      mutuals: [],
+      following: [],
       currentMemberUids: new Set(),
       pendingInviteeUids: new Set(),
     });
@@ -141,7 +141,7 @@ describe('renderInvitePicker', () => {
       inviterUid: 'me',
       groupId: 'G1',
       followers: { uA: 'codeA', uB: 'codeB' },
-      mutuals: [],
+      following: [],
       currentMemberUids: new Set(),
       pendingInviteeUids: new Set(),
     });
@@ -160,7 +160,7 @@ describe('renderInvitePicker', () => {
       inviterUid: 'me',
       groupId: 'G1',
       followers: { uA: 'codeA' },
-      mutuals: [],
+      following: [],
       currentMemberUids: new Set(),
       pendingInviteeUids: new Set(),
     });
@@ -178,7 +178,7 @@ describe('renderInvitePicker', () => {
       inviterUid: 'me',
       groupId: 'G1',
       followers: { uA: 'codeA' },
-      mutuals: [],
+      following: [],
       currentMemberUids: new Set(),
       pendingInviteeUids: new Set(['uA']),
     });
@@ -191,12 +191,12 @@ describe('renderInvitePicker', () => {
     expect(row.querySelector('.invite-picker-pill-invited')).toBeNull();
   });
 
-  test('rendering shows mutuals by their local label; non-mutual followers by share code', () => {
+  test('rendering shows followees by their local label; follower-only rows by share code', () => {
     renderInvitePicker({
       inviterUid: 'me',
       groupId: 'G1',
       followers: { uMut: 'mutCode', uFoll: 'follCode' },
-      mutuals: [{ userId: 'uMut', label: 'Bea' }],
+      following: [{ userId: 'uMut', label: 'Bea' }],
       currentMemberUids: new Set(),
       pendingInviteeUids: new Set(),
     });
@@ -207,21 +207,120 @@ describe('renderInvitePicker', () => {
   });
 });
 
+// A1 (social-model Wave A, #291): eligibility is key-based — everyone whose key
+// you hold: (followers ∪ following) − members − self. People you follow who
+// don't follow you back are invitable, shown by your private label for them.
+describe('key-based eligibility (followers ∪ following)', () => {
+  test('renders a followee who does not follow back', () => {
+    renderInvitePicker({
+      inviterUid: 'me',
+      groupId: 'G1',
+      followers: {},
+      following: [{ userId: 'uF', label: 'Fred', code: 'FREDCO' }],
+      currentMemberUids: new Set(),
+      pendingInviteeUids: new Set(),
+    });
+    const row = document.querySelector('.invite-picker-row[data-uid="uF"]');
+    expect(row).not.toBeNull();
+    expect(row.querySelector('.invite-picker-name').textContent).toBe('Fred');
+  });
+
+  test('a followee with no label falls back to their code', () => {
+    renderInvitePicker({
+      inviterUid: 'me',
+      groupId: 'G1',
+      followers: {},
+      following: [{ userId: 'uF', label: '', code: 'FREDCO' }],
+      currentMemberUids: new Set(),
+      pendingInviteeUids: new Set(),
+    });
+    const row = document.querySelector('.invite-picker-row[data-uid="uF"]');
+    expect(row).not.toBeNull();
+    expect(row.querySelector('.invite-picker-name').textContent).toBe('FREDCO');
+  });
+
+  test('labeled people (following) render before code-only rows (follower-only)', () => {
+    renderInvitePicker({
+      inviterUid: 'me',
+      groupId: 'G1',
+      followers: { uZ: 'AAACODE' }, // sorts first alphabetically, but tier order wins
+      following: [{ userId: 'uF', label: 'Zoe', code: 'ZOECODE' }],
+      currentMemberUids: new Set(),
+      pendingInviteeUids: new Set(),
+    });
+    const rows = document.querySelectorAll('.invite-picker-row');
+    expect(rows.length).toBe(2);
+    expect(rows[0].dataset.uid).toBe('uF');
+    expect(rows[1].dataset.uid).toBe('uZ');
+  });
+
+  test('excludes followees who are already members, and self', () => {
+    renderInvitePicker({
+      inviterUid: 'me',
+      groupId: 'G1',
+      followers: {},
+      following: [
+        { userId: 'uMember', label: 'In Already', code: 'CODE-M' },
+        { userId: 'me', label: 'Myself', code: 'CODE-ME' },
+      ],
+      currentMemberUids: new Set(['uMember']),
+      pendingInviteeUids: new Set(),
+    });
+    expect(document.querySelectorAll('.invite-picker-row').length).toBe(0);
+  });
+
+  test('a mutual (in both followers and following) renders once, by label', () => {
+    renderInvitePicker({
+      inviterUid: 'me',
+      groupId: 'G1',
+      followers: { uMut: 'MUTCODE' },
+      following: [{ userId: 'uMut', label: 'Bea', code: 'MUTCODE' }],
+      currentMemberUids: new Set(),
+      pendingInviteeUids: new Set(),
+    });
+    const rows = document.querySelectorAll('.invite-picker-row');
+    expect(rows.length).toBe(1);
+    expect(rows[0].dataset.uid).toBe('uMut');
+    expect(rows[0].querySelector('.invite-picker-name').textContent).toBe('Bea');
+  });
+
+  test('hasDisplayableInvitees is true when the only candidate is a non-follower followee', () => {
+    expect(hasDisplayableInvitees({
+      inviterUid: 'me',
+      followers: {},
+      following: [{ userId: 'uF', label: 'Fred', code: 'FREDCO' }],
+      currentMemberUids: new Set(),
+    })).toBe(true);
+  });
+
+  test('hasDisplayableInvitees is false when every followee is a member or self', () => {
+    expect(hasDisplayableInvitees({
+      inviterUid: 'me',
+      followers: {},
+      following: [
+        { userId: 'uMember', label: 'In Already', code: 'CODE-M' },
+        { userId: 'me', label: 'Myself', code: 'CODE-ME' },
+      ],
+      currentMemberUids: new Set(['uMember']),
+    })).toBe(false);
+  });
+});
+
 describe('hasDisplayableInvitees', () => {
   const base = { inviterUid: 'me', currentMemberUids: new Set() };
   test('true when a non-member follower exists', () => {
-    expect(hasDisplayableInvitees({ ...base, followers: { a: 'CODE-A' }, mutuals: [] })).toBe(true);
+    expect(hasDisplayableInvitees({ ...base, followers: { a: 'CODE-A' }, following: [] })).toBe(true);
   });
   test('true when a mutual (present in followers) exists', () => {
-    expect(hasDisplayableInvitees({ ...base, followers: { a: 'CODE-A' }, mutuals: [{ userId: 'a', label: 'Ana' }] })).toBe(true);
+    expect(hasDisplayableInvitees({ ...base, followers: { a: 'CODE-A' }, following: [{ userId: 'a', label: 'Ana' }] })).toBe(true);
   });
   test('false when the only follower is already a member', () => {
-    expect(hasDisplayableInvitees({ ...base, followers: { a: 'CODE-A' }, mutuals: [], currentMemberUids: new Set(['a']) })).toBe(false);
+    expect(hasDisplayableInvitees({ ...base, followers: { a: 'CODE-A' }, following: [], currentMemberUids: new Set(['a']) })).toBe(false);
   });
   test('false when the only follower is self', () => {
-    expect(hasDisplayableInvitees({ ...base, followers: { me: 'CODE-ME' }, mutuals: [] })).toBe(false);
+    expect(hasDisplayableInvitees({ ...base, followers: { me: 'CODE-ME' }, following: [] })).toBe(false);
   });
   test('false when followers is empty', () => {
-    expect(hasDisplayableInvitees({ ...base, followers: {}, mutuals: [] })).toBe(false);
+    expect(hasDisplayableInvitees({ ...base, followers: {}, following: [] })).toBe(false);
   });
 });

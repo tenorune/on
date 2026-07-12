@@ -134,7 +134,7 @@ jest.mock('../js/me.js', () => ({
 }));
 jest.mock('../js/following.js', () => ({
   getCurrentFollowersMap: jest.fn(() => ({})),
-  getCurrentMutuals: jest.fn(() => []),
+  getCurrentFollowing: jest.fn(() => []),
 }));
 jest.mock('../js/followRequests.js', () => ({
   isFollowRequestEligible: jest.fn(() => false),

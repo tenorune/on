@@ -3,14 +3,19 @@
 // Section 2 for group-scope invites.
 //
 // Responsibilities:
-//   - Render the merged list (mutuals first, then non-mutual followers)
+//   - Render the merged list: labeled people first (everyone you follow, by
+//     your private label), then code-only rows (followers you don't follow)
 //   - Filter out current group members and the inviter themself
 //   - Show "Invited" pill on rows with a pending invite
 //   - Multi-select state for unselected rows
 //   - Invite button → writePendingInvite for each selected; flip rows to Invited
 //   - Tap "Invited" pill → deletePendingInvite; flip row back to selectable
 //
-// Data is injected (followers map, mutuals list, current member set, pending
+// Eligibility is key-based (A1, #291): everyone whose key you hold —
+// (followers ∪ following) − members − self. Rules already permit inviting
+// any uid (database.rules.json requires only membership).
+//
+// Data is injected (followers map, following list, current member set, pending
 // invitee set) rather than fetched inside this module so callers can shape
 // the data freely and tests don't need to mock subscriptions.
 
@@ -19,22 +24,18 @@ import { writePendingInvite, deletePendingInvite } from './db.js';
 let _state = null;
 
 // Mirrors the eligibility rule used by renderInvitePicker's row builders below
-// (mutualEntries + nonMutualEntries filters) so the two can never disagree:
-// a follower is displayable when they aren't already a group member and
-// aren't the inviter themself.
-export function hasDisplayableInvitees({ followers, mutuals, currentMemberUids, inviterUid }) {
-  const mutualLookup = new Map(mutuals.map((m) => [m.userId, m.label]));
-  const mutualHit = mutuals.some(
-    (m) => followers[m.userId] && !currentMemberUids.has(m.userId) && m.userId !== inviterUid,
-  );
-  const nonMutualHit = Object.keys(followers).some(
-    (uid) => !mutualLookup.has(uid) && !currentMemberUids.has(uid) && uid !== inviterUid,
-  );
-  return mutualHit || nonMutualHit;
+// (followingEntries + followerOnlyEntries filters) so the two can never
+// disagree: anyone whose key you hold is displayable unless they're already a
+// group member or the inviter themself.
+export function hasDisplayableInvitees({ followers, following = [], currentMemberUids, inviterUid }) {
+  const eligible = (uid) => !currentMemberUids.has(uid) && uid !== inviterUid;
+  if (following.some((f) => eligible(f.userId))) return true;
+  const followingUids = new Set(following.map((f) => f.userId));
+  return Object.keys(followers).some((uid) => !followingUids.has(uid) && eligible(uid));
 }
 
 export function renderInvitePicker({
-  inviterUid, groupId, followers, mutuals, currentMemberUids, pendingInviteeUids,
+  inviterUid, groupId, followers, following = [], currentMemberUids, pendingInviteeUids,
 }) {
   _state = {
     inviterUid, groupId,
@@ -42,18 +43,18 @@ export function renderInvitePicker({
     pendingInviteeUids: new Set(pendingInviteeUids || []),
   };
 
-  // Build the rendered list of { uid, displayName }, mutuals first.
-  const mutualLookup = new Map(mutuals.map((m) => [m.userId, m.label]));
-  const mutualEntries = mutuals
-    .filter((m) => followers[m.userId] && !currentMemberUids.has(m.userId) && m.userId !== inviterUid)
-    // A mutual with no custom label falls back to their share code (the value in
-    // the followers map, which the filter above guarantees is present) so the
-    // row is never blank.
-    .map((m) => ({ uid: m.userId, displayName: m.label || followers[m.userId] }))
+  // Build the rendered list of { uid, displayName }, labeled people first.
+  const followingEntries = following
+    .filter((f) => !currentMemberUids.has(f.userId) && f.userId !== inviterUid)
+    // A followee with no custom label falls back to their share code (from the
+    // following entry itself, or the followers map for a mutual) so the row is
+    // never blank.
+    .map((f) => ({ uid: f.userId, displayName: f.label || f.code || followers[f.userId] || f.userId }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-  const nonMutualEntries = Object.entries(followers)
-    .filter(([uid]) => !mutualLookup.has(uid) && !currentMemberUids.has(uid) && uid !== inviterUid)
+  const followingUids = new Set(following.map((f) => f.userId));
+  const followerOnlyEntries = Object.entries(followers)
+    .filter(([uid]) => !followingUids.has(uid) && !currentMemberUids.has(uid) && uid !== inviterUid)
     .map(([uid, code]) => ({ uid, displayName: code }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
@@ -61,7 +62,7 @@ export function renderInvitePicker({
   if (!listEl) return;
   listEl.innerHTML = '';
 
-  for (const entry of [...mutualEntries, ...nonMutualEntries]) {
+  for (const entry of [...followingEntries, ...followerOnlyEntries]) {
     listEl.appendChild(buildRow(entry));
   }
 

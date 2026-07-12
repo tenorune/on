@@ -34,7 +34,7 @@ jest.mock('../js/inviteModal.js', () => ({
 }));
 jest.mock('../js/following.js', () => ({
   getCurrentFollowersMap: jest.fn(() => ({ f1: 'CODEF1' })),
-  getCurrentMutuals: jest.fn(() => [{ userId: 'm1', label: 'Mut One' }]),
+  getCurrentFollowing: jest.fn(() => [{ userId: 'm1', label: 'Mut One' }]),
 }));
 
 const db = require('../js/db.js');
@@ -187,7 +187,7 @@ describe('create-group modal', () => {
     document.getElementById('create-group-displayname-input').value = 'Alex';
     document.getElementById('create-group-submit-btn').click();
     await new Promise(setImmediate);
-    // Includes the picker data (followers/mutuals/members) so the "invite
+    // Includes the picker data (followers/following/members) so the "invite
     // specific people" list is populated during the create flow, not empty
     // until a manual reopen.
     expect(inviteModal.openInviteModal).toHaveBeenCalledWith(expect.objectContaining({
@@ -196,7 +196,7 @@ describe('create-group modal', () => {
       groupId: 'G1ABCDEF',
       groupName: 'Family',
       followers: { f1: 'CODEF1' },
-      mutuals: [{ userId: 'm1', label: 'Mut One' }],
+      following: [{ userId: 'm1', label: 'Mut One' }],
       currentMemberUids: expect.any(Set),
     }));
   });

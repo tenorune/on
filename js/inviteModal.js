@@ -76,7 +76,7 @@ export function closeInviteModal() {
 }
 const closeModal = closeInviteModal;
 
-export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, mutuals = [], currentMemberUids = new Set() }) {
+export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, following = [], currentMemberUids = new Set() }) {
   const copy = SCOPE_COPY[scope];
   if (!copy) throw new Error(`Unknown scope: ${scope}`);
   if (scope === 'group' && (!groupId || !groupName)) {
@@ -110,7 +110,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   // data so there's no post-paint flash. Populate (async) AFTER the modal is
   // shown, at the end of this function.
   const displayableInvitees = scope === 'group'
-    && hasDisplayableInvitees({ followers, mutuals, currentMemberUids, inviterUid: userId });
+    && hasDisplayableInvitees({ followers, following, currentMemberUids, inviterUid: userId });
   const pickerEl = document.getElementById('invite-modal-picker');
   if (pickerEl) {
     pickerEl.classList.toggle('hidden', !displayableInvitees);
@@ -268,7 +268,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   document.getElementById('invite-modal').classList.remove('hidden');
 
   // Populate the in-app picker after the modal is already up. Skipped when the
-  // section is hidden — rows are built solely from followers/mutuals, so with
+  // section is hidden — rows are built solely from followers/following, so with
   // no displayable invitees there is nothing to render (or fetch).
   if (displayableInvitees) {
     const pendingInvitees = await readPendingInviteesForGroup(groupId);
@@ -276,7 +276,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
       inviterUid: userId,
       groupId,
       followers,
-      mutuals,
+      following,
       currentMemberUids,
       pendingInviteeUids: new Set(pendingInvitees),
     });
