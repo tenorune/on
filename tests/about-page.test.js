@@ -111,6 +111,11 @@ describe('about.template.html content', () => {
     }
   });
 
+  test('has the ungated Telegram feature card', () => {
+    expect(tpl).toMatch(/<h3>Telegram<\/h3>/);
+    expect(tpl).toContain('How Telegram works');
+  });
+
   test('has at least four how-it-works <details> blocks', () => {
     const count = (tpl.match(/<details>/g) || []).length;
     expect(count).toBeGreaterThanOrEqual(4);
