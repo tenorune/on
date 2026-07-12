@@ -48,6 +48,22 @@ jobs:
         run: |
           printf '%s\n' "${{ secrets.FIREBASE_CONFIG_PROD }}" > .env.production
 
+      # firebase deploy bakes functions/.env into the functions at deploy
+      # time — without this step a CI deploy strips the Telegram config from
+      # the live functions. Unset entries write nothing (feature inert).
+      - name: Write functions/.env (Telegram config)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN_PROD }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET_PROD }}
+          TELEGRAM_UID_SECRET: ${{ secrets.TELEGRAM_UID_SECRET_PROD }}
+          TELEGRAM_APP_URL: ${{ vars.TELEGRAM_APP_URL_PROD }}
+        run: |
+          : > functions/.env
+          for key in TELEGRAM_BOT_TOKEN TELEGRAM_WEBHOOK_SECRET TELEGRAM_UID_SECRET TELEGRAM_APP_URL; do
+            val=$(printenv "$key" || true)
+            if [ -n "$val" ]; then printf '%s=%s\n' "$key" "$val" >> functions/.env; fi
+          done
+
       - name: Write service account credentials
         env:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}

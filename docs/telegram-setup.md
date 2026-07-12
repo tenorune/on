@@ -123,6 +123,12 @@ the bundle carries the dev project's Firebase config and the branch's
    is tracked in git (it carries only the non-secret `FUNCTIONS_REGION`);
    committing a bot token there would leak it.
 
+   **GitHub Actions note:** the dev deploy workflow writes `functions/.env`
+   from the `TELEGRAM_*_DEV` Actions secrets/variables (see B3 for the list)
+   before every deploy. Set those once and pushes to `dev` keep the test
+   bot's config live instead of wiping it; leave them unset and CI deploys
+   ship inert functions (this local runbook then remains the only source).
+
 2. Deploy (env is baked in at deploy time, so the edit must come first):
 
        npx firebase deploy --only functions,database --project "$DEV_PROJECT"
@@ -399,32 +405,39 @@ production bot**. Do not reuse the test bot or any of its values.
 
 ### B3. Configure functions env for the prod deploy
 
-`functions/.env` is loaded on **every** functions deploy regardless of
-`--project`. During dev testing it holds the TEST bot's values — you MUST
-replace them before deploying functions to prod, or the prod functions will
-validate against (and send from) the test bot.
+`functions/.env` is loaded on **every** functions deploy and baked in at
+deploy time. The values (production equivalents of A5's):
 
-1. Edit `functions/.env` to the production values:
+    TELEGRAM_BOT_TOKEN=<PROD bot token from B2>
+    TELEGRAM_WEBHOOK_SECRET=<a NEW long random string — do not reuse dev's>
+    TELEGRAM_APP_URL=https://<prodProject>.web.app
+    TELEGRAM_UID_SECRET=<a NEW long random string — do not reuse dev's>
 
-       TELEGRAM_BOT_TOKEN=<PROD bot token from B2>
-       TELEGRAM_WEBHOOK_SECRET=<a NEW long random string — do not reuse dev's>
-       TELEGRAM_APP_URL=https://<prodProject>.web.app
-       TELEGRAM_UID_SECRET=<a NEW long random string — do not reuse dev's>
+(`TELEGRAM_APP_URL` is the production hosting URL — your custom domain if
+you serve one. `TELEGRAM_UID_SECRET` keys the derived uid — see A5; keep it
+stable once prod accounts exist.)
 
-   (`TELEGRAM_APP_URL` is the production hosting URL — your custom domain if
-   you serve one. `TELEGRAM_UID_SECRET` keys the derived uid — see A5; keep it
-   stable once prod accounts exist.)
+**GitHub Actions deploys (the normal path):** both deploy workflows write
+`functions/.env` from suffixed Actions entries before every deploy, so
+configure these once in GitHub (Settings → Secrets and variables → Actions):
 
-   **Warning:** as in dev, never put these in the tracked
-   `functions/.env.<projectId>`.
+- Secrets: **`TELEGRAM_BOT_TOKEN_PROD`**, **`TELEGRAM_WEBHOOK_SECRET_PROD`**,
+  **`TELEGRAM_UID_SECRET_PROD`**
+- Variable: **`TELEGRAM_APP_URL_PROD`**
 
-2. Consequence to accept for now: while `functions/.env` holds prod values, a
-   dev functions deploy would push the PROD bot's token to dev. Swap the file
-   back before any dev deploy, or keep two copies
-   (`functions/.env.telegram-dev` / `functions/.env.telegram-prod`, both
-   gitignored by a local pattern) and `cp` the right one into place. The
-   durable fix is moving these to Secret Manager (`defineSecret`) — already
-   noted in the spec as a pre-broad-rollout item.
+(`_DEV` counterparts feed the dev workflow with the TEST bot's values.)
+Unset entries are simply omitted from the file — the functions stay inert.
+Because each workflow writes its own project's values, CI deploys can never
+cross-wire the two bots, and a routine merge can never strip a configured
+bot: the config rides along on every deploy.
+
+**Local deploys:** edit the gitignored `functions/.env` by hand as above,
+before deploying. Mind the classic cross-wire: whatever the file holds goes
+to whichever `--project` you deploy, so swap it when switching projects.
+
+**Warning:** as in dev, never put these values in the tracked
+`functions/.env.<projectId>`. The durable fix remains Secret Manager
+(`defineSecret`) — a pre-broad-rollout item in the spec.
 
 ### B4. Build + deploy everything to prod
 
