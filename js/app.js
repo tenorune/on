@@ -4,7 +4,7 @@ import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setSt
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following.js';
 import { initKnocks } from './knock.js';
-import { initCodeDrawer, updateMyCode } from './mycode.js';
+import { initCodeDrawer, updateMyCode, startPersonalInviteFlow } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { initNotifyPrompt, refreshPushToken, phraseReminderHtml, wirePhraseCopyButton } from './notifyPrompt.js';
 import { initInstallAffordance } from './installAffordance.js';
@@ -14,42 +14,42 @@ import { applyPaletteVars, initSwatches, getGlowForColor, getPaletteByKey, apply
 import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, extractDirectIntentFromUrl, resolveInvitePreview } from './invites.js';
+import { decideBootRedirect, readBootRedirectContext } from './inviteBootGate.js';
 import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext } from './prefs.js';
 import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, navigateToDirect, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
 import { routeNotificationClick } from './notifyRouting.js';
 import { initOwnStatus, subscribeOwnStatus } from './ownStatus.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
-import { initGroupRemovalDetector } from './groups.js';
+import { initGroupRemovalDetector, showToast } from './groups.js';
 import { initInbox, openInboxModal } from './inbox.js';
 import { initFollowGrants } from './followRequests.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
-import { flashRegenerated } from './regenFlash.js';
 import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
+import { isTelegramContext, ensureTelegramIdentity, isTelegramLinked, telegramFirstName } from './telegram.js';
+import { initTelegramChrome } from './telegramChrome.js';
+import { telegramInviteGate, stampInviteOutcome, redemptionConsumedToken } from './telegramFirstRun.js';
+import { runLinkArrival } from './telegramLinkArrival.js';
+import { ensureCacheOwner } from './cacheOwner.js';
+import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
+import { showGraduationInfo } from './graduation.js';
+import { syncNotifyChannel } from './notifyChannel.js';
+import { syncBotDelivery } from './notifySuppression.js';
+import { initTelegramOnramp, syncTelegramOnramp } from './telegramOnramp.js';
 import { initHintRotation } from './hintRotation.js';
+import { initFirstRun, consumeGraduationNotice } from './firstRun.js';
+import { showRecoveryCodeModal } from './recoveryModal.js';
+import { setButtonBusy, clearButtonBusy } from './utils.js';
+import { maybeRunDevReset } from './devReset.js';
 
+// Re-exported for tests/recovery.test.js, which requires it from app.js directly.
+export { showRecoveryCodeModal };
+export { handleInviteRedemptionResult, reconcileSilentRedeemToast };
 
 let splashCounter = 0;
 let splashDone = false;
 let _followGrantsUnsub = null; // captured for a future user-switch teardown (#214 R2)
-
-// Busy/idle feedback for a primary action button while an async round-trip runs
-// (restore verification, new-account setup). Disabling it both dims the button
-// via the existing `.primary-btn:disabled` opacity rule and blocks double-taps;
-// the label swaps to a progress word. The idle label is stashed on first use so
-// clearButtonBusy restores whatever the markup shipped, and a re-open starts clean.
-function setButtonBusy(btn, busyText) {
-  if (!btn) return;
-  if (btn.dataset.idleLabel === undefined) btn.dataset.idleLabel = btn.textContent;
-  btn.textContent = busyText;
-  btn.disabled = true;
-}
-function clearButtonBusy(btn) {
-  if (!btn) return;
-  if (btn.dataset.idleLabel !== undefined) btn.textContent = btn.dataset.idleLabel;
-  btn.disabled = false;
-}
 
 function initSplash(followeeCount) {
   splashCounter = 1 + followeeCount;
@@ -94,6 +94,21 @@ function rearmSplash() {
   el.style.display = '';
 }
 
+// Surface the boot-failure retry overlay (W1 J#2). Idempotent: dismissSplash is
+// guarded, unhiding is a no-op if already shown, and onclick (not
+// addEventListener) can't stack duplicate reload handlers across calls.
+function showBootError() {
+  dismissSplash();
+  const overlay = document.getElementById('boot-error-overlay');
+  if (overlay) {
+    overlay.classList.remove('hidden');
+    const retry = document.getElementById('boot-error-retry');
+    if (retry) retry.onclick = () => window.location.reload();
+  } else {
+    showToast("Couldn't start KnockKnock. Try again in a moment.");
+  }
+}
+
 // The ?setup=install marker is stamped on the URL after account creation on the
 // iOS/macOS install lanes. When the user opens that URL in a real browser to Add
 // to Home Screen (a fresh storage partition with no identity), it routes them to
@@ -107,6 +122,24 @@ function isSetupInstall() {
 }
 
 async function ensureIdentity(pendingInviteToken = null) {
+  // Telegram Mini App: identity comes from the webview's signed initData —
+  // no welcome/restore/phrase screens, no localStorage session. Invite links
+  // don't reach this surface (the Mini App is opened from the bot, not from
+  // an invite URL), so the pendingInviteToken flow stays browser-only.
+  if (isTelegramContext()) {
+    try {
+      return await ensureTelegramIdentity();
+    } catch (e) {
+      // Telegram boot failed (bot not configured server-side, or network).
+      // A passive toast left a blank dead screen (W1 J#2) — show a retry
+      // surface instead; reload re-runs boot (ensureTelegramIdentity is an
+      // upsert, so retrying is safe). Still rethrow so main() doesn't continue
+      // with no identity.
+      console.error('telegram boot failed:', e);
+      showBootError();
+      throw e;
+    }
+  }
   const existing = loadIdentity();
   if (existing) {
     let valid = true;
@@ -175,14 +208,13 @@ async function ensureIdentity(pendingInviteToken = null) {
   // screen renders with framing already populated. resolveInvitePreview
   // returns null synchronously when there is no pending token, so non-invite
   // boots do not pay the round-trip cost.
-  const invitePreview = await resolveInvitePreview(pendingInviteToken);
+  const invitePreview = await resolveInvitePreview(pendingInviteToken).catch(() => null);
   const inviteCreatorLabel = invitePreview?.scope === 'personal' ? invitePreview.label : null;
   const inviteGroupName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
   // Dismiss splash so the user can see and interact with the welcome screen.
   dismissSplash();
-  if (onboardingLane({ installPromptAvailable: false }) === 'in-app-browser') {
-    await showInAppBrowserRedirect(); // informational; user may continue here anyway
-  }
+  // The old in-app-browser interstitial is gone (spec Q6=A): fresh webview
+  // arrivals are redirected by inviteBootGate before reaching this point.
   // Loop so that cancelling the restore screen returns the user to the
   // welcome screen, not silently into the new-account flow.
   while (true) {
@@ -260,7 +292,7 @@ export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName =
   if (framingEl) {
     let text = '';
     if (inviteCreatorLabel) text = `You've been invited to follow ${inviteCreatorLabel}. First, let's set up your account.`;
-    else if (inviteGroupName) text = `You've been invited to join '${inviteGroupName}'. First, let's set up your account.`;
+    else if (inviteGroupName) text = `You've been invited to join ${inviteGroupName}. First, let's set up your account.`;
     framingEl.textContent = text;
     framingEl.classList.toggle('hidden', !text);
   }
@@ -276,91 +308,6 @@ export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName =
     function onRestore() { pick('restore'); }
     newBtn.addEventListener('click', onNew);
     restoreBtn.addEventListener('click', onRestore);
-  });
-}
-
-// `onConfirm` (optional) is an async hook run when the user taps "I've saved it",
-// WHILE the modal stays up with the button in a "Setting up…" busy state. The
-// modal only hides + resolves once it completes; if it throws, the modal stays
-// open and the button reverts so the user can retry. New-account setup
-// (sign-in + share-code claim) runs here so the screen doesn't go blank during
-// those round-trips (the FTU equivalent of restore's post-submit splash).
-export function showRecoveryCodeModal(initialCode, onConfirm) {
-  const el = document.getElementById('recovery-modal');
-  const text = document.getElementById('recovery-code-text');
-  const rotateBtn = document.getElementById('recovery-rotate-btn');
-  const copyBtn = document.getElementById('recovery-copy-btn');
-  const savedBtn = document.getElementById('recovery-saved-btn');
-  if (!el) return new Promise(() => {}); // not mounted (e.g. partial DOM under test) — stay inert
-
-  let current = initialCode;
-  text.textContent = current;
-  if (copyBtn) copyBtn.textContent = 'Copy';
-  el.classList.remove('hidden');
-
-  const kcPhrase = document.getElementById('recovery-keychain-phrase');
-  const kcForm = document.getElementById('recovery-keychain-form');
-  if (kcPhrase) kcPhrase.value = current;
-  const onKcSubmit = (e) => e.preventDefault();
-  if (kcForm) kcForm.addEventListener('submit', onKcSubmit);
-
-  return new Promise((resolve) => {
-    function onRotate() {
-      current = generateRecoveryCode();
-      text.textContent = current;
-      if (kcPhrase) kcPhrase.value = current;
-      if (copyBtn) copyBtn.textContent = 'Copy';
-      // Same visible-change cue as the invite modal: fade-in + a NEW badge that
-      // replaces the ↻ while it shows (which also drops the button's focus, so
-      // it never looks "stuck selected").
-      flashRegenerated(text, rotateBtn);
-    }
-    async function onCopy() {
-      try {
-        await navigator.clipboard?.writeText(current);
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
-      } catch (_) {
-        // ignore clipboard failures
-      }
-    }
-    // Trap the browser/PWA back-gesture so it can't dismiss the modal and discard
-    // the un-saved phrase: push a history entry on open, and re-push if a back
-    // pops it while the modal is still showing. Net history depth stays +1 (each
-    // back pops our entry and we push it again). Removed once the user saves.
-    function onPopState() {
-      if (!el.classList.contains('hidden') && typeof history !== 'undefined' && history.pushState) {
-        history.pushState({ recoveryModal: true }, '');
-      }
-    }
-    async function onSaved() {
-      // Run any setup hook first, keeping the modal up with feedback. On failure
-      // leave everything mounted so the user can tap again to retry.
-      if (onConfirm) {
-        setButtonBusy(savedBtn, 'Setting up…');
-        try {
-          await onConfirm(current);
-        } catch (e) {
-          console.error('account setup failed:', e);
-          clearButtonBusy(savedBtn);
-          return;
-        }
-      }
-      rotateBtn.removeEventListener('click', onRotate);
-      copyBtn.removeEventListener('click', onCopy);
-      savedBtn.removeEventListener('click', onSaved);
-      window.removeEventListener('popstate', onPopState);
-      if (kcForm) kcForm.removeEventListener('submit', onKcSubmit);
-      el.classList.add('hidden');
-      resolve(current);
-    }
-    if (typeof history !== 'undefined' && history.pushState) {
-      history.pushState({ recoveryModal: true }, '');
-      window.addEventListener('popstate', onPopState);
-    }
-    rotateBtn.addEventListener('click', onRotate);
-    copyBtn.addEventListener('click', onCopy);
-    savedBtn.addEventListener('click', onSaved);
   });
 }
 
@@ -515,30 +462,51 @@ function showInstallStep(lane) {
   });
 }
 
-// Redirect for in-app/embedded browsers (Instagram, Facebook, etc.), which can't
-// Add to Home Screen. Surfaced before account creation so the account is ideally
-// created in a real browser. Real browsers (Safari, Chrome, Firefox) are NOT sent
-// here — they install normally.
-function showInAppBrowserRedirect() {
-  const el = document.getElementById('browser-redirect');
-  const bodyEl = document.getElementById('browser-redirect-body');
-  const continueBtn = document.getElementById('browser-redirect-continue-btn');
-  if (!el) return Promise.resolve();
-  bodyEl.textContent = 'This app’s built-in browser can’t install KnockKnock. To get notified about knocks, calls, and people coming online, open this page in your browser (Safari, Chrome, …), then add it to your Home Screen.';
-  el.classList.remove('hidden');
-  return new Promise((resolve) => {
-    function cont() { continueBtn.removeEventListener('click', cont); el.classList.add('hidden'); resolve(); }
-    continueBtn.addEventListener('click', cont);
-  });
-}
+// One-time "tap to knock" beat (J#15): after a newcomer's FIRST successful
+// personal-invite redemption (a follow — result.groupId is absent), the
+// contact otherwise appears silently with nothing pointing at the knock loop.
+// Gated by a sessionStorage marker (following the kk-landing pattern,
+// firstRun.js:98) so it fires once per session and never again — including
+// on a group-join success, which has no single contact card to "tap ... to
+// knock" on.
+const FIRST_FOLLOW_KEY = 'kk-first-follow';
 
 function handleInviteRedemptionResult(result) {
   if (result.ok) {
     // On success, the follow is now in place. No banner — the contact will appear
     // in the user's Following list once their watch subscriptions tick.
-    return;
+    if (!result.groupId && !sessionStorage.getItem(FIRST_FOLLOW_KEY)) {
+      try { sessionStorage.setItem(FIRST_FOLLOW_KEY, '1'); } catch { /* storage denied */ }
+      showToast(`You're following ${result.creatorLabel} — you'll see when they're around.`);
+      // Return value tells the call site the beat toast already ran (see
+      // main()'s Telegram silent-redeem block), so it can skip the
+      // redundant "You're now following X." toast that would otherwise
+      // clobber this one in the same tick.
+      return true;
+    }
+    return false;
   }
   showInviteFailureOverlay(result.reason);
+  return false;
+}
+
+// Reconciles the Telegram silent-redeem confirm toast against the first-
+// accept beat above so a successful silent redemption never shows two
+// toasts in the same tick (the second would clobber the first before
+// paint, and — since handleInviteRedemptionResult already set the
+// one-time marker — permanently suppress the beat for the session without
+// the user ever seeing it). `beatShown` is handleInviteRedemptionResult's
+// return value from the same redemption, captured by the caller.
+function reconcileSilentRedeemToast(result, tgInvite, beatShown) {
+  if (!(result.ok && tgInvite?.silent)) return;
+  if (tgInvite.preview.scope === 'group') {
+    showToast(`You joined ${tgInvite.preview.groupName}.`);
+  } else if (!beatShown) {
+    // The beat toast ("You're following X — you'll see when they're around.") is a
+    // strict superset of this plain confirm, so only show this one when the
+    // beat didn't already fire (non-first-follow-of-session case).
+    showToast(`You're now following ${tgInvite.preview.label}.`);
+  }
 }
 
 function showInviteFailureOverlay(reason) {
@@ -572,12 +540,23 @@ function cleanInviteParamFromUrl() {
   try {
     const clean = new URL(window.location.href);
     clean.searchParams.delete('i');
+    clean.searchParams.delete('stay');
     window.history.replaceState({}, document.title, clean.toString());
   } catch { /* no-op on unusual URLs */ }
 }
 
 async function main() {
-  const pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
+  if (await maybeRunDevReset()) return; // dev-only identity reset (env-gated); halts boot
+  let pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
+  // Mint-free rescue for legacy /?i= links (spec N3): decide BEFORE any
+  // Firebase work whether this boot belongs on the /invite landing or in the
+  // Mini App. replace() keeps the webview's back button from bouncing
+  // through this half-booted page.
+  const bootRedirect = decideBootRedirect(readBootRedirectContext(pendingInviteToken));
+  if (bootRedirect) {
+    window.location.replace(bootRedirect.url);
+    return;
+  }
   // Cold tap on an invite / follow-request notification: the SW opened us at
   // /?inbox=1 (sw.template.js coldStartUrl). Land in Direct and open the Inbox
   // rather than restoring the user's last (possibly group) context, where the
@@ -598,7 +577,29 @@ async function main() {
     } catch { /* no-op on unusual URLs */ }
   }
   const { identity, isNew } = await ensureIdentity(pendingInviteToken);
+  if (isTelegramContext()) initTelegramChrome();
   const { userId, code } = identity;
+
+  // Wipe another account's cached state before anything reads it (see
+  // cacheOwner.js). On a wipe, also reset the theme vars the inline
+  // theme-restore script painted from the previous owner's (now-wiped)
+  // statusapp_theme — the own-status watcher below won't: for an account
+  // with no palette it sees paletteKey null === null and skips its reset.
+  if (ensureCacheOwner(userId)) resetThemeVars();
+
+  // Telegram deep-linked invite (t.me ...?startapp=<token>): gate before the
+  // normal redemption flow. Linked accounts redeem silently; unlinked arrivals
+  // get the first-run interstitial (spec §1).
+  let tgInvite = null;
+  if (!pendingInviteToken && isTelegramContext()) {
+    if (await runLinkArrival({ dismissSplash })) return; // onramp link handled — reboots on success
+    tgInvite = await telegramInviteGate({
+      linked: isTelegramLinked(),
+      isNew,
+      dismissSplash,
+    });
+    if (tgInvite) pendingInviteToken = tgInvite.token;
+  }
 
   // Wire navigation BEFORE the invite-redemption block, otherwise navigateToGroup
   // writes to users/null/... (because initNav hasn't set the local userId yet) AND
@@ -654,7 +655,14 @@ async function main() {
     const navRowEl = document.getElementById('nav-row');
     if (navRowEl) navRowEl.classList.add('hidden');
     let landedInGroup = false;
-    let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code);
+    // redeemerName lets a personal-invite redemption publish the follower's own
+    // display name to the inviter, so their followers list shows "CODE (Name)"
+    // instead of a bare code (no follow-request approval happened to teach it).
+    // telegramFirstName() is '' outside Telegram — web redeemers pass no name,
+    // so their behaviour is unchanged (group redeems ignore it entirely).
+    let result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {
+      redeemerName: telegramFirstName(),
+    });
     // Captured from the needs-display-name response so we can prime
     // setLastKnownGroupName even on the success path (where the second
     // attemptRedeemFromUrl call returns its own groupName too).
@@ -662,7 +670,9 @@ async function main() {
     if (result && result.ok === false && result.reason === 'needs-display-name') {
       previewGroupName = result.groupName;
       const promptName = previewGroupName || 'this group';
-      const displayName = await showGroupDisplayNamePrompt(promptName);
+      // C#8: prefill the Telegram first name (empty on web) so the Mini-App
+      // prompt agrees with the bot's silent auto-fill instead of opening blank.
+      const displayName = await showGroupDisplayNamePrompt(promptName, telegramFirstName());
       // Pass the cache forward so the second call doesn't re-fetch the
       // invite index + group record.
       result = await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {
@@ -671,7 +681,15 @@ async function main() {
       });
     }
     if (result) {
-      handleInviteRedemptionResult(result);
+      // A re-tapped Telegram deep link lands here as already-following: spec
+      // says show nothing (the contact is already in the list).
+      const silentNoop = tgInvite && result.ok === false && result.reason === 'already-following';
+      let beatShown = false;
+      if (!silentNoop) beatShown = handleInviteRedemptionResult(result);
+      reconcileSilentRedeemToast(result, tgInvite, beatShown);
+      // A consumed token never re-runs the ceremony on a re-tapped chat link
+      // (W1 J#4) — stamp it (covers the silent-redeem path too).
+      if (tgInvite && redemptionConsumedToken(result)) stampInviteOutcome(tgInvite.token, 'redeemed');
       // Clean the URL so a refresh doesn't re-trigger.
       cleanInviteParamFromUrl();
       if (result.ok && result.groupId) {
@@ -759,10 +777,25 @@ async function main() {
   // prefs.js so they hit both localStorage and userPrefs/{uid}/ in Firebase.
   watchUserPrefs(userId, (serverPrefs) => {
     syncPrefsFromServer(serverPrefs);
+    // Notification-channel pill reconciles live on every prefs change — link/
+    // unlink (userPrefs.telegram) and cross-device channel switches — on both web
+    // and Telegram, so neither needs a reload to reflect the current state.
+    syncNotifyChannel(userId, serverPrefs);
+    // Web nudge suppression rides the same tick (no-op in Telegram context):
+    // install/web-push nudges hide while the bot delivers notifications.
+    syncBotDelivery(serverPrefs);
+    // "Use in Telegram" promo banner + drawer card suppress once this account
+    // links to Telegram — same tick, same prefs.telegram signal as above.
+    syncTelegramOnramp(serverPrefs);
   });
 
-  initInstallAffordance();
-  initPushNotifications(userId);
+  // Inside Telegram: no PWA install (webview) and no Web Push (notifications
+  // arrive via the bot instead) — see js/telegramSettings.js for the channel UI.
+  if (!isTelegramContext()) {
+    initInstallAffordance();
+    initPushNotifications(userId);
+    initTelegramOnramp();
+  }
 
   // currentContext changes from sibling devices arrive as a
   // 'current-context-synced' CustomEvent; forward into groupNav so the
@@ -772,6 +805,16 @@ async function main() {
   });
 
   initCodeDrawer(userId, code);
+  if (isTelegramContext()) initTelegramSettings(userId);
+  // Empty-state primary "Invite your people": Telegram shares the deep link
+  // straight to the native share sheet (spec §3/§4); web opens the invite modal.
+  initFirstRun({
+    onInvite: startPersonalInviteFlow,
+    onLink: isTelegramContext() ? showLinkScreen : null,
+    onGraduateInfo: isTelegramContext() ? showGraduationInfo : null,
+  });
+  const landingMsg = consumeGraduationNotice();
+  if (landingMsg) showToast(landingMsg);
   initHeader(userId);
   if (!splashDone) {
     const followeeCount = getFollowing().length;
@@ -779,7 +822,17 @@ async function main() {
     setOwnStatusReadyCallback(signalReady);
     setFolloweeReadyCallback(signalReady);
   }
-  initList(userId, code);
+  initList(userId, code, {
+    // In-app redemption (spec N6): same success surface as the URL flow —
+    // the first-follow beat toast, and group joins navigate into the group.
+    onInviteRedeemed: async (result) => {
+      handleInviteRedemptionResult(result);
+      if (result.groupId) {
+        if (result.groupName) setLastKnownGroupName(result.groupId, result.groupName);
+        await navigateToGroup(result.groupId);
+      }
+    },
+  });
   initHintRotation();
   if (KNOCK_ENABLED) initKnocks(userId);
 
@@ -829,7 +882,9 @@ async function main() {
     setStatus(userId, 'available', availableUntil).catch(() => {});
   }
 
-  initServiceWorker();
+  // No SW inside Telegram: no offline-shell need in the webview, and the
+  // update-reload cycle fights Telegram's own webview lifecycle.
+  if (!isTelegramContext()) initServiceWorker();
 }
 
 // ── Boot init steps (extracted from main() for readability; call order in
@@ -1000,4 +1055,9 @@ function initServiceWorker() {
   }).catch(console.error);
 }
 
-main().catch(console.error);
+main().catch((e) => {
+  console.error(e);
+  // W1 J#2 (completion): ANY unhandled boot failure — not just identity
+  // acquisition — must not strand a Telegram user on the splash.
+  if (isTelegramContext()) showBootError();
+});

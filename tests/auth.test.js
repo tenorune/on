@@ -44,6 +44,16 @@ test('re-auths when the cached session belongs to a different account', async ()
   expect(signInWithCustomToken).toHaveBeenCalledWith(auth, 'TOKEN');
 });
 
+test('re-auth on a different account clears any stored graduation phrase (F5 #287)', async () => {
+  localStorage.clear();
+  localStorage.setItem('statusapp_grad_phrase_deadbeef', 'echo-foxtrot-golf-hotel');
+  auth.currentUser = { uid: 'deadbeefdeadbeefdeadbeefdeadbeef' };
+  callValidateRecovery.mockResolvedValue('TOKEN');
+  await ensureSignedIn('swift-river-amber-dust');
+  expect(signOut).toHaveBeenCalledWith(auth);
+  expect(localStorage.getItem('statusapp_grad_phrase_deadbeef')).toBeNull();
+});
+
 test('cold start signs in with a freshly minted token', async () => {
   auth.currentUser = null;
   callValidateRecovery.mockResolvedValue('TOKEN');

@@ -2,11 +2,14 @@
 import { rotateCode, watchUserInvites } from './db.js';
 import { saveIdentity, loadIdentity } from './identity.js';
 import { openInviteModal } from './inviteModal.js';
-import { buildInviteUrl } from './invites.js';
+import { buildInviteUrl, createPersonalInvite, updateInviteLabel } from './invites.js';
+import { shareInviteLink } from './inviteFlow.js';
+import { telegramFirstName, isTelegramContext } from './telegram.js';
 import { flashRegenerated } from './regenFlash.js';
 
 let _myUserId = null;
 let _currentCode = null;
+let _currentActiveInvite = null;
 
 export function initCodeDrawer(myUserId, myCode) {
   _myUserId = myUserId;
@@ -96,15 +99,7 @@ export function initCodeDrawer(myUserId, myCode) {
     document.getElementById('rotate-confirm').classList.add('hidden');
   }
 
-  // --- Invite-link row ---
-  let currentActiveInvite = null;
-  const inviteBtn = document.getElementById('invite-link-btn');
-
-  function renderInviteRow() {
-    if (!inviteBtn) return;
-    inviteBtn.textContent = currentActiveInvite ? 'View invite link' : 'Create invite link';
-  }
-
+  // --- Invite state tracking (feeds openPersonalInviteModal's activeInvite arg) ---
   watchUserInvites(myUserId, (collection) => {
     let active = null;
     for (const [token, inv] of Object.entries(collection || {})) {
@@ -113,18 +108,56 @@ export function initCodeDrawer(myUserId, myCode) {
         break;
       }
     }
-    currentActiveInvite = active;
-    renderInviteRow();
+    _currentActiveInvite = active;
   });
 
-  if (inviteBtn) {
-    inviteBtn.addEventListener('click', () => {
-      openInviteModal({ scope: 'personal', userId: myUserId, activeInvite: currentActiveInvite });
-    });
-  }
+  document.getElementById('drawer-invite-btn')?.addEventListener('click', () => {
+    startPersonalInviteFlow();
+  });
 
   const existing = loadIdentity();
   if (existing?.recoveryCode) initRecoveryPill(existing.recoveryCode);
+}
+
+// THE personal-invite CTA dispatch (W3-B CL#8): Telegram shares the deep link
+// straight to the native share sheet (spec §3/§4); web opens the invite modal.
+// Both surfaces (first-run primary, drawer button) call this — a change to one
+// CTA can't silently miss the other.
+export function startPersonalInviteFlow() {
+  return isTelegramContext() ? sharePersonalInvite() : openPersonalInviteModal();
+}
+
+export async function openPersonalInviteModal() {
+  await openInviteModal({ scope: 'personal', userId: _myUserId, activeInvite: _currentActiveInvite });
+}
+
+// Telegram one-tap invite (spec §3/§4): share the active personal invite via the
+// deep link straight to the native share sheet, auto-creating one first when the
+// account has none yet. The Telegram first name is the default "name on the
+// invite" (editable later in the drawer modal); 'Someone' is a defensive
+// fallback since createPersonalInvite requires a non-empty label.
+export async function sharePersonalInvite() {
+  let invite = _currentActiveInvite;
+  if (!invite) {
+    const label = telegramFirstName() || 'Someone';
+    const result = await createPersonalInvite(_myUserId, label);
+    invite = { token: result.token, url: result.url, scope: 'personal', creatorLabel: label };
+    _currentActiveInvite = invite; // optimistic; watchUserInvites confirms shortly
+  } else {
+    // An existing invite carries the creatorLabel it was created with, which
+    // goes stale when the Telegram first name changes — the arrival
+    // interstitial then names the inviter wrong (§29). Refresh the label on the
+    // existing invite (token/URL unchanged) before sharing. Skip when the name
+    // is unchanged, and when Telegram exposes no name keep the existing label
+    // rather than clobber it with the 'Someone' fallback.
+    const current = telegramFirstName();
+    if (current && current !== invite.creatorLabel) {
+      await updateInviteLabel(_myUserId, invite.token, current);
+      invite = { ...invite, creatorLabel: current };
+      _currentActiveInvite = invite;
+    }
+  }
+  shareInviteLink(invite);
 }
 
 async function copyText(text) {
@@ -196,6 +229,8 @@ export function initRecoveryPill(recoveryCode) {
     startIdleTimer();
   });
 
+  // Deliberately NOT utils.copyWithFeedback: this copied-timer chains into the
+  // reveal panel's toIdle() state machine (W3-B CL#10 exclusion).
   copyBtn.addEventListener('click', async () => {
     if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
     try {

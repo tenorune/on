@@ -1,5 +1,8 @@
+/** @jest-environment jsdom */
 // tests/utils.test.js
 const { hexToRgb, resolveDisplayName } = require('../js/utils.js');
+import vectors from '../test-fixtures/time-format-vectors.json';
+import { formatTimeRemaining, formatTimeRemainingFuzzy } from '../js/utils.js';
 
 describe('resolveDisplayName', () => {
   test('prefers the label when set', () => {
@@ -30,5 +33,51 @@ describe('hexToRgb', () => {
 
   test('returns "0, 0, 0" for invalid input', () => {
     expect(hexToRgb('not-a-color')).toBe('0, 0, 0');
+  });
+});
+
+describe('time formatters (fixture-pinned, shared with functions/presence-core.js)', () => {
+  test.each(vectors)('js/utils time vectors: %j', ({ ms, precise, fuzzy }) => {
+    expect(formatTimeRemaining(ms)).toBe(precise);
+    expect(formatTimeRemainingFuzzy(ms)).toBe(fuzzy);
+  });
+});
+
+describe('copyWithFeedback (W3-B CL#10)', () => {
+  const { copyWithFeedback } = require('../js/utils.js');
+  let btn;
+  beforeEach(() => {
+    jest.useFakeTimers();
+    document.body.innerHTML = '<button id="b">Copy</button>';
+    btn = document.getElementById('b');
+    Object.assign(navigator, { clipboard: { writeText: jest.fn(async () => {}) } });
+  });
+  afterEach(() => jest.useRealTimers());
+
+  test('writes the text, swaps to done, reverts to idle after 1.5s', async () => {
+    await copyWithFeedback(btn, 'the-text');
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('the-text');
+    expect(btn.textContent).toBe('Copied!');
+    jest.advanceTimersByTime(1500);
+    expect(btn.textContent).toBe('Copy');
+  });
+
+  test('custom labels', async () => {
+    await copyWithFeedback(btn, 'x', { done: 'Link copied!', idle: 'Share to Telegram' });
+    expect(btn.textContent).toBe('Link copied!');
+    jest.advanceTimersByTime(1500);
+    expect(btn.textContent).toBe('Share to Telegram');
+  });
+
+  test('clipboard failure: label untouched', async () => {
+    navigator.clipboard.writeText.mockRejectedValue(new Error('denied'));
+    await copyWithFeedback(btn, 'x');
+    expect(btn.textContent).toBe('Copy');
+  });
+
+  test('missing clipboard API: label untouched, no throw', async () => {
+    delete navigator.clipboard;
+    await expect(copyWithFeedback(btn, 'x')).resolves.toBeUndefined();
+    expect(btn.textContent).toBe('Copy');
   });
 });

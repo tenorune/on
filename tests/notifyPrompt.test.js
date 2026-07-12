@@ -16,7 +16,25 @@ jest.mock('../js/installGuidance.js', () => ({
   guidanceCopyFor: jest.fn((s) => ({ body: `copy-for-${s}` })),
 }));
 jest.mock('../js/identity.js', () => ({ loadIdentity: jest.fn() }));
+jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
+// Hygiene: default to '' (inert) rather than the brief's literal non-empty
+// default. This mock is shared by the WHOLE file (module scope), and several
+// pre-existing describes below (ensureNotificationsReady, promo Enable button
+// failure feedback) assert exact textContent for guidance/registration-failed
+// copy with no awareness of the hatch. A non-empty file-wide default bleeds
+// "Link Telegram" into those assertions regardless of test order. The "escape
+// hatch on dead-end banners" describe below opts back into the non-empty
+// return explicitly in its own beforeEach, which also fixes an intra-describe
+// pollution hazard (a test.each case relying on the same implicit default
+// after an earlier case in the same describe called mockReturnValue('')).
+const mockHatchText = jest.fn(() => '');
+const mockSyncBtn = jest.fn();
+jest.mock('../js/telegramEscapeHatch.js', () => ({
+  escapeHatchTextHtml: (...a) => mockHatchText(...a),
+  syncEscapeHatchButton: (...a) => mockSyncBtn(...a),
+}));
 
+const { isTelegramContext } = require('../js/telegram.js');
 const { requestPermissionAndRegister } = require('../js/notifyPrompt.js');
 const { addPushToken } = require('../js/prefs.js');
 const { getMessagingIfSupported } = require('../js/firebase-config.js');
@@ -106,8 +124,9 @@ function mountBanner() {
   document.body.innerHTML =
     '<div id="notify-promo" class="notify-promo hidden">' +
     '<span id="notify-promo-text"></span>' +
-    '<button id="notify-promo-action" class="primary-btn hidden"></button>' +
-    '<button id="notify-promo-dismiss"></button></div>';
+    '<div class="notify-promo-actions">' +
+    '<button id="notify-promo-dismiss"></button>' +
+    '<button id="notify-promo-action" class="primary-btn hidden"></button></div></div>';
 }
 
 describe('ensureNotificationsReady', () => {
@@ -125,6 +144,18 @@ describe('ensureNotificationsReady', () => {
     detectNotifyCapability.mockReturnValue({ state: 'supported', supported: true });
     await ensureNotificationsReady();
     expect(addPushToken).toHaveBeenCalledWith('tok-1');
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
+  });
+
+  test('Telegram context → no-op: no capability check, no permission prompt, no web-push banner', async () => {
+    // In Telegram the bot delivers notifications (notifyChannel:'telegram'); there
+    // is no web-push permission to request, so the whole capability/banner flow —
+    // which would otherwise show "this browser doesn't support…" — is skipped.
+    isTelegramContext.mockReturnValueOnce(true);
+    await ensureNotificationsReady();
+    expect(detectNotifyCapability).not.toHaveBeenCalled();
+    expect(global.Notification.requestPermission).not.toHaveBeenCalled();
+    expect(addPushToken).not.toHaveBeenCalled();
     expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
   });
 
@@ -235,6 +266,12 @@ describe('maybeRepromptForMissingPermission', () => {
     expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
   });
 
+  test('Telegram context → promo stays hidden (bot delivers; no web-push framing)', () => {
+    isTelegramContext.mockReturnValueOnce(true);
+    maybeRepromptForMissingPermission();
+    expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
+  });
+
   test('Close dismisses for THIS device only (not the synced forever-dismiss) and stays hidden next load', () => {
     maybeRepromptForMissingPermission();
     document.getElementById('notify-promo-dismiss').click();
@@ -247,6 +284,7 @@ describe('maybeRepromptForMissingPermission', () => {
 
 describe('promo Enable button failure feedback (Defect 2 — no more silent no-op)', () => {
   const flush = () => new Promise((r) => setImmediate(r));
+  const { isRepromptActive } = require('../js/notifySuppression.js');
   beforeEach(() => {
     mountBanner();
     localStorage.clear();
@@ -289,10 +327,14 @@ describe('promo Enable button failure feedback (Defect 2 — no more silent no-o
     global.Notification = { permission: 'default', requestPermission: jest.fn().mockResolvedValue('granted') };
     getToken.mockResolvedValue('tok-ok');
     maybeRepromptForMissingPermission();
+    expect(isRepromptActive()).toBe(true); // reprompt banner is up before the click
     document.getElementById('notify-promo-action').click();
     await flush();
     expect(addPushToken).toHaveBeenCalledWith('tok-ok');
     expect(document.getElementById('notify-promo').classList.contains('hidden')).toBe(true);
+    // The reprompt flag clears immediately on success, not on a round-trip
+    // through the notify-prefs-synced echo (onramp promo defer clears at once).
+    expect(isRepromptActive()).toBe(false);
   });
 });
 
@@ -360,5 +402,219 @@ describe('install-nudge secret-phrase copy button', () => {
     guidanceCopyFor.mockReturnValue({ body: 'plain guidance', remindPhrase: false });
     maybeRepromptForMissingPermission();
     expect(document.querySelector('.notify-promo-copy')).toBeNull();
+  });
+});
+
+const { initNotifyPrompt } = require('../js/notifyPrompt.js');
+const { syncBotDelivery, __resetBotDeliveryForTests } = require('../js/notifySuppression.js');
+
+describe('bot-delivered suppression (linked account, telegram channel)', () => {
+  const LINKED_TG = { telegram: { linkedAt: 1 }, notifyChannel: 'telegram' };
+  const LINKED_PUSH = { telegram: { linkedAt: 1 }, notifyChannel: 'push' };
+  const banner = () => document.getElementById('notify-promo');
+
+  beforeEach(() => {
+    __resetBotDeliveryForTests();
+    addPushToken.mockClear();
+    detectNotifyCapability.mockReset();
+    detectNotifyCapability.mockReturnValue({ state: 'supported', supported: true });
+    hasAnyNotifyPrefEnabled.mockReturnValue(true); // reprompt conditions all hold…
+    localStorage.clear();                          // …and no device dismissal
+    mountBanner();
+    global.Notification = { permission: 'default', requestPermission: jest.fn().mockResolvedValue('granted') };
+    global.navigator.serviceWorker = { ready: Promise.resolve({ id: 'reg' }) };
+    getMessagingIfSupported.mockResolvedValue({});
+    getToken.mockResolvedValue('tok-1');
+  });
+  afterAll(() => __resetBotDeliveryForTests());
+
+  test('ensureNotificationsReady no-ops when suppressed: no prompt, no token, no banner', async () => {
+    syncBotDelivery(LINKED_TG);
+    await ensureNotificationsReady();
+    expect(global.Notification.requestPermission).not.toHaveBeenCalled();
+    expect(addPushToken).not.toHaveBeenCalled();
+    expect(banner().classList.contains('hidden')).toBe(true);
+  });
+
+  test('reprompt banner stays hidden when suppressed even though every reprompt condition holds', () => {
+    syncBotDelivery(LINKED_TG);
+    initNotifyPrompt('u1');
+    expect(banner().classList.contains('hidden')).toBe(true);
+  });
+
+  test('reprompt banner revives when suppression lifts (channel switched to push)', () => {
+    syncBotDelivery(LINKED_TG);
+    initNotifyPrompt('u1');
+    expect(banner().classList.contains('hidden')).toBe(true);
+    syncBotDelivery(LINKED_PUSH); // bot-delivery-change → refreshPromoVisibility
+    expect(banner().classList.contains('hidden')).toBe(false);
+  });
+
+  test('a granted permission flow hides the revived banner immediately (no server echo needed)', async () => {
+    // The switch-to-push moment: suppression lifts (banner shows "Enable"),
+    // then ensureNotificationsReady runs and the user GRANTS. The banner must
+    // hide on the success path itself — not wait for the notify-prefs-synced
+    // echo of the token write.
+    // Granting flips Notification.permission, like a real browser does.
+    global.Notification.requestPermission = jest.fn(async () => {
+      global.Notification.permission = 'granted';
+      return 'granted';
+    });
+    syncBotDelivery(LINKED_TG);
+    initNotifyPrompt('u1');
+    syncBotDelivery(LINKED_PUSH);
+    expect(banner().classList.contains('hidden')).toBe(false); // stale "Enable" showing
+    await ensureNotificationsReady();
+    expect(addPushToken).toHaveBeenCalledWith('tok-1');         // flow succeeded
+    expect(banner().classList.contains('hidden')).toBe(true);   // and hid the banner itself
+  });
+});
+
+describe('escape hatch on dead-end banners', () => {
+  const { ensureNotificationsReady } = require('../js/notifyPrompt.js');
+  const { detectNotifyCapability, guidanceCopyFor } = require('../js/installGuidance.js');
+
+  function bannerDom() {
+    document.body.innerHTML = `
+      <div id="notify-promo" class="hidden">
+        <span id="notify-promo-text"></span>
+        <div class="notify-promo-actions">
+          <button id="notify-promo-dismiss"></button>
+          <button id="notify-promo-action" class="hidden"></button>
+        </div>
+      </div>`;
+  }
+  const actions = () => document.querySelector('.notify-promo-actions');
+  beforeEach(() => {
+    bannerDom();
+    mockHatchText.mockClear(); mockSyncBtn.mockClear();
+    // Opt this describe back into the non-empty hatch text by default — set fresh
+    // every test so an earlier case's mockReturnValue('') can't leak into a later.
+    mockHatchText.mockReturnValue('<span class="tg-escape-hatch">You can also link Telegram…</span>');
+    guidanceCopyFor.mockImplementation((s) => ({ body: `copy-for-${s}` }));
+    delete global.Notification;
+  });
+
+  test.each(['needs-install-ios', 'needs-install-macos', 'in-app-browser', 'denied', 'unsupported'])(
+    'guidance state %s appends the hatch text and mounts the CTA in the action row', async (state) => {
+      detectNotifyCapability.mockReturnValue({ state });
+      await ensureNotificationsReady();
+      const textEl = document.getElementById('notify-promo-text');
+      expect(textEl.innerHTML).toContain(`copy-for-${state}`);
+      expect(textEl.innerHTML).toContain('tg-escape-hatch');
+      expect(mockSyncBtn).toHaveBeenCalledWith(actions(), true);
+    });
+
+  test('unavailable hatch (empty string) leaves guidance copy unchanged', async () => {
+    mockHatchText.mockReturnValue('');
+    detectNotifyCapability.mockReturnValue({ state: 'needs-install-ios' });
+    await ensureNotificationsReady();
+    const textEl = document.getElementById('notify-promo-text');
+    expect(textEl.innerHTML).not.toContain('tg-escape-hatch');
+  });
+
+  test('registration-failed dead end mounts the "Use in Telegram" CTA', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'supported' });
+    global.Notification = { requestPermission: jest.fn().mockResolvedValue('granted') };
+    global.navigator.serviceWorker = { ready: Promise.resolve({}) };
+    const { getMessagingIfSupported } = require('../js/firebase-config.js');
+    getMessagingIfSupported.mockResolvedValue(null); // registration fails → failure surface
+    await ensureNotificationsReady();
+    const textEl = document.getElementById('notify-promo-text');
+    // Permission granted but token setup failed — a dead end, so the CTA mounts.
+    expect(textEl.textContent).toContain("Couldn't turn on notifications");
+    expect(mockSyncBtn).toHaveBeenLastCalledWith(actions(), true);
+  });
+
+  test('the supported Enable banner removes any stale CTA (web push is one tap away)', () => {
+    // refreshPromoVisibility renders the supported reprompt banner directly.
+    const { maybeRepromptForMissingPermission } = require('../js/notifyPrompt.js');
+    const { hasAnyNotifyPrefEnabled } = require('../js/prefs.js');
+    detectNotifyCapability.mockReturnValue({ state: 'supported' });
+    hasAnyNotifyPrefEnabled.mockReturnValue(true); // reprompt conditions hold
+    localStorage.clear();
+    global.Notification = { permission: 'default' };
+    maybeRepromptForMissingPermission();
+    expect(document.getElementById('notify-promo-action').classList.contains('hidden')).toBe(false); // Enable shown
+    expect(mockSyncBtn).toHaveBeenLastCalledWith(actions(), false); // no hatch on the supported banner
+  });
+});
+
+describe('reprompt visibility feeds setRepromptActive', () => {
+  const { initNotifyPrompt } = require('../js/notifyPrompt.js');
+  const { isRepromptActive, __resetBotDeliveryForTests } = require('../js/notifySuppression.js');
+  const { hasAnyNotifyPrefEnabled } = require('../js/prefs.js');
+  const { detectNotifyCapability } = require('../js/installGuidance.js');
+
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <div id="notify-promo" class="hidden">
+        <span id="notify-promo-text"></span>
+        <button id="notify-promo-dismiss"></button>
+        <button id="notify-promo-action" class="hidden"></button>
+      </div>`;
+    __resetBotDeliveryForTests();
+    localStorage.clear();
+    global.Notification = { permission: 'default' };
+  });
+
+  test('banner shown → flag true; hidden → flag false', () => {
+    detectNotifyCapability.mockReturnValue({ state: 'supported' });
+    hasAnyNotifyPrefEnabled.mockReturnValue(true);   // unmet intent → reprompt
+    initNotifyPrompt('u1');
+    expect(isRepromptActive()).toBe(true);
+    hasAnyNotifyPrefEnabled.mockReturnValue(false);  // intent gone
+    document.dispatchEvent(new CustomEvent('notify-prefs-synced'));
+    expect(isRepromptActive()).toBe(false);
+  });
+
+  test('dismissing the reprompt banner (Close) clears the reprompt flag', () => {
+    detectNotifyCapability.mockReturnValue({ state: 'supported' });
+    hasAnyNotifyPrefEnabled.mockReturnValue(true);   // unmet intent → reprompt
+    initNotifyPrompt('u1');
+    expect(isRepromptActive()).toBe(true);
+    document.getElementById('notify-promo-dismiss').click();
+    expect(isRepromptActive()).toBe(false);
+  });
+});
+
+describe('bell-triggered guidance feeds the reprompt-active flag (Finding 3)', () => {
+  const { isRepromptActive, __resetBotDeliveryForTests } = require('../js/notifySuppression.js');
+
+  beforeEach(() => {
+    mountBanner();
+    __resetBotDeliveryForTests();
+    localStorage.clear();
+    addPushToken.mockClear(); getToken.mockReset(); getMessagingIfSupported.mockReset();
+    detectNotifyCapability.mockReset();
+    global.Notification = { permission: 'default', requestPermission: jest.fn().mockResolvedValue('granted') };
+    global.navigator.serviceWorker = { ready: Promise.resolve({ id: 'reg' }) };
+  });
+  afterAll(() => __resetBotDeliveryForTests());
+
+  test('dead-end capability guidance (denied) sets the reprompt-active flag so the onramp promo defers', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'denied', supported: false });
+    await ensureNotificationsReady();
+    const banner = document.getElementById('notify-promo');
+    expect(banner.classList.contains('hidden')).toBe(false);
+    expect(isRepromptActive()).toBe(true);
+  });
+
+  test('registration-failed guidance sets the reprompt-active flag', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'supported', supported: true });
+    getMessagingIfSupported.mockResolvedValue(null); // token registration can't proceed → registration-failed dead end
+    await ensureNotificationsReady();
+    const banner = document.getElementById('notify-promo');
+    expect(banner.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('notify-promo-text').textContent).toContain("Couldn't turn on notifications");
+    expect(isRepromptActive()).toBe(true);
+  });
+
+  test('dismissing the guidance banner clears the reprompt-active flag', async () => {
+    detectNotifyCapability.mockReturnValue({ state: 'denied', supported: false });
+    await ensureNotificationsReady();
+    expect(isRepromptActive()).toBe(true);
+    document.getElementById('notify-promo-dismiss').click();
+    expect(isRepromptActive()).toBe(false);
   });
 });

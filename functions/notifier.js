@@ -15,9 +15,58 @@ const INVITE_COOLDOWN_MS = 30 * 1000;
 const FOLLOW_REQ_COOLDOWN_MS = 30 * 1000;
 
 export async function sendToUser(deps, uid, message, data) {
-  const tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
+  // Experimental Telegram channel (spec 2026-07-02): a linked user whose
+  // notifyChannel is 'telegram' gets a bot message instead of web push. The
+  // uid→chat route lives in server-only telegramByUid (NOT userPrefs) so a
+  // client can't point its notifications at someone else's chat. Any failure
+  // (user blocked the bot, missing route, bot unconfigured) falls back to FCM.
+  // channel !== 'push' (not === 'telegram'): a MISSING channel on a routed
+  // account reads as telegram, matching the client predicates in
+  // js/notifySuppression.js botDelivered and js/notifyChannel.js — this is the
+  // third reader of that default, and the three must never disagree.
+  // The pushTokens read starts up front so the FCM fall-through never pays it
+  // as an extra sequential round-trip, but it is only AWAITED on that
+  // fall-through — a failed tokens read must not break healthy telegram
+  // delivery, and the FCM path still surfaces the original error. The empty
+  // catch keeps a never-awaited rejection (telegram succeeded) from becoming
+  // an unhandled-rejection crash; awaiting the promise below still throws.
+  const tokensPromise = deps.getVal(`userPrefs/${uid}/pushTokens`);
+  tokensPromise.catch(() => {});
+  let tgRoute = null;
+  let triedTelegram = false;
+  if (deps.sendTelegram) {
+    const [channel, route] = await Promise.all([
+      deps.getVal(`userPrefs/${uid}/notifyChannel`),
+      deps.getVal(`telegramByUid/${uid}`),
+    ]);
+    tgRoute = route;
+    if (channel !== 'push' && tgRoute && tgRoute.chatId) {
+      triedTelegram = true;
+      try {
+        if (await deps.sendTelegram(tgRoute.chatId, message, data)) return true;
+      } catch (e) {
+        console.error(`[notify] telegram send failed for ${uid}: ${e?.message || e}`);
+      }
+    }
+  }
+  const tokensMap = await tokensPromise;
   const tokens = tokensMap ? Object.keys(tokensMap) : [];
-  if (tokens.length === 0) return false;
+  if (tokens.length === 0) {
+    // W1 J#3: a LINKED account that chose 'push' but has no registered device
+    // must not go silent — deliver via the bot rather than dropping. This is a
+    // DELIVERY-level fallback only; the channel-default predicate above (the
+    // three-reader contract) is untouched. triedTelegram guards the
+    // telegram-channel case: a failed bot send must not just retry itself.
+    if (!triedTelegram && deps.sendTelegram && tgRoute && tgRoute.chatId) {
+      try {
+        return !!(await deps.sendTelegram(tgRoute.chatId, message, data));
+      } catch (e) {
+        console.error(`[notify] telegram fallback failed for ${uid}: ${e?.message || e}`);
+        return false;
+      }
+    }
+    return false;
+  }
   const { failedTokens } = await deps.send(tokens, message, data);
   if (failedTokens && failedTokens.length) {
     const nulls = {};
@@ -32,7 +81,7 @@ export async function resolveName(deps, viewerUid, targetUid) {
   const follow = await deps.getVal(`userPrefs/${viewerUid}/following/${targetUid}`);
   if (follow && follow.label) return follow.label;
   const code = await deps.getVal(`users/${targetUid}/presence/code`);
-  if (code) return code;
+  if (code) return `Your contact ${code}`; // B#10: a bare code reads like a glitch in chat
   return 'Someone';
 }
 
@@ -242,9 +291,13 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   // group is showing their primary. Override-ON groups are driven by onMemberOverride.
   // The shared `notified` set dedups across Direct + every group.
   const groups = await deps.getVal(`users/${uid}/groups`);
-  for (const groupId of groups ? Object.keys(groups) : []) {
-    const override = await deps.getVal(`groups/${groupId}/members/${uid}/statusOverride`);
-    if (override && override.enabled === true) continue;
-    await notifyGroupAvailability(deps, groupId, uid, now, notified);
+  const gids = groups ? Object.keys(groups) : [];
+  // The override reads are independent — prefetch them in one parallel phase
+  // (G round-trips → 1). The notify calls stay sequential: they share the
+  // `notified` dedup set (C3).
+  const overrides = await Promise.all(gids.map((gid) => deps.getVal(`groups/${gid}/members/${uid}/statusOverride`)));
+  for (let i = 0; i < gids.length; i += 1) {
+    if (overrides[i] && overrides[i].enabled === true) continue;
+    await notifyGroupAvailability(deps, gids[i], uid, now, notified);
   }
 }

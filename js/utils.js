@@ -1,5 +1,39 @@
 // js/utils.js
 
+// Busy/idle feedback for a primary action button while an async round-trip runs
+// (restore verification, new-account setup). Disabling it both dims the button
+// via the existing `.primary-btn:disabled` opacity rule and blocks double-taps;
+// the label swaps to a progress word. The idle label is stashed on first use so
+// clearButtonBusy restores whatever the markup shipped, and a re-open starts clean.
+export function setButtonBusy(btn, busyText) {
+  if (!btn) return;
+  if (btn.dataset.idleLabel === undefined) btn.dataset.idleLabel = btn.textContent;
+  btn.textContent = busyText;
+  btn.disabled = true;
+}
+export function clearButtonBusy(btn) {
+  if (!btn) return;
+  if (btn.dataset.idleLabel !== undefined) btn.textContent = btn.dataset.idleLabel;
+  btn.disabled = false;
+}
+
+// Copy-to-clipboard with transient button feedback (W3-B CL#10): label → `done`,
+// reverted to `idle` after 1.5s. A denied/failed/missing clipboard changes
+// nothing — silent, like every call site before consolidation. No timer dedup:
+// rapid re-taps queue reverts, same as the inlined blocks did. (mycode.js's
+// recovery pill keeps its bespoke block — its copied-timer chains into the
+// reveal panel's idle state machine.)
+export async function copyWithFeedback(btn, text, { done = 'Copied!', idle = 'Copy' } = {}) {
+  try {
+    await navigator.clipboard?.writeText(text);
+  } catch {
+    return; // clipboard denied/blocked — no feedback, matching prior behavior
+  }
+  if (!navigator.clipboard) return; // no API at all: writeText never ran
+  btn.textContent = done;
+  setTimeout(() => { btn.textContent = idle; }, 1500);
+}
+
 // Display name for a following entry ({ label, code }): the user's chosen label,
 // else the share code. Returns '' (not undefined) for a missing/empty entry so
 // it never renders "undefined" in a template.
@@ -45,6 +79,7 @@ export function timeRemainingMs(availableUntil) {
   return Math.max(0, availableUntil - Date.now());
 }
 
+// DUPLICATED in functions/presence-core.js — keep byte-identical (shared fixture: test-fixtures/time-format-vectors.json).
 // Both time-remaining formatters return a bare duration PHRASE with no trailing
 // " left" — the caller owns that suffix (e.g. `formatTimeRemaining(ms) + ' left'`
 // for a precise countdown, or `Available for ${formatTimeRemainingFuzzy(ms)}` for

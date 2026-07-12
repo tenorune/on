@@ -28,6 +28,7 @@ jest.mock('../js/hintRotation.js', () => ({
   stopHintRotation: jest.fn(),
   clearActiveHint: jest.fn(),
 }));
+jest.mock('../js/firstRun.js', () => ({ setListEmpty: jest.fn() }));
 jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true, KNOCK_ENABLED: true, CALL_ENABLED: true, NOTIFICATIONS_ENABLED: true }));
 jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn() }));
 jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
@@ -111,6 +112,7 @@ jest.mock('../js/db.js', () => ({
   deletePendingInvite: jest.fn().mockResolvedValue(undefined),
   readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
   watchRevocations: jest.fn(() => () => {}),
+  watchFollowerNames: jest.fn(() => () => {}),
 }));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
@@ -123,6 +125,7 @@ jest.mock('../js/store.js', () => ({
   getFollowing: jest.fn(),
   setFollowing: jest.fn(),
   getFollowerName: jest.fn(() => null),
+  setFollowerName: jest.fn(),
   addFollowing: jest.fn(),
   removeFollowing: jest.fn(),
   renameFollowing: jest.fn(),
@@ -153,9 +156,16 @@ jest.mock('../js/prefs.js', () => ({
   }),
   setPaletteState: jest.fn(),
 }));
+jest.mock('../js/invites.js', () => ({
+  attemptRedeemFromUrl: jest.fn(),
+  resolveInvitePreview: jest.fn(() => Promise.resolve(null)),
+}));
+jest.mock('../js/groupDisplayNamePrompt.js', () => ({
+  showGroupDisplayNamePrompt: jest.fn(() => Promise.resolve('Me')),
+}));
 
-const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations } = require('../js/db.js');
-const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, removeFollowing } = require('../js/store.js');
+const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations, watchFollowerNames } = require('../js/db.js');
+const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, setFollowerName, removeFollowing } = require('../js/store.js');
 const { getMadeCallCount, getAnsweredCallCount, isHintSeen } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
@@ -178,11 +188,13 @@ beforeEach(() => {
 function setupDom() {
   document.body.innerHTML = `
     <ul id="people-list"></ul>
-    <p id="empty-list-msg" class="hidden">Add someone below to get started.</p>
+    <div id="first-run-panel" class="hidden"></div>
     <div id="add-person-area">
     <button id="add-person-btn"></button>
     <div id="add-person-form">
       <input id="add-code-input" />
+      <p id="add-invite-status" class="hint hidden"></p>
+      <label id="add-label-label"></label>
       <input id="add-label-input" />
       <p id="add-error" class="hidden"></p>
       <button id="add-submit-btn"></button>
@@ -247,6 +259,19 @@ describe('renderList: sections', () => {
     jest.clearAllMocks();
   });
 
+  // iOS FTU flash: the guided empty state must be established in the synchronous
+  // boot pass, before the first async watcher callback — otherwise the bare empty
+  // list ("Add a person", no guidance) paints for a frame first.
+  test('initList sets the empty verdict synchronously, before any watcher fires', () => {
+    getFollowing.mockReturnValue([]);
+    watchFollowers.mockReturnValue(jest.fn());  // captured, callback NOT fired
+    watchPresence.mockReturnValue(jest.fn());
+    const { setListEmpty } = require('../js/firstRun.js');
+    initList('myUid', 'MYCODE');
+    expect(setListEmpty).toHaveBeenCalledWith(true);
+    expect(document.getElementById('people-list').style.display).toBe('none');
+  });
+
   test('user in both getFollowing and followers → row under "Mutuals" label', () => {
     getFollowing.mockReturnValue([
       { userId: 'u1', code: 'XY9K2M', label: 'Alice' },
@@ -295,23 +320,25 @@ describe('renderList: sections', () => {
     expect(labels.some(l => l.textContent === 'Followers')).toBe(false);
   });
 
-  test('all groups empty → #empty-list-msg shown, #people-list hidden', () => {
+  test('all groups empty → setListEmpty(true), #people-list hidden', () => {
     getFollowing.mockReturnValue([]);
     const fire = initAndCaptureFollowersCallback();
     fire([]);
 
-    expect(document.getElementById('empty-list-msg').classList.contains('hidden')).toBe(false);
+    const { setListEmpty } = require('../js/firstRun.js');
+    expect(setListEmpty).toHaveBeenLastCalledWith(true);
     expect(document.getElementById('people-list').style.display).toBe('none');
   });
 
-  test('non-empty list → #empty-list-msg hidden, #people-list visible', () => {
+  test('non-empty list → setListEmpty(false)', () => {
     getFollowing.mockReturnValue([
       { userId: 'u1', code: 'XY9K2M', label: 'Alice' },
     ]);
     const fire = initAndCaptureFollowersCallback();
     fire([]);
 
-    expect(document.getElementById('empty-list-msg').classList.contains('hidden')).toBe(true);
+    const { setListEmpty } = require('../js/firstRun.js');
+    expect(setListEmpty).toHaveBeenLastCalledWith(false);
   });
 });
 
@@ -382,6 +409,47 @@ describe('renderList: follower-only rows', () => {
 
     document.querySelector('[data-user-id="u2"] .follow-back-btn').click();
     expect(document.getElementById('add-label-input').value).toBe('Bea');
+  });
+
+  test('a published follower name (invite redemption) lands in the roster and re-renders the row', () => {
+    // Stateful roster so the render reflects what the watcher stores.
+    const roster = {};
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockImplementation((uid) => roster[uid] || null);
+    setFollowerName.mockImplementation((uid, name) => { roster[uid] = name; });
+
+    let followersCb;
+    let namesCb;
+    watchFollowers.mockImplementation((_uid, cb) => { followersCb = cb; return jest.fn(); });
+    watchFollowerNames.mockImplementation((_uid, cb) => { namesCb = cb; return jest.fn(); });
+    watchPresence.mockReturnValue(jest.fn());
+    initList('myUid', 'MYCODE');
+
+    // Follower arrives via invite with no roster name yet → bare code.
+    followersCb([{ userId: 'u2', code: 'Q3ZP7R' }]);
+    expect(document.querySelector('[data-user-id="u2"] .person-label').textContent).toBe('Q3ZP7R');
+
+    // Their published name arrives → roster populated + row re-rendered.
+    namesCb({ u2: 'Bea' });
+    expect(setFollowerName).toHaveBeenCalledWith('u2', 'Bea');
+    expect(document.querySelector('[data-user-id="u2"] .person-label').textContent).toBe('Q3ZP7R (Bea)');
+  });
+
+  test('a published name does NOT overwrite a roster name already known (approval wins)', () => {
+    const roster = { u2: 'Approved Name' };
+    getFollowing.mockReturnValue([]);
+    getFollowerName.mockImplementation((uid) => roster[uid] || null);
+    setFollowerName.mockImplementation((uid, name) => { roster[uid] = name; });
+
+    let namesCb;
+    watchFollowers.mockImplementation(() => jest.fn());
+    watchFollowerNames.mockImplementation((_uid, cb) => { namesCb = cb; return jest.fn(); });
+    watchPresence.mockReturnValue(jest.fn());
+    initList('myUid', 'MYCODE');
+
+    namesCb({ u2: 'Published Name' });
+    expect(setFollowerName).not.toHaveBeenCalled();
+    expect(roster.u2).toBe('Approved Name');
   });
 });
 
@@ -982,10 +1050,10 @@ describe('call mode: receiver-side glow via updateFolloweeRow', () => {
   test('removes .call-mode when there is no incoming call', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
     getFollowing.mockReturnValue([entry]);
-    const li = makeFolloweeLi('alice');
+    captureOwnCall('myUid', 'MYCODE'); // initList renders alice's row; no ring → _incomingCall null
+    const li = document.querySelector('[data-user-id="alice"]');
     li.classList.add('call-mode');
     li.style.setProperty('--call-color-rgb', '59, 130, 246');
-    captureOwnCall('myUid', 'MYCODE'); // no ring fired → _incomingCall stays null
     updateFolloweeRow(entry, {
       status: 'available',
       availableUntil: Date.now() + 3600000,
@@ -998,9 +1066,9 @@ describe('call mode: receiver-side glow via updateFolloweeRow', () => {
   test('removes .call-mode when the ring is from someone else', () => {
     const entry = { userId: 'alice', code: 'AAA111', label: 'Alice' };
     getFollowing.mockReturnValue([entry]);
-    const li = makeFolloweeLi('alice');
+    const ring = captureOwnCall('myUid', 'MYCODE'); // initList renders alice's row
+    const li = document.querySelector('[data-user-id="alice"]');
     li.classList.add('call-mode');
-    const ring = captureOwnCall('myUid', 'MYCODE');
     ring({ from: 'someoneElse', ts: 1 });
     updateFolloweeRow(entry, {
       status: 'available',
@@ -1084,7 +1152,9 @@ describe('call deferral while a drawer is open', () => {
   });
 
   test('drawer close does not re-render rows without an incoming call', () => {
-    const li = makeFolloweeLi('alice');
+    // The row is rendered by the beforeEach's initList (optimistic first render);
+    // grab it rather than adding a manual duplicate.
+    const li = document.querySelector('[data-user-id="alice"]');
     // Prime lastUserData + renderedFollowees with a NON-call state for alice
     // (no ring fired, so _incomingCall is null).
     updateFolloweeRow(entry, STATUS, 'myUid');
@@ -2414,5 +2484,128 @@ describe('renderList reconciliation', () => {
     getFollowing.mockReturnValue([]);
     fire([]);
     expect(isDrawerOpen()).toBe(false);
+  });
+});
+
+describe('add-person form mode: unpin pinned surfaces + close the code drawer', () => {
+  beforeEach(() => {
+    setupDom();
+    document.body.classList.remove('add-form-open');
+    document.body.insertAdjacentHTML('beforeend',
+      '<div id="code-drawer" class="open"></div><button id="mycode-chip" class="active"></button>');
+    require('../js/store.js').getFollowing.mockReturnValue([]);
+  });
+
+  test('opening the form enters form mode and closes the drawer', () => {
+    initAndCaptureFollowersCallback();
+    document.getElementById('add-person-btn').click();
+    expect(document.getElementById('add-person-form').classList.contains('open')).toBe(true);
+    expect(document.body.classList.contains('add-form-open')).toBe(true);
+    expect(document.getElementById('code-drawer').classList.contains('open')).toBe(false);
+    expect(document.getElementById('mycode-chip').classList.contains('active')).toBe(false);
+  });
+
+  test('cancel leaves form mode', () => {
+    initAndCaptureFollowersCallback();
+    document.getElementById('add-person-btn').click();
+    document.getElementById('add-cancel-btn').click();
+    expect(document.getElementById('add-person-form').classList.contains('open')).toBe(false);
+    expect(document.body.classList.contains('add-form-open')).toBe(false);
+  });
+
+  test('follow-back open path also enters form mode and closes the drawer', () => {
+    const fire = initAndCaptureFollowersCallback();
+    fire([{ userId: 'f1', code: 'ABC123' }]);
+    document.querySelector('.follow-back-btn').click();
+    expect(document.getElementById('add-person-form').classList.contains('open')).toBe(true);
+    expect(document.body.classList.contains('add-form-open')).toBe(true);
+    expect(document.getElementById('code-drawer').classList.contains('open')).toBe(false);
+  });
+});
+
+describe('unified redeem form (spec N6)', () => {
+  const { attemptRedeemFromUrl, resolveInvitePreview } = require('../js/invites.js');
+  const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv';
+  const INVITE_URL = `https://knock.example/invite?i=${TOKEN}`;
+  const input = () => document.getElementById('add-code-input');
+  const type = (v) => { input().value = v; input().dispatchEvent(new Event('input', { bubbles: true })); };
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+  let onInviteRedeemed;
+
+  beforeEach(() => {
+    setupDom();
+    require('../js/store.js').getFollowing.mockReturnValue([]);
+    attemptRedeemFromUrl.mockReset();
+    resolveInvitePreview.mockReset();
+    resolveInvitePreview.mockImplementation(() => Promise.resolve(null));
+    onInviteRedeemed = jest.fn();
+    initList('myUid', 'MYCODE', { onInviteRedeemed });
+  });
+
+  test('typing a code keeps code mode: uppercased, Name visible, button "Follow"', () => {
+    type('xk7p2m');
+    expect(input().value).toBe('XK7P2M');
+    expect(document.getElementById('add-label-input').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('add-submit-btn').textContent).toBe('Follow');
+    expect(document.getElementById('add-invite-status').classList.contains('hidden')).toBe(true);
+  });
+
+  test('pasting an invite link switches to invite mode: no uppercasing, Name hidden, button "Redeem invite", status line shown', () => {
+    type(INVITE_URL);
+    expect(input().value).toBe(INVITE_URL); // case preserved — tokens are case-sensitive
+    expect(document.getElementById('add-label-input').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('add-label-label').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('add-submit-btn').textContent).toBe('Redeem invite');
+    expect(document.getElementById('add-invite-status').textContent).toBe('Invite link detected');
+  });
+
+  test('preview upgrades the status line (fail-soft covered by the default null mock elsewhere)', async () => {
+    resolveInvitePreview.mockResolvedValueOnce({ scope: 'personal', label: 'Ana' });
+    type(INVITE_URL);
+    await flush();
+    expect(document.getElementById('add-invite-status').textContent).toBe("You'll follow Ana");
+  });
+
+  test('clearing the input restores code mode', () => {
+    type(INVITE_URL);
+    type('');
+    expect(document.getElementById('add-label-input').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('add-submit-btn').textContent).toBe('Follow');
+  });
+
+  test('submit in invite mode redeems through the existing pipeline and fires the callback on ok', async () => {
+    attemptRedeemFromUrl.mockResolvedValueOnce({ ok: true, creatorLabel: 'Ana' });
+    type(INVITE_URL);
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    expect(attemptRedeemFromUrl).toHaveBeenCalledWith(TOKEN, expect.anything(), expect.anything(), {});
+    expect(onInviteRedeemed).toHaveBeenCalledWith({ ok: true, creatorLabel: 'Ana' }); // the spy passed to initList
+  });
+
+  test('group invite prompts for a display name mid-flight, passing the cache forward', async () => {
+    attemptRedeemFromUrl
+      .mockResolvedValueOnce({ ok: false, reason: 'needs-display-name', groupId: 'G1', groupName: 'Hikers', cache: { marker: 1 } })
+      .mockResolvedValueOnce({ ok: true, groupId: 'G1', groupName: 'Hikers' });
+    type(INVITE_URL);
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    expect(attemptRedeemFromUrl).toHaveBeenLastCalledWith(TOKEN, expect.anything(), expect.anything(),
+      { displayName: 'Me', cache: { marker: 1 } });
+  });
+
+  test('failure maps to an inline error, form stays open', async () => {
+    attemptRedeemFromUrl.mockResolvedValueOnce({ ok: false, reason: 'expired' });
+    type(INVITE_URL);
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    expect(document.getElementById('add-error').textContent).toBe('This invite link has expired.');
+    expect(document.getElementById('add-error').classList.contains('hidden')).toBe(false);
+  });
+
+  test('garbage on submit gets the unified error', async () => {
+    type('hello there');
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    expect(document.getElementById('add-error').textContent).toBe("That doesn't look like a code or an invite link.");
   });
 });

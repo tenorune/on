@@ -8,6 +8,8 @@
   <meta name="apple-mobile-web-app-title" content="__APP_TITLE__" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <!-- Link-preview description for the root URL (matches /about + /invite). -->
+  <meta name="description" content="__APP_TITLE__ is about ambient presence — a soft signal that you're around and open to company, without the pressure of a chat thread." />
   <!-- CSP: deploy via firebase.json headers, not meta tag (meta blocks 'self' on local dev, ignores frame-ancestors) -->
   <!--
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-8plvDJLmM7886+ra4DrxBzGM2hgpxIJwDEK2Iu4PWMU='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.firebaseio.com wss://*.firebaseio.com https://*.googleapis.com; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';" />
@@ -53,6 +55,30 @@
     </div>
   </div>
 
+  <div id="tg-invite-screen" class="welcome-screen hidden">
+    <span class="brand-mark welcome-brand">k&#x0338;n&#x0336;o&#x0338;c&#x0335;k&#x0335; &#x0336;k&#x0338;n&#x0337;o&#x0335;c&#x0338;k&#x0335;</span>
+    <p id="tg-invite-framing" class="welcome-invite-framing"></p>
+    <div class="welcome-btns">
+      <button id="tg-invite-accept-btn" class="primary-btn" type="button">Accept &amp; get started</button>
+      <button id="tg-invite-phrase-btn" class="ghost-btn" type="button">I have a secret phrase</button>
+      <button id="tg-invite-dismiss-btn" class="ghost-btn" type="button">Not now</button>
+      <!-- A4: answers "what am I signing up to" for t.me-link arrivals; opens
+           the /invite landing in Telegram's browser so the user returns here.
+           First-ever open only (isNew) — js/telegramFirstRun.js toggles it. -->
+      <button id="tg-invite-about-btn" class="ghost-btn hidden" type="button">What is KnockKnock?</button>
+    </div>
+  </div>
+
+  <div id="tg-invite-error" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-card-small">
+      <p id="tg-invite-error-message">Couldn't open that invite. Check your connection and try again.</p>
+      <div class="modal-actions">
+        <button id="tg-invite-error-retry" class="primary-btn" type="button">Try again</button>
+        <button id="tg-invite-error-dismiss" class="ghost-btn" type="button">Not now</button>
+      </div>
+    </div>
+  </div>
+
   <div id="invite-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">
     <div class="modal-card">
       <h2 id="invite-modal-title" class="modal-title">Your invite link</h2>
@@ -76,9 +102,16 @@
           <span class="regen-slot"><button id="invite-modal-regen-btn" class="rotate-btn" title="Generate new invite link" aria-label="Generate new invite link">↻</button></span>
           <button id="invite-modal-copy-btn" class="ghost-btn">Copy</button>
         </div>
+        <button id="invite-modal-share-btn" class="ghost-btn invite-share-btn hidden">Share</button>
         <div class="modal-actions">
           <button id="invite-modal-revoke-btn" class="ghost-btn">Revoke</button>
         </div>
+      </div>
+
+      <!-- Telegram group share: one-tap deep-link share in place of the web-URL
+           create/manage UI (group scope, Telegram context only) -->
+      <div id="invite-modal-tg-share" class="hidden">
+        <button id="invite-modal-tg-share-btn" class="primary-btn">Share on Telegram</button>
       </div>
 
       <!-- Section 2: in-app picker (group scope only) -->
@@ -106,6 +139,42 @@
     </div>
   </div>
 
+  <div id="boot-error-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-card-small">
+      <p>Couldn't start KnockKnock.</p>
+      <div class="modal-actions">
+        <button id="boot-error-retry" class="primary-btn" type="button">Try again</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reusable text-prompt modal (promise-based; replaces window.prompt, which
+       is unsupported in some webviews e.g. Telegram macOS Desktop). -->
+  <div id="text-prompt-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="text-prompt-title">
+    <div class="modal-card">
+      <h2 id="text-prompt-title" class="modal-title"></h2>
+      <input id="text-prompt-input" class="text-input" type="text" maxlength="40" />
+      <p id="text-prompt-error" class="error-msg hidden"></p>
+      <div class="modal-actions">
+        <button id="text-prompt-confirm-btn" class="primary-btn">Save</button>
+        <button id="text-prompt-cancel-btn" class="ghost-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reusable confirm modal (promise-based; replaces window.confirm). -->
+  <div id="confirm-modal" class="confirm-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+    <div class="confirm-sheet">
+      <h4 id="confirm-modal-title"></h4>
+      <p id="confirm-modal-message"></p>
+      <p id="confirm-modal-error" class="error-msg hidden" role="alert"></p>
+      <div class="confirm-btns">
+        <button id="confirm-modal-cancel-btn" class="confirm-btn-cancel">Cancel</button>
+        <button id="confirm-modal-confirm-btn" class="confirm-btn-remove">Confirm</button>
+      </div>
+    </div>
+  </div>
+
   <div id="create-group-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="create-group-title">
     <div class="modal-card">
       <h2 id="create-group-title" class="modal-title">Create a group</h2>
@@ -129,12 +198,13 @@
   <div id="recovery-modal" class="welcome-screen hidden">
     <div class="modal-card">
       <h3>This is your secret phrase</h3>
+      <p id="recovery-modal-intro" class="modal-subtitle hidden"></p>
       <div class="recovery-display">
         <span id="recovery-code-text" class="recovery-code-text"></span>
         <span class="regen-slot"><button id="recovery-rotate-btn" class="rotate-btn" title="Generate new secret phrase" aria-label="Generate new secret phrase">↻</button></span>
         <button id="recovery-copy-btn" class="ghost-btn">Copy</button>
       </div>
-      <p class="recovery-warning">Save this somewhere safe. It's the only way to restore your account if you lose this browser. We can't recover it for you.</p>
+      <p id="recovery-modal-warning" class="recovery-warning">Save this somewhere safe. It's the only way to restore your account if you lose this browser. We can't recover it for you.</p>
       <!-- Hidden credential form: lets iOS/macOS offer "Save Password" (iCloud
            Keychain), which crosses the install storage partition by domain. Never
            relied upon or asserted in copy. -->
@@ -143,14 +213,19 @@
                autocomplete="username" tabindex="-1" readonly aria-hidden="true" />
         <input id="recovery-keychain-phrase" class="visually-hidden" type="password"
                autocomplete="new-password" tabindex="-1" readonly aria-hidden="true" />
-        <button id="recovery-saved-btn" class="primary-btn" type="submit">I've saved it</button>
+        <div class="recovery-modal-actions">
+          <button id="recovery-cancel-btn" class="ghost-btn hidden" type="button">Cancel</button>
+          <button id="recovery-saved-btn" class="primary-btn" type="submit">I've saved it</button>
+        </div>
       </form>
+      <p id="recovery-modal-error" class="error-msg hidden"></p>
     </div>
   </div>
 
   <div id="restore-screen" class="restore-screen hidden">
     <div class="restore-card">
       <h3>Enter your secret phrase</h3>
+      <p id="restore-subtext" class="hint hidden"></p>
       <form id="restore-form" autocomplete="on">
         <input id="restore-username" class="visually-hidden" type="text" autocomplete="username" tabindex="-1" aria-hidden="true" />
       <input id="restore-input" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="your-four-secret-words" class="code-input restore-input" />
@@ -171,14 +246,6 @@
       <button id="install-step-later-btn" class="ghost-btn" type="button">Maybe later</button>
     </div>
   </div>
-  <div id="browser-redirect" class="welcome-screen hidden">
-    <div class="modal-card">
-      <h3 id="browser-redirect-title">Open in your browser</h3>
-      <p id="browser-redirect-body"></p>
-      <button id="browser-redirect-continue-btn" class="ghost-btn" type="button">Continue here anyway</button>
-    </div>
-  </div>
-
   <div id="nav-row" class="nav-row hidden">
     <!-- Populated by js/groupNav.js. Direct context: Direct + groups + plus.
          Group context: Direct (back) + chain icon override toggle + group name. -->
@@ -195,21 +262,36 @@
           </div>
           <div id="header-chips">
             <button id="time-chip" class="chip time-chip">2 hours</button>
-            <button id="mycode-chip" class="chip">Share code</button>
+            <button id="mycode-chip" class="chip">Levers &amp; knobs</button>
           </div>
           <div id="swatch-row" style="display:none"></div>
         </div>
       </div>
       <div id="code-drawer">
         <div class="drawer-inner">
-          <div class="code-row">
-            <span id="my-code-display" class="code-display"></span>
-            <button id="rotate-code-btn" class="rotate-btn" title="Generate new code">↻</button>
-            <button id="copy-code-btn" class="ghost-btn">Copy</button>
-            <button id="invite-link-btn" class="ghost-btn">Create invite link</button>
+          <div class="drawer-section" id="drawer-section-invite">
+            <p class="drawer-section-label" id="drawer-invite-label">Invite</p>
+            <button id="drawer-invite-btn" class="primary-btn" type="button">Invite your people</button>
+            <div class="code-row">
+              <span id="my-code-display" class="code-display"></span>
+              <button id="rotate-code-btn" class="rotate-btn" title="Generate new code">↻</button>
+              <button id="copy-code-btn" class="ghost-btn">Copy</button>
+            </div>
+            <p id="rotate-error-msg" class="error-msg hidden"></p>
+            <p class="hint" id="drawer-invite-hint">Or share this code so others can follow your status.</p>
           </div>
-          <p id="rotate-error-msg" class="error-msg hidden"></p>
-          <p class="hint">Share this so others can follow your status.</p>
+          <div class="drawer-section hidden" id="drawer-section-notifications">
+            <p class="drawer-section-label">Notifications</p>
+            <div id="tg-notify-slot"></div>
+          </div>
+          <div class="drawer-section hidden" id="drawer-section-account">
+            <p class="drawer-section-label">Account</p>
+            <div id="tg-account-slot"></div>
+            <div id="tg-onramp-drawer" class="hidden">
+              <p class="hint">Get knocks and presence in a Telegram chat.</p>
+              <button id="tg-onramp-drawer-btn" class="ghost-btn" type="button">Use in Telegram</button>
+            </div>
+          </div>
         </div>
       </div>
       <div id="recovery-pill-row" class="recovery-pill-row">
@@ -218,6 +300,7 @@
           <span id="drawer-recovery-code" class="recovery-code-text"></span>
         </div>
         <button id="drawer-recovery-copy-btn" class="ghost-btn">Copy</button>
+        <p id="recovery-elsewhere-note" class="hint hidden">This account has a secret phrase — view it in KnockKnock on the web.</p>
       </div>
     </header>
 
@@ -230,14 +313,25 @@
     <main id="main-list">
       <div id="offline-banner" class="offline-banner hidden">Offline — showing last known status</div>
       <ul id="people-list" class="person-list"></ul>
-      <p id="empty-list-msg" class="hidden"></p>
+      <div id="first-run-panel" class="first-run-panel hidden">
+        <p class="first-run-lede">KnockKnock — for when you're around and open to company.</p>
+        <p class="first-run-sub">No one's here yet.</p>
+        <button id="first-run-invite-btn" class="primary-btn">Invite your people</button>
+        <p id="first-run-link-line" class="hint hidden">Already use KnockKnock?
+          <span class="first-run-link-row"><button id="first-run-link-btn" class="ghost-btn" type="button">I have a secret phrase</button><button id="first-run-graduate-help" class="help-badge" type="button" aria-label="Use the app outside Telegram">?</button></span></p>
+      </div>
       <div id="add-person-area">
-      <button id="add-person-btn" class="add-btn">Add a person</button>
+      <button id="add-person-btn" class="add-btn">Redeem an invite</button>
       <div id="add-person-form">
         <div class="add-form">
-          <label class="field-label" for="add-code-input">Code</label>
-          <input id="add-code-input" type="text" maxlength="6" placeholder="e.g. XK7P2M" class="code-input" autocomplete="off" />
-          <label class="field-label" for="add-label-input">Name (optional)</label>
+          <label class="field-label" for="add-code-input">Code or invite link</label>
+          <!-- Normal text input (not the centered all-caps .code-input style):
+               the field also takes an invite link, where casing is meaningful
+               and all-caps is misleading. Codes are still uppercased in code
+               mode by the input handler in js/following.js. -->
+          <input id="add-code-input" type="text" maxlength="200" placeholder="e.g. XK7P2M or an invite link" class="text-input" autocomplete="off" />
+          <p id="add-invite-status" class="hint hidden"></p>
+          <label id="add-label-label" class="field-label" for="add-label-input">Name (optional)</label>
           <input id="add-label-input" type="text" maxlength="40" placeholder="e.g. Partner, Mom" class="text-input" />
           <p id="add-error" class="error-msg hidden"></p>
           <div style="display:flex;gap:8px">
@@ -297,23 +391,43 @@
     <ul id="group-roster" class="group-roster"></ul>
   </div>
 
-  <div id="group-removal-toast" class="group-removal-toast hidden" role="alert">
-    <span id="group-removal-toast-text"></span>
-    <button id="group-removal-toast-dismiss" class="ghost-btn">OK</button>
+  <!-- Bottom notification area: the confirmation toast and the notify/install/
+       onramp promos all share one fixed bottom-center slot (positioning is owned
+       here, not repeated on each). Only one shows at a time — the confirmation
+       toast follows directly from the user's action, so it takes precedence: CSS
+       hides the promos while the toast is visible (they used to overlap — e.g.
+       the invite-accept toast over the Telegram onramp promo). -->
+  <div id="bottom-stack" class="bottom-stack">
+    <div id="group-removal-toast" class="group-removal-toast hidden" role="alert">
+      <span id="group-removal-toast-text"></span>
+      <button id="group-removal-toast-dismiss" class="ghost-btn">OK</button>
+    </div>
+
+    <div id="notify-promo" class="notify-promo hidden" role="region" aria-label="Notifications">
+      <span id="notify-promo-text"></span>
+      <div class="notify-promo-actions">
+        <button id="notify-promo-dismiss" class="ghost-btn" aria-label="Close">Close</button>
+        <button id="notify-promo-action" class="primary-btn hidden"></button>
+      </div>
+    </div>
+
+    <div id="tg-onramp-promo" class="notify-promo hidden" role="region" aria-label="Telegram">
+      <span id="tg-onramp-text">KnockKnock works in Telegram now — get your knocks and presence in a Telegram chat too.</span>
+      <div class="notify-promo-actions">
+        <button id="tg-onramp-dismiss" class="ghost-btn" aria-label="Close">Close</button>
+        <button id="tg-onramp-action" class="primary-btn" type="button">Use in Telegram</button>
+      </div>
+    </div>
+
+    <div id="install-toast" class="notify-promo install-toast hidden" role="region" aria-label="Install">
+      <span id="install-toast-text"></span>
+      <div class="notify-promo-actions">
+        <button id="install-toast-dismiss" class="ghost-btn" type="button" aria-label="Close">Close</button>
+        <button id="install-toast-action" class="primary-btn hidden" type="button">Install</button>
+      </div>
+    </div>
   </div>
 
-  <div id="notify-promo" class="notify-promo hidden" role="region" aria-label="Notifications">
-    <span id="notify-promo-text"></span>
-    <button id="notify-promo-action" class="primary-btn hidden"></button>
-    <button id="notify-promo-dismiss" class="ghost-btn" aria-label="Close">Close</button>
-  </div>
-
-  <div id="install-toast" class="notify-promo install-toast hidden" role="region" aria-label="Install">
-    <span id="install-toast-text"></span>
-    <button id="install-toast-action" class="primary-btn hidden" type="button">Install</button>
-    <button id="install-toast-dismiss" class="ghost-btn" type="button" aria-label="Close">Close</button>
-  </div>
-
-  <script src="dist/bundle.js"></script>
+  <script src="dist/bundle.js" defer></script>
 </body>
 </html>

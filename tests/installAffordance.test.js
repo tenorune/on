@@ -1,6 +1,22 @@
 function setUA(ua) { Object.defineProperty(global.navigator, 'userAgent', { value: ua, configurable: true }); }
 function setStandalone(matches) { global.window.matchMedia = () => ({ matches }); }
 
+// isFirstRunResolved defaults true (steady state: the list has rendered). The
+// boot-window flash test flips it to false.
+jest.mock('../js/firstRun.js', () => ({
+  isFirstRunActive: jest.fn(() => false),
+  isFirstRunResolved: jest.fn(() => true),
+}));
+jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
+jest.mock('../js/telegramOnramp.js', () => ({ isOnrampPromoActive: jest.fn(() => false) }));
+
+const mockHatchText = jest.fn(() => '<span class="tg-escape-hatch">You can also link Telegram…</span>');
+const mockSyncBtn = jest.fn();
+jest.mock('../js/telegramEscapeHatch.js', () => ({
+  escapeHatchTextHtml: (...a) => mockHatchText(...a),
+  syncEscapeHatchButton: (...a) => mockSyncBtn(...a),
+}));
+
 const { pushInTabCopy } = require('../js/installAffordance.js');
 
 describe('pushInTabCopy', () => {
@@ -25,14 +41,71 @@ describe('install affordance rendering', () => {
       <button id="install-fab" class="install-fab hidden"></button>
       <div id="install-toast" class="install-toast hidden">
         <span id="install-toast-text"></span>
-        <button id="install-toast-action" class="hidden"></button>
-        <button id="install-toast-dismiss"></button>
+        <div class="notify-promo-actions">
+          <button id="install-toast-dismiss"></button>
+          <button id="install-toast-action" class="hidden"></button>
+        </div>
       </div>`;
   }
+  const actions = () => document.querySelector('.notify-promo-actions');
   function setInstallPromptSupport(on) {
     if (on) window.onbeforeinstallprompt = null; else delete window.onbeforeinstallprompt;
   }
-  beforeEach(() => { __resetInstallPromptForTests(); dom(); setStandalone(false); delete window.onbeforeinstallprompt; });
+  beforeEach(() => {
+    const { isFirstRunActive } = require('../js/firstRun.js');
+    isFirstRunActive.mockReturnValue(false);
+    require('../js/telegramOnramp.js').isOnrampPromoActive.mockReturnValue(false);
+    require('../js/firstRun.js').isFirstRunResolved.mockReturnValue(true);
+    __resetInstallPromptForTests();
+    // mockReset (not mockClear) so a per-test mockReturnValue('') override can't
+    // leak into a later test; re-establish the default return value here.
+    mockHatchText.mockReset();
+    mockHatchText.mockReturnValue('<span class="tg-escape-hatch">You can also link Telegram…</span>');
+    mockSyncBtn.mockClear();
+    dom();
+    setStandalone(false);
+    delete window.onbeforeinstallprompt;
+  });
+
+  // Finding: the "Use in Telegram" onramp promo and this install/notify nudge
+  // could show at once (cluttered). The install affordance defers to the promo —
+  // it offers the same notifications via the bot, so one teaching surface wins.
+  test('defers entirely while the onramp promo is active; resumes on onramp-change', () => {
+    setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0');
+    const onramp = require('../js/telegramOnramp.js');
+    onramp.isOnrampPromoActive.mockReturnValue(true);
+    initInstallAffordance();
+    const fab = document.getElementById('install-fab');
+    const toast = document.getElementById('install-toast');
+    expect(toast.classList.contains('hidden')).toBe(true);
+    expect(fab.classList.contains('hidden')).toBe(true);
+    // Promo dismissed/linked → onramp-change fires → the affordance resumes.
+    onramp.isOnrampPromoActive.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('onramp-change'));
+    expect(toast.classList.contains('hidden')).toBe(false);
+  });
+
+  // Boot-window flash (iOS FTU): apply() runs before initList establishes the
+  // empty state. isFirstRunActive() is false only because it's UNRESOLVED — the
+  // whole affordance (toast AND fab) must hold, else the fab/toast flashes for a
+  // frame before the guided empty state mounts. Resumes on the first-run-change
+  // that the first render dispatches.
+  test('holds the whole affordance until the first-run state is resolved', () => {
+    require('../js/firstRun.js').isFirstRunResolved.mockReturnValue(false);
+    setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1'); // ios-install → fab lane
+    initInstallAffordance();
+    const fab = document.getElementById('install-fab');
+    const toast = document.getElementById('install-toast');
+    expect(toast.classList.contains('hidden')).toBe(true);
+    expect(fab.classList.contains('hidden')).toBe(true);
+    // First render lands (empty new user): resolved, and now first-run active →
+    // still held (the guided empty state is the surface). The point is: no flash
+    // in the unresolved window.
+    require('../js/firstRun.js').isFirstRunResolved.mockReturnValue(true);
+    require('../js/firstRun.js').isFirstRunActive.mockReturnValue(false); // pretend non-empty for resume proof
+    document.dispatchEvent(new CustomEvent('first-run-change'));
+    expect(fab.classList.contains('hidden')).toBe(false); // affordance resumes once resolved
+  });
 
   test('Firefox desktop: toast shows first (fab hidden); dismiss reveals fab; fab reopens toast', () => {
     setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0');
@@ -114,5 +187,128 @@ describe('install affordance rendering', () => {
     expect(toast.classList.contains('hidden')).toBe(false);
     expect(document.getElementById('install-toast-text').innerHTML).toMatch(/Add to Home Screen/i);
     expect(document.getElementById('install-toast-action').classList.contains('hidden')).toBe(true);
+  });
+
+  test('first-run suppresses the whole install affordance: toast AND corner icon hidden', () => {
+    const { isFirstRunActive } = require('../js/firstRun.js');
+    isFirstRunActive.mockReturnValue(true);
+    setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
+    // Fire a beforeinstallprompt so the install prompt is available → lane 'installable'.
+    const evt = new Event('beforeinstallprompt');
+    evt.preventDefault = jest.fn();
+    evt.prompt = jest.fn();
+    evt.userChoice = Promise.resolve({ outcome: 'accepted' });
+    initInstallAffordance();        // registers the beforeinstallprompt listener
+    window.dispatchEvent(evt);      // now available; onInstallPromptChange → apply()
+    // Guided empty state is the single teaching surface (spec §3). The corner icon
+    // is suppressed too — on its own it is a no-op tease, since its toast can't open
+    // while first-run holds.
+    expect(document.getElementById('install-toast').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('install-fab').classList.contains('hidden')).toBe(true);
+  });
+
+  test('first-run: clicking the (suppressed) corner icon does not force the toast open', () => {
+    const { isFirstRunActive } = require('../js/firstRun.js');
+    isFirstRunActive.mockReturnValue(true);
+    setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
+    const evt = new Event('beforeinstallprompt');
+    evt.preventDefault = jest.fn();
+    evt.prompt = jest.fn();
+    evt.userChoice = Promise.resolve({ outcome: 'accepted' });
+    initInstallAffordance();
+    window.dispatchEvent(evt);
+    document.getElementById('install-fab').click(); // clears `dismissed`, re-applies
+    expect(document.getElementById('install-toast').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('install-fab').classList.contains('hidden')).toBe(true);
+  });
+
+  test('first-run-change re-applies: toast resumes when the empty state clears', () => {
+    const { isFirstRunActive } = require('../js/firstRun.js');
+    isFirstRunActive.mockReturnValue(true);
+    setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
+    // Fire a beforeinstallprompt so the install prompt is available → lane 'installable'.
+    const evt = new Event('beforeinstallprompt');
+    evt.preventDefault = jest.fn();
+    evt.prompt = jest.fn();
+    evt.userChoice = Promise.resolve({ outcome: 'accepted' });
+    initInstallAffordance();        // registers the beforeinstallprompt listener
+    window.dispatchEvent(evt);      // now available; onInstallPromptChange → apply()
+    isFirstRunActive.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('first-run-change'));
+    expect(document.getElementById('install-toast').classList.contains('hidden')).toBe(false);
+  });
+
+  test('push-in-tab lane (Firefox desktop) appends the hatch text + mounts the CTA', () => {
+    setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0');
+    initInstallAffordance();
+    const text = document.getElementById('install-toast-text');
+    expect(text.innerHTML).toContain('even when your browser is closed'); // existing copy kept
+    expect(text.innerHTML).toContain('tg-escape-hatch');
+    expect(mockSyncBtn).toHaveBeenCalledWith(actions(), true);
+  });
+
+  test('ios-install lane appends the hatch text after the phrase reminder + mounts the CTA (FAB → toast)', () => {
+    setUA('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1');
+    initInstallAffordance();               // iOS lands dismissed → FAB only
+    document.getElementById('install-fab').click();  // open the toast
+    const text = document.getElementById('install-toast-text');
+    expect(text.innerHTML).toContain('tg-escape-hatch');
+    expect(mockSyncBtn).toHaveBeenCalledWith(actions(), true);
+  });
+
+  test('installable lane never gets the hatch (headline path untouched)', () => {
+    setUA('Mozilla/5.0 (X11; Linux x86_64) Chrome/125.0');
+    window.onbeforeinstallprompt = null;   // capability present
+    initInstallAffordance();
+    const text = document.getElementById('install-toast-text');
+    expect(text.innerHTML).not.toContain('tg-escape-hatch');
+    // The lane explicitly clears any stale CTA (wanted=false) rather than leaving one.
+    expect(mockSyncBtn).toHaveBeenCalledWith(actions(), false);
+  });
+
+  test('unavailable hatch (empty string) leaves lanes at current behavior', () => {
+    mockHatchText.mockReturnValue('');
+    setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0');
+    initInstallAffordance();
+    const text = document.getElementById('install-toast-text');
+    expect(text.innerHTML).not.toContain('tg-escape-hatch');
+  });
+
+  describe('bot-delivered suppression (linked account, telegram channel)', () => {
+    const { syncBotDelivery, __resetBotDeliveryForTests } = require('../js/notifySuppression.js');
+    const LINKED_TG = { telegram: { linkedAt: 1 }, notifyChannel: 'telegram' };
+    const LINKED_PUSH = { telegram: { linkedAt: 1 }, notifyChannel: 'push' };
+    const toast = () => document.getElementById('install-toast');
+    const fab = () => document.getElementById('install-fab');
+
+    beforeEach(() => {
+      __resetBotDeliveryForTests();
+      setUA('Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko Firefox/125.0'); // push-in-tab lane
+    });
+    afterAll(() => __resetBotDeliveryForTests());
+
+    test('suppressed at init: toast AND fab hidden in an otherwise-showing lane', () => {
+      syncBotDelivery(LINKED_TG);
+      initInstallAffordance();
+      expect(toast().classList.contains('hidden')).toBe(true);
+      expect(fab().classList.contains('hidden')).toBe(true);
+    });
+
+    test('suppression arriving after init hides a visible toast (prefs tick landed late)', () => {
+      initInstallAffordance();
+      expect(toast().classList.contains('hidden')).toBe(false);
+      syncBotDelivery(LINKED_TG); // bot-delivery-change → apply()
+      expect(toast().classList.contains('hidden')).toBe(true);
+      expect(fab().classList.contains('hidden')).toBe(true);
+    });
+
+    test('suppression lifting (switch to push) revives the affordance without re-init', () => {
+      syncBotDelivery(LINKED_TG);
+      initInstallAffordance();
+      expect(toast().classList.contains('hidden')).toBe(true);
+      syncBotDelivery(LINKED_PUSH);
+      expect(toast().classList.contains('hidden')).toBe(false);
+      expect(fab().classList.contains('hidden')).toBe(true); // toast leads, as usual
+    });
   });
 });

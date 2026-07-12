@@ -1,4 +1,14 @@
 // tests/inviteModal.test.js
+// inviteModal.js now imports telegram.js; stub it out inertly (no Telegram context
+// in these tests, so the share button stays hidden and unwired).
+jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false), openTelegramShare: jest.fn() }));
+jest.mock('../js/inviteFlow.js', () => ({
+  shareInviteLink: jest.fn(),
+  telegramSharingEnabled: jest.fn(() => false),
+  shareInviteToTelegramWeb: jest.fn(() => true),
+  buildTelegramInviteLink: jest.fn((t) => `https://t.me/kk_bot/app?startapp=${t}`),
+  shareCaption: (scope, groupName) => (scope === 'group' ? `Join ${groupName} on KnockKnock` : 'Follow me on KnockKnock'),
+}));
 jest.mock('../js/invites.js', () => ({
   createPersonalInvite: jest.fn(),
   regeneratePersonalInvite: jest.fn(),
@@ -20,6 +30,9 @@ jest.mock('../js/db.js', () => ({
 
 jest.mock('../js/invitePicker.js', () => ({
   renderInvitePicker: jest.fn(),
+  // Keep the real predicate — these tests exercise the modal's TG-group
+  // short-circuit, which depends on hasDisplayableInvitees' actual logic.
+  hasDisplayableInvitees: jest.requireActual('../js/invitePicker.js').hasDisplayableInvitees,
 }));
 
 const invites = require('../js/invites.js');
@@ -41,8 +54,12 @@ function setupDom() {
           <div id="invite-modal-url-prefix"></div>
           <code id="invite-modal-url"></code>
           <button id="invite-modal-copy-btn"></button>
+          <button id="invite-modal-share-btn" class="hidden">Share</button>
           <button id="invite-modal-regen-btn"></button>
           <button id="invite-modal-revoke-btn"></button>
+        </div>
+        <div id="invite-modal-tg-share" class="hidden">
+          <button id="invite-modal-tg-share-btn"></button>
         </div>
         <div id="invite-modal-picker" class="hidden">
           <p id="invite-modal-picker-framing"></p>
@@ -73,16 +90,16 @@ describe('openInviteModal — personal scope', () => {
   });
 
   test('renders State B (manage) when an active invite is supplied', () => {
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'TOKEN', creatorLabel: 'Alex', url: 'https://x/?i=TOKEN' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'TOKEN', creatorLabel: 'Alex', url: 'https://x/invite?i=TOKEN' } });
     expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(true);
     // The unchanging base sits above the field; the field holds only the token.
-    expect(document.getElementById('invite-modal-url-prefix').textContent).toBe('https://x/?i=');
+    expect(document.getElementById('invite-modal-url-prefix').textContent).toBe('https://x/invite?i=');
     expect(document.getElementById('invite-modal-url').textContent).toBe('TOKEN');
   });
 
   test('Create button validates label and calls createPersonalInvite', async () => {
-    invites.createPersonalInvite.mockResolvedValue({ token: 'NEW', url: 'https://x/?i=NEW', existing: false });
+    invites.createPersonalInvite.mockResolvedValue({ token: 'NEW', url: 'https://x/invite?i=NEW', existing: false });
     openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: null });
 
     document.getElementById('invite-modal-label-input').value = '   '; // empty after trim
@@ -101,12 +118,12 @@ describe('openInviteModal — personal scope', () => {
 
   test('Copy button writes the URL to the clipboard and flips text to Copied!', async () => {
     jest.useFakeTimers();
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/invite?i=T' } });
     const btn = document.getElementById('invite-modal-copy-btn');
     btn.textContent = 'Copy';
     btn.click();
     await Promise.resolve(); await Promise.resolve();
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://x/?i=T');
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://x/invite?i=T');
     expect(btn.textContent).toBe('Copied!');
     jest.advanceTimersByTime(1500);
     expect(btn.textContent).toBe('Copy');
@@ -114,8 +131,8 @@ describe('openInviteModal — personal scope', () => {
   });
 
   test('Regenerate calls regeneratePersonalInvite and refreshes the URL', async () => {
-    invites.regeneratePersonalInvite.mockResolvedValue({ token: 'NEW2', url: 'https://x/?i=NEW2', existing: false });
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
+    invites.regeneratePersonalInvite.mockResolvedValue({ token: 'NEW2', url: 'https://x/invite?i=NEW2', existing: false });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/invite?i=T' } });
     const regenBtn = document.getElementById('invite-modal-regen-btn');
     regenBtn.focus();
     regenBtn.click();
@@ -130,7 +147,7 @@ describe('openInviteModal — personal scope', () => {
 
   test('Revoke calls revokePersonalInvite and transitions to Create state', async () => {
     invites.revokePersonalInvite.mockResolvedValue();
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/invite?i=T' } });
     document.getElementById('invite-modal-revoke-btn').click();
     await new Promise(setImmediate);
     expect(invites.revokePersonalInvite).toHaveBeenCalledWith('uid1');
@@ -139,7 +156,7 @@ describe('openInviteModal — personal scope', () => {
   });
 
   test('overlay tap (Manage state) hides the modal', () => {
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/invite?i=T' } });
     document.getElementById('invite-modal').click();
     expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
   });
@@ -158,7 +175,7 @@ describe('openInviteModal — personal scope', () => {
 
   test('Regenerate surfaces an error when the underlying call rejects', async () => {
     invites.regeneratePersonalInvite.mockRejectedValue(new Error('network down'));
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/invite?i=T' } });
     document.getElementById('invite-modal-regen-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('invite-modal-label-error').textContent).toBe('network down');
@@ -167,7 +184,7 @@ describe('openInviteModal — personal scope', () => {
 
   test('Revoke surfaces an error when the underlying call rejects', async () => {
     invites.revokePersonalInvite.mockRejectedValue(new Error('boom'));
-    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/?i=T' } });
+    openInviteModal({ scope: 'personal', userId: 'uid1', activeInvite: { token: 'T', creatorLabel: 'Alex', url: 'https://x/invite?i=T' } });
     document.getElementById('invite-modal-revoke-btn').click();
     await new Promise(setImmediate);
     expect(document.getElementById('invite-modal-label-error').textContent).toBe('boom');
@@ -201,7 +218,7 @@ describe('openInviteModal — group scope', () => {
   });
 
   test('Create button calls createGroupInvite(userId, groupId)', async () => {
-    invites.createGroupInvite.mockResolvedValue({ token: 'NEW', url: 'https://x/?i=NEW', existing: false });
+    invites.createGroupInvite.mockResolvedValue({ token: 'NEW', url: 'https://x/invite?i=NEW', existing: false });
     await openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
     document.getElementById('invite-modal-create-btn').click();
     await new Promise(setImmediate);
@@ -210,10 +227,10 @@ describe('openInviteModal — group scope', () => {
   });
 
   test('Regenerate calls regenerateGroupInvite(userId, groupId)', async () => {
-    invites.regenerateGroupInvite.mockResolvedValue({ token: 'NEW2', url: 'https://x/?i=NEW2', existing: false });
+    invites.regenerateGroupInvite.mockResolvedValue({ token: 'NEW2', url: 'https://x/invite?i=NEW2', existing: false });
     await openInviteModal({
       scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
-      activeInvite: { token: 'T', url: 'https://x/?i=T', scope: 'group' },
+      activeInvite: { token: 'T', url: 'https://x/invite?i=T', scope: 'group' },
     });
     document.getElementById('invite-modal-regen-btn').click();
     await new Promise(setImmediate);
@@ -223,11 +240,101 @@ describe('openInviteModal — group scope', () => {
     expect(document.getElementById('invite-modal-regen-btn').style.visibility).toBe('hidden');
   });
 
+  test('web group scope with an eligible contact: create link UI shown, tg-share hidden, picker shown', async () => {
+    await openInviteModal({
+      scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
+      followers: { 'follower-1': 'CODE-1' }, mutuals: [], currentMemberUids: new Set(),
+    });
+    expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('invite-modal-tg-share').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(false);
+  });
+
+  test('Telegram group scope: "Share on Telegram" button shown, link create/manage hidden, picker shown', async () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    isTelegramContext.mockReturnValue(true);
+    await openInviteModal({
+      scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
+      followers: { 'follower-1': 'CODE-1' }, mutuals: [], currentMemberUids: new Set(),
+    });
+    expect(document.getElementById('invite-modal-tg-share').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('invite-modal-manage').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(false);
+    isTelegramContext.mockReturnValue(false);
+  });
+
+  test('Telegram group scope: tapping "Share on Telegram" mints the invite and shares the deep link', async () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    const { shareInviteLink } = require('../js/inviteFlow.js');
+    isTelegramContext.mockReturnValue(true);
+    invites.createGroupInvite.mockResolvedValue({ token: 'GTOK', url: 'https://x/invite?i=GTOK' });
+    await openInviteModal({
+      scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
+      followers: { 'follower-1': 'CODE-1' }, mutuals: [], currentMemberUids: new Set(),
+    });
+    document.getElementById('invite-modal-tg-share-btn').click();
+    await new Promise(setImmediate);
+    expect(invites.createGroupInvite).toHaveBeenCalledWith('uid1', 'G1');
+    expect(shareInviteLink).toHaveBeenCalledWith(
+      expect.objectContaining({ token: 'GTOK' }),
+      expect.stringContaining('Family'),
+    );
+    isTelegramContext.mockReturnValue(false);
+  });
+
+  test('TG group, no displayable contacts → skip modal, share directly', async () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    const { shareInviteLink } = require('../js/inviteFlow.js');
+    isTelegramContext.mockReturnValue(true);
+    invites.createGroupInvite.mockResolvedValue({ token: 'GTOK', url: 'https://x/invite?i=GTOK' });
+    // followers empty ⇒ hasDisplayableInvitees false
+    await openInviteModal({ scope: 'group', userId: 'me', groupId: 'g1', groupName: 'Divers',
+      followers: {}, mutuals: [], currentMemberUids: new Set() });
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
+    expect(invites.createGroupInvite).toHaveBeenCalledWith('me', 'g1');
+    expect(shareInviteLink).toHaveBeenCalled();
+    isTelegramContext.mockReturnValue(false);
+  });
+
+  test('TG group, has displayable contacts → modal shows as today', async () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    isTelegramContext.mockReturnValue(true);
+    await openInviteModal({ scope: 'group', userId: 'me', groupId: 'g1', groupName: 'Divers',
+      followers: { a: 'CODE-A' }, mutuals: [], currentMemberUids: new Set() });
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
+    isTelegramContext.mockReturnValue(false);
+  });
+
+  test('TG group, no contacts, createGroupInvite rejects → modal opens with error', async () => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    isTelegramContext.mockReturnValue(true);
+    invites.createGroupInvite.mockRejectedValueOnce(new Error('offline'));
+    await openInviteModal({ scope: 'group', userId: 'me', groupId: 'g1', groupName: 'Divers',
+      followers: {}, mutuals: [], currentMemberUids: new Set() });
+    // Restore BEFORE asserting — a thrown expect below must not leak TG
+    // context into later tests.
+    isTelegramContext.mockReturnValue(false);
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(true);
+  });
+
+  test('group scope shows the modal synchronously, before the async picker populate resolves (#2 jank fix)', async () => {
+    const db = require('../js/db.js');
+    let resolvePending;
+    db.readPendingInviteesForGroup.mockReturnValue(new Promise((r) => { resolvePending = r; }));
+    const p = openInviteModal({ scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family' });
+    // Visible already, even though the pending-invitees read hasn't resolved.
+    expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
+    resolvePending([]);
+    await p;
+  });
+
   test('Revoke calls revokeGroupInvite(userId, groupId)', async () => {
     invites.revokeGroupInvite.mockResolvedValue();
     await openInviteModal({
       scope: 'group', userId: 'uid1', groupId: 'G1', groupName: 'Family',
-      activeInvite: { token: 'T', url: 'https://x/?i=T', scope: 'group' },
+      activeInvite: { token: 'T', url: 'https://x/invite?i=T', scope: 'group' },
     });
     document.getElementById('invite-modal-revoke-btn').click();
     await new Promise(setImmediate);
@@ -329,7 +436,12 @@ describe('openInviteModal — overlay dismiss', () => {
 test('openInviteModal in group scope calls renderInvitePicker with the supplied data', async () => {
   jest.resetModules();
   const renderInvitePickerMock = jest.fn();
-  jest.doMock('../js/invitePicker.js', () => ({ renderInvitePicker: renderInvitePickerMock }));
+  jest.doMock('../js/invitePicker.js', () => ({
+    renderInvitePicker: renderInvitePickerMock,
+    // Real predicate, matching the file-level mock above — the modal now calls
+    // it on every group-scope open to decide Section 2's visibility.
+    hasDisplayableInvitees: jest.requireActual('../js/invitePicker.js').hasDisplayableInvitees,
+  }));
   jest.doMock('../js/db.js', () => ({
     createPersonalInvite: jest.fn(),
     regeneratePersonalInvite: jest.fn(),
@@ -354,8 +466,12 @@ test('openInviteModal in group scope calls renderInvitePicker with the supplied 
         <div id="invite-modal-manage">
           <code id="invite-modal-url"></code>
           <button id="invite-modal-copy-btn"></button>
+          <button id="invite-modal-share-btn" class="hidden">Share</button>
           <button id="invite-modal-regen-btn"></button>
           <button id="invite-modal-revoke-btn"></button>
+        </div>
+        <div id="invite-modal-tg-share" class="hidden">
+          <button id="invite-modal-tg-share-btn"></button>
         </div>
         <div id="invite-modal-picker" class="hidden">
           <p id="invite-modal-picker-framing"></p>
@@ -391,7 +507,7 @@ describe('openInviteModal — Section 2 (in-app picker)', () => {
     });
   });
 
-  test('Section 2 (in-app picker) renders when scope is group', async () => {
+  test('Section 2 (in-app picker) renders when scope is group and a contact is eligible', async () => {
     document.body.innerHTML = `
       <div id="invite-modal" class="modal-overlay hidden">
         <div class="modal-card">
@@ -417,7 +533,10 @@ describe('openInviteModal — Section 2 (in-app picker)', () => {
         </div>
       </div>
     `;
-    await openInviteModal({ scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family' });
+    await openInviteModal({
+      scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family',
+      followers: { 'follower-1': 'CODE-1' }, mutuals: [], currentMemberUids: new Set(),
+    });
     expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(false);
   });
 
@@ -449,5 +568,90 @@ describe('openInviteModal — Section 2 (in-app picker)', () => {
     `;
     openInviteModal({ scope: 'personal', userId: 'u1' });
     expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(true);
+  });
+
+  test('web group scope, no displayable invitees → Section 2 hidden, link UI still shown', async () => {
+    setupDom();
+    await openInviteModal({
+      scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family',
+      followers: {}, mutuals: [], currentMemberUids: new Set(),
+    });
+    expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('invite-modal-create').classList.contains('hidden')).toBe(false);
+    // Hidden section is not populated: no pending-invitee fetch, no render.
+    const { renderInvitePicker } = require('../js/invitePicker.js');
+    expect(renderInvitePicker).not.toHaveBeenCalled();
+  });
+
+  test('web group scope, followers exist but all are already members → Section 2 hidden', async () => {
+    setupDom();
+    await openInviteModal({
+      scope: 'group', userId: 'u1', groupId: 'G1', groupName: 'Family',
+      followers: { uA: 'CODE-A' }, mutuals: [], currentMemberUids: new Set(['uA']),
+    });
+    expect(document.getElementById('invite-modal-picker').classList.contains('hidden')).toBe(true);
+  });
+});
+
+describe('openInviteModal — web "Share to Telegram" (spec §4)', () => {
+  const telegram = require('../js/telegram.js');
+  const inviteFlow = require('../js/inviteFlow.js');
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupDom();
+    telegram.isTelegramContext.mockReturnValue(false);
+    inviteFlow.telegramSharingEnabled.mockReturnValue(true);
+    inviteFlow.shareInviteToTelegramWeb.mockReturnValue(true);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: jest.fn().mockResolvedValue(undefined) },
+    });
+  });
+
+  const openManage = () => openInviteModal({
+    scope: 'personal', userId: 'uid1',
+    activeInvite: { token: 'TOKEN', creatorLabel: 'Alex', url: 'https://x/invite?i=TOKEN' },
+  });
+
+  test('web + deep link configured → share button shows, labeled "Share to Telegram"', () => {
+    openManage();
+    const btn = document.getElementById('invite-modal-share-btn');
+    expect(btn.classList.contains('hidden')).toBe(false);
+    expect(btn.textContent).toBe('Share to Telegram');
+  });
+
+  test('web + NOT configured → share button stays hidden', () => {
+    inviteFlow.telegramSharingEnabled.mockReturnValue(false);
+    openManage();
+    expect(document.getElementById('invite-modal-share-btn').classList.contains('hidden')).toBe(true);
+  });
+
+  test('clicking opens the web Telegram share intent, not the in-Telegram path', () => {
+    openManage();
+    document.getElementById('invite-modal-share-btn').click();
+    expect(inviteFlow.shareInviteToTelegramWeb).toHaveBeenCalledWith(
+      expect.objectContaining({ token: 'TOKEN' }), 'Follow me on KnockKnock',
+    );
+    expect(inviteFlow.shareInviteLink).not.toHaveBeenCalled();
+  });
+
+  test('blocked popup → falls back to copying the deep link with button feedback', async () => {
+    inviteFlow.shareInviteToTelegramWeb.mockReturnValue(false);
+    openManage();
+    document.getElementById('invite-modal-share-btn').click();
+    await Promise.resolve(); await Promise.resolve();
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('https://t.me/kk_bot/app?startapp=TOKEN');
+    expect(document.getElementById('invite-modal-share-btn').textContent).toBe('Link copied!');
+  });
+
+  test('group scope on web → share intent uses the group join text', async () => {
+    await openInviteModal({
+      scope: 'group', userId: 'uid1', groupId: 'g1', groupName: 'Squad',
+      activeInvite: { token: 'GTOKEN', url: 'https://x/invite?i=GTOKEN', groupId: 'g1', groupName: 'Squad' },
+    });
+    document.getElementById('invite-modal-share-btn').click();
+    expect(inviteFlow.shareInviteToTelegramWeb).toHaveBeenCalledWith(
+      expect.objectContaining({ token: 'GTOKEN' }), 'Join Squad on KnockKnock',
+    );
   });
 });

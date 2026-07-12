@@ -14,6 +14,9 @@ jest.mock('../js/installGuidance.js', () => ({
   ...jest.requireActual('../js/installGuidance.js'),
 }));
 jest.mock('../js/identity.js', () => ({ loadIdentity: jest.fn() }));
+// notifyPrompt.js now imports telegram.js (Telegram-aware notification skip);
+// stub it so this content-contract suite doesn't load firebase/auth.
+jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
 
 const { guidanceCopyFor } = require('../js/installGuidance.js');
 const { phraseReminderHtml } = require('../js/notifyPrompt.js');

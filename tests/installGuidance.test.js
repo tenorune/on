@@ -281,3 +281,35 @@ describe('isInAppBrowser', () => {
     expect(isInAppBrowser()).toBe(false);
   });
 });
+
+describe('isTelegramInAppBrowser + isIos exports (spec N7)', () => {
+  const { isTelegramInAppBrowser, isIos } = require('../js/installGuidance.js');
+  const setNav = (ua, touch = 0) => {
+    Object.defineProperty(global.navigator, 'userAgent', { value: ua, configurable: true });
+    Object.defineProperty(global.navigator, 'maxTouchPoints', { value: touch, configurable: true });
+  };
+
+  test('Telegram-Android webview → true', () => {
+    setNav('Mozilla/5.0 (Linux; Android 14; Pixel) Telegram-Android/11.5 Chrome/120 Mobile Safari/537.36');
+    expect(isTelegramInAppBrowser()).toBe(true);
+  });
+
+  test('iOS Telegram is UA-identical to Safari → false (the documented blindness)', () => {
+    setNav('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) Version/17.4 Mobile/15E148 Safari/604.1');
+    expect(isTelegramInAppBrowser()).toBe(false);
+  });
+
+  test('plain Android Chrome → false', () => {
+    setNav('Mozilla/5.0 (Linux; Android 14; Pixel) Chrome/120 Mobile Safari/537.36');
+    expect(isTelegramInAppBrowser()).toBe(false);
+  });
+
+  test('isIos: iPhone true; iPadOS-as-Macintosh (touch) true; desktop Mac false', () => {
+    setNav('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) Safari/604.1');
+    expect(isIos()).toBe(true);
+    setNav('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15', 5);
+    expect(isIos()).toBe(true);
+    setNav('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15', 0);
+    expect(isIos()).toBe(false);
+  });
+});

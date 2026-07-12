@@ -1,8 +1,10 @@
 import {
   withinCooldown, isFutureMs, availabilityTurnedOn,
   wantsKnock, wantsCall, wantsAvailability, buildMessage,
-  overrideAvailable, effectiveAvailable,
+  overrideAvailable, effectiveAvailable, primaryAvailable, clampName,
+  formatTimeRemaining, formatTimeRemainingFuzzy, statusCircle,
 } from '../presence-core.js';
+import vectors from '../../test-fixtures/time-format-vectors.json' with { type: 'json' };
 
 const NOW = 1_000_000;
 
@@ -103,6 +105,30 @@ describe('buildMessage group titles', () => {
   });
 });
 
+describe('primaryAvailable', () => {
+  const NOW2 = 1000;
+  test('true only for status available with a future availableUntil', () => {
+    expect(primaryAvailable({ status: 'available', availableUntil: 2000 }, NOW2)).toBe(true);
+    expect(primaryAvailable({ status: 'available', availableUntil: 500 }, NOW2)).toBe(false); // expired
+    expect(primaryAvailable({ status: 'available', availableUntil: null }, NOW2)).toBe(false);
+    expect(primaryAvailable({ status: 'unavailable', availableUntil: 2000 }, NOW2)).toBe(false);
+    expect(primaryAvailable(null, NOW2)).toBe(false);
+    expect(primaryAvailable(undefined, NOW2)).toBe(false);
+  });
+});
+
+describe('clampName', () => {
+  test('clamps to LABEL_MAX then trims (stored display names)', () => {
+    expect(clampName('  Ada  ')).toBe('Ada');
+    expect(clampName('x'.repeat(200))).toBe('x'.repeat(40));
+    // Trailing space landing on the cut point is trimmed AFTER the slice.
+    expect(clampName(`${'x'.repeat(39)} y`)).toBe('x'.repeat(39));
+    expect(clampName(null)).toBe('');
+    expect(clampName(undefined)).toBe('');
+    expect(clampName(7)).toBe('7');
+  });
+});
+
 describe('buildMessage invite titles', () => {
   test('invite with group → "{name} invited you to {group}"', () => {
     expect(buildMessage('invite', 'Bobby', { group: 'Divers' }))
@@ -110,5 +136,27 @@ describe('buildMessage invite titles', () => {
   });
   test('invite without group → generic', () => {
     expect(buildMessage('invite', 'Bobby')).toEqual({ title: 'Bobby invited you to a group', body: '' });
+  });
+});
+
+describe('time formatters (fixture-pinned, shared with js/utils.js)', () => {
+  test.each(vectors)('presence-core time vectors: %j', ({ ms, precise, fuzzy }) => {
+    expect(formatTimeRemaining(ms)).toBe(precise);
+    expect(formatTimeRemainingFuzzy(ms)).toBe(fuzzy);
+  });
+});
+
+describe('statusCircle', () => {
+  const cases = [
+    ['#22c55e','🟢'],['#3b82f6','🔵'],['#818cf8','🔵'],['#f97316','🟠'],
+    ['#f43f5e','🔴'],['#06b6d4','🔵'],['#eab308','🟡'],['#10b981','🟢'],
+    ['#aaff00','🟢'],['#ff1aad','🔴'],['#0055ff','🔵'],['#00ff66','🟢'],
+    ['#ff3300','🔴'],['#00e5ff','🔵'],['#ffdd00','🟡'],['#8800ff','🟣'],
+    ['#fce7f3','⚪'],
+  ];
+  test.each(cases)('statusCircle(%s) = %s', (hex, circle) => expect(statusCircle(hex)).toBe(circle));
+  test('missing/invalid → green fallback', () => {
+    expect(statusCircle(null)).toBe('🟢');
+    expect(statusCircle('nope')).toBe('🟢');
   });
 });

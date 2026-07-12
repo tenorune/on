@@ -7,8 +7,11 @@ import {
   createGroupInvite, regenerateGroupInvite, revokeGroupInvite,
 } from './invites.js';
 import { readPendingInviteesForGroup } from './db.js';
-import { renderInvitePicker } from './invitePicker.js';
+import { renderInvitePicker, hasDisplayableInvitees } from './invitePicker.js';
 import { flashRegenerated } from './regenFlash.js';
+import { isTelegramContext } from './telegram.js';
+import { shareInviteLink, telegramSharingEnabled, shareInviteToTelegramWeb, buildTelegramInviteLink, shareCaption } from './inviteFlow.js';
+import { copyWithFeedback } from './utils.js';
 
 const SCOPE_COPY = {
   personal: {
@@ -67,10 +70,11 @@ function showError(msg) {
   errEl.textContent = msg;
 }
 
-function closeModal() {
+export function closeInviteModal() {
   document.getElementById('invite-modal').classList.add('hidden');
   clearListeners();
 }
+const closeModal = closeInviteModal;
 
 export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, mutuals = [], currentMemberUids = new Set() }) {
   const copy = SCOPE_COPY[scope];
@@ -95,37 +99,53 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
     if (labelInputEl) labelInputEl.classList.add('hidden');
   }
 
-  // Section 2 (in-app picker) — group scope only.
+  // Telegram group scope shares the deep link via a single "Share on Telegram"
+  // button in place of the web-URL create/manage UI. Web (and personal) keep
+  // the existing link flow.
+  const tgGroupShare = scope === 'group' && isTelegramContext();
+
+  // Section 2 (in-app picker) — group scope, and only when someone is actually
+  // eligible to invite (an empty picker is dead UI). Same predicate as the
+  // TG skip-to-share shortcut below; decided synchronously from caller-passed
+  // data so there's no post-paint flash. Populate (async) AFTER the modal is
+  // shown, at the end of this function.
+  const displayableInvitees = scope === 'group'
+    && hasDisplayableInvitees({ followers, mutuals, currentMemberUids, inviterUid: userId });
   const pickerEl = document.getElementById('invite-modal-picker');
   if (pickerEl) {
-    pickerEl.classList.toggle('hidden', scope !== 'group');
-  }
-
-  // Section 2 — populate the picker for group scope only.
-  if (scope === 'group') {
-    const pendingInvitees = await readPendingInviteesForGroup(groupId);
-    renderInvitePicker({
-      inviterUid: userId,
-      groupId,
-      followers,
-      mutuals,
-      currentMemberUids,
-      pendingInviteeUids: new Set(pendingInvitees),
-    });
+    pickerEl.classList.toggle('hidden', !displayableInvitees);
   }
 
   hideError();
   clearListeners();
-  document.getElementById('invite-modal').classList.remove('hidden');
 
   let currentInvite = activeInvite ? { ...activeInvite } : null;
 
-  if (currentInvite) {
-    showState('manage');
-    renderManageUrl(currentInvite);
+  const tgShareEl = document.getElementById('invite-modal-tg-share');
+  if (tgGroupShare) {
+    // Hide both create + manage (showState('none')); show the share button and
+    // clear the "this link" subtitle (no link is surfaced here). Tapping shares
+    // the t.me deep link, minting the group invite on demand (idempotent).
+    showState('none');
+    if (tgShareEl) tgShareEl.classList.remove('hidden');
+    document.getElementById('invite-modal-subtitle').textContent = '';
+    on(document.getElementById('invite-modal-tg-share-btn'), 'click', async () => {
+      try {
+        const { token, url } = await createGroupInvite(userId, groupId);
+        shareInviteLink({ token, url }, shareCaption('group', groupName));
+      } catch (err) {
+        showError(err.message || "Couldn't create invite. Try again.");
+      }
+    });
   } else {
-    showState('create');
-    if (labelInputEl) labelInputEl.value = '';
+    if (tgShareEl) tgShareEl.classList.add('hidden');
+    if (currentInvite) {
+      showState('manage');
+      renderManageUrl(currentInvite);
+    } else {
+      showState('create');
+      if (labelInputEl) labelInputEl.value = '';
+    }
   }
 
   // Create handler — branch by scope. hideError() runs before the await so a
@@ -149,20 +169,35 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
       showState('manage');
       renderManageUrl(currentInvite);
     } catch (err) {
-      showError(err.message || 'Could not create invite. Try again.');
+      showError(err.message || "Couldn't create invite. Try again.");
     }
   });
 
   // Copy — unchanged from Phase 0
   on(document.getElementById('invite-modal-copy-btn'), 'click', async () => {
     if (!currentInvite) return;
-    const btn = document.getElementById('invite-modal-copy-btn');
-    try {
-      await navigator.clipboard.writeText(currentInvite.url);
-      btn.textContent = 'Copied!';
-      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-    } catch { /* clipboard denied */ }
+    await copyWithFeedback(document.getElementById('invite-modal-copy-btn'), currentInvite.url);
   });
+
+  // Share affordance next to Copy. In Telegram: the native share sheet. On web,
+  // when a Mini App deep link is configured (spec §4 "designed-for"), a
+  // "Share to Telegram" that opens the t.me share intent in a new tab; a blocked
+  // popup falls back to copying the deep link. Copy still covers the web URL.
+  const shareBtn = document.getElementById('invite-modal-share-btn');
+  const webTgShare = !isTelegramContext() && telegramSharingEnabled();
+  if (shareBtn && (isTelegramContext() || webTgShare)) {
+    shareBtn.classList.remove('hidden');
+    if (webTgShare) shareBtn.textContent = 'Share to Telegram';
+    on(shareBtn, 'click', async () => {
+      if (!currentInvite) return;
+      const text = shareCaption(scope, groupName);
+      if (isTelegramContext()) { shareInviteLink(currentInvite, text); return; }
+      if (!shareInviteToTelegramWeb(currentInvite, text)) {
+        const deepLink = buildTelegramInviteLink(currentInvite.token);
+        if (deepLink) await copyWithFeedback(shareBtn, deepLink, { done: 'Link copied!', idle: 'Share to Telegram' });
+      }
+    });
+  }
 
   // Regenerate — branch by scope
   on(document.getElementById('invite-modal-regen-btn'), 'click', async () => {
@@ -179,7 +214,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
       );
       document.getElementById('invite-modal-copy-btn').textContent = 'Copy';
     } catch (err) {
-      showError(err.message || 'Could not regenerate invite. Try again.');
+      showError(err.message || "Couldn't regenerate invite. Try again.");
       // On error the badge swap didn't run, so drop the tapped ↻'s focus here
       // (otherwise it looks "stuck selected" until you tap elsewhere).
       document.getElementById('invite-modal-regen-btn').blur();
@@ -195,7 +230,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
       showState('create');
       if (labelInputEl) labelInputEl.value = '';
     } catch (err) {
-      showError(err.message || 'Could not revoke invite. Try again.');
+      showError(err.message || "Couldn't revoke invite. Try again.");
     }
   });
 
@@ -209,4 +244,41 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   on(document, 'keydown', (e) => {
     if (e.key === 'Escape') closeModal();
   });
+
+  // TG-group shortcut: if there's no one displayable to invite (Section 2 would
+  // render empty), skip the modal entirely and share the deep link directly —
+  // there's nothing useful to show. On createGroupInvite failure, fall through
+  // to open the modal so the user can retry via its Share button (which
+  // surfaces its own errors).
+  if (tgGroupShare && !displayableInvitees) {
+    try {
+      const { token, url } = await createGroupInvite(userId, groupId);
+      shareInviteLink({ token, url }, shareCaption('group', groupName));
+      return; // never paint the modal
+    } catch {
+      // on failure, fall through to open the modal so the user can retry via
+      // its Share button (which surfaces its own errors)
+    }
+  }
+
+  // Show the modal synchronously — BEFORE the async picker populate — so on the
+  // group-create path it appears together with the new group context instead of
+  // a blank frame followed by a late pop-in once readPendingInviteesForGroup
+  // resolves (the transition jank this flow used to show).
+  document.getElementById('invite-modal').classList.remove('hidden');
+
+  // Populate the in-app picker after the modal is already up. Skipped when the
+  // section is hidden — rows are built solely from followers/mutuals, so with
+  // no displayable invitees there is nothing to render (or fetch).
+  if (displayableInvitees) {
+    const pendingInvitees = await readPendingInviteesForGroup(groupId);
+    renderInvitePicker({
+      inviterUid: userId,
+      groupId,
+      followers,
+      mutuals,
+      currentMemberUids,
+      pendingInviteeUids: new Set(pendingInvitees),
+    });
+  }
 }

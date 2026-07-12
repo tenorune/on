@@ -81,6 +81,12 @@ export async function setInviteRevoked(userId, token) {
   await update(ref(db, `users/${userId}/invites/${token}`), { revoked: true });
 }
 
+// Rewrites just the creatorLabel on an existing invite (token/URL unchanged),
+// so a re-share can refresh a stale label without minting a new link.
+export async function setInviteLabel(userId, token, creatorLabel) {
+  await update(ref(db, `users/${userId}/invites/${token}`), { creatorLabel });
+}
+
 export async function incrementInviteRedemptions(userId, token) {
   const inviteRef = ref(db, `users/${userId}/invites/${token}/redemptionsUsed`);
   await runTransaction(inviteRef, (current) => {
@@ -136,6 +142,16 @@ export function watchFollowers(myUserId, callback) {
   });
 }
 
+// Subscribe to the display names followers published for themselves (invite
+// redemptions write these — see registerAsFollower). Emits the raw
+// { followerId: name } map ({} when absent). The consumer folds these into the
+// device-local follower-name roster so the followers list can render
+// "CODE (Name)" for a follow that never went through a follow-request approval.
+export function watchFollowerNames(myUserId, callback) {
+  const namesRef = ref(db, `users/${myUserId}/followerNames`);
+  return onValue(namesRef, (snap) => { callback(snap.val() || {}); });
+}
+
 // Called when user A follows user B: registers A in B's followers
 // ── User preferences (cross-device sync) ────────────────────────────────────
 // All user-private state that needs to sync across devices lives under
@@ -185,7 +201,7 @@ export async function mergeUserPrefs(userId, fields) {
   await update(ref(db, `userPrefs/${userId}`), fields);
 }
 
-export async function registerAsFollower(targetUserId, myUserId, myCode) {
+export async function registerAsFollower(targetUserId, myUserId, myCode, myName) {
   // Clear any prior revocation BEFORE writing the followers entry — not in
   // parallel. The receiver's revocation watcher can fire on either write
   // independently; if the followers set echoes before the revocation remove,
@@ -194,6 +210,17 @@ export async function registerAsFollower(targetUserId, myUserId, myCode) {
   // is gone by the time the followers update is observable.
   await remove(ref(db, `revocations/${myUserId}/${targetUserId}`));
   await set(ref(db, `users/${targetUserId}/followers/${myUserId}`), myCode);
+  // Publish our display name into a sibling node the target reads, so a follow
+  // established without their involvement (invite redemption — no follow-request
+  // approval to learn the name) still surfaces "CODE (Name)" on their list. Only
+  // when we actually have a name (Telegram first name); web redeemers pass none,
+  // so their behaviour is unchanged. The bare followers-code write above stays
+  // the source of truth for the relationship itself — so this name write is
+  // strictly cosmetic and must never break the follow: swallow any failure
+  // (e.g. a name over the 40-char rule cap), which just degrades to bare code.
+  if (typeof myName === 'string' && myName.length > 0) {
+    await set(ref(db, `users/${targetUserId}/followerNames/${myUserId}`), myName).catch(() => {});
+  }
 }
 
 // Subscribe to my own revocation mailbox: revocations/{me}/{revoker} = true

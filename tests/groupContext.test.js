@@ -53,7 +53,7 @@ jest.mock('../js/db.js', () => ({
   readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
 }));
 jest.mock('../js/invites.js', () => ({
-  buildInviteUrl: jest.fn((token) => `https://app.example/?i=${token}`),
+  buildInviteUrl: jest.fn((token) => `https://app.example/invite?i=${token}`),
 }));
 jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
@@ -71,6 +71,11 @@ jest.mock('../js/groups.js', () => ({
   setOverrideStatusAvailable: jest.fn().mockResolvedValue(undefined),
   setOverrideStatusUnavailable: jest.fn().mockResolvedValue(undefined),
   setOverrideAppearance: jest.fn().mockResolvedValue(undefined),
+  showToast: jest.fn(),
+}));
+jest.mock('../js/promptModal.js', () => ({
+  showTextPrompt: jest.fn(),
+  showConfirmModal: jest.fn(),
 }));
 jest.mock('../js/favorites.js', () => ({
   saveCombo: jest.fn(),
@@ -726,9 +731,9 @@ describe('owner actions', () => {
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
     const details = document.getElementById('group-context-actions');
     details.open = true;
-    window.prompt = jest.fn(() => null);
+    require('../js/promptModal.js').showTextPrompt.mockResolvedValue(null);
     document.getElementById('group-action-rename').click();
-    expect(details.open).toBe(false);
+    expect(details.open).toBe(false); // closeSettingsMenu runs synchronously, before the awaited prompt
   });
 
   test('tapping outside the Settings menu closes it', () => {
@@ -754,23 +759,41 @@ describe('owner actions', () => {
     expect(details.open).toBe(true);
   });
 
-  test('Rename group prompts and calls renameGroup', () => {
+  test('Rename group prompts (prefilled) and calls renameGroup with the returned value', async () => {
+    const { showTextPrompt } = require('../js/promptModal.js');
     let metaCb;
     groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
-    window.prompt = jest.fn(() => '  Familia  ');
+    showTextPrompt.mockResolvedValue('Familia'); // promptModal trims/validates; returns the clean value
     document.getElementById('group-action-rename').click();
+    expect(showTextPrompt).toHaveBeenCalledWith(expect.objectContaining({ title: 'New group name', value: 'Family' }));
+    await new Promise(setImmediate);
     expect(groupsModule.renameGroup).toHaveBeenCalledWith('G1', 'me', 'Familia');
   });
 
-  test('Delete group confirms and calls deleteGroup', () => {
+  test('Rename group does nothing when the prompt is cancelled (null)', async () => {
+    const { showTextPrompt } = require('../js/promptModal.js');
     let metaCb;
     groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
-    window.confirm = jest.fn(() => true);
+    showTextPrompt.mockResolvedValue(null);
+    document.getElementById('group-action-rename').click();
+    await new Promise(setImmediate);
+    expect(groupsModule.renameGroup).not.toHaveBeenCalled();
+  });
+
+  test('Delete group confirms and calls deleteGroup', async () => {
+    const { showConfirmModal } = require('../js/promptModal.js');
+    let metaCb;
+    groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
+    enterGroupContext('G1', 'me');
+    metaCb({ name: 'Family', ownerId: 'me', createdAt: 1 });
+    showConfirmModal.mockResolvedValue(true);
     document.getElementById('group-action-delete').click();
+    expect(showConfirmModal).toHaveBeenCalledWith(expect.objectContaining({ confirmLabel: 'Delete' }));
+    await new Promise(setImmediate);
     expect(groupsModule.deleteGroup).toHaveBeenCalledWith('G1', 'me');
   });
 
@@ -851,17 +874,20 @@ describe('member actions', () => {
     setupContextDom();
   });
 
-  test('Edit my name prompts and calls editOwnDisplayName', () => {
+  test('Edit my name prompts and calls editOwnDisplayName with the returned value', async () => {
+    const { showTextPrompt } = require('../js/promptModal.js');
     let metaCb;
     groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
-    window.prompt = jest.fn(() => '  M. P.  ');
+    showTextPrompt.mockResolvedValue('M. P.');
     document.getElementById('group-action-edit-name').click();
+    await new Promise(setImmediate);
     expect(groupsModule.editOwnDisplayName).toHaveBeenCalledWith('G1', 'me', 'M. P.');
   });
 
   test('Edit my name pre-fills the prompt with the user\'s current group displayName', () => {
+    const { showTextPrompt } = require('../js/promptModal.js');
     let metaCb; let membersCb;
     groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
@@ -871,18 +897,21 @@ describe('member actions', () => {
       me: { role: 'member', displayName: 'Alex K.', joinedAt: 1 },
       a:  { role: 'member', displayName: 'Alice',   joinedAt: 2 },
     });
-    window.prompt = jest.fn(() => null);
+    showTextPrompt.mockResolvedValue(null);
     document.getElementById('group-action-edit-name').click();
-    expect(window.prompt).toHaveBeenCalledWith('Your name in this group', 'Alex K.');
+    // showTextPrompt is invoked synchronously (the await suspends after the call).
+    expect(showTextPrompt).toHaveBeenCalledWith(expect.objectContaining({ title: 'Your name in this group', value: 'Alex K.' }));
   });
 
-  test('Leave group confirms and calls leaveGroup', () => {
+  test('Leave group confirms and calls leaveGroup', async () => {
+    const { showConfirmModal } = require('../js/promptModal.js');
     let metaCb;
     groupNav.subscribeGroupMeta.mockImplementation((groupId, cb) => { metaCb = cb; return () => {}; });
     enterGroupContext('G1', 'me');
     metaCb({ name: 'Family', ownerId: 'someoneElse', createdAt: 1 });
-    window.confirm = jest.fn(() => true);
+    showConfirmModal.mockResolvedValue(true);
     document.getElementById('group-action-leave').click();
+    await new Promise(setImmediate);
     expect(groupsModule.leaveGroup).toHaveBeenCalledWith('G1', 'me');
   });
 });

@@ -26,3 +26,17 @@ test('followers: follower self-registers; owner removes; stranger cannot', async
   await assertSucceeds(dbAs(env, 'owner').ref('users/owner/followers/follower').remove());
   await assertFails(dbAs(env, 'stranger').ref('users/owner/followers/follower').set('CODE12'));
 });
+
+test('followerNames: follower publishes own name; owner removes; stranger cannot; overlong rejected', async () => {
+  await assertSucceeds(dbAs(env, 'follower').ref('users/owner/followerNames/follower').set('Bea'));
+  await assertSucceeds(dbAs(env, 'owner').ref('users/owner/followerNames/follower').remove());
+  await assertFails(dbAs(env, 'stranger').ref('users/owner/followerNames/follower').set('Bea'));
+  await assertFails(dbAs(env, 'follower').ref('users/owner/followerNames/follower').set('x'.repeat(41)));
+});
+
+test('followerNames: only the owner can READ the published names (matches followers scoping)', async () => {
+  await seed(env, (db) => db.ref('users/owner/followerNames/follower').set('Bea'));
+  await assertSucceeds(dbAs(env, 'owner').ref('users/owner/followerNames').get());
+  await assertFails(dbAs(env, 'follower').ref('users/owner/followerNames').get());
+  await assertFails(dbAs(env, 'stranger').ref('users/owner/followerNames').get());
+});

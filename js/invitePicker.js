@@ -18,6 +18,21 @@ import { writePendingInvite, deletePendingInvite } from './db.js';
 
 let _state = null;
 
+// Mirrors the eligibility rule used by renderInvitePicker's row builders below
+// (mutualEntries + nonMutualEntries filters) so the two can never disagree:
+// a follower is displayable when they aren't already a group member and
+// aren't the inviter themself.
+export function hasDisplayableInvitees({ followers, mutuals, currentMemberUids, inviterUid }) {
+  const mutualLookup = new Map(mutuals.map((m) => [m.userId, m.label]));
+  const mutualHit = mutuals.some(
+    (m) => followers[m.userId] && !currentMemberUids.has(m.userId) && m.userId !== inviterUid,
+  );
+  const nonMutualHit = Object.keys(followers).some(
+    (uid) => !mutualLookup.has(uid) && !currentMemberUids.has(uid) && uid !== inviterUid,
+  );
+  return mutualHit || nonMutualHit;
+}
+
 export function renderInvitePicker({
   inviterUid, groupId, followers, mutuals, currentMemberUids, pendingInviteeUids,
 }) {

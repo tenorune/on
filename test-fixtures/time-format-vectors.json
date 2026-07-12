@@ -1,0 +1,11 @@
+[
+  { "ms": 30000,    "precise": "< 1m",   "fuzzy": "just a few minutes" },
+  { "ms": 240000,   "precise": "4m",     "fuzzy": "just a few minutes" },
+  { "ms": 1800000,  "precise": "30m",    "fuzzy": "about half an hour" },
+  { "ms": 3600000,  "precise": "1h",     "fuzzy": "about an hour" },
+  { "ms": 5400000,  "precise": "1h 30m", "fuzzy": "one to two hours" },
+  { "ms": 7200000,  "precise": "2h",     "fuzzy": "just over two hours" },
+  { "ms": 9000000,  "precise": "2h 30m", "fuzzy": "about three hours" },
+  { "ms": 10800000, "precise": "3h",     "fuzzy": "just over three hours" },
+  { "ms": 13500000, "precise": "3h 45m", "fuzzy": "nearly four hours" }
+]

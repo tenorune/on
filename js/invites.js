@@ -4,7 +4,7 @@
 
 import {
   claimInviteToken, writeUserInvite, readUserInvites,
-  setInviteRevoked, releaseInviteToken,
+  setInviteRevoked, setInviteLabel, releaseInviteToken,
   readInviteIndex, readUserInvite, incrementInviteRedemptions, getCreatorCode,
   registerAsFollower, setFollowingEntry,
   writeGroupInvite, readGroupInvites, readGroupInvite, setGroupInviteRevoked, incrementGroupInviteRedemptions,
@@ -49,7 +49,10 @@ function validateLabel(raw) {
 }
 
 export function buildInviteUrl(token) {
-  return `${APP_URL_BASE}/?i=${token}`;
+  // /invite, not /?i= (spec N1/A1): the shared link itself lands on the
+  // mint-free landing — no boot, no detection needed, identically on every
+  // platform. Legacy /?i= links are caught by the boot gate (inviteBootGate).
+  return `${APP_URL_BASE}/invite?i=${token}`;
 }
 
 function findActivePersonalInvite(collection) {
@@ -110,13 +113,23 @@ export async function regeneratePersonalInvite(userId, creatorLabelRaw) {
   return createPersonalInvite(userId, creatorLabel);
 }
 
+// Rewrites just the creatorLabel on an existing personal invite (token/URL
+// unchanged, so already-shared links keep working). Lets a re-share refresh a
+// stale label — e.g. the arrival interstitial naming the inviter by their
+// current Telegram first name rather than a name captured at create time (§29).
+export async function updateInviteLabel(userId, token, creatorLabelRaw) {
+  const creatorLabel = validateLabel(creatorLabelRaw);
+  await setInviteLabel(userId, token, creatorLabel);
+  return creatorLabel;
+}
+
 // Result shapes:
 //   success: { ok: true, creatorUid, creatorCode, creatorLabel }
 //   failure: { ok: false, reason: 'not-found'|'revoked'|'expired'|'cap'|'self'|'already-following'|'creator-missing' }
 //
 // alreadyFollowingSet: optional Set<string> of creator UIDs the redeemer already follows.
 //   Null/undefined is treated as "not following anyone" — the function won't throw.
-export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alreadyFollowingSet) {
+export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alreadyFollowingSet, redeemerName) {
   if (!token || typeof token !== 'string') return { ok: false, reason: 'not-found' };
 
   const indexEntry = await readInviteIndex(token);
@@ -147,7 +160,10 @@ export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alr
   // Use the inviter's creatorLabel as the follow's local label so the contact
   // card shows their name rather than the share code.
   const followLabel = invite.creatorLabel || '';
-  await registerAsFollower(creatorUid, redeemerUid, redeemerCode);
+  // redeemerName (the redeemer's own display name — Telegram first name) rides
+  // along so the creator's followers list can show "CODE (Name)" for a follow
+  // that never went through a follow-request approval to teach them the name.
+  await registerAsFollower(creatorUid, redeemerUid, redeemerCode, redeemerName);
   await setFollowingEntry(redeemerUid, creatorUid, creatorCode, followLabel);
   await incrementInviteRedemptions(creatorUid, token);
 
@@ -177,7 +193,7 @@ export async function attemptRedeemFromUrl(token, redeemerUid, redeemerCode, opt
 
   if (indexEntry.scope === 'personal') {
     const followingSet = new Set(getFollowing().map((e) => e.userId));
-    return redeemPersonalInvite(token, redeemerUid, redeemerCode, followingSet);
+    return redeemPersonalInvite(token, redeemerUid, redeemerCode, followingSet, opts.redeemerName);
   }
   if (indexEntry.scope === 'group') {
     const groupId = parseGroupIdFromOwnerPath(indexEntry.ownerPath);
@@ -209,19 +225,29 @@ function parseGroupIdFromOwnerPath(ownerPath) {
 
 // Resolves invite metadata for the pre-redemption welcome-screen framing. Handles
 // both personal-scope (returns { scope, label }) and group-scope (returns
-// { scope, groupName, groupId }). Returns null on any failure.
+// { scope, groupName, groupId }).
 //
 // Delegates to the unauthenticated `resolveInvitePreview` Cloud callable: this
 // runs BEFORE a brand-new user signs in, and every invite node is gated by
 // `auth != null` in the security rules, so a direct client read here would be
 // permission-denied for exactly the new users this framing targets. The callable
 // reads server-side via the Admin SDK and returns only the preview-safe fields.
+//
+// Outcome contract (W1 J#1): a resolved preview object; null when the callable
+// SUCCEEDED and judged the token invalid/revoked/expired; a THROWN
+// 'invite-preview-unavailable' when the callable itself failed (network,
+// server) — after one internal retry. Callers must not blanket-catch back to
+// null: "that invite is dead" and "couldn't check" are different answers.
 export async function resolveInvitePreview(token) {
   if (!token) return null;
   try {
     return await callResolveInvitePreview(token);
   } catch {
-    return null;
+    try {
+      return await callResolveInvitePreview(token);
+    } catch {
+      throw new Error('invite-preview-unavailable');
+    }
   }
 }
 

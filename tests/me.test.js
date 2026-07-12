@@ -272,6 +272,32 @@ test('clicking mycode chip toggles active class on the chip', () => {
   expect(chip.classList.contains('active')).toBe(false);
 });
 
+const mountRecoveryRow = (noteHidden) => document.body.insertAdjacentHTML('beforeend', `
+  <div id="recovery-pill-row">
+    <button id="recovery-show-pill" class="hidden"></button>
+    <div id="recovery-revealed"></div>
+    <button id="drawer-recovery-copy-btn"></button>
+    <p id="recovery-elsewhere-note"${noteHidden ? ' class="hidden"' : ''}></p>
+  </div>`);
+
+test('drawer close keeps the phrase pill hidden while the onramp phrase-note is showing', () => {
+  mountRecoveryRow(false); // note visible = onramp-linked TG account
+  initHeader('uid1');
+  const chip = document.getElementById('mycode-chip');
+  chip.click(); // open
+  chip.click(); // close → pill-reset logic runs
+  expect(document.getElementById('recovery-show-pill').classList.contains('hidden')).toBe(true);
+});
+
+test('drawer close re-shows the phrase pill when there is no onramp note (web account)', () => {
+  mountRecoveryRow(true); // note hidden = normal web reveal pill
+  initHeader('uid1');
+  const chip = document.getElementById('mycode-chip');
+  chip.click();
+  chip.click();
+  expect(document.getElementById('recovery-show-pill').classList.contains('hidden')).toBe(false);
+});
+
 // --- swatch row toggle (PALETTES_ENABLED: true) ---
 
 test('swatch row gets .visible after applyOwnStatus unavailable', () => {
