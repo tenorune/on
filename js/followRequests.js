@@ -55,26 +55,23 @@ export async function cancelFollowRequest(myUid, targetUid) {
   clearRequested(targetUid);
 }
 
-// Circled-plus icon, colored like the notify bell: muted when unrequested,
-// white once requested (see .request-follow-btn CSS). stroke=currentColor so
-// the CSS color does the state work; the .rf-plus glyph is hidden by CSS in
-// requested mode, leaving an empty white circle (= tap to cancel).
-const CIRCLED_PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><path class="rf-plus" d="M12 8v8M8 12h8"/></svg>';
-
-// The roster ⋮-drawer action: a circled-plus toggle. Muted = tap to request;
-// white (.requested) = tap to cancel the pending request. Each direction
-// confirms with a toast naming the member. Stops its own pointer/click events
-// so a tap never reaches the roster row's knock handler or long-press adoption.
+// The roster ⋮-drawer action: a worded "Ask"/"Asked" pill toggle. An ask
+// (requesting a key you don't hold) must never look like follow-back's "+"
+// (using a key you already hold) — SM#1/#291. Muted "Ask" = tap to request;
+// white "Asked" (.requested) = tap to cancel the pending request. Each
+// direction confirms with a toast naming the member. Stops its own
+// pointer/click events so a tap never reaches the roster row's knock handler
+// or long-press adoption.
 export function createRequestFollowButton(myUid, targetUid, groupId, displayName) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'request-follow-btn';
-  btn.innerHTML = CIRCLED_PLUS_SVG;
 
   function paint() {
     const asked = isRequested(targetUid);
     btn.classList.toggle('requested', asked);
-    const label = asked ? 'Cancel follow request' : 'Request to follow';
+    btn.textContent = asked ? 'Asked' : 'Ask';
+    const label = asked ? 'Cancel follow request' : 'Ask to follow';
     btn.setAttribute('aria-label', label);
     btn.title = label;
   }

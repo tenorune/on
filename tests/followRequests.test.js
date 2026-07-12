@@ -53,32 +53,35 @@ describe('createRequestFollowButton', () => {
   // Settle the click handler's awaits.
   const settle = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
 
-  test('renders the circled-plus icon, unrequested state', () => {
+  // A2 (social-model Wave A, #291): the ask is a worded pill, not a circled
+  // plus — request-to-follow (asking for a key) must never look like
+  // follow-back (using a key you already hold), which keeps its "+".
+  test('renders the "Ask" pill, unrequested state', () => {
     const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
-    expect(btn.querySelector('svg')).not.toBeNull();
-    // The plus glyph carries the .rf-plus hook; CSS hides it in requested
-    // mode so the icon reads as an empty circle.
-    expect(btn.querySelector('.rf-plus')).not.toBeNull();
+    expect(btn.textContent).toBe('Ask');
+    expect(btn.querySelector('svg')).toBeNull();
     expect(btn.classList.contains('requested')).toBe(false);
-    expect(btn.getAttribute('aria-label')).toBe('Request to follow');
+    expect(btn.getAttribute('aria-label')).toBe('Ask to follow');
     expect(btn.disabled).toBe(false);
   });
 
-  test('click sends the request, flips to requested (white) and toasts', async () => {
+  test('click sends the request, flips to "Asked" (white) and toasts', async () => {
     const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
     btn.click();
     await settle();
     expect(db.writeFollowRequest).toHaveBeenCalledWith('me', 'tgt', 'g1');
     expect(btn.classList.contains('requested')).toBe(true);
+    expect(btn.textContent).toBe('Asked');
     expect(btn.getAttribute('aria-label')).toBe('Cancel follow request');
     expect(btn.disabled).toBe(false); // toggle stays tappable (cancel)
     expect(showToast).toHaveBeenCalledWith('You requested to follow Bea.');
   });
 
-  test('renders requested state when already requested, still enabled', () => {
+  test('renders "Asked" state when already requested, still enabled', () => {
     localStorage.setItem('statusapp_follow_requested', JSON.stringify(['tgt']));
     const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
     expect(btn.classList.contains('requested')).toBe(true);
+    expect(btn.textContent).toBe('Asked');
     expect(btn.getAttribute('aria-label')).toBe('Cancel follow request');
     expect(btn.disabled).toBe(false);
   });
@@ -92,7 +95,8 @@ describe('createRequestFollowButton', () => {
     expect(db.writeFollowRequest).not.toHaveBeenCalled();
     expect(isRequested('tgt')).toBe(false);
     expect(btn.classList.contains('requested')).toBe(false);
-    expect(btn.getAttribute('aria-label')).toBe('Request to follow');
+    expect(btn.textContent).toBe('Ask');
+    expect(btn.getAttribute('aria-label')).toBe('Ask to follow');
     expect(showToast).toHaveBeenCalledWith('You cancelled your request to follow Bea.');
   });
 
