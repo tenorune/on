@@ -435,3 +435,56 @@ Capabilities remain surface-identical (already true). Formation/management conve
 **Not proposed** (open threads held): call-in-rooms (P7 thread), any change to the P6 line (held loosely), asks joining the opt-in regime (P5, no examples), stale-code cosmetics (SM#11, cost/benefit thin).
 
 **CHECKPOINT 3 (final):** accept / amend / defer per divergence D1–D10. Accepted divergences become the migration backlog conversation (deliberately out of this analysis's scope, per the endgame ruling).
+
+---
+
+# Ruling pass 3 — operator rulings on the divergences (2026-07-12)
+
+| D# | Ruling | Note |
+|---|---|---|
+| D1 | **ACCEPT** | |
+| D2 | **ACCEPT** | |
+| D3 | **ACCEPT** | |
+| D4a | DEFER | |
+| D4b | **AMEND** | "It's 'Invite your people' button and the Share Code. It would involve redesigning the drawer, considering how it connects to people in groups I belong to, etc." → grows into its own design piece, not a slot-in affordance. |
+| D5 | DEFER | "This was mirroring available-at-start in direct context, and also seems like a low priority." (The 2h-on-join default is thereby *ratified* as a deliberate mirror, not an accident — B#6 downgraded accordingly.) |
+| D6a | **ACCEPT** | |
+| D6b | **ACCEPT** | |
+| D7 | **ACCEPT** | |
+| D8a | AMEND | "It could be tightened but delegation will be done, so it could be a waste of time." → won't-do-now; revisit when delegation lands (the rule then encodes the delegation contract instead). |
+| D8b | **ACCEPT** | |
+| D9 | **ACCEPT** | |
+| D10 | **ACCEPT** | |
+
+**THE ANALYSIS IS COMPLETE.** The ruled value set (P1–P8, P10 + R1, P6-as-amended) is the canonical social model. Accepted divergences below become the migration backlog.
+
+---
+
+# Coda — the accepted work, decomposed
+
+Ordered into coherent waves; weights from Part IV; existing-issue overlaps noted. Effort letters are rough (S/M/L).
+
+## Wave A — one consent vocabulary (the three Highs; client-only, headless-testable)
+- **A1 (D1, S):** picker eligibility → (followers ∪ following) − members − self. Feed the picker the following list alongside followers; extend `hasDisplayableInvitees` symmetrically. Rules already permit.
+- **A2 (D2, S–M):** split the circled-plus — request-to-follow (ask) gets a distinct affordance/label from follow-back (act).
+- **A3 (D3, M):** follow-requests expire; "Requested" self-resolves without disclosing the decline. Subsumes #181 I5 (needs an RTDB-side TTL or re-request window, not just localStorage).
+
+## Wave B — curation completes (= #180, now principle-backed)
+- **B1 (D6a, M):** kick UI on the roster (receiving-side toast already built).
+- **B2 (D6b, M):** ownership transfer + owner-leave. Touches rules (`ownerId` repoint) — P10-legitimate (integrity). On-device + web pass required (#288-style blast radius).
+
+## Wave C — warm invitations
+- **C1 (D7, M):** inviter name on group invites (group invites gain a creator label surfaced at arrival) + a name-choosing moment on bot joins.
+- **C2 (D9, S):** optional self-presentation name on bare-code share.
+- **C3 (D4b-as-amended, L):** the "Invite your people" + Share Code first-class surface — drawer redesign, relationship to groups' invite flows. **Needs its own brainstorm → spec cycle before any code.**
+
+## Wave D — bookkeeping
+- **D1' (D8b, S):** rules: member `displayName` self-write-only, kick-compatible. Rules-emulator + web pass.
+- **D2' (D10, M):** sent-invites mirror (= #124): inviter-side view + cross-device revoke.
+
+## Recorded non-work
+- D4a (× vocabulary split) — deferred.
+- D5 (join-time availability visibility) — deferred; the 2h default is ratified as mirroring Direct's available-at-start. B#6 (bot disclosure) downgraded from consent-surprise to copy-polish.
+- D8a (pendingInvites rule tightening) — skipped; delegation is planned, and the rule should then encode the delegation contract instead.
+
+Issue hygiene when picked up: #180 covers B1+B2 (link this analysis); #124 covers D2'; #181 I5 folds into A3.
