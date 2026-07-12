@@ -24,9 +24,8 @@
         "source": "**",
         "headers": [
           { "key": "Cache-Control", "value": "no-cache" },
-          { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'sha256-8plvDJLmM7886+ra4DrxBzGM2hgpxIJwDEK2Iu4PWMU=' 'sha256-H17ayHVJwTgPHrDOPQl3y1FOSwA+/1ZU1SRV+RfzVH8=' 'sha256-kEwq5LDxr+Wrj7/XRBWyEe5gr2ks8/cM/JGonOOb1Ks=' https://*.googleapis.com https://*.gstatic.com https://apis.google.com https://*.firebasedatabase.app; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.firebaseio.com wss://*.firebaseio.com https://*.firebasedatabase.app wss://*.firebasedatabase.app https://*.googleapis.com https://*.cloudfunctions.net; worker-src 'self'; base-uri 'self'; form-action 'self'; frame-src https://*.firebaseapp.com https://*.firebasedatabase.app; frame-ancestors 'none';" },
+          { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://telegram.org 'sha256-8plvDJLmM7886+ra4DrxBzGM2hgpxIJwDEK2Iu4PWMU=' 'sha256-H17ayHVJwTgPHrDOPQl3y1FOSwA+/1ZU1SRV+RfzVH8=' 'sha256-kEwq5LDxr+Wrj7/XRBWyEe5gr2ks8/cM/JGonOOb1Ks=' https://*.googleapis.com https://*.gstatic.com https://apis.google.com https://*.firebasedatabase.app; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.firebaseio.com wss://*.firebaseio.com https://*.firebasedatabase.app wss://*.firebasedatabase.app https://*.googleapis.com https://*.cloudfunctions.net; worker-src 'self'; base-uri 'self'; form-action 'self'; frame-src https://*.firebaseapp.com https://*.firebasedatabase.app; frame-ancestors https://web.telegram.org https://*.telegram.org;" },
           { "key": "X-Content-Type-Options", "value": "nosniff" },
-          { "key": "X-Frame-Options", "value": "DENY" },
           { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
         ]
       }
