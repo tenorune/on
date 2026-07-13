@@ -1,4 +1,4 @@
-// js/cacheOwner.js
+// js/cacheOwner.ts
 //
 // localStorage is per-origin, but most of what we store in it is
 // ACCOUNT-scoped, not device-scoped. Normally that distinction doesn't
@@ -151,10 +151,10 @@ function removeAccountScopedKeys() {
 // Returns true iff an owner change wiped the cache — the caller must then
 // reset DOM state derived from the wiped keys (see the header note on the
 // inline theme-restore script).
-export function ensureCacheOwner(uid) {
+export function ensureCacheOwner(uid: string | null | undefined) {
   if (!uid) return false;
 
-  let marker;
+  let marker: string | null;
   try {
     marker = localStorage.getItem(OWNER_KEY);
   } catch {
