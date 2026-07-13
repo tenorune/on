@@ -1,4 +1,4 @@
-// js/inviteBootGate.js — the /?i= boot decision (spec N3). Pure ordered rules
+// js/inviteBootGate.ts — the /?i= boot decision (spec N3). Pure ordered rules
 // (decideBootRedirect) + a thin env reader (readBootRedirectContext) so the
 // gate is unit-testable without a boot harness. Wired at the top of app.js
 // main(), BEFORE any Firebase work — the whole point is that no account can
@@ -23,9 +23,27 @@ export function hasSetupInstallParam() {
   catch { return false; }
 }
 
+// The env snapshot decideBootRedirect rules over (built by
+// readBootRedirectContext; tests construct it directly).
+export type BootRedirectContext = {
+  token: string | null;
+  telegramContext: boolean;
+  stay: boolean;
+  setupInstall: boolean;
+  hasIdentity: boolean;
+  standalone: boolean;
+  telegramAndroid: boolean;
+  deepLink: string | null;
+  inAppBrowser: boolean;
+  ios: boolean;
+  sharingEnabled: boolean;
+};
+
 // Ordered; first match wins. Returns { kind: 'hop' | 'landing', url } or null
 // (= proceed with today's boot).
-export function decideBootRedirect(ctx) {
+export function decideBootRedirect(
+  ctx: BootRedirectContext,
+): { kind: 'hop' | 'landing'; url: string } | null {
   if (ctx.telegramContext) return null;               // 1 · Mini App boots itself
   if (ctx.stay) return null;                          // 2 · landing already chose
   if (ctx.setupInstall) return null;                  // 2b · Safari install-hop (Q8=C)
@@ -52,7 +70,7 @@ export function decideBootRedirect(ctx) {
   return null;                                        // 7 · today's flow
 }
 
-export function readBootRedirectContext(token) {
+export function readBootRedirectContext(token: string | null | undefined): BootRedirectContext {
   return {
     token: token || null,
     telegramContext: isTelegramContext(),
