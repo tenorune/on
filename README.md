@@ -30,6 +30,7 @@ KnockKnock is a sandbox & playground for me to explore agent-assisted design and
 - **Firebase Realtime Database** — security rules scoped to `auth.uid` (a user can only touch their own data), with field-level validation
 - **Firebase Authentication** (custom tokens) — minted by the `validateRecovery` Cloud Function; the secret phrase is exchanged for a token so `auth.uid === userId`
 - **Firebase Cloud Functions** (`functions/`) — push-notification triggers (knock/call/availability/invite/follow-request → FCM) **and** the `validateRecovery` token-minting callable
+- **`shared/`** — pure modules used by both the web client and Cloud Functions (time formatting, notify-channel default, name caps, id formats); functions consume a committed mirror (`functions/_shared/`, `npm run sync-shared`) since deploys archive only `functions/`
 - **Firebase Cloud Messaging** + Web Push (notifications)
 - **Firebase Hosting** (deploys via GitHub Actions)
 - **HTML Canvas API** (drawing engine)
