@@ -93,6 +93,10 @@ export function showTextPrompt({ title, value = '', confirmLabel = 'Save', maxLe
 // not be dismissible mid-round-trip. Resolve → true + close. Throw → inline
 // error (e.userMessage or a generic) and the modal stays open for retry or
 // cancel. Same onConfirm/userMessage convention as recoveryModal.
+/**
+ * @param {{ title: string, message?: string, confirmLabel?: string, confirmVariant?: string, cancelLabel?: string, busyLabel?: string | null, onConfirm?: (() => (void | Promise<void>)) | null }} options
+ * @returns {Promise<boolean>}
+ */
 export function showConfirmModal({ title, message = '', confirmLabel = 'Confirm', confirmVariant = 'destructive', cancelLabel = 'Cancel', busyLabel = null, onConfirm = null }) {
   const overlay = document.getElementById('confirm-modal');
   const titleEl = document.getElementById('confirm-modal-title');
