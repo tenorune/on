@@ -1,4 +1,4 @@
-// js/hints.js
+// js/hints.ts
 // Centralized predicates for "should this hint be visible right now?". Each
 // renderer (palettes.js, groupContext.js, following.js, favorites.js) used
 // to re-derive these gates inline as long isHintSeen() chains. The duplicates
@@ -13,16 +13,24 @@
 // shared hint-state predicates.
 import { isHintSeen } from './prefs.js';
 
+// Mirrors store.js's PaletteState shape (not a global type); only the fields
+// these predicates read are pinned.
+interface PaletteStateLike {
+  activeSet: number;
+  sets: Record<string, any>;
+}
+
 // Rolling wave attractor across unselected swatches in either swatch row.
 // Per-set: shows on the active set while that set's selectedKey is its
 // default. Switching sets continues to nudge until the user picks a non-
 // default swatch in the now-active set. Going Available with a custom color
 // hides the wave everywhere.
-export function shouldShowSwatchWave(paletteState) {
+export function shouldShowSwatchWave(paletteState: unknown) {
   if (isHintSeen('customAvail')) return false;
-  const activeSet = paletteState.activeSet;
+  const ps = paletteState as PaletteStateLike;
+  const activeSet = ps.activeSet;
   const defaultKey = activeSet === 1 ? 'forest' : 'volt';
-  return paletteState.sets[String(activeSet)].selectedKey === defaultKey;
+  return ps.sets[String(activeSet)].selectedKey === defaultKey;
 }
 
 // Pulsing dotted ring on the currently-selected swatch, nudging the user to
@@ -33,13 +41,13 @@ export function shouldShowThemeHint() {
 
 // Colored pulse on the availability dot, nudging the user to tap it to go
 // Available after they've picked a non-default swatch.
-export function shouldShowDotGoHint({ isNonDefault, dotAvailable }) {
+export function shouldShowDotGoHint({ isNonDefault, dotAvailable }: { isNonDefault: boolean; dotAvailable: boolean }) {
   return !isHintSeen('customAvail') && isNonDefault && !dotAvailable;
 }
 
 // First-use pulse on the bolt/tree set-toggle icon. Stops once the user has
 // tapped the icon to discover the other palette set.
-export function shouldShowSetTogglePulse(activeSet) {
+export function shouldShowSetTogglePulse(activeSet: number) {
   return !isHintSeen(activeSet === 1 ? 'bolt' : 'flower');
 }
 
