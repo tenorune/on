@@ -1,5 +1,6 @@
 // functions/notifier.js — delivery + per-event handlers. Deps are injected.
 import { wantsKnock, wantsCall, wantsAvailability, availabilityTurnedOn, withinCooldown, buildMessage, effectiveAvailable } from './presence-core.js';
+import { telegramPreferred } from './_shared/notifyDelivery.js';
 
 const AVAIL_COOLDOWN_MS = 5 * 60 * 1000;
 // Per-(recipient, sender) send cooldowns (R1.5 #179 S3). Each directed event
@@ -22,8 +23,9 @@ export async function sendToUser(deps, uid, message, data) {
   // (user blocked the bot, missing route, bot unconfigured) falls back to FCM.
   // channel !== 'push' (not === 'telegram'): a MISSING channel on a routed
   // account reads as telegram, matching the client predicates in
-  // js/notifySuppression.js botDelivered and js/notifyChannel.js — this is the
-  // third reader of that default, and the three must never disagree.
+  // js/notifySuppression.js botDelivered and js/notifyChannel.js — the default
+  // lives in _shared/notifyDelivery.js telegramPreferred (source: shared/), one
+  // copy for all three readers.
   // The pushTokens read starts up front so the FCM fall-through never pays it
   // as an extra sequential round-trip, but it is only AWAITED on that
   // fall-through — a failed tokens read must not break healthy telegram
@@ -40,7 +42,7 @@ export async function sendToUser(deps, uid, message, data) {
       deps.getVal(`telegramByUid/${uid}`),
     ]);
     tgRoute = route;
-    if (channel !== 'push' && tgRoute && tgRoute.chatId) {
+    if (telegramPreferred(channel) && tgRoute && tgRoute.chatId) {
       triedTelegram = true;
       try {
         if (await deps.sendTelegram(tgRoute.chatId, message, data)) return true;

@@ -6,21 +6,22 @@
 // optimistically from the channel pill; consumers read isBotDelivered() at
 // decision time and re-run on the 'bot-delivery-change' document event.
 import { isTelegramContext } from './telegram.js';
+import { telegramPreferred } from '../shared/notifyDelivery.js';
 
 let suppressed = false;
 
 // Pure. Mirrors the pill's isLinked + default-channel semantics
 // (js/notifyChannel.js): on web the telegram marker means linked, and a linked
-// account with no stored channel reads as telegram. The server notifier
-// (functions/notifier.js sendToUser) is the third reader of this default —
-// the three must never disagree, pinned by test-fixtures/notify-channel-vectors.json
-// (W2 C10). A FOURTH reader consumes only the `prefs.telegram != null` linked
+// account with no stored channel reads as telegram. The channel default
+// itself lives in shared/notifyDelivery.js telegramPreferred (one copy for
+// all three readers, pinned by test-fixtures/notify-channel-vectors.json —
+// W2 C10). A FOURTH reader consumes only the `prefs.telegram != null` linked
 // half (not the channel): js/telegramOnramp.js syncTelegramOnramp, which
 // suppresses the onramp once linked — keep it in step if the marker changes.
 // A FIFTH reader, js/telegramEscapeHatch.js, consumes the linked half via
 // isTelegramLinkedWeb() below (recorded from the same prefs tick).
 export function botDelivered(prefs) {
-  return prefs?.telegram != null && prefs?.notifyChannel !== 'push';
+  return prefs?.telegram != null && telegramPreferred(prefs?.notifyChannel);
 }
 // Note: the notifier additionally falls back to the bot when channel IS 'push'
 // but the account has zero push tokens (W1 J#3) — delivery-level only; it does

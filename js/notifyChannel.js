@@ -12,6 +12,7 @@ import { isTelegramContext, isTelegramLinked } from './telegram.js';
 import { syncBotDelivery } from './notifySuppression.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
 import { showToast } from './groups.js';
+import { telegramPreferred } from '../shared/notifyDelivery.js';
 
 const OTHER = { telegram: 'push', push: 'telegram' };
 
@@ -29,8 +30,8 @@ let lastPrefs = null;
 //    unlink) and derived accounts never reach the web, so the marker is the
 //    correct, live signal there.
 // The web branch (with the pill's non-'push'-defaults-to-telegram rendering)
-// is mirrored by js/notifySuppression.js botDelivered and the server notifier
-// (functions/notifier.js sendToUser) — the three must never disagree.
+// routes through shared/notifyDelivery.js telegramPreferred, the one copy of
+// the channel default for all three readers.
 function isLinked(prefs) {
   if (isTelegramContext()) return isTelegramLinked();
   return prefs?.telegram != null;
@@ -123,6 +124,6 @@ export function syncNotifyChannel(userId, prefs) {
   if (!isLinked(prefs)) { section.classList.add('hidden'); return; }
 
   const pill = slot.querySelector('.toggle-pill') || mountPill(slot, userId);
-  setActive(pill, prefs.notifyChannel === 'push' ? 'push' : 'telegram');
+  setActive(pill, telegramPreferred(prefs.notifyChannel) ? 'telegram' : 'push');
   section.classList.remove('hidden');
 }
