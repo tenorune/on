@@ -1,3 +1,4 @@
+// @ts-check
 // functions/telegram-shared.js — bot copy, keyboards, and id-format regexes
 // shared between the webhook (/start, telegram.js) and the Mini App auth
 // callable (first-open welcome DM, telegram-auth.js), kept here to avoid a
@@ -20,6 +21,7 @@ export const WELCOME_STRANGER_TEXT =
 
 // Inline keyboard with a single "Open KnockKnock" Mini App button. Empty (no
 // reply_markup) when the app URL is unconfigured, so the message still sends.
+/** @param {string | null | undefined} appUrl */
 export function openAppKeyboard(appUrl) {
   return appUrl ? { reply_markup: { inline_keyboard: [[{ text: 'Open KnockKnock', web_app: { url: appUrl } }]] } } : {};
 }
@@ -33,8 +35,13 @@ export function openAppKeyboard(appUrl) {
 // the whole update; any other overlap is a real conflict (the deep write
 // and the node write race for the same data) and throws before anything
 // is sent to the database.
+/**
+ * @param {{ update: (path: string, writes: Record<string, unknown>) => Promise<unknown> }} deps
+ * @param {Record<string, unknown>} writes
+ */
 export async function rootUpdate(deps, writes) {
   const keys = Object.keys(writes).sort();
+  /** @type {Record<string, unknown>} */
   const kept = {};
   for (let i = 0; i < keys.length; i += 1) {
     const key = keys[i];

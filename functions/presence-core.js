@@ -1,6 +1,8 @@
+// @ts-check
 // functions/presence-core.js — pure, dependency-free decision logic.
 
 // A valid (numeric, future) availableUntil. null/absent/expired are all "not future".
+/** @param {unknown} v @param {number} now @returns {boolean} */
 export function isFutureMs(v, now) {
   return typeof v === 'number' && v > now;
 }
@@ -11,26 +13,47 @@ export function isFutureMs(v, now) {
 // 'available'. (Going unavailable always clears availableUntil to null, so a real
 // off→on always changes availableUntil.) Assumes available state always carries a
 // future availableUntil — true for the app's timed-availability model.
+/**
+ * @param {number | null | undefined} beforeAU
+ * @param {number | null | undefined} afterAU
+ * @param {string | null | undefined} status
+ * @param {number} now
+ */
 export function availabilityTurnedOn(beforeAU, afterAU, status, now) {
   return status === 'available' && isFutureMs(afterAU, now) && !isFutureMs(beforeAU, now);
 }
 
+/**
+ * @param {number | null | undefined} lastTs
+ * @param {number} now
+ * @param {number} cooldownMs
+ */
 export function withinCooldown(lastTs, now, cooldownMs) {
   return lastTs != null && (now - lastTs) < cooldownMs;
 }
 
+/** @param {NotifyPrefsEntry | null | undefined} prefs */
 export function wantsKnock(prefs) { return !!(prefs && prefs.knock); }
+/** @param {NotifyPrefsEntry | null | undefined} prefs */
 export function wantsCall(prefs) { return !!(prefs && prefs.call); }
+/** @param {NotifyPrefsEntry | null | undefined} prefs */
 export function wantsAvailability(prefs) { return !!(prefs && prefs.availability); }
 
 // Is the group override itself an "available" signal right now? Same
 // status/availableUntil predicate as primaryAvailable, gated on enabled.
+/** @param {StatusOverride | null | undefined} override @param {number} now */
 export function overrideAvailable(override, now) {
   return !!(override && override.enabled === true && primaryAvailable(override, now));
 }
 
 // A member's EFFECTIVE in-group availability: their override when enabled,
 // otherwise their primary status. Mirrors what the group roster shows.
+/**
+ * @param {StatusOverride | null | undefined} override
+ * @param {string | null | undefined} primaryStatus
+ * @param {number | null | undefined} primaryAU
+ * @param {number} now
+ */
 export function effectiveAvailable(override, primaryStatus, primaryAU, now) {
   if (override && override.enabled === true) return overrideAvailable(override, now);
   return primaryAvailable({ status: primaryStatus, availableUntil: primaryAU }, now);
@@ -42,6 +65,7 @@ export function effectiveAvailable(override, primaryStatus, primaryAU, now) {
 // NOTE: the client's js/utils.js isAvailable deliberately differs on null
 // availableUntil (open-ended reads available there, not here) — parity pinned
 // in tests/presencePredicateParity.test.js; don't unify blind.
+/** @param {PresenceNode | null | undefined} presence @param {number} now */
 export function primaryAvailable(presence, now) {
   return presence?.status === 'available' && isFutureMs(presence.availableUntil, now);
 }
@@ -52,6 +76,7 @@ export function primaryAvailable(presence, now) {
 // importing from presence-core.
 export { formatTimeRemaining, formatTimeRemainingFuzzy } from './_shared/timeFormat.js';
 
+/** @type {Record<string, (name: string) => string>} */
 const TITLES = {
   knock: (name) => `${name} knocked`,
   call: (name) => `${name} is calling`,
@@ -60,6 +85,7 @@ const TITLES = {
   followRequest: (name) => `${name} wants to follow you`,
 };
 
+/** @type {Record<string, (name: string, group: string) => string>} */
 const GROUP_TITLES = {
   knock: (name, group) => `${name} knocked in ${group}`,
   call: (name, group) => `${name} is calling in ${group}`,
@@ -72,6 +98,11 @@ const GROUP_TITLES = {
 import { clampLabel } from './_shared/limits.js';
 export { clampName } from './_shared/limits.js';
 
+/**
+ * @param {string} type
+ * @param {unknown} name
+ * @param {{ group?: unknown }} [opts]
+ */
 export function buildMessage(type, name, opts = {}) {
   const n = clampLabel(name);
   const title = opts.group ? GROUP_TITLES[type](n, clampLabel(opts.group)) : TITLES[type](n);
@@ -81,6 +112,7 @@ export function buildMessage(type, name, opts = {}) {
 // Quantizes a status-color hex to a single Telegram circle emoji. Fallback
 // for missing/invalid input is 🟢. Operator-reviewed against all 92 status-
 // color swatches (B#14b) — thresholds are pinned, do not "improve" them.
+/** @param {unknown} hex @returns {string} */
 export function statusCircle(hex) {
   const m = /^#([0-9a-f]{6})$/i.exec(String(hex || '').trim());
   if (!m) return '🟢';
