@@ -1,4 +1,4 @@
-// js/telegramLinkCopy.js — shared, dependency-free copy for the Telegram link
+// js/telegramLinkCopy.ts — shared, dependency-free copy for the Telegram link
 // flows. Kept standalone (no imports) so both the heavy redeem module
 // (telegramLinkArrival.js) and the settings drawer (telegramSettings.js) can
 // share it without dragging each other's dependency graphs along.
@@ -9,8 +9,10 @@
 // to the generic sentence when counts are unknown (the manual link screen, which
 // has none). The redeem replace branch only fires with contacts>0 or groups>0,
 // so a count-aware call always names at least one.
-export function linkReplaceWarning(counts) {
-  const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+export function linkReplaceWarning(
+  counts?: { contacts?: number, groups?: number } | null,
+): string {
+  const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
   let what = 'contacts and groups';
   if (counts) {
     const parts = [];
