@@ -1,5 +1,4 @@
-// @ts-check
-// js/notifySuppression.js — "notifications are bot-delivered" state for web
+// js/notifySuppression.ts — "notifications are bot-delivered" state for web
 // sessions. When a linked account's channel is telegram, the bot delivers every
 // notification, so web install/web-push nudges have a void premise and hide
 // (spec 2026-07-07-web-nudge-suppression). Fed from the watchUserPrefs tick
@@ -21,8 +20,7 @@ let suppressed = false;
 // suppresses the onramp once linked — keep it in step if the marker changes.
 // A FIFTH reader, js/telegramEscapeHatch.js, consumes the linked half via
 // isTelegramLinkedWeb() below (recorded from the same prefs tick).
-/** @param {UserPrefs | null | undefined} prefs */
-export function botDelivered(prefs) {
+export function botDelivered(prefs: UserPrefs | null | undefined) {
   return prefs?.telegram != null && telegramPreferred(prefs?.notifyChannel);
 }
 // Note: the notifier additionally falls back to the bot when channel IS 'push'
@@ -43,8 +41,7 @@ export function isTelegramLinkedWeb() { return linkedWeb; }
 // Reprompt-banner visibility, fed by notifyPrompt refreshPromoVisibility.
 // telegramOnramp reads it at decision time (promo defers to the reprompt —
 // concrete unmet intent beats a passive promo) and re-runs on 'reprompt-change'.
-/** @param {boolean} active */
-export function setRepromptActive(active) {
+export function setRepromptActive(active: boolean) {
   const next = !!active;
   if (next === repromptActive) return;
   repromptActive = next;
@@ -52,8 +49,7 @@ export function setRepromptActive(active) {
 }
 export function isRepromptActive() { return repromptActive; }
 
-/** @param {UserPrefs | null | undefined} prefs */
-export function syncBotDelivery(prefs) {
+export function syncBotDelivery(prefs: UserPrefs | null | undefined) {
   // Web-only concern: in Telegram the whole install/web-push machinery is
   // already gated off at init (app.js) and inside notifyPrompt.
   if (isTelegramContext()) return;
