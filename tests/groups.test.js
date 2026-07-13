@@ -38,7 +38,22 @@ jest.mock('../js/prefs.js', () => ({
 const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
 const prefs = require('../js/prefs.js');
-const { createGroup, renameGroup, deleteGroup, leaveGroup, joinGroup, editOwnDisplayName, initGroupRemovalDetector, _resetGroupRemovalDetectorForTests, _feedSnapshotForTests, toggleStatusOverride, setOverrideStatusAvailable, setOverrideStatusUnavailable } = require('../js/groups');
+const { createGroup, renameGroup, deleteGroup, leaveGroup, joinGroup, editOwnDisplayName, initGroupRemovalDetector, _resetGroupRemovalDetectorForTests, _feedSnapshotForTests, toggleStatusOverride, setOverrideStatusAvailable, setOverrideStatusUnavailable, generateGroupId } = require('../js/groups');
+const { GROUP_ID_RE } = require('../shared/idFormats.js');
+
+describe('generateGroupId (group id generator)', () => {
+  // The generator, the shared GROUP_ID_RE, and database.rules.json must agree on
+  // the group-id format (js/ ↔ functions/ ↔ rules trust boundary). idFormats.test.js
+  // pins the regex to the rules literal; this binds the generator to the regex, so
+  // widening ID_ALPHABET or changing the length can't silently diverge the id the
+  // client mints from the format everything else validates.
+  test('produces ids that match the shared GROUP_ID_RE', () => {
+    expect(typeof generateGroupId).toBe('function');
+    for (let i = 0; i < 1000; i += 1) {
+      expect(GROUP_ID_RE.test(generateGroupId())).toBe(true);
+    }
+  });
+});
 
 describe('createGroup', () => {
   beforeEach(() => {

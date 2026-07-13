@@ -24,7 +24,7 @@ function validateName(raw, field = 'Name') {
   return trimmed;
 }
 
-function generateGroupId() {
+export function generateGroupId() {
   const bytes = new Uint8Array(8);
   globalThis.crypto.getRandomValues(bytes);
   let out = '';
