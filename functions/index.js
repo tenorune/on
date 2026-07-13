@@ -1,3 +1,4 @@
+// @ts-check
 // functions/index.js — RTDB-triggered presence notifiers.
 import { randomBytes } from 'crypto';
 import { initializeApp } from 'firebase-admin/app';
@@ -29,6 +30,7 @@ const messaging = getMessaging();
 
 // Raw Bot API call. Returns the result object, or null on any failure (logged).
 // Node 18+ global fetch; no SDK dependency.
+/** @param {string} method @param {object} payload */
 async function tgApi(method, payload) {
   const res = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/${method}`, {
     method: 'POST',
@@ -45,7 +47,7 @@ async function tgApi(method, payload) {
 
 // The one sendMessage lambda: the auth callable's welcome DM and the webhook's
 // replies go through the same call shape (tgApi reads the env token lazily).
-const tgSendMessage = (chatId, text, extra = {}) => tgApi('sendMessage', { chat_id: chatId, text, ...extra });
+const tgSendMessage = (/** @type {string} */ chatId, /** @type {string} */ text, extra = {}) => tgApi('sendMessage', { chat_id: chatId, text, ...extra });
 
 // The RTDB adapter quintet every handler family shares — ONE definition of
 // how paths map onto the Admin SDK, spread into the notifier deps, the
@@ -53,10 +55,10 @@ const tgSendMessage = (chatId, text, extra = {}) => tgApi('sendMessage', { chat_
 function makeDbDeps() {
   return {
     now: () => Date.now(),
-    getVal: async (path) => (await db.ref(path).get()).val(),
-    set: async (path, value) => { await db.ref(path).set(value); },
-    update: async (path, obj) => { await db.ref(path).update(obj); },
-    transaction: async (path, fn) => {
+    getVal: async (/** @type {string} */ path) => (await db.ref(path).get()).val(),
+    set: async (/** @type {string} */ path, /** @type {unknown} */ value) => { await db.ref(path).set(value); },
+    update: async (/** @type {string} */ path, /** @type {Record<string, unknown>} */ obj) => { await db.ref(path).update(obj); },
+    transaction: async (/** @type {string} */ path, /** @type {(current: any) => unknown} */ fn) => {
       const res = await db.ref(path).transaction(fn);
       return { committed: res.committed };
     },
@@ -66,7 +68,7 @@ function makeDbDeps() {
 function makeDeps() {
   return {
     ...makeDbDeps(),
-    send: async (tokens, message, data) => {
+    send: async (/** @type {string[]} */ tokens, /** @type {{ title: string, body: string }} */ message, /** @type {Record<string, string> | undefined} */ data) => {
       const res = await messaging.sendEachForMulticast({
         tokens,
         // Data-only message (no `notification` block): the service worker fully
@@ -76,9 +78,12 @@ function makeDeps() {
         data: {
           title: message.title || '',
           body: message.body || '',
-          ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+          // Cast: every handler passes data; the deps signature keeps it
+          // optional only because sendToUser's own param is optional.
+          ...Object.fromEntries(Object.entries(/** @type {Record<string, string>} */ (data)).map(([k, v]) => [k, String(v)])),
         },
       });
+      /** @type {string[]} */
       const failedTokens = [];
       res.responses.forEach((r, i) => {
         if (!r.success) {
@@ -93,7 +98,7 @@ function makeDeps() {
     // Present only when the bot is configured; sendToUser treats absence as
     // "FCM only". message.title carries the whole notification text (body is '').
     sendTelegram: process.env.TELEGRAM_BOT_TOKEN
-      ? async (chatId, message, data) => {
+      ? async (/** @type {unknown} */ chatId, /** @type {{ title: string, body: string }} */ message, /** @type {Record<string, string> | undefined} */ data) => {
           const keyboard = buildNotificationKeyboard(data, process.env.TELEGRAM_APP_URL || '');
           const result = await tgApi('sendMessage', {
             chat_id: chatId,
@@ -164,6 +169,12 @@ const RECOVERY_PER_UID_LIMIT = 10;
 const RECOVERY_GLOBAL_LIMIT = 60;
 const RECOVERY_WINDOW_MS = 60 * 1000;
 
+/**
+ * @param {import('firebase-admin/database').Reference} ref
+ * @param {number} limit
+ * @param {number} now
+ * @param {number} windowMs
+ */
 async function bumpFixedWindow(ref, limit, now, windowMs) {
   let allowed = true;
   await ref.transaction((cur) => {
@@ -175,6 +186,10 @@ async function bumpFixedWindow(ref, limit, now, windowMs) {
   return allowed;
 }
 
+/**
+ * @param {import('firebase-admin/database').Database} db
+ * @param {string} uid
+ */
 async function allowRecoveryAttempt(db, uid) {
   const now = Date.now();
   if (!(await bumpFixedWindow(db.ref(`notifierState/recoveryRate/perUid/${uid}`), RECOVERY_PER_UID_LIMIT, now, RECOVERY_WINDOW_MS))) return false;
@@ -186,8 +201,8 @@ async function allowRecoveryAttempt(db, uid) {
 // the same region as the rest (setGlobalOptions above). See auth.js / R1 spec.
 export const validateRecovery = httpsOnCall((request) =>
   validateRecoveryHandler(request, {
-    allowAttempt: (uid) => allowRecoveryAttempt(getDatabase(), uid),
-    mintToken: (uid) => getAuth().createCustomToken(uid),
+    allowAttempt: (/** @type {string} */ uid) => allowRecoveryAttempt(getDatabase(), uid),
+    mintToken: (/** @type {string} */ uid) => getAuth().createCustomToken(uid),
   }));
 
 // Unauthenticated callable: the welcome screen names the inviter/group before the
@@ -196,7 +211,7 @@ export const validateRecovery = httpsOnCall((request) =>
 // fields. Invite tokens are 128-bit, so enumeration is infeasible. See invites.js.
 export const resolveInvitePreview = httpsOnCall((request) =>
   resolveInvitePreviewHandler(request, {
-    getVal: (path) => db.ref(path).get().then((snap) => snap.val()),
+    getVal: (/** @type {string} */ path) => db.ref(path).get().then((snap) => snap.val()),
   }));
 
 // ── Telegram (experimental; inert unless TELEGRAM_BOT_TOKEN is set in the
@@ -209,9 +224,9 @@ function makeTelegramAuthDeps() {
     // the public tgId (F1 #287). Must be set alongside the bot token.
     uidSecret: process.env.TELEGRAM_UID_SECRET || null,
     appUrl: process.env.TELEGRAM_APP_URL || '',
-    mintToken: (uid) => getAuth().createCustomToken(uid),
+    mintToken: (/** @type {string} */ uid) => getAuth().createCustomToken(uid),
     randomToken: () => randomBytes(16).toString('base64url'),
-    allowAttempt: (uid) => allowRecoveryAttempt(getDatabase(), uid),
+    allowAttempt: (/** @type {string} */ uid) => allowRecoveryAttempt(getDatabase(), uid),
     setAuthEmail: setTelegramAuthEmail,
     // First-open welcome DM (validateTelegramHandler). Null when the bot isn't
     // configured, so the handler skips it; mirrors the webhook's tg.sendMessage.
@@ -221,12 +236,13 @@ function makeTelegramAuthDeps() {
 
 // Create-or-update: the Auth record doesn't exist until the client's first
 // signInWithCustomToken, so pre-create it; later re-bootstraps hit update.
+/** @param {string} uid @param {string} email */
 async function setTelegramAuthEmail(uid, email) {
   const auth = getAuth();
   try {
     await auth.updateUser(uid, { email });
   } catch (e) {
-    if (e?.code === 'auth/user-not-found') await auth.createUser({ uid, email });
+    if (/** @type {any} */ (e)?.code === 'auth/user-not-found') await auth.createUser({ uid, email });
     else throw e;
   }
 }
@@ -256,8 +272,8 @@ export const telegramWebhook = onRequest(async (req, res) => {
     setAuthEmail: setTelegramAuthEmail,
     tg: {
       sendMessage: tgSendMessage,
-      answerCallbackQuery: (id, text) => tgApi('answerCallbackQuery', { callback_query_id: id, text }),
-      editMessageText: (chatId, messageId, text, extra = {}) =>
+      answerCallbackQuery: (/** @type {string} */ id, /** @type {string} */ text) => tgApi('answerCallbackQuery', { callback_query_id: id, text }),
+      editMessageText: (/** @type {string} */ chatId, /** @type {number} */ messageId, /** @type {string} */ text, extra = {}) =>
         tgApi('editMessageText', { chat_id: chatId, message_id: messageId, text, ...extra }),
     },
   }, req.body);
@@ -266,6 +282,7 @@ export const telegramWebhook = onRequest(async (req, res) => {
   // sendMessage HTTPS call. Nested objects must be JSON-serialized in a
   // webhook reply (Bot API convention), hence the reply_markup stringify.
   if (replyPayload) {
+    /** @type {Record<string, any>} */
     const method = { method: 'sendMessage', ...replyPayload };
     if (method.reply_markup) method.reply_markup = JSON.stringify(method.reply_markup);
     res.status(200).json(method);

@@ -8,10 +8,22 @@ import { WELCOME_STRANGER_TEXT, openAppKeyboard, GROUP_ID_RE, UID_RE, rootUpdate
 import { effectiveAvailable, primaryAvailable, clampName, statusCircle, formatTimeRemaining, formatTimeRemainingFuzzy } from './presence-core.js';
 
 /**
- * The webhook's injected surface: the auth-deps shape (index.js builds one
- * object for both) plus the two Bot API methods callbacks need.
- * @typedef {import('./telegram-auth.js').TelegramAuthDeps & {
+ * The webhook's injected surface (index.js telegramWebhook builds it): the
+ * RTDB adapter quintet plus the Telegram config/API pieces the router needs.
+ * Deliberately NOT the full TelegramAuthDeps — the webhook never mints tokens
+ * or rate-limits, so index.js doesn't provide those members here.
+ * @typedef {{
+ *   getVal: (path: string) => Promise<any>,
+ *   set: (path: string, value: unknown) => Promise<unknown>,
+ *   update: (path: string, writes: Record<string, unknown>) => Promise<unknown>,
+ *   transaction: (path: string, fn: (current: any) => unknown) => Promise<{ committed: boolean }>,
+ *   now: () => number,
+ *   uidSecret?: string | null,
+ *   appUrl?: string | null,
+ *   setAuthEmail?: ((uid: string, email: string) => Promise<unknown>) | null,
+ *   generateCode?: (() => string) | null,
  *   tg: {
+ *     sendMessage?: ((chatId: string, text: string, extra?: object) => Promise<unknown>) | null,
  *     answerCallbackQuery: (id: string, text: string) => Promise<unknown>,
  *     editMessageText?: ((chatId: string, messageId: number, text: string, extra?: object) => Promise<unknown>) | null,
  *   },
@@ -179,7 +191,10 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
     // account to exist even before the Mini App is ever opened. The mapping
     // is passed through (and presence comes back) so nothing is read twice.
     const { mapping: known } = await resolveTelegramUid(deps, msg.from.id);
-    const { uid, presence } = await ensureTelegramUser(deps, msg.from, known);
+    // Cast: ensureTelegramUser's typedef names the full auth-deps surface, but
+    // it only touches the members TelegramBotDeps carries (db quintet,
+    // uidSecret, setAuthEmail?, generateCode?) — see its body.
+    const { uid, presence } = await ensureTelegramUser(/** @type {any} */ (deps), msg.from, known);
     // Keep the chat route current (first /start after a Mini-App-only signup,
     // or Telegram reassigning chat ids) — sendToUser reads telegramByUid.
     // Both sides of the route in one multi-path write.
