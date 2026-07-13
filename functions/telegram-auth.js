@@ -1,3 +1,4 @@
+// @ts-check
 // functions/telegram-auth.js — Telegram Mini App auth: initData verification,
 // uid mapping/bootstrap, and the validate/link/unlink callable handlers.
 // Deps are injected (see index.js) so everything tests without firebase-admin.
@@ -5,6 +6,34 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { normalizeRecoveryCode, deriveUid } from './auth.js';
 import { WELCOME_STRANGER_TEXT, openAppKeyboard, rootUpdate } from './telegram-shared.js';
+
+/**
+ * The injected I/O surface (built by functions/index.js; tests inject fakes).
+ * getVal returns raw RTDB snapshot values — `any` by design at this seam.
+ * @typedef {{
+ *   getVal: (path: string) => Promise<any>,
+ *   set: (path: string, value: unknown) => Promise<unknown>,
+ *   update: (path: string, writes: Record<string, unknown>) => Promise<unknown>,
+ *   transaction: (path: string, fn: (current: any) => unknown) => Promise<{ committed: boolean }>,
+ *   now: () => number,
+ *   mintToken: (uid: string) => Promise<string>,
+ *   allowAttempt: (uid: string) => Promise<boolean>,
+ *   randomToken: () => string,
+ *   sendMessage?: ((chatId: string, text: string, extra?: object) => Promise<unknown>) | null,
+ *   setAuthEmail?: ((uid: string, email: string) => Promise<unknown>) | null,
+ *   generateCode?: (() => string) | null,
+ *   botToken?: string | null,
+ *   uidSecret?: string | null,
+ *   appUrl?: string | null,
+ * }} TelegramAuthDeps
+ */
+/**
+ * Callable request envelope (the fields these handlers read).
+ * @typedef {{
+ *   data?: { initData?: unknown, code?: unknown, token?: unknown, confirm?: unknown },
+ *   auth?: { uid?: string } | null,
+ * }} TgRequest
+ */
 
 const DEFAULT_MAX_AGE_MS = 4 * 60 * 60 * 1000; // initData replay window (F3 #287: shortened from 24h)
 // auth_date is HMAC-protected, this is defense-in-depth against clock nonsense.
@@ -15,6 +44,12 @@ const LINK_TOKEN_TTL_MS = 5 * 60 * 1000; // one-tap web→TG link token lifetime
 // Verify Telegram WebApp initData per https://core.telegram.org/bots/webapps
 // #validating-data-received-via-the-mini-app. Returns the parsed `user` object
 // on success, null on any failure (bad signature, stale, malformed).
+/**
+ * @param {unknown} initData
+ * @param {string | null | undefined} botToken
+ * @param {number} now
+ * @param {number} [maxAgeMs]
+ */
 export function verifyInitData(initData, botToken, now, maxAgeMs = DEFAULT_MAX_AGE_MS) {
   if (typeof initData !== 'string' || !initData || !botToken) return null;
   let params;
@@ -41,6 +76,7 @@ export function verifyInitData(initData, botToken, now, maxAgeMs = DEFAULT_MAX_A
 // account's uid and read its world-readable presence (share code, lastSeen).
 // HMAC with a secret restores the same unguessability phrase uids already have.
 // Fail-closed: a missing secret throws rather than derive a guessable uid.
+/** @param {string | number} tgId @param {string | null | undefined} secret */
 export function deriveTelegramUid(tgId, secret) {
   if (!secret) throw new Error('TELEGRAM_UID_SECRET is not configured');
   return createHmac('sha256', secret).update(`telegram:${tgId}`, 'utf8').digest('hex').slice(0, 32);
@@ -56,6 +92,7 @@ function generateShareCode() {
 // Claim a share code in codeIndex transactionally; loop on collision. Mirrors
 // the client's initUser (js/db/social.js) so a bot/Mini-App account is
 // indistinguishable from a web one.
+/** @param {TelegramAuthDeps} deps @param {string} uid */
 async function claimShareCode(deps, uid) {
   for (;;) {
     const code = (deps.generateCode || generateShareCode)();
@@ -75,6 +112,11 @@ async function claimShareCode(deps, uid) {
 // mapping isn't fetched twice. Returns { uid, created, linked, presence } —
 // presence is whatever this function read or bootstrapped, so callers need
 // no second presence read either.
+/**
+ * @param {TelegramAuthDeps} deps
+ * @param {{ id: string | number }} tgUser
+ * @param {any} [priorMapping]
+ */
 export async function ensureTelegramUser(deps, tgUser, priorMapping) {
   const tgId = String(tgUser.id);
   const derivedUid = deriveTelegramUid(tgId, deps.uidSecret);
@@ -111,6 +153,7 @@ export async function ensureTelegramUser(deps, tgUser, priorMapping) {
   return { uid: mapping.uid, created, linked: mapping.uid !== derivedUid, presence };
 }
 
+/** @param {TgRequest} request @param {TelegramAuthDeps} deps */
 function requireTelegramUser(request, deps) {
   // Both the bot token and the uid secret must be configured before any
   // handler derives a uid — fail-closed with a clean precondition error rather
@@ -122,6 +165,7 @@ function requireTelegramUser(request, deps) {
 }
 
 // Mini App boot: verify initData, ensure the account exists, mint a token.
+/** @param {TgRequest} request @param {TelegramAuthDeps} deps */
 export async function validateTelegramHandler(request, deps) {
   const tgUser = requireTelegramUser(request, deps);
   const { uid, created, linked } = await ensureTelegramUser(deps, tgUser);
@@ -144,6 +188,12 @@ export async function validateTelegramHandler(request, deps) {
 // Callers that already read telegramUsers/{tgId} pass it as priorMapping so it
 // isn't fetched twice (redeemTelegramLinkTokenHandler); undefined means "not
 // read", null means "read and absent" — same convention as ensureTelegramUser.
+/**
+ * @param {TelegramAuthDeps} deps
+ * @param {string} uid
+ * @param {{ id: string | number }} tgUser
+ * @param {any} [priorMapping]
+ */
 export async function performLink(deps, uid, tgUser, priorMapping) {
   const tgId = String(tgUser.id);
   const [presence, prior] = await Promise.all([
@@ -153,6 +203,7 @@ export async function performLink(deps, uid, tgUser, priorMapping) {
   if (!presence) throw new HttpsError('not-found', 'No account with that phrase.');
   const chatId = prior?.chatId || tgId;
   const now = deps.now();
+  /** @type {Record<string, unknown>} */
   const writes = {};
   if (prior && prior.uid !== uid) {
     if (prior.uid === deriveTelegramUid(tgId, deps.uidSecret)) {
@@ -181,6 +232,7 @@ export async function performLink(deps, uid, tgUser, priorMapping) {
 // parity). A prior Telegram-derived account is EXPUNGED (see the branch
 // below) — the client warns first; a prior phrase account (direct relink)
 // is left intact with its telegram routing/prefs reset.
+/** @param {TgRequest} request @param {TelegramAuthDeps} deps */
 export async function linkTelegramHandler(request, deps) {
   const tgUser = requireTelegramUser(request, deps);
   const normalized = normalizeRecoveryCode(request.data?.code);
@@ -193,6 +245,7 @@ export async function linkTelegramHandler(request, deps) {
 // Authenticated (web session) mint of a single-use token bound to this account's
 // uid. The phrase never leaves the device — the web app is already signed in, so
 // request.auth.uid identifies the account. Fresh token every call.
+/** @param {TgRequest} request @param {TelegramAuthDeps} deps */
 export async function mintTelegramLinkTokenHandler(request, deps) {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
@@ -206,6 +259,7 @@ export async function mintTelegramLinkTokenHandler(request, deps) {
 // standalone account with contacts/groups, linking would expunge it — so return
 // needsConfirm (with counts) unless the caller passes confirm:true. Token is
 // single-use: deleted only on an actual link.
+/** @param {TgRequest} request @param {TelegramAuthDeps} deps */
 export async function redeemTelegramLinkTokenHandler(request, deps) {
   const tgUser = requireTelegramUser(request, deps);
   const token = request.data?.token;
@@ -258,6 +312,11 @@ export async function redeemTelegramLinkTokenHandler(request, deps) {
 // `extraNulls` lets a caller fold its own disjoint deletes (mapping teardown,
 // reverse-index nulls) into the SAME atomic update, so the whole teardown is
 // one write with no dangling-mapping crash window (unlinkTelegramHandler).
+/**
+ * @param {TelegramAuthDeps} deps
+ * @param {string} uid
+ * @param {Record<string, unknown> | null} [extraNulls]
+ */
 export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
   const [presence, invites, followers, following, groups] = await Promise.all([
     deps.getVal(`users/${uid}/presence`),
@@ -270,6 +329,7 @@ export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
   const gids = Object.keys(groups || {});
   const ownerIds = await Promise.all(gids.map((gid) => deps.getVal(`groups/${gid}/ownerId`)));
 
+  /** @type {Record<string, unknown>} */
   const nulls = {};
 
   if (presence?.code) nulls[`codeIndex/${presence.code}`] = null;
@@ -321,11 +381,16 @@ const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants', 'pen
 // doomed/consumed guards handle the overlaps, so both stay correct without the
 // enumerator knowing. Order matters: it is the graduation walker's original
 // move order, so the consumed-source dedup picks the same winner.
+/**
+ * @param {{ followers?: any, following?: any, groups?: any }} lists
+ * @returns {Array<(u: string) => string>}
+ */
 function crossRefRenderers({ followers, following, groups }) {
   const followerIds = Object.keys(followers || {});
   const followingIds = Object.keys(following || {});
   const peers = new Set([...followerIds, ...followingIds]);
   const gids = Object.keys(groups || {});
+  /** @type {Array<(u: string) => string>} */
   const r = [];
   for (const fid of followerIds) r.push((u) => `userPrefs/${fid}/following/${u}`);
   for (const tid of followingIds) {
@@ -369,6 +434,12 @@ function crossRefRenderers({ followers, following, groups }) {
 // used to be written and then deleted across the two updates, and as part of
 // one update it would be an illegal ancestor overlap — the delete wins either
 // way.
+/**
+ * @param {TelegramAuthDeps} deps
+ * @param {string} oldUid
+ * @param {string} newUid
+ * @param {Record<string, unknown> | null} [extraWrites]
+ */
 export async function graduateAccountData(deps, oldUid, newUid, extraWrites = null) {
   const [own, prefs] = await Promise.all([
     deps.getVal(`users/${oldUid}`),
@@ -386,6 +457,7 @@ export async function graduateAccountData(deps, oldUid, newUid, extraWrites = nu
     Promise.all(gids.map(async (gid) => ({ gid, ownerId: await deps.getVal(`groups/${gid}/ownerId`) }))),
   ]);
 
+  /** @type {Record<string, unknown>} */
   const writes = {};
 
   // 1. Copy the own subtree verbatim to the new uid.
@@ -406,8 +478,8 @@ export async function graduateAccountData(deps, oldUid, newUid, extraWrites = nu
   // A target inside a subtree extraWrites deletes wholesale is dropped (see
   // the function comment); its source still nulls, and rootUpdate filters
   // that null when the source sits under the same deleted subtree.
-  const nullRoots = Object.keys(extraWrites || {}).filter((k) => extraWrites[k] === null);
-  const doomed = (path) => nullRoots.some((r) => path === r || path.startsWith(`${r}/`));
+  const nullRoots = Object.keys(extraWrites || {}).filter((k) => /** @type {Record<string, unknown>} */ (extraWrites)[k] === null);
+  const doomed = (/** @type {string} */ path) => nullRoots.some((r) => path === r || path.startsWith(`${r}/`));
   const consumed = new Set();
   for (const { from, to, val } of resolvedMoves) {
     if (val === null || val === undefined || consumed.has(from)) continue;
@@ -430,6 +502,7 @@ export async function graduateAccountData(deps, oldUid, newUid, extraWrites = nu
 // secret phrase, migrating it to the phrase-derived uid so it becomes a
 // first-class phrase account ("use the app outside Telegram"). A rename, not a
 // merge — the target uid must be free.
+/** @param {TgRequest} request @param {TelegramAuthDeps} deps */
 export async function graduateTelegramHandler(request, deps) {
   const tgUser = requireTelegramUser(request, deps);
   const normalized = normalizeRecoveryCode(request.data?.code);
@@ -483,6 +556,7 @@ export async function graduateTelegramHandler(request, deps) {
 // delete every RTDB record of the derived account (and its cross-user
 // residue) and leave the mapping gone; reopening the Mini App afterwards
 // bootstraps a genuinely fresh account at the same derived uid.
+/** @param {TgRequest} request @param {TelegramAuthDeps} deps */
 export async function unlinkTelegramHandler(request, deps) {
   const tgUser = requireTelegramUser(request, deps);
   const tgId = String(tgUser.id);
@@ -493,6 +567,7 @@ export async function unlinkTelegramHandler(request, deps) {
   // window between the expunge and the mapping nulls. All these paths are
   // disjoint from the derived account's own subtree (prior.uid ≠ derivedUid
   // for the linked case; telegramUsers/telegramByUid are separate roots).
+  /** @type {Record<string, unknown>} */
   const teardown = {
     [`telegramUsers/${tgId}`]: null,
     [`telegramByUid/${derivedUid}`]: null,
