@@ -43,41 +43,11 @@ export function primaryAvailable(presence, now) {
   return presence?.status === 'available' && isFutureMs(presence.availableUntil, now);
 }
 
-// DUPLICATED in js/utils.js — keep byte-identical (shared fixture: test-fixtures/time-format-vectors.json).
-// Both time-remaining formatters return a bare duration PHRASE with no trailing
-// " left" — the caller owns that suffix (e.g. `formatTimeRemaining(ms) + ' left'`
-// for a precise countdown, or `Available for ${formatTimeRemainingFuzzy(ms)}` for
-// the fuzzy roster text). Keeping the suffix out of the helpers means no call site
-// has to strip it back off.
-export function formatTimeRemaining(ms) {
-  if (ms <= 0) return '';
-  if (ms < 60000) return '< 1m';
-  const totalMinutes = Math.floor(ms / 60000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes}m`;
-  if (minutes === 0) return `${hours}h`;
-  return `${hours}h ${minutes}m`;
-}
-
-const HOUR_WORDS = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
-function hourWord(n) { return HOUR_WORDS[n] ?? String(n); }
-
-export function formatTimeRemainingFuzzy(ms) {
-  if (ms <= 0) return '';
-  const minutes = ms / 60000;
-  const hours = ms / 3600000;
-  if (minutes < 5) return 'just a few minutes';
-  if (minutes < 20) return 'about 15 minutes';
-  if (minutes < 45) return 'about half an hour';
-  if (minutes < 75) return 'about an hour';
-  if (minutes < 120) return 'one to two hours';
-  const floor = Math.floor(hours);
-  const frac = hours - floor;
-  if (frac < 0.25) return `just over ${hourWord(floor)} hours`;
-  if (frac >= 0.75) return `nearly ${hourWord(floor + 1)} hours`;
-  return `about ${hourWord(Math.round(hours))} hours`;
-}
+// Time-remaining formatters live in shared/timeFormat.js, consumed here via
+// the committed mirror functions/_shared/ (npm run sync-shared — never edit
+// the mirror by hand). Re-exported so telegram.js and the tests keep
+// importing from presence-core.
+export { formatTimeRemaining, formatTimeRemainingFuzzy } from './_shared/timeFormat.js';
 
 const TITLES = {
   knock: (name) => `${name} knocked`,
