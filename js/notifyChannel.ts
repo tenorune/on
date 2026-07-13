@@ -1,5 +1,4 @@
-// @ts-check
-// js/notifyChannel.js — the notification-channel toggle pill, shared by the
+// js/notifyChannel.ts — the notification-channel toggle pill, shared by the
 // Telegram drawer and the web drawer.
 //
 // Driven reactively from userPrefs (call it from the watchUserPrefs tick) so it
@@ -19,8 +18,7 @@ const OTHER = { telegram: 'push', push: 'telegram' };
 
 // Latest prefs this pill was synced with — the click handler needs them to
 // feed suppression optimistically without waiting for the watchUserPrefs echo.
-/** @type {UserPrefs | null} */
-let lastPrefs = null;
+let lastPrefs: UserPrefs | null = null;
 
 // "Linked" = the account has a separate phrase identity that a Telegram points
 // at, vs a bare Telegram-derived account. The signal differs by surface:
@@ -34,8 +32,7 @@ let lastPrefs = null;
 // The web branch (with the pill's non-'push'-defaults-to-telegram rendering)
 // routes through shared/notifyDelivery.js telegramPreferred, the one copy of
 // the channel default for all three readers.
-/** @param {UserPrefs | null | undefined} prefs */
-function isLinked(prefs) {
+function isLinked(prefs: UserPrefs | null | undefined) {
   if (isTelegramContext()) return isTelegramLinked();
   return prefs?.telegram != null;
 }
@@ -43,12 +40,8 @@ function isLinked(prefs) {
 // but the account has zero push tokens (W1 J#3) — delivery-level only; it does
 // not change this predicate.
 
-/**
- * @param {Element} pill
- * @param {string} channel
- */
-function setActive(pill, channel) {
-  /** @type {NodeListOf<HTMLElement>} */ (pill.querySelectorAll('.toggle-pill-option')).forEach((b) => {
+function setActive(pill: Element, channel: string) {
+  pill.querySelectorAll<HTMLElement>('.toggle-pill-option').forEach((b) => {
     const on = b.dataset.channel === channel;
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -57,17 +50,13 @@ function setActive(pill, channel) {
 
 // Mount the pill once and wire clicks. The DOM (.active class) is the source of
 // truth for the current channel, so no per-instance state survives across syncs.
-/**
- * @param {HTMLElement} slot
- * @param {string} userId
- */
-function mountPill(slot, userId) {
+function mountPill(slot: HTMLElement, userId: string) {
   slot.innerHTML = `
     <div class="toggle-pill" role="group" aria-label="Notifications">
       <button class="toggle-pill-option" type="button" data-channel="telegram">Telegram</button>
       <button class="toggle-pill-option" type="button" data-channel="push">Push</button>
     </div>`;
-  const pill = /** @type {HTMLElement} */ (slot.querySelector('.toggle-pill'));
+  const pill = slot.querySelector('.toggle-pill') as HTMLElement;
   // Any device on the ACCOUNT can receive push — deciding deliverability on
   // this browser's permission alone would wrongly block/revert a user whose
   // other device is registered.
@@ -75,11 +64,11 @@ function mountPill(slot, userId) {
     Object.keys(lastPrefs?.pushTokens || {}).length > 0;
   const permissionGranted = () =>
     typeof Notification !== 'undefined' && Notification.permission === 'granted';
-  /** @type {NodeListOf<HTMLElement>} */ (pill.querySelectorAll('.toggle-pill-option')).forEach((b) => {
+  pill.querySelectorAll<HTMLElement>('.toggle-pill-option').forEach((b) => {
     b.addEventListener('click', async () => {
       if (b.classList.contains('active')) return;
       // The two buttons in the markup above carry exactly these channel values.
-      const next = /** @type {'telegram' | 'push'} */ (b.dataset.channel);
+      const next = b.dataset.channel as 'telegram' | 'push';
       // W1 J#3: a channel of 'push' with zero registered devices still DELIVERS
       // (the notifier's token-less fallback routes to the bot) but every pill
       // would then SHOW a channel that doesn't describe delivery. Refuse the
@@ -128,11 +117,7 @@ function mountPill(slot, userId) {
 
 // Reconcile the section + pill against the latest userPrefs. Idempotent: safe to
 // call on every prefs tick.
-/**
- * @param {string} userId
- * @param {UserPrefs} prefs
- */
-export function syncNotifyChannel(userId, prefs) {
+export function syncNotifyChannel(userId: string, prefs: UserPrefs) {
   lastPrefs = prefs;
   const slot = document.getElementById('tg-notify-slot');
   const section = document.getElementById('drawer-section-notifications');
