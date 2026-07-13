@@ -1,3 +1,4 @@
+// @ts-check
 // js/wordlist.js — EFF long wordlist (public domain), filtered to 7772 words
 // Source: https://www.eff.org/dice (eff_large_wordlist.txt)
 // Filter: kept only entries matching /^[a-z]+$/ (dropped: drop-down, felt-tip, t-shirt, yo-yo)

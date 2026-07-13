@@ -26,7 +26,8 @@ try {
   console.log(`Filtered: ${filtered.length} words (dropped ${dropped.length}: ${dropped.join(', ')})`);
 
   const body = filtered.map((w) => `  "${w}",`).join('\n');
-  const file = `// js/wordlist.js — EFF long wordlist (public domain), filtered to ${filtered.length} words
+  const file = `// @ts-check
+// js/wordlist.js — EFF long wordlist (public domain), filtered to ${filtered.length} words
 // Source: https://www.eff.org/dice (eff_large_wordlist.txt)
 // Filter: kept only entries matching /^[a-z]+$/ (dropped: ${dropped.join(', ')})
 // Regenerate with: node scripts/gen-wordlist.js
