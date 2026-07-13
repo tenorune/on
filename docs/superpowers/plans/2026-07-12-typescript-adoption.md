@@ -10,7 +10,8 @@
 
 ## Global Constraints
 
-- **Baseline:** `claude/telegram-app-adaptation-t1r1jp` is merged to `main` and deployed. Cut the work branch from `dev`. Do not merge to `dev`/`main`; do not open PRs.
+- **Baseline / branch (as-executed, supersedes the original "cut from `dev`"):** the work runs on `claude/typescript-adoption-phase-0-ayufgd`, cut from the shared-package branch `claude/shared-package-migration-t39ls8` (tip `6fcd5ec`) — NOT from `dev`. Rationale: `dev` lacks the shared-package Tasks 1–2 that `js/utils.js` + `js/notifyRouting.js` conversions hard-depend on; that ordering is satisfied only on this branch (see `docs/HANDOFF.md`). Do not merge to `dev`/`main`; do not open PRs. The maintainer merges `t39ls8`→`dev`→`main` separately.
+- **TypeScript version — pinned to 7.x (DECISION 2026-07-13, operator-approved):** `npm install typescript` resolves to `7.0.2`, the native (Go) compiler. The project uses it checker-only (`tsc --noEmit`; esbuild owns emit), which is the native port's most mature surface — it exited 0 on the Phase-0 scaffold. Adopting the current major now avoids a later 5→7 migration for this greenfield TS work. WATCH: the strict annotations in Tasks 2–7 were authored against classic `tsc`; the native compiler targets behavioral parity but is younger, so treat any surprising strict-mode diagnostic as possibly a compiler quirk, not only a source bug — the first real signal lands at Task 3's conversion. Pinning back to `typescript@5` is a one-line `package.json` change if drift shows up. `@babel/preset-typescript` is pinned to `^7` (its `latest` 8.x demands `@babel/core@^8`; this repo is on Babel 7).
 - **Ordering with the shared-package plan** (`2026-07-12-shared-package-migration.md`): that plan runs FIRST in full (hard requirement for `js/utils.js` and `js/notifyRouting.js`, whose converted forms below assume the shared imports exist). `shared/` files are **never converted to `.ts`** — they must stay plain `.js` because `functions/_shared/` runs on bare Node ESM (spec wargame W7); they get types via JSDoc in Task 5's pass.
 - **Test commands:** web suite = `node_modules/.bin/jest` from repo root (NOT bare `npx jest`); functions suite = `cd functions && npm test`. All green before every commit; `npm run build` clean where a task says so; `npm run typecheck` clean from Task 1 onward.
 - **Conversion commits are type-only.** If the checker exposes a genuine behavioral bug, STOP, report it to the operator, and leave the fix out of the conversion commit (spec wargame W4). Never fix-and-convert in one diff.
@@ -36,9 +37,11 @@
 
 **This is the highest-blast-radius commit of the plan (spec wargame W1) — which is exactly why it contains no source changes: if anything breaks, the diff to inspect is a handful of config lines.**
 
-- [ ] **Step 1: Install dev dependencies and add the script**
+> **DONE 2026-07-13 — committed `150cf99`, pushed to `origin/claude/typescript-adoption-phase-0-ayufgd`.** All 7 steps below complete; four-command gate green (typecheck exit 0, web 1720/1720, functions 358/358, build clean). `typescript@7.0.2` + `@babel/preset-typescript@^7` installed (see the version-decision Global Constraint). Next session starts at Task 2.
 
-Run: `npm install --save-dev typescript @babel/preset-typescript`
+- [x] **Step 1: Install dev dependencies and add the script**
+
+Run: `npm install --save-dev typescript "@babel/preset-typescript@^7"` (pin the preset to 7.x — Babel-7 peer; `typescript` resolves to 7.x per the version decision above).
 
 In `package.json` `"scripts"`, add:
 
@@ -46,7 +49,7 @@ In `package.json` `"scripts"`, add:
     "typecheck": "tsc --noEmit"
 ```
 
-- [ ] **Step 2: Create `tsconfig.json`**
+- [x] **Step 2: Create `tsconfig.json`**
 
 ```json
 {
@@ -69,7 +72,7 @@ In `package.json` `"scripts"`, add:
 
 Rationale pinned here so nobody "improves" it later: `checkJs: false` means un-annotated `.js` is parsed but not checked — files opt in with `// @ts-check` (the gradual ratchet); `strict: true` applies in full to every `.ts` file from day one; `isolatedModules` keeps everything esbuild-compilable (no const-enum/namespace tricks); `noEmit` because esbuild owns output. `functions/` is deliberately NOT included yet — Task 5 adds it.
 
-- [ ] **Step 3: Teach Babel and Jest about `.ts`**
+- [x] **Step 3: Teach Babel and Jest about `.ts`**
 
 Replace `babel.config.js` with:
 
@@ -103,7 +106,7 @@ module.exports = {
 
 (The functions suite — `functions/jest.config.js`, `transform: {}` bare Node ESM — is NOT touched; the mapper lives only in the root config.)
 
-- [ ] **Step 4: Un-blind the cacheOwner drift-scan (spec Doc 1 landmine #2)**
+- [x] **Step 4: Un-blind the cacheOwner drift-scan (spec Doc 1 landmine #2)**
 
 In `tests/cacheOwner.test.js`, in the `walk` inside the `'every statusapp_ key in js/ is classified (no silent drift)'` test, change:
 
@@ -119,7 +122,7 @@ to:
 
 This MUST land in Phase 0, before any file converts: a scan that silently skips `.ts` files is a guard that goes blind with no red test (the worst failure class — false green).
 
-- [ ] **Step 5: Make typecheck blocking in CI**
+- [x] **Step 5: Make typecheck blocking in CI**
 
 In BOTH `.github/workflows/deploy-dev.yml` and `.github/workflows/deploy-prod.yml`, in the `test` job, after the `- run: npm run test:rules` step, add:
 
@@ -129,7 +132,7 @@ In BOTH `.github/workflows/deploy-dev.yml` and `.github/workflows/deploy-prod.ym
 
 (The `test` job already gates the `deploy` job via `needs: test` — typecheck failures now block deploys with zero pipeline redesign.)
 
-- [ ] **Step 6: Verify everything is exactly as green as before**
+- [x] **Step 6: Verify everything is exactly as green as before**
 
 Run: `npm run typecheck`
 Expected: exits 0, no output (no `.ts` files exist; `.js` files are parsed, not checked).
@@ -143,7 +146,7 @@ Expected: all green, untouched.
 Run: `npm run build`
 Expected: clean. (Config-only change — the bundle input set is identical.)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add package.json package-lock.json tsconfig.json babel.config.js jest.config.js tests/cacheOwner.test.js .github/workflows/deploy-dev.yml .github/workflows/deploy-prod.yml
