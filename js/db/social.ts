@@ -1,4 +1,4 @@
-// js/db/social.js — Direct-relationship Firebase ops: identity/presence,
+// js/db/social.ts — Direct-relationship Firebase ops: identity/presence,
 // following/followers, personal invites, user prefs, call signaling, knocks.
 import { db } from '../firebase-config.js';
 import {
@@ -14,7 +14,7 @@ import { getFollowing } from '../store.js';
 export { callResolveInvitePreview } from '../firebase-config.js';
 
 // Register new user. Retries on code collision. Returns true on success, null on collision.
-export async function initUser(userId, code) {
+export async function initUser(userId: string, code: string): Promise<boolean | null> {
   const codeRef = ref(db, `codeIndex/${code}`);
   const result = await runTransaction(codeRef, (current) => {
     if (current !== null) return; // abort — code taken
@@ -37,11 +37,11 @@ export async function initUser(userId, code) {
 
 // Callers are trusted to pass a well-formed ownerPath (users/{uid}/invites/{token}
 // or groups/{groupId}/invites/{token}); any non-groups/ prefix is treated as personal.
-function inferScopeFromOwnerPath(ownerPath) {
+function inferScopeFromOwnerPath(ownerPath: string): 'group' | 'personal' {
   return ownerPath.startsWith('groups/') ? 'group' : 'personal';
 }
 
-export async function claimInviteToken(token, ownerPath, ownerUid) {
+export async function claimInviteToken(token: string, ownerPath: string, ownerUid: string): Promise<boolean> {
   const indexRef = ref(db, `inviteIndex/${token}`);
   const result = await runTransaction(indexRef, (current) => {
     if (current !== null) return; // abort — token already claimed
@@ -53,66 +53,66 @@ export async function claimInviteToken(token, ownerPath, ownerUid) {
   return result.committed;
 }
 
-export async function releaseInviteToken(token) {
+export async function releaseInviteToken(token: string): Promise<void> {
   await remove(ref(db, `inviteIndex/${token}`));
 }
 
-export async function readInviteIndex(token) {
+export async function readInviteIndex(token: string): Promise<Record<string, unknown> | null> {
   const snap = await get(ref(db, `inviteIndex/${token}`));
   return snap.exists() ? snap.val() : null;
 }
 
 // Personal invites under users/{uid}/invites/{token}.
 
-export async function readUserInvite(userId, token) {
+export async function readUserInvite(userId: string, token: string): Promise<Record<string, unknown> | null> {
   const snap = await get(ref(db, `users/${userId}/invites/${token}`));
   return snap.exists() ? snap.val() : null;
 }
 
-export async function writeUserInvite(userId, token, payload) {
+export async function writeUserInvite(userId: string, token: string, payload: unknown): Promise<void> {
   await set(ref(db, `users/${userId}/invites/${token}`), payload);
 }
 
-export async function deleteUserInvite(userId, token) {
+export async function deleteUserInvite(userId: string, token: string): Promise<void> {
   await remove(ref(db, `users/${userId}/invites/${token}`));
 }
 
-export async function setInviteRevoked(userId, token) {
+export async function setInviteRevoked(userId: string, token: string): Promise<void> {
   await update(ref(db, `users/${userId}/invites/${token}`), { revoked: true });
 }
 
 // Rewrites just the creatorLabel on an existing invite (token/URL unchanged),
 // so a re-share can refresh a stale label without minting a new link.
-export async function setInviteLabel(userId, token, creatorLabel) {
+export async function setInviteLabel(userId: string, token: string, creatorLabel: string): Promise<void> {
   await update(ref(db, `users/${userId}/invites/${token}`), { creatorLabel });
 }
 
-export async function incrementInviteRedemptions(userId, token) {
+export async function incrementInviteRedemptions(userId: string, token: string): Promise<void> {
   const inviteRef = ref(db, `users/${userId}/invites/${token}/redemptionsUsed`);
   await runTransaction(inviteRef, (current) => {
     return (current || 0) + 1;
   });
 }
 
-export async function getCreatorCode(creatorUserId) {
+export async function getCreatorCode(creatorUserId: string): Promise<string | null> {
   const snap = await get(ref(db, `users/${creatorUserId}/presence/code`));
   return snap.exists() ? snap.val() : null;
 }
 
-export function watchUserInvites(userId, callback) {
+export function watchUserInvites(userId: string, callback: (invites: Record<string, unknown>) => void): () => void {
   const invitesRef = ref(db, `users/${userId}/invites`);
   return onValue(invitesRef, (snap) => {
     callback(snap.exists() ? snap.val() : {});
   });
 }
 
-export async function readUserInvites(userId) {
+export async function readUserInvites(userId: string): Promise<Record<string, unknown>> {
   const snap = await get(ref(db, `users/${userId}/invites`));
   return snap.exists() ? snap.val() : {};
 }
 
 // Write own status to Firebase
-export async function setStatus(userId, status, availableUntil) {
+export async function setStatus(userId: string, status: string, availableUntil: number | null): Promise<void> {
   await update(ref(db, `users/${userId}/presence`), {
     status,
     availableUntil: availableUntil ?? null,
@@ -121,19 +121,19 @@ export async function setStatus(userId, status, availableUntil) {
 }
 
 // Look up a userId by code. Returns userId string or null.
-export async function lookupCode(code) {
+export async function lookupCode(code: string): Promise<string | null> {
   const snap = await get(ref(db, `codeIndex/${code.toUpperCase()}`));
   return snap.exists() ? snap.val() : null;
 }
 
 // Subscribe to a user's presence subtree in real-time. Returns unsubscribe fn.
-export function watchPresence(userId, callback) {
+export function watchPresence(userId: string, callback: (presence: PresenceNode | null) => void): () => void {
   const presRef = ref(db, `users/${userId}/presence`);
   return onValue(presRef, (snap) => { callback(snap.exists() ? snap.val() : null); });
 }
 
 // Subscribe to own followers list in real-time. Returns unsubscribe fn.
-export function watchFollowers(myUserId, callback) {
+export function watchFollowers(myUserId: string, callback: (followers: { userId: string; code: unknown }[]) => void): () => void {
   const followersRef = ref(db, `users/${myUserId}/followers`);
   return onValue(followersRef, (snap) => {
     const data = snap.val() || {};
@@ -147,7 +147,7 @@ export function watchFollowers(myUserId, callback) {
 // { followerId: name } map ({} when absent). The consumer folds these into the
 // device-local follower-name roster so the followers list can render
 // "CODE (Name)" for a follow that never went through a follow-request approval.
-export function watchFollowerNames(myUserId, callback) {
+export function watchFollowerNames(myUserId: string, callback: (names: Record<string, unknown>) => void): () => void {
   const namesRef = ref(db, `users/${myUserId}/followerNames`);
   return onValue(namesRef, (snap) => { callback(snap.val() || {}); });
 }
@@ -172,7 +172,7 @@ export function watchFollowerNames(myUserId, callback) {
 // Reads on the consumer side use localStorage (the cache populated by
 // watchUserPrefs's tick); writes call mergeUserPrefs so multi-leaf updates
 // land in a single RTDB op.
-export function watchUserPrefs(userId, callback) {
+export function watchUserPrefs(userId: string, callback: (prefs: UserPrefs | null) => void): () => void {
   const prefsRef = ref(db, `userPrefs/${userId}`);
   return onValue(prefsRef, (snap) => {
     callback(snap.exists() ? snap.val() : null);
@@ -182,14 +182,14 @@ export function watchUserPrefs(userId, callback) {
 // One-shot read of the userPrefs subtree. Used at boot to pre-resolve the
 // user's last currentContext before any UI paints, so a returning group-
 // context user doesn't see a Direct flash before watchUserPrefs catches up.
-export async function getUserPrefs(userId) {
+export async function getUserPrefs(userId: string): Promise<UserPrefs | null> {
   const snap = await get(ref(db, `userPrefs/${userId}`));
   return snap.exists() ? snap.val() : null;
 }
 
 // Targeted read of the FCM push-token registry (token → { createdAt, lastSeen,
 // ua }). Used by the stale-token TTL cull (prefs.cullStalePushTokens, #157).
-export async function readPushTokens(userId) {
+export async function readPushTokens(userId: string): Promise<Record<string, { createdAt?: number; lastSeen?: number } | null> | null> {
   const snap = await get(ref(db, `userPrefs/${userId}/pushTokens`));
   return snap.exists() ? snap.val() : null;
 }
@@ -197,11 +197,11 @@ export async function readPushTokens(userId) {
 // `fields` is a flat object keyed by slash-separated paths relative to
 // userPrefs/{uid}, e.g. { 'hints/bolt': true, 'lastTimeoutMinutes': 30 }.
 // RTDB's update() applies multi-path keys atomically.
-export async function mergeUserPrefs(userId, fields) {
+export async function mergeUserPrefs(userId: string, fields: Record<string, unknown>): Promise<void> {
   await update(ref(db, `userPrefs/${userId}`), fields);
 }
 
-export async function registerAsFollower(targetUserId, myUserId, myCode, myName) {
+export async function registerAsFollower(targetUserId: string, myUserId: string, myCode: string, myName?: string | null): Promise<void> {
   // Clear any prior revocation BEFORE writing the followers entry — not in
   // parallel. The receiver's revocation watcher can fire on either write
   // independently; if the followers set echoes before the revocation remove,
@@ -225,7 +225,7 @@ export async function registerAsFollower(targetUserId, myUserId, myCode, myName)
 
 // Subscribe to my own revocation mailbox: revocations/{me}/{revoker} = true
 // means revoker removed me as a follower. Returns unsubscribe.
-export function watchRevocations(myUserId, callback) {
+export function watchRevocations(myUserId: string, callback: (revocations: Record<string, unknown>) => void): () => void {
   const revRef = ref(db, `revocations/${myUserId}`);
   return onValue(revRef, (snap) => {
     callback(snap.exists() ? snap.val() : {});
@@ -239,10 +239,10 @@ export function watchRevocations(myUserId, callback) {
 // nobody else needs to read your own following list, so putting it under
 // the broadcast-to-followees user record was wasteful per-tick bandwidth.
 
-export function watchFollowing(myUserId, callback) {
+export function watchFollowing(myUserId: string, callback: (following: { userId: string; code: string; label: string }[]) => void): () => void {
   const followingRef = ref(db, `userPrefs/${myUserId}/following`);
   return onValue(followingRef, (snap) => {
-    const data = snap.val() || {};
+    const data: Record<string, { code?: string; label?: string } | null> = snap.val() || {};
     // data is { followeeId: { code, label }, ... }
     callback(Object.entries(data).map(([userId, v]) => ({
       userId,
@@ -252,29 +252,29 @@ export function watchFollowing(myUserId, callback) {
   });
 }
 
-export async function setFollowingEntry(myUserId, followeeUserId, code, label) {
+export async function setFollowingEntry(myUserId: string, followeeUserId: string, code: string, label?: string | null): Promise<void> {
   await set(ref(db, `userPrefs/${myUserId}/following/${followeeUserId}`), { code, label: label ?? '' });
 }
 
-export async function removeFollowingEntry(myUserId, followeeUserId) {
+export async function removeFollowingEntry(myUserId: string, followeeUserId: string): Promise<void> {
   await remove(ref(db, `userPrefs/${myUserId}/following/${followeeUserId}`));
 }
 
 // Called when the follower wants to stop following targetUserId.
 // Only removes the followers entry — does NOT write a revocations entry
 // (revocation is for the followee EVICTING a follower, not self-unfollow).
-export async function unregisterAsFollower(targetUserId, myUserId) {
+export async function unregisterAsFollower(targetUserId: string, myUserId: string): Promise<void> {
   await remove(ref(db, `users/${targetUserId}/followers/${myUserId}`));
 }
 
 // Remove a follower and write to their revocations mailbox
-export async function removeFollower(myUserId, followerUserId) {
+export async function removeFollower(myUserId: string, followerUserId: string): Promise<void> {
   await remove(ref(db, `users/${myUserId}/followers/${followerUserId}`));
   await set(ref(db, `revocations/${followerUserId}/${myUserId}`), true);
 }
 
 // Write back expired status (idempotent)
-export async function writeBackExpired(userId) {
+export async function writeBackExpired(userId: string): Promise<void> {
   await update(ref(db, `users/${userId}/presence`), { status: 'unavailable', availableUntil: null });
 }
 
@@ -284,22 +284,22 @@ export async function writeBackExpired(userId) {
 // whole node is owner-only readable, but presence is cross-user readable, and a
 // user exists iff they have a presence node (presence-schema-split model). This is
 // called cross-user (app.js recovery-code restore), so it must hit a readable path.
-export async function userExists(userId) {
+export async function userExists(userId: string): Promise<boolean> {
   const snap = await get(ref(db, `users/${userId}/presence`));
   return snap.exists();
 }
 
 // Update lastSeen timestamp without changing status — called on every app open.
-export async function touchLastSeen(userId) {
+export async function touchLastSeen(userId: string): Promise<void> {
   await update(ref(db, `users/${userId}/presence`), { lastSeen: Date.now() });
 }
 
 // Reserve a fresh code, update user record + follower entries, release old code.
 // Returns the new code string on success. Throws on failure.
 // Old code is deleted LAST so it remains valid if any earlier write fails.
-export async function rotateCode(userId, oldCode) {
+export async function rotateCode(userId: string, oldCode: string): Promise<string> {
   // Step 1: reserve new code (collision-safe)
-  let newCode, committed;
+  let newCode: string, committed: boolean;
   do {
     newCode = generateCode();
     const result = await runTransaction(ref(db, `codeIndex/${newCode}`), (current) => {
@@ -313,7 +313,7 @@ export async function rotateCode(userId, oldCode) {
   // presence code + each follower's followers/{me} mirror) instead of a write
   // per followee (#214 R6). If it throws, the new code is orphaned in codeIndex
   // but the old code remains valid — user retries and the orphan is harmless.
-  const updates = { [`users/${userId}/presence/code`]: newCode };
+  const updates: Record<string, unknown> = { [`users/${userId}/presence/code`]: newCode };
   for (const entry of getFollowing()) {
     updates[`users/${entry.userId}/followers/${userId}`] = newCode;
   }
@@ -326,18 +326,18 @@ export async function rotateCode(userId, oldCode) {
   return newCode;
 }
 
-export async function setStatusColor(userId, color) {
+export async function setStatusColor(userId: string, color: string): Promise<void> {
   await update(ref(db, `users/${userId}/presence`), { statusColor: color });
 }
 
-export async function setPaletteKey(userId, paletteKey) {
+export async function setPaletteKey(userId: string, paletteKey: string | null): Promise<void> {
   await update(ref(db, `users/${userId}/presence`), { paletteKey: paletteKey ?? null });
 }
 
 // ── Call signaling (symmetric mailboxes) ─────────────────────────────────────
-export async function startCall(callerId, calleeId, clearUid) {
+export async function startCall(callerId: string, calleeId: string, clearUid?: string | null): Promise<void> {
   const ts = Date.now();
-  const updates = {
+  const updates: Record<string, unknown> = {
     [`calls/${callerId}`]: { to: calleeId, ts },
     [`calls/${calleeId}`]: { from: callerId, ts },
   };
@@ -348,22 +348,22 @@ export async function startCall(callerId, calleeId, clearUid) {
   }
   await update(ref(db), updates);
 }
-export async function answerCall(calleeId, callerId) {
+export async function answerCall(calleeId: string, callerId: string): Promise<void> {
   await update(ref(db), {
     [`calls/${calleeId}/answered`]: true,
     [`calls/${callerId}/answered`]: true,
   });
 }
-export async function endCall(aUid, bUid) {
+export async function endCall(aUid: string, bUid: string): Promise<void> {
   await update(ref(db), { [`calls/${aUid}`]: null, [`calls/${bUid}`]: null });
 }
-export function watchOwnCall(myUserId, callback) {
+export function watchOwnCall(myUserId: string, callback: (call: Record<string, unknown> | null) => void): () => void {
   const callRef = ref(db, `calls/${myUserId}`);
   return onValue(callRef, (snap) => { callback(snap.exists() ? snap.val() : null); });
 }
 
 // One-time read of a user's presence subtree. Returns data object or null.
-export async function getUser(userId) {
+export async function getUser(userId: string): Promise<PresenceNode | null> {
   const snap = await get(ref(db, `users/${userId}/presence`));
   return snap.exists() ? snap.val() : null;
 }
@@ -371,16 +371,16 @@ export async function getUser(userId) {
 // Write a knock from sender to recipient (capped at 5).
 // runTransaction: null → {count:1,ts}, count<5 → increment, count>=5 → abort.
 // opts.contextGroupId — optional group surface context carried with the knock.
-export async function writeKnock(recipientId, senderId, opts = {}) {
+export async function writeKnock(recipientId: string, senderId: string, opts: { contextGroupId?: string } = {}): Promise<void> {
   const knockRef = ref(db, `knocks/${recipientId}/${senderId}`);
   await runTransaction(knockRef, (current) => {
     if (current === null) {
-      const next = { count: 1, ts: Date.now() };
+      const next: { count: number; ts: number; contextGroupId?: string } = { count: 1, ts: Date.now() };
       if (opts.contextGroupId) next.contextGroupId = opts.contextGroupId;
       return next;
     }
     if (current.count >= 5) return; // abort
-    const next = { count: current.count + 1, ts: Date.now() };
+    const next: { count: number; ts: number; contextGroupId?: string } = { count: current.count + 1, ts: Date.now() };
     if (opts.contextGroupId) next.contextGroupId = opts.contextGroupId;
     else if (current.contextGroupId) next.contextGroupId = current.contextGroupId;
     return next;
@@ -389,14 +389,14 @@ export async function writeKnock(recipientId, senderId, opts = {}) {
 
 // One-time read of all pending knocks for myUserId.
 // Returns Promise<DataSnapshot>. Caller checks snapshot.exists() and iterates snapshot.val().
-export function getKnocks(myUserId) {
+export function getKnocks(myUserId: string) {
   return get(ref(db, `knocks/${myUserId}`));
 }
 
 // Attach onChildAdded listener on knocks/{myUserId}.
 // callback(senderId, { count, ts }) fires for each child added (including existing at attach time).
 // Returns unsubscribe function.
-export function watchKnocksAdded(myUserId, callback) {
+export function watchKnocksAdded(myUserId: string, callback: (senderId: string | null, knock: unknown) => void): () => void {
   const knocksRef = ref(db, `knocks/${myUserId}`);
   return onChildAdded(knocksRef, (snap) => {
     callback(snap.key, snap.val());
@@ -404,6 +404,6 @@ export function watchKnocksAdded(myUserId, callback) {
 }
 
 // Delete a single knock entry for a sender. Returns raw promise — caller handles errors.
-export function clearKnock(myUserId, senderId) {
+export function clearKnock(myUserId: string, senderId: string): Promise<void> {
   return remove(ref(db, `knocks/${myUserId}/${senderId}`));
 }
