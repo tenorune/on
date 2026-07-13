@@ -1,4 +1,4 @@
-// js/db/groups.js — Groups Firebase ops: user-side enumeration + ID allocation,
+// js/db/groups.ts — Groups Firebase ops: user-side enumeration + ID allocation,
 // entity CRUD + meta, members, per-group status overrides, group invites, the
 // pending-invite mailbox, and follow requests/grants.
 import { db } from '../firebase-config.js';
@@ -11,7 +11,7 @@ import {
 // In Phase 1 the only field is optional `lastVisited` (for cards-row ordering).
 // groupIdIndex/{groupId} is a global existence lock for transactional allocation.
 
-export async function claimGroupId(groupId) {
+export async function claimGroupId(groupId: string): Promise<boolean> {
   const indexRef = ref(db, `groupIdIndex/${groupId}`);
   const result = await runTransaction(indexRef, (current) => {
     if (current !== null) return; // abort — id already claimed
@@ -20,21 +20,21 @@ export async function claimGroupId(groupId) {
   return result.committed;
 }
 
-export async function writeUserGroupsEntry(userId, groupId, payload) {
+export async function writeUserGroupsEntry(userId: string, groupId: string, payload?: unknown): Promise<void> {
   const value = payload === undefined ? true : payload;
   await set(ref(db, `users/${userId}/groups/${groupId}`), value);
 }
 
-export async function removeUserGroupsEntry(userId, groupId) {
+export async function removeUserGroupsEntry(userId: string, groupId: string): Promise<void> {
   await remove(ref(db, `users/${userId}/groups/${groupId}`));
 }
 
-export async function readUserGroups(userId) {
+export async function readUserGroups(userId: string): Promise<Record<string, unknown>> {
   const snap = await get(ref(db, `users/${userId}/groups`));
   return snap.exists() ? snap.val() : {};
 }
 
-export function watchUserGroups(userId, callback) {
+export function watchUserGroups(userId: string, callback: (groups: Record<string, unknown>) => void): () => void {
   const groupsRef = ref(db, `users/${userId}/groups`);
   return onValue(groupsRef, (snap) => {
     callback(snap.exists() ? snap.val() : {});
@@ -48,7 +48,7 @@ export function watchUserGroups(userId, callback) {
 // once silently broke nav-sort freshness; see the lastVisited→userPrefs issue.)
 // This write touches users/{uid}/groups, not users/{uid}/presence, so it never
 // re-fires presence watchers.
-export async function setLastVisited(userId, groupId, ts) {
+export async function setLastVisited(userId: string, groupId: string, ts: number): Promise<void> {
   await update(ref(db, `users/${userId}/groups/${groupId}`), { lastVisited: ts });
 }
 
@@ -56,11 +56,11 @@ export async function setLastVisited(userId, groupId, ts) {
 // groups/{groupId} root fields: name, ownerId, createdAt, (post-MVP: color, paletteKey).
 // Sub-collections: members/, invites/ — managed by separate helpers below.
 
-export async function writeGroup(groupId, payload) {
+export async function writeGroup(groupId: string, payload: unknown): Promise<void> {
   await set(ref(db, `groups/${groupId}`), payload);
 }
 
-export async function readGroup(groupId) {
+export async function readGroup(groupId: string): Promise<Record<string, unknown> | null> {
   const snap = await get(ref(db, `groups/${groupId}`));
   return snap.exists() ? snap.val() : null;
 }
@@ -71,16 +71,16 @@ export async function readGroup(groupId) {
 // is non-secret and shown in invite previews. Returns { name } or null so callers
 // can treat the result like a (minimal) group record. See database.rules.json
 // groups/$gid/name/.read.
-export async function readGroupName(groupId) {
+export async function readGroupName(groupId: string): Promise<{ name: unknown } | null> {
   const snap = await get(ref(db, `groups/${groupId}/name`));
   return snap.exists() ? { name: snap.val() } : null;
 }
 
-export async function renameGroup(groupId, name) {
+export async function renameGroup(groupId: string, name: string): Promise<void> {
   await update(ref(db, `groups/${groupId}`), { name });
 }
 
-export async function deleteGroup(groupId) {
+export async function deleteGroup(groupId: string): Promise<void> {
   await remove(ref(db, `groups/${groupId}`));
 }
 
@@ -88,12 +88,12 @@ export async function deleteGroup(groupId) {
 // (name, ownerId, etc.). Members and invites are watched separately.
 const GROUP_META_FIELDS = ['name', 'ownerId', 'createdAt', 'color', 'paletteKey'];
 
-export function watchGroupMeta(groupId, callback) {
+export function watchGroupMeta(groupId: string, callback: (meta: Record<string, unknown> | null) => void): () => void {
   const groupRef = ref(db, `groups/${groupId}`);
   return onValue(groupRef, (snap) => {
     if (!snap.exists()) { callback(null); return; }
     const val = snap.val() || {};
-    const meta = {};
+    const meta: Record<string, unknown> = {};
     for (const k of GROUP_META_FIELDS) {
       if (val[k] !== undefined) meta[k] = val[k];
     }
@@ -115,29 +115,29 @@ export function watchGroupMeta(groupId, callback) {
 // ── Groups: members ───────────────────────────────────────────────────────────
 // groups/{groupId}/members/{memberUid}: { role, displayName, joinedAt, statusOverride? (Phase 2) }.
 
-export async function writeMember(groupId, memberUid, member) {
+export async function writeMember(groupId: string, memberUid: string, member: unknown): Promise<void> {
   await set(ref(db, `groups/${groupId}/members/${memberUid}`), member);
 }
 
-export async function readMember(groupId, memberUid) {
+export async function readMember(groupId: string, memberUid: string): Promise<Record<string, unknown> | null> {
   const snap = await get(ref(db, `groups/${groupId}/members/${memberUid}`));
   return snap.exists() ? snap.val() : null;
 }
 
-export async function readMembers(groupId) {
+export async function readMembers(groupId: string): Promise<Record<string, unknown>> {
   const snap = await get(ref(db, `groups/${groupId}/members`));
   return snap.exists() ? snap.val() : {};
 }
 
-export async function removeMember(groupId, memberUid) {
+export async function removeMember(groupId: string, memberUid: string): Promise<void> {
   await remove(ref(db, `groups/${groupId}/members/${memberUid}`));
 }
 
-export async function setMemberDisplayName(groupId, memberUid, displayName) {
+export async function setMemberDisplayName(groupId: string, memberUid: string, displayName: string): Promise<void> {
   await update(ref(db, `groups/${groupId}/members/${memberUid}`), { displayName });
 }
 
-export function watchGroupMembers(groupId, callback) {
+export function watchGroupMembers(groupId: string, callback: (members: Record<string, unknown>) => void): () => void {
   const membersRef = ref(db, `groups/${groupId}/members`);
   return onValue(membersRef, (snap) => {
     callback(snap.exists() ? snap.val() : {});
@@ -149,12 +149,12 @@ export function watchGroupMembers(groupId, callback) {
 // Writes are member-self-write (the user writes only to their own member
 // record); same trust model as displayName edits.
 
-export async function setStatusOverride(groupId, memberUid, override) {
+export async function setStatusOverride(groupId: string, memberUid: string, override: unknown): Promise<void> {
   const overrideRef = ref(db, `groups/${groupId}/members/${memberUid}/statusOverride`);
   await set(overrideRef, override);
 }
 
-export async function clearStatusOverride(groupId, memberUid) {
+export async function clearStatusOverride(groupId: string, memberUid: string): Promise<void> {
   const overrideRef = ref(db, `groups/${groupId}/members/${memberUid}/statusOverride`);
   await remove(overrideRef);
 }
@@ -164,12 +164,12 @@ export async function clearStatusOverride(groupId, memberUid) {
 // `enabled` or write just `statusColor`/`paletteKey`; the leftovers (e.g.
 // the user's saved palette) persist across the change. Pass `null` to
 // remove a field (RTDB drops null-valued keys from update writes).
-export async function mergeStatusOverride(groupId, memberUid, fields) {
+export async function mergeStatusOverride(groupId: string, memberUid: string, fields: Record<string, unknown>): Promise<void> {
   const overrideRef = ref(db, `groups/${groupId}/members/${memberUid}/statusOverride`);
   await update(overrideRef, fields);
 }
 
-export function watchOwnMemberOverride(groupId, memberUid, callback) {
+export function watchOwnMemberOverride(groupId: string, memberUid: string, callback: (override: StatusOverride | null) => void): () => void {
   const overrideRef = ref(db, `groups/${groupId}/members/${memberUid}/statusOverride`);
   return onValue(overrideRef, (snap) => {
     callback(snap.exists() ? snap.val() : null);
@@ -178,30 +178,30 @@ export function watchOwnMemberOverride(groupId, memberUid, callback) {
 
 // ── Groups: invites ───────────────────────────────────────────────────────────
 
-export async function writeGroupInvite(groupId, token, payload) {
+export async function writeGroupInvite(groupId: string, token: string, payload: unknown): Promise<void> {
   await set(ref(db, `groups/${groupId}/invites/${token}`), payload);
 }
 
-export async function readGroupInvites(groupId) {
+export async function readGroupInvites(groupId: string): Promise<Record<string, unknown>> {
   const snap = await get(ref(db, `groups/${groupId}/invites`));
   return snap.exists() ? snap.val() : {};
 }
 
-export async function readGroupInvite(groupId, token) {
+export async function readGroupInvite(groupId: string, token: string): Promise<Record<string, unknown> | null> {
   const snap = await get(ref(db, `groups/${groupId}/invites/${token}`));
   return snap.exists() ? snap.val() : null;
 }
 
-export async function setGroupInviteRevoked(groupId, token) {
+export async function setGroupInviteRevoked(groupId: string, token: string): Promise<void> {
   await update(ref(db, `groups/${groupId}/invites/${token}`), { revoked: true });
 }
 
-export async function incrementGroupInviteRedemptions(groupId, token) {
+export async function incrementGroupInviteRedemptions(groupId: string, token: string): Promise<void> {
   const inviteRef = ref(db, `groups/${groupId}/invites/${token}/redemptionsUsed`);
   await runTransaction(inviteRef, (current) => (current || 0) + 1);
 }
 
-export function watchGroupInvites(groupId, callback) {
+export function watchGroupInvites(groupId: string, callback: (invites: Record<string, unknown>) => void): () => void {
   const invitesRef = ref(db, `groups/${groupId}/invites`);
   return onValue(invitesRef, (snap) => {
     callback(snap.exists() ? snap.val() : {});
@@ -217,14 +217,14 @@ export function watchGroupInvites(groupId, callback) {
 // Keyed by groupId (not a random inviteId) so re-inviting the same person to
 // the same group is a natural overwrite — no duplicate entries, no race.
 
-export function watchPendingInvites(inviteeUid, callback) {
+export function watchPendingInvites(inviteeUid: string, callback: (invites: Record<string, unknown>) => void): () => void {
   const inboxRef = ref(db, `pendingInvites/${inviteeUid}`);
   return onValue(inboxRef, (snap) => {
     callback(snap.exists() ? snap.val() : {});
   });
 }
 
-export async function writePendingInvite(inviterUid, inviteeUid, groupId) {
+export async function writePendingInvite(inviterUid: string, inviteeUid: string, groupId: string): Promise<void> {
   const ts = Date.now();
   await update(ref(db), {
     [`pendingInvites/${inviteeUid}/${groupId}`]: { from: inviterUid, ts },
@@ -232,7 +232,7 @@ export async function writePendingInvite(inviterUid, inviteeUid, groupId) {
   });
 }
 
-export async function deletePendingInvite(inviteeUid, groupId) {
+export async function deletePendingInvite(inviteeUid: string, groupId: string): Promise<void> {
   await update(ref(db), {
     [`pendingInvites/${inviteeUid}/${groupId}`]: null,
     [`pendingInvitesByGroup/${groupId}/${inviteeUid}`]: null,
@@ -248,44 +248,44 @@ export async function deletePendingInvite(inviteeUid, groupId) {
 // transpose — requests are keyed by target, grants by requester (each mailbox
 // belongs to its reader).
 
-export async function writeFollowRequest(requesterUid, targetUid, groupId) {
+export async function writeFollowRequest(requesterUid: string, targetUid: string, groupId: string): Promise<void> {
   await set(ref(db, `followRequests/${targetUid}/${requesterUid}`), {
     from: requesterUid, groupId, ts: Date.now(),
   });
 }
 
-export function watchFollowRequests(targetUid, callback) {
+export function watchFollowRequests(targetUid: string, callback: (requests: Record<string, unknown>) => void): () => void {
   const reqRef = ref(db, `followRequests/${targetUid}`);
   return onValue(reqRef, (snap) => {
     callback(snap.exists() ? snap.val() : {});
   });
 }
 
-export async function deleteFollowRequest(targetUid, requesterUid) {
+export async function deleteFollowRequest(targetUid: string, requesterUid: string): Promise<void> {
   await remove(ref(db, `followRequests/${targetUid}/${requesterUid}`));
 }
 
 // `targetName` is the approver's display name in the shared group the request
 // came from — the name the requester tapped on. The grant-watcher seeds the new
 // following entry's label with it so the Direct card opens named, not coded.
-export async function writeFollowGrant(requesterUid, targetUid, targetCode, targetName) {
+export async function writeFollowGrant(requesterUid: string, targetUid: string, targetCode: string, targetName: string | null): Promise<void> {
   await set(ref(db, `followGrants/${requesterUid}/${targetUid}`), {
     from: targetUid, code: targetCode, name: targetName ?? null, ts: Date.now(),
   });
 }
 
-export function watchFollowGrants(requesterUid, callback) {
+export function watchFollowGrants(requesterUid: string, callback: (grants: Record<string, unknown>) => void): () => void {
   const grantRef = ref(db, `followGrants/${requesterUid}`);
   return onValue(grantRef, (snap) => {
     callback(snap.exists() ? snap.val() : {});
   });
 }
 
-export async function deleteFollowGrant(requesterUid, targetUid) {
+export async function deleteFollowGrant(requesterUid: string, targetUid: string): Promise<void> {
   await remove(ref(db, `followGrants/${requesterUid}/${targetUid}`));
 }
 
-export async function readPendingInviteesForGroup(groupId) {
+export async function readPendingInviteesForGroup(groupId: string): Promise<string[]> {
   const snap = await get(ref(db, `pendingInvitesByGroup/${groupId}`));
   return snap.exists() ? Object.keys(snap.val()) : [];
 }
