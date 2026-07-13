@@ -1,14 +1,22 @@
-// js/firstRun.js — surface-agnostic first-run affordances (spec §3, §5).
+// js/firstRun.ts — surface-agnostic first-run affordances (spec §3, §5).
 // Owns the guided-empty-state DOM (following.js only signals emptiness) and
 // the one-time landing banners. Used by web AND Telegram.
 import { isTelegramContext, isTelegramLinked } from './telegram.js';
 
-let _active = false;
-let _onInvite = null;
-let _onLink = null;
-let _onGraduateInfo = null;
+type FirstRunHandler = (() => void) | null | undefined;
 
-export function initFirstRun({ onInvite, onLink = null, onGraduateInfo = null } = {}) {
+interface FirstRunHandlers {
+  onInvite?: (() => void) | null;
+  onLink?: (() => void) | null;
+  onGraduateInfo?: (() => void) | null;
+}
+
+let _active = false;
+let _onInvite: FirstRunHandler = null;
+let _onLink: FirstRunHandler = null;
+let _onGraduateInfo: FirstRunHandler = null;
+
+export function initFirstRun({ onInvite, onLink = null, onGraduateInfo = null }: FirstRunHandlers = {}) {
   _onInvite = onInvite;
   _onLink = onLink;
   _onGraduateInfo = onGraduateInfo;
@@ -44,10 +52,10 @@ export function isFirstRunResolved() {
 // empty↔non-empty transition — everything else it reads (isTelegramContext,
 // isTelegramLinked) is static within a session (link/unlink/graduation all
 // reload). Same-state re-calls are no-ops (W3-A CL#1).
-let _appliedEmpty = null;
+let _appliedEmpty: boolean | null = null;
 
 // Called by following.js's renderList isEmpty branch. No-op per unchanged state.
-export function setListEmpty(isEmpty) {
+export function setListEmpty(isEmpty: unknown) {
   const panel = document.getElementById('first-run-panel');
   if (!panel) return;
   const empty = !!isEmpty;
@@ -108,7 +116,7 @@ const LANDING_KEY = 'kk-landing';
 // full-featured account) and 'linked' (Task 7: the Mini App onramp arrival
 // links this Telegram to an existing web account) both stamp then reload;
 // the next boot reads and clears this marker.
-const LANDING_COPY = {
+const LANDING_COPY: Record<string, string> = {
   graduated: 'This account now works in any browser too. Keep your secret phrase safe — it’s your only way back in if you lose Telegram.',
   linked: 'This account now works in Telegram too.',
 };
@@ -123,10 +131,10 @@ export function stampLinkedNotice() {
 // Read-and-clear the marker, returning the copy to surface (or null). The
 // caller decides the surface — boot routes it through the shared toast.
 export function consumeGraduationNotice() {
-  let kind = null;
+  let kind: string | null = null;
   try {
     kind = sessionStorage.getItem(LANDING_KEY);
     sessionStorage.removeItem(LANDING_KEY);
   } catch { return null; }
-  return LANDING_COPY[kind] || null;
+  return LANDING_COPY[kind as string] || null;
 }
