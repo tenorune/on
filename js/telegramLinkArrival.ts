@@ -1,4 +1,4 @@
-// js/telegramLinkArrival.js — Mini App boot path for the web onramp deep link
+// js/telegramLinkArrival.ts — Mini App boot path for the web onramp deep link
 // (t.me/<bot>?startapp=lk_<token>). Redeems the token → links this Telegram to
 // the web account, with a confirm-before-replace when this Telegram already has
 // its own account. Returns true when it handled the lk_ path (caller then skips
@@ -19,6 +19,13 @@ import { linkReplaceWarning } from './telegramLinkCopy.js';
 // legitimate relink, not a re-fire — that path must still redeem.
 const CONSUMED_KEY = 'statusapp_onramp_consumed';
 
+// The redeem callable's result shape (only the fields this flow reads).
+interface RedeemLinkResult {
+  needsConfirm?: boolean;
+  reason?: string;
+  counts?: { contacts?: number; groups?: number } | null;
+}
+
 export function extractLinkToken() {
   if (!isTelegramContext()) return null;
   const p = tgWebApp()?.initDataUnsafe?.start_param;
@@ -27,7 +34,7 @@ export function extractLinkToken() {
   return /^[A-Za-z0-9_-]{16,64}$/.test(tok) ? tok : null;
 }
 
-export async function runLinkArrival({ dismissSplash } = {}) {
+export async function runLinkArrival({ dismissSplash }: { dismissSplash?: () => void } = {}) {
   const token = extractLinkToken();
   if (!token) return false;
   try {
@@ -38,7 +45,7 @@ export async function runLinkArrival({ dismissSplash } = {}) {
   } catch { /* private mode */ }
   const initData = tgWebApp()?.initData;
   try {
-    const res = await callRedeemTelegramLinkToken(initData, token, false);
+    const res = await callRedeemTelegramLinkToken(initData, token, false) as RedeemLinkResult;
     if (res?.needsConfirm) {
       dismissSplash?.();
       const relink = res.reason === 'relink';
@@ -62,7 +69,7 @@ export async function runLinkArrival({ dismissSplash } = {}) {
     // Only a genuinely consumed/expired token is 'not-found' (telegram-auth.js
     // redeem). Offline, unconfigured, or bad-signature failures get the generic
     // voice instead of a misleading "expired" (U1.8).
-    const expired = e?.code === 'functions/not-found';
+    const expired = (e as { code?: string })?.code === 'functions/not-found';
     showToast(expired
       ? 'That link expired — tap Use in Telegram again on the web.'
       : "Couldn't finish that right now — check your connection and try again.");
