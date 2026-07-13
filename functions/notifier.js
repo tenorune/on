@@ -1,6 +1,20 @@
+// @ts-check
 // functions/notifier.js — delivery + per-event handlers. Deps are injected.
 import { wantsKnock, wantsCall, wantsAvailability, availabilityTurnedOn, withinCooldown, buildMessage, effectiveAvailable } from './presence-core.js';
 import { telegramPreferred } from './_shared/notifyDelivery.js';
+
+/**
+ * The injected I/O surface (built by functions/index.js; tests inject fakes).
+ * getVal returns raw RTDB snapshot values — `any` by design at this seam;
+ * the ambient wire types (UserPrefs etc.) document the shapes downstream.
+ * @typedef {{
+ *   getVal: (path: string) => Promise<any>,
+ *   update: (path: string, writes: Record<string, unknown>) => Promise<unknown>,
+ *   send: (tokens: string[], message: { title: string, body: string }, data?: Record<string, string>) => Promise<{ failedTokens?: string[] }>,
+ *   sendTelegram?: ((chatId: unknown, message: { title: string, body: string }, data?: Record<string, string>) => Promise<unknown>) | null,
+ *   now: () => number,
+ * }} NotifierDeps
+ */
 
 const AVAIL_COOLDOWN_MS = 5 * 60 * 1000;
 // Per-(recipient, sender) send cooldowns (R1.5 #179 S3). Each directed event
@@ -15,6 +29,12 @@ const CALL_COOLDOWN_MS = 30 * 1000;
 const INVITE_COOLDOWN_MS = 30 * 1000;
 const FOLLOW_REQ_COOLDOWN_MS = 30 * 1000;
 
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} uid
+ * @param {{ title: string, body: string }} message
+ * @param {Record<string, string>} [data]
+ */
 export async function sendToUser(deps, uid, message, data) {
   // Experimental Telegram channel (spec 2026-07-02): a linked user whose
   // notifyChannel is 'telegram' gets a bot message instead of web push. The
@@ -47,7 +67,7 @@ export async function sendToUser(deps, uid, message, data) {
       try {
         if (await deps.sendTelegram(tgRoute.chatId, message, data)) return true;
       } catch (e) {
-        console.error(`[notify] telegram send failed for ${uid}: ${e?.message || e}`);
+        console.error(`[notify] telegram send failed for ${uid}: ${/** @type {any} */ (e)?.message || e}`);
       }
     }
   }
@@ -63,7 +83,7 @@ export async function sendToUser(deps, uid, message, data) {
       try {
         return !!(await deps.sendTelegram(tgRoute.chatId, message, data));
       } catch (e) {
-        console.error(`[notify] telegram fallback failed for ${uid}: ${e?.message || e}`);
+        console.error(`[notify] telegram fallback failed for ${uid}: ${/** @type {any} */ (e)?.message || e}`);
         return false;
       }
     }
@@ -71,6 +91,7 @@ export async function sendToUser(deps, uid, message, data) {
   }
   const { failedTokens } = await deps.send(tokens, message, data);
   if (failedTokens && failedTokens.length) {
+    /** @type {Record<string, null>} */
     const nulls = {};
     for (const t of failedTokens) nulls[t] = null;
     await deps.update(`userPrefs/${uid}/pushTokens`, nulls);
@@ -79,6 +100,11 @@ export async function sendToUser(deps, uid, message, data) {
   return (failedTokens?.length || 0) < tokens.length;
 }
 
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} viewerUid
+ * @param {string} targetUid
+ */
 export async function resolveName(deps, viewerUid, targetUid) {
   const follow = await deps.getVal(`userPrefs/${viewerUid}/following/${targetUid}`);
   if (follow && follow.label) return follow.label;
@@ -87,6 +113,11 @@ export async function resolveName(deps, viewerUid, targetUid) {
   return 'Someone';
 }
 
+/**
+ * @param {NotifierDeps} deps
+ * @param {string | undefined} groupId
+ * @param {string} uid
+ */
 export async function resolveGroupMemberName(deps, groupId, uid) {
   const displayName = await deps.getVal(`groups/${groupId}/members/${uid}/displayName`);
   if (displayName) return displayName;
@@ -95,6 +126,12 @@ export async function resolveGroupMemberName(deps, groupId, uid) {
   return 'Someone';
 }
 
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} recipientId
+ * @param {string} senderId
+ * @param {{ contextGroupId?: string } | null | undefined} record
+ */
 export async function handleKnock(deps, recipientId, senderId, record) {
   const prefs = await deps.getVal(`userPrefs/${recipientId}/notify/${senderId}`);
   if (!wantsKnock(prefs)) return;
@@ -120,6 +157,12 @@ export async function handleKnock(deps, recipientId, senderId, record) {
 // the invitee follows, or a group owner), so there is no per-person opt-in gate
 // like knocks/availability. Payload carries type:'invite' and NO contextGroupId:
 // the invitee is not a member yet, so the deep link opens the Inbox, not the group.
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} inviteeUid
+ * @param {string} groupId
+ * @param {{ from?: string } | null | undefined} record
+ */
 export async function handleInvite(deps, inviteeUid, groupId, record) {
   if (!record || !record.from) return;
   const now = deps.now();
@@ -139,6 +182,12 @@ export async function handleInvite(deps, inviteeUid, groupId, record) {
 // for the requester when they already follow them, else the requester's display
 // name in the shared group the request came from. Payload carries type:'followRequest'
 // and NO contextGroupId — the deep link opens the Inbox to approve/decline.
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} targetUid
+ * @param {string} requesterUid
+ * @param {{ from?: string, groupId?: string } | null | undefined} record
+ */
 export async function handleFollowRequest(deps, targetUid, requesterUid, record) {
   if (!record || !record.from) return;
   const now = deps.now();
@@ -155,6 +204,13 @@ export async function handleFollowRequest(deps, targetUid, requesterUid, record)
 // Notify the OTHER members of a group that `memberUid` is available in it.
 // Caller decides the "became available" transition; this just fans out with a
 // per-(group, member) cooldown so availability in one group doesn't mute another.
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} groupId
+ * @param {string} memberUid
+ * @param {number} now
+ * @param {Set<string> | null} [alreadyNotified]
+ */
 export async function notifyGroupAvailability(deps, groupId, memberUid, now, alreadyNotified = null) {
   const lastTs = await deps.getVal(`notifierState/groupAvailability/${groupId}/${memberUid}`);
   if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) return;
@@ -196,6 +252,13 @@ export async function notifyGroupAvailability(deps, groupId, memberUid, now, alr
 // the member's EFFECTIVE in-group availability flips off→on. `before == null`
 // means the member just joined (first override write) — not a "became available"
 // event, so we skip it to avoid a blast on every new member.
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} groupId
+ * @param {string} memberUid
+ * @param {StatusOverride | null | undefined} before
+ * @param {StatusOverride | null | undefined} after
+ */
 export async function handleGroupOverrideChange(deps, groupId, memberUid, before, after) {
   if (before == null) return;
   const now = deps.now();
@@ -209,6 +272,11 @@ export async function handleGroupOverrideChange(deps, groupId, memberUid, before
   if (isOn && !wasOn) await notifyGroupAvailability(deps, groupId, memberUid, now);
 }
 
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} calleeId
+ * @param {string} callerId
+ */
 export async function handleCall(deps, calleeId, callerId) {
   const prefs = await deps.getVal(`userPrefs/${calleeId}/notify/${callerId}`);
   if (!wantsCall(prefs)) return;
@@ -220,6 +288,12 @@ export async function handleCall(deps, calleeId, callerId) {
 }
 
 // Triggered on a write to users/{uid}/presence/availableUntil (before/after are that value).
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} uid
+ * @param {number | null | undefined} beforeAU
+ * @param {number | null | undefined} afterAU
+ */
 export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   const now = deps.now();
   const status = await deps.getVal(`users/${uid}/presence/status`);
@@ -247,6 +321,7 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   // recipient who is both a Direct follower and an override-ON co-member can
   // still get a rare duplicate (one push per trigger). Accepted as-is for a
   // 50–100-user app rather than adding a cross-invocation notifierState stamp.
+  /** @type {Set<string>} */
   const notified = new Set();
 
   // Direct followers — own per-uid cooldown. Followers are marked notified even
@@ -284,7 +359,7 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   }));
   let directDelivered = 0;
   for (const r of results) {
-    if (r.opted) notified.add(r.fid);
+    if (r.opted) notified.add(/** @type {string} */ (r.fid)); // opted:true always carries fid
     if (r.sent) directDelivered++;
   }
   if (directDelivered > 0) await deps.update('notifierState/availability', { [uid]: now });
