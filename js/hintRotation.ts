@@ -141,8 +141,8 @@ export function _resetEngineForTest() {
   _stopTimer();
   // clearTimeout(null) is a no-op at runtime; the assertion only appeases the
   // lib typing (number | undefined).
-  clearTimeout(_scrollEndTimer as number); _scrollEndTimer = null;
-  clearTimeout(_refreshTimer as number); _refreshTimer = null;
+  clearTimeout(_scrollEndTimer as ReturnType<typeof setTimeout>); _scrollEndTimer = null;
+  clearTimeout(_refreshTimer as ReturnType<typeof setTimeout>); _refreshTimer = null;
   _clearActive();
   _state = { lastType: null, lastIds: { longpress: null, swipe: null } };
   _scrolling = false;
@@ -231,7 +231,7 @@ function _onScroll() {
   _scrolling = true;
   _clearActive();
   _stopTimer();
-  clearTimeout(_scrollEndTimer as number);
+  clearTimeout(_scrollEndTimer as ReturnType<typeof setTimeout>);
   _scrollEndTimer = setTimeout(() => { _scrolling = false; refreshHints(); }, 150);
 }
 
@@ -259,7 +259,7 @@ export function stopHintRotation() {
   document.removeEventListener('visibilitychange', refreshHints);
   window.removeEventListener('scroll', _onScroll);
   if (_mo) { _mo.disconnect(); _mo = null; }
-  clearTimeout(_scrollEndTimer as number); _scrollEndTimer = null;
-  clearTimeout(_refreshTimer as number); _refreshTimer = null;
+  clearTimeout(_scrollEndTimer as ReturnType<typeof setTimeout>); _scrollEndTimer = null;
+  clearTimeout(_refreshTimer as ReturnType<typeof setTimeout>); _refreshTimer = null;
   _resetEngineForTest();
 }

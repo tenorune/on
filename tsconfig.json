@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "lib": ["es2022", "dom", "dom.iterable"]
   },
-  "include": ["js/**/*", "shared/**/*", "types/**/*"]
+  "include": ["js/**/*", "shared/**/*", "types/**/*", "functions/*.js"]
 }

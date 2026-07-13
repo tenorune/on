@@ -1,3 +1,4 @@
+// @ts-check
 // shared/timeFormat.js — the time-remaining formatters, ONE copy for web +
 // functions. Consumed by js/ directly (../shared/…) and by functions/ via the
 // committed byte-identical mirror functions/_shared/ (npm run sync-shared —
@@ -9,6 +10,7 @@
 // precise countdown, or `Available for ${formatTimeRemainingFuzzy(ms)}` for
 // the fuzzy roster text). Keeping the suffix out of the helpers means no call
 // site has to strip it back off.
+/** @param {number} ms @returns {string} */
 export function formatTimeRemaining(ms) {
   if (ms <= 0) return '';
   if (ms < 60000) return '< 1m';
@@ -21,8 +23,10 @@ export function formatTimeRemaining(ms) {
 }
 
 const HOUR_WORDS = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+/** @param {number} n @returns {string} */
 function hourWord(n) { return HOUR_WORDS[n] ?? String(n); }
 
+/** @param {number} ms @returns {string} */
 export function formatTimeRemainingFuzzy(ms) {
   if (ms <= 0) return '';
   const minutes = ms / 60000;

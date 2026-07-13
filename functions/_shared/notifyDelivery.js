@@ -1,3 +1,4 @@
+// @ts-check
 // shared/notifyDelivery.js — THE notify-channel delivery default (W2 C10):
 // for a linked/routed account, notifications are Telegram-delivered iff
 // notifyChannel !== 'push'. A MISSING or unknown channel reads as telegram;
@@ -9,6 +10,7 @@
 // NOT covered here (delivery-level extra, W1 J#3): the notifier additionally
 // falls back to the bot when the channel IS 'push' but the account has zero
 // push tokens.
+/** @param {string | null | undefined} notifyChannel @returns {boolean} */
 export function telegramPreferred(notifyChannel) {
   return notifyChannel !== 'push';
 }
