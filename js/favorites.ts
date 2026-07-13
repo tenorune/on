@@ -1,4 +1,4 @@
-// js/favorites.js
+// js/favorites.ts
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED } from './features.js';
 import { getPaletteState, setPaletteState } from './store.js';
 import { getPaletteByKey, switchSet, enterPaletteMode, exitPaletteMode, getGlowForColor, PALETTE_SETS } from './palettes.js';
@@ -16,7 +16,19 @@ const DEFAULT_SURFACE2 = '#334155';      // default slate pill bg (--surface2)
 // (statusapp_favorites_collapsed in localStorage + userPrefs/{uid}/
 // favoritesCollapsed in Firebase).
 
-let _myUserId = null;
+// A saved (statusColor, surface, surface2, palette) combo. Loose because the
+// array is sourced from getFavorites() (localStorage-backed, effectively any);
+// every reader guards the fields it needs.
+interface Combo {
+  statusColor?: string;
+  surface?: string;
+  surface2?: string;
+  paletteKey?: string | null;
+  selectedKey?: string;
+  activeSet?: number;
+}
+
+let _myUserId: string | null = null;
 let _prevPillCount = 0;
 
 // ─── Combo building ──────────────────────────────────────────────────────────
@@ -25,7 +37,7 @@ let _prevPillCount = 0;
 // adoption call sites in both Direct (following.js) and group context
 // (groupContext.js). Mirrors buildDirectCombo's shape so saveCombo treats
 // both kinds of pushes identically.
-export function buildAdoptedCombo(statusColor, paletteKey) {
+export function buildAdoptedCombo(statusColor: string, paletteKey: string | null | undefined) {
   const palette = paletteKey ? getPaletteByKey(paletteKey) : null;
   return {
     statusColor: statusColor || '#22c55e',
@@ -54,13 +66,13 @@ export function buildDirectCombo() {
   };
 }
 
-function pillsLookSame(a, b) {
+function pillsLookSame(a: Combo, b: Combo) {
   return a.statusColor === b.statusColor && a.surface2 === b.surface2;
 }
 
 // Persist favorites. setFavorites (prefs.js) writes both localStorage and
 // userPrefs/{uid}/favorites in Firebase.
-function writeFavorites(arr) {
+function writeFavorites(arr: Combo[]) {
   setFavorites(arr);
 }
 
@@ -115,9 +127,9 @@ export function getCanvasColors() {
 // each (statusColor, surface2) pair. Used by saveCombo to clean up legacy
 // data that pre-dates the dedupe logic, and by prefs.syncFromServer for
 // the same reason on server-sourced arrays.
-export function dedupeCombos(arr) {
-  const seen = [];
-  const out = [];
+export function dedupeCombos(arr: Array<Combo | null | undefined> | null | undefined): Combo[] {
+  const seen: Combo[] = [];
+  const out: Combo[] = [];
   for (const c of arr || []) {
     if (!c) continue;
     if (seen.some(s => pillsLookSame(s, c))) continue;
@@ -130,7 +142,7 @@ export function dedupeCombos(arr) {
 // Single writer. Pushes a caller-supplied combo to the head of the favorites
 // strip, with whole-array dedupe and cap-at-8. Used by going-active (Direct +
 // group) and by long-press adoption (Direct + group).
-export function saveCombo(combo) {
+export function saveCombo(combo: Combo | null | undefined) {
   if (!PALETTES_ENABLED || !PALETTE_INTERACTIONS_ENABLED) return;
   if (!combo) return;
   const history = getFavorites();
@@ -146,14 +158,14 @@ export function saveCombo(combo) {
   renderStrip();
 }
 
-export function initFavoritesStrip(myUserId) {
+export function initFavoritesStrip(myUserId: string) {
   _myUserId = myUserId;
   // Re-render on context change so the now-active context's strip is
   // populated and any peek animation re-attaches to the visible container.
   // Also tears down any in-flight peek belonging to the previous context
   // (renderCollapsed's MutationObserver cleans up its own listeners).
   onContextChange(() => {
-    document.querySelectorAll('.fav-peek-wrapper').forEach((el) => {
+    document.querySelectorAll<HTMLElement>('.fav-peek-wrapper').forEach((el) => {
       el.style.transition = '';
       el.style.maxHeight = '0';
       el.style.opacity = '0';
@@ -198,7 +210,7 @@ function renderStrip() {
   }
 }
 
-function renderCollapsed(container, history, homeContext = 'direct') {
+function renderCollapsed(container: HTMLElement, history: Combo[], homeContext = 'direct') {
   const allColors = history.map(c => c.statusColor);
   const n = allColors.length;
   const bg = n <= 1
@@ -206,7 +218,7 @@ function renderCollapsed(container, history, homeContext = 'direct') {
     : `linear-gradient(to right,${allColors.map((c, i) => `${c} ${Math.round((i / (n - 1)) * 100)}%`).join(', ')})`;
   container.innerHTML =
     `<div class="fav-collapsed"><div class="fav-collapsed-line" style="background:${bg}"></div></div>`;
-  container.querySelector('.fav-collapsed').addEventListener('click', () => {
+  container.querySelector('.fav-collapsed')!.addEventListener('click', () => {
     setFavoritesCollapsed(false);
     markHintSeen('stripPeek');
     renderStrip();
@@ -222,13 +234,13 @@ function renderCollapsed(container, history, homeContext = 'direct') {
   }
 
   // Swipe down from strip area or gap below it to expand
-  let _swipeDownStart = null;
-  function onSwipeDownStart(e) {
+  let _swipeDownStart: number | null = null;
+  function onSwipeDownStart(e: TouchEvent) {
     const touch = e.touches[0];
     const stripBottom = container.getBoundingClientRect().bottom + 44; // include margin overlap
     if (touch.clientY <= stripBottom) _swipeDownStart = touch.clientY;
   }
-  function onSwipeDownEnd(e) {
+  function onSwipeDownEnd(e: TouchEvent) {
     if (_swipeDownStart === null) return;
     const endY = e.changedTouches[0].clientY;
     if (endY - _swipeDownStart > 30) {
@@ -252,7 +264,7 @@ function renderCollapsed(container, history, homeContext = 'direct') {
   observer.observe(container, { childList: true });
 }
 
-function renderExpanded(container, history) {
+function renderExpanded(container: HTMLElement, history: Combo[]) {
   const pills = history
     .map((c, i) => renderPill(c, 'history', 'history', i))
     .join('');
@@ -261,10 +273,10 @@ function renderExpanded(container, history) {
     `<button class="fav-collapse-btn" aria-label="Collapse">▲</button></div>`;
 
   // Animate pill width when pill count changes
-  const strip = container.querySelector('.fav-strip');
-  const pillEls = container.querySelectorAll('.fav-pill');
+  const strip = container.querySelector('.fav-strip')!;
+  const pillEls = container.querySelectorAll<HTMLElement>('.fav-pill');
   const pillCount = pillEls.length;
-  const collapseBtn = container.querySelector('.fav-collapse-btn');
+  const collapseBtn = container.querySelector<HTMLElement>('.fav-collapse-btn');
   const gap = 6; // matches CSS gap
   const padding = 24; // matches CSS padding (12px each side)
   const btnWidth = collapseBtn ? collapseBtn.offsetWidth + gap : 0;
@@ -283,22 +295,22 @@ function renderExpanded(container, history) {
   _prevPillCount = pillCount;
 
   // History pill click handlers
-  container.querySelectorAll('.fav-pill[data-type="history"]').forEach(el => {
-    el.addEventListener('click', () => handleHistoryTap(parseInt(el.dataset.index)));
+  container.querySelectorAll<HTMLElement>('.fav-pill[data-type="history"]').forEach(el => {
+    el.addEventListener('click', () => handleHistoryTap(parseInt(el.dataset.index!)));
   });
-  container.querySelector('.fav-collapse-btn').addEventListener('click', () => {
+  container.querySelector('.fav-collapse-btn')!.addEventListener('click', () => {
     setFavoritesCollapsed(true);
     renderStrip();
   });
 
   // Swipe up from below the strip to collapse
-  let _swipeTouchStart = null;
-  function onSwipeTouchStart(e) {
+  let _swipeTouchStart: number | null = null;
+  function onSwipeTouchStart(e: TouchEvent) {
     const touch = e.touches[0];
     const bottom = container.getBoundingClientRect().bottom;
     if (touch.clientY >= bottom) _swipeTouchStart = touch.clientY;
   }
-  function onSwipeTouchEnd(e) {
+  function onSwipeTouchEnd(e: TouchEvent) {
     if (_swipeTouchStart === null) return;
     const endY = e.changedTouches[0].clientY;
     if (_swipeTouchStart - endY > 30) {
@@ -323,7 +335,7 @@ function renderExpanded(container, history) {
 
 
 
-function peekStrip(container, history, homeContext = 'direct') {
+function peekStrip(container: HTMLElement, history: Combo[], homeContext = 'direct') {
   const historyPills = history.map((c, i) => renderPill(c, 'history', 'history', i)).join('');
 
   // Build peek strip with fixed positioning — no layout impact
@@ -345,7 +357,7 @@ function peekStrip(container, history, homeContext = 'direct') {
   document.body.appendChild(wrapper);
 
   // Set pill widths
-  const pillEls = strip.querySelectorAll('.fav-pill');
+  const pillEls = strip.querySelectorAll<HTMLElement>('.fav-pill');
   const pillCount = pillEls.length;
   const gap = 6;
   const padding = 24;
@@ -360,14 +372,14 @@ function peekStrip(container, history, homeContext = 'direct') {
   const halfHeight = Math.round(fullHeight * 0.7);
   void wrapper.offsetHeight;
 
-  const collapsedEl = container.querySelector('.fav-collapsed');
+  const collapsedEl = container.querySelector<HTMLElement>('.fav-collapsed');
 
   function doPeek() {
     // Stop if strip was opened (flag cleared means user opened it)
     if (isHintSeen('stripPeek') || !wrapper.parentNode) {
       if (wrapper.parentNode) wrapper.remove();
       if (collapsedEl) collapsedEl.style.opacity = '';
-      const line = collapsedEl?.querySelector('.fav-collapsed-line');
+      const line = collapsedEl?.querySelector<HTMLElement>('.fav-collapsed-line');
       if (line) line.style.filter = '';
       return;
     }
@@ -389,7 +401,7 @@ function peekStrip(container, history, homeContext = 'direct') {
     requestAnimationFrame(() => {
       wrapper.style.opacity = '0.45';
     });
-    const lineEl = collapsedEl?.querySelector('.fav-collapsed-line');
+    const lineEl = collapsedEl?.querySelector<HTMLElement>('.fav-collapsed-line');
     if (collapsedEl) {
       collapsedEl.style.transition = 'opacity 0.1s ease-out';
       collapsedEl.style.opacity = '0.3';
@@ -419,7 +431,7 @@ function peekStrip(container, history, homeContext = 'direct') {
   setTimeout(doPeek, 3000);
 }
 
-function renderPill(combo, state, type, index) {
+function renderPill(combo: Combo, state: string, type: string, index: number) {
   return `<div class="fav-pill fav-pill--${state}" data-type="${type}" data-index="${index}">` +
     `<div class="fav-pill-left" style="background:${safeCssColor(combo.statusColor)}"></div>` +
     `<div class="fav-pill-right" style="background:${safeCssColor(combo.surface2)}"></div></div>`;
@@ -427,7 +439,7 @@ function renderPill(combo, state, type, index) {
 
 // ─── Interaction handlers ────────────────────────────────────────────────────
 
-function handleHistoryTap(idx) {
+function handleHistoryTap(idx: number) {
   const combo = getFavorites()[idx];
   if (!combo) return;
 
@@ -448,15 +460,15 @@ function handleHistoryTap(idx) {
   setPaletteState(state);
 
   // Switch set + apply palette/theme.
-  switchSet(combo.activeSet, _myUserId);
+  switchSet(combo.activeSet, _myUserId!);
   if (combo.paletteKey) {
-    enterPaletteMode(combo.paletteKey, _myUserId);
+    enterPaletteMode(combo.paletteKey, _myUserId!);
   } else {
-    exitPaletteMode(_myUserId);
+    exitPaletteMode(_myUserId!);
   }
 
   // Apply canonical status color (overrides what switchSet wrote).
-  setStatusColor(_myUserId, combo.statusColor).catch(() => {});
+  setStatusColor(_myUserId!, combo.statusColor).catch(() => {});
   document.documentElement.style.setProperty('--my-status', combo.statusColor);
   document.documentElement.style.setProperty('--my-glow', getGlowForColor(combo.statusColor));
 
