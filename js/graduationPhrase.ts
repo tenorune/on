@@ -1,4 +1,4 @@
-// js/graduationPhrase.js — J#11: a small local vault for the secret phrase a
+// js/graduationPhrase.ts — J#11: a small local vault for the secret phrase a
 // Telegram account reveals when it graduates ("use the app outside Telegram").
 //
 // The phrase isn't stored server-side (it's hashed into the uid) and the
@@ -27,13 +27,13 @@ export function clearGraduatedPhrases() {
   } catch { /* private mode / quota */ }
 }
 
-export function storeGraduatedPhrase(uid, recoveryCode) {
+export function storeGraduatedPhrase(uid: string | null | undefined, recoveryCode: string | null | undefined) {
   if (!uid || !recoveryCode) return;
   clearGraduatedPhrases();
   try { localStorage.setItem(KEY_PREFIX + uid, recoveryCode); } catch { /* private mode / quota */ }
 }
 
-export function loadGraduatedPhrase(uid) {
+export function loadGraduatedPhrase(uid: string | null | undefined) {
   if (!uid) return null;
   try { return localStorage.getItem(KEY_PREFIX + uid); } catch { return null; }
 }
