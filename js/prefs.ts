@@ -1,5 +1,4 @@
-// @ts-check
-// js/prefs.js
+// js/prefs.ts
 //
 // Centralizes the localStorage cache + Firebase sync for cross-device user
 // preferences. Reads stay synchronous (localStorage). Writes go through here
@@ -30,11 +29,9 @@ export function getFollowing() {
   return storeGetFollowing();
 }
 
-/** @type {string | null} */
-let _myUserId = null;
+let _myUserId: string | null = null;
 
-/** @param {string} userId */
-export function initPrefs(userId) {
+export function initPrefs(userId: string) {
   _myUserId = userId;
 }
 
@@ -42,8 +39,7 @@ export function initPrefs(userId) {
 // Maps short hint name → localStorage key it lives under. Always read/write
 // via isHintSeen/markHintSeen; do not access these keys directly. The legacy
 // localStorage shape is preserved so existing stored flags carry forward.
-/** @type {Record<string, string>} */
-const HINT_KEYS = {
+const HINT_KEYS: Record<string, string> = {
   bolt:        'statusapp_seen_bolt',
   flower:      'statusapp_seen_flower',
   theme:       'statusapp_seen_theme',
@@ -54,14 +50,12 @@ const HINT_KEYS = {
   notifyPromo: 'statusapp_seen_notify_promo',
 };
 
-/** @param {string} name @returns {boolean} */
-export function isHintSeen(name) {
+export function isHintSeen(name: string): boolean {
   const key = HINT_KEYS[name];
   return key ? localStorage.getItem(key) === '1' : false;
 }
 
-/** @param {string} name */
-export function markHintSeen(name) {
+export function markHintSeen(name: string) {
   const key = HINT_KEYS[name];
   if (!key) return;
   if (localStorage.getItem(key) === '1') return; // idempotent — skip the write
@@ -74,8 +68,7 @@ export function markHintSeen(name) {
 const MADE_CALL_KEY = 'statusapp_made_call_count';
 const ANSWERED_CALL_KEY = 'statusapp_answered_call_count';
 
-/** @returns {number} */
-export function getMadeCallCount() {
+export function getMadeCallCount(): number {
   return parseInt(localStorage.getItem(MADE_CALL_KEY) || '0', 10);
 }
 
@@ -85,8 +78,7 @@ export function incrementMadeCallCount() {
   if (_myUserId) mergeUserPrefs(_myUserId, { madeCallCount: next }).catch(() => {});
 }
 
-/** @returns {number} */
-export function getAnsweredCallCount() {
+export function getAnsweredCallCount(): number {
   return parseInt(localStorage.getItem(ANSWERED_CALL_KEY) || '0', 10);
 }
 
@@ -99,13 +91,11 @@ export function incrementAnsweredCallCount() {
 // ── Favorites strip collapsed/expanded ──────────────────────────────────────
 const COLLAPSED_KEY = 'statusapp_favorites_collapsed';
 
-/** @returns {boolean} */
-export function isFavoritesCollapsed() {
+export function isFavoritesCollapsed(): boolean {
   return localStorage.getItem(COLLAPSED_KEY) === '1';
 }
 
-/** @param {boolean} value */
-export function setFavoritesCollapsed(value) {
+export function setFavoritesCollapsed(value: boolean) {
   const want = value ? '1' : null;
   const have = localStorage.getItem(COLLAPSED_KEY);
   if (want === have) return; // no-op write
@@ -122,8 +112,7 @@ export function getPaletteState() {
   return storeGetPaletteState();
 }
 
-/** @param {unknown} state */
-export function setPaletteState(state) {
+export function setPaletteState(state: unknown) {
   storeSetPaletteState(state);
   if (_myUserId) mergeUserPrefs(_myUserId, { 'paletteState/direct': state }).catch(() => {});
 }
@@ -135,14 +124,13 @@ export function setPaletteState(state) {
 // still this device's default; pushing the whole object to userPrefs (as
 // setPaletteState would) clobbers the server's real inactive-set selection.
 // Writing locally only lets the userPrefs sync own the inactive set.
-/** @param {unknown} state */
-export function setPaletteStateLocal(state) {
+export function setPaletteStateLocal(state: unknown) {
   storeSetPaletteState(state);
 }
 
 // Per-group palette state (was inline in groupContext.js). Keyed shape:
 //   userPrefs/{uid}/perGroup/{groupId}/paletteState
-const GROUP_PALETTE_LS = (/** @type {string} */ groupId) => `statusapp_group_palette_${groupId}`;
+const GROUP_PALETTE_LS = (groupId: string) => `statusapp_group_palette_${groupId}`;
 const DEFAULT_GROUP_PALETTE_STATE = {
   activeSet: 1,
   sets: {
@@ -151,8 +139,7 @@ const DEFAULT_GROUP_PALETTE_STATE = {
   },
 };
 
-/** @param {string} groupId */
-export function getGroupPaletteState(groupId) {
+export function getGroupPaletteState(groupId: string) {
   try {
     const raw = localStorage.getItem(GROUP_PALETTE_LS(groupId));
     if (raw) {
@@ -170,11 +157,7 @@ export function getGroupPaletteState(groupId) {
   return JSON.parse(JSON.stringify(DEFAULT_GROUP_PALETTE_STATE));
 }
 
-/**
- * @param {string} groupId
- * @param {unknown} state
- */
-export function setGroupPaletteState(groupId, state) {
+export function setGroupPaletteState(groupId: string, state: unknown) {
   try {
     localStorage.setItem(GROUP_PALETTE_LS(groupId), JSON.stringify(state));
   } catch { /* ignore quota errors */ }
@@ -187,8 +170,7 @@ export function setGroupPaletteState(groupId, state) {
 // returns DEFAULT_GROUP_PALETTE_STATE. Called on a fresh (re)join: a member's
 // stale selection must not survive a leave, or it gets seeded into the new
 // color-less override as an impossible color+theme combo (#group rejoin).
-/** @param {string} groupId */
-export function clearGroupPaletteState(groupId) {
+export function clearGroupPaletteState(groupId: string) {
   try {
     localStorage.removeItem(GROUP_PALETTE_LS(groupId));
   } catch { /* ignore */ }
@@ -205,8 +187,7 @@ export function getFavorites() {
   return storeGetFavorites();
 }
 
-/** @param {unknown[]} arr */
-export function setFavorites(arr) {
+export function setFavorites(arr: unknown[]) {
   storeSetFavorites(arr);
   if (_myUserId) mergeUserPrefs(_myUserId, { favorites: arr }).catch(() => {});
 }
@@ -219,22 +200,16 @@ export function getLastTimeout() {
   return storeGetLastTimeout();
 }
 
-/** @param {number} n */
-export function setLastTimeout(n) {
+export function setLastTimeout(n: number) {
   storeSetLastTimeout(n);
   if (_myUserId) mergeUserPrefs(_myUserId, { lastTimeoutMinutes: n }).catch(() => {});
 }
 
-/** @param {string} groupId */
-export function getGroupChipMinutes(groupId) {
+export function getGroupChipMinutes(groupId: string) {
   return storeGetGroupChipMinutes(groupId);
 }
 
-/**
- * @param {string} groupId
- * @param {number} minutes
- */
-export function setGroupChipMinutes(groupId, minutes) {
+export function setGroupChipMinutes(groupId: string, minutes: number) {
   storeSetGroupChipMinutes(groupId, minutes);
   if (_myUserId) {
     mergeUserPrefs(_myUserId, { [`perGroup/${groupId}/lastTimeoutMinutes`]: minutes }).catch(() => {});
@@ -246,8 +221,7 @@ export function setGroupChipMinutes(groupId, minutes) {
 // Localstorage cache key is kept so any inline fallback reads keep working.
 const CURRENT_CONTEXT_KEY = 'statusapp_current_context';
 
-/** @param {string | null | undefined} value */
-export function setCurrentContext(value) {
+export function setCurrentContext(value: string | null | undefined) {
   const v = value || 'direct';
   if (localStorage.getItem(CURRENT_CONTEXT_KEY) !== v) {
     localStorage.setItem(CURRENT_CONTEXT_KEY, v);
@@ -263,15 +237,11 @@ export function setCurrentContext(value) {
 /**
  * A saved palette combo, as far as dedupe identity is concerned (the full
  * stored shape carries more fields; only these two form the visual key).
- * @typedef {{ statusColor?: string, surface2?: string }} FavoriteComboLike
  */
-/**
- * @param {Array<FavoriteComboLike | null | undefined> | null | undefined} arr
- * @returns {FavoriteComboLike[]}
- */
-function dedupeServerFavorites(arr) {
-  /** @type {FavoriteComboLike[]} */
-  const seen = [];
+type FavoriteComboLike = { statusColor?: string; surface2?: string };
+
+function dedupeServerFavorites(arr: Array<FavoriteComboLike | null | undefined> | null | undefined): FavoriteComboLike[] {
+  const seen: FavoriteComboLike[] = [];
   const out = [];
   for (const c of arr || []) {
     if (!c) continue;
@@ -287,30 +257,22 @@ function dedupeServerFavorites(arr) {
 // Writes hit userPrefs/{uid}/notify/{targetUid}/{type} via mergeUserPrefs.
 const NOTIFY_KEY = 'statusapp_notify_prefs';
 
-/** @returns {Record<string, NotifyPrefsEntry>} */
-function readNotifyCache() {
+function readNotifyCache(): Record<string, NotifyPrefsEntry> {
   // Cast: JSON.parse tolerates null at runtime (coerced to "null" → null,
   // caught by the || {}); the lib typing only admits strings.
-  try { return JSON.parse(/** @type {string} */ (localStorage.getItem(NOTIFY_KEY))) || {}; }
+  try { return JSON.parse(localStorage.getItem(NOTIFY_KEY) as string) || {}; }
   catch { return {}; }
 }
-/** @param {Record<string, NotifyPrefsEntry>} map */
-function writeNotifyCache(map) {
+function writeNotifyCache(map: Record<string, NotifyPrefsEntry>) {
   try { localStorage.setItem(NOTIFY_KEY, JSON.stringify(map)); } catch { /* quota */ }
 }
 
-/** @param {string} targetUid */
-export function getNotifyPrefs(targetUid) {
+export function getNotifyPrefs(targetUid: string) {
   const t = readNotifyCache()[targetUid] || {};
   return { knock: !!t.knock, call: !!t.call, availability: !!t.availability };
 }
 
-/**
- * @param {string} targetUid
- * @param {string} type
- * @param {boolean} on
- */
-export function setNotifyPref(targetUid, type, on) {
+export function setNotifyPref(targetUid: string, type: string, on: boolean) {
   const map = readNotifyCache();
   map[targetUid] = { ...getNotifyPrefs(targetUid), [type]: !!on };
   writeNotifyCache(map);
@@ -339,8 +301,7 @@ export function getRegisteredPushToken() {
 // tokens age out. Generous so a rarely-used second device isn't culled.
 const PUSH_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
-/** @param {string | null | undefined} token */
-export function addPushToken(token) {
+export function addPushToken(token: string | null | undefined) {
   if (!token) return;
   try { localStorage.setItem(PUSH_TOKEN_KEY, token); } catch { /* quota */ }
   if (_myUserId) {
@@ -353,8 +314,7 @@ export function addPushToken(token) {
 
 // Bump lastSeen on an already-registered token (every load while permission is
 // granted), preserving createdAt/ua. Drives the stale-token TTL cull below.
-/** @param {string | null | undefined} token */
-export function touchPushToken(token) {
+export function touchPushToken(token: string | null | undefined) {
   if (!token || !_myUserId) return;
   mergeUserPrefs(_myUserId, { [`pushTokens/${token}/lastSeen`]: Date.now() }).catch(() => {});
 }
@@ -372,14 +332,12 @@ export async function cullStalePushTokens() {
     activeToken: getRegisteredPushToken(), now: Date.now(), maxAgeMs: PUSH_TOKEN_TTL_MS,
   });
   if (!stale.length) return;
-  /** @type {Record<string, null>} */
-  const updates = {};
+  const updates: Record<string, null> = {};
   for (const token of stale) updates[`pushTokens/${token}`] = null;
   await mergeUserPrefs(_myUserId, updates).catch(() => {});
 }
 
-/** @param {string | null | undefined} token */
-export function removePushToken(token) {
+export function removePushToken(token: string | null | undefined) {
   if (!token) return;
   if (localStorage.getItem(PUSH_TOKEN_KEY) === token) localStorage.removeItem(PUSH_TOKEN_KEY);
   if (_myUserId) mergeUserPrefs(_myUserId, { [`pushTokens/${token}`]: null }).catch(() => {});
@@ -390,12 +348,10 @@ export function removePushToken(token) {
 // Repeated installs (deleted PWAs, browser-profile churn) orphan tokens that the
 // owning device never reloads to clean — this is the freshness signal that lets
 // an active device prune them. See #157.
-/**
- * @param {Record<string, { createdAt?: number, lastSeen?: number } | null> | null | undefined} map
- * @param {{ activeToken: string | null, now: number, maxAgeMs: number }} opts
- * @returns {string[]}
- */
-export function selectStalePushTokens(map, { activeToken, now, maxAgeMs }) {
+export function selectStalePushTokens(
+  map: Record<string, { createdAt?: number; lastSeen?: number } | null> | null | undefined,
+  { activeToken, now, maxAgeMs }: { activeToken: string | null; now: number; maxAgeMs: number },
+): string[] {
   const stale = [];
   for (const [token, rec] of Object.entries(map || {})) {
     if (token === activeToken) continue;
@@ -410,8 +366,7 @@ export function selectStalePushTokens(map, { activeToken, now, maxAgeMs }) {
 // changes. Populates the localStorage cache so subsequent synchronous reads
 // see the synced state. Server wins on conflict; the wipe-friendly migration
 // means there's no first-time push-up of pre-existing local state.
-/** @param {UserPrefs | null | undefined} serverPrefs */
-export function syncFromServer(serverPrefs) {
+export function syncFromServer(serverPrefs: UserPrefs | null | undefined) {
   if (!serverPrefs) return;
   // Hints
   if (serverPrefs.hints) {
@@ -449,9 +404,9 @@ export function syncFromServer(serverPrefs) {
   // shipped (or sibling-device writes that raced) may contain duplicates
   // by (statusColor, surface2).
   if (serverPrefs.favorites != null) {
-    const raw = /** @type {FavoriteComboLike[]} */ (Array.isArray(serverPrefs.favorites)
+    const raw = (Array.isArray(serverPrefs.favorites)
       ? serverPrefs.favorites
-      : Object.values(serverPrefs.favorites));
+      : Object.values(serverPrefs.favorites)) as FavoriteComboLike[];
     const serverDeduped = dedupeServerFavorites(raw);
     // Merge instead of overwrite, but ONLY preserve local-only entries that
     // form the leading run of the local array. saveCombo always prepends, so
@@ -476,7 +431,7 @@ export function syncFromServer(serverPrefs) {
     // userPrefs, waking the passive device's watch and re-running this merge
     // constantly — catching divergent states Direct never exposed.
     const local = storeGetFavorites();
-    const inServer = (/** @type {FavoriteComboLike | null | undefined} */ l) => serverDeduped.some(s =>
+    const inServer = (l: FavoriteComboLike | null | undefined) => serverDeduped.some(s =>
       s && l && s.statusColor === l.statusColor && s.surface2 === l.surface2);
     const pendingHead = [];
     for (const l of local) {
