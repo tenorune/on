@@ -1,3 +1,4 @@
+// @ts-check
 // functions/telegram.js — Telegram bot: notification keyboards + (Tasks 6–8)
 // the webhook command/callback router. Deps are injected; no network here.
 
@@ -6,8 +7,21 @@ import { ensureTelegramUser } from './telegram-auth.js';
 import { WELCOME_STRANGER_TEXT, openAppKeyboard, GROUP_ID_RE, UID_RE, rootUpdate } from './telegram-shared.js';
 import { effectiveAvailable, primaryAvailable, clampName, statusCircle, formatTimeRemaining, formatTimeRemainingFuzzy } from './presence-core.js';
 
+/**
+ * The webhook's injected surface: the auth-deps shape (index.js builds one
+ * object for both) plus the two Bot API methods callbacks need.
+ * @typedef {import('./telegram-auth.js').TelegramAuthDeps & {
+ *   tg: {
+ *     answerCallbackQuery: (id: string, text: string) => Promise<unknown>,
+ *     editMessageText?: ((chatId: string, messageId: number, text: string, extra?: object) => Promise<unknown>) | null,
+ *   },
+ * }} TelegramBotDeps
+ */
+/** @typedef {(text: string, extra?: object) => void} ReplyFn */
+
 // Required format of each callback action's arg, checked before dispatch.
 // A malformed arg — or an unknown action — is refused without touching the DB.
+/** @type {Record<string, RegExp>} */
 const CALLBACK_ARG_RE = {
   knock: UID_RE,
   invite_accept: GROUP_ID_RE,
@@ -18,12 +32,13 @@ const CALLBACK_ARG_RE = {
 
 // contextGroupId rides the callback so a knock-back lands as a group knock.
 // 64-byte callback_data cap: 'knock:' + 32-hex uid + ':' + 8-char gid = 47.
-const knockCallback = (data) =>
+const knockCallback = (/** @type {{ targetUid?: string, contextGroupId?: string }} */ data) =>
   data.contextGroupId ? `knock:${data.targetUid}:${data.contextGroupId}` : `knock:${data.targetUid}`;
 
 // Inline keyboard for a notification, keyed by the same data.type the FCM
 // payload carries. Simple reactions are callbacks handled by the webhook;
 // answering a call needs the canvas, so it deep-links into the Mini App.
+/** @param {any} data @param {string | null | undefined} appUrl */
 export function buildNotificationKeyboard(data, appUrl) {
   switch (data?.type) {
     case 'knock':
@@ -48,10 +63,11 @@ export function buildNotificationKeyboard(data, appUrl) {
 }
 
 // "30m", "2h", "1h30m", "90", "45 min" → minutes, clamped to 5..1440. null when unparseable.
+/** @param {unknown} raw @returns {number | null} */
 export function parseDurationMinutes(raw) {
   const s = String(raw ?? '').trim().toLowerCase();
   if (!s) return null;
-  const clamp = (m) => Math.max(5, Math.min(1440, m));
+  const clamp = (/** @type {number} */ m) => Math.max(5, Math.min(1440, m));
   if (/^\d+$/.test(s)) return clamp(parseInt(s, 10));
   const m = s.match(/^(?:(\d+)\s*h(?:rs?)?)?\s*(?:(\d+)\s*m(?:in)?s?)?$/);
   if (!m || (!m[1] && !m[2])) return null;
@@ -60,6 +76,7 @@ export function parseDurationMinutes(raw) {
 
 // A failed group query that reads like a botched duration (a digit, a time
 // word, or "for") earns a format hint rather than a bare "no group" (B#4).
+/** @param {string} s */
 function looksLikeDuration(s) {
   return /\d/.test(s) || /\b(for|hours?|hrs?|mins?|minutes?)\b/i.test(s);
 }
@@ -78,7 +95,7 @@ export const COMMANDS = [
   { command: 'notifications', args: 'push|telegram',    description: 'where notifications go' },
   { command: 'help',          args: '',                 description: 'this list' },
 ];
-const cmdLine = (c) => `/${c.command}${c.args ? ` ${c.args}` : ''} — ${c.description}`;
+const cmdLine = (/** @type {(typeof COMMANDS)[number]} */ c) => `/${c.command}${c.args ? ` ${c.args}` : ''} — ${c.description}`;
 export const HELP_TEXT = ['KnockKnock commands:', ...COMMANDS.map(cmdLine)].join('\n');
 
 // [{command, description}] for the Bot API's setMyCommands (bare command, no
@@ -104,6 +121,7 @@ export function pickPlayfulEmoji(rand = Math.random) {
 // The one way a webhook entry point resolves its Telegram sender to an app
 // account: telegramUsers/{tgId} → { mapping, uid }. Both null/undefined-safe —
 // callers decide how to bail when the sender isn't mapped.
+/** @param {TelegramBotDeps} deps @param {string | number} tgId */
 async function resolveTelegramUid(deps, tgId) {
   const mapping = await deps.getVal(`telegramUsers/${String(tgId)}`);
   return { mapping, uid: mapping?.uid };
@@ -115,6 +133,7 @@ async function resolveTelegramUid(deps, tgId) {
 // request with it — one method per update — instead of a separate Bot API
 // call. Callbacks return nothing: they need two tg calls (answerCallbackQuery
 // + editMessageText) whose text depends on the DB result, so they keep tgApi.
+/** @param {TelegramBotDeps} deps @param {any} update */
 export async function handleUpdate(deps, update) {
   try {
     if (update?.message) return await handleMessage(deps, update.message);
@@ -125,6 +144,7 @@ export async function handleUpdate(deps, update) {
   return undefined;
 }
 
+/** @param {TelegramBotDeps} deps @param {any} msg */
 async function handleMessage(deps, msg) {
   if (msg.chat?.type !== 'private' || !msg.from) return undefined;
   const chatId = String(msg.chat.id);
@@ -139,11 +159,19 @@ async function handleMessage(deps, msg) {
   // returned as the webhook-reply payload rather than sent (F#5). A flow
   // that never replies (can't happen today) would just answer plain 200.
   let pending;
-  const reply = (text, extra = {}) => { pending = { chat_id: chatId, text, ...extra }; };
+  const reply = (/** @type {string} */ text, extra = {}) => { pending = { chat_id: chatId, text, ...extra }; };
   await routeCommand(deps, msg, chatId, cmd, args, reply);
   return pending;
 }
 
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {any} msg
+ * @param {string} chatId
+ * @param {string} cmd
+ * @param {string[]} args
+ * @param {ReplyFn} reply
+ */
 async function routeCommand(deps, msg, chatId, cmd, args, reply) {
   if (cmd === '/start') {
     // First-contact detection must precede ensureTelegramUser (which creates
@@ -246,14 +274,22 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
 // including contextGroupId: set on create, overwrite on increment, else carry.
 // Returns whether the transaction committed — an aborted (capped) knock must
 // not be confirmed as sent (W1 B#2).
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} recipientUid
+ * @param {string} senderUid
+ * @param {string} [contextGroupId]
+ */
 async function writeKnock(deps, recipientUid, senderUid, contextGroupId) {
   const res = await deps.transaction(`knocks/${recipientUid}/${senderUid}`, (current) => {
     if (current === null) {
+      /** @type {{ count: number, ts: number, contextGroupId?: string }} */
       const next = { count: 1, ts: deps.now() };
       if (contextGroupId) next.contextGroupId = contextGroupId;
       return next;
     }
     if (current.count >= 5) return undefined; // abort — capped
+    /** @type {{ count: number, ts: number, contextGroupId?: string }} */
     const next = { count: current.count + 1, ts: deps.now() };
     if (contextGroupId) next.contextGroupId = contextGroupId;
     else if (current.contextGroupId) next.contextGroupId = current.contextGroupId;
@@ -262,6 +298,7 @@ async function writeKnock(deps, recipientUid, senderUid, contextGroupId) {
   return res.committed;
 }
 
+/** @param {TelegramBotDeps} deps @param {string} uid */
 async function readFollowing(deps, uid) {
   const data = (await deps.getVal(`userPrefs/${uid}/following`)) || {};
   return Object.entries(data).map(([fid, v]) => ({ userId: fid, code: v?.code ?? '', label: v?.label ?? '' }));
@@ -269,6 +306,7 @@ async function readFollowing(deps, uid) {
 
 // Case-insensitive substring match over the user's own groups' names
 // (spec 2026-07-07 naming decision — the /knock idiom applied to groups).
+/** @param {TelegramBotDeps} deps @param {string} uid @param {string} query */
 async function matchGroupsByName(deps, uid, query) {
   const groups = (await deps.getVal(`users/${uid}/groups`)) || {};
   const q = query.toLowerCase();
@@ -282,6 +320,14 @@ async function matchGroupsByName(deps, uid, query) {
 // Shared arity guard for group-arg commands: replies and returns null unless
 // exactly one group matches. No inline keyboard — /status//off carry extra
 // args that don't fit a callback, so the retry is plain text for all three.
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {ReplyFn} reply
+ * @param {string} [noMatchHint]
+ * @param {((name: string) => string) | null} [retryCmd]
+ */
 async function resolveGroupArg(deps, uid, query, reply, noMatchHint = '', retryCmd = null) {
   const matches = await matchGroupsByName(deps, uid, query);
   if (matches.length === 0) { await reply(`No group matching "${query}".${noMatchHint}`); return null; }
@@ -289,7 +335,8 @@ async function resolveGroupArg(deps, uid, query, reply, noMatchHint = '', retryC
     // B#3: a free-text "give me more letters" reply can't be answered (it hits
     // the unknown-command dump). Spell out the ready-made retry command per
     // candidate — carrying the pending duration — so the user taps/edits it.
-    await reply(`Which group? Try ${matches.map((m) => retryCmd(m.name)).join(' or ')}.`);
+    // (Cast: every ambiguous-match caller passes retryCmd.)
+    await reply(`Which group? Try ${matches.map((m) => /** @type {(name: string) => string} */ (retryCmd)(m.name)).join(' or ')}.`);
     return null;
   }
   return matches[0];
@@ -305,6 +352,16 @@ async function resolveGroupArg(deps, uid, query, reply, noMatchHint = '', retryC
 // needs it — one wasted read on the ON path buys a round-trip of latency.
 // `fields` is a thunk evaluated at write time so availableUntil is stamped
 // from now() AFTER the reads, exactly as the pre-merge handlers did.
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {ReplyFn} reply
+ * @param {() => Record<string, unknown>} fields
+ * @param {{ confirm: (name: string, color?: any) => string, globalOn: (name: string) => string, globalOff: (name: string) => string }} messages
+ * @param {string} [noMatchHint]
+ * @param {((name: string) => string) | null} [retryCmd]
+ */
 async function setGroupPresence(deps, uid, query, reply, fields, messages, noMatchHint = '', retryCmd = null) {
   const match = await resolveGroupArg(deps, uid, query, reply, noMatchHint, retryCmd);
   if (!match) return;
@@ -324,9 +381,17 @@ async function setGroupPresence(deps, uid, query, reply, fields, messages, noMat
   await reply((globallyOn ? messages.globalOn : messages.globalOff)(match.name));
 }
 
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {number} minutes
+ * @param {ReplyFn} reply
+ * @param {string} [durToken]
+ */
 async function handleGroupStatus(deps, uid, query, minutes, reply, durToken = '') {
   const noMatchHint = looksLikeDuration(query) ? ' Durations look like 2h or 30m — try /status 2h.' : '';
-  const retryCmd = (name) => `/status ${name}${durToken ? ` ${durToken}` : ''}`;
+  const retryCmd = (/** @type {string} */ name) => `/status ${name}${durToken ? ` ${durToken}` : ''}`;
   await setGroupPresence(deps, uid, query, reply,
     () => ({ status: 'available', availableUntil: deps.now() + minutes * 60000 }),
     {
@@ -337,6 +402,12 @@ async function handleGroupStatus(deps, uid, query, minutes, reply, durToken = ''
     noMatchHint, retryCmd);
 }
 
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {ReplyFn} reply
+ */
 async function handleGroupOff(deps, uid, query, reply) {
   await setGroupPresence(deps, uid, query, reply,
     // null availableUntil deletes the key on RTDB — same shape the client's
@@ -351,6 +422,12 @@ async function handleGroupOff(deps, uid, query, reply) {
 }
 
 // /who <group>: co-members' effective in-group availability (the /groups idiom).
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {ReplyFn} reply
+ */
 async function handleWhoGroup(deps, uid, query, reply) {
   const match = await resolveGroupArg(deps, uid, query, reply, '', (name) => `/who ${name}`);
   if (!match) return;
@@ -376,6 +453,11 @@ async function handleWhoGroup(deps, uid, query, reply) {
 // name match — ONE copy of the cap + hint string + keyboard shape, shared by the
 // /knock following-match and group-reach branches (C5). `toButton(entry)` maps
 // each entry to its inline-button; only the button differs between callers.
+/**
+ * @param {ReplyFn} reply
+ * @param {any[]} entries
+ * @param {(e: any) => { text: string, callback_data: string }} toButton
+ */
 function replyDisambiguation(reply, entries, toButton) {
   const CAP = 8;
   const overflow = entries.length - CAP;
@@ -385,10 +467,18 @@ function replyDisambiguation(reply, entries, toButton) {
 
 // No Direct match — search shared-group rosters (spec 2026-07-07 §2): anyone
 // visible in a group you're in is knockable, with that group as context.
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {string} rawQuery
+ * @param {ReplyFn} reply
+ */
 async function knockGroupReach(deps, uid, query, rawQuery, reply) {
   const groups = (await deps.getVal(`users/${uid}/groups`)) || {};
   const perGroup = await Promise.all(Object.keys(groups).map(async (gid) => {
     const members = await deps.getVal(`groups/${gid}/members`);
+    /** @type {Array<{ uid: string, gid: string, name: string, groupName?: string }>} */
     const matches = [];
     for (const [mid, m] of Object.entries(members || {})) {
       if (mid === uid) continue;
@@ -417,6 +507,13 @@ async function knockGroupReach(deps, uid, query, rawQuery, reply) {
   await reply(committed ? `Knocked on ${found[0].name} (${found[0].groupName}).` : KNOCK_CAP_TEXT);
 }
 
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} cmd
+ * @param {string[]} args
+ * @param {ReplyFn} reply
+ */
 async function handleSocialCommand(deps, uid, cmd, args, reply) {
   if (cmd === '/who') {
     const groupQuery = args.join(' ').trim();
@@ -493,6 +590,12 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
 // caller wants a button to survive on the resolved message (U1.6 — the join
 // outcome keeps an Open KnockKnock button so it isn't a dead end). Omitted → the
 // inline keyboard is dropped as before, so stale action buttons can't be tapped.
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {any} cq
+ * @param {string} outcome
+ * @param {object} [extra]
+ */
 export async function resolveSourceMessage(deps, cq, outcome, extra) {
   const msg = cq?.message;
   if (!msg?.message_id || !msg.chat?.id || !deps.tg.editMessageText) return;
@@ -504,9 +607,10 @@ export async function resolveSourceMessage(deps, cq, outcome, extra) {
   } catch { /* cosmetic — see above */ }
 }
 
+/** @param {TelegramBotDeps} deps @param {any} cq */
 async function handleCallback(deps, cq) {
   if (!cq?.id || !cq.from) return;
-  const answer = (text) => deps.tg.answerCallbackQuery(cq.id, text);
+  const answer = (/** @type {string} */ text) => deps.tg.answerCallbackQuery(cq.id, text);
   const { uid: me } = await resolveTelegramUid(deps, cq.from.id);
   if (!me) { await answer('Open KnockKnock first.'); return; }
   const [action, arg, arg2] = String(cq.data || '').split(':');
@@ -529,6 +633,14 @@ async function handleCallback(deps, cq) {
   }
 }
 
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} me
+ * @param {string} action
+ * @param {string} arg
+ * @param {any} cq
+ * @param {(text: string) => Promise<unknown>} answer
+ */
 async function handleInboxCallback(deps, me, action, arg, cq, answer) {
   if (action === 'invite_accept' || action === 'invite_decline') {
     const groupId = arg;
@@ -665,6 +777,7 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
 
 // Constant-shape check of Telegram's X-Telegram-Bot-Api-Secret-Token header.
 // An unset secret refuses everything — the webhook is dead until configured.
+/** @param {unknown} headerValue @param {string | null | undefined} secret */
 export function webhookAuthorized(headerValue, secret) {
   if (!secret || typeof headerValue !== 'string') return false;
   const a = Buffer.from(headerValue);
