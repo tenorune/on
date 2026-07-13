@@ -14,7 +14,7 @@
 // notification payload is attacker-controllable (forged RTDB writes), so reject
 // anything that doesn't match before using it as a navigation target — a forged
 // id falls back to Direct rather than reaching navigateToGroup (#164 R3c).
-const GROUP_ID_RE = /^[A-Z0-9]{8}$/;
+import { GROUP_ID_RE } from '../shared/idFormats.js';
 
 export function routeNotificationClick(data, { navigateToDirect, navigateToGroup, openInboxModal }) {
   const type = data?.type;
