@@ -1,4 +1,4 @@
-// js/notifyRouting.js
+// js/notifyRouting.ts
 // Warm-path routing for a tapped notification (the SW postMessages the click to
 // a focused client; see sw.template.js). Kept dependency-injected and pure so it
 // can be unit-tested without booting app.js.
@@ -16,7 +16,21 @@
 // id falls back to Direct rather than reaching navigateToGroup (#164 R3c).
 import { GROUP_ID_RE } from '../shared/idFormats.js';
 
-export function routeNotificationClick(data, { navigateToDirect, navigateToGroup, openInboxModal }) {
+type NotificationData = {
+  type?: string;
+  contextGroupId?: string;
+};
+
+type RouteDeps = {
+  navigateToDirect: () => void;
+  navigateToGroup: (gid: string) => void;
+  openInboxModal: () => void;
+};
+
+export function routeNotificationClick(
+  data: NotificationData | null | undefined,
+  { navigateToDirect, navigateToGroup, openInboxModal }: RouteDeps,
+): void {
   const type = data?.type;
   if (type === 'invite' || type === 'followRequest') {
     navigateToDirect();

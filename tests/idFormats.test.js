@@ -32,8 +32,8 @@ test('the RTDB rules still spell the same gid pattern (rules cannot import JS)',
 });
 
 test('the former definition sites consume shared/ (no local redefinition)', () => {
-  expect(read('js/notifyRouting.js')).toContain("from '../shared/idFormats.js'");
-  expect(read('js/notifyRouting.js')).not.toMatch(/const GROUP_ID_RE\s*=/);
+  expect(read('js/notifyRouting.ts')).toContain("from '../shared/idFormats.js'");
+  expect(read('js/notifyRouting.ts')).not.toMatch(/const GROUP_ID_RE\s*=/);
   expect(read('functions/telegram-shared.js')).toContain("'./_shared/idFormats.js'");
   expect(read('functions/telegram-shared.js')).not.toMatch(/const (GROUP_ID_RE|UID_RE)\s*=/);
 });
