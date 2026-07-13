@@ -165,7 +165,9 @@ git commit -m "chore(ts): typecheck toolchain scaffold — tsc noEmit, babel/jes
 - Consumes: Task 1's toolchain.
 - Produces: global ambient types `UserPrefs`, `PresenceNode`, `StatusOverride` usable from JSDoc as `{UserPrefs}` etc. in any file (`.d.ts` with no top-level import/export = global ambient). Later tasks annotate against these names.
 
-- [ ] **Step 1: Verify the shapes before writing them down**
+> **DONE 2026-07-13 — committed `124c31c`.** All 6 steps complete; four-command gate green. `types/app.d.ts` carries the three planned interfaces PLUS the Step-1 extension fields `js/prefs.js syncFromServer` reads (hints/counters/favorites/paletteState/perGroup/notify — a `NotifyPrefsEntry` interface was added for the per-target notify records), and a narrow `declare const process` for the esbuild-define seam (`js/inviteFlow.js` — the native tsc 7 did not auto-include `@types/node` until Task 5's include-widening, and the narrow declaration is the honest type for browser code either way; no conflict appeared when node types later loaded).
+
+- [x] **Step 1: Verify the shapes before writing them down**
 
 The typedefs below were drafted from `js/notifySuppression.js`, `js/notifyChannel.js`, and `functions/notifier.js` at planning time. Before creating the file, confirm each field against the live source:
 
@@ -272,6 +274,8 @@ git commit -m "chore(ts): ambient contract types + @ts-check on the notify/prefs
 
 ### Task 3: Phase 2 — first `.ts` conversion, fully worked (`js/notifyRouting.js`)
 
+> **DONE 2026-07-13 — committed `94927e7`.** `git mv` + type-only edit; `tests/idFormats.test.js` path reads updated `.js`→`.ts` in the same commit. Four-command gate green; SW cache hash unchanged (`knockknock-5184e1543935`), confirming byte-identical emit after type-strip. Native tsc 7 raised no strict-mode surprises on the first real conversion.
+
 **Files:**
 - Rename: `js/notifyRouting.js` → `js/notifyRouting.ts` (git mv, then edit)
 - Test: existing `tests/notifyRouting.test.js` (unchanged)
@@ -359,6 +363,8 @@ git commit -m "refactor(ts): convert js/notifyRouting to TypeScript"
 
 ### Task 4: Phase 2 — leaf-module conversion batch
 
+> **DONE 2026-07-13 — commits `4ddd45e`..`utils`.** Freeze guard `tests/featuresFreeze.test.js` landed first (`4ddd45e`). Converted one commit each: inviteText, telegramLinkCopy, hintRotation, palettes, inviteBootGate, utils. **`js/wordlist.js` DEMOTED, not converted** (`f`-commit): it's CommonJS (`module.exports`, consumed via `require` from `js/identity.js`), so a `.ts` rename would force an ESM rewrite the type-only rule forbids — kept `.js` + `// @ts-check`, and `scripts/gen-wordlist.js` now emits the pragma so a regen can't strip it. `js/features.js` untouched (frozen). Full gate + functions suite green at batch end.
+
 **Files (one commit per module, in this order):**
 - Rename: `js/inviteText.js` → `.ts`
 - Rename: `js/telegramLinkCopy.js` → `.ts`
@@ -424,6 +430,8 @@ Module-specific notes (read before converting each):
 ---
 
 ### Task 5: Phase 4 — functions track (`@ts-check` + JSDoc, no build step)
+
+> **DONE 2026-07-13 — commits through `@ts-check functions/index`.** tsconfig `include` widened to `functions/*.js`; `shared/` annotated + `npm run sync-shared` mirrored (both guards green). All 8 functions source files carry `// @ts-check` + JSDoc (order: presence-core, telegram-shared, notifier, invites, auth, telegram-auth, telegram, index). NOTE: widening the include pulled `@types/node` into the program, which retyped `setTimeout` — `js/hintRotation.ts` timer casts moved to `ReturnType<typeof setTimeout>` (committed with the shared/tsconfig change). `functions/telegram.js` got an HONEST `TelegramBotDeps` typedef (only the webhook members index.js actually provides), NOT a re-use of `TelegramAuthDeps`. Byte-identical build verified via worktree rebuild at HEAD (bundle/index/manifest all `cmp`-equal). Functions files still `.js`, deploy-path unchanged. Non-source `functions/*.js` (migrate-presence, repair-user-groups, jest.config) deliberately NOT annotated — not in the include glob.
 
 **Files:**
 - Modify: `tsconfig.json` (include functions source)
