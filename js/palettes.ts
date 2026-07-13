@@ -1,4 +1,4 @@
-// js/palettes.js
+// js/palettes.ts
 import { setStatusColor, setPaletteKey } from './db.js';
 import { safeCssColor } from './utils.js';
 import { isHintSeen, markHintSeen, getPaletteState, setPaletteState, setPaletteStateLocal } from './prefs.js';
@@ -14,7 +14,7 @@ import {
 // .hint-wave class and freezing the wave. Symptom: navigate from Direct
 // to a group, the Direct wave stops; navigate back, it doesn't restart
 // because nothing re-renders Direct's row on a context switch.
-const _hintTimersByRow = new Map();
+const _hintTimersByRow = new Map<Element, ReturnType<typeof setTimeout>>();
 // Timestamp (Date.now) of the most recent enterPaletteMode call, or null if
 // the spin window has elapsed. Tracked as a timestamp rather than a bool
 // because setPaletteState writes to userPrefs and Firebase echoes back ~100-
@@ -25,7 +25,7 @@ const _hintTimersByRow = new Map();
 // 5s animation window, with --key-spin-delay so the animation continues
 // mid-flight rather than restarting from 0deg.
 const KEY_SPIN_MS = 5000;
-let _paletteEnterAt = null;
+let _paletteEnterAt: number | null = null;
 
 // SVG Icons (inlined)
 // Heroicons bolt-solid (MIT) https://heroicons.com
@@ -34,7 +34,18 @@ export const ICON_BOLT = `<svg xmlns="http://www.w3.org/2000/svg" width="16" hei
 // Bootstrap Icons flower3 (MIT) https://icons.getbootstrap.com
 export const ICON_TREE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="1.5 1.5 13 13" fill="currentColor" aria-label="Switch to Natural palettes"><path d="M11.424 8c.437-.052.811-.136 1.04-.268a2 2 0 0 0-2-3.464c-.229.132-.489.414-.752.767C9.886 4.63 10 4.264 10 4a2 2 0 1 0-4 0c0 .264.114.63.288 1.035-.263-.353-.523-.635-.752-.767a2 2 0 0 0-2 3.464c.229.132.603.216 1.04.268-.437.052-.811.136-1.04.268a2 2 0 1 0 2 3.464c.229-.132.489-.414.752-.767C6.114 11.37 6 11.736 6 12a2 2 0 1 0 4 0c0-.264-.114-.63-.288-1.035.263.353.523.635.752.767a2 2 0 1 0 2-3.464c-.229-.132-.603-.216-1.04-.268M9 4a2 2 0 0 1-.045.205q-.059.2-.183.484a13 13 0 0 1-.637 1.223L8 6.142l-.135-.23a13 13 0 0 1-.637-1.223 4 4 0 0 1-.183-.484A2 2 0 0 1 7 4a1 1 0 1 1 2 0M3.67 5.5a1 1 0 0 1 1.366-.366 2 2 0 0 1 .156.142q.142.15.326.4c.245.333.502.747.742 1.163l.13.232-.265.002a13 13 0 0 1-1.379-.06 4 4 0 0 1-.51-.083 2 2 0 0 1-.2-.064A1 1 0 0 1 3.67 5.5m1.366 5.366a1 1 0 0 1-1-1.732l.047-.02q.055-.02.153-.044.202-.048.51-.083a13 13 0 0 1 1.379-.06q.135 0 .266.002l-.131.232c-.24.416-.497.83-.742 1.163a4 4 0 0 1-.327.4 2 2 0 0 1-.155.142M9 12a1 1 0 0 1-2 0 2 2 0 0 1 .045-.206q.058-.198.183-.483c.166-.378.396-.808.637-1.223L8 9.858l.135.23c.241.415.47.845.637 1.223q.124.285.183.484A1.3 1.3 0 0 1 9 12m3.33-6.5a1 1 0 0 1-.366 1.366 2 2 0 0 1-.2.064q-.202.048-.51.083c-.412.045-.898.061-1.379.06q-.135 0-.266-.002l.131-.232c.24-.416.497-.83.742-1.163a4 4 0 0 1 .327-.4q.07-.074.114-.11l.041-.032a1 1 0 0 1 1.366.366m-1.366 5.366a2 2 0 0 1-.155-.141 4 4 0 0 1-.327-.4A13 13 0 0 1 9.74 9.16l-.13-.232.265-.002c.48-.001.967.015 1.379.06q.308.035.51.083.098.024.153.044l.048.02a1 1 0 1 1-1 1.732zM8 9a1 1 0 1 1 0-2 1 1 0 0 1 0 2"/></svg>`;
 
-export const PALETTE_SETS = {
+type PaletteTheme = {
+  bg: string; surface: string; surface2: string; text: string;
+  textMuted: string; accent: string; errorBg: string; errorText: string;
+};
+export type Palette = {
+  key: string; label: string; color: string; glow: string;
+  theme: PaletteTheme; complements: string[];
+};
+
+// Keyed by set number (1 = Natural, 2 = Electric). Typed Record<number, ...>
+// because set numbers flow in from unchecked state as plain numbers.
+export const PALETTE_SETS: Record<number, Palette[]> = {
   1: [
     {
       key: 'forest', label: 'Forest',
@@ -137,7 +148,7 @@ export const PALETTE_SETS = {
   ],
 };
 
-export function getPaletteByKey(key) {
+export function getPaletteByKey(key: string | null | undefined): Palette | null {
   for (const set of [PALETTE_SETS[1], PALETTE_SETS[2]]) {
     const found = set.find(p => p.key === key);
     if (found) return found;
@@ -145,7 +156,7 @@ export function getPaletteByKey(key) {
   return null; // callers that need a non-null default must handle this
 }
 
-export function getGlowForColor(hex) {
+export function getGlowForColor(hex: string | null | undefined): string {
   for (const set of [PALETTE_SETS[1], PALETTE_SETS[2]]) {
     const p = set.find(p => p.color === hex);
     if (p) return p.glow;
@@ -158,7 +169,11 @@ export function getGlowForColor(hex) {
 // styled via the global --my-status/--my-glow CSS vars instead, a separate path.
 // Available + color + palettes → background + border + glow; available + color
 // without palettes → background only; otherwise cleared.
-export function paintStatusDot(dot, { color, available, palettesEnabled = true }) {
+export function paintStatusDot(
+  dot: HTMLElement | null | undefined,
+  { color, available, palettesEnabled = true }:
+    { color?: string | null; available?: boolean; palettesEnabled?: boolean },
+) {
   if (!dot) return;
   dot.classList.toggle('available', available);
   if (available && color && palettesEnabled) {
@@ -177,13 +192,13 @@ export function paintStatusDot(dot, { color, available, palettesEnabled = true }
   }
 }
 
-export function applyPaletteVars(key) {
+export function applyPaletteVars(key: string | null | undefined) {
   const p = getPaletteByKey(key) || PALETTE_SETS[1][0]; // forest fallback
   document.documentElement.style.setProperty('--my-status', p.color);
   document.documentElement.style.setProperty('--my-glow', p.glow);
 }
 
-export function applyThemeVars(theme) {
+export function applyThemeVars(theme: PaletteTheme) {
   const r = document.documentElement;
   r.style.setProperty('--bg',         theme.bg);
   r.style.setProperty('--surface',    theme.surface);
@@ -209,7 +224,7 @@ export function resetThemeVars() {
   r.style.setProperty('--error-text', '#fca5a5');
 }
 
-export function enterPaletteMode(key, userId) {
+export function enterPaletteMode(key: string, userId: string) {
   _paletteEnterAt = Date.now();
   if (!isHintSeen('theme')) {
     markHintSeen('theme');
@@ -224,7 +239,7 @@ export function enterPaletteMode(key, userId) {
   renderSwatchRow(userId);
 }
 
-export function exitPaletteMode(userId) {
+export function exitPaletteMode(userId: string) {
   const state = getPaletteState();
   state.sets[String(state.activeSet)].activePaletteKey = null;
   setPaletteState(state);
@@ -245,7 +260,7 @@ export function exitPaletteMode(userId) {
 
 // Set-toggle button (bolt = Set 1 / tree = Set 2) with its first-use pulse. The
 // pulse clears once on first tap; the caller supplies the toggle action.
-export function buildSetToggleButton(activeSet, onToggle) {
+export function buildSetToggleButton(activeSet: number, onToggle: (nextSet: number) => void) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'set-toggle-btn';
@@ -265,7 +280,17 @@ export function buildSetToggleButton(activeSet, onToggle) {
 // A single swatch <button>. `datasetAttr` is 'key' (Direct) or 'paletteKey'
 // (group); `extraClass` adds 'group-swatch'; `keySwatch` adds the key-swatch
 // class for palette mode.
-export function buildSwatch({ color, key, datasetAttr, extraClass = '', selected = false, keySwatch = false, onTap }) {
+export function buildSwatch(
+  { color, key, datasetAttr, extraClass = '', selected = false, keySwatch = false, onTap }: {
+    color: string;
+    key?: string | null;
+    datasetAttr?: string;
+    extraClass?: string;
+    selected?: boolean;
+    keySwatch?: boolean;
+    onTap: (e: MouseEvent) => void;
+  },
+) {
   const swatch = document.createElement('button');
   swatch.type = 'button';
   swatch.className = 'swatch' + (keySwatch ? ' key-swatch' : '') + (extraClass ? ' ' + extraClass : '');
@@ -280,7 +305,7 @@ export function buildSwatch({ color, key, datasetAttr, extraClass = '', selected
 // (seen both set icons + gone available with a custom color + never entered
 // palette mode). Centralized so neither renderer can skip it (the original
 // divergence bug — see hints.js).
-export function applyThemeHintIfDue(row) {
+export function applyThemeHintIfDue(row: Element) {
   if (shouldShowThemeHint()) {
     const selectedSwatch = row.querySelector('.swatch.selected');
     if (selectedSwatch) selectedSwatch.classList.add('theme-hint');
@@ -291,7 +316,7 @@ export function applyThemeHintIfDue(row) {
 // window after entering palette mode (survives the userPrefs echo re-render via
 // --key-spin-delay). Returns false once the window has elapsed so the caller can
 // drop its enter timestamp.
-export function applyKeySpin(swatch, enterAt) {
+export function applyKeySpin(swatch: HTMLElement, enterAt: number | null | undefined) {
   if (enterAt == null) return false;
   const elapsed = Date.now() - enterAt;
   if (elapsed >= KEY_SPIN_MS) return false;
@@ -302,8 +327,9 @@ export function applyKeySpin(swatch, enterAt) {
   return true;
 }
 
-function renderSwatchRow(userId) {
-  const row = document.getElementById('swatch-row');
+function renderSwatchRow(userId: string) {
+  // Assertion: #swatch-row is static markup, present whenever this runs.
+  const row = document.getElementById('swatch-row') as HTMLElement;
   row.innerHTML = '';
   const state = getPaletteState();
   const setNum = state.activeSet;
@@ -352,7 +378,8 @@ function renderSwatchRow(userId) {
     startSwatchHints(row, state);
   } else {
     // Palette mode: Key Swatch at index K, complement swatches at other positions
-    const keyPalette = getPaletteByKey(activePaletteKey);
+    // (non-null: this branch requires keyIdx >= 0, i.e. the key was found).
+    const keyPalette = getPaletteByKey(activePaletteKey)!;
     const complements = keyPalette.complements;
     const activeColor = state.sets[setKey].selectedColor;
     let ci = 0;
@@ -411,10 +438,10 @@ function renderSwatchRow(userId) {
   document.dispatchEvent(new CustomEvent('palette-state-changed'));
 }
 
-export function startSwatchHints(row, state) {
+export function startSwatchHints(row: Element, state: unknown) {
   stopSwatchHintsFor(row);
   if (!shouldShowSwatchWave(state)) return;
-  const swatches = Array.from(row.querySelectorAll('.swatch:not(.selected)'));
+  const swatches = Array.from(row.querySelectorAll<HTMLElement>('.swatch:not(.selected)'));
   if (swatches.length === 0) return;
   swatches.forEach(s => s.classList.add('hint-wave'));
   let head = 0;
@@ -462,11 +489,11 @@ export function applyThemeHint() {
   }
 }
 
-function stopSwatchHintsFor(row) {
+function stopSwatchHintsFor(row: Element) {
   const t = _hintTimersByRow.get(row);
   if (t) clearTimeout(t);
   _hintTimersByRow.delete(row);
-  row.querySelectorAll('.swatch.hint-wave').forEach(s => {
+  row.querySelectorAll<HTMLElement>('.swatch.hint-wave').forEach(s => {
     s.classList.remove('hint-wave');
     s.style.boxShadow = '';
   });
@@ -476,13 +503,13 @@ function stopSwatchHints() {
   for (const row of [..._hintTimersByRow.keys()]) stopSwatchHintsFor(row);
   // Legacy safety net: also strip the class from any row we never registered
   // (e.g. rows that called the old global startSwatchHints before this fix).
-  document.querySelectorAll('.swatch.hint-wave').forEach(s => {
+  document.querySelectorAll<HTMLElement>('.swatch.hint-wave').forEach(s => {
     s.classList.remove('hint-wave');
     s.style.boxShadow = '';
   });
 }
 
-export function tapSwatch(key, userId) {
+export function tapSwatch(key: string, userId: string) {
   stopSwatchHints();
   const state = getPaletteState();
   const setKey = String(state.activeSet);
@@ -496,13 +523,15 @@ export function tapSwatch(key, userId) {
 
   // First tap on unselected swatch: status color change only
   state.sets[setKey].selectedKey = key;
-  const palette = getPaletteByKey(key);
+  // Non-null: tapSwatch only fires from swatches built out of PALETTE_SETS.
+  const palette = getPaletteByKey(key)!;
   state.sets[setKey].selectedColor = palette.color;
   setPaletteState(state);
   setStatusColor(userId, palette.color).catch(() => {});
   document.dispatchEvent(new Event('my-combo-changed'));
   applyPaletteVars(key);
-  const row = document.getElementById('swatch-row');
+  // Assertion: #swatch-row is static markup (same as renderSwatchRow).
+  const row = document.getElementById('swatch-row') as HTMLElement;
   row.querySelectorAll('.swatch').forEach(s => {
     s.classList.remove('selected');
     s.classList.remove('theme-hint');
@@ -541,7 +570,7 @@ export function tapSwatch(key, userId) {
   document.dispatchEvent(new CustomEvent('palette-state-changed'));
 }
 
-export function initSwatches(userId) {
+export function initSwatches(userId: string) {
   renderSwatchRow(userId);
   // Re-render whenever userPrefs sync echoes a sibling-device pick.
   document.addEventListener('palette-state-synced', () => renderSwatchRow(userId));
@@ -559,11 +588,15 @@ export function initSwatches(userId) {
 //   selectedKey via reverse lookup in PALETTE_SETS.
 // - statusColor doesn't correspond to any known palette in base mode:
 //   leave local state alone (could be legacy / future / corrupt data).
-export function syncPaletteStateFromServer(userId, statusColor, paletteKey) {
+export function syncPaletteStateFromServer(
+  userId: string,
+  statusColor: string | null | undefined,
+  paletteKey: string | null | undefined,
+) {
   if (!statusColor) return;
 
-  let foundSet = null;
-  let foundKey = null;
+  let foundSet: number | null = null;
+  let foundKey: string | null = null;
 
   if (paletteKey) {
     for (const setNum of [1, 2]) {
@@ -622,7 +655,7 @@ export function syncPaletteStateFromServer(userId, statusColor, paletteKey) {
   renderSwatchRow(userId);
 }
 
-export function switchSet(toSet, userId) {
+export function switchSet(toSet: number, userId: string) {
   const state = getPaletteState();
   state.activeSet = toSet;
   setPaletteState(state);
@@ -639,7 +672,8 @@ export function switchSet(toSet, userId) {
   document.dispatchEvent(new Event('my-combo-changed'));
 
   if (activePaletteKey) {
-    applyThemeVars(getPaletteByKey(activePaletteKey).theme);
+    // Non-null: an activePaletteKey is only ever written from PALETTE_SETS keys.
+    applyThemeVars(getPaletteByKey(activePaletteKey)!.theme);
     setPaletteKey(userId, activePaletteKey).catch(() => {});
   } else {
     resetThemeVars();
