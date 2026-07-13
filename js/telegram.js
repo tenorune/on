@@ -7,6 +7,7 @@ import { TELEGRAM_ENABLED } from './features.js';
 import { auth, callValidateTelegram } from './firebase-config.js';
 import { whenRtdbAuthReady } from './auth.js';
 import { getUser } from './db.js';
+import { NAME_CAP } from '../shared/limits.js';
 
 export function tgWebApp() {
   return (typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp) || null;
@@ -27,16 +28,16 @@ export function isTelegramLinked() {
   return _linkState?.linked === true;
 }
 
-// Mirrors the 40-char creatorLabel cap in database.rules.json / functions
-// validation — keep the three in step (W3-B CL#9).
-const TG_NAME_CAP = 40;
+// The 40-char creatorLabel cap lives in shared/limits.js (rules parity pinned
+// by tests/name-cap-invariant.test.js). Trim-then-slice order is deliberate
+// here — see the clampName note in shared/limits.js.
 
 // The Telegram user's first name (from the unsigned initDataUnsafe),
 // display-ready: trimmed, capped to the DB label limit. Used as the default
 // label when auto-creating a personal invite and as the redeemer name.
 // Empty string outside Telegram or when the client withholds the user object.
 export function telegramFirstName() {
-  return (tgWebApp()?.initDataUnsafe?.user?.first_name || '').trim().slice(0, TG_NAME_CAP);
+  return (tgWebApp()?.initDataUnsafe?.user?.first_name || '').trim().slice(0, NAME_CAP);
 }
 
 // Boot auth for the Telegram context. Returns the same { identity, isNew }

@@ -64,17 +64,10 @@ const GROUP_TITLES = {
   invite: (name, group) => `${name} invited you to ${group}`,
 };
 
-// Cap user-controlled labels so a 500-char display name / group name can't
-// produce an oversized FCM title (lock-screen truncation / payload bloat). 40
-// chars comfortably exceeds what's visible on a notification (#164 R3b).
-const LABEL_MAX = 40;
-const clampLabel = (s) => String(s ?? '').slice(0, LABEL_MAX);
-
-// Trimming variant for labels that get STORED (group display names, etc.), so
-// a name that is cut mid-whitespace doesn't keep a dangling space. Same cap as
-// buildMessage's clampLabel — one constant, can't half-apply (telegram.js used
-// to re-implement this).
-export const clampName = (s) => clampLabel(s).trim();
+// Label caps live in shared/limits.js (one copy; rules parity pinned by
+// tests/name-cap-invariant.test.js). clampName re-exported for telegram.js.
+import { clampLabel } from './_shared/limits.js';
+export { clampName } from './_shared/limits.js';
 
 export function buildMessage(type, name, opts = {}) {
   const n = clampLabel(name);
