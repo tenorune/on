@@ -39,6 +39,9 @@ export function effectiveAvailable(override, primaryStatus, primaryAU, now) {
 // "Globally available right now" over a whole presence (or override) node —
 // the same predicate as effectiveAvailable's no-override fallback, taken as
 // the object so callers holding users/{uid}/presence don't re-inline it.
+// NOTE: the client's js/utils.js isAvailable deliberately differs on null
+// availableUntil (open-ended reads available there, not here) — parity pinned
+// in tests/presencePredicateParity.test.js; don't unify blind.
 export function primaryAvailable(presence, now) {
   return presence?.status === 'available' && isFutureMs(presence.availableUntil, now);
 }

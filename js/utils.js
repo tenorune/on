@@ -70,6 +70,9 @@ export function isExpired(availableUntil) {
 // Single source of truth for "is this presence effectively available right now":
 // status is 'available' AND its window hasn't lapsed (null availableUntil = no
 // expiry). Replaces ~10 inline reimplementations that had drifted into two forms.
+// NOTE: the server's functions/presence-core.js primaryAvailable deliberately
+// differs on null availableUntil (open-ended reads available here, not there)
+// — parity pinned in tests/presencePredicateParity.test.js; don't unify blind.
 export function isAvailable(status, availableUntil) {
   return status === 'available' && !isExpired(availableUntil);
 }
