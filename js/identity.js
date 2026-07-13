@@ -1,8 +1,12 @@
+// @ts-check
 // js/identity.js
 const { WORDLIST, WORDSET } = require('./wordlist.js');
 
 const STORAGE_KEY = 'statusapp_identity';
 
+/** @typedef {{ userId: string, code: string, recoveryCode: string }} Identity */
+
+/** @returns {string} */
 function generateCode() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = '';
@@ -12,6 +16,7 @@ function generateCode() {
   return code;
 }
 
+/** @returns {string} */
 function generateRecoveryCode() {
   const words = [];
   const buf = new Uint32Array(4);
@@ -24,6 +29,7 @@ function generateRecoveryCode() {
   return words.join('-');
 }
 
+/** @param {unknown} input @returns {string | null} */
 function parseRecoveryCode(input) {
   if (typeof input !== 'string') return null;
   const normalized = input
@@ -39,6 +45,7 @@ function parseRecoveryCode(input) {
   return tokens.join('-');
 }
 
+/** @param {string} recoveryCode @returns {Promise<string>} */
 async function deriveUserIdFromRecoveryCode(recoveryCode) {
   const encoded = new TextEncoder().encode(recoveryCode);
   const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
@@ -48,6 +55,7 @@ async function deriveUserIdFromRecoveryCode(recoveryCode) {
   return hex.slice(0, 32);
 }
 
+/** @returns {Identity | null} */
 function loadIdentity() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
@@ -66,6 +74,7 @@ function loadIdentity() {
   return null;
 }
 
+/** @param {string} userId @param {string} code @param {string} recoveryCode */
 function saveIdentity(userId, code, recoveryCode) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ userId, code, recoveryCode }));
 }
