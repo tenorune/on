@@ -1,4 +1,4 @@
-// js/invites.js
+// js/invites.ts
 // Invite-link primitive. Phase 0 supports personal-scope only.
 // Token format: 22 chars from URL-safe base64 (128 bits of entropy).
 
@@ -13,11 +13,55 @@ import {
 import { getFollowing } from './store.js';
 import { joinGroup } from './groups.js';
 
+// The invite-index leaf: which collection owns a token (spec §9). The db layer
+// returns it as an opaque record; this is the shape this module reads off it.
+interface InviteIndexEntry {
+  scope?: string;
+  ownerPath: string;
+}
+
+// A personal- or group-scope invite record as stored under the owner path. Every
+// field is optional because the db layer hands back a loose record; the readers
+// below guard each one before use.
+interface InviteRecord {
+  scope?: string;
+  token?: string;
+  creatorUid?: string;
+  creatorLabel?: string;
+  createdAt?: number;
+  expiresAt?: number | null;
+  redemptionCap?: number | null;
+  redemptionsUsed?: number;
+  revoked?: boolean;
+}
+
+// The group name leaf readGroupName returns (only `.name` is consumed here).
+interface GroupNameRecord {
+  name: unknown;
+}
+
+// Pre-fetched records plumbed forward between the two-phase group-redemption
+// calls so the post-prompt redeem skips the reads the pre-prompt preview paid for.
+interface RedeemCache {
+  indexEntry?: InviteIndexEntry | null;
+  group?: GroupNameRecord | null;
+}
+
+interface AttemptRedeemOpts {
+  cache?: RedeemCache;
+  redeemerName?: string | null;
+  displayName?: string;
+}
+
+interface RedeemGroupOpts {
+  cache?: RedeemCache;
+}
+
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 const LABEL_MAX = 40;
 const APP_URL_BASE = (typeof location !== 'undefined' && location.origin) ? location.origin : '';
 
-export function generateInviteToken() {
+export function generateInviteToken(): string {
   const bytes = new Uint8Array(16); // 128 bits
   globalThis.crypto.getRandomValues(bytes);
   // Encode 16 bytes (128 bits) → 22 base64url chars (each char = 6 bits; 22 * 6 = 132, last 4 bits are zero-padded).
@@ -40,7 +84,7 @@ export function generateInviteToken() {
   return out;
 }
 
-function validateLabel(raw) {
+function validateLabel(raw: unknown): string {
   if (typeof raw !== 'string') throw new Error('Creator label must be a string.');
   const trimmed = raw.trim();
   if (trimmed.length === 0) throw new Error('Creator label cannot be empty.');
@@ -48,21 +92,22 @@ function validateLabel(raw) {
   return trimmed;
 }
 
-export function buildInviteUrl(token) {
+export function buildInviteUrl(token: string): string {
   // /invite, not /?i= (spec N1/A1): the shared link itself lands on the
   // mint-free landing — no boot, no detection needed, identically on every
   // platform. Legacy /?i= links are caught by the boot gate (inviteBootGate).
   return `${APP_URL_BASE}/invite?i=${token}`;
 }
 
-function findActivePersonalInvite(collection) {
+function findActivePersonalInvite(collection: Record<string, unknown> | null | undefined) {
   for (const [token, inv] of Object.entries(collection || {})) {
-    if (inv && inv.scope === 'personal' && !inv.revoked) return { token, ...inv };
+    const rec = inv as InviteRecord | null;
+    if (rec && rec.scope === 'personal' && !rec.revoked) return { token, ...rec };
   }
   return null;
 }
 
-export async function createPersonalInvite(userId, creatorLabelRaw) {
+export async function createPersonalInvite(userId: string, creatorLabelRaw: unknown) {
   const creatorLabel = validateLabel(creatorLabelRaw);
 
   // Enforce one-active-personal-invite-per-user (spec §9.3).
@@ -73,7 +118,7 @@ export async function createPersonalInvite(userId, creatorLabelRaw) {
   }
 
   // Allocate a fresh token, retrying on the very rare collision.
-  let token;
+  let token!: string;
   let claimed = false;
   for (let attempt = 0; attempt < 8 && !claimed; attempt += 1) {
     token = generateInviteToken();
@@ -98,7 +143,7 @@ export async function createPersonalInvite(userId, creatorLabelRaw) {
   return { token, url: buildInviteUrl(token), existing: false };
 }
 
-export async function revokePersonalInvite(userId) {
+export async function revokePersonalInvite(userId: string) {
   const collection = await readUserInvites(userId);
   const active = findActivePersonalInvite(collection);
   if (!active) return;
@@ -106,7 +151,7 @@ export async function revokePersonalInvite(userId) {
   await releaseInviteToken(active.token);
 }
 
-export async function regeneratePersonalInvite(userId, creatorLabelRaw) {
+export async function regeneratePersonalInvite(userId: string, creatorLabelRaw: unknown) {
   // Validate label up-front so a bad label doesn't cause us to revoke first and fail second.
   const creatorLabel = validateLabel(creatorLabelRaw);
   await revokePersonalInvite(userId);
@@ -117,7 +162,7 @@ export async function regeneratePersonalInvite(userId, creatorLabelRaw) {
 // unchanged, so already-shared links keep working). Lets a re-share refresh a
 // stale label — e.g. the arrival interstitial naming the inviter by their
 // current Telegram first name rather than a name captured at create time (§29).
-export async function updateInviteLabel(userId, token, creatorLabelRaw) {
+export async function updateInviteLabel(userId: string, token: string, creatorLabelRaw: unknown) {
   const creatorLabel = validateLabel(creatorLabelRaw);
   await setInviteLabel(userId, token, creatorLabel);
   return creatorLabel;
@@ -129,10 +174,10 @@ export async function updateInviteLabel(userId, token, creatorLabelRaw) {
 //
 // alreadyFollowingSet: optional Set<string> of creator UIDs the redeemer already follows.
 //   Null/undefined is treated as "not following anyone" — the function won't throw.
-export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alreadyFollowingSet, redeemerName) {
+export async function redeemPersonalInvite(token: string, redeemerUid: string, redeemerCode: string, alreadyFollowingSet?: Set<string> | null, redeemerName?: string | null) {
   if (!token || typeof token !== 'string') return { ok: false, reason: 'not-found' };
 
-  const indexEntry = await readInviteIndex(token);
+  const indexEntry = await readInviteIndex(token) as InviteIndexEntry | null;
   if (!indexEntry) return { ok: false, reason: 'not-found' };
   if (indexEntry.scope !== 'personal') return { ok: false, reason: 'not-found' };
 
@@ -141,7 +186,7 @@ export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alr
   if (!match) return { ok: false, reason: 'not-found' };
   const [, creatorUid] = match;
 
-  const invite = await readUserInvite(creatorUid, token);
+  const invite = await readUserInvite(creatorUid, token) as InviteRecord | null;
   if (!invite) return { ok: false, reason: 'not-found' };
   if (invite.revoked) return { ok: false, reason: 'revoked' };
   if (invite.expiresAt != null && invite.expiresAt < Date.now()) return { ok: false, reason: 'expired' };
@@ -185,10 +230,10 @@ export async function redeemPersonalInvite(token, redeemerUid, redeemerCode, alr
 // indexEntry/group records. When the new-user group-redemption flow calls this
 // twice — once to discover that displayName is needed, once after the prompt —
 // passing `cache` back on the second call skips duplicate index/group reads.
-export async function attemptRedeemFromUrl(token, redeemerUid, redeemerCode, opts = {}) {
+export async function attemptRedeemFromUrl(token: string, redeemerUid: string, redeemerCode: string, opts: AttemptRedeemOpts = {}) {
   if (!token) return null;
   const cache = opts.cache || {};
-  const indexEntry = cache.indexEntry !== undefined ? cache.indexEntry : await readInviteIndex(token);
+  const indexEntry = cache.indexEntry !== undefined ? cache.indexEntry : (await readInviteIndex(token)) as InviteIndexEntry | null;
   if (!indexEntry) return { ok: false, reason: 'not-found' };
 
   if (indexEntry.scope === 'personal') {
@@ -218,7 +263,7 @@ export async function attemptRedeemFromUrl(token, redeemerUid, redeemerCode, opt
   return { ok: false, reason: 'not-found' };
 }
 
-function parseGroupIdFromOwnerPath(ownerPath) {
+function parseGroupIdFromOwnerPath(ownerPath: string): string | null {
   const m = ownerPath.match(/^groups\/([^/]+)\/invites\/[^/]+$/);
   return m ? m[1] : null;
 }
@@ -238,7 +283,7 @@ function parseGroupIdFromOwnerPath(ownerPath) {
 // 'invite-preview-unavailable' when the callable itself failed (network,
 // server) — after one internal retry. Callers must not blanket-catch back to
 // null: "that invite is dead" and "couldn't check" are different answers.
-export async function resolveInvitePreview(token) {
+export async function resolveInvitePreview(token: string) {
   if (!token) return null;
   try {
     return await callResolveInvitePreview(token);
@@ -255,14 +300,14 @@ export async function resolveInvitePreview(token) {
 // screen to name the inviter before the user has an identity. Returns null on any
 // failure (missing token, not in index, not personal, revoked, DB error) so the
 // caller can fall back to the generic welcome.
-export async function resolveInviteCreatorLabel(token) {
+export async function resolveInviteCreatorLabel(token: string): Promise<string | null> {
   if (!token) return null;
   try {
-    const indexEntry = await readInviteIndex(token);
+    const indexEntry = await readInviteIndex(token) as InviteIndexEntry | null;
     if (!indexEntry || indexEntry.scope !== 'personal') return null;
     const match = indexEntry.ownerPath.match(/^users\/([^/]+)\/invites\/([^/]+)$/);
     if (!match) return null;
-    const invite = await readUserInvite(match[1], match[2]);
+    const invite = await readUserInvite(match[1], match[2]) as InviteRecord | null;
     if (!invite || invite.revoked) return null;
     return invite.creatorLabel || null;
   } catch {
@@ -270,7 +315,7 @@ export async function resolveInviteCreatorLabel(token) {
   }
 }
 
-export function extractInviteTokenFromUrl(urlStr) {
+export function extractInviteTokenFromUrl(urlStr: string): string | null {
   try {
     const url = new URL(urlStr);
     const t = url.searchParams.get('i');
@@ -285,7 +330,7 @@ export function extractInviteTokenFromUrl(urlStr) {
 // The SW's cold-start deep-link for invite/follow-request taps (sw.template.js
 // coldStartUrl). When set, boot lands in Direct and opens the Inbox modal
 // instead of restoring the user's last (possibly group) context.
-export function extractInboxIntentFromUrl(urlStr) {
+export function extractInboxIntentFromUrl(urlStr: string): boolean {
   try {
     return new URL(urlStr).searchParams.get('inbox') === '1';
   } catch {
@@ -296,7 +341,7 @@ export function extractInboxIntentFromUrl(urlStr) {
 // The SW's cold-start deep-link for a Direct-scope knock/call/availability tap.
 // When set, boot lands in Direct (skip the last-context restore) so the Direct
 // activity is visible, without opening any modal (#144).
-export function extractDirectIntentFromUrl(urlStr) {
+export function extractDirectIntentFromUrl(urlStr: string): boolean {
   try {
     return new URL(urlStr).searchParams.get('direct') === '1';
   } catch {
@@ -304,23 +349,24 @@ export function extractDirectIntentFromUrl(urlStr) {
   }
 }
 
-function findActiveGroupInviteForCreator(collection, creatorUid) {
+function findActiveGroupInviteForCreator(collection: Record<string, unknown> | null | undefined, creatorUid: string) {
   for (const [token, inv] of Object.entries(collection || {})) {
-    if (inv && inv.scope === 'group' && inv.creatorUid === creatorUid && !inv.revoked) {
-      return { token, ...inv };
+    const rec = inv as InviteRecord | null;
+    if (rec && rec.scope === 'group' && rec.creatorUid === creatorUid && !rec.revoked) {
+      return { token, ...rec };
     }
   }
   return null;
 }
 
-export async function createGroupInvite(creatorUid, groupId) {
+export async function createGroupInvite(creatorUid: string, groupId: string) {
   const collection = await readGroupInvites(groupId);
   const existing = findActiveGroupInviteForCreator(collection, creatorUid);
   if (existing) {
     return { token: existing.token, url: buildInviteUrl(existing.token), existing: true };
   }
 
-  let token;
+  let token!: string;
   let claimed = false;
   for (let attempt = 0; attempt < 8 && !claimed; attempt += 1) {
     token = generateInviteToken();
@@ -342,7 +388,7 @@ export async function createGroupInvite(creatorUid, groupId) {
   return { token, url: buildInviteUrl(token), existing: false };
 }
 
-export async function revokeGroupInvite(creatorUid, groupId) {
+export async function revokeGroupInvite(creatorUid: string, groupId: string) {
   const collection = await readGroupInvites(groupId);
   const active = findActiveGroupInviteForCreator(collection, creatorUid);
   if (!active) return;
@@ -350,7 +396,7 @@ export async function revokeGroupInvite(creatorUid, groupId) {
   await releaseInviteToken(active.token);
 }
 
-export async function regenerateGroupInvite(creatorUid, groupId) {
+export async function regenerateGroupInvite(creatorUid: string, groupId: string) {
   await revokeGroupInvite(creatorUid, groupId);
   return createGroupInvite(creatorUid, groupId);
 }
@@ -358,11 +404,11 @@ export async function regenerateGroupInvite(creatorUid, groupId) {
 // `opts.cache` mirrors `attemptRedeemFromUrl`'s cache: pre-fetched indexEntry
 // and group records, plumbed forward so the post-prompt redemption skips the
 // reads the pre-prompt preview already paid for.
-export async function redeemGroupInvite(token, redeemerUid, displayName, opts = {}) {
+export async function redeemGroupInvite(token: string, redeemerUid: string, displayName: string, opts: RedeemGroupOpts = {}) {
   if (!token || typeof token !== 'string') return { ok: false, reason: 'not-found' };
   const cache = opts.cache || {};
 
-  const indexEntry = cache.indexEntry !== undefined ? cache.indexEntry : await readInviteIndex(token);
+  const indexEntry = cache.indexEntry !== undefined ? cache.indexEntry : (await readInviteIndex(token)) as InviteIndexEntry | null;
   if (!indexEntry) return { ok: false, reason: 'not-found' };
   if (indexEntry.scope !== 'group') return { ok: false, reason: 'not-found' };
 
@@ -380,7 +426,7 @@ export async function redeemGroupInvite(token, redeemerUid, displayName, opts = 
   // so a non-member cannot enumerate all active invite tokens.
   const [group, invite, existingMember] = await Promise.all([
     cache.group !== undefined ? Promise.resolve(cache.group) : readGroupName(groupId),
-    readGroupInvite(groupId, token),
+    readGroupInvite(groupId, token) as Promise<InviteRecord | null>,
     readMember(groupId, redeemerUid),
   ]);
   if (!group) return { ok: false, reason: 'group-missing' };
@@ -402,8 +448,8 @@ export async function redeemGroupInvite(token, redeemerUid, displayName, opts = 
   try {
     await joinGroup(groupId, redeemerUid, displayName, { group, existing: existingMember });
   } catch (err) {
-    if (/not found/i.test(err.message || '')) return { ok: false, reason: 'group-missing' };
-    return { ok: false, reason: 'invalid-display-name', message: err.message || 'Invalid display name.' };
+    if (/not found/i.test((err as Error).message || '')) return { ok: false, reason: 'group-missing' };
+    return { ok: false, reason: 'invalid-display-name', message: (err as Error).message || 'Invalid display name.' };
   }
   await incrementGroupInviteRedemptions(groupId, token);
 
