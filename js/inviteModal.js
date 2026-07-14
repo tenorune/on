@@ -76,6 +76,18 @@ export function closeInviteModal() {
 }
 const closeModal = closeInviteModal;
 
+/**
+ * @param {{
+ *   scope: string,
+ *   userId?: string,
+ *   activeInvite?: object | null,
+ *   groupId?: string | null,
+ *   groupName?: string | null,
+ *   followers?: Record<string, unknown>,
+ *   mutuals?: unknown[],
+ *   currentMemberUids?: Set<string>,
+ * }} opts
+ */
 export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, mutuals = [], currentMemberUids = new Set() }) {
   const copy = SCOPE_COPY[scope];
   if (!copy) throw new Error(`Unknown scope: ${scope}`);
