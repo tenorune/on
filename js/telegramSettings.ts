@@ -13,7 +13,7 @@ import { showConfirmModal } from './promptModal.js';
 import { linkReplaceWarning } from './telegramLinkCopy.js';
 import { setButtonBusy, clearButtonBusy } from './utils.js';
 
-export function initTelegramSettings(userId) {
+export function initTelegramSettings(userId: string) {
   const accountSlot = document.getElementById('tg-account-slot');
   const notifySlot = document.getElementById('tg-notify-slot');
   if (!accountSlot || !notifySlot) return;
@@ -57,8 +57,8 @@ export function initTelegramSettings(userId) {
   // The notification-channel pill lives in its own section and is reconciled
   // reactively from userPrefs (see syncNotifyChannel on the watchUserPrefs tick),
   // so it isn't wired here.
-  accountSlot.querySelector('#tg-link-btn').addEventListener('click', showLinkScreen);
-  accountSlot.querySelector('#tg-unlink-btn').addEventListener('click', async () => {
+  accountSlot.querySelector('#tg-link-btn')!.addEventListener('click', showLinkScreen);
+  accountSlot.querySelector('#tg-unlink-btn')!.addEventListener('click', async () => {
     // Confirm + round-trip in the shared modal (W3-A CL#4): busy label on the
     // confirm button, inline error + stay-open on failure — the behaviors the
     // bespoke sheet carried (W1 J#7), now without a second modal implementation
@@ -95,10 +95,10 @@ export function initTelegramSettings(userId) {
 // straight into the linked account.
 export function showLinkScreen() {
   const el = document.getElementById('restore-screen');
-  const input = document.getElementById('restore-input');
-  const error = document.getElementById('restore-error');
-  const submit = document.getElementById('restore-submit-btn');
-  const cancel = document.getElementById('restore-cancel-btn');
+  const input = document.getElementById('restore-input') as HTMLInputElement;
+  const error = document.getElementById('restore-error')!;
+  const submit = document.getElementById('restore-submit-btn') as HTMLButtonElement;
+  const cancel = document.getElementById('restore-cancel-btn')!;
   const form = document.getElementById('restore-form');
   if (!el) return Promise.resolve(false);
   input.value = '';
@@ -122,8 +122,8 @@ export function showLinkScreen() {
   }
 
   return new Promise((resolve) => {
-    const showError = (msg) => { error.textContent = msg; error.classList.remove('hidden'); };
-    const onFormSubmit = (e) => e.preventDefault();
+    const showError = (msg: string) => { error.textContent = msg; error.classList.remove('hidden'); };
+    const onFormSubmit = (e: Event) => e.preventDefault();
     async function onSubmit() {
       const normalized = parseRecoveryCode(input.value);
       if (!normalized) { showError("That doesn't look like a secret phrase."); return; }
@@ -132,7 +132,7 @@ export function showLinkScreen() {
         await callLinkTelegram(tgWebApp().initData, normalized);
       } catch (e) {
         clearButtonBusy(submit);
-        showError(/not-found/.test(e?.code || '') ? 'No account found with that phrase.' : "Couldn't link right now. Try again.");
+        showError(/not-found/.test((e as { code?: string })?.code || '') ? 'No account found with that phrase.' : "Couldn't link right now. Try again.");
         return;
       }
       // A linked account is a phrase account — stash the phrase in the local
@@ -151,7 +151,7 @@ export function showLinkScreen() {
       cancel.removeEventListener('click', onCancel);
       if (form) form.removeEventListener('submit', onFormSubmit);
       if (subtext) subtext.classList.add('hidden');
-      el.classList.add('hidden');
+      el!.classList.add('hidden');
     }
     submit.addEventListener('click', onSubmit);
     cancel.addEventListener('click', onCancel);
