@@ -11,19 +11,24 @@ import { getFollowing } from './prefs.js';
 import { setFollowerName } from './store.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 
-let _myUid = null;
-let _myCode = null;
-let _pending = {};               // groupId → { from, ts }
-let _followRequests = {};        // requesterUid → { from, groupId, ts }
-let _unsubscribe = null;
-let _frUnsubscribe = null;
+// Boundary shapes for the db reads (watchers/reads return Record<string, unknown>).
+interface PendingRecord { from: string; ts: number; }
+interface FollowRequestRecord { from: string; groupId?: string; ts: number; }
+interface MemberRecord { displayName?: string; }
+
+let _myUid: string | null = null;
+let _myCode: string | null = null;
+let _pending: Record<string, PendingRecord> = {};               // groupId → { from, ts }
+let _followRequests: Record<string, FollowRequestRecord> = {};   // requesterUid → { from, groupId, ts }
+let _unsubscribe: (() => void) | null = null;
+let _frUnsubscribe: (() => void) | null = null;
 let _overlayHandlerInstalled = false;
 
 // "Unseen" tracking (per-device, like the knock-pending cue). An invite is
 // unseen until the user opens the Inbox. Keyed by groupId:ts so a re-invite
 // (new ts after a decline) glows again. localStorage so it survives reloads.
 const SEEN_KEY = 'statusapp_inbox_seen';
-let _seen = new Set();
+let _seen: Set<string> = new Set();
 function loadSeen() {
   try { _seen = new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')); }
   catch { _seen = new Set(); }
@@ -31,8 +36,8 @@ function loadSeen() {
 function persistSeen() {
   try { localStorage.setItem(SEEN_KEY, JSON.stringify([..._seen])); } catch { /* quota */ }
 }
-function inviteKey(groupId, record) { return `${groupId}:${record?.ts ?? ''}`; }
-function followRequestKey(reqUid, record) { return `fr:${reqUid}:${record?.ts ?? ''}`; }
+function inviteKey(groupId: string, record: PendingRecord | undefined) { return `${groupId}:${record?.ts ?? ''}`; }
+function followRequestKey(reqUid: string, record: FollowRequestRecord | undefined) { return `fr:${reqUid}:${record?.ts ?? ''}`; }
 function pendingKeys() { return Object.entries(_pending).map(([gid, r]) => inviteKey(gid, r)); }
 function followRequestKeys() { return Object.entries(_followRequests).map(([uid, r]) => followRequestKey(uid, r)); }
 function allKeys() { return pendingKeys().concat(followRequestKeys()); }
@@ -52,7 +57,7 @@ function markAllSeen() {
   if (changed) persistSeen();
 }
 
-export function initInbox(uid, code) {
+export function initInbox(uid: string, code: string) {
   _myUid = uid;
   _myCode = code;
   _groupNameCache.clear();
@@ -64,9 +69,9 @@ export function initInbox(uid, code) {
     if (totalCount() === 0) closeInboxModal();
   };
   if (_unsubscribe) _unsubscribe();
-  _unsubscribe = watchPendingInvites(uid, (snap) => { _pending = snap || {}; onChange(); });
+  _unsubscribe = watchPendingInvites(uid, (snap) => { _pending = (snap || {}) as Record<string, PendingRecord>; onChange(); });
   if (_frUnsubscribe) _frUnsubscribe();
-  _frUnsubscribe = watchFollowRequests(uid, (snap) => { _followRequests = snap || {}; onChange(); });
+  _frUnsubscribe = watchFollowRequests(uid, (snap) => { _followRequests = (snap || {}) as Record<string, FollowRequestRecord>; onChange(); });
   installOverlayHandlerOnce();
 }
 
@@ -82,7 +87,7 @@ export function getPendingCount() {
 // knock.js's visibilitychange re-init.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
-  if (_myUid) initInbox(_myUid, _myCode);
+  if (_myUid) initInbox(_myUid, _myCode!);
 });
 
 // `slot` is passed by the nav-row reconcile's update(node) — which runs BEFORE
@@ -137,8 +142,8 @@ async function refreshInboxModalIfOpen() {
 // groups/{gid} node: the invitee isn't a member yet, and groups/{gid}/.read is
 // membership-gated, so a whole-node read is denied ("Permission denied"). The
 // name leaf is readable by any authed user. Returns { name } or null.
-const _groupNameCache = new Map(); // groupId → { name } | null
-async function cachedReadGroupName(groupId) {
+const _groupNameCache = new Map<string, { name: unknown } | null>(); // groupId → { name } | null
+async function cachedReadGroupName(groupId: string) {
   if (_groupNameCache.has(groupId)) return _groupNameCache.get(groupId);
   const group = await readGroupName(groupId);
   if (group) _groupNameCache.set(groupId, group);
@@ -161,7 +166,7 @@ async function renderInboxModalRows() {
   }
 
   const following = getFollowing();
-  const labelByUid = {};
+  const labelByUid: Record<string, string | undefined> = {};
   for (const f of following) labelByUid[f.userId] = f.label;
 
   // Invite rows. Inviter name: own label → their group displayName → fallback.
@@ -176,8 +181,8 @@ async function renderInboxModalRows() {
       // it reject the whole row.
       needMember ? readMember(groupId, record.from).catch(() => null) : Promise.resolve(null),
     ]);
-    const inviterLabel = labelByUid[record.from] || member?.displayName || 'Someone';
-    const groupName = group?.name || groupId;
+    const inviterLabel = labelByUid[record.from] || (member as MemberRecord | null)?.displayName || 'Someone';
+    const groupName = (group?.name as string | undefined) || groupId;
     return buildInboxRow({ groupId, inviterLabel, groupName });
   }));
 
@@ -186,7 +191,7 @@ async function renderInboxModalRows() {
     let requesterLabel = labelByUid[requesterUid];
     if (!requesterLabel && record.groupId) {
       const member = await readMember(record.groupId, requesterUid);
-      requesterLabel = member?.displayName;
+      requesterLabel = (member as MemberRecord | null)?.displayName;
     }
     return buildFollowRequestRow({ requesterUid, requesterLabel: requesterLabel || 'Someone' });
   }));
@@ -196,7 +201,7 @@ async function renderInboxModalRows() {
   for (const row of frRows) list.appendChild(row);
 }
 
-function buildInboxRow({ groupId, inviterLabel, groupName }) {
+function buildInboxRow({ groupId, inviterLabel, groupName }: { groupId: string; inviterLabel: string; groupName: string }) {
   const li = document.createElement('li');
   li.className = 'inbox-row';
   li.dataset.groupId = groupId;
@@ -227,7 +232,7 @@ function buildInboxRow({ groupId, inviterLabel, groupName }) {
   return li;
 }
 
-function buildFollowRequestRow({ requesterUid, requesterLabel }) {
+function buildFollowRequestRow({ requesterUid, requesterLabel }: { requesterUid: string; requesterLabel: string }) {
   const li = document.createElement('li');
   li.className = 'inbox-row';
   li.dataset.requesterId = requesterUid;
@@ -258,11 +263,11 @@ function buildFollowRequestRow({ requesterUid, requesterLabel }) {
   return li;
 }
 
-async function handleApprove(requesterUid, requesterLabel) {
+async function handleApprove(requesterUid: string, requesterLabel: string) {
   if (!_myUid || !_myCode) return;
   // Double-tap guard.
   const row = document.querySelector(`.inbox-row[data-requester-id="${requesterUid}"]`);
-  const btn = row?.querySelector('.inbox-approve-btn');
+  const btn = row?.querySelector<HTMLButtonElement>('.inbox-approve-btn');
   if (btn) { if (btn.disabled) return; btn.disabled = true; }
   // Hand the requester our code so their client completes the follow, then clear
   // the request. The requester's grant-watcher does the rest. On failure, re-enable
@@ -273,31 +278,31 @@ async function handleApprove(requesterUid, requesterLabel) {
     // The grant carries my display name in the shared group — the name the
     // requester tapped on the roster — so their new Direct card opens named.
     const groupId = _followRequests[requesterUid]?.groupId;
-    const me = groupId ? await readMember(groupId, _myUid) : null;
-    await writeFollowGrant(requesterUid, _myUid, _myCode, me?.displayName ?? null);
+    const me = groupId ? await readMember(groupId, _myUid!) : null;
+    await writeFollowGrant(requesterUid, _myUid!, _myCode!, (me as MemberRecord | null)?.displayName ?? null);
     // Symmetrically, remember the requester's roster name for my follower card
     // ("CODE (Name)") and the follow-back prefill. Skip the generic fallback.
     if (requesterLabel && requesterLabel !== 'Someone') {
       setFollowerName(requesterUid, requesterLabel);
     }
-    await deleteFollowRequest(_myUid, requesterUid);
+    await deleteFollowRequest(_myUid!, requesterUid);
   } catch (e) {
     if (btn) btn.disabled = false;
-    showToast(e.message || "Couldn't approve this request. Try again.");
+    showToast((e as { message?: string }).message || "Couldn't approve this request. Try again.");
   }
 }
 
-async function handleFollowRequestDecline(requesterUid) {
+async function handleFollowRequestDecline(requesterUid: string) {
   if (!_myUid) return;
   await deleteFollowRequest(_myUid, requesterUid);
 }
 
-async function handleJoin(groupId, groupName) {
+async function handleJoin(groupId: string, groupName: string) {
   if (!_myUid) return;
   // Double-tap guard: disable the Join button on first click so a second
   // click can't open the displayName prompt twice.
   const row = document.querySelector(`.inbox-row[data-group-id="${groupId}"]`);
-  const joinBtn = row?.querySelector('.inbox-join-btn');
+  const joinBtn = row?.querySelector<HTMLButtonElement>('.inbox-join-btn');
   if (joinBtn) {
     if (joinBtn.disabled) return;
     joinBtn.disabled = true;
@@ -334,7 +339,7 @@ async function handleJoin(groupId, groupName) {
     // Inbox row stays (re-opening re-renders a fresh, enabled Join), re-enable
     // the captured button, and surface the error rather than swallowing it.
     if (joinBtn) joinBtn.disabled = false;
-    showToast(e.message || "Couldn't join this group. Try again.");
+    showToast((e as { message?: string }).message || "Couldn't join this group. Try again.");
     return;
   }
   await Promise.all([
@@ -343,7 +348,7 @@ async function handleJoin(groupId, groupName) {
   ]);
 }
 
-async function handleDecline(groupId) {
+async function handleDecline(groupId: string) {
   if (!_myUid) return;
   await deletePendingInvite(_myUid, groupId);
 }
