@@ -21,27 +21,27 @@ const REQUESTED_KEY = 'statusapp_follow_requested';
 
 // Read straight from localStorage every time so the state can't leak across the
 // (single) module instance — and so it always reflects the current device state.
-function readRequested() {
-  try { return new Set(JSON.parse(localStorage.getItem(REQUESTED_KEY) || '[]')); }
-  catch { return new Set(); }
+function readRequested(): Set<string> {
+  try { return new Set<string>(JSON.parse(localStorage.getItem(REQUESTED_KEY) || '[]')); }
+  catch { return new Set<string>(); }
 }
-function writeRequested(set) {
+function writeRequested(set: Set<string>) {
   try { localStorage.setItem(REQUESTED_KEY, JSON.stringify([...set])); } catch { /* quota */ }
 }
-function markRequested(uid) { const s = readRequested(); s.add(uid); writeRequested(s); }
-function clearRequested(uid) { const s = readRequested(); if (s.delete(uid)) writeRequested(s); }
+function markRequested(uid: string) { const s = readRequested(); s.add(uid); writeRequested(s); }
+function clearRequested(uid: string) { const s = readRequested(); if (s.delete(uid)) writeRequested(s); }
 
-export function isRequested(targetUid) {
+export function isRequested(targetUid: string) {
   return readRequested().has(targetUid);
 }
 
 // Offer the affordance only for co-members you don't already follow. (The roster
 // already filters self out, so self is not re-checked here.)
-export function isFollowRequestEligible(targetUid) {
+export function isFollowRequestEligible(targetUid: string) {
   return !getFollowing().some((f) => f.userId === targetUid);
 }
 
-export async function requestToFollow(myUid, targetUid, groupId) {
+export async function requestToFollow(myUid: string, targetUid: string, groupId: string) {
   await writeFollowRequest(myUid, targetUid, groupId);
   markRequested(targetUid);
 }
@@ -50,7 +50,7 @@ export async function requestToFollow(myUid, targetUid, groupId) {
 // local marker. Deleting an already-gone entry (target declined meanwhile) is a
 // no-op remove, so cancel doubles as the user's way out of a stale "Requested"
 // state — after which they can request again.
-export async function cancelFollowRequest(myUid, targetUid) {
+export async function cancelFollowRequest(myUid: string, targetUid: string) {
   await deleteFollowRequest(targetUid, myUid);
   clearRequested(targetUid);
 }
@@ -65,7 +65,7 @@ const CIRCLED_PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentCo
 // white (.requested) = tap to cancel the pending request. Each direction
 // confirms with a toast naming the member. Stops its own pointer/click events
 // so a tap never reaches the roster row's knock handler or long-press adoption.
-export function createRequestFollowButton(myUid, targetUid, groupId, displayName) {
+export function createRequestFollowButton(myUid: string, targetUid: string, groupId: string, displayName: string) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'request-follow-btn';
@@ -118,10 +118,11 @@ export function createRequestFollowButton(myUid, targetUid, groupId, displayName
 // Re-entrancy: our own deleteFollowGrant echoes back as a fresh onValue tick that can
 // land mid-flight; the per-target in-flight set keeps that tick (or any concurrent
 // one) from re-processing a grant we're already completing.
-const _inflight = new Set();
-export function initFollowGrants(myUid, myCode) {
+interface GrantRecord { code?: string; name?: string }
+const _inflight = new Set<string>();
+export function initFollowGrants(myUid: string, myCode: string) {
   return watchFollowGrants(myUid, async (grants) => {
-    for (const [targetUid, grant] of Object.entries(grants || {})) {
+    for (const [targetUid, grant] of Object.entries((grants || {}) as Record<string, GrantRecord>)) {
       if (!grant || !grant.code) continue;
       if (_inflight.has(targetUid)) continue;
       _inflight.add(targetUid);
