@@ -21,7 +21,8 @@ export async function maybeRunDevReset() {
   const secret = process.env.DEV_RESET_SECRET;
   if (!secret) return false; // feature not built with a secret ⇒ inert
 
-  let param, hostname;
+  let param: string | null;
+  let hostname: string;
   try {
     param = new URLSearchParams(window.location.search).get('dev-reset');
     hostname = window.location.hostname;
