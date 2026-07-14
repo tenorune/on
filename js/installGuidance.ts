@@ -1,9 +1,10 @@
-// js/installGuidance.js
+// js/installGuidance.ts
 // Platform/capability detection + Add-to-Home-Screen guidance.
 // NOT gated by NOTIFICATIONS_ENABLED — installing is valuable on its own.
 
 export function isStandalone() {
-  if (typeof navigator !== 'undefined' && navigator.standalone === true) return true;
+  // `navigator.standalone` is a non-standard Safari-only flag (not in lib.dom).
+  if (typeof navigator !== 'undefined' && (navigator as Navigator & { standalone?: boolean }).standalone === true) return true;
   try { return window.matchMedia('(display-mode: standalone)').matches; }
   catch { return false; }
 }
@@ -105,7 +106,13 @@ export const ADD_DOCK_ICON = '<svg class="step-icon" aria-hidden="true" viewBox=
 // Chromium's address-bar "install" glyph: a display with a downward arrow.
 export const INSTALL_ICON = '<svg class="step-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><polyline points="9 9 12 12 15 9"/><line x1="12" y1="6" x2="12" y2="12"/></svg>';
 
-const COPY = {
+interface GuidanceCopy {
+  title: string;
+  body: string;
+  remindPhrase: boolean;
+}
+
+const COPY: Record<string, GuidanceCopy> = {
   'needs-install-ios': {
     title: 'Add to Home Screen',
     body: `On iPhone, notifications need the app on your Home Screen.<span class="install-step-instruction">Tap the Share button ${SHARE_ICON}, then “Add to Home Screen” ${ADD_HOME_ICON}.</span>`,
@@ -135,7 +142,7 @@ const COPY = {
   },
 };
 
-export function guidanceCopyFor(state) {
+export function guidanceCopyFor(state: string): GuidanceCopy {
   if (state === 'denied' && isMacSafari()) {
     return {
       title: 'Notifications are blocked',
@@ -150,7 +157,7 @@ export function guidanceCopyFor(state) {
 // install modal AND the persistent install toast, so they read identically. Leads
 // with the notification value, then the platform Add-to-Home-Screen / Add-to-Dock
 // steps with inline icons.
-export function installStepBodyHtml(lane) {
+export function installStepBodyHtml(lane: string) {
   const lead = 'To get notified about knocks, calls, and people coming online, install the app:';
   if (lane === 'macos-install') {
     return lead + `<span class="install-step-instruction">Choose File → Add to Dock ${ADD_DOCK_ICON}, then open the app from there.</span>`;
@@ -183,7 +190,7 @@ export function installPromptStepHtml() {
 // whether the event has fired yet — so Chromium shows the Install affordance from
 // page load. If the event isn't captured at click time, the button falls back to
 // manual instructions instead of a no-op (the native dialog can't be summoned).
-export function onboardingLane({ installPromptAvailable = false } = {}) {
+export function onboardingLane({ installPromptAvailable = false }: { installPromptAvailable?: boolean } = {}) {
   if (isStandalone()) return 'ready';
   if (isInAppBrowser()) return 'in-app-browser';
   if (isMacSafari()) return 'macos-install';
@@ -197,6 +204,6 @@ export function onboardingLane({ installPromptAvailable = false } = {}) {
 // just-installed user who must restore — our flow only prompts install AFTER
 // account creation. Prime restore instead of showing the new/restore chooser, so
 // they don't accidentally create a duplicate account.
-export function shouldPrimeRestore({ standalone, hasIdentity }) {
+export function shouldPrimeRestore({ standalone, hasIdentity }: { standalone: unknown; hasIdentity: unknown }) {
   return !!standalone && !hasIdentity;
 }
