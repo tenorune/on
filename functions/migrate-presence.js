@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 // One-shot, idempotent migration to the presence schema split.
 // Usage: cd functions && node migrate-presence.js --project <firebase-project-id>
 //        (dev RTDB is in europe-west1, the default; pass --region or
@@ -11,29 +12,41 @@
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
 
+// The ambient `process` shim (types/app.d.ts) types only .env — it exists for
+// browser bundle code. This Node CLI also needs argv/exit, so view the global
+// through a locally-typed alias (exit typed `never` so the guards below narrow).
+const proc = /** @type {{ argv: string[]; env: Record<string, string | undefined>; exit: (code?: number) => never }} */ (
+  /** @type {unknown} */ (process)
+);
+
+/**
+ * @param {string} name
+ * @returns {string | undefined}
+ */
 function argVal(name) {
-  const i = process.argv.indexOf(name);
-  return i >= 0 ? process.argv[i + 1] : undefined;
+  const i = proc.argv.indexOf(name);
+  return i >= 0 ? proc.argv[i + 1] : undefined;
 }
 
-const projectId = argVal('--project') || process.env.GCLOUD_PROJECT;
-if (!projectId) { console.error('Pass --project <firebase-project-id>'); process.exit(1); }
+const projectId = argVal('--project') || proc.env.GCLOUD_PROJECT;
+if (!projectId) { console.error('Pass --project <firebase-project-id>'); proc.exit(1); }
 
-const saJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-if (!saJson) { console.error('Set GOOGLE_APPLICATION_CREDENTIALS_JSON to the service-account JSON'); process.exit(1); }
+const saJson = proc.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+if (!saJson) { console.error('Set GOOGLE_APPLICATION_CREDENTIALS_JSON to the service-account JSON'); proc.exit(1); }
 
 // RTDB instances outside us-central1 use a region-namespaced host. The dev DB
 // lives in europe-west1 (matches FUNCTIONS_REGION). Pass --database-url to point
 // at any other instance/region explicitly; otherwise we build the regional host
 // from --region / FUNCTIONS_REGION (default europe-west1).
-const region = argVal('--region') || process.env.FUNCTIONS_REGION || 'europe-west1';
-const databaseURL = argVal('--database-url') || process.env.DATABASE_URL
+const region = argVal('--region') || proc.env.FUNCTIONS_REGION || 'europe-west1';
+const databaseURL = argVal('--database-url') || proc.env.DATABASE_URL
   || (region === 'us-central1'
     ? `https://${projectId}-default-rtdb.firebaseio.com`
     : `https://${projectId}-default-rtdb.${region}.firebasedatabase.app`);
 
 initializeApp({
-  credential: cert(JSON.parse(saJson)),
+  // saJson guarded non-undefined above (proc.exit on the empty path); cast for the checker.
+  credential: cert(JSON.parse(/** @type {string} */ (saJson))),
   databaseURL,
 });
 console.log(`using databaseURL ${databaseURL}`);
@@ -52,6 +65,7 @@ async function main() {
   const users = usersSnap.val();
   let migrated = 0;
   for (const [uid, u] of Object.entries(users)) {
+    /** @type {Record<string, unknown>} */
     const updates = {};
     // 1. Copy presence fields into presence/ (only if not already there — idempotent).
     for (const f of PRESENCE_FIELDS) {
@@ -76,4 +90,4 @@ async function main() {
   console.log(`migrated ${migrated} of ${Object.keys(users).length} user(s)`);
 }
 
-main().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
+main().then(() => proc.exit(0)).catch((e) => { console.error(e); proc.exit(1); });
