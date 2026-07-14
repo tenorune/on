@@ -25,7 +25,7 @@ export async function whenRtdbAuthReady() {
 // session (persistence is LOCAL by default) so this is a no-op on most loads;
 // only a cold start / restored device / lost session mints a fresh token.
 // `recoveryCode` is required only when there's no cached session.
-export async function ensureSignedIn(recoveryCode) {
+export async function ensureSignedIn(recoveryCode?: string) {
   await auth.authStateReady();           // wait for the SDK to restore any session
   if (auth.currentUser) {
     // A cached session is reusable only if it belongs to THIS recovery code's
