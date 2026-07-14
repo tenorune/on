@@ -28,7 +28,7 @@ function dismissRepromptOnDevice() {
 // engagement: a concrete unmet intent overrides the passive promo's gating (the
 // synced "dismissed forever" from the old device must not suppress this). Held
 // back only by a device-local dismissal and the absence of an actionable path.
-export function shouldReprompt({ enabled, hasEnabledPrefs, permission, capState, deviceDismissed }) {
+export function shouldReprompt({ enabled, hasEnabledPrefs, permission, capState, deviceDismissed }: { enabled: boolean; hasEnabledPrefs: boolean; permission: string; capState: string; deviceDismissed: boolean }) {
   if (!enabled) return false;
   if (permission === 'granted') return false;
   if (deviceDismissed) return false;
@@ -62,8 +62,8 @@ function dismissPromoForever() { markHintSeen(PROMO_HINT); }
 // exact mirror of this banner's visibility by routing every show/hide through
 // these two helpers (telegramOnramp reads the flag; it re-evaluates on
 // reprompt-change).
-function showNotifyBanner(banner) { setRepromptActive(true); banner.classList.remove('hidden'); }
-function hideNotifyBanner(banner) { setRepromptActive(false); banner.classList.add('hidden'); }
+function showNotifyBanner(banner: HTMLElement) { setRepromptActive(true); banner.classList.remove('hidden'); }
+function hideNotifyBanner(banner: HTMLElement) { setRepromptActive(false); banner.classList.add('hidden'); }
 
 // Self-heal the server-side FCM token on app load. Permission/token state drifts
 // (especially on iOS), and the client otherwise only registers a token on
@@ -94,7 +94,7 @@ export async function refreshPushToken() {
 // getToken returned nothing) — capability detection still reads 'supported', so
 // re-rendering the plain promo would just show the same Enable button. Give an
 // explicit "it didn't work" message while keeping Enable as a retry.
-function showRegistrationFailed(banner) {
+function showRegistrationFailed(banner: HTMLElement) {
   const textEl = banner.querySelector('#notify-promo-text');
   const actionEl = banner.querySelector('#notify-promo-action');
   if (textEl) {
@@ -102,14 +102,14 @@ function showRegistrationFailed(banner) {
       + escapeHatchTextHtml();
   }
   if (actionEl) actionEl.classList.remove('hidden');
-  syncEscapeHatchButton(banner.querySelector('.notify-promo-actions'), true);
+  syncEscapeHatchButton(banner.querySelector<HTMLElement>('.notify-promo-actions'), true);
   showNotifyBanner(banner);
 }
 
 // Explicitly show the promo banner for a capability state, bypassing the
 // engagement/dismissal gating used by the passive promo — the user just asked
 // for notifications, so we always show how to get them.
-function showBannerForState(capState) {
+function showBannerForState(capState: string) {
   const banner = document.getElementById('notify-promo');
   if (!banner) return;
   renderBanner(banner, capState);
@@ -150,9 +150,9 @@ export async function ensureNotificationsReady() {
   showBannerForState(cap.state);
 }
 
-let _userId = null;
+let _userId: string | null = null;
 let _repromptListenerWired = false;
-export function initNotifyPrompt(userId) {
+export function initNotifyPrompt(userId: string) {
   _userId = userId;
   // Re-evaluate once the synced notify prefs land — that's when we can tell a
   // restored device has "on" bells it can't yet deliver (no permission/token).
@@ -202,10 +202,10 @@ function refreshPromoVisibility() {
 // existing consumers of this module.
 export { phraseReminderHtml, wirePhraseCopyButton };
 
-function renderBanner(banner, capState, onDismiss) {
-  const textEl = banner.querySelector('#notify-promo-text');
-  const actionEl = banner.querySelector('#notify-promo-action');
-  const actionsEl = banner.querySelector('.notify-promo-actions');
+function renderBanner(banner: HTMLElement, capState: string, onDismiss?: () => void) {
+  const textEl = banner.querySelector<HTMLElement>('#notify-promo-text')!;
+  const actionEl = banner.querySelector<HTMLElement>('#notify-promo-action')!;
+  const actionsEl = banner.querySelector<HTMLElement>('.notify-promo-actions');
   if (capState === 'supported') {
     textEl.textContent = 'Get notified about knocks, calls, and people coming online.';
     actionEl.textContent = 'Enable';
@@ -234,6 +234,6 @@ function renderBanner(banner, capState, onDismiss) {
     actionEl.classList.add('hidden');
     syncEscapeHatchButton(actionsEl, true); // "Use in Telegram" beside Close
   }
-  banner.querySelector('#notify-promo-dismiss').onclick = onDismiss
+  (banner.querySelector('#notify-promo-dismiss') as HTMLElement).onclick = onDismiss
     || (() => { dismissPromoForever(); hideNotifyBanner(banner); });
 }
