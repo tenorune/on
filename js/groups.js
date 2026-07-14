@@ -1,3 +1,4 @@
+// @ts-check
 // js/groups.js
 // Group lifecycle business logic. Composes db.js primitives.
 
@@ -16,6 +17,15 @@ import { clearGroupPaletteState } from './prefs.js';
 const NAME_MAX = 40;
 const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
+// The toast/dismiss elements stash a one-shot `_wired` flag on the DOM node to
+// avoid double-binding the click handler; not part of the lib DOM types.
+/** @typedef {HTMLElement & { _wired?: boolean }} WiredEl */
+
+/**
+ * @param {unknown} raw
+ * @param {string} [field]
+ * @returns {string}
+ */
 function validateName(raw, field = 'Name') {
   if (typeof raw !== 'string') throw new Error(`${field} must be a string.`);
   const trimmed = raw.trim();
@@ -32,11 +42,19 @@ export function generateGroupId() {
   return out;
 }
 
+/**
+ * @param {string} ownerUid
+ * @param {unknown} nameRaw
+ * @param {unknown} ownerDisplayNameRaw
+ */
 export async function createGroup(ownerUid, nameRaw, ownerDisplayNameRaw) {
   const name = validateName(nameRaw, 'Group name');
   const ownerDisplayName = validateName(ownerDisplayNameRaw, 'Display name');
 
-  let groupId;
+  // Initialized to '' only to satisfy the checker's definite-assignment analysis
+  // (it can't see that the claim loop always runs once); the value is always
+  // overwritten before use, or the !claimed guard below throws.
+  let groupId = '';
   let claimed = false;
   for (let attempt = 0; attempt < 8 && !claimed; attempt += 1) {
     groupId = generateGroupId();
@@ -61,6 +79,10 @@ export async function createGroup(ownerUid, nameRaw, ownerDisplayNameRaw) {
   return { groupId, name };
 }
 
+/**
+ * @param {string} groupId
+ * @param {string} callerUid
+ */
 async function requireOwner(groupId, callerUid) {
   const group = await readGroup(groupId);
   if (!group) return null;
@@ -68,6 +90,10 @@ async function requireOwner(groupId, callerUid) {
   return group;
 }
 
+/**
+ * @param {string} groupId
+ * @param {string} callerUid
+ */
 async function refuseOwner(groupId, callerUid) {
   const group = await readGroup(groupId);
   if (!group) return null;
@@ -75,6 +101,11 @@ async function refuseOwner(groupId, callerUid) {
   return group;
 }
 
+/**
+ * @param {string} groupId
+ * @param {string} callerUid
+ * @param {unknown} newNameRaw
+ */
 export async function renameGroup(groupId, callerUid, newNameRaw) {
   const name = validateName(newNameRaw, 'Group name');
   const group = await requireOwner(groupId, callerUid);
@@ -82,6 +113,10 @@ export async function renameGroup(groupId, callerUid, newNameRaw) {
   await dbRenameGroup(groupId, name);
 }
 
+/**
+ * @param {string} groupId
+ * @param {string} callerUid
+ */
 export async function deleteGroup(groupId, callerUid) {
   const group = await requireOwner(groupId, callerUid);
   if (!group) return;
@@ -98,6 +133,10 @@ export async function deleteGroup(groupId, callerUid) {
   // mechanism (Task 18); we cannot reach into their user records from here.
 }
 
+/**
+ * @param {string} groupId
+ * @param {string} callerUid
+ */
 export async function leaveGroup(groupId, callerUid) {
   const group = await refuseOwner(groupId, callerUid);
   if (!group) return;
@@ -105,6 +144,12 @@ export async function leaveGroup(groupId, callerUid) {
   await removeUserGroupsEntry(callerUid, groupId);
 }
 
+/**
+ * @param {string} groupId
+ * @param {string} joinerUid
+ * @param {unknown} displayNameRaw
+ * @param {{ group?: unknown, existing?: unknown }} [opts]
+ */
 export async function joinGroup(groupId, joinerUid, displayNameRaw, opts = {}) {
   const displayName = validateName(displayNameRaw, 'Display name');
   // Allow callers that have already fetched these (e.g. redeemGroupInvite) to
@@ -138,14 +183,22 @@ export async function joinGroup(groupId, joinerUid, displayNameRaw, opts = {}) {
   await writeUserGroupsEntry(joinerUid, groupId, { lastVisited: now });
 }
 
+/**
+ * @param {string} groupId
+ * @param {string} callerUid
+ * @param {unknown} newNameRaw
+ */
 export async function editOwnDisplayName(groupId, callerUid, newNameRaw) {
   const displayName = validateName(newNameRaw, 'Display name');
   await setMemberDisplayName(groupId, callerUid, displayName);
 }
 
+/** @type {Record<string, unknown> | null} */
 let _prevEnum = null;
+/** @type {(() => void) | null} */
 let _detectorUnsub = null;
 
+/** @param {string} myUserId */
 export function initGroupRemovalDetector(myUserId) {
   if (_detectorUnsub) _detectorUnsub();
   _prevEnum = null;
@@ -159,15 +212,19 @@ export function initGroupRemovalDetector(myUserId) {
     }
   });
 
-  const dismissBtn = document.getElementById('group-removal-toast-dismiss');
+  const dismissBtn = /** @type {WiredEl | null} */ (document.getElementById('group-removal-toast-dismiss'));
   if (dismissBtn && !dismissBtn._wired) {
     dismissBtn._wired = true;
     dismissBtn.addEventListener('click', () => {
-      document.getElementById('group-removal-toast').classList.add('hidden');
+      /** @type {HTMLElement} */ (document.getElementById('group-removal-toast')).classList.add('hidden');
     });
   }
 }
 
+/**
+ * @param {string} myUserId
+ * @param {string} groupId
+ */
 async function handleGroupRemoval(myUserId, groupId) {
   // Read the name LEAF, not the whole node: by the time the removal fires the
   // user is no longer a member (they left or were kicked), so the membership-
@@ -193,6 +250,7 @@ async function handleGroupRemoval(myUserId, groupId) {
 // Generic dismissable toast (the markup ids predate other consumers, hence
 // group-removal-*). Also used by followRequests.js for the request/cancel
 // confirmations.
+/** @param {string} message */
 export function showToast(message) {
   const el = document.getElementById('group-removal-toast');
   const txt = document.getElementById('group-removal-toast-text');
@@ -201,13 +259,14 @@ export function showToast(message) {
   el.classList.remove('hidden');
 
   // Wire dismiss button on first render
-  const dismissBtn = document.getElementById('group-removal-toast-dismiss');
+  const dismissBtn = /** @type {WiredEl | null} */ (document.getElementById('group-removal-toast-dismiss'));
   if (dismissBtn && !dismissBtn._wired) {
     dismissBtn._wired = true;
     dismissBtn.addEventListener('click', () => el.classList.add('hidden'));
   }
 }
 
+/** @param {string} message */
 function showRemovalToast(message) {
   showToast(message);
 }
@@ -217,10 +276,11 @@ export function _resetGroupRemovalDetectorForTests() {
   if (_detectorUnsub) _detectorUnsub();
   _detectorUnsub = null;
   _prevEnum = null;
-  const btn = document.getElementById('group-removal-toast-dismiss');
+  const btn = /** @type {WiredEl | null} */ (document.getElementById('group-removal-toast-dismiss'));
   if (btn) delete btn._wired;
 }
 
+/** @param {Record<string, unknown> | null} [snapshot] */
 export async function _feedSnapshotForTests(snapshot) {
   const next = snapshot || {};
   if (_prevEnum === null) { _prevEnum = next; return; }
@@ -243,6 +303,11 @@ export async function _feedSnapshotForTests(snapshot) {
 // user's chosen statusColor + paletteKey persist across enable/disable and
 // available/unavailable changes. RTDB drops null-valued keys from update()
 // writes — that's how we clear status/availableUntil when toggling off.
+/**
+ * @param {string} groupId
+ * @param {string} userId
+ * @param {boolean} nextEnabled
+ */
 export async function toggleStatusOverride(groupId, userId, nextEnabled) {
   if (nextEnabled) {
     await mergeStatusOverride(groupId, userId, {
@@ -259,6 +324,11 @@ export async function toggleStatusOverride(groupId, userId, nextEnabled) {
   }
 }
 
+/**
+ * @param {string} groupId
+ * @param {string} userId
+ * @param {number} availableUntil
+ */
 export async function setOverrideStatusAvailable(groupId, userId, availableUntil) {
   await mergeStatusOverride(groupId, userId, {
     enabled: true,
@@ -267,6 +337,10 @@ export async function setOverrideStatusAvailable(groupId, userId, availableUntil
   });
 }
 
+/**
+ * @param {string} groupId
+ * @param {string} userId
+ */
 export async function setOverrideStatusUnavailable(groupId, userId) {
   await mergeStatusOverride(groupId, userId, {
     enabled: true,
@@ -279,7 +353,13 @@ export async function setOverrideStatusUnavailable(groupId, userId) {
 // passes (using `in` rather than value-presence) so a single-field write —
 // e.g. `{ statusColor: '#abc' }` for a complement-color tap — doesn't
 // accidentally null out paletteKey. Pass null explicitly to remove a field.
+/**
+ * @param {string} groupId
+ * @param {string} userId
+ * @param {{ statusColor?: string | null, paletteKey?: string | null }} fields
+ */
 export async function setOverrideAppearance(groupId, userId, fields) {
+  /** @type {{ statusColor?: string | null, paletteKey?: string | null }} */
   const update = {};
   if ('statusColor' in fields) update.statusColor = fields.statusColor;
   if ('paletteKey' in fields) update.paletteKey = fields.paletteKey;
