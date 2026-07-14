@@ -10,7 +10,7 @@ import { closeInboxModal } from './inbox.js';
 import { navigateToDirect, getCurrentContext } from './groupNav.js';
 import { getCallModeCalleeId, getIncomingCallFrom } from './following.js';
 
-const visible = (doc, id) => {
+const visible = (doc: Document, id: string) => {
   const el = doc.getElementById(id);
   return !!el && !el.classList.contains('hidden');
 };
@@ -20,7 +20,7 @@ const visible = (doc, id) => {
 //  - tg-invite-screen: pre-consent — back should leave the app, not skip it.
 //  - recovery-modal: guards an unsaved phrase with its own history trap;
 //    a back affordance that discards it would be worse than none.
-export function resolveBackAction(doc = document) {
+export function resolveBackAction(doc: Document = document): (() => void) | null {
   // Confirm/prompt overlays first (W1 C#1): back must dismiss the top-most
   // decision surface with CANCEL semantics — never act on what's underneath,
   // and never confirm. boot-error has nothing behind it → Telegram default.
@@ -49,7 +49,7 @@ export function resolveBackAction(doc = document) {
   return null;
 }
 
-let _backAction = null;
+let _backAction: (() => void) | null = null;
 
 function inCall() {
   return !!(getCallModeCalleeId() || getIncomingCallFrom());
@@ -74,7 +74,7 @@ function updateChromeState() {
 // but --bg rarely changes — so memoize and post set_header_color /
 // set_background_color only on a real change. Without this each mutation
 // re-sent the same pair, flooding the webview bridge (and the console).
-let _lastAppliedBg = null;
+let _lastAppliedBg: string | null = null;
 
 export function syncChromeColor() {
   const wa = tgWebApp();
@@ -89,9 +89,9 @@ export function syncChromeColor() {
   } catch { /* ignore */ }
 }
 
-function debounce(fn, ms = 80) {
-  let t = null;
-  return () => { clearTimeout(t); t = setTimeout(fn, ms); };
+function debounce(fn: () => void, ms = 80) {
+  let t: ReturnType<typeof setTimeout> | null = null;
+  return () => { clearTimeout(t as ReturnType<typeof setTimeout>); t = setTimeout(fn, ms); };
 }
 
 export function initTelegramChrome() {
