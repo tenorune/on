@@ -21,13 +21,13 @@ const CHIP_VALUES = [
 ];
 
 let savingEnabled = false;
-let countdownTimer = null;
+let countdownTimer: ReturnType<typeof setInterval> | null = null;
 let currentChipIndex = 3; // default: 2 hours
 let firstUseActive = false;
 let ownStatusSignalled = false;
-let onOwnStatusReady = null;
+let onOwnStatusReady: (() => void) | null = null;
 
-function chipIndexForMinutes(minutes) {
+function chipIndexForMinutes(minutes: number) {
   let m = minutes;
   if (m <= 12) m = m * 60; // legacy: some old values were stored as hours
   let bestIndex = 0;
@@ -45,7 +45,7 @@ function migrateToChipIndex() {
 
 // Called when the userPrefs-synced lastTimeoutMinutes changes (cross-device).
 // Reflects the user's chip selection from another device on this device.
-function updateChipFromServer(minutes) {
+function updateChipFromServer(minutes: number) {
   if (!minutes) return;
   const newIndex = chipIndexForMinutes(minutes);
   if (newIndex === currentChipIndex) return;
@@ -55,17 +55,18 @@ function updateChipFromServer(minutes) {
   setLastTimeout(CHIP_VALUES[newIndex].minutes);
 }
 
-export function initHeader(myUserId) {
+export function initHeader(myUserId: string) {
   ownStatusSignalled = false;
   // Sibling-device chip pick echoes through userPrefs → 'last-timeout-synced';
   // update the Direct chip text to match.
   document.addEventListener('last-timeout-synced', (e) => {
-    if (typeof e.detail?.minutes === 'number') updateChipFromServer(e.detail.minutes);
+    const detail = (e as CustomEvent<{ minutes?: number }>).detail;
+    if (typeof detail?.minutes === 'number') updateChipFromServer(detail.minutes);
   });
-  const dot = document.getElementById('my-dot');
-  const timeChip = document.getElementById('time-chip');
-  const mycodeChip = document.getElementById('mycode-chip');
-  const drawer = document.getElementById('code-drawer');
+  const dot = document.getElementById('my-dot')!;
+  const timeChip = document.getElementById('time-chip')!;
+  const mycodeChip = document.getElementById('mycode-chip')!;
+  const drawer = document.getElementById('code-drawer')!;
 
   currentChipIndex = migrateToChipIndex();
   timeChip.textContent = CHIP_VALUES[currentChipIndex].text;
@@ -86,13 +87,13 @@ export function initHeader(myUserId) {
   });
 
   timeChip.addEventListener('click', async () => {
-    if (!document.getElementById('my-dot').classList.contains('available')) return;
+    if (!document.getElementById('my-dot')!.classList.contains('available')) return;
     currentChipIndex = (currentChipIndex + 1) % CHIP_VALUES.length;
     const { minutes, text } = CHIP_VALUES[currentChipIndex];
     timeChip.textContent = text;
     const availableUntil = Date.now() + minutes * 60000;
     await setStatus(myUserId, 'available', availableUntil);
-    const tr = document.getElementById('time-remaining');
+    const tr = document.getElementById('time-remaining')!;
     tr.textContent = formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
     setLastTimeout(minutes);
   });
@@ -131,7 +132,7 @@ export function enterFirstUseMode() {
   firstUseActive = true;
   const directDot = document.getElementById('my-dot');
   const groupDot = document.getElementById('group-my-dot');
-  const dots = [directDot, groupDot].filter(Boolean);
+  const dots = [directDot, groupDot].filter((d): d is HTMLElement => d != null);
   if (dots.length === 0) return;
   for (const dot of dots) {
     dot.classList.add('first-use-pulse');
@@ -139,11 +140,11 @@ export function enterFirstUseMode() {
   }
 }
 
-export function setOwnStatusReadyCallback(fn) {
+export function setOwnStatusReadyCallback(fn: () => void) {
   onOwnStatusReady = fn;
 }
 
-export function applyOwnStatus(status, availableUntil) {
+export function applyOwnStatus(status: string | null, availableUntil: number | null) {
   if (!ownStatusSignalled) {
     ownStatusSignalled = true;
     onOwnStatusReady?.();
@@ -167,9 +168,9 @@ export function applyOwnStatus(status, availableUntil) {
 }
 
 function setKnockKnock() {
-  const dot   = document.getElementById('my-dot');
-  const label = document.getElementById('my-status-label');
-  const chips = document.getElementById('header-chips');
+  const dot   = document.getElementById('my-dot')!;
+  const label = document.getElementById('my-status-label')!;
+  const chips = document.getElementById('header-chips')!;
 
   dot.classList.add('available');
   chips.style.opacity = '0';
@@ -179,8 +180,8 @@ function setKnockKnock() {
   label.style.opacity = '1';
 }
 
-function setAvailable(availableUntil) {
-  const dot = document.getElementById('my-dot');
+function setAvailable(availableUntil: number | null) {
+  const dot = document.getElementById('my-dot')!;
   if (PALETTES_ENABLED && savingEnabled && !dot.classList.contains('available')) saveCombo(buildDirectCombo());
   // Track that user went available with a non-default color (for theme hint)
   if (PALETTES_ENABLED && !dot.classList.contains('available')) {
@@ -189,22 +190,23 @@ function setAvailable(availableUntil) {
       markHintSeen('customAvail');
     }
   }
-  const label = document.getElementById('my-status-label');
-  const chips = document.getElementById('header-chips');
+  const label = document.getElementById('my-status-label')!;
+  const chips = document.getElementById('header-chips')!;
 
   // Immediate: dot changes and old label starts fading out
   dot.classList.remove('dot-go-hint');
   dot.classList.add('available');
   label.style.opacity = '0';
 
-  clearInterval(countdownTimer);
+  // clearInterval(null) is a no-op at runtime; the cast only appeases the checker.
+  clearInterval(countdownTimer as ReturnType<typeof setInterval>);
 
   // After fade-out: swap content and fade in label + chips + time-remaining together
   setTimeout(() => {
     if (PALETTES_ENABLED) {
-      document.getElementById('swatch-row').classList.remove('visible');
+      document.getElementById('swatch-row')!.classList.remove('visible');
     }
-    const timeRemaining = document.getElementById('time-remaining');
+    const timeRemaining = document.getElementById('time-remaining')!;
     label.classList.add('available');
     label.textContent = 'Available';
     timeRemaining.textContent = formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
@@ -224,20 +226,21 @@ function setAvailable(availableUntil) {
     if (ms <= 0) {
       setUnavailable();
     } else {
-      document.getElementById('time-remaining').textContent = formatTimeRemaining(ms) + ' left';
+      document.getElementById('time-remaining')!.textContent = formatTimeRemaining(ms) + ' left';
     }
   }, 30000);
 }
 
 function setUnavailable() {
-  const dot = document.getElementById('my-dot');
-  const label = document.getElementById('my-status-label');
-  const chips = document.getElementById('header-chips');
-  const timeRemaining = document.getElementById('time-remaining');
+  const dot = document.getElementById('my-dot')!;
+  const label = document.getElementById('my-status-label')!;
+  const chips = document.getElementById('header-chips')!;
+  const timeRemaining = document.getElementById('time-remaining')!;
 
   // Immediate: dot changes, drawer closes, and label + chips start fading out together
   dot.classList.remove('available');
-  clearInterval(countdownTimer);
+  // clearInterval(null) is a no-op at runtime; the cast only appeases the checker.
+  clearInterval(countdownTimer as ReturnType<typeof setInterval>);
 
   const drawer = document.getElementById('code-drawer');
   const mycodeChip = document.getElementById('mycode-chip');
@@ -252,7 +255,7 @@ function setUnavailable() {
   // After fade-out: hide chips, swap label to "Unavailable", fade label back in
   setTimeout(() => {
     if (PALETTES_ENABLED) {
-      document.getElementById('swatch-row').classList.add('visible');
+      document.getElementById('swatch-row')!.classList.add('visible');
       restoreSetSwitchPulse();
       applyThemeHint();
     }
