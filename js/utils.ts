@@ -77,9 +77,12 @@ export function isExpired(availableUntil: number | null | undefined): boolean {
 // Single source of truth for "is this presence effectively available right now":
 // status is 'available' AND its window hasn't lapsed (null availableUntil = no
 // expiry). Replaces ~10 inline reimplementations that had drifted into two forms.
-// NOTE: the server's functions/presence-core.js primaryAvailable deliberately
-// differs on null availableUntil (open-ended reads available here, not there)
-// — parity pinned in tests/presencePredicateParity.test.js; don't unify blind.
+// NOTE: server functions/presence-core.js primaryAvailable differs on null/absent
+// availableUntil (open-ended reads available here, not there). That input is
+// UNREACHABLE — no writer emits it, prod audited clean 2026-07-14 — so the two
+// agree on every reachable input and are intentionally NOT unified (fail-open in
+// the UI here vs fail-closed on notifications there). Tripwire + full rationale:
+// tests/presencePredicateParity.test.js.
 export function isAvailable(
   status: string | null | undefined,
   availableUntil: number | null | undefined,

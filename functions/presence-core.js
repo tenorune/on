@@ -62,9 +62,11 @@ export function effectiveAvailable(override, primaryStatus, primaryAU, now) {
 // "Globally available right now" over a whole presence (or override) node —
 // the same predicate as effectiveAvailable's no-override fallback, taken as
 // the object so callers holding users/{uid}/presence don't re-inline it.
-// NOTE: the client's js/utils.js isAvailable deliberately differs on null
-// availableUntil (open-ended reads available there, not here) — parity pinned
-// in tests/presencePredicateParity.test.js; don't unify blind.
+// NOTE: client js/utils.js isAvailable differs on null/absent availableUntil
+// (open-ended reads available there, not here). That input is UNREACHABLE — no
+// writer emits it, prod audited clean 2026-07-14 — so the two agree on every
+// reachable input and are intentionally NOT unified (server stays fail-closed on
+// notifications). Tripwire + full rationale: tests/presencePredicateParity.test.js.
 /** @param {PresenceNode | null | undefined} presence @param {number} now */
 export function primaryAvailable(presence, now) {
   return presence?.status === 'available' && isFutureMs(presence.availableUntil, now);

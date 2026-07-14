@@ -694,6 +694,16 @@ git commit -m "refactor(shared): one GROUP_ID_RE/UID_RE source in shared/idForma
 
 **Why no unification (spec Doc 2, unit #5):** the two predicates were written independently and are NOT behavior-identical. OBSERVED at planning time: client `isAvailable(status, availableUntil)` (`js/utils.js:73`) treats `null` `availableUntil` as **not expired** → an open-ended `available` is available. Server `primaryAvailable(presence, now)` (`functions/presence-core.js:42`) requires `isFutureMs(availableUntil)` → `null` reads **unavailable**. The server side documents its assumption ("available state always carries a future availableUntil — true for the app's timed-availability model"), while the client's `availableForText` explicitly renders the open-ended case. Per the spec: a divergence is either a latent bug (file it) or intentional (document it) — this task pins both behaviors and surfaces the question to the operator; it does not decide.
 
+> **RESOLVED 2026-07-14 — verified equivalent-on-reachable-inputs; NOT unified; T6 closed.**
+> The operator ruled out open-ended availability as a product state, and it was then verified rather than assumed:
+> - **Writers:** every client + server path that sets `status:'available'` pairs a concrete numeric `availableUntil` (`setStatus`, the group-chip writers in `groupContext.js`, `createGroup`/`joinGroup`, the bot `/status` handler). The only `availableUntil:null` writes pair with `status:'unavailable'`.
+> - **Live data:** prod RTDB audited **CLEAN** with `functions/audit-available-null.js` (committed) — 0 offenders across primary presence and enabled group overrides (30 users / 1 group at audit time).
+> - **Rules:** `database.rules.json` does **not** enforce the invariant (cross-field `available ⇒ availableUntil:number` is unexpressed; presence is written via partial `update()`s, so a node-level `.validate` was not pursued — see the operator discussion).
+>
+> **Decision:** the divergent input `(available, null/absent)` is **unreachable in practice but rules-unenforced**, so the predicates agree on every reachable input and are **intentionally kept separate** — the split encodes a deliberate asymmetry (client fail-open in the UI, server fail-closed on notifications, since firing a push/bot broadcast is irreversible). **No `shared/presence.js`** is created. Unit **#6** (`effectiveAvailable`/`overrideAvailable`) has **no textual client counterpart** (the client computes group availability inline in `groupContext.js`), so there is nothing to dedupe there either.
+>
+> The parity test's `(available, null)` row was reframed from "operator's call" to an explicit **invariant tripwire** that fails loudly if a future writer or migration ever produces the shape; the two source-file NOTE comments were updated to match.
+
 - [ ] **Step 1: Write the parity test (it should pass immediately — it pins current reality)**
 
 Create `tests/presencePredicateParity.test.js`:
