@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 // One-shot, idempotent repair for users whose group nav entries were deleted by
 // the buggy first cut of migrate-presence.js (it nulled
 // users/{uid}/groups/{gid}/lastVisited — the record's only field — which deletes
@@ -14,24 +15,36 @@
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
 
+// The ambient `process` shim (types/app.d.ts) types only .env — it exists for
+// browser bundle code. This Node CLI also needs argv/exit, so view the global
+// through a locally-typed alias (exit typed `never` so the guards below narrow).
+const proc = /** @type {{ argv: string[]; env: Record<string, string | undefined>; exit: (code?: number) => never }} */ (
+  /** @type {unknown} */ (process)
+);
+
+/**
+ * @param {string} name
+ * @returns {string | undefined}
+ */
 function argVal(name) {
-  const i = process.argv.indexOf(name);
-  return i >= 0 ? process.argv[i + 1] : undefined;
+  const i = proc.argv.indexOf(name);
+  return i >= 0 ? proc.argv[i + 1] : undefined;
 }
 
-const projectId = argVal('--project') || process.env.GCLOUD_PROJECT;
-if (!projectId) { console.error('Pass --project <firebase-project-id>'); process.exit(1); }
+const projectId = argVal('--project') || proc.env.GCLOUD_PROJECT;
+if (!projectId) { console.error('Pass --project <firebase-project-id>'); proc.exit(1); }
 
-const saJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-if (!saJson) { console.error('Set GOOGLE_APPLICATION_CREDENTIALS_JSON to the service-account JSON'); process.exit(1); }
+const saJson = proc.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+if (!saJson) { console.error('Set GOOGLE_APPLICATION_CREDENTIALS_JSON to the service-account JSON'); proc.exit(1); }
 
-const region = argVal('--region') || process.env.FUNCTIONS_REGION || 'europe-west1';
-const databaseURL = argVal('--database-url') || process.env.DATABASE_URL
+const region = argVal('--region') || proc.env.FUNCTIONS_REGION || 'europe-west1';
+const databaseURL = argVal('--database-url') || proc.env.DATABASE_URL
   || (region === 'us-central1'
     ? `https://${projectId}-default-rtdb.firebaseio.com`
     : `https://${projectId}-default-rtdb.${region}.firebasedatabase.app`);
 
-initializeApp({ credential: cert(JSON.parse(saJson)), databaseURL });
+// saJson guarded non-undefined above (proc.exit on the empty path); cast for the checker.
+initializeApp({ credential: cert(JSON.parse(/** @type {string} */ (saJson))), databaseURL });
 console.log(`using databaseURL ${databaseURL}`);
 const db = getDatabase();
 
@@ -43,6 +56,7 @@ async function main() {
   const groups = groupsSnap.exists() ? groupsSnap.val() : {};
   const users = usersSnap.exists() ? usersSnap.val() : {};
 
+  /** @type {Record<string, { lastVisited: number }>} */
   const updates = {};
   let restored = 0;
   for (const [gid, group] of Object.entries(groups)) {
@@ -60,4 +74,4 @@ async function main() {
   console.log(`restored ${restored} missing group enumeration entr${restored === 1 ? 'y' : 'ies'}`);
 }
 
-main().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
+main().then(() => proc.exit(0)).catch((e) => { console.error(e); proc.exit(1); });
