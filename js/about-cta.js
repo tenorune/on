@@ -1,3 +1,4 @@
+// @ts-check
 // js/about-cta.js
 // /about page only. Rewrites the "Open app" links so they (a) carry any invite
 // token through to the app, and (b) on mobile, break out of in-app browsers
