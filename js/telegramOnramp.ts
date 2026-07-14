@@ -1,4 +1,4 @@
-// js/telegramOnramp.js — web-only "Use in Telegram" onramp: mint a single-use
+// js/telegramOnramp.ts — web-only "Use in Telegram" onramp: mint a single-use
 // link token for THIS (authed) account and open the Mini App deep link so it
 // auto-links. The phrase never travels. Suppressed once the account is linked.
 import { isTelegramContext } from './telegram.js';
@@ -15,7 +15,7 @@ export function telegramOnrampEnabled() {
   return telegramSharingEnabled() && !isTelegramContext();
 }
 
-export function buildLinkDeepLink(token) {
+export function buildLinkDeepLink(token: string | null | undefined) {
   return token ? buildStartAppLink(`lk_${token}`) : null;
 }
 
@@ -28,7 +28,7 @@ export function buildLinkDeepLink(token) {
 export async function startTelegramOnramp() {
   let url;
   try {
-    const { token } = await callMintTelegramLinkToken();
+    const { token } = await callMintTelegramLinkToken() as { token?: string };
     url = buildLinkDeepLink(token);
   } catch {
     showToast("Couldn't reach Telegram right now. Try again.");
@@ -43,7 +43,7 @@ export async function startTelegramOnramp() {
 // Shared CTA handler for every surface that starts the onramp from a nudge
 // (promo banner, drawer card, telegramEscapeHatch): disable the button in
 // flight; arm the success beat only when the deep link actually opened (U1.7).
-export async function startTelegramOnrampFromNudge(btn) {
+export async function startTelegramOnrampFromNudge(btn: HTMLButtonElement | null | undefined) {
   if (btn) btn.disabled = true;
   try {
     if (await startTelegramOnramp()) _ctaTapped = true;
@@ -68,7 +68,7 @@ let _promoActive = false;
 // two teaching surfaces must not co-show (finding: cluttered). Changes fire an
 // 'onramp-change' document event so that reader re-evaluates reactively.
 export function isOnrampPromoActive() { return _promoActive; }
-function setPromoActive(active) {
+function setPromoActive(active: boolean) {
   if (active === _promoActive) return;
   _promoActive = active;
   document.dispatchEvent(new CustomEvent('onramp-change'));
@@ -108,8 +108,8 @@ export function initTelegramOnramp() {
   const promo = document.getElementById('tg-onramp-promo');
   const onrampWrap = document.getElementById('tg-onramp-drawer');
   if (!promo && !onrampWrap) return;
-  document.getElementById('tg-onramp-action')?.addEventListener('click', (e) => startTelegramOnrampFromNudge(e.currentTarget));
-  document.getElementById('tg-onramp-drawer-btn')?.addEventListener('click', (e) => startTelegramOnrampFromNudge(e.currentTarget));
+  document.getElementById('tg-onramp-action')?.addEventListener('click', (e) => startTelegramOnrampFromNudge(e.currentTarget as HTMLButtonElement));
+  document.getElementById('tg-onramp-drawer-btn')?.addEventListener('click', (e) => startTelegramOnrampFromNudge(e.currentTarget as HTMLButtonElement));
   document.getElementById('tg-onramp-dismiss')?.addEventListener('click', () => {
     dismissBanner();
     refresh(); // hides the promo AND fires onramp-change so the install nudge resumes
@@ -130,7 +130,7 @@ export function initTelegramOnramp() {
 // marker (the linked half of the notify-channel contract) — see the cross-ref
 // in js/notifySuppression.js botDelivered (W2 C10); consumes only the marker,
 // not the channel default.
-export function syncTelegramOnramp(serverPrefs) {
+export function syncTelegramOnramp(serverPrefs: UserPrefs | null | undefined) {
   const nowLinked = serverPrefs?.telegram != null;
   const justLinked = nowLinked && !_linked;
   _linked = nowLinked;
