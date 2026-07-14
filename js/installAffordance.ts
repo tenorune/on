@@ -30,10 +30,10 @@ function currentLane() {
   return onboardingLane({ installPromptAvailable: isInstallPromptAvailable() });
 }
 
-function fillToast(toast, lane) {
-  const textEl = toast.querySelector('#install-toast-text');
-  const actionEl = toast.querySelector('#install-toast-action');
-  const actionsEl = toast.querySelector('.notify-promo-actions');
+function fillToast(toast: HTMLElement, lane: string) {
+  const textEl = toast.querySelector<HTMLElement>('#install-toast-text')!;
+  const actionEl = toast.querySelector('#install-toast-action')!;
+  const actionsEl = toast.querySelector<HTMLElement>('.notify-promo-actions');
   if (lane === 'installable') {
     const lead = 'To get notified about knocks, calls, and people coming online — even when this browser is closed — install KnockKnock.';
     if (isInstallPromptAvailable()) {
@@ -71,7 +71,7 @@ export function initInstallAffordance() {
   const toast = document.getElementById('install-toast');
   if (!fab || !toast) return;
   const actionEl = toast.querySelector('#install-toast-action');
-  const dismissEl = toast.querySelector('#install-toast-dismiss');
+  const dismissEl = toast.querySelector('#install-toast-dismiss')!;
 
   // The toast leads; once dismissed, the corner icon takes over. Never both.
   // iOS/macOS land already-dismissed: the user has just said "Maybe later" on the
