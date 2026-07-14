@@ -13,7 +13,11 @@ import { isTelegramContext } from './telegram.js';
 import { shareInviteLink, telegramSharingEnabled, shareInviteToTelegramWeb, buildTelegramInviteLink, shareCaption } from './inviteFlow.js';
 import { copyWithFeedback } from './utils.js';
 
-const SCOPE_COPY = {
+interface ScopeCopy { title: string; subtitle: string; labelHint?: string; labelPlaceholder?: string; needsLabel: boolean; }
+interface CurrentInvite { token?: string; url?: string; scope?: string; creatorLabel?: string; groupId?: string | null; groupName?: string; }
+type Mutual = { userId: string; label?: string };
+
+const SCOPE_COPY: Record<string, ScopeCopy> = {
   personal: {
     title: 'Your invite link',
     subtitle: 'People who tap this link will follow you.',
@@ -28,26 +32,26 @@ const SCOPE_COPY = {
   },
 };
 
-let cleanupFns = [];
+let cleanupFns: Array<() => void> = [];
 
 function clearListeners() {
   cleanupFns.forEach((fn) => fn());
   cleanupFns = [];
 }
 
-function on(el, evt, handler) {
+function on(el: EventTarget, evt: string, handler: (e: Event) => void) {
   el.addEventListener(evt, handler);
   cleanupFns.push(() => el.removeEventListener(evt, handler));
 }
 
-function showState(stateName) {
-  document.getElementById('invite-modal-create').classList.toggle('hidden', stateName !== 'create');
-  document.getElementById('invite-modal-manage').classList.toggle('hidden', stateName !== 'manage');
+function showState(stateName: string) {
+  document.getElementById('invite-modal-create')!.classList.toggle('hidden', stateName !== 'create');
+  document.getElementById('invite-modal-manage')!.classList.toggle('hidden', stateName !== 'manage');
 }
 
 // Show the unchanging URL base (e.g. "https://app/?i=") above the field and only
 // the changing token ("hash") inside it, so a regenerate is obviously a change.
-function renderManageUrl(invite) {
+function renderManageUrl(invite: CurrentInvite) {
   const url = invite.url || '';
   const token = invite.token || '';
   const prefixEl = document.getElementById('invite-modal-url-prefix');
@@ -63,7 +67,7 @@ function hideError() {
   errEl.textContent = '';
 }
 
-function showError(msg) {
+function showError(msg: string) {
   const errEl = document.getElementById('invite-modal-label-error');
   if (!errEl) return;
   errEl.classList.remove('hidden');
@@ -71,24 +75,21 @@ function showError(msg) {
 }
 
 export function closeInviteModal() {
-  document.getElementById('invite-modal').classList.add('hidden');
+  document.getElementById('invite-modal')!.classList.add('hidden');
   clearListeners();
 }
 const closeModal = closeInviteModal;
 
-/**
- * @param {{
- *   scope: string,
- *   userId?: string,
- *   activeInvite?: object | null,
- *   groupId?: string | null,
- *   groupName?: string | null,
- *   followers?: Record<string, unknown>,
- *   mutuals?: unknown[],
- *   currentMemberUids?: Set<string>,
- * }} opts
- */
-export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, mutuals = [], currentMemberUids = new Set() }) {
+export async function openInviteModal({ scope, userId, activeInvite = null, groupId = null, groupName = null, followers = {}, mutuals = [], currentMemberUids = new Set<string>() }: {
+  scope: string;
+  userId: string;
+  activeInvite?: CurrentInvite | null;
+  groupId?: string | null;
+  groupName?: string | null;
+  followers?: Record<string, string>;
+  mutuals?: Mutual[];
+  currentMemberUids?: Set<string>;
+}) {
   const copy = SCOPE_COPY[scope];
   if (!copy) throw new Error(`Unknown scope: ${scope}`);
   if (scope === 'group' && (!groupId || !groupName)) {
@@ -97,15 +98,15 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
 
   const title = copy.title.replace('{groupName}', groupName || '');
   const subtitle = copy.subtitle.replace('{groupName}', groupName || '');
-  document.getElementById('invite-modal-title').textContent = title;
-  document.getElementById('invite-modal-subtitle').textContent = subtitle;
+  document.getElementById('invite-modal-title')!.textContent = title;
+  document.getElementById('invite-modal-subtitle')!.textContent = subtitle;
 
   // Show the label input only for scopes that need it.
   const labelHintEl = document.getElementById('invite-modal-label-hint');
-  const labelInputEl = document.getElementById('invite-modal-label-input');
+  const labelInputEl = document.getElementById('invite-modal-label-input') as HTMLInputElement | null;
   if (copy.needsLabel) {
-    if (labelHintEl) { labelHintEl.textContent = copy.labelHint; labelHintEl.classList.remove('hidden'); }
-    if (labelInputEl) { labelInputEl.classList.remove('hidden'); labelInputEl.placeholder = copy.labelPlaceholder; }
+    if (labelHintEl) { labelHintEl.textContent = copy.labelHint!; labelHintEl.classList.remove('hidden'); }
+    if (labelInputEl) { labelInputEl.classList.remove('hidden'); labelInputEl.placeholder = copy.labelPlaceholder!; }
   } else {
     if (labelHintEl) labelHintEl.classList.add('hidden');
     if (labelInputEl) labelInputEl.classList.add('hidden');
@@ -131,7 +132,7 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   hideError();
   clearListeners();
 
-  let currentInvite = activeInvite ? { ...activeInvite } : null;
+  let currentInvite: CurrentInvite | null = activeInvite ? { ...activeInvite } : null;
 
   const tgShareEl = document.getElementById('invite-modal-tg-share');
   if (tgGroupShare) {
@@ -140,13 +141,13 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
     // the t.me deep link, minting the group invite on demand (idempotent).
     showState('none');
     if (tgShareEl) tgShareEl.classList.remove('hidden');
-    document.getElementById('invite-modal-subtitle').textContent = '';
-    on(document.getElementById('invite-modal-tg-share-btn'), 'click', async () => {
+    document.getElementById('invite-modal-subtitle')!.textContent = '';
+    on(document.getElementById('invite-modal-tg-share-btn')!, 'click', async () => {
       try {
-        const { token, url } = await createGroupInvite(userId, groupId);
-        shareInviteLink({ token, url }, shareCaption('group', groupName));
+        const { token, url } = await createGroupInvite(userId, groupId!);
+        shareInviteLink({ token, url }, shareCaption('group', groupName!));
       } catch (err) {
-        showError(err.message || "Couldn't create invite. Try again.");
+        showError((err as { message?: string }).message || "Couldn't create invite. Try again.");
       }
     });
   } else {
@@ -162,11 +163,11 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
 
   // Create handler — branch by scope. hideError() runs before the await so a
   // stale error from a previous attempt doesn't linger across the round-trip.
-  on(document.getElementById('invite-modal-create-btn'), 'click', async () => {
+  on(document.getElementById('invite-modal-create-btn')!, 'click', async () => {
     try {
       let result;
       if (scope === 'personal') {
-        const raw = labelInputEl.value;
+        const raw = labelInputEl!.value;
         const trimmed = (raw || '').trim();
         if (!trimmed) { showError('Please enter a name.'); return; }
         if (trimmed.length > 40) { showError('Name must be at most 40 characters.'); return; }
@@ -175,20 +176,20 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
         currentInvite = { token: result.token, url: result.url, scope, creatorLabel: trimmed };
       } else {
         hideError();
-        result = await createGroupInvite(userId, groupId);
-        currentInvite = { token: result.token, url: result.url, scope, groupId, groupName };
+        result = await createGroupInvite(userId, groupId!);
+        currentInvite = { token: result.token, url: result.url, scope, groupId, groupName: groupName ?? undefined };
       }
       showState('manage');
       renderManageUrl(currentInvite);
     } catch (err) {
-      showError(err.message || "Couldn't create invite. Try again.");
+      showError((err as { message?: string }).message || "Couldn't create invite. Try again.");
     }
   });
 
   // Copy — unchanged from Phase 0
-  on(document.getElementById('invite-modal-copy-btn'), 'click', async () => {
+  on(document.getElementById('invite-modal-copy-btn')!, 'click', async () => {
     if (!currentInvite) return;
-    await copyWithFeedback(document.getElementById('invite-modal-copy-btn'), currentInvite.url);
+    await copyWithFeedback(document.getElementById('invite-modal-copy-btn')!, currentInvite.url!);
   });
 
   // Share affordance next to Copy. In Telegram: the native share sheet. On web,
@@ -202,59 +203,59 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
     if (webTgShare) shareBtn.textContent = 'Share to Telegram';
     on(shareBtn, 'click', async () => {
       if (!currentInvite) return;
-      const text = shareCaption(scope, groupName);
+      const text = shareCaption(scope, groupName ?? undefined);
       if (isTelegramContext()) { shareInviteLink(currentInvite, text); return; }
       if (!shareInviteToTelegramWeb(currentInvite, text)) {
         const deepLink = buildTelegramInviteLink(currentInvite.token);
-        if (deepLink) await copyWithFeedback(shareBtn, deepLink, { done: 'Link copied!', idle: 'Share to Telegram' });
+        if (deepLink) await copyWithFeedback(shareBtn!, deepLink, { done: 'Link copied!', idle: 'Share to Telegram' });
       }
     });
   }
 
   // Regenerate — branch by scope
-  on(document.getElementById('invite-modal-regen-btn'), 'click', async () => {
+  on(document.getElementById('invite-modal-regen-btn')!, 'click', async () => {
     if (!currentInvite) return;
     try {
       const result = scope === 'personal'
         ? await regeneratePersonalInvite(userId, currentInvite.creatorLabel)
-        : await regenerateGroupInvite(userId, groupId);
+        : await regenerateGroupInvite(userId, groupId!);
       currentInvite = { ...currentInvite, token: result.token, url: result.url };
       renderManageUrl(currentInvite);
       flashRegenerated(
         document.getElementById('invite-modal-url'),
         document.getElementById('invite-modal-regen-btn'),
       );
-      document.getElementById('invite-modal-copy-btn').textContent = 'Copy';
+      document.getElementById('invite-modal-copy-btn')!.textContent = 'Copy';
     } catch (err) {
-      showError(err.message || "Couldn't regenerate invite. Try again.");
+      showError((err as { message?: string }).message || "Couldn't regenerate invite. Try again.");
       // On error the badge swap didn't run, so drop the tapped ↻'s focus here
       // (otherwise it looks "stuck selected" until you tap elsewhere).
-      document.getElementById('invite-modal-regen-btn').blur();
+      (document.getElementById('invite-modal-regen-btn') as HTMLElement).blur();
     }
   });
 
   // Revoke — branch by scope
-  on(document.getElementById('invite-modal-revoke-btn'), 'click', async () => {
+  on(document.getElementById('invite-modal-revoke-btn')!, 'click', async () => {
     try {
       if (scope === 'personal') await revokePersonalInvite(userId);
-      else await revokeGroupInvite(userId, groupId);
+      else await revokeGroupInvite(userId, groupId!);
       currentInvite = null;
       showState('create');
       if (labelInputEl) labelInputEl.value = '';
     } catch (err) {
-      showError(err.message || "Couldn't revoke invite. Try again.");
+      showError((err as { message?: string }).message || "Couldn't revoke invite. Try again.");
     }
   });
 
   // Dismiss on tap-outside (overlay click, but not card click).
   const overlay = document.getElementById('invite-modal');
-  on(overlay, 'click', (e) => {
+  on(overlay!, 'click', (e) => {
     if (e.target === overlay) closeModal();
   });
   // Escape-to-dismiss for keyboard users — the modal has aria-modal="true",
   // which traps focus, so without this there is no keyboard path out.
   on(document, 'keydown', (e) => {
-    if (e.key === 'Escape') closeModal();
+    if ((e as KeyboardEvent).key === 'Escape') closeModal();
   });
 
   // TG-group shortcut: if there's no one displayable to invite (Section 2 would
@@ -264,8 +265,8 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   // surfaces its own errors).
   if (tgGroupShare && !displayableInvitees) {
     try {
-      const { token, url } = await createGroupInvite(userId, groupId);
-      shareInviteLink({ token, url }, shareCaption('group', groupName));
+      const { token, url } = await createGroupInvite(userId, groupId!);
+      shareInviteLink({ token, url }, shareCaption('group', groupName!));
       return; // never paint the modal
     } catch {
       // on failure, fall through to open the modal so the user can retry via
@@ -277,16 +278,16 @@ export async function openInviteModal({ scope, userId, activeInvite = null, grou
   // group-create path it appears together with the new group context instead of
   // a blank frame followed by a late pop-in once readPendingInviteesForGroup
   // resolves (the transition jank this flow used to show).
-  document.getElementById('invite-modal').classList.remove('hidden');
+  document.getElementById('invite-modal')!.classList.remove('hidden');
 
   // Populate the in-app picker after the modal is already up. Skipped when the
   // section is hidden — rows are built solely from followers/mutuals, so with
   // no displayable invitees there is nothing to render (or fetch).
   if (displayableInvitees) {
-    const pendingInvitees = await readPendingInviteesForGroup(groupId);
+    const pendingInvitees = await readPendingInviteesForGroup(groupId!);
     renderInvitePicker({
       inviterUid: userId,
-      groupId,
+      groupId: groupId!,
       followers,
       mutuals,
       currentMemberUids,
