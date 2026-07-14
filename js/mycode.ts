@@ -7,19 +7,36 @@ import { shareInviteLink } from './inviteFlow.js';
 import { telegramFirstName, isTelegramContext } from './telegram.js';
 import { flashRegenerated } from './regenFlash.js';
 
-let _myUserId = null;
-let _currentCode = null;
-let _currentActiveInvite = null;
+// The active personal invite carried in-memory: token/url plus whatever fields
+// the invite record spreads in (creatorLabel, etc.). Kept structural (no index
+// signature) so it stays assignable to inviteFlow's InviteLike.
+interface ActiveInvite {
+  token: string;
+  url: string;
+  scope?: string;
+  creatorLabel?: string;
+  revoked?: boolean;
+}
+// A raw invite entry as read from the db (watchUserInvites yields Record<string, unknown>).
+interface InviteRecord {
+  scope?: string;
+  revoked?: boolean;
+  [key: string]: unknown;
+}
 
-export function initCodeDrawer(myUserId, myCode) {
+let _myUserId: string | null = null;
+let _currentCode: string | null = null;
+let _currentActiveInvite: ActiveInvite | null = null;
+
+export function initCodeDrawer(myUserId: string, myCode: string) {
   _myUserId = myUserId;
   _currentCode = myCode;
 
-  document.getElementById('my-code-display').textContent = _currentCode;
+  document.getElementById('my-code-display')!.textContent = _currentCode;
 
-  document.getElementById('copy-code-btn').addEventListener('click', () => {
-    const btn = document.getElementById('copy-code-btn');
-    copyText(_currentCode).then(() => {
+  document.getElementById('copy-code-btn')!.addEventListener('click', () => {
+    const btn = document.getElementById('copy-code-btn')!;
+    copyText(_currentCode!).then(() => {
       btn.textContent = 'Copied!';
       setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
     });
@@ -41,21 +58,21 @@ export function initCodeDrawer(myUserId, myCode) {
       </div>`;
     document.body.appendChild(el);
     el.addEventListener('click', (e) => { if (e.target === el) dismissRotateConfirm(); });
-    document.getElementById('rotate-cancel-btn').addEventListener('click', dismissRotateConfirm);
-    document.getElementById('rotate-do-btn').addEventListener('click', doRotate);
+    document.getElementById('rotate-cancel-btn')!.addEventListener('click', dismissRotateConfirm);
+    document.getElementById('rotate-do-btn')!.addEventListener('click', doRotate);
   }
 
-  document.getElementById('rotate-code-btn').addEventListener('click', () => {
+  document.getElementById('rotate-code-btn')!.addEventListener('click', () => {
     if (!navigator.onLine) return;
-    document.getElementById('rotate-confirm').classList.remove('hidden');
+    document.getElementById('rotate-confirm')!.classList.remove('hidden');
   });
 
   async function doRotate() {
     dismissRotateConfirm();
-    const rotateBtn = document.getElementById('rotate-code-btn');
-    const copyBtn = document.getElementById('copy-code-btn');
-    const errorEl = document.getElementById('rotate-error-msg');
-    const display = document.getElementById('my-code-display');
+    const rotateBtn = document.getElementById('rotate-code-btn') as HTMLButtonElement;
+    const copyBtn = document.getElementById('copy-code-btn') as HTMLButtonElement;
+    const errorEl = document.getElementById('rotate-error-msg')!;
+    const display = document.getElementById('my-code-display')!;
 
     rotateBtn.style.display = 'none';
     rotateBtn.disabled = true;
@@ -67,7 +84,7 @@ export function initCodeDrawer(myUserId, myCode) {
 
     try {
       const [newCode] = await Promise.all([
-        rotateCode(_myUserId, _currentCode),
+        rotateCode(_myUserId!, _currentCode!),
         new Promise((r) => setTimeout(r, 500)), // ensure full fade-out completes
       ]);
 
@@ -75,7 +92,7 @@ export function initCodeDrawer(myUserId, myCode) {
       display.textContent = newCode;
       _currentCode = newCode;
       const existing = loadIdentity();
-      saveIdentity(_myUserId, newCode, existing?.recoveryCode ?? '');
+      saveIdentity(_myUserId!, newCode, existing?.recoveryCode ?? '');
 
       // Hand the fade-in + transient NEW badge to the shared regen cue (same
       // animation as the invite hash / secret phrase). flashRegenerated re-hides
@@ -96,15 +113,15 @@ export function initCodeDrawer(myUserId, myCode) {
   }
 
   function dismissRotateConfirm() {
-    document.getElementById('rotate-confirm').classList.add('hidden');
+    document.getElementById('rotate-confirm')!.classList.add('hidden');
   }
 
   // --- Invite state tracking (feeds openPersonalInviteModal's activeInvite arg) ---
   watchUserInvites(myUserId, (collection) => {
-    let active = null;
-    for (const [token, inv] of Object.entries(collection || {})) {
+    let active: ActiveInvite | null = null;
+    for (const [token, inv] of Object.entries((collection || {}) as Record<string, InviteRecord>)) {
       if (inv && inv.scope === 'personal' && !inv.revoked) {
-        active = { token, ...inv, url: buildInviteUrl(token) };
+        active = { token, ...inv, url: buildInviteUrl(token) } as ActiveInvite;
         break;
       }
     }
@@ -128,7 +145,7 @@ export function startPersonalInviteFlow() {
 }
 
 export async function openPersonalInviteModal() {
-  await openInviteModal({ scope: 'personal', userId: _myUserId, activeInvite: _currentActiveInvite });
+  await openInviteModal({ scope: 'personal', userId: _myUserId!, activeInvite: _currentActiveInvite });
 }
 
 // Telegram one-tap invite (spec §3/§4): share the active personal invite via the
@@ -140,7 +157,7 @@ export async function sharePersonalInvite() {
   let invite = _currentActiveInvite;
   if (!invite) {
     const label = telegramFirstName() || 'Someone';
-    const result = await createPersonalInvite(_myUserId, label);
+    const result = await createPersonalInvite(_myUserId!, label);
     invite = { token: result.token, url: result.url, scope: 'personal', creatorLabel: label };
     _currentActiveInvite = invite; // optimistic; watchUserInvites confirms shortly
   } else {
@@ -152,7 +169,7 @@ export async function sharePersonalInvite() {
     // rather than clobber it with the 'Someone' fallback.
     const current = telegramFirstName();
     if (current && current !== invite.creatorLabel) {
-      await updateInviteLabel(_myUserId, invite.token, current);
+      await updateInviteLabel(_myUserId!, invite.token, current);
       invite = { ...invite, creatorLabel: current };
       _currentActiveInvite = invite;
     }
@@ -160,7 +177,7 @@ export async function sharePersonalInvite() {
   shareInviteLink(invite);
 }
 
-async function copyText(text) {
+async function copyText(text: string) {
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
@@ -183,7 +200,7 @@ async function copyText(text) {
 // Called when watchStatus reports the user's code changed on another device.
 // Updates the drawer display, the in-memory current code (used by Copy and
 // rotate), and localStorage. No-op if the code matches what's already shown.
-export function updateMyCode(newCode) {
+export function updateMyCode(newCode: string) {
   if (!newCode || newCode === _currentCode) return;
   _currentCode = newCode;
   const display = document.getElementById('my-code-display');
@@ -192,17 +209,19 @@ export function updateMyCode(newCode) {
   if (existing) saveIdentity(existing.userId, newCode, existing.recoveryCode);
 }
 
-export function initRecoveryPill(recoveryCode) {
-  const pill = document.getElementById('recovery-show-pill');
-  const revealed = document.getElementById('recovery-revealed');
-  const codeText = document.getElementById('drawer-recovery-code');
-  const copyBtn = document.getElementById('drawer-recovery-copy-btn');
+export function initRecoveryPill(recoveryCode: string) {
+  // Non-null asserted at declaration so the narrowing survives into the nested
+  // handlers below (the runtime guard still returns early when any is absent).
+  const pill = document.getElementById('recovery-show-pill')!;
+  const revealed = document.getElementById('recovery-revealed')!;
+  const codeText = document.getElementById('drawer-recovery-code')!;
+  const copyBtn = document.getElementById('drawer-recovery-copy-btn')!;
   if (!pill || !revealed || !codeText || !copyBtn) return;
 
   codeText.textContent = recoveryCode;
 
-  let idleTimer = null;
-  let copiedTimer = null;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
   function toIdle() {
     if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
