@@ -1,3 +1,4 @@
+// @ts-check
 // js/about-invite.js
 // /about page only. When opened as /about?i=TOKEN, fetch the invite preview from
 // the unauthenticated resolveInvitePreview Cloud callable and show a one-line
@@ -31,8 +32,10 @@
       } else {
         return;
       }
-      el.textContent = text; // textContent (not innerHTML) — label/groupName are user-controlled
-      el.classList.remove('hidden');
+      // el is guarded non-null above; the native checker drops that narrowing inside this closure, so re-assert via JSDoc cast.
+      var frame = /** @type {HTMLElement} */ (el);
+      frame.textContent = text; // textContent (not innerHTML) — label/groupName are user-controlled
+      frame.classList.remove('hidden');
     })
     .catch(function () { /* framing is non-critical */ });
 })();
