@@ -25,12 +25,14 @@ export function extractStartParamToken() {
 const OUTCOME_KEY = 'statusapp_invite_outcomes';
 const OUTCOME_MAX = 8;
 
-function readOutcomes() {
-  try { return JSON.parse(localStorage.getItem(OUTCOME_KEY)) || {}; }
+interface InvitePreview { scope?: string; groupName?: string | null; label?: string | null; }
+
+function readOutcomes(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(OUTCOME_KEY) as string) || {}; }
   catch { return {}; }
 }
 
-export function stampInviteOutcome(token, outcome) {
+export function stampInviteOutcome(token: string | null | undefined, outcome: string) {
   if (!token) return;
   const map = readOutcomes();
   const key = 't:' + token; // prefix prevents numeric-string keys from sorting first
@@ -42,31 +44,31 @@ export function stampInviteOutcome(token, outcome) {
   catch { /* private mode / quota — stamping is best-effort */ }
 }
 
-export function stampedInviteOutcome(token) {
+export function stampedInviteOutcome(token: string | null | undefined) {
   return (token && readOutcomes()['t:' + token]) || null;
 }
 
 // Which redemption results consume the token (W1 J#4): success, or the
 // server telling us it was already consumed.
-export function redemptionConsumedToken(result) {
+export function redemptionConsumedToken(result: { ok?: boolean; reason?: string } | null | undefined) {
   return !!result && (result.ok === true
     || result.reason === 'already-following'
     || result.reason === 'already-member');
 }
 
-function framingText(preview) {
+function framingText(preview: InvitePreview) {
   return preview.scope === 'group'
     ? `You've been invited to join ${preview.groupName}.`
     : `${preview.label || 'Someone'} invited you to follow them.`;
 }
 
-function showInterstitial(preview, isNew, token) {
+function showInterstitial(preview: InvitePreview, isNew: boolean, token: string): Promise<string> {
   const el = document.getElementById('tg-invite-screen');
   if (!el) return Promise.resolve('dismiss');
-  document.getElementById('tg-invite-framing').textContent = framingText(preview);
+  document.getElementById('tg-invite-framing')!.textContent = framingText(preview);
   // "& get started" only on a first-ever open — a returning Mini App user
   // started long ago, so they get a plain "Accept" (spec 2026-07-07).
-  document.getElementById('tg-invite-accept-btn').textContent =
+  document.getElementById('tg-invite-accept-btn')!.textContent =
     isNew ? 'Accept & get started' : 'Accept';
   // "What is KnockKnock?" rides the same isNew flag (A4): only a first-ever
   // open needs the pitch; it opens the /invite landing and returns here.
@@ -74,15 +76,15 @@ function showInterstitial(preview, isNew, token) {
   if (about) about.classList.toggle('hidden', !isNew);
   el.classList.remove('hidden');
   return new Promise((resolve) => {
-    const accept = document.getElementById('tg-invite-accept-btn');
-    const phrase = document.getElementById('tg-invite-phrase-btn');
-    const dismiss = document.getElementById('tg-invite-dismiss-btn');
-    function pick(choice) {
+    const accept = document.getElementById('tg-invite-accept-btn')!;
+    const phrase = document.getElementById('tg-invite-phrase-btn')!;
+    const dismiss = document.getElementById('tg-invite-dismiss-btn')!;
+    function pick(choice: string) {
       accept.removeEventListener('click', onAccept);
       phrase.removeEventListener('click', onPhrase);
       dismiss.removeEventListener('click', onDismiss);
       if (about) about.removeEventListener('click', onAbout);
-      el.classList.add('hidden');
+      el!.classList.add('hidden');
       resolve(choice);
     }
     function onAccept() { pick('accept'); }
@@ -113,12 +115,12 @@ function showInviteError() {
   if (!el) return Promise.resolve(false);
   el.classList.remove('hidden');
   return new Promise((resolve) => {
-    const retry = document.getElementById('tg-invite-error-retry');
-    const dismiss = document.getElementById('tg-invite-error-dismiss');
-    function pick(v) {
+    const retry = document.getElementById('tg-invite-error-retry')!;
+    const dismiss = document.getElementById('tg-invite-error-dismiss')!;
+    function pick(v: boolean) {
       retry.removeEventListener('click', onRetry);
       dismiss.removeEventListener('click', onDismiss);
-      el.classList.add('hidden');
+      el!.classList.add('hidden');
       resolve(v);
     }
     function onRetry() { pick(true); }
@@ -138,7 +140,7 @@ function showInviteError() {
 //  - unlinked: interstitial; Accept → redeem; phrase → link flow (success
 //    reloads and re-runs this gate with linked=true; CANCEL loops back to the
 //    interstitial with the invite intact, W1 J#6); Not now → stamp dismissed.
-export async function telegramInviteGate({ linked, isNew, dismissSplash }) {
+export async function telegramInviteGate({ linked, isNew, dismissSplash }: { linked: boolean; isNew: boolean; dismissSplash: () => void }) {
   const token = extractStartParamToken();
   if (!token) return null;
   const outcome = stampedInviteOutcome(token);
@@ -152,7 +154,7 @@ export async function telegramInviteGate({ linked, isNew, dismissSplash }) {
   if (outcome === 'redeemed') return null;
   if (outcome === 'dismissed' && linked) return null;
   while (true) {
-    let preview;
+    let preview: Awaited<ReturnType<typeof resolveInvitePreview>>;
     try {
       preview = await resolveInvitePreview(token);
     } catch {
