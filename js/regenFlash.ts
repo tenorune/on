@@ -1,4 +1,4 @@
-// js/regenFlash.js
+// js/regenFlash.ts
 // Shared "this value just regenerated" cue: a brief fade-in on the element plus a
 // transient NEW badge that REPLACES the regenerate button while it shows (the
 // button is hidden, then restored once the badge fades). Mirrors the share-code
@@ -7,7 +7,7 @@
 //
 //   el     — the value element that just changed (gets the fade + the badge after it)
 //   button — the regenerate ↻ button to swap out for the badge (optional)
-export function flashRegenerated(el, button = null) {
+export function flashRegenerated(el: HTMLElement | null | undefined, button: HTMLElement | null = null) {
   if (!el) return;
   el.classList.remove('regen-flash');
   void el.offsetWidth; // reflow so re-adding the class restarts the animation
