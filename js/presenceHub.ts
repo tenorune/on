@@ -13,9 +13,17 @@
 // "Unavailable" until the node's next write.
 import { watchPresence } from './db.js';
 
-const _entries = new Map(); // uid → { unsub, consumers: Set<cb>, last, hasValue }
+type PresenceCb = (data: PresenceNode | null) => void;
+interface Entry {
+  unsub: (() => void) | null;
+  consumers: Set<PresenceCb>;
+  last: PresenceNode | null | undefined;
+  hasValue: boolean;
+}
 
-export function subscribePresence(uid, cb) {
+const _entries = new Map<string, Entry>(); // uid → { unsub, consumers: Set<cb>, last, hasValue }
+
+export function subscribePresence(uid: string, cb: PresenceCb) {
   let e = _entries.get(uid);
   const isNew = !e;
   if (isNew) {
@@ -27,19 +35,19 @@ export function subscribePresence(uid, cb) {
   // reaches us. For a uid that was already being watched, the underlying watch
   // won't re-fire just for a new consumer, so replay the cached value (async, to
   // avoid re-entering a caller's render loop).
-  e.consumers.add(cb);
+  e!.consumers.add(cb);
   if (isNew) {
-    e.unsub = watchPresence(uid, (data) => {
-      e.last = data;
-      e.hasValue = true;
+    e!.unsub = watchPresence(uid, (data) => {
+      e!.last = data;
+      e!.hasValue = true;
       // Copy so a consumer unsubscribing during fan-out can't mutate the live set.
-      for (const c of [...e.consumers]) { try { c(data); } catch { /* one consumer threw */ } }
+      for (const c of [...e!.consumers]) { try { c(data); } catch { /* one consumer threw */ } }
     });
-  } else if (e.hasValue) {
-    const v = e.last;
+  } else if (e!.hasValue) {
+    const v = e!.last;
     Promise.resolve().then(() => {
       const cur = _entries.get(uid);
-      if (cur && cur.consumers.has(cb)) cb(v);
+      if (cur && cur.consumers.has(cb)) cb(v as PresenceNode | null);
     });
   }
   return () => {
