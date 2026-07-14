@@ -4,23 +4,28 @@ import { getCurrentContext, onContextChange } from './groupNav.js';
 import { isCardDrawerOpen } from './cardDrawer.js';
 import { hexToRgb } from './utils.js';
 
+// Boundary/state shapes.
+interface PulseEntry { intensity: number; timerId: ReturnType<typeof setTimeout> | null; }
+interface FloatEntry { timerId: ReturnType<typeof setTimeout> | null; startedAt: number; }
+interface KnockPayload { count?: number; ts?: number; contextGroupId?: string | null; }
+
 // Module-level state — reset by initKnocks on each call
-let debounceMap = new Map();   // recipientId → last knock timestamp
-let deferredKeys = new Set();  // senderIds from snapshot; blocks live listener until cleared
+let debounceMap = new Map<string, number>();   // recipientId → last knock timestamp
+let deferredKeys = new Set<string>();  // senderIds from snapshot; blocks live listener until cleared
 let snapshotPending = false;   // true while waiting for getKnocks to resolve
-let unsubKnocks = null;
-let cachedUserId = null;       // stored so the visibility handler can re-call initKnocks
+let unsubKnocks: (() => void) | null = null;
+let cachedUserId: string | null = null;       // stored so the visibility handler can re-call initKnocks
 let contextSubInitialized = false;
 
 const INTENSITY_STEP = 0.4;
-let pulseMap = new Map();      // senderId → { intensity: number, timerId: number | null }
-let pendingByGroup = new Map(); // groupId → Set<senderId>: knocks received while user
+let pulseMap = new Map<string, PulseEntry>();      // senderId → { intensity: number, timerId: number | null }
+let pendingByGroup = new Map<string, Set<string>>(); // groupId → Set<senderId>: knocks received while user
                                  // wasn't in the right group context; drained on enter.
-let pendingDirect = new Set();  // senderIds for Direct-scope knocks received while
+let pendingDirect = new Set<string>();  // senderIds for Direct-scope knocks received while
                                  // user wasn't in Direct context; drained on entry.
 
 // Send a knock to recipientId. Guards: debounce (300ms). Flash fires only after debounce passes.
-export function sendKnock(recipientId, senderId, statusColor, opts = {}) {
+export function sendKnock(recipientId: string, senderId: string, statusColor?: string, opts: { contextGroupId?: string } = {}) {
   const now = Date.now();
   if (now - (debounceMap.get(recipientId) ?? 0) < 300) return;
   debounceMap.set(recipientId, now);
@@ -43,7 +48,7 @@ export function sendKnock(recipientId, senderId, statusColor, opts = {}) {
 }
 
 // Initialize knock state and start listening. Call after initList so DOM exists.
-export async function initKnocks(myUserId) {
+export async function initKnocks(myUserId: string) {
   cachedUserId = myUserId;
 
   // Reset all module-level state
@@ -65,7 +70,7 @@ export async function initKnocks(myUserId) {
   // groupContext.enterGroupContext (after the roster is rendered).
   if (!contextSubInitialized) {
     contextSubInitialized = true;
-    onContextChange((ctx) => {
+    onContextChange((ctx: { context: string }) => {
       if (ctx.context === 'direct') {
         clearDirectBadge();
         drainPendingDirectKnocks();
@@ -79,12 +84,17 @@ export async function initKnocks(myUserId) {
   //    that arrive during the snapshot fetch. Events arriving while snapshotPending
   //    is true are held until deferredKeys is populated; senders in deferredKeys
   //    are then skipped (they will be handled by the deferred batch).
-  unsubKnocks = watchKnocksAdded(myUserId, (senderId, payload) => {
+  unsubKnocks = watchKnocksAdded(myUserId, (senderId, payloadRaw) => {
+    // The onChildAdded key is always present in practice; the db signature widens
+    // it to string|null defensively. payload is the child value (unknown at the
+    // boundary) — read through a local KnockPayload shape.
+    const sid = senderId as string;
+    const payload = (payloadRaw || {}) as KnockPayload;
     const count = payload.count;
     const ts = payload.ts;
     const contextGroupId = payload.contextGroupId || null;
     // Skip senders from the initial snapshot (handled as deferred)
-    if (snapshotPending || deferredKeys.has(senderId)) return;
+    if (snapshotPending || deferredKeys.has(sid)) return;
     // App is backgrounded or on canvas — leave knock in DB so the next initKnocks
     // (on foreground / canvas exit) picks it up via getKnocks and shows it as deferred.
     if (document.visibilityState !== 'visible') return;
@@ -98,29 +108,29 @@ export async function initKnocks(myUserId) {
     // clock skew between sender and recipient — without this, a fresh
     // cross-device knock can be misclassified as deferred when the
     // sender's clock runs a few seconds behind the recipient's.
-    if (ts < appOpenTime - 60000) {
-      applyDeferredKnock(senderId, contextGroupId);
-      clearKnock(myUserId, senderId).catch(() => {});
+    if ((ts as number) < appOpenTime - 60000) {
+      applyDeferredKnock(sid, contextGroupId);
+      clearKnock(myUserId, sid).catch(() => {});
       return;
     }
-    const li = findKnockTargetCard(senderId, contextGroupId);
+    const li = findKnockTargetCard(sid, contextGroupId);
     if (!li) {
       if (contextGroupId) {
         bumpGroupCardBadge(contextGroupId);
         // Stash so the animation replays when the user enters this group.
         if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
-        pendingByGroup.get(contextGroupId).add(senderId);
+        pendingByGroup.get(contextGroupId)!.add(sid);
       } else {
         // Direct-scope knock arrived while the user is in a group context.
         // Stash + badge on the Direct chip; drain on context entry.
-        pendingDirect.add(senderId);
+        pendingDirect.add(sid);
         bumpDirectBadge();
       }
       // Knock stays in DB on purpose — drainPendingKnocks /
       // drainPendingDirectKnocks clear it after replaying the animation.
       return;
     }
-    applyLiveKnock(senderId, count, li);
+    applyLiveKnock(sid, count, li);
     applyFloatToTop(li);
     // Bring the prepended li into view in group context — without this, a
     // user scrolled down in a long roster misses the float-to-top entirely.
@@ -131,7 +141,7 @@ export async function initKnocks(myUserId) {
       document.documentElement.scrollTop = 0;
       document.body.scrollTop = 0;
     }
-    clearKnock(myUserId, senderId).catch(() => {});
+    clearKnock(myUserId, sid).catch(() => {});
   });
 
   // 2. Read deferred knocks (one-time get). A cold-start read can race the RTDB
@@ -141,7 +151,7 @@ export async function initKnocks(myUserId) {
   //    which re-fire once authed. Retry briefly; on persistent failure, degrade
   //    to live-only. (If this read threw, snapshotPending would stay true and the
   //    live listener above would hold every knock for the whole session.)
-  let snapshot = null;
+  let snapshot: Awaited<ReturnType<typeof getKnocks>> | null = null;
   for (let attempt = 0; ; attempt += 1) {
     try { snapshot = await getKnocks(myUserId); break; }
     catch (err) {
@@ -160,10 +170,10 @@ export async function initKnocks(myUserId) {
   if (!snapshot || !snapshot.exists()) return;
 
   // 4. Categorize snapshot entries
-  const toDelete = [];
-  const toAnimate = [];
+  const toDelete: string[] = [];
+  const toAnimate: { senderId: string; contextGroupId: string | null }[] = [];
 
-  Object.entries(snapshot.val()).forEach(([senderId, payload]) => {
+  Object.entries(snapshot.val() as Record<string, KnockPayload>).forEach(([senderId, payload]) => {
     toDelete.push(senderId);
     const ts = payload?.ts ?? 0;
     if (ts >= appOpenTime - 24 * 60 * 60 * 1000) {
@@ -191,7 +201,7 @@ export async function initKnocks(myUserId) {
       requestAnimationFrame(() => applyDeferredKnock(senderId, contextGroupId));
     } else if (contextGroupId) {
       if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
-      pendingByGroup.get(contextGroupId).add(senderId);
+      pendingByGroup.get(contextGroupId)!.add(senderId);
       bumpGroupCardBadge(contextGroupId);
     } else {
       // Direct knock + user is currently in a group context. Stash so the
@@ -212,14 +222,14 @@ export function drainPendingDirectKnocks() {
   pendingDirect.clear();
   if (!cachedUserId) return;
   senderIds.forEach((senderId) => {
-    const li = document.querySelector(`#main-ui-direct [data-user-id="${senderId}"]`);
+    const li = document.querySelector<HTMLElement>(`#main-ui-direct [data-user-id="${senderId}"]`);
     if (!li) return;
     // Move first, animate next frame — see drainPendingKnocks for the
     // rationale (real browsers swallow the keyframe start when class is
     // added in the same sync batch as the DOM move).
     applyFloatToTop(li);
     requestAnimationFrame(() => applyDeferredKnock(senderId, null));
-    clearKnock(cachedUserId, senderId).catch(() => {});
+    clearKnock(cachedUserId!, senderId).catch(() => {});
   });
   if (senderIds.length) {
     window.scrollTo(0, 0);
@@ -234,7 +244,7 @@ export function drainPendingDirectKnocks() {
  * applied. Called from groupContext.enterGroupContext after the roster
  * has rendered (so findKnockTargetCard can resolve the li).
  */
-export function drainPendingKnocks(groupId) {
+export function drainPendingKnocks(groupId: string) {
   const set = pendingByGroup.get(groupId);
   if (!set || set.size === 0) return;
   // Take a snapshot then clear so re-entry doesn't double-animate.
@@ -252,7 +262,7 @@ export function drainPendingKnocks(groupId) {
     // li. JSDOM doesn't run animations so unit tests don't surface this.
     applyFloatToTop(li);
     requestAnimationFrame(() => applyDeferredKnock(senderId, groupId));
-    clearKnock(cachedUserId, senderId).catch(() => {});
+    clearKnock(cachedUserId!, senderId).catch(() => {});
   });
   // Bring the prepended items into view. Belt + suspenders against scroll
   // containers that don't respond to window.scrollTo on every platform.
@@ -263,15 +273,15 @@ export function drainPendingKnocks(groupId) {
 
 // Returns the color to use for knock animations on this card.
 // Uses grey when the person is Unavailable so the pulse matches their dot state.
-function getKnockColor(li) {
+function getKnockColor(li: HTMLElement) {
   if (li.dataset.available !== 'true') {
     return getComputedStyle(document.documentElement).getPropertyValue('--dot-off').trim() || '#6b7280';
   }
-  const dot = li.querySelector('.person-dot');
+  const dot = li.querySelector<HTMLElement>('.person-dot');
   return (dot && dot.style.background) || '#22c55e';
 }
 
-export function colorToRgba(color, alpha) {
+export function colorToRgba(color: string, alpha: number) {
   if (color.startsWith('#')) {
     // Reuse the shared hex parser (utils.hexToRgb) instead of re-slicing here.
     return `rgba(${hexToRgb(color)}, ${alpha})`;
@@ -282,8 +292,8 @@ export function colorToRgba(color, alpha) {
   return `rgba(34, 197, 94, ${alpha})`; // fallback: green
 }
 
-function applyLiveKnock(senderId, count, li) {
-  if (!li) li = document.querySelector(`[data-user-id="${senderId}"]`);
+function applyLiveKnock(senderId: string, count: number | undefined, li: HTMLElement | null) {
+  if (!li) li = document.querySelector<HTMLElement>(`[data-user-id="${senderId}"]`);
   if (!li) return;
 
   // Use the same CSS-keyframe approach as .knock-deferred — the previous
@@ -307,7 +317,7 @@ function applyLiveKnock(senderId, count, li) {
   pulseMap.set(senderId, { intensity: 1, timerId: null });
 }
 
-function applyDeferredKnock(userId, contextGroupId) {
+function applyDeferredKnock(userId: string, contextGroupId: string | null) {
   // Route through findKnockTargetCard so a deferred knock that carries a
   // contextGroupId animates the right element (the group-roster li) instead
   // of the global-first match (which can land on a hidden Direct contact li
@@ -330,20 +340,20 @@ function applyDeferredKnock(userId, contextGroupId) {
 // ── Float-to-top ─────────────────────────────────────────────────────────────
 
 const FLOAT_MS = 20000;
-const floatTimers = new Map(); // userId → { timerId, originalParent, originalSibling, startedAt }
+const floatTimers = new Map<string, FloatEntry>(); // userId → { timerId, startedAt }
 
-export function applyFloatToTop(li) {
+export function applyFloatToTop(li: HTMLElement | null) {
   if (!li) return;
   const list = li.parentNode;
   if (!list) return;
-  const userId = li.dataset.userId;
+  const userId = li.dataset.userId!;
   if (floatTimers.has(userId)) {
-    clearTimeout(floatTimers.get(userId).timerId);
+    clearTimeout(floatTimers.get(userId)!.timerId as ReturnType<typeof setTimeout>);
   } else {
     floatTimers.set(userId, { timerId: null, startedAt: Date.now() });
   }
   // Refresh startedAt on every prepend so a re-knock extends the float.
-  floatTimers.get(userId).startedAt = Date.now();
+  floatTimers.get(userId)!.startedAt = Date.now();
   // Don't let the floated li land above pinned header rows — Direct's section
   // labels (e.g. "Mutuals") or the group roster's owner-only "Invite to group"
   // row. Insert right after the first pinned row if one exists; otherwise
@@ -358,12 +368,12 @@ export function applyFloatToTop(li) {
   if (ref && ref !== li && ref.classList.contains('call-mode')) {
     ref = ref.nextElementSibling;
   }
-  list.insertBefore(li, ref); // ref === null appends (matches the old no-pin tail)
+  (list as Node).insertBefore(li, ref); // ref === null appends (matches the old no-pin tail)
   const timerId = setTimeout(() => restoreFromFloat(userId), FLOAT_MS);
-  floatTimers.get(userId).timerId = timerId;
+  floatTimers.get(userId)!.timerId = timerId;
 }
 
-function restoreFromFloat(userId) {
+function restoreFromFloat(userId: string) {
   if (!floatTimers.has(userId)) return;
   floatTimers.delete(userId);
   // Don't restore to a captured position — by now the list may have re-sorted
@@ -384,16 +394,16 @@ export function getFloatedUserIds() {
 
 // ── Group / Direct card badges ───────────────────────────────────────────────
 
-const groupBadgeCounts = new Map();
+const groupBadgeCounts = new Map<string, number>();
 let directBadgeCount = 0;
 
-export function bumpGroupCardBadge(groupId) {
+export function bumpGroupCardBadge(groupId: string) {
   const current = (groupBadgeCounts.get(groupId) || 0) + 1;
   groupBadgeCounts.set(groupId, current);
   renderGroupBadge(groupId, current);
 }
 
-export function clearGroupCardBadge(groupId) {
+export function clearGroupCardBadge(groupId: string) {
   groupBadgeCounts.delete(groupId);
   renderGroupBadge(groupId, 0);
 }
@@ -401,11 +411,11 @@ export function clearGroupCardBadge(groupId) {
 // Exposed for renderNavRow's per-card paint — the halo class is derived from
 // this count on every paint (set when non-zero, cleared at zero), so the badge
 // survives context flips and clears on surviving cards alike.
-export function getGroupBadgeCount(groupId) {
+export function getGroupBadgeCount(groupId: string) {
   return groupBadgeCounts.get(groupId) || 0;
 }
 
-function renderGroupBadge(groupId, count) {
+function renderGroupBadge(groupId: string, count: number) {
   const card = document.querySelector(`.group-card[data-group-id="${groupId}"]`);
   if (!card) return;
   // Visual indicator is a pulsing halo (CSS .group-card.knock-pending::after)
@@ -441,7 +451,7 @@ export function getDirectBadgeCount() {
   return directBadgeCount;
 }
 
-function renderDirectBadge(count) {
+function renderDirectBadge(count: number) {
   const card = document.querySelector('.group-card[data-nav="direct"]');
   if (!card) return;
   // Pulsing halo (CSS) rather than numeric badge — see renderGroupBadge.
@@ -452,11 +462,11 @@ function renderDirectBadge(count) {
 
 // ── Context-aware knock target lookup ────────────────────────────────────────
 
-function findKnockTargetCard(senderId, contextGroupId) {
+function findKnockTargetCard(senderId: string, contextGroupId: string | null) {
   const cur = getCurrentContext();
   if (contextGroupId) {
     if (cur.context === 'group' && cur.groupId === contextGroupId) {
-      return document.querySelector(`#group-roster [data-user-id="${senderId}"]`);
+      return document.querySelector<HTMLElement>(`#group-roster [data-user-id="${senderId}"]`);
     }
     return null; // recipient is in a different context; caller bumps the badge
   }
@@ -465,7 +475,7 @@ function findKnockTargetCard(senderId, contextGroupId) {
   // badge + pendingDirect path instead. Scope the lookup to #main-ui-direct
   // so a group-roster row with the same userId doesn't accidentally match.
   if (cur.context !== 'direct') return null;
-  return document.querySelector(`#main-ui-direct [data-user-id="${senderId}"]`);
+  return document.querySelector<HTMLElement>(`#main-ui-direct [data-user-id="${senderId}"]`);
 }
 
 // Re-run initKnocks when the app returns to the foreground or exits canvas,
@@ -479,7 +489,7 @@ document.addEventListener('visibilitychange', () => {
   // Process in two passes (collect then mutate) to avoid mutating the Map
   // during iteration.
   const now = Date.now();
-  const toRestore = [];
+  const toRestore: string[] = [];
   floatTimers.forEach((entry, userId) => {
     if (now - (entry.startedAt || 0) >= FLOAT_MS) toRestore.push(userId);
   });
