@@ -1,4 +1,4 @@
-// js/notifyDebug.js
+// js/notifyDebug.ts
 // Flag-gated push-notification debug readout (#156). Lets us tell apart the
 // failure modes of "permission granted but no notifications": did a token
 // register (local + server), and does a push even reach the service worker?
@@ -13,7 +13,7 @@ import { getRegisteredPushToken } from './prefs.js';
 import { readPushTokens } from './db.js';
 
 const OPT_IN_KEY = 'statusapp_notify_debug';
-const tail = (t) => (t ? `…${String(t).slice(-8)}` : '(none)');
+const tail = (t: unknown) => (t ? `…${String(t).slice(-8)}` : '(none)');
 
 export function notifyDebugActive() {
   if (NOTIFY_DEBUG) return true;
@@ -27,11 +27,11 @@ export function notifyDebugActive() {
 
 // Snapshot of the local push/notification state (token tails only — never the
 // full token). Async because the server token list is an RTDB read.
-export async function gatherNotifyDebugInfo(userId) {
+export async function gatherNotifyDebugInfo(userId: string) {
   const permission = (typeof Notification !== 'undefined' && Notification.permission) || 'unknown';
   const capability = detectNotifyCapability().state;
   const local = getRegisteredPushToken();
-  let server = null;
+  let server: Awaited<ReturnType<typeof readPushTokens>> = null;
   try { server = await readPushTokens(userId); } catch { server = null; }
   const serverTokens = server ? Object.keys(server) : [];
   const controller = (typeof navigator !== 'undefined' && navigator.serviceWorker && navigator.serviceWorker.controller) || null;
@@ -47,11 +47,11 @@ export async function gatherNotifyDebugInfo(userId) {
   };
 }
 
-let _info = null;     // last gathered snapshot
-let _lastPush = null; // last push-debug ping from the SW
-let _swCache = null;  // controlling SW's cache version (debug-pong)
+let _info: Awaited<ReturnType<typeof gatherNotifyDebugInfo>> | null = null;     // last gathered snapshot
+let _lastPush: any = null; // last push-debug ping from the SW (raw, untyped payload)
+let _swCache: string | null = null;  // controlling SW's cache version (debug-pong)
 
-function row(label, value, warn = false) {
+function row(label: string, value: string, warn = false) {
   return `<div class="ndbg-row${warn ? ' ndbg-warn' : ''}"><span class="ndbg-k">${label}</span><span class="ndbg-v">${value}</span></div>`;
 }
 
@@ -76,12 +76,12 @@ function render() {
   ].join('');
 }
 
-async function refresh(userId) {
+async function refresh(userId: string) {
   _info = await gatherNotifyDebugInfo(userId);
   render();
 }
 
-function buildPanel(userId) {
+function buildPanel(userId: string) {
   if (document.getElementById('notify-debug-panel')) return;
   const panel = document.createElement('div');
   panel.id = 'notify-debug-panel';
@@ -93,11 +93,11 @@ function buildPanel(userId) {
     '<button id="notify-debug-close" type="button">×</button></span></div>' +
     '<div id="notify-debug-body">gathering…</div>';
   document.body.appendChild(panel);
-  panel.querySelector('#notify-debug-refresh').addEventListener('click', () => refresh(userId));
-  panel.querySelector('#notify-debug-close').addEventListener('click', () => panel.remove());
+  panel.querySelector('#notify-debug-refresh')!.addEventListener('click', () => refresh(userId));
+  panel.querySelector('#notify-debug-close')!.addEventListener('click', () => panel.remove());
 }
 
-export function initNotifyDebug(userId) {
+export function initNotifyDebug(userId: string) {
   if (!notifyDebugActive()) return;
   buildPanel(userId);
   refresh(userId);
