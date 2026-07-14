@@ -16,12 +16,14 @@
 
 import { watchPresence } from './db.js';
 
-const NO_TICK = Symbol('no-tick'); // distinct from null (= user node absent)
-let _unsub = null;
-let _last = NO_TICK;
-const _subs = new Set();
+type OwnStatusCb = (data: PresenceNode | null) => void;
 
-export function initOwnStatus(uid) {
+const NO_TICK = Symbol('no-tick'); // distinct from null (= user node absent)
+let _unsub: (() => void) | null = null;
+let _last: PresenceNode | null | typeof NO_TICK = NO_TICK;
+const _subs = new Set<OwnStatusCb>();
+
+export function initOwnStatus(uid: string) {
   if (_unsub) _unsub();
   _last = NO_TICK;
   _unsub = watchPresence(uid, (data) => {
@@ -37,7 +39,7 @@ export function initOwnStatus(uid) {
   });
 }
 
-export function subscribeOwnStatus(cb) {
+export function subscribeOwnStatus(cb: OwnStatusCb) {
   _subs.add(cb);
   // Replay only if a real tick has landed (NO_TICK guard). A null replay is
   // legitimate — it means the user node is absent, which consumers handle.
