@@ -1,4 +1,4 @@
-// js/telegramEscapeHatch.js — the "link Telegram instead" affordance appended to
+// js/telegramEscapeHatch.ts — the "link Telegram instead" affordance appended to
 // dead-end web-push nudges (spec 2026-07-10-web-nudges-telegram-escape-hatch):
 // the notify guidance banner's hard lanes and the install toast's hard lanes.
 // The message text goes into the banner's text area; the "Use in Telegram" CTA
@@ -28,7 +28,7 @@ export function escapeHatchTextHtml() {
 // offers the hatch on every render. wanted=false (or unavailable) removes any
 // previously-mounted button, so a lane flip (e.g. back to the installable lane or
 // the supported Enable banner) can't leave a stale CTA behind.
-export function syncEscapeHatchButton(actionsEl, wanted) {
+export function syncEscapeHatchButton(actionsEl: HTMLElement | null | undefined, wanted: boolean) {
   if (!actionsEl) return;
   const existing = actionsEl.querySelector('.tg-escape-hatch-btn');
   if (!wanted || !escapeHatchAvailable()) { if (existing) existing.remove(); return; }
