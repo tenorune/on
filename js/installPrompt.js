@@ -1,11 +1,22 @@
+// @ts-check
 // js/installPrompt.js
 // Captures the Chromium `beforeinstallprompt` event so the app can drive a real
 // in-app Install button. Safari/Firefox never fire it (handled by other lanes).
+// CommonJS (module.exports) — required by tests; kept .js + JSDoc (not renamed to
+// .ts, which would force an ESM rewrite the type-only conversion forbids).
+
+/** The non-standard Chromium beforeinstallprompt event (not in lib.dom).
+ * @typedef {Event & { prompt: () => void, userChoice: Promise<{ outcome: string }> }} BeforeInstallPromptEvent */
+
+/** @type {BeforeInstallPromptEvent | null} */
 let _deferred = null;
 let _installed = false;
+/** @type {Set<() => void>} */
 const _listeners = new Set();
 let _initialized = false;
+/** @type {((e: Event) => void) | null} */
 let _beforeInstallPromptHandler = null;
+/** @type {(() => void) | null} */
 let _appInstalledHandler = null;
 
 function notify() { for (const fn of _listeners) { try { fn(); } catch { /* ignore */ } } }
@@ -15,7 +26,7 @@ function initInstallPrompt() {
   _initialized = true;
   _beforeInstallPromptHandler = (e) => {
     e.preventDefault();   // suppress the browser's mini-infobar
-    _deferred = e;        // stash for our own button
+    _deferred = /** @type {BeforeInstallPromptEvent} */ (e); // stash for our own button
     notify();
   };
   _appInstalledHandler = () => {
@@ -41,6 +52,7 @@ async function promptInstall() {
   catch { return null; }
 }
 
+/** @param {() => void} fn */
 function onInstallPromptChange(fn) {
   _listeners.add(fn);
   return () => _listeners.delete(fn);
