@@ -1,3 +1,4 @@
+// @ts-check
 // js/db.js — barrel for the Firebase data layer.
 // The implementation lives in focused modules; this file re-exports them so the
 // public API ('./db.js') stays stable for every importer and test mock. The
