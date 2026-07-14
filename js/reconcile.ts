@@ -31,11 +31,17 @@
 // - Children without a data-reconcile-key are removed (renderers own their
 //   containers exclusively); duplicate keys keep the first node.
 
-const _inFlight = new WeakSet();
+interface ReconcileHooks {
+  create: (key: string) => HTMLElement | null | undefined;
+  update: (node: HTMLElement, key: string) => void;
+  onRemove?: (node: HTMLElement) => void;
+}
 
-export function reconcileChildren(container, keys, { create, update, onRemove }) {
+const _inFlight = new WeakSet<Element>();
+
+export function reconcileChildren(container: Element, keys: readonly unknown[], { create, update, onRemove }: ReconcileHooks) {
   // Coerce all keys to strings once at entry so type-mismatches are impossible.
-  keys = keys.map(String);
+  const keyList = keys.map(String);
 
   if (_inFlight.has(container)) {
     throw new Error('reconcileChildren: re-entrant reconcile on the same container');
@@ -43,9 +49,9 @@ export function reconcileChildren(container, keys, { create, update, onRemove })
   _inFlight.add(container);
 
   try {
-    const want = new Set(keys);
-    const byKey = new Map();
-    for (const child of [...container.children]) {
+    const want = new Set(keyList);
+    const byKey = new Map<string, HTMLElement>();
+    for (const child of [...container.children] as HTMLElement[]) {
       const k = child.dataset.reconcileKey;
       if (k !== undefined && want.has(k) && !byKey.has(k)) {
         byKey.set(k, child);
@@ -54,19 +60,19 @@ export function reconcileChildren(container, keys, { create, update, onRemove })
         child.remove();
       }
     }
-    const seen = new Set();
-    let cursor = null; // last correctly-positioned node
-    for (const key of keys) {
+    const seen = new Set<string>();
+    let cursor: HTMLElement | null = null; // last correctly-positioned node
+    for (const key of keyList) {
       if (seen.has(key)) continue;
       seen.add(key);
-      let node = byKey.get(key);
+      let node: HTMLElement | null | undefined = byKey.get(key);
       if (!node) {
         node = create(key);
         if (!node) throw new Error(`reconcileChildren: create(${key}) returned no node`);
         node.dataset.reconcileKey = key;
       }
       update(node, key);
-      const expected = cursor ? cursor.nextSibling : container.firstChild;
+      const expected: ChildNode | null = cursor ? cursor.nextSibling : container.firstChild;
       if (node !== expected) container.insertBefore(node, expected);
       cursor = node;
     }
