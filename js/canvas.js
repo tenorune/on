@@ -1,3 +1,4 @@
+// @ts-check
 // js/canvas.js
 import { getCanvasColors } from './favorites.js';
 import { safeCssColor, escapeHtml } from './utils.js';
@@ -12,10 +13,19 @@ import {
 const THICKNESS_VALUES = [0.002, 0.005, 0.01, 0.018, 0.03, 0.05];
 const THICKNESS_PX_LABELS = [3, 6, 10, 16, 22, 30]; // visual dot sizes in toolbox
 
-let _ctx = null;
-let _canvas = null;
-let _canvasId = null;
-let _myUserId = null;
+/**
+ * @typedef {{ userId?: string, points?: number[][], color?: string, thickness?: number }} StrokeData
+ * @typedef {{ key: string | null, data: unknown }} StrokeEntry
+ */
+
+// Session singletons: null between sessions, set for the whole canvas session
+// lifetime (enterCanvas → exitCanvas). Typed non-null via a cast because every
+// use is within an active session; the guards that remain (e.g. exitCanvas's
+// `if (_canvasId && _myUserId)`) are defensive and still run at runtime.
+let _ctx = /** @type {CanvasRenderingContext2D} */ (/** @type {unknown} */ (null));
+let _canvas = /** @type {HTMLCanvasElement} */ (/** @type {unknown} */ (null));
+let _canvasId = /** @type {string} */ (/** @type {unknown} */ (null));
+let _myUserId = /** @type {string} */ (/** @type {unknown} */ (null));
 let _peerName = '';
 let _penColor = '#22c55e';
 let _thickness = THICKNESS_VALUES[2]; // default medium
@@ -23,30 +33,47 @@ let _isDrawing = false;
 // Canvas bounding rect, cached at stroke start (pointerdown). getBoundingClientRect
 // forces a layout/reflow; calling it on every pointermove was the per-segment hot
 // path. The canvas isn't resized mid-stroke, so one read per stroke is sufficient.
+/** @type {DOMRect | null} */
 let _canvasRect = null;
 // Unsubscribe fns for the per-session canvas watchers (strokes/clear/drawing/bg/
 // presence). canvas.js owns them so a re-enter can't leak the prior listeners;
 // exitCanvas drains this list.
+/** @type {Array<() => void>} */
 let _canvasUnsubs = [];
+/** @type {number[][]} */
 let _currentPoints = [];
+/** @type {(() => void) | null} */
 let _onExit = null;
+/** @type {string | null} */
 let _peerId = null;
 let _peerColor = '#22c55e';
 let _bgColor = '#0f172a';
+/** @type {StrokeEntry[]} */
 let _allStrokes = [];
+/** @type {string[]} */
 let _undoStack = []; // my stroke keys, max 8
 const MAX_UNDO = 8;
 let _lastDrawingSend = 0;
+/** @type {ReturnType<typeof setTimeout> | null} */
 let _absentTimerRef = null;
 const DRAWING_THROTTLE = 80; // ms between live drawing updates
+/** @type {boolean | null} */
 let _stripWasVisible = false;
 
 // ─── Coordinate helpers (exported for testing) ───────────────────────────────
 
+/**
+ * @param {number} px @param {number} py @param {number} cw @param {number} ch
+ * @returns {[number, number]}
+ */
 export function normalizePoint(px, py, cw, ch) {
   return [px / cw, py / ch];
 }
 
+/**
+ * @param {number} nx @param {number} ny @param {number} cw @param {number} ch
+ * @returns {[number, number]}
+ */
 export function denormalizePoint(nx, ny, cw, ch) {
   return [nx * cw, ny * ch];
 }
@@ -57,11 +84,16 @@ export function getThicknessValues() {
 
 // ─── Rendering ───────────────────────────────────────────────────────────────
 
+/**
+ * @param {StrokeData} stroke
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cw @param {number} ch
+ */
 function renderStroke(stroke, ctx, cw, ch) {
   const pts = stroke.points;
   if (!pts || pts.length === 0) return;
   ctx.strokeStyle = safeCssColor(stroke.color);
-  ctx.lineWidth = stroke.thickness * cw;
+  ctx.lineWidth = /** @type {number} */ (stroke.thickness) * cw;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
@@ -85,14 +117,25 @@ function renderStroke(stroke, ctx, cw, ch) {
   ctx.stroke();
 }
 
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cw @param {number} ch
+ * @param {string} bgColor
+ * @param {StrokeEntry[]} strokes
+ */
 function clearAndRedraw(ctx, cw, ch, bgColor, strokes) {
   ctx.fillStyle = safeCssColor(bgColor) || '#0f172a';
   ctx.fillRect(0, 0, cw, ch);
-  strokes.forEach(s => renderStroke(s.data || s, ctx, cw, ch));
+  strokes.forEach(s => renderStroke(/** @type {StrokeData} */ (s.data || s), ctx, cw, ch));
 }
 
 // ─── Floating UI ─────────────────────────────────────────────────────────────
 
+/**
+ * @param {HTMLElement} container
+ * @param {string[]} penColors
+ * @param {string[]} bgColors
+ */
 function buildFloatingUI(container, penColors, bgColors) {
   // Idempotency guard. exitCanvas defers float removal to the fade-out
   // `transitionend`, which is skipped when a quick re-enter cancels the out-
@@ -165,6 +208,7 @@ function buildFloatingUI(container, penColors, bgColors) {
   expanded.appendChild(sep1);
 
   // Helper: build a row of pen color dots
+  /** @param {string[]} colors */
   function makePenRow(colors) {
     const row = document.createElement('div');
     row.className = 'canvas-colors';
@@ -185,6 +229,7 @@ function buildFloatingUI(container, penColors, bgColors) {
   }
 
   // Helper: build a row of bg color squares
+  /** @param {string[]} colors */
   function makeBgRow(colors) {
     const row = document.createElement('div');
     row.className = 'canvas-colors canvas-bg-colors';
@@ -243,7 +288,7 @@ function buildFloatingUI(container, penColors, bgColors) {
 
   // Close on tap outside toolbox — suppress the draw that would otherwise start
   container.addEventListener('pointerdown', (e) => {
-    if (!toolbox.contains(e.target) && toolbox.classList.contains('open')) {
+    if (!toolbox.contains(/** @type {Node | null} */ (e.target)) && toolbox.classList.contains('open')) {
       animateToolbox(toolbox, false);
       const undo = document.getElementById('canvas-undo');
       if (undo) undo.style.display = '';
@@ -261,27 +306,29 @@ function buildFloatingUI(container, penColors, bgColors) {
   container.appendChild(undoBtn);
 }
 
+/** @param {HTMLElement} toolbox */
 function updateToolboxState(toolbox) {
-  const ring = toolbox.querySelector('#canvas-ring');
+  const ring = /** @type {HTMLElement | null} */ (toolbox.querySelector('#canvas-ring'));
   if (ring) ring.style.background = safeCssColor(_penColor);
-  const thk = toolbox.querySelector('#canvas-ring-thk');
+  const thk = /** @type {HTMLElement | null} */ (toolbox.querySelector('#canvas-ring-thk'));
   if (thk) {
     const ti = THICKNESS_VALUES.indexOf(_thickness);
     const tp = THICKNESS_PX_LABELS[ti >= 0 ? ti : 1];
     thk.style.width = tp + 'px';
     thk.style.height = tp + 'px';
   }
-  toolbox.querySelectorAll('.canvas-color-dot:not(.canvas-bg-dot)').forEach(el => {
+  /** @type {NodeListOf<HTMLElement>} */ (toolbox.querySelectorAll('.canvas-color-dot:not(.canvas-bg-dot)')).forEach(el => {
     el.classList.toggle('selected', el.dataset.color === _penColor);
   });
-  toolbox.querySelectorAll('.canvas-bg-dot').forEach(el => {
+  /** @type {NodeListOf<HTMLElement>} */ (toolbox.querySelectorAll('.canvas-bg-dot')).forEach(el => {
     el.style.borderColor = el.dataset.color === _bgColor ? '#fff' : 'rgba(255,255,255,0.18)';
   });
-  toolbox.querySelectorAll('.canvas-thickness-btn').forEach((el, i) => {
+  /** @type {NodeListOf<HTMLElement>} */ (toolbox.querySelectorAll('.canvas-thickness-btn')).forEach((el, i) => {
     el.classList.toggle('selected', THICKNESS_VALUES[i] === _thickness);
   });
 }
 
+/** @param {unknown} color */
 function updatePeerDot(color) {
   const dot = document.getElementById('canvas-peer-dot');
   if (dot) {
@@ -296,6 +343,7 @@ function dimPeerIndicator() {
 
 // ─── Dialogs ─────────────────────────────────────────────────────────────────
 
+/** @param {HTMLElement} container */
 function showEndDialog(container) {
   const overlay = document.createElement('div');
   overlay.className = 'canvas-dialog-overlay';
@@ -308,13 +356,18 @@ function showEndDialog(container) {
       </div>
     </div>`;
   container.appendChild(overlay);
-  overlay.querySelector('#canvas-end-cancel').addEventListener('click', () => overlay.remove());
-  overlay.querySelector('#canvas-end-confirm').addEventListener('click', () => {
+  /** @type {Element} */ (overlay.querySelector('#canvas-end-cancel')).addEventListener('click', () => overlay.remove());
+  /** @type {Element} */ (overlay.querySelector('#canvas-end-confirm')).addEventListener('click', () => {
     overlay.remove();
     handleEnd();
   });
 }
 
+/**
+ * @param {HTMLElement} container
+ * @param {string} peerName
+ * @param {() => void} onDone
+ */
 export function showPeerLeftDialog(container, peerName, onDone) {
   const overlay = document.createElement('div');
   overlay.className = 'canvas-dialog-overlay';
@@ -328,7 +381,7 @@ export function showPeerLeftDialog(container, peerName, onDone) {
       </div>
     </div>`;
   container.appendChild(overlay);
-  overlay.querySelector('#canvas-left-done').addEventListener('click', () => {
+  /** @type {Element} */ (overlay.querySelector('#canvas-left-done')).addEventListener('click', () => {
     overlay.remove();
     onDone();
   });
@@ -336,6 +389,15 @@ export function showPeerLeftDialog(container, peerName, onDone) {
 
 // ─── Enter / Exit ────────────────────────────────────────────────────────────
 
+/**
+ * @param {string} peerId
+ * @param {string} peerName
+ * @param {string} myUserId
+ * @param {string} myStatusColor
+ * @param {string} peerStatusColor
+ * @param {string} callerSurface
+ * @param {() => void} onExit
+ */
 export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, peerStatusColor, callerSurface, onExit) {
   _canvasId = getCanvasId(myUserId, peerId);
   _myUserId = myUserId;
@@ -346,21 +408,21 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
   _thickness = THICKNESS_VALUES[2];
   _onExit = onExit;
 
-  const screen = document.getElementById('canvas-screen');
-  _canvas = document.getElementById('draw-canvas');
+  const screen = /** @type {HTMLElement} */ (document.getElementById('canvas-screen'));
+  _canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('draw-canvas'));
   screen.classList.add('active');
 
   // Hide main UI
-  document.getElementById('app-header').style.display = 'none';
+  /** @type {HTMLElement} */ (document.getElementById('app-header')).style.display = 'none';
   const strip = document.getElementById('favorites-strip');
   _stripWasVisible = strip && strip.style.display !== 'none';
   if (strip) strip.style.display = 'none';
-  document.getElementById('main-list').style.display = 'none';
+  /** @type {HTMLElement} */ (document.getElementById('main-list')).style.display = 'none';
 
   // Size canvas to screen
   _canvas.width = screen.clientWidth;
   _canvas.height = screen.clientHeight;
-  _ctx = _canvas.getContext('2d');
+  _ctx = /** @type {CanvasRenderingContext2D} */ (_canvas.getContext('2d'));
 
   // Load existing canvas state
   const { bg, strokes } = await loadCanvas(_canvasId);
@@ -381,9 +443,9 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
   // Watch for new strokes from peer
   const lastKey = _allStrokes.length > 0 ? _allStrokes[_allStrokes.length - 1].key : null;
   _canvasUnsubs.push(watchStrokes(_canvasId, lastKey, (entry) => {
-    if (entry.data.userId !== _myUserId) {
-      renderStroke(entry.data, _ctx, _canvas.width, _canvas.height);
-      updatePeerDot(entry.data.color);
+    if (/** @type {StrokeData} */ (entry.data).userId !== _myUserId) {
+      renderStroke(/** @type {StrokeData} */ (entry.data), _ctx, _canvas.width, _canvas.height);
+      updatePeerDot(/** @type {StrokeData} */ (entry.data).color);
     }
     _allStrokes.push(entry);
   }, (removedKey) => {
@@ -407,11 +469,11 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
   // Watch peer's live drawing (mid-stroke preview + pen color selection)
   _canvasUnsubs.push(watchDrawing(_canvasId, peerId, (drawingData) => {
     if (!drawingData) return;
-    if (drawingData.color) updatePeerDot(drawingData.color);
-    if (drawingData.points) {
+    if (/** @type {StrokeData} */ (drawingData).color) updatePeerDot(/** @type {StrokeData} */ (drawingData).color);
+    if (/** @type {StrokeData} */ (drawingData).points) {
       // Mid-stroke preview — redraw everything then overlay
       clearAndRedraw(_ctx, _canvas.width, _canvas.height, _bgColor, _allStrokes);
-      renderStroke(drawingData, _ctx, _canvas.width, _canvas.height);
+      renderStroke(/** @type {StrokeData} */ (drawingData), _ctx, _canvas.width, _canvas.height);
       // Preserve my own in-progress stroke so it doesn't flash off while the
       // peer is drawing — _currentPoints isn't in _allStrokes until pointerup.
       if (_isDrawing && _currentPoints.length > 0) {
@@ -427,7 +489,7 @@ export async function enterCanvas(peerId, peerName, myUserId, myStatusColor, pee
   // Watch bg changes from peer
   _canvasUnsubs.push(watchCanvasBg(_canvasId, (newBg) => {
     if (newBg && newBg !== _bgColor) {
-      _bgColor = newBg;
+      _bgColor = /** @type {string} */ (newBg);
       clearAndRedraw(_ctx, _canvas.width, _canvas.height, _bgColor, _allStrokes);
       // Update bg dot selection if toolbox is open
       const toolbox = document.getElementById('canvas-toolbox');
@@ -519,15 +581,15 @@ export function exitCanvas() {
   }
 
   // Show main UI immediately (behind the fading canvas)
-  document.getElementById('app-header').style.display = '';
+  /** @type {HTMLElement} */ (document.getElementById('app-header')).style.display = '';
   const strip = document.getElementById('favorites-strip');
   if (strip) strip.style.display = _stripWasVisible ? 'block' : 'none';
-  document.getElementById('main-list').style.display = '';
+  /** @type {HTMLElement} */ (document.getElementById('main-list')).style.display = '';
 
-  _ctx = null;
-  _canvas = null;
+  _ctx = /** @type {CanvasRenderingContext2D} */ (/** @type {unknown} */ (null));
+  _canvas = /** @type {HTMLCanvasElement} */ (/** @type {unknown} */ (null));
   _canvasRect = null;
-  _canvasId = null;
+  _canvasId = /** @type {string} */ (/** @type {unknown} */ (null));
   _peerId = null;
   _allStrokes = [];
   _undoStack = [];
@@ -548,7 +610,7 @@ function handleEnd() {
 function handleUndo() {
   if (_undoStack.length === 0) return;
   const key = _undoStack.pop();
-  removeStroke(_canvasId, key).catch(() => {});
+  removeStroke(_canvasId, /** @type {string} */ (key)).catch(() => {});
   // Remove from local strokes and redraw
   _allStrokes = _allStrokes.filter(s => s.key !== key);
   clearAndRedraw(_ctx, _canvas.width, _canvas.height, _bgColor, _allStrokes);
@@ -562,6 +624,7 @@ function updateUndoBtn() {
 
 // ─── Toolbox animation ───────────────────────────────────────────────────────
 
+/** @param {HTMLElement} toolbox @param {boolean} opening */
 function animateToolbox(toolbox, opening) {
   // Measure current size
   const fromW = toolbox.offsetWidth;
@@ -604,6 +667,7 @@ function animateToolbox(toolbox, opening) {
 
 // ─── Undo/toolbox overlap ────────────────────────────────────────────────────
 
+/** @param {HTMLElement} toolbox */
 function checkUndoOverlap(toolbox) {
   const undo = document.getElementById('canvas-undo');
   if (!undo || !toolbox) return;
@@ -626,6 +690,7 @@ function broadcastPenColor() {
 
 // ─── Thickness slider helper ─────────────────────────────────────────────────
 
+/** @param {PointerEvent} e @param {HTMLElement} thkRow @param {HTMLElement} toolbox */
 function selectThicknessAtX(e, thkRow, toolbox) {
   const rect = thkRow.getBoundingClientRect();
   const x = e.clientX - rect.left;
@@ -655,12 +720,13 @@ function requestClearCanvas() {
       </div>
     </div>`;
   scr.appendChild(overlay);
-  overlay.querySelector('#canvas-clear-cancel').addEventListener('click', () => {
+  /** @type {Element} */ (overlay.querySelector('#canvas-clear-cancel')).addEventListener('click', () => {
     overlay.remove();
     removeClearRequest(_canvasId).catch(() => {});
   });
 }
 
+/** @param {unknown} requesterId */
 function showClearApprovalDialog(requesterId) {
   const scr = document.getElementById('canvas-screen');
   if (!scr || scr.querySelector('.canvas-dialog-overlay')) return;
@@ -677,11 +743,11 @@ function showClearApprovalDialog(requesterId) {
       </div>
     </div>`;
   scr.appendChild(overlay);
-  overlay.querySelector('#canvas-clear-keep').addEventListener('click', () => {
+  /** @type {Element} */ (overlay.querySelector('#canvas-clear-keep')).addEventListener('click', () => {
     overlay.remove();
     removeClearRequest(_canvasId).catch(() => {});
   });
-  overlay.querySelector('#canvas-clear-approve').addEventListener('click', () => {
+  /** @type {Element} */ (overlay.querySelector('#canvas-clear-approve')).addEventListener('click', () => {
     overlay.remove();
     clearAllStrokes(_canvasId).then(() => {
       _allStrokes = [];
@@ -711,15 +777,18 @@ function _onWindowFocus() {
 
 // ─── Zoom prevention ────────────────────────────────────────────────────────
 
+/** @param {Event} e */
 function preventZoom(e) { e.preventDefault(); }
+/** @param {TouchEvent} e */
 function preventMultiTouch(e) { if (e.touches.length > 1) e.preventDefault(); }
 
 // ─── Pointer event handlers ──────────────────────────────────────────────────
 
+/** @param {PointerEvent} e */
 function onPointerDown(e) {
   // Don't start drawing if a floating UI element was tapped
   const screen = document.getElementById('canvas-screen');
-  if (e.target !== _canvas && screen && screen.querySelector('.canvas-float')?.contains(e.target)) return;
+  if (e.target !== _canvas && screen && screen.querySelector('.canvas-float')?.contains(/** @type {Node | null} */ (e.target))) return;
 
   _isDrawing = true;
   _canvasRect = _canvas.getBoundingClientRect();
@@ -737,6 +806,7 @@ function onPointerDown(e) {
   _ctx.moveTo(px, py);
 }
 
+/** @param {PointerEvent} e */
 function onPointerMove(e) {
   if (!_isDrawing) return;
   // Reuse the rect captured at pointerdown — avoids a forced reflow per segment.
