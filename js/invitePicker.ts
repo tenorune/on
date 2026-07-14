@@ -16,14 +16,22 @@
 
 import { writePendingInvite, deletePendingInvite } from './db.js';
 
-let _state = null;
+interface Mutual { userId: string; label?: string }
+interface PickerState {
+  inviterUid: string;
+  groupId: string;
+  selected: Set<string>;
+  pendingInviteeUids: Set<string>;
+}
+
+let _state: PickerState | null = null;
 
 // Mirrors the eligibility rule used by renderInvitePicker's row builders below
 // (mutualEntries + nonMutualEntries filters) so the two can never disagree:
 // a follower is displayable when they aren't already a group member and
 // aren't the inviter themself.
-export function hasDisplayableInvitees({ followers, mutuals, currentMemberUids, inviterUid }) {
-  const mutualLookup = new Map(mutuals.map((m) => [m.userId, m.label]));
+export function hasDisplayableInvitees({ followers, mutuals, currentMemberUids, inviterUid }: { followers: Record<string, string>; mutuals: Mutual[]; currentMemberUids: Set<string>; inviterUid: string }) {
+  const mutualLookup = new Map(mutuals.map((m): [string, string | undefined] => [m.userId, m.label]));
   const mutualHit = mutuals.some(
     (m) => followers[m.userId] && !currentMemberUids.has(m.userId) && m.userId !== inviterUid,
   );
@@ -35,15 +43,15 @@ export function hasDisplayableInvitees({ followers, mutuals, currentMemberUids, 
 
 export function renderInvitePicker({
   inviterUid, groupId, followers, mutuals, currentMemberUids, pendingInviteeUids,
-}) {
+}: { inviterUid: string; groupId: string; followers: Record<string, string>; mutuals: Mutual[]; currentMemberUids: Set<string>; pendingInviteeUids?: Iterable<string> | null }) {
   _state = {
     inviterUid, groupId,
-    selected: new Set(),
+    selected: new Set<string>(),
     pendingInviteeUids: new Set(pendingInviteeUids || []),
   };
 
   // Build the rendered list of { uid, displayName }, mutuals first.
-  const mutualLookup = new Map(mutuals.map((m) => [m.userId, m.label]));
+  const mutualLookup = new Map(mutuals.map((m): [string, string | undefined] => [m.userId, m.label]));
   const mutualEntries = mutuals
     .filter((m) => followers[m.userId] && !currentMemberUids.has(m.userId) && m.userId !== inviterUid)
     // A mutual with no custom label falls back to their share code (the value in
@@ -69,7 +77,7 @@ export function renderInvitePicker({
   if (sendBtn) {
     // Remove any prior click handler to avoid double-binding across re-renders.
     const fresh = sendBtn.cloneNode(true);
-    sendBtn.parentNode.replaceChild(fresh, sendBtn);
+    (sendBtn.parentNode as Node).replaceChild(fresh, sendBtn);
     fresh.addEventListener('click', () => sendSelected());
   }
   updateSendButton();
@@ -79,11 +87,11 @@ export function renderInvitePicker({
 // selected — on first render, after deselecting the last row, and after a send
 // clears the selection.
 function updateSendButton() {
-  const btn = document.getElementById('invite-modal-picker-send-btn');
+  const btn = document.getElementById('invite-modal-picker-send-btn') as HTMLButtonElement | null;
   if (btn) btn.disabled = !_state || _state.selected.size === 0;
 }
 
-function buildRow({ uid, displayName }) {
+function buildRow({ uid, displayName }: { uid: string; displayName: string }) {
   const li = document.createElement('li');
   li.className = 'invite-picker-row';
   li.dataset.uid = uid;
@@ -105,22 +113,22 @@ function buildRow({ uid, displayName }) {
 
   li.addEventListener('click', (e) => {
     // Pill click handles itself; don't double-toggle the row.
-    if (e.target.closest('.invite-picker-pill-invited')) return;
-    if (_state.pendingInviteeUids.has(uid)) return; // pending rows aren't selectable
+    if ((e.target as Element).closest('.invite-picker-pill-invited')) return;
+    if (_state!.pendingInviteeUids.has(uid)) return; // pending rows aren't selectable
     li.classList.toggle('selected');
-    if (li.classList.contains('selected')) _state.selected.add(uid);
-    else _state.selected.delete(uid);
+    if (li.classList.contains('selected')) _state!.selected.add(uid);
+    else _state!.selected.delete(uid);
     updateSendButton();
   });
 
   return li;
 }
 
-function refreshTrailing(li, uid) {
+function refreshTrailing(li: HTMLElement, uid: string) {
   const trailing = li.querySelector('.invite-picker-trailing');
   if (!trailing) return;
   trailing.innerHTML = '';
-  if (_state.pendingInviteeUids.has(uid)) {
+  if (_state!.pendingInviteeUids.has(uid)) {
     const pill = document.createElement('button');
     pill.type = 'button';
     pill.className = 'invite-picker-pill-invited';
@@ -140,22 +148,23 @@ function refreshTrailing(li, uid) {
 
 async function sendSelected() {
   if (!_state) return;
-  const uids = Array.from(_state.selected);
+  const state = _state;
+  const uids = Array.from(state.selected);
   if (uids.length === 0) return;
   await Promise.all(uids.map((uid) =>
-    writePendingInvite(_state.inviterUid, uid, _state.groupId)
+    writePendingInvite(state.inviterUid, uid, state.groupId)
   ));
   // Flip selected rows to Invited; clear selection.
   for (const uid of uids) {
-    _state.pendingInviteeUids.add(uid);
-    _state.selected.delete(uid);
-    const row = document.querySelector(`.invite-picker-row[data-uid="${uid}"]`);
+    state.pendingInviteeUids.add(uid);
+    state.selected.delete(uid);
+    const row = document.querySelector<HTMLElement>(`.invite-picker-row[data-uid="${uid}"]`);
     if (row) refreshTrailing(row, uid);
   }
   updateSendButton();
 }
 
-async function unInvite(uid, li) {
+async function unInvite(uid: string, li: HTMLElement) {
   if (!_state) return;
   await deletePendingInvite(uid, _state.groupId);
   _state.pendingInviteeUids.delete(uid);
