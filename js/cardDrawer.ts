@@ -4,7 +4,10 @@
 // Consumed by following.js (and later groupContext.js) when a card has >=2
 // right-side actions. Singleton: only one drawer open at a time.
 
-let _open = null; // { slice, clip, ellipsis, cleanup } | null
+interface ActionItem { el: HTMLElement; closesDrawer?: boolean; }
+interface OpenDrawer { slice: HTMLElement; clip: HTMLElement; ellipsis: HTMLElement; cleanup: () => void; }
+
+let _open: OpenDrawer | null = null; // { slice, clip, ellipsis, cleanup } | null
 
 export function isCardDrawerOpen() {
   return _open !== null;
@@ -19,7 +22,7 @@ export function closeCardDrawer() {
   document.dispatchEvent(new CustomEvent('card-drawer-close'));
 }
 
-function openDrawer(ellipsis, actions) {
+function openDrawer(ellipsis: HTMLElement, actions: ActionItem[]) {
   const slice = document.createElement('div');
   slice.className = 'card-drawer';
   // Isolate every interaction inside the slice from card-level gesture
@@ -44,15 +47,16 @@ function openDrawer(ellipsis, actions) {
   // Trigger the slide-in transition on the next frame.
   requestAnimationFrame(() => slice.classList.add('open'));
 
-  const onOutside = (e) => {
-    if (slice.contains(e.target) || ellipsis.contains(e.target)) return;
+  const onOutside = (e: Event) => {
+    const target = e.target as Element;
+    if (slice.contains(target) || ellipsis.contains(target)) return;
     // The bell popover is portaled to <body> (outside the slice). Taps inside it
     // must not close the drawer — the popover manages its own dismissal.
-    if (e.target.closest && e.target.closest('.notify-popover')) return;
+    if (target.closest && target.closest('.notify-popover')) return;
     // A tap on a *different* card's toggle must reach that toggle's own click
     // handler (it manages the singleton itself by closing us then opening). Only
     // close here; do not consume, or the other drawer would never open.
-    if (e.target.closest && e.target.closest('.card-drawer-toggle')) {
+    if (target.closest && target.closest('.card-drawer-toggle')) {
       closeCardDrawer();
       return;
     }
@@ -62,7 +66,7 @@ function openDrawer(ellipsis, actions) {
     e.stopPropagation();
     closeCardDrawer();
   };
-  const onKey = (e) => { if (e.key === 'Escape') closeCardDrawer(); };
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeCardDrawer(); };
   const onScroll = closeCardDrawer;
 
   const cleanup = () => {
@@ -83,7 +87,7 @@ function openDrawer(ellipsis, actions) {
   document.addEventListener('scroll', onScroll, true);
 }
 
-export function createCardDrawer(actions) {
+export function createCardDrawer(actions: ActionItem[]) {
   // actions: Array<{ el: HTMLElement, closesDrawer?: boolean }>
   const ellipsis = document.createElement('button');
   ellipsis.type = 'button';
