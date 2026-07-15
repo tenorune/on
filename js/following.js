@@ -1,3 +1,4 @@
+// @ts-check
 // js/following.js
 import {
   lookupCode, watchFollowers, watchFollowerNames, registerAsFollower, unregisterAsFollower,
@@ -33,43 +34,76 @@ import { extractInviteTokenFromText } from './inviteText.js';
 import { attemptRedeemFromUrl, resolveInvitePreview } from './invites.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 
+/**
+ * Local contact shape (mirrors store.js's FollowingEntry) and the presence-node
+ * view this module reads/writes. UserData carries the runtime-present fields
+ * (statusColor/paletteKey/code/lastSeen) the minimal PresenceNode wire shape omits.
+ * @typedef {{ userId: string, code: string, label?: string }} FollowingEntry
+ * @typedef {{ userId: string, code: string }} FollowerEntry
+ * @typedef {{ status?: string | null, availableUntil?: number | null, statusColor?: string | null, paletteKey?: string | null, code?: string | null, lastSeen?: number | null }} UserData
+ * @typedef {{ type: 'unfollow' | 'removeFollower', userId: string, myUserId: string }} ConfirmAction
+ * @typedef {{ scope?: string, label?: string, groupName?: string }} InvitePreview
+ * @typedef {{ ok: boolean, reason?: string, groupId?: string | null, groupName?: string | null, cache?: unknown }} RedeemResult
+ * @typedef {(result: RedeemResult) => void | Promise<void>} InviteRedeemedCb
+ */
+
+/** @type {Map<string, () => void>} */
 const unsubscribers = new Map(); // userId → unsubscribe fn
+/** @type {Set<string>} */
 const editingSet = new Set();
+/** @type {Map<string, UserData>} */
 const lastUserData = new Map(); // userId → most recent userData from Firebase
+/** @type {Set<string>} */
 const renderedFollowees = new Set();
+/** @type {(() => void) | null} */
 let onFolloweeReady = null;
+/** @type {InviteRedeemedCb | null} */
 let _onInviteRedeemed = null;
 
 // Direct-list rows are keyed by data-user-id, but a group roster reuses the same
 // attribute for the same uid. Scope every Direct-list row lookup to #people-list
 // so a mutual who is also a group member never has their Direct row resolve to
 // the group roster — which leaked their Direct status into the group card.
+/** @param {string} userId @returns {HTMLElement | null} */
 function followeeRow(userId) {
-  return document.querySelector(`#people-list [data-user-id="${userId}"]`);
+  return /** @type {HTMLElement | null} */ (document.querySelector(`#people-list [data-user-id="${userId}"]`));
 }
 
+/** @type {FollowerEntry[]} */
 let latestFollowersSnapshot = [];
+/** @type {(() => void) | null} */
 let unsubFollowers = null;
+/** @type {(() => void) | null} */
 let unsubFollowerNames = null;
+/** @type {(() => void) | null} */
 let unsubFollowing = null;
+/** @type {(() => void) | null} */
 let unsubRevocations = null;
+/** @type {ReturnType<typeof setInterval> | null} */
 let refreshInterval = null;
+/** @type {ConfirmAction | null} */
 let pendingAction = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
-let myUserIdRef = null; // set at init time; used by renderList and confirm handlers
+// Session-singleton: null before init, set to myUserId at init, stable for the
+// in-view lifetime — typed non-null so its reads don't each need a cast.
+let myUserIdRef = /** @type {string} */ (/** @type {unknown} */ (null)); // set at init time; used by renderList and confirm handlers
+/** @type {string | null} */
 let callModeCalleeId = null;   // userId of callee while in call mode (null = not in call mode)
+/** @type {{ from: string } | null} */
 let _incomingCall = null; // { from } when someone is ringing me; null otherwise
 export function getIncomingCallFrom() { return _incomingCall?.from ?? null; }
+/** @type {(() => void) | null} */
 let unsubOwnCall = null;
 
+/** @param {string} title @param {string} btnText @param {ConfirmAction} action */
 function showConfirm(title, btnText, action) {
   pendingAction = action;
-  document.getElementById('unfollow-confirm-title').textContent = title;
-  document.getElementById('unfollow-do-btn').textContent = btnText;
-  document.getElementById('unfollow-confirm').classList.remove('hidden');
+  /** @type {HTMLElement} */ (document.getElementById('unfollow-confirm-title')).textContent = title;
+  /** @type {HTMLElement} */ (document.getElementById('unfollow-do-btn')).textContent = btnText;
+  /** @type {HTMLElement} */ (document.getElementById('unfollow-confirm')).classList.remove('hidden');
 }
 
 function dismissConfirm() {
-  document.getElementById('unfollow-confirm').classList.add('hidden');
+  /** @type {HTMLElement} */ (document.getElementById('unfollow-confirm')).classList.add('hidden');
   pendingAction = null;
 }
 
@@ -96,6 +130,11 @@ async function doConfirm() {
   }
 }
 
+/**
+ * @param {string} myUserId
+ * @param {string} myCode
+ * @param {{ onInviteRedeemed?: InviteRedeemedCb | null }} [opts]
+ */
 export function initList(myUserId, myCode, { onInviteRedeemed = null } = {}) {
   myUserIdRef = myUserId;
   _onInviteRedeemed = onInviteRedeemed;
@@ -136,18 +175,18 @@ export function initList(myUserId, myCode, { onInviteRedeemed = null } = {}) {
     confirmEl.addEventListener('click', (e) => { if (e.target === confirmEl) dismissConfirm(); });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' &&
-          !document.getElementById('unfollow-confirm').classList.contains('hidden')) {
+          !(/** @type {HTMLElement} */ (document.getElementById('unfollow-confirm')).classList.contains('hidden'))) {
         dismissConfirm();
       }
     });
-    document.getElementById('unfollow-cancel-btn').addEventListener('click', dismissConfirm);
-    document.getElementById('unfollow-do-btn').addEventListener('click', doConfirm);
+    /** @type {HTMLElement} */ (document.getElementById('unfollow-cancel-btn')).addEventListener('click', dismissConfirm);
+    /** @type {HTMLElement} */ (document.getElementById('unfollow-do-btn')).addEventListener('click', doConfirm);
   }
 
   // Subscribe to followers list
   if (unsubFollowers) unsubFollowers();
   unsubFollowers = watchFollowers(myUserId, (followers) => {
-    latestFollowersSnapshot = followers;
+    latestFollowersSnapshot = /** @type {FollowerEntry[]} */ (followers);
     renderList();
   });
 
@@ -160,7 +199,7 @@ export function initList(myUserId, myCode, { onInviteRedeemed = null } = {}) {
   unsubFollowerNames = watchFollowerNames(myUserId, (names) => {
     let changed = false;
     for (const [uid, name] of Object.entries(names || {})) {
-      if (name && !getFollowerName(uid)) { setFollowerName(uid, name); changed = true; }
+      if (name && !getFollowerName(uid)) { setFollowerName(uid, /** @type {string} */ (name)); changed = true; }
     }
     if (changed) renderList();
   });
@@ -200,7 +239,7 @@ export function initList(myUserId, myCode, { onInviteRedeemed = null } = {}) {
     if (call && call.answered) {
       const canvasScreen = document.getElementById('canvas-screen');
       if (canvasScreen && canvasScreen.classList.contains('active')) return; // already there — idempotent
-      const peerId = call.to || call.from;
+      const peerId = /** @type {string} */ (call.to || call.from);
       const entry = getFollowing().find((f) => f.userId === peerId);
       if (entry) {
         callModeCalleeId = peerId;
@@ -217,7 +256,7 @@ export function initList(myUserId, myCode, { onInviteRedeemed = null } = {}) {
     }
     // Callee side: someone is ringing me (not yet in a call).
     const prevFrom = _incomingCall?.from ?? null;
-    const nextFrom = (call && call.from && !call.answered && callModeCalleeId === null) ? call.from : null;
+    const nextFrom = /** @type {string | null} */ ((call && call.from && !call.answered && callModeCalleeId === null) ? call.from : null);
     if (prevFrom === nextFrom) {
       if (!call && callModeCalleeId !== null) handlePeerEnded(myUserId);
       return;
@@ -250,9 +289,9 @@ export function initList(myUserId, myCode, { onInviteRedeemed = null } = {}) {
     });
   }, 60000);
 
-  document.getElementById('add-person-btn').addEventListener('click', () => {
-    const form = document.getElementById('add-person-form');
-    const input = document.getElementById('add-code-input');
+  /** @type {HTMLElement} */ (document.getElementById('add-person-btn')).addEventListener('click', () => {
+    const form = /** @type {HTMLElement} */ (document.getElementById('add-person-form'));
+    const input = /** @type {HTMLInputElement} */ (document.getElementById('add-code-input'));
     openAddForm();
     // iOS Safari/Chrome only honor a programmatic focus() on a laid-out (non-
     // clipped) element within the tap gesture. The form reveals via a
@@ -270,17 +309,17 @@ export function initList(myUserId, myCode, { onInviteRedeemed = null } = {}) {
     }, 50);
   });
 
-  document.getElementById('add-cancel-btn').addEventListener('click', closeAddForm);
+  /** @type {HTMLElement} */ (document.getElementById('add-cancel-btn')).addEventListener('click', closeAddForm);
 
-  document.getElementById('add-code-input').addEventListener('input', (e) => {
+  /** @type {HTMLElement} */ (document.getElementById('add-code-input')).addEventListener('input', (e) => {
     // Invite links/tokens are case-sensitive — only code mode uppercases.
-    if (updateAddFormMode(e.target.value) === 'code') e.target.value = e.target.value.toUpperCase();
+    if (updateAddFormMode(/** @type {HTMLInputElement} */ (e.target).value) === 'code') /** @type {HTMLInputElement} */ (e.target).value = /** @type {HTMLInputElement} */ (e.target).value.toUpperCase();
   });
 
-  document.getElementById('add-code-input').addEventListener('keydown', async (e) => {
+  /** @type {HTMLElement} */ (document.getElementById('add-code-input')).addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter') return;
-    const codeInput = document.getElementById('add-code-input');
-    const errorEl = document.getElementById('add-error');
+    const codeInput = /** @type {HTMLInputElement} */ (document.getElementById('add-code-input'));
+    const errorEl = /** @type {HTMLElement} */ (document.getElementById('add-error'));
     const code = codeInput.value.trim().toUpperCase();
     errorEl.classList.add('hidden');
     if (!code) { showError(errorEl, 'Please enter a code.'); return; }
@@ -292,20 +331,20 @@ export function initList(myUserId, myCode, { onInviteRedeemed = null } = {}) {
     const targetUserId = await lookupCode(code);
     codeInput.disabled = false;
     if (!targetUserId) { showError(errorEl, 'Code not found. Check the code and try again.'); return; }
-    document.getElementById('add-label-input').focus();
+    /** @type {HTMLElement} */ (document.getElementById('add-label-input')).focus();
   });
 
-  document.getElementById('add-label-input').addEventListener('keydown', (e) => {
+  /** @type {HTMLElement} */ (document.getElementById('add-label-input')).addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handleAddPerson(myUserId, myCode);
   });
 
-  document.getElementById('add-submit-btn').addEventListener('click', () => {
+  /** @type {HTMLElement} */ (document.getElementById('add-submit-btn')).addEventListener('click', () => {
     handleAddPerson(myUserId, myCode);
   });
 
-  window.addEventListener('online', () => document.getElementById('offline-banner').classList.add('hidden'));
-  window.addEventListener('offline', () => document.getElementById('offline-banner').classList.remove('hidden'));
-  if (!navigator.onLine) document.getElementById('offline-banner').classList.remove('hidden');
+  window.addEventListener('online', () => /** @type {HTMLElement} */ (document.getElementById('offline-banner')).classList.add('hidden'));
+  window.addEventListener('offline', () => /** @type {HTMLElement} */ (document.getElementById('offline-banner')).classList.remove('hidden'));
+  if (!navigator.onLine) /** @type {HTMLElement} */ (document.getElementById('offline-banner')).classList.remove('hidden');
 
   // Optimistic first render from cached following (the watchers above render
   // asynchronously). Without this, the empty/non-empty verdict — and so the
@@ -318,6 +357,7 @@ export function initList(myUserId, myCode, { onInviteRedeemed = null } = {}) {
   renderList();
 }
 
+/** @param {() => void} fn */
 export function setFolloweeReadyCallback(fn) {
   onFolloweeReady = fn;
 }
@@ -334,6 +374,7 @@ export function getCallModeCalleeId() { return callModeCalleeId; }
 export function getCurrentFollowersMap() {
   if (!latestFollowersSnapshot) return {};
   // Snapshot is an array of { userId, code }; convert to a map.
+  /** @type {Record<string, string>} */
   const out = {};
   for (const f of latestFollowersSnapshot) out[f.userId] = f.code;
   return out;
@@ -346,6 +387,7 @@ export function getCurrentMutuals() {
     .map((f) => ({ userId: f.userId, label: f.label, code: f.code }));
 }
 
+/** @param {string} myUserId */
 function handlePeerEnded(myUserId) {
   const canvasScreen = document.getElementById('canvas-screen');
   if (canvasScreen && canvasScreen.classList.contains('active')) {
@@ -357,6 +399,7 @@ function handlePeerEnded(myUserId) {
   }
 }
 
+/** @param {FollowingEntry} calleeEntry @param {string} myUserId */
 export function enterCallMode(calleeEntry, myUserId) {
   incrementMadeCallCount();
   const ringer = _incomingCall?.from || null; // a caller I was about to be answered by, if any
@@ -383,6 +426,7 @@ export function enterCallMode(calleeEntry, myUserId) {
   startCall(myUserId, calleeEntry.userId, ringer || undefined).catch(() => {});
 }
 
+/** @param {FollowingEntry} calleeEntry @param {UserData} calleeData @param {string} myUserId */
 export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
   callModeCalleeId = calleeEntry.userId;
   // No Firebase write — state already persisted
@@ -397,6 +441,7 @@ export function reEnterCallMode(calleeEntry, calleeData, myUserId) {
   renderList();
 }
 
+/** @param {string} myUserId @param {{ peerEnded?: boolean }} [opts] */
 export function exitCallMode(myUserId, { peerEnded = false } = {}) {
   const prevCalleeId = callModeCalleeId;
   callModeCalleeId = null;
@@ -437,10 +482,10 @@ function renderList() {
     }
   });
 
-  const list = document.getElementById('people-list');
+  const list = /** @type {HTMLElement} */ (document.getElementById('people-list'));
 
   const isEmpty = mutuals.length === 0 && followingOnly.length === 0 && followerOnly.length === 0;
-  document.getElementById('add-person-area').classList.toggle('has-list', !isEmpty);
+  /** @type {HTMLElement} */ (document.getElementById('add-person-area')).classList.toggle('has-list', !isEmpty);
   if (isEmpty) {
     reconcileChildren(list, [], {
       create: () => null, // unreachable with empty keys
@@ -463,6 +508,7 @@ function renderList() {
   // (callModeCalleeId) or the person ringing me (_incomingCall). These are
   // mutually exclusive — a ring is only registered when not already in a call.
   const pinnedCallUid = callModeCalleeId ?? (_incomingCall?.from ?? null);
+  /** @param {FollowingEntry[]} entries */
   function sortFollowees(entries) {
     return [...entries].sort((a, b) => {
       if (pinnedCallUid) {
@@ -480,12 +526,15 @@ function renderList() {
     });
   }
 
+  /** @param {FollowerEntry[]} entries */
   function sortFollowerOnly(entries) {
     return [...entries].sort((a, b) => a.code.localeCompare(b.code));
   }
 
   const entryByKey = new Map();
+  /** @type {string[]} */
   const keys = [];
+  /** @param {string} labelKey @param {(FollowingEntry | FollowerEntry)[]} entries @param {string} type */
   function pushSection(labelKey, entries, type) {
     if (entries.length === 0) return;
     keys.push(labelKey);
@@ -531,6 +580,7 @@ function renderList() {
   // Track newly-created followee keys so we can repopulate from cache
   // after reconcile (update() runs before insertBefore on fresh nodes, so
   // updateFolloweeRow's document.querySelector lookup would return null).
+  /** @type {string[]} */
   const freshFolloweeKeys = [];
 
   reconcileChildren(list, keys, {
@@ -588,6 +638,7 @@ function renderList() {
   }
 }
 
+/** @param {FollowingEntry} entry @param {string} myUserId */
 function applyAdoption(entry, myUserId) {
   const targetData = lastUserData.get(entry.userId);
 
@@ -636,6 +687,7 @@ function applyAdoption(entry, myUserId) {
   if (li) li.classList.add('adopted-from');
 }
 
+/** @param {FollowingEntry} entry @param {string} myUserId */
 function triggerAdoption(entry, myUserId) {
   // Clear long-press hint on first adoption
   if (!isHintSeen('longpress')) {
@@ -646,13 +698,14 @@ function triggerAdoption(entry, myUserId) {
   // favorites BEFORE applying the adoption (the apply mutates picker state).
   const targetData = lastUserData.get(entry.userId);
   const adoptedCombo = buildAdoptedCombo(
-    targetData?.statusColor,
+    /** @type {string} */ (targetData?.statusColor),
     targetData?.paletteKey ?? null,
   );
   saveCombo(adoptedCombo);
   applyAdoption(entry, myUserId);
 }
 
+/** @param {FollowingEntry} entry @param {string} myUserId @param {boolean} [isMutual] */
 function createFolloweeRow(entry, myUserId, isMutual = false) {
   const li = document.createElement('li');
   li.dataset.userId = entry.userId;
@@ -685,17 +738,17 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
     });
   });
 
-  li.querySelector('.person-label').addEventListener('click', () => {
-    activateRename(entry, li.querySelector('.person-label'));
+  /** @type {HTMLElement} */ (li.querySelector('.person-label')).addEventListener('click', () => {
+    activateRename(entry, /** @type {HTMLElement} */ (li.querySelector('.person-label')));
   });
 
   if (KNOCK_ENABLED && isMutual) {
-    const labelEl = li.querySelector('.person-label');
+    const labelEl = /** @type {HTMLElement} */ (li.querySelector('.person-label'));
     li.addEventListener('click', (e) => {
       if (isCardDrawerOpen()) return;
-      if (labelEl.contains(e.target)) return;
+      if (labelEl.contains(/** @type {Node} */ (e.target))) return;
       const statusColor = lastUserData.get(entry.userId)?.statusColor;
-      sendKnock(entry.userId, myUserId, statusColor);
+      sendKnock(entry.userId, myUserId, /** @type {string | undefined} */ (statusColor));
     });
   }
 
@@ -704,7 +757,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
 
     li.addEventListener('pointerdown', (e) => {
       if (isCardDrawerOpen()) return;
-      if (e.target.closest('.unfollow-btn, .person-label')) return;
+      if (/** @type {Element} */ (e.target).closest('.unfollow-btn, .person-label')) return;
       swipeStartX = e.clientX;
       swipeStartY = e.clientY;
       swipeCardWidth = li.getBoundingClientRect().width;
@@ -775,13 +828,17 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
   }
 
   if (PALETTES_ENABLED && PALETTE_INTERACTIONS_ENABLED) {
+    /** @type {ReturnType<typeof setTimeout> | null} */
     let pressTimer = null;
-    let pressStartX, pressStartY;
+    /** @type {number} */
+    let pressStartX;
+    /** @type {number} */
+    let pressStartY;
     let suppressNextClick = false;
 
     li.addEventListener('pointerdown', (e) => {
       if (isCardDrawerOpen()) return;
-      clearTimeout(pressTimer); pressTimer = null;
+      clearTimeout(/** @type {ReturnType<typeof setTimeout>} */ (pressTimer)); pressTimer = null;
       pressStartX = e.clientX;
       pressStartY = e.clientY;
       pressTimer = setTimeout(() => {
@@ -797,7 +854,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
       }
     });
     ['pointerup', 'pointercancel'].forEach(ev =>
-      li.addEventListener(ev, () => { clearTimeout(pressTimer); pressTimer = null; })
+      li.addEventListener(ev, () => { clearTimeout(/** @type {ReturnType<typeof setTimeout>} */ (pressTimer)); pressTimer = null; })
     );
     li.addEventListener('click', (e) => {
       if (suppressNextClick) { suppressNextClick = false; e.stopImmediatePropagation(); }
@@ -828,6 +885,7 @@ function createFolloweeRow(entry, myUserId, isMutual = false) {
   return li;
 }
 
+/** @param {FollowerEntry} follower @param {string} myUserId */
 function createFollowerOnlyRow(follower, myUserId) {
   const li = document.createElement('li');
   li.className = 'follower-only';
@@ -848,15 +906,15 @@ function createFollowerOnlyRow(follower, myUserId) {
     </div>
     <button class="unfollow-btn" title="Remove">×</button>`;
 
-  li.querySelector('.follow-back-btn').addEventListener('click', () => {
-    document.getElementById('add-code-input').value = follower.code;
+  /** @type {HTMLElement} */ (li.querySelector('.follow-back-btn')).addEventListener('click', () => {
+    /** @type {HTMLInputElement} */ (document.getElementById('add-code-input')).value = follower.code;
     // Read at click time: the row persists across renders, and the roster name
     // can be learned (approval flow) after this row was created.
-    document.getElementById('add-label-input').value = getFollowerName(follower.userId) || '';
+    /** @type {HTMLInputElement} */ (document.getElementById('add-label-input')).value = getFollowerName(follower.userId) || '';
     openAddForm();
   });
 
-  li.querySelector('.unfollow-btn').addEventListener('click', () => {
+  /** @type {HTMLElement} */ (li.querySelector('.unfollow-btn')).addEventListener('click', () => {
     showConfirm(`Remove follower ${follower.code}?`, 'Remove', {
       type: 'removeFollower',
       userId: follower.userId,
@@ -871,6 +929,7 @@ function createFollowerOnlyRow(follower, myUserId) {
 // subscription. On first tick where the server has nothing but local has
 // entries, push local up (migration). Otherwise server wins on conflict
 // (per-entry last-write-wins is enforced naturally by the keyed write path).
+/** @param {string} myUserId @param {{ userId: string, code: string, label: string }[]} serverFollowing */
 function syncFollowingFromServer(myUserId, serverFollowing) {
   const localFollowing = getFollowing();
 
@@ -882,7 +941,9 @@ function syncFollowingFromServer(myUserId, serverFollowing) {
   }
 
   // Compare as JSON strings keyed by uid (order-independent).
+  /** @param {{ userId: string, code: string, label?: string }[]} arr */
   const toMap = (arr) => {
+    /** @type {Record<string, { code: string, label: string }>} */
     const m = {};
     for (const e of arr) m[e.userId] = { code: e.code, label: e.label ?? '' };
     return m;
@@ -932,10 +993,11 @@ function runResort() {
   renderList();
 }
 
+/** @param {FollowingEntry} entry @param {string} myUserId */
 function subscribeToFollowee(entry, myUserId) {
   // Through the shared presence hub so a uid we also watch in a group roster is
   // watched once at the RTDB layer (#214 R3). Same unsub contract as watchPresence.
-  const unsub = subscribePresence(entry.userId, (userData) => {
+  const unsub = subscribePresence(entry.userId, (/** @type {UserData | null} */ userData) => {
     if (!userData) return;
 
     if (userData.status === 'available' && isExpired(userData.availableUntil)) {
@@ -969,6 +1031,7 @@ function subscribeToFollowee(entry, myUserId) {
   unsubscribers.set(entry.userId, unsub);
 }
 
+/** @param {FollowingEntry} entry @param {UserData} userData @param {string} myUserId */
 export function updateFolloweeRow(entry, userData, myUserId) {
   if (!renderedFollowees.has(entry.userId)) {
     renderedFollowees.add(entry.userId);
@@ -1014,7 +1077,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
   }
 
   li.dataset.available = String(isAvail);
-  const dot = li.querySelector('.person-dot');
+  const dot = /** @type {HTMLElement | null} */ (li.querySelector('.person-dot'));
   if (dot) {
     // Reset className first to clear any transient classes, then paint. The
     // PALETTES gate preserves the old behavior of leaving the dot's inline
@@ -1022,7 +1085,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
     dot.className = `person-dot${isAvail ? ' available' : ''}`;
     if (PALETTES_ENABLED) paintStatusDot(dot, { color, available: isAvail, palettesEnabled: true });
   }
-  const statusEl = li.querySelector('.person-status');
+  const statusEl = /** @type {HTMLElement} */ (li.querySelector('.person-status'));
   if (statusEl) statusEl.innerHTML = statusText;
 
   // Palette card styling (Increment 3): only when available
@@ -1032,7 +1095,7 @@ export function updateFolloweeRow(entry, userData, myUserId) {
       li.style.background      = palette.theme.surface;
       li.style.borderLeftColor = palette.color;
       statusEl.style.color     = palette.theme.textMuted;
-      const availableSpan = statusEl.querySelector('.status-available');
+      const availableSpan = /** @type {HTMLElement | null} */ (statusEl.querySelector('.status-available'));
       if (availableSpan) availableSpan.style.color = palette.color;
     } else {
       li.style.background      = '';
@@ -1114,12 +1177,14 @@ document.addEventListener('card-drawer-close', () => {
   });
 });
 
+/** @param {HTMLElement} li */
 function getLabelText(li) {
   const labelEl = li.querySelector('.person-label');
-  const input = labelEl ? labelEl.querySelector('.rename-input') : null;
+  const input = /** @type {HTMLInputElement | null} */ (labelEl ? labelEl.querySelector('.rename-input') : null);
   return input ? input.value : (labelEl ? labelEl.textContent : '');
 }
 
+/** @param {FollowingEntry} entry @param {HTMLElement} labelEl */
 function activateRename(entry, labelEl) {
   const original = entry.label;
   editingSet.add(entry.userId);
@@ -1127,7 +1192,7 @@ function activateRename(entry, labelEl) {
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'rename-input';
-  input.value = original;
+  input.value = /** @type {string} */ (original);
   labelEl.textContent = '';
   labelEl.appendChild(input);
   input.focus();
@@ -1169,14 +1234,16 @@ function activateRename(entry, labelEl) {
 // status line doubles as the preview surface: it upgrades to "You'll follow …"
 // when resolveInvitePreview lands, and stays at the generic detection text on
 // any preview failure (fail-soft — submit still redeems).
+/** @type {string | null} */
 let _inviteModeToken = null;
 let _previewSeq = 0;
+/** @param {string} raw */
 function updateAddFormMode(raw) {
   const token = extractInviteTokenFromText(raw);
   if (token !== null && token === _inviteModeToken) return 'invite'; // unchanged — don't re-fire the preview
   _inviteModeToken = token;
-  const statusEl = document.getElementById('add-invite-status');
-  const submit = document.getElementById('add-submit-btn');
+  const statusEl = /** @type {HTMLElement} */ (document.getElementById('add-invite-status'));
+  const submit = /** @type {HTMLElement} */ (document.getElementById('add-submit-btn'));
   const labelEls = [document.getElementById('add-label-label'), document.getElementById('add-label-input')];
   if (!token) {
     statusEl.textContent = '';
@@ -1190,7 +1257,7 @@ function updateAddFormMode(raw) {
   statusEl.textContent = 'Invite link detected';
   statusEl.classList.remove('hidden');
   const seq = ++_previewSeq;
-  resolveInvitePreview(token).then((p) => {
+  resolveInvitePreview(token).then((/** @type {InvitePreview | null} */ p) => {
     if (seq !== _previewSeq || !p) return; // stale input or dead token — keep the generic text
     statusEl.textContent = p.scope === 'group'
       ? `You'll join '${p.groupName || 'a group'}'`
@@ -1199,6 +1266,7 @@ function updateAddFormMode(raw) {
   return 'invite';
 }
 
+/** @param {string | null | undefined} reason */
 function redeemFailureMessage(reason) {
   switch (reason) {
     case 'already-following': return "You're already following them.";
@@ -1214,16 +1282,17 @@ function redeemFailureMessage(reason) {
 // Invite-mode submit (spec N6): the exact boot-redemption pipeline, reused.
 // Group invites prompt for a display name mid-flight, same as the URL flow
 // (app.js:675) — the cache handoff skips the duplicate index/group reads.
+/** @param {string} myUserId @param {string} myCode @param {string} token */
 async function handleRedeemInvite(myUserId, myCode, token) {
-  const errorEl = document.getElementById('add-error');
-  const submit = document.getElementById('add-submit-btn');
+  const errorEl = /** @type {HTMLElement} */ (document.getElementById('add-error'));
+  const submit = /** @type {HTMLButtonElement} */ (document.getElementById('add-submit-btn'));
   errorEl.classList.add('hidden');
   submit.disabled = true;
   try {
-    let result = await attemptRedeemFromUrl(token, myUserId, myCode, {});
+    let result = /** @type {RedeemResult | null} */ (await attemptRedeemFromUrl(token, myUserId, myCode, {}));
     if (result && result.ok === false && result.reason === 'needs-display-name') {
       const displayName = await showGroupDisplayNamePrompt(result.groupName || 'this group', '');
-      result = await attemptRedeemFromUrl(token, myUserId, myCode, { displayName, cache: result.cache });
+      result = /** @type {RedeemResult | null} */ (await attemptRedeemFromUrl(token, myUserId, myCode, { displayName, cache: /** @type {NonNullable<Parameters<typeof attemptRedeemFromUrl>[3]>['cache']} */ (result.cache) }));
     }
     if (result && result.ok) {
       closeAddForm();
@@ -1237,10 +1306,11 @@ async function handleRedeemInvite(myUserId, myCode, token) {
   }
 }
 
+/** @param {string} myUserId @param {string} myCode */
 async function handleAddPerson(myUserId, myCode) {
-  const codeInput = document.getElementById('add-code-input');
-  const labelInput = document.getElementById('add-label-input');
-  const errorEl = document.getElementById('add-error');
+  const codeInput = /** @type {HTMLInputElement} */ (document.getElementById('add-code-input'));
+  const labelInput = /** @type {HTMLInputElement} */ (document.getElementById('add-label-input'));
+  const errorEl = /** @type {HTMLElement} */ (document.getElementById('add-error'));
 
   const raw = codeInput.value.trim();
   const inviteToken = extractInviteTokenFromText(raw);
@@ -1272,12 +1342,12 @@ async function handleAddPerson(myUserId, myCode) {
     return;
   }
 
-  document.getElementById('add-submit-btn').disabled = true;
+  /** @type {HTMLButtonElement} */ (document.getElementById('add-submit-btn')).disabled = true;
 
   const targetUserId = await lookupCode(code);
   if (!targetUserId) {
     showError(errorEl, 'Code not found. Check the code and try again.');
-    document.getElementById('add-submit-btn').disabled = false;
+    /** @type {HTMLButtonElement} */ (document.getElementById('add-submit-btn')).disabled = false;
     return;
   }
 
@@ -1286,7 +1356,7 @@ async function handleAddPerson(myUserId, myCode) {
   setFollowingEntry(myUserId, targetUserId, code, label).catch(() => {});
   closeAddForm();
   renderList();
-  document.getElementById('add-submit-btn').disabled = false;
+  /** @type {HTMLButtonElement} */ (document.getElementById('add-submit-btn')).disabled = false;
 }
 
 // Form mode: the sticky #nav-row / #app-header pin cannot be scrolled away,
@@ -1299,18 +1369,19 @@ function openAddForm() {
   document.getElementById('code-drawer')?.classList.remove('open');
   document.getElementById('mycode-chip')?.classList.remove('active');
   document.body.classList.add('add-form-open');
-  document.getElementById('add-person-form').classList.add('open');
+  /** @type {HTMLElement} */ (document.getElementById('add-person-form')).classList.add('open');
 }
 
 function closeAddForm() {
-  document.getElementById('add-person-form').classList.remove('open');
+  /** @type {HTMLElement} */ (document.getElementById('add-person-form')).classList.remove('open');
   document.body.classList.remove('add-form-open');
-  document.getElementById('add-code-input').value = '';
-  document.getElementById('add-label-input').value = '';
-  document.getElementById('add-error').classList.add('hidden');
+  /** @type {HTMLInputElement} */ (document.getElementById('add-code-input')).value = '';
+  /** @type {HTMLInputElement} */ (document.getElementById('add-label-input')).value = '';
+  /** @type {HTMLElement} */ (document.getElementById('add-error')).classList.add('hidden');
   updateAddFormMode(''); // back to code mode (labels, button, status line)
 }
 
+/** @param {HTMLElement} el @param {string} msg */
 function showError(el, msg) {
   el.textContent = msg;
   el.classList.remove('hidden');
