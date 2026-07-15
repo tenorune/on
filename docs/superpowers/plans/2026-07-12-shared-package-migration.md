@@ -22,6 +22,8 @@
 
 ### Task 1: `shared/` scaffold — sync script, first module, guard tests
 
+> **DONE — `b4b84f2` (`feat(shared): scaffold shared/ with committed functions/_shared mirror + guards`).** Scaffold, sync script, `sync-shared` npm script, and both byte-mirror guard suites landed as specified. (Per-task DONE marks added retroactively 2026-07-15 after an independent audit verified every T1–T7 claim against the repo; execution record lives in `docs/HANDOFF.md`.)
+
 **Files:**
 - Create: `shared/timeFormat.js`
 - Create: `scripts/sync-shared.js`
@@ -229,6 +231,8 @@ git commit -m "feat(shared): scaffold shared/ with committed functions/_shared m
 
 ### Task 2: Consume `shared/timeFormat.js` — retire the formatter duplicates
 
+> **DONE — `61b32f7` (`refactor(shared): time formatters consume shared/timeFormat.js via re-export`).** Client consumer is now `js/utils.ts` (TS-adoption rename; same import-then-export wiring). Deploy-gated smoke (bot `/status` fuzzy time) operator-verified 2026-07-15 — see HANDOFF session 10.
+
 **Files:**
 - Modify: `js/utils.js:82-116` (delete the duplicated formatters, re-export)
 - Modify: `functions/presence-core.js:46-80` (delete the duplicated formatters, re-export)
@@ -315,6 +319,8 @@ Spec wargame W2: the first prod deploy that carries `functions/_shared/` should 
 ---
 
 ### Task 3: Notify-channel predicate → `shared/notifyDelivery.js`
+
+> **DONE — `a7412e3` (`refactor(shared): one telegramPreferred predicate for the three notify-channel readers`).** Client consumers are now `js/notifySuppression.ts` / `js/notifyChannel.ts` (TS-adoption renames). The deploy-gated done-gate — knock→Telegram AND knock→push with the delivery pipe switching — operator-verified 2026-07-15 (HANDOFF session 10).
 
 **Files:**
 - Create: `shared/notifyDelivery.js`
@@ -461,6 +467,8 @@ Report: after this reaches prod, the operator should observe (a) one knock to a 
 
 ### Task 4: Name cap → `shared/limits.js`
 
+> **DONE — `78b3395` (`refactor(shared): one NAME_CAP/clamp source in shared/limits.js`).** Two-way shared↔rules invariant test landed as specified; clampName smoke operator-verified 2026-07-15 (HANDOFF session 10).
+
 **Files:**
 - Create: `shared/limits.js`
 - Modify: `functions/presence-core.js:97-107` (cap block consumes shared)
@@ -569,6 +577,8 @@ git commit -m "refactor(shared): one NAME_CAP/clamp source in shared/limits.js"
 ---
 
 ### Task 5: Id formats → `shared/idFormats.js`
+
+> **DONE — `312ceea` (`refactor(shared): one GROUP_ID_RE/UID_RE source in shared/idFormats.js`) + `51458dc` (`test(shared): pin group-id generator to shared GROUP_ID_RE`).** The generator-pin sub-clause was initially dropped from this plan's derivation and closed separately (`51458dc`); id-format nav smoke operator-verified 2026-07-15 (HANDOFF session 10).
 
 **Files:**
 - Create: `shared/idFormats.js`
@@ -791,6 +801,8 @@ Include in the task report, verbatim question: "Client treats `status: 'availabl
 ---
 
 ### Task 7: Documentation — landmine entry + README
+
+> **DONE — `2860dc9` (`docs(shared): sync-shared landmine + README stack note`).** HANDOFF landmine paragraph and README Tech Stack bullet both landed verbatim. Plan CLOSED — T1–T7 all complete (T6 resolved-as-NOT-unified, see its RESOLVED block); independently re-audited 2026-07-15, zero failures.
 
 **Files:**
 - Modify: `docs/HANDOFF.md` (Landmines list in the top block area)
