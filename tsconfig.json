@@ -4,7 +4,7 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "allowJs": true,
-    "checkJs": false,
+    "checkJs": true,
     "noEmit": true,
     "strict": true,
     "isolatedModules": true,
