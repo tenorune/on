@@ -43,6 +43,7 @@ type ConfirmAction = { type: 'unfollow' | 'removeFollower'; userId: string; myUs
 type InvitePreview = { scope?: string; label?: string; groupName?: string };
 type RedeemResult = { ok: boolean; reason?: string; groupId?: string | null; groupName?: string | null; cache?: unknown };
 type InviteRedeemedCb = (result: RedeemResult) => void | Promise<void>;
+export type InitListOptions = { onInviteRedeemed?: InviteRedeemedCb | null };
 
 const unsubscribers = new Map<string, () => void>(); // userId → unsubscribe fn
 const editingSet = new Set<string>();
@@ -109,7 +110,7 @@ async function doConfirm() {
   }
 }
 
-export function initList(myUserId: string, myCode: string, { onInviteRedeemed = null }: { onInviteRedeemed?: InviteRedeemedCb | null } = {}) {
+export function initList(myUserId: string, myCode: string, { onInviteRedeemed = null }: InitListOptions = {}) {
   myUserIdRef = myUserId;
   _onInviteRedeemed = onInviteRedeemed;
 

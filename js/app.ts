@@ -1,9 +1,8 @@
-// @ts-check
-// js/app.js
+// js/app.ts
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
 import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getUser, getUserPrefs, readGroupName } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
-import { initList, setFolloweeReadyCallback, reEnterCallMode } from './following.js';
+import { initList, setFolloweeReadyCallback, reEnterCallMode, type InitListOptions } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode, startPersonalInviteFlow } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
@@ -48,31 +47,25 @@ import { maybeRunDevReset } from './devReset.js';
 export { showRecoveryCodeModal };
 export { handleInviteRedemptionResult, reconcileSilentRedeemToast };
 
-/**
- * Local view of the pre-redemption invite-preview payload (the resolveInvitePreview
- * callable returns a preview-safe subset the ambient wire shapes don't spell out).
- * @typedef {{ scope?: string, label?: string, groupName?: string }} InvitePreview
- *
- * Local view of the attemptRedeemFromUrl result union — the individual literal
- * members TS infers don't share these fields, so the flow reads them off one shape.
- * @typedef {{ ok: boolean, reason?: string, groupId?: string | null, groupName?: string | null, creatorLabel?: string, cache?: unknown }} RedeemResult
- *
- * Richer own-presence shape: the RTDB presence node also carries statusColor,
- * paletteKey and code at runtime (see the app.d.ts note) beyond the minimal
- * PresenceNode wire shape.
- * @typedef {{ status?: string | null, availableUntil?: number | null, statusColor?: string | null, paletteKey?: string | null, code?: string | null }} PresenceLike
- *
- * telegramInviteGate's resolved gate object (its `preview` is the opaque callable
- * result; typed here as InvitePreview for the field reads reconcile does).
- * @typedef {{ token: string, preview: InvitePreview, silent?: boolean }} TgInvite
- */
+// Local view of the pre-redemption invite-preview payload (the resolveInvitePreview
+// callable returns a preview-safe subset the ambient wire shapes don't spell out).
+type InvitePreview = { scope?: string; label?: string; groupName?: string };
+// Local view of the attemptRedeemFromUrl result union — the individual literal
+// members TS infers don't share these fields, so the flow reads them off one shape.
+type RedeemResult = { ok: boolean; reason?: string; groupId?: string | null; groupName?: string | null; creatorLabel?: string; cache?: unknown };
+// Richer own-presence shape: the RTDB presence node also carries statusColor,
+// paletteKey and code at runtime (see the app.d.ts note) beyond the minimal
+// PresenceNode wire shape.
+type PresenceLike = { status?: string | null; availableUntil?: number | null; statusColor?: string | null; paletteKey?: string | null; code?: string | null };
+// telegramInviteGate's resolved gate object (its `preview` is the opaque callable
+// result; typed here as InvitePreview for the field reads reconcile does).
+type TgInvite = { token: string; preview: InvitePreview; silent?: boolean };
 
 let splashCounter = 0;
 let splashDone = false;
-let _followGrantsUnsub = null; // captured for a future user-switch teardown (#214 R2)
+let _followGrantsUnsub: (() => void) | null = null; // captured for a future user-switch teardown (#214 R2)
 
-/** @param {number} followeeCount */
-function initSplash(followeeCount) {
+function initSplash(followeeCount: number) {
   splashCounter = 1 + followeeCount;
   // Call dismissSplash directly (not signalReady) so the splash always
   // disappears after 3s regardless of how many followees haven't reported in.
@@ -142,8 +135,7 @@ function isSetupInstall() {
   try { return new URLSearchParams(location.search).get('setup') === 'install'; } catch { return false; }
 }
 
-/** @param {string | null} [pendingInviteToken] */
-async function ensureIdentity(pendingInviteToken = null) {
+async function ensureIdentity(pendingInviteToken: string | null = null) {
   // Telegram Mini App: identity comes from the webview's signed initData —
   // no welcome/restore/phrase screens, no localStorage session. Invite links
   // don't reach this surface (the Mini App is opened from the bot, not from
@@ -230,7 +222,7 @@ async function ensureIdentity(pendingInviteToken = null) {
   // screen renders with framing already populated. resolveInvitePreview
   // returns null synchronously when there is no pending token, so non-invite
   // boots do not pay the round-trip cost.
-  const invitePreview = /** @type {InvitePreview | null} */ (await resolveInvitePreview(/** @type {string} */ (pendingInviteToken)).catch(() => null));
+  const invitePreview = ((await resolveInvitePreview(((pendingInviteToken) as string)).catch(() => null)) as InvitePreview | null);
   const inviteCreatorLabel = invitePreview?.scope === 'personal' ? invitePreview.label : null;
   const inviteGroupName = invitePreview?.scope === 'group' ? invitePreview.groupName : null;
   // Dismiss splash so the user can see and interact with the welcome screen.
@@ -278,7 +270,7 @@ async function createNewAccount() {
       code = generateCode();
       success = await initUser(userId, code);
     } while (!success);
-    const kcUser = /** @type {HTMLInputElement | null} */ (document.getElementById('recovery-keychain-username'));
+    const kcUser = ((document.getElementById('recovery-keychain-username')) as HTMLInputElement | null);
     if (kcUser) kcUser.value = code;
     saveIdentity(userId, code, rc);
   });
@@ -287,16 +279,15 @@ async function createNewAccount() {
 
 function showStaleScreen() {
   const el = document.getElementById('stale-screen');
-  const continueBtn = /** @type {HTMLElement} */ (document.getElementById('stale-continue-btn'));
-  const restoreBtn = /** @type {HTMLElement} */ (document.getElementById('stale-restore-btn'));
+  const continueBtn = ((document.getElementById('stale-continue-btn')) as HTMLElement);
+  const restoreBtn = ((document.getElementById('stale-restore-btn')) as HTMLElement);
   if (!el) return new Promise(() => {}); // not mounted (e.g. partial DOM under test) — stay inert
   el.classList.remove('hidden');
   return new Promise((resolve) => {
-    /** @param {string} choice */
-    function pick(choice) {
+    function pick(choice: string) {
       continueBtn.removeEventListener('click', onContinue);
       restoreBtn.removeEventListener('click', onRestore);
-      /** @type {HTMLElement} */ (el).classList.add('hidden');
+      ((el) as HTMLElement).classList.add('hidden');
       resolve(choice);
     }
     function onContinue() { pick('continue'); }
@@ -306,11 +297,10 @@ function showStaleScreen() {
   });
 }
 
-/** @param {{ inviteCreatorLabel?: string | null, inviteGroupName?: string | null }} [opts] */
-export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName = null } = {}) {
+export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName = null }: { inviteCreatorLabel?: string | null; inviteGroupName?: string | null } = {}) {
   const el = document.getElementById('welcome-screen');
-  const newBtn = /** @type {HTMLElement} */ (document.getElementById('welcome-new-btn'));
-  const restoreBtn = /** @type {HTMLElement} */ (document.getElementById('welcome-restore-btn'));
+  const newBtn = ((document.getElementById('welcome-new-btn')) as HTMLElement);
+  const restoreBtn = ((document.getElementById('welcome-restore-btn')) as HTMLElement);
   const framingEl = document.getElementById('welcome-invite-framing');
   if (!el) return new Promise(() => {}); // not mounted (e.g. partial DOM under test) — stay inert
   if (framingEl) {
@@ -322,11 +312,10 @@ export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName =
   }
   el.classList.remove('hidden');
   return new Promise((resolve) => {
-    /** @param {string} choice */
-    function pick(choice) {
+    function pick(choice: string) {
       newBtn.removeEventListener('click', onNew);
       restoreBtn.removeEventListener('click', onRestore);
-      /** @type {HTMLElement} */ (el).classList.add('hidden');
+      ((el) as HTMLElement).classList.add('hidden');
       resolve(choice);
     }
     function onNew() { pick('new'); }
@@ -336,12 +325,18 @@ export function showWelcomeScreen({ inviteCreatorLabel = null, inviteGroupName =
   });
 }
 
-export function showRestoreScreen() {
+// Returns Promise<any> to preserve the pre-conversion behavior: under checkJs
+// this function's `new Promise((resolve) => …)` inferred `any`, and callers read
+// a loosely-typed `{ userId, code, recoveryCode } | { createNew } | null` shape
+// off the result (its `code` is nullable via PresenceLike). Tightening it would
+// cascade string|null into saveIdentity's string params — a narrowing change out
+// of scope for a behavior-preserving rename.
+export function showRestoreScreen(): Promise<any> {
   const el = document.getElementById('restore-screen');
-  const input = /** @type {HTMLInputElement} */ (document.getElementById('restore-input'));
-  const error = /** @type {HTMLElement} */ (document.getElementById('restore-error'));
-  const submit = /** @type {HTMLButtonElement} */ (document.getElementById('restore-submit-btn'));
-  const cancel = /** @type {HTMLButtonElement} */ (document.getElementById('restore-cancel-btn'));
+  const input = ((document.getElementById('restore-input')) as HTMLInputElement);
+  const error = ((document.getElementById('restore-error')) as HTMLElement);
+  const submit = ((document.getElementById('restore-submit-btn')) as HTMLButtonElement);
+  const cancel = ((document.getElementById('restore-cancel-btn')) as HTMLButtonElement);
   if (!el) return new Promise(() => {}); // not mounted (e.g. partial DOM under test) — stay inert
 
   input.value = '';
@@ -351,8 +346,7 @@ export function showRestoreScreen() {
   el.classList.remove('hidden');
 
   const restoreForm = document.getElementById('restore-form');
-  /** @param {Event} e */
-  function onFormSubmit(e) { e.preventDefault(); }
+  function onFormSubmit(e: Event) { e.preventDefault(); }
   if (restoreForm) restoreForm.addEventListener('submit', onFormSubmit);
 
   return new Promise((resolve) => {
@@ -363,8 +357,7 @@ export function showRestoreScreen() {
       if (submit.disabled) return; // don't clobber the busy label
       submit.textContent = input.value.trim() ? 'Sign in' : 'Paste & Sign in';
     }
-    /** @param {string} msg */
-    function showError(msg) {
+    function showError(msg: string) {
       error.textContent = msg;
       error.classList.remove('hidden');
     }
@@ -434,7 +427,7 @@ export function showRestoreScreen() {
         return;
       }
       teardown();
-      resolve({ userId, code: /** @type {PresenceLike} */ (user).code, recoveryCode: normalized });
+      resolve({ userId, code: ((user) as PresenceLike).code, recoveryCode: normalized });
     }
     function onCancel() {
       teardown();
@@ -445,7 +438,7 @@ export function showRestoreScreen() {
       cancel.removeEventListener('click', onCancel);
       input.removeEventListener('input', syncLabel);
       if (restoreForm) restoreForm.removeEventListener('submit', onFormSubmit);
-      /** @type {HTMLElement} */ (el).classList.add('hidden');
+      ((el) as HTMLElement).classList.add('hidden');
     }
     submit.addEventListener('click', onAction);
     cancel.addEventListener('click', onCancel);
@@ -459,16 +452,12 @@ export function showRestoreScreen() {
 // value (per copy conventions); the phrase-reminder is the shared block.
 // "Maybe later" resolves so the user lands in the app un-installed (install
 // stays reachable via the corner fab).
-/**
- * @param {string} lane
- * @returns {Promise<void>}
- */
-function showInstallStep(lane) {
+function showInstallStep(lane: string): Promise<void> {
   const el = document.getElementById('install-step');
-  const titleEl = /** @type {HTMLElement} */ (document.getElementById('install-step-title'));
-  const bodyEl = /** @type {HTMLElement} */ (document.getElementById('install-step-body'));
-  const reminderEl = /** @type {HTMLElement} */ (document.getElementById('install-step-reminder'));
-  const laterBtn = /** @type {HTMLElement} */ (document.getElementById('install-step-later-btn'));
+  const titleEl = ((document.getElementById('install-step-title')) as HTMLElement);
+  const bodyEl = ((document.getElementById('install-step-body')) as HTMLElement);
+  const reminderEl = ((document.getElementById('install-step-reminder')) as HTMLElement);
+  const laterBtn = ((document.getElementById('install-step-later-btn')) as HTMLElement);
   if (!el) return Promise.resolve();
 
   titleEl.textContent = 'Install the app';
@@ -488,7 +477,7 @@ function showInstallStep(lane) {
   el.classList.remove('hidden');
 
   return new Promise((resolve) => {
-    function later() { laterBtn.removeEventListener('click', later); /** @type {HTMLElement} */ (el).classList.add('hidden'); resolve(); }
+    function later() { laterBtn.removeEventListener('click', later); ((el) as HTMLElement).classList.add('hidden'); resolve(); }
     laterBtn.addEventListener('click', later);
   });
 }
@@ -502,11 +491,7 @@ function showInstallStep(lane) {
 // knock" on.
 const FIRST_FOLLOW_KEY = 'kk-first-follow';
 
-/**
- * @param {RedeemResult} result
- * @returns {boolean}
- */
-function handleInviteRedemptionResult(result) {
+function handleInviteRedemptionResult(result: RedeemResult): boolean {
   if (result.ok) {
     // On success, the follow is now in place. No banner — the contact will appear
     // in the user's Following list once their watch subscriptions tick.
@@ -521,7 +506,7 @@ function handleInviteRedemptionResult(result) {
     }
     return false;
   }
-  showInviteFailureOverlay(/** @type {string} */ (result.reason));
+  showInviteFailureOverlay(((result.reason) as string));
   return false;
 }
 
@@ -532,12 +517,7 @@ function handleInviteRedemptionResult(result) {
 // one-time marker — permanently suppress the beat for the session without
 // the user ever seeing it). `beatShown` is handleInviteRedemptionResult's
 // return value from the same redemption, captured by the caller.
-/**
- * @param {RedeemResult} result
- * @param {TgInvite | null} tgInvite
- * @param {boolean} beatShown
- */
-function reconcileSilentRedeemToast(result, tgInvite, beatShown) {
+function reconcileSilentRedeemToast(result: RedeemResult, tgInvite: TgInvite | null, beatShown: boolean) {
   if (!(result.ok && tgInvite?.silent)) return;
   if (tgInvite.preview.scope === 'group') {
     showToast(`You joined ${tgInvite.preview.groupName}.`);
@@ -549,8 +529,7 @@ function reconcileSilentRedeemToast(result, tgInvite, beatShown) {
   }
 }
 
-/** @param {string} reason */
-function showInviteFailureOverlay(reason) {
+function showInviteFailureOverlay(reason: string) {
   const overlay = document.getElementById('invite-failure-overlay');
   const messageEl = document.getElementById('invite-failure-message');
   const continueBtn = document.getElementById('invite-failure-continue');
@@ -561,8 +540,7 @@ function showInviteFailureOverlay(reason) {
   continueBtn.onclick = () => overlay.classList.add('hidden');
 }
 
-/** @param {string} reason */
-function inviteFailureCopy(reason) {
+function inviteFailureCopy(reason: string) {
   switch (reason) {
     case 'not-found': return "This invite link isn't valid.";
     case 'revoked':   return 'This invite link has been revoked.';
@@ -662,7 +640,7 @@ async function main() {
                  // on each emit and creates #group-override-toggle-slot before
                  // enterGroupContext looks for it.
   onContextChange((ctx) => {
-    if (ctx.context === 'group') enterGroupContext(/** @type {string} */ (ctx.groupId), userId);
+    if (ctx.context === 'group') enterGroupContext(((ctx.groupId) as string), userId);
     else exitGroupContext();
   });
 
@@ -702,9 +680,9 @@ async function main() {
     // instead of a bare code (no follow-request approval happened to teach it).
     // telegramFirstName() is '' outside Telegram — web redeemers pass no name,
     // so their behaviour is unchanged (group redeems ignore it entirely).
-    let result = /** @type {RedeemResult | null} */ (await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {
+    let result = ((await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {
       redeemerName: telegramFirstName(),
-    }));
+    })) as RedeemResult | null);
     // Captured from the needs-display-name response so we can prime
     // setLastKnownGroupName even on the success path (where the second
     // attemptRedeemFromUrl call returns its own groupName too).
@@ -717,10 +695,10 @@ async function main() {
       const displayName = await showGroupDisplayNamePrompt(promptName, telegramFirstName());
       // Pass the cache forward so the second call doesn't re-fetch the
       // invite index + group record.
-      result = /** @type {RedeemResult | null} */ (await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {
+      result = ((await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {
         displayName,
-        cache: /** @type {NonNullable<Parameters<typeof attemptRedeemFromUrl>[3]>['cache']} */ (result.cache),
-      }));
+        cache: ((result.cache) as NonNullable<Parameters<typeof attemptRedeemFromUrl>[3]>['cache']),
+      })) as RedeemResult | null);
     }
     if (result) {
       // A re-tapped Telegram deep link lands here as already-following: spec
@@ -787,7 +765,7 @@ async function main() {
         if (groupData?.name) {
           // Prime the nav-row name cache so the group nav renders the
           // real name on its first emit, not the groupId.
-          setLastKnownGroupName(groupId, /** @type {string} */ (groupData.name));
+          setLastKnownGroupName(groupId, ((groupData.name) as string));
           // navigateToGroup runs emit() synchronously: renderNavRow
           // unhides #nav-row and renders group mode; the onContextChange
           // listener registered above reveals #group-context-root.
@@ -822,7 +800,7 @@ async function main() {
     // Notification-channel pill reconciles live on every prefs change — link/
     // unlink (userPrefs.telegram) and cross-device channel switches — on both web
     // and Telegram, so neither needs a reload to reflect the current state.
-    syncNotifyChannel(userId, /** @type {UserPrefs} */ (serverPrefs));
+    syncNotifyChannel(userId, ((serverPrefs) as UserPrefs));
     // Web nudge suppression rides the same tick (no-op in Telegram context):
     // install/web-push nudges hide while the bot delivers notifications.
     syncBotDelivery(serverPrefs);
@@ -843,7 +821,7 @@ async function main() {
   // 'current-context-synced' CustomEvent; forward into groupNav so the
   // active context flips just like the old watchStatus-driven path used to.
   document.addEventListener('current-context-synced', (e) => {
-    applyServerCurrentContext(/** @type {CustomEvent} */ (e).detail?.currentContext || 'direct');
+    applyServerCurrentContext(((e) as CustomEvent).detail?.currentContext || 'direct');
   });
 
   initCodeDrawer(userId, code);
@@ -864,20 +842,17 @@ async function main() {
     setOwnStatusReadyCallback(signalReady);
     setFolloweeReadyCallback(signalReady);
   }
-  initList(userId, code, /** @type {any} */ ({
+  initList(userId, code, {
     // In-app redemption (spec N6): same success surface as the URL flow —
     // the first-follow beat toast, and group joins navigate into the group.
-    // The object is cast to `any` as a temporary seam: initList's options param
-    // infers `onInviteRedeemed: null` from following.js's plain `= null` default,
-    // so a callback isn't assignable until following.js gets @ts-check'd + a @param.
-    onInviteRedeemed: async (/** @type {RedeemResult} */ result) => {
+    onInviteRedeemed: async (result: RedeemResult) => {
       handleInviteRedemptionResult(result);
       if (result.groupId) {
         if (result.groupName) setLastKnownGroupName(result.groupId, result.groupName);
         await navigateToGroup(result.groupId);
       }
     },
-  }));
+  } satisfies InitListOptions);
   initHintRotation();
   if (KNOCK_ENABLED) initKnocks(userId);
 
@@ -938,17 +913,12 @@ async function main() {
 // Own primary-status subscription: cross-device color/palette/code sync + the
 // status-label re-render. Color/theme writes are Direct-context-scoped (see
 // inDirectCtx) so a primary echo can't clobber an active group override.
-/** @param {string} userId */
-function initOwnStatusSync(userId) {
-  /** @type {string | null} */
-  let lastStatus = null;
-  /** @type {number | null} */
-  let lastAvailableUntil = null;
-  /** @type {string | null} */
-  let lastStatusColor = null;
-  /** @type {string | null} */
-  let lastPaletteKey = null;
-  subscribeOwnStatus(async (/** @type {PresenceLike | null} */ userData) => {
+function initOwnStatusSync(userId: string) {
+  let lastStatus: string | null = null;
+  let lastAvailableUntil: number | null = null;
+  let lastStatusColor: string | null = null;
+  let lastPaletteKey: string | null = null;
+  subscribeOwnStatus(async (userData: PresenceLike | null) => {
     if (!userData) return;
 
     // Sync color/palette across devices. These updates are independent of the
@@ -1002,8 +972,8 @@ function initOwnStatusSync(userId) {
     // (via the 'current-context-synced' event wired below).
 
     const expired = userData.status === 'available' && isExpired(userData.availableUntil);
-    const effectiveStatus = expired ? 'unavailable' : /** @type {string | null} */ (userData.status);
-    const effectiveUntil  = expired ? null : /** @type {number | null} */ (userData.availableUntil);
+    const effectiveStatus = expired ? 'unavailable' : ((userData.status) as string | null);
+    const effectiveUntil  = expired ? null : ((userData.availableUntil) as number | null);
     // Skip re-render when only unrelated fields changed (code, statusColor, followers).
     // This prevents the label animation from firing on every swatch tap or code rotation.
     if (effectiveStatus === lastStatus && effectiveUntil === lastAvailableUntil) return;
@@ -1016,10 +986,9 @@ function initOwnStatusSync(userId) {
 
 // Direct-context palette boot: reveal the swatch row and apply the saved color
 // (Direct context only — a group override owns --my-status otherwise).
-/** @param {string} userId */
-function initPaletteBoot(userId) {
+function initPaletteBoot(userId: string) {
   if (!PALETTES_ENABLED) return;
-  /** @type {HTMLElement} */ (document.getElementById('swatch-row')).style.display = '';
+  ((document.getElementById('swatch-row')) as HTMLElement).style.display = '';
   const paletteState = getPaletteState();
   const activeSetKey = String(paletteState.activeSet);
   const { selectedKey } = paletteState.sets[activeSetKey];
@@ -1032,8 +1001,7 @@ function initPaletteBoot(userId) {
 
 // Push notifications + deep-link routing from notification taps. No-op unless
 // the feature flag is on.
-/** @param {string} userId */
-function initPushNotifications(userId) {
+function initPushNotifications(userId: string) {
   if (!NOTIFICATIONS_ENABLED) return;
   initNotifyPrompt(userId);
   // Flag/opt-in-gated push debug readout (#156). No-op unless NOTIFY_DEBUG or
@@ -1059,21 +1027,19 @@ function initPushNotifications(userId) {
 // Boot-time own-call recovery: re-enter the canvas if we reloaded mid-call. One-
 // shot, and only for an already-answered call (the caller side); an unanswered
 // ring is left for following.js's own-call watcher to render on its first tick.
-/** @param {string} userId */
-function initCallRecovery(userId) {
+function initCallRecovery(userId: string) {
   if (!CALL_ENABLED) return;
   // One-shot: this only needs the FIRST calls/{me} value (boot recovery). Capture
   // the unsub and drop the watcher after the first fire, so it isn't a permanent
   // duplicate of following.js's live own-call watch on the same path (#214 R1).
-  /** @type {(() => void) | null} */
-  let unsub = null;
+  let unsub: (() => void) | null = null;
   let handled = false;
   unsub = watchOwnCall(userId, async (call) => {
     if (handled) return;
     handled = true;
     if (unsub) unsub();
     if (!call) return;
-    const peerId = /** @type {string} */ (call.to || call.from);
+    const peerId = ((call.to || call.from) as string);
     const entry = getFollowing().find((e) => e.userId === peerId);
     if (!entry) { endCall(userId, peerId).catch(() => {}); return; }
     try {
@@ -1097,7 +1063,7 @@ function initServiceWorker() {
     window.location.reload();
   });
   navigator.serviceWorker.register('/sw.js').then((reg) => {
-    /** @type {Window & { __swRegistration?: ServiceWorkerRegistration }} */ (window).__swRegistration = reg;
+    ((window) as Window & { __swRegistration?: ServiceWorkerRegistration }).__swRegistration = reg;
     // iOS standalone PWAs resume without a navigation, so the browser never
     // re-checks sw.js on its own. Poke it on every foreground (and once at
     // launch) so a deployed update is noticed promptly.
