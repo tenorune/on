@@ -1,5 +1,4 @@
-// @ts-check
-// js/firebase-config.js
+// js/firebase-config.ts
 import { initializeApp } from 'firebase/app';
 import { getDatabase } from 'firebase/database';
 import { getMessaging, isSupported } from 'firebase/messaging';
@@ -26,21 +25,16 @@ const _validateRecovery = httpsCallable(_functions, 'validateRecovery');
 const _resolveInvitePreview = httpsCallable(_functions, 'resolveInvitePreview');
 
 // Calls the validateRecovery callable; returns the Firebase custom token string.
-/**
- * @param {string} code
- * @returns {Promise<string>}
- */
-export async function callValidateRecovery(code) {
+export async function callValidateRecovery(code: string): Promise<string> {
   const { data } = await _validateRecovery({ code });
-  return /** @type {{ token: string }} */ (data).token;
+  return (data as { token: string }).token;
 }
 
 // Calls the resolveInvitePreview callable; returns the preview object (or null).
 // Unauthenticated: the welcome screen needs invite framing before sign-in.
-/** @param {string} token */
-export async function callResolveInvitePreview(token) {
+export async function callResolveInvitePreview(token: string) {
   const { data } = await _resolveInvitePreview({ token });
-  return /** @type {{ preview?: unknown } | null | undefined} */ (data)?.preview ?? null;
+  return (data as { preview?: unknown } | null | undefined)?.preview ?? null;
 }
 
 const _validateTelegram = httpsCallable(_functions, 'validateTelegram');
@@ -52,32 +46,22 @@ const _redeemTelegramLinkToken = httpsCallable(_functions, 'redeemTelegramLinkTo
 
 // Telegram Mini App auth (experimental — spec 2026-07-02). initData is the raw
 // signed string from Telegram.WebApp; the server verifies it and mints a token.
-/** @param {string} initData */
-export async function callValidateTelegram(initData) {
+export async function callValidateTelegram(initData: string) {
   const { data } = await _validateTelegram({ initData });
   return data; // { token, uid, linked, created }
 }
-/**
- * @param {string} initData
- * @param {string} code
- */
-export async function callLinkTelegram(initData, code) {
+export async function callLinkTelegram(initData: string, code: string) {
   const { data } = await _linkTelegram({ initData, code });
   return data; // { token }
 }
-/** @param {string} initData */
-export async function callUnlinkTelegram(initData) {
+export async function callUnlinkTelegram(initData: string) {
   const { data } = await _unlinkTelegram({ initData });
   return data; // { ok: true }
 }
 // Graduation: migrate the current unlinked derived account to the phrase-derived
 // uid (spec §7). Throws `already-exists` on a target-uid collision so the caller
 // can regenerate the phrase and retry.
-/**
- * @param {string} initData
- * @param {string} code
- */
-export async function callGraduateTelegram(initData, code) {
+export async function callGraduateTelegram(initData: string, code: string) {
   const { data } = await _graduateTelegram({ initData, code });
   return data; // { ok: true, uid }
 }
@@ -91,18 +75,12 @@ export async function callMintTelegramLinkToken() {
 
 // Redeem a link token inside the Mini App: { token } on success, or
 // { needsConfirm, counts } when this Telegram already has an account to replace.
-/**
- * @param {string} initData
- * @param {string} token
- * @param {boolean} [confirm]
- */
-export async function callRedeemTelegramLinkToken(initData, token, confirm = false) {
+export async function callRedeemTelegramLinkToken(initData: string, token: string, confirm = false) {
   const { data } = await _redeemTelegramLinkToken({ initData, token, confirm });
   return data;
 }
 
-/** @type {import('firebase/messaging').Messaging | null} */
-let _messaging = null;
+let _messaging: import('firebase/messaging').Messaging | null = null;
 // Returns a Messaging instance, or null where unsupported (e.g. iOS Safari tab).
 export async function getMessagingIfSupported() {
   try {
