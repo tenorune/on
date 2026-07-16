@@ -1,5 +1,4 @@
-// @ts-check
-// js/groupNav.js
+// js/groupNav.ts
 // Navigation state machine: currentContext + group cards row.
 // State is in-memory; writes mirror to Firebase via setCurrentContext / setLastVisited.
 
@@ -16,38 +15,25 @@ import { getGroupBadgeCount, getDirectBadgeCount } from './knock.js';
 import { renderInboxNavSlot } from './inbox.js';
 import { reconcileChildren } from './reconcile.js';
 
-/**
- * @typedef {{ context: string, groupId: string | null }} NavContext
- * @typedef {{ lastVisited?: number }} GroupEnumEntry
- * @typedef {{ name?: string }} GroupMeta
- * @typedef {{ enabled?: boolean | null, status?: string | null, availableUntil?: number | null, statusColor?: string | null, paletteKey?: string | null }} OverrideEntry
- * @typedef {{ status?: string | null, availableUntil?: number | null, statusColor?: string | null }} OwnPrimary
- */
+type NavContext = { context: string; groupId: string | null };
+type GroupEnumEntry = { lastVisited?: number };
+type GroupMeta = { name?: string };
+type OverrideEntry = { enabled?: boolean | null; status?: string | null; availableUntil?: number | null; statusColor?: string | null; paletteKey?: string | null };
+type OwnPrimary = { status?: string | null; availableUntil?: number | null; statusColor?: string | null };
 
 // Set/clear the deferred-knock halo (a pulsing CSS class) to match the
 // in-memory count from knock.js. Runs in every card paint, so a surviving
 // card both gains the halo when a knock queues and loses it when the count
 // drops to zero — and a context flip (full child replacement) re-applies it.
-/**
- * @param {HTMLElement} card
- * @param {number} count
- */
-function applyBadgeIfNonZero(card, count) {
+function applyBadgeIfNonZero(card: HTMLElement, count: number) {
   card.classList.toggle('knock-pending', count > 0);
 }
 
-/** @type {string | null} */
-let _myUserId = null;
-/** @type {NavContext} */
-let _state = { context: 'direct', groupId: null };
-/** @type {Set<(s: NavContext) => void>} */
-const _listeners = new Set();
+let _myUserId: string | null = null;
+let _state: NavContext = { context: 'direct', groupId: null };
+const _listeners = new Set<(s: NavContext) => void>();
 
-/**
- * @param {string | null | undefined} s
- * @returns {NavContext}
- */
-function parseContextString(s) {
+function parseContextString(s: string | null | undefined): NavContext {
   if (s === 'direct' || !s) return { context: 'direct', groupId: null };
   const m = typeof s === 'string' ? s.match(/^group:(.+)$/) : null;
   if (m) return { context: 'group', groupId: m[1] };
@@ -59,8 +45,7 @@ function emit() {
   _listeners.forEach((fn) => { try { fn(snapshot); } catch { /* swallow */ } });
 }
 
-/** @param {string} userId */
-export function initNav(userId) {
+export function initNav(userId: string) {
   _myUserId = userId;
   _state = { context: 'direct', groupId: null };
   _listeners.clear();
@@ -70,8 +55,7 @@ export function getCurrentContext() {
   return { ..._state };
 }
 
-/** @param {(s: NavContext) => void} fn */
-export function onContextChange(fn) {
+export function onContextChange(fn: (s: NavContext) => void) {
   _listeners.add(fn);
   return () => _listeners.delete(fn);
 }
@@ -85,17 +69,15 @@ export async function navigateToDirect() {
   setCurrentContext('direct');
 }
 
-/** @param {string} groupId */
-export async function navigateToGroup(groupId) {
+export async function navigateToGroup(groupId: string) {
   if (_state.context === 'group' && _state.groupId === groupId) return;
   _state = { context: 'group', groupId };
   emit(); // render immediately before Firebase round-trip
   setCurrentContext(`group:${groupId}`);
-  await setLastVisited(/** @type {string} */ (_myUserId), groupId, Date.now());
+  await setLastVisited(_myUserId as string, groupId, Date.now());
 }
 
-/** @param {string | null | undefined} rawValue */
-export function applyServerCurrentContext(rawValue) {
+export function applyServerCurrentContext(rawValue: string | null | undefined) {
   const next = parseContextString(rawValue);
   if (next.context === _state.context && next.groupId === _state.groupId) return;
   _state = next;
@@ -104,44 +86,31 @@ export function applyServerCurrentContext(rawValue) {
 
 // ── Group cards row ──────────────────────────────────────────────────────────
 
-/** @type {Record<string, GroupEnumEntry>} */
-let _enumeration = {};
-/** @type {Record<string, GroupMeta>} */
-let _metaByGroupId = {};
+let _enumeration: Record<string, GroupEnumEntry> = {};
+let _metaByGroupId: Record<string, GroupMeta> = {};
 // Names kept after meta clears, so a deletion toast can say "'Family' has been
 // deleted" instead of "'1ASSKU46' has been deleted". Never cleared — the cost
 // is one string per group the user has ever been in, negligible at Phase 1 scale.
-/** @type {Record<string, string>} */
-const _lastKnownNames = {};
-/** @type {Record<string, () => void>} */
-let _metaSubs = {};  // groupId → unsubscribe fn
-/** @type {(() => void) | null} */
-let _enumUnsub = null;
-/** @type {OwnPrimary | null} */
-let _ownPrimary = null;
-/** @type {(() => void) | null} */
-let _ownPrimaryUnsub = null;
-/** @type {Record<string, OverrideEntry>} */
-const _overrideByGroupId = {};
-/** @type {Record<string, () => void>} */
-const _overrideSubs = {}; // groupId → unsubscribe
+const _lastKnownNames: Record<string, string> = {};
+let _metaSubs: Record<string, () => void> = {};  // groupId → unsubscribe fn
+let _enumUnsub: (() => void) | null = null;
+let _ownPrimary: OwnPrimary | null = null;
+let _ownPrimaryUnsub: (() => void) | null = null;
+const _overrideByGroupId: Record<string, OverrideEntry> = {};
+const _overrideSubs: Record<string, () => void> = {}; // groupId → unsubscribe
 // Provider surface (used by groupContext to avoid double-watching the active
 // group). Consumers register per groupId; the underlying _metaSubs/_overrideSubs
 // fan out to them. "Ticked" tracks whether the underlying sub has delivered ≥1
 // value, so replay never hands a consumer a fabricated `null` (which reads as
 // "group deleted").
-/** @type {Record<string, Set<(meta: Record<string, unknown> | null) => void>>} */
-const _metaConsumers = {};      // groupId → Set<cb>
-/** @type {Record<string, Set<(override: StatusOverride | null) => void>>} */
-const _overrideConsumers = {};  // groupId → Set<cb>
-const _metaTicked = new Set();
-const _overrideTicked = new Set();
-/** @type {Record<string, StatusOverride | null>} */
-const _overrideLastTick = {}; // groupId → last RAW value from watchOwnMemberOverride
+const _metaConsumers: Record<string, Set<(meta: Record<string, unknown> | null) => void>> = {};      // groupId → Set<cb>
+const _overrideConsumers: Record<string, Set<(override: StatusOverride | null) => void>> = {};  // groupId → Set<cb>
+const _metaTicked = new Set<string>();
+const _overrideTicked = new Set<string>();
+const _overrideLastTick: Record<string, StatusOverride | null> = {}; // groupId → last RAW value from watchOwnMemberOverride
                               // (incl. null); replay source, kept distinct from the
                               // optimistic-merged _overrideByGroupId nav-render cache.
-/** @type {Set<() => void>} */
-const _createListeners = new Set();
+const _createListeners = new Set<() => void>();
 // When true, renderNavRow is a no-op and won't touch the row's .hidden class.
 // Used by openCreateGroupModal's onSubmit to keep #nav-row hidden across the
 // createGroup → seed → navigateToGroup transition, so the watchUserGroups tick
@@ -181,15 +150,15 @@ export function startCardsRowSubscriptions() {
   _ownPrimary = null;
 
   if (_enumUnsub) _enumUnsub();
-  _enumUnsub = watchUserGroups(/** @type {string} */ (_myUserId), (collection) => {
-    _enumeration = /** @type {Record<string, GroupEnumEntry>} */ (collection || {});
+  _enumUnsub = watchUserGroups(_myUserId as string, (collection) => {
+    _enumeration = (collection || {}) as Record<string, GroupEnumEntry>;
     syncMetaSubs();
     renderNavRow();
   });
   if (_ownPrimaryUnsub) _ownPrimaryUnsub();
   _ownPrimaryUnsub = subscribeOwnStatus((data) => {
     _ownPrimary = data
-      ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: /** @type {{ statusColor?: string | null }} */ (data).statusColor || null }
+      ? { status: data.status, availableUntil: data.availableUntil ?? null, statusColor: (data as { statusColor?: string | null }).statusColor || null }
       : null;
     renderNavRow();
   });
@@ -220,8 +189,8 @@ function syncMetaSubs() {
       _metaSubs[groupId] = watchGroupMeta(groupId, (meta) => {
         _metaTicked.add(groupId);
         if (meta) {
-          _metaByGroupId[groupId] = /** @type {GroupMeta} */ (meta);
-          if (meta.name) _lastKnownNames[groupId] = /** @type {string} */ (meta.name);
+          _metaByGroupId[groupId] = meta as GroupMeta;
+          if (meta.name) _lastKnownNames[groupId] = meta.name as string;
         } else {
           // Group entity deleted by its owner. Non-owner members never had
           // their users/{uid}/groups/{groupId} entry cleared by the owner
@@ -256,7 +225,7 @@ function syncMetaSubs() {
   }
   for (const groupId of overrideWant) {
     if (!_overrideSubs[groupId]) {
-      _overrideSubs[groupId] = watchOwnMemberOverride(groupId, /** @type {string} */ (_myUserId), (override) => {
+      _overrideSubs[groupId] = watchOwnMemberOverride(groupId, _myUserId as string, (override) => {
         _overrideTicked.add(groupId);
         _overrideLastTick[groupId] = override;
         if (override) _overrideByGroupId[groupId] = override;
@@ -288,11 +257,7 @@ function renderNavRow() {
 // to applyOptimisticOverride (which goes groupNav → groupContext); this one
 // lets groupContext push appearance changes back into groupNav before the
 // Firebase ack so the Direct nav-row group-card border stays in sync.
-/**
- * @param {string} groupId
- * @param {{ statusColor?: string | null, paletteKey?: string | null }} fields
- */
-export function applyOptimisticAppearance(groupId, fields) {
+export function applyOptimisticAppearance(groupId: string, fields: { statusColor?: string | null; paletteKey?: string | null }) {
   if (!groupId || !fields) return;
   const existing = _overrideByGroupId[groupId] || {};
   const next = { ...existing };
@@ -302,8 +267,7 @@ export function applyOptimisticAppearance(groupId, fields) {
   renderNavRow();
 }
 
-/** @param {HTMLElement} row */
-function renderNavRowDirectMode(row) {
+function renderNavRowDirectMode(row: HTMLElement) {
   const sorted = Object.keys(_enumeration).slice().sort((a, b) => {
     const va = _enumeration[a]?.lastVisited ?? 0;
     const vb = _enumeration[b]?.lastVisited ?? 0;
@@ -346,11 +310,7 @@ function renderNavRowDirectMode(row) {
 
 // In-place paint for a Direct-mode group card. Persistent nodes mean every
 // conditional must CLEAR as well as set (the old build-fresh code only added).
-/**
- * @param {HTMLElement} card
- * @param {string} groupId
- */
-function paintNavCard(card, groupId) {
+function paintNavCard(card: HTMLElement, groupId: string) {
   const meta = _metaByGroupId[groupId];
   card.textContent = meta?.name || groupId;
   // Effective-status indicator: when override is enabled the group's chip
@@ -370,9 +330,8 @@ function paintNavCard(card, groupId) {
   applyBadgeIfNonZero(card, getGroupBadgeCount(groupId));
 }
 
-/** @param {HTMLElement} row */
-function renderNavRowGroupMode(row) {
-  const groupId = /** @type {string} */ (_state.groupId);
+function renderNavRowGroupMode(row: HTMLElement) {
+  const groupId = _state.groupId as string;
   reconcileChildren(row, ['group-name', 'override-toggle', 'direct-card'], {
     create: (key) => {
       if (key === 'group-name') {
@@ -390,7 +349,7 @@ function renderNavRowGroupMode(row) {
         toggle.addEventListener('click', () => {
           // Persistent node: read LIVE state at click time, never the render-
           // time closure (the toggle outlives the render that painted it).
-          const gid = /** @type {string} */ (_state.groupId);
+          const gid = _state.groupId as string;
           // Preserve any existing statusColor/paletteKey across the toggle so
           // the optimistic update matches what mergeStatusOverride leaves on
           // the server. Without the spread, _ownOverride briefly has no
@@ -404,7 +363,7 @@ function renderNavRowGroupMode(row) {
           _overrideByGroupId[gid] = nextState;
           renderNavRow();
           applyOptimisticOverride(nextState);
-          toggleStatusOverride(gid, /** @type {string} */ (_myUserId), nextEnabled).catch(() => {});
+          toggleStatusOverride(gid, _myUserId as string, nextEnabled).catch(() => {});
         });
         return toggle;
       }
@@ -440,8 +399,7 @@ function renderNavRowGroupMode(row) {
 // Border color reflects the user's primary status (the audience Direct
 // represents). --call-color-rgb is set even when greyed so a queued knock
 // pulses even on an unavailable Direct chip.
-/** @param {HTMLElement} directCard */
-function paintDirectCard(directCard) {
+function paintDirectCard(directCard: HTMLElement) {
   const primaryAvailable = isAvailable(_ownPrimary?.status, _ownPrimary?.availableUntil);
   const directColor = _ownPrimary?.statusColor || '#22c55e';
   directCard.classList.toggle('greyed', !primaryAvailable);
@@ -450,8 +408,7 @@ function paintDirectCard(directCard) {
   applyBadgeIfNonZero(directCard, getDirectBadgeCount());
 }
 
-/** @param {() => void} fn */
-export function onCreateRequested(fn) {
+export function onCreateRequested(fn: () => void) {
   _createListeners.add(fn);
   return () => _createListeners.delete(fn);
 }
@@ -462,11 +419,9 @@ function emitCreateRequest() {
 
 // ── Create group modal ───────────────────────────────────────────────────────
 
-/** @type {Array<() => void>} */
-const _createModalCleanup = [];
+const _createModalCleanup: Array<() => void> = [];
 
-/** @param {string} msg */
-function showCreateError(msg) {
+function showCreateError(msg: string) {
   const el = document.getElementById('create-group-error');
   if (!el) return;
   el.textContent = msg;
@@ -481,7 +436,7 @@ function hideCreateError() {
 }
 
 function closeCreateModal() {
-  /** @type {HTMLElement} */ (document.getElementById('create-group-modal')).classList.add('hidden');
+  (document.getElementById('create-group-modal') as HTMLElement).classList.add('hidden');
   _createModalCleanup.forEach((fn) => fn());
   _createModalCleanup.length = 0;
 }
@@ -492,10 +447,10 @@ export function openCreateGroupModal() {
   // Guard against double-open: if the modal is already showing, don't re-wire
   // listeners (the cleanup array would accumulate stale handlers).
   if (!overlay.classList.contains('hidden')) return;
-  const nameInput = /** @type {HTMLInputElement} */ (document.getElementById('create-group-name-input'));
-  const dnInput = /** @type {HTMLInputElement} */ (document.getElementById('create-group-displayname-input'));
-  const submit = /** @type {HTMLButtonElement} */ (document.getElementById('create-group-submit-btn'));
-  const cancel = /** @type {HTMLButtonElement} */ (document.getElementById('create-group-cancel-btn'));
+  const nameInput = document.getElementById('create-group-name-input') as HTMLInputElement;
+  const dnInput = document.getElementById('create-group-displayname-input') as HTMLInputElement;
+  const submit = document.getElementById('create-group-submit-btn') as HTMLButtonElement;
+  const cancel = document.getElementById('create-group-cancel-btn') as HTMLButtonElement;
 
   nameInput.value = '';
   dnInput.value = '';
@@ -524,9 +479,9 @@ export function openCreateGroupModal() {
     _suspendRenderNavRow = true;
     let result;
     try {
-      result = await createGroup(/** @type {string} */ (_myUserId), name, dn);
+      result = await createGroup(_myUserId as string, name, dn);
     } catch (err) {
-      showCreateError(/** @type {{ message?: string }} */ (err).message || 'Could not create group.');
+      showCreateError((err as { message?: string }).message || 'Could not create group.');
       _suspendRenderNavRow = false;
       if (navRowEl) navRowEl.classList.remove('hidden');
       if (directEl) directEl.classList.remove('hidden');
@@ -557,7 +512,7 @@ export function openCreateGroupModal() {
     applyOptimisticOverride({ enabled: true, status: 'unavailable', availableUntil: null });
     openInviteModal({
       scope: 'group',
-      userId: /** @type {string} */ (_myUserId),
+      userId: _myUserId as string,
       groupId: result.groupId,
       groupName: name,
       // Without these the picker's "invite specific people" list renders empty
@@ -565,7 +520,7 @@ export function openCreateGroupModal() {
       // roster row). A brand-new group has just the creator as a member.
       followers: getCurrentFollowersMap(),
       mutuals: getCurrentMutuals(),
-      currentMemberUids: new Set([/** @type {string} */ (_myUserId)]),
+      currentMemberUids: new Set([_myUserId as string]),
     });
     await navPromise;
     submit.disabled = false;
@@ -584,8 +539,7 @@ onCreateRequested(openCreateGroupModal);
 // Returns the most recent name we observed for a group, or null. Used by the
 // removal-toast in groups.js so the message can read "'Family' has been deleted"
 // instead of falling back to the opaque group id.
-/** @param {string} groupId */
-export function getLastKnownGroupName(groupId) {
+export function getLastKnownGroupName(groupId: string) {
   return _lastKnownNames[groupId] || null;
 }
 
@@ -593,11 +547,7 @@ export function getLastKnownGroupName(groupId) {
 // invite-redemption flow so the nav row shows the group name immediately
 // instead of briefly flashing the random groupId while watchGroupMeta is
 // still in-flight.
-/**
- * @param {string} groupId
- * @param {string} name
- */
-export function setLastKnownGroupName(groupId, name) {
+export function setLastKnownGroupName(groupId: string, name: string) {
   if (groupId && name) _lastKnownNames[groupId] = name;
 }
 
@@ -607,11 +557,7 @@ export function setLastKnownGroupName(groupId, name) {
 // sub has ticked (never a fabricated null). The union rule in syncMetaSubs
 // keeps the underlying sub alive while this consumer is registered, even if the
 // group isn't enumerated yet (deep-link boot race).
-/**
- * @param {string} groupId
- * @param {(meta: Record<string, unknown> | null) => void} cb
- */
-export function subscribeGroupMeta(groupId, cb) {
+export function subscribeGroupMeta(groupId: string, cb: (meta: Record<string, unknown> | null) => void) {
   if (!_metaConsumers[groupId]) _metaConsumers[groupId] = new Set();
   _metaConsumers[groupId].add(cb);
   syncMetaSubs();
@@ -628,11 +574,7 @@ export function subscribeGroupMeta(groupId, cb) {
 // Read-only subscription to the own member statusOverride for a group, backed
 // by groupNav's existing watchOwnMemberOverride. groupContext uses this for the
 // active group. (uid is groupNav's own _myUserId — consumers don't pass it.)
-/**
- * @param {string} groupId
- * @param {(override: StatusOverride | null) => void} cb
- */
-export function subscribeOwnOverride(groupId, cb) {
+export function subscribeOwnOverride(groupId: string, cb: (override: StatusOverride | null) => void) {
   if (!_overrideConsumers[groupId]) _overrideConsumers[groupId] = new Set();
   _overrideConsumers[groupId].add(cb);
   syncMetaSubs();
