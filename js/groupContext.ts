@@ -402,14 +402,16 @@ function renderOwnStatusRow() {
   if (toggle) toggle.setAttribute('aria-pressed', overrideOn ? 'true' : 'false');
 
   // Source of truth for the visible status: override when ON, else primary.
-  const source = overrideOn ? _ownOverride : _ownPrimary;
-  const status = source?.status || 'unavailable';
-  const availableUntil = source?.availableUntil ?? null;
-  const available = isAvailable(status, availableUntil);
+  // effectiveStatus owns the wholesale override-vs-primary merge; overrideOn
+  // stays a separate local because the read-only / aria / chip-source logic
+  // below keys off the toggle state, not availability.
+  const eff = effectiveStatus(_ownPrimary, _ownOverride);
+  const available = eff.available;
+  const availableUntil = eff.availableUntil;
 
   dot.dataset.available = available ? 'true' : 'false';
   dot.classList.toggle('available', available);
-  const color = source?.statusColor || null;
+  const color = eff.statusColor || null;
   if (available && color) dot.style.background = safeCssColor(color);
   else dot.style.background = '';
   label.textContent = available ? 'Available' : 'Unavailable';
