@@ -1,23 +1,16 @@
-// @ts-check
-// js/installPrompt.js
+// js/installPrompt.ts
 // Captures the Chromium `beforeinstallprompt` event so the app can drive a real
 // in-app Install button. Safari/Firefox never fire it (handled by other lanes).
-// CommonJS (module.exports) — required by tests; kept .js + JSDoc (not renamed to
-// .ts, which would force an ESM rewrite the type-only conversion forbids).
 
-/** The non-standard Chromium beforeinstallprompt event (not in lib.dom).
- * @typedef {Event & { prompt: () => void, userChoice: Promise<{ outcome: string }> }} BeforeInstallPromptEvent */
+/** The non-standard Chromium beforeinstallprompt event (not in lib.dom). */
+type BeforeInstallPromptEvent = Event & { prompt: () => void; userChoice: Promise<{ outcome: string }> };
 
-/** @type {BeforeInstallPromptEvent | null} */
-let _deferred = null;
+let _deferred: BeforeInstallPromptEvent | null = null;
 let _installed = false;
-/** @type {Set<() => void>} */
-const _listeners = new Set();
+const _listeners = new Set<() => void>();
 let _initialized = false;
-/** @type {((e: Event) => void) | null} */
-let _beforeInstallPromptHandler = null;
-/** @type {(() => void) | null} */
-let _appInstalledHandler = null;
+let _beforeInstallPromptHandler: ((e: Event) => void) | null = null;
+let _appInstalledHandler: (() => void) | null = null;
 
 function notify() { for (const fn of _listeners) { try { fn(); } catch { /* ignore */ } } }
 
@@ -26,7 +19,7 @@ function initInstallPrompt() {
   _initialized = true;
   _beforeInstallPromptHandler = (e) => {
     e.preventDefault();   // suppress the browser's mini-infobar
-    _deferred = /** @type {BeforeInstallPromptEvent} */ (e); // stash for our own button
+    _deferred = e as BeforeInstallPromptEvent; // stash for our own button
     notify();
   };
   _appInstalledHandler = () => {
@@ -52,8 +45,7 @@ async function promptInstall() {
   catch { return null; }
 }
 
-/** @param {() => void} fn */
-function onInstallPromptChange(fn) {
+function onInstallPromptChange(fn: () => void) {
   _listeners.add(fn);
   return () => _listeners.delete(fn);
 }
@@ -76,7 +68,7 @@ function __resetInstallPromptForTests() {
   _appInstalledHandler = null;
 }
 
-module.exports = {
+export {
   initInstallPrompt,
   isInstallPromptAvailable,
   isAppInstalled,
