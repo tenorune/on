@@ -9,7 +9,7 @@ import { watchGroupMembers, watchGroupInvites, removeUserGroupsEntry, formatTime
 import { subscribePresence } from './presenceHub.js';
 import { reconcileChildren } from './reconcile.js';
 import { safeCssColor, availableForText } from './utils.js';
-import { CHIP_VALUES, chipIndexForMinutes } from './status.js';
+import { CHIP_VALUES, chipIndexForMinutes, effectiveStatus } from './status.js';
 import { navigateToDirect, applyOptimisticAppearance, subscribeGroupMeta, subscribeOwnOverride } from './groupNav.js';
 import { subscribeOwnStatus } from './ownStatus.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
@@ -83,12 +83,7 @@ let _groupPaletteEnterAt: number | null = null;
 // Override-on means "independent in this group": every field comes from the
 // override; override-off: primary wins. Mirrors paintRosterRow's merge.
 function memberEffectiveAvailable(uid: string) {
-  const override = _membersOverrides[uid];
-  const primary = _memberPrimaries.get(uid) || null;
-  const overrideOn = !!(override && override.enabled === true);
-  const status = overrideOn ? (override.status || 'unavailable') : (primary?.status || 'unavailable');
-  const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
-  return isAvailable(status, availableUntil);
+  return effectiveStatus(_memberPrimaries.get(uid) || null, _membersOverrides[uid]).available;
 }
 
 const ROSTER_KEY_PREFIX = 'm:';
