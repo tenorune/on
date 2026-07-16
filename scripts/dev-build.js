@@ -4,7 +4,7 @@ const esbuild = require('esbuild');
 const { define, envFile, writeIndexHtml, writeServiceWorker, writeAboutHtml } = require('./build.js');
 
 esbuild.buildSync({
-  entryPoints: ['js/app.js'],
+  entryPoints: ['js/app.ts'],
   bundle: true,
   outfile: 'dist/bundle.js',
   define,

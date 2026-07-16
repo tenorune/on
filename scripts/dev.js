@@ -21,7 +21,7 @@ async function main() {
   writeAboutHtml('On - Dev');
 
   const ctx = await esbuild.context({
-    entryPoints: ['js/app.js'],
+    entryPoints: ['js/app.ts'],
     bundle: true,
     outfile: 'dist/bundle.js',
     define,
