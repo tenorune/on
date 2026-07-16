@@ -3,6 +3,7 @@
 // State is in-memory; writes mirror to Firebase via setCurrentContext / setLastVisited.
 
 import { setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, removeUserGroupsEntry, isAvailable } from './db.js';
+import { effectiveStatus } from './status.js';
 import { subscribeOwnStatus } from './ownStatus.js';
 import { setCurrentContext } from './prefs.js';
 import { safeCssColor, hexToRgb } from './utils.js';
@@ -319,11 +320,9 @@ function paintNavCard(card: HTMLElement, groupId: string) {
   // across toggling enabled off (for restore-on-re-enable), but reading
   // it while enabled=false would leak the group's last pick into the
   // chip after the user turned the override off.
-  const ov = _overrideByGroupId[groupId];
-  const overrideOn = !!(ov && ov.enabled === true);
-  const source = overrideOn ? ov : _ownPrimary;
-  const available = isAvailable(source?.status, source?.availableUntil);
-  const effectiveColor = source?.statusColor || '#22c55e';
+  const eff = effectiveStatus(_ownPrimary, _overrideByGroupId[groupId]);
+  const available = eff.available;
+  const effectiveColor = eff.statusColor || '#22c55e';
   card.classList.toggle('greyed', !available);
   card.style.borderColor = available ? safeCssColor(effectiveColor) : '';
   card.style.setProperty('--call-color-rgb', hexToRgb(effectiveColor));
