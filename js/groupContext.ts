@@ -1,5 +1,4 @@
-// @ts-check
-// js/groupContext.js
+// js/groupContext.ts
 // Group context view: own-status header band + roster.
 // The group name and back-to-Direct affordance live in the persistent nav row
 // (js/groupNav.js), not in this view. This module handles enter/exit, the
@@ -41,12 +40,10 @@ import {
 import { clearFirstUsePulse } from './me.js';
 import { refreshHints, clearActiveHint } from './hintRotation.js';
 
-/**
- * @typedef {{ status?: string | null, availableUntil?: number | null, statusColor?: string | null, paletteKey?: string | null }} PresenceLike
- * @typedef {PresenceLike & { enabled?: boolean | null }} OverrideEntry
- * @typedef {{ displayName?: string | null, statusOverride?: OverrideEntry | null }} MemberEntry
- * @typedef {{ token: string, url: string, revoked?: boolean | null }} GroupInvite
- */
+type PresenceLike = { status?: string | null; availableUntil?: number | null; statusColor?: string | null; paletteKey?: string | null };
+type OverrideEntry = PresenceLike & { enabled?: boolean | null };
+type MemberEntry = { displayName?: string | null; statusOverride?: OverrideEntry | null };
+type GroupInvite = { token: string; url: string; revoked?: boolean | null };
 
 // Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
 
@@ -63,8 +60,7 @@ const CHIP_VALUES = [
   { minutes: 1080, text: '18 hours' },
   { minutes: 1440, text: '24 hours' },
 ];
-/** @param {number} minutes */
-function chipIndexForMinutes(minutes) {
+function chipIndexForMinutes(minutes: number) {
   let m = minutes;
   if (m <= 12) m = m * 60;
   let bestIndex = 0;
@@ -76,43 +72,27 @@ function chipIndexForMinutes(minutes) {
   return bestIndex;
 }
 
-/** @type {(() => void) | null} */
-let _metaUnsub = null;
-/** @type {(() => void) | null} */
-let _membersUnsub = null;
-/** @type {(() => void) | null} */
-let _invitesUnsub = null;
-/** @type {Map<string, () => void>} */
-const _statusUnsubs = new Map(); // memberUid → unsubscribe fn
+let _metaUnsub: (() => void) | null = null;
+let _membersUnsub: (() => void) | null = null;
+let _invitesUnsub: (() => void) | null = null;
+const _statusUnsubs = new Map<string, () => void>(); // memberUid → unsubscribe fn
 // Session-singleton: null between sessions, set for the whole in-group lifetime.
 // Typed non-null so the ~30 uses don't each need a cast; the `if (!_currentGroupId)`
 // guards are defensive and still fire at runtime.
-let _currentGroupId = /** @type {string} */ (/** @type {unknown} */ (null));
-let _currentUserId = /** @type {string} */ (/** @type {unknown} */ (null));
-/** @type {GroupInvite | null} */
-let _activeGroupInvite = null;
-/** @type {(() => void) | null} */
-let _ownPrimaryUnsub = null;
-/** @type {(() => void) | null} */
-let _ownOverrideUnsub = null;
-/** @type {PresenceLike | null} */
-let _ownPrimary = null;  // { status, availableUntil, statusColor? } | null
-/** @type {OverrideEntry | null} */
-let _ownOverride = null; // { enabled, status, availableUntil, statusColor?, paletteKey? } | null
-/** @type {string | null} */
-let _ownDisplayName = null; // string | null — own member displayName from watchGroupMembers, used to pre-fill the Edit-my-name prompt
-/** @type {Record<string, OverrideEntry | null>} */
-let _membersOverrides = {}; // uid → statusOverride | null
-/** @type {Map<string, PresenceLike | null>} */
-const _memberPrimaries = new Map(); // uid → { status, availableUntil, statusColor, paletteKey } | null
-/** @type {((e: Event) => void) | null} */
-let _settingsOutsideHandler = null;
-/** @type {string | null} */
-let _groupOwnerId = null;  // ownerId from the group-meta sub — used by renderRoster owner check
-/** @type {string | null} */
-let _groupName = null;     // group name from the group-meta sub — used by roster invite row
-/** @type {Record<string, MemberEntry> | null} */
-let _lastMembers = null;   // last members snapshot — allows re-render when meta arrives after members
+let _currentGroupId = null as unknown as string;
+let _currentUserId = null as unknown as string;
+let _activeGroupInvite: GroupInvite | null = null;
+let _ownPrimaryUnsub: (() => void) | null = null;
+let _ownOverrideUnsub: (() => void) | null = null;
+let _ownPrimary: PresenceLike | null = null;  // { status, availableUntil, statusColor? } | null
+let _ownOverride: OverrideEntry | null = null; // { enabled, status, availableUntil, statusColor?, paletteKey? } | null
+let _ownDisplayName: string | null = null; // string | null — own member displayName from watchGroupMembers, used to pre-fill the Edit-my-name prompt
+let _membersOverrides: Record<string, OverrideEntry | null> = {}; // uid → statusOverride | null
+const _memberPrimaries = new Map<string, PresenceLike | null>(); // uid → { status, availableUntil, statusColor, paletteKey } | null
+let _settingsOutsideHandler: ((e: Event) => void) | null = null;
+let _groupOwnerId: string | null = null;  // ownerId from the group-meta sub — used by renderRoster owner check
+let _groupName: string | null = null;     // group name from the group-meta sub — used by roster invite row
+let _lastMembers: Record<string, MemberEntry> | null = null;   // last members snapshot — allows re-render when meta arrives after members
 // Timestamp of the most recent group palette-mode entry, or null. Tracked as
 // a timestamp (not a one-shot bool) because setOverrideAppearance writes to
 // RTDB and the own-override sub echoes back ~100-300ms later, calling
@@ -121,14 +101,12 @@ let _lastMembers = null;   // last members snapshot — allows re-render when me
 // window re-apply .key-spin with a CSS --key-spin-delay so the animation
 // resumes mid-flight rather than restarting from 0deg. (The 5s window + spin
 // application now live in palettes.applyKeySpin.)
-/** @type {number | null} */
-let _groupPaletteEnterAt = null;
+let _groupPaletteEnterAt: number | null = null;
 
 // Effective in-group availability for a member, from data (not the DOM).
 // Override-on means "independent in this group": every field comes from the
 // override; override-off: primary wins. Mirrors paintRosterRow's merge.
-/** @param {string} uid */
-function memberEffectiveAvailable(uid) {
+function memberEffectiveAvailable(uid: string) {
   const override = _membersOverrides[uid];
   const primary = _memberPrimaries.get(uid) || null;
   const overrideOn = !!(override && override.enabled === true);
@@ -138,31 +116,23 @@ function memberEffectiveAvailable(uid) {
 }
 
 const ROSTER_KEY_PREFIX = 'm:';
-/** @param {string} uid */
-function rosterRowKey(uid) {
+function rosterRowKey(uid: string) {
   // The eligibility bit rides the key: a request-to-follow eligibility flip
   // changes the row's action cluster (bare bell vs ⋮ drawer), so it recreates
   // that one row instead of update() rebuilding drawers in place.
   const bit = (FOLLOW_REQUESTS_ENABLED && isFollowRequestEligible(uid)) ? '1' : '0';
   return `${ROSTER_KEY_PREFIX}${uid}:${bit}`;
 }
-/** @param {string} key */
-function rosterUidOf(key) {
+function rosterUidOf(key: string) {
   return key.slice(ROSTER_KEY_PREFIX.length, key.lastIndexOf(':'));
 }
 
-/**
- * @param {Record<string, MemberEntry>} members
- * @param {string} ownUserId
- */
-function rosterKeys(members, ownUserId) {
+function rosterKeys(members: Record<string, MemberEntry>, ownUserId: string) {
   const isOwner = _groupOwnerId !== null && _groupOwnerId === ownUserId;
   const entries = Object.entries(members || {}).filter(([uid]) => uid !== ownUserId);
   const floatedSet = new Set(getFloatedUserIds());
-  /** @type {[string, MemberEntry][]} */
-  const floated = [];
-  /** @type {[string, MemberEntry][]} */
-  const others = [];
+  const floated: [string, MemberEntry][] = [];
+  const others: [string, MemberEntry][] = [];
   for (const e of entries) (floatedSet.has(e[0]) ? floated : others).push(e);
   others.sort(([uidA, a], [uidB, b]) => {
     const availA = memberEffectiveAvailable(uidA);
@@ -180,8 +150,7 @@ function rosterKeys(members, ownUserId) {
   return keys;
 }
 
-/** @param {string} ownUserId */
-function createInviteRow(ownUserId) {
+function createInviteRow(ownUserId: string) {
   const inviteRow = document.createElement('li');
   inviteRow.id = 'group-roster-invite-row';
   inviteRow.className = 'roster-invite-row';
@@ -207,12 +176,7 @@ function createInviteRow(ownUserId) {
   return inviteRow;
 }
 
-/**
- * @param {string} uid
- * @param {MemberEntry} member
- * @param {string} ownUserId
- */
-function createRosterRow(uid, member, ownUserId) {
+function createRosterRow(uid: string, member: MemberEntry, ownUserId: string) {
   const li = document.createElement('li');
   li.className = 'group-roster-row';
   li.dataset.userId = uid;
@@ -267,12 +231,11 @@ function createRosterRow(uid, member, ownUserId) {
     // screen like a modal. Shared by the knock itself AND the press-feedback
     // highlight below, so neither the colored knock flash nor the row's
     // "pressable" highlight ever fires for a bell tap or behind a popover.
-    /** @param {Event} e */
-    const knockBlocked = (e) =>
-      /** @type {Element} */ (e.target).closest('.notify-bell') ||
-      /** @type {Element} */ (e.target).closest('.notify-popover') ||
-      /** @type {Element} */ (e.target).closest('.card-drawer-toggle') ||
-      /** @type {Element} */ (e.target).closest('.card-drawer') ||
+    const knockBlocked = (e: Event) =>
+      (e.target as Element).closest('.notify-bell') ||
+      (e.target as Element).closest('.notify-popover') ||
+      (e.target as Element).closest('.card-drawer-toggle') ||
+      (e.target as Element).closest('.card-drawer') ||
       isNotifyPopoverOpen() ||
       isCardDrawerOpen();
     li.addEventListener('click', (e) => {
@@ -293,12 +256,9 @@ function createRosterRow(uid, member, ownUserId) {
   }
 
   if (PALETTES_ENABLED && PALETTE_INTERACTIONS_ENABLED && uid !== ownUserId) {
-    /** @type {ReturnType<typeof setTimeout> | null} */
-    let pressTimer = null;
-    /** @type {number} */
-    let pressStartX;
-    /** @type {number} */
-    let pressStartY;
+    let pressTimer: ReturnType<typeof setTimeout> | null = null;
+    let pressStartX: number;
+    let pressStartY: number;
     let suppressNextClick = false;
 
     li.addEventListener('pointerdown', (e) => {
@@ -306,16 +266,16 @@ function createRosterRow(uid, member, ownUserId) {
       // row's long-press adoption (the bell only stops click propagation, not
       // pointerdown). Without this, holding the bell would adopt the member's
       // palette.
-      if (/** @type {Element} */ (e.target).closest('.notify-bell')) return;
+      if ((e.target as Element).closest('.notify-bell')) return;
       // A press on the drawer toggle/slice, or while a drawer is open, belongs to
       // the drawer (or its dismissal) — not palette adoption.
-      if (/** @type {Element} */ (e.target).closest('.card-drawer-toggle') || /** @type {Element} */ (e.target).closest('.card-drawer')) return;
+      if ((e.target as Element).closest('.card-drawer-toggle') || (e.target as Element).closest('.card-drawer')) return;
       if (isCardDrawerOpen()) return;
       // Don't arm long-press adoption behind an open bell popover — the press
       // belongs to dismissing that modal, not adopting a member's palette.
       if (isNotifyPopoverOpen()) return;
       if (!_ownOverride?.enabled) return;
-      clearTimeout(/** @type {ReturnType<typeof setTimeout>} */ (pressTimer)); pressTimer = null;
+      clearTimeout((pressTimer as ReturnType<typeof setTimeout>)); pressTimer = null;
       pressStartX = e.clientX;
       pressStartY = e.clientY;
       pressTimer = setTimeout(() => {
@@ -327,11 +287,11 @@ function createRosterRow(uid, member, ownUserId) {
     li.addEventListener('pointermove', (e) => {
       if (pressTimer && (Math.abs(e.clientX - pressStartX) > 8 ||
                          Math.abs(e.clientY - pressStartY) > 8)) {
-        clearTimeout(/** @type {ReturnType<typeof setTimeout>} */ (pressTimer)); pressTimer = null;
+        clearTimeout((pressTimer as ReturnType<typeof setTimeout>)); pressTimer = null;
       }
     });
     ['pointerup', 'pointercancel'].forEach(ev =>
-      li.addEventListener(ev, () => { clearTimeout(/** @type {ReturnType<typeof setTimeout>} */ (pressTimer)); pressTimer = null; })
+      li.addEventListener(ev, () => { clearTimeout((pressTimer as ReturnType<typeof setTimeout>)); pressTimer = null; })
     );
     li.addEventListener('click', (e) => {
       if (suppressNextClick) { suppressNextClick = false; e.stopImmediatePropagation(); }
@@ -341,11 +301,7 @@ function createRosterRow(uid, member, ownUserId) {
   return li;
 }
 
-/**
- * @param {Record<string, MemberEntry>} members
- * @param {string} ownUserId
- */
-function renderRoster(members, ownUserId) {
+function renderRoster(members: Record<string, MemberEntry>, ownUserId: string) {
   const list = document.getElementById('group-roster');
   if (!list) return;
   reconcileChildren(list, rosterKeys(members, ownUserId), {
@@ -382,11 +338,7 @@ function syncRosterOrder() {
   renderRoster(_lastMembers, _currentUserId);
 }
 
-/**
- * @param {string} uid
- * @param {HTMLElement | null} [li]
- */
-function paintRosterRow(uid, li = /** @type {HTMLElement | null} */ (document.querySelector(`#group-roster [data-user-id="${uid}"]`))) {
+function paintRosterRow(uid: string, li: HTMLElement | null = document.querySelector(`#group-roster [data-user-id="${uid}"]`) as HTMLElement | null) {
   if (!li) return;
   const override = _membersOverrides[uid];
   const primary = _memberPrimaries.get(uid) || null;
@@ -403,12 +355,12 @@ function paintRosterRow(uid, li = /** @type {HTMLElement | null} */ (document.qu
   const paletteKey = overrideOn ? (override.paletteKey || null) : (primary?.paletteKey || null);
   const palette = PALETTES_ENABLED && paletteKey ? getPaletteByKey(paletteKey) : null;
   li.dataset.available = available ? 'true' : 'false';
-  const dot = /** @type {HTMLElement | null} */ (li.querySelector('.person-dot'));
+  const dot = li.querySelector('.person-dot') as HTMLElement | null;
   if (dot) {
     dot.dataset.available = available ? 'true' : 'false';
     paintStatusDot(dot, { color, available, palettesEnabled: PALETTES_ENABLED });
   }
-  const statusEl = /** @type {HTMLElement | null} */ (li.querySelector('.person-status'));
+  const statusEl = li.querySelector('.person-status') as HTMLElement | null;
   if (statusEl) {
     if (available) {
       // Mirror the Direct contacts list: fuzzy text ("nearly 18 hours",
@@ -535,7 +487,7 @@ function renderOwnStatusRow() {
   // swatch row keep co-occupying the same grid cell — the header height
   // stays constant across Available / Unavailable just like in Direct.
   const swatchRow = document.getElementById('group-swatch-row');
-  const chipsContainer = /** @type {HTMLElement | null} */ (document.querySelector('#group-context-root .group-header-chips'));
+  const chipsContainer = document.querySelector('#group-context-root .group-header-chips') as HTMLElement | null;
   const showSwatch = PALETTES_ENABLED && overrideOn && !available;
   if (chipsContainer) {
     chipsContainer.style.opacity = showSwatch ? '0' : '';
@@ -830,10 +782,10 @@ function applyEffectivePalette() {
   if (!PALETTES_ENABLED) return;
   const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
   const effectiveColor = overrideOn
-    ? (/** @type {OverrideEntry} */ (_ownOverride).statusColor || null)
+    ? ((_ownOverride as OverrideEntry).statusColor || null)
     : getDirectPrimaryStatusColor();
   const effectiveKey = overrideOn
-    ? (/** @type {OverrideEntry} */ (_ownOverride).paletteKey || null)
+    ? ((_ownOverride as OverrideEntry).paletteKey || null)
     : getDirectPrimaryPaletteKey();
   if (effectiveKey) {
     const palette = getPaletteByKey(effectiveKey);
@@ -880,11 +832,10 @@ function restorePrimaryPalette() {
   }
 }
 
-/** @param {Set<string>} memberUids */
-function syncStatusSubscriptions(memberUids) {
+function syncStatusSubscriptions(memberUids: Set<string>) {
   for (const uid of Array.from(_statusUnsubs.keys())) {
     if (!memberUids.has(uid)) {
-      /** @type {() => void} */ (_statusUnsubs.get(uid))();
+      (_statusUnsubs.get(uid) as () => void)();
       _statusUnsubs.delete(uid);
       _memberPrimaries.delete(uid);
     }
@@ -898,8 +849,8 @@ function syncStatusSubscriptions(memberUids) {
           ? {
               status: data.status,
               availableUntil: data.availableUntil ?? null,
-              statusColor: /** @type {PresenceLike} */ (data).statusColor || null,
-              paletteKey: /** @type {PresenceLike} */ (data).paletteKey || null,
+              statusColor: (data as PresenceLike).statusColor || null,
+              paletteKey: (data as PresenceLike).paletteKey || null,
             }
           : null);
         // renderRoster's update repaints every row, including this one.
@@ -910,16 +861,16 @@ function syncStatusSubscriptions(memberUids) {
 }
 
 function closeSettingsMenu() {
-  const details = /** @type {HTMLDetailsElement | null} */ (document.getElementById('group-context-actions'));
+  const details = (document.getElementById('group-context-actions') as HTMLDetailsElement | null);
   if (details) details.open = false;
 }
 
 function installSettingsOutsideHandler() {
   if (_settingsOutsideHandler) return;
   _settingsOutsideHandler = (e) => {
-    const details = /** @type {HTMLDetailsElement | null} */ (document.getElementById('group-context-actions'));
+    const details = (document.getElementById('group-context-actions') as HTMLDetailsElement | null);
     if (!details || !details.open) return;
-    if (details.contains(/** @type {Node | null} */ (e.target))) return;
+    if (details.contains(e.target as Node | null)) return;
     details.open = false;
   };
   document.addEventListener('click', _settingsOutsideHandler);
@@ -931,13 +882,7 @@ function uninstallSettingsOutsideHandler() {
   _settingsOutsideHandler = null;
 }
 
-/**
- * @param {string} groupId
- * @param {string} userId
- * @param {boolean} isOwner
- * @param {string | null} groupName
- */
-function wireActions(groupId, userId, isOwner, groupName) {
+function wireActions(groupId: string, userId: string, isOwner: boolean, groupName: string | null) {
   const ids = ['group-action-rename', 'group-action-delete', 'group-action-edit-name', 'group-action-leave'];
 
   // Clone-and-replace each button to drop any previous listeners
@@ -945,14 +890,14 @@ function wireActions(groupId, userId, isOwner, groupName) {
     const el = document.getElementById(id);
     if (!el) continue;
     const clone = el.cloneNode(true);
-    /** @type {Node} */ (el.parentNode).replaceChild(clone, el);
+    (el.parentNode as Node).replaceChild(clone, el);
   }
 
   // Visibility
-  /** @type {HTMLElement} */ (document.getElementById('group-action-rename')).classList.toggle('hidden', !isOwner);
-  /** @type {HTMLElement} */ (document.getElementById('group-action-delete')).classList.toggle('hidden', !isOwner);
-  /** @type {HTMLElement} */ (document.getElementById('group-action-edit-name')).classList.remove('hidden');
-  /** @type {HTMLElement} */ (document.getElementById('group-action-leave')).classList.toggle('hidden', isOwner);
+  (document.getElementById('group-action-rename') as HTMLElement).classList.toggle('hidden', !isOwner);
+  (document.getElementById('group-action-delete') as HTMLElement).classList.toggle('hidden', !isOwner);
+  (document.getElementById('group-action-edit-name') as HTMLElement).classList.remove('hidden');
+  (document.getElementById('group-action-leave') as HTMLElement).classList.toggle('hidden', isOwner);
 
   // Handlers. Each handler closes the Settings details menu on activation
   // so the user doesn't have to tap Settings again to dismiss it.
@@ -960,38 +905,38 @@ function wireActions(groupId, userId, isOwner, groupName) {
   // no-ops in some webviews — notably Telegram's macOS Desktop client — so a
   // rename/edit/delete/leave silently did nothing there. showTextPrompt returns
   // a trimmed non-empty string or null; showConfirmModal returns a boolean.
-  /** @type {HTMLElement} */ (document.getElementById('group-action-rename')).addEventListener('click', async () => {
+  (document.getElementById('group-action-rename') as HTMLElement).addEventListener('click', async () => {
     closeSettingsMenu();
     const next = await showTextPrompt({ title: 'New group name', value: groupName || '', confirmLabel: 'Save' });
     if (next == null) return;
-    try { await renameGroup(groupId, userId, next); } catch (e) { showToast(/** @type {Error} */ (e).message); }
+    try { await renameGroup(groupId, userId, next); } catch (e) { showToast((e as Error).message); }
   });
 
-  /** @type {HTMLElement} */ (document.getElementById('group-action-delete')).addEventListener('click', async () => {
+  (document.getElementById('group-action-delete') as HTMLElement).addEventListener('click', async () => {
     closeSettingsMenu();
     const ok = await showConfirmModal({ title: `Delete ${groupName || 'this group'}?`, message: 'This cannot be undone.', confirmLabel: 'Delete' });
     if (!ok) return;
     try {
       await deleteGroup(groupId, userId);
       await navigateToDirect();
-    } catch (e) { showToast(/** @type {Error} */ (e).message); }
+    } catch (e) { showToast((e as Error).message); }
   });
 
-  /** @type {HTMLElement} */ (document.getElementById('group-action-edit-name')).addEventListener('click', async () => {
+  (document.getElementById('group-action-edit-name') as HTMLElement).addEventListener('click', async () => {
     closeSettingsMenu();
     const next = await showTextPrompt({ title: 'Your name in this group', value: _ownDisplayName || '', confirmLabel: 'Save' });
     if (next == null) return;
-    try { await editOwnDisplayName(groupId, userId, next); } catch (e) { showToast(/** @type {Error} */ (e).message); }
+    try { await editOwnDisplayName(groupId, userId, next); } catch (e) { showToast((e as Error).message); }
   });
 
-  /** @type {HTMLElement} */ (document.getElementById('group-action-leave')).addEventListener('click', async () => {
+  (document.getElementById('group-action-leave') as HTMLElement).addEventListener('click', async () => {
     closeSettingsMenu();
     const ok = await showConfirmModal({ title: `Leave ${groupName || 'this group'}?`, message: "You'll stop seeing this group. You can be re-invited later.", confirmLabel: 'Leave' });
     if (!ok) return;
     try {
       await leaveGroup(groupId, userId);
       await navigateToDirect();
-    } catch (e) { showToast(/** @type {Error} */ (e).message); }
+    } catch (e) { showToast((e as Error).message); }
   });
 }
 
@@ -1003,16 +948,16 @@ function installGroupSyncListeners() {
   _groupSyncListenersInstalled = true;
   document.addEventListener('group-palette-state-synced', (e) => {
     if (!_currentGroupId) return;
-    if (/** @type {CustomEvent} */ (e).detail?.groupId !== _currentGroupId) return;
+    if ((e as CustomEvent).detail?.groupId !== _currentGroupId) return;
     renderGroupSwatchRow();
   });
   document.addEventListener('group-chip-minutes-synced', (e) => {
     if (!_currentGroupId) return;
-    if (/** @type {CustomEvent} */ (e).detail?.groupId !== _currentGroupId) return;
+    if ((e as CustomEvent).detail?.groupId !== _currentGroupId) return;
     // Only re-render the chip from this event when override is ON — when
     // override is OFF the chip mirrors Direct's value, not the per-group one.
     if (!_ownOverride?.enabled) return;
-    const minutes = /** @type {CustomEvent} */ (e).detail.minutes;
+    const minutes = (e as CustomEvent).detail.minutes;
     const idx = chipIndexForMinutes(minutes);
     if (idx < 0) return;
     const chipEl = document.getElementById('group-time-chip');
@@ -1044,11 +989,7 @@ function installGroupSyncListeners() {
   });
 }
 
-/**
- * @param {string} groupId
- * @param {string} userId
- */
-export function enterGroupContext(groupId, userId) {
+export function enterGroupContext(groupId: string, userId: string) {
   if (_metaUnsub) _metaUnsub();
   _currentGroupId = groupId;
   _currentUserId = userId;
@@ -1083,13 +1024,13 @@ export function enterGroupContext(groupId, userId) {
   if (rosterListEl) rosterListEl.innerHTML = '';
   let drainedKnocksOnEntry = false;
   _membersUnsub = watchGroupMembers(groupId, (members) => {
-    _lastMembers = /** @type {Record<string, MemberEntry>} */ (members);
+    _lastMembers = (members as Record<string, MemberEntry>);
     _membersOverrides = {};
-    for (const [uid, m] of Object.entries(/** @type {Record<string, MemberEntry>} */ (members) || {})) {
+    for (const [uid, m] of Object.entries((members as Record<string, MemberEntry>) || {})) {
       _membersOverrides[uid] = m.statusOverride || null;
     }
-    _ownDisplayName = (/** @type {Record<string, MemberEntry>} */ (members))?.[userId]?.displayName || null;
-    renderRoster(/** @type {Record<string, MemberEntry>} */ (members), userId);
+    _ownDisplayName = ((members as Record<string, MemberEntry>))?.[userId]?.displayName || null;
+    renderRoster((members as Record<string, MemberEntry>), userId);
     syncStatusSubscriptions(new Set(Object.keys(members || {})));
     // Replay any knocks that arrived while the user wasn't in this group.
     // Wait for the first members tick so the roster lis exist before drain
@@ -1106,7 +1047,7 @@ export function enterGroupContext(groupId, userId) {
   _activeGroupInvite = null;
   _invitesUnsub = watchGroupInvites(groupId, (collection) => {
     let active = null;
-    for (const [token, inv] of Object.entries(/** @type {Record<string, { revoked?: boolean | null }>} */ (collection) || {})) {
+    for (const [token, inv] of Object.entries((collection as Record<string, { revoked?: boolean | null }>) || {})) {
       if (inv && !inv.revoked) {
         active = { token, ...inv, url: buildInviteUrl(token) };
         break;
@@ -1125,8 +1066,8 @@ export function enterGroupContext(groupId, userId) {
       ? {
           status: data.status,
           availableUntil: data.availableUntil ?? null,
-          statusColor: /** @type {PresenceLike} */ (data).statusColor || null,
-          paletteKey: /** @type {PresenceLike} */ (data).paletteKey || null,
+          statusColor: (data as PresenceLike).statusColor || null,
+          paletteKey: (data as PresenceLike).paletteKey || null,
         }
       : null;
     // Per-group chip default is local-only for now (statusapp_group_chip_${groupId})
@@ -1173,7 +1114,7 @@ export function enterGroupContext(groupId, userId) {
   const dot = document.getElementById('group-my-dot');
   if (dot) {
     const dotClone = dot.cloneNode(true);
-    /** @type {Node} */ (dot.parentNode).replaceChild(dotClone, dot);
+    (dot.parentNode as Node).replaceChild(dotClone, dot);
     // The clone-and-replace above wipes any FTU once-listener me.js installed.
     // Re-install so tapping the group dot terminates the first-use pulse — same
     // contract as the Direct dot.
@@ -1181,7 +1122,7 @@ export function enterGroupContext(groupId, userId) {
     dotClone.addEventListener('click', () => {
       const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
       if (!overrideOn) return;  // read-only when toggle is OFF
-      const currentlyAvailable = isAvailable(/** @type {OverrideEntry} */ (_ownOverride).status, /** @type {OverrideEntry} */ (_ownOverride).availableUntil);
+      const currentlyAvailable = isAvailable((_ownOverride as OverrideEntry).status, (_ownOverride as OverrideEntry).availableUntil);
       if (currentlyAvailable) {
         // Spread instead of replace — otherwise the optimistic update
         // strips statusColor + paletteKey until the watch echo restores
@@ -1235,7 +1176,7 @@ export function enterGroupContext(groupId, userId) {
     const initMinutes = getGroupChipMinutes(groupId) ?? getLastTimeout();
     timeChip.textContent = CHIP_VALUES[chipIndexForMinutes(initMinutes)].text;
     const chipClone = timeChip.cloneNode(true);
-    /** @type {Node} */ (timeChip.parentNode).replaceChild(chipClone, timeChip);
+    (timeChip.parentNode as Node).replaceChild(chipClone, timeChip);
     chipClone.addEventListener('click', () => {
       const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
       if (!overrideOn) return;
@@ -1249,7 +1190,7 @@ export function enterGroupContext(groupId, userId) {
       const { minutes, text } = CHIP_VALUES[nextIdx];
       chipClone.textContent = text;
       setGroupChipMinutes(groupId, minutes);
-      const currentlyAvailable = isAvailable(/** @type {OverrideEntry} */ (_ownOverride).status, /** @type {OverrideEntry} */ (_ownOverride).availableUntil);
+      const currentlyAvailable = isAvailable((_ownOverride as OverrideEntry).status, (_ownOverride as OverrideEntry).availableUntil);
       if (currentlyAvailable) {
         const availableUntil = Date.now() + minutes * 60000;
         // Spread preserves statusColor/paletteKey across the optimistic
@@ -1272,10 +1213,10 @@ export function enterGroupContext(groupId, userId) {
       removeUserGroupsEntry(userId, groupId).catch(() => {});
       return;
     }
-    _groupOwnerId = /** @type {string | null} */ (meta.ownerId || null);
-    _groupName = /** @type {string | null} */ (meta.name || null);
+    _groupOwnerId = (meta.ownerId || null) as string | null;
+    _groupName = (meta.name || null) as string | null;
     const isOwner = meta.ownerId === userId;
-    wireActions(groupId, userId, isOwner, /** @type {string | null} */ (meta.name));
+    wireActions(groupId, userId, isOwner, meta.name as string | null);
     // Re-render the roster so the owner-only invite row appears even if the
     // members callback fired before meta (race condition on first load).
     if (_lastMembers !== null) renderRoster(_lastMembers, userId);
@@ -1299,8 +1240,8 @@ export function exitGroupContext() {
   _memberPrimaries.clear();
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
-  _currentGroupId = /** @type {string} */ (/** @type {unknown} */ (null));
-  _currentUserId = /** @type {string} */ (/** @type {unknown} */ (null));
+  _currentGroupId = null as unknown as string;
+  _currentUserId = null as unknown as string;
   _activeGroupInvite = null;
   _groupOwnerId = null;
   _groupName = null;
@@ -1324,8 +1265,7 @@ function getCurrentGroupId() { return _currentGroupId; }
  * needs to keep _ownOverride in sync so the dot/chip click handlers here
  * see the latest state before Firebase round-trips back).
  */
-/** @param {OverrideEntry | null} override */
-export function applyOptimisticOverride(override) {
+export function applyOptimisticOverride(override: OverrideEntry | null) {
   _ownOverride = override || null;
   renderOwnStatusRow();
 }
@@ -1340,11 +1280,7 @@ export function applyOptimisticOverride(override) {
  * Caller must ensure override is currently enabled (otherwise this is a
  * silent no-op).
  */
-/**
- * @param {string} adoptedColor
- * @param {string | null} adoptedPaletteKey
- */
-export function applyAdoptedComboInGroup(adoptedColor, adoptedPaletteKey) {
+export function applyAdoptedComboInGroup(adoptedColor: string, adoptedPaletteKey: string | null) {
   const groupId = _currentGroupId;
   if (!groupId || !_ownOverride?.enabled || !_currentUserId) return;
 
@@ -1387,11 +1323,7 @@ export function applyAdoptedComboInGroup(adoptedColor, adoptedPaletteKey) {
     .catch(() => {});
 }
 
-/**
- * @param {string} srcUid
- * @param {string} ownUid
- */
-function triggerGroupAdoption(srcUid, ownUid) {
+function triggerGroupAdoption(srcUid: string, ownUid: string) {
   const groupId = _currentGroupId;
   if (!groupId || !_ownOverride?.enabled) return;
 
@@ -1445,10 +1377,7 @@ function triggerGroupAdoption(srcUid, ownUid) {
 // Pure helper. Resolves the user's current group-effective combo into the
 // shape favorites.js expects. Used by adoption to push the pre-adoption
 // combo to history before mutating the override.
-/**
- * @param {{ ownOverride?: OverrideEntry | null, ownPrimary?: PresenceLike | null, paletteState?: { activeSet?: number, sets?: Record<string, { selectedKey?: string | null }> } | null }} params
- */
-export function buildGroupCombo({ ownOverride, ownPrimary, paletteState }) {
+export function buildGroupCombo({ ownOverride, ownPrimary, paletteState }: { ownOverride?: OverrideEntry | null; ownPrimary?: PresenceLike | null; paletteState?: { activeSet?: number; sets?: Record<string, { selectedKey?: string | null }> } | null }) {
   const overrideOn = !!ownOverride?.enabled;
   const statusColor =
     (overrideOn && ownOverride?.statusColor) ||
