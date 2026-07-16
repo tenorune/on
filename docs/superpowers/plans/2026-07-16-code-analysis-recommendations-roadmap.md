@@ -153,8 +153,28 @@ test('about-page scripts stay plain .js — served raw, never bundled', () => {
 });
 ```
 
-- [ ] **Step 2:** Run (passes immediately — it's a tripwire, like `featuresFreeze`); add a one-line "must stay .js — served unbundled, see tests/about-page.test.js" note under each file's `// @ts-check` header.
-- [ ] **Step 3: Commit.** `git commit -m "test(about): tripwire the unbundled about-page scripts as permanent .js"`
+- [ ] **Step 2:** Run (passes immediately — it's a tripwire, like `featuresFreeze`); add a one-line "must stay .js — served unbundled, see tests/about-page.test.js" note at the top of each file.
+- [ ] **Step 3: Fix the stale flag comment** (audit intake, 2026-07-16). `js/features.js:11` still reads "TRUE on the feature branch only; flip to false at merge," but Telegram already launched ON on mainline — the flip never happened and is no longer intended. Replace the trailing comment with current reality, keeping the declaration byte-pattern intact (`tests/featuresFreeze.test.js` regexes `export const TELEGRAM_ENABLED = (true|false)` — only the comment may change):
+
+```js
+export const TELEGRAM_ENABLED = true; // Live on mainline since the Telegram launch. Spec: docs/superpowers/specs/2026-07-02-telegram-adaptation-design.md
+```
+
+Verify: `npx jest tests/featuresFreeze.test.js` → PASS.
+
+- [ ] **Step 4: Commit.** `git commit -m "test(about): tripwire unbundled about scripts as permanent .js; fix stale TELEGRAM_ENABLED comment"`
+
+### Task 1.4: Cheap tail — strip the now-redundant `// @ts-check` pragmas
+
+Deferred cosmetic cleanup from the TS-adoption workstream (audit intake, 2026-07-16): after the global `checkJs: true` flip, per-file `// @ts-check` pragmas are redundant in every file `tsconfig.json` includes. They were deliberately left in place at flip time; remove them in one mechanical sweep now that Wave A/B have shrunk the `.js` population to the pinned survivors.
+
+**Files:**
+- Modify: every remaining `.js` under `js/` and `shared/` carrying the pragma (post-Wave-B that is the 4 pinned files plus `shared/*.js`)
+
+- [ ] **Step 1: Enumerate.** `grep -rln "^// @ts-check" js/ shared/ --include='*.js'`
+- [ ] **Step 2: Remove the pragma line from each file.** For `shared/*.js`, re-sync the functions mirror afterward: `npm run sync-shared` (the byte-equality guards `tests/sharedMirror.test.js` and `functions/test/shared-mirror.test.js` fail otherwise).
+- [ ] **Step 3: Verify** the sweep changed nothing semantically: `npm run typecheck` → 0 errors (checkJs covers these files regardless of pragma); `npx jest` and `cd functions && npm test` → green.
+- [ ] **Step 4: Commit.** `git add -A && git commit -m "chore(types): drop redundant per-file @ts-check pragmas (global checkJs covers them)"`
 
 ---
 
@@ -266,7 +286,7 @@ Functions stay JavaScript. **Decision record:** `functions/` runs Node directly 
 (`functions/test` excluded first pass — mock-heavy test files are the noisiest; fold them in as a follow-up if the error count is manageable.)
 
 - [ ] **Step 2:** `npm run typecheck`; triage. Expect errors concentrated in `functions/telegram*.js` (largest surface) and the one-off scripts (`migrate-presence.js`, `repair-user-groups.js`, `audit-available-null.js`). Fix with JSDoc annotations only — zero behavior changes, zero suppressions. If a one-off migration script is genuinely dead, deleting it is preferable to annotating it — but confirm with the maintainer before deleting anything not created in this workstream.
-- [ ] **Step 3:** Ensure every file gaining coverage carries `// @ts-check` (harmless with checkJs but keeps the local-editor signal), full quartet, commit per file-cluster: `git commit -m "chore(types): extend strict checkJs to functions subdirs and scripts"`
+- [ ] **Step 3:** Do NOT add `// @ts-check` pragmas to files gaining coverage — global `checkJs` already applies to every included file, and Task 1.4 strips the redundant pragmas repo-wide (any pragma landing in `functions/_shared/` would also break the byte-equality mirror guard against a pragma-free `shared/`). Full quartet, commit per file-cluster: `git commit -m "chore(types): extend strict checkJs to functions subdirs and scripts"`
 
 ---
 
@@ -277,6 +297,7 @@ Recorded so future sessions don't relitigate:
 - **No framework migration** (React/Svelte/Solid/lit). The reconciler + 23.5k LOC of jsdom tests + the `db.js` mock seam are working assets; Phase 2 addresses the actual pain (derived-state propagation) at ~1% of the cost. Revisit trigger: a major new UI surface (e.g., a feed or editor) that the reconciler pattern can't express.
 - **No canvas sync rework.** The 80ms cumulative rebroadcast and O(strokes) redraw are fine for two-person sessions. Revisit trigger: measured jank in a real session or >2 participants per canvas.
 - **No backend replacement.** The transaction/rules/emulator-test investment is the most battle-hardened part of the codebase. Revisit trigger: sustained scale beyond small-graph usage (per-follower fan-out cost) — a product decision, not a tech one.
+- **No rules-side `available ⇒ availableUntil` invariant** (audit intake, 2026-07-16). `database.rules.json` does not enforce that `status: 'available'` implies a numeric `availableUntil`; this is an accepted decision, not an omission. The divergent input is unreachable from shipped writers, the server predicate fails closed on it (`functions/presence-core.js`), and `tests/presencePredicateParity.test.js` is the standing tripwire that fires loudly if any writer ever emits `available` with a null `availableUntil`. Revisit trigger: that tripwire firing, or a new presence writer added outside the current client/functions code paths.
 
 ---
 
@@ -294,7 +315,7 @@ Recorded so future sessions don't relitigate:
 ## Effort estimate (PR-sized units)
 
 - Phase 0: 1 small PR.
-- Phase 1: 13 rename commits ≈ 2–4 sessions (Wave A ~1, Wave B ~2–3; `following.js` and `app.js` are half a session each). Ships as 2–3 PRs (per wave).
+- Phase 1: 13 rename commits + 2 cheap-tail tasks (1.3 tripwire/comment fix, 1.4 pragma sweep) ≈ 2–4 sessions (Wave A ~1, Wave B ~2–3; `following.js` and `app.js` are half a session each; 1.3/1.4 minutes each). Ships as 2–3 PRs (per wave, cheap tail riding along).
 - Phase 2: 2.1 + 2.2 ≈ 1 session each; 2.3 + 2.4 ≈ 1–2 sessions each *after* their dedicated plans. 3–4 PRs.
 - Phase 3: 1 session, 1 PR.
 - Total: roughly 8–11 working sessions across ~7–9 PRs, each independently shippable.
