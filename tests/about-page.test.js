@@ -64,6 +64,20 @@ describe('renderAbout substitution', () => {
 const root = path.resolve(__dirname, '..');
 const readRoot = (f) => fs.readFileSync(path.join(root, f), 'utf8');
 
+describe('about-page scripts must stay plain .js (served unbundled)', () => {
+  test('the about trio stays .js — served raw via <script src>, never bundled', () => {
+    // about.template.html loads these via <script src>; a rename to .ts 404s in prod
+    // (the browser can't execute .ts, and these are not passed through esbuild).
+    for (const f of ['about-cta.js', 'about-invite.js', 'about-telegram.js']) {
+      expect(fs.existsSync(path.resolve(root, 'js', f))).toBe(true);
+    }
+    const tpl = readRoot('about.template.html');
+    expect(tpl).toMatch(/src="js\/about-cta\.js"/);
+    expect(tpl).toMatch(/src="js\/about-invite\.js"/);
+    expect(tpl).toMatch(/src="js\/about-telegram\.js"/);
+  });
+});
+
 describe('readTelegramEnabled (spec N5: features.js is the single source of truth)', () => {
   test('matches the flag literal in js/features.js source', () => {
     const { readTelegramEnabled } = require('../scripts/build.js');

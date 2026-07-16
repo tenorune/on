@@ -1,5 +1,7 @@
 // @ts-check
 // js/about-invite.js
+// Must stay .js — served unbundled via <script src> from about.template.html; a
+// rename to .ts 404s in prod. Tripwired by tests/about-page.test.js.
 // /about page only. When opened as /about?i=TOKEN, fetch the invite preview from
 // the unauthenticated resolveInvitePreview Cloud callable and show a one-line
 // "You've been invited…" framing. The page has no Firebase config/SDK, so this is

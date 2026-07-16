@@ -1,5 +1,7 @@
 // @ts-check
 // js/about-telegram.js
+// Must stay .js — served unbundled via <script src> from about.template.html; a
+// rename to .ts 404s in prod. Tripwired by tests/about-page.test.js.
 // /about + /invite only. Owns the Telegram-facing page behavior (spec N4):
 //   - token-less pages: unhide the standing bare "Open in Telegram" CTA when
 //     the build substituted a real deep link (fail-closed on __…__);
