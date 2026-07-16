@@ -139,3 +139,108 @@ test('formatLastSeen returns "over a month ago" when last seen 28+ days ago', ()
   const twentyEightDaysAgo = Date.now() - 28 * 24 * 60 * 60 * 1000 - 1;
   expect(formatLastSeen(twentyEightDaysAgo)).toBe('over a month ago');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// js/status.ts — the effective-status selector + CHIP_VALUES table extracted
+// from the four hand-duplicated merge sites (groupNav.paintNavCard,
+// groupContext.memberEffectiveAvailable/paintRosterRow/renderOwnStatusRow) and
+// the CHIP_VALUES copies in me.ts/groupContext.ts. These pin the behavior BEFORE
+// the sites are rewired to call the selector; all four agreed on the rule below.
+const { effectiveStatus, CHIP_VALUES, chipIndexForMinutes } = require('../js/status');
+
+describe('effectiveStatus — the single override-vs-primary merge', () => {
+  const future = () => Date.now() + 60000;
+  const past = () => Date.now() - 60000;
+
+  describe('primary only (no override, or override disabled)', () => {
+    test('primary available (future window) → available, primary fields', () => {
+      const p = { status: 'available', availableUntil: future(), statusColor: '#abc', paletteKey: 'k1' };
+      expect(effectiveStatus(p, null)).toEqual({
+        available: true, statusColor: '#abc', paletteKey: 'k1', availableUntil: p.availableUntil,
+      });
+    });
+    test('primary available (open-ended null window) → available (client fail-open)', () => {
+      const p = { status: 'available', availableUntil: null };
+      expect(effectiveStatus(p, null)).toEqual({
+        available: true, statusColor: null, paletteKey: null, availableUntil: null,
+      });
+    });
+    test('primary available but window lapsed → unavailable', () => {
+      const p = { status: 'available', availableUntil: past() };
+      expect(effectiveStatus(p, null).available).toBe(false);
+    });
+    test('primary unavailable → unavailable', () => {
+      expect(effectiveStatus({ status: 'unavailable', availableUntil: future() }, null).available).toBe(false);
+    });
+    test('both null → all-null / not available', () => {
+      expect(effectiveStatus(null, null)).toEqual({
+        available: false, statusColor: null, paletteKey: null, availableUntil: null,
+      });
+    });
+    test('override present but enabled:false is ignored → primary wins', () => {
+      const p = { status: 'available', availableUntil: future(), statusColor: '#p' };
+      const ov = { enabled: false, status: 'unavailable', availableUntil: null, statusColor: '#o' };
+      expect(effectiveStatus(p, ov)).toEqual({
+        available: true, statusColor: '#p', paletteKey: null, availableUntil: p.availableUntil,
+      });
+    });
+    test('override with enabled undefined (not === true) is ignored → primary wins', () => {
+      const p = { status: 'available', availableUntil: future(), statusColor: '#p' };
+      const ov = { status: 'available', availableUntil: future(), statusColor: '#o' };
+      expect(effectiveStatus(p, ov).statusColor).toBe('#p');
+    });
+  });
+
+  describe('override enabled — taken wholesale, primary never mixed in', () => {
+    test('override-on available → override fields, not primary', () => {
+      const p = { status: 'unavailable', availableUntil: null, statusColor: '#p', paletteKey: 'kp' };
+      const ov = { enabled: true, status: 'available', availableUntil: future(), statusColor: '#o', paletteKey: 'ko' };
+      expect(effectiveStatus(p, ov)).toEqual({
+        available: true, statusColor: '#o', paletteKey: 'ko', availableUntil: ov.availableUntil,
+      });
+    });
+    test('override-on unavailable → unavailable, override color kept', () => {
+      const p = { status: 'available', availableUntil: future(), statusColor: '#p' };
+      const ov = { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#o' };
+      expect(effectiveStatus(p, ov)).toEqual({
+        available: false, statusColor: '#o', paletteKey: null, availableUntil: null,
+      });
+    });
+    test('override-on with paletteKey null does NOT fall through to primary theme', () => {
+      const p = { status: 'available', availableUntil: future(), statusColor: '#p', paletteKey: 'kp' };
+      const ov = { enabled: true, status: 'available', availableUntil: future(), statusColor: '#o', paletteKey: null };
+      expect(effectiveStatus(p, ov).paletteKey).toBeNull();
+    });
+    // Tripwire: an enabled-but-expired override renders UNAVAILABLE and is not
+    // replaced by the primary — matches every current site. The input is
+    // unreachable (no writer emits an expired override); this fires loudly if
+    // one ever does.
+    test('override-on but window lapsed → unavailable, primary NOT revealed', () => {
+      const p = { status: 'available', availableUntil: future(), statusColor: '#p' };
+      const ov = { enabled: true, status: 'available', availableUntil: past(), statusColor: '#o' };
+      expect(effectiveStatus(p, ov)).toEqual({
+        available: false, statusColor: '#o', paletteKey: null, availableUntil: ov.availableUntil,
+      });
+    });
+  });
+});
+
+describe('CHIP_VALUES / chipIndexForMinutes', () => {
+  test('table has 11 entries, first is 30 minutes', () => {
+    expect(CHIP_VALUES).toHaveLength(11);
+    expect(CHIP_VALUES[0]).toEqual({ minutes: 30, text: '30 minutes' });
+    expect(CHIP_VALUES[3]).toEqual({ minutes: 120, text: '2 hours' });
+  });
+  test('exact match returns that index', () => {
+    expect(chipIndexForMinutes(120)).toBe(3);
+    expect(chipIndexForMinutes(1440)).toBe(10);
+  });
+  test('nearest match when between chips', () => {
+    expect(chipIndexForMinutes(100)).toBe(2); // 100 is 10 from 90, 20 from 120 → 90 (index 2)
+    expect(chipIndexForMinutes(75)).toBe(1);  // 75 equidistant 60/90 → first-found (strict <) keeps 60 (index 1)
+  });
+  test('legacy sub-13 values are treated as hours (×60)', () => {
+    expect(chipIndexForMinutes(2)).toBe(3);   // 2h → 120 min → index 3
+    expect(chipIndexForMinutes(1)).toBe(1);   // 1h → 60 min → index 1
+  });
+});
