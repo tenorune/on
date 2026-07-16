@@ -5,20 +5,7 @@ import { PALETTES_ENABLED } from './features.js';
 import { saveCombo, buildDirectCombo } from './favorites.js';
 import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
 import { markHintSeen, getLastTimeout, setLastTimeout } from './prefs.js';
-
-const CHIP_VALUES = [
-  { minutes: 30,   text: '30 minutes' },
-  { minutes: 60,   text: '1 hour' },
-  { minutes: 90,   text: '1 hour 30 minutes' },
-  { minutes: 120,  text: '2 hours' },
-  { minutes: 180,  text: '3 hours' },
-  { minutes: 240,  text: '4 hours' },
-  { minutes: 360,  text: '6 hours' },
-  { minutes: 480,  text: '8 hours' },
-  { minutes: 720,  text: '12 hours' },
-  { minutes: 1080, text: '18 hours' },
-  { minutes: 1440, text: '24 hours' },
-];
+import { CHIP_VALUES, chipIndexForMinutes } from './status.js';
 
 let savingEnabled = false;
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
@@ -26,18 +13,6 @@ let currentChipIndex = 3; // default: 2 hours
 let firstUseActive = false;
 let ownStatusSignalled = false;
 let onOwnStatusReady: (() => void) | null = null;
-
-function chipIndexForMinutes(minutes: number) {
-  let m = minutes;
-  if (m <= 12) m = m * 60; // legacy: some old values were stored as hours
-  let bestIndex = 0;
-  let bestDist = Math.abs(CHIP_VALUES[0].minutes - m);
-  for (let i = 1; i < CHIP_VALUES.length; i++) {
-    const dist = Math.abs(CHIP_VALUES[i].minutes - m);
-    if (dist < bestDist) { bestDist = dist; bestIndex = i; }
-  }
-  return bestIndex;
-}
 
 function migrateToChipIndex() {
   return chipIndexForMinutes(getLastTimeout());

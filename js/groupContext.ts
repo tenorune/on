@@ -9,6 +9,7 @@ import { watchGroupMembers, watchGroupInvites, removeUserGroupsEntry, formatTime
 import { subscribePresence } from './presenceHub.js';
 import { reconcileChildren } from './reconcile.js';
 import { safeCssColor, availableForText } from './utils.js';
+import { CHIP_VALUES, chipIndexForMinutes } from './status.js';
 import { navigateToDirect, applyOptimisticAppearance, subscribeGroupMeta, subscribeOwnOverride } from './groupNav.js';
 import { subscribeOwnStatus } from './ownStatus.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
@@ -46,31 +47,6 @@ type MemberEntry = { displayName?: string | null; statusOverride?: OverrideEntry
 type GroupInvite = { token: string; url: string; revoked?: boolean | null };
 
 // Tabler Icons "link" and "link-off" (MIT licensed). Inlined as strings.
-
-const CHIP_VALUES = [
-  { minutes: 30,   text: '30 minutes' },
-  { minutes: 60,   text: '1 hour' },
-  { minutes: 90,   text: '1 hour 30 minutes' },
-  { minutes: 120,  text: '2 hours' },
-  { minutes: 180,  text: '3 hours' },
-  { minutes: 240,  text: '4 hours' },
-  { minutes: 360,  text: '6 hours' },
-  { minutes: 480,  text: '8 hours' },
-  { minutes: 720,  text: '12 hours' },
-  { minutes: 1080, text: '18 hours' },
-  { minutes: 1440, text: '24 hours' },
-];
-function chipIndexForMinutes(minutes: number) {
-  let m = minutes;
-  if (m <= 12) m = m * 60;
-  let bestIndex = 0;
-  let bestDist = Math.abs(CHIP_VALUES[0].minutes - m);
-  for (let i = 1; i < CHIP_VALUES.length; i++) {
-    const dist = Math.abs(CHIP_VALUES[i].minutes - m);
-    if (dist < bestDist) { bestDist = dist; bestIndex = i; }
-  }
-  return bestIndex;
-}
 
 let _metaUnsub: (() => void) | null = null;
 let _membersUnsub: (() => void) | null = null;
