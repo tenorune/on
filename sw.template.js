@@ -1,12 +1,13 @@
 // sw.template.js — source for the service worker.
 // The build (scripts/build.js writeServiceWorker) stamps the cache name below
 // with a hash of the shell assets and writes sw.js. The hash changes whenever
-// the shell (index.html, css/app.css, dist/bundle.js, manifest.json) changes, so
+// the shell (index.html, css/app.css, css/canvas.css, dist/bundle.js,
+// manifest.json) changes, so
 // every real deploy ships a byte-different sw.js → the browser detects the
 // update, installs the fresh shell, activates, and the page reloads (see
 // app.js). No manual version bump required.
 const CACHE = '__CACHE_VERSION__';
-const SHELL = ['/', '/index.html', '/css/app.css', '/dist/bundle.js', '/manifest.json'];
+const SHELL = ['/', '/index.html', '/css/app.css', '/css/canvas.css', '/dist/bundle.js', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(

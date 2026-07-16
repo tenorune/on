@@ -74,7 +74,7 @@ function writeServiceWorker() {
   const root = path.resolve(__dirname, '..');
   const template = readFileSync(path.join(root, 'sw.template.js'), 'utf8');
   const hash = createHash('sha256');
-  for (const f of ['dist/bundle.js', 'css/app.css', 'index.html', 'manifest.json']) {
+  for (const f of ['dist/bundle.js', 'css/app.css', 'css/canvas.css', 'index.html', 'manifest.json']) {
     const p = path.join(root, f);
     if (existsSync(p)) hash.update(readFileSync(p));
   }

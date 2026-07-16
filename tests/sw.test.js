@@ -1,8 +1,12 @@
 // tests/sw.test.js
+const fs = require('fs');
+const path = require('path');
+
 function loadSwWithMockSelf() {
   const handlers = {};
   const showNotification = jest.fn();
   const matchAll = jest.fn().mockResolvedValue([]);
+  const addAll = jest.fn();
   const mockSelf = {
     addEventListener: (type, fn) => { handlers[type] = fn; },
     skipWaiting: jest.fn(),
@@ -13,12 +17,12 @@ function loadSwWithMockSelf() {
   global.self = mockSelf;
   global.fetch = jest.fn().mockResolvedValue('network-response');
   global.caches = {
-    open: jest.fn().mockResolvedValue({ addAll: jest.fn() }),
+    open: jest.fn().mockResolvedValue({ addAll }),
     keys: jest.fn().mockResolvedValue([]),
     match: jest.fn().mockResolvedValue(undefined),
   };
   jest.isolateModules(() => { require('../sw.template.js'); });
-  return { handlers, showNotification, matchAll, mockSelf };
+  return { handlers, showNotification, matchAll, mockSelf, addAll };
 }
 
 function fetchEvent(url, method = 'GET') {
@@ -32,6 +36,23 @@ function pushEvent(data) {
 function clickEvent(data) {
   return { notification: { close: jest.fn(), data }, waitUntil: (p) => p };
 }
+
+describe('shell precache completeness', () => {
+  test('SHELL precaches every stylesheet the shell loads', async () => {
+    // css/canvas.css is loaded by index.template.html; a shell asset missing
+    // from SHELL renders unstyled offline and ships no SW update when it changes.
+    const { handlers, addAll } = loadSwWithMockSelf();
+    const waited = [];
+    handlers.install({ waitUntil: (p) => waited.push(p) });
+    await Promise.all(waited);
+    expect(addAll).toHaveBeenCalledWith(expect.arrayContaining(['/css/canvas.css']));
+  });
+
+  test('cache-version hash covers every SHELL stylesheet', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'build.js'), 'utf8');
+    expect(src).toMatch(/css\/canvas\.css/);
+  });
+});
 
 describe('fetch handler — only the same-origin shell is intercepted', () => {
   test('a cross-origin GET (apis.google.com / gapi) passes through — respondWith NOT called', () => {
