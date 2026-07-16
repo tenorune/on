@@ -704,9 +704,7 @@ function paintGroupDotGoHint() {
   const defaultKey = gps.activeSet === 1 ? 'forest' : 'volt';
   const isNonDefault = gps.sets[sk].activePaletteKey != null || gps.sets[sk].selectedKey !== defaultKey;
   const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
-  const status = overrideOn ? _ownOverride?.status : _ownPrimary?.status;
-  const availableUntil = overrideOn ? _ownOverride?.availableUntil : _ownPrimary?.availableUntil;
-  const available = isAvailable(status, availableUntil);
+  const available = effectiveStatus(_ownPrimary, _ownOverride).available;
   // overrideOn is the group-context-specific guard — without override ON the
   // group dot is read-only, so nudging the user to tap it is wrong.
   const shouldHint = overrideOn && shouldShowDotGoHint({ isNonDefault, dotAvailable: available });
