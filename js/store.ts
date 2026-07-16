@@ -1,5 +1,4 @@
-// @ts-check
-// js/store.js
+// js/store.ts
 const FOLLOWING_KEY = 'statusapp_following';
 const TIMEOUT_KEY = 'statusapp_last_timeout';
 const PALETTE_STATE_KEY = 'statusapp_palette_state';
@@ -8,11 +7,11 @@ const MADE_CALL_COUNT_KEY = 'statusapp_made_call_count';
 const ANSWERED_CALL_COUNT_KEY = 'statusapp_answered_call_count';
 const FOLLOWER_NAMES_KEY = 'statusapp_follower_names';
 
-/** @typedef {{ userId: string, code: string, label?: string }} FollowingEntry */
+export type FollowingEntry = { userId: string; code: string; label?: string };
 // Palette state is genuinely loose localStorage JSON — consumers (js/palettes.ts,
 // js/prefs.js) cast at use-sites, so the set shape stays `any` rather than a
 // narrow type this module would impose on them.
-/** @typedef {{ activeSet: number, sets: Record<string, any> }} PaletteState */
+export type PaletteState = { activeSet: number; sets: Record<string, any> };
 
 const DEFAULT_PALETTE_STATE = {
   activeSet: 1,
@@ -22,8 +21,7 @@ const DEFAULT_PALETTE_STATE = {
   },
 };
 
-/** @returns {FollowingEntry[]} */
-function getFollowing() {
+function getFollowing(): FollowingEntry[] {
   const raw = localStorage.getItem(FOLLOWING_KEY);
   if (!raw) return [];
   try {
@@ -35,43 +33,36 @@ function getFollowing() {
   }
 }
 
-/** @param {FollowingEntry[]} list */
-function saveFollowing(list) {
+function saveFollowing(list: FollowingEntry[]) {
   localStorage.setItem(FOLLOWING_KEY, JSON.stringify(list));
 }
 
 // Public bulk-replace, used by the cross-device sync path. Local mutation
 // helpers (addFollowing, removeFollowing, etc.) continue to use saveFollowing.
-/** @param {FollowingEntry[]} list */
-function setFollowing(list) {
+function setFollowing(list: FollowingEntry[]) {
   saveFollowing(list);
 }
 
-/** @param {FollowingEntry} entry */
-function addFollowing(entry) {
+function addFollowing(entry: FollowingEntry) {
   const list = getFollowing();
   list.push(entry);
   saveFollowing(list);
 }
 
-/** @param {string} userId */
-function removeFollowing(userId) {
+function removeFollowing(userId: string) {
   saveFollowing(getFollowing().filter((e) => e.userId !== userId));
 }
 
-/** @param {string} userId @returns {boolean} */
-function isFollowing(userId) {
+function isFollowing(userId: string): boolean {
   return getFollowing().some((e) => e.userId === userId);
 }
 
-/** @returns {number} */
-function getLastTimeout() {
+function getLastTimeout(): number {
   const raw = localStorage.getItem(TIMEOUT_KEY);
   return raw ? parseInt(raw, 10) : 2;
 }
 
-/** @param {number} n */
-function setLastTimeout(n) {
+function setLastTimeout(n: number) {
   localStorage.setItem(TIMEOUT_KEY, String(n));
 }
 
@@ -79,34 +70,29 @@ function setLastTimeout(n) {
 // locally per device — no Firebase sync yet; that lands with the userPrefs
 // migration. Returns null when the user hasn't picked a per-group default;
 // callers fall through to getLastTimeout() (Direct's default).
-/** @param {string} groupId @returns {number | null} */
-function getGroupChipMinutes(groupId) {
+function getGroupChipMinutes(groupId: string): number | null {
   const raw = localStorage.getItem(`statusapp_group_chip_${groupId}`);
   return raw ? parseInt(raw, 10) : null;
 }
 
-/** @param {string} groupId @param {number} minutes */
-function setGroupChipMinutes(groupId, minutes) {
+function setGroupChipMinutes(groupId: string, minutes: number) {
   localStorage.setItem(`statusapp_group_chip_${groupId}`, String(minutes));
 }
 
-/** @param {string} userId @param {string} newLabel */
-function renameFollowing(userId, newLabel) {
+function renameFollowing(userId: string, newLabel: string) {
   const list = getFollowing().map((e) =>
     e.userId === userId ? { ...e, label: newLabel } : e
   );
   saveFollowing(list);
 }
 
-/** @param {string} userId @param {string} newCode */
-function updateFollowingCode(userId, newCode) {
+function updateFollowingCode(userId: string, newCode: string) {
   saveFollowing(getFollowing().map((e) =>
     e.userId === userId ? { ...e, code: newCode } : e
   ));
 }
 
-/** @returns {PaletteState} */
-function getPaletteState() {
+function getPaletteState(): PaletteState {
   const raw = localStorage.getItem(PALETTE_STATE_KEY);
   if (raw) {
     try {
@@ -129,15 +115,13 @@ function getPaletteState() {
   return state;
 }
 
-/** @param {unknown} state */
-function setPaletteState(state) {
+function setPaletteState(state: unknown) {
   localStorage.setItem(PALETTE_STATE_KEY, JSON.stringify(state));
 }
 
 const FAVORITES_KEY = 'statusapp_favorites';
 
-/** @returns {any[]} */
-function getFavorites() {
+function getFavorites(): any[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]');
     if (!Array.isArray(parsed)) return [];
@@ -145,13 +129,11 @@ function getFavorites() {
   } catch (_) { return []; }
 }
 
-/** @param {unknown[]} arr */
-function setFavorites(arr) {
+function setFavorites(arr: unknown[]) {
   localStorage.setItem(FAVORITES_KEY, JSON.stringify(arr));
 }
 
-/** @returns {string} */
-function getPalette() {
+function getPalette(): string {
   const state = getPaletteState();
   return state.sets[String(state.activeSet)].selectedKey;
 }
@@ -160,14 +142,12 @@ function getPalette() {
 // Written when approving a follow request (inbox.js), read by the follower
 // card render + follow-back prefill (following.js). Device-local, like the
 // requester-side "Requested" state.
-/** @param {string} userId @returns {string | null} */
-function getFollowerName(userId) {
+function getFollowerName(userId: string): string | null {
   try { return JSON.parse(localStorage.getItem(FOLLOWER_NAMES_KEY) || '{}')[userId] || null; }
   catch { return null; }
 }
 
-/** @param {string} userId @param {string} name */
-function setFollowerName(userId, name) {
+function setFollowerName(userId: string, name: string) {
   try {
     const map = JSON.parse(localStorage.getItem(FOLLOWER_NAMES_KEY) || '{}');
     map[userId] = name;
@@ -178,4 +158,4 @@ function setFollowerName(userId, name) {
 // Call-counter helpers moved to js/prefs.js — they now sync via userPrefs/
 // instead of staying device-local.
 
-module.exports = { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, renameFollowing, updateFollowingCode, getPalette, getPaletteState, setPaletteState, getFavorites, setFavorites, getFollowerName, setFollowerName };
+export { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, renameFollowing, updateFollowingCode, getPalette, getPaletteState, setPaletteState, getFavorites, setFavorites, getFollowerName, setFollowerName };
