@@ -1,4 +1,3 @@
-// @ts-check
 // shared/timeFormat.js — the time-remaining formatters, ONE copy for web +
 // functions. Consumed by js/ directly (../shared/…) and by functions/ via the
 // committed byte-identical mirror functions/_shared/ (npm run sync-shared —

@@ -1,4 +1,3 @@
-// @ts-check
 // shared/idFormats.js — the app's id-format trust boundary, ONE copy for web +
 // functions. Group ids: 8 chars of A-Z0-9 (js/groups.js generateGroupId;
 // database.rules.json pins the same literal — tests/idFormats.test.js keeps

@@ -1,4 +1,3 @@
-// @ts-check
 // js/features.js
 export const PALETTES_ENABLED = true;
 export const PALETTE_INTERACTIONS_ENABLED = true;

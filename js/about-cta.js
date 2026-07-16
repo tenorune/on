@@ -1,4 +1,3 @@
-// @ts-check
 // js/about-cta.js
 // Must stay .js — served unbundled via <script src> from about.template.html; a
 // rename to .ts 404s in prod. Tripwired by tests/about-page.test.js.

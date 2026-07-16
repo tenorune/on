@@ -1,4 +1,3 @@
-// @ts-check
 // shared/notifyDelivery.js — THE notify-channel delivery default (W2 C10):
 // for a linked/routed account, notifications are Telegram-delivered iff
 // notifyChannel !== 'push'. A MISSING or unknown channel reads as telegram;

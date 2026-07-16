@@ -1,4 +1,3 @@
-// @ts-check
 // shared/limits.js — the 40-char display-name / label cap, ONE copy for web +
 // functions. database.rules.json spells the same cap and cannot import JS —
 // tests/name-cap-invariant.test.js pins the two to each other. Cap rationale
