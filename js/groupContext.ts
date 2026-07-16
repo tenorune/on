@@ -311,19 +311,18 @@ function syncRosterOrder() {
 
 function paintRosterRow(uid: string, li: HTMLElement | null = document.querySelector(`#group-roster [data-user-id="${uid}"]`) as HTMLElement | null) {
   if (!li) return;
-  const override = _membersOverrides[uid];
-  const primary = _memberPrimaries.get(uid) || null;
-  const overrideOn = !!(override && override.enabled === true);
   // Effective values: override-on means "independent in this group" — pull
   // every field (status/availableUntil/color/paletteKey) exclusively from
   // the override. No per-field fall-through to primary, otherwise a member
   // who chose to not theme their group card (override.paletteKey null)
   // would still pick up their Direct theme. Override-off: primary wins
-  // for every field (the group is linked to Direct).
-  const availableUntil = (overrideOn ? override.availableUntil : primary?.availableUntil) ?? null;
-  const available = memberEffectiveAvailable(uid);
-  const color = overrideOn ? (override.statusColor || null) : (primary?.statusColor || null);
-  const paletteKey = overrideOn ? (override.paletteKey || null) : (primary?.paletteKey || null);
+  // for every field (the group is linked to Direct). effectiveStatus owns
+  // that wholesale merge; the || null keeps the pre-refactor empty→null.
+  const eff = effectiveStatus(_memberPrimaries.get(uid) || null, _membersOverrides[uid]);
+  const available = eff.available;
+  const availableUntil = eff.availableUntil;
+  const color = eff.statusColor || null;
+  const paletteKey = eff.paletteKey || null;
   const palette = PALETTES_ENABLED && paletteKey ? getPaletteByKey(paletteKey) : null;
   li.dataset.available = available ? 'true' : 'false';
   const dot = li.querySelector('.person-dot') as HTMLElement | null;
