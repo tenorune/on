@@ -1,5 +1,4 @@
-// @ts-check
-// js/telegram.js — Telegram Mini App adapter (experimental, TELEGRAM_ENABLED).
+// js/telegram.ts — Telegram Mini App adapter (experimental, TELEGRAM_ENABLED).
 // Detection + boot auth. Inside Telegram we ALWAYS auth from the webview's
 // signed initData (never the stored local session): zero friction, always
 // fresh, immune to webview-storage quirks. See spec 2026-07-02.
@@ -15,7 +14,7 @@ import { NAME_CAP } from '../shared/limits.js';
 // Telegram feature (telegramChrome, telegramFirstRun, telegramSettings, …) touch a
 // wide slice of the WebApp API — typing it precisely here is a separate effort.
 export function tgWebApp() {
-  const w = /** @type {any} */ (typeof window !== 'undefined' ? window : undefined);
+  const w = (typeof window !== 'undefined' ? window : undefined) as any;
   return (w && w.Telegram && w.Telegram.WebApp) || null;
 }
 
@@ -23,8 +22,7 @@ export function isTelegramContext() {
   return TELEGRAM_ENABLED && !!tgWebApp()?.initData;
 }
 
-/** @type {{ linked: boolean } | null} */
-let _linkState = null;
+let _linkState: { linked: boolean } | null = null;
 
 // THE "is this Telegram session linked" predicate — the one place the linked
 // definition is spelled (W3-A CL#3). Static within a session: link, unlink,
@@ -51,17 +49,17 @@ export function telegramFirstName() {
 // shape app.js's ensureIdentity produces; recoveryCode is null (a Telegram-
 // derived account has no phrase until the user links one).
 export async function ensureTelegramIdentity() {
-  const { token, linked, created } = /** @type {{ token: string; linked: boolean; created: boolean }} */ (
+  const { token, linked, created } = (
     await callValidateTelegram(tgWebApp().initData)
-  );
+  ) as { token: string; linked: boolean; created: boolean };
   await signInWithCustomToken(auth, token);
   await whenRtdbAuthReady();
   _linkState = { linked };
   // currentUser is set by the awaited sign-in above.
-  const userId = /** @type {import('firebase/auth').User} */ (auth.currentUser).uid;
+  const userId = (auth.currentUser as import('firebase/auth').User).uid;
   const user = await getUser(userId); // presence is bootstrapped server-side
   // `code` rides on the users/{uid} node but isn't in the PresenceNode contract; read via cast.
-  const code = /** @type {{ code?: string } | null} */ (user)?.code ?? '';
+  const code = (user as { code?: string } | null)?.code ?? '';
   return { identity: { userId, code, recoveryCode: null }, isNew: created === true };
 }
 
@@ -70,25 +68,16 @@ export async function ensureTelegramIdentity() {
 // no separator, so the link butts straight against the text; iOS inserts one.
 // Non-iOS AND unknown/absent platform (the web share opens in whatever client
 // the recipient runs) get a leading newline — never worse than today.
-/**
- * @param {string} url
- * @param {string} [text]
- * @param {{ platform?: string }} [opts]
- */
-export function buildTelegramShareUrl(url, text = '', { platform } = {}) {
+export function buildTelegramShareUrl(url: string, text = '', { platform }: { platform?: string } = {}) {
   const caption = text && platform !== 'ios' ? `\n${text}` : text;
   return `https://t.me/share/url?url=${encodeURIComponent(url)}${caption ? `&text=${encodeURIComponent(caption)}` : ''}`;
 }
 
 // Open Telegram's native share sheet for a link (invite links, share code).
 // Silent no-op outside Telegram or on old clients without openTelegramLink.
-/**
- * @param {string | undefined} url Callers (js/inviteFlow.js) may pass an absent invite url.
- * @param {string} [text]
- */
-export function openTelegramShare(url, text = '') {
+export function openTelegramShare(url: string | undefined, text = '') {
   const wa = tgWebApp();
   if (!wa?.openTelegramLink) return;
   // url forwarded as-is (runtime unchanged); cast for the strict builder param.
-  wa.openTelegramLink(buildTelegramShareUrl(/** @type {string} */ (url), text, { platform: wa.platform }));
+  wa.openTelegramLink(buildTelegramShareUrl(url as string, text, { platform: wa.platform }));
 }

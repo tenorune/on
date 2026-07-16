@@ -36,8 +36,8 @@ test('the 40-char name cap: shared/limits.js agrees with RTDB rules, and both fo
 
   // The two former literal holders now consume shared/ — a reintroduced local
   // cap literal would bypass this guard, so pin the imports too.
-  expect(read('js/telegram.js')).toContain("from '../shared/limits.js'");
-  expect(read('js/telegram.js')).not.toMatch(/TG_NAME_CAP\s*=\s*\d/);
+  expect(read('js/telegram.ts')).toContain("from '../shared/limits.js'");
+  expect(read('js/telegram.ts')).not.toMatch(/TG_NAME_CAP\s*=\s*\d/);
   expect(read('functions/presence-core.js')).toContain("from './_shared/limits.js'");
   expect(read('functions/presence-core.js')).not.toMatch(/LABEL_MAX\s*=\s*\d/);
 });
