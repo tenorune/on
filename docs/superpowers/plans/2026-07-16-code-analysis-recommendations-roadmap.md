@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> **Altitude note:** This is a *roadmap* spanning four workstreams. Phases 0, 1, and 3 are specified to execution depth and can be run directly from this document. Phase 2 (reactive store) locks in the interfaces and migration order, but Tasks 2.3–2.4 touch the two most stateful modules in the codebase — write a dedicated plan (superpowers:writing-plans) for each before executing, using the interface contracts pinned here.
+> **Altitude note:** This is a *roadmap* spanning four workstreams. Phases 0, 1, and 3 are specified to execution depth and can be run directly from this document. Phase 2 (reactive store) locks in the interfaces and migration order; Tasks 2.3–2.4 touch the two most stateful modules in the codebase and have **dedicated plans, already written** (2026-07-16): [`2026-07-16-status-store-migration.md`](2026-07-16-status-store-migration.md) (Task 2.3) and [`2026-07-16-boot-stage-decomposition.md`](2026-07-16-boot-stage-decomposition.md) (Task 2.4). Where those plans refine an interface pinned here, the plan wins (the refinements are noted inline below).
 
 **Goal:** Implement the four recommendations from the 2026-07-16 code-based analysis: close the SW precache gap, finish the client TypeScript conversion, consolidate the hand-synchronized status-propagation layer into one subscribable store, and extend typecheck coverage to the backend — without a framework migration and without touching the Firebase data model.
 
@@ -28,9 +28,12 @@
 Phase 0 (SW fix)          — independent, do first, ~1 short session
 Phase 1 (client TS)       — independent of 0; Wave A before Wave B; app.js last
 Phase 2 (status store)    — AFTER Phase 1 Wave B (the files it refactors should be .ts first)
+                            internal order: 2.1 → 2.2 → 2.3 → 2.4 (2.4's plan requires 2.3 landed)
 Phase 3 (backend checkJs) — independent, can run parallel to any phase
 Phase 4 (non-goals)       — no work; decision record only
 ```
+
+Branching within Phase 2: cut its feature branch from `dev` only after the Phase 1 branch has merged; if Phase 1 is still unmerged when Phase 2 starts, stack on `claude/typescript-adoption-phase-0-009izp` instead — Phase 2 edits the exact files Phase 1 renames, so basing on `dev` before that merge guarantees conflicts.
 
 ---
 
@@ -101,7 +104,7 @@ for (const f of ['dist/bundle.js', 'css/app.css', 'css/canvas.css', 'index.html'
 ### Task 1.1: Wave A — leaves and CommonJS stragglers (7 files)
 
 **Files:** Convert in this order (dependencies first):
-- [ ] `js/wordlist.js` → `.ts` (CJS; consumed by `identity.js` — convert before identity)
+- [ ] `js/wordlist.js` → `.ts` (CJS; consumed by `identity.js` — convert before identity). **This file is GENERATED**: `scripts/gen-wordlist.js` overwrites it wholesale and emits the CJS preamble + `module.exports = { WORDLIST, WORDSET }` tail. The same commit must update the generator's output path (`js/wordlist.ts`) and its emitted header/export syntax (ESM `export`), then re-run `node scripts/gen-wordlist.js` and verify `git diff` shows only the syntax delta (same 7772 words).
 - [ ] `js/store.js` → `.ts` (CJS; the `FollowingEntry`/`PaletteState` typedefs at `store.js:11-15` become exported `type`s — `prefs.ts` re-exports its getters and can then drop local shims)
 - [ ] `js/identity.js` → `.ts` (CJS; imports wordlist)
 - [ ] `js/installPrompt.js` → `.ts` (CJS)
@@ -216,7 +219,7 @@ export const CHIP_VALUES: readonly number[];   // single copy, moved from me.ts:
 export function chipIndexForMinutes(minutes: number): number;
 ```
 
-- [ ] **Step 1: Failing tests.** Table-driven in `tests/status.test.js`: primary-only available/expired/absent; override-on wins including its color/palette; override-on-but-expired falls back to primary; override-off ignored; both-null → all-null/false. Pin one vector per current call site's observable behavior *before* refactoring (read each of the four sites and encode what it does today — if the four disagree, STOP and surface the disagreement rather than picking one).
+- [ ] **Step 1: Failing tests.** Table-driven in `tests/status.test.js`: primary-only available/expired/absent; override-on wins including its color/palette; override-on-but-expired falls back to primary; override-off ignored; both-null → all-null/false. Pin one vector per current call site's observable behavior *before* refactoring (read each of the four sites and encode what it does today — if the four disagree, STOP and surface the disagreement rather than picking one). Two specifics known from reading the sites: (a) **presentation defaults stay at call sites** — `effectiveStatus` returns raw `null`s; the `'#22c55e'` color fallback belongs to `paintNavCard`/`paintDirectCard` (`groupNav.js:366,446`), not the selector (the other sites use `null`); (b) two sites are member-scoped (`memberEffectiveAvailable`/`paintRosterRow` feed `_membersOverrides[uid]` + `_memberPrimaries.get(uid)`) and two own-scoped (`_ownOverride` + `_ownPrimary`) — the `(primary, override)` signature serves all four, but the vectors must cover both data shapes.
 - [ ] **Step 2: Implement `js/status.ts`.** Move (not copy) `CHIP_VALUES`/`chipIndexForMinutes` from `me.ts`; delete the copy in `groupContext`.
 - [ ] **Step 3: Replace the four merge sites** with `effectiveStatus(...)` calls, one commit per site, full `npx jest` between each.
 - [ ] **Step 4: Phase gate + commit.**
@@ -243,10 +246,12 @@ export function subscribeOwnStatus(
 ): () => void;                                     // returns unsubscribe
 export function pushOptimistic(
   groupId: string | null,
-  partial: Partial<StatusSnapshot>,
-): void;                                           // local echo until server tick confirms
+  partial: Partial<StatusOverride>,               // RAW override fields, not snapshot fields
+): void;                                           // merge into cache + synchronous fan-out
 export function _resetStatusStoreForTests(): void;
 ```
+
+**API refinement from the Task 2.3 plan** (which wins per the altitude note): `pushOptimistic` takes `Partial<StatusOverride>` (raw wire fields) and its semantics are merge-into-cached-override with *synchronous* fan-out — the optimistic value is meant to be overwritten wholesale by its own server echo, so there is no pending/ack layer. Task 2.3's plan additionally adds a raw-override surface (`setWatchedGroups`, `subscribeOwnOverride`, `getOwnOverride`) in its own Task 1; this task (2.2) builds only the merged-snapshot core above, and should implement `subscribeOwnStatus` as a thin `effectiveStatus()` wrapper over the raw cache so the 2.3 additions slot in without rework. See `2026-07-16-status-store-migration.md` §Task 1 for the full signatures and replay semantics.
 
 - [ ] **Step 1: Failing tests** — subscribe/replay/refcount semantics copied from `tests/presenceHub`-style coverage: late subscriber gets cached value async; last unsubscribe tears down the underlying watch; `pushOptimistic` fires subscribers immediately and is superseded by the next server tick; re-entrancy (a subscriber that unsubscribes mid-fan-out) doesn't skip peers — mirror `presenceHub.ts:43-44`'s copy-the-set guard.
 - [ ] **Step 2: Implement.** ~120 lines; no new dependency.
@@ -254,15 +259,15 @@ export function _resetStatusStoreForTests(): void;
 
 ### Task 2.3: Migrate the optimistic pair onto the store; break the groupNav ↔ groupContext cycle
 
-⚠️ **Write a dedicated plan before executing** (superpowers:writing-plans). Contract pinned here: after this task, `groupContext` no longer imports `applyOptimisticAppearance`/`subscribeOwnOverride` from `groupNav`, and `groupNav` no longer imports `applyOptimisticOverride` from `groupContext` — both call `subscribeOwnStatus`/`pushOptimistic` instead; the object-spread echo-preservation hacks (`groupNav.js:395-404`, `groupContext.js:1186-1190,1203-1205,1255-1257`) are deleted (the store's optimistic layer owns that concern); existing tests in `tests/groupNav.test.js`/`tests/groupContext.test.js` keep passing with mocks pointed at `statusStore` instead of the cross-module functions.
+✅ **Dedicated plan written:** [`2026-07-16-status-store-migration.md`](2026-07-16-status-store-migration.md) — execute that document, not this summary. Contract pinned here (the plan implements it): after this task, `groupContext` no longer imports `applyOptimisticAppearance`/`subscribeOwnOverride` from `groupNav`, and `groupNav` no longer imports `applyOptimisticOverride` from `groupContext` — both go through the store; the object-spread echo-preservation hacks (`groupNav.js:395-404`, `groupContext.js:1186-1190,1203-1205,1255-1257`) are deleted (the store's merge-based `pushOptimistic` owns that concern); existing tests in `tests/groupNav.test.js`/`tests/groupContext.test.js` keep passing with mocks pointed at `statusStore` instead of the cross-module functions. Key finding baked into the plan: the cycle is formed by a *single* import (`groupNav.js:12`); `groupContext`'s imports of `navigateToDirect`/`subscribeGroupMeta` from `groupNav` legitimately remain.
 
-- [ ] Dedicated plan written and executed; cycle gone (verify: `grep -n "from './groupContext" js/groupNav.ts` and inverse return only type imports or nothing).
+- [ ] Dedicated plan executed; cycle gone (verify: `grep -n "from './groupContext" js/groupNav.ts` returns nothing).
 
 ### Task 2.4: Decompose `app.js main()` boot ordering
 
-⚠️ **Write a dedicated plan before executing.** Contract: the ~343-line `main()` (`app.js:590-933`) becomes explicit named stages (`resolveIdentity → initStores → redeemInvites → startSubscriptions → initSurfaces`), where every "must run before" comment (`app.js:646-657, 669-679, 804-810`) is replaced by an actual data dependency (a stage consumes the previous stage's return value). `initStatusStore` runs in `initStores`, which is what lets `initOwnStatus`'s registration-order fan-out (`ownStatus.ts:10-15`) retire. Existing boot tests (`tests/app-boot-cacheOwner.test.js`, `tests/app-first-follow.test.js`, `tests/app-call-recovery.test.js`) must pass unmodified.
+✅ **Dedicated plan written:** [`2026-07-16-boot-stage-decomposition.md`](2026-07-16-boot-stage-decomposition.md) — execute that document, not this summary. **Requires Task 2.3 landed first** (the plan slots `initStatusStore` into the stores stage and its Task 4 re-scopes the `ownStatus.ts` fan-out contract based on 2.3's outcome). Contract: the ~343-line `main()` (`app.js:590-933`) becomes six named stages (`parseBootIntent → resolveIdentity → initStores → resolveEntryContext → startSubscriptions → initSurfaces`), where every "must run before" comment (`app.js:646-657, 669-679, 804-810`) is replaced by an actual data dependency enforced via branded stage tokens. Extraction commits are verbatim moves only. Existing boot tests (`tests/app-boot-cacheOwner.test.js`, `tests/app-first-follow.test.js`, `tests/app-call-recovery.test.js`) must pass unmodified.
 
-- [ ] Dedicated plan written and executed.
+- [ ] Dedicated plan executed.
 
 ---
 
@@ -270,23 +275,48 @@ export function _resetStatusStoreForTests(): void;
 
 Functions stay JavaScript. **Decision record:** `functions/` runs Node directly (`"type":"module"`, no build step); converting to `.ts` would add a compile step to two deploy workflows and the emulator path for marginal gain — the handler code is already dependency-injected and heavily tested. Strict `checkJs` delivers most of the type value at zero deploy risk. Revisit only if a functions-side type bug escapes to prod.
 
-### Task 3.1: Bring `functions/` subdirs and `scripts/` under `tsc --noEmit`
+### Task 3.1: Bring `functions/` subdirs under `tsc --noEmit`; `scripts/` gets its own tsconfig
+
+**Two constraints discovered by inspection (2026-07-16 audit) shape this task:**
+- `functions/*.js` typecheck resolves `'crypto'`/`'firebase-admin/*'` via `functions/node_modules/@types/node` (a transitive dep), found by tsc's walk-up from the *importing file* — NOT via root-level auto-inclusion. Consequence 1: `npm run typecheck` on functions files only passes with `functions/node_modules` installed (CI does; a fresh clone must `cd functions && npm ci` first — document this in the script or README). Consequence 2: this is precisely why the narrow browser `declare const process` (`types/app.d.ts:12`) never collides with Node's types today.
+- `scripts/*.js` CANNOT ride the root tsconfig: they need real Node globals (`require`, `__dirname`, full `process`), which means `@types/node` at the root — and a root `@types/node` would be **auto-included** by the main tsconfig (no `"types"` field = include all of `node_modules/@types`), colliding with the narrow `process` declare and handing browser code Node globals, defeating that file's documented design.
 
 **Files:**
-- Modify: `tsconfig.json:15`
-- Modify: whichever `functions/**` and `scripts/*.js` files surface errors (annotation-only changes)
+- Modify: `tsconfig.json`
+- Create: `tsconfig.scripts.json`
+- Modify: `package.json` (scripts + devDependency), whichever `functions/**` and `scripts/*.js` files surface errors (annotation-only changes)
 
-- [ ] **Step 1: Widen include** — `tsconfig.json`:
+- [ ] **Step 1: Widen the root include to functions subdirs only** — `tsconfig.json`:
 
 ```json
-"include": ["js/**/*", "shared/**/*", "types/**/*", "functions/**/*.js", "scripts/**/*.js"],
+"include": ["js/**/*", "shared/**/*", "types/**/*", "functions/**/*.js"],
 "exclude": ["functions/node_modules", "functions/test", "node_modules"]
 ```
 
-(`functions/test` excluded first pass — mock-heavy test files are the noisiest; fold them in as a follow-up if the error count is manageable.)
+(`functions/test` excluded first pass — mock-heavy test files are the noisiest; fold them in as a follow-up if the error count is manageable. NO `scripts/` here.)
 
-- [ ] **Step 2:** `npm run typecheck`; triage. Expect errors concentrated in `functions/telegram*.js` (largest surface) and the one-off scripts (`migrate-presence.js`, `repair-user-groups.js`, `audit-available-null.js`). Fix with JSDoc annotations only — zero behavior changes, zero suppressions. If a one-off migration script is genuinely dead, deleting it is preferable to annotating it — but confirm with the maintainer before deleting anything not created in this workstream.
-- [ ] **Step 3:** Do NOT add `// @ts-check` pragmas to files gaining coverage — global `checkJs` already applies to every included file, and Task 1.4 strips the redundant pragmas repo-wide (any pragma landing in `functions/_shared/` would also break the byte-equality mirror guard against a pragma-free `shared/`). Full quartet, commit per file-cluster: `git commit -m "chore(types): extend strict checkJs to functions subdirs and scripts"`
+- [ ] **Step 2: Pin `"types": []` in the root tsconfig** `compilerOptions`. Today this is a no-op (root `node_modules/@types` is empty — verified) but it makes the browser config immune to Step 3's `@types/node` install, preserving the `types/app.d.ts` narrow-`process` design permanently instead of by accident.
+- [ ] **Step 3: Give `scripts/` its own config.** `npm i -D @types/node`, then create `tsconfig.scripts.json`:
+
+```json
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "commonjs",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["scripts/**/*.js"]
+}
+```
+
+Add to `package.json`: `"typecheck:scripts": "tsc -p tsconfig.scripts.json"`, and wire it into the CI test job next to `npm run typecheck` (both deploy workflows; `tests/deploy-workflows.test.js` is the place to pin that with a new assertion).
+- [ ] **Step 4:** Run both typechecks; triage. Expect errors concentrated in `functions/telegram*.js` (largest surface) and the one-off scripts (`migrate-presence.js`, `repair-user-groups.js`, `audit-available-null.js`). Fix with JSDoc annotations only — zero behavior changes, zero suppressions. Two rules: (a) any fix touching `functions/_shared/*` must be made in `shared/` and re-synced (`npm run sync-shared`) — never edited in place (mirror byte-guard); (b) if a one-off migration script is genuinely dead, deleting it is preferable to annotating it — but confirm with the maintainer before deleting anything not created in this workstream.
+- [ ] **Step 5:** Do NOT add `// @ts-check` pragmas to files gaining coverage — global `checkJs` already applies to every included file, and Task 1.4 strips the redundant pragmas repo-wide (any pragma landing in `functions/_shared/` would also break the byte-equality mirror guard against a pragma-free `shared/`). Full quartet + `typecheck:scripts`, commit per file-cluster: `git commit -m "chore(types): extend strict checkJs to functions subdirs; scripts get a Node-typed tsconfig"`
 
 ---
 
@@ -310,12 +340,14 @@ Recorded so future sessions don't relitigate:
 | The four merge sites *disagree* today (latent bug) | 2.1 | Step 1 pins current behavior per site before unifying; a disagreement halts the task and gets surfaced, not silently resolved |
 | Store migration destabilizes the optimistic-echo UX | 2.3 | Store lands dark in 2.2 (no consumers); 2.3 has its own plan + the existing groupNav/groupContext suites as a behavioral net |
 | Widened tsconfig floods typecheck with functions errors | 3 | `functions/test` excluded first pass; annotation-only fixes; cluster commits |
+| Root `@types/node` leaks Node globals into browser code (collides with the narrow `process` declare, `types/app.d.ts:12`) | 3 | `"types": []` pinned in the root tsconfig; scripts typechecked under a separate `tsconfig.scripts.json` with `"types": ["node"]` |
+| `wordlist.ts` rename silently breaks regeneration | 1 | `scripts/gen-wordlist.js` output path + emitted preamble updated in the same commit; post-rename regeneration diff must show syntax-only changes |
 | `main()` decomposition breaks an undocumented ordering dependency | 2.4 | The three boot test files gate it; every ordering comment must map to an explicit data dependency in the new structure before the old comment is deleted |
 
 ## Effort estimate (PR-sized units)
 
 - Phase 0: 1 small PR.
 - Phase 1: 13 rename commits + 2 cheap-tail tasks (1.3 tripwire/comment fix, 1.4 pragma sweep) ≈ 2–4 sessions (Wave A ~1, Wave B ~2–3; `following.js` and `app.js` are half a session each; 1.3/1.4 minutes each). Ships as 2–3 PRs (per wave, cheap tail riding along).
-- Phase 2: 2.1 + 2.2 ≈ 1 session each; 2.3 + 2.4 ≈ 1–2 sessions each *after* their dedicated plans. 3–4 PRs.
-- Phase 3: 1 session, 1 PR.
+- Phase 2: 2.1 + 2.2 ≈ 1 session each; 2.3 + 2.4 ≈ 1–2 sessions each, executing their (already-written) dedicated plans. 3–4 PRs.
+- Phase 3: 1–2 sessions (the scripts tsconfig + CI wiring added scope), 1 PR.
 - Total: roughly 8–11 working sessions across ~7–9 PRs, each independently shippable.
