@@ -1,13 +1,11 @@
-// @ts-check
-// js/identity.js
-const { WORDLIST, WORDSET } = require('./wordlist.js');
+// js/identity.ts
+import { WORDLIST, WORDSET } from './wordlist.js';
 
 const STORAGE_KEY = 'statusapp_identity';
 
-/** @typedef {{ userId: string, code: string, recoveryCode: string }} Identity */
+type Identity = { userId: string; code: string; recoveryCode: string };
 
-/** @returns {string} */
-function generateCode() {
+function generateCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = '';
   for (let i = 0; i < 6; i++) {
@@ -16,8 +14,7 @@ function generateCode() {
   return code;
 }
 
-/** @returns {string} */
-function generateRecoveryCode() {
+function generateRecoveryCode(): string {
   const words = [];
   const buf = new Uint32Array(4);
   crypto.getRandomValues(buf);
@@ -29,8 +26,7 @@ function generateRecoveryCode() {
   return words.join('-');
 }
 
-/** @param {unknown} input @returns {string | null} */
-function parseRecoveryCode(input) {
+function parseRecoveryCode(input: unknown): string | null {
   if (typeof input !== 'string') return null;
   const normalized = input
     .toLowerCase()
@@ -45,8 +41,7 @@ function parseRecoveryCode(input) {
   return tokens.join('-');
 }
 
-/** @param {string} recoveryCode @returns {Promise<string>} */
-async function deriveUserIdFromRecoveryCode(recoveryCode) {
+async function deriveUserIdFromRecoveryCode(recoveryCode: string): Promise<string> {
   const encoded = new TextEncoder().encode(recoveryCode);
   const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
   const hex = Array.from(new Uint8Array(hashBuffer))
@@ -55,8 +50,7 @@ async function deriveUserIdFromRecoveryCode(recoveryCode) {
   return hex.slice(0, 32);
 }
 
-/** @returns {Identity | null} */
-function loadIdentity() {
+function loadIdentity(): Identity | null {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
   try {
@@ -74,8 +68,7 @@ function loadIdentity() {
   return null;
 }
 
-/** @param {string} userId @param {string} code @param {string} recoveryCode */
-function saveIdentity(userId, code, recoveryCode) {
+function saveIdentity(userId: string, code: string, recoveryCode: string) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ userId, code, recoveryCode }));
 }
 
@@ -83,7 +76,7 @@ function clearIdentity() {
   localStorage.removeItem(STORAGE_KEY);
 }
 
-module.exports = {
+export {
   generateCode,
   generateRecoveryCode,
   parseRecoveryCode,
