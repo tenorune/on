@@ -133,6 +133,52 @@ test('clicking a single-type bell dismisses another bell\'s open popover', () =>
   expect(document.querySelector('.notify-popover')).toBeNull();
 });
 
+describe('popover placement (flip above the bell when it would clip off-screen)', () => {
+  const POPOVER_H = 120;
+  let heightSpy;
+
+  function bellWithRect(rect) {
+    const bell = createNotifyBell('alex', { types: ['knock', 'availability'] });
+    bell.getBoundingClientRect = () => ({
+      width: rect.right - rect.left, height: rect.bottom - rect.top,
+      x: rect.left, y: rect.top, ...rect,
+    });
+    document.body.appendChild(bell);
+    return bell;
+  }
+
+  beforeEach(() => {
+    // jsdom has no layout: give every element a measurable popover height and
+    // pin the viewport so the placement math is deterministic.
+    heightSpy = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(POPOVER_H);
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
+    Object.defineProperty(window, 'innerWidth', { value: 400, configurable: true, writable: true });
+  });
+  afterEach(() => { heightSpy.mockRestore(); });
+
+  test('opens below the bell when there is room', () => {
+    const bell = bellWithRect({ top: 76, bottom: 100, left: 260, right: 300 });
+    bell.click();
+    const popover = document.querySelector('.notify-popover');
+    expect(popover.style.top).toBe('104px'); // bottom + 4
+  });
+
+  test('flips above the bell when opening below would clip the viewport bottom', () => {
+    const bell = bellWithRect({ top: 726, bottom: 750, left: 260, right: 300 });
+    bell.click();
+    const popover = document.querySelector('.notify-popover');
+    expect(popover.style.top).toBe('602px'); // top - 4 - height
+  });
+
+  test('flipped placement never goes above the viewport (clamped to the top margin)', () => {
+    Object.defineProperty(window, 'innerHeight', { value: 160, configurable: true, writable: true });
+    const bell = bellWithRect({ top: 50, bottom: 74, left: 260, right: 300 });
+    bell.click();
+    const popover = document.querySelector('.notify-popover');
+    expect(popover.style.top).toBe('8px');
+  });
+});
+
 test('open popover closes when a card-drawer-close event fires', () => {
   const bell = createNotifyBell('alex', { types: ['knock', 'availability'] });
   document.body.appendChild(bell);
