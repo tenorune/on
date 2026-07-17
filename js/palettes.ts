@@ -198,7 +198,22 @@ export function applyPaletteVars(key: string | null | undefined) {
   document.documentElement.style.setProperty('--my-glow', p.glow);
 }
 
+// The desktop-PWA title bar (Chromium standalone window) paints from
+// <meta name="theme-color">, not from CSS vars — iOS and Telegram get the
+// palette through other channels (black-translucent status bar, setHeaderColor).
+// Mirror --bg into the meta so an installed desktop window follows the palette.
+function setThemeColorMeta(color: string) {
+  let meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.setAttribute('name', 'theme-color');
+    document.head.appendChild(meta);
+  }
+  meta.setAttribute('content', color);
+}
+
 export function applyThemeVars(theme: PaletteTheme) {
+  setThemeColorMeta(theme.bg);
   const r = document.documentElement;
   r.style.setProperty('--bg',         theme.bg);
   r.style.setProperty('--surface',    theme.surface);
@@ -213,6 +228,7 @@ export function applyThemeVars(theme: PaletteTheme) {
 
 export function resetThemeVars() {
   try { localStorage.removeItem('statusapp_theme'); } catch {}
+  setThemeColorMeta('#0f172a');
   const r = document.documentElement;
   r.style.setProperty('--bg',         '#0f172a');
   r.style.setProperty('--surface',    '#1e293b');

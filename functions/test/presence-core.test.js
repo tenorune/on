@@ -56,6 +56,11 @@ describe('messages', () => {
     expect(buildMessage('followRequest', 'Cara')).toEqual({ title: 'Cara wants to follow you', body: '' });
   });
 
+  test('buildMessage followRequest with a group names the group', () => {
+    expect(buildMessage('followRequest', 'Cara', { group: 'Hiking' }))
+      .toEqual({ title: 'Cara in Hiking wants to follow you', body: '' });
+  });
+
   test('buildMessage clamps over-long names and group labels (FCM title hygiene)', () => {
     const long = 'x'.repeat(200);
     const cap = 'x'.repeat(40);

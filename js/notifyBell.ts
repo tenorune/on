@@ -39,9 +39,19 @@ export function isNotifyPopoverOpen() {
 // viewport coordinates. The popover is rendered at <body> (a portal) so no
 // card/slice overflow, transform, or stacking context can clip it — the cause
 // of it vanishing when nested inside the drawer slice.
+// A bell near the viewport bottom would push the popover off-screen, so when
+// the below-placement doesn't fit, flip it above the bell (clamped to the top
+// margin so a tiny viewport can't shove it off the top instead). Measured
+// after the body append, so offsetHeight is the laid-out height.
 function positionPopover(popover: HTMLElement, bell: HTMLElement) {
+  const MARGIN = 8;
   const r = bell.getBoundingClientRect();
-  popover.style.top = `${Math.round(r.bottom + 4)}px`;
+  const below = r.bottom + 4;
+  const height = popover.offsetHeight;
+  const top = (below + height > window.innerHeight - MARGIN)
+    ? Math.max(MARGIN, r.top - 4 - height)
+    : below;
+  popover.style.top = `${Math.round(top)}px`;
   popover.style.right = `${Math.round(Math.max(8, window.innerWidth - r.right))}px`;
   popover.style.left = 'auto';
 }

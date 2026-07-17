@@ -16,6 +16,7 @@ import {
 } from './db.js';
 import { getFollowing } from './prefs.js';
 import { showToast } from './groups.js';
+import { showConfirmModal } from './promptModal.js';
 
 const REQUESTED_KEY = 'statusapp_follow_requested';
 
@@ -87,16 +88,36 @@ export function createRequestFollowButton(myUid: string, targetUid: string, grou
     btn.disabled = true;
     try {
       if (isRequested(targetUid)) {
-        await cancelFollowRequest(myUid, targetUid);
-        showToast(`You cancelled your request to follow ${displayName}.`);
+        // Same confirm treatment as sending (below): the requested-state
+        // button is the only cancel affordance and just as easy to fat-finger.
+        // 'Keep request' instead of a bare 'Cancel' so the two buttons can't
+        // read as the same action.
+        const cancelled = await showConfirmModal({
+          title: `Cancel your request to follow ${displayName}?`,
+          confirmLabel: 'Cancel request',
+          cancelLabel: 'Keep request',
+          busyLabel: 'Cancelling…',
+          onConfirm: () => cancelFollowRequest(myUid, targetUid),
+        });
+        if (cancelled) showToast(`You cancelled your request to follow ${displayName}.`);
       } else if (isFollowRequestEligible(targetUid)) {
         // Eligibility re-checked at click time: the button may have been
         // rendered against a not-yet-synced following cache (fresh-device boot
         // straight into a group). The 'following-synced' roster re-render
         // removes stale buttons, but never send a request to someone already
         // followed even if one is clicked first.
-        await requestToFollow(myUid, targetUid, groupId);
-        showToast(`You requested to follow ${displayName}.`);
+        // Confirm before sending: the roster affordance is a small icon in a
+        // drawer, easy to hit by accident. The write runs as the modal's
+        // onConfirm so a failure surfaces inline there (retry or cancel)
+        // instead of vanishing into a silent catch.
+        const sent = await showConfirmModal({
+          title: `Send a request to follow ${displayName}?`,
+          confirmLabel: 'Send request',
+          confirmVariant: 'affirmative',
+          busyLabel: 'Sending…',
+          onConfirm: () => requestToFollow(myUid, targetUid, groupId),
+        });
+        if (sent) showToast(`You requested to follow ${displayName}.`);
       }
     } catch {
       // Write failed — no toast; repaint below shows the true (unchanged) state
