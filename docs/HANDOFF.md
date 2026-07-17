@@ -11,11 +11,30 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**Small UI fixes.** No plan doc yet — scope comes from the operator per fix.
-Branch off `dev` (which is current: it carries the TS adoption + the 2026-07-17
-client-performance work, all shipped and device-smoked).
+**No queued work** — the 2026-07-17 UI-fix batch (PR #294) is merged to `dev`.
+Next scope comes from the operator. Branch off `dev`.
 
-Known open non-TS follow-ups (triage against the current UI-fix scope): **#286, #288, #290.**
+Open follow-ups, triaged 2026-07-17:
+
+- **#290** — "Continue in browser" dead tap in the Instagram/FB in-app browser
+  (`js/about-cta.js` escape schemes silently cancelled). Best next UI fix;
+  candidate fixes A/B/C are enumerated in the issue.
+- **#286** — no revoke/regenerate/rename for invites on the Telegram surface.
+  Feature-sized (new drawer affordance).
+- **#288** — RTDB rule weakness (self-join any group by gid). Security, not UI;
+  the issue says the fix is the maintainer's call.
+- **Closed-unreproduced (2026-07-17): "revoked follow request still in inbox."**
+  Investigation on record: the web revoke path is live by construction
+  (sender-cancel deletes the exact `followRequests/{target}/{requester}` node the
+  recipient's inbox watches, `js/inbox.ts:65-74`). The one surface that provably
+  keeps a stale request visible is the recipient's **Telegram bot chat** — the
+  "[Approve][Decline]" DM persists after cancel and only resolves lazily on tap
+  ("This request is gone.", `functions/telegram.js:749-763`); a proactive fix
+  needs message-id storage at notify time + an `onValueDeleted` trigger. Reopen
+  only with a repro recipe (surface, device, backgrounded-or-not).
+- **Device walkthrough pending** on the PR #294 visual fixes: real-Safari tap
+  behavior, popover flip on a phone bottom, desktop-PWA title-bar repaint —
+  jsdom can't prove those; the operator smokes them.
 
 ## On-ramp
 
@@ -103,6 +122,12 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped and is on `dev`. Detail is in git + plans + the archived handoff.
 
+- **UI-fix batch (2026-07-17, PR #294)** — six operator-reported defects, TDD:
+  app-wide double-tap-zoom kill (`touch-action: manipulation` on body, pinch kept),
+  notify-popover flip-above-bell when clipping, confirm modals on follow-request
+  send AND cancel, "(Name) in (group) wants to follow you" copy on all three
+  surfaces, desktop-PWA title-bar color via a live `theme-color` meta mirror.
+  Detail in the 7 commit messages on the PR.
 - **TypeScript adoption (phase-0)** — full `js/*.js` → `js/*.ts` migration + strict
   `checkJs` across `scripts/` and `functions/`, code-analysis roadmap executed and
   audited. History in git; `about-*.js` and `features.js` deliberately left `.js`
