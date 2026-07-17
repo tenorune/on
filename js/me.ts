@@ -199,33 +199,25 @@ function setAvailable(availableUntil: number | null) {
   }
   const label = document.getElementById('my-status-label')!;
   const chips = document.getElementById('header-chips')!;
+  const timeRemaining = document.getElementById('time-remaining')!;
 
-  // Immediate: dot changes and old label starts fading out
+  // Same-frame swap (operator call: Direct must read as instantaneous, like
+  // the group context) — no staged fade-out/swap/fade-in choreography; any
+  // softness comes from the CSS opacity transitions alone.
   dot.classList.remove('dot-go-hint');
   dot.classList.add('available');
-  label.style.opacity = '0';
-
   startCountdown(availableUntil);
-
-  // After fade-out: swap content and fade in label + chips + time-remaining together
-  setTimeout(() => {
-    if (PALETTES_ENABLED) {
-      document.getElementById('swatch-row')!.classList.remove('visible');
-    }
-    const timeRemaining = document.getElementById('time-remaining')!;
-    label.classList.add('available');
-    label.textContent = 'Available';
-    timeRemaining.textContent = formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
-    timeRemaining.style.opacity = '0';
-    timeRemaining.style.display = '';
-    chips.style.pointerEvents = 'auto';
-    chips.style.opacity = '0';
-    requestAnimationFrame(() => {
-      label.style.opacity = '1';
-      chips.style.opacity = '1';
-      timeRemaining.style.opacity = '1';
-    });
-  }, 200);
+  if (PALETTES_ENABLED) {
+    document.getElementById('swatch-row')!.classList.remove('visible');
+  }
+  label.classList.add('available');
+  label.textContent = 'Available';
+  label.style.opacity = '1';
+  timeRemaining.textContent = formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
+  timeRemaining.style.display = '';
+  timeRemaining.style.opacity = '1';
+  chips.style.pointerEvents = 'auto';
+  chips.style.opacity = '1';
 }
 
 function setUnavailable() {
@@ -240,7 +232,9 @@ function setUnavailable() {
   // knock-knock first-use state keeps the dot available, so it never matches.
   if (!dot.classList.contains('available') && chips.style.opacity === '0') return;
 
-  // Immediate: dot changes, drawer closes, and label + chips start fading out together
+  // Same-frame swap — see setAvailable's note. Dot flips, drawer closes,
+  // chips hide, swatch row returns and the label reads "Unavailable" all in
+  // one paint.
   dot.classList.remove('available');
   _countdownUntil = null;
   // clearInterval(null) is a no-op at runtime; the cast only appeases the checker.
@@ -251,22 +245,16 @@ function setUnavailable() {
   if (drawer) drawer.classList.remove('open');
   if (mycodeChip) mycodeChip.classList.remove('active');
 
-  label.style.opacity = '0';
   chips.style.opacity = '0';
   chips.style.pointerEvents = 'none';
-  timeRemaining.style.opacity = '0';
-
-  // After fade-out: hide chips, swap label to "Unavailable", fade label back in
-  setTimeout(() => {
-    if (PALETTES_ENABLED) {
-      document.getElementById('swatch-row')!.classList.add('visible');
-      restoreSetSwitchPulse();
-      applyThemeHint();
-    }
-    timeRemaining.style.display = 'none';
-    timeRemaining.style.opacity = '';
-    label.classList.remove('available');
-    label.textContent = 'Unavailable';
-    requestAnimationFrame(() => { label.style.opacity = '1'; });
-  }, 200);
+  if (PALETTES_ENABLED) {
+    document.getElementById('swatch-row')!.classList.add('visible');
+    restoreSetSwitchPulse();
+    applyThemeHint();
+  }
+  timeRemaining.style.display = 'none';
+  timeRemaining.style.opacity = '';
+  label.classList.remove('available');
+  label.textContent = 'Unavailable';
+  label.style.opacity = '1';
 }

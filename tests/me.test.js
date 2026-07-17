@@ -505,18 +505,16 @@ describe('optimistic Direct status toggle (parity with the group context)', () =
     expect(label.textContent).toBe('Unavailable');
   });
 
-  test('a cross-device change (different availableUntil) still re-renders', () => {
+  test('a cross-device change (different availableUntil) is NOT absorbed as an echo — the countdown retargets', () => {
     getLastTimeout.mockReturnValue(120);
     initHeader('uid1');
     applyOwnStatus('unavailable', null);
-    jest.advanceTimersByTime(250);
-    document.getElementById('my-dot').click();
-    jest.advanceTimersByTime(250);
-
-    const writtenUntil = setStatus.mock.calls.at(-1)[2];
-    applyOwnStatus('available', writtenUntil + 3600000); // sibling device picked a longer window
-    // Full re-render runs (crossfade restarts: label fades out first).
-    expect(document.getElementById('my-status-label').style.opacity).toBe('0');
+    applyOwnStatus('available', Date.now() + 31000); // expires in ~31s
+    // Sibling device extends the window. If this were wrongly absorbed, the
+    // countdown would still target the old 31s window and flip us unavailable.
+    applyOwnStatus('available', Date.now() + 7200000);
+    jest.advanceTimersByTime(60000);
+    expect(document.getElementById('my-dot').classList.contains('available')).toBe(true);
   });
 
   test('time-chip tap updates the countdown text immediately with NO label crossfade, and its echo is absorbed', () => {
@@ -539,6 +537,39 @@ describe('optimistic Direct status toggle (parity with the group context)', () =
     const writtenUntil = setStatus.mock.calls.at(-1)[2];
     applyOwnStatus('available', writtenUntil);
     expect(label.style.opacity).toBe('1');
+  });
+});
+
+describe('synchronous label swap (no 200ms crossfade choreography)', () => {
+  // Operator call: Direct switches must read as instantaneous like the group
+  // context. The old choreography staged the swap behind a 200ms setTimeout
+  // (fade out → swap → fade in); everything now applies in the same frame and
+  // any softness comes from the CSS opacity transitions alone.
+
+  test('going available: label, chips and time-remaining are final synchronously', () => {
+    getLastTimeout.mockReturnValue(120);
+    initHeader('uid1');
+    applyOwnStatus('unavailable', null);
+    applyOwnStatus('available', Date.now() + 7200000);
+    // No jest.advanceTimersByTime — same-frame swap.
+    const label = document.getElementById('my-status-label');
+    expect(label.textContent).toBe('Available');
+    expect(label.style.opacity).not.toBe('0');
+    expect(document.getElementById('header-chips').style.opacity).toBe('1');
+    expect(document.getElementById('time-remaining').textContent).toMatch(/ left$/);
+    expect(document.getElementById('swatch-row').classList.contains('visible')).toBe(false);
+  });
+
+  test('going unavailable: label and swatch row are final synchronously', () => {
+    getLastTimeout.mockReturnValue(120);
+    initHeader('uid1');
+    applyOwnStatus('available', Date.now() + 7200000);
+    applyOwnStatus('unavailable', null);
+    const label = document.getElementById('my-status-label');
+    expect(label.textContent).toBe('Unavailable');
+    expect(label.style.opacity).not.toBe('0');
+    expect(document.getElementById('swatch-row').classList.contains('visible')).toBe(true);
+    expect(document.getElementById('time-remaining').style.display).toBe('none');
   });
 });
 
