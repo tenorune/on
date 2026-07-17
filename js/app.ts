@@ -833,24 +833,23 @@ async function resolveEntryContext(session: BootSession, intent: BootIntent, sto
   return { landedInGroup };
 }
 
-async function main() {
-  if (await maybeRunDevReset()) return; // dev-only identity reset (env-gated); halts boot
-  const intent = parseBootIntent();      // Stage 0 (may redirect → null)
-  if (!intent) return;
-  const session = await resolveIdentity(intent);  // Stage 1 (may halt boot → null)
-  if (!session) return;
-  const { userId, code, isNew } = session;
-  const stores = initStores(session);                                 // Stage 2
-  const landing = await resolveEntryContext(session, intent, stores); // Stage 3
-
+// Stage 4: live subscriptions — the cross-device prefs watch (and its fan-outs),
+// the install/push/onramp affordances, and the sibling-device context-sync
+// listener.
+//
+// `landing` is deliberately required and unused: watchUserPrefs's first echo must
+// not fire mid-redemption (it would yank a just-joined invitee out of their
+// group), so requiring resolveEntryContext's return (Landing) makes early
+// subscription unrepresentable. This replaces the old ordering comments at the
+// pinDirect force-write and initPrefs sites.
+function startSubscriptions(session: BootSession, landing: Landing): void {
+  const { userId } = session;
   touchLastSeen(userId).catch(() => {});
 
-  // Cross-device user-preferences sync. initPrefs already ran above (before the
-  // invite-redemption block) so context writes there persist; the watchUserPrefs
-  // subscription reconciles local cache with server on every change. Started
-  // here, after redemption, so its echoes can't reset context mid-flow. Writes
-  // throughout the app (markHintSeen, incrementMadeCallCount, etc.) go through
-  // prefs.js so they hit both localStorage and userPrefs/{uid}/ in Firebase.
+  // Cross-device user-preferences sync: reconciles local cache with server on
+  // every change. Writes throughout the app (markHintSeen, incrementMadeCallCount,
+  // etc.) go through prefs.js so they hit both localStorage and userPrefs/{uid}/
+  // in Firebase.
   watchUserPrefs(userId, (serverPrefs) => {
     syncPrefsFromServer(serverPrefs);
     // Notification-channel pill reconciles live on every prefs change — link/
@@ -879,7 +878,16 @@ async function main() {
   document.addEventListener('current-context-synced', (e) => {
     applyServerCurrentContext(((e) as CustomEvent).detail?.currentContext || 'direct');
   });
+}
 
+// Stage 5: surface init — code drawer, first-run, header, splash, the contact
+// list, knocks, call recovery, cards row, inbox, follow grants, the Direct/nav
+// reveal, palette boot, own-status sync, and SW registration. `landing` is
+// carried for stage symmetry but not read: the reveal below re-derives group-vs-
+// Direct from getCurrentContext() (a Stage 3 navigation or a sibling-device sync
+// may own the context), so it does not consult the flag.
+async function initSurfaces(session: BootSession, intent: BootIntent, landing: Landing): Promise<void> {
+  const { userId, code, isNew } = session;
   initCodeDrawer(userId, code);
   if (isTelegramContext()) initTelegramSettings(userId);
   // Empty-state primary "Invite your people": Telegram shares the deep link
@@ -961,6 +969,18 @@ async function main() {
   // No SW inside Telegram: no offline-shell need in the webview, and the
   // update-reload cycle fights Telegram's own webview lifecycle.
   if (!isTelegramContext()) initServiceWorker();
+}
+
+async function main() {
+  if (await maybeRunDevReset()) return; // dev-only identity reset (env-gated); halts boot
+  const intent = parseBootIntent();      // Stage 0 (may redirect → null)
+  if (!intent) return;
+  const session = await resolveIdentity(intent);  // Stage 1 (may halt boot → null)
+  if (!session) return;
+  const stores = initStores(session);                                 // Stage 2
+  const landing = await resolveEntryContext(session, intent, stores); // Stage 3
+  startSubscriptions(session, landing);                               // Stage 4
+  await initSurfaces(session, intent, landing);                       // Stage 5
 }
 
 // ── Boot init steps (extracted from main() for readability; call order in
