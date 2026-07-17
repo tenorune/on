@@ -5,11 +5,12 @@
 // presenceHub (one multiplexed watchPresence); each group's own override comes
 // through watchOwnMemberOverride. effectiveStatus (js/status.ts) merges them.
 //
-// Roadmap Task 2.2: the base merged-snapshot API only — initStatusStore,
-// subscribeOwnStatus, pushOptimistic, _resetStatusStoreForTests. It lands dark
-// (nothing consumes it yet). Task 2.3's status-store-migration plan extends this
-// module with the raw-override surface (setWatchedGroups / subscribeOwnOverride
-// / getOwnOverride); the internal state below is shaped so those slot in.
+// Roadmap Task 2.2 added the base merged-snapshot API — initStatusStore,
+// subscribeOwnStatus, pushOptimistic, _resetStatusStoreForTests. Task 2.3 adds
+// the RAW own-override surface (setWatchedGroups / subscribeOwnOverride /
+// getOwnOverride) that groupNav/groupContext consume: enumeration-driven watch
+// management and a synchronously-replayed raw cache, sharing one underlying
+// watchOwnMemberOverride per group with the merged-snapshot consumers.
 import { subscribePresence } from './presenceHub.js';
 import { watchOwnMemberOverride } from './db.js';
 import { effectiveStatus } from './status.js';
@@ -21,6 +22,8 @@ import type { EffectiveStatus, StatusInput, OverrideInput } from './status.js';
 export type StatusSnapshot = EffectiveStatus & { source: 'primary' | 'override' };
 
 type SnapshotCb = (snap: StatusSnapshot) => void;
+// Raw-override subscribers (groupNav/groupContext) read override fields directly.
+type OverrideCb = (override: OverrideInput | null) => void;
 
 // Direct context (groupId null) has no override — key its consumer set under a
 // sentinel so one Map holds Direct + every per-group subscriber.
@@ -43,6 +46,13 @@ const _overrideTicked = new Set<string>();
 
 // Merged-snapshot subscribers, keyed by group (or DIRECT).
 const _consumers = new Map<GroupKey, Set<SnapshotCb>>();
+
+// Raw-override subscribers, and the enumeration-driven watched set. Together with
+// _consumers these are the THREE things that keep a group's underlying
+// watchOwnMemberOverride alive: an override watch exists for a group iff it is in
+// _watched, OR has ≥1 raw override consumer, OR has ≥1 merged-snapshot consumer.
+const _overrideConsumers = new Map<string, Set<OverrideCb>>();
+const _watched = new Set<string>();
 
 export function initStatusStore(myUserId: string): void {
   _resetStatusStoreForTests();
@@ -87,18 +97,43 @@ function ensurePrimaryWatch(): void {
   });
 }
 
+// Synchronous fan-out of the raw cached override to its consumers. Unlike the
+// merged-snapshot replay (async, to avoid re-entering a caller's render), the raw
+// surface feeds click handlers/paint that read it now — a server tick or an
+// optimistic push repaints synchronously.
+function fanOutOverride(groupId: string): void {
+  if (!_overrideTicked.has(groupId)) return;
+  const set = _overrideConsumers.get(groupId);
+  if (!set) return;
+  const value = _overrideCache.get(groupId) ?? null;
+  for (const cb of [...set]) {
+    if (!set.has(cb)) continue;
+    try { cb(value); } catch { /* one consumer threw — keep going */ }
+  }
+}
+
 function ensureOverrideWatch(groupId: string): void {
   if (_overrideUnsubs.has(groupId) || _myUserId === null) return;
   _overrideUnsubs.set(groupId, watchOwnMemberOverride(groupId, _myUserId, (override) => {
     _overrideCache.set(groupId, override);
     _overrideTicked.add(groupId);
-    fanOut(groupId);
+    fanOut(groupId);          // merged-snapshot consumers
+    fanOutOverride(groupId);  // raw-override consumers
   }));
 }
 
-function teardownGroupIfIdle(groupId: string): void {
-  const set = _consumers.get(groupId);
-  if (set && set.size > 0) return;
+// A group's underlying override watch is wanted while ANY of the three sources
+// keep it: enumeration (_watched), a raw consumer, or a merged-snapshot consumer.
+function overrideWanted(groupId: string): boolean {
+  if (_watched.has(groupId)) return true;
+  const raw = _overrideConsumers.get(groupId);
+  if (raw && raw.size > 0) return true;
+  const snap = _consumers.get(groupId);
+  return !!(snap && snap.size > 0);
+}
+
+function teardownOverrideIfIdle(groupId: string): void {
+  if (overrideWanted(groupId)) return;
   const unsub = _overrideUnsubs.get(groupId);
   if (unsub) unsub();
   _overrideUnsubs.delete(groupId);
@@ -136,9 +171,55 @@ export function subscribeOwnStatus(groupId: string | null, cb: SnapshotCb): () =
     if (!cur) return;
     cur.delete(cb);
     if (cur.size === 0) _consumers.delete(key);
-    if (groupId !== null) teardownGroupIfIdle(groupId);
+    if (groupId !== null) teardownOverrideIfIdle(groupId);
     teardownPrimaryIfIdle();
   };
+}
+
+// Enumeration-driven watch management: the caller (groupNav) passes the set of
+// currently-enumerated groups. Watches are created for newly-watched groups and
+// torn down for dropped ones that no consumer still keeps alive.
+export function setWatchedGroups(groupIds: string[]): void {
+  const next = new Set(groupIds);
+  for (const gid of [..._watched]) {
+    if (!next.has(gid)) {
+      _watched.delete(gid);           // drop before the idle check reads it
+      teardownOverrideIfIdle(gid);
+    }
+  }
+  for (const gid of next) {
+    if (!_watched.has(gid)) {
+      _watched.add(gid);
+      ensureOverrideWatch(gid);
+    }
+  }
+}
+
+// Subscribe to a group's RAW override. Replays the cached value SYNCHRONOUSLY —
+// but only once the underlying watch (or an optimistic seed) has ticked, so a
+// late subscriber never receives a fabricated null.
+export function subscribeOwnOverride(groupId: string, cb: OverrideCb): () => void {
+  let set = _overrideConsumers.get(groupId);
+  if (!set) { set = new Set(); _overrideConsumers.set(groupId, set); }
+  set.add(cb);
+  ensureOverrideWatch(groupId);
+  if (_overrideTicked.has(groupId)) {
+    const value = _overrideCache.get(groupId) ?? null;
+    try { cb(value); } catch { /* replay threw */ }
+  }
+  return () => {
+    const cur = _overrideConsumers.get(groupId);
+    if (!cur) return;
+    cur.delete(cb);
+    if (cur.size === 0) _overrideConsumers.delete(groupId);
+    teardownOverrideIfIdle(groupId);
+  };
+}
+
+// Synchronous read of the optimistic-merged cache, for click handlers reading
+// override fields at click time.
+export function getOwnOverride(groupId: string): OverrideInput | null {
+  return _overrideCache.get(groupId) ?? null;
 }
 
 export function pushOptimistic(groupId: string | null, partial: Partial<OverrideInput>): void {
@@ -151,7 +232,8 @@ export function pushOptimistic(groupId: string | null, partial: Partial<Override
   // before any server tick), so mark ticked and fan out synchronously — the
   // optimistic paint must land before toggleStatusOverride's write round-trips.
   _overrideTicked.add(groupId);
-  fanOut(groupId);
+  fanOut(groupId);          // merged-snapshot consumers
+  fanOutOverride(groupId);  // raw-override consumers
 }
 
 export function _resetStatusStoreForTests(): void {
@@ -163,6 +245,8 @@ export function _resetStatusStoreForTests(): void {
   _overrideUnsubs.clear();
   _overrideCache.clear();
   _overrideTicked.clear();
+  _overrideConsumers.clear();
+  _watched.clear();
   _consumers.clear();
   _myUserId = null;
 }

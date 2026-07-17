@@ -16,6 +16,9 @@ const db = require('../js/db');
 const {
   initStatusStore,
   subscribeOwnStatus,
+  subscribeOwnOverride,
+  getOwnOverride,
+  setWatchedGroups,
   pushOptimistic,
   _resetStatusStoreForTests,
 } = require('../js/statusStore');
@@ -48,6 +51,11 @@ beforeEach(() => {
 
 const firePrimary = (v) => primaryCb(v);
 const fireOverride = (gid, v) => overrideCbs[gid](v);
+// Which groups' underlying watchOwnMemberOverride unsubs have fired, sorted.
+const unsubsCalledFor = () =>
+  Object.keys(overrideUnsubs)
+    .filter((gid) => overrideUnsubs[gid].mock.calls.length > 0)
+    .sort();
 
 describe('subscribeOwnStatus — watch lifecycle', () => {
   test('first subscriber lazily creates the primary + group override watches', () => {
@@ -170,5 +178,65 @@ describe('re-entrancy', () => {
 
     // Copy-the-set guard: B was removed mid-iteration → skipped; C still fires.
     expect(order).toEqual(['A', 'C']);
+  });
+});
+
+// ── Task 2.3: the RAW own-override surface ────────────────────────────────────
+// groupNav/groupContext click handlers read override fields directly and drive
+// the underlying watches by enumeration (setWatchedGroups) ∪ their own consumers.
+// The raw surface caches the override (OverrideInput — carries statusColor/
+// paletteKey per baked decision (c)), merges optimistic partials into it, replays
+// synchronously (unlike the async snapshot replay), and fans out to raw consumers.
+describe('raw override surface', () => {
+  test('pushOptimistic merges partials — statusColor survives a status flip', () => {
+    setWatchedGroups(['G1']);
+    fireOverride('G1', { enabled: true, status: 'available', availableUntil: 99, statusColor: '#abc' });
+    pushOptimistic('G1', { status: 'unavailable', availableUntil: null });
+    expect(getOwnOverride('G1')).toEqual(
+      { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#abc' });
+  });
+
+  test('pushOptimistic fans out synchronously to raw consumers', () => {
+    const seen = [];
+    subscribeOwnOverride('G1', (o) => seen.push(o));
+    fireOverride('G1', { enabled: false });
+    pushOptimistic('G1', { enabled: true, status: 'unavailable', availableUntil: null });
+    expect(seen).toHaveLength(2);        // tick fan-out + optimistic fan-out
+    expect(seen[1].enabled).toBe(true);  // delivered before pushOptimistic returned
+  });
+
+  test('server tick overwrites optimistic wholesale (last-writer-wins)', () => {
+    setWatchedGroups(['G1']);
+    pushOptimistic('G1', { enabled: true, statusColor: '#abc' });
+    fireOverride('G1', { enabled: true, status: 'unavailable', availableUntil: null });
+    expect(getOwnOverride('G1')).toEqual({ enabled: true, status: 'unavailable', availableUntil: null });
+  });
+
+  test('no replay before first tick; a real null replays after (never a fabricated null)', () => {
+    const seen = [];
+    subscribeOwnOverride('G2', (o) => seen.push(o));
+    expect(seen).toHaveLength(0);        // not ticked → no replay
+    fireOverride('G2', null);
+    const late = [];
+    subscribeOwnOverride('G2', (o) => late.push(o));
+    expect(late).toEqual([null]);        // real null replays synchronously
+  });
+
+  test('optimistic write before any server tick marks the group ticked (create-group seed)', () => {
+    pushOptimistic('G3', { enabled: true, status: 'unavailable', availableUntil: null });
+    const seen = [];
+    subscribeOwnOverride('G3', (o) => seen.push(o));
+    expect(seen).toHaveLength(1);        // optimistic seed is a legitimate first value
+  });
+
+  test('setWatchedGroups ∪ consumers drives underlying subs', () => {
+    setWatchedGroups(['A', 'B']);
+    expect(db.watchOwnMemberOverride).toHaveBeenCalledTimes(2);
+    const unsub = subscribeOwnOverride('C', () => {}); // consumer-only group
+    expect(db.watchOwnMemberOverride).toHaveBeenCalledTimes(3);
+    setWatchedGroups(['A']);              // B dropped, C kept (consumer)
+    expect(unsubsCalledFor()).toEqual(['B']);
+    unsub();                             // C's last consumer leaves
+    expect(unsubsCalledFor()).toEqual(['B', 'C']);
   });
 });
