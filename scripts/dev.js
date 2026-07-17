@@ -20,10 +20,19 @@ async function main() {
   writeIndexHtml('On - Dev');
   writeAboutHtml('On - Dev');
 
+  // Stale chunks (from a prior split) must not linger — writeServiceWorker
+  // enumerates whatever's in dist/chunks/ to build the SW precache list.
+  const { rmSync } = require('fs');
+  rmSync('dist/chunks', { recursive: true, force: true });
+
   const ctx = await esbuild.context({
     entryPoints: ['js/app.ts'],
     bundle: true,
-    outfile: 'dist/bundle.js',
+    outdir: 'dist',
+    entryNames: 'bundle',
+    chunkNames: 'chunks/[name]-[hash]',
+    format: 'esm',
+    splitting: true,
     define,
   });
 

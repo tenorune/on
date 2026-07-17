@@ -111,14 +111,26 @@ function writeIndexHtml(defaultTitle) {
 // and the esbuild bundle so the hashed inputs exist.
 function writeServiceWorker() {
   const root = path.resolve(__dirname, '..');
+  const { readdirSync } = require('fs');
   const template = readFileSync(path.join(root, 'sw.template.js'), 'utf8');
+  /** @type {string[]} */
+  let chunks = [];
+  try {
+    chunks = readdirSync(path.join(root, 'dist', 'chunks'))
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => `/dist/chunks/${f}`)
+      .sort();
+  } catch { /* no chunks dir (pre-split build) */ }
   const hash = createHash('sha256');
-  for (const f of ['dist/bundle.js', 'dist/css/app.css', 'dist/css/canvas.css', 'index.html', 'manifest.json']) {
+  const hashed = ['dist/bundle.js', 'dist/css/app.css', 'dist/css/canvas.css', 'index.html', 'manifest.json', ...chunks.map((c) => c.slice(1))];
+  for (const f of hashed) {
     const p = path.join(root, f);
     if (existsSync(p)) hash.update(readFileSync(p));
   }
   const version = `knockknock-${hash.digest('hex').slice(0, 12)}`;
-  writeFileSync(path.join(root, 'sw.js'), template.replace(/__CACHE_VERSION__/g, version));
+  writeFileSync(path.join(root, 'sw.js'), template
+    .replace(/__CACHE_VERSION__/g, version)
+    .replace('__CHUNK_LIST__', chunks.join(',')));
   return version;
 }
 

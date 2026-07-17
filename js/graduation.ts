@@ -38,7 +38,7 @@ export function showGraduationInfo() {
 // stays up on failure so ↻-regen + re-tap is the retry; success reloads and
 // boot re-auths straight into the now-"linked" account.
 export async function startGraduation() {
-  await showRecoveryCodeModal(generateRecoveryCode(), async (rc) => {
+  await showRecoveryCodeModal(await generateRecoveryCode(), async (rc) => {
     try {
       await callGraduateTelegram(tgWebApp().initData, rc);
     } catch (e) {

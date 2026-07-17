@@ -72,8 +72,11 @@ test('onConfirm error with userMessage shows inline; a regen clears it', async (
   const errEl = document.getElementById('recovery-modal-error');
   expect(errEl.classList.contains('hidden')).toBe(false);
   expect(errEl.textContent).toBe('That phrase is taken.');
-  // Regenerating a new candidate phrase clears the collision error.
+  // Regenerating a new candidate phrase clears the collision error. onRotate
+  // is async (it awaits the lazy-loaded generateRecoveryCode), so clearErr()
+  // lands a microtask after the click, not synchronously.
   document.getElementById('recovery-rotate-btn').click();
+  await Promise.resolve(); await Promise.resolve();
   expect(errEl.classList.contains('hidden')).toBe(true);
 });
 

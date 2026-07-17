@@ -125,7 +125,7 @@ export function showLinkScreen() {
     const showError = (msg: string) => { error.textContent = msg; error.classList.remove('hidden'); };
     const onFormSubmit = (e: Event) => e.preventDefault();
     async function onSubmit() {
-      const normalized = parseRecoveryCode(input.value);
+      const normalized = await parseRecoveryCode(input.value);
       if (!normalized) { showError("That doesn't look like a secret phrase."); return; }
       setButtonBusy(submit, 'Linking…');
       try {

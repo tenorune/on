@@ -9,9 +9,13 @@
 const CACHE = '__CACHE_VERSION__';
 const SHELL = ['/', '/index.html', '/dist/css/app.css', '/dist/css/canvas.css', '/dist/bundle.js', '/manifest.json'];
 
+// Code-split chunks, substituted at build (comma-joined). The unsubstituted
+// template filters to [] so tests can load this file directly.
+const CHUNKS = '__CHUNK_LIST__'.split(',').filter((s) => s && s.indexOf('__') !== 0);
+
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL)),
+    caches.open(CACHE).then((cache) => cache.addAll(SHELL.concat(CHUNKS))),
   );
   self.skipWaiting();
 });

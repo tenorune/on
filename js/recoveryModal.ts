@@ -53,8 +53,8 @@ export function showRecoveryCodeModal(initialCode: string, onConfirm?: ((code: s
   if (kcForm) kcForm.addEventListener('submit', onKcSubmit);
 
   return new Promise<string | null>((resolve) => {
-    function onRotate() {
-      current = generateRecoveryCode();
+    async function onRotate() {
+      current = await generateRecoveryCode();
       text.textContent = current;
       if (kcPhrase) kcPhrase.value = current;
       if (copyBtn) copyBtn.textContent = 'Copy';

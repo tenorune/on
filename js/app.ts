@@ -256,7 +256,7 @@ async function ensureIdentity(pendingInviteToken: string | null = null) {
 }
 
 async function createNewAccount() {
-  const initial = generateRecoveryCode();
+  const initial = await generateRecoveryCode();
   // Account setup (sign-in + transactional share-code claim) runs inside the
   // modal's onConfirm hook, so the "I've saved it" button shows "Setting up…"
   // and the modal stays up through the round-trips instead of dropping to a
@@ -379,7 +379,7 @@ export function showRestoreScreen(): Promise<any> {
       await onSubmit();
     }
     async function onSubmit() {
-      const normalized = parseRecoveryCode(input.value);
+      const normalized = await parseRecoveryCode(input.value);
       if (!normalized) {
         // Malformed input is rejected instantly with no round-trip — no busy state.
         showError("That doesn't look like a secret phrase.");

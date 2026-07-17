@@ -123,63 +123,63 @@ const { generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } 
 const { WORDSET } = require('../js/wordlist');
 
 describe('generateRecoveryCode', () => {
-  test('returns 4 dash-separated lowercase words', () => {
-    const code = generateRecoveryCode();
+  test('returns 4 dash-separated lowercase words', async () => {
+    const code = await generateRecoveryCode();
     expect(code).toMatch(/^[a-z]+(?:-[a-z]+){3}$/);
   });
 
-  test('all 4 words are in the wordlist', () => {
-    const code = generateRecoveryCode();
+  test('all 4 words are in the wordlist', async () => {
+    const code = await generateRecoveryCode();
     for (const word of code.split('-')) {
       expect(WORDSET.has(word)).toBe(true);
     }
   });
 
-  test('generates different codes on successive calls', () => {
-    const codes = new Set(Array.from({ length: 50 }, generateRecoveryCode));
+  test('generates different codes on successive calls', async () => {
+    const codes = new Set(await Promise.all(Array.from({ length: 50 }, generateRecoveryCode)));
     expect(codes.size).toBeGreaterThan(40);
   });
 });
 
 describe('parseRecoveryCode', () => {
-  test('accepts standard dash form', () => {
-    const code = generateRecoveryCode();
-    expect(parseRecoveryCode(code)).toBe(code);
+  test('accepts standard dash form', async () => {
+    const code = await generateRecoveryCode();
+    expect(await parseRecoveryCode(code)).toBe(code);
   });
 
-  test('accepts space-separated form', () => {
-    const code = generateRecoveryCode();
+  test('accepts space-separated form', async () => {
+    const code = await generateRecoveryCode();
     const spaced = code.replace(/-/g, ' ');
-    expect(parseRecoveryCode(spaced)).toBe(code);
+    expect(await parseRecoveryCode(spaced)).toBe(code);
   });
 
-  test('accepts comma-separated form', () => {
-    const code = generateRecoveryCode();
+  test('accepts comma-separated form', async () => {
+    const code = await generateRecoveryCode();
     const commaed = code.split('-').join(', ');
-    expect(parseRecoveryCode(commaed)).toBe(code);
+    expect(await parseRecoveryCode(commaed)).toBe(code);
   });
 
-  test('normalizes case', () => {
-    const code = generateRecoveryCode();
-    expect(parseRecoveryCode(code.toUpperCase())).toBe(code);
+  test('normalizes case', async () => {
+    const code = await generateRecoveryCode();
+    expect(await parseRecoveryCode(code.toUpperCase())).toBe(code);
   });
 
-  test('rejects fewer than 4 tokens', () => {
-    expect(parseRecoveryCode('one-two-three')).toBeNull();
+  test('rejects fewer than 4 tokens', async () => {
+    expect(await parseRecoveryCode('one-two-three')).toBeNull();
   });
 
-  test('rejects more than 4 tokens', () => {
-    const code = generateRecoveryCode();
-    expect(parseRecoveryCode(code + '-extra')).toBeNull();
+  test('rejects more than 4 tokens', async () => {
+    const code = await generateRecoveryCode();
+    expect(await parseRecoveryCode(code + '-extra')).toBeNull();
   });
 
-  test('rejects tokens not in wordlist', () => {
-    expect(parseRecoveryCode('xyzzy-foo-bar-baz')).toBeNull();
+  test('rejects tokens not in wordlist', async () => {
+    expect(await parseRecoveryCode('xyzzy-foo-bar-baz')).toBeNull();
   });
 
-  test('rejects empty input', () => {
-    expect(parseRecoveryCode('')).toBeNull();
-    expect(parseRecoveryCode('   ')).toBeNull();
+  test('rejects empty input', async () => {
+    expect(await parseRecoveryCode('')).toBeNull();
+    expect(await parseRecoveryCode('   ')).toBeNull();
   });
 });
 
@@ -271,6 +271,9 @@ describe('showRecoveryCodeModal', () => {
     const p = showRecoveryCodeModal('alpha-bravo-charlie-delta');
     const before = document.getElementById('recovery-code-text').textContent;
     document.getElementById('recovery-rotate-btn').click();
+    // onRotate is now async (it awaits the lazy-loaded generateRecoveryCode),
+    // so the DOM update lands a microtask after the click, not synchronously.
+    await waitFor(() => document.getElementById('recovery-code-text').textContent !== before);
     const after = document.getElementById('recovery-code-text').textContent;
     expect(after).not.toBe(before);
     expect(after).toMatch(/^[a-z]+(?:-[a-z]+){3}$/);
@@ -281,9 +284,14 @@ describe('showRecoveryCodeModal', () => {
 
   test('committed code reflects the last shown after multiple rotates', async () => {
     const p = showRecoveryCodeModal('alpha-bravo-charlie-delta');
-    document.getElementById('recovery-rotate-btn').click();
-    document.getElementById('recovery-rotate-btn').click();
-    document.getElementById('recovery-rotate-btn').click();
+    let prev = document.getElementById('recovery-code-text').textContent;
+    for (let i = 0; i < 3; i++) {
+      document.getElementById('recovery-rotate-btn').click();
+      // Wait for each rotate to land before firing the next — onRotate is
+      // async now, so back-to-back clicks would otherwise race.
+      await waitFor(() => document.getElementById('recovery-code-text').textContent !== prev);
+      prev = document.getElementById('recovery-code-text').textContent;
+    }
     const finalCode = document.getElementById('recovery-code-text').textContent;
     document.getElementById('recovery-saved-btn').click();
     expect(await p).toBe(finalCode);
@@ -445,7 +453,7 @@ describe('showRestoreScreen', () => {
   test('shows "no account" error when userExists returns false', async () => {
     mockUserExists.mockResolvedValue(false);
     const { generateRecoveryCode } = require('../js/identity');
-    const code = generateRecoveryCode();
+    const code = await generateRecoveryCode();
     const p = showRestoreScreen();
     document.getElementById('restore-input').value = code;
     document.getElementById('restore-submit-btn').click();
@@ -461,7 +469,7 @@ describe('showRestoreScreen', () => {
     // require an auth session for THIS phrase's account. Without signing in
     // first, the read is denied and a valid phrase wrongly shows "no account".
     const { generateRecoveryCode } = require('../js/identity');
-    const code = generateRecoveryCode();
+    const code = await generateRecoveryCode();
     mockUserExists.mockImplementation(() => {
       expect(mockEnsureSignedIn).toHaveBeenCalledWith(code);
       return Promise.resolve(false);
@@ -480,7 +488,7 @@ describe('showRestoreScreen', () => {
     // reported as an unknown phrase — and must log the real cause.
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const { generateRecoveryCode } = require('../js/identity');
-    const code = generateRecoveryCode();
+    const code = await generateRecoveryCode();
     mockEnsureSignedIn.mockRejectedValueOnce(new Error('blocked by CSP'));
     const p = showRestoreScreen();
     document.getElementById('restore-input').value = code;
@@ -501,7 +509,7 @@ describe('showRestoreScreen', () => {
     // them to "start over" and discard a real identity. Must be retryable.
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const { generateRecoveryCode } = require('../js/identity');
-    const code = generateRecoveryCode();
+    const code = await generateRecoveryCode();
     mockUserExists.mockRejectedValue(new Error('network blip'));
     const p = showRestoreScreen();
     document.getElementById('restore-input').value = code;
@@ -517,7 +525,7 @@ describe('showRestoreScreen', () => {
 
   test('shows a busy "Restoring…" button while verifying, then reverts on error (retryable)', async () => {
     const { generateRecoveryCode } = require('../js/identity');
-    const code = generateRecoveryCode();
+    const code = await generateRecoveryCode();
     let resolveSignIn;
     mockEnsureSignedIn.mockReturnValue(new Promise((r) => { resolveSignIn = r; }));
     mockUserExists.mockResolvedValue(false);
@@ -552,7 +560,7 @@ describe('showRestoreScreen', () => {
 
   test('resolves with identity when code is valid and Firebase record exists', async () => {
     const { generateRecoveryCode, deriveUserIdFromRecoveryCode } = require('../js/identity');
-    const code = generateRecoveryCode();
+    const code = await generateRecoveryCode();
     const expectedUid = await deriveUserIdFromRecoveryCode(code);
     mockUserExists.mockResolvedValue(true);
     require('../js/db').getUser = jest.fn().mockResolvedValue({ code: 'XK7P2M' });

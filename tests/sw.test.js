@@ -52,6 +52,16 @@ describe('shell precache completeness', () => {
     const src = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'build.js'), 'utf8');
     expect(src).toMatch(/dist\/css\/canvas\.css/);
   });
+
+  test('unsubstituted CHUNKS placeholder filters to empty (template loads as-is)', async () => {
+    const { handlers, addAll } = loadSwWithMockSelf();
+    const waited = [];
+    handlers.install({ waitUntil: (p) => waited.push(p) });
+    await Promise.all(waited);
+    const cached = addAll.mock.calls[0][0];
+    expect(cached).toEqual(expect.arrayContaining(['/dist/bundle.js']));
+    expect(cached.some((u) => u.includes('__'))).toBe(false);
+  });
 });
 
 describe('fetch handler — only the same-origin shell is intercepted', () => {

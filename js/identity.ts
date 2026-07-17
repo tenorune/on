@@ -1,6 +1,4 @@
 // js/identity.ts
-import { WORDLIST, WORDSET } from './wordlist.js';
-
 const STORAGE_KEY = 'statusapp_identity';
 
 type Identity = { userId: string; code: string; recoveryCode: string };
@@ -14,7 +12,8 @@ function generateCode(): string {
   return code;
 }
 
-function generateRecoveryCode(): string {
+async function generateRecoveryCode(): Promise<string> {
+  const { WORDLIST } = await import('./wordlist.js');
   const words = [];
   const buf = new Uint32Array(4);
   crypto.getRandomValues(buf);
@@ -26,7 +25,7 @@ function generateRecoveryCode(): string {
   return words.join('-');
 }
 
-function parseRecoveryCode(input: unknown): string | null {
+async function parseRecoveryCode(input: unknown): Promise<string | null> {
   if (typeof input !== 'string') return null;
   const normalized = input
     .toLowerCase()
@@ -35,6 +34,7 @@ function parseRecoveryCode(input: unknown): string | null {
   if (!normalized) return null;
   const tokens = normalized.split('-');
   if (tokens.length !== 4) return null;
+  const { WORDSET } = await import('./wordlist.js');
   for (const t of tokens) {
     if (!WORDSET.has(t)) return null;
   }
