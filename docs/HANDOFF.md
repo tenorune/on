@@ -11,30 +11,28 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**No queued work** — the 2026-07-17 UI-fix batch (PR #294) is merged to `dev`.
-Next scope comes from the operator. Branch off `dev`.
+**Feature development** — scope comes from the operator; nothing is queued.
+Branch off `dev` (tip `2e6b696`, all suites green: 1812 web / 360 functions /
+both typechecks).
 
 Open follow-ups, triaged 2026-07-17:
 
 - **#290** — "Continue in browser" dead tap in the Instagram/FB in-app browser
-  (`js/about-cta.js` escape schemes silently cancelled). Best next UI fix;
-  candidate fixes A/B/C are enumerated in the issue.
+  (`js/about-cta.js` escape schemes silently cancelled). Candidate fixes A/B/C
+  are enumerated in the issue.
 - **#286** — no revoke/regenerate/rename for invites on the Telegram surface.
   Feature-sized (new drawer affordance).
 - **#288** — RTDB rule weakness (self-join any group by gid). Security, not UI;
   the issue says the fix is the maintainer's call.
+- **Device smoke pending:** the same-frame Direct status swap (`d2d4aa8` — the
+  200ms label crossfade removed at the operator's call) merged to `dev`
+  unverified on device. Earlier fixes in the same batch (splash gating on
+  restore + invite arrival, optimistic Direct toggle) ARE device-verified.
 - **Closed-unreproduced (2026-07-17): "revoked follow request still in inbox."**
-  Investigation on record: the web revoke path is live by construction
-  (sender-cancel deletes the exact `followRequests/{target}/{requester}` node the
-  recipient's inbox watches, `js/inbox.ts:65-74`). The one surface that provably
-  keeps a stale request visible is the recipient's **Telegram bot chat** — the
-  "[Approve][Decline]" DM persists after cancel and only resolves lazily on tap
-  ("This request is gone.", `functions/telegram.js:749-763`); a proactive fix
-  needs message-id storage at notify time + an `onValueDeleted` trigger. Reopen
-  only with a repro recipe (surface, device, backgrounded-or-not).
-- **Device walkthrough pending** on the PR #294 visual fixes: real-Safari tap
-  behavior, popover flip on a phone bottom, desktop-PWA title-bar repaint —
-  jsdom can't prove those; the operator smokes them.
+  The one surface that provably keeps a stale request visible is the recipient's
+  Telegram bot chat (lazy resolve on tap, `functions/telegram.js:749-763`); a
+  proactive fix needs message-id storage + an `onValueDeleted` trigger. Reopen
+  only with a repro recipe.
 
 ## On-ramp
 
@@ -94,10 +92,25 @@ proxy and would abort an `&&` chain. Functions deps are required for
 ## Landmines (read before touching code)
 
 - **Shallow clone → false "unrelated histories."** Fresh containers clone shallow
-  (`.git/shallow`), which truncates history so `git merge-base` finds no common
-  ancestor and merges refuse with *"refusing to merge unrelated histories."* Run
-  `git fetch --unshallow origin` **before** any cross-branch merge/compare/ancestry
-  check. (Cost a full false-alarm investigation on 2026-07-17.)
+  (`.git/shallow`). Run `git fetch --unshallow origin` **before** any cross-branch
+  merge/compare/ancestry check.
+- **Splash gating has two modes** (`js/app.ts`): warm boots gate on the LOCAL
+  followee count; any boot that calls `rearmSplash()` (fresh-device restore,
+  invite-redemption boots landing in Direct) sets `coldSplashGating` and gates on
+  SERVER truth — first following-list tick + per-followee presence + group set
+  with names (one-shot callbacks in `following.ts` / `groupNav.ts`). Don't
+  re-introduce local-cache reads into the cold path, and don't dismiss the splash
+  early in the redemption branch — a fast no-prompt outcome reverses the fade
+  mid-transition (device-visible artifact, fixed 2026-07-17).
+- **Direct header setters are optimistic + idempotent** (`js/me.ts`): paint first,
+  background write, and the RTDB echo is absorbed by DOM-keyed guards
+  (`setAvailable` skips on same window via `_countdownUntil`; `setUnavailable`
+  skips when dot off + chips faded). Re-adding an `await` before paint or
+  removing the guards re-creates the "UI is thinking" double-render.
+- **`tests/following.test.js` uses `jest.resetModules()` mid-file** — a
+  `require('../js/following.js')` inside a later test body returns a DIFFERENT
+  module instance than the top-level destructure. Bind new exports at
+  describe-eval time (see the notes inside that file).
 - **`js/features.js` stays `.js`** — `scripts/build.js` reads it as *source text*
   (regex for `TELEGRAM_ENABLED`), so it can't be a `.ts`/bundled module.
 - **The `about-*.js` trio stays `.js`** — served raw / source-text-read. Decided; do
@@ -115,6 +128,8 @@ proxy and would abort an `&&` chain. Functions deps are required for
   config silently no-op (fail-closed). CI passes these via the build step's `env:`.
 - **`structuredClone` in product code** (`js/store.ts`) sets a Safari 15.4 / iOS 15.4
   floor. Fine per the es2022 target; revisit only if pre-15.4 iOS users surface.
+- **Run typechecks from the repo root** — a lingering `cd functions` breaks them.
+- **`jest.clearAllMocks()` doesn't clear `mockResolvedValue` implementations.**
 
 ---
 
@@ -122,22 +137,22 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped and is on `dev`. Detail is in git + plans + the archived handoff.
 
-- **UI-fix batch (2026-07-17, PR #294)** — six operator-reported defects, TDD:
-  app-wide double-tap-zoom kill (`touch-action: manipulation` on body, pinch kept),
-  notify-popover flip-above-bell when clipping, confirm modals on follow-request
-  send AND cancel, "(Name) in (group) wants to follow you" copy on all three
-  surfaces, desktop-PWA title-bar color via a live `theme-color` meta mirror.
+- **Boot/status polish batch (2026-07-17, session 2; PR #296 + direct merges to
+  `2e6b696`)** — five TDD fixes: (1) post-restore splash gates on server truth,
+  not the empty local cache (regression of the June `aac5e24` fix, exposed by the
+  ownStatus synchronous replay); (2) invite-redemption boots landing in Direct
+  re-arm the splash over the reveal; (3) already-member short-circuits before the
+  group displayname prompt; (4) splash stays solid through no-prompt redemptions
+  (mid-fade reversal artifact); (5) Direct status toggle is optimistic with
+  echo-absorbing setters, then the 200ms label crossfade removed entirely
+  (same-frame swap). Suite `tests/app-restore-splash.test.js` pins the gating.
+  All device-verified except the crossfade removal (see What's next).
+- **UI-fix batch (2026-07-17, PR #294)** — six operator-reported defects
+  (tap-zoom kill, popover flip, follow-request confirms + copy, title-bar color).
   Detail in the 7 commit messages on the PR.
 - **TypeScript adoption (phase-0)** — full `js/*.js` → `js/*.ts` migration + strict
-  `checkJs` across `scripts/` and `functions/`, code-analysis roadmap executed and
-  audited. History in git; `about-*.js` and `features.js` deliberately left `.js`
-  (see Landmines).
+  `checkJs`; `about-*.js` and `features.js` deliberately left `.js` (see Landmines).
 - **Client-performance plan (2026-07-17)** — 8 tasks, plan at
-  `docs/superpowers/plans/2026-07-17-client-performance.md`, execution ledger at
-  `.superpowers/sdd/progress.md`: CSS minify → dist/css, preconnect hints, ESM
-  code-splitting (lazy 78 KB wordlist), lazy firebase/messaging, async Telegram
-  bridge, delta canvas live-draw, store parse memoization, label-only 60s refresh,
-  plus modulepreload for the eager chunk chain. Eager boot JS **509,669 B min /
-  142,478 B gz** (from a 592,530 / 175,089 baseline); wordlist + messaging + canvas
-  now load as lazy chunks. Device-smoked; Telegram app-URL revert + functions
-  redeploy done.
+  `docs/superpowers/plans/2026-07-17-client-performance.md`: CSS minify,
+  preconnect, ESM code-splitting (lazy wordlist/messaging/canvas), store parse
+  memoization, label-only 60s refresh. Eager boot JS 509,669 B min / 142,478 B gz.
