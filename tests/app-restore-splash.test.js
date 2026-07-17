@@ -396,11 +396,19 @@ describe('post-restore splash gating (fresh-device restore)', () => {
     invites.attemptRedeemFromUrl
       .mockResolvedValueOnce({ ok: false, reason: 'needs-display-name', groupId: 'G1', groupName: 'Family', cache: {} })
       .mockResolvedValueOnce(secondResult);
-    require('../js/groupDisplayNamePrompt.js').showGroupDisplayNamePrompt.mockResolvedValue('Alex');
+    // The prompt is interactive and sits below splash z-1000 — the splash must
+    // be dismissed by the time it opens (and not before something needs it).
+    let fadingAtPrompt = null;
+    require('../js/groupDisplayNamePrompt.js').showGroupDisplayNamePrompt.mockImplementation(async () => {
+      fadingAtPrompt = splashFading();
+      return 'Alex';
+    });
 
     require('../js/app');
     await flush();
     await flush();
+
+    expect(fadingAtPrompt).toBe(true);
 
     const me = require('../js/me.js');
     const following = require('../js/following.js');
@@ -408,7 +416,43 @@ describe('post-restore splash gating (fresh-device restore)', () => {
     return { me, following, groupNav };
   }
 
-  test('already-member outcome re-arms the splash over the Direct reveal and holds it until server state resolves', async () => {
+  test('no-prompt already-member outcome keeps the splash SOLID through the redemption (no fade-out/fade-back artifact)', async () => {
+    // Post-short-circuit shape: already-member comes back from the FIRST call.
+    // Device-observed artifact: the branch used to dismiss the splash up
+    // front, so the fade began, then rearmSplash reversed it mid-transition —
+    // fade out, snap back to solid, fade again. The splash must not begin
+    // fading while the redemption round-trip is in flight.
+    const identity = require('../js/identity.js');
+    identity.loadIdentity.mockReturnValue(IDENTITY);
+    const invites = require('../js/invites.js');
+    invites.extractInviteTokenFromUrl.mockReturnValue('TOKEN');
+    let fadingAtRedeemCall = null;
+    invites.attemptRedeemFromUrl.mockImplementation(async () => {
+      fadingAtRedeemCall = splashFading() || splashEl().style.display === 'none';
+      return { ok: false, reason: 'already-member', groupId: 'G1', groupName: 'Family' };
+    });
+
+    require('../js/app');
+    await flush();
+    await flush();
+
+    expect(fadingAtRedeemCall).toBe(false); // splash still solid during the round-trip
+    expect(splashFading()).toBe(false);     // and still solid at boot completion
+    expect(splashEl().style.display).not.toBe('none');
+    expect(document.getElementById('invite-failure-overlay').classList.contains('hidden')).toBe(false);
+
+    // Server-truth gating still governs the fade.
+    const me = require('../js/me.js');
+    const following = require('../js/following.js');
+    const groupNav = require('../js/groupNav.js');
+    me.setOwnStatusReadyCallback.mock.calls.at(-1)[0]();
+    expect(splashFading()).toBe(false);
+    following.setFollowingListReadyCallback.mock.calls.at(-1)[0](0);
+    groupNav.setGroupsReadyCallback.mock.calls.at(-1)[0]();
+    expect(splashFading()).toBe(true);
+  });
+
+  test('already-member from the SECOND call (prompt-window race) re-arms the splash over the Direct reveal and holds it until server state resolves', async () => {
     const { me, following, groupNav } = await bootThroughGroupInviteRedemption(
       { ok: false, reason: 'already-member', groupId: 'G1', groupName: 'Family' },
     );

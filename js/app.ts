@@ -112,7 +112,8 @@ function dismissSplash() {
 // screen), so there's no pending transitionend listener to fight.
 // coldSplashGating additionally switches the splash-arm block to server-truth
 // gating: the local caches this boot would normally gate on may be empty or
-// stale. (Also used by the invite-redemption boot's Direct reveal.)
+// stale. (Also used by the invite-redemption boot's Direct reveal, where the
+// splash may never have been dismissed — then this is a flag-only no-op.)
 function rearmSplash() {
   splashDone = false;
   coldSplashGating = true;
@@ -715,13 +716,14 @@ async function resolveEntryContext(session: BootSession, intent: BootIntent, sto
   let landedInGroup = false;
 
   if (pendingInviteToken) {
-    // Dismiss the splash before redemption: the flow may show the
-    // displayname prompt (new joiner) or a failure overlay (revoked,
-    // already-member, etc.). Splash has z-index 1000 and would otherwise
-    // sit on top of those overlays — the user couldn't dismiss it because
-    // ensureIdentity dismisses splash only on welcome / stale paths, and
-    // signalReady doesn't fire until watchStatus is set up below.
-    dismissSplash();
+    // The splash stays up through the redemption round-trip. It is dismissed
+    // only right before the displayname prompt (the one interactive surface
+    // below splash z-1000 in this flow) — dismissing it up front started a
+    // fade that a fast no-prompt outcome (e.g. the already-member
+    // short-circuit) then reversed mid-transition via rearmSplash: fade out,
+    // snap back to solid, fade again (device-observed). Failure overlays and
+    // success toasts don't need an early dismiss — they surface when the
+    // Stage-5 gated fade drops the splash over the resolved app.
     // Hide #main-ui-direct AND #nav-row for the entirety of the redemption
     // flow so neither the empty Direct view nor the empty nav row flashes
     // between the recovery-code modal closing and the displayname prompt
@@ -747,6 +749,10 @@ async function resolveEntryContext(session: BootSession, intent: BootIntent, sto
     if (result && result.ok === false && result.reason === 'needs-display-name') {
       previewGroupName = result.groupName;
       const promptName = previewGroupName || 'this group';
+      // The prompt is interactive and sits below the splash — drop the splash
+      // now. The user then spends seconds typing, so the fade is long done
+      // before any post-prompt rearmSplash (no mid-fade reversal to fight).
+      dismissSplash();
       // C#8: prefill the Telegram first name (empty on web) so the Mini-App
       // prompt agrees with the bot's silent auto-fill instead of opening blank.
       const displayName = await showGroupDisplayNamePrompt(promptName, telegramFirstName());
@@ -794,15 +800,15 @@ async function resolveEntryContext(session: BootSession, intent: BootIntent, sto
     if (!landedInGroup) {
       if (directEl) directEl.classList.remove('hidden');
       if (navRowEl) navRowEl.classList.remove('hidden');
-      // Re-arm the splash over this reveal: the redemption flow dismissed it
-      // up front (the prompt/overlay sit below splash z-1000), so nothing
-      // covered the Direct shell while contact statuses and group names
-      // resolved — the same state-resolution flash as the restore path,
-      // reported for a member redeeming an invite to a group they already
-      // belong to ('already-member' only comes back from the SECOND redeem
-      // call, after the displayname prompt). Stage 5 gates the fade on server
-      // truth; a failure overlay or success toast simply becomes visible when
-      // the splash drops, over an already-resolved app.
+      // Keep the splash over this reveal so contact statuses and group names
+      // resolve behind it (the state-resolution flash otherwise shows here —
+      // originally reported for a member redeeming an invite to a group they
+      // already belong to). Two shapes: if the displayname prompt dismissed
+      // the splash, this re-shows it (the prompt took seconds — its fade is
+      // long done); if the splash never dropped (no-prompt outcome), this is
+      // a visual no-op that just switches Stage 5 to server-truth gating.
+      // A failure overlay or success toast simply becomes visible when the
+      // gated fade drops the splash over the already-resolved app.
       rearmSplash();
     }
   } else if (!isNew && !intent.pinDirect) {
