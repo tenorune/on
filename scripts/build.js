@@ -3,6 +3,18 @@
 const { readFileSync, writeFileSync, existsSync } = require('fs');
 const { createHash } = require('crypto');
 const path = require('path');
+const esbuild = require('esbuild');
+
+// Minified (prod) or plain (dev) copies of the stylesheets, served from
+// dist/css/. Sources in css/ stay readable; hosting ignores them (firebase.json).
+/** @param {boolean} minify */
+function buildCss(minify) {
+  esbuild.buildSync({
+    entryPoints: ['css/app.css', 'css/canvas.css', 'css/about.css'],
+    outdir: 'dist/css',
+    minify,
+  });
+}
 
 /**
  * @param {string} filename
@@ -82,7 +94,7 @@ function writeServiceWorker() {
   const root = path.resolve(__dirname, '..');
   const template = readFileSync(path.join(root, 'sw.template.js'), 'utf8');
   const hash = createHash('sha256');
-  for (const f of ['dist/bundle.js', 'css/app.css', 'css/canvas.css', 'index.html', 'manifest.json']) {
+  for (const f of ['dist/bundle.js', 'dist/css/app.css', 'dist/css/canvas.css', 'index.html', 'manifest.json']) {
     const p = path.join(root, f);
     if (existsSync(p)) hash.update(readFileSync(p));
   }
@@ -154,4 +166,4 @@ function writeAboutHtml(defaultTitle) {
   writeFileSync(outPath, out);
 }
 
-module.exports = { define, envFile, writeIndexHtml, writeServiceWorker, renderAbout, writeAboutHtml, invitePreviewUrl, readTelegramEnabled };
+module.exports = { define, envFile, writeIndexHtml, writeServiceWorker, renderAbout, writeAboutHtml, invitePreviewUrl, readTelegramEnabled, buildCss };

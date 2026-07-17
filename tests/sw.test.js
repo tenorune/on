@@ -45,12 +45,12 @@ describe('shell precache completeness', () => {
     const waited = [];
     handlers.install({ waitUntil: (p) => waited.push(p) });
     await Promise.all(waited);
-    expect(addAll).toHaveBeenCalledWith(expect.arrayContaining(['/css/canvas.css']));
+    expect(addAll).toHaveBeenCalledWith(expect.arrayContaining(['/dist/css/canvas.css']));
   });
 
   test('cache-version hash covers every SHELL stylesheet', () => {
     const src = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'build.js'), 'utf8');
-    expect(src).toMatch(/css\/canvas\.css/);
+    expect(src).toMatch(/dist\/css\/canvas\.css/);
   });
 });
 

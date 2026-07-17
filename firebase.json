@@ -13,7 +13,7 @@
   },
   "hosting": {
     "public": ".",
-    "ignore": ["firebase.json", ".firebaserc", "**/.*", "**/node_modules/**", "tests/**", "scripts/**", "docs/**", "package.json", "package-lock.json", "jest.config.js", "babel.config.js", "*.md"],
+    "ignore": ["firebase.json", ".firebaserc", "**/.*", "**/node_modules/**", "tests/**", "scripts/**", "docs/**", "css/**", "package.json", "package-lock.json", "jest.config.js", "babel.config.js", "*.md"],
     "rewrites": [
       { "source": "/about", "destination": "/about.html" },
       { "source": "/invite", "destination": "/about.html" },

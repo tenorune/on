@@ -2,7 +2,7 @@
 // scripts/prod.js — production build with .env.production config
 process.env.ENV = 'production';
 const esbuild = require('esbuild');
-const { define, envFile, writeIndexHtml, writeServiceWorker, writeAboutHtml } = require('./build.js');
+const { define, envFile, writeIndexHtml, writeServiceWorker, writeAboutHtml, buildCss } = require('./build.js');
 
 esbuild.buildSync({
   entryPoints: ['js/app.ts'],
@@ -21,6 +21,7 @@ esbuild.buildSync({
   sourcemap: true,
   define,
 });
+buildCss(true);
 
 const title = writeIndexHtml('KnockKnock');
 writeAboutHtml('KnockKnock');

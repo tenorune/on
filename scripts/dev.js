@@ -29,6 +29,12 @@ async function main() {
 
   await ctx.watch();
 
+  const cssCtx = await esbuild.context({
+    entryPoints: ['css/app.css', 'css/canvas.css', 'css/about.css'],
+    outdir: 'dist/css',
+  });
+  await cssCtx.watch();
+
   const { port } = await ctx.serve({
     servedir: '.',
     host: '0.0.0.0',
