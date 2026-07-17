@@ -29,6 +29,7 @@ import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
 import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
 import { isTelegramContext, ensureTelegramIdentity, isTelegramLinked, telegramFirstName } from './telegram.js';
+import { telegramBridgeReady } from './telegramBridge.js';
 import { initTelegramChrome } from './telegramChrome.js';
 import { telegramInviteGate, stampInviteOutcome, redemptionConsumedToken } from './telegramFirstRun.js';
 import { runLinkArrival } from './telegramLinkArrival.js';
@@ -973,6 +974,7 @@ async function initSurfaces(session: BootSession, intent: BootIntent, landing: L
 
 async function main() {
   if (await maybeRunDevReset()) return; // dev-only identity reset (env-gated); halts boot
+  await telegramBridgeReady(); // Telegram launches wait (bounded) for the async bridge; web boots don't
   const intent = parseBootIntent();      // Stage 0 (may redirect → null)
   if (!intent) return;
   const session = await resolveIdentity(intent);  // Stage 1 (may halt boot → null)

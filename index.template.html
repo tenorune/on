@@ -17,11 +17,11 @@
   -->
   <title>__APP_TITLE__</title>
   <!-- Telegram Mini App bridge. Inert outside Telegram (defines window.Telegram
-       with empty initData). Deferred so first paint doesn't wait on telegram.org
-       (W3-A CL#2): defer preserves document order, so this still executes before
-       the (also deferred) bundle and isTelegramContext() sees window.Telegram at
-       boot. Keep BOTH defer attributes or neither — order is the guarantee. -->
-  <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
+       with empty initData). `async`: the bundle does NOT wait for telegram.org —
+       Telegram launches are detected from the URL fragment and explicitly await
+       this script via telegramBridgeReady() (js/telegramBridge.ts) before any
+       isTelegramContext() read. Keep id="tg-bridge" — the await keys off it. -->
+  <script id="tg-bridge" src="https://telegram.org/js/telegram-web-app.js" async></script>
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png" />
   <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
