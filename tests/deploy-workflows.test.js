@@ -36,4 +36,15 @@ describe.each([
   test('still deploys functions (the step this guard protects)', () => {
     expect(wf).toMatch(/--only [^\n]*functions/);
   });
+
+  test('typechecks scripts/ alongside the root typecheck before deploy', () => {
+    // scripts/*.js are covered by tsconfig.scripts.json (Node-typed), separate
+    // from the browser root tsconfig; both must gate CI so a scripts type
+    // regression fails the build the same way a client one does.
+    const scriptsCheck = wf.indexOf('npm run typecheck:scripts');
+    const deploy = wf.indexOf('npx firebase deploy');
+    expect(scriptsCheck).toBeGreaterThan(-1);
+    expect(deploy).toBeGreaterThan(-1);
+    expect(scriptsCheck).toBeLessThan(deploy);
+  });
 });

@@ -4,9 +4,14 @@ const { readFileSync, writeFileSync, existsSync } = require('fs');
 const { createHash } = require('crypto');
 const path = require('path');
 
+/**
+ * @param {string} filename
+ * @returns {Record<string, string>}
+ */
 function loadEnv(filename) {
   const envPath = path.resolve(__dirname, '..', filename);
   if (!existsSync(envPath)) return {};
+  /** @type {Record<string, string>} */
   const vars = {};
   readFileSync(envPath, 'utf8').split('\n').forEach(line => {
     line = line.trim();
@@ -33,6 +38,7 @@ const FIREBASE_KEYS = [
   'FIREBASE_VAPID_KEY',
 ];
 
+/** @type {Record<string, string>} */
 const define = {};
 FIREBASE_KEYS.forEach(key => {
   define[`process.env.${key}`] = JSON.stringify(env[key] || 'REPLACE_ME');
@@ -42,7 +48,7 @@ FIREBASE_KEYS.forEach(key => {
 // precedence as writeIndexHtml/writeAboutHtml). CI builds rely on this — the
 // FIREBASE_CONFIG_* secrets are write-only blobs, so the deploy workflows
 // pass these through the Build step's `env:` instead of the secret.
-const envVal = (key) => process.env[key] || env[key] || '';
+const envVal = (/** @type {string} */ key) => process.env[key] || env[key] || '';
 
 // Optional Mini App deep-link base, e.g. "https://t.me/knockknock_test_bot/app".
 // Empty (not REPLACE_ME) when unset so client code can feature-detect it.
@@ -53,10 +59,12 @@ define['process.env.TELEGRAM_APP_LINK'] = JSON.stringify(envVal('TELEGRAM_APP_LI
 define['process.env.DEV_RESET_SECRET'] = JSON.stringify(envVal('DEV_RESET_SECRET'));
 define['process.env.DEV_RESET_HOSTS']  = JSON.stringify(envVal('DEV_RESET_HOSTS'));
 
+/** @param {unknown} s */
 function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** @param {string} defaultTitle */
 function writeIndexHtml(defaultTitle) {
   const templatePath = path.resolve(__dirname, '..', 'index.template.html');
   const outPath = path.resolve(__dirname, '..', 'index.html');
@@ -83,6 +91,10 @@ function writeServiceWorker() {
   return version;
 }
 
+/**
+ * @param {string} template
+ * @param {Record<string, string>} vars
+ */
 function renderAbout(template, vars) {
   const title = vars.APP_TITLE || 'KnockKnock';
   const region = vars.DATA_REGION
@@ -103,6 +115,7 @@ function renderAbout(template, vars) {
 // Absolute URL of the unauthenticated resolveInvitePreview callable, for the
 // /about page's invite framing (it has no Firebase config to derive it from).
 // Region is fixed at europe-west1 to match js/firebase-config.js getFunctions().
+/** @param {string} projectId */
 function invitePreviewUrl(projectId) {
   return projectId
     ? `https://europe-west1-${projectId}.cloudfunctions.net/resolveInvitePreview`
@@ -124,6 +137,7 @@ function readTelegramEnabled() {
   }
 }
 
+/** @param {string} defaultTitle */
 function writeAboutHtml(defaultTitle) {
   const templatePath = path.resolve(__dirname, '..', 'about.template.html');
   const outPath = path.resolve(__dirname, '..', 'about.html');

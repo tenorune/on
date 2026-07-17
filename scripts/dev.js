@@ -9,7 +9,7 @@ const PORT = 8080;
 function getLanAddress() {
   const nets = networkInterfaces();
   for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
+    for (const net of /** @type {import('os').NetworkInterfaceInfo[]} */ (nets[name])) {
       if (net.family === 'IPv4' && !net.internal) return net.address;
     }
   }
@@ -29,7 +29,7 @@ async function main() {
 
   await ctx.watch();
 
-  const { host, port } = await ctx.serve({
+  const { port } = await ctx.serve({
     servedir: '.',
     host: '0.0.0.0',
     port: PORT,

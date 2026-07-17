@@ -14,7 +14,8 @@
     "deploy:dev": "node scripts/dev-deploy.js",
     "test:rules": "firebase emulators:exec --only database --project demo-on \"jest --config jest.rules.config.js --runInBand\"",
     "sync-shared": "node scripts/sync-shared.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json"
   },
   "keywords": [],
   "author": "",
@@ -24,6 +25,7 @@
     "@babel/preset-env": "^7.29.0",
     "@babel/preset-typescript": "^7.29.7",
     "@firebase/rules-unit-testing": "^5.0.1",
+    "@types/node": "^26.1.1",
     "babel-jest": "^30.3.0",
     "canvas": "^3.2.1",
     "esbuild": "^0.27.4",

@@ -10,7 +10,9 @@
     "isolatedModules": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
+    "types": [],
     "lib": ["es2022", "dom", "dom.iterable"]
   },
-  "include": ["js/**/*", "shared/**/*", "types/**/*", "functions/*.js"]
+  "include": ["js/**/*", "shared/**/*", "types/**/*", "functions/**/*.js"],
+  "exclude": ["functions/node_modules", "functions/test", "node_modules"]
 }

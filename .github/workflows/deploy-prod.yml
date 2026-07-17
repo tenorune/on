@@ -30,6 +30,7 @@ jobs:
         working-directory: functions
       - run: npm run test:rules
       - run: npm run typecheck
+      - run: npm run typecheck:scripts
 
   deploy:
     needs: test

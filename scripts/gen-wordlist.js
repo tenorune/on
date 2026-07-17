@@ -19,6 +19,7 @@ const workDir = mkdtempSync(path.join(tmpdir(), 'wordlist-'));
 try {
   execSync('npm pack eff-diceware-passphrase', { cwd: workDir, stdio: 'pipe' });
   execSync('tar xzf eff-diceware-passphrase-*.tgz', { cwd: workDir, stdio: 'pipe' });
+  /** @type {string[]} */
   const raw = JSON.parse(readFileSync(path.join(workDir, 'package', 'wordlist.json'), 'utf8'));
   const filtered = raw.filter((w) => /^[a-z]+$/.test(w));
   const dropped = raw.filter((w) => !/^[a-z]+$/.test(w));

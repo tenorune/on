@@ -2,6 +2,7 @@
 const { createCanvas } = require('canvas');
 const fs = require('fs');
 
+/** @param {number} size */
 function makeIcon(size) {
   const canvas = createCanvas(size, size);
   const ctx = canvas.getContext('2d');
