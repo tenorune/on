@@ -20,6 +20,7 @@ import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, navigateToDirect, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
 import { routeNotificationClick } from './notifyRouting.js';
 import { initOwnStatus, subscribeOwnStatus } from './ownStatus.js';
+import { initStatusStore } from './statusStore.js';
 import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector, showToast } from './groups.js';
 import { initInbox, openInboxModal } from './inbox.js';
@@ -634,6 +635,10 @@ async function main() {
   // `inDirectCtx` gate on those writes (~L634), not fan-out order. The order still
   // matters for replay determinism — keep initOwnStatus before initNav. See ownStatus.js.
   initOwnStatus(userId);
+  // statusStore owns the per-group own-override watches that groupNav (via
+  // setWatchedGroups/subscribeOwnOverride) and groupContext consume. Init its
+  // userId before initNav → startCardsRowSubscriptions opens any watch.
+  initStatusStore(userId);
   initNav(userId);
   initNavRow();  // Must register its onContextChange listener BEFORE the
                  // enterGroupContext listener below, so renderNavRow runs first

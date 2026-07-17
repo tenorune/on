@@ -2,14 +2,17 @@
 // Navigation state machine: currentContext + group cards row.
 // State is in-memory; writes mirror to Firebase via setCurrentContext / setLastVisited.
 
-import { setLastVisited, watchUserGroups, watchGroupMeta, watchOwnMemberOverride, removeUserGroupsEntry, isAvailable } from './db.js';
+import { setLastVisited, watchUserGroups, watchGroupMeta, removeUserGroupsEntry, isAvailable } from './db.js';
 import { effectiveStatus } from './status.js';
 import { subscribeOwnStatus } from './ownStatus.js';
 import { setCurrentContext } from './prefs.js';
 import { safeCssColor, hexToRgb } from './utils.js';
 import { GROUPS_ENABLED } from './features.js';
 import { createGroup, toggleStatusOverride } from './groups.js';
-import { applyOptimisticOverride } from './groupContext.js';
+import { setWatchedGroups, subscribeOwnOverride as storeSubscribeOwnOverride, getOwnOverride, pushOptimistic } from './statusStore.js';
+// Own-override subscription now lives in statusStore; re-export so groupContext's
+// existing import keeps resolving until Task 3 repoints it to the store directly.
+export { subscribeOwnOverride } from './statusStore.js';
 import { openInviteModal } from './inviteModal.js';
 import { getCurrentFollowersMap, getCurrentMutuals } from './following.js';
 import { getGroupBadgeCount, getDirectBadgeCount } from './knock.js';
@@ -98,19 +101,17 @@ let _enumUnsub: (() => void) | null = null;
 let _ownPrimary: OwnPrimary | null = null;
 let _ownPrimaryUnsub: (() => void) | null = null;
 const _overrideByGroupId: Record<string, OverrideEntry> = {};
-const _overrideSubs: Record<string, () => void> = {}; // groupId → unsubscribe
-// Provider surface (used by groupContext to avoid double-watching the active
-// group). Consumers register per groupId; the underlying _metaSubs/_overrideSubs
-// fan out to them. "Ticked" tracks whether the underlying sub has delivered ≥1
-// value, so replay never hands a consumer a fabricated `null` (which reads as
-// "group deleted").
+// One statusStore subscription per enumerated group, mirroring the store's raw
+// override into _overrideByGroupId (the paint cache). The store now owns the
+// underlying watchOwnMemberOverride subs; groupNav just repaints on fan-out.
+const _overrideStoreUnsubs: Record<string, () => void> = {}; // groupId → unsubscribe
+// Provider surface for group META (used by groupContext to avoid double-watching
+// the active group). Consumers register per groupId; the underlying _metaSubs fan
+// out to them. "Ticked" tracks whether the underlying sub has delivered ≥1 value,
+// so replay never hands a consumer a fabricated `null` (which reads as "group
+// deleted"). The own-override provider moved to statusStore.
 const _metaConsumers: Record<string, Set<(meta: Record<string, unknown> | null) => void>> = {};      // groupId → Set<cb>
-const _overrideConsumers: Record<string, Set<(override: StatusOverride | null) => void>> = {};  // groupId → Set<cb>
 const _metaTicked = new Set<string>();
-const _overrideTicked = new Set<string>();
-const _overrideLastTick: Record<string, StatusOverride | null> = {}; // groupId → last RAW value from watchOwnMemberOverride
-                              // (incl. null); replay source, kept distinct from the
-                              // optimistic-merged _overrideByGroupId nav-render cache.
 const _createListeners = new Set<() => void>();
 // When true, renderNavRow is a no-op and won't touch the row's .hidden class.
 // Used by openCreateGroupModal's onSubmit to keep #nav-row hidden across the
@@ -136,17 +137,14 @@ export function startCardsRowSubscriptions() {
   for (const groupId of Object.keys(_metaSubs)) { _metaSubs[groupId](); }
   for (const k in _metaSubs) delete _metaSubs[k];
   for (const k in _metaByGroupId) delete _metaByGroupId[k];
-  for (const groupId of Object.keys(_overrideSubs)) { _overrideSubs[groupId](); }
-  for (const k in _overrideSubs) delete _overrideSubs[k];
+  for (const groupId of Object.keys(_overrideStoreUnsubs)) { _overrideStoreUnsubs[groupId](); }
+  for (const k in _overrideStoreUnsubs) delete _overrideStoreUnsubs[k];
   for (const k in _overrideByGroupId) delete _overrideByGroupId[k];
   _metaTicked.clear();
-  _overrideTicked.clear();
-  for (const k in _overrideLastTick) delete _overrideLastTick[k];
   // Consumer registries are cleared on a full reset (user switch / re-login) so
   // stale callbacks from the old session don't keep underlying subs alive or
   // receive ticks intended for a different user.
   for (const k in _metaConsumers) delete _metaConsumers[k];
-  for (const k in _overrideConsumers) delete _overrideConsumers[k];
   _enumeration = {};
   _ownPrimary = null;
 
@@ -154,6 +152,8 @@ export function startCardsRowSubscriptions() {
   _enumUnsub = watchUserGroups(_myUserId as string, (collection) => {
     _enumeration = (collection || {}) as Record<string, GroupEnumEntry>;
     syncMetaSubs();
+    setWatchedGroups(Object.keys(_enumeration));
+    syncOverrideConsumers();
     renderNavRow();
   });
   if (_ownPrimaryUnsub) _ownPrimaryUnsub();
@@ -170,9 +170,6 @@ export function startCardsRowSubscriptions() {
 
 function metaWantIds() {
   return new Set([...Object.keys(_enumeration), ...Object.keys(_metaConsumers)]);
-}
-function overrideWantIds() {
-  return new Set([...Object.keys(_enumeration), ...Object.keys(_overrideConsumers)]);
 }
 
 function syncMetaSubs() {
@@ -212,28 +209,27 @@ function syncMetaSubs() {
       });
     }
   }
+}
 
-  // Override-sub cleanup + setup (Phase 2)
-  const overrideWant = overrideWantIds();
-  for (const groupId of Object.keys(_overrideSubs)) {
-    if (!overrideWant.has(groupId)) {
-      _overrideSubs[groupId]();
-      delete _overrideSubs[groupId];
-      delete _overrideByGroupId[groupId];
-      _overrideTicked.delete(groupId);
-      delete _overrideLastTick[groupId];
+// One statusStore subscription per enumerated group, mirroring the store's raw
+// override value into _overrideByGroupId. The store owns the underlying watch and
+// the setWatchedGroups union keeps it alive; this callback just repaints the nav
+// row on each fan-out (server tick or optimistic push).
+function syncOverrideConsumers() {
+  const want = new Set(Object.keys(_enumeration));
+  for (const gid of Object.keys(_overrideStoreUnsubs)) {
+    if (!want.has(gid)) {
+      _overrideStoreUnsubs[gid]();
+      delete _overrideStoreUnsubs[gid];
+      delete _overrideByGroupId[gid];
     }
   }
-  for (const groupId of overrideWant) {
-    if (!_overrideSubs[groupId]) {
-      _overrideSubs[groupId] = watchOwnMemberOverride(groupId, _myUserId as string, (override) => {
-        _overrideTicked.add(groupId);
-        _overrideLastTick[groupId] = override;
-        if (override) _overrideByGroupId[groupId] = override;
-        else delete _overrideByGroupId[groupId];
+  for (const gid of want) {
+    if (!_overrideStoreUnsubs[gid]) {
+      _overrideStoreUnsubs[gid] = storeSubscribeOwnOverride(gid, (override) => {
+        if (override) _overrideByGroupId[gid] = override;
+        else delete _overrideByGroupId[gid];
         renderNavRow();
-        const consumers = _overrideConsumers[groupId];
-        if (consumers) for (const cb of [...consumers]) { try { cb(override); } catch { /* consumer threw */ } }
       });
     }
   }
@@ -346,22 +342,19 @@ function renderNavRowGroupMode(row: HTMLElement) {
         toggle.id = 'group-override-toggle';
         toggle.type = 'button';
         toggle.addEventListener('click', () => {
-          // Persistent node: read LIVE state at click time, never the render-
-          // time closure (the toggle outlives the render that painted it).
+          // Persistent node: read LIVE state at click time, never the render-time
+          // closure (the toggle outlives the render that painted it).
           const gid = _state.groupId as string;
-          // Preserve any existing statusColor/paletteKey across the toggle so
-          // the optimistic update matches what mergeStatusOverride leaves on
-          // the server. Without the spread, _ownOverride briefly has no
-          // statusColor and the user's group dot falls back to --my-status
-          // until the watch echo restores the field.
-          const existing = _overrideByGroupId[gid] || {};
+          const existing = getOwnOverride(gid) || {};
           const nextEnabled = !(existing.enabled === true);
-          const nextState = nextEnabled
-            ? { ...existing, enabled: true, status: 'unavailable', availableUntil: null }
-            : { ...existing, enabled: false, status: null, availableUntil: null };
-          _overrideByGroupId[gid] = nextState;
-          renderNavRow();
-          applyOptimisticOverride(nextState);
+          // pushOptimistic merges into the cached override, so statusColor/
+          // paletteKey survive the flip without hand-spreading (the store owns
+          // that invariant), and the synchronous fan-out repaints this nav row
+          // AND groupContext's own-status row before toggleStatusOverride's write
+          // round-trips.
+          pushOptimistic(gid, nextEnabled
+            ? { enabled: true, status: 'unavailable', availableUntil: null }
+            : { enabled: false, status: null, availableUntil: null });
           toggleStatusOverride(gid, _myUserId as string, nextEnabled).catch(() => {});
         });
         return toggle;
@@ -494,21 +487,20 @@ export function openCreateGroupModal() {
     // ticks to round-trip. Same idea as the invite-redemption flow's
     // setLastKnownGroupName prime.
     _lastKnownNames[result.groupId] = name;
-    _overrideByGroupId[result.groupId] = {
-      enabled: true,
-      status: 'unavailable',
-      availableUntil: null,
-    };
+    // Seed the override before navigateToGroup's emit: pushOptimistic marks the
+    // group ticked, so enterGroupContext's store subscription replays this seed
+    // synchronously — replacing the old direct cache write + post-navigate
+    // applyOptimisticOverride that had to repaint the own-status row
+    // enterGroupContext just reset.
+    pushOptimistic(result.groupId, { enabled: true, status: 'unavailable', availableUntil: null });
     // Re-enable renderNavRow so the next emit (inside navigateToGroup)
     // paints the group-mode nav with our seeded data.
     _suspendRenderNavRow = false;
     // navigateToGroup runs emit() synchronously (renderNavRow +
-    // enterGroupContext); apply the optimistic override to repaint the
-    // own-status row that enterGroupContext just reset, and open the invite
-    // modal — all before the await yields, so the first paint shows the
-    // group context + invite modal together with no intermediate states.
+    // enterGroupContext); open the invite modal too — all before the await
+    // yields, so the first paint shows the group context + invite modal together
+    // with no intermediate states.
     const navPromise = navigateToGroup(result.groupId);
-    applyOptimisticOverride({ enabled: true, status: 'unavailable', availableUntil: null });
     openInviteModal({
       scope: 'group',
       userId: _myUserId as string,
@@ -566,23 +558,6 @@ export function subscribeGroupMeta(groupId: string, cb: (meta: Record<string, un
   return () => {
     const set = _metaConsumers[groupId];
     if (set) { set.delete(cb); if (set.size === 0) delete _metaConsumers[groupId]; }
-    syncMetaSubs();
-  };
-}
-
-// Read-only subscription to the own member statusOverride for a group, backed
-// by groupNav's existing watchOwnMemberOverride. groupContext uses this for the
-// active group. (uid is groupNav's own _myUserId — consumers don't pass it.)
-export function subscribeOwnOverride(groupId: string, cb: (override: StatusOverride | null) => void) {
-  if (!_overrideConsumers[groupId]) _overrideConsumers[groupId] = new Set();
-  _overrideConsumers[groupId].add(cb);
-  syncMetaSubs();
-  if (_overrideTicked.has(groupId)) {
-    try { cb(_overrideLastTick[groupId] ?? null); } catch { /* replay threw */ }
-  }
-  return () => {
-    const set = _overrideConsumers[groupId];
-    if (set) { set.delete(cb); if (set.size === 0) delete _overrideConsumers[groupId]; }
     syncMetaSubs();
   };
 }
