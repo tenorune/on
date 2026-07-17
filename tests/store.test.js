@@ -145,5 +145,26 @@ test('setPaletteState round-trips via getPaletteState', () => {
   expect(loaded.sets['1'].selectedKey).toBe('gold');
 });
 
+describe('parse memoization', () => {
+  test('unchanged raw skips re-parse but still returns a fresh array', () => {
+    localStorage.setItem('statusapp_following', JSON.stringify([{ userId: 'u1', code: 'C1' }]));
+    const spy = jest.spyOn(JSON, 'parse');
+    const a = getFollowing();
+    const callsAfterFirst = spy.mock.calls.length;
+    const b = getFollowing();
+    expect(spy.mock.calls.length).toBe(callsAfterFirst); // second call: no parse
+    expect(b).toEqual(a);
+    expect(b).not.toBe(a); // fresh copy — callers mutate their list
+    spy.mockRestore();
+  });
+
+  test('a direct localStorage write between calls is honored (cross-tab safety)', () => {
+    localStorage.setItem('statusapp_following', JSON.stringify([{ userId: 'u1', code: 'C1' }]));
+    getFollowing();
+    localStorage.setItem('statusapp_following', JSON.stringify([{ userId: 'u2', code: 'C2' }]));
+    expect(getFollowing()).toEqual([{ userId: 'u2', code: 'C2' }]);
+  });
+});
+
 // Call-counter tests moved to tests/prefs.test.js — counters now sync via
 // userPrefs/{uid}/madeCallCount + answeredCallCount.

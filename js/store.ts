@@ -21,16 +21,27 @@ const DEFAULT_PALETTE_STATE = {
   },
 };
 
+// Raw-string memo: getFollowing is called from render loops and the 60s label
+// refresh; parsing the same string every call is pure waste. The raw value is
+// still read (and compared) every call, so direct/cross-tab writes are seen.
+let _followingRaw: string | null = null;
+let _followingParsed: FollowingEntry[] = [];
+
 function getFollowing(): FollowingEntry[] {
   const raw = localStorage.getItem(FOLLOWING_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(e => e && typeof e.userId === 'string' && typeof e.code === 'string');
-  } catch {
-    return [];
+  if (raw !== null && raw === _followingRaw) return _followingParsed.slice();
+  let parsed: FollowingEntry[] = [];
+  if (raw) {
+    try {
+      const p = JSON.parse(raw);
+      if (Array.isArray(p)) {
+        parsed = p.filter(e => e && typeof e.userId === 'string' && typeof e.code === 'string');
+      }
+    } catch { /* malformed → [] */ }
   }
+  _followingRaw = raw;
+  _followingParsed = parsed;
+  return parsed.slice();
 }
 
 function saveFollowing(list: FollowingEntry[]) {
@@ -92,13 +103,21 @@ function updateFollowingCode(userId: string, newCode: string) {
   ));
 }
 
+let _paletteRaw: string | null = null;
+let _paletteParsed: PaletteState | null = null;
+
 function getPaletteState(): PaletteState {
   const raw = localStorage.getItem(PALETTE_STATE_KEY);
+  if (raw !== null && raw === _paletteRaw && _paletteParsed) {
+    return structuredClone(_paletteParsed);
+  }
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed.activeSet === 'number' && parsed.sets && parsed.sets['1'] && parsed.sets['2']) {
-        return parsed;
+        _paletteRaw = raw;
+        _paletteParsed = parsed;
+        return structuredClone(parsed);
       }
     } catch { /* fall through to default */ }
   }
@@ -112,7 +131,9 @@ function getPaletteState(): PaletteState {
     localStorage.setItem(PALETTE_STATE_KEY, JSON.stringify(state));
     localStorage.removeItem(PALETTE_LEGACY_KEY);
   }
-  return state;
+  _paletteRaw = localStorage.getItem(PALETTE_STATE_KEY);
+  _paletteParsed = state;
+  return structuredClone(state);
 }
 
 function setPaletteState(state: unknown) {

@@ -22,3 +22,8 @@ if (typeof window !== 'undefined') {
   window.scrollTo = () => {};
 }
 
+// structuredClone polyfill for jsdom compatibility
+if (typeof globalThis.structuredClone === 'undefined') {
+  globalThis.structuredClone = (value) => JSON.parse(JSON.stringify(value));
+}
+
