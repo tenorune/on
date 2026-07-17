@@ -9,6 +9,10 @@ import { CHIP_VALUES, chipIndexForMinutes } from './status.js';
 
 let savingEnabled = false;
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
+// The availableUntil the running countdown targets — also the echo-absorb
+// marker: a subscription tick carrying exactly this window while the dot is
+// already available is the echo of our own optimistic write, not news.
+let _countdownUntil: number | null = null;
 let currentChipIndex = 3; // default: 2 hours
 let firstUseActive = false;
 let ownStatusSignalled = false;
@@ -46,30 +50,38 @@ export function initHeader(myUserId: string) {
   currentChipIndex = migrateToChipIndex();
   timeChip.textContent = CHIP_VALUES[currentChipIndex].text;
 
-  dot.addEventListener('click', async () => {
+  // Optimistic toggles: paint first, write in the background — parity with the
+  // group context's pushOptimistic path. Awaiting the write before painting
+  // cost a full server round-trip per toggle, and the RTDB echo then re-ran
+  // the label crossfade a second time ("the UI looks like it is thinking",
+  // device-reported). The setters' idempotence guards absorb the echo.
+  dot.addEventListener('click', () => {
     if (dot.classList.contains('available')) {
-      await setStatus(myUserId, 'unavailable', null);
       setUnavailable();
+      setStatus(myUserId, 'unavailable', null).catch(() => {});
     } else {
       const { minutes } = CHIP_VALUES[currentChipIndex];
       const availableUntil = Date.now() + minutes * 60000;
-      await setStatus(myUserId, 'available', availableUntil);
+      setAvailable(availableUntil);
+      setStatus(myUserId, 'available', availableUntil).catch(() => {});
       // prefs.setLastTimeout writes both localStorage AND
       // userPrefs/{uid}/lastTimeoutMinutes.
       setLastTimeout(minutes);
-      setAvailable(availableUntil);
     }
   });
 
-  timeChip.addEventListener('click', async () => {
+  timeChip.addEventListener('click', () => {
     if (!document.getElementById('my-dot')!.classList.contains('available')) return;
     currentChipIndex = (currentChipIndex + 1) % CHIP_VALUES.length;
     const { minutes, text } = CHIP_VALUES[currentChipIndex];
     timeChip.textContent = text;
     const availableUntil = Date.now() + minutes * 60000;
-    await setStatus(myUserId, 'available', availableUntil);
     const tr = document.getElementById('time-remaining')!;
     tr.textContent = formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
+    // Retarget the countdown (and the echo-absorb marker) without the full
+    // setAvailable crossfade — a chip tap only changes the window.
+    startCountdown(availableUntil);
+    setStatus(myUserId, 'available', availableUntil).catch(() => {});
     setLastTimeout(minutes);
   });
 
@@ -155,8 +167,28 @@ function setKnockKnock() {
   label.style.opacity = '1';
 }
 
+// (Re)start the 30s countdown toward availableUntil and record it as the
+// current target. Shared by setAvailable and the time-chip retarget.
+function startCountdown(availableUntil: number | null) {
+  _countdownUntil = availableUntil;
+  // clearInterval(null) is a no-op at runtime; the cast only appeases the checker.
+  clearInterval(countdownTimer as ReturnType<typeof setInterval>);
+  countdownTimer = setInterval(() => {
+    const ms = timeRemainingMs(availableUntil);
+    if (ms <= 0) {
+      setUnavailable();
+    } else {
+      document.getElementById('time-remaining')!.textContent = formatTimeRemaining(ms) + ' left';
+    }
+  }, 30000);
+}
+
 function setAvailable(availableUntil: number | null) {
   const dot = document.getElementById('my-dot')!;
+  // Idempotence: already available with this exact window → this is the RTDB
+  // echo of our own optimistic write; re-running would restart the label
+  // crossfade. A different window (sibling device) falls through and re-renders.
+  if (dot.classList.contains('available') && availableUntil === _countdownUntil) return;
   if (PALETTES_ENABLED && savingEnabled && !dot.classList.contains('available')) saveCombo(buildDirectCombo());
   // Track that user went available with a non-default color (for theme hint)
   if (PALETTES_ENABLED && !dot.classList.contains('available')) {
@@ -173,8 +205,7 @@ function setAvailable(availableUntil: number | null) {
   dot.classList.add('available');
   label.style.opacity = '0';
 
-  // clearInterval(null) is a no-op at runtime; the cast only appeases the checker.
-  clearInterval(countdownTimer as ReturnType<typeof setInterval>);
+  startCountdown(availableUntil);
 
   // After fade-out: swap content and fade in label + chips + time-remaining together
   setTimeout(() => {
@@ -195,15 +226,6 @@ function setAvailable(availableUntil: number | null) {
       timeRemaining.style.opacity = '1';
     });
   }, 200);
-
-  countdownTimer = setInterval(() => {
-    const ms = timeRemainingMs(availableUntil);
-    if (ms <= 0) {
-      setUnavailable();
-    } else {
-      document.getElementById('time-remaining')!.textContent = formatTimeRemaining(ms) + ' left';
-    }
-  }, 30000);
 }
 
 function setUnavailable() {
@@ -212,8 +234,15 @@ function setUnavailable() {
   const chips = document.getElementById('header-chips')!;
   const timeRemaining = document.getElementById('time-remaining')!;
 
+  // Idempotence: already fully unavailable (dot off AND the chips faded — the
+  // latter distinguishes an applied unavailable from the markup default) →
+  // this is the echo of our own optimistic write; skip the re-fade. The
+  // knock-knock first-use state keeps the dot available, so it never matches.
+  if (!dot.classList.contains('available') && chips.style.opacity === '0') return;
+
   // Immediate: dot changes, drawer closes, and label + chips start fading out together
   dot.classList.remove('available');
+  _countdownUntil = null;
   // clearInterval(null) is a no-op at runtime; the cast only appeases the checker.
   clearInterval(countdownTimer as ReturnType<typeof setInterval>);
 

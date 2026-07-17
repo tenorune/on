@@ -433,6 +433,115 @@ describe('setOwnStatusReadyCallback', () => {
   });
 });
 
+describe('optimistic Direct status toggle (parity with the group context)', () => {
+  // Device-reported defect: every Direct toggle awaited the setStatus write
+  // before painting (a full server round-trip), and the RTDB echo then re-ran
+  // the 200ms label crossfade a second time — "the UI looks like it is
+  // thinking". Group context paints synchronously (pushOptimistic). Direct
+  // must paint first and write in the background, and the echo of the exact
+  // optimistic state must not restart the animation.
+
+  test('dot click to available paints immediately, before the write resolves', () => {
+    getLastTimeout.mockReturnValue(120);
+    initHeader('uid1');
+    applyOwnStatus('unavailable', null);
+    jest.advanceTimersByTime(250);
+    setStatus.mockReturnValue(new Promise(() => {})); // write never resolves (slow network)
+
+    document.getElementById('my-dot').click();
+
+    expect(document.getElementById('my-dot').classList.contains('available')).toBe(true);
+    jest.advanceTimersByTime(250);
+    expect(document.getElementById('my-status-label').textContent).toBe('Available');
+    expect(setStatus).toHaveBeenCalledWith('uid1', 'available', expect.any(Number));
+  });
+
+  test('dot click to unavailable paints immediately, before the write resolves', () => {
+    getLastTimeout.mockReturnValue(120);
+    initHeader('uid1');
+    applyOwnStatus('available', Date.now() + 7200000);
+    jest.advanceTimersByTime(250);
+    setStatus.mockReturnValue(new Promise(() => {}));
+
+    document.getElementById('my-dot').click();
+
+    expect(document.getElementById('my-dot').classList.contains('available')).toBe(false);
+    jest.advanceTimersByTime(250);
+    expect(document.getElementById('my-status-label').textContent).toBe('Unavailable');
+    expect(setStatus).toHaveBeenCalledWith('uid1', 'unavailable', null);
+  });
+
+  test('the echo of the optimistic available state does not restart the label crossfade', () => {
+    getLastTimeout.mockReturnValue(120);
+    initHeader('uid1');
+    applyOwnStatus('unavailable', null);
+    jest.advanceTimersByTime(250);
+
+    document.getElementById('my-dot').click();
+    jest.advanceTimersByTime(250); // crossfade completes
+    const label = document.getElementById('my-status-label');
+    expect(label.style.opacity).toBe('1');
+
+    // The subscription echoes back the exact values the click wrote.
+    const writtenUntil = setStatus.mock.calls.at(-1)[2];
+    applyOwnStatus('available', writtenUntil);
+    expect(label.style.opacity).toBe('1'); // no fade-out restart
+    expect(label.textContent).toBe('Available');
+  });
+
+  test('the echo of the optimistic unavailable state does not restart the label crossfade', () => {
+    getLastTimeout.mockReturnValue(120);
+    initHeader('uid1');
+    applyOwnStatus('available', Date.now() + 7200000);
+    jest.advanceTimersByTime(250);
+
+    document.getElementById('my-dot').click(); // → unavailable
+    jest.advanceTimersByTime(250);
+    const label = document.getElementById('my-status-label');
+    expect(label.style.opacity).toBe('1');
+
+    applyOwnStatus('unavailable', null);
+    expect(label.style.opacity).toBe('1');
+    expect(label.textContent).toBe('Unavailable');
+  });
+
+  test('a cross-device change (different availableUntil) still re-renders', () => {
+    getLastTimeout.mockReturnValue(120);
+    initHeader('uid1');
+    applyOwnStatus('unavailable', null);
+    jest.advanceTimersByTime(250);
+    document.getElementById('my-dot').click();
+    jest.advanceTimersByTime(250);
+
+    const writtenUntil = setStatus.mock.calls.at(-1)[2];
+    applyOwnStatus('available', writtenUntil + 3600000); // sibling device picked a longer window
+    // Full re-render runs (crossfade restarts: label fades out first).
+    expect(document.getElementById('my-status-label').style.opacity).toBe('0');
+  });
+
+  test('time-chip tap updates the countdown text immediately with NO label crossfade, and its echo is absorbed', () => {
+    getLastTimeout.mockReturnValue(120);
+    initHeader('uid1');
+    applyOwnStatus('available', Date.now() + 7200000);
+    jest.advanceTimersByTime(250);
+    const label = document.getElementById('my-status-label');
+    setStatus.mockClear();
+    setStatus.mockReturnValue(new Promise(() => {}));
+
+    document.getElementById('time-chip').click();
+
+    // Immediate paint, no await.
+    expect(document.getElementById('time-remaining').textContent).toMatch(/ left$/);
+    expect(setStatus).toHaveBeenCalledWith('uid1', 'available', expect.any(Number));
+    expect(label.style.opacity).toBe('1'); // chip taps never crossfade the label
+
+    // Echo with the chip's new until — absorbed, still no crossfade.
+    const writtenUntil = setStatus.mock.calls.at(-1)[2];
+    applyOwnStatus('available', writtenUntil);
+    expect(label.style.opacity).toBe('1');
+  });
+});
+
 describe('saveCombo guard in setAvailable', () => {
   let applyOwnStatus, saveComboMock;
 
