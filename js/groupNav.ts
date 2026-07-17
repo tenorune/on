@@ -109,6 +109,11 @@ const _overrideStoreUnsubs: Record<string, () => void> = {}; // groupId → unsu
 // deleted"). The own-override provider moved to statusStore.
 const _metaConsumers: Record<string, Set<(meta: Record<string, unknown> | null) => void>> = {};      // groupId → Set<cb>
 const _metaTicked = new Set<string>();
+// One-shot groups-ready signal for the post-restore splash gating: fires once
+// the group set is known (first watchUserGroups tick) AND every enumerated
+// group has a meta tick (so the nav row renders real names, not groupIds).
+let onGroupsReady: (() => void) | null = null;
+let _enumTicked = false;
 const _createListeners = new Set<() => void>();
 // When true, renderNavRow is a no-op and won't touch the row's .hidden class.
 // Used by openCreateGroupModal's onSubmit to keep #nav-row hidden across the
@@ -127,8 +132,28 @@ export function initNavRow() {
   onContextChange(() => renderNavRow());
 }
 
+export function setGroupsReadyCallback(fn: () => void) {
+  onGroupsReady = fn;
+}
+
+function maybeSignalGroupsReady() {
+  if (!onGroupsReady || !_enumTicked) return;
+  for (const groupId of Object.keys(_enumeration)) {
+    if (!_metaTicked.has(groupId)) return;
+  }
+  const cb = onGroupsReady;
+  onGroupsReady = null;
+  cb();
+}
+
 export function startCardsRowSubscriptions() {
-  if (!_myUserId || !GROUPS_ENABLED) return;
+  if (!_myUserId || !GROUPS_ENABLED) {
+    // Nothing will ever enumerate — don't leave the splash gating waiting.
+    const cb = onGroupsReady;
+    onGroupsReady = null;
+    cb?.();
+    return;
+  }
 
   // Tear down any existing per-group subscriptions before re-subscribing.
   for (const groupId of Object.keys(_metaSubs)) { _metaSubs[groupId](); }
@@ -138,6 +163,7 @@ export function startCardsRowSubscriptions() {
   for (const k in _overrideStoreUnsubs) delete _overrideStoreUnsubs[k];
   for (const k in _overrideByGroupId) delete _overrideByGroupId[k];
   _metaTicked.clear();
+  _enumTicked = false;
   // Consumer registries are cleared on a full reset (user switch / re-login) so
   // stale callbacks from the old session don't keep underlying subs alive or
   // receive ticks intended for a different user.
@@ -148,10 +174,12 @@ export function startCardsRowSubscriptions() {
   if (_enumUnsub) _enumUnsub();
   _enumUnsub = watchUserGroups(_myUserId as string, (collection) => {
     _enumeration = (collection || {}) as Record<string, GroupEnumEntry>;
+    _enumTicked = true;
     syncMetaSubs();
     setWatchedGroups(Object.keys(_enumeration));
     syncOverrideConsumers();
     renderNavRow();
+    maybeSignalGroupsReady(); // an empty enumeration is ready immediately
   });
   if (_ownPrimaryUnsub) _ownPrimaryUnsub();
   _ownPrimaryUnsub = subscribeOwnStatus((data) => {
@@ -199,6 +227,7 @@ function syncMetaSubs() {
           }
         }
         renderNavRow();
+        maybeSignalGroupsReady();
         // Fan out AFTER groupNav's own reaction so consumer order matches the
         // historical attach order (groupNav before groupContext).
         const consumers = _metaConsumers[groupId];

@@ -169,7 +169,7 @@ const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, setFol
 const { getMadeCallCount, getAnsweredCallCount, isHintSeen } = require('../js/prefs.js');
 const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, switchSet } = require('../js/palettes.js');
 const {
-  initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees,
+  initList, setFolloweeReadyCallback, setFollowingListReadyCallback, updateFolloweeRow, resetRenderedFollowees,
   enterCallMode, exitCallMode, getCallModeCalleeId, reEnterCallMode, getIncomingCallFrom,
   _refreshTimeLabels,
 } = require('../js/following.js');
@@ -2632,5 +2632,48 @@ describe('60s time-label refresh', () => {
     expect(row.querySelector('.person-dot')).toBe(dotBefore);
     // … and the label reflects the current remaining time.
     expect(spanBefore.textContent).toMatch(/1\s*h|hour|9\d\s*min/i);
+  });
+});
+
+describe('setFollowingListReadyCallback (post-restore splash gating)', () => {
+  // A fresh-device restore arms the splash before any server data exists, so
+  // the gating needs the SERVER following-list size — the local cache is empty
+  // and syncFollowingFromServer's change-detection would stay silent on an
+  // unchanged (e.g. empty) list. The one-shot fires on the first watchFollowing
+  // tick regardless of diff outcome.
+  beforeEach(() => { setupDom(); require('../js/store.js').getFollowing.mockReturnValue([]); });
+
+  function initAndCaptureFollowingCallback() {
+    let followingCb;
+    watchFollowing.mockImplementation((_uid, cb) => { followingCb = cb; return jest.fn(); });
+    watchFollowers.mockReturnValue(jest.fn());
+    watchPresence.mockReturnValue(jest.fn());
+    initList('myUid', 'MYCODE');
+    return (arr) => followingCb(arr);
+  }
+
+  // NOTE: setFollowingListReadyCallback comes from the top-level destructure —
+  // requiring it here would hit a DIFFERENT module instance (earlier tests call
+  // jest.resetModules(), which rebinds the registry; see the notes above).
+  test('fires once with the count on the first server tick, even when the list is empty/unchanged', () => {
+    const ready = jest.fn();
+    setFollowingListReadyCallback(ready);
+    const fire = initAndCaptureFollowingCallback();
+    expect(ready).not.toHaveBeenCalled(); // only a real server tick counts
+    fire([]); // identical to the empty local cache — sync early-returns, the one-shot must still fire
+    expect(ready).toHaveBeenCalledWith(0);
+    fire([{ userId: 'u1', code: 'C1', label: '' }]);
+    expect(ready).toHaveBeenCalledTimes(1); // one-shot: later ticks don't re-fire
+  });
+
+  test('reports the server list size, not the empty local cache', () => {
+    const ready = jest.fn();
+    setFollowingListReadyCallback(ready);
+    const fire = initAndCaptureFollowingCallback();
+    fire([
+      { userId: 'u1', code: 'C1', label: 'One' },
+      { userId: 'u2', code: 'C2', label: 'Two' },
+    ]);
+    expect(ready).toHaveBeenCalledWith(2);
   });
 });
