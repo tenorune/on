@@ -283,6 +283,10 @@ function setupDom() {
         <button id="restore-cancel-btn" type="button">Cancel</button>
       </form>
     </div>
+    <div id="invite-failure-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+      <p id="invite-failure-message"></p>
+      <button id="invite-failure-continue" type="button">Continue</button>
+    </div>
     <div id="nav-row" class="nav-row hidden"></div>
     <div id="main-ui-direct" class="hidden"></div>
   `;
@@ -374,6 +378,74 @@ describe('post-restore splash gating (fresh-device restore)', () => {
     expect(splashFading()).toBe(false);
     groupsReady();
     expect(splashFading()).toBe(true);
+  });
+
+  // ── Invite-redemption boots ──────────────────────────────────────────────
+  // Same flash class as the restore path: the redemption branch dismisses the
+  // splash up front (so the displayname prompt / failure overlay are usable
+  // under splash z-1000), and any outcome that lands in Direct — e.g. a member
+  // redeeming an invite to a group they already belong to, which only learns
+  // 'already-member' from the SECOND redeem call, after the name prompt —
+  // revealed the Direct shell with nothing covering the state resolution.
+
+  async function bootThroughGroupInviteRedemption(secondResult) {
+    const identity = require('../js/identity.js');
+    identity.loadIdentity.mockReturnValue(IDENTITY); // existing user on this device
+    const invites = require('../js/invites.js');
+    invites.extractInviteTokenFromUrl.mockReturnValue('TOKEN');
+    invites.attemptRedeemFromUrl
+      .mockResolvedValueOnce({ ok: false, reason: 'needs-display-name', groupId: 'G1', groupName: 'Family', cache: {} })
+      .mockResolvedValueOnce(secondResult);
+    require('../js/groupDisplayNamePrompt.js').showGroupDisplayNamePrompt.mockResolvedValue('Alex');
+
+    require('../js/app');
+    await flush();
+    await flush();
+
+    const me = require('../js/me.js');
+    const following = require('../js/following.js');
+    const groupNav = require('../js/groupNav.js');
+    return { me, following, groupNav };
+  }
+
+  test('already-member outcome re-arms the splash over the Direct reveal and holds it until server state resolves', async () => {
+    const { me, following, groupNav } = await bootThroughGroupInviteRedemption(
+      { ok: false, reason: 'already-member', groupId: 'G1', groupName: 'Family' },
+    );
+
+    // The failure surface is queued (visible once the splash fades)…
+    expect(document.getElementById('invite-failure-overlay').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('invite-failure-message').textContent).toBe("You're already in that group.");
+    // …and the splash is re-armed over the reveal.
+    expect(splashEl().style.display).not.toBe('none');
+    expect(splashFading()).toBe(false);
+
+    // Server-truth gating, same as the restore path.
+    const ownReady = me.setOwnStatusReadyCallback.mock.calls.at(-1)[0];
+    const listReady = following.setFollowingListReadyCallback.mock.calls.at(-1)[0];
+    const groupsReady = groupNav.setGroupsReadyCallback.mock.calls.at(-1)[0];
+    const followeeReady = following.setFolloweeReadyCallback.mock.calls.at(-1)[0];
+    ownReady();
+    expect(splashFading()).toBe(false);
+    listReady(1);
+    groupsReady();
+    expect(splashFading()).toBe(false);
+    followeeReady();
+    expect(splashFading()).toBe(true);
+  });
+
+  test('new-joiner success lands in the group context and does NOT re-arm the splash', async () => {
+    const groupNavMock = require('../js/groupNav.js');
+    groupNavMock.getCurrentContext.mockReturnValue({ context: 'group', groupId: 'G1' });
+    const { following, groupNav } = await bootThroughGroupInviteRedemption(
+      { ok: true, groupId: 'G1', groupName: 'Family' },
+    );
+
+    expect(groupNav.navigateToGroup).toHaveBeenCalledWith('G1');
+    // Splash stays dismissed (the group context owns its own reveal) and the
+    // cold-gating callbacks are never registered.
+    expect(splashFading()).toBe(true);
+    expect(following.setFollowingListReadyCallback).not.toHaveBeenCalled();
   });
 
   test('normal boot (identity already on device) keeps the local-cache gating and never registers the server-list callbacks', async () => {
