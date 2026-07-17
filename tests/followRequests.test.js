@@ -133,13 +133,30 @@ describe('createRequestFollowButton', () => {
     expect(showToast).not.toHaveBeenCalled();
   });
 
-  test('cancelling a pending request needs no confirm modal', async () => {
+  test('a cancel click asks for confirmation naming the member', async () => {
     localStorage.setItem('statusapp_follow_requested', JSON.stringify(['tgt']));
     const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
     btn.click();
     await settle();
-    expect(showConfirmModal).not.toHaveBeenCalled();
+    expect(showConfirmModal).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Cancel your request to follow Bea?',
+      confirmLabel: 'Cancel request',
+      cancelLabel: 'Keep request',
+    }));
     expect(db.deleteFollowRequest).toHaveBeenCalledWith('tgt', 'me');
+  });
+
+  test('a dismissed cancel-confirm leaves the request pending', async () => {
+    localStorage.setItem('statusapp_follow_requested', JSON.stringify(['tgt']));
+    showConfirmModal.mockResolvedValueOnce(false);
+    const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
+    btn.click();
+    await settle();
+    expect(db.deleteFollowRequest).not.toHaveBeenCalled();
+    expect(isRequested('tgt')).toBe(true);
+    expect(btn.classList.contains('requested')).toBe(true);
+    expect(btn.disabled).toBe(false);
+    expect(showToast).not.toHaveBeenCalled();
   });
 
   test('a click does not bubble to the row (knock guard)', () => {

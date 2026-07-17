@@ -88,8 +88,18 @@ export function createRequestFollowButton(myUid: string, targetUid: string, grou
     btn.disabled = true;
     try {
       if (isRequested(targetUid)) {
-        await cancelFollowRequest(myUid, targetUid);
-        showToast(`You cancelled your request to follow ${displayName}.`);
+        // Same confirm treatment as sending (below): the requested-state
+        // button is the only cancel affordance and just as easy to fat-finger.
+        // 'Keep request' instead of a bare 'Cancel' so the two buttons can't
+        // read as the same action.
+        const cancelled = await showConfirmModal({
+          title: `Cancel your request to follow ${displayName}?`,
+          confirmLabel: 'Cancel request',
+          cancelLabel: 'Keep request',
+          busyLabel: 'Cancelling…',
+          onConfirm: () => cancelFollowRequest(myUid, targetUid),
+        });
+        if (cancelled) showToast(`You cancelled your request to follow ${displayName}.`);
       } else if (isFollowRequestEligible(targetUid)) {
         // Eligibility re-checked at click time: the button may have been
         // rendered against a not-yet-synced following cache (fresh-device boot
