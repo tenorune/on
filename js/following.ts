@@ -110,6 +110,25 @@ async function doConfirm() {
   }
 }
 
+// 60s tick: advance "available for …" labels in place. A row whose
+// availability actually FLIPPED (timer expired) gets the full repaint —
+// label-only would leave a green row claiming availability. Rows in call mode
+// have no .status-available span and also fall through to the full repaint.
+export function _refreshTimeLabels(myUserId: string) {
+  getFollowing().forEach((entry) => {
+    const userData = lastUserData.get(entry.userId);
+    if (!userData || userData.status !== 'available') return;
+    if (editingSet.has(entry.userId)) return;
+    if (!isAvailable(userData.status, userData.availableUntil)) {
+      updateFolloweeRow(entry, userData, myUserId); // expired since last tick — full state flip
+      return;
+    }
+    const span = followeeRow(entry.userId)?.querySelector('.status-available');
+    if (span) span.textContent = availableForText(userData.availableUntil);
+    else updateFolloweeRow(entry, userData, myUserId); // unexpected row shape — full paint
+  });
+}
+
 export function initList(myUserId: string, myCode: string, { onInviteRedeemed = null }: InitListOptions = {}) {
   myUserIdRef = myUserId;
   _onInviteRedeemed = onInviteRedeemed;
@@ -254,15 +273,8 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
     if (!call && callModeCalleeId !== null) handlePeerEnded(myUserId);
   });
 
-  // Refresh time labels every 60s
-  refreshInterval = setInterval(() => {
-    getFollowing().forEach((entry) => {
-      const userData = lastUserData.get(entry.userId);
-      if (!userData || userData.status !== 'available') return;
-      if (editingSet.has(entry.userId)) return;
-      updateFolloweeRow(entry, userData, myUserId);
-    });
-  }, 60000);
+  // Refresh time labels every 60s (label-only; see _refreshTimeLabels)
+  refreshInterval = setInterval(() => _refreshTimeLabels(myUserId), 60000);
 
   (document.getElementById('add-person-btn') as HTMLElement).addEventListener('click', () => {
     const form = (document.getElementById('add-person-form') as HTMLElement);

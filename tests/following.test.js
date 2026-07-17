@@ -171,6 +171,7 @@ const { getGlowForColor, getPaletteByKey, enterPaletteMode, exitPaletteMode, swi
 const {
   initList, setFolloweeReadyCallback, updateFolloweeRow, resetRenderedFollowees,
   enterCallMode, exitCallMode, getCallModeCalleeId, reEnterCallMode, getIncomingCallFrom,
+  _refreshTimeLabels,
 } = require('../js/following.js');
 const { createNotifyBell } = require('../js/notifyBell.js');
 
@@ -2607,5 +2608,29 @@ describe('unified redeem form (spec N6)', () => {
     document.getElementById('add-submit-btn').click();
     await flush();
     expect(document.getElementById('add-error').textContent).toBe("That doesn't look like a code or an invite link.");
+  });
+});
+
+describe('60s time-label refresh', () => {
+  beforeEach(() => { setupDom(); jest.clearAllMocks(); resetRenderedFollowees(); });
+
+  test('repaints only the availableFor text, not the whole row', () => {
+    const entry = { userId: 'u1', code: 'C1' };
+    getFollowing.mockReturnValue([entry]);
+    makeFolloweeLi('u1');
+    const data = { status: 'available', availableUntil: Date.now() + 90 * 60000, statusColor: '#22c55e' };
+    updateFolloweeRow(entry, data, 'me');
+    const row = document.querySelector('#people-list [data-user-id="u1"]');
+    const statusEl = row.querySelector('.person-status');
+    const spanBefore = statusEl.querySelector('.status-available');
+    const dotBefore = row.querySelector('.person-dot');
+
+    _refreshTimeLabels('me');
+
+    // Same nodes survived (no innerHTML rebuild) …
+    expect(row.querySelector('.status-available')).toBe(spanBefore);
+    expect(row.querySelector('.person-dot')).toBe(dotBefore);
+    // … and the label reflects the current remaining time.
+    expect(spanBefore.textContent).toMatch(/1\s*h|hour|9\d\s*min/i);
   });
 });
