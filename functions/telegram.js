@@ -1,4 +1,3 @@
-// @ts-check
 // functions/telegram.js — Telegram bot: notification keyboards + (Tasks 6–8)
 // the webhook command/callback router. Deps are injected; no network here.
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// @ts-check
 // One-shot, idempotent migration to the presence schema split.
 // Usage: cd functions && node migrate-presence.js --project <firebase-project-id>
 //        (dev RTDB is in europe-west1, the default; pass --region or

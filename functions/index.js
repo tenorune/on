@@ -1,4 +1,3 @@
-// @ts-check
 // functions/index.js — RTDB-triggered presence notifiers.
 import { randomBytes } from 'crypto';
 import { initializeApp } from 'firebase-admin/app';

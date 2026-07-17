@@ -1,4 +1,3 @@
-// @ts-check
 // functions/telegram-auth.js — Telegram Mini App auth: initData verification,
 // uid mapping/bootstrap, and the validate/link/unlink callable handlers.
 // Deps are injected (see index.js) so everything tests without firebase-admin.

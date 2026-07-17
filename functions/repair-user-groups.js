@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// @ts-check
 // One-shot, idempotent repair for users whose group nav entries were deleted by
 // the buggy first cut of migrate-presence.js (it nulled
 // users/{uid}/groups/{gid}/lastVisited — the record's only field — which deletes

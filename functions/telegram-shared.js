@@ -1,4 +1,3 @@
-// @ts-check
 // functions/telegram-shared.js — bot copy, keyboards, and id-format regexes
 // shared between the webhook (/start, telegram.js) and the Mini App auth
 // callable (first-open welcome DM, telegram-auth.js), kept here to avoid a

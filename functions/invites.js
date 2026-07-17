@@ -1,4 +1,3 @@
-// @ts-check
 // functions/invites.js
 import { HttpsError } from 'firebase-functions/v2/https';
 

@@ -1,4 +1,3 @@
-// @ts-check
 // functions/presence-core.js — pure, dependency-free decision logic.
 
 // A valid (numeric, future) availableUntil. null/absent/expired are all "not future".

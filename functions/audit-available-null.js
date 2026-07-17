@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// @ts-check
 // READ-ONLY audit — no writes, safe to run against production.
 // Finds any presence node or group status-override that is `status:'available'`
 // WITHOUT a concrete numeric availableUntil (null OR absent). That is the

@@ -1,4 +1,3 @@
-// @ts-check
 // functions/auth.js
 import { createHash } from 'crypto';
 import { HttpsError } from 'firebase-functions/v2/https';

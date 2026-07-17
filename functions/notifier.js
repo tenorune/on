@@ -1,4 +1,3 @@
-// @ts-check
 // functions/notifier.js — delivery + per-event handlers. Deps are injected.
 import { wantsKnock, wantsCall, wantsAvailability, availabilityTurnedOn, withinCooldown, buildMessage, effectiveAvailable } from './presence-core.js';
 import { telegramPreferred } from './_shared/notifyDelivery.js';
