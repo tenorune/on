@@ -16,6 +16,7 @@ import {
 } from './db.js';
 import { getFollowing } from './prefs.js';
 import { showToast } from './groups.js';
+import { showConfirmModal } from './promptModal.js';
 
 const REQUESTED_KEY = 'statusapp_follow_requested';
 
@@ -95,8 +96,18 @@ export function createRequestFollowButton(myUid: string, targetUid: string, grou
         // straight into a group). The 'following-synced' roster re-render
         // removes stale buttons, but never send a request to someone already
         // followed even if one is clicked first.
-        await requestToFollow(myUid, targetUid, groupId);
-        showToast(`You requested to follow ${displayName}.`);
+        // Confirm before sending: the roster affordance is a small icon in a
+        // drawer, easy to hit by accident. The write runs as the modal's
+        // onConfirm so a failure surfaces inline there (retry or cancel)
+        // instead of vanishing into a silent catch.
+        const sent = await showConfirmModal({
+          title: `Send a request to follow ${displayName}?`,
+          confirmLabel: 'Send request',
+          confirmVariant: 'affirmative',
+          busyLabel: 'Sending…',
+          onConfirm: () => requestToFollow(myUid, targetUid, groupId),
+        });
+        if (sent) showToast(`You requested to follow ${displayName}.`);
       }
     } catch {
       // Write failed — no toast; repaint below shows the true (unchanged) state
