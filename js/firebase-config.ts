@@ -1,7 +1,6 @@
 // js/firebase-config.ts
 import { initializeApp } from 'firebase/app';
 import { getDatabase } from 'firebase/database';
-import { getMessaging, isSupported } from 'firebase/messaging';
 import { getAuth } from 'firebase/auth';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
@@ -82,9 +81,12 @@ export async function callRedeemTelegramLinkToken(initData: string, token: strin
 
 let _messaging: import('firebase/messaging').Messaging | null = null;
 // Returns a Messaging instance, or null where unsupported (e.g. iOS Safari tab).
+// The messaging SDK (+installations, ~20KB) loads as a lazy chunk on first call —
+// it's not needed to paint the app, and unsupported contexts never pay for it.
 export async function getMessagingIfSupported() {
   try {
     if (_messaging) return _messaging;
+    const { getMessaging, isSupported } = await import('firebase/messaging');
     if (!(await isSupported())) return null;
     _messaging = getMessaging(app);
     return _messaging;

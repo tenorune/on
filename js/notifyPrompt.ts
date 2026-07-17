@@ -7,7 +7,6 @@ import { isBotDelivered, setRepromptActive } from './notifySuppression.js';
 import { escapeHatchTextHtml, syncEscapeHatchButton } from './telegramEscapeHatch.js';
 import { phraseReminderHtml, wirePhraseCopyButton } from './phraseReminder.js';
 import { getMessagingIfSupported } from './firebase-config.js';
-import { getToken } from 'firebase/messaging';
 
 const PROMO_HINT = 'notifyPromo';
 
@@ -49,6 +48,7 @@ export async function requestPermissionAndRegister() {
   const messaging = await getMessagingIfSupported();
   if (!messaging) return false;
   const registration = await navigator.serviceWorker.ready;
+  const { getToken } = await import('firebase/messaging');
   const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: registration });
   if (!token) return false;
   addPushToken(token);
@@ -76,6 +76,7 @@ export async function refreshPushToken() {
   const messaging = await getMessagingIfSupported();
   if (!messaging) return;
   const registration = await navigator.serviceWorker.ready;
+  const { getToken } = await import('firebase/messaging');
   const token = await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: registration });
   if (!token) return;
   const prev = getRegisteredPushToken();
