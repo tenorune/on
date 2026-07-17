@@ -10,7 +10,8 @@ import { subscribePresence } from './presenceHub.js';
 import { reconcileChildren } from './reconcile.js';
 import { safeCssColor, availableForText } from './utils.js';
 import { CHIP_VALUES, chipIndexForMinutes, effectiveStatus } from './status.js';
-import { navigateToDirect, applyOptimisticAppearance, subscribeGroupMeta, subscribeOwnOverride } from './groupNav.js';
+import { navigateToDirect, subscribeGroupMeta } from './groupNav.js';
+import { subscribeOwnOverride, getOwnOverride, pushOptimistic } from './statusStore.js';
 import { subscribeOwnStatus } from './ownStatus.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
@@ -1064,7 +1065,10 @@ export function enterGroupContext(groupId: string, userId: string) {
       const state = getGroupPaletteState(groupId);
       const seed = state.sets[String(state.activeSet)]?.selectedColor || null;
       if (seed) {
-        _ownOverride = { ..._ownOverride, statusColor: seed };
+        // pushOptimistic merges the seed into the store cache and fans out,
+        // re-entering this callback with the merged value; the !statusColor
+        // guard above then short-circuits, so it can't loop.
+        pushOptimistic(groupId, { statusColor: seed });
         setOverrideAppearance(groupId, userId, { statusColor: seed }).catch(() => {});
       }
     }
@@ -1094,12 +1098,7 @@ export function enterGroupContext(groupId: string, userId: string) {
       if (!overrideOn) return;  // read-only when toggle is OFF
       const currentlyAvailable = isAvailable((_ownOverride as OverrideEntry).status, (_ownOverride as OverrideEntry).availableUntil);
       if (currentlyAvailable) {
-        // Spread instead of replace — otherwise the optimistic update
-        // strips statusColor + paletteKey until the watch echo restores
-        // them, and the dot briefly falls back to --my-status (i.e. the
-        // user's Direct color).
-        _ownOverride = { ..._ownOverride, status: 'unavailable', availableUntil: null };
-        renderOwnStatusRow();
+        pushOptimistic(groupId, { status: 'unavailable', availableUntil: null });
         setOverrideStatusUnavailable(groupId, userId).catch(() => {});
       } else {
         // Read minutes via the chip-index lookup so we apply the same
@@ -1111,15 +1110,13 @@ export function enterGroupContext(groupId: string, userId: string) {
         const baseMinutes = getGroupChipMinutes(groupId) ?? getLastTimeout();
         const minutes = CHIP_VALUES[chipIndexForMinutes(baseMinutes)].minutes;
         const availableUntil = Date.now() + minutes * 60000;
-        // Spread preserves statusColor/paletteKey across the optimistic
-        // update — see the unavailable branch above for why.
-        _ownOverride = { ..._ownOverride, status: 'available', availableUntil };
-        renderOwnStatusRow();
+        pushOptimistic(groupId, { status: 'available', availableUntil });
         // Push the going-active combo to favorites — this is a real
         // unavailable→available transition with the user's committed
-        // group-effective color + palette.
+        // group-effective color + palette. Read the store cache (the push's
+        // synchronous fan-out has already merged status:available into it).
         saveCombo(buildGroupCombo({
-          ownOverride: _ownOverride,
+          ownOverride: getOwnOverride(groupId),
           ownPrimary: _ownPrimary,
           paletteState: getGroupPaletteState(groupId),
         }));
@@ -1163,10 +1160,7 @@ export function enterGroupContext(groupId: string, userId: string) {
       const currentlyAvailable = isAvailable((_ownOverride as OverrideEntry).status, (_ownOverride as OverrideEntry).availableUntil);
       if (currentlyAvailable) {
         const availableUntil = Date.now() + minutes * 60000;
-        // Spread preserves statusColor/paletteKey across the optimistic
-        // update.
-        _ownOverride = { ..._ownOverride, status: 'available', availableUntil };
-        renderOwnStatusRow();
+        pushOptimistic(groupId, { status: 'available', availableUntil });
         setOverrideStatusAvailable(groupId, userId, availableUntil).catch(() => {});
       }
     });
@@ -1230,17 +1224,6 @@ export function exitGroupContext() {
 function getCurrentGroupId() { return _currentGroupId; }
 
 /**
- * Apply an optimistic override update from elsewhere (e.g. the chain-icon
- * toggle in groupNav.js, which lives outside this module's DOM scope but
- * needs to keep _ownOverride in sync so the dot/chip click handlers here
- * see the latest state before Firebase round-trips back).
- */
-export function applyOptimisticOverride(override: OverrideEntry | null) {
-  _ownOverride = override || null;
-  renderOwnStatusRow();
-}
-
-/**
  * Apply an adopted (statusColor, paletteKey) pair to this group's state.
  * Performs the optimistic UI update, picker mirror, and fire-and-forget
  * Firebase write — but does NOT push to favorites or mark hints (those
@@ -1254,11 +1237,12 @@ export function applyAdoptedComboInGroup(adoptedColor: string, adoptedPaletteKey
   const groupId = _currentGroupId;
   if (!groupId || !_ownOverride?.enabled || !_currentUserId) return;
 
-  // Optimistic local mutation.
-  const newOverride = { ..._ownOverride, statusColor: adoptedColor, paletteKey: adoptedPaletteKey };
-  applyOptimisticOverride(newOverride);   // _ownOverride + renderOwnStatusRow
+  // Optimistic local mutation: one push covers both this module's own-status
+  // row (via the store subscription) and groupNav's card border — the two
+  // renders the old applyOptimisticOverride + applyOptimisticAppearance pair
+  // did separately.
+  pushOptimistic(groupId, { statusColor: adoptedColor, paletteKey: adoptedPaletteKey });
   applyEffectivePalette();                // CSS vars in group context
-  applyOptimisticAppearance(groupId, { statusColor: adoptedColor, paletteKey: adoptedPaletteKey });
 
   // Picker mirror.
   const state = getGroupPaletteState(groupId);

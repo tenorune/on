@@ -10,9 +10,6 @@ import { safeCssColor, hexToRgb } from './utils.js';
 import { GROUPS_ENABLED } from './features.js';
 import { createGroup, toggleStatusOverride } from './groups.js';
 import { setWatchedGroups, subscribeOwnOverride as storeSubscribeOwnOverride, getOwnOverride, pushOptimistic } from './statusStore.js';
-// Own-override subscription now lives in statusStore; re-export so groupContext's
-// existing import keeps resolving until Task 3 repoints it to the store directly.
-export { subscribeOwnOverride } from './statusStore.js';
 import { openInviteModal } from './inviteModal.js';
 import { getCurrentFollowersMap, getCurrentMutuals } from './following.js';
 import { getGroupBadgeCount, getDirectBadgeCount } from './knock.js';
@@ -247,21 +244,6 @@ function renderNavRow() {
   } else {
     renderNavRowDirectMode(row);
   }
-}
-
-// Optimistically merge appearance fields (statusColor / paletteKey) into the
-// per-group override cache and re-render the nav row. Symmetric counterpart
-// to applyOptimisticOverride (which goes groupNav → groupContext); this one
-// lets groupContext push appearance changes back into groupNav before the
-// Firebase ack so the Direct nav-row group-card border stays in sync.
-export function applyOptimisticAppearance(groupId: string, fields: { statusColor?: string | null; paletteKey?: string | null }) {
-  if (!groupId || !fields) return;
-  const existing = _overrideByGroupId[groupId] || {};
-  const next = { ...existing };
-  if ('statusColor' in fields) next.statusColor = fields.statusColor;
-  if ('paletteKey'  in fields) next.paletteKey  = fields.paletteKey;
-  _overrideByGroupId[groupId] = next;
-  renderNavRow();
 }
 
 function renderNavRowDirectMode(row: HTMLElement) {

@@ -58,10 +58,56 @@ jest.mock('../js/invites.js', () => ({
 jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
   getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
-  applyOptimisticAppearance: jest.fn(),
   subscribeGroupMeta: jest.fn(() => () => {}),
-  subscribeOwnOverride: jest.fn(() => () => {}),
 }));
+// Own-override state now lives in statusStore. Same in-suite cache mock as the
+// groupNav suite: subscribeOwnOverride + pushOptimistic share a cache so an
+// optimistic push (dot/chip/adopt) fans out to groupContext's subscription and
+// re-renders, exactly as the real store does. __fireOverride simulates a tick.
+jest.mock('../js/statusStore.js', () => {
+  const cache = new Map();
+  const consumers = new Map();
+  const ticked = new Set();
+  const valueOf = (gid) => (cache.has(gid) ? cache.get(gid) : null);
+  const fanOut = (gid) => {
+    const set = consumers.get(gid);
+    if (!set) return;
+    for (const cb of [...set]) { try { cb(valueOf(gid)); } catch { /* consumer threw */ } }
+  };
+  const getOwnOverrideImpl = (gid) => valueOf(gid);
+  const pushOptimisticImpl = (gid, partial) => {
+    if (gid === null) return;
+    cache.set(gid, { ...(cache.get(gid) || {}), ...partial });
+    ticked.add(gid);
+    fanOut(gid);
+  };
+  const subscribeOwnOverrideImpl = (gid, cb) => {
+    let set = consumers.get(gid);
+    if (!set) { set = new Set(); consumers.set(gid, set); }
+    set.add(cb);
+    if (ticked.has(gid)) { try { cb(valueOf(gid)); } catch { /* replay threw */ } }
+    return () => { const s = consumers.get(gid); if (s) s.delete(cb); };
+  };
+  const mod = {
+    __esModule: true,
+    initStatusStore: jest.fn(),
+    setWatchedGroups: jest.fn(),
+    getOwnOverride: jest.fn(getOwnOverrideImpl),
+    pushOptimistic: jest.fn(pushOptimisticImpl),
+    subscribeOwnOverride: jest.fn(subscribeOwnOverrideImpl),
+    __fireOverride: (gid, v) => { cache.set(gid, v); ticked.add(gid); fanOut(gid); },
+    // __reset clears the closure cache AND restores default implementations — a
+    // per-test mockImplementation (e.g. the teardown spy) would otherwise persist
+    // (clearAllMocks resets calls, not implementations) and starve later tests.
+    __reset: () => {
+      cache.clear(); consumers.clear(); ticked.clear();
+      mod.getOwnOverride.mockImplementation(getOwnOverrideImpl);
+      mod.pushOptimistic.mockImplementation(pushOptimisticImpl);
+      mod.subscribeOwnOverride.mockImplementation(subscribeOwnOverrideImpl);
+    },
+  };
+  return mod;
+});
 jest.mock('../js/groups.js', () => ({
   renameGroup: jest.fn().mockResolvedValue(undefined),
   deleteGroup: jest.fn().mockResolvedValue(undefined),
@@ -159,6 +205,7 @@ if (typeof PointerEvent === 'undefined') {
 const db = require('../js/db.js');
 const ownStatus = require('../js/ownStatus.js');
 const groupNav = require('../js/groupNav.js');
+const statusStore = require('../js/statusStore.js');
 const groupsModule = require('../js/groups.js');
 const inviteModal = require('../js/inviteModal.js');
 const prefs = require('../js/prefs.js');
@@ -168,6 +215,7 @@ const { createNotifyBell, isNotifyPopoverOpen } = require('../js/notifyBell.js')
 
 // Default implementation: return a real button so li.appendChild doesn't throw.
 beforeEach(() => {
+  statusStore.__reset(); // the store mock's cache lives in a module-closure
   require('../js/presenceHub.js')._resetPresenceHub(); // clean per-uid watch state between tests
   isNotifyPopoverOpen.mockReturnValue(false);
   createNotifyBell.mockImplementation(() => {
@@ -924,11 +972,21 @@ beforeEach(() => { try { localStorage.clear(); } catch {} });
 
 describe('own status row', () => {
   function captureCallbacks() {
-    let metaCb, primaryCb, overrideCb;
+    let metaCb, primaryCb;
     groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
     ownStatus.subscribeOwnStatus.mockImplementation((cb) => { primaryCb = cb; return () => {}; });
-    groupNav.subscribeOwnOverride.mockImplementation((g, cb) => { overrideCb = cb; return () => {}; });
-    return { getMetaCb: () => metaCb, getPrimaryCb: () => primaryCb, getOverrideCb: () => overrideCb };
+    // Override state flows through the store now — enterGroupContext subscribes via
+    // the (real) store mock, so ticks are driven through __fireOverride on whatever
+    // group it subscribed to. getOverrideCb() returns a fire fn, keeping the
+    // `cbs.getOverrideCb()(value)` callsites unchanged.
+    return {
+      getMetaCb: () => metaCb,
+      getPrimaryCb: () => primaryCb,
+      getOverrideCb: () => (v) => {
+        const gid = statusStore.subscribeOwnOverride.mock.calls[0]?.[0] ?? 'G1';
+        statusStore.__fireOverride(gid, v);
+      },
+    };
   }
 
   beforeEach(() => {
@@ -998,7 +1056,7 @@ describe('own status row', () => {
     const ownPrimaryUnsub = jest.fn();
     const ownOverrideUnsub = jest.fn();
     ownStatus.subscribeOwnStatus.mockImplementation(() => ownPrimaryUnsub);
-    groupNav.subscribeOwnOverride.mockImplementation(() => ownOverrideUnsub);
+    statusStore.subscribeOwnOverride.mockImplementation(() => ownOverrideUnsub);
     enterGroupContext('G1', 'me');
     exitGroupContext();
     expect(ownPrimaryUnsub).toHaveBeenCalledTimes(1);
@@ -1575,7 +1633,7 @@ describe('group-context long-press adoption', () => {
       cb(members);
       return () => {};
     });
-    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
+    statusStore.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb(ownOverrideEnabled
         ? { enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' }
         : { enabled: false, status: null });
@@ -1608,7 +1666,7 @@ describe('group-context long-press adoption', () => {
     li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
     jest.advanceTimersByTime(600);
     expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
-    expect(groupNav.applyOptimisticAppearance).not.toHaveBeenCalled();
+    expect(statusStore.pushOptimistic).not.toHaveBeenCalled();
     expect(favorites.saveCombo).not.toHaveBeenCalled();
   });
 
@@ -1622,7 +1680,7 @@ describe('group-context long-press adoption', () => {
     jest.advanceTimersByTime(600);
     expect(groups.setOverrideAppearance).toHaveBeenCalledWith('G1', 'me',
       expect.objectContaining({ statusColor: '#ff00aa', paletteKey: 'forest' }));
-    expect(groupNav.applyOptimisticAppearance).toHaveBeenCalledWith('G1',
+    expect(statusStore.pushOptimistic).toHaveBeenCalledWith('G1',
       expect.objectContaining({ statusColor: '#ff00aa', paletteKey: 'forest' }));
     expect(favorites.saveCombo).toHaveBeenCalledWith(expect.objectContaining({
       statusColor: '#ff00aa', paletteKey: 'forest',
@@ -1639,7 +1697,7 @@ describe('group-context long-press adoption', () => {
     bell.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0, bubbles: true }));
     jest.advanceTimersByTime(600);
     expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
-    expect(groupNav.applyOptimisticAppearance).not.toHaveBeenCalled();
+    expect(statusStore.pushOptimistic).not.toHaveBeenCalled();
     expect(favorites.saveCombo).not.toHaveBeenCalled();
   });
 
@@ -1653,7 +1711,7 @@ describe('group-context long-press adoption', () => {
     li.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0 }));
     jest.advanceTimersByTime(600);
     expect(groups.setOverrideAppearance).not.toHaveBeenCalled();
-    expect(groupNav.applyOptimisticAppearance).not.toHaveBeenCalled();
+    expect(statusStore.pushOptimistic).not.toHaveBeenCalled();
     expect(favorites.saveCombo).not.toHaveBeenCalled();
   });
 
@@ -1699,7 +1757,7 @@ describe('group-context long-press adoption', () => {
   });
 
   test('source uses override.statusColor when override is enabled', () => {
-    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
+    statusStore.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
     });
@@ -1721,7 +1779,7 @@ describe('group-context long-press adoption', () => {
   });
 
   test('source falls back to primary when source member has no override', () => {
-    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
+    statusStore.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
     });
@@ -1743,7 +1801,7 @@ describe('group-context long-press adoption', () => {
   });
 
   test('source falls back to forest #22c55e when neither override nor primary has a color', () => {
-    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
+    statusStore.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
     });
@@ -1766,7 +1824,7 @@ describe('group-context long-press adoption', () => {
 
   test('marks longpress hint seen on first adoption', () => {
     // prefs.isHintSeen defaults to false via the module-level jest.mock factory.
-    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
+    statusStore.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa' });
       return () => {};
     });
@@ -1802,13 +1860,10 @@ describe('group-context dot-tap to go available', () => {
 
   test('dot-tap going available with override ON pushes the going-active combo to favorites', () => {
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
-      cb({ enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#ff00aa', paletteKey: 'forest' });
-      return () => {};
-    });
     db.watchPresence.mockImplementation((_uid, cb) => { cb({ statusColor: '#000', paletteKey: null }); return () => {}; });
     setupContextDom();
     enterGroupContext('G1', 'me');
+    statusStore.__fireOverride('G1', { enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#ff00aa', paletteKey: 'forest' });
 
     const dot = document.getElementById('group-my-dot');
     dot.click();
@@ -1822,7 +1877,7 @@ describe('group-context dot-tap to go available', () => {
 
   test('dot-tap going UNavailable with override ON does NOT push to favorites', () => {
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
+    statusStore.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
@@ -1839,7 +1894,7 @@ describe('group-context dot-tap to go available', () => {
 
   test('chip cycle while available does NOT push to favorites', () => {
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
+    statusStore.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       cb({ enabled: true, status: 'available', availableUntil: Date.now() + 60000, statusColor: '#ff00aa', paletteKey: 'forest' });
       return () => {};
     });
@@ -1859,11 +1914,13 @@ describe('group-context FTU hints', () => {
   const prefs = require('../js/prefs.js');
 
   function seedRoster({ ownOverride, members = {}, memberStatus = {} }) {
-    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => { cb(ownOverride); return () => {}; });
     db.watchGroupMembers.mockImplementation((_gid, cb) => { cb(members); return () => {}; });
     db.watchPresence.mockImplementation((uid, cb) => { cb(memberStatus[uid] ?? {}); return () => {}; });
     setupContextDom();
     enterGroupContext('G1', 'me');
+    // Deliver the override through the store cache (so pushOptimistic on a dot
+    // click merges into it and fans out to re-render).
+    statusStore.__fireOverride('G1', ownOverride);
   }
 
   beforeEach(() => { jest.clearAllMocks(); });
@@ -2120,7 +2177,7 @@ describe('group-context FTU hints', () => {
     prefs.setGroupPaletteState.mockImplementation((_gid, s) => { state = JSON.parse(JSON.stringify(s)); });
     // Capture the override callback so we can replay the RTDB echo manually.
     let overrideCb;
-    groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => {
+    statusStore.subscribeOwnOverride.mockImplementation((_gid, cb) => {
       overrideCb = cb;
       cb({ enabled: true, status: 'unavailable', availableUntil: null, statusColor: '#22c55e' });
       return () => {};

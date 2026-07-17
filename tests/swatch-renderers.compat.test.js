@@ -96,11 +96,52 @@ jest.mock('../js/prefs.js', () => ({
 jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
   getCurrentContext: jest.fn(() => ({ context: 'group', groupId: 'G1' })),
-  applyOptimisticAppearance: jest.fn(),
   onContextChange: jest.fn(),
   subscribeGroupMeta: jest.fn(() => () => {}),
-  subscribeOwnOverride: jest.fn(() => () => {}),
 }));
+// Own-override now lives in statusStore. In-suite cache mock (subscribeOwnOverride
+// + pushOptimistic share a cache); renderGroup injects via __fireOverride.
+jest.mock('../js/statusStore.js', () => {
+  const cache = new Map();
+  const consumers = new Map();
+  const ticked = new Set();
+  const valueOf = (gid) => (cache.has(gid) ? cache.get(gid) : null);
+  const fanOut = (gid) => {
+    const set = consumers.get(gid);
+    if (!set) return;
+    for (const cb of [...set]) { try { cb(valueOf(gid)); } catch { /* consumer threw */ } }
+  };
+  const getOwnOverrideImpl = (gid) => valueOf(gid);
+  const pushOptimisticImpl = (gid, partial) => {
+    if (gid === null) return;
+    cache.set(gid, { ...(cache.get(gid) || {}), ...partial });
+    ticked.add(gid);
+    fanOut(gid);
+  };
+  const subscribeOwnOverrideImpl = (gid, cb) => {
+    let set = consumers.get(gid);
+    if (!set) { set = new Set(); consumers.set(gid, set); }
+    set.add(cb);
+    if (ticked.has(gid)) { try { cb(valueOf(gid)); } catch { /* replay threw */ } }
+    return () => { const s = consumers.get(gid); if (s) s.delete(cb); };
+  };
+  const mod = {
+    __esModule: true,
+    initStatusStore: jest.fn(),
+    setWatchedGroups: jest.fn(),
+    getOwnOverride: jest.fn(getOwnOverrideImpl),
+    pushOptimistic: jest.fn(pushOptimisticImpl),
+    subscribeOwnOverride: jest.fn(subscribeOwnOverrideImpl),
+    __fireOverride: (gid, v) => { cache.set(gid, v); ticked.add(gid); fanOut(gid); },
+    __reset: () => {
+      cache.clear(); consumers.clear(); ticked.clear();
+      mod.getOwnOverride.mockImplementation(getOwnOverrideImpl);
+      mod.pushOptimistic.mockImplementation(pushOptimisticImpl);
+      mod.subscribeOwnOverride.mockImplementation(subscribeOwnOverrideImpl);
+    },
+  };
+  return mod;
+});
 
 jest.mock('../js/groups.js', () => ({
   renameGroup: jest.fn().mockResolvedValue(undefined),
@@ -144,6 +185,7 @@ if (typeof PointerEvent === 'undefined') {
 
 const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
+const statusStore = require('../js/statusStore.js');
 const { initSwatches, enterPaletteMode } = require('../js/palettes.js');
 const { enterGroupContext, exitGroupContext } = require('../js/groupContext.js');
 
@@ -205,8 +247,9 @@ function renderGroup(paletteState, override) {
   groupNav.subscribeGroupMeta.mockImplementation((_gid, cb) => { cb({ name: 'Family', ownerId: 'uid1', createdAt: 1 }); return () => {}; });
   db.watchStatus.mockImplementation((_uid, cb) => { cb({}); return () => {}; });
   db.watchGroupMembers.mockImplementation((_gid, cb) => { cb({}); return () => {}; });
-  groupNav.subscribeOwnOverride.mockImplementation((_gid, cb) => { cb(override); return () => {}; });
   enterGroupContext('G1', 'uid1');
+  // Deliver the override through the store cache (enterGroupContext subscribed).
+  statusStore.__fireOverride('G1', override);
   return document.getElementById('group-swatch-row');
 }
 
@@ -233,6 +276,7 @@ beforeEach(() => {
   localStorage.clear();
   mockState.direct = null;
   mockState.group = {};
+  statusStore.__reset();
   jest.clearAllMocks();
 });
 
