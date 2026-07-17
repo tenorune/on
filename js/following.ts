@@ -50,6 +50,7 @@ const editingSet = new Set<string>();
 const lastUserData = new Map<string, UserData>(); // userId → most recent userData from Firebase
 const renderedFollowees = new Set<string>();
 let onFolloweeReady: (() => void) | null = null;
+let onFollowingListReady: ((count: number) => void) | null = null;
 let _onInviteRedeemed: InviteRedeemedCb | null = null;
 
 // Direct-list rows are keyed by data-user-id, but a group roster reuses the same
@@ -201,6 +202,19 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
   // Subscribe to own following list (cross-device sync of contacts)
   if (unsubFollowing) unsubFollowing();
   unsubFollowing = watchFollowing(myUserId, (serverFollowing) => {
+    // One-shot list-ready signal for the post-restore splash gating: it needs
+    // the SERVER list size (the local cache is empty on a fresh device), and it
+    // must fire even when syncFollowingFromServer's change-detection stays
+    // silent (server list identical to local — e.g. both empty). Fired BEFORE
+    // the sync below: its renderList can deliver per-followee presence
+    // synchronously (presenceHub replay for uids another surface already
+    // watches), and those ready signals must not drain a splash counter that
+    // hasn't been credited with the followee units yet.
+    if (onFollowingListReady) {
+      const cb = onFollowingListReady;
+      onFollowingListReady = null;
+      cb(serverFollowing.length);
+    }
     syncFollowingFromServer(myUserId, serverFollowing);
   });
 
@@ -346,6 +360,12 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
 
 export function setFolloweeReadyCallback(fn: () => void) {
   onFolloweeReady = fn;
+}
+
+// One-shot: fires on the first watchFollowing server tick with the entry
+// count, then clears itself. See the initList call site.
+export function setFollowingListReadyCallback(fn: (count: number) => void) {
+  onFollowingListReady = fn;
 }
 
 export function resetRenderedFollowees() {

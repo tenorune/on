@@ -2,7 +2,7 @@
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
 import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getUser, getUserPrefs, readGroupName } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
-import { initList, setFolloweeReadyCallback, reEnterCallMode, type InitListOptions } from './following.js';
+import { initList, setFolloweeReadyCallback, setFollowingListReadyCallback, reEnterCallMode, type InitListOptions } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode, startPersonalInviteFlow } from './mycode.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
@@ -17,7 +17,7 @@ import { attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFrom
 import { decideBootRedirect, readBootRedirectContext } from './inviteBootGate.js';
 import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext } from './prefs.js';
 import { watchUserPrefs } from './db.js';
-import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, navigateToDirect, setLastKnownGroupName, getCurrentContext } from './groupNav.js';
+import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, navigateToDirect, setLastKnownGroupName, setGroupsReadyCallback, getCurrentContext } from './groupNav.js';
 import { routeNotificationClick } from './notifyRouting.js';
 import { initOwnStatus, subscribeOwnStatus } from './ownStatus.js';
 import { initStatusStore } from './statusStore.js';
@@ -65,12 +65,19 @@ type TgInvite = { token: string; preview: InvitePreview; silent?: boolean };
 
 let splashCounter = 0;
 let splashDone = false;
+// Set by rearmSplash: this boot follows a fresh-device restore, so the local
+// caches (following list, group names) are empty and the splash gating must
+// wait for server truth instead (see the initSurfaces splash-arm block).
+let restoreColdBoot = false;
 let _followGrantsUnsub: (() => void) | null = null; // captured for a future user-switch teardown (#214 R2)
 
-function initSplash(followeeCount: number) {
-  splashCounter = 1 + followeeCount;
+// pendingSignals: how many signalReady() calls (beyond own status) must land
+// before the splash drops — the local followee count on a warm boot, or the
+// list+groups units on a post-restore cold boot (see the initSurfaces arm site).
+function initSplash(pendingSignals: number) {
+  splashCounter = 1 + pendingSignals;
   // Call dismissSplash directly (not signalReady) so the splash always
-  // disappears after 3s regardless of how many followees haven't reported in.
+  // disappears after 3s regardless of how many signals haven't reported in.
   setTimeout(dismissSplash, 3000);
 }
 
@@ -102,8 +109,11 @@ function dismissSplash() {
 // flash a normal reload avoids by keeping the splash up until ready. The early
 // dismiss's fade has long finished (the user spent seconds on the restore
 // screen), so there's no pending transitionend listener to fight.
+// restoreColdBoot additionally switches the splash-arm block to server-truth
+// gating: the local caches this boot would normally gate on are empty.
 function rearmSplash() {
   splashDone = false;
+  restoreColdBoot = true;
   const el = document.getElementById('splash');
   if (!el) return;
   el.classList.remove('fading');
@@ -902,8 +912,23 @@ async function initSurfaces(session: BootSession, intent: BootIntent, landing: L
   if (landingMsg) showToast(landingMsg);
   initHeader(userId);
   if (!splashDone) {
-    const followeeCount = getFollowing().length;
-    initSplash(followeeCount);
+    if (restoreColdBoot) {
+      // Fresh-device restore (rearmSplash): the local caches are empty, so
+      // getFollowing() would report 0 followees and the own-status signal —
+      // which the ownStatus single-owner replay can fire synchronously —
+      // would drop the splash before any server data arrived (the
+      // "state-resolution flash" regression, first fixed in aac5e24). Gate on
+      // server truth instead: 1 (own status) + 1 (first following-list tick,
+      // which adds one pending unit per followee for their presence renders)
+      // + 1 (group set enumerated with every name resolved). initSplash's 3s
+      // timeout still bounds a stalled network.
+      initSplash(2);
+      setFollowingListReadyCallback((count) => { splashCounter += count; signalReady(); });
+      setGroupsReadyCallback(signalReady);
+    } else {
+      const followeeCount = getFollowing().length;
+      initSplash(followeeCount);
+    }
     setOwnStatusReadyCallback(signalReady);
     setFolloweeReadyCallback(signalReady);
   }

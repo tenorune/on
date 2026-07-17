@@ -875,3 +875,43 @@ describe('renderNavRow reconciliation', () => {
     expect(groups.toggleStatusOverride).toHaveBeenNthCalledWith(2, 'G1', 'me', false);
   });
 });
+
+describe('setGroupsReadyCallback (post-restore splash gating)', () => {
+  // A fresh-device restore holds the splash until the nav row can render real
+  // group names: the group set (first watchUserGroups tick) AND a meta tick for
+  // every enumerated group. One-shot per registration.
+  beforeEach(() => { jest.clearAllMocks(); setupNavDom(); });
+
+  test('fires only after every enumerated group has a meta tick (names resolved)', () => {
+    let enumCb; const metaCbs = {};
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation((g, cb) => { metaCbs[g] = cb; return () => {}; });
+    const { setGroupsReadyCallback } = require('../js/groupNav');
+    initNav('me');
+    const ready = jest.fn();
+    setGroupsReadyCallback(ready);
+    startCardsRowSubscriptions();
+    expect(ready).not.toHaveBeenCalled();
+    enumCb({ G1: { lastVisited: 1 }, G2: { lastVisited: 2 } });
+    expect(ready).not.toHaveBeenCalled(); // names still unknown
+    metaCbs.G1({ name: 'Family', ownerId: 'o', createdAt: 1 });
+    expect(ready).not.toHaveBeenCalled(); // G2 still unresolved
+    metaCbs.G2({ name: 'Work', ownerId: 'o', createdAt: 1 });
+    expect(ready).toHaveBeenCalledTimes(1);
+    metaCbs.G2({ name: 'Work Renamed', ownerId: 'o', createdAt: 1 });
+    expect(ready).toHaveBeenCalledTimes(1); // one-shot
+  });
+
+  test('a user with no groups is ready on the first (empty) enumeration tick', () => {
+    let enumCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    const { setGroupsReadyCallback } = require('../js/groupNav');
+    initNav('me');
+    const ready = jest.fn();
+    setGroupsReadyCallback(ready);
+    startCardsRowSubscriptions();
+    expect(ready).not.toHaveBeenCalled();
+    enumCb({});
+    expect(ready).toHaveBeenCalledTimes(1);
+  });
+});
