@@ -8,6 +8,7 @@ import {
   setDrawingState, watchDrawing,
   setClearRequest, removeClearRequest, clearAllStrokes, watchClearRequest,
 } from './db.js';
+import { buildDrawingPayload, applyDrawingPayload } from './canvasDelta.js';
 
 const THICKNESS_VALUES = [0.002, 0.005, 0.01, 0.018, 0.03, 0.05];
 const THICKNESS_PX_LABELS = [3, 6, 10, 16, 22, 30]; // visual dot sizes in toolbox
@@ -44,9 +45,11 @@ let _allStrokes: StrokeEntry[] = [];
 let _undoStack: string[] = []; // my stroke keys, max 8
 const MAX_UNDO = 8;
 let _lastDrawingSend = 0;
+let _lastSentIndex = 0; // how many of _currentPoints the peer already has
 let _absentTimerRef: ReturnType<typeof setTimeout> | null = null;
 const DRAWING_THROTTLE = 80; // ms between live drawing updates
 let _stripWasVisible: boolean | null = false;
+let _peerPreview: number[][] | null = null; // reassembled live-stroke buffer
 
 // ─── Coordinate helpers (exported for testing) ───────────────────────────────
 
@@ -413,20 +416,29 @@ export async function enterCanvas(peerId: string, peerName: string, myUserId: st
 
   // Watch peer's live drawing (mid-stroke preview + pen color selection)
   _canvasUnsubs.push(watchDrawing(_canvasId, peerId, (drawingData) => {
-    if (!drawingData) return;
-    if ((drawingData as StrokeData).color) updatePeerDot((drawingData as StrokeData).color);
-    if ((drawingData as StrokeData).points) {
-      // Mid-stroke preview — redraw everything then overlay
-      clearAndRedraw(_ctx, _canvas.width, _canvas.height, _bgColor, _allStrokes);
-      renderStroke((drawingData as StrokeData), _ctx, _canvas.width, _canvas.height);
-      // Preserve my own in-progress stroke so it doesn't flash off while the
-      // peer is drawing — _currentPoints isn't in _allStrokes until pointerup.
-      if (_isDrawing && _currentPoints.length > 0) {
-        renderStroke({
-          color: _penColor,
-          thickness: _thickness,
-          points: _currentPoints,
-        }, _ctx, _canvas.width, _canvas.height);
+    if (!drawingData) { _peerPreview = null; return; } // stroke ended (pointerup clears)
+    const d = (drawingData as StrokeData & { base?: number });
+    if (d.color) updatePeerDot(d.color);
+    if (d.points) {
+      const prevLen = _peerPreview ? _peerPreview.length : 0;
+      const appended = d.base === prevLen && prevLen > 0;
+      _peerPreview = applyDrawingPayload(_peerPreview, d);
+      if (appended) {
+        // Pure append: draw just the new segments (include the joint point);
+        // no full clear-and-redraw per tick.
+        renderStroke({ color: d.color, thickness: d.thickness, points: _peerPreview.slice(prevLen - 1) },
+          _ctx, _canvas.width, _canvas.height);
+      } else {
+        // Replace/gap/legacy: fall back to the full repaint path.
+        clearAndRedraw(_ctx, _canvas.width, _canvas.height, _bgColor, _allStrokes);
+        renderStroke({ color: d.color, thickness: d.thickness, points: _peerPreview },
+          _ctx, _canvas.width, _canvas.height);
+        // Preserve my own in-progress stroke so it doesn't flash off while the
+        // peer is drawing — _currentPoints isn't in _allStrokes until pointerup.
+        if (_isDrawing && _currentPoints.length > 0) {
+          renderStroke({ color: _penColor, thickness: _thickness, points: _currentPoints },
+            _ctx, _canvas.width, _canvas.height);
+        }
       }
     }
   }));
@@ -538,6 +550,7 @@ export function exitCanvas() {
   _peerId = null;
   _allStrokes = [];
   _undoStack = [];
+  _peerPreview = null;
   if (_absentTimerRef) { clearTimeout(_absentTimerRef); _absentTimerRef = null; }
 
   // Notify knock system to replay any knocks received while on canvas
@@ -735,6 +748,7 @@ function onPointerDown(e: PointerEvent) {
   const py = e.clientY - rect.top;
   const [nx, ny] = normalizePoint(px, py, _canvas.width, _canvas.height);
   _currentPoints = [[nx, ny]];
+  _lastSentIndex = 0;
 
   _ctx.strokeStyle = safeCssColor(_penColor);
   _ctx.lineWidth = _thickness * _canvas.width;
@@ -770,15 +784,13 @@ function onPointerMove(e: PointerEvent) {
   _ctx.lineTo(px, py);
   _ctx.stroke();
 
-  // Throttled live drawing broadcast
+  // Throttled live drawing broadcast — delta only (see js/canvasDelta.ts)
   const now = Date.now();
   if (now - _lastDrawingSend > DRAWING_THROTTLE) {
     _lastDrawingSend = now;
-    setDrawingState(_canvasId, _myUserId, {
-      color: _penColor,
-      thickness: _thickness,
-      points: _currentPoints,
-    }).catch(() => {});
+    const payload = buildDrawingPayload(_currentPoints, _lastSentIndex, _penColor, _thickness);
+    _lastSentIndex = _currentPoints.length;
+    setDrawingState(_canvasId, _myUserId, payload).catch(() => {});
   }
 }
 
@@ -810,4 +822,5 @@ function onPointerUp() {
     }
   }).catch(() => {});
   _currentPoints = [];
+  _lastSentIndex = 0;
 }
