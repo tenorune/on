@@ -244,12 +244,21 @@ export async function attemptRedeemFromUrl(token: string, redeemerUid: string, r
     const groupId = parseGroupIdFromOwnerPath(indexEntry.ownerPath);
     if (!opts.displayName) {
       // Preview the group name now so the caller can populate the displayname
-      // prompt without a separate resolveInvitePreview round trip. Bundle the
-      // already-fetched records into `cache` so the post-prompt call can
-      // reuse them.
-      const group = cache.group !== undefined
-        ? cache.group
-        : (groupId ? await readGroupName(groupId) : null);
+      // prompt without a separate resolveInvitePreview round trip, and check
+      // membership in parallel: an existing member must not be walked through
+      // a pointless name prompt only to learn 'already-member' from the
+      // post-prompt redeem call. (redeemGroupInvite keeps its own membership
+      // guard for the prompt-window race.) Bundle the already-fetched records
+      // into `cache` so the post-prompt call can reuse them.
+      const [group, existingMember] = await Promise.all([
+        cache.group !== undefined
+          ? Promise.resolve(cache.group)
+          : (groupId ? readGroupName(groupId) : Promise.resolve(null)),
+        groupId ? readMember(groupId, redeemerUid) : Promise.resolve(null),
+      ]);
+      if (existingMember) {
+        return { ok: false, reason: 'already-member', groupId, groupName: group?.name || null };
+      }
       return {
         ok: false,
         reason: 'needs-display-name',
