@@ -93,6 +93,37 @@ function preconnectLinks(databaseUrl) {
   ].join('\n  ');
 }
 
+// Modulepreload hints for the chunks the bundle pulls in via STATIC imports.
+// The browser only discovers those after fetching dist/bundle.js, so a first
+// visit (no SW cache yet) pays a sequential fetch chain (bundle → shared
+// chunk → shared chunk); preloading flattens it to one round trip. Lazy
+// import() chunks are deliberately excluded — preloading them would defeat
+// the split. Fail-closed: no built bundle (tests; dev.js writes index.html
+// before its watch build) emits nothing, which is fine — the chain only
+// matters for SW-less first visits in prod.
+/** @param {string} [rootDir] repo root override for tests */
+function modulepreloadLinks(rootDir) {
+  const root = rootDir || path.resolve(__dirname, '..');
+  const bundlePath = path.join(root, 'dist', 'bundle.js');
+  if (!existsSync(bundlePath)) return '';
+  // Static ESM refs in esbuild output: `from"./chunks/x.js"` / `import"./chunks/x.js"`
+  // (bundle) and `from"./x.js"` (chunk → sibling), with spaces when unminified.
+  // Dynamic import("...") never matches — a paren, not a quote, follows `import`.
+  const staticRefs = (/** @type {string} */ src) =>
+    [...src.matchAll(/(?:from|import)\s*"\.\/(?:chunks\/)?([^"/]+\.js)"/g)].map((m) => m[1]);
+  /** @type {Set<string>} */
+  const seen = new Set();
+  const queue = staticRefs(readFileSync(bundlePath, 'utf8'));
+  while (queue.length) {
+    const name = queue.shift();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    const p = path.join(root, 'dist', 'chunks', name);
+    if (existsSync(p)) queue.push(...staticRefs(readFileSync(p, 'utf8')));
+  }
+  return [...seen].sort().map((n) => `<link rel="modulepreload" href="dist/chunks/${n}">`).join('\n  ');
+}
+
 /** @param {string} defaultTitle */
 function writeIndexHtml(defaultTitle) {
   const templatePath = path.resolve(__dirname, '..', 'index.template.html');
@@ -101,7 +132,8 @@ function writeIndexHtml(defaultTitle) {
   const template = readFileSync(templatePath, 'utf8');
   writeFileSync(outPath, template
     .replaceAll('__APP_TITLE__', escapeHtml(title))
-    .replaceAll('__PRECONNECT_LINKS__', preconnectLinks(envVal('FIREBASE_DATABASE_URL'))));
+    .replaceAll('__PRECONNECT_LINKS__', preconnectLinks(envVal('FIREBASE_DATABASE_URL')))
+    .replaceAll('__MODULEPRELOAD_LINKS__', modulepreloadLinks()));
   return title;
 }
 
@@ -197,4 +229,4 @@ function writeAboutHtml(defaultTitle) {
   writeFileSync(outPath, out);
 }
 
-module.exports = { define, envFile, writeIndexHtml, writeServiceWorker, renderAbout, writeAboutHtml, invitePreviewUrl, readTelegramEnabled, buildCss, preconnectLinks };
+module.exports = { define, envFile, writeIndexHtml, writeServiceWorker, renderAbout, writeAboutHtml, invitePreviewUrl, readTelegramEnabled, buildCss, preconnectLinks, modulepreloadLinks };
