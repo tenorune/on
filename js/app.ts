@@ -566,9 +566,32 @@ function cleanInviteParamFromUrl() {
   } catch { /* no-op on unusual URLs */ }
 }
 
-async function main() {
-  if (await maybeRunDevReset()) return; // dev-only identity reset (env-gated); halts boot
-  let pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
+// ── Boot stages ────────────────────────────────────────────────────────────
+// main() is a typed pipeline over named boot stages. Each stage takes the prior
+// stage's return value as a parameter, so the ordering invariants that used to
+// live in "must run before" comments are enforced by the type system: a stage
+// cannot be called without a value only the prior stage produces. Branded tokens
+// (StoresReady) carry ordering proof that has no runtime payload.
+
+type BootIntent = {
+  pendingInviteToken: string | null;
+  wantInbox: boolean;
+  wantDirect: boolean;
+  pinDirect: boolean;
+};
+type BootSession = {
+  userId: string;
+  code: string;
+  isNew: boolean;
+  pendingInviteToken: string | null;   // may be updated by the Telegram invite gate
+  tgInvite: Awaited<ReturnType<typeof telegramInviteGate>>;
+};
+
+// Stage 0: URL-derived boot intent. Extracts the invite token, decides the
+// mint-free legacy-link redirect, and reads the cold-tap intent params. Returns
+// null when a redirect fired (boot halts here).
+function parseBootIntent(): BootIntent | null {
+  const pendingInviteToken = extractInviteTokenFromUrl(window.location.href);
   // Mint-free rescue for legacy /?i= links (spec N3): decide BEFORE any
   // Firebase work whether this boot belongs on the /invite landing or in the
   // Mini App. replace() keeps the webview's back button from bouncing
@@ -576,7 +599,7 @@ async function main() {
   const bootRedirect = decideBootRedirect(readBootRedirectContext(pendingInviteToken));
   if (bootRedirect) {
     window.location.replace(bootRedirect.url);
-    return;
+    return null;
   }
   // Cold tap on an invite / follow-request notification: the SW opened us at
   // /?inbox=1 (sw.template.js coldStartUrl). Land in Direct and open the Inbox
@@ -597,6 +620,15 @@ async function main() {
       window.history.replaceState({}, document.title, clean.toString());
     } catch { /* no-op on unusual URLs */ }
   }
+  return { pendingInviteToken, wantInbox, wantDirect, pinDirect };
+}
+
+// Stage 1: identity acquisition. Establishes who we are (browser session or
+// Telegram initData), wipes another account's cache, and runs the Telegram
+// invite gate (which may reassign pendingInviteToken). Returns null when boot
+// must halt (runLinkArrival reboots on success).
+async function resolveIdentity(intent: BootIntent): Promise<BootSession | null> {
+  let pendingInviteToken = intent.pendingInviteToken;
   const { identity, isNew } = await ensureIdentity(pendingInviteToken);
   if (isTelegramContext()) initTelegramChrome();
   const { userId, code } = identity;
@@ -611,9 +643,9 @@ async function main() {
   // Telegram deep-linked invite (t.me ...?startapp=<token>): gate before the
   // normal redemption flow. Linked accounts redeem silently; unlinked arrivals
   // get the first-run interstitial (spec §1).
-  let tgInvite = null;
+  let tgInvite: Awaited<ReturnType<typeof telegramInviteGate>> = null;
   if (!pendingInviteToken && isTelegramContext()) {
-    if (await runLinkArrival({ dismissSplash })) return; // onramp link handled — reboots on success
+    if (await runLinkArrival({ dismissSplash })) return null; // onramp link handled — reboots on success
     tgInvite = await telegramInviteGate({
       linked: isTelegramLinked(),
       isNew,
@@ -621,6 +653,16 @@ async function main() {
     });
     if (tgInvite) pendingInviteToken = tgInvite.token;
   }
+  return { userId, code, isNew, pendingInviteToken, tgInvite };
+}
+
+async function main() {
+  if (await maybeRunDevReset()) return; // dev-only identity reset (env-gated); halts boot
+  const intent = parseBootIntent();      // Stage 0 (may redirect → null)
+  if (!intent) return;
+  const session = await resolveIdentity(intent);  // Stage 1 (may halt boot → null)
+  if (!session) return;
+  const { userId, code, isNew, pendingInviteToken, tgInvite } = session;
 
   // Wire navigation BEFORE the invite-redemption block, otherwise navigateToGroup
   // writes to users/null/... (because initNav hasn't set the local userId yet) AND
@@ -685,7 +727,7 @@ async function main() {
     // instead of a bare code (no follow-request approval happened to teach it).
     // telegramFirstName() is '' outside Telegram — web redeemers pass no name,
     // so their behaviour is unchanged (group redeems ignore it entirely).
-    let result = ((await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {
+    let result = ((await attemptRedeemFromUrl(pendingInviteToken, userId, code, {
       redeemerName: telegramFirstName(),
     })) as RedeemResult | null);
     // Captured from the needs-display-name response so we can prime
@@ -700,7 +742,7 @@ async function main() {
       const displayName = await showGroupDisplayNamePrompt(promptName, telegramFirstName());
       // Pass the cache forward so the second call doesn't re-fetch the
       // invite index + group record.
-      result = ((await attemptRedeemFromUrl(pendingInviteToken, identity.userId, identity.code, {
+      result = ((await attemptRedeemFromUrl(pendingInviteToken, userId, code, {
         displayName,
         cache: ((result.cache) as NonNullable<Parameters<typeof attemptRedeemFromUrl>[3]>['cache']),
       })) as RedeemResult | null);
@@ -743,7 +785,7 @@ async function main() {
       if (directEl) directEl.classList.remove('hidden');
       if (navRowEl) navRowEl.classList.remove('hidden');
     }
-  } else if (!isNew && !pinDirect) {
+  } else if (!isNew && !intent.pinDirect) {
     // Returning user (no pending invite). Pre-resolve the user's last
     // currentContext from Firebase BEFORE any visible paint. Without
     // this, initNav defaults _state to 'direct', the end-of-main reveal
@@ -790,7 +832,7 @@ async function main() {
   // 'direct' here, BEFORE watchUserPrefs starts, so its first echo doesn't yank
   // us into that group (same hazard the personal-invite-success path guards
   // against above).
-  if (pinDirect) setPrefsCurrentContext('direct');
+  if (intent.pinDirect) setPrefsCurrentContext('direct');
 
   touchLastSeen(userId).catch(() => {});
 
@@ -894,7 +936,7 @@ async function main() {
   // Cold-start deep-link from an invite / follow-request tap: now that the
   // inbox watchers are live (initInbox above) and Direct is revealed, open the
   // Inbox modal over it. Closing the modal leaves the user in Direct.
-  if (wantInbox) openInboxModal();
+  if (intent.wantInbox) openInboxModal();
 
   if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
 
