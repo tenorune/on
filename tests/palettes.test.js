@@ -347,6 +347,29 @@ describe('applyThemeVars', () => {
     applyThemeVars(theme);
     expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#818cf8');
   });
+
+  // The desktop-PWA title bar paints from <meta name="theme-color">, not from
+  // CSS vars — a palette change must mirror --bg into the meta or the installed
+  // window keeps the static slate forever.
+  test('mirrors the theme bg into <meta name="theme-color">', () => {
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove());
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'theme-color');
+    meta.setAttribute('content', '#0f172a');
+    document.head.appendChild(meta);
+    applyThemeVars(theme);
+    expect(meta.getAttribute('content')).toBe('#111');
+    meta.remove();
+  });
+
+  test('creates the theme-color meta when the page lacks one', () => {
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove());
+    applyThemeVars(theme);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    expect(meta).not.toBeNull();
+    expect(meta.getAttribute('content')).toBe('#111');
+    meta.remove();
+  });
 });
 
 describe('resetThemeVars', () => {
@@ -369,6 +392,17 @@ describe('resetThemeVars', () => {
     applyPaletteVars('ember');
     resetThemeVars();
     expect(document.documentElement.style.getPropertyValue('--my-status')).toBe('#f97316');
+  });
+
+  test('restores <meta name="theme-color"> to the slate default', () => {
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove());
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'theme-color');
+    meta.setAttribute('content', '#111');
+    document.head.appendChild(meta);
+    resetThemeVars();
+    expect(meta.getAttribute('content')).toBe('#0f172a');
+    meta.remove();
   });
 });
 
