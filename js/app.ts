@@ -955,7 +955,7 @@ async function initSurfaces(session: BootSession, intent: BootIntent, landing: L
   // Inbox modal over it. Closing the modal leaves the user in Direct.
   if (intent.wantInbox) openInboxModal();
 
-  if (isNew) enterFirstUseMode();  // must come before watchStatus subscription
+  if (isNew) enterFirstUseMode();  // intra-initSurfaces order: before initOwnStatusSync's subscribeOwnStatus below
 
   initPaletteBoot(userId);
 
@@ -983,8 +983,8 @@ async function main() {
   await initSurfaces(session, intent, landing);                       // Stage 5
 }
 
-// ── Boot init steps (extracted from main() for readability; call order in
-// main() is load-bearing — see the comments there) ───────────────────────────
+// ── Boot helpers (invoked by the stages above; call sites live in
+// startSubscriptions / initSurfaces) ─────────────────────────────────────────
 
 // Own primary-status subscription: cross-device color/palette/code sync + the
 // status-label re-render. Color/theme writes are Direct-context-scoped (see
