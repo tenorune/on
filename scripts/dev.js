@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/dev.js — esbuild dev server with .env.local injection and LAN access
 const esbuild = require('esbuild');
-const { define, writeIndexHtml, writeAboutHtml } = require('./build.js');
+const { define, writeIndexHtml, writeAboutHtml, buildCss } = require('./build.js');
 const { networkInterfaces } = require('os');
 
 const PORT = 8080;
@@ -38,6 +38,9 @@ async function main() {
 
   await ctx.watch();
 
+  // Synchronous first CSS build so a fresh checkout's first page load can't
+  // 404 dist/css/* while the watch context's initial async build is in flight.
+  buildCss(false);
   const cssCtx = await esbuild.context({
     entryPoints: ['css/app.css', 'css/canvas.css', 'css/about.css'],
     outdir: 'dist/css',

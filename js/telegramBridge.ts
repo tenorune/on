@@ -15,6 +15,9 @@ export function telegramBridgeReady(timeoutMs = 3000): Promise<void> {
   if (!el) return Promise.resolve();                          // no bridge tag (tests/legacy)
   return new Promise((resolve) => {
     const done = () => { clearTimeout(timer); resolve(); };
+    // The timeout also covers the rare case where the bridge script already
+    // fired load/error BEFORE the bundle ran (listeners attach too late to
+    // hear it) — the boot degrades after timeoutMs instead of hanging.
     const timer = setTimeout(done, timeoutMs);
     el.addEventListener('load', done, { once: true });
     el.addEventListener('error', done, { once: true });

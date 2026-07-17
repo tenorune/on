@@ -22,7 +22,10 @@ if (typeof window !== 'undefined') {
   window.scrollTo = () => {};
 }
 
-// structuredClone polyfill for jsdom compatibility
+// structuredClone polyfill for jsdom compatibility (jsdom doesn't provide it).
+// NOT a general-purpose shim: the JSON round-trip drops undefined/functions and
+// mangles Date/Map/Set. Fine here — the only consumer (palette state in
+// js/store.ts) is plain JSON-safe data.
 if (typeof globalThis.structuredClone === 'undefined') {
   globalThis.structuredClone = (value) => JSON.parse(JSON.stringify(value));
 }

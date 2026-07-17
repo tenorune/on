@@ -39,7 +39,7 @@ function clickEvent(data) {
 
 describe('shell precache completeness', () => {
   test('SHELL precaches every stylesheet the shell loads', async () => {
-    // css/canvas.css is loaded by index.template.html; a shell asset missing
+    // dist/css/canvas.css is loaded by index.template.html; a shell asset missing
     // from SHELL renders unstyled offline and ships no SW update when it changes.
     const { handlers, addAll } = loadSwWithMockSelf();
     const waited = [];
