@@ -183,6 +183,8 @@ Deferred cosmetic cleanup from the TS-adoption workstream (audit intake, 2026-07
 
 ## Phase 2 — Consolidate status propagation into one store
 
+> ✅ **COMPLETE & VERIFIED (2026-07-17) — Tasks 2.1, 2.2, 2.3, 2.4 all shipped & pushed on `claude/typescript-adoption-phase-0-009izp`.** Execution detail lives in git and the two dedicated plans (`2026-07-16-status-store-migration.md`, `2026-07-16-boot-stage-decomposition.md`); the live on-ramp is `docs/HANDOFF.md`'s top CURRENT STATE block. The task specs below are kept as the design/interface record (Phase 3 and the plans reference them) — they are no longer an open work list. Next roadmap work is **Phase 3**.
+
 The code-level problem (from the analysis): the "effective status = override-on ? override : primary" merge is hand-duplicated in **four** places — `groupNav.paintNavCard` (`groupNav.js:362-366`), `groupContext.memberEffectiveAvailable` (`:131-138`), `groupContext.paintRosterRow` (`:391-403`), `groupContext.renderOwnStatusRow` (`:482-486`); `groupNav` ↔ `groupContext` is a bidirectional import cycle carrying the symmetric optimistic-push pair `applyOptimisticOverride`/`applyOptimisticAppearance`; and the CHIP_VALUES table is copy-pasted between `me.ts:9-40` and `groupContext.js:53-77`. The fix is the codebase's own established pattern: a ref-counted subscribable cache, exactly like `presenceHub.ts`.
 
 ### Task 2.1: Extract the pure selector + dedupe CHIP_VALUES
