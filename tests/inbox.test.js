@@ -358,6 +358,7 @@ describe('Inbox — follow requests', () => {
     // member record carries the display name the requester saw on the roster.
     db.readMember.mockImplementation(async (gid, uid) =>
       uid === 'me' ? { displayName: 'My Roster Name' } : { displayName: 'Req Name' });
+    db.readGroupName.mockResolvedValue(null); // group name unresolvable → nameless copy
     const { inviteCb, frCb } = initWithCallbacks();
     inviteCb({});
     frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
@@ -403,6 +404,7 @@ describe('Inbox — follow requests', () => {
 
   test('uses the viewer label for the requester when followed', async () => {
     // prefs.getFollowing mock returns uOwner1 labelled "Owner One"
+    db.readGroupName.mockResolvedValue(null);
     const { inviteCb, frCb } = initWithCallbacks();
     inviteCb({});
     frCb({ uOwner1: { from: 'uOwner1', groupId: 'g1', ts: 7 } });
@@ -410,6 +412,31 @@ describe('Inbox — follow requests', () => {
     const row = document.querySelector('.inbox-row[data-requester-id="uOwner1"]');
     expect(row.querySelector('.inbox-row-text').textContent).toBe('Owner One wants to follow you.');
     expect(db.readMember).not.toHaveBeenCalledWith('g1', 'uOwner1');
+  });
+
+  test('follow-request row names the group the requester is from', async () => {
+    db.readMember.mockResolvedValue({ displayName: 'Req Name' });
+    db.readGroupName.mockResolvedValue({ name: 'Hiking' });
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+    await openInboxModal();
+    const row = document.querySelector('.inbox-row[data-requester-id="req"]');
+    expect(row.querySelector('.inbox-row-text').textContent).toBe('Req Name in Hiking wants to follow you.');
+  });
+
+  test('a denied member read falls back instead of breaking the whole render', async () => {
+    // The requester may have left the shared group — that read is
+    // membership-gated and rejects; the row must still render.
+    db.readMember.mockRejectedValue(new Error('Permission denied'));
+    db.readGroupName.mockResolvedValue(null);
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+    await openInboxModal();
+    const row = document.querySelector('.inbox-row[data-requester-id="req"]');
+    expect(row).not.toBeNull();
+    expect(row.querySelector('.inbox-row-text').textContent).toBe('Someone wants to follow you.');
   });
 
   test('a failed Approve re-enables the button and does not delete the request', async () => {

@@ -550,6 +550,18 @@ describe('handleFollowRequest', () => {
       { type: 'followRequest', targetUid: 'req' });
   });
 
+  test('names the shared group when its name resolves', async () => {
+    const deps = makeDeps({ store: {
+      'userPrefs/tgt/following/req': { label: 'Cara' },
+      'groups/g1/name': 'Hiking',
+      'userPrefs/tgt/pushTokens': { tokT: {} },
+    }});
+    await handleFollowRequest(deps, 'tgt', 'req', { from: 'req', groupId: 'g1', ts: 1 });
+    expect(deps.send).toHaveBeenCalledWith(['tokT'],
+      { title: 'Cara in Hiking wants to follow you', body: '' },
+      { type: 'followRequest', targetUid: 'req' });
+  });
+
   test('falls back to the requester group displayName when not followed', async () => {
     const deps = makeDeps({ store: {
       'groups/g1/members/req/displayName': 'Req Name',

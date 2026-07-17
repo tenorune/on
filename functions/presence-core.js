@@ -92,6 +92,7 @@ const GROUP_TITLES = {
   call: (name, group) => `${name} is calling in ${group}`,
   availability: (name, group) => `${name} is available in ${group}`,
   invite: (name, group) => `${name} invited you to ${group}`,
+  followRequest: (name, group) => `${name} in ${group} wants to follow you`,
 };
 
 // Label caps live in shared/limits.js (one copy; rules parity pinned by

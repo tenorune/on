@@ -194,8 +194,11 @@ export async function handleFollowRequest(deps, targetUid, requesterUid, record)
   const follow = await deps.getVal(`userPrefs/${targetUid}/following/${requesterUid}`);
   const name = (follow && follow.label)
     || await resolveGroupMemberName(deps, record.groupId, requesterUid);
+  // Name the shared group the request came from ("Cara in Hiking wants to
+  // follow you") — same shape as invites; absent/unreadable → nameless copy.
+  const group = record.groupId ? await deps.getVal(`groups/${record.groupId}/name`) : null;
   await sendToUser(deps, targetUid,
-    buildMessage('followRequest', name),
+    buildMessage('followRequest', name, { group: group || undefined }),
     { type: 'followRequest', targetUid: requesterUid });
   await deps.update(`notifierState/followReqCooldown/${targetUid}`, { [requesterUid]: now });
 }

@@ -187,13 +187,23 @@ async function renderInboxModalRows() {
   }));
 
   // Follow-request rows. Requester name: own label → their shared-group displayName → fallback.
+  // The row also names the shared group the request came from ("… in Hiking …");
+  // group-name read via the same session cache as the invite rows. The member
+  // read is membership-gated and rejects if the requester left the group —
+  // fail soft (same guard as the invite rows) so one denied read can't strand
+  // the whole modal on "Loading…".
   const frRows = await Promise.all(frEntries.map(async ([requesterUid, record]) => {
     let requesterLabel = labelByUid[requesterUid];
-    if (!requesterLabel && record.groupId) {
-      const member = await readMember(record.groupId, requesterUid);
-      requesterLabel = (member as MemberRecord | null)?.displayName;
+    let groupName: string | undefined;
+    if (record.groupId) {
+      const [group, member] = await Promise.all([
+        cachedReadGroupName(record.groupId),
+        requesterLabel ? Promise.resolve(null) : readMember(record.groupId, requesterUid).catch(() => null),
+      ]);
+      groupName = (group?.name as string | undefined) || undefined;
+      if (!requesterLabel) requesterLabel = (member as MemberRecord | null)?.displayName;
     }
-    return buildFollowRequestRow({ requesterUid, requesterLabel: requesterLabel || 'Someone' });
+    return buildFollowRequestRow({ requesterUid, requesterLabel: requesterLabel || 'Someone', groupName });
   }));
 
   list.innerHTML = '';
@@ -232,14 +242,16 @@ function buildInboxRow({ groupId, inviterLabel, groupName }: { groupId: string; 
   return li;
 }
 
-function buildFollowRequestRow({ requesterUid, requesterLabel }: { requesterUid: string; requesterLabel: string }) {
+function buildFollowRequestRow({ requesterUid, requesterLabel, groupName }: { requesterUid: string; requesterLabel: string; groupName?: string }) {
   const li = document.createElement('li');
   li.className = 'inbox-row';
   li.dataset.requesterId = requesterUid;
 
   const text = document.createElement('span');
   text.className = 'inbox-row-text';
-  text.textContent = `${requesterLabel} wants to follow you.`;
+  text.textContent = groupName
+    ? `${requesterLabel} in ${groupName} wants to follow you.`
+    : `${requesterLabel} wants to follow you.`;
   li.appendChild(text);
 
   const actions = document.createElement('div');
