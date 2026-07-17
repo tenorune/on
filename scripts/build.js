@@ -76,13 +76,32 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Preconnect hints for the origins every boot hits before the bundle can ask
+// for them: the RTDB websocket origin (from the env's databaseURL) and the two
+// Firebase Auth REST origins (sign-in mint + token refresh). CORS fetches need
+// the crossorigin connection pool; the RTDB websocket does not. Fail-closed:
+// no/placeholder config (test builds) emits nothing.
+/** @param {string} databaseUrl */
+function preconnectLinks(databaseUrl) {
+  if (!databaseUrl || databaseUrl === 'REPLACE_ME') return '';
+  let origin;
+  try { origin = new URL(databaseUrl).origin; } catch { return ''; }
+  return [
+    `<link rel="preconnect" href="${origin}">`,
+    '<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>',
+    '<link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>',
+  ].join('\n  ');
+}
+
 /** @param {string} defaultTitle */
 function writeIndexHtml(defaultTitle) {
   const templatePath = path.resolve(__dirname, '..', 'index.template.html');
   const outPath = path.resolve(__dirname, '..', 'index.html');
   const title = process.env.APP_TITLE || env.APP_TITLE || defaultTitle;
   const template = readFileSync(templatePath, 'utf8');
-  writeFileSync(outPath, template.replaceAll('__APP_TITLE__', escapeHtml(title)));
+  writeFileSync(outPath, template
+    .replaceAll('__APP_TITLE__', escapeHtml(title))
+    .replaceAll('__PRECONNECT_LINKS__', preconnectLinks(envVal('FIREBASE_DATABASE_URL'))));
   return title;
 }
 
@@ -166,4 +185,4 @@ function writeAboutHtml(defaultTitle) {
   writeFileSync(outPath, out);
 }
 
-module.exports = { define, envFile, writeIndexHtml, writeServiceWorker, renderAbout, writeAboutHtml, invitePreviewUrl, readTelegramEnabled, buildCss };
+module.exports = { define, envFile, writeIndexHtml, writeServiceWorker, renderAbout, writeAboutHtml, invitePreviewUrl, readTelegramEnabled, buildCss, preconnectLinks };

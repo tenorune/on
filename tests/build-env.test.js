@@ -41,3 +41,26 @@ describe('build.js optional defines honor process.env (CI override)', () => {
     }
   });
 });
+
+describe('preconnectLinks (boot-origin hints)', () => {
+  const { preconnectLinks } = require('../scripts/build.js');
+
+  test('emits the RTDB origin plus the two auth origins', () => {
+    const out = preconnectLinks('https://my-db-default-rtdb.europe-west1.firebasedatabase.app');
+    expect(out).toContain('<link rel="preconnect" href="https://my-db-default-rtdb.europe-west1.firebasedatabase.app">');
+    expect(out).toContain('<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>');
+    expect(out).toContain('<link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>');
+  });
+
+  test('unset or placeholder database URL emits nothing (fail-closed)', () => {
+    expect(preconnectLinks('')).toBe('');
+    expect(preconnectLinks('REPLACE_ME')).toBe('');
+  });
+
+  test('the index template carries the substitution slot', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const tpl = fs.readFileSync(path.resolve(__dirname, '..', 'index.template.html'), 'utf8');
+    expect(tpl).toContain('__PRECONNECT_LINKS__');
+  });
+});
