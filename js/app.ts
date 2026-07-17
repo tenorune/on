@@ -586,6 +586,10 @@ type BootSession = {
   pendingInviteToken: string | null;   // may be updated by the Telegram invite gate
   tgInvite: Awaited<ReturnType<typeof telegramInviteGate>>;
 };
+// Branded ordering token: zero runtime payload, proof that initStores has run.
+// resolveEntryContext requires one, so it is unrepresentable before the stores exist.
+type StoresReady = { readonly __storesReady: true };
+type Landing = { landedInGroup: boolean };
 
 // Stage 0: URL-derived boot intent. Extracts the invite token, decides the
 // mint-free legacy-link redirect, and reads the cold-tap intent params. Returns
@@ -656,52 +660,46 @@ async function resolveIdentity(intent: BootIntent): Promise<BootSession | null> 
   return { userId, code, isNew, pendingInviteToken, tgInvite };
 }
 
-async function main() {
-  if (await maybeRunDevReset()) return; // dev-only identity reset (env-gated); halts boot
-  const intent = parseBootIntent();      // Stage 0 (may redirect → null)
-  if (!intent) return;
-  const session = await resolveIdentity(intent);  // Stage 1 (may halt boot → null)
-  if (!session) return;
-  const { userId, code, isNew, pendingInviteToken, tgInvite } = session;
-
-  // Wire navigation BEFORE the invite-redemption block, otherwise navigateToGroup
-  // writes to users/null/... (because initNav hasn't set the local userId yet) AND
-  // its state change gets wiped by initNav's reset-to-direct that follows.
-  // initOwnStatus opens the single own-user watch FIRST; everything else
-  // subscribes to it. The normal registration order is groupNav (via initNav →
-  // startCardsRowSubscriptions) → this file's own handler (~L580) → groupContext
-  // on group-enter. NOTE the deep-link/returning-in-group boot path inverts this
-  // (navigateToGroup → enterGroupContext runs before startCardsRowSubscriptions),
-  // so groupContext can register first there. That's harmless: the real guarantee
-  // that app.js's Direct-theme write never clobbers a group override is the
-  // `inDirectCtx` gate on those writes (~L634), not fan-out order. The order still
-  // matters for replay determinism — keep initOwnStatus before initNav. See ownStatus.js.
+// Stage 2: store initialization — own-status watch, per-group status store,
+// navigation wiring, and prefs. Returns a StoresReady token that Stage 3
+// requires, so entering the redemption/restore flow before the stores exist is
+// unrepresentable (navigateToGroup would otherwise write to users/null before
+// initNav set the local userId).
+function initStores(session: BootSession): StoresReady {
+  const { userId } = session;
+  // intra-initStores order: initOwnStatus opens the single own-user watch FIRST;
+  // everything else subscribes to it. Keep it before initNav for replay
+  // determinism. (The guarantee that app.js's Direct-theme write never clobbers a
+  // group override is the `inDirectCtx` gate on those writes — see
+  // initOwnStatusSync and ownStatus.js — not fan-out order.)
   initOwnStatus(userId);
   // statusStore owns the per-group own-override watches that groupNav (via
   // setWatchedGroups/subscribeOwnOverride) and groupContext consume. Init its
   // userId before initNav → startCardsRowSubscriptions opens any watch.
   initStatusStore(userId);
   initNav(userId);
-  initNavRow();  // Must register its onContextChange listener BEFORE the
-                 // enterGroupContext listener below, so renderNavRow runs first
-                 // on each emit and creates #group-override-toggle-slot before
-                 // enterGroupContext looks for it.
+  initNavRow();  // intra-initStores order: register its onContextChange listener
+                 // BEFORE the enterGroupContext listener below, so renderNavRow
+                 // runs first on each emit and creates #group-override-toggle-slot
+                 // before enterGroupContext looks for it.
   onContextChange((ctx) => {
     if (ctx.context === 'group') enterGroupContext(((ctx.groupId) as string), userId);
     else exitGroupContext();
   });
-
-  // Make the prefs module aware of who's writing BEFORE the invite-redemption
-  // block below. setCurrentContext (prefs.js) only mirrors to userPrefs/{uid}/
-  // when it knows the userId; the redemption flow navigates contexts
-  // (navigateToGroup → setCurrentContext('group:X'), or the personal-success
-  // force-write of 'direct') before this point. If initPrefs ran later, those
-  // writes would hit localStorage only, and the watchUserPrefs echo set up at
-  // the end of main() would then read the *stale* server currentContext and
-  // yank a just-joined invitee back out of the group (or into their old
-  // context). The watchUserPrefs subscription itself stays below so echoes
-  // don't fire mid-redemption.
+  // Make the prefs module aware of who's writing: setCurrentContext (prefs.js)
+  // only mirrors to userPrefs/{uid}/ when it knows the userId, and Stage 3
+  // navigates contexts (navigateToGroup / the personal-success force-write).
   initPrefs(userId);
+  return { __storesReady: true } as const;
+}
+
+// Stage 3: entry context. Redeems a pending invite, or (returning user) restores
+// the last group context, or force-pins Direct. Requires StoresReady (see
+// initStores). Returns whether we landed in a group so Stage 4/5 can reveal the
+// right surface.
+async function resolveEntryContext(session: BootSession, intent: BootIntent, stores: StoresReady): Promise<Landing> {
+  const { userId, code, isNew, pendingInviteToken, tgInvite } = session;
+  let landedInGroup = false;
 
   if (pendingInviteToken) {
     // Dismiss the splash before redemption: the flow may show the
@@ -721,7 +719,6 @@ async function main() {
     if (directEl) directEl.classList.add('hidden');
     const navRowEl = document.getElementById('nav-row');
     if (navRowEl) navRowEl.classList.add('hidden');
-    let landedInGroup = false;
     // redeemerName lets a personal-invite redemption publish the follower's own
     // display name to the inviter, so their followers list shows "CODE (Name)"
     // instead of a bare code (no follow-request approval happened to teach it).
@@ -829,10 +826,22 @@ async function main() {
   // Cold tap that pins Direct (invite/follow-request → Inbox, or a Direct
   // knock/call/availability): the restore branch was skipped, but the user's
   // persisted currentContext is still their last (group) context — force-write
-  // 'direct' here, BEFORE watchUserPrefs starts, so its first echo doesn't yank
-  // us into that group (same hazard the personal-invite-success path guards
-  // against above).
+  // 'direct' here so watchUserPrefs's first echo (Stage 4) doesn't yank us into
+  // that group (same hazard the personal-invite-success path guards against
+  // above).
   if (intent.pinDirect) setPrefsCurrentContext('direct');
+  return { landedInGroup };
+}
+
+async function main() {
+  if (await maybeRunDevReset()) return; // dev-only identity reset (env-gated); halts boot
+  const intent = parseBootIntent();      // Stage 0 (may redirect → null)
+  if (!intent) return;
+  const session = await resolveIdentity(intent);  // Stage 1 (may halt boot → null)
+  if (!session) return;
+  const { userId, code, isNew } = session;
+  const stores = initStores(session);                                 // Stage 2
+  const landing = await resolveEntryContext(session, intent, stores); // Stage 3
 
   touchLastSeen(userId).catch(() => {});
 
