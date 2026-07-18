@@ -695,6 +695,75 @@ describe('handleUpdate: /who <group>', () => {
   });
 });
 
+// Task 11: the Admin SDK bypasses database rules, so /who's distance text
+// re-implements every gate the rules enforce client-side, explicitly, here.
+describe('handleUpdate: /who distance (Task 11)', () => {
+  function seedDirect(store, uid) {
+    store[`userPrefs/${uid}/following`] = { f1: { code: 'CODE01', label: 'Bea' } };
+    store['users/f1/presence'] = { status: 'available', availableUntil: 2_000_000 };
+  }
+  test('precise fragment when requester + target both publish and are mutual', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirect(deps.store, uid);
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/f1`] = 'CODE01'; // f1 follows uid back → mutual
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).toBe('Available now:\n🟢 Bea — about 15 minutes left · 65 m');
+  });
+  test('requester not publishing → no distance fragment', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirect(deps.store, uid);
+    // No locations/{uid} — requester isn't publishing.
+    deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/f1`] = 'CODE01';
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).not.toContain('·');
+  });
+  test('target publishing but NOT mutual → no distance fragment', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirect(deps.store, uid);
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    // No users/{uid}/followers/f1 — f1 doesn't follow back.
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).not.toContain('·');
+  });
+});
+
+describe('handleUpdate: /who <group> distance (Task 11)', () => {
+  function seedGroupOne(store, uid) {
+    store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    store['groups/G1/name'] = 'Divers';
+    store['groups/G1/members'] = {
+      [uid]: { displayName: 'Me' },
+      m1: { displayName: 'Bea', statusOverride: { enabled: false } },
+    };
+    store['users/m1/presence'] = { status: 'available', availableUntil: 2_000_000 };
+  }
+  test('coarse fragment when requester + target both have a cell in the group', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupOne(deps.store, uid);
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toBe('Available in Divers:\n🟢 Bea — about 15 minutes left · <1 km away');
+  });
+  test('requester cell missing → no distance fragment', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupOne(deps.store, uid);
+    // No locationCells/G1/{uid} — requester has no cell in this group.
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).not.toContain('·');
+  });
+});
+
 describe('handleUpdate: /knock', () => {
   const following = { f1: { code: 'CODE01', label: 'Bea' }, f2: { code: 'CODE02', label: 'Beatrice' } };
   test('unique match → knock written with client shape', async () => {

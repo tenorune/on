@@ -5,6 +5,7 @@ import { timingSafeEqual } from 'crypto';
 import { ensureTelegramUser } from './telegram-auth.js';
 import { WELCOME_STRANGER_TEXT, openAppKeyboard, GROUP_ID_RE, UID_RE, rootUpdate } from './telegram-shared.js';
 import { effectiveAvailable, primaryAvailable, clampName, statusCircle, formatTimeRemaining, formatTimeRemainingFuzzy } from './presence-core.js';
+import { haversineMeters, formatDistancePrecise, formatDistanceCoarse } from './_shared/geo.js';
 
 /**
  * The webhook's injected surface (index.js telegramWebhook builds it): the
@@ -447,6 +448,7 @@ async function handleWhoGroup(deps, uid, query, reply) {
   if (!match) return;
   const members = (await deps.getVal(`groups/${match.gid}/members`)) || {};
   const coMembers = Object.entries(members).filter(([mid]) => mid !== uid);
+  const myCell = await deps.getVal(`locationCells/${match.gid}/${uid}`);
   const lines = (await Promise.all(coMembers.map(async ([mid, m]) => {
     const presence = await deps.getVal(`users/${mid}/presence`);
     if (!effectiveAvailable(m?.statusOverride, presence?.status, presence?.availableUntil, deps.now())) return null;
@@ -456,7 +458,14 @@ async function handleWhoGroup(deps, uid, query, reply) {
     const until = on ? ov.availableUntil : presence?.availableUntil;
     const remaining = formatTimeRemainingFuzzy(until - deps.now());
     const tail = remaining ? ` — ${remaining} left` : '';
-    return `${statusCircle(color)} ${m?.displayName || 'Someone'}${tail}`;
+    let dist = '';
+    if (myCell) {
+      const theirCell = await deps.getVal(`locationCells/${match.gid}/${mid}`);
+      if (theirCell) {
+        dist = ` · ${formatDistanceCoarse(haversineMeters(myCell.lat, myCell.lng, theirCell.lat, theirCell.lng))}`;
+      }
+    }
+    return `${statusCircle(color)} ${m?.displayName || 'Someone'}${tail}${dist}`;
   }))).filter(Boolean);
   await reply(lines.length
     ? `Available in ${match.name}:\n${lines.join('\n')}`
@@ -539,12 +548,25 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
       await reply("You're not following anyone yet — invite people from the app.", openAppKeyboard(deps.appUrl));
       return;
     }
+    const myLoc = await deps.getVal(`locations/${uid}`);
     const lines = (await Promise.all(following.map(async (entry) => {
       const presence = await deps.getVal(`users/${entry.userId}/presence`);
       if (!primaryAvailable(presence, deps.now())) return null;
       const remaining = formatTimeRemainingFuzzy(presence.availableUntil - deps.now());
       const tail = remaining ? ` — ${remaining} left` : '';
-      return `${statusCircle(presence.statusColor)} ${entry.label || entry.code}${tail}`;
+      let dist = '';
+      if (myLoc) {
+        // Explicit gates — Admin SDK bypasses rules: mutual (they follow me;
+        // my following list already proves I follow them) + both publishing.
+        const [theirLoc, followsMe] = await Promise.all([
+          deps.getVal(`locations/${entry.userId}`),
+          deps.getVal(`users/${uid}/followers/${entry.userId}`),
+        ]);
+        if (theirLoc && followsMe) {
+          dist = ` · ${formatDistancePrecise(haversineMeters(myLoc.lat, myLoc.lng, theirLoc.lat, theirLoc.lng))}`;
+        }
+      }
+      return `${statusCircle(presence.statusColor)} ${entry.label || entry.code}${tail}${dist}`;
     }))).filter(Boolean);
     await reply(lines.length ? `Available now:\n${lines.join('\n')}` : 'No one is available right now.');
     return;
