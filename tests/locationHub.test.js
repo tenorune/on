@@ -67,3 +67,31 @@ test('cell distance combines per-group cells', () => {
   fire('G1/peer', { lat: 52.53, lng: 13.42, updatedAt: 1 });
   expect(cb.mock.calls.at(-1)[0]).toBeGreaterThan(1000);
 });
+
+test('a late consumer gets the cached distance replayed (async, no flash)', async () => {
+  const a = jest.fn();
+  subscribeDistance('me', 'peer', a);
+  fire('me', { lat: 52.52, lng: 13.405, updatedAt: 1 });
+  fire('peer', { lat: 52.5205, lng: 13.4055, updatedAt: 1 });
+  expect(a).toHaveBeenCalled(); // a got the distance
+
+  const b = jest.fn();
+  subscribeDistance('me', 'peer', b);  // late: underlying watches won't re-fire for it
+  expect(b).not.toHaveBeenCalled();    // replay is async
+  await Promise.resolve();
+  expect(b).toHaveBeenCalled();
+  expect(b.mock.calls.at(-1)[0]).toBeGreaterThan(50);
+  expect(b.mock.calls.at(-1)[0]).toBeLessThan(80);
+});
+
+test('a consumer that throws during fan-out does not block the others', () => {
+  const bad = () => { throw new Error('boom'); };
+  const good = jest.fn();
+  subscribeDistance('me', 'peer', bad);
+  subscribeDistance('me', 'peer', good);
+  expect(() => {
+    fire('me', { lat: 52.52, lng: 13.405, updatedAt: 1 });
+    fire('peer', { lat: 52.5205, lng: 13.4055, updatedAt: 1 });
+  }).not.toThrow();
+  expect(good).toHaveBeenCalled();
+});
