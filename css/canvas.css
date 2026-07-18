@@ -231,3 +231,19 @@
   border-color: rgba(99, 102, 241, 0.3);
   color: #a5b4fc;
 }
+
+/* ── Screenshot mode ───────────────────────────────────────────── */
+/* Chrome fades out (200ms), holds hidden 5s, fades back (200ms) —
+   driven by the screenshot-mode class on #canvas-screen. */
+.canvas-float {
+  transition: opacity 0.2s ease;
+}
+/* .canvas-toolbox's own transition (width/height, line ~94) would override
+   .canvas-float's — restate it with opacity added. */
+.canvas-toolbox {
+  transition: width 0.2s ease-out, height 0.2s ease-out, opacity 0.2s ease;
+}
+#canvas-screen.screenshot-mode .canvas-float {
+  opacity: 0;
+  pointer-events: none;
+}

@@ -74,6 +74,30 @@ export function watchClearRequest(canvasId: string, onChange: (requesterId: unkn
   });
 }
 
+// --- Screenshot handshake (mirrors the clearRequest trio) ---
+// State machine on canvases/$canvasId/screenshotRequest:
+//   null → idle/cancelled/declined/done
+//   { by } → pending peer consent
+//   { by, approved: true } → both clients run the chrome-hide sequence
+
+export async function setScreenshotRequest(canvasId: string, requesterId: string): Promise<void> {
+  await update(ref(db, `canvases/${canvasId}`), { screenshotRequest: { by: requesterId } });
+}
+
+export async function approveScreenshotRequest(canvasId: string, requesterId: string): Promise<void> {
+  await update(ref(db, `canvases/${canvasId}`), { screenshotRequest: { by: requesterId, approved: true } });
+}
+
+export async function removeScreenshotRequest(canvasId: string): Promise<void> {
+  await update(ref(db, `canvases/${canvasId}`), { screenshotRequest: null });
+}
+
+export function watchScreenshotRequest(canvasId: string, onChange: (value: unknown) => void): () => void {
+  return onValue(ref(db, `canvases/${canvasId}/screenshotRequest`), (snap) => {
+    onChange(snap.val());
+  });
+}
+
 export async function setCanvasBg(canvasId: string, color: string): Promise<void> {
   await update(ref(db, `canvases/${canvasId}`), { bg: color });
 }
