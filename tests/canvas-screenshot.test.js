@@ -178,3 +178,73 @@ describe('screenshot watcher dispatch — request/decline', () => {
     expect(document.querySelector('.canvas-shot-dialog')).toBeNull();
   });
 });
+
+describe('screenshot hide sequence', () => {
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('approved → screenshot-mode class on; off after 5200ms; requester cleans up at 5400ms', async () => {
+    await enter();
+    const scr = document.getElementById('canvas-screen');
+    const { update } = require('firebase/database');
+    update.mockClear();
+
+    fire({ by: 'me', approved: true }); // this client requested
+    expect(scr.classList.contains('screenshot-mode')).toBe(true);
+
+    jest.advanceTimersByTime(5199);
+    expect(scr.classList.contains('screenshot-mode')).toBe(true);
+    jest.advanceTimersByTime(1);
+    expect(scr.classList.contains('screenshot-mode')).toBe(false);
+
+    expect(update).not.toHaveBeenCalledWith(CANVAS_PATH, { screenshotRequest: null });
+    jest.advanceTimersByTime(200);
+    expect(update).toHaveBeenCalledWith(CANVAS_PATH, { screenshotRequest: null });
+  });
+
+  test('approver runs the same sequence but never removes the key', async () => {
+    await enter();
+    const scr = document.getElementById('canvas-screen');
+    const { update } = require('firebase/database');
+    update.mockClear();
+
+    fire({ by: 'peer1', approved: true }); // peer requested
+    expect(scr.classList.contains('screenshot-mode')).toBe(true);
+    jest.advanceTimersByTime(6000);
+    expect(scr.classList.contains('screenshot-mode')).toBe(false);
+    expect(update).not.toHaveBeenCalledWith(CANVAS_PATH, { screenshotRequest: null });
+  });
+
+  test('approved dismisses the requester waiting dialog before hiding', async () => {
+    await enter();
+    Array.from(document.querySelectorAll('.canvas-clear-btn'))
+      .find(el => el.classList.contains('canvas-screenshot-btn'))
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.querySelector('.canvas-shot-dialog')).toBeTruthy();
+    fire({ by: 'me', approved: true });
+    expect(document.querySelector('.canvas-shot-dialog')).toBeNull();
+  });
+
+  test('a duplicate approved dispatch does not restart the sequence', async () => {
+    await enter();
+    const scr = document.getElementById('canvas-screen');
+    fire({ by: 'peer1', approved: true });
+    jest.advanceTimersByTime(5000);
+    fire({ by: 'peer1', approved: true }); // watcher echo mid-sequence
+    jest.advanceTimersByTime(200);
+    expect(scr.classList.contains('screenshot-mode')).toBe(false);
+  });
+
+  test('exitCanvas mid-sequence clears timers and the class', async () => {
+    await enter();
+    const scr = document.getElementById('canvas-screen');
+    const { update } = require('firebase/database');
+    fire({ by: 'me', approved: true });
+    jest.advanceTimersByTime(1000);
+    exitCanvas();
+    expect(scr.classList.contains('screenshot-mode')).toBe(false);
+    update.mockClear();
+    jest.advanceTimersByTime(10000);
+    expect(update).not.toHaveBeenCalledWith(CANVAS_PATH, { screenshotRequest: null });
+  });
+});

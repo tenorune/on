@@ -51,6 +51,9 @@ let _absentTimerRef: ReturnType<typeof setTimeout> | null = null;
 const DRAWING_THROTTLE = 80; // ms between live drawing updates
 let _stripWasVisible: boolean | null = false;
 let _peerPreview: number[][] | null = null; // reassembled live-stroke buffer
+let _screenshotTimers: Array<ReturnType<typeof setTimeout>> = [];
+const SCREENSHOT_FADE_MS = 200;
+const SCREENSHOT_HOLD_MS = 5000;
 
 // ─── Coordinate helpers (exported for testing) ───────────────────────────────
 
@@ -536,6 +539,8 @@ export function exitCanvas() {
   }
   _canvasUnsubs.forEach((unsub) => { try { unsub(); } catch { /* already torn down */ } });
   _canvasUnsubs = [];
+  _screenshotTimers.forEach(t => clearTimeout(t));
+  _screenshotTimers = [];
   document.removeEventListener('visibilitychange', _onVisibilityChange);
   window.removeEventListener('blur', _onWindowBlur);
   window.removeEventListener('focus', _onWindowFocus);
@@ -544,6 +549,7 @@ export function exitCanvas() {
   const screen = document.getElementById('canvas-screen');
   if (screen) {
     screen.classList.remove('active');
+    screen.classList.remove('screenshot-mode');
     screen.removeEventListener('gesturestart', preventZoom);
     screen.removeEventListener('touchmove', preventMultiTouch);
 
@@ -787,8 +793,19 @@ function showScreenshotApprovalDialog(requesterId: string) {
   });
 }
 
-export function runScreenshotSequence(_isRequester: boolean): void {
-  // Task 3: chrome-hide sequence (screenshot-mode class + timers).
+export function runScreenshotSequence(isRequester: boolean): void {
+  const scr = document.getElementById('canvas-screen');
+  if (!scr || scr.classList.contains('screenshot-mode')) return; // already running
+  scr.classList.add('screenshot-mode'); // fade-out 200ms, then hidden hold
+  _screenshotTimers.push(setTimeout(() => {
+    scr.classList.remove('screenshot-mode'); // fade-in 200ms
+  }, SCREENSHOT_FADE_MS + SCREENSHOT_HOLD_MS));
+  if (isRequester) {
+    // Single writer for cleanup: key removal after the fade-in completes.
+    _screenshotTimers.push(setTimeout(() => {
+      removeScreenshotRequest(_canvasId).catch(() => {});
+    }, SCREENSHOT_FADE_MS + SCREENSHOT_HOLD_MS + SCREENSHOT_FADE_MS));
+  }
 }
 
 function dismissScreenshotDialogs() {
