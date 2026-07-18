@@ -11,11 +11,31 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**Feature development** — scope comes from the operator; nothing is queued.
-Branch off `dev` (tip `2e6b696`, all suites green: 1812 web / 360 functions /
-both typechecks).
+**Execute the location-sharing implementation plan** —
+`docs/superpowers/plans/2026-07-18-location-sharing.md` (13 TDD tasks; approved
+spec beside it in `specs/2026-07-18-location-sharing-design.md`). Work happens ON
+the existing branch `claude/knockknock-feature-dev-9a3ysy` (origin tip `903d02f` =
+spec + plan + merge of `dev`'s canvas-screenshot batch; all green: 1830 web /
+360 functions / both typechecks / prod build). Do NOT cut a new branch and do
+NOT build off `dev` — realign to origin first:
 
-Open follow-ups, triaged 2026-07-17:
+```
+git fetch origin
+git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
+git log --oneline -8 | grep 903d02f   # location spec+plan history present — empty output = STOP
+```
+
+(The `-B` realign is deliberate: a prior container's local copy of this branch
+may be stale/diverged; origin is authoritative.)
+
+The feature in one line: opt-in location sharing, distance on existing cards —
+precise for sharing mutuals, coarse ("<1 km" floor) for sharing group
+co-members, nothing for everyone else; glyph-next-to-time-remaining is the only
+control; publish tied to availability. The plan is self-contained (exact files,
+code, commands per task); execution mode (subagent-driven vs inline) was left
+undecided — ask the operator if unclear.
+
+Open follow-ups, triaged 2026-07-17 (parked behind the location feature):
 
 - **#290** — "Continue in browser" dead tap in the Instagram/FB in-app browser
   (`js/about-cta.js` escape schemes silently cancelled). Candidate fixes A/B/C
