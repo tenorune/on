@@ -193,6 +193,9 @@
   border-radius: 16px;
   padding: 24px 32px;
   text-align: center;
+  /* Long copy (e.g. the screenshot consent prompt) wraps instead of
+     stretching the dialog to the screen edges. */
+  max-width: min(320px, calc(100vw - 48px));
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
