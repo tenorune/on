@@ -9,6 +9,7 @@ jest.mock('../js/db.js', () => ({
 }));
 
 const { mergeUserPrefs } = require('../js/db.js');
+const prefs = require('../js/prefs.js');
 const {
   initPrefs,
   isHintSeen, markHintSeen,
@@ -372,4 +373,36 @@ test('setPaletteStateLocal writes localStorage only — never userPrefs (no inac
   setPaletteStateLocal(TWO_SET_STATE);
   expect(mergeUserPrefs).not.toHaveBeenCalled();
   expect(getPaletteState().sets['2'].selectedKey).toBe('venom'); // still applied locally
+});
+
+describe('location opt-in prefs', () => {
+  beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); initPrefs('me'); });
+
+  test('defaults off for direct and any group', () => {
+    expect(prefs.getLocationOptIn('direct')).toBe(false);
+    expect(prefs.getLocationOptIn('G1')).toBe(false);
+  });
+
+  test('set direct writes cache and userPrefs', () => {
+    prefs.setLocationOptIn('direct', true);
+    expect(prefs.getLocationOptIn('direct')).toBe(true);
+    expect(mergeUserPrefs).toHaveBeenCalledWith('me', { 'location/direct': true });
+  });
+
+  test('set group writes cache and userPrefs', () => {
+    prefs.setLocationOptIn('G1', true);
+    expect(prefs.getLocationOptIn('G1')).toBe(true);
+    expect(prefs.getLocationOptIn('G2')).toBe(false);
+    expect(mergeUserPrefs).toHaveBeenCalledWith('me', { 'location/groups/G1': true });
+  });
+
+  test('syncFromServer hydrates the cache and dispatches location-prefs-synced', () => {
+    const seen = jest.fn();
+    document.addEventListener('location-prefs-synced', seen);
+    prefs.syncFromServer({ location: { direct: true, groups: { G1: true, G2: false } } });
+    expect(prefs.getLocationOptIn('direct')).toBe(true);
+    expect(prefs.getLocationOptIn('G1')).toBe(true);
+    expect(prefs.getLocationOptIn('G2')).toBe(false);
+    expect(seen).toHaveBeenCalled();
+  });
 });

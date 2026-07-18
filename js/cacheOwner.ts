@@ -62,6 +62,7 @@ export const ACCOUNT_SCOPED_KEYS = [
   'statusapp_last_timeout',
   'statusapp_current_context',
   'statusapp_notify_prefs',
+  'statusapp_location_prefs',
   'statusapp_follower_names',
   'statusapp_made_call_count',
   'statusapp_answered_call_count',

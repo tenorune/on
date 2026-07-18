@@ -51,6 +51,8 @@ interface UserPrefs {
   } | null> | null;
   /** Per-person notification prefs, keyed by target uid. */
   notify?: Record<string, NotifyPrefsEntry | null> | null;
+  /** Per-context location-sharing opt-in ('direct' plus per-group ids). */
+  location?: { direct?: boolean; groups?: Record<string, boolean> } | null;
 }
 
 /** userPrefs/{uid}/notify/{targetUid} — per-person notification toggles. */

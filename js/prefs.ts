@@ -361,6 +361,35 @@ export function selectStalePushTokens(
   return stale;
 }
 
+// ── Location sharing opt-in (per context: 'direct' | groupId) ───────────────
+// The glyph next to the time-remaining text is the ONLY control surface for
+// these (spec 2026-07-18 §6.1). Cached as one JSON map so reads stay sync.
+const LOCATION_PREFS_KEY = 'statusapp_location_prefs';
+
+function readLocationCache(): { direct?: boolean; groups?: Record<string, boolean> } {
+  try { return JSON.parse(localStorage.getItem(LOCATION_PREFS_KEY) as string) || {}; }
+  catch { return {}; }
+}
+function writeLocationCache(map: { direct?: boolean; groups?: Record<string, boolean> }) {
+  try { localStorage.setItem(LOCATION_PREFS_KEY, JSON.stringify(map)); } catch { /* quota */ }
+}
+
+export function getLocationOptIn(context: string): boolean {
+  const map = readLocationCache();
+  return context === 'direct' ? !!map.direct : !!map.groups?.[context];
+}
+
+export function setLocationOptIn(context: string, on: boolean) {
+  const map = readLocationCache();
+  if (context === 'direct') map.direct = !!on;
+  else map.groups = { ...(map.groups || {}), [context]: !!on };
+  writeLocationCache(map);
+  if (_myUserId) {
+    const field = context === 'direct' ? 'location/direct' : `location/groups/${context}`;
+    mergeUserPrefs(_myUserId, { [field]: !!on }).catch(() => {});
+  }
+}
+
 // ── Watch reconciliation ─────────────────────────────────────────────────────
 // Called by app.js's watchUserPrefs subscription each time the server snapshot
 // changes. Populates the localStorage cache so subsequent synchronous reads
@@ -485,5 +514,13 @@ export function syncFromServer(serverPrefs: UserPrefs | null | undefined) {
     }
     writeNotifyCache(map);
     document.dispatchEvent(new CustomEvent('notify-prefs-synced'));
+  }
+  // Location-sharing opt-ins (per context)
+  if (serverPrefs.location && typeof serverPrefs.location === 'object') {
+    writeLocationCache({
+      direct: !!serverPrefs.location.direct,
+      groups: { ...(serverPrefs.location.groups || {}) },
+    });
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
   }
 }
