@@ -65,6 +65,12 @@ jest.mock('../js/store.js', () => ({
   getFavorites: jest.fn(() => []),
   getPalette: jest.fn(),
   setPalette: jest.fn(),
+  // groupContext.js's chain now reaches following.js's getCurrentMutuals()
+  // unconditionally on every roster render (Task 10's reconcileDistanceSubs,
+  // called from renderRoster) — following.js is intentionally left unmocked
+  // in this suite (see the firstRun.js mock comment above), and its real
+  // getCurrentMutuals() calls this store getter.
+  getFollowing: jest.fn(() => []),
 }));
 
 jest.mock('../js/prefs.js', () => ({

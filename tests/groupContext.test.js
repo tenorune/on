@@ -165,6 +165,10 @@ jest.mock('../js/locationShare.js', () => ({
   toggleContext: jest.fn(),
   capabilityState: jest.fn(() => 'supported'),
 }));
+jest.mock('../js/locationHub.js', () => ({
+  subscribeCellDistance: jest.fn(() => jest.fn()),
+  subscribeDistance: jest.fn(() => jest.fn()),
+}));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
   clearGroupCardBadge: jest.fn(),
@@ -1712,6 +1716,238 @@ describe('roster context-aware status', () => {
     expect(li.style.background).toBe('');
     const statusEl = li.querySelector('.person-status');
     expect(statusEl.style.color).toBe('');
+  });
+});
+
+// --- Coarse distance on the group roster (Task 10) ---
+//
+// Contract:
+// 1. Own group opt-in ON + co-member cell distance known + member available →
+//    status text ends with " · <1 km away" (or "~N km").
+// 2. Own group opt-in OFF → no cell subscriptions, no suffix.
+// 3. Member ALSO a Direct-publishing mutual with precise distance known →
+//    precise text wins ("· 120 m", not "· <1 km away").
+// 4. Unavailable member → status stays EMPTY (the roster's existing rule) —
+//    no distance-only text appears.
+//
+// Reconcile regressions (mirrors Task 9's fix in js/following.ts): opening
+// subs only at row-create and closing only at row-remove leaks when a row's
+// eligibility changes while it stays rendered. Tests 5-9 pin the
+// reconcileDistanceSubs pass — called from renderRoster on every render —
+// against opt-in flips, group exit, roster removal, and mutuality loss.
+describe('distance on group roster (Task 10)', () => {
+  const { subscribeCellDistance, subscribeDistance } = require('../js/locationHub.js');
+  const { getLocationOptIn } = require('../js/prefs.js');
+  const { getCurrentMutuals } = require('../js/following.js');
+
+  function captureMembers() {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((g, cb) => { membersCb = cb; return () => {}; });
+    return () => membersCb;
+  }
+  function captureStatuses() {
+    const cbs = {};
+    db.watchPresence.mockImplementation((uid, cb) => { cbs[uid] = cb; return () => {}; });
+    return cbs;
+  }
+  function fireAvailable(statusCbs, uid) {
+    statusCbs[uid]?.({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+  }
+
+  let cellCbs, preciseCbs;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+    getLocationOptIn.mockImplementation(() => false);
+    getCurrentMutuals.mockImplementation(() => []);
+    cellCbs = new Map();    // peerUid -> cb
+    preciseCbs = new Map(); // peerUid -> cb
+    subscribeCellDistance.mockImplementation((gid, myUid, peerUid, cb) => {
+      cellCbs.set(peerUid, cb);
+      return jest.fn();
+    });
+    subscribeDistance.mockImplementation((myUid, peerUid, cb) => {
+      preciseCbs.set(peerUid, cb);
+      return jest.fn();
+    });
+  });
+
+  test('1. own group opt-in ON + cell distance known + available → coarse suffix', () => {
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
+    cellCbs.get('uidA')(500);
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/ · <1 km away$/);
+  });
+
+  test('2. own group opt-in OFF → no cell subscriptions, no suffix', () => {
+    getLocationOptIn.mockImplementation(() => false);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).not.toHaveBeenCalled();
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).not.toContain('·');
+  });
+
+  test('3. member ALSO a Direct-publishing mutual with precise distance known → precise wins', () => {
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1' || ctx === 'direct');
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeDistance).toHaveBeenCalledWith('me', 'uidA', expect.any(Function));
+    cellCbs.get('uidA')(500);
+    preciseCbs.get('uidA')(120);
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/ · 120 m$/);
+    expect(status).not.toContain('<1 km away');
+  });
+
+  test('4. unavailable member → status stays EMPTY, no distance-only text', () => {
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
+    const getMembers = captureMembers();
+    captureStatuses(); // never fired — member stays unavailable
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    if (cellCbs.get('uidA')) cellCbs.get('uidA')(500);
+    const statusEl = document.querySelector('#group-roster [data-user-id="uidA"] .person-status');
+    expect(statusEl.textContent).toBe('');
+  });
+
+  test('5. opt-in flips ON mid-session (row already rendered) → subscription opens and a tick paints the suffix', () => {
+    getLocationOptIn.mockImplementation(() => false);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).not.toHaveBeenCalled();
+
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
+    document.dispatchEvent(new CustomEvent('location-optin-changed'));
+
+    expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
+    cellCbs.get('uidA')(500);
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/ · <1 km away$/);
+  });
+
+  test('6. opt-in flips OFF mid-session (suffix shown) → subscription is unsubbed and the suffix disappears', () => {
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    cellCbs.get('uidA')(500);
+    let status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/ · <1 km away$/);
+
+    const unsub = subscribeCellDistance.mock.results[0].value;
+    getLocationOptIn.mockImplementation(() => false);
+    document.dispatchEvent(new CustomEvent('location-optin-changed'));
+
+    expect(unsub).toHaveBeenCalled();
+    status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).not.toContain('·');
+  });
+
+  test('7. group exit tears down all cell + precise subscriptions', () => {
+    getLocationOptIn.mockImplementation(() => true); // 'G1' and 'direct' both on
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    const cellUnsub = subscribeCellDistance.mock.results[0].value;
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+
+    exitGroupContext();
+
+    expect(cellUnsub).toHaveBeenCalled();
+    expect(preciseUnsub).toHaveBeenCalled();
+  });
+
+  test('8. member removed from roster tears down their cell + precise subscriptions', () => {
+    getLocationOptIn.mockImplementation(() => true);
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    const cellUnsub = subscribeCellDistance.mock.results[0].value;
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+
+    // uidA leaves the group — next members tick omits them.
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+    });
+
+    expect(cellUnsub).toHaveBeenCalled();
+    expect(preciseUnsub).toHaveBeenCalled();
+    expect(document.querySelector('#group-roster [data-user-id="uidA"]')).toBeNull();
+  });
+
+  test('9. mutuality lost mid-session → precise subscription closes, coarse suffix keeps showing', () => {
+    getLocationOptIn.mockImplementation(() => true);
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    cellCbs.get('uidA')(500);
+    preciseCbs.get('uidA')(120);
+    let status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/ · 120 m$/);
+
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+    getCurrentMutuals.mockImplementation(() => []);
+    document.dispatchEvent(new CustomEvent('following-synced'));
+
+    expect(preciseUnsub).toHaveBeenCalled();
+    status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/ · <1 km away$/);
   });
 });
 

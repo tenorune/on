@@ -43,6 +43,8 @@ import {
 import { clearFirstUsePulse, paintLocationGlyph } from './me.js';
 import { refreshHints, clearActiveHint } from './hintRotation.js';
 import { toggleContext, capabilityState } from './locationShare.js';
+import { subscribeCellDistance, subscribeDistance } from './locationHub.js';
+import { formatDistanceCoarse, formatDistancePrecise } from '../shared/geo.js';
 
 type PresenceLike = { status?: string | null; availableUntil?: number | null; statusColor?: string | null; paletteKey?: string | null };
 type OverrideEntry = PresenceLike & { enabled?: boolean | null };
@@ -55,6 +57,20 @@ let _metaUnsub: (() => void) | null = null;
 let _membersUnsub: (() => void) | null = null;
 let _invitesUnsub: (() => void) | null = null;
 const _statusUnsubs = new Map<string, () => void>(); // memberUid → unsubscribe fn
+// Distance ticks land here; paintRosterRow reads them when painting a
+// member's status suffix. Cell subscription: one per rendered roster member,
+// open exactly while getLocationOptIn(currentGid). Precise subscription:
+// additionally only for mutuals while getLocationOptIn('direct') — precise
+// wins over cell when both are known (spec §6.2). The invariant "each map's
+// keyset == currently eligible" is maintained by reconcileDistanceSubs, which
+// renderRoster calls on every pass — mirrors js/following.ts's
+// reconcileDistanceSubs (Task 9's fix for the same leak class: opening/
+// closing subs only at row-create/row-remove misses eligibility churn on a
+// row that stays mounted — opt-in flips, mutual-set changes, roster churn).
+const _cellDistances = new Map<string, number | null>();    // memberUid → meters | null
+const _cellUnsubs = new Map<string, () => void>();          // memberUid → unsubscribe fn
+const _preciseDistances = new Map<string, number | null>(); // memberUid → meters | null
+const _preciseUnsubs = new Map<string, () => void>();       // memberUid → unsubscribe fn
 // Session-singleton: null between sessions, set for the whole in-group lifetime.
 // Typed non-null so the ~30 uses don't each need a cast; the `if (!_currentGroupId)`
 // guards are defensive and still fire at runtime.
@@ -275,9 +291,78 @@ function createRosterRow(uid: string, member: MemberEntry, ownUserId: string) {
   return li;
 }
 
+// Brings the open cell/precise distance subscriptions back in line with
+// "currently rendered roster member ∧ opted in". Called by renderRoster
+// BEFORE reconcileChildren/DOM paint on every pass, so it covers every way
+// eligibility can churn while a row stays mounted: own group opt-in flips on
+// (open cell subs for already-rendered members), opt-in flips off (close
+// everything + drop the cache before the paint that follows can read it), a
+// member losing/gaining mutuality (precise sub churn independent of cell),
+// and roster membership changes (a departed member's uid is simply absent
+// from `memberUids`). `memberUids` must be the roster's current member set
+// (excluding own uid) — callers pass an empty set when nothing should stay
+// open.
+function reconcileDistanceSubs(memberUids: Set<string>, myUserId: string, groupId: string) {
+  const cellEligible = getLocationOptIn(groupId) ? memberUids : new Set<string>();
+  const mutualIds = new Set(getCurrentMutuals().map((m: { userId: string }) => m.userId));
+  const directOn = getLocationOptIn('direct');
+  const preciseEligible = new Set<string>();
+  if (directOn) {
+    for (const uid of memberUids) if (mutualIds.has(uid)) preciseEligible.add(uid);
+  }
+
+  _cellUnsubs.forEach((unsub, uid) => {
+    if (cellEligible.has(uid)) return;
+    unsub();
+    _cellUnsubs.delete(uid);
+    _cellDistances.delete(uid);
+  });
+  for (const uid of cellEligible) {
+    if (_cellUnsubs.has(uid)) continue; // already open — never overwrite without unsubbing first
+    _cellUnsubs.set(uid, subscribeCellDistance(groupId, myUserId, uid, (meters) => {
+      _cellDistances.set(uid, meters);
+      paintRosterRow(uid);
+    }));
+  }
+
+  _preciseUnsubs.forEach((unsub, uid) => {
+    if (preciseEligible.has(uid)) return;
+    unsub();
+    _preciseUnsubs.delete(uid);
+    _preciseDistances.delete(uid);
+  });
+  for (const uid of preciseEligible) {
+    if (_preciseUnsubs.has(uid)) continue;
+    _preciseUnsubs.set(uid, subscribeDistance(myUserId, uid, (meters) => {
+      _preciseDistances.set(uid, meters);
+      paintRosterRow(uid);
+    }));
+  }
+}
+
+// Full teardown — called on group exit (and defensively at entry, mirroring
+// _statusUnsubs) so a stale subscription from a previous group can never
+// survive into the next one under the same uid.
+function teardownAllDistanceSubs() {
+  _cellUnsubs.forEach((fn) => fn());
+  _cellUnsubs.clear();
+  _cellDistances.clear();
+  _preciseUnsubs.forEach((fn) => fn());
+  _preciseUnsubs.clear();
+  _preciseDistances.clear();
+}
+
 function renderRoster(members: Record<string, MemberEntry>, ownUserId: string) {
   const list = document.getElementById('group-roster');
   if (!list) return;
+  // Reconcile distance subs before the DOM paint below — update()'s repaint
+  // of every surviving row reads _cellDistances/_preciseDistances
+  // synchronously, so eligibility must already be current. Mirrors
+  // following.ts's reconcileDistanceSubs call ordering.
+  if (_currentGroupId) {
+    const memberUids = new Set(Object.keys(members || {}).filter((uid) => uid !== ownUserId));
+    reconcileDistanceSubs(memberUids, ownUserId, _currentGroupId);
+  }
   reconcileChildren(list, rosterKeys(members, ownUserId), {
     create: (key) => {
       if (key === 'invite-row') return createInviteRow(ownUserId);
@@ -345,7 +430,11 @@ function paintRosterRow(uid: string, li: HTMLElement | null = document.querySele
       // paletteKey still gets the right text color — without the inline
       // style, the CSS rule (.status-available → var(--green)) wins and
       // the fuzzy time renders forest green.
-      const text = availableForText(availableUntil);
+      const precise = _preciseDistances.get(uid);
+      const cell = _cellDistances.get(uid);
+      const dist = typeof precise === 'number' ? ` · ${formatDistancePrecise(precise)}`
+        : typeof cell === 'number' ? ` · ${formatDistanceCoarse(cell)}` : '';
+      const text = availableForText(availableUntil) + dist;
       const inlineColor = color ? safeCssColor(color) : '';
       statusEl.innerHTML = inlineColor
         ? `<span class="status-available" style="color:${inlineColor}">${text}</span>`
@@ -973,6 +1062,21 @@ function installGroupSyncListeners() {
     if (!_currentGroupId || _lastMembers === null) return;
     syncRosterOrder();
   });
+  // Own group opt-in flipped (glyph tap, via locationShare.ts's toggleContext)
+  // or a server echo of location prefs landed (prefs.ts's syncFromServer) —
+  // either can flip cell OR precise eligibility (the latter checks
+  // getLocationOptIn('direct') too). syncRosterOrder's renderRoster call
+  // runs reconcileDistanceSubs unconditionally, so this re-render opens/
+  // closes subs for already-rendered rows immediately — it doesn't wait for
+  // a row's key to churn.
+  document.addEventListener('location-optin-changed', () => {
+    if (!_currentGroupId || _lastMembers === null) return;
+    syncRosterOrder();
+  });
+  document.addEventListener('location-prefs-synced', () => {
+    if (!_currentGroupId || _lastMembers === null) return;
+    syncRosterOrder();
+  });
 }
 
 // One-time (module-lifetime, not per-entry) wiring for the group band's
@@ -1021,6 +1125,11 @@ export function enterGroupContext(groupId: string, userId: string) {
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
   _memberPrimaries.clear();
+  // A stale cell/precise sub from a previous group must never survive into
+  // this one under the same member uid — reconcileDistanceSubs alone
+  // wouldn't catch that (an eligible uid already has an entry in the map, so
+  // it would skip resubscribing, leaving the OLD group's cell watch open).
+  teardownAllDistanceSubs();
   _membersOverrides = {};
   _lastMembers = null;
   _groupOwnerId = null;
@@ -1243,6 +1352,7 @@ export function exitGroupContext() {
   _memberPrimaries.clear();
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
+  teardownAllDistanceSubs();
   _currentGroupId = null as unknown as string;
   _currentUserId = null as unknown as string;
   _activeGroupInvite = null;
