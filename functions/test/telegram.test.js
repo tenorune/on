@@ -708,7 +708,8 @@ describe('handleUpdate: /who distance (Task 11)', () => {
     seedDirect(deps.store, uid);
     deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
     deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
-    deps.store[`users/${uid}/followers/f1`] = 'CODE01'; // f1 follows uid back → mutual
+    deps.store[`users/${uid}/followers/f1`] = 'CODE01'; // f1 follows uid back…
+    deps.store[`users/f1/followers/${uid}`] = 'MYCODE'; // …and uid is REGISTERED as f1's follower
     const reply = await handleUpdate(deps, msgUpdate('/who'));
     expect(reply.text).toBe('Available now:\n🟢 Bea — about 15 minutes left · 65 m');
   });
@@ -728,7 +729,23 @@ describe('handleUpdate: /who distance (Task 11)', () => {
     seedDirect(deps.store, uid);
     deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
     deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/f1/followers/${uid}`] = 'MYCODE';
     // No users/{uid}/followers/f1 — f1 doesn't follow back.
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).not.toContain('·');
+  });
+  test('revoked follow (requester\'s following entry stale, absent from target\'s followers) → no fragment (F5)', async () => {
+    // The requester's own following list is mailbox-reconciled client-side
+    // only — after f1 revokes, the bot may still see the stale entry. The
+    // AUTHORITATIVE requester→target edge is users/f1/followers/{uid}; the
+    // rules gate on it, so the bot must too.
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirect(deps.store, uid);
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/f1`] = 'CODE01'; // f1 follows me
+    // users/f1/followers/{uid} ABSENT — my follower registration was revoked.
     const reply = await handleUpdate(deps, msgUpdate('/who'));
     expect(reply.text).not.toContain('·');
   });

@@ -556,13 +556,18 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
       const tail = remaining ? ` — ${remaining} left` : '';
       let dist = '';
       if (myLoc) {
-        // Explicit gates — Admin SDK bypasses rules: mutual (they follow me;
-        // my following list already proves I follow them) + both publishing.
-        const [theirLoc, followsMe] = await Promise.all([
+        // Explicit gates — Admin SDK bypasses rules: both publishing +
+        // mutuality checked on BOTH authoritative followers edges. The
+        // requester's own following list is NOT authoritative for the
+        // requester→target edge (it's mailbox-reconciled client-side only, so
+        // it can be stale after a revocation); the rules gate on
+        // users/{target}/followers/{requester}, and the bot must mirror that.
+        const [theirLoc, followsMe, followerOfThem] = await Promise.all([
           deps.getVal(`locations/${entry.userId}`),
           deps.getVal(`users/${uid}/followers/${entry.userId}`),
+          deps.getVal(`users/${entry.userId}/followers/${uid}`),
         ]);
-        if (theirLoc && followsMe) {
+        if (theirLoc && followsMe && followerOfThem) {
           dist = ` · ${formatDistancePrecise(haversineMeters(myLoc.lat, myLoc.lng, theirLoc.lat, theirLoc.lng))}`;
         }
       }
