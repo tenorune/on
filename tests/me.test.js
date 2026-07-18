@@ -59,10 +59,20 @@ jest.mock('../js/store.js', () => ({
   setLastTimeout: jest.fn(),
   getPaletteState: jest.fn(() => ({ activeSet: 1, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } })),
 }));
+jest.mock('../js/locationShare.js', () => ({
+  toggleContext: jest.fn(),
+  capabilityState: jest.fn(() => 'supported'),
+  initLocationShare: jest.fn(),
+  _resetLocationShare: jest.fn(),
+}));
 
 const { setStatus } = require('../js/db.js');
 const { getLastTimeout, setLastTimeout } = require('../js/store.js');
 const { applyOwnStatus, initHeader, enterFirstUseMode, setOwnStatusReadyCallback } = require('../js/me.js');
+const { toggleContext, capabilityState } = require('../js/locationShare.js');
+// prefs.js is NOT mocked — real module, backed by the mocked store.js/db.js above,
+// so getLocationOptIn/setLocationOptIn exercise real localStorage caching.
+const { getLocationOptIn, setLocationOptIn } = require('../js/prefs.js');
 
 // jsdom doesn't apply stylesheets. #header-chips is always display:flex in CSS;
 // opacity and pointer-events are controlled by JS.
@@ -71,6 +81,7 @@ function makeFixture() {
     <div id="my-dot"></div>
     <span id="my-status-label" class="status-label">Unavailable</span>
     <span id="time-remaining" style="display:none"></span>
+    <button id="location-glyph" class="location-glyph" aria-label="Share location" aria-pressed="false" style="display:none"></button>
     <div id="header-chips">
       <button id="time-chip" class="chip time-chip"></button>
       <button id="mycode-chip" class="chip"></button>
@@ -618,5 +629,78 @@ describe('saveCombo guard in setAvailable', () => {
     applyOwnStatus('available', Date.now() + 7200000);
     expect(saveComboMock).toHaveBeenCalledTimes(1);
     expect(saveComboMock).toHaveBeenCalledWith({}); // buildDirectCombo mock returns {}
+  });
+});
+
+describe('location glyph (Direct header)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  test('hidden while unavailable, shown while available, reflects opt-in', () => {
+    setLocationOptIn('direct', true);
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+
+    // Initial paint from getLocationOptIn happens in initHeader, independent
+    // of availability.
+    expect(glyph.classList.contains('on')).toBe(true);
+
+    // display:none is the markup default (mirrors #time-remaining) until the
+    // dot goes available.
+    expect(glyph.style.display).toBe('none');
+
+    applyOwnStatus('available', Date.now() + 7200000);
+    jest.advanceTimersByTime(250);
+    expect(glyph.style.display).not.toBe('none');
+
+    applyOwnStatus('unavailable', null);
+    jest.advanceTimersByTime(250);
+    expect(glyph.style.display).toBe('none');
+  });
+
+  test('capabilityState unsupported paints denied at init, regardless of opt-in', () => {
+    setLocationOptIn('direct', true);
+    capabilityState.mockReturnValueOnce('unsupported');
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+    expect(glyph.classList.contains('denied')).toBe(true);
+  });
+
+  test('click calls toggleContext("direct") and repaints from the result', async () => {
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+    expect(glyph.classList.contains('on')).toBe(false);
+
+    toggleContext.mockResolvedValueOnce('on');
+    glyph.click();
+    await Promise.resolve();
+
+    expect(toggleContext).toHaveBeenCalledWith('direct');
+    expect(glyph.classList.contains('on')).toBe(true);
+    expect(glyph.getAttribute('aria-pressed')).toBe('true');
+    expect(glyph.title).toBe('');
+
+    toggleContext.mockResolvedValueOnce('denied');
+    glyph.click();
+    await Promise.resolve();
+
+    expect(glyph.classList.contains('on')).toBe(false);
+    expect(glyph.classList.contains('denied')).toBe(true);
+    expect(glyph.getAttribute('aria-pressed')).toBe('false');
+    expect(glyph.title).toBe('Location unavailable — check permissions');
+  });
+
+  test('cross-device pref sync (location-prefs-synced) repaints the glyph', () => {
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+    expect(glyph.classList.contains('on')).toBe(false);
+
+    // Simulate another device's opt-in landing via prefs.syncFromServer, which
+    // writes the localStorage cache and dispatches this event.
+    setLocationOptIn('direct', true);
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+
+    expect(glyph.classList.contains('on')).toBe(true);
   });
 });

@@ -2,6 +2,7 @@
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
 import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getUser, getUserPrefs, readGroupName } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
+import { initLocationShare } from './locationShare.js';
 import { initList, setFolloweeReadyCallback, setFollowingListReadyCallback, reEnterCallMode, type InitListOptions } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode, startPersonalInviteFlow } from './mycode.js';
@@ -15,7 +16,7 @@ import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, extractDirectIntentFromUrl, resolveInvitePreview } from './invites.js';
 import { decideBootRedirect, readBootRedirectContext } from './inviteBootGate.js';
-import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext } from './prefs.js';
+import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext, getOptedInLocationGids } from './prefs.js';
 import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, navigateToDirect, setLastKnownGroupName, setGroupsReadyCallback, getCurrentContext } from './groupNav.js';
 import { routeNotificationClick } from './notifyRouting.js';
@@ -929,6 +930,7 @@ async function initSurfaces(session: BootSession, intent: BootIntent, landing: L
   const landingMsg = consumeGraduationNotice();
   if (landingMsg) showToast(landingMsg);
   initHeader(userId);
+  initLocationShare(userId, getOptedInLocationGids);
   if (!splashDone) {
     if (coldSplashGating) {
       // Re-armed splash (fresh-device restore, or an invite-redemption boot

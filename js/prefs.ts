@@ -390,6 +390,15 @@ export function setLocationOptIn(context: string, on: boolean) {
   }
 }
 
+// All group ids whose location opt-in is on. NO membership filter on purpose:
+// locationShare uses this both to publish (a stale gid fails as one harmless
+// denied write) and to CLEAR — including sweeping the orphaned cell of a
+// group the user was kicked from (rules delete-only carve-out).
+export function getOptedInLocationGids(): string[] {
+  const groups = readLocationCache().groups || {};
+  return Object.keys(groups).filter((gid) => groups[gid]);
+}
+
 // ── Watch reconciliation ─────────────────────────────────────────────────────
 // Called by app.js's watchUserPrefs subscription each time the server snapshot
 // changes. Populates the localStorage cache so subsequent synchronous reads

@@ -4,8 +4,9 @@ import { getPaletteState } from './store.js';
 import { PALETTES_ENABLED } from './features.js';
 import { saveCombo, buildDirectCombo } from './favorites.js';
 import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
-import { markHintSeen, getLastTimeout, setLastTimeout } from './prefs.js';
+import { markHintSeen, getLastTimeout, setLastTimeout, getLocationOptIn } from './prefs.js';
 import { CHIP_VALUES, chipIndexForMinutes } from './status.js';
+import { toggleContext, capabilityState } from './locationShare.js';
 
 let savingEnabled = false;
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
@@ -20,6 +21,16 @@ let onOwnStatusReady: (() => void) | null = null;
 
 function migrateToChipIndex() {
   return chipIndexForMinutes(getLastTimeout());
+}
+
+// Paint a location glyph's tri-state. Shared by the Direct header (me.js) and
+// the group band (groupContext.js) — same classes, different element.
+export function paintLocationGlyph(el: HTMLElement, state: 'on' | 'off' | 'denied') {
+  el.classList.toggle('on', state === 'on');
+  el.classList.toggle('denied', state === 'denied');
+  el.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
+  if (state === 'denied') el.title = 'Location unavailable — check permissions';
+  else el.removeAttribute('title');
 }
 
 // Called when the userPrefs-synced lastTimeoutMinutes changes (cross-device).
@@ -104,6 +115,20 @@ export function initHeader(myUserId: string) {
       if (copyBtn) copyBtn.textContent = 'Copy';
     }
   });
+
+  const locGlyph = document.getElementById('location-glyph');
+  if (locGlyph) {
+    paintLocationGlyph(locGlyph, getLocationOptIn('direct') ? 'on' : 'off');
+    if (capabilityState() === 'unsupported') paintLocationGlyph(locGlyph, 'denied');
+    locGlyph.addEventListener('click', async () => {
+      const state = await toggleContext('direct');
+      paintLocationGlyph(locGlyph, state === 'on' ? 'on' : state === 'off' ? 'off' : 'denied');
+    });
+    // Cross-device echo: another device flipping the pref repaints this glyph.
+    document.addEventListener('location-prefs-synced', () => {
+      paintLocationGlyph(locGlyph, getLocationOptIn('direct') ? 'on' : 'off');
+    });
+  }
 }
 
 // Strips the FTU pulse from both dots. Idempotent; safe to call when neither
@@ -200,6 +225,7 @@ function setAvailable(availableUntil: number | null) {
   const label = document.getElementById('my-status-label')!;
   const chips = document.getElementById('header-chips')!;
   const timeRemaining = document.getElementById('time-remaining')!;
+  const lg = document.getElementById('location-glyph');
 
   // Same-frame swap (operator call: Direct must read as instantaneous, like
   // the group context) — no staged fade-out/swap/fade-in choreography; any
@@ -216,6 +242,7 @@ function setAvailable(availableUntil: number | null) {
   timeRemaining.textContent = formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
   timeRemaining.style.display = '';
   timeRemaining.style.opacity = '1';
+  if (lg) lg.style.display = '';
   chips.style.pointerEvents = 'auto';
   chips.style.opacity = '1';
 }
@@ -225,6 +252,7 @@ function setUnavailable() {
   const label = document.getElementById('my-status-label')!;
   const chips = document.getElementById('header-chips')!;
   const timeRemaining = document.getElementById('time-remaining')!;
+  const lg = document.getElementById('location-glyph');
 
   // Idempotence: already fully unavailable (dot off AND the chips faded — the
   // latter distinguishes an applied unavailable from the markup default) →
@@ -254,6 +282,7 @@ function setUnavailable() {
   }
   timeRemaining.style.display = 'none';
   timeRemaining.style.opacity = '';
+  if (lg) lg.style.display = 'none';
   label.classList.remove('available');
   label.textContent = 'Unavailable';
   label.style.opacity = '1';

@@ -1543,3 +1543,27 @@ body.add-form-open #main-ui-direct { padding-bottom: 50dvh; }
    With Cancel hidden (web signup), the primary keeps its full-width look. */
 .recovery-modal-actions { display: flex; gap: .5rem; align-items: center; }
 .recovery-modal-actions #recovery-saved-btn { flex: 1; }
+
+/* Location-sharing glyph — the ONLY control for the feature (spec 2026-07-18
+   §6.1). Sits inline after the time-remaining text in both headers. Dimmed =
+   off, colored = opted in, strikethrough-ish opacity pulse never used —
+   denied renders dimmer still with a tooltip via title attr set in JS. */
+.location-glyph {
+  background: none;
+  border: none;
+  padding: 2px;
+  margin-left: 6px;
+  cursor: pointer;
+  color: var(--text-muted, #6b7280);
+  opacity: 0.45;
+  vertical-align: middle;
+  line-height: 0;
+}
+.location-glyph.on {
+  opacity: 1;
+  color: var(--green, #22c55e);
+}
+.location-glyph.denied {
+  opacity: 0.25;
+  cursor: default;
+}

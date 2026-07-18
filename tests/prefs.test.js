@@ -405,4 +405,10 @@ describe('location opt-in prefs', () => {
     expect(prefs.getLocationOptIn('G2')).toBe(false);
     expect(seen).toHaveBeenCalled();
   });
+
+  test('getOptedInLocationGids returns only groups opted in, no membership filter', () => {
+    prefs.setLocationOptIn('G1', true);
+    prefs.setLocationOptIn('G2', false);
+    expect(prefs.getOptedInLocationGids()).toEqual(['G1']);
+  });
 });
