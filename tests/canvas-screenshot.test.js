@@ -202,7 +202,7 @@ describe('screenshot hide sequence', () => {
     expect(update).toHaveBeenCalledWith(CANVAS_PATH, { screenshotRequest: null });
   });
 
-  test('approver runs the same sequence but never removes the key', async () => {
+  test('approver also cleans up the key at 5400ms (self-heals a dead requester)', async () => {
     await enter();
     const scr = document.getElementById('canvas-screen');
     const { update } = require('firebase/database');
@@ -210,9 +210,11 @@ describe('screenshot hide sequence', () => {
 
     fire({ by: 'peer1', approved: true }); // peer requested
     expect(scr.classList.contains('screenshot-mode')).toBe(true);
-    jest.advanceTimersByTime(6000);
+    jest.advanceTimersByTime(5200);
     expect(scr.classList.contains('screenshot-mode')).toBe(false);
     expect(update).not.toHaveBeenCalledWith(CANVAS_PATH, { screenshotRequest: null });
+    jest.advanceTimersByTime(200);
+    expect(update).toHaveBeenCalledWith(CANVAS_PATH, { screenshotRequest: null });
   });
 
   test('approved dismisses the requester waiting dialog before hiding', async () => {
@@ -246,5 +248,35 @@ describe('screenshot hide sequence', () => {
     update.mockClear();
     jest.advanceTimersByTime(10000);
     expect(update).not.toHaveBeenCalledWith(CANVAS_PATH, { screenshotRequest: null });
+  });
+});
+
+describe('foreign dismissals leave screenshot dialogs alone', () => {
+  function openWaitingDialog() {
+    Array.from(document.querySelectorAll('.canvas-clear-btn'))
+      .find(el => el.classList.contains('canvas-screenshot-btn'))
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.querySelector('.canvas-shot-dialog')).toBeTruthy();
+  }
+
+  function fireWatcher(path, value) {
+    const { onValue } = require('firebase/database');
+    const call = onValue.mock.calls.find(c => c[0] === path);
+    expect(call).toBeTruthy();
+    call[1]({ val: () => value });
+  }
+
+  test('clear-flow null dispatch does not dismiss the screenshot waiting dialog', async () => {
+    await enter();
+    openWaitingDialog();
+    fireWatcher('canvases/me_peer1/clearRequest', null);
+    expect(document.querySelector('.canvas-shot-dialog')).toBeTruthy();
+  });
+
+  test('peer rejoin does not dismiss the screenshot waiting dialog', async () => {
+    await enter();
+    openWaitingDialog();
+    fireWatcher('canvases/me_peer1/presence', { peer1: true });
+    expect(document.querySelector('.canvas-shot-dialog')).toBeTruthy();
   });
 });

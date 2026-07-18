@@ -77,8 +77,10 @@ restores prior state untouched.
 1. Add `screenshot-mode` to `#canvas-screen` (fade-out 200ms, then hidden).
 2. One timeout at **5200ms** removes the class (200 fade-out + 5000 hold);
    fade-in runs 5200–5400ms.
-3. At **5400ms** (second timeout), the **requester** removes the DB key
-   (approver does nothing — single writer for cleanup).
+3. At **5400ms** (second timeout), **both clients** remove the DB key — null
+   writes are idempotent, and the approver's write self-heals a requester
+   that crashed mid-sequence (whose orphaned `{approved: true}` would
+   otherwise replay the hide on every canvas re-entry).
 4. Timer handles live in session singletons; `exitCanvas` clears them and
    removes the class so an exit mid-sequence can't leak state into the next
    session.
@@ -105,9 +107,8 @@ mocked `./db.js`, fake timers):
 - **Dispatch:** `{by: peer}` shows the consent dialog; `{by: me}` never shows
   it to the requester; `approved: true` starts the sequence in both roles;
   `null` dismisses open dialogs.
-- **Sequence:** class present after start; removed after 5200ms; requester
-  removes the key at 5400ms, approver doesn't; `exitCanvas` mid-sequence
-  clears timers and the class.
+- **Sequence:** class present after start; removed after 5200ms; both sides
+  remove the key at 5400ms; `exitCanvas` mid-sequence clears timers and the class.
 - **Button:** Screenshot button renders next to Clear and triggers the
   request write + waiting dialog.
 

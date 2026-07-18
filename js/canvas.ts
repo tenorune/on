@@ -422,7 +422,7 @@ export async function enterCanvas(peerId: string, peerName: string, myUserId: st
       showClearApprovalDialog(requesterId);
     } else if (requesterId === null) {
       // Clear request was cancelled or completed — dismiss any waiting dialog
-      const dialog = document.querySelector('.canvas-dialog-overlay');
+      const dialog = document.querySelector('.canvas-dialog-overlay:not(.canvas-shot-dialog)');
       if (dialog) dialog.remove();
       // If strokes were cleared, the onChildRemoved handlers will redraw
     }
@@ -433,7 +433,7 @@ export async function enterCanvas(peerId: string, peerName: string, myUserId: st
     const req = (value ?? null) as ScreenshotRequest | null;
     if (req && req.by && req.approved === true) {
       dismissScreenshotDialogs();
-      runScreenshotSequence(req.by === _myUserId);
+      runScreenshotSequence();
     } else if (req && req.by) {
       showScreenshotApprovalDialog(req.by);
     } else {
@@ -496,7 +496,7 @@ export async function enterCanvas(peerId: string, peerName: string, myUserId: st
       // Peer (re-)joined — undim header and dismiss any dialog
       const header = document.getElementById('canvas-header');
       if (header) header.classList.remove('dimmed');
-      const dialog = document.querySelector('.canvas-dialog-overlay');
+      const dialog = document.querySelector('.canvas-dialog-overlay:not(.canvas-shot-dialog)');
       if (dialog) dialog.remove();
     }
     if (_peerSeenOnce && presence[_peerId] === false) {
@@ -793,19 +793,19 @@ function showScreenshotApprovalDialog(requesterId: string) {
   });
 }
 
-export function runScreenshotSequence(isRequester: boolean): void {
+export function runScreenshotSequence(): void {
   const scr = document.getElementById('canvas-screen');
   if (!scr || scr.classList.contains('screenshot-mode')) return; // already running
   scr.classList.add('screenshot-mode'); // fade-out 200ms, then hidden hold
   _screenshotTimers.push(setTimeout(() => {
     scr.classList.remove('screenshot-mode'); // fade-in 200ms
   }, SCREENSHOT_FADE_MS + SCREENSHOT_HOLD_MS));
-  if (isRequester) {
-    // Single writer for cleanup: key removal after the fade-in completes.
-    _screenshotTimers.push(setTimeout(() => {
-      removeScreenshotRequest(_canvasId).catch(() => {});
-    }, SCREENSHOT_FADE_MS + SCREENSHOT_HOLD_MS + SCREENSHOT_FADE_MS));
-  }
+  // Both sides clean up after the fade-in — null writes are idempotent. The
+  // approver's write self-heals a requester that died mid-sequence, whose
+  // orphaned {approved:true} would otherwise replay the hide on every re-entry.
+  _screenshotTimers.push(setTimeout(() => {
+    removeScreenshotRequest(_canvasId).catch(() => {});
+  }, SCREENSHOT_FADE_MS + SCREENSHOT_HOLD_MS + SCREENSHOT_FADE_MS));
 }
 
 function dismissScreenshotDialogs() {
