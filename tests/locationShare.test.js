@@ -40,6 +40,7 @@ beforeEach(() => {
 afterEach(() => {
   const { _resetLocationShare } = require('../js/locationShare.js');
   _resetLocationShare();
+  delete global.navigator.permissions; // tests that install a Permissions API mock
   jest.useRealTimers();
 });
 
@@ -324,6 +325,31 @@ test('toggling off the last context — a group, not direct — still clears its
   // read of the (now post-toggle) opted-in list would drop it and orphan
   // the cell in locationCells/G1/me.
   expect(db.clearLocationData).toHaveBeenCalledWith('me', ['G1']);
+});
+
+test('a tick never fires the permission PROMPT: Permissions API "prompt" skips capture; "granted" publishes', async () => {
+  // Cross-device sync can land an opt-in on a device that never granted
+  // geolocation — the background tick must not surprise-prompt (spec §5:
+  // prompts fire on explicit glyph intent only).
+  Object.defineProperty(global.navigator, 'permissions', {
+    configurable: true,
+    value: { query: jest.fn(async () => ({ state: 'prompt' })) },
+  });
+  prefs.setLocationOptIn('direct', true); // arrived via sync — no gesture on THIS device
+  const { initLocationShare } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await flush(); await flush();
+  expect(navigator.permissions.query).toHaveBeenCalledWith({ name: 'geolocation' });
+  expect(navigator.geolocation.getCurrentPosition).not.toHaveBeenCalled();
+  expect(db.publishLocation).not.toHaveBeenCalled();
+
+  // Permission granted (user allowed it via the glyph or site settings) —
+  // the next tick captures and publishes normally.
+  navigator.permissions.query.mockImplementation(async () => ({ state: 'granted' }));
+  jest.advanceTimersByTime(60000);
+  await flush(); await flush();
+  expect(db.publishLocation).toHaveBeenCalledWith('me', 52.52, 13.405, expect.any(Number));
 });
 
 test('hidden document pauses ticks; visible resumes with an immediate tick', async () => {

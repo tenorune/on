@@ -114,11 +114,32 @@ function revokePermissionTeardown() {
   }
 }
 
+// Spec §5: the permission PROMPT fires only on explicit glyph intent — never
+// from the background tick. A cross-device-synced opt-in can land on a device
+// that hasn't granted geolocation; without this gate the first tick would
+// surprise-prompt (and re-prompt every minute). Only 'granted' captures.
+// Pass-through when the Permissions API is unavailable (older browsers) and
+// in the Telegram context (LocationManager has no silent query) — both keep
+// the pre-gate behavior. NOT used by the glyph-tap path (toggleContext),
+// which must keep prompting on explicit intent.
+async function tickPermissionGranted(): Promise<boolean> {
+  if (isTelegramContext()) return true;
+  const perms = (navigator as Navigator & {
+    permissions?: { query?: (d: { name: string }) => Promise<{ state: string }> };
+  }).permissions;
+  if (!perms?.query) return true;
+  try {
+    const status = await perms.query({ name: 'geolocation' });
+    return status.state === 'granted';
+  } catch { return true; } // a query the browser rejects must not silence the loop
+}
+
 async function tick(): Promise<void> {
   if (!_userId) return;
   if (_available && !presenceAvailable()) { goUnavailable(); return; } // window lapsed mid-session
   if (!_available || !anyOptIn()) return;
   if (document.visibilityState !== 'visible') return;
+  if (!(await tickPermissionGranted())) return;
   let pos;
   try { pos = await getPositionOnce(); }
   catch (err) {
