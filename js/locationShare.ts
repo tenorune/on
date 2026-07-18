@@ -16,6 +16,11 @@ const TICK_MS = 60000;
 let _userId: string | null = null;
 let _getOptedInGids: () => string[] = () => [];
 let _available = false;
+// Last own-presence SNAPSHOT, kept so availability can be re-evaluated at
+// tick time: expiry is a TIME event — the window can lapse with no presence
+// DATA tick arriving, and the cached boolean alone would let the loop keep
+// publishing raw coordinates against an expired window.
+let _lastPresence: PresenceNode | null = null;
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _unsubOwn: (() => void) | null = null;
 let _visListener: (() => void) | null = null;
@@ -54,8 +59,25 @@ function getPositionOnce(): Promise<{ lat: number; lng: number }> {
   });
 }
 
+// Availability re-evaluated from the stored snapshot (time-aware), not the
+// cached boolean — see _lastPresence's note.
+function presenceAvailable(): boolean {
+  return isAvailable(_lastPresence?.status ?? null, _lastPresence?.availableUntil ?? null);
+}
+
+// The single going-unavailable path: stop the loop, delete everything
+// published. Shared by the presence-subscription flip and the in-tick expiry
+// re-evaluation so both transitions behave identically.
+function goUnavailable() {
+  _available = false;
+  stopLoop();
+  clearPublished();
+}
+
 async function tick(): Promise<void> {
-  if (!_userId || !_available || !anyOptIn()) return;
+  if (!_userId) return;
+  if (_available && !presenceAvailable()) { goUnavailable(); return; } // window lapsed mid-session
+  if (!_available || !anyOptIn()) return;
   if (document.visibilityState !== 'visible') return;
   let pos;
   try { pos = await getPositionOnce(); } catch { return; } // silent failed tick
@@ -107,9 +129,10 @@ export function initLocationShare(userId: string, getOptedInGids: () => string[]
   _userId = userId;
   _getOptedInGids = getOptedInGids;
   _unsubOwn = subscribeOwnStatus((presence: PresenceNode | null) => {
+    _lastPresence = presence;
     const wasAvailable = _available;
-    _available = isAvailable(presence?.status ?? null, presence?.availableUntil ?? null);
-    if (wasAvailable && !_available) { stopLoop(); clearPublished(); }
+    _available = presenceAvailable();
+    if (wasAvailable && !_available) goUnavailable();
     else reconcile();
   });
   _visListener = () => {
@@ -169,5 +192,6 @@ export function _resetLocationShare() {
   if (_visListener) { document.removeEventListener('visibilitychange', _visListener); _visListener = null; }
   _userId = null;
   _available = false;
+  _lastPresence = null;
   _getOptedInGids = () => [];
 }

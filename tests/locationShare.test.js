@@ -151,6 +151,27 @@ test('going unavailable clears published data and stops the loop', async () => {
   expect(prefs.getLocationOptIn('direct')).toBe(true);
 });
 
+test('availability window expiring mid-session stops publishing and clears — no presence tick needed', async () => {
+  // Expiry is a TIME event, not a data event: no presence snapshot arrives
+  // when the window lapses while foreground. The loop must re-evaluate
+  // isAvailable(status, availableUntil) per tick off the stored snapshot.
+  const { initLocationShare, toggleContext } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 60000 });
+  await toggleContext('direct');
+  await flush();
+  expect(db.publishLocation).toHaveBeenCalledTimes(1);
+  db.publishLocation.mockClear();
+  jest.advanceTimersByTime(180000); // window lapsed at +60s; NO presence tick fires
+  await flush();
+  expect(db.clearLocationData).toHaveBeenCalledWith('me', []);
+  expect(db.publishLocation).not.toHaveBeenCalled();
+  // Loop is stopped — later timer advances publish nothing either.
+  jest.advanceTimersByTime(120000);
+  await flush();
+  expect(db.publishLocation).not.toHaveBeenCalled();
+});
+
 test('toggling the last context off clears data', async () => {
   const { initLocationShare, toggleContext } = share();
   initLocationShare('me', () => []);
