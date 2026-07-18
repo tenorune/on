@@ -75,3 +75,10 @@ interface StatusOverride extends PresenceNode {
   /** The bot/server only honor the override when enabled === true. */
   enabled?: boolean | null;
 }
+
+/** locations/{uid} and locationCells/{gid}/{uid} nodes. */
+interface LocationNode {
+  lat?: number;
+  lng?: number;
+  updatedAt?: number;
+}
