@@ -53,9 +53,12 @@ const lastUserData = new Map<string, UserData>(); // userId → most recent user
 const renderedFollowees = new Set<string>();
 
 // Distance ticks land here; updateFolloweeRow reads it when painting. One
-// subscription per rendered MUTUAL row, opened only while our own Direct
+// subscription per rendered MUTUAL row, open exactly while our own Direct
 // publishing pref is on (rules would deny the reads regardless — we just
-// never attempt them).
+// never attempt them). The invariant "_distanceUnsubs' keyset == currently
+// rendered mutuals ∧ opt-in on" is maintained by reconcileDistanceSubs, which
+// renderList calls on every pass — so it self-heals on any renderList trigger
+// (opt-in flip, mutual-set change, initList, …), not just row create/teardown.
 const _distances = new Map<string, number | null>();
 const _distanceUnsubs = new Map<string, () => void>();
 let onFolloweeReady: (() => void) | null = null;
@@ -97,6 +100,37 @@ function teardownFolloweeWatches(userId: string) {
   _distanceUnsubs.get(userId)?.();
   _distanceUnsubs.delete(userId);
   _distances.delete(userId);
+}
+
+// Brings the open distance subscriptions back in line with "currently
+// rendered mutual ∧ opted in to Direct location sharing". Called by renderList
+// BEFORE reconcileChildren/DOM paint on every pass, so it covers all three
+// ways eligibility can churn while a row stays mounted: opt-in flips on (open
+// subs for already-rendered mutuals), opt-in flips off (close everything +
+// drop the cache before the paint that follows can read it), and a row
+// transitioning mutual → following-only (closes the sub the old key's
+// onRemove never touched, before the new non-mutual row's first paint).
+// `mutuals` must be the FollowingEntry list currently in the Mutuals section —
+// callers pass an empty array when nothing should stay open.
+function reconcileDistanceSubs(mutuals: FollowingEntry[], myUserId: string) {
+  const eligibleIds = getLocationOptIn('direct') ? new Set(mutuals.map(e => e.userId)) : new Set<string>();
+
+  _distanceUnsubs.forEach((unsub, userId) => {
+    if (eligibleIds.has(userId)) return;
+    unsub();
+    _distanceUnsubs.delete(userId);
+    _distances.delete(userId);
+  });
+
+  for (const entry of mutuals) {
+    if (!eligibleIds.has(entry.userId)) continue;
+    if (_distanceUnsubs.has(entry.userId)) continue; // already open — never overwrite without unsubbing first
+    _distanceUnsubs.set(entry.userId, subscribeDistance(myUserId, entry.userId, (meters) => {
+      _distances.set(entry.userId, meters);
+      const data = lastUserData.get(entry.userId);
+      if (data) updateFolloweeRow(entry, data, myUserId);
+    }));
+  }
 }
 
 function showConfirm(title: string, btnText: string, action: ConfirmAction) {
@@ -500,6 +534,15 @@ function renderList() {
     if (!activeUserIds.has(userId)) teardownFolloweeWatches(userId);
   });
 
+  // Runs BEFORE reconcileChildren below: the update()/create() callbacks (and
+  // the post-reconcile cache-repaint loop) read _distances synchronously while
+  // painting, so eligibility must already be settled by the time they run —
+  // otherwise a row losing its subscription this pass (opt-in off, or mutual →
+  // following-only) would still paint the stale value it's about to lose.
+  // subscribeDistance itself doesn't need the DOM node to exist yet (its first
+  // tick lands async), so opening subs here for freshly-mutual rows is safe too.
+  reconcileDistanceSubs(mutuals, myUserId);
+
   const list = (document.getElementById('people-list') as HTMLElement);
 
   const isEmpty = mutuals.length === 0 && followingOnly.length === 0 && followerOnly.length === 0;
@@ -889,13 +932,9 @@ function createFolloweeRow(entry: FollowingEntry, myUserId: string, isMutual = f
     li.appendChild(actions[0].el);
   }
 
-  if (isMutual && getLocationOptIn('direct')) {
-    _distanceUnsubs.set(entry.userId, subscribeDistance(myUserId, entry.userId, (meters) => {
-      _distances.set(entry.userId, meters);
-      const data = lastUserData.get(entry.userId);
-      if (data) updateFolloweeRow(entry, data, myUserId);
-    }));
-  }
+  // Distance subscriptions are opened by reconcileDistanceSubs, called earlier
+  // in the renderList pass this row was created in (before reconcileChildren).
+  // Not needed here — no dependency on this DOM node existing.
 
   return li;
 }
@@ -1072,7 +1111,12 @@ export function updateFolloweeRow(entry: FollowingEntry, userData: UserData, myU
       ? `<span style="color:${safeCssColor(color)}">${callText}</span>`
       : callText;
   } else if (isAvail) {
-    const meters = _distances.get(entry.userId);
+    // Gate on the row actually being mutual (not just having a cache entry):
+    // a mutual→following-only transition can leave a stale _distances value
+    // around for one microtask before reconcileDistanceSubs (run at the end
+    // of the same renderList pass) deletes it — reading li.dataset.mutual
+    // directly means the non-mutual card can never render it, even transiently.
+    const meters = li.dataset.mutual === '1' ? _distances.get(entry.userId) : undefined;
     const dist = typeof meters === 'number' ? ` · ${formatDistancePrecise(meters)}` : '';
     const text = availableForText(userData.availableUntil) + dist;
     statusText = PALETTES_ENABLED
@@ -1168,12 +1212,10 @@ document.addEventListener('knock-float-restored', () => scheduleResort());
 
 // Our own Direct location opt-in flipped (glyph tap, via locationShare.ts's
 // toggleContext) or a server echo of prefs landed (prefs.ts's syncFromServer).
-// Distance subscriptions are opened/closed only at row create/teardown time
-// (see createFolloweeRow / teardownFolloweeWatches) — reconcileChildren keeps
-// a row's DOM node across a re-render whenever its section key is unchanged,
-// so this re-render doesn't retroactively subscribe an already-rendered
-// mutual row; it picks up the change the next time that row's key churns
-// (unfollow/refollow, going non-mutual and back, a fresh initList, …).
+// renderList's reconcileDistanceSubs pass (run unconditionally at the end of
+// every renderList) re-evaluates every currently-rendered mutual against the
+// new opt-in value, so this re-render opens/closes subs for already-rendered
+// mutual rows immediately — it does not wait for the row's section key to churn.
 document.addEventListener('location-optin-changed', () => renderList());
 document.addEventListener('location-prefs-synced', () => renderList());
 

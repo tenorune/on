@@ -817,6 +817,56 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     expect(status).toContain('Available for');
     expect(status).not.toContain('·');
   });
+
+  test('6. opt-in flips ON mid-session (row already rendered mutual) → subscription opens and a tick paints the suffix', () => {
+    setupMutual('u1', false); // rendered mutual, opt-in OFF — no subscription yet
+    fireAvailable('u1');
+    expect(subscribeDistance).not.toHaveBeenCalled();
+
+    getLocationOptIn.mockReturnValue(true);
+    document.dispatchEvent(new CustomEvent('location-optin-changed'));
+
+    expect(subscribeDistance).toHaveBeenCalledWith('myUid', 'u1', expect.any(Function));
+    distanceCbs.get('u1')(120);
+
+    const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
+    expect(status).toMatch(/Available for .* · 120 m$/);
+  });
+
+  test('7. opt-in flips OFF mid-session (live distance shown) → subscription is unsubbed and the suffix disappears', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(120);
+    let status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
+    expect(status).toMatch(/ · 120 m$/);
+
+    const unsub = subscribeDistance.mock.results[0].value; // the jest.fn() returned to createFolloweeRow's caller
+    getLocationOptIn.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('location-optin-changed'));
+
+    expect(unsub).toHaveBeenCalled();
+    status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
+    expect(status).toContain('Available for');
+    expect(status).not.toContain('·');
+  });
+
+  test('8. mutual → following-only transition (distance shown) → old subscription unsubbed and the new row shows no suffix', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(120);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 120 m$/);
+
+    const unsub = subscribeDistance.mock.results[0].value;
+
+    // Follower data drops u1 out of the followers list — same getFollowing()
+    // entry stays, so u1 is now Following-only instead of Mutual.
+    watchFollowersCallback([]);
+
+    expect(unsub).toHaveBeenCalled();
+    const li = document.querySelector('[data-user-id="u1"]');
+    expect(li.dataset.mutual).not.toBe('1');
+    expect(li.querySelector('.person-status').textContent).not.toContain('·');
+  });
 });
 
 // --- Palette Cards (Increment 3) ---
