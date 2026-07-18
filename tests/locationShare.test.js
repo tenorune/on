@@ -152,23 +152,136 @@ test('going unavailable clears published data and stops the loop', async () => {
   expect(prefs.getLocationOptIn('direct')).toBe(true);
 });
 
-test('location-publishing-changed fires on every availability transition, including in-tick expiry', async () => {
+// Eligibility must key off "own node actually published this tick's spell",
+// not the raw available-status flip: the flip races the async publish chain
+// (permission check -> getPositionOnce() -> write RTT), and a distance
+// listener attached before locations/{me} exists gets rules-denied and
+// permanently cancelled by the SDK. So: down-flips (nothing to race — the
+// node is torn down synchronously) still dispatch immediately, but up-flips
+// must wait for the tick's publish to actually land.
+test('location-publishing-changed: down-flips dispatch synchronously with the status flip; up-flips wait for the tick publish to resolve', async () => {
   const { initLocationShare, toggleContext } = share();
   initLocationShare('me', () => []);
   let fired = 0;
   document.addEventListener('location-publishing-changed', () => { fired++; });
-  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
-  expect(fired).toBe(0); // no transition — stayed unavailable
-  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 60000 });
-  expect(fired).toBe(1); // up-flip
-  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
-  expect(fired).toBe(2); // down-flip via presence tick
+
+  // No opt-in at all: up-flip has nothing to publish, so no dispatch — this
+  // is the key RED-before-fix assertion (old code dispatched synchronously
+  // off the status flip alone, regardless of opt-in/publish).
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  expect(fired).toBe(0); // NOT dispatched synchronously with the status flip
+  await flush();
+  expect(fired).toBe(0); // still nothing — no opt-in means no publish ever lands
+
+  // Opt in while available: the tick fires and publishes; dispatch happens
+  // only once that publish resolves, not synchronously with the opt-in call.
   await toggleContext('direct');
+  await flush();
+  expect(fired).toBe(1); // dispatched once the tick's publish landed
+
+  // Down-flip via presence tick: teardown is synchronous, so this dispatches
+  // immediately with the status flip (no async chain to wait on).
+  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+  expect(fired).toBe(2);
+
+  // Up-flip again (opt-in pref survived teardown): NOT dispatched
+  // synchronously with the flip...
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 60000 });
+  expect(fired).toBe(2);
+  // ...only once the republish resolves.
+  await flush();
   expect(fired).toBe(3);
-  jest.advanceTimersByTime(60000); // window lapses — down-flip via in-tick expiry
+
+  // In-tick expiry (down-flip with no presence tick involved): still
+  // synchronous teardown -> dispatch, same as any other down-flip.
+  jest.advanceTimersByTime(60000);
   await flush();
   expect(fired).toBe(4);
+});
+
+test('toggleContext on-branch dispatches location-publishing-changed only after its own tick publish resolves', async () => {
+  const { initLocationShare, toggleContext } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  let fired = 0;
+  document.addEventListener('location-publishing-changed', () => { fired++; });
+  const p = toggleContext('direct');
+  expect(fired).toBe(0); // not yet — permission check + position read + publish still pending
+  await expect(p).resolves.toBe('on');
+  await flush();
+  expect(fired).toBe(1);
+});
+
+test('isPublishingAvailable() is false immediately after an up-flip and only becomes true once the tick publish resolves', async () => {
+  const { initLocationShare, toggleContext, isPublishingAvailable } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+  expect(isPublishingAvailable()).toBe(false);
+
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  // Status flipped, but the own node has not published yet this up-transition.
+  expect(isPublishingAvailable()).toBe(false);
+  await flush();
+  expect(isPublishingAvailable()).toBe(true);
+});
+
+test('goUnavailable resets the published flag before dispatching — listeners see isPublishingAvailable() false', async () => {
+  const { initLocationShare, toggleContext, isPublishingAvailable } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  expect(isPublishingAvailable()).toBe(true);
+  let sawFalse = false;
+  document.addEventListener('location-publishing-changed', () => { sawFalse = isPublishingAvailable() === false; });
+  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+  expect(sawFalse).toBe(true);
+});
+
+test('revokePermissionTeardown resets the published flag and dispatches location-publishing-changed', async () => {
+  const { initLocationShare, toggleContext, isPublishingAvailable } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  expect(isPublishingAvailable()).toBe(true);
+  let sawFalse = false;
+  document.addEventListener('location-publishing-changed', () => { sawFalse = isPublishingAvailable() === false; });
+  geoBehavior = (ok, err) => err({ code: 1 }); // OS-level revocation mid-flight
+  jest.advanceTimersByTime(60000);
+  await flush();
+  expect(sawFalse).toBe(true);
+  expect(isPublishingAvailable()).toBe(false);
+});
+
+test('toggling the last context off resets the published flag and dispatches location-publishing-changed', async () => {
+  const { initLocationShare, toggleContext, isPublishingAvailable } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  expect(isPublishingAvailable()).toBe(true);
+  let sawFalse = false;
+  document.addEventListener('location-publishing-changed', () => { sawFalse = isPublishingAvailable() === false; });
+  await expect(toggleContext('direct')).resolves.toBe('off');
+  expect(sawFalse).toBe(true);
+  expect(isPublishingAvailable()).toBe(false);
+});
+
+test('_resetLocationShare resets the published flag and dispatches location-publishing-changed', async () => {
+  const { initLocationShare, toggleContext, isPublishingAvailable, _resetLocationShare } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  expect(isPublishingAvailable()).toBe(true);
+  let sawFalse = false;
+  document.addEventListener('location-publishing-changed', () => { sawFalse = isPublishingAvailable() === false; });
+  _resetLocationShare();
+  expect(sawFalse).toBe(true);
 });
 
 test('availability window expiring mid-session stops publishing and clears — no presence tick needed', async () => {
