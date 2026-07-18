@@ -62,10 +62,52 @@ test('direct opt-in + available publishes raw point immediately and every 60s', 
   await expect(toggleContext('direct')).resolves.toBe('on');
   await flush();
   expect(db.publishLocation).toHaveBeenCalledWith('me', 52.52, 13.405, expect.any(Number));
+  // First enable must publish exactly once — reconcile()->startLoop() already
+  // runs an immediate tick; a second explicit tick would double-publish.
+  expect(db.publishLocation).toHaveBeenCalledTimes(1);
   db.publishLocation.mockClear();
   jest.advanceTimersByTime(60000);
   await flush();
   expect(db.publishLocation).toHaveBeenCalledTimes(1);
+});
+
+test('enabling a second context while the loop runs still publishes that context immediately', async () => {
+  const { initLocationShare, toggleContext } = share();
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  db.publishLocationCell.mockClear();
+  // Loop is already running (startLoop() is a no-op here), so the explicit
+  // tick in toggleContext's on-branch is the ONLY tick for this enable.
+  await expect(toggleContext('G1')).resolves.toBe('on');
+  await flush();
+  expect(db.publishLocationCell).toHaveBeenCalledWith('G1', 'me', 52.52, 13.405, expect.any(Number));
+  expect(db.publishLocationCell).toHaveBeenCalledTimes(1);
+});
+
+test('toggling direct off with a group still opted in clears only the raw point and keeps the loop running', async () => {
+  const { initLocationShare, toggleContext } = share();
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  await toggleContext('G1');
+  await flush();
+  db.clearLocationData.mockClear();
+  db.publishLocation.mockClear();
+  db.publishLocationCell.mockClear();
+  await expect(toggleContext('direct')).resolves.toBe('off');
+  await flush();
+  // The raw point must be cleared — the invariant is that locations/{uid}
+  // exists ONLY while 'direct' is opted in, and G1 remains opted in so no
+  // "last context off" or per-group clear runs otherwise.
+  expect(db.clearLocationData).toHaveBeenCalledWith('me', []);
+  // The loop itself must still be running for the surviving group.
+  jest.advanceTimersByTime(60000);
+  await flush();
+  expect(db.publishLocationCell).toHaveBeenCalled();
+  expect(db.publishLocation).not.toHaveBeenCalled();
 });
 
 test('group opt-in publishes that cell, not the raw point', async () => {

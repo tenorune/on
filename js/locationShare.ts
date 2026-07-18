@@ -132,6 +132,11 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
       // clearLocationData also nulls locations/{uid}; re-publish next tick if
       // direct is still on — acceptable within one tick, but avoid the gap:
       if (getLocationOptIn('direct')) tick();
+    } else if (context === 'direct' && _userId) {
+      // 'direct' turned off but a group remains opted in: only the raw point
+      // may exist while 'direct' is opted in, so clear it (no cells — the
+      // groups' cells are untouched).
+      clearLocationData(_userId, []).catch(() => {});
     }
     return 'off';
   }
@@ -142,9 +147,14 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
     if ((err as { code?: number })?.code === 1) return 'denied';
     return 'unsupported';
   }
+  // reconcile()->startLoop() already runs an immediate tick when starting a
+  // stopped loop; only run the explicit tick below for the already-running
+  // case (startLoop() is a no-op there), or this context's first enable
+  // would publish twice.
+  const wasRunning = _timer !== null;
   setLocationOptIn(context, true);
   reconcile();
-  if (_timer !== null) tick(); // immediate first publish for this context
+  if (wasRunning) tick(); // immediate first publish for this context
   return 'on';
 }
 
