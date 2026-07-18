@@ -155,6 +155,10 @@ jest.mock('../js/prefs.js', () => ({
     },
   }),
   setPaletteState: jest.fn(),
+  getLocationOptIn: jest.fn(() => false),
+}));
+jest.mock('../js/locationHub.js', () => ({
+  subscribeDistance: jest.fn(() => jest.fn()),
 }));
 jest.mock('../js/invites.js', () => ({
   attemptRedeemFromUrl: jest.fn(),
@@ -708,6 +712,110 @@ describe('updateFolloweeRow: palette-aware dot and status text', () => {
     expect(li.dataset.hintAvail).toBe('1');
     expect(li.dataset.hintLongpress).toBe('1');
     expect(li.dataset.hintSwipe).toBe('1');
+  });
+});
+
+// --- Distance on Direct mutual cards (Task 9) ---
+//
+// Contract:
+// 1. A MUTUAL row (li.dataset.mutual === '1'), available, with a known
+//    distance and direct opt-in ON renders status text matching
+//    /Available for .* · 120 m$/.
+// 2. Distance ticks re-render: pushing a new meters value through the
+//    subscribeDistance callback updates the suffix without a presence tick.
+// 3. Direct opt-in OFF → no subscribeDistance calls at all, no suffix.
+// 4. Non-mutual rows (Following/Followers sections) never subscribe.
+// 5. distance null → suffix absent (plain "Available for …").
+describe('Distance on Direct mutual cards (Task 9)', () => {
+  // Bound at describe-eval time (landmine: describe bodies run during Jest's
+  // collection pass, before any jest.resetModules() inside an EARLIER test's
+  // body has executed — so requiring here shares the same module instance as
+  // the top-level requires above, not a rebound one from a later test's
+  // resetModules() call).
+  const { subscribeDistance } = require('../js/locationHub.js');
+  const { getLocationOptIn } = require('../js/prefs.js');
+
+  let watchFollowersCallback;
+  let watchPresenceCallback;
+  let distanceCbs;
+
+  // jest.clearAllMocks() does NOT clear mockReturnValue/mockImplementation —
+  // every test below sets getLocationOptIn's return explicitly instead of
+  // relying on a beforeEach default, and this afterEach restores the "off"
+  // default so the mock doesn't leak a stale `true` into later describes.
+  afterEach(() => {
+    getLocationOptIn.mockReturnValue(false);
+    subscribeDistance.mockReset();
+    subscribeDistance.mockImplementation(() => jest.fn());
+  });
+
+  function setupMutual(userId, optIn) {
+    setupDom();
+    jest.clearAllMocks();
+    getLocationOptIn.mockReturnValue(optIn);
+    distanceCbs = new Map();
+    subscribeDistance.mockImplementation((_myUid, peerUid, cb) => {
+      distanceCbs.set(peerUid, cb);
+      return jest.fn();
+    });
+    watchFollowers.mockImplementation((_uid, cb) => { watchFollowersCallback = cb; return jest.fn(); });
+    watchPresence.mockImplementation((_uid, cb) => { watchPresenceCallback = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([{ userId, code: 'XY9K2M', label: 'Alice' }]);
+    initList('myUid', 'MYCODE');
+    watchFollowersCallback([{ userId, code: 'XY9K2M' }]); // makes the row mutual
+  }
+
+  function fireAvailable(userId) {
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 7200000, statusColor: '#22c55e' });
+  }
+
+  test('1. mutual + available + known distance + opt-in ON renders "Available for … · 120 m"', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(120);
+    const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
+    expect(status).toMatch(/Available for .* · 120 m$/);
+  });
+
+  test('2. a later distance tick updates the suffix without a presence tick', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(500);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 500 m$/);
+    distanceCbs.get('u1')(1200); // no presence tick in between
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 1.2 km$/);
+  });
+
+  test('3. direct opt-in OFF → subscribeDistance is never called, no suffix', () => {
+    setupMutual('u1', false);
+    fireAvailable('u1');
+    expect(subscribeDistance).not.toHaveBeenCalled();
+    const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
+    expect(status).toContain('Available for');
+    expect(status).not.toContain('·');
+  });
+
+  test('4. non-mutual rows never subscribe', () => {
+    setupDom();
+    jest.clearAllMocks();
+    getLocationOptIn.mockReturnValue(true);
+    subscribeDistance.mockImplementation((_myUid, peerUid, cb) => { distanceCbs?.set(peerUid, cb); return jest.fn(); });
+    watchFollowers.mockImplementation((_uid, cb) => { watchFollowersCallback = cb; return jest.fn(); });
+    watchPresence.mockImplementation((_uid, cb) => { watchPresenceCallback = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([{ userId: 'u2', code: 'AB1234', label: 'Bea' }]);
+    initList('myUid', 'MYCODE');
+    watchFollowersCallback([]); // no followers → Following-only, non-mutual
+    fireAvailable('u2');
+    expect(subscribeDistance).not.toHaveBeenCalled();
+  });
+
+  test('5. distance null → suffix absent (plain "Available for …")', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(null);
+    const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
+    expect(status).toContain('Available for');
+    expect(status).not.toContain('·');
   });
 });
 

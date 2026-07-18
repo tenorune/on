@@ -55,6 +55,19 @@ test('no publish while nothing is opted in, even when available', async () => {
   expect(db.publishLocation).not.toHaveBeenCalled();
 });
 
+test('toggleContext dispatches location-optin-changed with the context, on both the on and off branches', async () => {
+  const { initLocationShare, toggleContext } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  const seen = [];
+  document.addEventListener('location-optin-changed', (e) => seen.push(e.detail.context));
+  await toggleContext('direct'); // on-branch
+  await flush();
+  await toggleContext('direct'); // off-branch
+  await flush();
+  expect(seen).toEqual(['direct', 'direct']);
+});
+
 test('direct opt-in + available publishes raw point immediately and every 60s', async () => {
   const { initLocationShare, toggleContext } = share();
   initLocationShare('me', () => []);

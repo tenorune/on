@@ -6,6 +6,8 @@ import {
   watchFollowing, setFollowingEntry, removeFollowingEntry, watchRevocations,
 } from './db.js';
 import { subscribePresence } from './presenceHub.js';
+import { subscribeDistance } from './locationHub.js';
+import { formatDistancePrecise } from '../shared/geo.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
   setFollowing, getFollowerName, setFollowerName,
@@ -14,7 +16,7 @@ import {
   isHintSeen, markHintSeen,
   getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount,
   getPaletteState, setPaletteState,
-  getFavorites,
+  getFavorites, getLocationOptIn,
 } from './prefs.js';
 import { escapeHtml, hexToRgb, safeCssColor, resolveDisplayName, availableForText } from './utils.js';
 import { isLongpressHintEligible, isSwipeHintEligible } from './hints.js';
@@ -49,6 +51,13 @@ const unsubscribers = new Map<string, () => void>(); // userId → unsubscribe f
 const editingSet = new Set<string>();
 const lastUserData = new Map<string, UserData>(); // userId → most recent userData from Firebase
 const renderedFollowees = new Set<string>();
+
+// Distance ticks land here; updateFolloweeRow reads it when painting. One
+// subscription per rendered MUTUAL row, opened only while our own Direct
+// publishing pref is on (rules would deny the reads regardless — we just
+// never attempt them).
+const _distances = new Map<string, number | null>();
+const _distanceUnsubs = new Map<string, () => void>();
 let onFolloweeReady: (() => void) | null = null;
 let onFollowingListReady: ((count: number) => void) | null = null;
 let _onInviteRedeemed: InviteRedeemedCb | null = null;
@@ -76,6 +85,20 @@ let _incomingCall: { from: string } | null = null; // { from } when someone is r
 export function getIncomingCallFrom() { return _incomingCall?.from ?? null; }
 let unsubOwnCall: (() => void) | null = null;
 
+// Tears down every per-followee watch (presence + distance) and cached state
+// for a userId that's leaving the active set entirely (unfollowed, revoked,
+// or dropped by a server sync). Centralized so the distance subscription
+// stays paired with the presence one at every teardown site.
+function teardownFolloweeWatches(userId: string) {
+  const unsub = unsubscribers.get(userId);
+  if (unsub) unsub();
+  unsubscribers.delete(userId);
+  lastUserData.delete(userId);
+  _distanceUnsubs.get(userId)?.();
+  _distanceUnsubs.delete(userId);
+  _distances.delete(userId);
+}
+
 function showConfirm(title: string, btnText: string, action: ConfirmAction) {
   pendingAction = action;
   (document.getElementById('unfollow-confirm-title') as HTMLElement).textContent = title;
@@ -94,10 +117,7 @@ async function doConfirm() {
   dismissConfirm();
 
   if (action.type === 'unfollow') {
-    const unsub = unsubscribers.get(action.userId);
-    if (unsub) unsub();
-    unsubscribers.delete(action.userId);
-    lastUserData.delete(action.userId);
+    teardownFolloweeWatches(action.userId);
     await unregisterAsFollower(action.userId, action.myUserId);
     removeFollowing(action.userId);
     removeFollowingEntry(action.myUserId, action.userId).catch(() => {});
@@ -140,6 +160,9 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
   unsubscribers.forEach((unsub) => unsub());
   unsubscribers.clear();
   lastUserData.clear();
+  _distanceUnsubs.forEach((unsub) => unsub());
+  _distanceUnsubs.clear();
+  _distances.clear();
   editingSet.clear();
   callModeCalleeId = null;
   _incomingCall = null;
@@ -228,9 +251,7 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
       if (!getFollowing().some((f) => f.userId === revokerId)) continue;
       removeFollowing(revokerId);
       removeFollowingEntry(myUserId, revokerId).catch(() => {});
-      const unsub = unsubscribers.get(revokerId);
-      if (unsub) { unsub(); unsubscribers.delete(revokerId); }
-      lastUserData.delete(revokerId);
+      teardownFolloweeWatches(revokerId);
     }
     renderList();
   });
@@ -475,12 +496,8 @@ function renderList() {
   // Preserving existing subscriptions prevents a visible flash to "Unavailable"
   // on every followers-list change, and keeps lastUserData accurate for sorting.
   const activeUserIds = new Set([...mutuals, ...followingOnly].map(e => e.userId));
-  unsubscribers.forEach((unsub, userId) => {
-    if (!activeUserIds.has(userId)) {
-      unsub();
-      unsubscribers.delete(userId);
-      lastUserData.delete(userId);
-    }
+  unsubscribers.forEach((_unsub, userId) => {
+    if (!activeUserIds.has(userId)) teardownFolloweeWatches(userId);
   });
 
   const list = (document.getElementById('people-list') as HTMLElement);
@@ -872,6 +889,14 @@ function createFolloweeRow(entry: FollowingEntry, myUserId: string, isMutual = f
     li.appendChild(actions[0].el);
   }
 
+  if (isMutual && getLocationOptIn('direct')) {
+    _distanceUnsubs.set(entry.userId, subscribeDistance(myUserId, entry.userId, (meters) => {
+      _distances.set(entry.userId, meters);
+      const data = lastUserData.get(entry.userId);
+      if (data) updateFolloweeRow(entry, data, myUserId);
+    }));
+  }
+
   return li;
 }
 
@@ -948,12 +973,8 @@ function syncFollowingFromServer(myUserId: string, serverFollowing: { userId: st
   // Tear down watchers for followees that disappeared; new ones will be
   // resubscribed by renderList.
   const serverIds = new Set(serverFollowing.map(e => e.userId));
-  for (const [uid, unsub] of unsubscribers.entries()) {
-    if (!serverIds.has(uid)) {
-      unsub();
-      unsubscribers.delete(uid);
-      lastUserData.delete(uid);
-    }
+  for (const uid of [...unsubscribers.keys()]) {
+    if (!serverIds.has(uid)) teardownFolloweeWatches(uid);
   }
   renderList();
 }
@@ -1051,7 +1072,9 @@ export function updateFolloweeRow(entry: FollowingEntry, userData: UserData, myU
       ? `<span style="color:${safeCssColor(color)}">${callText}</span>`
       : callText;
   } else if (isAvail) {
-    const text = availableForText(userData.availableUntil);
+    const meters = _distances.get(entry.userId);
+    const dist = typeof meters === 'number' ? ` · ${formatDistancePrecise(meters)}` : '';
+    const text = availableForText(userData.availableUntil) + dist;
     statusText = PALETTES_ENABLED
       ? `<span class="status-available" style="color:${safeCssColor(color)}">${text}</span>`
       : `<span class="status-available">${text}</span>`;
@@ -1142,6 +1165,17 @@ document.addEventListener('my-combo-changed', () => {
 // A knock float expired (knock.js). The card is no longer floated; re-sort so it
 // lands in its correct current position instead of a stale captured one.
 document.addEventListener('knock-float-restored', () => scheduleResort());
+
+// Our own Direct location opt-in flipped (glyph tap, via locationShare.ts's
+// toggleContext) or a server echo of prefs landed (prefs.ts's syncFromServer).
+// Distance subscriptions are opened/closed only at row create/teardown time
+// (see createFolloweeRow / teardownFolloweeWatches) — reconcileChildren keeps
+// a row's DOM node across a re-render whenever its section key is unchanged,
+// so this re-render doesn't retroactively subscribe an already-rendered
+// mutual row; it picks up the change the next time that row's key churns
+// (unfollow/refollow, going non-mutual and back, a fresh initList, …).
+document.addEventListener('location-optin-changed', () => renderList());
+document.addEventListener('location-prefs-synced', () => renderList());
 
 // On drawer close, reconcile deferred receiver-side call-mode against the
 // latest known state — but ONLY for rows that actually have an incoming call

@@ -138,6 +138,7 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
       // groups' cells are untouched).
       clearLocationData(_userId, []).catch(() => {});
     }
+    document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context } }));
     return 'off';
   }
   if (capabilityState() === 'unsupported') return 'unsupported';
@@ -155,6 +156,7 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
   setLocationOptIn(context, true);
   reconcile();
   if (wasRunning) tick(); // immediate first publish for this context
+  document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context } }));
   return 'on';
 }
 
