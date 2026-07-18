@@ -48,3 +48,16 @@ describe.each([
     expect(scriptsCheck).toBeLessThan(deploy);
   });
 });
+
+// Pin the hosting headers the location feature depends on (spec §9): the
+// Permissions-Policy grant is what lets same-origin pages call the
+// Geolocation API once browsers enforce the policy — losing it silently
+// breaks capture in production while dev (no headers) keeps working.
+describe('firebase.json hosting headers', () => {
+  test('Permissions-Policy allows geolocation for self on every route', () => {
+    const cfg = JSON.parse(readRoot('firebase.json'));
+    const all = cfg.hosting.headers.find((h) => h.source === '**');
+    expect(all).toBeDefined();
+    expect(all.headers).toContainEqual({ key: 'Permissions-Policy', value: 'geolocation=(self)' });
+  });
+});
