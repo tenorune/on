@@ -284,6 +284,43 @@ test('_resetLocationShare resets the published flag and dispatches location-publ
   expect(sawFalse).toBe(true);
 });
 
+test('toggleContext on-branch: enabling a second context while already publishing closes then reopens the distance subs (second-context enable race)', async () => {
+  // wasRunning === true, _published === true (direct already live) — enabling
+  // G1 must not let isPublishingAvailable() stay true across the gap where
+  // locationCells/{gid}/{me} doesn't exist yet (the republish is mid-flight),
+  // or a distance listener attaching right now gets rules-denied and
+  // permanently cancelled. The fix resets _published + dispatches BEFORE the
+  // republish, then markPublished's own dispatch reopens once it lands.
+  const { initLocationShare, toggleContext, isPublishingAvailable } = share();
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  expect(isPublishingAvailable()).toBe(true);
+
+  let fired = 0;
+  const seenAtDispatch = [];
+  document.addEventListener('location-publishing-changed', () => {
+    fired++;
+    seenAtDispatch.push(isPublishingAvailable());
+  });
+
+  const p = toggleContext('G1'); // loop already running: the on-branch's wasRunning path
+  await expect(p).resolves.toBe('on');
+  // The reset + dispatch happen synchronously within toggleContext's own
+  // on-branch, before the republish it kicks off has resolved.
+  expect(fired).toBe(1);
+  expect(seenAtDispatch).toEqual([false]);
+  expect(isPublishingAvailable()).toBe(false);
+
+  // No further dispatch until the republish actually lands.
+  expect(fired).toBe(1);
+  await flush();
+  expect(fired).toBe(2);
+  expect(seenAtDispatch).toEqual([false, true]);
+  expect(isPublishingAvailable()).toBe(true);
+});
+
 test('availability window expiring mid-session stops publishing and clears — no presence tick needed', async () => {
   // Expiry is a TIME event, not a data event: no presence snapshot arrives
   // when the window lapses while foreground. The loop must re-evaluate

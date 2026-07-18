@@ -292,7 +292,16 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
   const wasRunning = _timer !== null;
   setLocationOptIn(context, true);
   reconcile();
-  if (wasRunning) tick(); // immediate first publish for this context
+  if (wasRunning) {
+    // Loop already publishing (spec final-review): the new context's cell
+    // doesn't exist yet until this tick's republish lands. Reset + dispatch
+    // BEFORE kicking it off so surfaces close the momentarily-ineligible subs
+    // instead of attach-racing the missing node; markPublished's own dispatch
+    // (in tick()) reopens them once the publish actually resolves.
+    _published = false;
+    dispatchPublishingChanged();
+    tick(); // immediate first publish for this context
+  }
   document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context } }));
   return 'on';
 }
