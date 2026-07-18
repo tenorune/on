@@ -92,13 +92,36 @@ function goUnavailable() {
   dispatchPublishingChanged();
 }
 
+// Permission revoked mid-flight (spec §5/§8): stop the loop, delete every
+// published node, and flip every opt-in off so the glyphs (repainted off the
+// opt-in-changed event) show what is actually happening. The prefs flip also
+// keeps reconcile()/visibility handlers from restarting a loop that can only
+// fail. Re-enabling is the normal glyph tap, which re-proves permission.
+function revokePermissionTeardown() {
+  const gids = _getOptedInGids(); // snapshot BEFORE flipping prefs — see clearPublished
+  const contexts = [...(getLocationOptIn('direct') ? ['direct'] : []), ...gids];
+  stopLoop();
+  clearPublished(gids);
+  for (const context of contexts) setLocationOptIn(context, false);
+  // Same per-context event the glyph toggle dispatches, one per flipped context.
+  for (const context of contexts) {
+    document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context } }));
+  }
+}
+
 async function tick(): Promise<void> {
   if (!_userId) return;
   if (_available && !presenceAvailable()) { goUnavailable(); return; } // window lapsed mid-session
   if (!_available || !anyOptIn()) return;
   if (document.visibilityState !== 'visible') return;
   let pos;
-  try { pos = await getPositionOnce(); } catch { return; } // silent failed tick
+  try { pos = await getPositionOnce(); }
+  catch (err) {
+    // code 1 = PERMISSION_DENIED: revoked mid-flight → full teardown. Every
+    // other failure is a silent failed tick (Decision 3).
+    if ((err as { code?: number })?.code === 1) revokePermissionTeardown();
+    return;
+  }
   const now = Date.now();
   if (getLocationOptIn('direct')) {
     publishLocation(_userId, pos.lat, pos.lng, now).catch(() => {});

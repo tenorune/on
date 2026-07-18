@@ -1115,6 +1115,12 @@ function wireGroupLocationGlyph() {
     const gid = getCurrentGroupId();
     if (gid) paintLocationGlyph(glyph, getLocationOptIn(gid) ? 'on' : 'off');
   });
+  // Pref flipped outside the tap path (locationShare's mid-flight-revocation
+  // teardown): the click handler above never runs, so the paint rides the event.
+  document.addEventListener('location-optin-changed', () => {
+    const gid = getCurrentGroupId();
+    if (gid) paintLocationGlyph(glyph, getLocationOptIn(gid) ? 'on' : 'off');
+  });
 }
 
 export function enterGroupContext(groupId: string, userId: string) {

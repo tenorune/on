@@ -703,4 +703,19 @@ describe('location glyph (Direct header)', () => {
 
     expect(glyph.classList.contains('on')).toBe(true);
   });
+
+  test('opt-in flipped outside the tap path (location-optin-changed — e.g. revocation teardown) repaints the glyph', () => {
+    setLocationOptIn('direct', true);
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+    expect(glyph.classList.contains('on')).toBe(true);
+
+    // locationShare's mid-flight-revocation teardown flips the pref off and
+    // dispatches this event — no glyph tap involved, so the paint must ride
+    // the event.
+    setLocationOptIn('direct', false);
+    document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context: 'direct' } }));
+
+    expect(glyph.classList.contains('on')).toBe(false);
+  });
 });

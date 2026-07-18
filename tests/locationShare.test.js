@@ -212,6 +212,36 @@ test('permission denial returns denied, flips the pref back off, and clears', as
   expect(db.publishLocation).not.toHaveBeenCalled();
 });
 
+test('permission revoked mid-flight (tick errors code 1) → clear, loop stopped, opt-ins off, glyph event', async () => {
+  const { initLocationShare, toggleContext } = share();
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  await toggleContext('G1');
+  await flush();
+  db.clearLocationData.mockClear();
+  db.publishLocation.mockClear();
+  db.publishLocationCell.mockClear();
+  const seen = [];
+  document.addEventListener('location-optin-changed', () => seen.push(1));
+  geoBehavior = (ok, err) => err({ code: 1 }); // OS-level revocation mid-flight
+  jest.advanceTimersByTime(60000);
+  await flush();
+  // Everything published is deleted (the G1 cell included), spec §5/§8…
+  expect(db.clearLocationData).toHaveBeenCalledWith('me', ['G1']);
+  // …the opt-ins flip off so surfaces render what is actually happening…
+  expect(prefs.getLocationOptIn('direct')).toBe(false);
+  expect(prefs.getLocationOptIn('G1')).toBe(false);
+  expect(seen.length).toBeGreaterThan(0); // glyphs repaint off this event
+  // …and the loop is stopped: nothing publishes even if permission returns.
+  geoBehavior = (ok) => ok(POS);
+  jest.advanceTimersByTime(180000);
+  await flush();
+  expect(db.publishLocation).not.toHaveBeenCalled();
+  expect(db.publishLocationCell).not.toHaveBeenCalled();
+});
+
 test('a failed tick is silent — no clear, loop continues', async () => {
   const { initLocationShare, toggleContext } = share();
   initLocationShare('me', () => []);

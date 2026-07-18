@@ -128,6 +128,11 @@ export function initHeader(myUserId: string) {
     document.addEventListener('location-prefs-synced', () => {
       paintLocationGlyph(locGlyph, getLocationOptIn('direct') ? 'on' : 'off');
     });
+    // Pref flipped outside the tap path (locationShare's mid-flight-revocation
+    // teardown): the tap handler above never runs, so the paint rides the event.
+    document.addEventListener('location-optin-changed', () => {
+      paintLocationGlyph(locGlyph, getLocationOptIn('direct') ? 'on' : 'off');
+    });
   }
 }
 

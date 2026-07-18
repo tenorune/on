@@ -1583,6 +1583,20 @@ describe('group location glyph (band)', () => {
     expect(glyph.classList.contains('on')).toBe(true);
   });
 
+  test('location-optin-changed (e.g. revocation teardown) repaints the group glyph from the current pref', () => {
+    prefsMod.getLocationOptIn.mockImplementation(() => false);
+    gc.enterGroupContext('G1', 'me');
+    const glyph = document.getElementById('group-location-glyph');
+    expect(glyph.classList.contains('on')).toBe(false);
+
+    // locationShare flips prefs outside the tap path (revocation teardown)
+    // and dispatches this event — the paint must ride it, mirroring the
+    // location-prefs-synced listener above.
+    prefsMod.getLocationOptIn.mockImplementation((gid) => gid === 'G1');
+    document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context: 'G1' } }));
+    expect(glyph.classList.contains('on')).toBe(true);
+  });
+
   test('re-entering the group context does not double-wire the glyph click listener', async () => {
     gc.enterGroupContext('G1', 'me');
     gc.enterGroupContext('G1', 'me'); // second entry — must not add a second listener
