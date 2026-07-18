@@ -6,7 +6,7 @@
 // off) deletes everything published — the opt-in prefs survive, so returning
 // to available resumes silently. Failed ticks are silent by design (Decision
 // 3): the last written value stands and the next tick tries again.
-import { publishLocation, publishLocationCell, clearLocationData, isAvailable } from './db.js';
+import { publishLocation, publishLocationCell, clearLocationData, clearLocationCells, isAvailable } from './db.js';
 import { getLocationOptIn, setLocationOptIn } from './prefs.js';
 import { subscribeOwnStatus } from './ownStatus.js';
 import { isTelegramContext } from './telegram.js';
@@ -128,10 +128,11 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
     if (!anyOptIn()) { stopLoop(); clearPublished(gidsBeforeToggle); }
     else if (context !== 'direct' && _userId) {
       // Only this group's cell needs deleting; other contexts keep publishing.
-      clearLocationData(_userId, [context]).catch(() => {});
-      // clearLocationData also nulls locations/{uid}; re-publish next tick if
-      // direct is still on — acceptable within one tick, but avoid the gap:
-      if (getLocationOptIn('direct')) tick();
+      // Cells-only clear — locations/{uid} must never be touched here: even a
+      // transient raw-point delete makes RTDB re-evaluate reciprocity and
+      // cancel every peer's precise-tier listener, and an unawaited republish
+      // is unordered against the delete on real infra.
+      clearLocationCells(_userId, [context]).catch(() => {});
     } else if (context === 'direct' && _userId) {
       // 'direct' turned off but a group remains opted in: only the raw point
       // may exist while 'direct' is opted in, so clear it (no cells — the

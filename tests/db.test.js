@@ -887,3 +887,50 @@ describe('presence subtree', () => {
   // (setLastVisited is covered in the 'user-side groups enumeration' describe —
   // not a presence field, so no duplicate here.)
 });
+
+describe('location db primitives', () => {
+  const { watchLocation, watchLocationCell, clearLocationCells, clearLocationData } = require('../js/db');
+  beforeEach(() => jest.clearAllMocks());
+
+  test('watchLocation emits null when the listener is CANCELLED (reciprocity lost → PERMISSION_DENIED)', () => {
+    // Real infra: deleting locations/{me} (going unavailable) makes RTDB
+    // re-evaluate reciprocity for active listeners and CANCEL them — the SDK
+    // fires the cancel callback, not a null-value tick. Without wiring it, a
+    // cancelled watch strands its last coordinate in the hub's combine().
+    let cancelCb;
+    onValue.mockImplementationOnce((_r, _fn, cancel) => { cancelCb = cancel; return () => {}; });
+    const seen = [];
+    watchLocation('peer', (loc) => seen.push(loc));
+    expect(typeof cancelCb).toBe('function');
+    cancelCb(new Error('permission_denied'));
+    expect(seen).toEqual([null]);
+  });
+
+  test('watchLocationCell emits null when the listener is CANCELLED', () => {
+    let cancelCb;
+    onValue.mockImplementationOnce((_r, _fn, cancel) => { cancelCb = cancel; return () => {}; });
+    const seen = [];
+    watchLocationCell('G1', 'peer', (loc) => seen.push(loc));
+    expect(typeof cancelCb).toBe('function');
+    cancelCb(new Error('permission_denied'));
+    expect(seen).toEqual([null]);
+  });
+
+  test('clearLocationCells deletes ONLY the given cells — never locations/{uid}', async () => {
+    update.mockResolvedValue();
+    await clearLocationCells('me', ['G1', 'G2']);
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      'locationCells/G1/me': null,
+      'locationCells/G2/me': null,
+    });
+  });
+
+  test('clearLocationData deletes the raw point plus every given cell in one multipath update', async () => {
+    update.mockResolvedValue();
+    await clearLocationData('me', ['G1']);
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      'locations/me': null,
+      'locationCells/G1/me': null,
+    });
+  });
+});

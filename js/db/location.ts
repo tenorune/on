@@ -25,10 +25,27 @@ export async function clearLocationData(userId: string, gids: string[]): Promise
   await update(ref(db), updates);
 }
 
+// Cells-only clear: deletes the given groups' cells WITHOUT touching
+// locations/{uid}. Used when a group context toggles off while other contexts
+// keep publishing — a transient raw-point delete would make RTDB re-evaluate
+// reciprocity and cancel every peer's precise-tier listener (and racing an
+// unordered republish against the delete is unsafe on real infra).
+export async function clearLocationCells(userId: string, gids: string[]): Promise<void> {
+  const updates: Record<string, null> = {};
+  for (const gid of gids) updates[`locationCells/${gid}/${userId}`] = null;
+  await update(ref(db), updates);
+}
+
+// Both watchers wire onValue's CANCEL callback to a null emission: when a
+// listener is cancelled (reciprocity lost → PERMISSION_DENIED — e.g. the
+// viewer's own node was deleted on going unavailable, or the read was denied
+// at attach time), the SDK fires the cancel callback and never ticks again.
+// Emitting null guarantees a cancelled watch can never strand its last
+// coordinate inside locationHub's combine() closures.
 export function watchLocation(userId: string, cb: (loc: LocationNode | null) => void): () => void {
-  return onValue(ref(db, `locations/${userId}`), (snap) => cb(snap.val()));
+  return onValue(ref(db, `locations/${userId}`), (snap) => cb(snap.val()), () => cb(null));
 }
 
 export function watchLocationCell(gid: string, userId: string, cb: (loc: LocationNode | null) => void): () => void {
-  return onValue(ref(db, `locationCells/${gid}/${userId}`), (snap) => cb(snap.val()));
+  return onValue(ref(db, `locationCells/${gid}/${userId}`), (snap) => cb(snap.val()), () => cb(null));
 }

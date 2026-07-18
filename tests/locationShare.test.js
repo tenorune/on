@@ -5,6 +5,7 @@ jest.mock('../js/db.js', () => ({
   publishLocation: jest.fn().mockResolvedValue(undefined),
   publishLocationCell: jest.fn().mockResolvedValue(undefined),
   clearLocationData: jest.fn().mockResolvedValue(undefined),
+  clearLocationCells: jest.fn().mockResolvedValue(undefined),
   isAvailable: (status, until) => status === 'available' && (until == null || until > Date.now()),
   mergeUserPrefs: jest.fn().mockResolvedValue(undefined),
   readPushTokens: jest.fn().mockResolvedValue(null),
@@ -188,7 +189,7 @@ test('a failed tick is silent — no clear, loop continues', async () => {
   expect(db.publishLocation).toHaveBeenCalledTimes(1);
 });
 
-test('toggling one of several contexts off clears just that cell and keeps others publishing', async () => {
+test('toggling one of several contexts off clears just that cell — cells-only, raw point untouched', async () => {
   const { initLocationShare, toggleContext } = share();
   initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
@@ -198,12 +199,19 @@ test('toggling one of several contexts off clears just that cell and keeps other
   await flush();
   db.publishLocation.mockClear();
   db.clearLocationData.mockClear();
+  db.clearLocationCells.mockClear();
   await expect(toggleContext('G1')).resolves.toBe('off');
   await flush();
-  // Only G1's cell is cleared — direct keeps sharing, not wiped wholesale.
-  expect(db.clearLocationData).toHaveBeenCalledWith('me', ['G1']);
-  // The raw point returns within one tick (clearLocationData also nulls
-  // locations/{uid}; direct is still opted in, so it must be republished).
+  // Only G1's cell is cleared, via the cells-only helper — locations/{uid} is
+  // never touched (a transient raw-point delete cancels every peer's
+  // reciprocity-gated listener and races the republish on real infra).
+  expect(db.clearLocationCells).toHaveBeenCalledWith('me', ['G1']);
+  expect(db.clearLocationData).not.toHaveBeenCalled();
+  // No compensating republish needed — the raw point never went away.
+  expect(db.publishLocation).not.toHaveBeenCalled();
+  // Direct keeps publishing on the next tick.
+  jest.advanceTimersByTime(60000);
+  await flush();
   expect(db.publishLocation).toHaveBeenCalledWith('me', 52.52, 13.405, expect.any(Number));
 });
 
