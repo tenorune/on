@@ -550,11 +550,16 @@ describe('group members', () => {
     expect(await readMembers('G1')).toEqual({});
   });
 
-  test('removeMember removes the member record', async () => {
-    remove.mockResolvedValue();
+  test('removeMember deletes the member record AND their location cell in ONE multipath update (spec §8)', async () => {
+    // "Own cell deleted in the same update as the leave" — the delete-only
+    // rules carve-out on locationCells guarantees the cell path passes even
+    // as membership goes away in the same write.
+    update.mockResolvedValue();
     await removeMember('G1', 'uid2');
-    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uid2');
-    expect(remove).toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      'groups/G1/members/uid2': null,
+      'locationCells/G1/uid2': null,
+    });
   });
 
   test('setMemberDisplayName updates only the displayName field', async () => {

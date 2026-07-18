@@ -129,8 +129,18 @@ export async function readMembers(groupId: string): Promise<Record<string, unkno
   return snap.exists() ? snap.val() : {};
 }
 
+// Removing a member also deletes their location cell for the group IN THE
+// SAME multipath update (location spec §8: "Own cell deleted in the same
+// update as the leave") — a separate delete could be dropped between the two
+// writes, orphaning a cell readable by the remaining publishing co-members.
+// The cells' delete-only rules carve-out (auth.uid === $uid && !newData
+// .exists()) guarantees the cell path passes even as membership goes away in
+// this very write.
 export async function removeMember(groupId: string, memberUid: string): Promise<void> {
-  await remove(ref(db, `groups/${groupId}/members/${memberUid}`));
+  await update(ref(db), {
+    [`groups/${groupId}/members/${memberUid}`]: null,
+    [`locationCells/${groupId}/${memberUid}`]: null,
+  });
 }
 
 export async function setMemberDisplayName(groupId: string, memberUid: string, displayName: string): Promise<void> {
