@@ -159,6 +159,11 @@ jest.mock('../js/prefs.js', () => ({
   setLastTimeout: jest.fn(),
   getGroupChipMinutes: jest.fn(() => null),
   setGroupChipMinutes: jest.fn(),
+  getLocationOptIn: jest.fn(() => false),
+}));
+jest.mock('../js/locationShare.js', () => ({
+  toggleContext: jest.fn(),
+  capabilityState: jest.fn(() => 'supported'),
 }));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
@@ -177,6 +182,16 @@ jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn(), isNotifyP
 jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
 jest.mock('../js/me.js', () => ({
   clearFirstUsePulse: jest.fn(),
+  // Real implementation (mirrors js/me.js's paintLocationGlyph) so the group
+  // glyph tests can assert on actual DOM state, not just call args — same
+  // pattern as the cardDrawer/notifyBell functional mocks in this file.
+  paintLocationGlyph: jest.fn((el, state) => {
+    el.classList.toggle('on', state === 'on');
+    el.classList.toggle('denied', state === 'denied');
+    el.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
+    if (state === 'denied') el.title = 'Location unavailable — check permissions';
+    else el.removeAttribute('title');
+  }),
 }));
 jest.mock('../js/following.js', () => ({
   getCurrentFollowersMap: jest.fn(() => ({})),
@@ -254,6 +269,7 @@ function setupContextDom() {
             <div class="group-header-status-row">
               <span id="group-my-status-label" class="status-label">Unavailable</span>
               <span id="group-time-remaining" style="display:none"></span>
+              <button id="group-location-glyph" class="location-glyph" aria-label="Share location" aria-pressed="false" style="display:none"></button>
             </div>
             <div class="group-header-chips">
               <button id="group-time-chip" class="chip time-chip">2 hours</button>
@@ -1444,6 +1460,130 @@ describe('own status row', () => {
     const selected = document.querySelector('#group-swatch-row .swatch.selected');
     expect(selected).not.toBeNull();
     expect(selected.dataset.paletteKey).toBe('ocean');
+  });
+});
+
+// The module wires the glyph's click + location-prefs-synced listeners ONCE
+// per module lifetime (guarded by the internal _glyphWired flag — see the
+// brief: "one-time listener wiring... NOT per entry"). Every other describe
+// block above already calls enterGroupContext against its own fresh DOM
+// (setupContextDom() replaces document.body.innerHTML per test), so by the
+// time this describe runs, _glyphWired is permanently true and pointing at a
+// long-discarded element. Each test here resets the module registry and
+// re-requires js/groupContext.js (mid-file-require pattern, mirroring
+// following.test.js's jest.resetModules()+jest.mock() sequences) to get a
+// fresh module instance — and therefore a fresh _glyphWired — bound to that
+// test's own DOM. jest.mock() factories declared at the top of this file are
+// hoisted and stay registered across resetModules(), so no re-registration
+// is needed, only re-require.
+describe('group location glyph (band)', () => {
+  let gc, ownStatusMod, prefsMod, locationShareMod;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.clearAllMocks();
+    setupContextDom();
+    ownStatusMod = require('../js/ownStatus.js');
+    prefsMod = require('../js/prefs.js');
+    locationShareMod = require('../js/locationShare.js');
+    gc = require('../js/groupContext.js');
+    require('../js/presenceHub.js')._resetPresenceHub();
+    require('../js/statusStore.js').__reset();
+    locationShareMod.capabilityState.mockImplementation(() => 'supported');
+    prefsMod.getLocationOptIn.mockImplementation(() => false);
+  });
+
+  test('hidden while the band is unavailable, shown while available, reflects the group\'s opt-in', () => {
+    prefsMod.getLocationOptIn.mockImplementation((gid) => gid === 'G1');
+    let primaryCb;
+    ownStatusMod.subscribeOwnStatus.mockImplementation((cb) => { primaryCb = cb; return () => {}; });
+    gc.enterGroupContext('G1', 'me');
+    const glyph = document.getElementById('group-location-glyph');
+
+    // Painted from the group's opt-in as soon as the own-status band
+    // renders, independent of availability — mirrors Direct's #location-glyph.
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    expect(glyph.classList.contains('on')).toBe(true);
+    // display tracks the band's own availability exactly like #group-time-remaining.
+    expect(glyph.style.display).toBe('none');
+
+    primaryCb({ status: 'available', availableUntil: Date.now() + 90 * 60000 });
+    expect(glyph.style.display).not.toBe('none');
+
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    expect(glyph.style.display).toBe('none');
+  });
+
+  test('capabilityState unsupported paints denied on the group glyph, regardless of opt-in', () => {
+    prefsMod.getLocationOptIn.mockImplementation(() => true);
+    locationShareMod.capabilityState.mockImplementation(() => 'unsupported');
+    let primaryCb;
+    ownStatusMod.subscribeOwnStatus.mockImplementation((cb) => { primaryCb = cb; return () => {}; });
+    gc.enterGroupContext('G1', 'me');
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    const glyph = document.getElementById('group-location-glyph');
+    expect(glyph.classList.contains('denied')).toBe(true);
+  });
+
+  test('click calls toggleContext(currentGid) and repaints from the result', async () => {
+    let primaryCb;
+    ownStatusMod.subscribeOwnStatus.mockImplementation((cb) => { primaryCb = cb; return () => {}; });
+    gc.enterGroupContext('G1', 'me');
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    const glyph = document.getElementById('group-location-glyph');
+    expect(glyph.classList.contains('on')).toBe(false);
+
+    locationShareMod.toggleContext.mockResolvedValueOnce('on');
+    glyph.click();
+    await Promise.resolve();
+
+    expect(locationShareMod.toggleContext).toHaveBeenCalledWith('G1');
+    expect(glyph.classList.contains('on')).toBe(true);
+    expect(glyph.getAttribute('aria-pressed')).toBe('true');
+
+    locationShareMod.toggleContext.mockResolvedValueOnce('denied');
+    glyph.click();
+    await Promise.resolve();
+
+    expect(glyph.classList.contains('on')).toBe(false);
+    expect(glyph.classList.contains('denied')).toBe(true);
+  });
+
+  test('entering a DIFFERENT group repaints the glyph from THAT group\'s pref (no stale gid)', () => {
+    prefsMod.getLocationOptIn.mockImplementation((gid) => gid === 'G2');
+    let primaryCb;
+    ownStatusMod.subscribeOwnStatus.mockImplementation((cb) => { primaryCb = cb; return () => {}; });
+
+    gc.enterGroupContext('G1', 'me');
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    let glyph = document.getElementById('group-location-glyph');
+    expect(glyph.classList.contains('on')).toBe(false); // G1's opt-in is off
+
+    gc.enterGroupContext('G2', 'me'); // same mockImplementation re-captures the new cb
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    glyph = document.getElementById('group-location-glyph');
+    expect(glyph.classList.contains('on')).toBe(true); // G2's opt-in is on
+  });
+
+  test('location-prefs-synced repaints the group glyph from the current group\'s pref (cross-device)', () => {
+    prefsMod.getLocationOptIn.mockImplementation(() => false);
+    gc.enterGroupContext('G1', 'me');
+    const glyph = document.getElementById('group-location-glyph');
+    expect(glyph.classList.contains('on')).toBe(false);
+
+    prefsMod.getLocationOptIn.mockImplementation((gid) => gid === 'G1');
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+    expect(glyph.classList.contains('on')).toBe(true);
+  });
+
+  test('re-entering the group context does not double-wire the glyph click listener', async () => {
+    gc.enterGroupContext('G1', 'me');
+    gc.enterGroupContext('G1', 'me'); // second entry — must not add a second listener
+    const glyph = document.getElementById('group-location-glyph');
+    locationShareMod.toggleContext.mockResolvedValueOnce('on');
+    glyph.click();
+    await Promise.resolve();
+    expect(locationShareMod.toggleContext).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -91,6 +91,16 @@ jest.mock('../js/prefs.js', () => ({
   incrementMadeCallCount: jest.fn(),
   getAnsweredCallCount: jest.fn(() => 0),
   incrementAnsweredCallCount: jest.fn(),
+  getLocationOptIn: jest.fn(() => false),
+}));
+// groupContext.js now imports js/locationShare.js (Task 8's group band
+// glyph). Unmocked, that pulls in js/telegram.ts → firebase/auth, which
+// needs `fetch` and blows up module load in this Node test environment —
+// this suite has no #group-location-glyph in its DOM fixtures so none of
+// this is ever exercised, but the import chain still has to resolve.
+jest.mock('../js/locationShare.js', () => ({
+  toggleContext: jest.fn(),
+  capabilityState: jest.fn(() => 'supported'),
 }));
 
 jest.mock('../js/groupNav.js', () => ({
@@ -175,7 +185,7 @@ jest.mock('../js/features.js', () => ({
   PALETTE_INTERACTIONS_ENABLED: true,
   CALL_ENABLED: true,
 }));
-jest.mock('../js/me.js', () => ({ clearFirstUsePulse: jest.fn() }));
+jest.mock('../js/me.js', () => ({ clearFirstUsePulse: jest.fn(), paintLocationGlyph: jest.fn() }));
 
 if (typeof PointerEvent === 'undefined') {
   global.PointerEvent = class PointerEvent extends MouseEvent {

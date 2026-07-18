@@ -23,6 +23,7 @@ import {
   getGroupChipMinutes, setGroupChipMinutes,
   getGroupPaletteState, setGroupPaletteState,
   isHintSeen, markHintSeen,
+  getLocationOptIn,
 } from './prefs.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { openInviteModal } from './inviteModal.js';
@@ -39,8 +40,9 @@ import {
   shouldShowDotGoHint,
   isLongpressHintEligible,
 } from './hints.js';
-import { clearFirstUsePulse } from './me.js';
+import { clearFirstUsePulse, paintLocationGlyph } from './me.js';
 import { refreshHints, clearActiveHint } from './hintRotation.js';
+import { toggleContext, capabilityState } from './locationShare.js';
 
 type PresenceLike = { status?: string | null; availableUntil?: number | null; statusColor?: string | null; paletteKey?: string | null };
 type OverrideEntry = PresenceLike & { enabled?: boolean | null };
@@ -397,6 +399,7 @@ function renderOwnStatusRow() {
   const timeRemaining = document.getElementById('group-time-remaining');
   const timeChip = document.getElementById('group-time-chip');
   const toggle = document.getElementById('group-override-toggle');
+  const glyph = document.getElementById('group-location-glyph');
   if (!dot || !label) return;
 
   const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
@@ -436,6 +439,15 @@ function renderOwnStatusRow() {
     timeChip.textContent = CHIP_VALUES[chipIndexForMinutes(effectiveMinutes)].text;
   }
 
+  // Coarse-tier location glyph: paint tri-state from the CURRENT group's
+  // opt-in (not a captured gid — entering a different group must repaint
+  // from that group's own pref) every time the own-status band renders.
+  if (glyph) {
+    const gid = getCurrentGroupId();
+    paintLocationGlyph(glyph, capabilityState() === 'unsupported' ? 'denied'
+      : getLocationOptIn(gid) ? 'on' : 'off');
+  }
+
   if (timeRemaining) {
     // null availableUntil means open-ended; no countdown to show
     if (available && availableUntil) {
@@ -443,11 +455,14 @@ function renderOwnStatusRow() {
       if (formatted) {
         timeRemaining.textContent = formatted + ' left';
         timeRemaining.style.display = '';
+        if (glyph) glyph.style.display = '';
       } else {
         timeRemaining.style.display = 'none';
+        if (glyph) glyph.style.display = 'none';
       }
     } else {
       timeRemaining.style.display = 'none';
+      if (glyph) glyph.style.display = 'none';
     }
   }
 
@@ -960,11 +975,35 @@ function installGroupSyncListeners() {
   });
 }
 
+// One-time (module-lifetime, not per-entry) wiring for the group band's
+// location glyph: click toggles the CURRENT group's context, and a
+// cross-device pref sync repaints from whatever group is current at the
+// time the event fires. Guarded by _glyphWired so switching groups
+// repeatedly never piles up duplicate listeners on the persistent element.
+let _glyphWired = false;
+function wireGroupLocationGlyph() {
+  if (_glyphWired) return;
+  _glyphWired = true;
+  const glyph = document.getElementById('group-location-glyph');
+  if (!glyph) return;
+  glyph.addEventListener('click', async () => {
+    const gid = getCurrentGroupId();
+    if (!gid) return;
+    const state = await toggleContext(gid);
+    paintLocationGlyph(glyph, state === 'on' ? 'on' : state === 'off' ? 'off' : 'denied');
+  });
+  document.addEventListener('location-prefs-synced', () => {
+    const gid = getCurrentGroupId();
+    if (gid) paintLocationGlyph(glyph, getLocationOptIn(gid) ? 'on' : 'off');
+  });
+}
+
 export function enterGroupContext(groupId: string, userId: string) {
   if (_metaUnsub) _metaUnsub();
   _currentGroupId = groupId;
   _currentUserId = userId;
   installGroupSyncListeners();
+  wireGroupLocationGlyph();
 
   const root = document.getElementById('group-context-root');
   const direct = document.getElementById('main-ui-direct');
