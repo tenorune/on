@@ -160,6 +160,12 @@ jest.mock('../js/prefs.js', () => ({
 jest.mock('../js/locationHub.js', () => ({
   subscribeDistance: jest.fn(() => jest.fn()),
 }));
+// Distance-sub eligibility requires OWN availability (spec §6.2: subs open
+// only while the viewer is publishing) — default true so the render tests
+// above/below exercise the opt-in axis independently.
+jest.mock('../js/locationShare.js', () => ({
+  isPublishingAvailable: jest.fn(() => true),
+}));
 jest.mock('../js/invites.js', () => ({
   attemptRedeemFromUrl: jest.fn(),
   resolveInvitePreview: jest.fn(() => Promise.resolve(null)),
@@ -734,6 +740,7 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
   // resetModules() call).
   const { subscribeDistance } = require('../js/locationHub.js');
   const { getLocationOptIn } = require('../js/prefs.js');
+  const { isPublishingAvailable } = require('../js/locationShare.js');
 
   let watchFollowersCallback;
   let watchPresenceCallback;
@@ -745,6 +752,7 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
   // default so the mock doesn't leak a stale `true` into later describes.
   afterEach(() => {
     getLocationOptIn.mockReturnValue(false);
+    isPublishingAvailable.mockImplementation(() => true);
     subscribeDistance.mockReset();
     subscribeDistance.mockImplementation(() => jest.fn());
   });
@@ -866,6 +874,39 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     const li = document.querySelector('[data-user-id="u1"]');
     expect(li.dataset.mutual).not.toBe('1');
     expect(li.querySelector('.person-status').textContent).not.toContain('·');
+  });
+
+  test('9. own availability drops → subs close; going available again reopens FRESH subs (F2)', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(120);
+    expect(subscribeDistance).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 120 m$/);
+    const unsub = subscribeDistance.mock.results[0].value;
+
+    // Own availability ends (clearPublished deletes locations/{me} → RTDB
+    // would cancel every peer listener). Eligibility must close the subs.
+    isPublishingAvailable.mockImplementation(() => false);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(unsub).toHaveBeenCalled();
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).not.toContain('·');
+
+    // Back available: subs must REOPEN with fresh underlying listeners — the
+    // old ones were cancelled server-side and never fire again.
+    isPublishingAvailable.mockImplementation(() => true);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(subscribeDistance).toHaveBeenCalledTimes(2);
+  });
+
+  test('10. boot opted-in but unavailable → no distance subs open until availability arrives', () => {
+    isPublishingAvailable.mockImplementation(() => false);
+    setupMutual('u1', true); // opt-in ON, own status NOT available
+    fireAvailable('u1');
+    expect(subscribeDistance).not.toHaveBeenCalled();
+
+    isPublishingAvailable.mockImplementation(() => true);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(subscribeDistance).toHaveBeenCalledWith('myUid', 'u1', expect.any(Function));
   });
 });
 

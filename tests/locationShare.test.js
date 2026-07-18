@@ -151,6 +151,25 @@ test('going unavailable clears published data and stops the loop', async () => {
   expect(prefs.getLocationOptIn('direct')).toBe(true);
 });
 
+test('location-publishing-changed fires on every availability transition, including in-tick expiry', async () => {
+  const { initLocationShare, toggleContext } = share();
+  initLocationShare('me', () => []);
+  let fired = 0;
+  document.addEventListener('location-publishing-changed', () => { fired++; });
+  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+  expect(fired).toBe(0); // no transition — stayed unavailable
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 60000 });
+  expect(fired).toBe(1); // up-flip
+  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+  expect(fired).toBe(2); // down-flip via presence tick
+  await toggleContext('direct');
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 60000 });
+  expect(fired).toBe(3);
+  jest.advanceTimersByTime(60000); // window lapses — down-flip via in-tick expiry
+  await flush();
+  expect(fired).toBe(4);
+});
+
 test('availability window expiring mid-session stops publishing and clears — no presence tick needed', async () => {
   // Expiry is a TIME event, not a data event: no presence snapshot arrives
   // when the window lapses while foreground. The loop must re-evaluate

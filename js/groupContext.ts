@@ -42,7 +42,7 @@ import {
 } from './hints.js';
 import { clearFirstUsePulse, paintLocationGlyph } from './me.js';
 import { refreshHints, clearActiveHint } from './hintRotation.js';
-import { toggleContext, capabilityState } from './locationShare.js';
+import { toggleContext, capabilityState, isPublishingAvailable } from './locationShare.js';
 import { subscribeCellDistance, subscribeDistance } from './locationHub.js';
 import { formatDistanceCoarse, formatDistancePrecise } from '../shared/geo.js';
 
@@ -303,9 +303,15 @@ function createRosterRow(uid: string, member: MemberEntry, ownUserId: string) {
 // (excluding own uid) — callers pass an empty set when nothing should stay
 // open.
 function reconcileDistanceSubs(memberUids: Set<string>, myUserId: string, groupId: string) {
-  const cellEligible = getLocationOptIn(groupId) ? memberUids : new Set<string>();
+  // Eligibility is "viewer is publishing in the relevant context" (spec §6.2):
+  // opt-in ∧ own availability. Without the availability half, listeners
+  // attached while unavailable are rules-denied and cancelled PERMANENTLY by
+  // the SDK, and the "already open" guards below would block any resubscribe.
+  // Mirrors following.ts's reconcileDistanceSubs — deliberate parallel.
+  const publishing = isPublishingAvailable();
+  const cellEligible = (publishing && getLocationOptIn(groupId)) ? memberUids : new Set<string>();
   const mutualIds = new Set(getCurrentMutuals().map((m: { userId: string }) => m.userId));
-  const directOn = getLocationOptIn('direct');
+  const directOn = publishing && getLocationOptIn('direct');
   const preciseEligible = new Set<string>();
   if (directOn) {
     for (const uid of memberUids) if (mutualIds.has(uid)) preciseEligible.add(uid);
@@ -1074,6 +1080,15 @@ function installGroupSyncListeners() {
     syncRosterOrder();
   });
   document.addEventListener('location-prefs-synced', () => {
+    if (!_currentGroupId || _lastMembers === null) return;
+    syncRosterOrder();
+  });
+  // Own availability flipped (locationShare.ts — presence tick or in-tick
+  // window expiry). Same re-render: reconcileDistanceSubs includes own
+  // availability in both tiers' eligibility, so this closes subs on
+  // unavailable and reopens FRESH ones on available (the server cancelled
+  // the old listeners; they must be recreated, never reused).
+  document.addEventListener('location-publishing-changed', () => {
     if (!_currentGroupId || _lastMembers === null) return;
     syncRosterOrder();
   });

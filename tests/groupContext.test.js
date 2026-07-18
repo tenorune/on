@@ -164,6 +164,9 @@ jest.mock('../js/prefs.js', () => ({
 jest.mock('../js/locationShare.js', () => ({
   toggleContext: jest.fn(),
   capabilityState: jest.fn(() => 'supported'),
+  // Distance-sub eligibility requires OWN availability (spec §6.2) — default
+  // true so the roster distance tests exercise the opt-in axis independently.
+  isPublishingAvailable: jest.fn(() => true),
 }));
 jest.mock('../js/locationHub.js', () => ({
   subscribeCellDistance: jest.fn(() => jest.fn()),
@@ -1739,6 +1742,9 @@ describe('distance on group roster (Task 10)', () => {
   const { subscribeCellDistance, subscribeDistance } = require('../js/locationHub.js');
   const { getLocationOptIn } = require('../js/prefs.js');
   const { getCurrentMutuals } = require('../js/following.js');
+  const { isPublishingAvailable } = require('../js/locationShare.js');
+
+  afterEach(() => { isPublishingAvailable.mockImplementation(() => true); });
 
   function captureMembers() {
     let membersCb;
@@ -1948,6 +1954,52 @@ describe('distance on group roster (Task 10)', () => {
     expect(preciseUnsub).toHaveBeenCalled();
     status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
     expect(status).toMatch(/ · <1 km away$/);
+  });
+
+  test('10. own availability drops → cell + precise subs close; going available reopens FRESH subs (F2)', () => {
+    getLocationOptIn.mockImplementation(() => true); // 'G1' and 'direct' both on
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(1);
+    expect(subscribeDistance).toHaveBeenCalledTimes(1);
+    const cellUnsub = subscribeCellDistance.mock.results[0].value;
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+
+    // Own availability ends — eligibility must close both tiers' subs (the
+    // server cancelled the underlying listeners when locations/cells vanished).
+    isPublishingAvailable.mockImplementation(() => false);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(cellUnsub).toHaveBeenCalled();
+    expect(preciseUnsub).toHaveBeenCalled();
+
+    // Back available: fresh subscriptions must open.
+    isPublishingAvailable.mockImplementation(() => true);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
+    expect(subscribeDistance).toHaveBeenCalledTimes(2);
+  });
+
+  test('11. entering while opted in but unavailable → no subs open', () => {
+    isPublishingAvailable.mockImplementation(() => false);
+    getLocationOptIn.mockImplementation(() => true);
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).not.toHaveBeenCalled();
+    expect(subscribeDistance).not.toHaveBeenCalled();
   });
 });
 

@@ -60,6 +60,19 @@ test('unsubscribe tears down the underlying watch when last consumer leaves', ()
   expect(_activeLocationWatchCount()).toBe(0);
 });
 
+test('resubscribing after full teardown opens FRESH underlying watches (no stale node reuse)', () => {
+  // Eligibility churn (unavailable → available) closes and reopens distance
+  // subs; a listener the server cancelled must never be resurrected from the
+  // node cache — the reopen has to create brand-new onValue watches.
+  const un = subscribeDistance('me', 'a', () => {});
+  const callsAfterFirst = db.watchLocation.mock.calls.length;
+  un();
+  const cb = jest.fn();
+  subscribeDistance('me', 'a', cb);
+  expect(db.watchLocation.mock.calls.length).toBe(callsAfterFirst + 2); // me + a, fresh
+  expect(cb).not.toHaveBeenCalled(); // and no stale cached value replayed
+});
+
 test('cell distance combines per-group cells', () => {
   const cb = jest.fn();
   subscribeCellDistance('G1', 'me', 'peer', cb);

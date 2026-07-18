@@ -7,6 +7,7 @@ import {
 } from './db.js';
 import { subscribePresence } from './presenceHub.js';
 import { subscribeDistance } from './locationHub.js';
+import { isPublishingAvailable } from './locationShare.js';
 import { formatDistancePrecise } from '../shared/geo.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
@@ -113,7 +114,15 @@ function teardownFolloweeWatches(userId: string) {
 // `mutuals` must be the FollowingEntry list currently in the Mutuals section —
 // callers pass an empty array when nothing should stay open.
 function reconcileDistanceSubs(mutuals: FollowingEntry[], myUserId: string) {
-  const eligibleIds = getLocationOptIn('direct') ? new Set(mutuals.map(e => e.userId)) : new Set<string>();
+  // Eligibility is "viewer is publishing in Direct" (spec §6.2): opt-in ∧ own
+  // availability. Without the availability half, a boot while opted-in-but-
+  // unavailable attaches listeners the rules deny — the SDK cancels them
+  // PERMANENTLY, and the "already open" guard below would then block any
+  // resubscribe for the whole session. Closing on unavailable (and reopening
+  // fresh subs on available, via the location-publishing-changed listener)
+  // keeps the underlying watches alive exactly while they are readable.
+  const eligibleIds = (getLocationOptIn('direct') && isPublishingAvailable())
+    ? new Set(mutuals.map(e => e.userId)) : new Set<string>();
 
   _distanceUnsubs.forEach((unsub, userId) => {
     if (eligibleIds.has(userId)) return;
@@ -1218,6 +1227,14 @@ document.addEventListener('knock-float-restored', () => scheduleResort());
 // mutual rows immediately — it does not wait for the row's section key to churn.
 document.addEventListener('location-optin-changed', () => renderList());
 document.addEventListener('location-prefs-synced', () => renderList());
+// Our own availability flipped (locationShare.ts — presence tick or in-tick
+// window expiry). Same reconcile path: eligibility includes own availability,
+// so this closes distance subs on unavailable and reopens fresh ones on
+// available (the server cancels the underlying listeners when our published
+// node disappears — they must be recreated, never reused). Unlike the two
+// above, this can fire from the very first presence tick — before initList —
+// so it guards on init having happened.
+document.addEventListener('location-publishing-changed', () => { if (myUserIdRef) renderList(); });
 
 // On drawer close, reconcile deferred receiver-side call-mode against the
 // latest known state — but ONLY for rows that actually have an incoming call

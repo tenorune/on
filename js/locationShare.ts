@@ -65,6 +65,23 @@ function presenceAvailable(): boolean {
   return isAvailable(_lastPresence?.status ?? null, _lastPresence?.availableUntil ?? null);
 }
 
+// Own-availability read for the distance surfaces (following.ts /
+// groupContext.ts): spec §6.2 opens distance subscriptions only while the
+// viewer is PUBLISHING in the relevant context — own availability ∧ opt-in.
+// The opt-in half lives in prefs; this exports the availability half.
+// Time-aware (recomputed from the snapshot), so it flips false the moment
+// the window lapses even before any presence tick lands.
+export function isPublishingAvailable(): boolean {
+  return presenceAvailable();
+}
+
+// Announces an available/unavailable transition to the distance surfaces so
+// their reconcile passes close subs on unavailable (the server has cancelled
+// the underlying listeners anyway) and REOPEN fresh ones on available.
+function dispatchPublishingChanged() {
+  document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+}
+
 // The single going-unavailable path: stop the loop, delete everything
 // published. Shared by the presence-subscription flip and the in-tick expiry
 // re-evaluation so both transitions behave identically.
@@ -72,6 +89,7 @@ function goUnavailable() {
   _available = false;
   stopLoop();
   clearPublished();
+  dispatchPublishingChanged();
 }
 
 async function tick(): Promise<void> {
@@ -132,8 +150,12 @@ export function initLocationShare(userId: string, getOptedInGids: () => string[]
     _lastPresence = presence;
     const wasAvailable = _available;
     _available = presenceAvailable();
-    if (wasAvailable && !_available) goUnavailable();
-    else reconcile();
+    if (wasAvailable && !_available) {
+      goUnavailable();
+    } else {
+      reconcile();
+      if (!wasAvailable && _available) dispatchPublishingChanged();
+    }
   });
   _visListener = () => {
     if (document.visibilityState === 'visible' && _timer !== null) tick();
