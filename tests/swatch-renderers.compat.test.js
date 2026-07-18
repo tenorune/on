@@ -107,6 +107,7 @@ jest.mock('../js/prefs.js', () => ({
 jest.mock('../js/locationShare.js', () => ({
   toggleContext: jest.fn(),
   capabilityState: jest.fn(() => 'supported'),
+  isPublishingAvailable: jest.fn(() => false),
 }));
 
 jest.mock('../js/groupNav.js', () => ({
