@@ -7,6 +7,7 @@ import {
   watchCanvasBg,
   setDrawingState, watchDrawing,
   setClearRequest, removeClearRequest, clearAllStrokes, watchClearRequest,
+  setScreenshotRequest, approveScreenshotRequest, removeScreenshotRequest, watchScreenshotRequest,
 } from './db.js';
 import { buildDrawingPayload, applyDrawingPayload } from './canvasDelta.js';
 
@@ -50,6 +51,9 @@ let _absentTimerRef: ReturnType<typeof setTimeout> | null = null;
 const DRAWING_THROTTLE = 80; // ms between live drawing updates
 let _stripWasVisible: boolean | null = false;
 let _peerPreview: number[][] | null = null; // reassembled live-stroke buffer
+let _screenshotTimers: Array<ReturnType<typeof setTimeout>> = [];
+const SCREENSHOT_FADE_MS = 200;
+const SCREENSHOT_HOLD_MS = 5000;
 
 // ─── Coordinate helpers (exported for testing) ───────────────────────────────
 
@@ -242,6 +246,16 @@ function buildFloatingUI(container: HTMLElement, penColors: string[], bgColors: 
   });
   expanded.appendChild(clearBtn);
 
+  const shotBtn = document.createElement('div');
+  shotBtn.className = 'canvas-clear-btn canvas-screenshot-btn';
+  shotBtn.textContent = 'Screenshot';
+  shotBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toolbox.classList.remove('open');
+    requestScreenshot();
+  });
+  expanded.appendChild(shotBtn);
+
   toolbox.appendChild(expanded);
 
   // Toggle expand/collapse
@@ -408,9 +422,22 @@ export async function enterCanvas(peerId: string, peerName: string, myUserId: st
       showClearApprovalDialog(requesterId);
     } else if (requesterId === null) {
       // Clear request was cancelled or completed — dismiss any waiting dialog
-      const dialog = document.querySelector('.canvas-dialog-overlay');
+      const dialog = document.querySelector('.canvas-dialog-overlay:not(.canvas-shot-dialog)');
       if (dialog) dialog.remove();
       // If strokes were cleared, the onChildRemoved handlers will redraw
+    }
+  }));
+
+  // Watch the screenshot handshake (see js/db/canvas.ts state machine)
+  _canvasUnsubs.push(watchScreenshotRequest(_canvasId, (value) => {
+    const req = (value ?? null) as ScreenshotRequest | null;
+    if (req && req.by && req.approved === true) {
+      dismissScreenshotDialogs();
+      runScreenshotSequence();
+    } else if (req && req.by) {
+      showScreenshotApprovalDialog(req.by);
+    } else {
+      dismissScreenshotDialogs();
     }
   }));
 
@@ -469,7 +496,7 @@ export async function enterCanvas(peerId: string, peerName: string, myUserId: st
       // Peer (re-)joined — undim header and dismiss any dialog
       const header = document.getElementById('canvas-header');
       if (header) header.classList.remove('dimmed');
-      const dialog = document.querySelector('.canvas-dialog-overlay');
+      const dialog = document.querySelector('.canvas-dialog-overlay:not(.canvas-shot-dialog)');
       if (dialog) dialog.remove();
     }
     if (_peerSeenOnce && presence[_peerId] === false) {
@@ -512,6 +539,8 @@ export function exitCanvas() {
   }
   _canvasUnsubs.forEach((unsub) => { try { unsub(); } catch { /* already torn down */ } });
   _canvasUnsubs = [];
+  _screenshotTimers.forEach(t => clearTimeout(t));
+  _screenshotTimers = [];
   document.removeEventListener('visibilitychange', _onVisibilityChange);
   window.removeEventListener('blur', _onWindowBlur);
   window.removeEventListener('focus', _onWindowFocus);
@@ -520,6 +549,7 @@ export function exitCanvas() {
   const screen = document.getElementById('canvas-screen');
   if (screen) {
     screen.classList.remove('active');
+    screen.classList.remove('screenshot-mode');
     screen.removeEventListener('gesturestart', preventZoom);
     screen.removeEventListener('touchmove', preventMultiTouch);
 
@@ -710,6 +740,76 @@ function showClearApprovalDialog(requesterId: unknown) {
       clearAndRedraw(_ctx, _canvas.width, _canvas.height, _bgColor, []);
     }).catch(() => {});
   });
+}
+
+// ─── Screenshot mode ─────────────────────────────────────────────────────────
+
+type ScreenshotRequest = { by?: string; approved?: boolean };
+
+function requestScreenshot() {
+  const scr = document.getElementById('canvas-screen');
+  if (!scr || scr.querySelector('.canvas-dialog-overlay')) return;
+  setScreenshotRequest(_canvasId, _myUserId).catch(() => {});
+  const overlay = document.createElement('div');
+  overlay.className = 'canvas-dialog-overlay canvas-shot-dialog';
+  overlay.innerHTML = `
+    <div class="canvas-dialog">
+      <h3>Screenshot</h3>
+      <p>Waiting for ${escapeHtml(_peerName)} to agree...</p>
+      <div class="canvas-dialog-btns">
+        <button class="canvas-dialog-btn" id="canvas-shot-cancel">Cancel</button>
+      </div>
+    </div>`;
+  scr.appendChild(overlay);
+  (overlay.querySelector('#canvas-shot-cancel') as Element).addEventListener('click', () => {
+    overlay.remove();
+    removeScreenshotRequest(_canvasId).catch(() => {});
+  });
+}
+
+function showScreenshotApprovalDialog(requesterId: string) {
+  const scr = document.getElementById('canvas-screen');
+  if (!scr || scr.querySelector('.canvas-dialog-overlay')) return;
+  if (requesterId === _myUserId) return; // own request echoed back
+  const overlay = document.createElement('div');
+  overlay.className = 'canvas-dialog-overlay canvas-shot-dialog';
+  overlay.innerHTML = `
+    <div class="canvas-dialog">
+      <h3>Screenshot?</h3>
+      <p>${escapeHtml(_peerName)} wants a screenshot — the controls will hide for 5 seconds</p>
+      <div class="canvas-dialog-btns">
+        <button class="canvas-dialog-btn" id="canvas-shot-decline">Not now</button>
+        <button class="canvas-dialog-btn primary" id="canvas-shot-allow">Allow</button>
+      </div>
+    </div>`;
+  scr.appendChild(overlay);
+  (overlay.querySelector('#canvas-shot-decline') as Element).addEventListener('click', () => {
+    overlay.remove();
+    removeScreenshotRequest(_canvasId).catch(() => {});
+  });
+  (overlay.querySelector('#canvas-shot-allow') as Element).addEventListener('click', () => {
+    overlay.remove();
+    approveScreenshotRequest(_canvasId, requesterId).catch(() => {});
+  });
+}
+
+export function runScreenshotSequence(): void {
+  const scr = document.getElementById('canvas-screen');
+  if (!scr || scr.classList.contains('screenshot-mode')) return; // already running
+  scr.classList.add('screenshot-mode'); // fade-out 200ms, then hidden hold
+  _screenshotTimers.push(setTimeout(() => {
+    scr.classList.remove('screenshot-mode'); // fade-in 200ms
+  }, SCREENSHOT_FADE_MS + SCREENSHOT_HOLD_MS));
+  // Both sides clean up after the fade-in — null writes are idempotent. The
+  // approver's write self-heals a requester that died mid-sequence, whose
+  // orphaned {approved:true} would otherwise replay the hide on every re-entry.
+  _screenshotTimers.push(setTimeout(() => {
+    removeScreenshotRequest(_canvasId).catch(() => {});
+  }, SCREENSHOT_FADE_MS + SCREENSHOT_HOLD_MS + SCREENSHOT_FADE_MS));
+}
+
+function dismissScreenshotDialogs() {
+  document.querySelectorAll('.canvas-shot-dialog').forEach(el => el.remove());
 }
 
 // ─── Visibility / presence ───────────────────────────────────────────────────

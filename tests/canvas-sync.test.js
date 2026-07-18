@@ -22,6 +22,10 @@ const {
   pushStroke,
   setCanvasBg,
   watchStrokes,
+  setScreenshotRequest,
+  approveScreenshotRequest,
+  removeScreenshotRequest,
+  watchScreenshotRequest,
 } = require('../js/db');
 
 describe('getCanvasId', () => {
@@ -110,5 +114,44 @@ describe('loadCanvas', () => {
     const result = await loadCanvas('a_b');
     expect(result.bg).toBeNull();
     expect(result.strokes).toEqual([]);
+  });
+});
+
+describe('screenshot request handshake ops', () => {
+  test('setScreenshotRequest writes { by } under screenshotRequest', async () => {
+    const { ref, update } = require('firebase/database');
+    update.mockResolvedValue();
+    await setScreenshotRequest('a_b', 'u1');
+    expect(ref).toHaveBeenCalledWith({}, 'canvases/a_b');
+    expect(update).toHaveBeenCalledWith('mockRef', { screenshotRequest: { by: 'u1' } });
+  });
+
+  test('approveScreenshotRequest writes { by, approved: true }', async () => {
+    const { update } = require('firebase/database');
+    update.mockResolvedValue();
+    await approveScreenshotRequest('a_b', 'u1');
+    expect(update).toHaveBeenCalledWith('mockRef', { screenshotRequest: { by: 'u1', approved: true } });
+  });
+
+  test('removeScreenshotRequest nulls the key', async () => {
+    const { update } = require('firebase/database');
+    update.mockResolvedValue();
+    await removeScreenshotRequest('a_b');
+    expect(update).toHaveBeenCalledWith('mockRef', { screenshotRequest: null });
+  });
+
+  test('watchScreenshotRequest passes raw values through and returns the unsub', () => {
+    const { ref, onValue } = require('firebase/database');
+    const unsub = jest.fn();
+    let cb;
+    onValue.mockImplementationOnce((r, fn) => { cb = fn; return unsub; });
+    const got = [];
+    const ret = watchScreenshotRequest('a_b', v => got.push(v));
+    expect(ref).toHaveBeenCalledWith({}, 'canvases/a_b/screenshotRequest');
+    cb({ val: () => ({ by: 'u1' }) });
+    cb({ val: () => ({ by: 'u1', approved: true }) });
+    cb({ val: () => null });
+    expect(got).toEqual([{ by: 'u1' }, { by: 'u1', approved: true }, null]);
+    expect(ret).toBe(unsub);
   });
 });
