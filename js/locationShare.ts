@@ -21,6 +21,11 @@ let _available = false;
 // DATA tick arriving, and the cached boolean alone would let the loop keep
 // publishing raw coordinates against an expired window.
 let _lastPresence: PresenceNode | null = null;
+// First-own-status-tick marker for the launch-time stale-row sweep (spec §8):
+// closing the app while Available leaves locations/{uid} (+cells) behind, and
+// the normal clear path only runs on an available→unavailable TRANSITION —
+// which a fresh boot never sees (wasAvailable starts false).
+let _firstStatusSeen = false;
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _unsubOwn: (() => void) | null = null;
 let _visListener: (() => void) | null = null;
@@ -169,8 +174,11 @@ export function capabilityState(): 'supported' | 'unsupported' {
 export function initLocationShare(userId: string, getOptedInGids: () => string[]) {
   _userId = userId;
   _getOptedInGids = getOptedInGids;
+  _firstStatusSeen = false;
   _unsubOwn = subscribeOwnStatus((presence: PresenceNode | null) => {
     _lastPresence = presence;
+    const firstTick = !_firstStatusSeen;
+    _firstStatusSeen = true;
     const wasAvailable = _available;
     _available = presenceAvailable();
     if (wasAvailable && !_available) {
@@ -179,6 +187,12 @@ export function initLocationShare(userId: string, getOptedInGids: () => string[]
       reconcile();
       if (!wasAvailable && _available) dispatchPublishingChanged();
     }
+    // Launch-time stale-row sweep (spec §8): booting unavailable while any
+    // context is opted in means whatever the last session published is stale
+    // — delete it opportunistically. Also the "kicked from a group" cleanup:
+    // the delete-only rules carve-out lets the orphaned cell go too. Only on
+    // the FIRST tick; later unavailable ticks are transitions, not launches.
+    if (firstTick && !_available && anyOptIn()) clearPublished();
   });
   _visListener = () => {
     if (document.visibilityState === 'visible' && _timer !== null) tick();
@@ -238,5 +252,6 @@ export function _resetLocationShare() {
   _userId = null;
   _available = false;
   _lastPresence = null;
+  _firstStatusSeen = false;
   _getOptedInGids = () => [];
 }

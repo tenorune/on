@@ -191,6 +191,32 @@ test('availability window expiring mid-session stops publishing and clears — n
   expect(db.publishLocation).not.toHaveBeenCalled();
 });
 
+test('first status tick after init: unavailable with opt-ins set → opportunistic stale-row clear, once (spec §8)', async () => {
+  // App closed while Available leaves locations/{uid} (+cells) behind; on
+  // next launch the first own-status tick has wasAvailable === false, so the
+  // going-unavailable clear never runs. The first tick must sweep instead.
+  prefs.setLocationOptIn('direct', true);
+  prefs.setLocationOptIn('G1', true);
+  const { initLocationShare } = share();
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+  await flush();
+  expect(db.clearLocationData).toHaveBeenCalledTimes(1);
+  expect(db.clearLocationData).toHaveBeenCalledWith('me', ['G1']);
+  // Later unavailable ticks are NOT launches — no repeat sweep.
+  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+  await flush();
+  expect(db.clearLocationData).toHaveBeenCalledTimes(1);
+});
+
+test('first status tick after init: unavailable with NO opt-ins → nothing to sweep, no clear', async () => {
+  const { initLocationShare } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+  await flush();
+  expect(db.clearLocationData).not.toHaveBeenCalled();
+});
+
 test('toggling the last context off clears data', async () => {
   const { initLocationShare, toggleContext } = share();
   initLocationShare('me', () => []);
