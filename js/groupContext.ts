@@ -478,6 +478,8 @@ function paintRosterRow(uid: string, li: HTMLElement | null = document.querySele
   if (PALETTES_ENABLED && palette && available) {
     li.style.background = palette.theme.surface;
     li.style.borderLeftColor = palette.color;
+    // Distance line reads var(--card-muted, --text-muted) — see following.ts.
+    li.style.setProperty('--card-muted', palette.theme.textMuted);
     if (statusEl) {
       statusEl.style.color = palette.theme.textMuted;
       // .status-available's inline color (set in the innerHTML above) is
@@ -491,6 +493,7 @@ function paintRosterRow(uid: string, li: HTMLElement | null = document.querySele
   } else {
     li.style.background = '';
     li.style.borderLeftColor = available && color ? safeCssColor(color) : '';
+    li.style.removeProperty('--card-muted');
     if (statusEl) statusEl.style.color = '';
   }
   // FTU longpress eligibility — stamp attributes; js/hintRotation.js owns the

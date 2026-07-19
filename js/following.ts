@@ -1167,17 +1167,23 @@ export function updateFolloweeRow(entry: FollowingEntry, userData: UserData, myU
       li.style.background      = palette.theme.surface;
       li.style.borderLeftColor = palette.color;
       statusEl.style.color     = palette.theme.textMuted;
+      // The distance line reads var(--card-muted, --text-muted) from CSS —
+      // stamped on the li (not the fragment) so label-only innerHTML
+      // rebuilds keep the card-palette muted without re-running this branch.
+      li.style.setProperty('--card-muted', palette.theme.textMuted);
       const availableSpan = (statusEl.querySelector('.status-available') as HTMLElement | null);
       if (availableSpan) availableSpan.style.color = palette.color;
     } else {
       li.style.background      = '';
       li.style.borderLeftColor = '';
       statusEl.style.color     = '';
+      li.style.removeProperty('--card-muted');
     }
   } else {
     li.style.background      = '';
     li.style.borderLeftColor = isAvail ? safeCssColor(color) : '';
     if (statusEl) statusEl.style.color = '';
+    li.style.removeProperty('--card-muted');
   }
 
   // Call mode glow — caller side (this card is our active callee) or receiver side (they called us)

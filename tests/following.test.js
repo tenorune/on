@@ -1025,10 +1025,19 @@ describe('palette card styling', () => {
     expect(span.style.color).toBe('rgb(59, 130, 246)');
   });
 
+  test('palette card stamps --card-muted with the palette muted (distance line color source)', () => {
+    getPaletteByKey.mockReturnValue(OCEAN_PALETTE);
+    const li = setupOneFollowee('ocean');
+    expect(li.style.getPropertyValue('--card-muted')).toBe(OCEAN_PALETTE.theme.textMuted);
+  });
+
   test('card with paletteKey: null renders with default CSS, no inline background', () => {
     getPaletteByKey.mockReturnValue(null);
     const li = setupOneFollowee(null);
     expect(li.style.background).toBe('');
+    // No palette → the distance line falls back to the active theme's
+    // --text-muted (no per-card override stamped).
+    expect(li.style.getPropertyValue('--card-muted')).toBe('');
   });
 
   test('card with unknown paletteKey string falls back to default CSS, no inline background', () => {

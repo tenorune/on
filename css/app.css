@@ -1590,5 +1590,9 @@ body.add-form-open #main-ui-direct { padding-bottom: 50dvh; }
 }
 /* Distance line on status texts (Direct cards + group roster): ALWAYS its
    own line under the availability text, no separator dot — and as one block
-   span, "<1 km" / "away" can never split mid-text. */
-.loc-frag { display: block; }
+   span, "<1 km" / "away" can never split mid-text. Muted: the card's own
+   palette muted (--card-muted, stamped by the card-theming branches) when
+   the row is palette-themed, else the active theme's --text-muted. A CSS
+   rule (not inheritance) so it wins over .status-available's inline
+   status-color, and survives label-only innerHTML rebuilds. */
+.loc-frag { display: block; color: var(--card-muted, var(--text-muted)); }
