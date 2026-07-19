@@ -1559,6 +1559,8 @@ body.add-form-open #main-ui-direct { padding-bottom: 50dvh; }
   vertical-align: middle;
   line-height: 0;
 }
+/* Same rendered size as the color picker's bolt/flower (.set-toggle-btn svg). */
+.location-glyph svg { width: 22px; height: 22px; }
 .location-glyph.on {
   opacity: 1;
   /* Theme accent, not the fixed green: --accent is re-stamped per context by
@@ -1566,6 +1568,10 @@ body.add-form-open #main-ui-direct { padding-bottom: 50dvh; }
      the Direct header and the group band. */
   color: var(--accent, #6366f1);
 }
+/* ON: solid marker with the inner circle as a real hole — the pin + circle
+   are one evenodd path, so filling it punches the circle out; the stroke is
+   dropped so the hole keeps its full radius (matches the solid picker icons). */
+.location-glyph.on svg path { fill: currentColor; stroke: none; }
 .location-glyph.denied {
   opacity: 0.25;
   cursor: default;

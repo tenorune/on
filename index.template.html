@@ -268,9 +268,11 @@
             <span id="my-status-label" class="status-label">Unavailable</span>
             <span id="time-remaining" style="display:none"></span>
             <button id="location-glyph" class="location-glyph" aria-label="Share location" aria-pressed="false" style="display:none">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 21s-7-5.1-7-11a7 7 0 0 1 14 0c0 5.9-7 11-7 11z"/>
-                <circle cx="12" cy="10" r="2.5"/>
+              <!-- Pin + inner circle as ONE evenodd path: OFF strokes both
+                   outlines; ON fills the pin with the circle as a real hole
+                   (css .location-glyph.on). -->
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path fill-rule="evenodd" d="M12 21s-7-5.1-7-11a7 7 0 0 1 14 0c0 5.9-7 11-7 11z M12 12.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
               </svg>
             </button>
           </div>
@@ -378,9 +380,9 @@
             <span id="group-my-status-label" class="status-label">Unavailable</span>
             <span id="group-time-remaining" style="display:none"></span>
             <button id="group-location-glyph" class="location-glyph" aria-label="Share location" aria-pressed="false" style="display:none">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 21s-7-5.1-7-11a7 7 0 0 1 14 0c0 5.9-7 11-7 11z"/>
-                <circle cx="12" cy="10" r="2.5"/>
+              <!-- Same evenodd pin as the Direct header's #location-glyph. -->
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path fill-rule="evenodd" d="M12 21s-7-5.1-7-11a7 7 0 0 1 14 0c0 5.9-7 11-7 11z M12 12.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
               </svg>
             </button>
           </div>
