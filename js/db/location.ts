@@ -7,7 +7,7 @@
 // write too. Deletes go multipath — the cells' delete-only carve-out means
 // they can't be denied.
 import { db } from '../firebase-config.js';
-import { ref, set, update, onValue } from 'firebase/database';
+import { ref, set, update, onValue, get } from 'firebase/database';
 import { snapToCell } from '../../shared/geo.js';
 
 export async function publishLocation(userId: string, lat: number, lng: number, updatedAt: number): Promise<void> {
@@ -48,4 +48,19 @@ export function watchLocation(userId: string, cb: (loc: LocationNode | null) => 
 
 export function watchLocationCell(gid: string, userId: string, cb: (loc: LocationNode | null) => void): () => void {
   return onValue(ref(db, `locationCells/${gid}/${userId}`), (snap) => cb(snap.val()), () => cb(null));
+}
+
+// One-shot existence probes for locationShare's boot seeding: published nodes
+// are last-known data that persist across sessions, so a fresh boot has to
+// learn "does my node exist" from the server before the distance surfaces may
+// attach (an attach before the node exists is rules-denied and permanently
+// cancelled). Own raw point is always readable; the own-cell read is
+// membership-gated, so a denial (kicked group) rejects — callers treat a
+// rejection as absent.
+export async function hasLocationNode(userId: string): Promise<boolean> {
+  return (await get(ref(db, `locations/${userId}`))).exists();
+}
+
+export async function hasLocationCell(gid: string, userId: string): Promise<boolean> {
+  return (await get(ref(db, `locationCells/${gid}/${userId}`))).exists();
 }

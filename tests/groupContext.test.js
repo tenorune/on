@@ -164,9 +164,10 @@ jest.mock('../js/prefs.js', () => ({
 jest.mock('../js/locationShare.js', () => ({
   toggleContext: jest.fn(),
   capabilityState: jest.fn(() => 'supported'),
-  // Distance-sub eligibility requires OWN availability (spec §6.2) — default
-  // true so the roster distance tests exercise the opt-in axis independently.
-  isPublishingAvailable: jest.fn(() => true),
+  // Distance-sub eligibility requires the context's own node to exist
+  // (last-known model) — default true so the roster distance tests exercise
+  // the opt-in axis independently.
+  isContextPublished: jest.fn(() => true),
 }));
 jest.mock('../js/locationHub.js', () => ({
   subscribeCellDistance: jest.fn(() => jest.fn()),
@@ -1756,9 +1757,9 @@ describe('distance on group roster (Task 10)', () => {
   const { subscribeCellDistance, subscribeDistance } = require('../js/locationHub.js');
   const { getLocationOptIn } = require('../js/prefs.js');
   const { getCurrentMutuals } = require('../js/following.js');
-  const { isPublishingAvailable } = require('../js/locationShare.js');
+  const { isContextPublished } = require('../js/locationShare.js');
 
-  afterEach(() => { isPublishingAvailable.mockImplementation(() => true); });
+  afterEach(() => { isContextPublished.mockImplementation(() => true); });
 
   function captureMembers() {
     let membersCb;
@@ -1970,7 +1971,7 @@ describe('distance on group roster (Task 10)', () => {
     expect(status).toMatch(/ · <1 km away$/);
   });
 
-  test('10. own availability drops → cell + precise subs close; going available reopens FRESH subs (F2)', () => {
+  test('10. own nodes deleted (unpublished) → cell + precise subs close; republish reopens FRESH subs', () => {
     getLocationOptIn.mockImplementation(() => true); // 'G1' and 'direct' both on
     getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
     const getMembers = captureMembers();
@@ -1986,22 +1987,23 @@ describe('distance on group roster (Task 10)', () => {
     const cellUnsub = subscribeCellDistance.mock.results[0].value;
     const preciseUnsub = subscribeDistance.mock.results[0].value;
 
-    // Own availability ends — eligibility must close both tiers' subs (the
-    // server cancelled the underlying listeners when locations/cells vanished).
-    isPublishingAvailable.mockImplementation(() => false);
+    // Own nodes deleted (opt-out on another device, permission revocation) —
+    // eligibility must close both tiers' subs (the server cancelled the
+    // underlying listeners when locations/cells vanished).
+    isContextPublished.mockImplementation(() => false);
     document.dispatchEvent(new CustomEvent('location-publishing-changed'));
     expect(cellUnsub).toHaveBeenCalled();
     expect(preciseUnsub).toHaveBeenCalled();
 
-    // Back available: fresh subscriptions must open.
-    isPublishingAvailable.mockImplementation(() => true);
+    // Nodes republished: fresh subscriptions must open.
+    isContextPublished.mockImplementation(() => true);
     document.dispatchEvent(new CustomEvent('location-publishing-changed'));
     expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
     expect(subscribeDistance).toHaveBeenCalledTimes(2);
   });
 
-  test('11. entering while opted in but unavailable → no subs open', () => {
-    isPublishingAvailable.mockImplementation(() => false);
+  test('11. entering while opted in but own nodes not yet published → no subs open', () => {
+    isContextPublished.mockImplementation(() => false);
     getLocationOptIn.mockImplementation(() => true);
     getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
     const getMembers = captureMembers();

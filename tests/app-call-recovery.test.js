@@ -194,6 +194,9 @@ jest.mock('../js/prefs.js', () => ({
     sets: { '1': { selectedKey: 'default', activePaletteKey: 'default' } },
   })),
   getFollowing: jest.fn().mockReturnValue([]),
+  // locationShare's boot seeding reads these synchronously at init.
+  getLocationOptIn: jest.fn(() => false),
+  getOptedInLocationGids: jest.fn(() => []),
 }));
 
 jest.mock('../js/groupNav.js', () => ({

@@ -1,11 +1,22 @@
 // Capture-loop contract for js/locationShare.ts. Geolocation is mocked at
 // navigator.geolocation; db at the './db.js' barrel; prefs real (jsdom
 // localStorage). Fake timers drive the 60s cadence.
+//
+// Model (smoke-test revision 2026-07-19): published nodes are LAST-KNOWN
+// data — they persist across availability flaps and app restarts, and are
+// deleted only when the user disables a context (glyph off) or OS permission
+// is revoked. Publishing itself stays tied to availability (60s ticks while
+// available), but going unavailable no longer deletes anything, and the
+// document-visibility gate on ticks is gone. Eligibility for the distance
+// surfaces is per-context ("this context's own node is known to exist"),
+// seeded at boot from the server so a restart sees last-known immediately.
 jest.mock('../js/db.js', () => ({
   publishLocation: jest.fn().mockResolvedValue(undefined),
   publishLocationCell: jest.fn().mockResolvedValue(undefined),
   clearLocationData: jest.fn().mockResolvedValue(undefined),
   clearLocationCells: jest.fn().mockResolvedValue(undefined),
+  hasLocationNode: jest.fn().mockResolvedValue(false),
+  hasLocationCell: jest.fn().mockResolvedValue(false),
   isAvailable: (status, until) => status === 'available' && (until == null || until > Date.now()),
   mergeUserPrefs: jest.fn().mockResolvedValue(undefined),
   readPushTokens: jest.fn().mockResolvedValue(null),
@@ -30,6 +41,10 @@ beforeEach(() => {
   jest.useFakeTimers();
   localStorage.clear();
   jest.clearAllMocks();
+  // clearAllMocks does NOT clear mockResolvedValue implementations — reset
+  // the existence probes to their default explicitly per test.
+  db.hasLocationNode.mockResolvedValue(false);
+  db.hasLocationCell.mockResolvedValue(false);
   geoBehavior = (ok, err) => ok(POS);
   Object.defineProperty(global.navigator, 'geolocation', {
     configurable: true,
@@ -135,15 +150,21 @@ test('group opt-in publishes that cell, not the raw point', async () => {
   expect(db.publishLocation).not.toHaveBeenCalled();
 });
 
-test('going unavailable clears published data and stops the loop', async () => {
-  const { initLocationShare, toggleContext } = share();
+test('going unavailable stops the loop but KEEPS the published data — last-known persists', async () => {
+  const { initLocationShare, toggleContext, isContextPublished } = share();
   initLocationShare('me', () => []);
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
   await toggleContext('direct');
   await flush();
+  expect(isContextPublished('direct')).toBe(true);
   ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
   await flush();
-  expect(db.clearLocationData).toHaveBeenCalledWith('me', []);
+  // No delete: the node is last-known data now, removed only on disable.
+  expect(db.clearLocationData).not.toHaveBeenCalled();
+  expect(db.clearLocationCells).not.toHaveBeenCalled();
+  // Published state survives the flap — distance subs stay eligible/open.
+  expect(isContextPublished('direct')).toBe(true);
+  // But the loop is stopped: no fresh publishes while unavailable.
   db.publishLocation.mockClear();
   jest.advanceTimersByTime(120000);
   await flush();
@@ -152,51 +173,42 @@ test('going unavailable clears published data and stops the loop', async () => {
   expect(prefs.getLocationOptIn('direct')).toBe(true);
 });
 
-// Eligibility must key off "own node actually published this tick's spell",
-// not the raw available-status flip: the flip races the async publish chain
-// (permission check -> getPositionOnce() -> write RTT), and a distance
-// listener attached before locations/{me} exists gets rules-denied and
-// permanently cancelled by the SDK. So: down-flips (nothing to race — the
-// node is torn down synchronously) still dispatch immediately, but up-flips
-// must wait for the tick's publish to actually land.
-test('location-publishing-changed: down-flips dispatch synchronously with the status flip; up-flips wait for the tick publish to resolve', async () => {
+// Eligibility keys off "this context's own node is known to exist" — a
+// distance listener attached before the node exists is rules-denied and
+// permanently cancelled by the SDK, so the first-ever publish of a context
+// still gates its surfaces. Availability flaps no longer touch the state
+// (nothing is deleted), so they dispatch nothing.
+test('location-publishing-changed fires once when a context first lands, never on availability flaps', async () => {
   const { initLocationShare, toggleContext } = share();
   initLocationShare('me', () => []);
   let fired = 0;
   document.addEventListener('location-publishing-changed', () => { fired++; });
 
-  // No opt-in at all: up-flip has nothing to publish, so no dispatch — this
-  // is the key RED-before-fix assertion (old code dispatched synchronously
-  // off the status flip alone, regardless of opt-in/publish).
+  // No opt-in at all: nothing to publish, no dispatch.
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
-  expect(fired).toBe(0); // NOT dispatched synchronously with the status flip
   await flush();
-  expect(fired).toBe(0); // still nothing — no opt-in means no publish ever lands
+  expect(fired).toBe(0);
 
-  // Opt in while available: the tick fires and publishes; dispatch happens
-  // only once that publish resolves, not synchronously with the opt-in call.
+  // Opt in while available: dispatch only once that publish resolves.
   await toggleContext('direct');
   await flush();
-  expect(fired).toBe(1); // dispatched once the tick's publish landed
+  expect(fired).toBe(1);
 
-  // Down-flip via presence tick: teardown is synchronous, so this dispatches
-  // immediately with the status flip (no async chain to wait on).
+  // Down-flip: nothing is deleted, published state persists — no dispatch.
   ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
-  expect(fired).toBe(2);
-
-  // Up-flip again (opt-in pref survived teardown): NOT dispatched
-  // synchronously with the flip...
-  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 60000 });
-  expect(fired).toBe(2);
-  // ...only once the republish resolves.
   await flush();
-  expect(fired).toBe(3);
+  expect(fired).toBe(1);
 
-  // In-tick expiry (down-flip with no presence tick involved): still
-  // synchronous teardown -> dispatch, same as any other down-flip.
+  // Up-flip again: the republish lands on an already-published context — no
+  // re-dispatch (the surfaces' subs never closed).
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 60000 });
+  await flush();
+  expect(fired).toBe(1);
+
+  // In-tick expiry: stops the loop, deletes nothing, dispatches nothing.
   jest.advanceTimersByTime(60000);
   await flush();
-  expect(fired).toBe(4);
+  expect(fired).toBe(1);
 });
 
 test('toggleContext on-branch dispatches location-publishing-changed only after its own tick publish resolves', async () => {
@@ -212,120 +224,51 @@ test('toggleContext on-branch dispatches location-publishing-changed only after 
   expect(fired).toBe(1);
 });
 
-test('isPublishingAvailable() is false immediately after an up-flip and only becomes true once the tick publish resolves', async () => {
-  const { initLocationShare, toggleContext, isPublishingAvailable } = share();
-  initLocationShare('me', () => []);
+test('isContextPublished is per-context: a landed cell publish marks that gid, not direct', async () => {
+  const { initLocationShare, toggleContext, isContextPublished } = share();
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  expect(isContextPublished('direct')).toBe(false);
+  expect(isContextPublished('G1')).toBe(false);
+  await toggleContext('G1');
+  await flush();
+  expect(isContextPublished('G1')).toBe(true);
+  expect(isContextPublished('direct')).toBe(false);
   await toggleContext('direct');
   await flush();
-  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
-  expect(isPublishingAvailable()).toBe(false);
-
-  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
-  // Status flipped, but the own node has not published yet this up-transition.
-  expect(isPublishingAvailable()).toBe(false);
-  await flush();
-  expect(isPublishingAvailable()).toBe(true);
+  expect(isContextPublished('direct')).toBe(true);
 });
 
-test('goUnavailable resets the published flag before dispatching — listeners see isPublishingAvailable() false', async () => {
-  const { initLocationShare, toggleContext, isPublishingAvailable } = share();
-  initLocationShare('me', () => []);
-  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
-  await toggleContext('direct');
-  await flush();
-  expect(isPublishingAvailable()).toBe(true);
-  let sawFalse = false;
-  document.addEventListener('location-publishing-changed', () => { sawFalse = isPublishingAvailable() === false; });
-  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
-  expect(sawFalse).toBe(true);
-});
-
-test('revokePermissionTeardown resets the published flag and dispatches location-publishing-changed', async () => {
-  const { initLocationShare, toggleContext, isPublishingAvailable } = share();
-  initLocationShare('me', () => []);
-  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
-  await toggleContext('direct');
-  await flush();
-  expect(isPublishingAvailable()).toBe(true);
-  let sawFalse = false;
-  document.addEventListener('location-publishing-changed', () => { sawFalse = isPublishingAvailable() === false; });
-  geoBehavior = (ok, err) => err({ code: 1 }); // OS-level revocation mid-flight
-  jest.advanceTimersByTime(60000);
-  await flush();
-  expect(sawFalse).toBe(true);
-  expect(isPublishingAvailable()).toBe(false);
-});
-
-test('toggling the last context off resets the published flag and dispatches location-publishing-changed', async () => {
-  const { initLocationShare, toggleContext, isPublishingAvailable } = share();
-  initLocationShare('me', () => []);
-  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
-  await toggleContext('direct');
-  await flush();
-  expect(isPublishingAvailable()).toBe(true);
-  let sawFalse = false;
-  document.addEventListener('location-publishing-changed', () => { sawFalse = isPublishingAvailable() === false; });
-  await expect(toggleContext('direct')).resolves.toBe('off');
-  expect(sawFalse).toBe(true);
-  expect(isPublishingAvailable()).toBe(false);
-});
-
-test('_resetLocationShare resets the published flag and dispatches location-publishing-changed', async () => {
-  const { initLocationShare, toggleContext, isPublishingAvailable, _resetLocationShare } = share();
-  initLocationShare('me', () => []);
-  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
-  await toggleContext('direct');
-  await flush();
-  expect(isPublishingAvailable()).toBe(true);
-  let sawFalse = false;
-  document.addEventListener('location-publishing-changed', () => { sawFalse = isPublishingAvailable() === false; });
-  _resetLocationShare();
-  expect(sawFalse).toBe(true);
-});
-
-test('toggleContext on-branch: enabling a second context while already publishing closes then reopens the distance subs (second-context enable race)', async () => {
-  // wasRunning === true, _published === true (direct already live) — enabling
-  // G1 must not let isPublishingAvailable() stay true across the gap where
-  // locationCells/{gid}/{me} doesn't exist yet (the republish is mid-flight),
-  // or a distance listener attaching right now gets rules-denied and
-  // permanently cancelled. The fix resets _published + dispatches BEFORE the
-  // republish, then markPublished's own dispatch reopens once it lands.
-  const { initLocationShare, toggleContext, isPublishingAvailable } = share();
+test('enabling a second context mid-spell leaves the first context published — no global close/reopen', async () => {
+  const { initLocationShare, toggleContext, isContextPublished } = share();
   initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
   await toggleContext('direct');
   await flush();
-  expect(isPublishingAvailable()).toBe(true);
+  expect(isContextPublished('direct')).toBe(true);
 
   let fired = 0;
-  const seenAtDispatch = [];
-  document.addEventListener('location-publishing-changed', () => {
-    fired++;
-    seenAtDispatch.push(isPublishingAvailable());
-  });
+  document.addEventListener('location-publishing-changed', () => { fired++; });
 
   const p = toggleContext('G1'); // loop already running: the on-branch's wasRunning path
   await expect(p).resolves.toBe('on');
-  // The reset + dispatch happen synchronously within toggleContext's own
-  // on-branch, before the republish it kicks off has resolved.
-  expect(fired).toBe(1);
-  expect(seenAtDispatch).toEqual([false]);
-  expect(isPublishingAvailable()).toBe(false);
-
-  // No further dispatch until the republish actually lands.
-  expect(fired).toBe(1);
+  // Direct's node never went anywhere — its surfaces must not churn.
+  expect(isContextPublished('direct')).toBe(true);
+  // G1's cell publish is still mid-flight — not published yet, no dispatch.
+  expect(isContextPublished('G1')).toBe(false);
+  expect(fired).toBe(0);
   await flush();
-  expect(fired).toBe(2);
-  expect(seenAtDispatch).toEqual([false, true]);
-  expect(isPublishingAvailable()).toBe(true);
+  // The cell landed: exactly one dispatch, for G1's arrival.
+  expect(fired).toBe(1);
+  expect(isContextPublished('G1')).toBe(true);
+  expect(isContextPublished('direct')).toBe(true);
 });
 
-test('availability window expiring mid-session stops publishing and clears — no presence tick needed', async () => {
+test('availability window expiring mid-session stops publishing but does NOT clear — no presence tick needed', async () => {
   // Expiry is a TIME event, not a data event: no presence snapshot arrives
   // when the window lapses while foreground. The loop must re-evaluate
   // isAvailable(status, availableUntil) per tick off the stored snapshot.
-  const { initLocationShare, toggleContext } = share();
+  const { initLocationShare, toggleContext, isContextPublished } = share();
   initLocationShare('me', () => []);
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 60000 });
   await toggleContext('direct');
@@ -334,38 +277,135 @@ test('availability window expiring mid-session stops publishing and clears — n
   db.publishLocation.mockClear();
   jest.advanceTimersByTime(180000); // window lapsed at +60s; NO presence tick fires
   await flush();
-  expect(db.clearLocationData).toHaveBeenCalledWith('me', []);
+  // Last-known persists: no delete on expiry.
+  expect(db.clearLocationData).not.toHaveBeenCalled();
   expect(db.publishLocation).not.toHaveBeenCalled();
+  expect(isContextPublished('direct')).toBe(true);
   // Loop is stopped — later timer advances publish nothing either.
   jest.advanceTimersByTime(120000);
   await flush();
   expect(db.publishLocation).not.toHaveBeenCalled();
 });
 
-test('first status tick after init: unavailable with opt-ins set → opportunistic stale-row clear, once (spec §8)', async () => {
-  // App closed while Available leaves locations/{uid} (+cells) behind; on
-  // next launch the first own-status tick has wasAvailable === false, so the
-  // going-unavailable clear never runs. The first tick must sweep instead.
+test('booting unavailable with opt-ins set does NOT delete the last-known data (old stale-row sweep is gone)', async () => {
   prefs.setLocationOptIn('direct', true);
   prefs.setLocationOptIn('G1', true);
   const { initLocationShare } = share();
   initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
   ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
   await flush();
-  expect(db.clearLocationData).toHaveBeenCalledTimes(1);
-  expect(db.clearLocationData).toHaveBeenCalledWith('me', ['G1']);
-  // Later unavailable ticks are NOT launches — no repeat sweep.
-  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
-  await flush();
-  expect(db.clearLocationData).toHaveBeenCalledTimes(1);
+  expect(db.clearLocationData).not.toHaveBeenCalled();
+  expect(db.clearLocationCells).not.toHaveBeenCalled();
 });
 
-test('first status tick after init: unavailable with NO opt-ins → nothing to sweep, no clear', async () => {
-  const { initLocationShare } = share();
+test('init seeds published state from existing server nodes — a restart sees last-known without a fresh publish', async () => {
+  prefs.setLocationOptIn('direct', true);
+  prefs.setLocationOptIn('G1', true);
+  db.hasLocationNode.mockResolvedValue(true);
+  db.hasLocationCell.mockResolvedValue(true);
+  const { initLocationShare, isContextPublished } = share();
+  let fired = 0;
+  document.addEventListener('location-publishing-changed', () => { fired++; });
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+  await flush();
+  expect(db.hasLocationNode).toHaveBeenCalledWith('me');
+  expect(db.hasLocationCell).toHaveBeenCalledWith('G1', 'me');
+  expect(isContextPublished('direct')).toBe(true);
+  expect(isContextPublished('G1')).toBe(true);
+  expect(fired).toBeGreaterThan(0); // surfaces get told to attach
+  // No publish happened — the seed is read-only.
+  expect(db.publishLocation).not.toHaveBeenCalled();
+  expect(db.publishLocationCell).not.toHaveBeenCalled();
+});
+
+test('init seeding: absent server nodes leave contexts unpublished (surfaces must not attach-race)', async () => {
+  prefs.setLocationOptIn('direct', true);
+  const { initLocationShare, isContextPublished } = share();
   initLocationShare('me', () => []);
   ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
   await flush();
-  expect(db.clearLocationData).not.toHaveBeenCalled();
+  expect(isContextPublished('direct')).toBe(false);
+});
+
+test('init seeding probes only opted-in contexts', async () => {
+  const { initLocationShare } = share();
+  initLocationShare('me', () => []);
+  await flush();
+  expect(db.hasLocationNode).not.toHaveBeenCalled();
+  expect(db.hasLocationCell).not.toHaveBeenCalled();
+});
+
+test('location-prefs-synced re-runs the seed: a cross-device opt-in with an existing node becomes published', async () => {
+  const { initLocationShare, isContextPublished } = share();
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+  ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+  await flush();
+  expect(isContextPublished('G1')).toBe(false);
+  // Another device opted G1 in and published its cell; the pref echo lands here.
+  prefs.setLocationOptIn('G1', true);
+  db.hasLocationCell.mockResolvedValue(true);
+  document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+  await flush();
+  expect(isContextPublished('G1')).toBe(true);
+});
+
+test('toggling a context off removes only that context from the published state', async () => {
+  const { initLocationShare, toggleContext, isContextPublished } = share();
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  await toggleContext('G1');
+  await flush();
+  expect(isContextPublished('direct')).toBe(true);
+  expect(isContextPublished('G1')).toBe(true);
+  await expect(toggleContext('G1')).resolves.toBe('off');
+  expect(isContextPublished('G1')).toBe(false);
+  expect(isContextPublished('direct')).toBe(true);
+});
+
+test('toggling the last context off resets published state and dispatches location-publishing-changed', async () => {
+  const { initLocationShare, toggleContext, isContextPublished } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  expect(isContextPublished('direct')).toBe(true);
+  let sawFalse = false;
+  document.addEventListener('location-publishing-changed', () => { sawFalse = isContextPublished('direct') === false; });
+  await expect(toggleContext('direct')).resolves.toBe('off');
+  expect(sawFalse).toBe(true);
+  expect(isContextPublished('direct')).toBe(false);
+});
+
+test('revokePermissionTeardown resets published state and dispatches location-publishing-changed', async () => {
+  const { initLocationShare, toggleContext, isContextPublished } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  expect(isContextPublished('direct')).toBe(true);
+  let sawFalse = false;
+  document.addEventListener('location-publishing-changed', () => { sawFalse = isContextPublished('direct') === false; });
+  geoBehavior = (ok, err) => err({ code: 1 }); // OS-level revocation mid-flight
+  jest.advanceTimersByTime(60000);
+  await flush();
+  expect(sawFalse).toBe(true);
+  expect(isContextPublished('direct')).toBe(false);
+});
+
+test('_resetLocationShare resets published state and dispatches location-publishing-changed', async () => {
+  const { initLocationShare, toggleContext, isContextPublished, _resetLocationShare } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  expect(isContextPublished('direct')).toBe(true);
+  let sawFalse = false;
+  document.addEventListener('location-publishing-changed', () => { sawFalse = isContextPublished('direct') === false; });
+  _resetLocationShare();
+  expect(sawFalse).toBe(true);
 });
 
 test('toggling the last context off clears data', async () => {
@@ -502,7 +542,7 @@ test('a tick never fires the permission PROMPT: Permissions API "prompt" skips c
   expect(db.publishLocation).toHaveBeenCalledWith('me', 52.52, 13.405, expect.any(Number));
 });
 
-test('hidden document pauses ticks; visible resumes with an immediate tick', async () => {
+test('hidden document no longer pauses ticks — publishing continues off-screen', async () => {
   const { initLocationShare, toggleContext } = share();
   initLocationShare('me', () => []);
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
@@ -511,9 +551,12 @@ test('hidden document pauses ticks; visible resumes with an immediate tick', asy
   db.publishLocation.mockClear();
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
   document.dispatchEvent(new Event('visibilitychange'));
-  jest.advanceTimersByTime(180000);
+  jest.advanceTimersByTime(120000);
   await flush();
-  expect(db.publishLocation).not.toHaveBeenCalled();
+  expect(db.publishLocation).toHaveBeenCalledTimes(2);
+  // Returning to visible still runs an opportunistic immediate tick (the
+  // browser throttles background timers on real devices — this catches up).
+  db.publishLocation.mockClear();
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   document.dispatchEvent(new Event('visibilitychange'));
   await flush();

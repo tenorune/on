@@ -1,12 +1,15 @@
 // js/locationShare.ts
-// The location-sharing capture loop (spec 2026-07-18 §5). One loop, gated per
-// tick on: any context opted in ∧ own status available ∧ document visible ∧
-// permission. Raw point published only when 'direct' is opted in; one snapped
-// cell per opted-in group. Going unavailable (or toggling the last context
-// off) deletes everything published — the opt-in prefs survive, so returning
-// to available resumes silently. Failed ticks are silent by design (Decision
-// 3): the last written value stands and the next tick tries again.
-import { publishLocation, publishLocationCell, clearLocationData, clearLocationCells, isAvailable } from './db.js';
+// The location-sharing capture loop (spec 2026-07-18 §5, revised at device
+// smoke 2026-07-19). One loop, gated per tick on: any context opted in ∧ own
+// status available ∧ permission. Raw point published only when 'direct' is
+// opted in; one snapped cell per opted-in group. Published nodes are
+// LAST-KNOWN data: they persist across availability flaps and app restarts,
+// and are deleted only when the user disables a context (glyph off) or OS
+// permission is revoked — so peers' distance listeners stay attached and
+// stable instead of being cancelled by node deletes. Failed ticks are silent
+// by design (Decision 3): the last written value stands and the next tick
+// tries again.
+import { publishLocation, publishLocationCell, clearLocationData, clearLocationCells, hasLocationNode, hasLocationCell, isAvailable } from './db.js';
 import { getLocationOptIn, setLocationOptIn } from './prefs.js';
 import { subscribeOwnStatus } from './ownStatus.js';
 import { isTelegramContext } from './telegram.js';
@@ -16,29 +19,25 @@ const TICK_MS = 60000;
 let _userId: string | null = null;
 let _getOptedInGids: () => string[] = () => [];
 let _available = false;
-// Ground truth for the distance surfaces' eligibility, per the final-review
-// fix: "own node published this spell", not "available". The available-status
-// flip races the async publish chain (permission check -> getPositionOnce()
-// 0.1-5s -> write RTT); a distance listener attached the instant status flips
-// arrives at locations/{me} before the node exists, gets rules-denied on
-// reciprocity, and is cancelled by the SDK PERMANENTLY (no retry). Flipped
-// true only once a publish actually lands (markPublished, in tick()); reset
-// on every teardown path (goUnavailable, revokePermissionTeardown, last-
-// context-off, _resetLocationShare) so a stale true never survives a delete.
-let _published = false;
+// Ground truth for the distance surfaces' eligibility, per context: "this
+// context's own node is known to exist on the server". A distance listener
+// attached at locations/{me} (or the gid's cell) before the node exists gets
+// rules-denied on reciprocity and is cancelled by the SDK PERMANENTLY (no
+// retry) — so a context enters this set only once a publish actually lands
+// (markPublished, in tick()) or a boot-time probe finds the persisted node
+// (seedPublishedFromServer). A context leaves the set only on the paths that
+// DELETE its node: glyph-off, permission revocation, _resetLocationShare.
+// Availability flaps don't touch it — nothing is deleted anymore.
+const _publishedContexts = new Set<string>();
 // Last own-presence SNAPSHOT, kept so availability can be re-evaluated at
 // tick time: expiry is a TIME event — the window can lapse with no presence
 // DATA tick arriving, and the cached boolean alone would let the loop keep
 // publishing raw coordinates against an expired window.
 let _lastPresence: PresenceNode | null = null;
-// First-own-status-tick marker for the launch-time stale-row sweep (spec §8):
-// closing the app while Available leaves locations/{uid} (+cells) behind, and
-// the normal clear path only runs on an available→unavailable TRANSITION —
-// which a fresh boot never sees (wasAvailable starts false).
-let _firstStatusSeen = false;
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _unsubOwn: (() => void) | null = null;
 let _visListener: (() => void) | null = null;
+let _prefsSyncedListener: (() => void) | null = null;
 
 function anyOptIn(): boolean {
   return getLocationOptIn('direct') || _getOptedInGids().length > 0;
@@ -80,43 +79,50 @@ function presenceAvailable(): boolean {
   return isAvailable(_lastPresence?.status ?? null, _lastPresence?.availableUntil ?? null);
 }
 
-// Own-availability read for the distance surfaces (following.ts /
-// groupContext.ts): spec §6.2 opens distance subscriptions only while the
-// viewer is PUBLISHING in the relevant context — own availability ∧ opt-in.
-// The opt-in half lives in prefs; this exports the availability half.
-// Time-aware (recomputed from the snapshot), so it flips false the moment
-// the window lapses even before any presence tick lands.
-export function isPublishingAvailable(): boolean {
-  return presenceAvailable() && _published;
+// Per-context eligibility read for the distance surfaces (following.ts /
+// groupContext.ts): a surface may attach distance listeners for a context
+// only while that context's own node is known to exist — attach-before-
+// publish is rules-denied and permanently cancelled. Own availability is NOT
+// part of eligibility anymore: last-known nodes persist, so the listeners
+// stay readable (and open) across availability flaps.
+export function isContextPublished(context: string): boolean {
+  return _publishedContexts.has(context);
 }
 
-// Announces an available/unavailable transition to the distance surfaces so
-// their reconcile passes close subs on unavailable (the server has cancelled
-// the underlying listeners anyway) and REOPEN fresh ones on available.
+// Announces a published-context transition to the distance surfaces so their
+// reconcile passes attach subs for a context that just landed its first
+// publish (or detach for one whose node was just deleted).
 function dispatchPublishingChanged() {
   document.dispatchEvent(new CustomEvent('location-publishing-changed'));
 }
 
-// tick()'s publish-resolution hook: flips _published true on the FIRST landed
-// publish of an up-transition and notifies the surfaces THEN — not on the
-// earlier status flip, which would race the async publish chain (see
-// _published's note). Guarded on the flag itself so it fires once per
-// up-transition, not on every subsequent 60s tick's resolution.
-function markPublished() {
-  if (_published) return;
-  _published = true;
+// tick()'s publish-resolution hook, and the boot seed's: marks a context's
+// own node as existing and notifies the surfaces THEN — not on the earlier
+// opt-in flip, which would race the async publish chain (see
+// _publishedContexts' note). Guarded on the set so it fires once per
+// context's arrival, not on every subsequent 60s tick's resolution.
+function markPublished(context: string) {
+  if (_publishedContexts.has(context)) return;
+  _publishedContexts.add(context);
   dispatchPublishingChanged();
 }
 
-// The single going-unavailable path: stop the loop, delete everything
-// published. Shared by the presence-subscription flip and the in-tick expiry
+// Removes contexts whose nodes were just deleted. Dispatches only if
+// something actually left the set.
+function unmarkPublished(contexts: string[]) {
+  let changed = false;
+  for (const context of contexts) changed = _publishedContexts.delete(context) || changed;
+  if (changed) dispatchPublishingChanged();
+}
+
+// The single going-unavailable path: stop the loop, nothing else. The
+// published nodes stay — they are the last-known data peers keep reading —
+// and the published set is untouched, so the surfaces' subs stay open.
+// Shared by the presence-subscription flip and the in-tick expiry
 // re-evaluation so both transitions behave identically.
 function goUnavailable() {
   _available = false;
   stopLoop();
-  clearPublished();
-  _published = false;
-  dispatchPublishingChanged();
 }
 
 // Permission revoked mid-flight (spec §5/§8): stop the loop, delete every
@@ -129,7 +135,7 @@ function revokePermissionTeardown() {
   const contexts = [...(getLocationOptIn('direct') ? ['direct'] : []), ...gids];
   stopLoop();
   clearPublished(gids);
-  _published = false;
+  _publishedContexts.clear();
   dispatchPublishingChanged();
   for (const context of contexts) setLocationOptIn(context, false);
   // Same per-context event the glyph toggle dispatches, one per flipped context.
@@ -162,7 +168,6 @@ async function tick(): Promise<void> {
   if (!_userId) return;
   if (_available && !presenceAvailable()) { goUnavailable(); return; } // window lapsed mid-session
   if (!_available || !anyOptIn()) return;
-  if (document.visibilityState !== 'visible') return;
   if (!(await tickPermissionGranted())) return;
   let pos;
   try { pos = await getPositionOnce(); }
@@ -174,12 +179,12 @@ async function tick(): Promise<void> {
   }
   const now = Date.now();
   if (getLocationOptIn('direct')) {
-    publishLocation(_userId, pos.lat, pos.lng, now).then(markPublished).catch(() => {});
+    publishLocation(_userId, pos.lat, pos.lng, now).then(() => markPublished('direct')).catch(() => {});
   }
   // One write per cell, NOT multipath with the raw point — a stale-membership
   // cell denial must not take the precise tier down with it (db/location.js).
   for (const gid of _getOptedInGids()) {
-    publishLocationCell(gid, _userId, pos.lat, pos.lng, now).then(markPublished).catch(() => {});
+    publishLocationCell(gid, _userId, pos.lat, pos.lng, now).then(() => markPublished(gid)).catch(() => {});
   }
 }
 
@@ -196,8 +201,7 @@ function stopLoop() {
 // `gids` lets a caller pass a snapshot taken BEFORE flipping a pref — needed
 // because `_getOptedInGids()` filters live off the pref, so a snapshot taken
 // after toggling the just-disabled context off would silently drop it (its
-// cell would then never get cleared). Defaults to the live list for the
-// going-unavailable path, where no pref has changed.
+// cell would then never get cleared). Defaults to the live list.
 function clearPublished(gids?: string[]) {
   if (!_userId) return;
   clearLocationData(_userId, gids ?? _getOptedInGids()).catch(() => {});
@@ -206,6 +210,26 @@ function clearPublished(gids?: string[]) {
 function reconcile() {
   if (_available && anyOptIn()) startLoop();
   else stopLoop();
+}
+
+// Boot-time (and prefs-echo-time) seed of the published set: last-known
+// nodes persist across sessions, so a fresh init must learn "does my node
+// exist" from the server — this session may never publish (booting
+// unavailable) yet the surfaces should attach to the persisted nodes
+// immediately. Read-only probes; each context is re-checked against the
+// live opt-in when its probe resolves so a context toggled off mid-probe
+// can't be marked. A rejected probe (own-cell read after a group kick) is
+// treated as absent.
+function seedPublishedFromServer() {
+  const uid = _userId;
+  if (!uid) return;
+  const probe = (context: string, exists: Promise<boolean>) => {
+    exists.then((found) => {
+      if (found && _userId === uid && getLocationOptIn(context)) markPublished(context);
+    }).catch(() => {});
+  };
+  if (getLocationOptIn('direct')) probe('direct', hasLocationNode(uid));
+  for (const gid of _getOptedInGids()) probe(gid, hasLocationCell(gid, uid));
 }
 
 export function capabilityState(): 'supported' | 'unsupported' {
@@ -219,31 +243,29 @@ export function capabilityState(): 'supported' | 'unsupported' {
 export function initLocationShare(userId: string, getOptedInGids: () => string[]) {
   _userId = userId;
   _getOptedInGids = getOptedInGids;
-  _firstStatusSeen = false;
   _unsubOwn = subscribeOwnStatus((presence: PresenceNode | null) => {
     _lastPresence = presence;
-    const firstTick = !_firstStatusSeen;
-    _firstStatusSeen = true;
     const wasAvailable = _available;
     _available = presenceAvailable();
     if (wasAvailable && !_available) {
       goUnavailable();
     } else {
       reconcile();
-      // No dispatch here on the up-flip: locations/{me} doesn't exist yet —
-      // reconcile()->startLoop() just kicked off tick()'s async publish
-      // chain. Firing now would let the surfaces attach distance listeners
-      // before the node lands, get rules-denied on reciprocity, and be
-      // cancelled by the SDK permanently. markPublished() (in tick()) is the
-      // one that dispatches, once the publish actually resolves.
+      // No dispatch here on the up-flip: a first-ever publish may still be
+      // mid-flight — markPublished() (in tick()) is the one that dispatches,
+      // once the publish actually resolves. Contexts already in the set
+      // never left it (nothing was deleted going unavailable), so their
+      // surfaces' subs are still open and need no event.
     }
-    // Launch-time stale-row sweep (spec §8): booting unavailable while any
-    // context is opted in means whatever the last session published is stale
-    // — delete it opportunistically. Also the "kicked from a group" cleanup:
-    // the delete-only rules carve-out lets the orphaned cell go too. Only on
-    // the FIRST tick; later unavailable ticks are transitions, not launches.
-    if (firstTick && !_available && anyOptIn()) clearPublished();
   });
+  seedPublishedFromServer();
+  // A server echo of the prefs can opt a context in from another device —
+  // that device may have published the node already, so re-probe.
+  _prefsSyncedListener = () => seedPublishedFromServer();
+  document.addEventListener('location-prefs-synced', _prefsSyncedListener);
+  // Ticks run regardless of visibility (last-known model), but real browsers
+  // throttle background timers — an opportunistic tick on return to
+  // foreground catches the cadence back up.
   _visListener = () => {
     if (document.visibilityState === 'visible' && _timer !== null) tick();
   };
@@ -260,20 +282,21 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
     if (!anyOptIn()) {
       stopLoop();
       clearPublished(gidsBeforeToggle);
-      _published = false;
-      dispatchPublishingChanged();
+      unmarkPublished([context, ...gidsBeforeToggle]);
     } else if (context !== 'direct' && _userId) {
       // Only this group's cell needs deleting; other contexts keep publishing.
       // Cells-only clear — locations/{uid} must never be touched here: even a
       // transient raw-point delete makes RTDB re-evaluate reciprocity and
-      // cancel every peer's precise-tier listener, and an unawaited republish
-      // is unordered against the delete on real infra.
+      // cancel every peer listener, and an unawaited republish is unordered
+      // against the delete on real infra.
       clearLocationCells(_userId, [context]).catch(() => {});
+      unmarkPublished([context]);
     } else if (context === 'direct' && _userId) {
       // 'direct' turned off but a group remains opted in: only the raw point
       // may exist while 'direct' is opted in, so clear it (no cells — the
       // groups' cells are untouched).
       clearLocationData(_userId, []).catch(() => {});
+      unmarkPublished(['direct']);
     }
     document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context } }));
     return 'off';
@@ -293,13 +316,10 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
   setLocationOptIn(context, true);
   reconcile();
   if (wasRunning) {
-    // Loop already publishing (spec final-review): the new context's cell
-    // doesn't exist yet until this tick's republish lands. Reset + dispatch
-    // BEFORE kicking it off so surfaces close the momentarily-ineligible subs
-    // instead of attach-racing the missing node; markPublished's own dispatch
-    // (in tick()) reopens them once the publish actually resolves.
-    _published = false;
-    dispatchPublishingChanged();
+    // Loop already publishing: this context's node doesn't exist yet, and it
+    // isn't in _publishedContexts, so its surfaces won't attach-race the
+    // missing node; markPublished (in tick()) attaches them once the publish
+    // lands. Other contexts' nodes are untouched — their subs stay open.
     tick(); // immediate first publish for this context
   }
   document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context } }));
@@ -312,11 +332,11 @@ export function _resetLocationShare() {
   stopLoop();
   if (_unsubOwn) { _unsubOwn(); _unsubOwn = null; }
   if (_visListener) { document.removeEventListener('visibilitychange', _visListener); _visListener = null; }
+  if (_prefsSyncedListener) { document.removeEventListener('location-prefs-synced', _prefsSyncedListener); _prefsSyncedListener = null; }
   _userId = null;
   _available = false;
-  _published = false;
+  _publishedContexts.clear();
   _lastPresence = null;
-  _firstStatusSeen = false;
   _getOptedInGids = () => [];
   dispatchPublishingChanged();
 }
