@@ -1818,6 +1818,10 @@ describe('distance on group roster (Task 10)', () => {
     cellCbs.get('uidA')(500);
     const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
     expect(status).toMatch(/ · <1 km away$/);
+    // Wrap-as-a-unit fragment structure (utils.distanceFragmentHtml).
+    const row = document.querySelector('#group-roster [data-user-id="uidA"]');
+    expect(row.querySelector('.person-status .loc-frag .loc-dist').textContent).toBe('<1 km away');
+    expect(row.querySelector('.person-status .loc-frag .loc-sep').textContent).toBe(' · ');
   });
 
   test('2. own group opt-in OFF → no cell subscriptions, no suffix', () => {

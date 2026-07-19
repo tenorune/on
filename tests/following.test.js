@@ -788,6 +788,12 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     distanceCbs.get('u1')(120);
     const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
     expect(status).toMatch(/Available for .* · 120 m$/);
+    // The suffix is a wrap-as-a-unit fragment: separator + distance in the
+    // loc-frag structure (utils.distanceFragmentHtml), so a narrow card puts
+    // the whole thing on its own line, never "120" / "m" split.
+    const li = document.querySelector('[data-user-id="u1"]');
+    expect(li.querySelector('.person-status .loc-frag .loc-dist').textContent).toBe('120 m');
+    expect(li.querySelector('.person-status .loc-frag .loc-sep').textContent).toBe(' · ');
   });
 
   test('2. a later distance tick updates the suffix without a presence tick', () => {

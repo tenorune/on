@@ -19,7 +19,7 @@ import {
   getPaletteState, setPaletteState,
   getFavorites, getLocationOptIn,
 } from './prefs.js';
-import { escapeHtml, hexToRgb, safeCssColor, resolveDisplayName, availableForText } from './utils.js';
+import { escapeHtml, hexToRgb, safeCssColor, resolveDisplayName, availableForText, distanceFragmentHtml, reconcileDistanceWrap } from './utils.js';
 import { isLongpressHintEligible, isSwipeHintEligible } from './hints.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { createNotifyBell } from './notifyBell.js';
@@ -187,7 +187,7 @@ async function doConfirm() {
 // non-mutual card can never render it, even transiently.
 function availableStatusText(li: HTMLElement, userId: string, availableUntil: number | null): string {
   const meters = li.dataset.mutual === '1' ? _distances.get(userId) : undefined;
-  const dist = typeof meters === 'number' ? ` · ${formatDistancePrecise(meters)}` : '';
+  const dist = typeof meters === 'number' ? distanceFragmentHtml(formatDistancePrecise(meters)) : '';
   return availableForText(availableUntil) + dist;
 }
 
@@ -205,9 +205,11 @@ export function _refreshTimeLabels(myUserId: string) {
       return;
     }
     const li = followeeRow(entry.userId);
-    const span = li?.querySelector('.status-available');
-    if (li && span) span.textContent = availableStatusText(li, entry.userId, userData.availableUntil ?? null);
-    else updateFolloweeRow(entry, userData, myUserId); // unexpected row shape — full paint
+    const span = li?.querySelector('.status-available') as HTMLElement | null;
+    if (li && span) {
+      span.innerHTML = availableStatusText(li, entry.userId, userData.availableUntil ?? null);
+      reconcileDistanceWrap(span);
+    } else updateFolloweeRow(entry, userData, myUserId); // unexpected row shape — full paint
   });
 }
 
@@ -1157,7 +1159,10 @@ export function updateFolloweeRow(entry: FollowingEntry, userData: UserData, myU
     if (PALETTES_ENABLED) paintStatusDot(dot, { color, available: isAvail, palettesEnabled: true });
   }
   const statusEl = (li.querySelector('.person-status') as HTMLElement);
-  if (statusEl) statusEl.innerHTML = statusText;
+  if (statusEl) {
+    statusEl.innerHTML = statusText;
+    reconcileDistanceWrap(statusEl); // distance fragment: own line + no dot when it wraps
+  }
 
   // Palette card styling (Increment 3): only when available
   if (PALETTES_ENABLED && userData.paletteKey && isAvail) {
