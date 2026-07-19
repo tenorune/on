@@ -785,6 +785,62 @@ describe('handleUpdate: /who <group> distance (Task 11)', () => {
     const reply = await handleUpdate(deps, msgUpdate('/who divers'));
     expect(reply.text).toBe('Available in Divers:\n🟢 Bea — about 15 minutes left · <1 km away');
   });
+  test('precise cascade: mutuals both broadcasting in Direct see the precise fragment in /who <group>, not the coarse cell', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupOne(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    // Both sides broadcasting in Direct (primary-available + raw point)…
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/m1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    // …mutual on BOTH authoritative follower edges…
+    deps.store[`users/${uid}/followers/m1`] = 'CODE01';
+    deps.store[`users/m1/followers/${uid}`] = 'MYCODE';
+    // …and both have cells (the coarse tier the precise one must beat).
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toContain('· 65 m');
+    expect(reply.text).not.toContain('<1 km away');
+  });
+  test('precise cascade gate: target primary-unavailable (override-available in group) → coarse only, no precise leak', async () => {
+    // The ANN/BOB scenario on the bot surface: the mutual's persisted raw
+    // point must not render precise while their Direct side is off.
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupOne(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    deps.store['users/m1/presence'] = { status: 'unavailable', availableUntil: null };
+    deps.store['groups/G1/members'].m1.statusOverride = { enabled: true, status: 'available', availableUntil: 2_000_000 };
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/m1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 }; // persisted last-known
+    deps.store[`users/${uid}/followers/m1`] = 'CODE01';
+    deps.store[`users/m1/followers/${uid}`] = 'MYCODE';
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toContain('· <1 km away');
+    expect(reply.text).not.toContain(' m\n');
+    expect(reply.text).not.toMatch(/· \d+ m/);
+  });
+  test('precise cascade gate: NOT mutual (one edge missing) → coarse only', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupOne(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/m1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/m1`] = 'CODE01'; // m1 follows me…
+    // …but users/m1/followers/{uid} is ABSENT — not mutual.
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toContain('· <1 km away');
+    expect(reply.text).not.toMatch(/· \d+ m/);
+  });
   test('requester unavailable in the group → no distance fragment even with a persisted cell (de facto not sharing)', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store); // seeds requester presence UNAVAILABLE

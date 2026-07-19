@@ -457,6 +457,14 @@ async function handleWhoGroup(deps, uid, query, reply) {
   const myCell = effectiveAvailable(members[uid]?.statusOverride, myPresence?.status, myPresence?.availableUntil, deps.now())
     ? await deps.getVal(`locationCells/${match.gid}/${uid}`)
     : null;
+  // Precise cascade — the ONLY Direct↔group relationship: a co-member who is
+  // a MUTUAL, while BOTH sides are broadcasting in Direct (primary-available
+  // with a raw point), upgrades their line from the coarse cell to the
+  // precise distance, mirroring the app roster. The requester half is
+  // resolved once here; the per-member half below.
+  const myLoc = primaryAvailable(myPresence, deps.now())
+    ? await deps.getVal(`locations/${uid}`)
+    : null;
   const lines = (await Promise.all(coMembers.map(async ([mid, m]) => {
     const presence = await deps.getVal(`users/${mid}/presence`);
     if (!effectiveAvailable(m?.statusOverride, presence?.status, presence?.availableUntil, deps.now())) return null;
@@ -467,7 +475,23 @@ async function handleWhoGroup(deps, uid, query, reply) {
     const remaining = formatTimeRemainingFuzzy(until - deps.now());
     const tail = remaining ? ` — ${remaining} left` : '';
     let dist = '';
-    if (myCell) {
+    if (myLoc && primaryAvailable(presence, deps.now())) {
+      // Admin SDK bypasses rules — mirror them explicitly: mutuality on BOTH
+      // authoritative follower edges (the requester's own following list is
+      // mailbox-reconciled client-side only and can be stale), plus the
+      // member's raw point. The member's PRIMARY availability gates the
+      // cascade — an override-available member with Direct off keeps their
+      // persisted raw point private to the coarse tier.
+      const [theirLoc, followsMe, followerOfThem] = await Promise.all([
+        deps.getVal(`locations/${mid}`),
+        deps.getVal(`users/${uid}/followers/${mid}`),
+        deps.getVal(`users/${mid}/followers/${uid}`),
+      ]);
+      if (theirLoc && followsMe && followerOfThem) {
+        dist = ` · ${formatDistancePrecise(haversineMeters(myLoc.lat, myLoc.lng, theirLoc.lat, theirLoc.lng))}`;
+      }
+    }
+    if (!dist && myCell) {
       const theirCell = await deps.getVal(`locationCells/${match.gid}/${mid}`);
       if (theirCell) {
         dist = ` · ${formatDistanceCoarse(haversineMeters(myCell.lat, myCell.lng, theirCell.lat, theirCell.lng))}`;
