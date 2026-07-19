@@ -11,105 +11,76 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**SECURITY REVIEW of the location-sharing feature branch.** Run the
-`/security-review` command and the `vibesec-skill` skill against branch
-`claude/knockknock-feature-dev-9a3ysy` (origin tip `93bea22`, 42 commits over
-base `c2f6a2e`). The feature went through implementation + a full device-smoke
-debugging cycle (operator-verified); it is functionally done, pending this
-security pass. Work stays ON this branch. Realign first:
+**EXECUTE the location-sharing security-fix plan.** The security review is
+DONE (findings → spec → plan, all on this branch). Next session works the
+5-task TDD plan on branch `claude/knockknock-feature-dev-9a3ysy`. Realign first:
 
 ```
 git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
-git log --oneline -1   # must show 93bea22 — anything else = STOP, origin is authoritative
+git log --oneline -1   # must be THIS docs(handoff) commit atop plan tip e423228 — else STOP, origin is authoritative
 ```
 
-**Feature model (post-smoke revisions — differs from the original spec doc):**
+- **Plan (execution source of truth):**
+  `docs/superpowers/plans/2026-07-19-location-sharing-security-fixes.md` —
+  5 tasks, each TDD red→green→commit, with complete rule diffs + handler bodies
+  + test code. Use REQUIRED SUB-SKILL `superpowers:subagent-driven-development`
+  (recommended: fresh subagent per task + two-stage review) or
+  `superpowers:executing-plans` (inline, batch + checkpoints). Execution
+  approach is unconfirmed — default to subagent-driven unless the operator says
+  inline.
+- **Spec (design source of truth):**
+  `docs/superpowers/specs/2026-07-19-location-sharing-security-fixes.md` —
+  the three findings, root causes, the deliberately out-of-scope persistence
+  posture, and Fix 2's locked **option A** (with rejected B/C for the record).
 
-- Opt-in location sharing per context ('direct' + per-group), the glyph next to
-  time-remaining being the only control. Precise distance for sharing mutuals
-  (Direct tier), coarse (0.01° grid cell, "<1 km away" floor) for sharing group
-  co-members.
-- **Last-known model:** published nodes (`locations/{uid}`,
-  `locationCells/{gid}/{uid}`) PERSIST across availability flaps and app
-  restarts. Deletion happens ONLY on glyph-off, OS permission revocation, or
-  account reset — going unavailable stops fresh publishes but deletes nothing.
-- **Per-context availability:** the 60s capture loop gates each context on its
-  own availability — 'direct' on primary presence, each group on the own
-  EFFECTIVE in-group status (override-aware, via statusStore). Group location
-  is fully independent of Direct; the ONLY cross-context rule is the precise
-  cascade (a mutual's precise distance shows in a group roster iff BOTH sides
-  are broadcasting in Direct, i.e. primary-available with raw points).
-- **Viewing requires sharing:** distance subs/fragments render only while the
-  viewer is opted-in ∧ has a landed node ∧ is available in that context.
-  Distance renders on its own line ("120 meters away" / "<1 km away", muted
-  color), only on available peers' cards.
-- Telegram bot mirrors all of it in `/who` (coarse in groups + precise cascade
-  for mutuals; requester gated on in-group effective availability for groups,
-  primary for Direct).
+**The three fixes (severity · what · where):**
 
-**Security-review seeds (known items — verify, don't rediscover):**
+1. **HIGH — precise-location gate forgery (rules-only).** `followers`/
+   `followerNames` `.write` let the node owner fabricate inbound edges → any
+   authed user reads anyone's exact GPS. Fix: narrow `auth.uid === $uid` to
+   deletions (`&& !newData.exists()`). Plan Task 1.
+2. **MEDIUM — self-join coarse-cell read (#288 widening), option A.** Self-join
+   + own-cell publish → read every member's ~1 km cell. Fix: a server-brokered
+   `joinGroup` callable (validates token/pending-invite) + tighten
+   `members/$uid` `.write` to `(data.exists() || !newData.exists())` (blocks
+   self-CREATE, preserves self-edit/leave) + client rewire. Plan Tasks 3→4→5
+   (strictly ordered; deploy the callable before/with the rule).
+3. **LOW — cell not revoked on membership loss (VibeSec lifecycle).** Fix:
+   `onMemberRemoved` trigger deletes the coarse cell on any membership
+   deletion. Plan Task 2.
 
-- **Kicked-member stale cell:** a member kicked from a group leaves their
-  last-known coarse cell readable by that group INDEFINITELY (rules allow
-  member-reads of existing cells; the kicked user's clears can't run). Known,
-  worse under the last-known model; the clean fix is a member-removal trigger
-  deleting the cell. Candidate finding — decide severity.
-- **Issue #288 (pre-existing):** RTDB rule weakness — self-join any group by
-  gid. Interplay with location: joining a group grants coarse-cell reads for
-  that group (after publishing an own cell). The issue predates this feature;
-  the feature widens what membership buys.
-- **Persistence posture is deliberate:** last-known nodes outliving
-  availability (readable by mutuals/co-members while the owner is offline for
-  days) is an operator-approved product decision, not a leak. Same for
-  "distance shows only on available cards" being a client-side display gate —
-  the RTDB rules gate on reciprocity + mutuality/membership, NOT on
-  availability; a hostile client of a sharing mutual can read last-known
-  coordinates while unavailable-but-opted-in. Flag only if that asymmetry is
-  deemed unacceptable.
-- **Admin-bypass mirrors:** `functions/telegram.js` reads locations via the
-  Admin SDK (bypasses rules) and re-implements every gate explicitly — the
-  mutuality edges (`users/{a}/followers/{b}` BOTH directions), membership,
-  availability. Review those mirrors against `database.rules.json`.
-- **Escaping:** distance text flows through `distanceFragmentHtml` →
-  `escapeHtml` (coarse tier emits `<1`). Status colors flow through
-  `safeCssColor`. Both worth a look.
+**Deliberately out of scope (operator-approved, NOT defects — do not "fix"):**
+last-known nodes outliving availability, readable by mutuals/co-members while
+the owner is offline; "distance shows only on available cards" being a
+client-side display gate (rules gate on reciprocity + mutuality/membership, not
+availability). Detail in the spec.
 
-**One open product decision (still unruled):** revoking OS location permission
-on ONE device flips the ACCOUNT-WIDE opt-in off (stops other devices too).
+**One open product decision (unchanged, still unruled, NOT part of the plan):**
+revoking OS location permission on ONE device flips the ACCOUNT-WIDE opt-in off.
 Deliberate fail-safe, debatable.
 
-**Device-verified through `0a587a9`.** Unverified on device: `bf3a7c1`
-(distance always own-line + "meters away" wording) and `93bea22` (muted
-distance color). Deploy state is the operator's; the pending surfaces are
-Hosting + Functions (`bf3a7c1` changed the shared formatter mirror the bot
-uses).
+**Feature module map (for whoever executes the plan):** `shared/geo.js`
+(+ mirror `functions/_shared/geo.js` via `npm run sync-shared` — NEVER hand-edit
+the mirror) math/formatters · `database.rules.json` `locations/`+`locationCells/`
++ `users/*/followers` + `groups/*/members` blocks (all four touched by the
+plan) · `functions/telegram.js` (`handleWhoGroup` + `/who`) admin-bypass mirrors
+· `functions/index.js` callable/trigger registration (`resolveInvitePreview` is
+the deps-injected pattern the new `joinGroup` callable mirrors) · `js/db/*.ts`
+RTDB ops · `js/invites.ts` + `js/inbox.ts` + `js/groups.ts` group-join entry
+paths (rewired in Task 4) · `js/firebase-config.ts` client callable wrappers.
 
-**Feature module map:** `shared/geo.js` (+ mirror `functions/_shared/geo.js`
-via `npm run sync-shared` — NEVER hand-edit the mirror) math/formatters ·
-`database.rules.json` `locations/`+`locationCells/` blocks · `js/db/location.ts`
-RTDB ops (cancel callbacks emit null; `hasLocationNode`/`hasLocationCell`
-one-shot boot probes) · `js/locationHub.ts` multiplexed distance watches ·
-`js/locationShare.ts` capture loop + `toggleContext` + per-context
-`isContextPublished`/`isContextAvailable` + `evaluateAvailability` (single
-availability authority) + boot seeding · `js/statusStore.ts` own effective
-per-group status (locationShare subscribes per opted-in gid) · glyphs + denied
-toast in `js/me.ts` / `js/groupContext.ts` (toast constant in `js/groups.ts`) ·
-card suffixes in `js/following.ts` / `js/groupContext.ts`
-(`reconcileDistanceSubs` passes; `distanceFragmentHtml` in `js/utils.ts`) ·
-bot fragments in `functions/telegram.js` (`handleWhoGroup` + `/who`).
-
-**Known-deferred minors** (none device-visible in the smoke cycle): denied
-glyph state isn't sticky (repaints revert denied→off) · 'unsupported' title
-says "check permissions" (wrong guidance when no geolocation API) ·
-`formatDistancePrecise` 999.6-999.99 m renders "1000 meters away" not
-"1.0 km away" · stale opted-in gids (kicked groups) produce a harmless denied
-write every 60s (publish is availability-filtered but not membership-filtered;
-clears deliberately unfiltered) · cross-device prompt-suppression relies on the
+**Known-deferred minors** (unrelated to the security fixes; none device-visible
+in the smoke cycle): denied glyph state isn't sticky (repaints revert
+denied→off) · 'unsupported' title says "check permissions" (wrong guidance when
+no geolocation API) · `formatDistancePrecise` 999.6-999.99 m renders "1000
+meters away" not "1.0 km away" · stale opted-in gids (kicked groups) produce a
+harmless denied write every 60s · cross-device prompt-suppression relies on the
 Permissions API (absent → pass-through).
 
 Open follow-ups, triaged 2026-07-17 (parked): **#290** in-app-browser dead tap
-· **#286** no invite revoke on Telegram surface · **#288** see above ·
+· **#286** no invite revoke on Telegram surface · **#288** now addressed at the
+root by Fix 2/option A (close it when the plan lands) ·
 **closed-unreproduced** "revoked follow request still in inbox" (reopen only
 with a repro).
 
@@ -144,9 +115,11 @@ Use `;` not `&&` in the apt line — the deadsnakes/ondrej PPAs 403 behind the
 proxy and would abort an `&&` chain. Functions deps are required for
 `npm run typecheck`.
 
-**Verified at `93bea22` (this session):** web 1950/1950 (85 suites), functions
-396/396, rules 86/86 (emulator), both typechecks, prod build, zero TS
-suppressions.
+**Verified green at `93bea22`:** web 1950/1950 (85 suites), functions 396/396,
+rules 86/86 (emulator), both typechecks, prod build, zero TS suppressions. The
+three commits since (`2ae2f79`, `9ca7fc6`, `e423228`) are **docs-only** (spec +
+plan + this handoff) — no executable delta, so the green bar still holds. The
+plan's own tasks are the next code to run through it.
 
 ## Conventions
 
@@ -242,6 +215,13 @@ suppressions.
 Everything below shipped (location sharing on this feature branch; the rest on
 `dev`). Detail is in git + plans + the archived handoff.
 
+- **Location security review (2026-07-19, this branch, `93bea22..e423228`,
+  docs-only):** ran `/security-review` + `vibesec-skill` over the 42-commit
+  feature diff. Confirmed 2 findings (HIGH forgeable precise-location gate;
+  MEDIUM self-join coarse-cell read) + 1 VibeSec lifecycle item (LOW). Wrote the
+  fix spec (`docs/superpowers/specs/2026-07-19-…`, Fix 2 locked to option A) and
+  the 5-task execution plan (`docs/superpowers/plans/2026-07-19-…`). No code
+  changed — execution is "what's next" above.
 - **Location device-smoke debugging cycle (2026-07-19, this branch,
   `7386957..93bea22`, operator-verified):** glyph → theme accent, 22px picker-
   matched size without row-height change, solid-pin ON state (evenodd +
