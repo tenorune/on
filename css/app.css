@@ -1588,10 +1588,7 @@ body.add-form-open #main-ui-direct { padding-bottom: 50dvh; }
   opacity: 0.25;
   cursor: default;
 }
-/* Distance suffix on status lines (Direct cards + group roster): wraps as a
-   UNIT — same line with the ' · ' separator, or (marked .loc-wrapped by
-   utils.reconcileDistanceWrap after paint) the whole fragment on its own
-   line with the separator hidden. Never "<1 km" / "away" split mid-text. */
-.loc-frag { white-space: nowrap; }
-.loc-frag.loc-wrapped { display: block; }
-.loc-frag.loc-wrapped .loc-sep { display: none; }
+/* Distance line on status texts (Direct cards + group roster): ALWAYS its
+   own line under the availability text, no separator dot — and as one block
+   span, "<1 km" / "away" can never split mid-text. */
+.loc-frag { display: block; }

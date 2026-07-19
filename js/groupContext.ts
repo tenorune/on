@@ -8,7 +8,7 @@
 import { watchGroupMembers, watchGroupInvites, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs, isAvailable } from './db.js';
 import { subscribePresence } from './presenceHub.js';
 import { reconcileChildren } from './reconcile.js';
-import { safeCssColor, availableForText, distanceFragmentHtml, reconcileDistanceWrap } from './utils.js';
+import { safeCssColor, availableForText, distanceFragmentHtml } from './utils.js';
 import { CHIP_VALUES, chipIndexForMinutes, effectiveStatus } from './status.js';
 import { navigateToDirect, subscribeGroupMeta } from './groupNav.js';
 import { subscribeOwnOverride, getOwnOverride, pushOptimistic } from './statusStore.js';
@@ -465,7 +465,6 @@ function paintRosterRow(uid: string, li: HTMLElement | null = document.querySele
       statusEl.innerHTML = inlineColor
         ? `<span class="status-available" style="color:${inlineColor}">${text}</span>`
         : `<span class="status-available">${text}</span>`;
-      reconcileDistanceWrap(statusEl); // distance fragment: own line + no dot when it wraps
     } else {
       // Unavailable members deliberately render no status text in the
       // group-context roster — the absent green dot already conveys it.

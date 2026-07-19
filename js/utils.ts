@@ -121,30 +121,11 @@ export function availableForText(availableUntil: number | null | undefined): str
   return remaining ? `Available for ${remaining}` : 'Available';
 }
 
-// The distance suffix on a status line, as a wrap-as-a-UNIT fragment: the
-// ' · ' separator and the distance live in one nowrap span, so a narrow card
-// moves the whole thing to the next line — never "<1 km" / "away" split
-// mid-fragment. When it does wrap, reconcileDistanceWrap (below) marks it to
-// take its own line with the separator hidden (operator call: a wrapped
-// distance line carries no dot). Escaped — formatDistanceCoarse emits "<1".
+// The distance line under a status text (operator call: ALWAYS its own line,
+// never inline with a " · " separator — and being one block span, "<1 km" /
+// "away" can never split across lines either). Escaped — formatDistanceCoarse
+// emits "<1".
 export function distanceFragmentHtml(distanceText: string): string {
-  return `<span class="loc-frag"><span class="loc-sep"> · </span><span class="loc-dist">${escapeHtml(distanceText)}</span></span>`;
-}
-
-// Post-paint measure for the fragment above: if it landed below its
-// container's first line, .loc-wrapped puts it on its own line
-// (display:block) and hides the separator. Measured with the class REMOVED
-// first so a stale mark from a longer previous paint clears itself; the
-// block display then prevents fit oscillation between the with-dot and
-// without-dot widths. jsdom rects are all zero, so tests never mark —
-// device layout is the arbiter. Call after every innerHTML paint of a
-// status line that may carry the fragment (no-op without one).
-export function reconcileDistanceWrap(statusEl: HTMLElement): void {
-  const frag = statusEl.querySelector('.loc-frag') as HTMLElement | null;
-  if (!frag) return;
-  frag.classList.remove('loc-wrapped');
-  const containerTop = statusEl.getBoundingClientRect().top;
-  const rect = frag.getBoundingClientRect();
-  if (rect.top - containerTop >= (rect.height || 16) * 0.5) frag.classList.add('loc-wrapped');
+  return `<span class="loc-frag">${escapeHtml(distanceText)}</span>`;
 }
 

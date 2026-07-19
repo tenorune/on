@@ -35,18 +35,21 @@ export function snapToCell(lat, lng) {
   };
 }
 
-/** Precise-tier text: "120 m" / "2.3 km" / "23 km".
+/** Precise-tier text: "120 meters away" / "2.3 km away" / "23 km away".
  * @param {number} m @returns {string} */
 export function formatDistancePrecise(m) {
-  if (m < 1000) return `${Math.round(m)} m`;
+  if (m < 1000) {
+    const n = Math.round(m);
+    return n === 1 ? '1 meter away' : `${n} meters away`;
+  }
   const km = m / 1000;
-  if (km < 9.95) return `${km.toFixed(1)} km`;
-  return `${Math.round(km)} km`;
+  if (km < 9.95) return `${km.toFixed(1)} km away`;
+  return `${Math.round(km)} km away`;
 }
 
-/** Coarse-tier text: "<1 km away" / "~3 km".
+/** Coarse-tier text: "<1 km away" / "~3 km away".
  * @param {number} m @returns {string} */
 export function formatDistanceCoarse(m) {
   if (m < 1000) return '<1 km away';
-  return `~${Math.round(m / 1000)} km`;
+  return `~${Math.round(m / 1000)} km away`;
 }

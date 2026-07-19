@@ -713,7 +713,7 @@ describe('handleUpdate: /who distance (Task 11)', () => {
     deps.store[`users/${uid}/followers/f1`] = 'CODE01'; // f1 follows uid back…
     deps.store[`users/f1/followers/${uid}`] = 'MYCODE'; // …and uid is REGISTERED as f1's follower
     const reply = await handleUpdate(deps, msgUpdate('/who'));
-    expect(reply.text).toBe('Available now:\n🟢 Bea — about 15 minutes left · 65 m');
+    expect(reply.text).toBe('Available now:\n🟢 Bea — about 15 minutes left · 65 meters away');
   });
   test('requester unavailable → no distance fragment even with a persisted last-known node (de facto not sharing)', async () => {
     const deps = makeBotDeps();
@@ -801,7 +801,7 @@ describe('handleUpdate: /who <group> distance (Task 11)', () => {
     deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
     deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
     const reply = await handleUpdate(deps, msgUpdate('/who divers'));
-    expect(reply.text).toContain('· 65 m');
+    expect(reply.text).toContain('· 65 meters away');
     expect(reply.text).not.toContain('<1 km away');
   });
   test('precise cascade gate: target primary-unavailable (override-available in group) → coarse only, no precise leak', async () => {

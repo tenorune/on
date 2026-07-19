@@ -782,27 +782,26 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 7200000, statusColor: '#22c55e' });
   }
 
-  test('1. mutual + available + known distance + opt-in ON renders "Available for … · 120 m"', () => {
+  test('1. mutual + available + known distance + opt-in ON renders "Available for …" + "120 meters away" on its own line', () => {
     setupMutual('u1', true);
     fireAvailable('u1');
     distanceCbs.get('u1')(120);
     const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
-    expect(status).toMatch(/Available for .* · 120 m$/);
-    // The suffix is a wrap-as-a-unit fragment: separator + distance in the
-    // loc-frag structure (utils.distanceFragmentHtml), so a narrow card puts
-    // the whole thing on its own line, never "120" / "m" split.
+    expect(status).toMatch(/Available for .*120 meters away$/);
+    // The distance is a block fragment (utils.distanceFragmentHtml): always
+    // its own line under the availability text, no separator dot.
     const li = document.querySelector('[data-user-id="u1"]');
-    expect(li.querySelector('.person-status .loc-frag .loc-dist').textContent).toBe('120 m');
-    expect(li.querySelector('.person-status .loc-frag .loc-sep').textContent).toBe(' · ');
+    expect(li.querySelector('.person-status .loc-frag').textContent).toBe('120 meters away');
+    expect(li.querySelector('.person-status').textContent).not.toContain('·');
   });
 
   test('2. a later distance tick updates the suffix without a presence tick', () => {
     setupMutual('u1', true);
     fireAvailable('u1');
     distanceCbs.get('u1')(500);
-    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 500 m$/);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/500 meters away$/);
     distanceCbs.get('u1')(1200); // no presence tick in between
-    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 1.2 km$/);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/1\.2 km away$/);
   });
 
   test('3. direct opt-in OFF → subscribeDistance is never called, no suffix', () => {
@@ -811,7 +810,7 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     expect(subscribeDistance).not.toHaveBeenCalled();
     const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
     expect(status).toContain('Available for');
-    expect(status).not.toContain('·');
+    expect(status).not.toContain('away');
   });
 
   test('4. non-mutual rows never subscribe', () => {
@@ -834,7 +833,7 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     distanceCbs.get('u1')(null);
     const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
     expect(status).toContain('Available for');
-    expect(status).not.toContain('·');
+    expect(status).not.toContain('away');
   });
 
   test('6. opt-in flips ON mid-session (row already rendered mutual) → subscription opens and a tick paints the suffix', () => {
@@ -849,7 +848,7 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     distanceCbs.get('u1')(120);
 
     const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
-    expect(status).toMatch(/Available for .* · 120 m$/);
+    expect(status).toMatch(/Available for .*120 meters away$/);
   });
 
   test('7. opt-in flips OFF mid-session (live distance shown) → subscription is unsubbed and the suffix disappears', () => {
@@ -857,7 +856,7 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     fireAvailable('u1');
     distanceCbs.get('u1')(120);
     let status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
-    expect(status).toMatch(/ · 120 m$/);
+    expect(status).toMatch(/120 meters away$/);
 
     const unsub = subscribeDistance.mock.results[0].value; // the jest.fn() returned to createFolloweeRow's caller
     getLocationOptIn.mockReturnValue(false);
@@ -866,14 +865,14 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     expect(unsub).toHaveBeenCalled();
     status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
     expect(status).toContain('Available for');
-    expect(status).not.toContain('·');
+    expect(status).not.toContain('away');
   });
 
   test('8. mutual → following-only transition (distance shown) → old subscription unsubbed and the new row shows no suffix', () => {
     setupMutual('u1', true);
     fireAvailable('u1');
     distanceCbs.get('u1')(120);
-    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 120 m$/);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/120 meters away$/);
 
     const unsub = subscribeDistance.mock.results[0].value;
 
@@ -884,31 +883,31 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     expect(unsub).toHaveBeenCalled();
     const li = document.querySelector('[data-user-id="u1"]');
     expect(li.dataset.mutual).not.toBe('1');
-    expect(li.querySelector('.person-status').textContent).not.toContain('·');
+    expect(li.querySelector('.person-status').textContent).not.toContain('away');
   });
 
   test('label-only 60s refresh keeps the distance suffix (device blink: suffix wiped each minute until the next distance tick)', () => {
     setupMutual('u1', true);
     fireAvailable('u1');
     distanceCbs.get('u1')(120);
-    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 120 m$/);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/120 meters away$/);
     // The 60s interval path — must recompose the SAME text as the full paint,
     // distance included, or the suffix disappears until a publish lands.
     _refreshTimeLabels('myUid');
-    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 120 m$/);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/120 meters away$/);
   });
 
   test('own availability drops → subs close and the suffix disappears; available again reopens (viewer must be de facto sharing to see)', () => {
     setupMutual('u1', true);
     fireAvailable('u1');
     distanceCbs.get('u1')(120);
-    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 120 m$/);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/120 meters away$/);
     const unsub = subscribeDistance.mock.results[0].value;
 
     isContextAvailable.mockImplementation(() => false);
     document.dispatchEvent(new CustomEvent('location-publishing-changed'));
     expect(unsub).toHaveBeenCalled();
-    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).not.toContain('·');
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).not.toContain('away');
 
     // Back available: the persisted nodes make an immediate reattach safe.
     isContextAvailable.mockImplementation(() => true);
@@ -921,7 +920,7 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     fireAvailable('u1');
     distanceCbs.get('u1')(120);
     expect(subscribeDistance).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 120 m$/);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/120 meters away$/);
     const unsub = subscribeDistance.mock.results[0].value;
 
     // Own node deleted (opt-out on another device, permission revocation —
@@ -929,7 +928,7 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     isContextPublished.mockImplementation(() => false);
     document.dispatchEvent(new CustomEvent('location-publishing-changed'));
     expect(unsub).toHaveBeenCalled();
-    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).not.toContain('·');
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).not.toContain('away');
 
     // Node republished: subs must REOPEN with fresh underlying listeners —
     // the old ones were cancelled server-side and never fire again.

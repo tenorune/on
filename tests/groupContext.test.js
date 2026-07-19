@@ -1817,11 +1817,11 @@ describe('distance on group roster (Task 10)', () => {
     expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
     cellCbs.get('uidA')(500);
     const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
-    expect(status).toMatch(/ · <1 km away$/);
-    // Wrap-as-a-unit fragment structure (utils.distanceFragmentHtml).
+    expect(status).toMatch(/<1 km away$/);
+    // Block fragment (utils.distanceFragmentHtml): own line, no separator.
     const row = document.querySelector('#group-roster [data-user-id="uidA"]');
-    expect(row.querySelector('.person-status .loc-frag .loc-dist').textContent).toBe('<1 km away');
-    expect(row.querySelector('.person-status .loc-frag .loc-sep').textContent).toBe(' · ');
+    expect(row.querySelector('.person-status .loc-frag').textContent).toBe('<1 km away');
+    expect(row.querySelector('.person-status').textContent).not.toContain('·');
   });
 
   test('2. own group opt-in OFF → no cell subscriptions, no suffix', () => {
@@ -1836,7 +1836,7 @@ describe('distance on group roster (Task 10)', () => {
     fireAvailable(statusCbs, 'uidA');
     expect(subscribeCellDistance).not.toHaveBeenCalled();
     const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
-    expect(status).not.toContain('·');
+    expect(status).not.toContain('away');
   });
 
   test('3. member ALSO a Direct-publishing mutual with precise distance known → precise wins', () => {
@@ -1854,7 +1854,7 @@ describe('distance on group roster (Task 10)', () => {
     cellCbs.get('uidA')(500);
     preciseCbs.get('uidA')(120);
     const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
-    expect(status).toMatch(/ · 120 m$/);
+    expect(status).toMatch(/120 meters away$/);
     expect(status).not.toContain('<1 km away');
   });
 
@@ -1882,21 +1882,21 @@ describe('distance on group roster (Task 10)', () => {
     expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
     cellCbs.get('uidA')(500);
     const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
-    expect(status).toMatch(/ · <1 km away$/);
+    expect(status).toMatch(/<1 km away$/);
 
     // ANN goes Available in Direct → she is broadcasting precise again; the
     // presence tick re-runs the reconcile and the precise sub opens.
     fireAvailable(statusCbs, 'uidA');
     expect(subscribeDistance).toHaveBeenCalledWith('me', 'uidA', expect.any(Function));
     preciseCbs.get('uidA')(120);
-    expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/ · 120 m$/);
+    expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/120 meters away$/);
 
     // …and back to primary-unavailable: the precise sub closes and the paint
     // falls back to the coarse cell (no stale precise from the cache).
     const preciseUnsub = subscribeDistance.mock.results[0].value;
     statusCbs['uidA']?.({ status: 'unavailable', availableUntil: null });
     expect(preciseUnsub).toHaveBeenCalled();
-    expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/ · <1 km away$/);
+    expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/<1 km away$/);
   });
 
   test('4. unavailable member → status stays EMPTY, no distance-only text', () => {
@@ -1931,7 +1931,7 @@ describe('distance on group roster (Task 10)', () => {
     expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
     cellCbs.get('uidA')(500);
     const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
-    expect(status).toMatch(/ · <1 km away$/);
+    expect(status).toMatch(/<1 km away$/);
   });
 
   test('6. opt-in flips OFF mid-session (suffix shown) → subscription is unsubbed and the suffix disappears', () => {
@@ -1946,7 +1946,7 @@ describe('distance on group roster (Task 10)', () => {
     fireAvailable(statusCbs, 'uidA');
     cellCbs.get('uidA')(500);
     let status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
-    expect(status).toMatch(/ · <1 km away$/);
+    expect(status).toMatch(/<1 km away$/);
 
     const unsub = subscribeCellDistance.mock.results[0].value;
     getLocationOptIn.mockImplementation(() => false);
@@ -1954,7 +1954,7 @@ describe('distance on group roster (Task 10)', () => {
 
     expect(unsub).toHaveBeenCalled();
     status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
-    expect(status).not.toContain('·');
+    expect(status).not.toContain('away');
   });
 
   test('7. group exit tears down all cell + precise subscriptions', () => {
@@ -2015,7 +2015,7 @@ describe('distance on group roster (Task 10)', () => {
     cellCbs.get('uidA')(500);
     preciseCbs.get('uidA')(120);
     let status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
-    expect(status).toMatch(/ · 120 m$/);
+    expect(status).toMatch(/120 meters away$/);
 
     const preciseUnsub = subscribeDistance.mock.results[0].value;
     getCurrentMutuals.mockImplementation(() => []);
@@ -2023,7 +2023,7 @@ describe('distance on group roster (Task 10)', () => {
 
     expect(preciseUnsub).toHaveBeenCalled();
     status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
-    expect(status).toMatch(/ · <1 km away$/);
+    expect(status).toMatch(/<1 km away$/);
   });
 
   test('10. own nodes deleted (unpublished) → cell + precise subs close; republish reopens FRESH subs', () => {
@@ -2077,7 +2077,7 @@ describe('distance on group roster (Task 10)', () => {
     expect(subscribeDistance).not.toHaveBeenCalled();
     cellCbs.get('uidA')(500);
     const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
-    expect(status).toMatch(/ · <1 km away$/);
+    expect(status).toMatch(/<1 km away$/);
   });
 
   test('own availability drops → cell + precise subs close; available again reopens (viewer must be de facto sharing to see)', () => {

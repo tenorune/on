@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 // tests/utils.test.js
-const { hexToRgb, resolveDisplayName, distanceFragmentHtml, reconcileDistanceWrap } = require('../js/utils.js');
+const { hexToRgb, resolveDisplayName, distanceFragmentHtml } = require('../js/utils.js');
 import vectors from '../test-fixtures/time-format-vectors.json';
 import { formatTimeRemaining, formatTimeRemainingFuzzy } from '../js/utils.js';
 
@@ -18,51 +18,18 @@ describe('resolveDisplayName', () => {
   });
 });
 
-// The distance suffix must wrap as a UNIT: same line with the ' · '
-// separator, or the whole fragment on its own line with the separator
-// omitted — never "<1 km" / "away" split across lines.
-describe('distance fragment wrapping', () => {
-  test('distanceFragmentHtml wraps the separator + text in the frag/sep/dist spans (textContent unchanged)', () => {
+// The distance fragment ALWAYS renders on its own line (operator call) — a
+// block span with no separator dot, so "<1 km" / "away" can never split and
+// no " · " ever precedes it.
+describe('distance fragment', () => {
+  test('distanceFragmentHtml renders a single .loc-frag span, escaped, no separator', () => {
     const el = document.createElement('span');
-    el.innerHTML = 'Available for an hour' + distanceFragmentHtml('120 m');
-    expect(el.textContent).toBe('Available for an hour · 120 m');
-    expect(el.querySelector('.loc-frag .loc-sep').textContent).toBe(' · ');
-    expect(el.querySelector('.loc-frag .loc-dist').textContent).toBe('120 m');
-  });
-
-  function stubRect(el, top, height = 16) {
-    el.getBoundingClientRect = () => ({ top, height, left: 0, right: 0, bottom: top + height, width: 40 });
-  }
-
-  test('reconcileDistanceWrap marks a fragment that landed on a later line (own line, separator hidden via class)', () => {
-    const container = document.createElement('span');
-    container.innerHTML = 'Available for an hour' + distanceFragmentHtml('<1 km away');
-    document.body.appendChild(container);
-    const frag = container.querySelector('.loc-frag');
-    stubRect(container, 0);
-    stubRect(frag, 18); // a full line below the container's first line
-    reconcileDistanceWrap(container);
-    expect(frag.classList.contains('loc-wrapped')).toBe(true);
-    container.remove();
-  });
-
-  test('reconcileDistanceWrap clears a stale wrap mark when the fragment fits the first line again', () => {
-    const container = document.createElement('span');
-    container.innerHTML = 'Available' + distanceFragmentHtml('120 m');
-    document.body.appendChild(container);
-    const frag = container.querySelector('.loc-frag');
-    frag.classList.add('loc-wrapped'); // stale from a longer previous paint
-    stubRect(container, 0);
-    stubRect(frag, 0); // same line once measured unwrapped
-    reconcileDistanceWrap(container);
-    expect(frag.classList.contains('loc-wrapped')).toBe(false);
-    container.remove();
-  });
-
-  test('reconcileDistanceWrap is a no-op without a fragment', () => {
-    const container = document.createElement('span');
-    container.textContent = 'Available for an hour';
-    expect(() => reconcileDistanceWrap(container)).not.toThrow();
+    el.innerHTML = 'Available for an hour' + distanceFragmentHtml('<1 km away');
+    expect(el.textContent).toBe('Available for an hour<1 km away');
+    expect(el.textContent).not.toContain('·');
+    const frag = el.querySelector('.loc-frag');
+    expect(frag.textContent).toBe('<1 km away');
+    expect(frag.querySelector('*')).toBeNull(); // flat span — nothing nested to style apart
   });
 });
 
