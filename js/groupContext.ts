@@ -320,7 +320,20 @@ function reconcileDistanceSubs(memberUids: Set<string>, myUserId: string, groupI
   const directOn = ownAvailable && isContextPublished('direct') && getLocationOptIn('direct');
   const preciseEligible = new Set<string>();
   if (directOn) {
-    for (const uid of memberUids) if (mutualIds.has(uid)) preciseEligible.add(uid);
+    for (const uid of memberUids) {
+      if (!mutualIds.has(uid)) continue;
+      // Precise cascades into the group only while the MUTUAL broadcasts in
+      // Direct: their PRIMARY availability drives their raw-point publishing
+      // (a group override never publishes), so a Direct-unavailable mutual's
+      // persisted locations node must not render precise here — the roster
+      // falls back to their coarse cell. Their Direct opt-OUT needs no gate:
+      // opting out deletes the node and the precise watch emits null. Member
+      // presence ticks call syncRosterOrder → this reconcile, so the sub
+      // opens/closes with their primary flips.
+      const primary = _memberPrimaries.get(uid) || null;
+      if (!isAvailable(primary?.status ?? null, primary?.availableUntil ?? null)) continue;
+      preciseEligible.add(uid);
+    }
   }
 
   _cellUnsubs.forEach((unsub, uid) => {

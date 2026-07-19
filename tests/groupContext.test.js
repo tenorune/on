@@ -1848,6 +1848,47 @@ describe('distance on group roster (Task 10)', () => {
     expect(status).not.toContain('<1 km away');
   });
 
+  test('precise cascades only while the mutual broadcasts in Direct: primary-unavailable member (override-available in group) gets coarse; primary up-flip upgrades to precise', () => {
+    // The ANN/BOB device scenario: ANN is Unavailable in Direct but Available
+    // in the group via her override. Her persisted locations node must NOT
+    // render precise for BOB — her primary availability drives her raw-point
+    // publishing (a group override never publishes), so precise is off and
+    // the roster falls back to her coarse cell.
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1' || ctx === 'direct');
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: {
+        role: 'member', displayName: 'A', joinedAt: 2,
+        statusOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 },
+      },
+    });
+    // Primary presence: UNAVAILABLE (the row still renders available via the override).
+    statusCbs['uidA']?.({ status: 'unavailable', availableUntil: null });
+    expect(subscribeDistance).not.toHaveBeenCalled();
+    expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
+    cellCbs.get('uidA')(500);
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/ · <1 km away$/);
+
+    // ANN goes Available in Direct → she is broadcasting precise again; the
+    // presence tick re-runs the reconcile and the precise sub opens.
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeDistance).toHaveBeenCalledWith('me', 'uidA', expect.any(Function));
+    preciseCbs.get('uidA')(120);
+    expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/ · 120 m$/);
+
+    // …and back to primary-unavailable: the precise sub closes and the paint
+    // falls back to the coarse cell (no stale precise from the cache).
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+    statusCbs['uidA']?.({ status: 'unavailable', availableUntil: null });
+    expect(preciseUnsub).toHaveBeenCalled();
+    expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/ · <1 km away$/);
+  });
+
   test('4. unavailable member → status stays EMPTY, no distance-only text', () => {
     getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
     const getMembers = captureMembers();
