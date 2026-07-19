@@ -448,7 +448,14 @@ async function handleWhoGroup(deps, uid, query, reply) {
   if (!match) return;
   const members = (await deps.getVal(`groups/${match.gid}/members`)) || {};
   const coMembers = Object.entries(members).filter(([mid]) => mid !== uid);
-  const myCell = await deps.getVal(`locationCells/${match.gid}/${uid}`);
+  // Distance requires the requester to be de facto sharing: PRIMARY
+  // availability (the capture loop publishes off primary presence only — a
+  // group override never publishes), plus their persisted cell. An
+  // unavailable requester sees no distances (mirrors the app surfaces).
+  const myPresence = await deps.getVal(`users/${uid}/presence`);
+  const myCell = primaryAvailable(myPresence, deps.now())
+    ? await deps.getVal(`locationCells/${match.gid}/${uid}`)
+    : null;
   const lines = (await Promise.all(coMembers.map(async ([mid, m]) => {
     const presence = await deps.getVal(`users/${mid}/presence`);
     if (!effectiveAvailable(m?.statusOverride, presence?.status, presence?.availableUntil, deps.now())) return null;
@@ -548,7 +555,15 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
       await reply("You're not following anyone yet — invite people from the app.", openAppKeyboard(deps.appUrl));
       return;
     }
-    const myLoc = await deps.getVal(`locations/${uid}`);
+    // Distance requires the requester to be de facto sharing: available
+    // (primary presence) with a persisted node. Last-known nodes outlive
+    // availability, so the presence gate — not node existence — is what
+    // keeps an unavailable requester from seeing distances (mirrors the
+    // app surfaces' isOwnAvailable eligibility).
+    const myPresence = await deps.getVal(`users/${uid}/presence`);
+    const myLoc = primaryAvailable(myPresence, deps.now())
+      ? await deps.getVal(`locations/${uid}`)
+      : null;
     const lines = (await Promise.all(following.map(async (entry) => {
       const presence = await deps.getVal(`users/${entry.userId}/presence`);
       if (!primaryAvailable(presence, deps.now())) return null;

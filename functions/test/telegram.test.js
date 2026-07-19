@@ -702,16 +702,29 @@ describe('handleUpdate: /who distance (Task 11)', () => {
     store[`userPrefs/${uid}/following`] = { f1: { code: 'CODE01', label: 'Bea' } };
     store['users/f1/presence'] = { status: 'available', availableUntil: 2_000_000 };
   }
-  test('precise fragment when requester + target both publish and are mutual', async () => {
+  test('precise fragment when requester + target both publish, are mutual, and the requester is available', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedDirect(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
     deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
     deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
     deps.store[`users/${uid}/followers/f1`] = 'CODE01'; // f1 follows uid back…
     deps.store[`users/f1/followers/${uid}`] = 'MYCODE'; // …and uid is REGISTERED as f1's follower
     const reply = await handleUpdate(deps, msgUpdate('/who'));
     expect(reply.text).toBe('Available now:\n🟢 Bea — about 15 minutes left · 65 m');
+  });
+  test('requester unavailable → no distance fragment even with a persisted last-known node (de facto not sharing)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store); // seeds requester presence UNAVAILABLE
+    seedDirect(deps.store, uid);
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/f1`] = 'CODE01';
+    deps.store[`users/f1/followers/${uid}`] = 'MYCODE';
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).not.toContain('·');
   });
   test('requester not publishing → no distance fragment', async () => {
     const deps = makeBotDeps();
@@ -761,14 +774,41 @@ describe('handleUpdate: /who <group> distance (Task 11)', () => {
     };
     store['users/m1/presence'] = { status: 'available', availableUntil: 2_000_000 };
   }
-  test('coarse fragment when requester + target both have a cell in the group', async () => {
+  test('coarse fragment when requester + target both have a cell and the requester is available in the group', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
     seedGroupOne(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
     deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
     deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
     const reply = await handleUpdate(deps, msgUpdate('/who divers'));
     expect(reply.text).toBe('Available in Divers:\n🟢 Bea — about 15 minutes left · <1 km away');
+  });
+  test('requester unavailable in the group → no distance fragment even with a persisted cell (de facto not sharing)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store); // seeds requester presence UNAVAILABLE
+    seedGroupOne(deps.store, uid);
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).not.toContain('·');
+  });
+  test('requester gate is PRIMARY availability — a group override cannot re-enable the fragment', async () => {
+    // Publishing follows primary presence only (the capture loop never runs
+    // off a group override), so "de facto sharing" is primary availability:
+    // an override-available requester with a lapsed primary window is not
+    // publishing fresh coordinates and must not see distances.
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store); // primary presence unavailable
+    seedGroupOne(deps.store, uid);
+    deps.store['groups/G1/members'][uid].statusOverride = {
+      enabled: true, status: 'available', availableUntil: 2_000_000,
+    };
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).not.toContain('·');
   });
   test('requester cell missing → no distance fragment', async () => {
     const deps = makeBotDeps();

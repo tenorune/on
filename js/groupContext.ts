@@ -42,7 +42,7 @@ import {
 } from './hints.js';
 import { clearFirstUsePulse, paintLocationGlyph } from './me.js';
 import { refreshHints, clearActiveHint } from './hintRotation.js';
-import { toggleContext, capabilityState, isContextPublished } from './locationShare.js';
+import { toggleContext, capabilityState, isContextPublished, isOwnAvailable } from './locationShare.js';
 import { subscribeCellDistance, subscribeDistance } from './locationHub.js';
 import { formatDistanceCoarse, formatDistancePrecise } from '../shared/geo.js';
 
@@ -304,18 +304,20 @@ function createRosterRow(uid: string, member: MemberEntry, ownUserId: string) {
 // open.
 function reconcileDistanceSubs(memberUids: Set<string>, myUserId: string, groupId: string) {
   // Eligibility is "viewer shares in the relevant context" (last-known
-  // model): opt-in ∧ that context's own node known to exist. Without the
-  // published half, listeners attached before the node exists are
-  // rules-denied and cancelled PERMANENTLY by the SDK, and the "already
-  // open" guards below would block any resubscribe. Per-context: the cell
-  // tier keys off THIS group's own cell, the precise tier off the own raw
-  // point — a landed cell must not green-light a precise attach (or vice
-  // versa). Own availability is NOT part of eligibility: nodes persist
-  // across availability flaps. Mirrors following.ts's reconcileDistanceSubs
-  // — deliberate parallel.
-  const cellEligible = (isContextPublished(groupId) && getLocationOptIn(groupId)) ? memberUids : new Set<string>();
+  // model): opt-in ∧ that context's own node known to exist ∧ own
+  // availability. Without the published half, listeners attached before the
+  // node exists are rules-denied and cancelled PERMANENTLY by the SDK, and
+  // the "already open" guards below would block any resubscribe. Per-context:
+  // the cell tier keys off THIS group's own cell, the precise tier off the
+  // own raw point — a landed cell must not green-light a precise attach (or
+  // vice versa). The availability half is the display gate: an unavailable
+  // viewer is de facto not sharing and must not see distances; closing is
+  // safe to reverse since the persisted nodes make the reopen cancel-free.
+  // Mirrors following.ts's reconcileDistanceSubs — deliberate parallel.
+  const ownAvailable = isOwnAvailable();
+  const cellEligible = (ownAvailable && isContextPublished(groupId) && getLocationOptIn(groupId)) ? memberUids : new Set<string>();
   const mutualIds = new Set(getCurrentMutuals().map((m: { userId: string }) => m.userId));
-  const directOn = isContextPublished('direct') && getLocationOptIn('direct');
+  const directOn = ownAvailable && isContextPublished('direct') && getLocationOptIn('direct');
   const preciseEligible = new Set<string>();
   if (directOn) {
     for (const uid of memberUids) if (mutualIds.has(uid)) preciseEligible.add(uid);

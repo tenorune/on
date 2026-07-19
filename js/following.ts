@@ -7,7 +7,7 @@ import {
 } from './db.js';
 import { subscribePresence } from './presenceHub.js';
 import { subscribeDistance } from './locationHub.js';
-import { isContextPublished } from './locationShare.js';
+import { isContextPublished, isOwnAvailable } from './locationShare.js';
 import { formatDistancePrecise } from '../shared/geo.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
@@ -115,13 +115,14 @@ function teardownFolloweeWatches(userId: string) {
 // callers pass an empty array when nothing should stay open.
 function reconcileDistanceSubs(mutuals: FollowingEntry[], myUserId: string) {
   // Eligibility is "viewer shares in Direct" (last-known model): opt-in ∧
-  // own node known to exist. Without the published half, attaching before
-  // locations/{me} exists gets rules-denied — the SDK cancels the listener
-  // PERMANENTLY, and the "already open" guard below would then block any
-  // resubscribe for the whole session. Own availability is NOT part of
-  // eligibility: nodes persist across availability flaps, so the watches
-  // stay readable (and open) while unavailable.
-  const eligibleIds = (getLocationOptIn('direct') && isContextPublished('direct'))
+  // own node known to exist ∧ own availability. Without the published half,
+  // attaching before locations/{me} exists gets rules-denied — the SDK
+  // cancels the listener PERMANENTLY, and the "already open" guard below
+  // would then block any resubscribe for the whole session. The availability
+  // half is the display gate: an unavailable viewer is de facto not sharing
+  // and must not see distances. Closing on unavailable is safe to reverse —
+  // nodes persist, so the reopen attaches to live nodes with no cancel risk.
+  const eligibleIds = (getLocationOptIn('direct') && isContextPublished('direct') && isOwnAvailable())
     ? new Set(mutuals.map(e => e.userId)) : new Set<string>();
 
   _distanceUnsubs.forEach((unsub, userId) => {

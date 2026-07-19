@@ -165,9 +165,10 @@ jest.mock('../js/locationShare.js', () => ({
   toggleContext: jest.fn(),
   capabilityState: jest.fn(() => 'supported'),
   // Distance-sub eligibility requires the context's own node to exist
-  // (last-known model) — default true so the roster distance tests exercise
-  // the opt-in axis independently.
+  // (last-known model) AND own availability (de facto sharing) — default
+  // true so the roster distance tests exercise the opt-in axis independently.
   isContextPublished: jest.fn(() => true),
+  isOwnAvailable: jest.fn(() => true),
 }));
 jest.mock('../js/locationHub.js', () => ({
   subscribeCellDistance: jest.fn(() => jest.fn()),
@@ -1757,9 +1758,12 @@ describe('distance on group roster (Task 10)', () => {
   const { subscribeCellDistance, subscribeDistance } = require('../js/locationHub.js');
   const { getLocationOptIn } = require('../js/prefs.js');
   const { getCurrentMutuals } = require('../js/following.js');
-  const { isContextPublished } = require('../js/locationShare.js');
+  const { isContextPublished, isOwnAvailable } = require('../js/locationShare.js');
 
-  afterEach(() => { isContextPublished.mockImplementation(() => true); });
+  afterEach(() => {
+    isContextPublished.mockImplementation(() => true);
+    isOwnAvailable.mockImplementation(() => true);
+  });
 
   function captureMembers() {
     let membersCb;
@@ -1997,6 +2001,33 @@ describe('distance on group roster (Task 10)', () => {
 
     // Nodes republished: fresh subscriptions must open.
     isContextPublished.mockImplementation(() => true);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
+    expect(subscribeDistance).toHaveBeenCalledTimes(2);
+  });
+
+  test('own availability drops → cell + precise subs close; available again reopens (viewer must be de facto sharing to see)', () => {
+    getLocationOptIn.mockImplementation(() => true);
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(1);
+    expect(subscribeDistance).toHaveBeenCalledTimes(1);
+    const cellUnsub = subscribeCellDistance.mock.results[0].value;
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+
+    isOwnAvailable.mockImplementation(() => false);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(cellUnsub).toHaveBeenCalled();
+    expect(preciseUnsub).toHaveBeenCalled();
+
+    isOwnAvailable.mockImplementation(() => true);
     document.dispatchEvent(new CustomEvent('location-publishing-changed'));
     expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
     expect(subscribeDistance).toHaveBeenCalledTimes(2);

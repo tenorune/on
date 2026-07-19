@@ -173,42 +173,56 @@ test('going unavailable stops the loop but KEEPS the published data — last-kno
   expect(prefs.getLocationOptIn('direct')).toBe(true);
 });
 
-// Eligibility keys off "this context's own node is known to exist" — a
-// distance listener attached before the node exists is rules-denied and
-// permanently cancelled by the SDK, so the first-ever publish of a context
-// still gates its surfaces. Availability flaps no longer touch the state
-// (nothing is deleted), so they dispatch nothing.
-test('location-publishing-changed fires once when a context first lands, never on availability flaps', async () => {
-  const { initLocationShare, toggleContext } = share();
+// Eligibility has two halves the surfaces AND with the opt-in:
+// isContextPublished (the context's own node exists — attach-before-publish
+// is rules-denied and permanently cancelled) and isOwnAvailable (seeing
+// distances requires being de-facto-sharing, i.e. available — operator call
+// at device smoke). Availability flips dispatch so the surfaces close/reopen
+// their subs, but the published state persists across them: nothing is
+// deleted, so a reopen attaches to a live node with no cancel risk.
+test('location-publishing-changed fires on the first landed publish AND on availability flips; published state persists across flaps', async () => {
+  const { initLocationShare, toggleContext, isContextPublished, isOwnAvailable } = share();
   initLocationShare('me', () => []);
   let fired = 0;
   document.addEventListener('location-publishing-changed', () => { fired++; });
 
-  // No opt-in at all: nothing to publish, no dispatch.
+  // Up-flip with no opt-in: still a display-gate transition — dispatches.
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  expect(fired).toBe(1);
+  expect(isOwnAvailable()).toBe(true);
   await flush();
-  expect(fired).toBe(0);
+  expect(fired).toBe(1); // nothing published, no further dispatch
 
-  // Opt in while available: dispatch only once that publish resolves.
+  // Opt in while available: one more dispatch once that publish resolves.
   await toggleContext('direct');
   await flush();
-  expect(fired).toBe(1);
+  expect(fired).toBe(2);
 
-  // Down-flip: nothing is deleted, published state persists — no dispatch.
+  // Down-flip: dispatch (surfaces hide distances) but nothing is deleted —
+  // the published state persists.
   ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+  expect(fired).toBe(3);
+  expect(isOwnAvailable()).toBe(false);
+  expect(isContextPublished('direct')).toBe(true);
   await flush();
-  expect(fired).toBe(1);
+  expect(fired).toBe(3);
 
-  // Up-flip again: the republish lands on an already-published context — no
-  // re-dispatch (the surfaces' subs never closed).
+  // Up-flip again: dispatch with the flip (the node still exists — surfaces
+  // may reattach immediately); the republish lands on an already-published
+  // context, so no extra dispatch after it resolves.
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 60000 });
+  expect(fired).toBe(4);
+  expect(isOwnAvailable()).toBe(true);
   await flush();
-  expect(fired).toBe(1);
+  expect(fired).toBe(4);
 
-  // In-tick expiry: stops the loop, deletes nothing, dispatches nothing.
+  // In-tick expiry: a down-flip with no presence tick — dispatches, deletes
+  // nothing.
   jest.advanceTimersByTime(60000);
   await flush();
-  expect(fired).toBe(1);
+  expect(fired).toBe(5);
+  expect(isOwnAvailable()).toBe(false);
+  expect(isContextPublished('direct')).toBe(true);
 });
 
 test('toggleContext on-branch dispatches location-publishing-changed only after its own tick publish resolves', async () => {

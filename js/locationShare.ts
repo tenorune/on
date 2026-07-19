@@ -89,11 +89,20 @@ function presenceAvailable(): boolean {
 // Per-context eligibility read for the distance surfaces (following.ts /
 // groupContext.ts): a surface may attach distance listeners for a context
 // only while that context's own node is known to exist — attach-before-
-// publish is rules-denied and permanently cancelled. Own availability is NOT
-// part of eligibility anymore: last-known nodes persist, so the listeners
-// stay readable (and open) across availability flaps.
+// publish is rules-denied and permanently cancelled.
 export function isContextPublished(context: string): boolean {
   return _publishedContexts.has(context);
+}
+
+// The other eligibility half: seeing distances requires being de facto
+// sharing — available — not just opted in with a persisted last-known node
+// (operator call, device smoke 2026-07-19). Unavailable viewers publish
+// nothing fresh, so they see nothing. Time-aware (recomputed from the
+// snapshot), so it flips false the moment the window lapses even before any
+// presence tick lands; the in-tick expiry check dispatches the event that
+// makes the surfaces re-read it.
+export function isOwnAvailable(): boolean {
+  return presenceAvailable();
 }
 
 // Announces a published-context transition to the distance surfaces so their
@@ -122,14 +131,17 @@ function unmarkPublished(contexts: string[]) {
   if (changed) dispatchPublishingChanged();
 }
 
-// The single going-unavailable path: stop the loop, nothing else. The
-// published nodes stay — they are the last-known data peers keep reading —
-// and the published set is untouched, so the surfaces' subs stay open.
+// The single going-unavailable path: stop the loop and tell the surfaces to
+// hide/close (isOwnAvailable() now reads false — an unavailable viewer must
+// not see distances). The published nodes stay — they are the last-known
+// data peers keep reading — and the published set is untouched, so the
+// reopen on the next up-flip attaches to live nodes with no cancel risk.
 // Shared by the presence-subscription flip and the in-tick expiry
 // re-evaluation so both transitions behave identically.
 function goUnavailable() {
   _available = false;
   stopLoop();
+  dispatchPublishingChanged();
 }
 
 // Permission revoked mid-flight (spec §5/§8): stop the loop, delete every
@@ -258,11 +270,12 @@ export function initLocationShare(userId: string, getOptedInGids: () => string[]
       goUnavailable();
     } else {
       reconcile();
-      // No dispatch here on the up-flip: a first-ever publish may still be
-      // mid-flight — markPublished() (in tick()) is the one that dispatches,
-      // once the publish actually resolves. Contexts already in the set
-      // never left it (nothing was deleted going unavailable), so their
-      // surfaces' subs are still open and need no event.
+      // Up-flip: dispatch so the surfaces re-read isOwnAvailable() and
+      // reattach. Safe against the attach-before-publish race: contexts not
+      // yet in _publishedContexts stay ineligible until markPublished() (in
+      // tick()) dispatches after their first publish resolves; contexts
+      // already in the set have live nodes to attach to.
+      if (!wasAvailable && _available) dispatchPublishingChanged();
     }
   });
   seedPublishedFromServer();

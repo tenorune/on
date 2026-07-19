@@ -166,6 +166,9 @@ jest.mock('../js/locationHub.js', () => ({
 // opt-in axis independently.
 jest.mock('../js/locationShare.js', () => ({
   isContextPublished: jest.fn(() => true),
+  // Seeing distances also requires being available yourself (de facto
+  // sharing) — default true so the render tests exercise other axes.
+  isOwnAvailable: jest.fn(() => true),
 }));
 jest.mock('../js/invites.js', () => ({
   attemptRedeemFromUrl: jest.fn(),
@@ -741,7 +744,7 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
   // resetModules() call).
   const { subscribeDistance } = require('../js/locationHub.js');
   const { getLocationOptIn } = require('../js/prefs.js');
-  const { isContextPublished } = require('../js/locationShare.js');
+  const { isContextPublished, isOwnAvailable } = require('../js/locationShare.js');
 
   let watchFollowersCallback;
   let watchPresenceCallback;
@@ -754,6 +757,7 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
   afterEach(() => {
     getLocationOptIn.mockReturnValue(false);
     isContextPublished.mockImplementation(() => true);
+    isOwnAvailable.mockImplementation(() => true);
     subscribeDistance.mockReset();
     subscribeDistance.mockImplementation(() => jest.fn());
   });
@@ -886,6 +890,24 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     // distance included, or the suffix disappears until a publish lands.
     _refreshTimeLabels('myUid');
     expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 120 m$/);
+  });
+
+  test('own availability drops → subs close and the suffix disappears; available again reopens (viewer must be de facto sharing to see)', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(120);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 120 m$/);
+    const unsub = subscribeDistance.mock.results[0].value;
+
+    isOwnAvailable.mockImplementation(() => false);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(unsub).toHaveBeenCalled();
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).not.toContain('·');
+
+    // Back available: the persisted nodes make an immediate reattach safe.
+    isOwnAvailable.mockImplementation(() => true);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(subscribeDistance).toHaveBeenCalledTimes(2);
   });
 
   test('9. own Direct node deleted (unpublished) → subs close; republish reopens FRESH subs', () => {
