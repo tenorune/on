@@ -21,7 +21,7 @@ jest.mock('../js/db.js', () => ({
   mergeUserPrefs: jest.fn().mockResolvedValue(undefined),
   readPushTokens: jest.fn().mockResolvedValue(null),
 }));
-jest.mock('../js/telegram.js', () => ({ isTelegramContext: () => false }));
+jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
 jest.mock('../js/ownStatus.js', () => {
   let cbs = [];
   return {
@@ -540,6 +540,71 @@ test('a tick never fires the permission PROMPT: Permissions API "prompt" skips c
   jest.advanceTimersByTime(60000);
   await flush(); await flush();
   expect(db.publishLocation).toHaveBeenCalledWith('me', 52.52, 13.405, expect.any(Number));
+});
+
+describe('Telegram Mini App position reads', () => {
+  // Mimics the device-observed LocationManager: init()'s callback fires only
+  // on the FIRST init of a session — later init() calls never call back.
+  // Every position read after the first must therefore go through the
+  // isInited fast path or it hangs forever (glyph un-retoggleable, ticks
+  // silently dead until the app is reopened).
+  let lm;
+  beforeEach(() => {
+    const { isTelegramContext } = require('../js/telegram.js');
+    isTelegramContext.mockReturnValue(true);
+    lm = {
+      isInited: false,
+      _initCalls: 0,
+      init: jest.fn((cb) => {
+        lm._initCalls++;
+        if (lm._initCalls === 1) { lm.isInited = true; if (cb) cb(); }
+        // subsequent init calls: callback never fires (device behavior)
+      }),
+      getLocation: jest.fn((cb) => cb({ latitude: 52.52, longitude: 13.405 })),
+    };
+    window.Telegram = { WebApp: { LocationManager: lm } };
+  });
+  afterEach(() => {
+    require('../js/telegram.js').isTelegramContext.mockReturnValue(false);
+    delete window.Telegram;
+  });
+
+  test('first enable publishes: the loop tick after the glyph-tap read must not hang on a second init()', async () => {
+    const { initLocationShare, toggleContext, isContextPublished } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    // The glyph tap's permission-proving read consumes the one working
+    // init(); the immediate tick's read follows right behind it.
+    await expect(toggleContext('direct')).resolves.toBe('on');
+    await flush(); await flush();
+    expect(db.publishLocation).toHaveBeenCalledWith('me', 52.52, 13.405, expect.any(Number));
+    expect(isContextPublished('direct')).toBe(true);
+  });
+
+  test('glyph re-enable after off resolves — no hang on a repeat init()', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush();
+    await expect(toggleContext('direct')).resolves.toBe('off');
+    let resolved = null;
+    toggleContext('direct').then((r) => { resolved = r; });
+    await flush(); await flush();
+    expect(resolved).toBe('on');
+  });
+
+  test('60s ticks keep publishing — position reads use the inited manager directly', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush(); await flush();
+    db.publishLocation.mockClear();
+    jest.advanceTimersByTime(60000);
+    await flush(); await flush();
+    expect(db.publishLocation).toHaveBeenCalledTimes(1);
+  });
 });
 
 test('hidden document no longer pauses ticks — publishing continues off-screen', async () => {

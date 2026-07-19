@@ -50,17 +50,24 @@ function getPositionOnce(): Promise<{ lat: number; lng: number }> {
     return new Promise((resolve, reject) => {
       const lm = (window as unknown as {
         Telegram?: { WebApp?: { LocationManager?: {
+          isInited?: boolean;
           init: (cb?: () => void) => void;
           getLocation: (cb: (data: { latitude: number; longitude: number } | null) => void) => void;
         } } };
       }).Telegram?.WebApp?.LocationManager;
       if (!lm) { reject(new Error('unsupported')); return; }
-      lm.init(() => {
+      const read = () => {
         lm.getLocation((data) => {
           if (data) resolve({ lat: data.latitude, lng: data.longitude });
           else reject({ code: 1 }); // user declined in Telegram's dialog
         });
-      });
+      };
+      // init()'s callback fires only on the FIRST init of a session — a
+      // repeat init() never calls back (device-observed), which left every
+      // later read hanging forever: the glyph couldn't re-enable and the
+      // 60s ticks went silently dead until the Mini App was reopened.
+      if (lm.isInited) read();
+      else lm.init(read);
     });
   }
   return new Promise((resolve, reject) => {
