@@ -448,12 +448,13 @@ async function handleWhoGroup(deps, uid, query, reply) {
   if (!match) return;
   const members = (await deps.getVal(`groups/${match.gid}/members`)) || {};
   const coMembers = Object.entries(members).filter(([mid]) => mid !== uid);
-  // Distance requires the requester to be de facto sharing: PRIMARY
-  // availability (the capture loop publishes off primary presence only — a
-  // group override never publishes), plus their persisted cell. An
-  // unavailable requester sees no distances (mirrors the app surfaces).
+  // Distance requires the requester to be de facto sharing IN THIS GROUP:
+  // their EFFECTIVE in-group availability (override wins when enabled —
+  // group location is independent of the Direct context, mirroring the
+  // client's per-context gating), plus their persisted cell. A requester
+  // unavailable in the group sees no distances.
   const myPresence = await deps.getVal(`users/${uid}/presence`);
-  const myCell = primaryAvailable(myPresence, deps.now())
+  const myCell = effectiveAvailable(members[uid]?.statusOverride, myPresence?.status, myPresence?.availableUntil, deps.now())
     ? await deps.getVal(`locationCells/${match.gid}/${uid}`)
     : null;
   const lines = (await Promise.all(coMembers.map(async ([mid, m]) => {

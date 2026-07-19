@@ -22,6 +22,22 @@ jest.mock('../js/db.js', () => ({
   readPushTokens: jest.fn().mockResolvedValue(null),
 }));
 jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false) }));
+// Per-group OWN effective status (override-aware) comes from statusStore —
+// locationShare subscribes one per opted-in gid so group publishing keys off
+// in-group availability, independent of the Direct/primary status.
+jest.mock('../js/statusStore.js', () => {
+  const subs = new Map(); // gid -> Set<cb>
+  return {
+    subscribeOwnStatus: jest.fn((gid, cb) => {
+      if (!subs.has(gid)) subs.set(gid, new Set());
+      subs.get(gid).add(cb);
+      return () => { subs.get(gid)?.delete(cb); };
+    }),
+    __fireGroupStatus: (gid, snap) => { (subs.get(gid) || []).forEach((cb) => cb(snap)); },
+    __groupSubCount: (gid) => (subs.get(gid)?.size ?? 0),
+  };
+});
+const statusStore = require('../js/statusStore.js');
 jest.mock('../js/ownStatus.js', () => {
   let cbs = [];
   return {
@@ -181,7 +197,8 @@ test('going unavailable stops the loop but KEEPS the published data — last-kno
 // their subs, but the published state persists across them: nothing is
 // deleted, so a reopen attaches to a live node with no cancel risk.
 test('location-publishing-changed fires on the first landed publish AND on availability flips; published state persists across flaps', async () => {
-  const { initLocationShare, toggleContext, isContextPublished, isOwnAvailable } = share();
+  const { initLocationShare, toggleContext, isContextPublished, isContextAvailable } = share();
+  const isOwnAvailable = () => isContextAvailable('direct');
   initLocationShare('me', () => []);
   let fired = 0;
   document.addEventListener('location-publishing-changed', () => { fired++; });
@@ -268,12 +285,14 @@ test('enabling a second context mid-spell leaves the first context published —
   await expect(p).resolves.toBe('on');
   // Direct's node never went anywhere — its surfaces must not churn.
   expect(isContextPublished('direct')).toBe(true);
-  // G1's cell publish is still mid-flight — not published yet, no dispatch.
+  // G1's cell publish is still mid-flight — not yet published. The opt-in
+  // itself may dispatch once (G1 just became a tracked-and-available
+  // context), but eligibility stays closed on the published half.
   expect(isContextPublished('G1')).toBe(false);
-  expect(fired).toBe(0);
+  const firedBeforeLanding = fired;
   await flush();
-  // The cell landed: exactly one dispatch, for G1's arrival.
-  expect(fired).toBe(1);
+  // The cell landed: exactly one more dispatch, for G1's arrival.
+  expect(fired).toBe(firedBeforeLanding + 1);
   expect(isContextPublished('G1')).toBe(true);
   expect(isContextPublished('direct')).toBe(true);
 });
@@ -554,6 +573,108 @@ test('a tick never fires the permission PROMPT: Permissions API "prompt" skips c
   jest.advanceTimersByTime(60000);
   await flush(); await flush();
   expect(db.publishLocation).toHaveBeenCalledWith('me', 52.52, 13.405, expect.any(Number));
+});
+
+// Group location is independent of the Direct context (operator call at
+// device smoke): a group's cell publishing and availability key off the OWN
+// EFFECTIVE in-group status (override-aware, via statusStore), not the
+// primary presence. The only Direct↔group relationship is the precise
+// cascade for mutuals — handled on the surfaces, not here.
+describe('group publishing is independent of Direct availability', () => {
+  const FUTURE = () => Date.now() + 3600000;
+
+  test('primary-unavailable + group override available → the cell publishes, the raw point does not', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: FUTURE() });
+    await toggleContext('G1');
+    await flush();
+    db.publishLocationCell.mockClear();
+    // Primary drops; the G1 override says available (the ANN scenario).
+    ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+    statusStore.__fireGroupStatus('G1', { available: true, availableUntil: FUTURE() });
+    jest.advanceTimersByTime(60000);
+    await flush();
+    expect(db.publishLocationCell).toHaveBeenCalledWith('G1', 'me', 52.52, 13.405, expect.any(Number));
+    expect(db.publishLocation).not.toHaveBeenCalled();
+  });
+
+  test('primary down-flip with direct + group opted in: direct publishing stops, the override-available group continues', async () => {
+    const { initLocationShare, toggleContext, isContextAvailable } = share();
+    initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: FUTURE() });
+    await toggleContext('direct');
+    await flush();
+    await toggleContext('G1');
+    await flush();
+    statusStore.__fireGroupStatus('G1', { available: true, availableUntil: FUTURE() });
+    ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+    expect(isContextAvailable('direct')).toBe(false);
+    expect(isContextAvailable('G1')).toBe(true);
+    db.publishLocation.mockClear();
+    db.publishLocationCell.mockClear();
+    jest.advanceTimersByTime(60000);
+    await flush();
+    expect(db.publishLocationCell).toHaveBeenCalledTimes(1);
+    expect(db.publishLocation).not.toHaveBeenCalled();
+  });
+
+  test('a gid availability transition dispatches location-publishing-changed', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+    ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+    await toggleContext('G1'); // opt in while nothing is available
+    await flush();
+    let fired = 0;
+    document.addEventListener('location-publishing-changed', () => { fired++; });
+    statusStore.__fireGroupStatus('G1', { available: true, availableUntil: FUTURE() });
+    expect(fired).toBe(1); // G1 false→true
+    statusStore.__fireGroupStatus('G1', { available: false, availableUntil: null });
+    expect(fired).toBe(2); // G1 true→false
+  });
+
+  test('with no override data yet, a gid falls back to primary availability (statusStore merge semantics)', async () => {
+    const { initLocationShare, toggleContext, isContextAvailable } = share();
+    initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: FUTURE() });
+    await toggleContext('G1');
+    await flush();
+    expect(isContextAvailable('G1')).toBe(true); // no snapshot ticked — primary wins
+    expect(db.publishLocationCell).toHaveBeenCalled();
+  });
+
+  test('a gid override availability window lapsing stops its cell publishing (time-aware, no presence tick)', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+    ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+    await toggleContext('G1');
+    await flush();
+    statusStore.__fireGroupStatus('G1', { available: true, availableUntil: Date.now() + 60000 });
+    await flush();
+    db.publishLocationCell.mockClear();
+    jest.advanceTimersByTime(180000); // window lapsed at +60s, no tick fires
+    await flush();
+    // At most the tick at +60s (boundary) — after the lapse nothing publishes,
+    // and nothing is deleted (last-known persists).
+    const callsAfterLapse = db.publishLocationCell.mock.calls.length;
+    jest.advanceTimersByTime(120000);
+    await flush();
+    expect(db.publishLocationCell.mock.calls.length).toBe(callsAfterLapse);
+    expect(db.clearLocationData).not.toHaveBeenCalled();
+    expect(db.clearLocationCells).not.toHaveBeenCalled();
+  });
+
+  test('opting a gid out tears down its own-status subscription', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: FUTURE() });
+    await toggleContext('G1');
+    await flush();
+    expect(statusStore.__groupSubCount('G1')).toBe(1);
+    await toggleContext('G1');
+    await flush();
+    expect(statusStore.__groupSubCount('G1')).toBe(0);
+  });
 });
 
 describe('Telegram Mini App position reads', () => {

@@ -7,7 +7,7 @@ import {
 } from './db.js';
 import { subscribePresence } from './presenceHub.js';
 import { subscribeDistance } from './locationHub.js';
-import { isContextPublished, isOwnAvailable } from './locationShare.js';
+import { isContextPublished, isContextAvailable } from './locationShare.js';
 import { formatDistancePrecise } from '../shared/geo.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
@@ -122,7 +122,7 @@ function reconcileDistanceSubs(mutuals: FollowingEntry[], myUserId: string) {
   // half is the display gate: an unavailable viewer is de facto not sharing
   // and must not see distances. Closing on unavailable is safe to reverse —
   // nodes persist, so the reopen attaches to live nodes with no cancel risk.
-  const eligibleIds = (getLocationOptIn('direct') && isContextPublished('direct') && isOwnAvailable())
+  const eligibleIds = (getLocationOptIn('direct') && isContextPublished('direct') && isContextAvailable('direct'))
     ? new Set(mutuals.map(e => e.userId)) : new Set<string>();
 
   _distanceUnsubs.forEach((unsub, userId) => {

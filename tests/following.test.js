@@ -166,9 +166,9 @@ jest.mock('../js/locationHub.js', () => ({
 // opt-in axis independently.
 jest.mock('../js/locationShare.js', () => ({
   isContextPublished: jest.fn(() => true),
-  // Seeing distances also requires being available yourself (de facto
-  // sharing) — default true so the render tests exercise other axes.
-  isOwnAvailable: jest.fn(() => true),
+  // Seeing distances also requires being available in the relevant context
+  // (de facto sharing) — default true so the render tests exercise other axes.
+  isContextAvailable: jest.fn(() => true),
 }));
 jest.mock('../js/invites.js', () => ({
   attemptRedeemFromUrl: jest.fn(),
@@ -744,7 +744,7 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
   // resetModules() call).
   const { subscribeDistance } = require('../js/locationHub.js');
   const { getLocationOptIn } = require('../js/prefs.js');
-  const { isContextPublished, isOwnAvailable } = require('../js/locationShare.js');
+  const { isContextPublished, isContextAvailable } = require('../js/locationShare.js');
 
   let watchFollowersCallback;
   let watchPresenceCallback;
@@ -757,7 +757,7 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
   afterEach(() => {
     getLocationOptIn.mockReturnValue(false);
     isContextPublished.mockImplementation(() => true);
-    isOwnAvailable.mockImplementation(() => true);
+    isContextAvailable.mockImplementation(() => true);
     subscribeDistance.mockReset();
     subscribeDistance.mockImplementation(() => jest.fn());
   });
@@ -899,13 +899,13 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 120 m$/);
     const unsub = subscribeDistance.mock.results[0].value;
 
-    isOwnAvailable.mockImplementation(() => false);
+    isContextAvailable.mockImplementation(() => false);
     document.dispatchEvent(new CustomEvent('location-publishing-changed'));
     expect(unsub).toHaveBeenCalled();
     expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).not.toContain('·');
 
     // Back available: the persisted nodes make an immediate reattach safe.
-    isOwnAvailable.mockImplementation(() => true);
+    isContextAvailable.mockImplementation(() => true);
     document.dispatchEvent(new CustomEvent('location-publishing-changed'));
     expect(subscribeDistance).toHaveBeenCalledTimes(2);
   });

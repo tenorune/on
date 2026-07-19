@@ -165,10 +165,12 @@ jest.mock('../js/locationShare.js', () => ({
   toggleContext: jest.fn(),
   capabilityState: jest.fn(() => 'supported'),
   // Distance-sub eligibility requires the context's own node to exist
-  // (last-known model) AND own availability (de facto sharing) — default
-  // true so the roster distance tests exercise the opt-in axis independently.
+  // (last-known model) AND own availability IN THAT CONTEXT (de facto
+  // sharing; group availability is override-aware and independent of
+  // Direct) — default true so the roster distance tests exercise the
+  // opt-in axis independently.
   isContextPublished: jest.fn(() => true),
-  isOwnAvailable: jest.fn(() => true),
+  isContextAvailable: jest.fn(() => true),
 }));
 jest.mock('../js/locationHub.js', () => ({
   subscribeCellDistance: jest.fn(() => jest.fn()),
@@ -1758,11 +1760,11 @@ describe('distance on group roster (Task 10)', () => {
   const { subscribeCellDistance, subscribeDistance } = require('../js/locationHub.js');
   const { getLocationOptIn } = require('../js/prefs.js');
   const { getCurrentMutuals } = require('../js/following.js');
-  const { isContextPublished, isOwnAvailable } = require('../js/locationShare.js');
+  const { isContextPublished, isContextAvailable } = require('../js/locationShare.js');
 
   afterEach(() => {
     isContextPublished.mockImplementation(() => true);
-    isOwnAvailable.mockImplementation(() => true);
+    isContextAvailable.mockImplementation(() => true);
   });
 
   function captureMembers() {
@@ -2047,6 +2049,29 @@ describe('distance on group roster (Task 10)', () => {
     expect(subscribeDistance).toHaveBeenCalledTimes(2);
   });
 
+  test('cell tier is independent of Direct: own Direct unavailable but group-available → coarse subs open, precise stays closed', () => {
+    // The viewer-side of the independence rule: being unavailable in Direct
+    // (primary) must not hide the group's coarse distances when the viewer
+    // is available IN THE GROUP (override). Precise stays closed — that
+    // tier belongs to the Direct context.
+    isContextAvailable.mockImplementation((ctx) => ctx === 'G1');
+    getLocationOptIn.mockImplementation(() => true); // 'G1' and 'direct' both on
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
+    expect(subscribeDistance).not.toHaveBeenCalled();
+    cellCbs.get('uidA')(500);
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/ · <1 km away$/);
+  });
+
   test('own availability drops → cell + precise subs close; available again reopens (viewer must be de facto sharing to see)', () => {
     getLocationOptIn.mockImplementation(() => true);
     getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
@@ -2063,12 +2088,12 @@ describe('distance on group roster (Task 10)', () => {
     const cellUnsub = subscribeCellDistance.mock.results[0].value;
     const preciseUnsub = subscribeDistance.mock.results[0].value;
 
-    isOwnAvailable.mockImplementation(() => false);
+    isContextAvailable.mockImplementation(() => false);
     document.dispatchEvent(new CustomEvent('location-publishing-changed'));
     expect(cellUnsub).toHaveBeenCalled();
     expect(preciseUnsub).toHaveBeenCalled();
 
-    isOwnAvailable.mockImplementation(() => true);
+    isContextAvailable.mockImplementation(() => true);
     document.dispatchEvent(new CustomEvent('location-publishing-changed'));
     expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
     expect(subscribeDistance).toHaveBeenCalledTimes(2);

@@ -794,17 +794,30 @@ describe('handleUpdate: /who <group> distance (Task 11)', () => {
     const reply = await handleUpdate(deps, msgUpdate('/who divers'));
     expect(reply.text).not.toContain('·');
   });
-  test('requester gate is PRIMARY availability — a group override cannot re-enable the fragment', async () => {
-    // Publishing follows primary presence only (the capture loop never runs
-    // off a group override), so "de facto sharing" is primary availability:
-    // an override-available requester with a lapsed primary window is not
-    // publishing fresh coordinates and must not see distances.
+  test('requester gate is EFFECTIVE in-group availability: a group override re-enables the fragment (group location is independent of Direct)', async () => {
+    // Group location is independent of the Direct context: the requester's
+    // in-group sharing keys off their EFFECTIVE availability there — the
+    // override wins when enabled — mirroring the client's per-context
+    // publish gating. Primary-unavailable + override-available → sharing in
+    // the group → sees coarse distances.
     const deps = makeBotDeps();
     const uid = seedUser(deps.store); // primary presence unavailable
     seedGroupOne(deps.store, uid);
     deps.store['groups/G1/members'][uid].statusOverride = {
       enabled: true, status: 'available', availableUntil: 2_000_000,
     };
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toContain('· <1 km away');
+  });
+  test('requester override says UNAVAILABLE while primary is available → no fragment (override wins both ways)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    seedGroupOne(deps.store, uid);
+    deps.store['groups/G1/members'][uid].statusOverride = { enabled: true, status: 'unavailable', availableUntil: null };
     deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
     deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
     const reply = await handleUpdate(deps, msgUpdate('/who divers'));
