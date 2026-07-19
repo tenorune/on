@@ -1561,7 +1561,10 @@ body.add-form-open #main-ui-direct { padding-bottom: 50dvh; }
 }
 .location-glyph.on {
   opacity: 1;
-  color: var(--green, #22c55e);
+  /* Theme accent, not the fixed green: --accent is re-stamped per context by
+     applyThemeVars, so the ON glyph tracks the user's chosen palette in both
+     the Direct header and the group band. */
+  color: var(--accent, #6366f1);
 }
 .location-glyph.denied {
   opacity: 0.25;
