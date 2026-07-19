@@ -174,6 +174,22 @@ async function doConfirm() {
   }
 }
 
+// The ONE composition of an available row's status text: fuzzy time plus the
+// distance suffix for mutual rows with a known distance. updateFolloweeRow's
+// full paint and _refreshTimeLabels' label-only path must both go through
+// this — a refresh that recomposes only the time wipes the suffix until the
+// next distance tick lands (device-visible: distance blinking out for ~10s
+// every minute). The mutual gate reads li.dataset.mutual (not just the cache):
+// a mutual→following-only transition can leave a stale _distances value
+// around for one microtask before reconcileDistanceSubs (run at the end of
+// the same renderList pass) deletes it — keying off the row means the
+// non-mutual card can never render it, even transiently.
+function availableStatusText(li: HTMLElement, userId: string, availableUntil: number | null): string {
+  const meters = li.dataset.mutual === '1' ? _distances.get(userId) : undefined;
+  const dist = typeof meters === 'number' ? ` · ${formatDistancePrecise(meters)}` : '';
+  return availableForText(availableUntil) + dist;
+}
+
 // 60s tick: advance "available for …" labels in place. A row whose
 // availability actually FLIPPED (timer expired) gets the full repaint —
 // label-only would leave a green row claiming availability. Rows in call mode
@@ -187,8 +203,9 @@ export function _refreshTimeLabels(myUserId: string) {
       updateFolloweeRow(entry, userData, myUserId); // expired since last tick — full state flip
       return;
     }
-    const span = followeeRow(entry.userId)?.querySelector('.status-available');
-    if (span) span.textContent = availableForText(userData.availableUntil);
+    const li = followeeRow(entry.userId);
+    const span = li?.querySelector('.status-available');
+    if (li && span) span.textContent = availableStatusText(li, entry.userId, userData.availableUntil ?? null);
     else updateFolloweeRow(entry, userData, myUserId); // unexpected row shape — full paint
   });
 }
@@ -1120,14 +1137,7 @@ export function updateFolloweeRow(entry: FollowingEntry, userData: UserData, myU
       ? `<span style="color:${safeCssColor(color)}">${callText}</span>`
       : callText;
   } else if (isAvail) {
-    // Gate on the row actually being mutual (not just having a cache entry):
-    // a mutual→following-only transition can leave a stale _distances value
-    // around for one microtask before reconcileDistanceSubs (run at the end
-    // of the same renderList pass) deletes it — reading li.dataset.mutual
-    // directly means the non-mutual card can never render it, even transiently.
-    const meters = li.dataset.mutual === '1' ? _distances.get(entry.userId) : undefined;
-    const dist = typeof meters === 'number' ? ` · ${formatDistancePrecise(meters)}` : '';
-    const text = availableForText(userData.availableUntil) + dist;
+    const text = availableStatusText(li, entry.userId, userData.availableUntil ?? null);
     statusText = PALETTES_ENABLED
       ? `<span class="status-available" style="color:${safeCssColor(color)}">${text}</span>`
       : `<span class="status-available">${text}</span>`;

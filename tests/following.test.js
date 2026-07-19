@@ -877,6 +877,17 @@ describe('Distance on Direct mutual cards (Task 9)', () => {
     expect(li.querySelector('.person-status').textContent).not.toContain('·');
   });
 
+  test('label-only 60s refresh keeps the distance suffix (device blink: suffix wiped each minute until the next distance tick)', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(120);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 120 m$/);
+    // The 60s interval path — must recompose the SAME text as the full paint,
+    // distance included, or the suffix disappears until a publish lands.
+    _refreshTimeLabels('myUid');
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/ · 120 m$/);
+  });
+
   test('9. own Direct node deleted (unpublished) → subs close; republish reopens FRESH subs', () => {
     setupMutual('u1', true);
     fireAvailable('u1');
