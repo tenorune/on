@@ -11,29 +11,59 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**Execute the location-sharing implementation plan** —
-`docs/superpowers/plans/2026-07-18-location-sharing.md` (13 TDD tasks; approved
-spec beside it in `specs/2026-07-18-location-sharing-design.md`). Work happens ON
-the existing branch `claude/knockknock-feature-dev-9a3ysy` (origin tip `903d02f` =
-spec + plan + merge of `dev`'s canvas-screenshot batch; all green: 1830 web /
-360 functions / both typechecks / prod build). Do NOT cut a new branch and do
-NOT build off `dev` — realign to origin first:
+**Device-smoke feedback + debugging for the location-sharing feature.** The
+feature is FULLY IMPLEMENTED and review-approved on branch
+`claude/knockknock-feature-dev-9a3ysy` (origin tip `7386957`, 27 commits over
+base `c2f6a2e`; final whole-branch review verdict: ready to merge, pending the
+operator's visual sign-off). Work stays ON this branch. Realign first:
 
 ```
 git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
-git log --oneline -8 | grep 903d02f   # location spec+plan history present — empty output = STOP
+git log --oneline -1   # must show 7386957 — anything else = STOP, origin is authoritative
 ```
 
-(The `-B` realign is deliberate: a prior container's local copy of this branch
-may be stale/diverged; origin is authoritative.)
-
 The feature in one line: opt-in location sharing, distance on existing cards —
-precise for sharing mutuals, coarse ("<1 km" floor) for sharing group
-co-members, nothing for everyone else; glyph-next-to-time-remaining is the only
-control; publish tied to availability. The plan is self-contained (exact files,
-code, commands per task); execution mode (subagent-driven vs inline) was left
-undecided — ask the operator if unclear.
+precise for sharing mutuals, coarse ("<1 km" floor via 0.01° grid snap) for
+sharing group co-members, nothing for everyone else; the glyph next to
+time-remaining (Direct header `#location-glyph`, group band
+`#group-location-glyph`) is the only control; publishing tied to availability,
+60 s foreground refresh.
+
+**Operator's smoke checklist** (visual "done" is the operator's call): glyph
+on/off/denied in both headers · permission prompt on first tap only · distance
+on a mutual card within ~1 min of both sides opting in while available · coarse
+text in a shared group · distances vanish when either side goes unavailable ·
+Telegram Mini App glyph + `/who` lines.
+
+**Verified at `7386957` (this session):** web 1929/1929 (85 suites), functions
+388/388, rules 86/86 (emulator), both typechecks, prod build, zero TS
+suppressions. Rules suite: `npm run test:rules` (manages the RTDB emulator
+itself).
+
+**Feature module map** (for debugging): `shared/geo.js` (+ mirror
+`functions/_shared/geo.js`) math/formatters · `database.rules.json`
+`locations/`+`locationCells/` blocks · `js/db/location.ts` RTDB ops (cancel
+callbacks emit null) · `js/locationHub.ts` multiplexed distance watches ·
+`js/locationShare.ts` capture loop + `toggleContext` + publish-keyed eligibility
+(`isPublishingAvailable`) · glyphs in `js/me.ts` / `js/groupContext.ts` · card
+suffixes in `js/following.ts` / `js/groupContext.ts` (`reconcileDistanceSubs`
+passes) · bot fragments in `functions/telegram.js`.
+
+**One open product decision (surface to operator):** revoking OS location
+permission on ONE device flips the ACCOUNT-WIDE opt-in off (stops other devices
+too). Deliberate but debatable — change to device-scoped if the operator says so.
+
+**Known-deferred minors** (recorded at final review; none affect
+correctness/privacy — candidates if smoke feedback matches): denied glyph state
+isn't sticky (repaints revert denied→off); 'unsupported' title says "check
+permissions" (wrong guidance when no geolocation API); `formatDistancePrecise`
+999.6-999.99 m renders "1000 m" not "1.0 km"; stale opted-in gids (kicked
+groups) produce a harmless denied write every 60 s (publish path is deliberately
+unfiltered — filter publish only, keep clears unfiltered); cross-device
+second-context enable race via `location-prefs-synced` (two-client, self-heals
+on next availability flap); Telegram `LocationManager` path has no test
+coverage; `locationCells` validators lack negative-write tests.
 
 Open follow-ups, triaged 2026-07-17 (parked behind the location feature):
 
@@ -150,12 +180,43 @@ proxy and would abort an `&&` chain. Functions deps are required for
   floor. Fine per the es2022 target; revisit only if pre-15.4 iOS users surface.
 - **Run typechecks from the repo root** — a lingering `cd functions` breaks them.
 - **`jest.clearAllMocks()` doesn't clear `mockResolvedValue` implementations.**
+- **Location: distance-sub attaches MUST be gated on a landed publish.** The
+  reciprocity rules make an RTDB listen that attaches before the own node exists
+  get denied and **permanently cancelled** (the SDK never retries). That's why
+  `isPublishingAvailable()` in `js/locationShare.ts` includes the `_published`
+  flag (set on the tick's publish resolution, cleared on every teardown path) and
+  why the surfaces' `reconcileDistanceSubs` passes key off it. Dispatching
+  eligibility events before a write lands re-creates "distances silently dead."
+- **Location tests mock the db barrel** — jsdom suites can't see attach-time
+  rules denials or listener cancellation; real-infra behavior differs. Debug
+  "distance missing on device but tests green" at the rules/attach layer first
+  (the final review found the whole class this way).
+- **`js/locationShare.ts` toggleContext off-branch orderings are load-bearing:**
+  gid snapshots are taken BEFORE pref flips (a flip changes what
+  `getOptedInGids()` returns), and the group-off path uses `clearLocationCells`
+  (cells-only) so the raw point is never transiently deleted (a transient delete
+  cancels every peer listener via rules re-evaluation). Regression tests pin all
+  of this — trust a red test over a "simplification."
 
 ---
 
 ## History — skip unless relevant
 
-Everything below shipped and is on `dev`. Detail is in git + plans + the archived handoff.
+Everything below shipped (location sharing is on the feature branch; the rest is
+on `dev`). Detail is in git + plans + the archived handoff.
+
+- **Location-sharing implementation (2026-07-19, this branch, `c2f6a2e..7386957`)** —
+  all 13 plan tasks executed subagent-driven with per-task spec+quality reviews.
+  Review process caught and fixed (each with regression tests): direct-off
+  privacy leak + first-enable double-publish (Task 6, in the plan's own reference
+  code); distance-sub eligibility leaks on rendered rows (Task 9); then at final
+  whole-branch review: publishing continuing after availability expiry,
+  rules-cancelled listeners stranding stale coordinates, permission-revocation
+  teardown, leave-group cell deletion, launch-time stale-row sweep, cross-device
+  prompt suppression, bot mutuality half-gate, and the attach-vs-publish race
+  family (closed by construction — every attach gated on a landed write). Full
+  RED/GREEN detail was in the container-local review reports (gone with the
+  container); the commits and their tests are the durable record.
 
 - **Boot/status polish batch (2026-07-17, session 2; PR #296 + direct merges to
   `2e6b696`)** — five TDD fixes: (1) post-restore splash gates on server truth,
