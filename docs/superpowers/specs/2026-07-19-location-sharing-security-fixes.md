@@ -11,7 +11,7 @@
 | # | Sev | Conf | Title | Locus |
 |---|-----|------|-------|-------|
 | 1 | HIGH | 9/10 | Precise-location reciprocity gate is forgeable — any authed user can read anyone's exact GPS | `database.rules.json:179` rooted on `:34` |
-| 2 | MEDIUM | 9/10 | Self-join grants coarse-cell reads of a group's members (#288 widening) | `database.rules.json:191` rooted on `:83` |
+| 2 | MEDIUM | 9/10 | Self-join grants coarse-cell reads of a group's members (#288 widening) — fix locked to **option A** (CF-brokered join) | `database.rules.json:191` rooted on `:83` |
 | 3 | LOW | — | Membership loss doesn't authoritatively revoke a published coarse cell (VibeSec lifecycle lens) | `database.rules.json:191–192`, `js/db/groups.ts:139` |
 
 Deliberately **out of scope** (operator-approved product posture, not defects):
@@ -138,40 +138,109 @@ An airtight fix means requiring **invite-backed membership**, but groups are
 joined two ways — per-user `pendingInvites` **and** shared invite-link **tokens**
 (`groups/$gid/invites/$token`, redeemed by a not-yet-member). A rules-only
 predicate can't see "this joiner redeemed a valid, non-revoked token" because the
-member write doesn't carry the token. Options:
+member write doesn't carry the token.
 
-- **A — Cloud-Function-brokered join (recommended).** Move the member write
-  behind a callable (`joinGroup`) that validates the token/pending-invite
-  server-side (Admin SDK), then writes `groups/{gid}/members/{uid}`. Tighten the
-  member `.write` rule to **owner-only + self-*delete*** (drop self-create):
-  ```
-  ".write": "auth != null && ((auth.uid === $uid && !newData.exists()) || data.parent().parent().child('ownerId').val() === auth.uid)"
-  ```
-  Closes #288 at the root; self-join dies; coarse-cell reads require a real join.
-  Cost: new function + rewiring the redeem/accept paths in `js/groups.ts`.
-- **B — Rules-gated on a pending-invite marker.** Require
-  `pendingInvites/{uid}/{gid}` to exist for a self-create. Simpler, but **breaks
-  link-token joins** (which have no per-user pending invite) unless redemption
-  first writes a marker. Partial; re-plumbing needed anyway.
-- **C — Accept + monitor.** Leave the join model; rely on non-enumerable
-  CSPRNG gids (`js/groups.ts:31–37`, 36⁸ keyspace, `groupIdIndex` parent
-  unreadable) bounding exposure to those who already know the gid, and ship
-  only Fix 3 (revoke-on-removal). Lowest effort; leaves self-join readable by
-  anyone who ever learned the gid, unrevocably.
+### Decision: **Option A — Cloud-Function-brokered join** (operator-chosen, 2026-07-19)
 
-**Recommendation: A.** It is the only option that actually closes the read for a
-determined attacker who knows the gid, and it fixes #288 rather than papering
-over it. B and C leave a real residual. If A is out of appetite this cycle,
-ship C + Fix 3 and file A as the tracked follow-up on #288.
+Rejected alternatives, kept for the record:
+- **B — rules-gated on a `pendingInvites/{uid}/{gid}` marker.** Breaks
+  link-token joins (no per-user pending invite) unless redemption first writes a
+  marker; partial and needs re-plumbing anyway.
+- **C — accept + monitor.** Leans on non-enumerable CSPRNG gids
+  (`js/groups.ts:31–37`, 36⁸ keyspace, `groupIdIndex` parent unreadable) to
+  bound exposure; leaves self-join readable, unrevocably, by anyone who ever
+  learned the gid. Rejected — real residual.
 
-### Tests (for option A)
+A is the only option that closes the read for an attacker who knows the gid, and
+it fixes #288 at the root instead of papering over it.
 
-- [ ] Rules: **deny** `groups/{gid}/members/{self}` self-*create* (post-tighten).
-- [ ] Rules: **allow** owner add + self-delete (leave) — regression guard.
-- [ ] Function: `joinGroup` accepts a valid token, rejects a revoked/absent one.
-- [ ] Rules: **deny** `locationCells/{gid}/{member}` read by a non-brokered
-      (forged) member — the exploit, now blocked upstream at the join.
+### Current join flow (what A replaces)
+
+Joins are entirely client-side today — the client writes the member node
+directly, so no rule can bind membership to a validated invite:
+
+- **Link/token redeem:** `redeemGroupInvite` (`js/invites.ts`) validates the
+  token client-side, bumps `redemptionsUsed` via a client transaction
+  (`js/db/groups.ts:210`), then calls `joinGroup`.
+- **Pending-invite accept:** `js/inbox.ts:347` calls `joinGroup`.
+- **`joinGroup`** (`js/groups.ts:115`) → `writeMember` → `set(groups/{gid}/members/{uid})`
+  with the default `statusOverride` seed. This direct member write is the #288
+  surface.
+
+### Decided design
+
+**1. New callable `joinGroup`** in `functions/`, mirroring the existing
+`resolveInvitePreview` deps pattern (`functions/index.js:211`,
+`functions/invites.js`). Register in `functions/index.js` as
+`export const joinGroup = httpsOnCall((request) => joinGroupHandler(request, deps))`.
+Handler (Admin SDK, bypasses rules) does, atomically, server-side:
+  - Authn: reject if `request.auth` is absent.
+  - Validate entitlement — **either** a live invite token
+    (`groups/{gid}/invites/{token}`: exists ∧ not `revoked` ∧ redemption budget
+    remaining) **or** a pending invite for the caller
+    (`pendingInvites/{callerUid}/{gid}` exists). Reject otherwise.
+  - Write `groups/{gid}/members/{callerUid}` with the default-override seed
+    (moved verbatim from client `joinGroup`), **only if** the member doesn't
+    already exist (idempotent re-redeem stays a no-op — preserves the current
+    `if (!existing)` guard).
+  - Bump `redemptionsUsed` server-side (move the transaction off the client so a
+    blocked-from-member-write client can't desync the counter).
+  - Consume the pending invite / `pendingInvitesByGroup` entry on the
+    pending-accept path.
+  - Return the result shape the client flows read (mirror
+    `redeemGroupInvite`/`inbox` expectations).
+
+**2. Tighten the member `.write` rule.** `database.rules.json:83`,
+`groups/$gid/members/$uid`:
+```diff
+- ".write": "auth != null && (auth.uid === $uid || data.parent().parent().child('ownerId').val() === auth.uid)"
++ ".write": "auth != null && ((auth.uid === $uid && (data.exists() || !newData.exists())) || data.parent().parent().child('ownerId').val() === auth.uid)"
+```
+The self-branch now permits a write **only** when `data.exists()` (updating an
+existing membership) **or** `!newData.exists()` (deleting). The single blocked
+case is `!data.exists() && newData.exists()` — self-*create* from nothing, i.e.
+the self-join. The callable creates via Admin SDK (rules bypassed), so real
+joins still land.
+
+> **Correctness note (supersedes the earlier `&& !newData.exists()` sketch):**
+> a bare `!newData.exists()` would have blocked legitimate self-*edits*. Members
+> self-write their own node for display-name edits (`setMemberDisplayName`,
+> `js/db/groups.ts:147`) and statusOverride toggles (`setStatusOverride` /
+> `clearStatusOverride`, `js/db/groups.ts:163–183`) — both update an **existing**
+> membership. The `(data.exists() || !newData.exists())` form preserves those.
+
+**3. Rewire clients** to call the callable instead of writing the member node:
+`redeemGroupInvite` (`js/invites.ts`) and the pending-accept in
+`js/inbox.ts:347`. Client `joinGroup` (`js/groups.ts:115`) loses its
+`writeMember` call and the client-side `redemptionsUsed` transaction; it keeps
+the local-only bits (`clearGroupPaletteState`, `writeUserGroupsEntry` — both under
+the caller's own self-writable tree). Preserve the "skip duplicate reads" opts
+and the fresh-vs-existing branch semantics.
+
+### Preserved self-write checklist (must stay green)
+
+- [ ] `setMemberDisplayName` — self update of existing member ✓ (`data.exists()`)
+- [ ] `setStatusOverride` / `clearStatusOverride` — self update ✓ (`data.exists()`)
+- [ ] `removeMember` self-leave — self delete ✓ (`!newData.exists()`)
+- [ ] owner add / owner remove — owner branch ✓
+- [ ] **denied:** any client self-*create* of a member node ✓ (the #288 close)
+
+### Tests
+
+- [ ] Rules: **deny** `groups/{gid}/members/{self}` self-*create* from nothing.
+- [ ] Rules: **allow** self display-name update + self statusOverride write on an
+      existing membership (the regression the `!newData.exists()` sketch broke).
+- [ ] Rules: **allow** owner add + self-leave delete — regression guard.
+- [ ] Function: `joinGroupHandler` — accepts a valid non-revoked token with
+      budget; accepts a caller with a pending invite; **rejects** absent/revoked/
+      budget-exhausted token and no-pending-invite; idempotent on re-redeem;
+      unauthenticated request rejected.
+- [ ] Rules: **deny** `locationCells/{gid}/{member}` read by a forged
+      (non-brokered) member — the Finding-2 exploit, now blocked at the join.
 - [ ] Bot: `handleWhoGroup` coarse tier withheld for a non-member requester.
+- [ ] Client: `redeemGroupInvite` + inbox-accept drive the callable and no longer
+      write the member node directly (mock the callable; assert no client
+      `set(members/...)`).
 
 ---
 
@@ -195,7 +264,8 @@ Add a Cloud Function trigger on `groups/{gid}/members/{uid}` deletion that
 deletes `locationCells/{gid}/{uid}` via the Admin SDK. Register in
 `functions/index.js` alongside the existing `onMemberOverride` / `onInvite`
 triggers. This makes cell revocation independent of which client path removed
-the member, and is the durable backstop whether or not Fix 2/option-A lands.
+the member, and is the durable backstop complementing Fix 2 (option A closes the
+self-join *read*; Fix 3 guarantees the *cell* is gone on any membership loss).
 
 ### Tests
 
@@ -213,8 +283,10 @@ the member, and is the durable backstop whether or not Fix 2/option-A lands.
 - Green bar before handoff: `npx jest --maxWorkers=2` · `cd functions &&
   npm test` (return to root!) · `npm run test:rules` · `npm run typecheck &&
   npm run typecheck:scripts`. Never hand off red.
-- Deploy surfaces if shipped: RTDB **rules** (Fix 1, 2B) + **Functions**
-  (Fix 2A, Fix 3). Fix 1 is rules-only.
+- Deploy surfaces if shipped: RTDB **rules** (Fix 1 + the Fix 2 member-rule
+  tightening) + **Functions** (Fix 2 `joinGroup` callable, Fix 3 trigger). Fix 1
+  is rules-only. Fix 2 needs rules **and** the callable deployed together — ship
+  the callable before (or with) the rule tighten, or in-flight joins break.
 - Do not commit/push/merge unprompted; leave staged for the operator's call.
 
 ## Suggested sequencing
@@ -222,4 +294,6 @@ the member, and is the durable backstop whether or not Fix 2/option-A lands.
 1. **Fix 1** first — highest severity, smallest/safest change (one rule clause),
    rules-only deploy.
 2. **Fix 3** next — small, self-contained, valuable regardless of Fix 2 depth.
-3. **Fix 2** last — carries the open A/B/C decision; largest blast radius.
+3. **Fix 2 (option A)** last — largest blast radius: new `joinGroup` callable +
+   member-rule tighten + client rewire, deployed atomically (callable first, or
+   with the rule) so no join window breaks.
