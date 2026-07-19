@@ -15,7 +15,7 @@ import { subscribeOwnOverride, getOwnOverride, pushOptimistic } from './statusSt
 import { subscribeOwnStatus } from './ownStatus.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
-         setOverrideAppearance, showToast } from './groups.js';
+         setOverrideAppearance, showToast, LOCATION_DENIED_TOAST } from './groups.js';
 import { showTextPrompt, showConfirmModal } from './promptModal.js';
 import {
   getPaletteState,
@@ -1131,6 +1131,7 @@ function wireGroupLocationGlyph() {
     if (!gid) return;
     const state = await toggleContext(gid);
     paintLocationGlyph(glyph, state === 'on' ? 'on' : state === 'off' ? 'off' : 'denied');
+    if (state === 'denied') showToast(LOCATION_DENIED_TOAST);
   });
   document.addEventListener('location-prefs-synced', () => {
     const gid = getCurrentGroupId();

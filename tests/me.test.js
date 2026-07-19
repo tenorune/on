@@ -59,6 +59,10 @@ jest.mock('../js/store.js', () => ({
   setLastTimeout: jest.fn(),
   getPaletteState: jest.fn(() => ({ activeSet: 1, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } })),
 }));
+jest.mock('../js/groups.js', () => ({
+  showToast: jest.fn(),
+  LOCATION_DENIED_TOAST: 'Location permission is denied — allow location access for this app in your device settings.',
+}));
 jest.mock('../js/locationShare.js', () => ({
   toggleContext: jest.fn(),
   capabilityState: jest.fn(() => 'supported'),
@@ -70,6 +74,11 @@ const { setStatus } = require('../js/db.js');
 const { getLastTimeout, setLastTimeout } = require('../js/store.js');
 const { applyOwnStatus, initHeader, enterFirstUseMode, setOwnStatusReadyCallback } = require('../js/me.js');
 const { toggleContext, capabilityState } = require('../js/locationShare.js');
+// Top-level bind (NOT a require inside a test body): a later describe runs
+// jest.resetModules(), after which an in-test require would return a FRESH
+// mock instance while me.js keeps the original — same landmine as
+// following.test.js's mid-file require.
+const { showToast } = require('../js/groups.js');
 // prefs.js is NOT mocked — real module, backed by the mocked store.js/db.js above,
 // so getLocationOptIn/setLocationOptIn exercise real localStorage caching.
 const { getLocationOptIn, setLocationOptIn } = require('../js/prefs.js');
@@ -689,6 +698,23 @@ describe('location glyph (Direct header)', () => {
     expect(glyph.classList.contains('denied')).toBe(true);
     expect(glyph.getAttribute('aria-pressed')).toBe('false');
     expect(glyph.title).toBe('Location unavailable — check permissions');
+  });
+
+  test('a denied tap shows the permission toast (OS-level deny makes the glyph read as a no-op otherwise)', async () => {
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+
+    toggleContext.mockResolvedValueOnce('denied');
+    glyph.click();
+    await Promise.resolve();
+    expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/location permission/i));
+
+    // An ordinary on/off tap never toasts.
+    showToast.mockClear();
+    toggleContext.mockResolvedValueOnce('on');
+    glyph.click();
+    await Promise.resolve();
+    expect(showToast).not.toHaveBeenCalled();
   });
 
   test('cross-device pref sync (location-prefs-synced) repaints the glyph', () => {

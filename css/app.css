@@ -1551,7 +1551,11 @@ body.add-form-open #main-ui-direct { padding-bottom: 50dvh; }
 .location-glyph {
   background: none;
   border: none;
-  margin-left: 6px;
+  /* Visual gap to the time-remaining text ≈ the row's space-dot-space: the
+     row's 6px flex gap already applies, and the pin's ink starts ~4.6px into
+     the 22px svg (viewBox x=5/24), so a small margin lands the perceived
+     space near the "Available · time" separator's. */
+  margin-left: 2px;
   cursor: pointer;
   color: var(--text-muted, #6b7280);
   opacity: 0.45;

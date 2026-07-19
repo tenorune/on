@@ -202,6 +202,13 @@ async function handleGroupRemoval(myUserId: string, groupId: string) {
   }
 }
 
+// One copy of the location-glyph denied-tap toast, shared by both glyph
+// handlers (me.ts / groupContext.ts): with location denied at the OS level
+// (e.g. iOS Safari Websites set to "Never") the tap otherwise reads as a
+// silent no-op.
+export const LOCATION_DENIED_TOAST =
+  'Location permission is denied — allow location access for this app in your device settings.';
+
 // Generic dismissable toast (the markup ids predate other consumers, hence
 // group-removal-*). Also used by followRequests.js for the request/cancel
 // confirmations.

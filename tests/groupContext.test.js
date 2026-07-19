@@ -118,6 +118,7 @@ jest.mock('../js/groups.js', () => ({
   setOverrideStatusUnavailable: jest.fn().mockResolvedValue(undefined),
   setOverrideAppearance: jest.fn().mockResolvedValue(undefined),
   showToast: jest.fn(),
+  LOCATION_DENIED_TOAST: 'Location permission is denied — allow location access for this app in your device settings.',
 }));
 jest.mock('../js/promptModal.js', () => ({
   showTextPrompt: jest.fn(),
@@ -1558,6 +1559,9 @@ describe('group location glyph (band)', () => {
 
     expect(glyph.classList.contains('on')).toBe(false);
     expect(glyph.classList.contains('denied')).toBe(true);
+    // A denied tap also toasts — the OS-level deny otherwise reads as a no-op.
+    const { showToast } = require('../js/groups.js');
+    expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/location permission/i));
   });
 
   test('entering a DIFFERENT group repaints the glyph from THAT group\'s pref (no stale gid)', () => {

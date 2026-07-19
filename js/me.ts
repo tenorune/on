@@ -7,6 +7,7 @@ import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
 import { markHintSeen, getLastTimeout, setLastTimeout, getLocationOptIn } from './prefs.js';
 import { CHIP_VALUES, chipIndexForMinutes } from './status.js';
 import { toggleContext, capabilityState } from './locationShare.js';
+import { showToast, LOCATION_DENIED_TOAST } from './groups.js';
 
 let savingEnabled = false;
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
@@ -123,6 +124,7 @@ export function initHeader(myUserId: string) {
     locGlyph.addEventListener('click', async () => {
       const state = await toggleContext('direct');
       paintLocationGlyph(locGlyph, state === 'on' ? 'on' : state === 'off' ? 'off' : 'denied');
+      if (state === 'denied') showToast(LOCATION_DENIED_TOAST);
     });
     // Cross-device echo: another device flipping the pref repaints this glyph.
     document.addEventListener('location-prefs-synced', () => {
