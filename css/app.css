@@ -1551,16 +1551,24 @@ body.add-form-open #main-ui-direct { padding-bottom: 50dvh; }
 .location-glyph {
   background: none;
   border: none;
-  padding: 2px;
   margin-left: 6px;
   cursor: pointer;
   color: var(--text-muted, #6b7280);
   opacity: 0.45;
   vertical-align: middle;
   line-height: 0;
+  /* The 22px icon must not change the status row's height: keep the button
+     at its original 18px layout box (14px icon + 2px padding) and center the
+     larger icon over it, overflowing 2px top and bottom. */
+  height: 18px;
+  width: 26px;
+  padding: 0 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 /* Same rendered size as the color picker's bolt/flower (.set-toggle-btn svg). */
-.location-glyph svg { width: 22px; height: 22px; }
+.location-glyph svg { width: 22px; height: 22px; flex-shrink: 0; }
 .location-glyph.on {
   opacity: 1;
   /* Theme accent, not the fixed green: --accent is re-stamped per context by
