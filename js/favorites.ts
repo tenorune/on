@@ -383,6 +383,10 @@ function peekStrip(container: HTMLElement, history: Combo[], homeContext = 'dire
       if (line) line.style.filter = '';
       return;
     }
+    // Hidden tab: keep the schedule alive without style churn. Placed AFTER
+    // the stop-condition above so a peek that should actually stop (strip
+    // opened, wrapper removed) still stops even while hidden.
+    if (document.visibilityState === 'hidden') { setTimeout(doPeek, 6000); return; }
     // Suppress the hint when the active context doesn't match this
     // peek's home context — the peek wrapper is body-level so it'd
     // otherwise float over the wrong view. Force-collapse and

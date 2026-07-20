@@ -199,6 +199,35 @@ test('countdown timer fires after expiry: dot loses available class', () => {
   expect(document.getElementById('my-dot').classList.contains('available')).toBe(false);
 });
 
+// --- Task 6: hidden-tab guard on the 30s countdown tick ---
+
+test('30s countdown tick skips the time-remaining textContent write while hidden', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  jest.advanceTimersByTime(250);
+  const el = document.getElementById('time-remaining');
+  // innerHTML/textContent assignment always tears down + rebuilds child nodes
+  // in jsdom, so a childList MutationObserver fires on every repaint even when
+  // the recomposed text happens to be identical to what's already there.
+  const mo = new MutationObserver(() => {});
+  mo.observe(el, { childList: true, characterData: true, subtree: true });
+
+  Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+  jest.advanceTimersByTime(30000);
+
+  expect(mo.takeRecords().length).toBe(0);
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+});
+
+test('countdown timer fires expiry (setUnavailable) even while hidden — state transition, not paint, must not be skipped', () => {
+  const availableUntil = Date.now() + 1000;
+  applyOwnStatus('available', availableUntil);
+  expect(document.getElementById('my-dot').classList.contains('available')).toBe(true);
+  Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+  jest.advanceTimersByTime(35000);
+  expect(document.getElementById('my-dot').classList.contains('available')).toBe(false);
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+});
+
 // --- chip migration ---
 
 test('getLastTimeout returning 2 (old format hours): time-chip text is "2 hours"', () => {

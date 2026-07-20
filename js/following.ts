@@ -80,6 +80,7 @@ let unsubFollowerNames: (() => void) | null = null;
 let unsubFollowing: (() => void) | null = null;
 let unsubRevocations: (() => void) | null = null;
 let refreshInterval: ReturnType<typeof setInterval> | null = null;
+let _labelVisibilityHandler: (() => void) | null = null;
 let pendingAction: ConfirmAction | null = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 // Session-singleton: null before init, set to myUserId at init, stable for the
 // in-view lifetime — typed non-null so its reads don't each need a cast.
@@ -236,6 +237,7 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
   _inviteModeToken = null;
   _previewSeq++;
   if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+  if (_labelVisibilityHandler) { document.removeEventListener('visibilitychange', _labelVisibilityHandler); _labelVisibilityHandler = null; }
 
   // Inject confirm sheet once
   if (!document.getElementById('unfollow-confirm')) {
@@ -370,8 +372,16 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
     if (!call && callModeCalleeId !== null) handlePeerEnded(myUserId);
   });
 
-  // Refresh time labels every 60s (label-only; see _refreshTimeLabels)
-  refreshInterval = setInterval(() => _refreshTimeLabels(myUserId), 60000);
+  // Refresh time labels every 60s (label-only; see _refreshTimeLabels). Guarded
+  // so a hidden tab does no DOM work between ticks; the visibilitychange
+  // listener below catches the labels up the moment the tab becomes visible
+  // again (otherwise they'd sit stale until the next 60s tick landed).
+  refreshInterval = setInterval(() => {
+    if (document.visibilityState === 'hidden') return;
+    _refreshTimeLabels(myUserId);
+  }, 60000);
+  _labelVisibilityHandler = () => { if (document.visibilityState === 'visible') _refreshTimeLabels(myUserId); };
+  document.addEventListener('visibilitychange', _labelVisibilityHandler);
 
   (document.getElementById('add-person-btn') as HTMLElement).addEventListener('click', () => {
     const form = (document.getElementById('add-person-form') as HTMLElement);

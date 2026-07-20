@@ -2881,6 +2881,90 @@ describe('60s time-label refresh', () => {
   });
 });
 
+describe('60s time-label refresh: hidden-tab guard (Task 6)', () => {
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+    jest.useFakeTimers();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  const AVAILABLE = { status: 'available', availableUntil: Date.now() + 90 * 60000, statusColor: '#22c55e' };
+
+  // innerHTML assignment always tears down + rebuilds child nodes in jsdom, so
+  // a childList MutationObserver fires on every repaint even when the
+  // recomposed text happens to be identical to what's already there —
+  // takeRecords() drains the (synchronous) pending-record queue without
+  // waiting on the observer's own microtask callback.
+  function watchSpanMutations(span) {
+    const mo = new MutationObserver(() => {});
+    mo.observe(span, { childList: true, characterData: true, subtree: true });
+    return () => mo.takeRecords().length;
+  }
+
+  // setupMutualAndFireStatus's presence callback schedules a queueMicrotask
+  // resort (scheduleResort/runResort — see following.ts) that rebuilds the
+  // row once, replacing the very span a caller might have just captured.
+  // Flushing here settles that pending resort BEFORE the test grabs its
+  // reference, so the 60s-guard tests observe the actual long-lived node the
+  // interval/visibilitychange handler will operate on, not a stale one.
+  async function settleMicrotasks() {
+    await jest.advanceTimersByTimeAsync(0);
+  }
+
+  test('interval tick performs no DOM write while hidden', async () => {
+    const li = setupMutualAndFireStatus('hiddenTabUser', AVAILABLE, 'me');
+    await settleMicrotasks();
+    const span = li.querySelector('.status-available');
+    const getWriteCount = watchSpanMutations(span);
+
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    jest.advanceTimersByTime(60000);
+
+    expect(getWriteCount()).toBe(0);
+  });
+
+  test('visibilitychange to visible performs exactly one catch-up refresh', async () => {
+    const li = setupMutualAndFireStatus('hiddenTabUser', AVAILABLE, 'me');
+    await settleMicrotasks();
+    const span = li.querySelector('.status-available');
+    const getWriteCount = watchSpanMutations(span);
+
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    jest.advanceTimersByTime(60000); // skipped tick — contributes 0 writes
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(getWriteCount()).toBe(1);
+  });
+
+  test('teardown on re-init removes the prior visibilitychange listener (no leak)', () => {
+    // Settle any listener left dangling by module state from an earlier test
+    // in this file (following.js isn't reset between tests in this describe)
+    // BEFORE spying, so every add the spies observe below has a matching
+    // teardown-triggered remove — steady-state, no leftover-state ambiguity.
+    setupMutualAndFireStatus('hiddenTabUser', AVAILABLE, 'me');
+
+    const addSpy = jest.spyOn(document, 'addEventListener');
+    const removeSpy = jest.spyOn(document, 'removeEventListener');
+
+    setupMutualAndFireStatus('hiddenTabUser', AVAILABLE, 'me'); // re-init #1: old listener torn down, new one added
+    setupMutualAndFireStatus('hiddenTabUser', AVAILABLE, 'me'); // re-init #2: same
+
+    const added = addSpy.mock.calls.filter((c) => c[0] === 'visibilitychange').length;
+    const removed = removeSpy.mock.calls.filter((c) => c[0] === 'visibilitychange').length;
+    expect(added).toBe(2);
+    expect(removed).toBe(2); // exactly one remove per add — no accumulation
+  });
+});
+
 describe('setFollowingListReadyCallback (post-restore splash gating)', () => {
   // A fresh-device restore arms the splash before any server data exists, so
   // the gating needs the SERVER following-list size — the local cache is empty

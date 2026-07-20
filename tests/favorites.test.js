@@ -235,6 +235,84 @@ describe('renderStrip / initFavoritesStrip', () => {
   });
 });
 
+describe('doPeek hidden-tab guard (Task 6)', () => {
+  // FTU peek (peekStrip → doPeek) only attaches when stripPeek is NOT yet
+  // seen — deliberately do not mark it seen here (unlike the shared
+  // setupDom() above), so renderCollapsed's peek branch actually fires.
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="favorites-strip"></div>';
+    document.documentElement.style.setProperty('--my-status', '#22c55e');
+    document.documentElement.style.setProperty('--my-glow', 'rgba(34,197,94,0.4)');
+    localStorage.clear();
+    localStorage.setItem('statusapp_seen_theme', '1');
+    jest.resetModules();
+    jest.useFakeTimers();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
+    jest.mock('../js/palettes.js', () => ({
+      ...jest.requireActual('../js/palettes.js'),
+      switchSet: jest.fn(),
+      enterPaletteMode: jest.fn(),
+      exitPaletteMode: jest.fn(),
+      getPaletteByKey: jest.fn(() => null),
+      getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
+    }));
+    jest.mock('../js/db.js', () => ({
+      setStatusColor: jest.fn().mockResolvedValue(undefined),
+      setUserFavorites: jest.fn().mockResolvedValue(undefined),
+    }));
+    jest.mock('../js/store.js', () => ({
+      ...jest.requireActual('../js/store.js'),
+      getPaletteState: jest.fn(() => ({
+        activeSet: 1,
+        sets: { '1': { selectedKey: 'forest', activePaletteKey: null }, '2': { selectedKey: 'volt', activePaletteKey: null } },
+      })),
+      setPaletteState: jest.fn(),
+      getFavorites: jest.fn(() => [
+        { statusColor: '#818cf8', surface: '#111', surface2: '#1e1b4b', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
+      ]),
+      setFavorites: jest.fn(),
+    }));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function initPeek() {
+    const { initFavoritesStrip } = require('../js/favorites.js');
+    initFavoritesStrip('myUid');
+    return document.querySelector('.fav-peek-wrapper');
+  }
+
+  test('peek reschedules without style mutation while hidden', () => {
+    const wrapper = initPeek();
+    expect(wrapper).not.toBeNull();
+    const initialMaxHeight = wrapper.style.maxHeight;
+
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    jest.advanceTimersByTime(3000); // first doPeek fire — should reschedule, no style churn
+    expect(wrapper.parentNode).not.toBeNull();
+    expect(wrapper.style.maxHeight).toBe(initialMaxHeight);
+
+    jest.advanceTimersByTime(6000); // rescheduled fire — still hidden, still no churn
+    expect(wrapper.parentNode).not.toBeNull();
+    expect(wrapper.style.maxHeight).toBe(initialMaxHeight);
+  });
+
+  test('peek still stops (strip opened) even while hidden', () => {
+    const wrapper = initPeek();
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    // Simulate the user having opened the strip elsewhere — the stop
+    // condition must win over the hidden-reschedule, per the required
+    // placement (stop-check BEFORE the hidden-check in doPeek).
+    localStorage.setItem('statusapp_seen_strip_peek_done', '1');
+
+    jest.advanceTimersByTime(3000);
+
+    expect(wrapper.parentNode).toBeNull();
+  });
+});
 
 describe('history pill tap interactions (adopt-only)', () => {
   let tapHistoryPill, localMocks;

@@ -208,8 +208,8 @@ function startCountdown(availableUntil: number | null) {
   countdownTimer = setInterval(() => {
     const ms = timeRemainingMs(availableUntil);
     if (ms <= 0) {
-      setUnavailable();
-    } else {
+      setUnavailable(); // state transition — must fire even while hidden
+    } else if (document.visibilityState !== 'hidden') {
       document.getElementById('time-remaining')!.textContent = formatTimeRemaining(ms) + ' left';
     }
   }, 30000);
