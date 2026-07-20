@@ -9,6 +9,7 @@ import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange,
 import { onCall as httpsOnCall, onRequest } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
+import { handleMemberRemoved } from './group-cleanup.js';
 import { resolveInvitePreviewHandler } from './invites.js';
 import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, graduateTelegramHandler, mintTelegramLinkTokenHandler, redeemTelegramLinkTokenHandler } from './telegram-auth.js';
 import { buildNotificationKeyboard, handleUpdate, webhookAuthorized, botCommandsPayload } from './telegram.js';
@@ -138,6 +139,19 @@ export const onAvailability = onValueWritten('/users/{uid}/presence/availableUnt
 export const onMemberOverride = onValueWritten('/groups/{groupId}/members/{memberUid}/statusOverride', (event) => {
   return handleGroupOverrideChange(
     makeDeps(),
+    event.params.groupId,
+    event.params.memberUid,
+    event.data.before.val(),
+    event.data.after.val(),
+  );
+});
+
+// A group membership node was written. On DELETION (leave / kick / group
+// teardown), revoke the departed member's coarse location cell so it can't
+// outlive membership. Handler no-ops on create/update.
+export const onMemberRemoved = onValueWritten('/groups/{groupId}/members/{memberUid}', (event) => {
+  return handleMemberRemoved(
+    makeDbDeps(),
     event.params.groupId,
     event.params.memberUid,
     event.data.before.val(),
