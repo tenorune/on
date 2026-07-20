@@ -6,6 +6,10 @@ jest.mock('../js/db.js', () => ({
   deletePendingInvite: jest.fn().mockResolvedValue(undefined),
   readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
   readPushTokens: jest.fn().mockResolvedValue(null),
+  writePushToken: jest.fn().mockResolvedValue(undefined),
+  touchPushTokenDb: jest.fn().mockResolvedValue(undefined),
+  removePushTokenDb: jest.fn().mockResolvedValue(undefined),
+  removePushTokens: jest.fn().mockResolvedValue(undefined),
 }));
 
 const { mergeUserPrefs } = require('../js/db.js');
@@ -263,34 +267,41 @@ describe('notify prefs', () => {
 });
 
 const { addPushToken, removePushToken, getRegisteredPushToken, touchPushToken, cullStalePushTokens } = require('../js/prefs.js');
-const { readPushTokens } = require('../js/db.js');
+const { readPushTokens, writePushToken, touchPushTokenDb, removePushTokenDb, removePushTokens } = require('../js/db.js');
 
 describe('push tokens', () => {
-  beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); initPrefs('me123'); });
+  beforeEach(() => {
+    localStorage.clear();
+    writePushToken.mockClear(); touchPushTokenDb.mockClear(); removePushTokenDb.mockClear();
+    initPrefs('me123');
+  });
 
+  // F6: token records now live at the top-level pushTokens/{uid}/{token} node
+  // (owner-only), written through the dedicated db helpers rather than folded
+  // into a userPrefs merge.
   test('addPushToken writes the token record (createdAt + lastSeen + ua) and records it locally', () => {
     addPushToken('tok-abc');
-    expect(mergeUserPrefs).toHaveBeenCalledWith('me123',
-      expect.objectContaining({ 'pushTokens/tok-abc': expect.objectContaining({ createdAt: expect.any(Number), lastSeen: expect.any(Number) }) }));
+    expect(writePushToken).toHaveBeenCalledWith('me123', 'tok-abc',
+      expect.objectContaining({ createdAt: expect.any(Number), lastSeen: expect.any(Number), ua: expect.any(String) }));
     expect(getRegisteredPushToken()).toBe('tok-abc');
   });
 
   test('touchPushToken bumps only the lastSeen leaf (preserving createdAt/ua)', () => {
     touchPushToken('tok-abc');
-    expect(mergeUserPrefs).toHaveBeenCalledWith('me123', { 'pushTokens/tok-abc/lastSeen': expect.any(Number) });
+    expect(touchPushTokenDb).toHaveBeenCalledWith('me123', 'tok-abc', expect.any(Number));
   });
 
   test('removePushToken nulls the path and clears the local record', () => {
-    addPushToken('tok-abc'); mergeUserPrefs.mockClear();
+    addPushToken('tok-abc'); removePushTokenDb.mockClear();
     removePushToken('tok-abc');
-    expect(mergeUserPrefs).toHaveBeenCalledWith('me123', { 'pushTokens/tok-abc': null });
+    expect(removePushTokenDb).toHaveBeenCalledWith('me123', 'tok-abc');
     expect(getRegisteredPushToken()).toBe(null);
   });
 });
 
 describe('cullStalePushTokens', () => {
   const DAY = 24 * 60 * 60 * 1000;
-  beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); readPushTokens.mockReset(); initPrefs('me123'); });
+  beforeEach(() => { localStorage.clear(); removePushTokens.mockClear(); readPushTokens.mockReset(); initPrefs('me123'); });
 
   test('deletes tokens past the TTL, keeping the active and fresh ones', async () => {
     addPushToken('active'); // localStorage active token = 'active'
@@ -301,16 +312,16 @@ describe('cullStalePushTokens', () => {
       stale1: { lastSeen: now - 100 * DAY },
       stale2: { createdAt: now - 120 * DAY }, // legacy record, no lastSeen
     });
-    mergeUserPrefs.mockClear();
+    removePushTokens.mockClear();
     await cullStalePushTokens();
-    expect(mergeUserPrefs).toHaveBeenCalledWith('me123', { 'pushTokens/stale1': null, 'pushTokens/stale2': null });
+    expect(removePushTokens).toHaveBeenCalledWith('me123', ['stale1', 'stale2']);
   });
 
   test('no write when nothing is stale', async () => {
     readPushTokens.mockResolvedValue({ a: { lastSeen: Date.now() } });
-    mergeUserPrefs.mockClear();
+    removePushTokens.mockClear();
     await cullStalePushTokens();
-    expect(mergeUserPrefs).not.toHaveBeenCalled();
+    expect(removePushTokens).not.toHaveBeenCalled();
   });
 });
 

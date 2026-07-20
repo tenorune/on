@@ -195,11 +195,30 @@ export async function getCurrentContextPref(userId: string): Promise<string | nu
   return snap.exists() ? (snap.val() as string) : null;
 }
 
-// Targeted read of the FCM push-token registry (token → { createdAt, lastSeen,
-// ua }). Used by the stale-token TTL cull (prefs.cullStalePushTokens, #157).
+// FCM push-token registry, relocated to a TOP-LEVEL node (audit F6): the
+// records embed navigator.userAgent and live outside userPrefs so the
+// wholesale prefs watch stops downloading them every boot and re-delivering
+// them on every prefs echo. Owner-only; the notifier reads it server-side.
 export async function readPushTokens(userId: string): Promise<Record<string, { createdAt?: number; lastSeen?: number } | null> | null> {
-  const snap = await get(ref(db, `userPrefs/${userId}/pushTokens`));
+  const snap = await get(ref(db, `pushTokens/${userId}`));
   return snap.exists() ? snap.val() : null;
+}
+export async function writePushToken(userId: string, token: string, record: { createdAt: number; lastSeen: number; ua: string }): Promise<void> {
+  await set(ref(db, `pushTokens/${userId}/${token}`), record);
+}
+export async function touchPushTokenDb(userId: string, token: string, now: number): Promise<void> {
+  await update(ref(db, `pushTokens/${userId}/${token}`), { lastSeen: now });
+}
+export async function removePushTokenDb(userId: string, token: string): Promise<void> {
+  await set(ref(db, `pushTokens/${userId}/${token}`), null);
+}
+// Bulk multi-null delete of several of the owner's tokens in ONE update — keeps
+// cullStalePushTokens a single write (same op-shape as the pre-F6 mergeUserPrefs
+// bulk delete), rather than N sequential per-token removals.
+export async function removePushTokens(userId: string, tokens: string[]): Promise<void> {
+  const nulls: Record<string, null> = {};
+  for (const token of tokens) nulls[token] = null;
+  await update(ref(db, `pushTokens/${userId}`), nulls);
 }
 
 // `fields` is a flat object keyed by slash-separated paths relative to

@@ -51,7 +51,8 @@ export async function sendToUser(deps, uid, message, data) {
   // delivery, and the FCM path still surfaces the original error. The empty
   // catch keeps a never-awaited rejection (telegram succeeded) from becoming
   // an unhandled-rejection crash; awaiting the promise below still throws.
-  const tokensPromise = deps.getVal(`userPrefs/${uid}/pushTokens`);
+  const tokensPromise = deps.getVal(`pushTokens/${uid}`)
+    .then((v) => v ?? deps.getVal(`userPrefs/${uid}/pushTokens`)); // legacy fallback until migration completes
   tokensPromise.catch(() => {});
   let tgRoute = null;
   let triedTelegram = false;
@@ -93,7 +94,7 @@ export async function sendToUser(deps, uid, message, data) {
     /** @type {Record<string, null>} */
     const nulls = {};
     for (const t of failedTokens) nulls[t] = null;
-    await deps.update(`userPrefs/${uid}/pushTokens`, nulls);
+    await deps.update(`pushTokens/${uid}`, nulls);
   }
   // Delivered if at least one token wasn't rejected.
   return (failedTokens?.length || 0) < tokens.length;

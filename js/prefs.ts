@@ -11,7 +11,10 @@
 // To make a piece of state syncable: add a getter (defaults to localStorage),
 // add a setter (writes both layers), handle it in syncFromServer.
 
-import { mergeUserPrefs, readPushTokens } from './db.js';
+import {
+  mergeUserPrefs, readPushTokens,
+  writePushToken, touchPushTokenDb, removePushTokenDb, removePushTokens,
+} from './db.js';
 import {
   getPaletteState as storeGetPaletteState,
   setPaletteState as storeSetPaletteState,
@@ -306,9 +309,7 @@ export function addPushToken(token: string | null | undefined) {
   try { localStorage.setItem(PUSH_TOKEN_KEY, token); } catch { /* quota */ }
   if (_myUserId) {
     const now = Date.now();
-    mergeUserPrefs(_myUserId, {
-      [`pushTokens/${token}`]: { createdAt: now, lastSeen: now, ua: navigator.userAgent || '' },
-    }).catch(() => {});
+    writePushToken(_myUserId, token, { createdAt: now, lastSeen: now, ua: navigator.userAgent || '' }).catch(() => {});
   }
 }
 
@@ -316,7 +317,7 @@ export function addPushToken(token: string | null | undefined) {
 // granted), preserving createdAt/ua. Drives the stale-token TTL cull below.
 export function touchPushToken(token: string | null | undefined) {
   if (!token || !_myUserId) return;
-  mergeUserPrefs(_myUserId, { [`pushTokens/${token}/lastSeen`]: Date.now() }).catch(() => {});
+  touchPushTokenDb(_myUserId, token, Date.now()).catch(() => {});
 }
 
 // Prune the user's own tokens not seen within the TTL — orphans left by deleted
@@ -332,15 +333,13 @@ export async function cullStalePushTokens() {
     activeToken: getRegisteredPushToken(), now: Date.now(), maxAgeMs: PUSH_TOKEN_TTL_MS,
   });
   if (!stale.length) return;
-  const updates: Record<string, null> = {};
-  for (const token of stale) updates[`pushTokens/${token}`] = null;
-  await mergeUserPrefs(_myUserId, updates).catch(() => {});
+  await removePushTokens(_myUserId, stale).catch(() => {});
 }
 
 export function removePushToken(token: string | null | undefined) {
   if (!token) return;
   if (localStorage.getItem(PUSH_TOKEN_KEY) === token) localStorage.removeItem(PUSH_TOKEN_KEY);
-  if (_myUserId) mergeUserPrefs(_myUserId, { [`pushTokens/${token}`]: null }).catch(() => {});
+  if (_myUserId) removePushTokenDb(_myUserId, token).catch(() => {});
 }
 
 // Pure: which tokens in `map` are stale (last seen beyond maxAgeMs), excluding

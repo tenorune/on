@@ -198,6 +198,19 @@
         }
       }
     },
+    "pushTokens": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "$token": {
+          ".validate": "newData.hasChildren(['createdAt', 'lastSeen'])",
+          "createdAt": { ".validate": "newData.isNumber()" },
+          "lastSeen": { ".validate": "newData.isNumber()" },
+          "ua": { ".validate": "newData.isString() && newData.val().length <= 512" },
+          "$other": { ".validate": false }
+        }
+      }
+    },
     "notifierState": { ".read": false, ".write": false },
     "telegramUsers": { ".read": false, ".write": false },
     "telegramByUid": { ".read": false, ".write": false },

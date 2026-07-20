@@ -20,16 +20,43 @@ describe('sendToUser', () => {
     await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
     expect(deps.send).not.toHaveBeenCalled();
   });
-  test('sends to all registered tokens', async () => {
+  // F6: tokens now live at the top-level pushTokens/{uid} node; sendToUser reads
+  // it first and only falls back to the legacy userPrefs copy until migration.
+  test('sends to tokens under the new pushTokens/{uid} path', async () => {
+    const deps = makeDeps({ store: { 'pushTokens/u1': { tokA: {}, tokB: {} } } });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, { type: 'knock' });
+    expect(deps.send).toHaveBeenCalledWith(['tokA', 'tokB'], { title: 'hi', body: '' }, { type: 'knock' });
+  });
+  // Legacy fallback: a user not yet migrated (tokens still only under userPrefs)
+  // still receives — the new-path read returns undefined and we fall back.
+  test('legacy-only user still receives via the userPrefs fallback', async () => {
     const deps = makeDeps({ store: { 'userPrefs/u1/pushTokens': { tokA: {}, tokB: {} } } });
     await sendToUser(deps, 'u1', { title: 'hi', body: '' }, { type: 'knock' });
     expect(deps.send).toHaveBeenCalledWith(['tokA', 'tokB'], { title: 'hi', body: '' }, { type: 'knock' });
   });
-  test('prunes failed tokens', async () => {
+  // The new path wins when both exist (post-migration the legacy copy is gone,
+  // but during the window the new path is authoritative).
+  test('new path takes precedence over the legacy copy when both exist', async () => {
+    const deps = makeDeps({ store: {
+      'pushTokens/u1': { tokNew: {} },
+      'userPrefs/u1/pushTokens': { tokOld: {} },
+    } });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.send).toHaveBeenCalledWith(['tokNew'], { title: 'hi', body: '' }, {});
+  });
+  test('prunes failed tokens to the NEW path', async () => {
+    const deps = makeDeps({ store: { 'pushTokens/u1': { tokA: {}, tokBad: {} } } });
+    deps.send = jest.fn(async () => ({ failedTokens: ['tokBad'] }));
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.update).toHaveBeenCalledWith('pushTokens/u1', { tokBad: null });
+  });
+  // Even a legacy-only send prunes to the new path — the migration removes the
+  // legacy copies, the prune never writes back into userPrefs.
+  test('a legacy-fallback send still prunes failed tokens to the NEW path', async () => {
     const deps = makeDeps({ store: { 'userPrefs/u1/pushTokens': { tokA: {}, tokBad: {} } } });
     deps.send = jest.fn(async () => ({ failedTokens: ['tokBad'] }));
     await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
-    expect(deps.update).toHaveBeenCalledWith('userPrefs/u1/pushTokens', { tokBad: null });
+    expect(deps.update).toHaveBeenCalledWith('pushTokens/u1', { tokBad: null });
   });
 });
 
@@ -750,10 +777,18 @@ describe('sendToUser telegram channel', () => {
     });
     await expect(sendToUser(deps, 'u1', { title: 'hi', body: '' }, {})).rejects.toThrow(/transient/);
   });
-  test('bot NOT configured: pushTokens is still the only read', async () => {
+  test('bot NOT configured: only the token reads happen (new path, then legacy fallback)', async () => {
     const deps = makeDeps({ store: { ...tgStore } });
     await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
-    expect(deps.getVal.mock.calls.map(([p]) => p)).toEqual(['userPrefs/u1/pushTokens']);
+    // tgStore keeps tokens under the legacy path, so the new-path read misses and
+    // the legacy fallback fires — exactly two reads, both for tokens.
+    expect(deps.getVal.mock.calls.map(([p]) => p)).toEqual(['pushTokens/u1', 'userPrefs/u1/pushTokens']);
+    expect(deps.send).toHaveBeenCalled();
+  });
+  test('bot NOT configured, tokens on the new path: a single token read', async () => {
+    const deps = makeDeps({ store: { 'pushTokens/u1': { tokA: {} } } });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.getVal.mock.calls.map(([p]) => p)).toEqual(['pushTokens/u1']);
     expect(deps.send).toHaveBeenCalled();
   });
 
