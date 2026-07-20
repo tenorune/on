@@ -11,13 +11,11 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**EXECUTE the PRE-EXISTING performance-fix plan on this feature branch:**
-`docs/superpowers/plans/2026-07-20-performance-fixes-preexisting.md` — findings
-F3/F6/F8: group-meta leaf listens (move `groups/{gid}/meta` off the whole-node
-listen), `pushTokens` relocation out of the wholesale `userPrefs` watch **with a
-load-bearing deploy order**, and notifier read parallelization. Unlike the
-just-shipped contained fixes, these are **schema/listener refactors** — heavier,
-with migration and deploy-ordering concerns. Use
+**EXECUTE the TIER 3 performance-fix plan on this feature branch:**
+`docs/superpowers/plans/2026-07-20-performance-fixes-tier3.md` — 14 small,
+independent low-severity fixes (render-churn, timer-hygiene, cache-memo,
+listener-hygiene, no-op-write). None touches schema or reviewed security
+semantics; tasks are ordered by leverage and any subset can ship. Use
 superpowers:subagent-driven-development (fresh implementer per task, per-task
 review) per the plan header, and do the pre-flight plan scan first. Realign:
 
@@ -26,45 +24,51 @@ git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
 ```
 
-The tip must be `135a166` (the 8 perf-fix commits — see History) — else STOP,
-origin is authoritative.
+The tip must be `9f434d0` (F3/F6/F8 + cleanup atop the 8 branch perf-fix
+commits — see History) — else STOP, origin is authoritative.
 
-**Verification state:** green bar OBSERVED at `135a166` (web jest 1971/1971 ·
-functions 424/424 · rules 106/106 · typechecks clean · zero TS suppressions).
+**Verification state:** green bar OBSERVED at `9f434d0` (web jest 1983/1983 ·
+functions 430/430 · rules 108/108 · typechecks clean · zero TS suppressions).
 Re-run the gates as each task's steps direct.
 
 **Plan-execution notes (read before Task 1):**
 
-- The plan embeds exact code and line references written against an older tree —
-  re-verify every ref against the working tree before editing (the just-shipped
-  perf-fixes shifted several of the same files: `js/locationShare.ts`,
-  `js/prefs.ts`, `functions/index.js`, `functions/telegram.js`).
-- F3/F6 touch data-model shape (`groups/{gid}/meta`, `pushTokens` location) and
-  RTDB listens — expect migration + deploy-ordering caveats in the plan; the
-  `pushTokens` relocation has a **load-bearing deploy order** (surface it as a
-  bounded decision, don't guess). These interact with `database.rules.json`,
-  which the just-shipped work deliberately did NOT touch.
-- Jest gotchas learned this session (bit the perf-fix tasks): the repo's Jest
-  rejects `--testPathPattern` (singular) — use `--testPathPatterns` (plural).
-  And `jest.isolateModules()` does NOT reset Jest's file-content cache keyed by
-  absolute path, so any test that stamps a template into a temp file and
-  `require()`s it must use a **unique** temp filename per call or it silently
-  replays the prior stamp.
+- **Tier 3 findings were agent-reported and NOT individually re-verified — each
+  task's FIRST step re-verifies its finding against the working tree; if the
+  code differs, STOP that task and report** rather than forcing the change (the
+  plan's Global Constraints make this binding). Line refs were written against
+  an older tree; re-verify every ref before editing.
+- Location landmines apply to Tier 3 Tasks 3/6/7 (see Landmines below): never
+  delete nodes on availability flaps; `evaluateAvailability()` stays the single
+  availability authority; distance attaches stay gated on `isContextPublished`.
+- Jest gotchas: the repo's Jest rejects `--testPathPattern` (singular) — use
+  `--testPathPatterns` (plural). `jest.isolateModules()` does NOT reset Jest's
+  file-content cache keyed by absolute path, so a test that stamps a template
+  into a temp file and `require()`s it must use a **unique** temp filename per
+  call or it silently replays the prior stamp.
 
 **Audit docs (sources of truth):**
 
 - Findings: `docs/superpowers/specs/2026-07-20-performance-audit-findings.md`
-  (Tier 1&2 source-verified; Tier 3 agent-reported). F1/F2/F4/F5/F7/F10/F9 are
-  DONE (see History); F3/F6/F8 are the next plan above.
-- Later, operator-directed only (NOT the next session's scope):
-  `2026-07-20-performance-fixes-tier3.md` (14 low tasks, each with a mandatory
-  re-verify-first STOP rule).
+  (Tier 1&2 source-verified; Tier 3 agent-reported). ALL Tier 1&2 findings
+  (F1–F10) are now DONE (see History); Tier 3 is the plan above.
 
-**Security-fix deploy ordering (recorded in commit bodies; nothing deployed
-from sessions):** Fix 1 rules-only · Fix 3 functions-only · the `joinGroup`
-callable must deploy **before or with** the members `.write` tighten and the
-`redemptionsUsed` owner-only rule. Old cached clients get permission-denied on
-direct member writes until reload — intended, documented trade-off.
+**Deploy ordering (recorded in commit bodies + `docs/DEPLOY-PROD.md`; nothing
+deploys from sessions):**
+
+- **`pushTokens` relocation (F6c) — LOAD-BEARING:** rules → functions →
+  hosting → `node functions/migrate-push-tokens.js --apply` → later a **separate
+  cleanup commit** drops the legacy fallback in all three dual-readers
+  (`sendToUser`, `functions/telegram.js`, `js/notifyChannel.ts`). Full runbook:
+  `docs/DEPLOY-PROD.md` → "Addendum — pushTokens relocation (audit F6c)".
+- **Security fixes:** Fix 1 rules-only · Fix 3 functions-only · the `joinGroup`
+  callable must deploy **before or with** the members `.write` tighten and the
+  `redemptionsUsed` owner-only rule (old cached clients get permission-denied on
+  direct member writes until reload — intended trade-off).
+- **Branch perf fixes:** T5 deletes two functions
+  (`onMemberOverride`/`onMemberRemoved` → `onMemberWritten`); T7 needs a
+  post-deploy `curl -I /dist/chunks/<hash>.js` → `immutable` while
+  `/dist/bundle.js` stays `no-cache`.
 
 **Open items (parked, operator-ruled only):**
 
@@ -187,6 +191,14 @@ proxy and would abort an `&&` chain. Functions deps are required for
 - **`shared/` is mirrored into `functions/_shared/` by `npm run sync-shared`** —
   never edit the mirror by hand; edit `shared/` and re-sync (jest + the
   fixture `test-fixtures/geo-vectors.json` pin parity).
+- **Relocating a watched RTDB path requires sweeping EVERY reader.** F6c moved
+  `pushTokens` off the `userPrefs` watch; the plan named only the notifier as
+  reader, but review found TWO more (`functions/telegram.js` `/notifications`
+  gate, `js/notifyChannel.ts` `accountHasPushTokens` pill) that read the old
+  path. All three now dual-read (new-then-legacy) during the migration window; a
+  later cleanup commit drops the fallbacks together. When you move a node, grep
+  the WHOLE tree (`js/` AND `functions/`) for the old path before trusting the
+  plan's readers list.
 - **One trigger `onMemberWritten` now owns the whole `groups/{gid}/members/{uid}`
   node** (`functions/index.js`): deletion → cell revocation, `statusOverride`
   change → co-member notify, gated by `statusOverrideChanged` (`notifier.js`,
@@ -223,6 +235,22 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **Pre-existing performance fixes (2026-07-20, `611daf3..9f434d0`, pushed
+  fast-forward onto `claude/knockknock-feature-dev-9a3ysy`):** executed
+  `2026-07-20-performance-fixes-preexisting.md` (F3/F6/F8) via
+  subagent-driven-development — fresh implementer per task, per-task spec+quality
+  review, final whole-branch review (opus, "ready to merge"). F3 `watchGroupMeta`
+  → two leaf listens (`name`+`ownerId`; the membership-gated ownerId-cancel is
+  the delete/kick "gone" signal, name leaf just delivers renames) · F6a boot
+  reads the `currentContext` leaf not the whole prefs node · F6c `pushTokens` →
+  top-level owner-only node + dual-read + one-shot migration
+  (`functions/migrate-push-tokens.js`) · F6b favorites/notify sync events
+  diff-gated · F8 directed notifier handlers → parallel read phases (send
+  decisions unchanged; accepted broadened-reject trade on gated exits — triggers
+  are `retry:false`). The Task 3 review caught a second AND third un-migrated
+  reader of the relocated node (fix `6532e38`); a final cleanup (`9f434d0`)
+  addressed doc/test minors and added the DEPLOY-PROD.md pushTokens runbook.
+  DEPLOY still pending (see Deploy ordering above). Tier 3 is now the active plan.
 - **Branch-introduced performance fixes (2026-07-20, `5463888..d73deb3` + hardening
   `135a166`, merged into `claude/knockknock-feature-dev-9a3ysy` fast-forward):**
   executed `2026-07-20-performance-fixes.md` (F1/F2/F4/F5/F7/F10/F9) via
