@@ -6,11 +6,10 @@ import {
   removeMember, removeUserGroupsEntry, deleteGroup as dbDeleteGroup,
   renameGroup as dbRenameGroup, setMemberDisplayName,
   readGroup, readGroupName, readMember,
-  watchUserGroups,
   mergeStatusOverride,
   readPendingInviteesForGroup, deletePendingInvite,
 } from './db.js';
-import { navigateToDirect, getCurrentContext, getLastKnownGroupName } from './groupNav.js';
+import { navigateToDirect, getCurrentContext, getLastKnownGroupName, subscribeGroupEnumeration } from './groupNav.js';
 import { clearGroupPaletteState } from './prefs.js';
 import { callJoinGroup } from './firebase-config.js';
 
@@ -154,7 +153,7 @@ let _detectorUnsub: (() => void) | null = null;
 export function initGroupRemovalDetector(myUserId: string) {
   if (_detectorUnsub) _detectorUnsub();
   _prevEnum = null;
-  _detectorUnsub = watchUserGroups(myUserId, async (collection) => {
+  _detectorUnsub = subscribeGroupEnumeration(async (collection) => {
     const next = collection || {};
     if (_prevEnum === null) { _prevEnum = next; return; }
     const removed = Object.keys(_prevEnum).filter((id) => !next[id]);

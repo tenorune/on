@@ -1434,8 +1434,9 @@ export function enterGroupContext(groupId: string, userId: string) {
       // Group entity was deleted. Non-owner members never had their
       // users/{uid}/groups/{groupId} entry cleared by the owner (the
       // owner has no permission to write to other users' records).
-      // Clear it locally; the watchUserGroups delta in groups.js then
-      // surfaces the "deleted" toast and navigates back to Direct.
+      // Clear it locally; groupNav's next enumeration tick then fans out to
+      // groups.js's removal detector, which surfaces the "deleted" toast and
+      // navigates back to Direct.
       removeUserGroupsEntry(userId, groupId).catch(() => {});
       return;
     }

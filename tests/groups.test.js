@@ -15,7 +15,6 @@ jest.mock('../js/db.js', () => ({
   readMembers: jest.fn().mockResolvedValue({}),
   setLastVisited: jest.fn(),
   setCurrentContext: jest.fn(),
-  watchUserGroups: jest.fn(() => () => {}),
   setStatusOverride: jest.fn(),
   clearStatusOverride: jest.fn(),
   mergeStatusOverride: jest.fn().mockResolvedValue(undefined),
@@ -29,6 +28,7 @@ jest.mock('../js/groupNav.js', () => ({
   navigateToDirect: jest.fn().mockResolvedValue(undefined),
   getCurrentContext: jest.fn(() => ({ context: 'direct', groupId: null })),
   getLastKnownGroupName: jest.fn(() => null),
+  subscribeGroupEnumeration: jest.fn(() => () => {}),
 }));
 
 jest.mock('../js/prefs.js', () => ({

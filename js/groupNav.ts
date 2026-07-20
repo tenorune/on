@@ -109,6 +109,10 @@ const _overrideStoreUnsubs: Record<string, () => void> = {}; // groupId → unsu
 // deleted"). The own-override provider moved to statusStore.
 const _metaConsumers: Record<string, Set<(meta: Record<string, unknown> | null) => void>> = {};      // groupId → Set<cb>
 const _metaTicked = new Set<string>();
+// Enumeration fan-out so other modules (groups.ts removal detector) don't
+// open their own users/{uid}/groups listen. Replays the current enumeration
+// to a late subscriber only after the first server tick (_enumTicked).
+const _enumConsumers = new Set<(collection: Record<string, unknown>) => void>();
 // One-shot groups-ready signal for the post-restore splash gating: fires once
 // the group set is known (first watchUserGroups tick) AND every enumerated
 // group has a meta tick (so the nav row renders real names, not groupIds).
@@ -168,6 +172,7 @@ export function startCardsRowSubscriptions() {
   // stale callbacks from the old session don't keep underlying subs alive or
   // receive ticks intended for a different user.
   for (const k in _metaConsumers) delete _metaConsumers[k];
+  _enumConsumers.clear();
   _enumeration = {};
   _ownPrimary = null;
 
@@ -180,6 +185,9 @@ export function startCardsRowSubscriptions() {
     syncOverrideConsumers();
     renderNavRow();
     maybeSignalGroupsReady(); // an empty enumeration is ready immediately
+    // Fan out AFTER groupNav's own reaction so consumer order matches
+    // historical attach order.
+    for (const cb of [..._enumConsumers]) { try { cb({ ..._enumeration }); } catch { /* consumer threw */ } }
   });
   if (_ownPrimaryUnsub) _ownPrimaryUnsub();
   _ownPrimaryUnsub = subscribeOwnStatus((data) => {
@@ -571,4 +579,15 @@ export function subscribeGroupMeta(groupId: string, cb: (meta: Record<string, un
     if (set) { set.delete(cb); if (set.size === 0) delete _metaConsumers[groupId]; }
     syncMetaSubs();
   };
+}
+
+// Read-only subscription to the raw enumeration, backed by groupNav's own
+// watchUserGroups. groups.ts's removal detector uses this instead of opening
+// a second users/{uid}/groups listen. Replays the current enumeration only
+// after the underlying sub has ticked (_enumTicked) so a late subscriber's
+// first callback is a real baseline, not a fabricated empty collection.
+export function subscribeGroupEnumeration(cb: (collection: Record<string, unknown>) => void): () => void {
+  _enumConsumers.add(cb);
+  if (_enumTicked) { try { cb({ ..._enumeration }); } catch { /* replay threw */ } }
+  return () => { _enumConsumers.delete(cb); };
 }
