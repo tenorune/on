@@ -80,7 +80,7 @@
         "members": {
           "$uid": {
             ".read": "auth != null && auth.uid === $uid",
-            ".write": "auth != null && (auth.uid === $uid || data.parent().parent().child('ownerId').val() === auth.uid)"
+            ".write": "auth != null && ((auth.uid === $uid && (data.exists() || !newData.exists())) || data.parent().parent().child('ownerId').val() === auth.uid)"
           }
         }
       }

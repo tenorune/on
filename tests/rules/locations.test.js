@@ -169,3 +169,47 @@ describe('locationCells/{gid}/{uid}', () => {
     await assertFails(dbAs(env, 'mallory').ref('locationCells/G1/alice').get());
   });
 });
+
+describe('groups/{gid}/members — self-join guard (Fix 2c)', () => {
+  async function seedG(db) {
+    await db.ref('groups/G1/ownerId').set('alice');
+    await db.ref('groups/G1/members/alice').set({ role: 'owner', displayName: 'Alice' });
+    await db.ref('groups/G1/members/bob').set({ role: 'member', displayName: 'Bob' });
+  }
+
+  test('DENIES a client self-CREATE of a member node (the #288 self-join)', async () => {
+    await seed(env, seedG);
+    await assertFails(dbAs(env, 'mallory').ref('groups/G1/members/mallory')
+      .set({ role: 'member', displayName: 'Mallory', joinedAt: 1 }));
+  });
+
+  test('ALLOWS a member to self-UPDATE display name (existing membership)', async () => {
+    await seed(env, seedG);
+    await assertSucceeds(dbAs(env, 'bob').ref('groups/G1/members/bob/displayName').set('Bobby'));
+  });
+
+  test('ALLOWS a member to self-write statusOverride (existing membership)', async () => {
+    await seed(env, seedG);
+    await assertSucceeds(dbAs(env, 'bob').ref('groups/G1/members/bob/statusOverride')
+      .set({ enabled: true, status: 'available', availableUntil: 1752800000000 }));
+  });
+
+  test('ALLOWS a member to self-LEAVE (delete own node)', async () => {
+    await seed(env, seedG);
+    await assertSucceeds(dbAs(env, 'bob').ref('groups/G1/members/bob').remove());
+  });
+
+  test('ALLOWS the owner to add and remove members', async () => {
+    await seed(env, seedG);
+    await assertSucceeds(dbAs(env, 'alice').ref('groups/G1/members/carol')
+      .set({ role: 'member', displayName: 'Carol', joinedAt: 1 }));
+    await assertSucceeds(dbAs(env, 'alice').ref('groups/G1/members/bob').remove());
+  });
+
+  test('forged-member coarse-cell read is blocked end-to-end', async () => {
+    await seed(env, seedG);
+    // mallory cannot self-join, so she can never publish a cell → never reads.
+    await assertFails(dbAs(env, 'mallory').ref('groups/G1/members/mallory')
+      .set({ role: 'member', displayName: 'M', joinedAt: 1 }));
+  });
+});
