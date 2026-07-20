@@ -216,3 +216,64 @@ describe('debug instrumentation (#156)', () => {
     expect(post).toHaveBeenCalledWith(expect.objectContaining({ kind: 'debug-pong', cache: '__CACHE_VERSION__' }));
   });
 });
+
+describe('chunk carry-over on install (audit F9)', () => {
+  const fsx = require('fs');
+  // Jest's runtime caches file content by absolute path for the lifetime of
+  // the worker (jest.isolateModules only sandboxes the module *registry*, not
+  // that content cache), so re-writing the SAME tmp filename across calls in
+  // this file makes a later require() silently replay an earlier stamp's
+  // source. A per-call unique filename gives each stamp its own path.
+  let stampCounter = 0;
+  function loadStampedSw(chunkList, { priorMatch } = {}) {
+    const handlers = {};
+    const addAll = jest.fn().mockResolvedValue(undefined);
+    const put = jest.fn().mockResolvedValue(undefined);
+    global.self = {
+      addEventListener: (type, fn) => { handlers[type] = fn; },
+      skipWaiting: jest.fn(),
+      clients: { claim: jest.fn(), matchAll: jest.fn().mockResolvedValue([]) },
+      registration: { showNotification: jest.fn() },
+      location: { origin: 'https://app.example' },
+    };
+    global.fetch = jest.fn().mockResolvedValue('network-response');
+    global.caches = {
+      open: jest.fn().mockResolvedValue({ addAll, put }),
+      keys: jest.fn().mockResolvedValue([]),
+      match: jest.fn((url) => Promise.resolve(priorMatch ? priorMatch(url) : undefined)),
+    };
+    const src = fsx.readFileSync(path.join(__dirname, '..', 'sw.template.js'), 'utf8')
+      .replace(/__CACHE_VERSION__/g, 'knockknock-test')
+      .replace('__CHUNK_LIST__', chunkList.join(','));
+    const tmp = path.join(__dirname, `tmp-sw-stamped-${stampCounter++}.js`);
+    fsx.writeFileSync(tmp, src);
+    jest.isolateModules(() => { require(tmp); });
+    fsx.unlinkSync(tmp);
+    return { handlers, addAll, put };
+  }
+
+  test('a chunk present in a previous cache is copied, not re-fetched', async () => {
+    const prior = { cached: true };
+    const { handlers, addAll, put } = loadStampedSw(
+      ['/dist/chunks/wordlist-abc123.js', '/dist/chunks/new-def456.js'],
+      { priorMatch: (url) => (url === '/dist/chunks/wordlist-abc123.js' ? prior : undefined) },
+    );
+    const waited = [];
+    handlers.install({ waitUntil: (p) => waited.push(p) });
+    await Promise.all(waited);
+    expect(put).toHaveBeenCalledWith('/dist/chunks/wordlist-abc123.js', prior);
+    const fetched = addAll.mock.calls[0][0];
+    expect(fetched).not.toContain('/dist/chunks/wordlist-abc123.js'); // carried over
+    expect(fetched).toContain('/dist/chunks/new-def456.js');          // genuinely new
+    expect(fetched).toContain('/dist/bundle.js');                     // shell always re-fetched
+  });
+
+  test('with no previous caches every chunk is fetched (fresh install)', async () => {
+    const { handlers, addAll, put } = loadStampedSw(['/dist/chunks/a-1.js']);
+    const waited = [];
+    handlers.install({ waitUntil: (p) => waited.push(p) });
+    await Promise.all(waited);
+    expect(put).not.toHaveBeenCalled();
+    expect(addAll.mock.calls[0][0]).toContain('/dist/chunks/a-1.js');
+  });
+});

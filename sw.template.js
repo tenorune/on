@@ -15,7 +15,22 @@ const CHUNKS = '__CHUNK_LIST__'.split(',').filter((s) => s && s.indexOf('__') !=
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL.concat(CHUNKS))),
+    caches.open(CACHE).then(async (cache) => {
+      // Chunk filenames are content-hashed — a URL that exists in a previous
+      // version's cache is byte-identical, so copy it across instead of
+      // re-fetching the whole set on every deploy (activate deletes the old
+      // cache afterwards, which used to throw all unchanged chunks away).
+      // The shell proper (unhashed URLs) is always re-fetched.
+      const missing = [];
+      await Promise.all(CHUNKS.map((url) =>
+        caches.match(url).then((prior) => {
+          if (prior) return cache.put(url, prior);
+          missing.push(url);
+          return undefined;
+        }),
+      ));
+      await cache.addAll(SHELL.concat(missing));
+    }),
   );
   self.skipWaiting();
 });
