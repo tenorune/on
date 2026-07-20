@@ -345,11 +345,20 @@ function reconcileDistanceSubs(memberUids: Set<string>, myUserId: string, groupI
   }
   // Precise wins at paint, so a mutual eligible for both tiers only needs the
   // wire listen that actually renders — the redundant cell sub would just
-  // re-deliver every peer cell write for a tier that never paints. Reopening
-  // is cancel-free (last-known model + isContextPublished already gates
-  // cellEligible), so this exclusion is safe to reverse the moment precise
-  // eligibility lapses.
-  for (const uid of preciseEligible) cellEligible.delete(uid);
+  // re-deliver every peer cell write for a tier that never paints. But the
+  // exclusion is DATA-driven, not eligibility-driven: a Direct-available
+  // mutual whose Direct location is simply off publishes no raw point, so
+  // their precise watch emits null forever — excluding on mere eligibility
+  // tore down the coarse tier with nothing to replace it (2026-07-20 bug:
+  // the roster lost B's distance the moment the viewer enabled Direct).
+  // Only a precise value that actually renders displaces the cell sub; the
+  // precise callback below re-runs this reconcile on a number↔null
+  // transition, so the redundant sub closes once precise is live and
+  // reopens (cancel-free — last-known model + isContextPublished already
+  // gate cellEligible) the moment it lapses.
+  for (const uid of preciseEligible) {
+    if (typeof _preciseDistances.get(uid) === 'number') cellEligible.delete(uid);
+  }
 
   _cellUnsubs.forEach((unsub, uid) => {
     if (cellEligible.has(uid)) return;
@@ -375,7 +384,16 @@ function reconcileDistanceSubs(memberUids: Set<string>, myUserId: string, groupI
   for (const uid of preciseEligible) {
     if (_preciseUnsubs.has(uid)) continue;
     _preciseUnsubs.set(uid, subscribeDistance(myUserId, uid, (meters) => {
+      // A number↔null transition flips this uid's cell-tier exclusion (see
+      // above) — re-run the reconcile so the redundant cell sub closes when
+      // precise starts rendering and reopens when it stops. Same-kind ticks
+      // (number→number movement, repeated null) skip it.
+      const rendered = typeof _preciseDistances.get(uid) === 'number';
       _preciseDistances.set(uid, meters);
+      if (rendered !== (typeof meters === 'number') && _currentGroupId && _lastMembers) {
+        const memberUids = new Set(Object.keys(_lastMembers).filter((u) => u !== myUserId));
+        reconcileDistanceSubs(memberUids, myUserId, _currentGroupId);
+      }
       paintRosterRow(uid);
       refreshHints();
     }));
