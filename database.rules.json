@@ -72,8 +72,8 @@
           "$token": {
             ".read": "auth != null",
             "redemptionsUsed": {
-              ".write": "auth != null",
-              ".validate": "newData.isNumber() && (root.child('groups').child($gid).child('ownerId').val() === auth.uid || newData.val() === (data.exists() ? data.val() : 0) + 1)"
+              ".write": "auth != null && root.child('groups').child($gid).child('ownerId').val() === auth.uid",
+              ".validate": "newData.isNumber()"
             }
           }
         },

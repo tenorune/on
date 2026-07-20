@@ -253,3 +253,28 @@ describe('groups/{gid} ownership — create-only guard (Fix A)', () => {
     await assertSucceeds(dbAs(env, 'alice').ref('groups/G1').remove());
   });
 });
+
+describe('groups/{gid}/invites/{token}/redemptionsUsed — owner-only guard (Fix B)', () => {
+  // The client +1 allowance let ANY authed user (even a non-member) walk the
+  // counter up to the redemption cap (invite DoS). The legitimate bump moved
+  // server-side (joinGroup callable, Admin SDK, bypasses rules); client
+  // writes are now owner-only.
+  async function seedG1WithInvite(db) {
+    await db.ref('groups/G1/ownerId').set('alice');
+    await db.ref('groups/G1/members/alice').set({ role: 'owner', displayName: 'Alice' });
+    await db.ref('groups/G1/members/bob').set({ role: 'member', displayName: 'Bob' });
+    await db.ref('groups/G1/invites/TOKG').set({
+      scope: 'group', token: 'TOKG', creatorUid: 'alice', redemptionsUsed: 0, revoked: false,
+    });
+  }
+
+  test('DENIES a non-owner (even an existing member) bumping redemptionsUsed', async () => {
+    await seed(env, seedG1WithInvite);
+    await assertFails(dbAs(env, 'bob').ref('groups/G1/invites/TOKG/redemptionsUsed').set(1));
+  });
+
+  test('ALLOWS the owner to write the counter', async () => {
+    await seed(env, seedG1WithInvite);
+    await assertSucceeds(dbAs(env, 'alice').ref('groups/G1/invites/TOKG/redemptionsUsed').set(0));
+  });
+});

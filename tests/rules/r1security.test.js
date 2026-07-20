@@ -126,14 +126,18 @@ describe('C2 + group-redeem non-member read flow', () => {
     await assertFails(dbAs(env, 'joiner').ref('groups/G1/members/owner').get());
   });
 
-  test('a non-member joiner CANNOT self-join directly (join only via callable); can bump redemptionsUsed if already member (C2)', async () => {
+  test('a non-member joiner CANNOT self-join directly (join only via callable); CANNOT bump redemptionsUsed even as a member (Fix B)', async () => {
     // Self-join at the rules level is now blocked (Fix 2c); clients must use the joinGroup callable (Admin SDK).
     await assertFails(dbAs(env, 'joiner').ref('groups/G1/members/joiner').set({ role: 'member', displayName: 'J', joinedAt: 1 }));
-    // Redemption counter bump still works per the original C2 test (would need to be member first via callable).
+    // Fix B: the redemption counter bump is now owner-only at the rules level.
+    // The legitimate bump moved server-side to the joinGroup callable (Admin
+    // SDK, bypasses rules) — a member (even one added via that callable) can
+    // no longer walk the counter from the client. This inverts the old C2
+    // assertion, which is exactly the behavior Fix B outlaws.
     await seed(env, async (db) => {
       await db.ref('groups/G1/members/joiner').set({ role: 'member', displayName: 'J', joinedAt: 1 });
     });
-    await assertSucceeds(dbAs(env, 'joiner').ref('groups/G1/invites/TOKG/redemptionsUsed').set(1));
+    await assertFails(dbAs(env, 'joiner').ref('groups/G1/invites/TOKG/redemptionsUsed').set(1));
   });
 
   test('a true outsider (no member row, after join not happening) still cannot read the member list', async () => {

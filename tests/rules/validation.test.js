@@ -42,9 +42,14 @@ describe('invites redemptionsUsed — monotonic counter', () => {
     await assertFails(dbAs(env, 'u2').ref('users/u1/invites/tok/redemptionsUsed').set(0));    // non-owner cannot reset
     await assertFails(dbAs(env, 'u2').ref('users/u1/invites/tok/redemptionsUsed').set('x'));  // not a number
   });
-  test('group invite redemptionsUsed enforces the same +1 rule', async () => {
+  test('group invite redemptionsUsed is owner-only (Fix B): a non-owner +1 is rejected, not just a jump', async () => {
+    // The client +1 allowance on GROUP invites was legacy of the client-side
+    // bump; the joinGroup callable (Admin SDK) is now the authoritative bump
+    // path, so client writes are owner-only regardless of delta. This used to
+    // assertSucceeds a non-owner +1 (2 -> 3); that's exactly the behavior Fix
+    // B outlaws.
     await seed(env, (db) => db.ref('groups/G/invites/tok/redemptionsUsed').set(2));
-    await assertSucceeds(dbAs(env, 'u2').ref('groups/G/invites/tok/redemptionsUsed').set(3));
+    await assertFails(dbAs(env, 'u2').ref('groups/G/invites/tok/redemptionsUsed').set(3));
     await assertFails(dbAs(env, 'u2').ref('groups/G/invites/tok/redemptionsUsed').set(100));
   });
 });
