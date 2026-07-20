@@ -439,3 +439,27 @@ describe('location opt-in prefs', () => {
     document.removeEventListener('location-prefs-synced', seen);
   });
 });
+
+test('favorites-synced fires only when the merged list actually changed (audit F6)', () => {
+  const seen = jest.fn();
+  document.addEventListener('favorites-synced', seen);
+  syncFromServer({ favorites: [{ statusColor: 'green', surface2: 'a' }] });
+  expect(seen).toHaveBeenCalledTimes(1);
+  syncFromServer({ favorites: [{ statusColor: 'green', surface2: 'a' }] }); // identical echo
+  expect(seen).toHaveBeenCalledTimes(1);
+  syncFromServer({ favorites: [{ statusColor: 'red', surface2: 'a' }] });
+  expect(seen).toHaveBeenCalledTimes(2);
+  document.removeEventListener('favorites-synced', seen);
+});
+
+test('notify-prefs-synced fires only when a per-person pref actually changed', () => {
+  const seen = jest.fn();
+  document.addEventListener('notify-prefs-synced', seen);
+  syncFromServer({ notify: { u1: { knock: true, call: false, availability: false } } });
+  expect(seen).toHaveBeenCalledTimes(1);
+  syncFromServer({ notify: { u1: { knock: true, call: false, availability: false } } });
+  expect(seen).toHaveBeenCalledTimes(1);
+  syncFromServer({ notify: { u1: { knock: false, call: false, availability: false } } });
+  expect(seen).toHaveBeenCalledTimes(2);
+  document.removeEventListener('notify-prefs-synced', seen);
+});

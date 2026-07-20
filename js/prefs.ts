@@ -476,8 +476,12 @@ export function syncFromServer(serverPrefs: UserPrefs | null | undefined) {
       pendingHead.push(l);
     }
     const merged = [...pendingHead, ...serverDeduped].slice(0, 8);
+    const unchanged = JSON.stringify(merged) === JSON.stringify(local);
     storeSetFavorites(merged);
-    document.dispatchEvent(new CustomEvent('favorites-synced'));
+    // Dispatch only on real change: syncFromServer runs on every prefs echo
+    // (each group swatch tap), and favorites exist forever once created — the
+    // unconditional dispatch rebuilt both strip containers per echo (audit F6).
+    if (!unchanged) document.dispatchEvent(new CustomEvent('favorites-synced'));
   }
   // currentContext
   if (typeof serverPrefs.currentContext === 'string') {
@@ -515,13 +519,15 @@ export function syncFromServer(serverPrefs: UserPrefs | null | undefined) {
   // Notification preferences (per-person knock/call/availability)
   if (serverPrefs.notify && typeof serverPrefs.notify === 'object') {
     const map = readNotifyCache();
+    let changed = false;
     for (const [targetUid, prefs] of Object.entries(serverPrefs.notify)) {
-      map[targetUid] = {
-        knock: !!prefs?.knock, call: !!prefs?.call, availability: !!prefs?.availability,
-      };
+      const next = { knock: !!prefs?.knock, call: !!prefs?.call, availability: !!prefs?.availability };
+      const cur = map[targetUid];
+      if (!cur || cur.knock !== next.knock || cur.call !== next.call || cur.availability !== next.availability) changed = true;
+      map[targetUid] = next;
     }
     writeNotifyCache(map);
-    document.dispatchEvent(new CustomEvent('notify-prefs-synced'));
+    if (changed) document.dispatchEvent(new CustomEvent('notify-prefs-synced'));
   }
   // Location-sharing opt-ins (per context). Dispatch only on a REAL change:
   // syncFromServer runs on every userPrefs echo (each sibling-device swatch
