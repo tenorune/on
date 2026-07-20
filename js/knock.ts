@@ -23,6 +23,13 @@ let pendingByGroup = new Map<string, Set<string>>(); // groupId → Set<senderId
                                  // wasn't in the right group context; drained on enter.
 let pendingDirect = new Set<string>();  // senderIds for Direct-scope knocks received while
                                  // user wasn't in Direct context; drained on entry.
+// Knocks received while the tab is occluded (backgrounded / drawer open / on
+// canvas). Buffered in memory instead of forcing a full initKnocks re-read on
+// drawer-close / canvas-exit — the listener never died, so re-fetching is waste.
+// The knock is LEFT in the DB at buffer time (see the live handler): the DB is
+// the cold-start backstop for a tab closed while still hidden. Only presentation
+// (drainHeldKnocks) clears it. Keyed by senderId; a repeat overwrites the payload.
+const _heldWhileAway = new Map<string, KnockPayload>();
 
 // Send a knock to recipientId. Guards: debounce (300ms). Flash fires only after debounce passes.
 export function sendKnock(recipientId: string, senderId: string, statusColor?: string, opts: { contextGroupId?: string } = {}) {
@@ -95,14 +102,15 @@ export async function initKnocks(myUserId: string) {
     const contextGroupId = payload.contextGroupId || null;
     // Skip senders from the initial snapshot (handled as deferred)
     if (snapshotPending || deferredKeys.has(sid)) return;
-    // App is backgrounded or on canvas — leave knock in DB so the next initKnocks
-    // (on foreground / canvas exit) picks it up via getKnocks and shows it as deferred.
-    if (document.visibilityState !== 'visible') return;
-    // A tool drawer is open — defer like the backgrounded case: leave the knock
-    // in the DB so the card-drawer-close replay (initKnocks) shows it.
-    if (isCardDrawerOpen()) return;
+    // App is backgrounded — buffer in memory (drained on visibilitychange→visible)
+    // AND leave the knock in the DB as the cold-start backstop for a tab closed
+    // while still hidden. Do NOT clearKnock here — only presentation (drain) clears.
+    if (document.visibilityState !== 'visible') { _heldWhileAway.set(sid, payload); return; }
+    // A tool drawer is open — buffer + leave in DB; drained on card-drawer-close.
+    if (isCardDrawerOpen()) { _heldWhileAway.set(sid, payload); return; }
+    // On canvas — buffer + leave in DB; drained on canvas-exited.
     const canvasScreen = document.getElementById('canvas-screen');
-    if (canvasScreen && canvasScreen.classList.contains('active')) return;
+    if (canvasScreen && canvasScreen.classList.contains('active')) { _heldWhileAway.set(sid, payload); return; }
     // Stale-knock check: only knocks that are clearly older than "this
     // session" should fall to the deferred path. Tolerate up to 60s of
     // clock skew between sender and recipient — without this, a fresh
@@ -269,6 +277,32 @@ export function drainPendingKnocks(groupId: string) {
   window.scrollTo(0, 0);
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
+}
+
+/**
+ * Present knocks buffered while the tab was occluded (backgrounded / drawer open
+ * / on canvas). Called on card-drawer-close, canvas-exited, and — before the
+ * initKnocks safety net — on visibilitychange→visible. Mirrors drainPendingKnocks
+ * exactly: snapshot-then-clear the buffer up front (so a re-entrant call can't
+ * double-animate), then per held sender apply float-to-top synchronously, run the
+ * deferred pulse in the next rAF (keyframe/reflow rationale is documented at
+ * drainPendingKnocks + applyDeferredKnock), and clear the knock from the DB.
+ * A sender whose li is not in the DOM is skipped silently, like drainPendingKnocks.
+ */
+function drainHeldKnocks() {
+  if (_heldWhileAway.size === 0) return;
+  // Snapshot then clear so re-entry doesn't double-animate.
+  const held = Array.from(_heldWhileAway.entries());
+  _heldWhileAway.clear();
+  if (!cachedUserId) return;
+  held.forEach(([sid, payload]) => {
+    const contextGroupId = payload.contextGroupId || null;
+    const li = findKnockTargetCard(sid, contextGroupId);
+    if (!li) return; // not in DOM — drop silently
+    applyFloatToTop(li);
+    requestAnimationFrame(() => applyDeferredKnock(sid, contextGroupId));
+    clearKnock(cachedUserId!, sid).catch(() => {});
+  });
 }
 
 // Returns the color to use for knock animations on this card.
@@ -498,11 +532,20 @@ document.addEventListener('visibilitychange', () => {
     if (entry?.timerId) clearTimeout(entry.timerId);
     restoreFromFloat(userId);
   });
+  // Drain the in-memory buffer FIRST so held knocks present immediately and their
+  // clearKnock removes them from the DB before initKnocks' getKnocks read — this
+  // prevents double-presentation. The full initKnocks stays as the safety net for
+  // a genuinely backgrounded tab that missed throttled events the listener never
+  // delivered (the server re-read catches those).
+  drainHeldKnocks();
   if (cachedUserId) initKnocks(cachedUserId);
 });
 document.addEventListener('canvas-exited', () => {
-  if (cachedUserId) initKnocks(cachedUserId);
+  // Tab never left the foreground and the listener never died — just present the
+  // buffered knocks; no full initKnocks re-read needed.
+  drainHeldKnocks();
 });
 document.addEventListener('card-drawer-close', () => {
-  if (cachedUserId) initKnocks(cachedUserId);
+  // Same as canvas-exit: drain the in-memory buffer instead of re-initializing.
+  drainHeldKnocks();
 });
