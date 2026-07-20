@@ -101,7 +101,7 @@ test('toggleContext dispatches location-optin-changed with the context, on both 
   expect(seen).toEqual(['direct', 'direct']);
 });
 
-test('direct opt-in + available publishes raw point immediately and every 60s', async () => {
+test('direct opt-in + available publishes raw point immediately; an unchanged 60s tick is suppressed', async () => {
   const { initLocationShare, toggleContext } = share();
   initLocationShare('me', () => []);
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
@@ -114,7 +114,8 @@ test('direct opt-in + available publishes raw point immediately and every 60s', 
   db.publishLocation.mockClear();
   jest.advanceTimersByTime(60000);
   await flush();
-  expect(db.publishLocation).toHaveBeenCalledTimes(1);
+  // Audit F1: a stationary tick writes nothing — the last-known node stands.
+  expect(db.publishLocation).not.toHaveBeenCalled();
 });
 
 test('enabling a second context while the loop runs still publishes that context immediately', async () => {
@@ -149,7 +150,10 @@ test('toggling direct off with a group still opted in clears only the raw point 
   // exists ONLY while 'direct' is opted in, and G1 remains opted in so no
   // "last context off" or per-group clear runs otherwise.
   expect(db.clearLocationData).toHaveBeenCalledWith('me', []);
-  // The loop itself must still be running for the surviving group.
+  // The loop itself must still be running for the surviving group — move to a
+  // new cell so this tick proves liveness rather than being suppressed as a
+  // no-op (audit F1: G1's cell already landed at POS above).
+  geoBehavior = (ok) => ok({ coords: { latitude: 52.54, longitude: 13.405 } }); // ≥2 cells away
   jest.advanceTimersByTime(60000);
   await flush();
   expect(db.publishLocationCell).toHaveBeenCalled();
@@ -502,7 +506,11 @@ test('a failed tick is silent — no clear, loop continues', async () => {
   jest.advanceTimersByTime(60000);
   await flush();
   expect(db.clearLocationData).not.toHaveBeenCalled();
-  geoBehavior = (ok) => ok(POS);
+  // Recovery tick moves ≥10m from the original POS — the first publish (from
+  // toggleContext, above) already landed at POS, so a same-POS retry here
+  // would be a legitimate no-op (audit F1) rather than proof the loop
+  // recovered from the failed tick.
+  geoBehavior = (ok) => ok({ coords: { latitude: 52.5205, longitude: 13.405 } }); // ~55m
   db.publishLocation.mockClear();
   jest.advanceTimersByTime(60000);
   await flush();
@@ -529,10 +537,13 @@ test('toggling one of several contexts off clears just that cell — cells-only,
   expect(db.clearLocationData).not.toHaveBeenCalled();
   // No compensating republish needed — the raw point never went away.
   expect(db.publishLocation).not.toHaveBeenCalled();
-  // Direct keeps publishing on the next tick.
+  // Direct keeps publishing on the next tick — move ≥10m so this tick proves
+  // liveness rather than being suppressed as a no-op (audit F1: direct's raw
+  // point already landed at 52.52,13.405 above).
+  geoBehavior = (ok) => ok({ coords: { latitude: 52.5205, longitude: 13.405 } }); // ~55m
   jest.advanceTimersByTime(60000);
   await flush();
-  expect(db.publishLocation).toHaveBeenCalledWith('me', 52.52, 13.405, expect.any(Number));
+  expect(db.publishLocation).toHaveBeenCalledWith('me', 52.5205, 13.405, expect.any(Number));
 });
 
 test('toggling off the last context — a group, not direct — still clears its cell', async () => {
@@ -593,9 +604,13 @@ describe('group publishing is independent of Direct availability', () => {
     // Primary drops; the G1 override says available (the ANN scenario).
     ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
     statusStore.__fireGroupStatus('G1', { available: true, availableUntil: FUTURE() });
+    // Cross-cell move — G1's cell already landed at 52.52,13.405 above, so an
+    // unmoved tick here would be a legitimate no-op (audit F1) rather than
+    // proof the override-available tier is still firing.
+    geoBehavior = (ok) => ok({ coords: { latitude: 52.54, longitude: 13.405 } }); // ≥2 cells away
     jest.advanceTimersByTime(60000);
     await flush();
-    expect(db.publishLocationCell).toHaveBeenCalledWith('G1', 'me', 52.52, 13.405, expect.any(Number));
+    expect(db.publishLocationCell).toHaveBeenCalledWith('G1', 'me', 52.54, 13.405, expect.any(Number));
     expect(db.publishLocation).not.toHaveBeenCalled();
   });
 
@@ -613,6 +628,10 @@ describe('group publishing is independent of Direct availability', () => {
     expect(isContextAvailable('G1')).toBe(true);
     db.publishLocation.mockClear();
     db.publishLocationCell.mockClear();
+    // Cross-cell move — G1's cell already landed at POS above, so an unmoved
+    // tick here would be a legitimate no-op (audit F1) rather than proof the
+    // override-available group keeps publishing.
+    geoBehavior = (ok) => ok({ coords: { latitude: 52.54, longitude: 13.405 } }); // ≥2 cells away
     jest.advanceTimersByTime(60000);
     await flush();
     expect(db.publishLocationCell).toHaveBeenCalledTimes(1);
@@ -736,8 +755,89 @@ describe('Telegram Mini App position reads', () => {
     await toggleContext('direct');
     await flush(); await flush();
     db.publishLocation.mockClear();
+    // Move ≥10m via the LocationManager mock — the first tick already landed
+    // at 52.52,13.405 above, so an unmoved read here would be a legitimate
+    // no-op (audit F1) rather than proof the inited-manager fast path still
+    // delivers reads on later ticks.
+    lm.getLocation.mockImplementation((cb) => cb({ latitude: 52.5205, longitude: 13.405 }));
     jest.advanceTimersByTime(60000);
     await flush(); await flush();
+    expect(db.publishLocation).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('no-op publish suppression (audit F1)', () => {
+  test('stationary user: the 60s tick republishes neither the raw point nor the cell', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush();
+    await toggleContext('G1');
+    await flush();
+    db.publishLocation.mockClear();
+    db.publishLocationCell.mockClear();
+    jest.advanceTimersByTime(60000); // same POS as the first publish
+    await flush();
+    expect(db.publishLocation).not.toHaveBeenCalled();
+    expect(db.publishLocationCell).not.toHaveBeenCalled();
+  });
+
+  test('a >=10m move republishes the raw point; an in-cell move does not republish the cell', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush();
+    await toggleContext('G1');
+    await flush();
+    db.publishLocation.mockClear();
+    db.publishLocationCell.mockClear();
+    // ~0.0005° lat ≈ 55 m: leaves the 10 m raw threshold, stays in the 0.01° cell.
+    geoBehavior = (ok) => ok({ coords: { latitude: 52.5205, longitude: 13.405 } });
+    jest.advanceTimersByTime(60000);
+    await flush();
+    expect(db.publishLocation).toHaveBeenCalledTimes(1);
+    expect(db.publishLocationCell).not.toHaveBeenCalled();
+  });
+
+  test('a cross-cell move republishes the cell', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('G1');
+    await flush();
+    db.publishLocationCell.mockClear();
+    geoBehavior = (ok) => ok({ coords: { latitude: 52.54, longitude: 13.405 } }); // ≥2 cells away
+    jest.advanceTimersByTime(60000);
+    await flush();
+    expect(db.publishLocationCell).toHaveBeenCalledTimes(1);
+  });
+
+  test('glyph off then on republishes even when stationary (cache invalidated on delete)', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush();
+    await toggleContext('direct'); // off — node deleted
+    await flush();
+    db.publishLocation.mockClear();
+    await toggleContext('direct'); // on again, same POS
+    await flush();
+    expect(db.publishLocation).toHaveBeenCalledTimes(1);
+  });
+
+  test('a failed publish does not poison the cache — the next tick retries', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    db.publishLocation.mockRejectedValueOnce(new Error('offline'));
+    await toggleContext('direct');
+    await flush();
+    db.publishLocation.mockClear();
+    jest.advanceTimersByTime(60000); // same POS — but the first write never landed
+    await flush();
     expect(db.publishLocation).toHaveBeenCalledTimes(1);
   });
 });
@@ -751,6 +851,11 @@ test('hidden document no longer pauses ticks — publishing continues off-screen
   db.publishLocation.mockClear();
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
   document.dispatchEvent(new Event('visibilitychange'));
+  // Each of the two ticks in this window must move ≥10m from the last landed
+  // point, or the second (same-position) tick would be a legitimate no-op
+  // (audit F1) rather than proof ticks keep running while hidden.
+  let _n = 0;
+  geoBehavior = (ok) => ok({ coords: { latitude: 52.52 + 0.001 * (++_n), longitude: 13.405 } });
   jest.advanceTimersByTime(120000);
   await flush();
   expect(db.publishLocation).toHaveBeenCalledTimes(2);

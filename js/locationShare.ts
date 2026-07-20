@@ -18,6 +18,7 @@ import { getLocationOptIn, setLocationOptIn } from './prefs.js';
 import { subscribeOwnStatus } from './ownStatus.js';
 import { subscribeOwnStatus as subscribeOwnGroupStatus } from './statusStore.js';
 import { isTelegramContext } from './telegram.js';
+import { snapToCell, haversineMeters } from '../shared/geo.js';
 
 const TICK_MS = 60000;
 
@@ -46,6 +47,17 @@ const _gidStatusUnsubs = new Map<string, () => void>();
 // change dispatches location-publishing-changed so the surfaces re-run their
 // eligibility (and reconciles the loop).
 const _ctxWasAvailable = new Map<string, boolean>();
+// Last value actually WRITTEN per context ('direct' → raw coords, gid → the
+// snapped cell). A tick that would rewrite the same data skips the set()
+// entirely: the write burns a rules evaluation + fans a changed-value tick to
+// every attached peer listener, for zero rendered change (audit F1 — the cell
+// grid is ~1.1km, so stationary users otherwise rewrite every minute).
+// Entries are recorded only when the write RESOLVES (a failed write must
+// retry), and dropped wherever the context's node is deleted so re-enable
+// republishes. updatedAt stops refreshing on suppressed ticks — nothing reads
+// it (spec v1: "nothing gates on it").
+const _lastPublished = new Map<string, { lat: number; lng: number }>();
+const RAW_REPUBLISH_MIN_METERS = 10;
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _unsubOwn: (() => void) | null = null;
 let _visListener: (() => void) | null = null;
@@ -148,7 +160,10 @@ function markPublished(context: string) {
 // something actually left the set.
 function unmarkPublished(contexts: string[]) {
   let changed = false;
-  for (const context of contexts) changed = _publishedContexts.delete(context) || changed;
+  for (const context of contexts) {
+    _lastPublished.delete(context);
+    changed = _publishedContexts.delete(context) || changed;
+  }
   if (changed) dispatchPublishingChanged();
 }
 
@@ -186,6 +201,7 @@ function revokePermissionTeardown() {
   stopLoop();
   clearPublished(gids);
   _publishedContexts.clear();
+  _lastPublished.clear();
   dispatchPublishingChanged();
   for (const context of contexts) setLocationOptIn(context, false);
   syncGroupStatusSubs();
@@ -235,14 +251,28 @@ async function tick(): Promise<void> {
   }
   const now = Date.now();
   if (direct) {
-    publishLocation(_userId, pos.lat, pos.lng, now).then(() => markPublished('direct')).catch(() => {});
+    const uid = _userId;
+    const last = _lastPublished.get('direct');
+    if (!last || haversineMeters(last.lat, last.lng, pos.lat, pos.lng) >= RAW_REPUBLISH_MIN_METERS) {
+      publishLocation(uid, pos.lat, pos.lng, now).then(() => {
+        _lastPublished.set('direct', { lat: pos.lat, lng: pos.lng });
+        markPublished('direct');
+      }).catch(() => {});
+    }
   }
   // One write per cell, NOT multipath with the raw point — a stale-membership
   // cell denial must not take the precise tier down with it (db/location.js).
   // Only in-group-available gids publish; an unavailable group's cell simply
   // stays at last-known (never deleted here).
+  const cell = snapToCell(pos.lat, pos.lng);
   for (const gid of gids) {
-    publishLocationCell(gid, _userId, pos.lat, pos.lng, now).then(() => markPublished(gid)).catch(() => {});
+    const uid = _userId;
+    const last = _lastPublished.get(gid);
+    if (last && last.lat === cell.lat && last.lng === cell.lng) continue;
+    publishLocationCell(gid, uid, pos.lat, pos.lng, now).then(() => {
+      _lastPublished.set(gid, cell);
+      markPublished(gid);
+    }).catch(() => {});
   }
 }
 
@@ -422,6 +452,7 @@ export function _resetLocationShare() {
   _ctxWasAvailable.clear();
   _userId = null;
   _publishedContexts.clear();
+  _lastPublished.clear();
   _lastPresence = null;
   _getOptedInGids = () => [];
   dispatchPublishingChanged();
