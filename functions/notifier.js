@@ -106,9 +106,14 @@ export async function sendToUser(deps, uid, message, data) {
  * @param {string} targetUid
  */
 export async function resolveName(deps, viewerUid, targetUid) {
-  const follow = await deps.getVal(`userPrefs/${viewerUid}/following/${targetUid}`);
+  // Fetch the code fallback IN PARALLEL with the following label (one extra tiny
+  // read on the hit path; ~half the latency on the miss path). Precedence is
+  // unchanged: label > code-form > 'Someone'.
+  const [follow, code] = await Promise.all([
+    deps.getVal(`userPrefs/${viewerUid}/following/${targetUid}`),
+    deps.getVal(`users/${targetUid}/presence/code`),
+  ]);
   if (follow && follow.label) return follow.label;
-  const code = await deps.getVal(`users/${targetUid}/presence/code`);
   if (code) return `Your contact ${code}`; // B#10: a bare code reads like a glitch in chat
   return 'Someone';
 }
@@ -119,9 +124,14 @@ export async function resolveName(deps, viewerUid, targetUid) {
  * @param {string} uid
  */
 export async function resolveGroupMemberName(deps, groupId, uid) {
-  const displayName = await deps.getVal(`groups/${groupId}/members/${uid}/displayName`);
+  // Fetch the code fallback IN PARALLEL with the displayName (one extra tiny read
+  // on the hit path; ~half the latency on the miss path). Precedence unchanged:
+  // displayName > code > 'Someone'.
+  const [displayName, code] = await Promise.all([
+    deps.getVal(`groups/${groupId}/members/${uid}/displayName`),
+    deps.getVal(`users/${uid}/presence/code`),
+  ]);
   if (displayName) return displayName;
-  const code = await deps.getVal(`users/${uid}/presence/code`);
   if (code) return code;
   return 'Someone';
 }
@@ -133,14 +143,25 @@ export async function resolveGroupMemberName(deps, groupId, uid) {
  * @param {{ contextGroupId?: string } | null | undefined} record
  */
 export async function handleKnock(deps, recipientId, senderId, record) {
-  const prefs = await deps.getVal(`userPrefs/${recipientId}/notify/${senderId}`);
-  if (!wantsKnock(prefs)) return;
   const now = deps.now();
-  if (withinCooldown(await deps.getVal(`notifierState/knockCooldown/${recipientId}/${senderId}`), now, KNOCK_COOLDOWN_MS)) return;
+  // Phase 1 — the two gates, in parallel (they were sequential; both are always
+  // needed unless the FIRST fails, and the cooldown read is tiny). Gate order is
+  // preserved: an opted-out recipient still does ZERO name/group/send reads, a
+  // cooled event still does no name reads — both just also pay one tiny cooldown
+  // read that used to be skipped on the opted-out exit.
+  const [prefs, cooldown] = await Promise.all([
+    deps.getVal(`userPrefs/${recipientId}/notify/${senderId}`),
+    deps.getVal(`notifierState/knockCooldown/${recipientId}/${senderId}`),
+  ]);
+  if (!wantsKnock(prefs)) return;
+  if (withinCooldown(cooldown, now, KNOCK_COOLDOWN_MS)) return;
   const groupId = record && record.contextGroupId;
   if (groupId) {
-    const name = await resolveGroupMemberName(deps, groupId, senderId);
-    const group = await deps.getVal(`groups/${groupId}/name`);
+    // Phase 2 — name + group name in parallel.
+    const [name, group] = await Promise.all([
+      resolveGroupMemberName(deps, groupId, senderId),
+      deps.getVal(`groups/${groupId}/name`),
+    ]);
     await sendToUser(deps, recipientId,
       buildMessage('knock', name, { group: group || undefined }),
       { type: 'knock', targetUid: senderId, contextGroupId: groupId });
@@ -166,10 +187,18 @@ export async function handleKnock(deps, recipientId, senderId, record) {
 export async function handleInvite(deps, inviteeUid, groupId, record) {
   if (!record || !record.from) return;
   const now = deps.now();
-  if (withinCooldown(await deps.getVal(`notifierState/inviteCooldown/${inviteeUid}/${record.from}`), now, INVITE_COOLDOWN_MS)) return;
-  const follow = await deps.getVal(`userPrefs/${inviteeUid}/following/${record.from}`);
+  // One parallel phase: cooldown + follow-label + group-name (all three always
+  // needed unless cooled; the cooled case pays two wasted tiny reads, accepted
+  // for ~3x fewer round-trips on the common path). Cooldown gate is checked
+  // AFTER — order preserved. The fallback resolver still only runs when there's
+  // no follow label.
+  const [cooldown, follow, group] = await Promise.all([
+    deps.getVal(`notifierState/inviteCooldown/${inviteeUid}/${record.from}`),
+    deps.getVal(`userPrefs/${inviteeUid}/following/${record.from}`),
+    deps.getVal(`groups/${groupId}/name`),
+  ]);
+  if (withinCooldown(cooldown, now, INVITE_COOLDOWN_MS)) return;
   const name = (follow && follow.label) || await resolveGroupMemberName(deps, groupId, record.from);
-  const group = await deps.getVal(`groups/${groupId}/name`);
   await sendToUser(deps, inviteeUid,
     buildMessage('invite', name, { group: group || undefined }),
     { type: 'invite', targetUid: record.from, groupId });
@@ -191,13 +220,21 @@ export async function handleInvite(deps, inviteeUid, groupId, record) {
 export async function handleFollowRequest(deps, targetUid, requesterUid, record) {
   if (!record || !record.from) return;
   const now = deps.now();
-  if (withinCooldown(await deps.getVal(`notifierState/followReqCooldown/${targetUid}/${requesterUid}`), now, FOLLOW_REQ_COOLDOWN_MS)) return;
-  const follow = await deps.getVal(`userPrefs/${targetUid}/following/${requesterUid}`);
+  // One parallel phase: cooldown + follow-label + (conditional) group-name. The
+  // group-name is CONDITIONAL — absent groupId resolves to null, exactly as the
+  // old sequential ternary did. Cooldown gate checked AFTER — order preserved;
+  // the cooled path pays two wasted tiny reads for ~3x fewer round-trips on the
+  // common path. Fallback resolver still only runs when there's no follow label.
+  const [cooldown, follow, group] = await Promise.all([
+    deps.getVal(`notifierState/followReqCooldown/${targetUid}/${requesterUid}`),
+    deps.getVal(`userPrefs/${targetUid}/following/${requesterUid}`),
+    // Name the shared group the request came from ("Cara in Hiking wants to
+    // follow you") — same shape as invites; absent/unreadable → nameless copy.
+    record.groupId ? deps.getVal(`groups/${record.groupId}/name`) : Promise.resolve(null),
+  ]);
+  if (withinCooldown(cooldown, now, FOLLOW_REQ_COOLDOWN_MS)) return;
   const name = (follow && follow.label)
     || await resolveGroupMemberName(deps, record.groupId, requesterUid);
-  // Name the shared group the request came from ("Cara in Hiking wants to
-  // follow you") — same shape as invites; absent/unreadable → nameless copy.
-  const group = record.groupId ? await deps.getVal(`groups/${record.groupId}/name`) : null;
   await sendToUser(deps, targetUid,
     buildMessage('followRequest', name, { group: group || undefined }),
     { type: 'followRequest', targetUid: requesterUid });
@@ -297,10 +334,16 @@ export function statusOverrideChanged(a, b) {
  * @param {string} callerId
  */
 export async function handleCall(deps, calleeId, callerId) {
-  const prefs = await deps.getVal(`userPrefs/${calleeId}/notify/${callerId}`);
-  if (!wantsCall(prefs)) return;
   const now = deps.now();
-  if (withinCooldown(await deps.getVal(`notifierState/callCooldown/${calleeId}/${callerId}`), now, CALL_COOLDOWN_MS)) return;
+  // Phase 1 — the two gates, in parallel (same shape as handleKnock). Gate order
+  // preserved: an opted-out callee still does ZERO name/send reads (paying only
+  // one extra tiny cooldown read); a cooled event still does no name read.
+  const [prefs, cooldown] = await Promise.all([
+    deps.getVal(`userPrefs/${calleeId}/notify/${callerId}`),
+    deps.getVal(`notifierState/callCooldown/${calleeId}/${callerId}`),
+  ]);
+  if (!wantsCall(prefs)) return;
+  if (withinCooldown(cooldown, now, CALL_COOLDOWN_MS)) return;
   const name = await resolveName(deps, calleeId, callerId);
   await sendToUser(deps, calleeId, buildMessage('call', name), { type: 'call', targetUid: callerId });
   await deps.update(`notifierState/callCooldown/${calleeId}`, { [callerId]: now });

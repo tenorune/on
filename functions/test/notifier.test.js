@@ -125,6 +125,19 @@ describe('handleKnock', () => {
     await handleKnock(deps, 'rcpt', 'sndr', { count: 1, ts: 1 });
     expect(deps.send).not.toHaveBeenCalled();
   });
+  // audit F8 gate preservation: phase 1 reads BOTH gates in parallel, so an
+  // opted-out recipient now also reads the cooldown (one extra tiny read) but
+  // still does ZERO name/group/send reads.
+  test('opted-out knock still reads only prefs + cooldown (audit F8 gate preservation)', async () => {
+    const reads = [];
+    const deps = makeDeps({ getVal: jest.fn((p) => { reads.push(p); return Promise.resolve(null); }) }); // null prefs → not opted in
+    await handleKnock(deps, 'r1', 's1', {});
+    expect(reads.sort()).toEqual([
+      'notifierState/knockCooldown/r1/s1',
+      'userPrefs/r1/notify/s1',
+    ]);
+    expect(deps.send).not.toHaveBeenCalled();
+  });
 });
 
 describe('handleCall', () => {
