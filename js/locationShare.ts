@@ -237,7 +237,13 @@ async function tickPermissionGranted(): Promise<boolean> {
   if (_geoPermStatus) return _geoPermStatus.state === 'granted';
   try {
     const status = await perms.query({ name: 'geolocation' });
-    if (typeof status.addEventListener === 'function') _geoPermStatus = status; // else keep per-tick queries
+    // Cache ONLY a granted status (else keep per-tick queries): iOS WebKit
+    // (PWA, device-confirmed 2026-07-20) never updates a retained pre-grant
+    // PermissionStatus, so a cached 'prompt' froze the gate closed for the
+    // whole session even after the glyph prove was granted — while a FRESH
+    // query returned 'granted'. A cached granted status stays fail-safe on
+    // revocation: capture itself rejects code 1 → revokePermissionTeardown.
+    if (status.state === 'granted' && typeof status.addEventListener === 'function') _geoPermStatus = status;
     return status.state === 'granted';
   } catch { return true; } // a query the browser rejects must not silence the loop
 }

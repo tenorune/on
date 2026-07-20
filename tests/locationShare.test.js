@@ -693,6 +693,34 @@ describe('geolocation PermissionStatus caching', () => {
     expect(navigator.permissions.query).toHaveBeenCalledTimes(2);
   });
 
+  test("a 'prompt' status is never cached — the tick after a grant re-queries and publishes (iOS PWA regression)", async () => {
+    // Device-observed (iOS PWA, 2026-07-20): WebKit does NOT update a retained
+    // pre-grant PermissionStatus. Caching the 'prompt' object froze the gate
+    // closed for the whole session even after the glyph prove was granted —
+    // a FRESH query at that point returned 'granted'.
+    const promptStatus = { state: 'prompt', addEventListener: jest.fn() };
+    const grantedStatus = { state: 'granted', addEventListener: jest.fn() };
+    let current = promptStatus;
+    Object.defineProperty(global.navigator, 'permissions', {
+      configurable: true,
+      value: { query: jest.fn(async () => current) },
+    });
+    prefs.setLocationOptIn('direct', true);
+    const { initLocationShare } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await flush(); await flush(); // first tick: 'prompt' → no capture (no surprise prompt)
+    expect(db.publishLocation).not.toHaveBeenCalled();
+
+    // The user grants (glyph prove / Settings). Only a fresh query sees it —
+    // the retained promptStatus object stays 'prompt' forever on iOS.
+    current = grantedStatus;
+    jest.advanceTimersByTime(60000);
+    await flush(); await flush();
+    expect(navigator.permissions.query).toHaveBeenCalledTimes(2);
+    expect(db.publishLocation).toHaveBeenCalled();
+  });
+
   test('a cached status whose .state later flips to non-granted makes the next tick skip capture', async () => {
     const status = { state: 'granted', addEventListener: jest.fn() };
     Object.defineProperty(global.navigator, 'permissions', {
