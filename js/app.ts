@@ -822,6 +822,10 @@ async function resolveEntryContext(session: BootSession, intent: BootIntent, sto
     // context with the real name once watchGroupMeta lands. Hiding the
     // direct shell + nav row across the prefetch keeps the screen empty
     // until we know where we're landing.
+    // Start the leaf read before the DOM-hiding work below so the network
+    // round-trip overlaps the synchronous DOM manipulation instead of
+    // waiting behind it.
+    const ccPromise = getCurrentContextPref(userId);
     const directEl = document.getElementById('main-ui-direct');
     const navRowEl = document.getElementById('nav-row');
     if (directEl) directEl.classList.add('hidden');
@@ -829,7 +833,7 @@ async function resolveEntryContext(session: BootSession, intent: BootIntent, sto
     try {
       // currentContext leaf only — the full node is downloaded once, by
       // watchUserPrefs (Stage 4).
-      const cc = await getCurrentContextPref(userId);
+      const cc = await ccPromise;
       if (typeof cc === 'string' && cc.startsWith('group:')) {
         const groupId = cc.slice(6);
         // Name leaf only: if the user was removed from this group while away,

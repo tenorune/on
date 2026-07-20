@@ -75,7 +75,7 @@ export async function navigateToGroup(groupId: string) {
   _state = { context: 'group', groupId };
   emit(); // render immediately before Firebase round-trip
   setCurrentContext(`group:${groupId}`);
-  await setLastVisited(_myUserId as string, groupId, Date.now());
+  setLastVisited(_myUserId as string, groupId, Date.now()).catch(() => {});
 }
 
 export function applyServerCurrentContext(rawValue: string | null | undefined) {

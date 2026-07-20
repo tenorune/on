@@ -59,6 +59,7 @@ jest.mock('../js/db.js', () => ({
   endCall: jest.fn().mockResolvedValue(undefined),
   getUser: jest.fn().mockResolvedValue({ code: 'MYCODE' }),
   getUserPrefs: jest.fn().mockResolvedValue(null),
+  getCurrentContextPref: jest.fn().mockResolvedValue(null),
   readGroup: jest.fn().mockResolvedValue(null),
   readGroupName: jest.fn().mockResolvedValue(null),
   watchUserPrefs: jest.fn(() => () => {}),

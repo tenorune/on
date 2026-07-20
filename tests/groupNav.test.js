@@ -108,6 +108,26 @@ describe('groupNav state machine', () => {
     expect(seen[seen.length - 1]).toEqual({ context: 'group', groupId: 'G1' });
   });
 
+  test('navigateToGroup resolves without waiting on a never-resolving lastVisited write (fire-and-forget)', async () => {
+    // setLastVisited is advisory (last-visited restore) — a lost write costs
+    // one wrong restore, same as a crash before it landed today. It must not
+    // block the boot chain that awaits navigateToGroup.
+    db.setLastVisited.mockImplementation(() => new Promise(() => {})); // never resolves
+    const seen = [];
+    onContextChange((ctx) => seen.push(ctx));
+    const SENTINEL = Symbol('timeout');
+    const result = await Promise.race([
+      navigateToGroup('G1').then(() => 'resolved'),
+      new Promise((resolve) => setTimeout(() => resolve(SENTINEL), 50)),
+    ]);
+    expect(result).toBe('resolved');
+    // The UI-observable effect (emit + state flip) still happened, synchronously,
+    // before the (still-pending) write was even issued.
+    expect(getCurrentContext()).toEqual({ context: 'group', groupId: 'G1' });
+    expect(seen[seen.length - 1]).toEqual({ context: 'group', groupId: 'G1' });
+    expect(db.setLastVisited).toHaveBeenCalledWith('uid1', 'G1', expect.any(Number));
+  });
+
   test('navigateToDirect writes direct + emits change', async () => {
     await navigateToGroup('G1');
     const seen = [];
