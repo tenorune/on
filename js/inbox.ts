@@ -146,7 +146,7 @@ const _groupNameCache = new Map<string, { name: unknown } | null>(); // groupId 
 async function cachedReadGroupName(groupId: string) {
   if (_groupNameCache.has(groupId)) return _groupNameCache.get(groupId);
   const group = await readGroupName(groupId);
-  if (group) _groupNameCache.set(groupId, group);
+  _groupNameCache.set(groupId, group ?? null);
   return group;
 }
 

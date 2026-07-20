@@ -197,11 +197,15 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
     const { uid, presence } = await ensureTelegramUser(/** @type {any} */ (deps), msg.from, known);
     // Keep the chat route current (first /start after a Mini-App-only signup,
     // or Telegram reassigning chat ids) — sendToUser reads telegramByUid.
-    // Both sides of the route in one multi-path write.
-    await rootUpdate(deps, {
-      [`telegramUsers/${String(msg.from.id)}/chatId`]: chatId,
-      [`telegramByUid/${uid}/chatId`]: chatId,
-    });
+    // Both sides of the route in one multi-path write; skipped when the chat
+    // id is already current (both sides always move together, so checking
+    // the one side already read above is enough to know neither needs it).
+    if (!known || known.chatId !== chatId) {
+      await rootUpdate(deps, {
+        [`telegramUsers/${String(msg.from.id)}/chatId`]: chatId,
+        [`telegramByUid/${uid}/chatId`]: chatId,
+      });
+    }
     if (!known) {
       // Stranger: funnel, no command list (spec §2). /help keeps the full list.
       await reply(WELCOME_STRANGER_TEXT, openAppKeyboard(deps.appUrl));

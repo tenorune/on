@@ -268,9 +268,12 @@ describe('/start first contact vs returning', () => {
 
   // F#4: /start used to read telegramUsers/{tgId} and users/{uid}/presence
   // twice each and write the chat route as two sequential updates.
+  // (Seeded with a stale chatId so the route write still fires here — the
+  // no-write-when-unchanged case is covered by Task 13b below.)
   test('returning /start: mapping and presence each read ONCE, chat route one update', async () => {
     const deps = makeBotDeps({});
     const uid = seedUser(deps.store);
+    deps.store['telegramUsers/42'] = { uid, chatId: 'old-chat-id' };
     const reply = await handleUpdate(deps, msgUpdate('/start'));
     const reads = deps.getVal.mock.calls.map(([p]) => p);
     expect(reads.filter((p) => p === 'telegramUsers/42')).toHaveLength(1);
@@ -279,6 +282,32 @@ describe('/start first contact vs returning', () => {
     expect(deps.store['telegramUsers/42/chatId']).toBe('42');
     expect(deps.store[`telegramByUid/${uid}/chatId`]).toBe('42');
     expect(reply.text).toBe("You're unavailable right now. /status to go available.");
+  });
+
+  // Task 13b: both route sides are always written together (one multi-path
+  // rootUpdate) — so checking one side (the already-read `known` mapping)
+  // is enough to know both are already current, and the no-op write can be
+  // skipped entirely.
+  test('repeat /start with the SAME chatId performs NO route write (no-op skip)', async () => {
+    const deps = makeBotDeps({});
+    const uid = seedUser(deps.store); // chatId already '42', matching msgUpdate's chat.id
+    deps.store[`telegramByUid/${uid}/chatId`] = '42';
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.store['telegramUsers/42'].chatId).toBe('42'); // untouched — already current
+    expect(deps.store[`telegramByUid/${uid}/chatId`]).toBe('42');
+    expect(reply.text).toBe("You're unavailable right now. /status to go available.");
+  });
+
+  test('/start with a CHANGED chatId still writes BOTH route paths', async () => {
+    const deps = makeBotDeps({});
+    const uid = seedUser(deps.store);
+    deps.store['telegramUsers/42'] = { uid, chatId: 'stale-chat-id' };
+    deps.store[`telegramByUid/${uid}/chatId`] = 'stale-chat-id';
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    expect(deps.store['telegramUsers/42/chatId']).toBe('42');
+    expect(deps.store[`telegramByUid/${uid}/chatId`]).toBe('42');
   });
 });
 

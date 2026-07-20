@@ -123,6 +123,18 @@ describe('Inbox', () => {
     expect(db.readGroupName).toHaveBeenCalledWith('G1');
   });
 
+  test('caches a null group-name result too — a deleted group is not re-fetched every render', async () => {
+    let cb;
+    db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
+    db.readGroupName.mockResolvedValue(null); // deleted group → name-leaf read returns null
+    initInbox('me');
+    cb({ G1: { from: 'uOwner1', ts: 100 } });
+    await openInboxModal();   // render 1 → readGroupName('G1') → null
+    await openInboxModal();   // render 2 → should be served from the null cache
+    expect(db.readGroupName).toHaveBeenCalledTimes(1);
+    expect(db.readGroupName).toHaveBeenCalledWith('G1');
+  });
+
   test('renders no button when there are zero pending invites', () => {
     let cb;
     db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });

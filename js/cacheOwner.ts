@@ -109,6 +109,13 @@ export const ACCOUNT_SCOPED_PREFIXES = [
 //                                          immediate post-link reload (js/
 //                                          telegramLinkArrival.js); transient and
 //                                          self-clearing, keyed to a token.
+//   statusapp_lastseen_touched          — per-device throttle stamp for the
+//                                          boot-time touchLastSeen call (js/
+//                                          app.js startSubscriptions); wiping
+//                                          it on an owner change would just
+//                                          cause one extra write, not a leak,
+//                                          but it's device timing, not account
+//                                          state.
 export const DEVICE_SCOPED_KEYS = [
   'statusapp_identity',
   'statusapp_push_token',
@@ -116,6 +123,7 @@ export const DEVICE_SCOPED_KEYS = [
   'statusapp_notify_debug',
   'statusapp_tg_onramp_dismissed',
   'statusapp_onramp_consumed',
+  'statusapp_lastseen_touched',
 ];
 
 // Device/account-independent key PREFIXES that survive an owner change.

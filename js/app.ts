@@ -876,9 +876,20 @@ async function resolveEntryContext(session: BootSession, intent: BootIntent, sto
 // group), so requiring resolveEntryContext's return (Landing) makes early
 // subscription unrepresentable. This replaces the old ordering comments at the
 // pinDirect force-write and initPrefs sites.
+const LAST_SEEN_TOUCH_KEY = 'statusapp_lastseen_touched';
+
 function startSubscriptions(session: BootSession, landing: Landing): void {
   const { userId } = session;
-  touchLastSeen(userId).catch(() => {});
+  // Every app open used to stamp lastSeen unconditionally, ticking every
+  // follower's presence watcher just from a re-open. formatLastSeen's display
+  // granularity is far coarser than per-open precision, and setStatus still
+  // stamps lastSeen on every real status write, so throttling this to once
+  // per 30 minutes per device doesn't affect real availability changes.
+  const lastTouch = Number(localStorage.getItem(LAST_SEEN_TOUCH_KEY) || 0);
+  if (Date.now() - lastTouch > 30 * 60 * 1000) {
+    touchLastSeen(userId).catch(() => {});
+    try { localStorage.setItem(LAST_SEEN_TOUCH_KEY, String(Date.now())); } catch { /* quota */ }
+  }
 
   // Cross-device user-preferences sync: reconciles local cache with server on
   // every change. Writes throughout the app (markHintSeen, incrementMadeCallCount,

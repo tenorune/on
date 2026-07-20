@@ -52,6 +52,7 @@ jest.mock('../js/db.js', () => ({
   writeBackExpired: jest.fn(),
   userExists: jest.fn().mockResolvedValue(true),
   touchLastSeen: jest.fn().mockResolvedValue(undefined),
+  getCurrentContextPref: jest.fn().mockResolvedValue(null),
   setStatus: jest.fn().mockResolvedValue(undefined),
   watchOwnCall: jest.fn(() => () => {}),
   endCall: jest.fn().mockResolvedValue(undefined),
@@ -396,5 +397,45 @@ describe('app.js boot: invite redemption carries the redeemer name', () => {
     expect(invites.attemptRedeemFromUrl).toHaveBeenCalledWith(
       'TOKEN', 'me', 'MYCODE', { redeemerName: '' },
     );
+  });
+});
+
+// Task 13c: startSubscriptions used to call touchLastSeen(userId) on every
+// app open unconditionally, ticking every follower's presence watcher just
+// from a re-open. Gated behind a per-device localStorage stamp (30 min)
+// since real availability changes still stamp lastSeen via setStatus.
+describe('app.js boot: touchLastSeen throttled per-device (Task 13c)', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    localStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  test('two boots inside the 30-min window: touchLastSeen fires on the first boot, not the second', async () => {
+    await bootApp();
+    const db1 = require('../js/db.js');
+    expect(db1.touchLastSeen).toHaveBeenCalledTimes(1);
+
+    // Simulate a second app open on the SAME device shortly after (fresh JS
+    // context/module registry, same localStorage) — must be throttled.
+    jest.resetModules();
+    document.body.innerHTML = '';
+    await bootApp();
+    const db2 = require('../js/db.js');
+    expect(db2.touchLastSeen).not.toHaveBeenCalled();
+  });
+
+  test('a boot after the 30-min window calls touchLastSeen again', async () => {
+    await bootApp();
+    const key = 'statusapp_lastseen_touched';
+    const stamp = Number(localStorage.getItem(key));
+    expect(stamp).toBeGreaterThan(0);
+    localStorage.setItem(key, String(stamp - 31 * 60 * 1000)); // simulate 31 minutes elapsed
+
+    jest.resetModules();
+    document.body.innerHTML = '';
+    await bootApp();
+    const db2 = require('../js/db.js');
+    expect(db2.touchLastSeen).toHaveBeenCalledTimes(1);
   });
 });
