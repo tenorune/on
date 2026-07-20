@@ -21,7 +21,10 @@ export function applyDrawingPayload(
   const points = p.points ?? [];
   const base = p.base;
   if (base === undefined || base === 0 || !buffer) return points.slice();
-  // base > buffer.length means an intermediate write was coalesced away; join
-  // what we have to the new tail — a short straight-line gap in the PREVIEW only.
-  return buffer.slice(0, Math.min(base, buffer.length)).concat(points);
+  // In-place append: truncate to base (coalesced-write gap joins as before)
+  // and push the tail — the old slice().concat() copied the whole stroke
+  // every 80ms tick. Callers hold the same array identity across ticks.
+  buffer.length = Math.min(base, buffer.length);
+  for (const pt of points) buffer.push(pt);
+  return buffer;
 }
