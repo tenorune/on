@@ -287,7 +287,11 @@ export function drainPendingKnocks(groupId: string) {
  * double-animate), then per held sender apply float-to-top synchronously, run the
  * deferred pulse in the next rAF (keyframe/reflow rationale is documented at
  * drainPendingKnocks + applyDeferredKnock), and clear the knock from the DB.
- * A sender whose li is not in the DOM is skipped silently, like drainPendingKnocks.
+ * A sender whose li is not in the current DOM context (cross-context knock —
+ * e.g. Direct while in a group, or a different group) is stashed + badged via
+ * the same pendingByGroup/pendingDirect fallback the live handler uses, and is
+ * left in the DB so drainPendingKnocks/drainPendingDirectKnocks clears it on
+ * navigation to that context.
  */
 function drainHeldKnocks() {
   if (_heldWhileAway.size === 0) return;
@@ -298,7 +302,24 @@ function drainHeldKnocks() {
   held.forEach(([sid, payload]) => {
     const contextGroupId = payload.contextGroupId || null;
     const li = findKnockTargetCard(sid, contextGroupId);
-    if (!li) return; // not in DOM — drop silently
+    if (!li) {
+      // Target card not in the current DOM context (e.g. a Direct-scope
+      // knock buffered while the user is in a group, or a knock for a
+      // different group). Fall back to the same stash+badge path the live
+      // handler uses — badge immediately and replay on navigation, instead
+      // of dropping the knock silently.
+      if (contextGroupId) {
+        bumpGroupCardBadge(contextGroupId);
+        if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
+        pendingByGroup.get(contextGroupId)!.add(sid);
+      } else {
+        pendingDirect.add(sid);
+        bumpDirectBadge();
+      }
+      // Knock stays in DB on purpose — drainPendingKnocks /
+      // drainPendingDirectKnocks clear it after replaying the animation.
+      return;
+    }
     applyFloatToTop(li);
     requestAnimationFrame(() => applyDeferredKnock(sid, contextGroupId));
     clearKnock(cachedUserId!, sid).catch(() => {});

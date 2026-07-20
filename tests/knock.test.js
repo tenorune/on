@@ -1250,4 +1250,65 @@ describe('held-while-away buffer: drain on drawer-close/canvas-exit instead of r
     expect(clearKnock).toHaveBeenCalledTimes(1);
     expect(li.classList.contains('knock-deferred')).toBe(false);
   });
+
+  test('card-drawer-close: a cross-context held knock (group-scoped, user not in that group) is stashed + badged instead of dropped, and stays in the DB', async () => {
+    const fire = await setupLiveListener();
+    const { isCardDrawerOpen } = require('../js/cardDrawer.js');
+    isCardDrawerOpen.mockReturnValue(true);
+    // Default getCurrentContext mock (see top-level beforeEach) is
+    // { context: 'direct', groupId: null } — so a knock scoped to group
+    // 'G1' has no matching li: findKnockTargetCard returns null because the
+    // user isn't in group context at all (mirrors a knock for a different
+    // group, or a Direct-scope knock while in a group, just as easily).
+    const card = document.createElement('div');
+    card.className = 'group-card';
+    card.dataset.groupId = 'G1';
+    document.body.appendChild(card);
+
+    // Knock arrives while the drawer is open → buffered, not presented.
+    fire('alice', { count: 1, ts: Date.now(), contextGroupId: 'G1' });
+
+    document.dispatchEvent(new Event('card-drawer-close'));
+
+    // Stashed + badged (bumpGroupCardBadge toggles this class) instead of
+    // being dropped silently.
+    expect(card.classList.contains('knock-pending')).toBe(true);
+    // The knock must stay in the DB — only a successfully-presented
+    // (li-found) knock is cleared; drainPendingKnocks clears this one when
+    // the user later navigates into G1.
+    expect(clearKnock).not.toHaveBeenCalledWith('myUid', 'alice');
+
+    // Confirm the replay path actually works: entering G1 later drains and
+    // clears it (proves it was stashed correctly, not just left dangling).
+    const { drainPendingKnocks } = require('../js/knock.js');
+    const { getCurrentContext } = require('../js/groupNav.js');
+    getCurrentContext.mockReturnValue({ context: 'group', groupId: 'G1' });
+    const groupRoster = document.createElement('div');
+    groupRoster.id = 'group-roster';
+    groupRoster.innerHTML = '<li data-user-id="alice"></li>';
+    document.body.appendChild(groupRoster);
+    drainPendingKnocks('G1');
+    expect(clearKnock).toHaveBeenCalledWith('myUid', 'alice');
+  });
+
+  test('card-drawer-close: a cross-context held Direct-scope knock (user not in Direct) is stashed + badged instead of dropped, and stays in the DB', async () => {
+    const { getCurrentContext } = require('../js/groupNav.js');
+    getCurrentContext.mockReturnValue({ context: 'group', groupId: 'G1' });
+    const fire = await setupLiveListener();
+    const { isCardDrawerOpen } = require('../js/cardDrawer.js');
+    isCardDrawerOpen.mockReturnValue(true);
+    const directCard = document.createElement('div');
+    directCard.className = 'group-card';
+    directCard.dataset.nav = 'direct';
+    document.body.appendChild(directCard);
+
+    // Direct-scope knock (no contextGroupId) arrives while user is in group
+    // context → findKnockTargetCard returns null (cur.context !== 'direct').
+    fire('alice', { count: 1, ts: Date.now() });
+
+    document.dispatchEvent(new Event('card-drawer-close'));
+
+    expect(directCard.classList.contains('knock-pending')).toBe(true);
+    expect(clearKnock).not.toHaveBeenCalledWith('myUid', 'alice');
+  });
 });
