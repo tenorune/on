@@ -1932,6 +1932,53 @@ describe('distance on group roster (Task 10)', () => {
     expect(status).not.toContain('<1 km away');
   });
 
+  test('Task 2: mutual eligible for BOTH tiers keeps only the precise sub open; cell reopens once primary lapses', () => {
+    // Precise wins at paint, so the cell sub for a precise-active mutual is
+    // pure waste — every peer cell write re-delivers into a tier that never
+    // renders. reconcileDistanceSubs must exclude precise-active uids from
+    // cellEligible: exactly one wire listen per such mutual, not two.
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1' || ctx === 'direct');
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: {
+        role: 'member', displayName: 'A', joinedAt: 2,
+        // Override keeps the row rendering "available" in-group even once
+        // primary presence lapses below, so the coarse-fallback assertion at
+        // the end isn't confounded by the unrelated "unavailable → empty
+        // status" rule (Test 4's contract).
+        statusOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 },
+      },
+    });
+    // Roster-load reconcile fires before any presence is known, so uidA is
+    // (transiently) cell-only-eligible and the coarse sub opens once here.
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(1);
+    const firstCellUnsub = subscribeCellDistance.mock.results[0].value;
+
+    // Primary available: uidA becomes cell- AND precise-eligible. Only ONE
+    // sub may stay open — precise wins at paint, so the now-redundant cell
+    // sub must close and must NOT reopen while precise is live.
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeDistance).toHaveBeenCalledWith('me', 'uidA', expect.any(Function));
+    expect(firstCellUnsub).toHaveBeenCalled();
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(1); // still just the one, now-closed, call
+    preciseCbs.get('uidA')(120);
+    expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/120 meters away$/);
+
+    // Primary lapses → precise eligibility drops → the cell sub reopens
+    // (reopen is cancel-free: the peer's cell node persists and
+    // isContextPublished is already part of cellEligible's guard).
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+    statusCbs['uidA']?.({ status: 'unavailable', availableUntil: null });
+    expect(preciseUnsub).toHaveBeenCalled();
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
+    cellCbs.get('uidA')(500);
+    expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/<1 km away$/);
+  });
+
   test('precise cascades only while the mutual broadcasts in Direct: primary-unavailable member (override-available in group) gets coarse; primary up-flip upgrades to precise', () => {
     // The ANN/BOB device scenario: ANN is Unavailable in Direct but Available
     // in the group via her override. Her persisted locations node must NOT
@@ -1965,11 +2012,15 @@ describe('distance on group roster (Task 10)', () => {
     preciseCbs.get('uidA')(120);
     expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/120 meters away$/);
 
-    // …and back to primary-unavailable: the precise sub closes and the paint
-    // falls back to the coarse cell (no stale precise from the cache).
+    // …and back to primary-unavailable: the precise sub closes and a FRESH
+    // cell sub reopens (the redundant-parallel cell sub was excluded/closed
+    // while precise was live, so its cached distance was dropped too — the
+    // roster shows the coarse suffix again once the new cell sub delivers).
     const preciseUnsub = subscribeDistance.mock.results[0].value;
     statusCbs['uidA']?.({ status: 'unavailable', availableUntil: null });
     expect(preciseUnsub).toHaveBeenCalled();
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
+    cellCbs.get('uidA')(500);
     expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/<1 km away$/);
   });
 
@@ -2124,10 +2175,12 @@ describe('distance on group roster (Task 10)', () => {
     expect(cellUnsub).toHaveBeenCalled();
     expect(preciseUnsub).toHaveBeenCalled();
 
-    // Nodes republished: fresh subscriptions must open.
+    // Nodes republished: precise reopens fresh. Cell does NOT — uidA is still
+    // precise-eligible (mutual, Direct on, available), so the redundant cell
+    // tier for this uid stays excluded/closed (Task 2: one sub per mutual).
     isContextPublished.mockImplementation(() => true);
     document.dispatchEvent(new CustomEvent('location-publishing-changed'));
-    expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(1);
     expect(subscribeDistance).toHaveBeenCalledTimes(2);
   });
 
@@ -2175,9 +2228,12 @@ describe('distance on group roster (Task 10)', () => {
     expect(cellUnsub).toHaveBeenCalled();
     expect(preciseUnsub).toHaveBeenCalled();
 
+    // Available again: precise reopens fresh. Cell does NOT — uidA is still
+    // precise-eligible, so the redundant cell tier stays excluded/closed
+    // (Task 2: one sub per mutual).
     isContextAvailable.mockImplementation(() => true);
     document.dispatchEvent(new CustomEvent('location-publishing-changed'));
-    expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(1);
     expect(subscribeDistance).toHaveBeenCalledTimes(2);
   });
 

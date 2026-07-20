@@ -316,7 +316,8 @@ function reconcileDistanceSubs(memberUids: Set<string>, myUserId: string, groupI
   // and must not see that tier; closing is safe to reverse since the
   // persisted nodes make the reopen cancel-free. Mirrors following.ts's
   // reconcileDistanceSubs — deliberate parallel.
-  const cellEligible = (isContextAvailable(groupId) && isContextPublished(groupId) && getLocationOptIn(groupId)) ? memberUids : new Set<string>();
+  const eligible = isContextAvailable(groupId) && isContextPublished(groupId) && getLocationOptIn(groupId);
+  const cellEligible = new Set(eligible ? memberUids : []);
   const mutualIds = new Set(getCurrentMutuals().map((m: { userId: string }) => m.userId));
   const directOn = isContextAvailable('direct') && isContextPublished('direct') && getLocationOptIn('direct');
   const preciseEligible = new Set<string>();
@@ -336,6 +337,13 @@ function reconcileDistanceSubs(memberUids: Set<string>, myUserId: string, groupI
       preciseEligible.add(uid);
     }
   }
+  // Precise wins at paint, so a mutual eligible for both tiers only needs the
+  // wire listen that actually renders — the redundant cell sub would just
+  // re-deliver every peer cell write for a tier that never paints. Reopening
+  // is cancel-free (last-known model + isContextPublished already gates
+  // cellEligible), so this exclusion is safe to reverse the moment precise
+  // eligibility lapses.
+  for (const uid of preciseEligible) cellEligible.delete(uid);
 
   _cellUnsubs.forEach((unsub, uid) => {
     if (cellEligible.has(uid)) return;
