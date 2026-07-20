@@ -227,14 +227,17 @@ function revokePermissionTeardown() {
 // in the Telegram context (LocationManager has no silent query) — both keep
 // the pre-gate behavior. NOT used by the glyph-tap path (toggleContext),
 // which must keep prompting on explicit intent.
+let _geoPermStatus: { state: string; addEventListener?: (t: string, l: () => void) => void } | null = null;
 async function tickPermissionGranted(): Promise<boolean> {
   if (isTelegramContext()) return true;
   const perms = (navigator as Navigator & {
-    permissions?: { query?: (d: { name: string }) => Promise<{ state: string }> };
+    permissions?: { query?: (d: { name: string }) => Promise<{ state: string; addEventListener?: (t: string, l: () => void) => void }> };
   }).permissions;
   if (!perms?.query) return true;
+  if (_geoPermStatus) return _geoPermStatus.state === 'granted';
   try {
     const status = await perms.query({ name: 'geolocation' });
+    if (typeof status.addEventListener === 'function') _geoPermStatus = status; // else keep per-tick queries
     return status.state === 'granted';
   } catch { return true; } // a query the browser rejects must not silence the loop
 }
@@ -487,5 +490,6 @@ export function _resetLocationShare() {
   _lastPublished.clear();
   _lastPresence = null;
   _getOptedInGids = () => [];
+  _geoPermStatus = null;
   dispatchPublishingChanged();
 }

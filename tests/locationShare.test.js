@@ -637,6 +637,88 @@ test('a tick never fires the permission PROMPT: Permissions API "prompt" skips c
   expect(db.publishLocation).toHaveBeenCalledWith('me', 52.52, 13.405, expect.any(Number));
 });
 
+// Task 8: the Permissions API is queried once and the PermissionStatus is
+// cached — its `.state` stays live on the retained object, so subsequent
+// ticks read it synchronously instead of re-querying every 60s.
+describe('geolocation PermissionStatus caching', () => {
+  test('a live PermissionStatus (supports addEventListener) is queried once across ticks', async () => {
+    const status = { state: 'granted', addEventListener: jest.fn() };
+    Object.defineProperty(global.navigator, 'permissions', {
+      configurable: true,
+      value: { query: jest.fn(async () => status) },
+    });
+    prefs.setLocationOptIn('direct', true);
+    const { initLocationShare } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await flush(); await flush(); // first tick (immediate, from startLoop)
+    jest.advanceTimersByTime(60000);
+    await flush(); await flush(); // second tick (interval)
+    expect(navigator.permissions.query).toHaveBeenCalledTimes(1);
+  });
+
+  test('_resetLocationShare clears the cached status — the next tick re-queries', async () => {
+    const status = { state: 'granted', addEventListener: jest.fn() };
+    Object.defineProperty(global.navigator, 'permissions', {
+      configurable: true,
+      value: { query: jest.fn(async () => status) },
+    });
+    prefs.setLocationOptIn('direct', true);
+    const { initLocationShare, _resetLocationShare } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await flush(); await flush();
+    expect(navigator.permissions.query).toHaveBeenCalledTimes(1);
+
+    _resetLocationShare();
+    prefs.setLocationOptIn('direct', true);
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await flush(); await flush();
+    expect(navigator.permissions.query).toHaveBeenCalledTimes(2);
+  });
+
+  test('a status without addEventListener is not cached — every tick re-queries', async () => {
+    Object.defineProperty(global.navigator, 'permissions', {
+      configurable: true,
+      value: { query: jest.fn(async () => ({ state: 'granted' })) },
+    });
+    prefs.setLocationOptIn('direct', true);
+    const { initLocationShare } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await flush(); await flush();
+    jest.advanceTimersByTime(60000);
+    await flush(); await flush();
+    expect(navigator.permissions.query).toHaveBeenCalledTimes(2);
+  });
+
+  test('a cached status whose .state later flips to non-granted makes the next tick skip capture', async () => {
+    const status = { state: 'granted', addEventListener: jest.fn() };
+    Object.defineProperty(global.navigator, 'permissions', {
+      configurable: true,
+      value: { query: jest.fn(async () => status) },
+    });
+    prefs.setLocationOptIn('direct', true);
+    const { initLocationShare } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await flush(); await flush();
+    expect(db.publishLocation).toHaveBeenCalled();
+    db.publishLocation.mockClear();
+    navigator.geolocation.getCurrentPosition.mockClear();
+
+    // The browser mutates the retained object in place on revocation — no
+    // re-query needed for the cache to observe the flip.
+    status.state = 'denied';
+    jest.advanceTimersByTime(60000);
+    await flush(); await flush();
+    expect(navigator.permissions.query).toHaveBeenCalledTimes(1);
+    expect(navigator.geolocation.getCurrentPosition).not.toHaveBeenCalled();
+    expect(db.publishLocation).not.toHaveBeenCalled();
+  });
+});
+
 // Group location is independent of the Direct context (operator call at
 // device smoke): a group's cell publishing and availability key off the OWN
 // EFFECTIVE in-group status (override-aware, via statusStore), not the
