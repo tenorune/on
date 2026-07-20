@@ -53,4 +53,18 @@ describe('applyDrawingPayload', () => {
     const r = applyDrawingPayload(b, { points: [[9, 9]] });
     expect(r).not.toBe(b);
   });
+
+  test('malformed peer base: negative base does not throw and yields a usable array', () => {
+    expect(() => applyDrawingPayload([[0, 0]], { points: [[1, 1]], base: -3 })).not.toThrow();
+    const r = applyDrawingPayload([[0, 0]], { points: [[1, 1]], base: -3 });
+    expect(Array.isArray(r)).toBe(true);
+    expect(r).toEqual([[1, 1]]);
+  });
+
+  test('malformed peer base: NaN base does not throw and yields a usable array', () => {
+    expect(() => applyDrawingPayload([[0, 0]], { points: [[1, 1]], base: NaN })).not.toThrow();
+    const r = applyDrawingPayload([[0, 0]], { points: [[1, 1]], base: NaN });
+    expect(Array.isArray(r)).toBe(true);
+    expect(r).toEqual([[1, 1]]);
+  });
 });

@@ -24,7 +24,11 @@ export function applyDrawingPayload(
   // In-place append: truncate to base (coalesced-write gap joins as before)
   // and push the tail — the old slice().concat() copied the whole stroke
   // every 80ms tick. Callers hold the same array identity across ticks.
-  buffer.length = Math.min(base, buffer.length);
+  // `base` comes from peer-written RTDB data — clamp defensively so a malformed
+  // (negative/NaN) base degrades gracefully instead of throwing RangeError on
+  // the length assignment. Valid in-app base is always _currentPoints.length.
+  const truncateTo = Number.isFinite(base) ? Math.max(0, Math.min(base as number, buffer.length)) : 0;
+  buffer.length = truncateTo;
   for (const pt of points) buffer.push(pt);
   return buffer;
 }
