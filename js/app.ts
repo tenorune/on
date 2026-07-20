@@ -1,6 +1,6 @@
 // js/app.ts
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
-import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getCall, getUser, getUserPrefs, readGroupName } from './db.js';
+import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getCall, getUser, getCurrentContextPref, readGroupName } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initLocationShare } from './locationShare.js';
 import { initList, setFolloweeReadyCallback, setFollowingListReadyCallback, reEnterCallMode, type InitListOptions } from './following.js';
@@ -827,9 +827,9 @@ async function resolveEntryContext(session: BootSession, intent: BootIntent, sto
     if (directEl) directEl.classList.add('hidden');
     if (navRowEl) navRowEl.classList.add('hidden');
     try {
-      // currentContext lives in userPrefs/{uid}/ after the migration.
-      const prefsSnap = await getUserPrefs(userId);
-      const cc = prefsSnap?.currentContext;
+      // currentContext leaf only — the full node is downloaded once, by
+      // watchUserPrefs (Stage 4).
+      const cc = await getCurrentContextPref(userId);
       if (typeof cc === 'string' && cc.startsWith('group:')) {
         const groupId = cc.slice(6);
         // Name leaf only: if the user was removed from this group while away,

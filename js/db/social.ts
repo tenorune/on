@@ -187,6 +187,14 @@ export async function getUserPrefs(userId: string): Promise<UserPrefs | null> {
   return snap.exists() ? snap.val() : null;
 }
 
+// Boot-time leaf read: the prefetch only needs currentContext, and the full
+// node carries pushTokens/following/perGroup — the whole-subtree get doubled
+// the boot download that watchUserPrefs performs seconds later (audit F6).
+export async function getCurrentContextPref(userId: string): Promise<string | null> {
+  const snap = await get(ref(db, `userPrefs/${userId}/currentContext`));
+  return snap.exists() ? (snap.val() as string) : null;
+}
+
 // Targeted read of the FCM push-token registry (token → { createdAt, lastSeen,
 // ua }). Used by the stale-token TTL cull (prefs.cullStalePushTokens, #157).
 export async function readPushTokens(userId: string): Promise<Record<string, { createdAt?: number; lastSeen?: number } | null> | null> {
