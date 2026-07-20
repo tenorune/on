@@ -355,7 +355,23 @@ export async function answerCall(calleeId: string, callerId: string): Promise<vo
   });
 }
 export async function endCall(aUid: string, bUid: string): Promise<void> {
-  await update(ref(db), { [`calls/${aUid}`]: null, [`calls/${bUid}`]: null });
+  try {
+    await update(ref(db), { [`calls/${aUid}`]: null, [`calls/${bUid}`]: null });
+  } catch {
+    // The peer mailbox (calls/{bUid}) may already be gone — nulling an absent
+    // node we don't own is denied by the calls .write rule, which fails the WHOLE
+    // atomic update and would strand us on the canvas (the reported "stuck, can't
+    // escape" bug). Fall back to clearing only our OWN mailbox, which always
+    // passes (auth.uid === $uid). Every caller passes the local user as aUid.
+    await set(ref(db, `calls/${aUid}`), null).catch(() => {});
+  }
+}
+
+// One-shot read of a call mailbox. Used by boot recovery to detect an orphaned
+// survivor (our node persists but the peer's no longer references us).
+export async function getCall(uid: string): Promise<Record<string, unknown> | null> {
+  const snap = await get(ref(db, `calls/${uid}`));
+  return snap.exists() ? snap.val() : null;
 }
 export function watchOwnCall(myUserId: string, callback: (call: Record<string, unknown> | null) => void): () => void {
   const callRef = ref(db, `calls/${myUserId}`);

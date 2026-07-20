@@ -1,6 +1,6 @@
 // js/app.ts
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
-import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getUser, getUserPrefs, readGroupName } from './db.js';
+import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getCall, getUser, getUserPrefs, readGroupName } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
 import { initList, setFolloweeReadyCallback, setFollowingListReadyCallback, reEnterCallMode, type InitListOptions } from './following.js';
 import { initKnocks } from './knock.js';
@@ -1167,7 +1167,18 @@ function initCallRecovery(userId: string) {
     try {
       const peerData = await getUser(peerId);
       if (!peerData) { endCall(userId, peerId).catch(() => {}); return; }
-      if (call.answered) reEnterCallMode(entry, peerData, userId);
+      if (call.answered) {
+        // Self-heal an orphaned survivor: if the peer's mailbox no longer points
+        // back at us (gone, or moved on to another call), the call was half-torn-
+        // down and re-entering would trap us on a dead canvas we can't leave.
+        // Clear our own node instead (hardened endCall falls back to calls/{me}).
+        const peerCall = await getCall(peerId);
+        if (!peerCall || (peerCall.to !== userId && peerCall.from !== userId)) {
+          endCall(userId, peerId).catch(() => {});
+          return;
+        }
+        reEnterCallMode(entry, peerData, userId);
+      }
     } catch { endCall(userId, peerId).catch(() => {}); }
   });
 }
