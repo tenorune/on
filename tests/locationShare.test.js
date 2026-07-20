@@ -902,3 +902,15 @@ describe('GPS options by tier (audit F2)', () => {
     expect(lastGeoOpts()).toMatchObject({ enableHighAccuracy: true, maximumAge: 30000 });
   });
 });
+
+test('a prefs echo does not re-probe contexts already marked published (audit F5)', async () => {
+  const { initLocationShare, toggleContext } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush(); // publish landed → 'direct' is in _publishedContexts
+  db.hasLocationNode.mockClear();
+  document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+  await flush();
+  expect(db.hasLocationNode).not.toHaveBeenCalled();
+});

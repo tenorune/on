@@ -354,8 +354,13 @@ function seedPublishedFromServer() {
       if (found && _userId === uid && getLocationOptIn(context)) markPublished(context);
     }).catch(() => {});
   };
-  if (getLocationOptIn('direct')) probe('direct', hasLocationNode(uid));
-  for (const gid of _getOptedInGids()) probe(gid, hasLocationCell(gid, uid));
+  // Contexts already known-published skip the probe — markPublished would be
+  // a guaranteed no-op there (audit F5: a prefs echo re-probed every opted-in
+  // context on every sibling-device swatch tap, even ones already published).
+  if (getLocationOptIn('direct') && !_publishedContexts.has('direct')) probe('direct', hasLocationNode(uid));
+  for (const gid of _getOptedInGids()) {
+    if (!_publishedContexts.has(gid)) probe(gid, hasLocationCell(gid, uid));
+  }
 }
 
 export function capabilityState(): 'supported' | 'unsupported' {

@@ -524,12 +524,23 @@ export function syncFromServer(serverPrefs: UserPrefs | null | undefined) {
     writeNotifyCache(map);
     document.dispatchEvent(new CustomEvent('notify-prefs-synced'));
   }
-  // Location-sharing opt-ins (per context)
+  // Location-sharing opt-ins (per context). Dispatch only on a REAL change:
+  // syncFromServer runs on every userPrefs echo (each sibling-device swatch
+  // tap), and once `location` exists it exists forever — an unconditional
+  // dispatch re-ran two full list renders plus per-context server probes per
+  // echo (audit F5). Own-write echoes are no-ops here because setLocationOptIn
+  // already wrote the cache before the server round-trip.
   if (serverPrefs.location && typeof serverPrefs.location === 'object') {
-    writeLocationCache({
+    const next = {
       direct: !!serverPrefs.location.direct,
       groups: { ...(serverPrefs.location.groups || {}) },
-    });
-    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+    };
+    const cur = readLocationCache();
+    const curGroups = cur.groups || {};
+    const gids = new Set([...Object.keys(curGroups), ...Object.keys(next.groups)]);
+    const changed = !!cur.direct !== next.direct
+      || [...gids].some((gid) => !!curGroups[gid] !== !!next.groups[gid]);
+    writeLocationCache(next);
+    if (changed) document.dispatchEvent(new CustomEvent('location-prefs-synced'));
   }
 }

@@ -411,4 +411,20 @@ describe('location opt-in prefs', () => {
     prefs.setLocationOptIn('G2', false);
     expect(prefs.getOptedInLocationGids()).toEqual(['G1']);
   });
+
+  test('syncFromServer dispatches location-prefs-synced only on a real opt-in change (audit F5)', () => {
+    const seen = jest.fn();
+    document.addEventListener('location-prefs-synced', seen);
+    syncFromServer({ location: { direct: true, groups: { G1: true } } });
+    expect(seen).toHaveBeenCalledTimes(1); // first sync into an empty cache
+    syncFromServer({ location: { direct: true, groups: { G1: true } } });
+    expect(seen).toHaveBeenCalledTimes(1); // identical echo — no dispatch
+    syncFromServer({ location: { direct: true, groups: { G1: true }, extra: 1 } });
+    expect(seen).toHaveBeenCalledTimes(1); // unknown keys don't count as change
+    syncFromServer({ location: { direct: false, groups: { G1: true } } });
+    expect(seen).toHaveBeenCalledTimes(2); // real flip
+    syncFromServer({ location: { direct: false, groups: { G1: true, G2: true } } });
+    expect(seen).toHaveBeenCalledTimes(3); // new gid
+    document.removeEventListener('location-prefs-synced', seen);
+  });
 });
