@@ -35,9 +35,14 @@ jest.mock('../js/prefs.js', () => ({
   clearGroupPaletteState: jest.fn(),
 }));
 
+jest.mock('../js/firebase-config.js', () => ({
+  callJoinGroup: jest.fn(),
+}));
+
 const db = require('../js/db.js');
 const groupNav = require('../js/groupNav.js');
 const prefs = require('../js/prefs.js');
+const { callJoinGroup } = require('../js/firebase-config.js');
 const { createGroup, renameGroup, deleteGroup, leaveGroup, joinGroup, editOwnDisplayName, initGroupRemovalDetector, _resetGroupRemovalDetectorForTests, _feedSnapshotForTests, toggleStatusOverride, setOverrideStatusAvailable, setOverrideStatusUnavailable, generateGroupId } = require('../js/groups');
 const { GROUP_ID_RE } = require('../shared/idFormats.js');
 
@@ -222,20 +227,16 @@ describe('joinGroup', () => {
     await expect(joinGroup('NOPE', 'uid2', 'Alex')).rejects.toThrow(/not found/i);
   });
 
-  test('writes member record + user enumeration when joining', async () => {
+  test('calls the joinGroup callable (not a direct write) + user enumeration when joining', async () => {
     db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
     db.readMember.mockResolvedValue(null);
-    db.writeMember.mockResolvedValue();
+    callJoinGroup.mockResolvedValue({ ok: true, groupId: 'G1' });
     db.writeUserGroupsEntry.mockResolvedValue();
     await joinGroup('G1', 'uid2', '  Alex  ');
-    expect(db.writeMember).toHaveBeenCalledWith('G1', 'uid2', expect.objectContaining({
-      role: 'member',
-      displayName: 'Alex',
-      joinedAt: expect.any(Number),
-      // Override defaults ON so the joiner doesn't auto-broadcast their
-      // primary status to the group.
-      statusOverride: { enabled: true, status: 'available', availableUntil: expect.any(Number) },
-    }));
+    // Server-authoritative join (Fix 2b): the client no longer writes the
+    // member node directly — it brokers through the callable.
+    expect(callJoinGroup).toHaveBeenCalledWith({ groupId: 'G1', displayName: 'Alex' });
+    expect(db.writeMember).not.toHaveBeenCalled();
     expect(db.writeUserGroupsEntry).toHaveBeenCalledWith('uid2', 'G1', expect.objectContaining({
       lastVisited: expect.any(Number),
     }));
@@ -245,6 +246,7 @@ describe('joinGroup', () => {
     db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
     db.readMember.mockResolvedValue({ role: 'member', displayName: 'Old', joinedAt: 10 });
     await joinGroup('G1', 'uid2', 'Alex');
+    expect(callJoinGroup).not.toHaveBeenCalled();
     expect(db.writeMember).not.toHaveBeenCalled();
     expect(db.writeUserGroupsEntry).toHaveBeenCalled(); // still bumps lastVisited
   });
@@ -255,6 +257,7 @@ describe('joinGroup', () => {
     // an impossible WHITE + default-theme combo.
     db.readGroup.mockResolvedValue({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
     db.readMember.mockResolvedValue(null);
+    callJoinGroup.mockResolvedValue({ ok: true, groupId: 'G1' });
     await joinGroup('G1', 'uid2', 'Alex');
     expect(prefs.clearGroupPaletteState).toHaveBeenCalledWith('G1');
   });
@@ -264,6 +267,21 @@ describe('joinGroup', () => {
     db.readMember.mockResolvedValue({ role: 'member', displayName: 'Old', joinedAt: 10 });
     await joinGroup('G1', 'uid2', 'Alex');
     expect(prefs.clearGroupPaletteState).not.toHaveBeenCalled();
+  });
+
+  // Verifies the client join path brokers through the callable and NEVER writes
+  // the member node directly (the #288 close depends on this).
+  test('joinGroup routes through the callable, not a direct member write', async () => {
+    callJoinGroup.mockResolvedValue({ ok: true, groupId: 'G1' });
+    await joinGroup('G1', 'joiner', 'Jo', { group: { name: 'Family' }, existing: null, token: 'T' });
+    expect(callJoinGroup).toHaveBeenCalledWith({ groupId: 'G1', displayName: 'Jo', token: 'T' });
+    expect(db.writeMember).not.toHaveBeenCalled();
+  });
+
+  test('throws with the callable\'s reason when the join is rejected', async () => {
+    callJoinGroup.mockResolvedValue({ ok: false, reason: 'revoked' });
+    await expect(joinGroup('G1', 'joiner', 'Jo', { group: { name: 'Family' }, existing: null, token: 'T' }))
+      .rejects.toThrow('revoked');
   });
 });
 
@@ -448,6 +466,7 @@ describe('end-to-end: create group → group invite → redeem → joined', () =
     db.incrementGroupInviteRedemptions = jest.fn().mockResolvedValue();
     db.writeMember.mockResolvedValue();
     db.writeUserGroupsEntry.mockResolvedValue();
+    callJoinGroup.mockResolvedValue({ ok: true, groupId: created.groupId });
 
     const redemption = await redeemGroupInvite(invite.token, 'redeemer-uid', 'Alex');
     expect(redemption).toEqual({ ok: true, groupId: created.groupId, groupName: 'Family' });

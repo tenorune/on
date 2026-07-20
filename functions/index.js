@@ -11,6 +11,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
 import { handleMemberRemoved } from './group-cleanup.js';
 import { resolveInvitePreviewHandler } from './invites.js';
+import { joinGroupHandler } from './group-join.js';
 import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, graduateTelegramHandler, mintTelegramLinkTokenHandler, redeemTelegramLinkTokenHandler } from './telegram-auth.js';
 import { buildNotificationKeyboard, handleUpdate, webhookAuthorized, botCommandsPayload } from './telegram.js';
 
@@ -225,6 +226,21 @@ export const validateRecovery = httpsOnCall((request) =>
 export const resolveInvitePreview = httpsOnCall((request) =>
   resolveInvitePreviewHandler(request, {
     getVal: (/** @type {string} */ path) => db.ref(path).get().then((snap) => snap.val()),
+  }));
+
+// Authenticated callable: server-authoritative group join (Fix 2, option A).
+// Validates a real entitlement (invite token or pending invite) before writing
+// the member node via Admin SDK, closing the #288 self-join surface once the
+// members .write rule is tightened (see database.rules.json). See group-join.js.
+export const joinGroup = httpsOnCall((request) =>
+  joinGroupHandler(request, {
+    now: () => Date.now(),
+    getVal: (/** @type {string} */ path) => db.ref(path).get().then((snap) => snap.val()),
+    set: (/** @type {string} */ path, /** @type {unknown} */ value) => db.ref(path).set(value),
+    transaction: async (/** @type {string} */ path, /** @type {(c: any) => unknown} */ fn) => {
+      const res = await db.ref(path).transaction(fn);
+      return { committed: res.committed };
+    },
   }));
 
 // ── Telegram (experimental; inert unless TELEGRAM_BOT_TOKEN is set in the

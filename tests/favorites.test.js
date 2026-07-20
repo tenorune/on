@@ -3,6 +3,10 @@ jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.f
 // inviteModal.js (reached transitively via groupNav.js → groupContext.js) now
 // imports telegram.js, which pulls in firebase/auth; stub it out inertly.
 jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false), openTelegramShare: jest.fn() }));
+// groups.js (reached transitively via groupNav.js) now calls the joinGroup
+// callable via firebase-config.js (Fix 2b), which pulls in firebase/auth the
+// same way telegram.js does above; stub it out inertly for the same reason.
+jest.mock('../js/firebase-config.js', () => ({ callJoinGroup: jest.fn() }));
 
 // ─── Store helpers ──────────────────────────────────────────────────────────
 // These tests use the REAL store implementation with jsdom localStorage.

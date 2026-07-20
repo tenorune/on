@@ -721,7 +721,7 @@ describe('redeemGroupInvite', () => {
     db.incrementGroupInviteRedemptions.mockResolvedValue();
   });
 
-  test('happy path: joins the group and bumps redemption count', async () => {
+  test('happy path: joins the group, passing the token through (the callable bumps redemption count server-side)', async () => {
     db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/TOKEN' });
     db.readGroupName.mockResolvedValue({ name: 'Family' });
     db.readGroupInvite.mockResolvedValue(
@@ -734,8 +734,11 @@ describe('redeemGroupInvite', () => {
     expect(groups.joinGroup).toHaveBeenCalledWith('G1', 'redeemer-uid', 'Alex', expect.objectContaining({
       group: expect.objectContaining({ name: 'Family' }),
       existing: null,
+      token: 'TOKEN',
     }));
-    expect(db.incrementGroupInviteRedemptions).toHaveBeenCalledWith('G1', 'TOKEN');
+    // Fix 2b: the redemptionsUsed bump moved server-side into the joinGroup
+    // callable (functions/group-join.js); the client no longer calls this.
+    expect(db.incrementGroupInviteRedemptions).not.toHaveBeenCalled();
   });
 
   test('returns not-found when the index lookup is empty', async () => {
