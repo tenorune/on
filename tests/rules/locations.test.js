@@ -79,6 +79,38 @@ describe('locations/{uid}', () => {
   });
 });
 
+describe('users/{uid}/followers — forgery guard (Fix 1)', () => {
+  test('target CANNOT fabricate an inbound follower edge (create as $uid)', async () => {
+    // mallory tries to claim "victim follows me" by writing into her OWN list.
+    await assertFails(dbAs(env, 'mallory').ref('users/mallory/followers/victim').set('VICCOD'));
+  });
+
+  test('follower CAN still self-register (create as $follower)', async () => {
+    await assertSucceeds(dbAs(env, 'mallory').ref('users/victim/followers/mallory').set('MALCOD'));
+  });
+
+  test('target CAN still remove a follower (delete as $uid)', async () => {
+    await seed(env, async (db) => { await db.ref('users/victim/followers/mallory').set('MALCOD'); });
+    await assertSucceeds(dbAs(env, 'victim').ref('users/victim/followers/mallory').remove());
+  });
+
+  test('forged-edge read exploit is blocked end-to-end', async () => {
+    // mallory follows victim (legit, self as $follower) + publishes own node,
+    // but CANNOT forge "victim follows mallory", so the mutual gate fails.
+    await seed(env, async (db) => {
+      await db.ref('users/victim/followers/mallory').set('MALCOD'); // mallory→victim
+      await db.ref('locations/victim').set(LOC);
+      await db.ref('locations/mallory').set(LOC);
+    });
+    await assertFails(dbAs(env, 'mallory').ref('users/mallory/followers/victim').set('VICCOD'));
+    await assertFails(dbAs(env, 'mallory').ref('locations/victim').get());
+  });
+
+  test('followerNames: target cannot fabricate an inbound name either', async () => {
+    await assertFails(dbAs(env, 'mallory').ref('users/mallory/followerNames/victim').set('Victim'));
+  });
+});
+
 describe('locationCells/{gid}/{uid}', () => {
   const CELL = { lat: 52.52, lng: 13.41, updatedAt: 1752800000000 };
 

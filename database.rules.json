@@ -31,14 +31,14 @@
         },
         "followers": {
           "$follower": {
-            ".write": "auth != null && (auth.uid === $follower || auth.uid === $uid)",
-            ".validate": "newData.isString() && newData.val().length <= 16"
+            ".write": "auth != null && (auth.uid === $follower || (auth.uid === $uid && !newData.exists()))",
+            ".validate": "newData.isString() && newData.val().length <= 16 && auth.uid === $follower"
           }
         },
         "followerNames": {
           "$follower": {
-            ".write": "auth != null && (auth.uid === $follower || auth.uid === $uid)",
-            ".validate": "newData.isString() && newData.val().length <= 40"
+            ".write": "auth != null && (auth.uid === $follower || (auth.uid === $uid && !newData.exists()))",
+            ".validate": "newData.isString() && newData.val().length <= 40 && auth.uid === $follower"
           }
         }
       }
