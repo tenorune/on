@@ -126,8 +126,13 @@ describe('C2 + group-redeem non-member read flow', () => {
     await assertFails(dbAs(env, 'joiner').ref('groups/G1/members/owner').get());
   });
 
-  test('a non-member joiner CAN self-join (writeMember) and bump redemptionsUsed (C2)', async () => {
-    await assertSucceeds(dbAs(env, 'joiner').ref('groups/G1/members/joiner').set({ role: 'member', displayName: 'J', joinedAt: 1 }));
+  test('a non-member joiner CANNOT self-join directly (join only via callable); can bump redemptionsUsed if already member (C2)', async () => {
+    // Self-join at the rules level is now blocked (Fix 2c); clients must use the joinGroup callable (Admin SDK).
+    await assertFails(dbAs(env, 'joiner').ref('groups/G1/members/joiner').set({ role: 'member', displayName: 'J', joinedAt: 1 }));
+    // Redemption counter bump still works per the original C2 test (would need to be member first via callable).
+    await seed(env, async (db) => {
+      await db.ref('groups/G1/members/joiner').set({ role: 'member', displayName: 'J', joinedAt: 1 });
+    });
     await assertSucceeds(dbAs(env, 'joiner').ref('groups/G1/invites/TOKG/redemptionsUsed').set(1));
   });
 
