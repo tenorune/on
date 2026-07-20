@@ -11,34 +11,49 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**The Tier 3 performance-fix batch is DONE and merged to this feature branch.**
-All 14 tasks of `docs/superpowers/plans/2026-07-20-performance-fixes-tier3.md`
-plus a review-minor cleanup shipped via subagent-driven-development (fresh
-implementer per task, per-task spec+quality review, final whole-branch review —
-verdict "ready"; see History for the per-task list). Tip is `eca3c0e` on BOTH
-`claude/knockknock-perf-fixes-tier3-2j9hj9` (where it was built) and
-`claude/knockknock-feature-dev-9a3ysy` (fast-forward merge, operator-directed).
-Both pushed; `origin/*` == local. Realign:
+**All three perf batches are DONE, review-verified 26/26, and mostly
+device-smoked.** A full implementation-vs-plan verification pass (2026-07-20,
+three parallel read-only agents + coordinator spot-checks) confirmed every task
+of all three perf plans faithful to its behavioral contract — no undocumented
+deviations. The operator then ran the on-device smoke checklist: **most items
+verified on device; a subset was deferred as too difficult to exercise right
+now** (not itemized; the deploy-gated ones — F6c push migration flow, F7
+single-notification, F9 header/SW checks — can only run post-deploy anyway,
+per `docs/DEPLOY-PROD.md` verify steps).
+
+Smoke testing found ONE real regression, now fixed: **iOS PWA glyph-on wrote
+the pref but never published** — Tier 3 T8's PermissionStatus cache froze a
+pre-grant `'prompt'` object (iOS WebKit never updates a retained status; a
+fresh query said `'granted'`, device-probed). Fix `45d7bec`: cache only a
+granted status; non-granted states re-query per tick. Client-only — rides the
+hosting deploy, no ordering constraint.
+
+Tip is `45d7bec` on `claude/knockknock-feature-dev-9a3ysy`, pushed;
+`origin/*` == local. Realign:
 
 ```
 git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
 ```
 
-Tip must be `eca3c0e` — else STOP, origin is authoritative.
+Tip must be `45d7bec` — else STOP, origin is authoritative.
 
 **Next actions (nothing deploys from sessions):**
 
 1. Maintainer merges `claude/knockknock-feature-dev-9a3ysy` → `dev` (and
    `dev` → `main`).
-2. DEPLOY the accumulated branch work (security fixes + all three perf batches)
-   per the Deploy ordering below — the LOAD-BEARING `pushTokens` (F6c) sequence
-   is the one that bites.
-3. No unstarted plan remains on this branch. Next feature work starts from a
+2. DEPLOY the accumulated branch work (security fixes + all three perf batches
+   + the iOS glyph fix) per the Deploy ordering below — the LOAD-BEARING
+   `pushTokens` (F6c) sequence is the one that bites.
+3. Post-deploy: run the deferred smoke items (`docs/DEPLOY-PROD.md` verify
+   steps), including: iOS PWA glyph-on publishes within a tick when a prior
+   session's opt-in was already on (the `45d7bec` scenario).
+4. No unstarted plan remains on this branch. Next feature work starts from a
    fresh brainstorm/plan.
 
-**Verification state:** green bar OBSERVED at `eca3c0e` (web jest 2037/2037 ·
-functions 432/432 · rules 108/108 · typechecks clean · zero TS suppressions).
+**Verification state:** green bar OBSERVED at `45d7bec` (web jest 2038/2038 ·
+functions 432/432 · rules 108/108 · typechecks clean · zero TS suppressions
+added by this branch).
 
 **Audit docs (sources of truth):**
 
@@ -84,9 +99,14 @@ deploys from sessions):**
 - Known-deferred minors (unrelated to security, none device-visible): denied
   glyph state isn't sticky · 'unsupported' title says "check permissions" ·
   `formatDistancePrecise` 999.6–999.99 m renders "1000 meters away" ·
-  cross-device prompt-suppression relies on the Permissions API. (The old
-  "stale opted-in gids → harmless denied write every 60s" minor is FIXED by
-  Tier 3 T3 — the loop now sweeps the orphaned opt-in and can idle.)
+  cross-device prompt-suppression relies on the Permissions API (a fresh
+  session whose opt-in synced from elsewhere stays silent while the state is
+  genuinely `'prompt'` — designed, no surprise prompts) · stale comment at the
+  cell-publish catch in `js/locationShare.ts` (~:294) still says "Error shape
+  not device-verified" though the shape was emulator-verified — one-line doc
+  fix whenever convenient. (The old "stale opted-in gids → harmless denied
+  write every 60s" minor is FIXED by Tier 3 T3 — the loop now sweeps the
+  orphaned opt-in and can idle.)
 - Follow-ups triaged 2026-07-17: **#290** in-app-browser dead tap · **#286** no
   invite revoke on Telegram surface · closed-unreproduced "revoked follow
   request still in inbox" (reopen only with a repro).
@@ -245,6 +265,17 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **Verification pass + on-device smoke + iOS glyph fix (2026-07-20,
+  `45d7bec`):** all 26 tasks of the three perf plans verified against source
+  by three parallel read-only agents with coordinator spot-checks — 26/26
+  faithful, all documented deviations confirmed, no undocumented drift.
+  Operator ran the on-device smoke checklist: most verified; deploy-gated and
+  a few hard-to-stage items deferred. One regression found and fixed:
+  iOS PWA glyph-on published nothing because T8's PermissionStatus cache
+  froze a pre-grant `'prompt'` object (WebKit never updates a retained
+  status; fresh query returned `'granted'` — device-probed). `45d7bec`
+  caches only granted statuses; red-green regression test in
+  `tests/locationShare.test.js` ("a 'prompt' status is never cached").
 - **Tier 3 performance fixes (2026-07-20, `d4be799..eca3c0e`, built on
   `claude/knockknock-perf-fixes-tier3-2j9hj9`, fast-forward-merged to
   `claude/knockknock-feature-dev-9a3ysy`, both pushed):** executed
