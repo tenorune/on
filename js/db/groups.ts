@@ -84,32 +84,39 @@ export async function deleteGroup(groupId: string): Promise<void> {
   await remove(ref(db, `groups/${groupId}`));
 }
 
-// Subscription that strips sub-collections so callers only react to meta changes
-// (name, ownerId, etc.). Members and invites are watched separately.
-const GROUP_META_FIELDS = ['name', 'ownerId', 'createdAt', 'color', 'paletteKey'];
-
+// Meta subscription as LEAF listens, not a whole-node listen (audit F3): the
+// group root carries members/ (incl. hot statusOverride, rewritten on every
+// swatch tap) and invites/ — a root listen re-delivered all of it to every
+// member's nav for every appearance write, and every boot downloaded G full
+// rosters. Consumers only use name + ownerId (verified: groupNav paints name;
+// groupContext reads name + ownerId). Read grants cascade down, so a member
+// may read any child — no rules change.
+//
+// Lifecycle sentinel: groups/{gid}/ownerId inherits the membership-gated root
+// read rule, so owner-deletes-group AND member-kicked both fire its CANCEL
+// (never a null tick) — same "gone for me" semantics the old root listen had.
+// The name leaf is auth-readable (survives a kick) and exists purely to
+// deliver name updates; it must NOT drive deletion (its null/cancel behavior
+// differs).
 export function watchGroupMeta(groupId: string, callback: (meta: Record<string, unknown> | null) => void): () => void {
-  const groupRef = ref(db, `groups/${groupId}`);
-  return onValue(groupRef, (snap) => {
-    if (!snap.exists()) { callback(null); return; }
-    const val = snap.val() || {};
-    const meta: Record<string, unknown> = {};
-    for (const k of GROUP_META_FIELDS) {
-      if (val[k] !== undefined) meta[k] = val[k];
-    }
-    callback(meta);
-  }, () => {
-    // Listener CANCELLED (PERMISSION_DENIED). groups/{gid} is membership-gated,
-    // so when the owner deletes the group the node goes null and the read rule
-    // (data.child('members').child(me).exists()) now evaluates against nothing
-    // → the member loses read access. Firebase fires THIS cancel callback, not a
-    // null-value tick — so without handling it the deletion is invisible and the
-    // stale group lingers in the member's nav (shown as its raw id). Treat
-    // cancellation as "group gone for me" and emit null, driving groupNav's
-    // deletion self-clean (removeUserGroupsEntry). Also covers a member being
-    // removed from the group (likewise a read-access loss).
+  const meta: Record<string, unknown> = {};
+  let gone = false;
+  const emit = () => { if (!gone) callback({ ...meta }); };
+  const emitGone = () => {
+    if (gone) return;
+    gone = true;
     callback(null);
-  });
+  };
+  const unName = onValue(ref(db, `groups/${groupId}/name`), (snap) => {
+    if (snap.exists()) meta.name = snap.val(); else delete meta.name;
+    emit();
+  }, () => { /* name leaf cancel is not a lifecycle signal */ });
+  const unOwner = onValue(ref(db, `groups/${groupId}/ownerId`), (snap) => {
+    if (!snap.exists()) { emitGone(); return; } // node deleted under a still-open listen
+    meta.ownerId = snap.val();
+    emit();
+  }, emitGone);
+  return () => { unName(); unOwner(); };
 }
 
 // ── Groups: members ───────────────────────────────────────────────────────────

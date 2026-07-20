@@ -510,26 +510,27 @@ describe('group entity ops', () => {
     expect(remove).toHaveBeenCalled();
   });
 
-  test('watchGroupMeta subscribes to groups/{groupId} and strips members/invites for the meta-only callback', () => {
-    let cb;
-    onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });
+  test('watchGroupMeta subscribes to groups/{groupId}/name and groups/{groupId}/ownerId as leaf listens (audit F3), never the group root', () => {
     const seen = [];
     watchGroupMeta('G1ABCD23', (meta) => seen.push(meta));
-    cb({ exists: () => true, val: () => ({ name: 'Family', ownerId: 'uid1', createdAt: 1, members: { u: {} }, invites: { i: {} } }) });
-    expect(seen[0]).toEqual({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
-    cb({ exists: () => false });
-    expect(seen[1]).toBeNull();
+    expect(ref).toHaveBeenCalledWith({}, 'groups/G1ABCD23/name');
+    expect(ref).toHaveBeenCalledWith({}, 'groups/G1ABCD23/ownerId');
+    expect(ref).not.toHaveBeenCalledWith({}, 'groups/G1ABCD23');
+    const [, nameCb] = onValue.mock.calls[0];
+    const [, ownerCb] = onValue.mock.calls[1];
+    nameCb({ exists: () => true, val: () => 'Family' });
+    ownerCb({ exists: () => true, val: () => 'uid1' });
+    expect(seen[seen.length - 1]).toEqual({ name: 'Family', ownerId: 'uid1' });
   });
 
-  test('watchGroupMeta fires null when the listener is CANCELLED (owner deleted the group → read permission lost)', () => {
-    // Real Firebase never delivers a null value here: the group node is
-    // membership-gated, so its deletion cancels the member's listener with
-    // PERMISSION_DENIED (the onValue cancel callback), not a null snapshot.
-    let cancelCb;
-    onValue.mockImplementation((_ref, _fn, cancel) => { cancelCb = cancel; return () => {}; });
+  test('watchGroupMeta fires null when the ownerId listener is CANCELLED (owner deleted the group / member kicked → read permission lost)', () => {
+    // Real Firebase never delivers a null value here: groups/{gid}/ownerId is
+    // membership-gated, so deletion (or a kick) cancels the member's listener
+    // with PERMISSION_DENIED (the onValue cancel callback), not a null snapshot.
     const seen = [];
     watchGroupMeta('G1ABCD23', (meta) => seen.push(meta));
-    cancelCb(new Error('permission_denied'));
+    const [, , ownerCancel] = onValue.mock.calls[1];
+    ownerCancel(new Error('permission_denied'));
     expect(seen).toEqual([null]);
   });
 });
