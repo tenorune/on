@@ -149,6 +149,9 @@ export async function handleKnock(deps, recipientId, senderId, record) {
   // preserved: an opted-out recipient still does ZERO name/group/send reads, a
   // cooled event still does no name reads — both just also pay one tiny cooldown
   // read that used to be skipped on the opted-out exit.
+  // F8 accepted trade: parallelizing means a previously-skipped cooldown read can
+  // now reject on an opted-out exit, broadening the reject surface on this path.
+  // Accepted because this trigger is retry:false and no send decision changes.
   const [prefs, cooldown] = await Promise.all([
     deps.getVal(`userPrefs/${recipientId}/notify/${senderId}`),
     deps.getVal(`notifierState/knockCooldown/${recipientId}/${senderId}`),

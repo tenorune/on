@@ -516,8 +516,10 @@ describe('group entity ops', () => {
     expect(ref).toHaveBeenCalledWith({}, 'groups/G1ABCD23/name');
     expect(ref).toHaveBeenCalledWith({}, 'groups/G1ABCD23/ownerId');
     expect(ref).not.toHaveBeenCalledWith({}, 'groups/G1ABCD23');
-    const [, nameCb] = onValue.mock.calls[0];
-    const [, ownerCb] = onValue.mock.calls[1];
+    const nameCallIndex = ref.mock.calls.findIndex(([, path]) => path.endsWith('/name'));
+    const ownerCallIndex = ref.mock.calls.findIndex(([, path]) => path.endsWith('/ownerId'));
+    const [, nameCb] = onValue.mock.calls[nameCallIndex];
+    const [, ownerCb] = onValue.mock.calls[ownerCallIndex];
     nameCb({ exists: () => true, val: () => 'Family' });
     ownerCb({ exists: () => true, val: () => 'uid1' });
     expect(seen[seen.length - 1]).toEqual({ name: 'Family', ownerId: 'uid1' });

@@ -5,13 +5,15 @@
 //
 // Each record embeds navigator.userAgent and lived inside
 // userPrefs/{uid}/pushTokens — a node watchUserPrefs downloads on every boot and
-// re-delivers on every prefs echo. Readers: the server-side notifier
+// re-delivers on every prefs echo. Three readers dual-read the new path with a
+// legacy fallback during the migration window: the server-side notifier
 // (functions/notifier.js sendToUser), the bot's /notifications gate
-// (functions/telegram.js), the app's channel pill (js/notifyChannel.ts
-// accountHasPushTokens), and the client's stale-token cull — all dual-read the
-// new path with a legacy fallback during the migration window. This copies
-// every user's tokens to pushTokens/{uid}/{token} and nulls the legacy
-// userPrefs/{uid}/pushTokens copy, in ONE atomic multi-path update.
+// (functions/telegram.js), and the app's channel pill (js/notifyChannel.ts
+// accountHasPushTokens). The client's stale-token cull (readPushTokens) reads
+// the NEW path only — it has nothing to fall back to, since it's just pruning
+// dead tokens it already wrote there. This script copies every user's tokens
+// to pushTokens/{uid}/{token} and nulls the legacy userPrefs/{uid}/pushTokens
+// copy, in ONE atomic multi-path update.
 //
 // Per-token copy (not a wholesale subtree set): the hosting deploy that precedes
 // this migration ships clients that already WRITE the new path, so a user may

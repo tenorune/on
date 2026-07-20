@@ -88,7 +88,7 @@ function mountPill(slot: HTMLElement, userId: string) {
           return;
         }
       }
-      setActive(pill, next); // optimistic — instant feedback before the round-trip
+      setActive(pill, next); // optimistic — paints as soon as the deliverability check above resolves, before the mergeUserPrefs round-trip
       try {
         await mergeUserPrefs(userId, { notifyChannel: next });
         // Optimistic: flip web nudge suppression now (the echo confirms later).

@@ -47,6 +47,24 @@ test('ownerId cancel (deletion / kick) emits null, exactly once', () => {
   expect(cb).toHaveBeenLastCalledWith(null);
 });
 
+test('ownerId VALUE-null (node nulled under a still-open listen) emits null, exactly once', () => {
+  const cb = jest.fn();
+  watchGroupMeta('G1', cb);
+  mockCbs.get('groups/G1/ownerId')(snap(null));
+  expect(cb).toHaveBeenCalledTimes(1);
+  expect(cb).toHaveBeenLastCalledWith(null);
+});
+
+test('name leaf going null after a value deletes meta.name from the merged emit', () => {
+  const cb = jest.fn();
+  watchGroupMeta('G1', cb);
+  mockCbs.get('groups/G1/ownerId')(snap('alice'));
+  mockCbs.get('groups/G1/name')(snap('Hikers'));
+  expect(cb).toHaveBeenLastCalledWith({ name: 'Hikers', ownerId: 'alice' });
+  mockCbs.get('groups/G1/name')(snap(null));
+  expect(cb).toHaveBeenLastCalledWith({ ownerId: 'alice' });
+});
+
 test('unsubscribe detaches both listens', () => {
   const un = watchGroupMeta('G1', jest.fn());
   un();
