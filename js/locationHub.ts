@@ -56,13 +56,20 @@ function combine(
 ): () => void {
   let a: LocationNode | null = null;
   let b: LocationNode | null = null;
+  // Emit only on a CHANGED result: the own node feeds every pair, so one own
+  // publish otherwise wakes every row on screen into an identical repaint
+  // (audit F4). undefined = nothing emitted yet, so the first result — even
+  // null — always delivers.
+  let last: number | null | undefined;
   const emit = () => {
+    let next: number | null = null;
     if (a && b && typeof a.lat === 'number' && typeof a.lng === 'number'
       && typeof b.lat === 'number' && typeof b.lng === 'number') {
-      cb(haversineMeters(a.lat, a.lng, b.lat, b.lng));
-    } else {
-      cb(null);
+      next = haversineMeters(a.lat, a.lng, b.lat, b.lng);
     }
+    if (next === last) return;
+    last = next;
+    cb(next);
   };
   const unA = subA((v) => { a = v; emit(); });
   const unB = subB((v) => { b = v; emit(); });

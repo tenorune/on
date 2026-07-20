@@ -108,3 +108,28 @@ test('a consumer that throws during fan-out does not block the others', () => {
   }).not.toThrow();
   expect(good).toHaveBeenCalled();
 });
+
+test('identical recomputed distance is not re-emitted (audit F4)', () => {
+  const cb = jest.fn();
+  subscribeDistance('me', 'peer', cb);
+  fire('me', { lat: 52.52, lng: 13.405, updatedAt: 1 });
+  fire('peer', { lat: 52.5205, lng: 13.4055, updatedAt: 1 });
+  const calls = cb.mock.calls.length;
+  // Same coordinates re-published (e.g. an updatedAt-only rewrite from an
+  // old client): distance recomputes to the same value — no re-emit.
+  fire('peer', { lat: 52.5205, lng: 13.4055, updatedAt: 2 });
+  fire('me', { lat: 52.52, lng: 13.405, updatedAt: 2 });
+  expect(cb.mock.calls.length).toBe(calls);
+  // A real move still emits.
+  fire('peer', { lat: 52.53, lng: 13.42, updatedAt: 3 });
+  expect(cb.mock.calls.length).toBe(calls + 1);
+});
+
+test('repeated null states collapse to one emission', () => {
+  const cb = jest.fn();
+  subscribeDistance('me', 'peer', cb);
+  fire('me', { lat: 1, lng: 1, updatedAt: 1 }); // peer still unknown → null
+  fire('me', { lat: 1.0001, lng: 1, updatedAt: 2 }); // still null — no re-emit
+  expect(cb).toHaveBeenCalledTimes(1);
+  expect(cb).toHaveBeenLastCalledWith(null);
+});
