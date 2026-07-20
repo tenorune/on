@@ -60,6 +60,11 @@ export async function joinGroupHandler(request, deps) {
   });
 
   // Token path: bump redemptions authoritatively (moved off the client).
+  // Transacts the whole invite object (not the redemptionsUsed leaf) so it's
+  // atomic against the same node the validation read above. The member write
+  // above is authoritative and already committed; this bump is best-effort —
+  // we deliberately ignore {committed} because if the invite vanishes mid-
+  // request the join still stands and the counter simply doesn't move.
   if (token) {
     await deps.transaction(`groups/${groupId}/invites/${token}`, (invite) => {
       if (!invite) return invite;

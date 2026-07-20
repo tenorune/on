@@ -457,8 +457,16 @@ export async function redeemGroupInvite(token: string, redeemerUid: string, disp
   try {
     await joinGroup(groupId, redeemerUid, displayName, { group, existing: existingMember, token });
   } catch (err) {
-    if (/not found/i.test((err as Error).message || '')) return { ok: false, reason: 'group-missing' };
-    return { ok: false, reason: 'invalid-display-name', message: (err as Error).message || 'Invalid display name.' };
+    const message = (err as Error).message || '';
+    // The callable can reject with the same reason strings our own pre-checks
+    // above use (revoked/expired/cap/not-found) when the invite state changes
+    // in the race window between our reads and the callable's own re-validation.
+    // Surface those verbatim instead of collapsing them into invalid-display-name.
+    if (message === 'revoked' || message === 'expired' || message === 'cap' || message === 'not-found') {
+      return { ok: false, reason: message };
+    }
+    if (/not found/i.test(message)) return { ok: false, reason: 'group-missing' };
+    return { ok: false, reason: 'invalid-display-name', message: message || 'Invalid display name.' };
   }
 
   return { ok: true, groupId, groupName: group.name };

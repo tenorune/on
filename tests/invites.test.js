@@ -805,6 +805,28 @@ describe('redeemGroupInvite', () => {
     groups.joinGroup.mockRejectedValueOnce(new Error('Group not found.'));
     expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'group-missing' });
   });
+
+  test('returns revoked when joinGroup callable rejects with revoked (raced against pre-check)', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
+    db.readGroupInvite.mockResolvedValue(
+      { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    );
+    db.readMember.mockResolvedValue(null);
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
+    groups.joinGroup.mockRejectedValueOnce(new Error('revoked'));
+    expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'revoked' });
+  });
+
+  test('returns cap when joinGroup callable rejects with cap (raced against pre-check)', async () => {
+    db.readInviteIndex.mockResolvedValue({ scope: 'group', ownerPath: 'groups/G1/invites/T' });
+    db.readGroupInvite.mockResolvedValue(
+      { scope: 'group', token: 'T', creatorUid: 'uid1', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
+    );
+    db.readMember.mockResolvedValue(null);
+    db.readGroupName.mockResolvedValue({ name: 'Family' });
+    groups.joinGroup.mockRejectedValueOnce(new Error('cap'));
+    expect(await redeemGroupInvite('T', 'redeemer', 'Alex')).toEqual({ ok: false, reason: 'cap' });
+  });
 });
 
 describe('attemptRedeemFromUrl scope dispatch', () => {
