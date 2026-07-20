@@ -103,6 +103,60 @@ describe('canvas re-entry is idempotent (peer-dot duplication)', () => {
   });
 });
 
+describe('canvas capture-phase pointerdown listener does not leak per session', () => {
+  function setupCanvasDom() {
+    document.body.innerHTML = `
+      <div id="app-header"></div>
+      <div id="favorites-strip"></div>
+      <div id="main-list"></div>
+      <div id="canvas-screen"><canvas id="draw-canvas"></canvas></div>`;
+    HTMLCanvasElement.prototype.getContext = () => fakeCtx();
+  }
+
+  // Regression: buildFloatingUI added a capture-phase pointerdown listener via
+  // an inline arrow closing over that session's toolbox, on the PERSISTENT
+  // #canvas-screen container. exitCanvas never removed it, so every
+  // enterCanvas/exitCanvas cycle left one more stale listener behind, each
+  // still holding a live reference to its own (now-detached) toolbox element.
+  //
+  // animateToolbox isn't exported, so we can't spy on call count directly.
+  // Instead we hold a reference to session 1's toolbox element (captured
+  // before session 2's buildFloatingUI detaches it from the DOM) and mark it
+  // '.open'. A single outside-tap pointerdown is then dispatched after two
+  // enter/exit cycles. With the leak, session 1's stale listener still fires
+  // on that tap and closes ITS toolbox too (toolbox1 loses '.open') even
+  // though it belongs to a session that's long gone — i.e. the close effect
+  // fires once per past session, not once. Fixed, only the current session's
+  // listener is registered, so the stale toolbox1 is untouched.
+  test('outside tap after two enter/exit cycles only affects the current session, not stale ones', async () => {
+    setupCanvasDom();
+    const screen = document.getElementById('canvas-screen');
+
+    await enterCanvas('peer1', 'Peer', 'me', '#111111', '#abcdef', '#000000', () => {});
+    const toolbox1 = document.getElementById('canvas-toolbox');
+    toolbox1.classList.add('open');
+    exitCanvas();
+
+    await enterCanvas('peer1', 'Peer', 'me', '#111111', '#abcdef', '#000000', () => {});
+    const toolbox2 = document.getElementById('canvas-toolbox');
+    expect(toolbox2).not.toBe(toolbox1); // buildFloatingUI built a fresh toolbox
+    toolbox2.classList.add('open');
+
+    // Outside tap: dispatched directly on screen (the target), so it isn't
+    // contained by either toolbox — matches the "close" branch for any
+    // listener still watching.
+    screen.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
+
+    // Current session's toolbox always closes correctly.
+    expect(toolbox2.classList.contains('open')).toBe(false);
+    // The stale (session 1) toolbox must NOT be touched — its listener should
+    // have been removed by session 1's exitCanvas, not still be leaking.
+    expect(toolbox1.classList.contains('open')).toBe(true);
+
+    exitCanvas();
+  });
+});
+
 describe('canvas coordinate helpers', () => {
   test('normalizePoint converts pixel coords to 0-1 range', () => {
     const result = normalizePoint(100, 200, 400, 800);

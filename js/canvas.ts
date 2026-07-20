@@ -29,6 +29,31 @@ let _peerName = '';
 let _penColor = '#22c55e';
 let _thickness = THICKNESS_VALUES[2]; // default medium
 let _isDrawing = false;
+// The toolbox for the currently active canvas session, bound each enterCanvas
+// and cleared on exitCanvas. Backs _onScreenPointerDownCapture below: a single
+// module-level listener stays registered on the persistent #canvas-screen
+// across sessions, and this variable is how it knows which toolbox is "current"
+// without needing a new closure (and thus a new leaked listener) per session.
+let _activeToolbox: HTMLElement | null = null;
+
+// Close-on-tap-outside-toolbox handler for the canvas screen, registered on the
+// PERSISTENT #canvas-screen element (capture phase) — see buildFloatingUI and
+// exitCanvas. Because this is a single stable function reference, adding it on
+// every enterCanvas is idempotent (same fn + same capture flag => no dupe per
+// the DOM spec), and exitCanvas can reliably remove it, unlike the inline arrow
+// this replaced, which created a brand-new closure — and thus a new leaked
+// listener over that session's toolbox — on every enterCanvas.
+const _onScreenPointerDownCapture = (e: PointerEvent) => {
+  const toolbox = _activeToolbox;
+  if (!toolbox) return;
+  if (!toolbox.contains(e.target as Node | null) && toolbox.classList.contains('open')) {
+    animateToolbox(toolbox, false);
+    const undo = document.getElementById('canvas-undo');
+    if (undo) undo.style.display = '';
+    e.stopPropagation();
+    _isDrawing = false;
+  }
+};
 // Canvas bounding rect, cached at stroke start (pointerdown). getBoundingClientRect
 // forces a layout/reflow; calling it on every pointermove was the per-segment hot
 // path. The canvas isn't resized mid-stroke, so one read per stroke is sufficient.
@@ -265,16 +290,12 @@ function buildFloatingUI(container: HTMLElement, penColors: string[], bgColors: 
   });
   container.appendChild(toolbox);
 
-  // Close on tap outside toolbox — suppress the draw that would otherwise start
-  container.addEventListener('pointerdown', (e) => {
-    if (!toolbox.contains((e.target as Node | null)) && toolbox.classList.contains('open')) {
-      animateToolbox(toolbox, false);
-      const undo = document.getElementById('canvas-undo');
-      if (undo) undo.style.display = '';
-      e.stopPropagation();
-      _isDrawing = false;
-    }
-  }, true);
+  // Close on tap outside toolbox — suppress the draw that would otherwise start.
+  // container IS the persistent #canvas-screen; the listener itself is a stable
+  // module-level function (see _onScreenPointerDownCapture) so re-adding it here
+  // on every enterCanvas doesn't accumulate listeners, and exitCanvas can remove it.
+  _activeToolbox = toolbox;
+  container.addEventListener('pointerdown', _onScreenPointerDownCapture, true);
 
   // Undo button (bottom-left)
   const undoBtn = document.createElement('div');
@@ -552,6 +573,8 @@ export function exitCanvas() {
     screen.classList.remove('screenshot-mode');
     screen.removeEventListener('gesturestart', preventZoom);
     screen.removeEventListener('touchmove', preventMultiTouch);
+    screen.removeEventListener('pointerdown', _onScreenPointerDownCapture, true);
+    _activeToolbox = null;
 
     // Wait for fade-out, then clean up
     screen.addEventListener('transitionend', function onFadeOut() {
