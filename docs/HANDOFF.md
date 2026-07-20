@@ -11,50 +11,54 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**EXECUTE the branch-introduced performance-fix plan on this feature branch:**
-`docs/superpowers/plans/2026-07-20-performance-fixes.md` — 7 TDD tasks with
-complete code (no-op publish suppression, tiered GPS options, distance-emission
-dedupe, prefs-echo diffing, merged member trigger, /who prefetch, immutable
-chunk caching). Use superpowers:subagent-driven-development (fresh implementer
-per task, per-task review) per the plan header. Realign first:
+**EXECUTE the PRE-EXISTING performance-fix plan on this feature branch:**
+`docs/superpowers/plans/2026-07-20-performance-fixes-preexisting.md` — findings
+F3/F6/F8: group-meta leaf listens (move `groups/{gid}/meta` off the whole-node
+listen), `pushTokens` relocation out of the wholesale `userPrefs` watch **with a
+load-bearing deploy order**, and notifier read parallelization. Unlike the
+just-shipped contained fixes, these are **schema/listener refactors** — heavier,
+with migration and deploy-ordering concerns. Use
+superpowers:subagent-driven-development (fresh implementer per task, per-task
+review) per the plan header, and do the pre-flight plan scan first. Realign:
 
 ```
 git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
 ```
 
-The tip must be the perf-handoff docs commit atop `8cc04f2` — else STOP,
+The tip must be `135a166` (the 8 perf-fix commits — see History) — else STOP,
 origin is authoritative.
 
-**Verification state:** green bar OBSERVED at `7488947` (web jest 1957/1957 ·
-functions 419/419 · rules 106/106 · typechecks clean · zero TS suppressions);
-every commit since is docs-only (`git diff --stat 7488947..HEAD` shows only
-`docs/`), so the bar carries. Re-run the gates as each task's steps direct.
+**Verification state:** green bar OBSERVED at `135a166` (web jest 1971/1971 ·
+functions 424/424 · rules 106/106 · typechecks clean · zero TS suppressions).
+Re-run the gates as each task's steps direct.
 
 **Plan-execution notes (read before Task 1):**
 
-- The plan embeds exact code and line references, written against the tree at
-  `8cc04f2` — re-verify refs against the working tree before editing.
-- Task 1 DELIBERATELY inverts the existing pinned test "direct opt-in +
-  available publishes raw point immediately and every 60s" (it asserts the
-  now-outlawed no-op republish). Invert with rationale in the commit body —
-  the plan shows the replacement. Never weaken other assertions.
-- Task 5 deletes two deployed functions (`onMemberOverride`,
-  `onMemberRemoved`) in favor of `onMemberWritten`; Task 7 has a
-  hosting-header ordering note. Both carry DEPLOY notes for the commit
-  bodies — nothing is deployed from sessions.
-- Task 6's new test must bind to the actual `/who` fixture ids in
-  `functions/test/telegram.test.js` (the plan flags this).
+- The plan embeds exact code and line references written against an older tree —
+  re-verify every ref against the working tree before editing (the just-shipped
+  perf-fixes shifted several of the same files: `js/locationShare.ts`,
+  `js/prefs.ts`, `functions/index.js`, `functions/telegram.js`).
+- F3/F6 touch data-model shape (`groups/{gid}/meta`, `pushTokens` location) and
+  RTDB listens — expect migration + deploy-ordering caveats in the plan; the
+  `pushTokens` relocation has a **load-bearing deploy order** (surface it as a
+  bounded decision, don't guess). These interact with `database.rules.json`,
+  which the just-shipped work deliberately did NOT touch.
+- Jest gotchas learned this session (bit the perf-fix tasks): the repo's Jest
+  rejects `--testPathPattern` (singular) — use `--testPathPatterns` (plural).
+  And `jest.isolateModules()` does NOT reset Jest's file-content cache keyed by
+  absolute path, so any test that stamps a template into a temp file and
+  `require()`s it must use a **unique** temp filename per call or it silently
+  replays the prior stamp.
 
 **Audit docs (sources of truth):**
 
 - Findings: `docs/superpowers/specs/2026-07-20-performance-audit-findings.md`
-  (Tier 1&2 source-verified; Tier 3 agent-reported).
-- Later, operator-directed only (NOT this session's scope):
-  `2026-07-20-performance-fixes-preexisting.md` (F3/F6/F8 — group-meta leaf
-  listens, pushTokens relocation w/ load-bearing deploy order, notifier
-  parallelization) and `2026-07-20-performance-fixes-tier3.md` (14 low tasks,
-  each with a mandatory re-verify-first STOP rule).
+  (Tier 1&2 source-verified; Tier 3 agent-reported). F1/F2/F4/F5/F7/F10/F9 are
+  DONE (see History); F3/F6/F8 are the next plan above.
+- Later, operator-directed only (NOT the next session's scope):
+  `2026-07-20-performance-fixes-tier3.md` (14 low tasks, each with a mandatory
+  re-verify-first STOP rule).
 
 **Security-fix deploy ordering (recorded in commit bodies; nothing deployed
 from sessions):** Fix 1 rules-only · Fix 3 functions-only · the `joinGroup`
@@ -183,6 +187,13 @@ proxy and would abort an `&&` chain. Functions deps are required for
 - **`shared/` is mirrored into `functions/_shared/` by `npm run sync-shared`** —
   never edit the mirror by hand; edit `shared/` and re-sync (jest + the
   fixture `test-fixtures/geo-vectors.json` pin parity).
+- **One trigger `onMemberWritten` now owns the whole `groups/{gid}/members/{uid}`
+  node** (`functions/index.js`): deletion → cell revocation, `statusOverride`
+  change → co-member notify, gated by `statusOverrideChanged` (`notifier.js`,
+  compares `enabled`/`status`/`statusColor`/`availableUntil`). Any NEW
+  `statusOverride` field that affects availability must be added to that compare
+  or a change to it silently skips the notify path. Don't re-add a separate
+  leaf-path trigger — that's the F7 double-invocation this merge removed.
 - **Mid-file `require` ≠ top-level instance after `jest.resetModules()`.** Known
   in `tests/following.test.js`; ALSO bites `tests/me.test.js` (a later describe
   resets modules — bind mocks at top level, not inside test bodies).
@@ -212,6 +223,25 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **Branch-introduced performance fixes (2026-07-20, `5463888..d73deb3` + hardening
+  `135a166`, merged into `claude/knockknock-feature-dev-9a3ysy` fast-forward):**
+  executed `2026-07-20-performance-fixes.md` (F1/F2/F4/F5/F7/F10/F9) via
+  subagent-driven development — fresh implementer per task, per-task spec+quality
+  review, final whole-branch review (opus, "ready to merge"). T1 no-op publish
+  suppression · T2 tiered/coarse GPS · T3 distance-emission dedupe · T4
+  prefs-echo diff + probe skip · T5 merged `onMemberOverride`+`onMemberRemoved`
+  → `onMemberWritten` (gated by new `statusOverrideChanged`; +additive
+  `statusColor` on `PresenceNode`) · T6 `/who` own-followers/group-cell prefetch ·
+  T7 immutable `dist/chunks/**` header + SW cross-deploy chunk carry-over. T1's
+  suppression outdated 8 pre-existing tests: the 1 the plan named was inverted;
+  the other 7 were LIVENESS proxies (loop-alive / tier-fires / manager-works /
+  hidden-ticks) — resolved by MOVING the fixture position so a real publish still
+  proves liveness, never by weakening the assertion. Operator-added the `status`
+  field to `statusOverrideChanged` (`135a166`) as defense-in-depth (unreachable
+  with today's writers). DEPLOY still pending (nothing deploys from sessions): T5
+  deletes two functions; T7 needs a post-deploy `curl -I /dist/chunks/<hash>.js`
+  → `immutable` while `/dist/bundle.js` stays `no-cache` (commit bodies carry the
+  notes). `2026-07-20-performance-fixes-tier3.md` remains unstarted.
 - **Performance audit (2026-07-20, this branch, docs-only,
   `32b280d`+`8cc04f2`):** four-domain parallel audit vs main (location client,
   boot/render, functions, data model + load); Tier 1&2 findings source-verified
