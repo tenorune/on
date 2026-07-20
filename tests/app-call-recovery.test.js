@@ -50,6 +50,9 @@ jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
   watchOwnCall: jest.fn(() => () => {}),
   endCall: jest.fn().mockResolvedValue(undefined),
+  // Default: peer's mailbox still references us (not an orphan) so the happy-path
+  // recovery tests re-enter as before. The orphan test overrides this to null.
+  getCall: jest.fn().mockResolvedValue({ to: 'me', from: 'me', ts: 1 }),
   getUser: jest.fn().mockResolvedValue(null),
   getUserPrefs: jest.fn().mockResolvedValue(null),
   readGroup: jest.fn().mockResolvedValue(null),
@@ -319,6 +322,42 @@ describe('app.js boot-recovery: watchOwnCall callback', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(reEnterCallMode).toHaveBeenCalledWith(PEER_ENTRY, PEER_DATA, 'me');
+  });
+
+  test('orphan self-heal: answered but peer mailbox no longer references me → endCall, no re-enter', async () => {
+    const { getFollowing } = require('../js/store.js');
+    const { getUser, getCall, endCall } = require('../js/db.js');
+    const { reEnterCallMode } = require('../js/following.js');
+
+    getFollowing.mockReturnValue([PEER_ENTRY]);
+    getUser.mockResolvedValue(PEER_DATA);
+    getCall.mockResolvedValue(null); // peer's mailbox is gone — we're the orphan
+
+    const cb = await loadAppAndCaptureRecoveryCb();
+    expect(cb).not.toBeNull();
+
+    await cb({ to: 'peer', answered: true, ts: 1 });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(reEnterCallMode).not.toHaveBeenCalled();
+    expect(endCall).toHaveBeenCalledWith('me', 'peer');
+  });
+
+  test('orphan self-heal: peer mailbox that has moved to another call → treated as orphan', async () => {
+    const { getFollowing } = require('../js/store.js');
+    const { getUser, getCall, endCall } = require('../js/db.js');
+    const { reEnterCallMode } = require('../js/following.js');
+
+    getFollowing.mockReturnValue([PEER_ENTRY]);
+    getUser.mockResolvedValue(PEER_DATA);
+    getCall.mockResolvedValue({ to: 'someoneElse', ts: 9 }); // peer moved on
+
+    const cb = await loadAppAndCaptureRecoveryCb();
+    await cb({ to: 'peer', answered: true, ts: 1 });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(reEnterCallMode).not.toHaveBeenCalled();
+    expect(endCall).toHaveBeenCalledWith('me', 'peer');
   });
 
   test('cleanup: peer NOT in following → endCall called, reEnterCallMode not called', async () => {

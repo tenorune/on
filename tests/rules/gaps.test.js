@@ -109,6 +109,22 @@ test('calls: startCall clearUid — caller clears slot where they are named as t
   }
 });
 
+// --- stuck-canvas root cause: endCall's atomic both-null fails when the peer
+//     mailbox is already gone, because nulling an ABSENT node we don't own is
+//     denied. Fix A falls back to clearing only our own node, which IS allowed. ---
+test('calls: nulling a peer mailbox that is already gone is DENIED (the stuck-canvas trap)', async () => {
+  // calls/peerGone does not exist; stuck is not $uid and is not named in it.
+  // auth.uid===$uid? no. newData.exists()? no (null). data.exists()? no. → deny.
+  await assertFails(dbAs(env, 'stuck').ref('calls/peerGone').remove());
+  await assertFails(dbAs(env, 'stuck').ref('calls/peerGone').set(null));
+});
+
+test('calls: the orphaned survivor can always clear their OWN mailbox (fix A escape hatch)', async () => {
+  await seed(env, async (db) => await db.ref('calls/stuck').set({ to: 'peerGone', answered: true, ts: 1 }));
+  // auth.uid === $uid (stuck === stuck) → allowed even though the peer is gone.
+  await assertSucceeds(dbAs(env, 'stuck').ref('calls/stuck').remove());
+});
+
 // --- registerAsFollower clears own revocation before writing followers ---
 test('registerAsFollower: me clears my own revocation entry then writes target followers', async () => {
   await seed(env, async (db) => await db.ref('revocations/me/target').set(true));

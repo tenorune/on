@@ -10,6 +10,7 @@ import { onCall as httpsOnCall, onRequest } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
 import { resolveInvitePreviewHandler } from './invites.js';
+import { handleCallCleanup } from './call-cleanup.js';
 import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, graduateTelegramHandler, mintTelegramLinkTokenHandler, redeemTelegramLinkTokenHandler } from './telegram-auth.js';
 import { buildNotificationKeyboard, handleUpdate, webhookAuthorized, botCommandsPayload } from './telegram.js';
 
@@ -117,6 +118,10 @@ export const onKnock = onValueCreated('/knocks/{recipientId}/{senderId}', (event
 export const onCall = onValueWritten('/calls/{uid}', (event) => {
   const after = event.data.after.val();
   const before = event.data.before.val();
+  // A mailbox was DELETED → reap the counterpart if it still references this
+  // user, so the peer isn't stranded on the canvas unable to clear their own
+  // node (the rules deny that once ours is gone). See call-cleanup.js.
+  if (!after && before) return handleCallCleanup(makeDeps(), event.params.uid, before);
   // Only notify the callee on a fresh unanswered ring (calls/{callee}.from set).
   if (!after || !after.from || after.answered) return null;
   if (before && before.from === after.from) return null;

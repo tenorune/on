@@ -194,6 +194,23 @@ describe('call mailboxes', () => {
     expect(ref).toHaveBeenCalledWith({}, 'calls/me');
   });
 
+  test('endCall clears own mailbox when the atomic both-null is denied (peer node gone)', async () => {
+    // Peer mailbox already gone → nulling it is denied by the calls .write rule,
+    // which fails the whole atomic update. endCall must fall back to clearing our
+    // OWN node (single-path set(null), always allowed) so we can leave the canvas.
+    update.mockRejectedValueOnce(new Error('PERMISSION_DENIED: update at /calls'));
+    set.mockResolvedValue();
+    await endCall('me', 'peerGone');
+    expect(ref).toHaveBeenCalledWith({}, 'calls/me');
+    expect(set).toHaveBeenCalledWith('mock-ref', null);
+  });
+
+  test('endCall does NOT issue the own-only fallback when the atomic update succeeds', async () => {
+    update.mockResolvedValue();
+    await endCall('me', 'peer');
+    expect(set).not.toHaveBeenCalled();
+  });
+
   test('startCall with a clearUid nulls the prior ringer mailbox in the same update', async () => {
     update.mockResolvedValue();
     await startCall('me', 'C', 'B');
