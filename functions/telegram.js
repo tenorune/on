@@ -362,7 +362,7 @@ async function resolveGroupArg(deps, uid, query, reply, noMatchHint = '', retryC
 // status fields only (enabled/statusColor/paletteKey untouched — the client's
 // mergeStatusOverride contract); override OFF → the group mirrors global
 // presence, so the bot only explains (globalOn/globalOff). Fan-out for the ON
-// write rides the onMemberOverride RTDB trigger — Admin-SDK writes fire it too.
+// write rides the onMemberWritten RTDB trigger — Admin-SDK writes fire it too.
 // Presence is prefetched beside the override even though only the OFF branch
 // needs it — one wasted read on the ON path buys a round-trip of latency.
 // `fields` is a thunk evaluated at write time so availableUntil is stamped
@@ -465,6 +465,11 @@ async function handleWhoGroup(deps, uid, query, reply) {
   const myLoc = primaryAvailable(myPresence, deps.now())
     ? await deps.getVal(`locations/${uid}`)
     : null;
+  // One read each of the requester's own followers map and this group's cell
+  // map replaces a per-member child read of both (audit F10) — the map loop
+  // below only indexes into them.
+  const myFollowers = myLoc ? ((await deps.getVal(`users/${uid}/followers`)) || {}) : {};
+  const groupCells = myCell ? ((await deps.getVal(`locationCells/${match.gid}`)) || {}) : null;
   const lines = (await Promise.all(coMembers.map(async ([mid, m]) => {
     const presence = await deps.getVal(`users/${mid}/presence`);
     if (!effectiveAvailable(m?.statusOverride, presence?.status, presence?.availableUntil, deps.now())) return null;
@@ -475,24 +480,25 @@ async function handleWhoGroup(deps, uid, query, reply) {
     const remaining = formatTimeRemainingFuzzy(until - deps.now());
     const tail = remaining ? ` — ${remaining} left` : '';
     let dist = '';
-    if (myLoc && primaryAvailable(presence, deps.now())) {
+    if (myLoc && primaryAvailable(presence, deps.now()) && myFollowers[mid]) {
       // Admin SDK bypasses rules — mirror them explicitly: mutuality on BOTH
       // authoritative follower edges (the requester's own following list is
       // mailbox-reconciled client-side only and can be stale), plus the
       // member's raw point. The member's PRIMARY availability gates the
       // cascade — an override-available member with Direct off keeps their
-      // persisted raw point private to the coarse tier.
-      const [theirLoc, followsMe, followerOfThem] = await Promise.all([
+      // persisted raw point private to the coarse tier. `myFollowers[mid]`
+      // IS the `users/{uid}/followers/{mid}` gate, read from the prefetched
+      // map (audit F10) rather than a per-member child read.
+      const [theirLoc, followerOfThem] = await Promise.all([
         deps.getVal(`locations/${mid}`),
-        deps.getVal(`users/${uid}/followers/${mid}`),
         deps.getVal(`users/${mid}/followers/${uid}`),
       ]);
-      if (theirLoc && followsMe && followerOfThem) {
+      if (theirLoc && followerOfThem) {
         dist = ` · ${formatDistancePrecise(haversineMeters(myLoc.lat, myLoc.lng, theirLoc.lat, theirLoc.lng))}`;
       }
     }
-    if (!dist && myCell) {
-      const theirCell = await deps.getVal(`locationCells/${match.gid}/${mid}`);
+    if (!dist && myCell && groupCells) {
+      const theirCell = groupCells[mid];
       if (theirCell) {
         dist = ` · ${formatDistanceCoarse(haversineMeters(myCell.lat, myCell.lng, theirCell.lat, theirCell.lng))}`;
       }
@@ -589,25 +595,29 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
     const myLoc = primaryAvailable(myPresence, deps.now())
       ? await deps.getVal(`locations/${uid}`)
       : null;
+    // One read of the requester's own followers map replaces a per-member
+    // child read of it (audit F10) — the map loop below only indexes into it.
+    const myFollowers = myLoc ? ((await deps.getVal(`users/${uid}/followers`)) || {}) : {};
     const lines = (await Promise.all(following.map(async (entry) => {
       const presence = await deps.getVal(`users/${entry.userId}/presence`);
       if (!primaryAvailable(presence, deps.now())) return null;
       const remaining = formatTimeRemainingFuzzy(presence.availableUntil - deps.now());
       const tail = remaining ? ` — ${remaining} left` : '';
       let dist = '';
-      if (myLoc) {
+      if (myLoc && myFollowers[entry.userId]) {
         // Explicit gates — Admin SDK bypasses rules: both publishing +
         // mutuality checked on BOTH authoritative followers edges. The
         // requester's own following list is NOT authoritative for the
         // requester→target edge (it's mailbox-reconciled client-side only, so
         // it can be stale after a revocation); the rules gate on
         // users/{target}/followers/{requester}, and the bot must mirror that.
-        const [theirLoc, followsMe, followerOfThem] = await Promise.all([
+        // `myFollowers[entry.userId]` IS that requester→target edge, read
+        // from the prefetched map (audit F10) rather than a per-member read.
+        const [theirLoc, followerOfThem] = await Promise.all([
           deps.getVal(`locations/${entry.userId}`),
-          deps.getVal(`users/${uid}/followers/${entry.userId}`),
           deps.getVal(`users/${entry.userId}/followers/${uid}`),
         ]);
-        if (theirLoc && followsMe && followerOfThem) {
+        if (theirLoc && followerOfThem) {
           dist = ` · ${formatDistancePrecise(haversineMeters(myLoc.lat, myLoc.lng, theirLoc.lat, theirLoc.lng))}`;
         }
       }

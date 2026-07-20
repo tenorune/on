@@ -762,6 +762,25 @@ describe('handleUpdate: /who distance (Task 11)', () => {
     const reply = await handleUpdate(deps, msgUpdate('/who'));
     expect(reply.text).not.toContain('·');
   });
+  // Audit F10: users/{uid}/followers is the requester's OWN fixed followers
+  // map — reading it once and indexing per member replaces a per-member
+  // child read of the same map, with identical gating (myFollowers[mid]).
+  test('reads the requester\'s own-followers map once, not per member (audit F10)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirect(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/f1`] = 'CODE01';
+    deps.store[`users/f1/followers/${uid}`] = 'MYCODE';
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).toBe('Available now:\n🟢 Bea — about 15 minutes left · 65 meters away');
+    const paths = deps.getVal.mock.calls.map(([p]) => p);
+    expect(paths).toContain(`users/${uid}/followers`);
+    expect(paths.filter((p) => p.startsWith(`users/${uid}/followers/`))).toEqual([]);
+  });
 });
 
 describe('handleUpdate: /who <group> distance (Task 11)', () => {
@@ -887,6 +906,35 @@ describe('handleUpdate: /who <group> distance (Task 11)', () => {
     deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
     const reply = await handleUpdate(deps, msgUpdate('/who divers'));
     expect(reply.text).not.toContain('·');
+  });
+  // Audit F10: users/{uid}/followers (the requester's own fixed followers
+  // map) and locationCells/{gid} (this group's cell map) are each read ONCE
+  // and indexed per co-member, replacing a per-member child read of both —
+  // same gating (myFollowers[mid], groupCells[mid]), fewer round trips.
+  test('reads own-followers and the group cell map once, not per member (audit F10)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupOne(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    // Both sides broadcasting in Direct (myLoc truthy) AND both have cells
+    // (myCell truthy) exercises both prefetches in one pass.
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/m1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/m1`] = 'CODE01';
+    deps.store['users/m1/followers/' + uid] = 'MYCODE';
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toContain('· 65 meters away');
+    const paths = deps.getVal.mock.calls.map(([p]) => p);
+    expect(paths).toContain(`users/${uid}/followers`);
+    expect(paths).toContain('locationCells/G1');
+    expect(paths.filter((p) => p.startsWith(`users/${uid}/followers/`))).toEqual([]);
+    // The requester's OWN cell (`locationCells/G1/{uid}`, resolving myCell) is
+    // a single legitimate read, not a per-co-member one — only a read of a
+    // CO-MEMBER's cell (m1's) would mean the prefetch didn't replace the loop.
+    expect(paths.filter((p) => p.startsWith('locationCells/G1/') && p !== `locationCells/G1/${uid}`)).toEqual([]);
   });
 });
 
