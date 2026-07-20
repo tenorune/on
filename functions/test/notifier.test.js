@@ -827,9 +827,10 @@ describe('statusOverrideChanged (merged member-trigger gate)', () => {
     expect(statusOverrideChanged({ enabled: true }, null)).toBe(true);
   });
   test('field flips are changes; identical values are not', () => {
-    const a = { enabled: true, statusColor: 'green', availableUntil: 5 };
+    const a = { enabled: true, status: 'available', statusColor: 'green', availableUntil: 5 };
     expect(statusOverrideChanged(a, { ...a })).toBe(false);
     expect(statusOverrideChanged(a, { ...a, enabled: false })).toBe(true);
+    expect(statusOverrideChanged(a, { ...a, status: 'unavailable' })).toBe(true);
     expect(statusOverrideChanged(a, { ...a, statusColor: 'red' })).toBe(true);
     expect(statusOverrideChanged(a, { ...a, availableUntil: 9 })).toBe(true);
   });

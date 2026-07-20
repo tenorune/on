@@ -285,6 +285,7 @@ export async function handleGroupOverrideChange(deps, groupId, memberUid, before
 export function statusOverrideChanged(a, b) {
   if (a == null || b == null) return (a ?? null) !== (b ?? null);
   return a.enabled !== b.enabled
+    || a.status !== b.status
     || a.statusColor !== b.statusColor
     || a.availableUntil !== b.availableUntil;
 }
