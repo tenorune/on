@@ -68,8 +68,15 @@ function anyOptIn(): boolean {
 }
 
 // One position read, browser or Telegram. Rejects with the underlying error;
-// callers map code 1 (PERMISSION_DENIED) to the denied state.
-function getPositionOnce(): Promise<{ lat: number; lng: number }> {
+// callers map code 1 (PERMISSION_DENIED) to the denied state. Options apply
+// to the browser path only (Telegram's LocationManager has no accuracy/age
+// API): the precise tier and the glyph-tap prove keep a fresh high-accuracy
+// fix; cell-only ticks take a coarse fix up to 90s old — the ~1.1km cell
+// quantization makes a per-minute high-accuracy GPS wakeup pure battery
+// burn (audit F2).
+const CELL_FIX_MAX_AGE_MS = 90000;
+
+function getPositionOnce(opts?: { highAccuracy?: boolean; maximumAge?: number }): Promise<{ lat: number; lng: number }> {
   if (isTelegramContext()) {
     return new Promise((resolve, reject) => {
       const lm = (window as unknown as {
@@ -99,7 +106,7 @@ function getPositionOnce(): Promise<{ lat: number; lng: number }> {
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       (err) => reject(err),
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 },
+      { enableHighAccuracy: opts?.highAccuracy ?? true, timeout: 20000, maximumAge: opts?.maximumAge ?? 30000 },
     );
   });
 }
@@ -242,7 +249,11 @@ async function tick(): Promise<void> {
   if (!direct && gids.length === 0) return;
   if (!(await tickPermissionGranted())) return;
   let pos;
-  try { pos = await getPositionOnce(); }
+  try {
+    pos = await getPositionOnce(direct
+      ? { highAccuracy: true, maximumAge: 30000 }
+      : { highAccuracy: false, maximumAge: CELL_FIX_MAX_AGE_MS });
+  }
   catch (err) {
     // code 1 = PERMISSION_DENIED: revoked mid-flight → full teardown. Every
     // other failure is a silent failed tick (Decision 3).

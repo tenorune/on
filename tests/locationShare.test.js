@@ -867,3 +867,38 @@ test('hidden document no longer pauses ticks — publishing continues off-screen
   await flush();
   expect(db.publishLocation).toHaveBeenCalledTimes(1);
 });
+
+describe('GPS options by tier (audit F2)', () => {
+  const lastGeoOpts = () =>
+    navigator.geolocation.getCurrentPosition.mock.calls.at(-1)[2];
+
+  test('a tick publishing the precise tier requests a high-accuracy, fresh fix', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush();
+    expect(lastGeoOpts()).toMatchObject({ enableHighAccuracy: true, maximumAge: 30000 });
+  });
+
+  test('a cell-only tick requests a coarse fix and accepts one up to 90s old', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('G1'); // direct never opted in → cell-only ticks
+    await flush();
+    // The toggle's prove-read keeps the default (explicit-intent) options; the
+    // loop tick that follows is what must go coarse.
+    jest.advanceTimersByTime(60000);
+    await flush();
+    expect(lastGeoOpts()).toMatchObject({ enableHighAccuracy: false, maximumAge: 90000 });
+  });
+
+  test('the glyph-tap prove read keeps explicit-intent defaults', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
+    await toggleContext('direct'); // prove-read fires even while unavailable
+    expect(lastGeoOpts()).toMatchObject({ enableHighAccuracy: true, maximumAge: 30000 });
+  });
+});
