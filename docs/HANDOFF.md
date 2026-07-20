@@ -11,78 +11,66 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**EXECUTE the location-sharing security-fix plan.** The security review is
-DONE (findings → spec → plan, all on this branch). Next session works the
-5-task TDD plan on branch `claude/knockknock-feature-dev-9a3ysy`. Realign first:
+**AUDITS on the feature branch, operator-directed. Do NO work without an
+explicit operator instruction — no fixes, no refactors, no commits, no pushes.
+Investigate/report only, and only what the operator asks for.**
+
+The location-sharing security-fix plan is fully executed, reviewed, and pushed;
+`origin/dev` (call-escape fix + stale-call sweep) is merged in. Realign first:
 
 ```
 git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
-git log --oneline -1   # must be THIS docs(handoff) commit atop plan tip e423228 — else STOP, origin is authoritative
+git log --oneline -1   # must show 7488947 (merge of origin/dev atop the security-fix commits) — else STOP, origin is authoritative
 ```
 
-- **Plan (execution source of truth):**
-  `docs/superpowers/plans/2026-07-19-location-sharing-security-fixes.md` —
-  5 tasks, each TDD red→green→commit, with complete rule diffs + handler bodies
-  + test code. Use REQUIRED SUB-SKILL `superpowers:subagent-driven-development`
-  (recommended: fresh subagent per task + two-stage review) or
-  `superpowers:executing-plans` (inline, batch + checkpoints). Execution
-  approach is unconfirmed — default to subagent-driven unless the operator says
-  inline.
-- **Spec (design source of truth):**
-  `docs/superpowers/specs/2026-07-19-location-sharing-security-fixes.md` —
-  the three findings, root causes, the deliberately out-of-scope persistence
-  posture, and Fix 2's locked **option A** (with rejected B/C for the record).
+**Verified green at `7488947`** (all four, this exact tree): web jest 1957/1957
+(85 suites) · functions 419/419 (13 suites) · rules 106/106 (emulator, 10
+suites) · `typecheck` + `typecheck:scripts` clean · zero TS suppressions.
 
-**The three fixes (severity · what · where):**
+**Audit-relevant state (what changed on this branch — sources of truth):**
 
-1. **HIGH — precise-location gate forgery (rules-only).** `followers`/
-   `followerNames` `.write` let the node owner fabricate inbound edges → any
-   authed user reads anyone's exact GPS. Fix: narrow `auth.uid === $uid` to
-   deletions (`&& !newData.exists()`). Plan Task 1.
-2. **MEDIUM — self-join coarse-cell read (#288 widening), option A.** Self-join
-   + own-cell publish → read every member's ~1 km cell. Fix: a server-brokered
-   `joinGroup` callable (validates token/pending-invite) + tighten
-   `members/$uid` `.write` to `(data.exists() || !newData.exists())` (blocks
-   self-CREATE, preserves self-edit/leave) + client rewire. Plan Tasks 3→4→5
-   (strictly ordered; deploy the callable before/with the rule).
-3. **LOW — cell not revoked on membership loss (VibeSec lifecycle).** Fix:
-   `onMemberRemoved` trigger deletes the coarse cell on any membership
-   deletion. Plan Task 2.
+- **Spec (design):** `docs/superpowers/specs/2026-07-19-location-sharing-security-fixes.md`
+  — the three findings; Fix 2 locked to option A (CF-brokered join); the
+  deliberately out-of-scope persistence posture (NOT defects — do not flag).
+- **Plan (execution):** `docs/superpowers/plans/2026-07-19-location-sharing-security-fixes.md`.
+  Executed with two reviewed deviations: Fix 1's real gate is a `.validate`
+  (`auth.uid === $follower`) on `followers`/`followerNames` — the plan's
+  `.write`-only diff was inert because the `users/$uid` blanket `.write`
+  cascades and a child `.write` cannot revoke it (the kept `.write` narrowing
+  is documented defense-in-depth, NOT load-bearing); and the `joinGroup`
+  handler transacts the FULL invite object (not the `redemptionsUsed` leaf) —
+  deliberate, commented in `functions/group-join.js`.
+- **Beyond the plan (operator-ordered, all reviewed):** `757acf3` guards the
+  `groups/$gid` `.write` create branch (`!data.exists()`) — closes a
+  pre-existing ownerId-overwrite group takeover that would have bypassed the
+  member-rule tighten; `8790dde` makes `invites/$token/redemptionsUsed`
+  owner-only (bump is server-side via the callable); `34899ac` maps raced
+  callable rejections (`revoked`/`expired`/`cap`/`not-found`) through
+  `redeemGroupInvite` honestly; `934712b` removes the dead
+  `incrementGroupInviteRedemptions` client helper.
 
-**Deliberately out of scope (operator-approved, NOT defects — do not "fix"):**
-last-known nodes outliving availability, readable by mutuals/co-members while
-the owner is offline; "distance shows only on available cards" being a
-client-side display gate (rules gate on reciprocity + mutuality/membership, not
-availability). Detail in the spec.
+**Deploy ordering (recorded in commit bodies; nothing deployed from sessions):**
+Fix 1 rules-only · Fix 3 functions-only · the `joinGroup` callable must deploy
+**before or with** the members `.write` tighten and the `redemptionsUsed`
+owner-only rule. Rollout window: an old cached client doing a direct member
+write gets permission-denied until it reloads — intended, documented trade-off.
 
-**One open product decision (unchanged, still unruled, NOT part of the plan):**
-revoking OS location permission on ONE device flips the ACCOUNT-WIDE opt-in off.
-Deliberate fail-safe, debatable.
+**Open items (parked, operator-ruled only):**
 
-**Feature module map (for whoever executes the plan):** `shared/geo.js`
-(+ mirror `functions/_shared/geo.js` via `npm run sync-shared` — NEVER hand-edit
-the mirror) math/formatters · `database.rules.json` `locations/`+`locationCells/`
-+ `users/*/followers` + `groups/*/members` blocks (all four touched by the
-plan) · `functions/telegram.js` (`handleWhoGroup` + `/who`) admin-bypass mirrors
-· `functions/index.js` callable/trigger registration (`resolveInvitePreview` is
-the deps-injected pattern the new `joinGroup` callable mirrors) · `js/db/*.ts`
-RTDB ops · `js/invites.ts` + `js/inbox.ts` + `js/groups.ts` group-join entry
-paths (rewired in Task 4) · `js/firebase-config.ts` client callable wrappers.
-
-**Known-deferred minors** (unrelated to the security fixes; none device-visible
-in the smoke cycle): denied glyph state isn't sticky (repaints revert
-denied→off) · 'unsupported' title says "check permissions" (wrong guidance when
-no geolocation API) · `formatDistancePrecise` 999.6-999.99 m renders "1000
-meters away" not "1.0 km away" · stale opted-in gids (kicked groups) produce a
-harmless denied write every 60s · cross-device prompt-suppression relies on the
-Permissions API (absent → pass-through).
-
-Open follow-ups, triaged 2026-07-17 (parked): **#290** in-app-browser dead tap
-· **#286** no invite revoke on Telegram surface · **#288** now addressed at the
-root by Fix 2/option A (close it when the plan lands) ·
-**closed-unreproduced** "revoked follow request still in inbox" (reopen only
-with a repro).
+- **#288** — root-caused and fixed on this branch (self-join blocked, joins
+  brokered); close the issue once this branch merges and deploys.
+- One open product decision (unruled, not part of any plan): revoking OS
+  location permission on ONE device flips the ACCOUNT-WIDE opt-in off —
+  deliberate fail-safe, debatable.
+- Known-deferred minors (unrelated to security, none device-visible): denied
+  glyph state isn't sticky · 'unsupported' title says "check permissions" ·
+  `formatDistancePrecise` 999.6–999.99 m renders "1000 meters away" · stale
+  opted-in gids produce a harmless denied write every 60s · cross-device
+  prompt-suppression relies on the Permissions API.
+- Follow-ups triaged 2026-07-17: **#290** in-app-browser dead tap · **#286** no
+  invite revoke on Telegram surface · closed-unreproduced "revoked follow
+  request still in inbox" (reopen only with a repro).
 
 ## On-ramp
 
@@ -115,12 +103,6 @@ Use `;` not `&&` in the apt line — the deadsnakes/ondrej PPAs 403 behind the
 proxy and would abort an `&&` chain. Functions deps are required for
 `npm run typecheck`.
 
-**Verified green at `93bea22`:** web 1950/1950 (85 suites), functions 396/396,
-rules 86/86 (emulator), both typechecks, prod build, zero TS suppressions. The
-three commits since (`2ae2f79`, `9ca7fc6`, `e423228`) are **docs-only** (spec +
-plan + this handoff) — no executable delta, so the green bar still holds. The
-plan's own tasks are the next code to run through it.
-
 ## Conventions
 
 - `dev` is the integration branch. Cut feature branches from `dev`.
@@ -130,10 +112,14 @@ plan's own tasks are the next code to run through it.
   ask *how*, then do it.)
 - Zero TS suppressions (`@ts-ignore` / `@ts-expect-error` / `as any`). `typecheck`
   + `typecheck:scripts` must stay green.
-- Unsigned commits are fine — ignore the "Unverified" stop-hook.
-- Never hand off red: run both test suites + typecheck before wrapping.
+- Set committer identity first (`git config user.email noreply@anthropic.com &&
+  git config user.name Claude`) or the stop-hook flags commits Unverified and
+  forces amend+re-push.
+- Never hand off red: run all four gates before wrapping.
 - The stop-hook at turn end is the standing commit+push prompt — commit then,
-  not unprompted mid-turn.
+  not unprompted mid-turn. **For the audit session: the no-work-without-
+  instruction rule overrides it; an audit that changed nothing has nothing to
+  commit.**
 
 ## Working style (operator)
 
@@ -151,6 +137,13 @@ plan's own tasks are the next code to run through it.
 
 ## Landmines (read before touching code)
 
+- **RTDB rules: a granted ancestor `.write` cannot be revoked by a child
+  `.write`.** Under `users/$uid` (blanket self `.write`), enforcement must be
+  `.validate` (doesn't cascade, skipped on delete) — that's why the
+  `followers`/`followerNames` guards are `.validate` and the sibling `.write`
+  narrowing is inert decoration. Under `groups/$gid` (owner-only ancestor),
+  child `.write` narrowing IS load-bearing. Check the ancestor chain before
+  judging or editing any rule.
 - **Shallow clone → false "unrelated histories."** Fresh containers clone shallow
   (`.git/shallow`). Run `git fetch --unshallow origin` **before** any cross-branch
   merge/compare/ancestry check.
@@ -212,33 +205,31 @@ plan's own tasks are the next code to run through it.
 
 ## History — skip unless relevant
 
-Everything below shipped (location sharing on this feature branch; the rest on
-`dev`). Detail is in git + plans + the archived handoff.
+Everything below shipped. Detail is in git + plans + the archived handoff.
 
-- **Location security review (2026-07-19, this branch, `93bea22..e423228`,
-  docs-only):** ran `/security-review` + `vibesec-skill` over the 42-commit
-  feature diff. Confirmed 2 findings (HIGH forgeable precise-location gate;
-  MEDIUM self-join coarse-cell read) + 1 VibeSec lifecycle item (LOW). Wrote the
-  fix spec (`docs/superpowers/specs/2026-07-19-…`, Fix 2 locked to option A) and
-  the 5-task execution plan (`docs/superpowers/plans/2026-07-19-…`). No code
-  changed — execution is "what's next" above.
-- **Location device-smoke debugging cycle (2026-07-19, this branch,
-  `7386957..93bea22`, operator-verified):** glyph → theme accent, 22px picker-
-  matched size without row-height change, solid-pin ON state (evenodd +
-  counter-wound hole for iOS PWA); last-known persistence model + per-context
-  published/availability eligibility + boot seeding (replaced the old
-  delete-on-unavailable model whose listener cancels caused spotty distances);
-  group/Direct independence (override-aware publishing via statusStore) with
-  the mutual precise cascade as the sole cross-context rule (app + bot);
-  unavailable viewers see nothing (app + bot); Telegram init-once hang fix;
-  60s label-refresh no longer wipes the suffix; denied-tap toast; distance on
-  its own line, "meters away" wording, theme-muted color.
+- **Security-fix execution + hardening (2026-07-20, this branch,
+  `b995fb7..7488947`):** executed the 5-task plan via subagent-driven
+  development (fresh implementer per task, per-task spec+quality review, final
+  whole-branch review — verdict "ready to merge"): Fix 1 `.validate` forgery
+  gate (`129a4dc`) · Fix 3 `onMemberRemoved` cell revocation (`b084d7f`) ·
+  Fix 2 callable + client rewire + member-rule tighten
+  (`79a079b`/`4df0774`/`b0c0d86`+`05d7fe6`). Then operator-ordered: ownerId
+  takeover guard (`757acf3`), owner-only `redemptionsUsed` (`8790dde`), polish
+  (`34899ac`), dead-helper cleanup (`934712b`), and the `origin/dev` merge
+  (`7488947` — call-escape fix + `sweepStaleCalls`; one import conflict in
+  `functions/index.js`, both sides kept). Expected test fallout (pre-existing
+  tests asserting now-outlawed behavior) was inverted, never weakened —
+  rationale in the commit bodies.
+- **Location security review (2026-07-19, this branch, docs-only):**
+  `/security-review` + `vibesec-skill` over the feature diff → findings → spec
+  → plan (the two docs under `docs/superpowers/`).
+- **Location device-smoke debugging cycle (2026-07-19, `7386957..93bea22`,
+  operator-verified):** glyph/pin UI, last-known persistence model,
+  per-context eligibility, group/Direct independence, Telegram init-once fix,
+  distance rendering.
 - **Location-sharing implementation (2026-07-19, `c2f6a2e..7386957`)** — 13
-  plan tasks, subagent-driven, per-task + whole-branch reviews; the review
-  fixes are in the commit history.
-- **Boot/status polish batch (2026-07-17, PR #296 + merges)** — splash
-  server-truth gating, optimistic Direct toggle, same-frame status swap.
-- **UI-fix batch (2026-07-17, PR #294)** — six operator-reported defects.
-- **TypeScript adoption (phase-0)** — full `js/` migration + strict `checkJs`.
-- **Client-performance plan (2026-07-17)** — 8 tasks, plan at
+  plan tasks, subagent-driven, per-task + whole-branch reviews.
+- **Boot/status polish batch (2026-07-17, PR #296)** · **UI-fix batch
+  (2026-07-17, PR #294)** · **TypeScript adoption (phase-0)** ·
+  **Client-performance plan (2026-07-17)** —
   `docs/superpowers/plans/2026-07-17-client-performance.md`.
