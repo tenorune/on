@@ -11,50 +11,56 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**AUDITS on the feature branch, operator-directed. Do NO work without an
-explicit operator instruction — no fixes, no refactors, no commits, no pushes.
-Investigate/report only, and only what the operator asks for.**
-
-The location-sharing security-fix plan is fully executed, reviewed, and pushed;
-`origin/dev` (call-escape fix + stale-call sweep) is merged in. Realign first:
+**EXECUTE the branch-introduced performance-fix plan on this feature branch:**
+`docs/superpowers/plans/2026-07-20-performance-fixes.md` — 7 TDD tasks with
+complete code (no-op publish suppression, tiered GPS options, distance-emission
+dedupe, prefs-echo diffing, merged member trigger, /who prefetch, immutable
+chunk caching). Use superpowers:subagent-driven-development (fresh implementer
+per task, per-task review) per the plan header. Realign first:
 
 ```
 git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
-git log --oneline -1   # must show 7488947 (merge of origin/dev atop the security-fix commits) — else STOP, origin is authoritative
 ```
 
-**Verified green at `7488947`** (all four, this exact tree): web jest 1957/1957
-(85 suites) · functions 419/419 (13 suites) · rules 106/106 (emulator, 10
-suites) · `typecheck` + `typecheck:scripts` clean · zero TS suppressions.
+The tip must be the perf-handoff docs commit atop `8cc04f2` — else STOP,
+origin is authoritative.
 
-**Audit-relevant state (what changed on this branch — sources of truth):**
+**Verification state:** green bar OBSERVED at `7488947` (web jest 1957/1957 ·
+functions 419/419 · rules 106/106 · typechecks clean · zero TS suppressions);
+every commit since is docs-only (`git diff --stat 7488947..HEAD` shows only
+`docs/`), so the bar carries. Re-run the gates as each task's steps direct.
 
-- **Spec (design):** `docs/superpowers/specs/2026-07-19-location-sharing-security-fixes.md`
-  — the three findings; Fix 2 locked to option A (CF-brokered join); the
-  deliberately out-of-scope persistence posture (NOT defects — do not flag).
-- **Plan (execution):** `docs/superpowers/plans/2026-07-19-location-sharing-security-fixes.md`.
-  Executed with two reviewed deviations: Fix 1's real gate is a `.validate`
-  (`auth.uid === $follower`) on `followers`/`followerNames` — the plan's
-  `.write`-only diff was inert because the `users/$uid` blanket `.write`
-  cascades and a child `.write` cannot revoke it (the kept `.write` narrowing
-  is documented defense-in-depth, NOT load-bearing); and the `joinGroup`
-  handler transacts the FULL invite object (not the `redemptionsUsed` leaf) —
-  deliberate, commented in `functions/group-join.js`.
-- **Beyond the plan (operator-ordered, all reviewed):** `757acf3` guards the
-  `groups/$gid` `.write` create branch (`!data.exists()`) — closes a
-  pre-existing ownerId-overwrite group takeover that would have bypassed the
-  member-rule tighten; `8790dde` makes `invites/$token/redemptionsUsed`
-  owner-only (bump is server-side via the callable); `34899ac` maps raced
-  callable rejections (`revoked`/`expired`/`cap`/`not-found`) through
-  `redeemGroupInvite` honestly; `934712b` removes the dead
-  `incrementGroupInviteRedemptions` client helper.
+**Plan-execution notes (read before Task 1):**
 
-**Deploy ordering (recorded in commit bodies; nothing deployed from sessions):**
-Fix 1 rules-only · Fix 3 functions-only · the `joinGroup` callable must deploy
-**before or with** the members `.write` tighten and the `redemptionsUsed`
-owner-only rule. Rollout window: an old cached client doing a direct member
-write gets permission-denied until it reloads — intended, documented trade-off.
+- The plan embeds exact code and line references, written against the tree at
+  `8cc04f2` — re-verify refs against the working tree before editing.
+- Task 1 DELIBERATELY inverts the existing pinned test "direct opt-in +
+  available publishes raw point immediately and every 60s" (it asserts the
+  now-outlawed no-op republish). Invert with rationale in the commit body —
+  the plan shows the replacement. Never weaken other assertions.
+- Task 5 deletes two deployed functions (`onMemberOverride`,
+  `onMemberRemoved`) in favor of `onMemberWritten`; Task 7 has a
+  hosting-header ordering note. Both carry DEPLOY notes for the commit
+  bodies — nothing is deployed from sessions.
+- Task 6's new test must bind to the actual `/who` fixture ids in
+  `functions/test/telegram.test.js` (the plan flags this).
+
+**Audit docs (sources of truth):**
+
+- Findings: `docs/superpowers/specs/2026-07-20-performance-audit-findings.md`
+  (Tier 1&2 source-verified; Tier 3 agent-reported).
+- Later, operator-directed only (NOT this session's scope):
+  `2026-07-20-performance-fixes-preexisting.md` (F3/F6/F8 — group-meta leaf
+  listens, pushTokens relocation w/ load-bearing deploy order, notifier
+  parallelization) and `2026-07-20-performance-fixes-tier3.md` (14 low tasks,
+  each with a mandatory re-verify-first STOP rule).
+
+**Security-fix deploy ordering (recorded in commit bodies; nothing deployed
+from sessions):** Fix 1 rules-only · Fix 3 functions-only · the `joinGroup`
+callable must deploy **before or with** the members `.write` tighten and the
+`redemptionsUsed` owner-only rule. Old cached clients get permission-denied on
+direct member writes until reload — intended, documented trade-off.
 
 **Open items (parked, operator-ruled only):**
 
@@ -117,9 +123,8 @@ proxy and would abort an `&&` chain. Functions deps are required for
   forces amend+re-push.
 - Never hand off red: run all four gates before wrapping.
 - The stop-hook at turn end is the standing commit+push prompt — commit then,
-  not unprompted mid-turn. **For the audit session: the no-work-without-
-  instruction rule overrides it; an audit that changed nothing has nothing to
-  commit.**
+  not unprompted mid-turn. (The plan's per-task commit steps are
+  operator-sanctioned: committing at each task boundary IS the instruction.)
 
 ## Working style (operator)
 
@@ -207,6 +212,14 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **Performance audit (2026-07-20, this branch, docs-only,
+  `32b280d`+`8cc04f2`):** four-domain parallel audit vs main (location client,
+  boot/render, functions, data model + load); Tier 1&2 findings source-verified
+  (one agent correction: /who reads are parallel, N+1 in read count only);
+  findings spec + three fix plans under `docs/superpowers/`. Security-fix
+  execution details (the two reviewed plan deviations: Fix 1's load-bearing
+  `.validate` gate vs inert `.write` narrowing; joinGroup transacting the full
+  invite object) live in the spec/plan named below and the commit bodies.
 - **Security-fix execution + hardening (2026-07-20, this branch,
   `b995fb7..7488947`):** executed the 5-task plan via subagent-driven
   development (fresh implementer per task, per-task spec+quality review, final
