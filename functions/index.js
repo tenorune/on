@@ -10,7 +10,8 @@ import { onCall as httpsOnCall, onRequest } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
 import { resolveInvitePreviewHandler } from './invites.js';
-import { handleCallCleanup } from './call-cleanup.js';
+import { handleCallCleanup, handleCallSweep, CALL_TTL_MS } from './call-cleanup.js';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, graduateTelegramHandler, mintTelegramLinkTokenHandler, redeemTelegramLinkTokenHandler } from './telegram-auth.js';
 import { buildNotificationKeyboard, handleUpdate, webhookAuthorized, botCommandsPayload } from './telegram.js';
 
@@ -126,6 +127,16 @@ export const onCall = onValueWritten('/calls/{uid}', (event) => {
   if (!after || !after.from || after.answered) return null;
   if (before && before.from === after.from) return null;
   return handleCall(makeDeps(), event.params.uid, after.from);
+});
+
+// Hourly sweep of stale call mailboxes. Catches the case onCall's deletion
+// reaper can't: BOTH clients died mid-call without a clean hangup, so neither
+// node was ever deleted and no deletion event fires. Nulls any mailbox older
+// than CALL_TTL_MS (or malformed); each null then trips onCall to fan out its
+// counterpart. See call-cleanup.js.
+export const sweepStaleCalls = onSchedule('every 60 minutes', async () => {
+  const swept = await handleCallSweep(makeDbDeps(), CALL_TTL_MS);
+  if (swept.length) console.log(`[calls] swept ${swept.length} stale mailbox(es)`);
 });
 
 // Narrowed to presence/availableUntil so we're not invoked on every write to

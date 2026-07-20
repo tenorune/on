@@ -24,3 +24,39 @@ export async function handleCallCleanup(deps, removedUid, beforeVal) {
     await deps.set(`calls/${peer}`, null);
   }
 }
+
+// How old a call mailbox may get before a scheduled sweep reaps it. Conservative
+// (a real call is far shorter): 12h ensures we never delete a genuinely-live
+// call, only the debris of a call whose BOTH clients died mid-session without a
+// clean hangup — the case handleCallCleanup can't catch, because neither node
+// was ever deleted so no onCall deletion event ever fires. This is the one
+// product knob; raise it if a legitimately longer canvas session is ever a thing.
+export const CALL_TTL_MS = 12 * 60 * 60 * 1000;
+
+// Scheduled sweep: null every calls/{uid} whose ts is older than ttlMs (or whose
+// ts is missing/malformed — never a live call). Nulling each stale node also
+// trips onCall's reaper for its counterpart. Full-map read is fine at this app's
+// scale; if calls/ ever grows large, switch to an orderByChild('ts') query with
+// a `.indexOn`. Returns the swept uids for logging.
+/**
+ * @param {{ now: () => number, getVal: (p: string) => Promise<any>, update: (p: string, obj: Record<string, unknown>) => Promise<void> }} deps
+ * @param {number} ttlMs
+ * @returns {Promise<string[]>}
+ */
+export async function handleCallSweep(deps, ttlMs) {
+  const calls = await deps.getVal('calls');
+  if (!calls || typeof calls !== 'object') return [];
+  const cutoff = deps.now() - ttlMs;
+  /** @type {Record<string, null>} */
+  const nulls = {};
+  const swept = [];
+  for (const [uid, node] of Object.entries(calls)) {
+    const ts = node && typeof node.ts === 'number' ? node.ts : null;
+    if (ts === null || ts < cutoff) {
+      nulls[uid] = null;
+      swept.push(uid);
+    }
+  }
+  if (swept.length) await deps.update('calls', nulls);
+  return swept;
+}
