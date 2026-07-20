@@ -348,6 +348,7 @@ function reconcileDistanceSubs(memberUids: Set<string>, myUserId: string, groupI
     _cellUnsubs.set(uid, subscribeCellDistance(groupId, myUserId, uid, (meters) => {
       _cellDistances.set(uid, meters);
       paintRosterRow(uid);
+      refreshHints();
     }));
   }
 
@@ -362,6 +363,7 @@ function reconcileDistanceSubs(memberUids: Set<string>, myUserId: string, groupI
     _preciseUnsubs.set(uid, subscribeDistance(myUserId, uid, (meters) => {
       _preciseDistances.set(uid, meters);
       paintRosterRow(uid);
+      refreshHints();
     }));
   }
 }
@@ -414,6 +416,9 @@ function renderRoster(members: Record<string, MemberEntry>, ownUserId: string) {
       if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
     },
   });
+  // paintRosterRow no longer calls refreshHints itself (that was a full hint
+  // scan per row); run it once per render pass instead.
+  refreshHints();
 }
 
 // Re-converge roster order after a status change (availability moved a row).
@@ -508,7 +513,6 @@ function paintRosterRow(uid: string, li: HTMLElement | null = document.querySele
   li.dataset.hintAvail = available ? '1' : '0';
   li.dataset.hintLongpress = longpressEligible ? '1' : '0';
   li.dataset.hintSwipe = '0';
-  refreshHints();
 }
 
 function renderOwnStatusRow() {
@@ -949,6 +953,19 @@ function syncStatusSubscriptions(memberUids: Set<string>) {
       // Through the shared presence hub — a member who is also a Direct followee
       // is watched once at the RTDB layer (#214 R3).
       _statusUnsubs.set(uid, subscribePresence(uid, (data) => {
+        // Read effective availability, AND raw primary availability, BEFORE
+        // overwriting _memberPrimaries — both "before" values must come from
+        // the stored (pre-tick) primary. The raw-primary half matters
+        // independently of the effective (override-aware) half: an
+        // override-enabled member's row sort order never moves off their
+        // override, but reconcileDistanceSubs' precise-tier eligibility keys
+        // off the member's raw primary availability (their override never
+        // publishes raw points — see reconcileDistanceSubs above), so a
+        // primary flip under an active override must still resync subs even
+        // though it can't flip the row's effective availability.
+        const oldPrimary = _memberPrimaries.get(uid) || null;
+        const wasAvailable = memberEffectiveAvailable(uid);
+        const wasPrimaryAvailable = isAvailable(oldPrimary?.status ?? null, oldPrimary?.availableUntil ?? null);
         _memberPrimaries.set(uid, data
           ? {
               status: data.status,
@@ -957,8 +974,21 @@ function syncStatusSubscriptions(memberUids: Set<string>) {
               paletteKey: (data as PresenceLike).paletteKey || null,
             }
           : null);
-        // renderRoster's update repaints every row, including this one.
-        syncRosterOrder();
+        // Mirror the Direct-list discipline (js/following.ts ~1093-1102): a
+        // full resort only when availability actually flips — e.g. a
+        // lastSeen-only write (stamped on every peer app-open,
+        // js/db/social.ts:293) leaves both availability signals unchanged and
+        // shouldn't pay for a full re-sort + repaint of every row. Otherwise,
+        // repaint just the ticking member's row.
+        const isAvailableNow = memberEffectiveAvailable(uid);
+        const newPrimary = _memberPrimaries.get(uid) || null;
+        const isPrimaryAvailableNow = isAvailable(newPrimary?.status ?? null, newPrimary?.availableUntil ?? null);
+        if (isAvailableNow !== wasAvailable || isPrimaryAvailableNow !== wasPrimaryAvailable) {
+          syncRosterOrder();
+        } else {
+          paintRosterRow(uid);
+          refreshHints();
+        }
       }));
     }
   }
@@ -1270,8 +1300,10 @@ export function enterGroupContext(groupId: string, userId: string) {
     renderOwnStatusRow();
     // Re-paint roster rows: the FTU longpress hint compares each member's
     // combo against _ownOverride, so a change here needs to re-evaluate the
-    // show/hide for every row.
+    // show/hide for every row. paintRosterRow no longer calls refreshHints
+    // itself, so run it once for the whole pass instead of once per row.
     for (const uid of _memberPrimaries.keys()) paintRosterRow(uid);
+    refreshHints();
   });
 
   // The chain-icon override toggle lives in the nav row and is fully owned by
@@ -1513,6 +1545,7 @@ function triggerGroupAdoption(srcUid: string, ownUid: string) {
     // hint until the async override echo repaints (the Direct path self-heals via
     // the my-combo-changed listener; group has no equivalent here).
     for (const uid of _memberPrimaries.keys()) paintRosterRow(uid);
+    refreshHints();
   }
 
   // 7. Visual flash on the source row.

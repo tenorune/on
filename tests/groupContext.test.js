@@ -577,6 +577,80 @@ describe('group roster render', () => {
     expect(unsubByUid.b).toHaveBeenCalled();     // Bob's sub torn down
   });
 
+  // Perf audit item: syncStatusSubscriptions' subscribePresence callback used to
+  // call syncRosterOrder() (full resort + repaint of every row) on every tick,
+  // including lastSeen-only writes stamped on every peer app-open. Mirrors the
+  // Direct-list discipline (js/following.ts ~1093-1102): repaint only the
+  // ticking member's row; resort only when effective availability flips.
+  describe('presence ticks repaint only the ticking row (Task 1)', () => {
+    function observeRow(el) {
+      const records = [];
+      const mo = new MutationObserver((muts) => records.push(...muts));
+      mo.observe(el, { attributes: true, childList: true, subtree: true, characterData: true });
+      return { records, disconnect: () => mo.disconnect() };
+    }
+
+    test('a lastSeen-only tick does not touch the other members\' rows', async () => {
+      let membersCb;
+      const statusCbs = {};
+      db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+      db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+      enterGroupContext('G1', 'me');
+      membersCb({
+        a: { role: 'member', displayName: 'Alice', joinedAt: 1 },
+        b: { role: 'member', displayName: 'Bob', joinedAt: 2 },
+        c: { role: 'member', displayName: 'Carol', joinedAt: 3 },
+      });
+      // Establish a baseline presence for all three (all unavailable).
+      statusCbs.a({ status: 'unavailable', availableUntil: null, lastSeen: 1000 });
+      statusCbs.b({ status: 'unavailable', availableUntil: null, lastSeen: 1000 });
+      statusCbs.c({ status: 'unavailable', availableUntil: null, lastSeen: 1000 });
+
+      const rowA = document.querySelector('#group-roster [data-user-id="a"]');
+      const rowB = document.querySelector('#group-roster [data-user-id="b"]');
+      const rowC = document.querySelector('#group-roster [data-user-id="c"]');
+      const obsA = observeRow(rowA);
+      const obsB = observeRow(rowB);
+      const obsC = observeRow(rowC);
+
+      // lastSeen-only tick on Alice: same status/availableUntil (no availability
+      // flip), just a newer lastSeen stamp (js/db/social.ts:293 writes this on
+      // every peer app-open).
+      statusCbs.a({ status: 'unavailable', availableUntil: null, lastSeen: 2000 });
+      await Promise.resolve(); // flush the MutationObserver microtask queue
+
+      obsA.disconnect(); obsB.disconnect(); obsC.disconnect();
+
+      expect(obsA.records.length).toBeGreaterThan(0); // the ticking row IS repainted
+      expect(obsB.records.length).toBe(0); // untouched — no full resort/repaint
+      expect(obsC.records.length).toBe(0); // untouched — no full resort/repaint
+    });
+
+    test('an availability flip still reorders the roster', () => {
+      let membersCb;
+      const statusCbs = {};
+      db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+      db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+      enterGroupContext('G1', 'me');
+      membersCb({
+        a: { role: 'member', displayName: 'Alice', joinedAt: 1 },
+        b: { role: 'member', displayName: 'Bob', joinedAt: 2 },
+        c: { role: 'member', displayName: 'Carol', joinedAt: 3 },
+      });
+      statusCbs.a({ status: 'unavailable', availableUntil: null });
+      statusCbs.b({ status: 'unavailable', availableUntil: null });
+      statusCbs.c({ status: 'unavailable', availableUntil: null });
+
+      const order = () => Array.from(document.querySelectorAll('#group-roster li[data-user-id]'))
+        .map((el) => el.dataset.userId);
+      expect(order()).toEqual(['a', 'b', 'c']); // alphabetical, all unavailable
+
+      // Carol flips to available — must float to the top (a resort, not just a repaint).
+      statusCbs.c({ status: 'available', availableUntil: Date.now() + 60000 });
+      expect(order()).toEqual(['c', 'a', 'b']);
+    });
+  });
+
   function captureRosterCallbacks() {
     let metaCb, membersCb;
     groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
