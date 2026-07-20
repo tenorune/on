@@ -57,6 +57,12 @@ let _metaUnsub: (() => void) | null = null;
 let _membersUnsub: (() => void) | null = null;
 let _invitesUnsub: (() => void) | null = null;
 const _statusUnsubs = new Map<string, () => void>(); // memberUid → unsubscribe fn
+// uid -> roster row element, populated by renderRoster's reconcile update
+// hook. Pure optimization over paintRosterRow's querySelector default arg —
+// that querySelector fallback stays as the correctness backstop (rows painted
+// outside reconcile, e.g. float restores, and a self-heal if isConnected ever
+// finds the cached node detached).
+const _rowByUid = new Map<string, HTMLElement>();
 // Distance ticks land here; paintRosterRow reads them when painting a
 // member's status suffix. Cell subscription: one per rendered roster member,
 // open exactly while getLocationOptIn(currentGid). Precise subscription:
@@ -411,6 +417,14 @@ function renderRoster(members: Record<string, MemberEntry>, ownUserId: string) {
       const member = (members || {})[uid];
       const label = node.querySelector('.person-label');
       if (label && member) label.textContent = member.displayName || uid;
+      // createRosterRow always stamps data-user-id before returning the node,
+      // and reconcile runs update() immediately after create() (before
+      // insertion) — so node.dataset.userId is already populated here even for
+      // a brand-new row. Prefer it over rosterUidOf(key) for the map key so a
+      // lookup by uid always agrees with what's actually on the DOM node.
+      // Refreshed every pass (not just create) so the map self-heals.
+      const nodeUid = node.dataset.userId;
+      if (nodeUid) _rowByUid.set(nodeUid, node);
       // Pass `node`: reconcile runs update() BEFORE inserting a freshly-created
       // row, so a getElementById/querySelector lookup would miss it and the dot
       // would keep createRosterRow's default until a later re-render (the
@@ -422,6 +436,13 @@ function renderRoster(members: Record<string, MemberEntry>, ownUserId: string) {
     // renderRoster used to do — the leak vector was the wipe itself).
     onRemove: (node) => {
       if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
+      // Identity-guarded: only delete if this removed node is still the one
+      // the map has on file for its uid. A member's eligibility-bit key flip
+      // (m:uid:0 -> m:uid:1) removes the old key's row and creates a new one
+      // for the same uid within the same reconcile pass — guard against ever
+      // deleting a fresher entry.
+      const uid = node.dataset.userId;
+      if (uid && _rowByUid.get(uid) === node) _rowByUid.delete(uid);
     },
   });
   // paintRosterRow no longer calls refreshHints itself (that was a full hint
@@ -436,7 +457,13 @@ function syncRosterOrder() {
   renderRoster(_lastMembers, _currentUserId);
 }
 
-function paintRosterRow(uid: string, li: HTMLElement | null = document.querySelector(`#group-roster [data-user-id="${uid}"]`) as HTMLElement | null) {
+function rosterRow(uid: string): HTMLElement | null {
+  const cached = _rowByUid.get(uid);
+  if (cached && cached.isConnected) return cached;
+  return (document.querySelector(`#group-roster [data-user-id="${uid}"]`) as HTMLElement | null);
+}
+
+function paintRosterRow(uid: string, li: HTMLElement | null = rosterRow(uid)) {
   if (!li) return;
   // Effective values: override-on means "independent in this group" — pull
   // every field (status/availableUntil/color/paletteKey) exclusively from
@@ -1208,6 +1235,7 @@ export function enterGroupContext(groupId: string, userId: string) {
   if (_membersUnsub) _membersUnsub();
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
+  _rowByUid.clear();
   _memberPrimaries.clear();
   // A stale cell/precise sub from a previous group must never survive into
   // this one under the same member uid — reconcileDistanceSubs alone
@@ -1438,6 +1466,7 @@ export function exitGroupContext() {
   _memberPrimaries.clear();
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
+  _rowByUid.clear();
   teardownAllDistanceSubs();
   _currentGroupId = null as unknown as string;
   _currentUserId = null as unknown as string;

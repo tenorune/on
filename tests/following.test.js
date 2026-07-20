@@ -3007,3 +3007,69 @@ describe('setFollowingListReadyCallback (post-restore splash gating)', () => {
     expect(ready).toHaveBeenCalledWith(2);
   });
 });
+
+// --- uid -> row-element map for followeeRow (perf: O(1) row lookup) ---
+//
+// followeeRow used to be a plain `#people-list [data-user-id="uid"]`
+// querySelector scan on every per-row repaint. reconcileChildren's create/
+// update hooks now populate a module-level uid->node map so the common,
+// still-connected case skips the DOM scan entirely — but the map is only an
+// optimization: followeeRow double-checks isConnected before trusting it, so
+// a missed/late removal can only cost an extra querySelector, never hand back
+// a wrong or detached row.
+describe('followeeRow uid map (perf)', () => {
+  let watchFollowersCallback;
+  let watchPresenceCallback;
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    watchFollowers.mockImplementation((_userId, cb) => {
+      watchFollowersCallback = cb;
+      return jest.fn();
+    });
+    watchPresence.mockImplementation((_userId, cb) => {
+      watchPresenceCallback = cb;
+      return jest.fn();
+    });
+  });
+
+  test('a mapped, connected row is resolved without a live document.querySelector', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'XY9K2M', label: 'Alice' }]);
+    initList('myUid', 'MYCODE');
+    watchFollowersCallback([{ userId: 'u1', code: 'XY9K2M' }]); // renders the row, populates the map
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 7200000, statusColor: '#22c55e' });
+
+    const spy = jest.spyOn(document, 'querySelector');
+    // _refreshTimeLabels' label-only path calls followeeRow(entry.userId)
+    // internally; with a mapped, connected row this must resolve without
+    // falling back to a document-level scan.
+    _refreshTimeLabels('myUid');
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  test('removing the row clears its map entry — a later lookup falls back to querySelector and finds nothing', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'XY9K2M', label: 'Alice' }]);
+    initList('myUid', 'MYCODE');
+    watchFollowersCallback([{ userId: 'u1', code: 'XY9K2M' }]);
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 7200000, statusColor: '#22c55e' });
+    expect(document.querySelector('[data-user-id="u1"]')).not.toBeNull();
+
+    // Fully drop u1 (server-side unfollow) and re-render: the row is removed
+    // from #people-list, and its onRemove hook must delete the stale map
+    // entry so it can never be handed back for a future 'u1' lookup.
+    getFollowing.mockReturnValue([]);
+    watchFollowersCallback([]);
+    expect(document.querySelector('[data-user-id="u1"]')).toBeNull();
+
+    const spy = jest.spyOn(document, 'querySelector');
+    expect(() => {
+      updateFolloweeRow({ userId: 'u1', code: 'XY9K2M' }, { status: 'available', availableUntil: Date.now() + 7200000 }, 'myUid');
+    }).not.toThrow();
+    // Map miss (or a stale/detached entry) must fall through to the live
+    // querySelector fallback — never a silently-reused stale node.
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('u1'));
+    spy.mockRestore();
+  });
+});

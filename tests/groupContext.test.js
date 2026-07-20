@@ -2254,6 +2254,100 @@ describe('distance on group roster (Task 10)', () => {
   });
 });
 
+// --- uid -> row-element map for paintRosterRow's default arg (perf) ---
+//
+// paintRosterRow's default `li` argument used to be a plain
+// `#group-roster [data-user-id="uid"]` querySelector scan, run on every
+// distance/presence tick for every roster row. renderRoster's reconcile
+// update hook now populates a module-level uid->node map so the common,
+// still-connected case skips the DOM scan — but the map is only an
+// optimization: rosterRow() double-checks isConnected before trusting it, so
+// a missed/late removal can only cost an extra querySelector, never hand back
+// a wrong or detached row. Mirrors the followeeRow map in js/following.ts.
+describe('paintRosterRow uid map (perf)', () => {
+  const { subscribeCellDistance, subscribeDistance } = require('../js/locationHub.js');
+  const { getLocationOptIn } = require('../js/prefs.js');
+  const { getCurrentMutuals } = require('../js/following.js');
+
+  function captureMembers() {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((g, cb) => { membersCb = cb; return () => {}; });
+    return () => membersCb;
+  }
+  function captureStatuses() {
+    const cbs = {};
+    db.watchPresence.mockImplementation((uid, cb) => { cbs[uid] = cb; return () => {}; });
+    return cbs;
+  }
+  function fireAvailable(statusCbs, uid) {
+    statusCbs[uid]?.({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+  }
+
+  let cellCbs;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+    getCurrentMutuals.mockImplementation(() => []);
+    cellCbs = new Map(); // peerUid -> cb
+    subscribeCellDistance.mockImplementation((gid, myUid, peerUid, cb) => {
+      cellCbs.set(peerUid, cb);
+      return jest.fn();
+    });
+    subscribeDistance.mockImplementation(() => jest.fn());
+  });
+
+  test('a mapped, connected roster row is resolved without a live document.querySelector', () => {
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
+
+    const spy = jest.spyOn(document, 'querySelector');
+    // The cell-distance tick callback calls paintRosterRow(uid) with its
+    // default arg (no `node` passed) — this must resolve from the uid map
+    // without falling back to a document-level scan.
+    cellCbs.get('uidA')(500);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/<1 km away$/);
+  });
+
+  test('removing the roster row clears its map entry — a later paint falls back to querySelector and finds nothing', () => {
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
+    expect(document.querySelector('#group-roster [data-user-id="uidA"]')).not.toBeNull();
+
+    // uidA leaves the group: the roster row is torn down (reconcile onRemove)
+    // and must delete the stale map entry.
+    getMembers()({ me: { role: 'owner', displayName: 'Me', joinedAt: 1 } });
+    expect(document.querySelector('#group-roster [data-user-id="uidA"]')).toBeNull();
+
+    const spy = jest.spyOn(document, 'querySelector');
+    // A distance tick landing after teardown (the closure still holds the old
+    // callback) must never resurrect the detached row from a stale map entry.
+    expect(() => cellCbs.get('uidA')(500)).not.toThrow();
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('uidA'));
+    spy.mockRestore();
+  });
+});
+
 describe('buildGroupCombo', () => {
   let buildGroupCombo;
 

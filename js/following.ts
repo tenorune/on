@@ -70,7 +70,18 @@ let _onInviteRedeemed: InviteRedeemedCb | null = null;
 // attribute for the same uid. Scope every Direct-list row lookup to #people-list
 // so a mutual who is also a group member never has their Direct row resolve to
 // the group roster — which leaked their Direct status into the group card.
+//
+// uid -> row element, populated by the reconcile create/update hooks in
+// renderList (this module's own #people-list nodes only, so it can never leak
+// a group-roster node for the same uid). This is a pure optimization over the
+// querySelector scan below — followeeRow always double-checks isConnected
+// before trusting the cache, so a missed/late removal can only cost an extra
+// scan, never hand back a wrong/detached row.
+const _rowByUid = new Map<string, HTMLElement>();
+
 function followeeRow(userId: string): HTMLElement | null {
+  const cached = _rowByUid.get(userId);
+  if (cached && cached.isConnected) return cached;
   return (document.querySelector(`#people-list [data-user-id="${userId}"]`) as HTMLElement | null);
 }
 
@@ -226,6 +237,7 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
   _distanceUnsubs.forEach((unsub) => unsub());
   _distanceUnsubs.clear();
   _distances.clear();
+  _rowByUid.clear();
   editingSet.clear();
   callModeCalleeId = null;
   _incomingCall = null;
@@ -591,6 +603,8 @@ function renderList() {
       update: () => {},
       onRemove: (node) => {
         if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
+        const uid = node.dataset.userId;
+        if (uid && _rowByUid.get(uid) === node) _rowByUid.delete(uid);
       },
     });
     list.style.display = 'none';
@@ -692,6 +706,13 @@ function renderList() {
     },
     update: (node, key) => {
       if (key.startsWith('label:')) return;
+      // create() always stamps data-user-id before returning the node, and
+      // reconcile runs update() immediately after create() (before insertion)
+      // — so the attribute is already set here even for a brand-new row.
+      // Refreshed on every pass (not just create) so the map self-heals if a
+      // row's identity ever changes underneath the same key.
+      const uid = node.dataset.userId;
+      if (uid) _rowByUid.set(uid, node);
       const entry = entryByKey.get(key);
       if (key.startsWith('follower:')) {
         // Refresh the CODE (Name) label — the name can be learned post-create.
@@ -718,6 +739,12 @@ function renderList() {
     // re-entrancy guard mid-removal).
     onRemove: (node) => {
       if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
+      // Identity-guarded: only delete if this removed node is still the one
+      // the map has on file for its uid. Protects against a create-before-
+      // remove ordering for the same uid within a pass (mirrors the roster's
+      // eligibility-bit key flip) from wiping out a fresher entry.
+      const uid = node.dataset.userId;
+      if (uid && _rowByUid.get(uid) === node) _rowByUid.delete(uid);
     },
   });
 
