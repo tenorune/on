@@ -1127,8 +1127,9 @@ function subscribeToFollowee(entry: FollowingEntry, myUserId: string) {
       return;
     }
 
-    // Re-sort only when availability actually flips (group context re-sorts on
-    // every tick; Direct only on change to avoid reordering rows mid-interaction).
+    // Re-sort only when availability actually flips — group context also
+    // resorts only on a flip now (groupContext.js's syncRosterOrder), same as
+    // Direct here, to avoid reordering rows mid-interaction on every tick.
     const prev = lastUserData.get(entry.userId);
     const flipped = isAvailable(prev?.status, prev?.availableUntil)
       !== isAvailable(userData.status, userData.availableUntil);

@@ -1312,3 +1312,74 @@ describe('held-while-away buffer: drain on drawer-close/canvas-exit instead of r
     expect(clearKnock).not.toHaveBeenCalledWith('myUid', 'alice');
   });
 });
+
+// --- M1: →visible double-present guard ---
+// drainHeldKnocks presents+clears in-context held knocks; initKnocks then
+// re-reads getKnocks as a safety net. If the RTDB remove hasn't propagated
+// yet, the same knock can still be in that snapshot — without a skip set,
+// step 7 would re-animate it a second time.
+describe('M1: visibilitychange->visible does not double-pulse when the DB remove has not propagated', () => {
+  async function setupLiveListener() {
+    let liveCallback;
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockImplementation((_uid, cb) => { liveCallback = cb; return jest.fn(); });
+    clearKnock.mockResolvedValue();
+    await initKnocks('myUid');
+    return liveCallback;
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  test('an in-context knock buffered while hidden pulses exactly once even if getKnocks still returns it on re-init', async () => {
+    const fire = await setupLiveListener();
+    // Unique sender id — this test file accumulates stray visibilitychange
+    // listeners from earlier tests' un-drained module instances (each test
+    // re-requires knock.js without ever removing the previous test's
+    // document-level listener). Using an id no other test touches means
+    // those stray listeners find no matching li for it and no-op, so the
+    // per-li spy below only ever observes THIS test's presentation.
+    const sid = 'aliceM1Guard';
+    const li = makeLi(sid);
+
+    // Knock arrives while backgrounded — buffered, li stays in the DOM
+    // (in-context: Direct contact row exists), left in the DB.
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    const ts = Date.now();
+    fire(sid, { count: 1, ts });
+    expect(li.classList.contains('knock-deferred')).toBe(false);
+
+    // Count how many times THIS li's classList gets 'knock-deferred' added —
+    // applyDeferredKnock is the only code that adds it, once per
+    // presentation attempt for this sender. Scoped to this li's own
+    // classList object, so it can't be polluted by other listeners touching
+    // unrelated elements.
+    let deferredAddCount = 0;
+    const origAdd = li.classList.add.bind(li.classList);
+    jest.spyOn(li.classList, 'add').mockImplementation((...cls) => {
+      if (cls.includes('knock-deferred')) deferredAddCount += 1;
+      return origAdd(...cls);
+    });
+
+    // Simulate the RTDB remove not having propagated: getKnocks' snapshot
+    // (read by initKnocks' safety-net re-init) still contains this sender's knock.
+    getKnocks.mockResolvedValue({
+      exists: () => true,
+      val: () => ({ [sid]: { count: 1, ts } }),
+    });
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    // Flush the async chain inside initKnocks (await getKnocks, await
+    // Promise.all(clearKnock...)) so step 7 has had a chance to run.
+    await jest.runAllTimersAsync();
+
+    expect(li.classList.contains('knock-deferred')).toBe(true);
+    expect(deferredAddCount).toBe(1); // drain presented it once; step 7's skip set prevents a second pulse
+  });
+});
