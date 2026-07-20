@@ -528,7 +528,7 @@ describe('handleUpdate: /notifications and /help', () => {
   test('/notifications push and telegram set the channel; bad arg explains', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    deps.store[`userPrefs/${uid}/pushTokens`] = { tok1: true };
+    deps.store[`pushTokens/${uid}`] = { tok1: true };
     let reply = await handleUpdate(deps, msgUpdate('/notifications push'));
     expect(deps.store[`userPrefs/${uid}/notifyChannel`]).toBe('push');
     reply = await handleUpdate(deps, msgUpdate('/notifications telegram'));
@@ -570,6 +570,17 @@ describe('/notifications push without tokens (W1 J#3)', () => {
   });
 
   test('switches normally when a token exists', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`pushTokens/${uid}`] = { tok1: true };
+    const deps = makeBotDeps(store);
+    const reply = await handleUpdate(deps, msgUpdate('/notifications push'));
+    expect(store[`userPrefs/${uid}/notifyChannel`]).toBe('push');
+  });
+
+  // Migration window: an account not yet migrated still has its tokens under
+  // the legacy path only — the dual-read fallback must still let it switch.
+  test('legacy fallback: switches when only the legacy path has a token', async () => {
     const store = {};
     const uid = seedUser(store);
     store[`userPrefs/${uid}/pushTokens`] = { tok1: true };

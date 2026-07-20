@@ -264,8 +264,11 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
       if (choice === 'push') {
         // W1 J#3 (mirrors the app's channel pill): don't write a push channel
         // this account can't receive on — the notifier's token-less fallback
-        // would mask it, but the shown state would lie.
-        const tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
+        // would mask it, but the shown state would lie. Dual-read: prefer the
+        // relocated top-level node, fall back to legacy userPrefs until the
+        // migration completes — matches sendToUser in functions/notifier.js.
+        const tokensMap = await deps.getVal(`pushTokens/${uid}`)
+          .then((v) => v ?? deps.getVal(`userPrefs/${uid}/pushTokens`)); // legacy fallback until migration completes
         if (!tokensMap || Object.keys(tokensMap).length === 0) {
           await reply("Push isn't set up on any device yet — open KnockKnock in a browser first. You'll keep getting messages here.");
           return;

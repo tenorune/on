@@ -7,7 +7,7 @@
 // the server-side marker userPrefs.telegram (set on link, cleared on unlink); a
 // Telegram-derived (unlinked) account can only receive via Telegram, and a web
 // account with no link has nothing to choose.
-import { mergeUserPrefs } from './db.js';
+import { mergeUserPrefs, readPushTokens } from './db.js';
 import { isTelegramContext, isTelegramLinked } from './telegram.js';
 import { syncBotDelivery } from './notifySuppression.js';
 import { ensureNotificationsReady } from './notifyPrompt.js';
@@ -60,8 +60,11 @@ function mountPill(slot: HTMLElement, userId: string) {
   // Any device on the ACCOUNT can receive push — deciding deliverability on
   // this browser's permission alone would wrongly block/revert a user whose
   // other device is registered.
-  const accountHasPushTokens = () =>
-    Object.keys(lastPrefs?.pushTokens || {}).length > 0;
+  const accountHasPushTokens = async () => {
+    const fresh = await readPushTokens(userId);          // new top-level path
+    if (fresh && Object.keys(fresh).length > 0) return true;
+    return Object.keys(lastPrefs?.pushTokens || {}).length > 0; // legacy fallback until migration completes
+  };
   const permissionGranted = () =>
     typeof Notification !== 'undefined' && Notification.permission === 'granted';
   pill.querySelectorAll<HTMLElement>('.toggle-pill-option').forEach((b) => {
@@ -75,7 +78,7 @@ function mountPill(slot: HTMLElement, userId: string) {
       // switch wherever the permission flow can't fix that:
       //  - inside Telegram the flow can't run at all;
       //  - on web with permission already denied, the prompt can't be shown.
-      if (next === 'push' && !accountHasPushTokens()) {
+      if (next === 'push' && !(await accountHasPushTokens())) {
         if (isTelegramContext()) {
           showToast("Push isn't set up on any device yet — open KnockKnock in a browser first. Messages keep arriving via Telegram.");
           return;
@@ -100,7 +103,7 @@ function mountPill(slot: HTMLElement, userId: string) {
           // device holds a token — 'push' is undeliverable, so leaving it
           // written would make every surface display a lie (delivery quietly
           // rides the bot fallback). Revert the write and say why.
-          if (!isTelegramContext() && !permissionGranted() && !accountHasPushTokens()) {
+          if (!isTelegramContext() && !permissionGranted() && !(await accountHasPushTokens())) {
             await mergeUserPrefs(userId, { notifyChannel: 'telegram' });
             setActive(pill, 'telegram');
             syncBotDelivery({ ...(lastPrefs || {}), notifyChannel: 'telegram' });

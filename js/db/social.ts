@@ -198,7 +198,11 @@ export async function getCurrentContextPref(userId: string): Promise<string | nu
 // FCM push-token registry, relocated to a TOP-LEVEL node (audit F6): the
 // records embed navigator.userAgent and live outside userPrefs so the
 // wholesale prefs watch stops downloading them every boot and re-delivering
-// them on every prefs echo. Owner-only; the notifier reads it server-side.
+// them on every prefs echo. Owner-only. Three readers dual-read this node
+// with a legacy userPrefs/{uid}/pushTokens fallback during the migration
+// window: the notifier (functions/notifier.js sendToUser), the bot's
+// /notifications gate (functions/telegram.js), and the app's channel pill
+// (js/notifyChannel.ts accountHasPushTokens).
 export async function readPushTokens(userId: string): Promise<Record<string, { createdAt?: number; lastSeen?: number } | null> | null> {
   const snap = await get(ref(db, `pushTokens/${userId}`));
   return snap.exists() ? snap.val() : null;
