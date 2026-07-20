@@ -213,3 +213,43 @@ describe('groups/{gid}/members — self-join guard (Fix 2c)', () => {
       .set({ role: 'member', displayName: 'M', joinedAt: 1 }));
   });
 });
+
+describe('groups/{gid} ownership — create-only guard (Fix A)', () => {
+  // The $gid .write rule's second branch (newData.child('ownerId').val() ===
+  // auth.uid) previously had no existence guard, so ANY authed user could
+  // overwrite ownerId on an EXISTING group and seize ownership. It must only
+  // fire on CREATE (!data.exists()).
+  async function seedG1(db) {
+    await db.ref('groups/G1/ownerId').set('alice');
+    await db.ref('groups/G1/members/alice').set({ role: 'owner', displayName: 'Alice' });
+  }
+
+  test('DENIES a non-owner overwriting ownerId on an existing group (takeover)', async () => {
+    await seed(env, seedG1);
+    await assertFails(dbAs(env, 'mallory').ref('groups/G1/ownerId').set('mallory'));
+  });
+
+  test('DENIES the full takeover chain end-to-end: still cannot self-add as member', async () => {
+    await seed(env, seedG1);
+    await assertFails(dbAs(env, 'mallory').ref('groups/G1/ownerId').set('mallory'));
+    // Owner-branch bypass stays closed: mallory is still not the owner, so
+    // the members/$uid owner-add path is unavailable to her too.
+    await assertFails(dbAs(env, 'mallory').ref('groups/G1/members/mallory')
+      .set({ role: 'member', displayName: 'Mallory', joinedAt: 1 }));
+  });
+
+  test('ALLOWS creating a brand-new group in one write with self as ownerId', async () => {
+    await assertSucceeds(dbAs(env, 'carol').ref('groups/GNEW')
+      .set({ ownerId: 'carol', name: 'New', createdAt: 1 }));
+  });
+
+  test('ALLOWS the owner to update a group field on an existing group', async () => {
+    await seed(env, seedG1);
+    await assertSucceeds(dbAs(env, 'alice').ref('groups/G1/name').set('Renamed'));
+  });
+
+  test('ALLOWS the owner to delete the group node', async () => {
+    await seed(env, seedG1);
+    await assertSucceeds(dbAs(env, 'alice').ref('groups/G1').remove());
+  });
+});
