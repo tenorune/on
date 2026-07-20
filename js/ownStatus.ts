@@ -14,7 +14,7 @@
 // group-override theme on the SAME tick and must win. Do not reorder
 // registration or change the Set's insertion-ordered iteration.
 
-import { watchPresence } from './db.js';
+import { subscribePresence } from './presenceHub.js';
 
 type OwnStatusCb = (data: PresenceNode | null) => void;
 
@@ -26,7 +26,7 @@ const _subs = new Set<OwnStatusCb>();
 export function initOwnStatus(uid: string) {
   if (_unsub) _unsub();
   _last = NO_TICK;
-  _unsub = watchPresence(uid, (data) => {
+  _unsub = subscribePresence(uid, (data) => {
     _last = data;
     // Snapshot before iterating: a consumer that (un)subscribes from within its
     // own tick handler must not be double-delivered (newly-added consumers get
