@@ -22,7 +22,6 @@ jest.mock('../js/db.js', () => ({
   readGroupInvites: jest.fn().mockResolvedValue({}),
   readGroupInvite: jest.fn().mockResolvedValue(null),
   setGroupInviteRevoked: jest.fn(),
-  incrementGroupInviteRedemptions: jest.fn(),
   watchGroupInvites: jest.fn(() => () => {}),
   readGroup: jest.fn().mockResolvedValue(null),
   readGroupName: jest.fn().mockResolvedValue(null),
@@ -718,7 +717,6 @@ const { redeemGroupInvite } = require('../js/invites');
 describe('redeemGroupInvite', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    db.incrementGroupInviteRedemptions.mockResolvedValue();
   });
 
   test('happy path: joins the group, passing the token through (the callable bumps redemption count server-side)', async () => {
@@ -736,9 +734,6 @@ describe('redeemGroupInvite', () => {
       existing: null,
       token: 'TOKEN',
     }));
-    // Fix 2b: the redemptionsUsed bump moved server-side into the joinGroup
-    // callable (functions/group-join.js); the client no longer calls this.
-    expect(db.incrementGroupInviteRedemptions).not.toHaveBeenCalled();
   });
 
   test('returns not-found when the index lookup is empty', async () => {
@@ -792,7 +787,6 @@ describe('redeemGroupInvite', () => {
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('invalid-display-name');
     expect(result.message).toMatch(/empty/i);
-    expect(db.incrementGroupInviteRedemptions).not.toHaveBeenCalled();
   });
 
   test('returns group-missing when joinGroup throws Group not found (TOCTOU race)', async () => {

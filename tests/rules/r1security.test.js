@@ -87,8 +87,8 @@ describe('M1 users/{uid} read scoping', () => {
 // redeemGroupInvite (non-member) now uses readGroupInvite(groupId, token)
 // (single-token read) instead of readGroupInvites(groupId) (whole collection),
 // so the rule is per-token, not collection-level — symmetric with personal invites.
-// then writeMember(self), writeUserGroupsEntry(self), and
-//   incrementGroupInviteRedemptions → groups/{gid}/invites/{token}/redemptionsUsed (C2).
+// then writeUserGroupsEntry(self); the member write and the redemptionsUsed
+// bump both happen server-side in the joinGroup callable (Admin SDK) (C2).
 describe('C2 + group-redeem non-member read flow', () => {
   beforeEach(async () => {
     await seed(env, async (db) => {

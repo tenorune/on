@@ -206,11 +206,6 @@ export async function setGroupInviteRevoked(groupId: string, token: string): Pro
   await update(ref(db, `groups/${groupId}/invites/${token}`), { revoked: true });
 }
 
-export async function incrementGroupInviteRedemptions(groupId: string, token: string): Promise<void> {
-  const inviteRef = ref(db, `groups/${groupId}/invites/${token}/redemptionsUsed`);
-  await runTransaction(inviteRef, (current) => (current || 0) + 1);
-}
-
 export function watchGroupInvites(groupId: string, callback: (invites: Record<string, unknown>) => void): () => void {
   const invitesRef = ref(db, `groups/${groupId}/invites`);
   return onValue(invitesRef, (snap) => {

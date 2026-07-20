@@ -12,7 +12,7 @@ const {
   setLastVisited,
   writeGroup, readGroup, readGroupName, renameGroup, deleteGroup, watchGroupMeta,
   writeMember, readMember, readMembers, removeMember, setMemberDisplayName, watchGroupMembers,
-  writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions, watchGroupInvites,
+  writeGroupInvite, readGroupInvites, setGroupInviteRevoked, watchGroupInvites,
   setStatusOverride, clearStatusOverride, watchOwnMemberOverride,
   writeFollowRequest, watchFollowRequests, deleteFollowRequest,
   writeFollowGrant, watchFollowGrants, deleteFollowGrant,
@@ -602,14 +602,6 @@ describe('group invite ops', () => {
     await setGroupInviteRevoked('G1', 'T');
     expect(update).toHaveBeenCalledWith('mock-ref', { revoked: true });
     expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/invites/T');
-  });
-
-  test('incrementGroupInviteRedemptions transactionally bumps the counter', async () => {
-    runTransaction.mockResolvedValue({ committed: true });
-    await incrementGroupInviteRedemptions('G1', 'T');
-    const handler = runTransaction.mock.calls[0][1];
-    expect(handler(3)).toBe(4);
-    expect(handler(null)).toBe(1);
   });
 
   test('watchGroupInvites subscribes to the collection', () => {

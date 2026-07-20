@@ -463,7 +463,6 @@ describe('end-to-end: create group → group invite → redeem → joined', () =
       { scope: 'group', token: invite.token, creatorUid: 'owner-uid', revoked: false, expiresAt: null, redemptionCap: null, redemptionsUsed: 0 },
     );
     db.readMember = jest.fn().mockResolvedValue(null);
-    db.incrementGroupInviteRedemptions = jest.fn().mockResolvedValue();
     db.writeMember.mockResolvedValue();
     db.writeUserGroupsEntry.mockResolvedValue();
     callJoinGroup.mockResolvedValue({ ok: true, groupId: created.groupId });
