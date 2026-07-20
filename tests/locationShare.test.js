@@ -496,6 +496,57 @@ test('permission revoked mid-flight (tick errors code 1) → clear, loop stopped
   expect(db.publishLocationCell).not.toHaveBeenCalled();
 });
 
+test('a PERMISSION_DENIED cell write sweeps the stale gid opt-in, clears the orphaned cell, and idles the loop', async () => {
+  // Kicked-group scenario: the gid stays opted-in, but membership is gone —
+  // the rules deny the cell write forever. The sweep must clear the orphaned
+  // cell, drop the opt-in, and let the normal teardown paths idle the loop
+  // (no more denied writes every 60s).
+  const { initLocationShare, toggleContext } = share();
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('G1');
+  await flush();
+  expect(db.publishLocationCell).toHaveBeenCalledTimes(1); // initial cell landed at POS
+  // Move to a new cell so the next tick actually attempts a write instead of
+  // being suppressed as a no-op (audit F1) — then that write gets denied.
+  geoBehavior = (ok) => ok({ coords: { latitude: 52.54, longitude: 13.405 } }); // ≥2 cells away
+  db.publishLocationCell.mockRejectedValueOnce({ code: 'PERMISSION_DENIED' });
+  const seen = [];
+  document.addEventListener('location-optin-changed', (e) => seen.push(e.detail.context));
+  jest.advanceTimersByTime(60000);
+  await flush();
+  await flush();
+  expect(prefs.getLocationOptIn('G1')).toBe(false);
+  expect(db.clearLocationCells).toHaveBeenCalledWith('me', ['G1']);
+  expect(seen).toEqual(['G1']);
+  // No other context opted in — the loop must now be idle: nothing publishes
+  // on the next 60s advance, proving reconcile() actually stopped the timer.
+  db.publishLocationCell.mockClear();
+  db.publishLocation.mockClear();
+  jest.advanceTimersByTime(60000);
+  await flush();
+  expect(db.publishLocationCell).not.toHaveBeenCalled();
+  expect(db.publishLocation).not.toHaveBeenCalled();
+});
+
+test('a network-style rejection on a cell write changes nothing (Decision 3: silent failed tick)', async () => {
+  const { initLocationShare, toggleContext } = share();
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('G1');
+  await flush();
+  geoBehavior = (ok) => ok({ coords: { latitude: 52.54, longitude: 13.405 } }); // ≥2 cells away
+  db.publishLocationCell.mockRejectedValueOnce({ code: 'unavailable' });
+  const seen = [];
+  document.addEventListener('location-optin-changed', (e) => seen.push(e.detail.context));
+  jest.advanceTimersByTime(60000);
+  await flush();
+  await flush();
+  expect(prefs.getLocationOptIn('G1')).toBe(true);
+  expect(db.clearLocationCells).not.toHaveBeenCalled();
+  expect(seen).toEqual([]);
+});
+
 test('a failed tick is silent — no clear, loop continues', async () => {
   const { initLocationShare, toggleContext } = share();
   initLocationShare('me', () => []);

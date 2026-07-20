@@ -283,7 +283,23 @@ async function tick(): Promise<void> {
     publishLocationCell(gid, uid, pos.lat, pos.lng, now).then(() => {
       _lastPublished.set(gid, cell);
       markPublished(gid);
-    }).catch(() => {});
+    }).catch((err) => {
+      // A PERMISSION_DENIED cell write means stale membership (kicked while
+      // opted in) — the rules' delete-only carve-out still allows clearing.
+      // Sweep: clear the orphaned cell, drop the opt-in, and let the normal
+      // teardown paths idle the loop. Anything else stays a silent failed
+      // tick (Decision 3). Error shape not device-verified: the web SDK's
+      // rules-denied `set` is expected to reject with error.code ===
+      // 'PERMISSION_DENIED' and/or a message containing 'permission_denied'.
+      const reason = String((err as { code?: string; message?: string })?.code ?? (err as { message?: string })?.message ?? '');
+      if (!/permission.denied/i.test(reason)) return;
+      clearLocationCells(uid, [gid]).catch(() => {});
+      setLocationOptIn(gid, false);
+      unmarkPublished([gid]);
+      syncGroupStatusSubs();
+      evaluateAvailability();
+      document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context: gid } }));
+    });
   }
 }
 
