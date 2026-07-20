@@ -12,6 +12,8 @@ import { validateRecoveryHandler } from './auth.js';
 import { handleMemberRemoved } from './group-cleanup.js';
 import { resolveInvitePreviewHandler } from './invites.js';
 import { joinGroupHandler } from './group-join.js';
+import { handleCallCleanup, handleCallSweep, CALL_TTL_MS } from './call-cleanup.js';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, graduateTelegramHandler, mintTelegramLinkTokenHandler, redeemTelegramLinkTokenHandler } from './telegram-auth.js';
 import { buildNotificationKeyboard, handleUpdate, webhookAuthorized, botCommandsPayload } from './telegram.js';
 
@@ -119,10 +121,24 @@ export const onKnock = onValueCreated('/knocks/{recipientId}/{senderId}', (event
 export const onCall = onValueWritten('/calls/{uid}', (event) => {
   const after = event.data.after.val();
   const before = event.data.before.val();
+  // A mailbox was DELETED → reap the counterpart if it still references this
+  // user, so the peer isn't stranded on the canvas unable to clear their own
+  // node (the rules deny that once ours is gone). See call-cleanup.js.
+  if (!after && before) return handleCallCleanup(makeDeps(), event.params.uid, before);
   // Only notify the callee on a fresh unanswered ring (calls/{callee}.from set).
   if (!after || !after.from || after.answered) return null;
   if (before && before.from === after.from) return null;
   return handleCall(makeDeps(), event.params.uid, after.from);
+});
+
+// Hourly sweep of stale call mailboxes. Catches the case onCall's deletion
+// reaper can't: BOTH clients died mid-call without a clean hangup, so neither
+// node was ever deleted and no deletion event fires. Nulls any mailbox older
+// than CALL_TTL_MS (or malformed); each null then trips onCall to fan out its
+// counterpart. See call-cleanup.js.
+export const sweepStaleCalls = onSchedule('every 60 minutes', async () => {
+  const swept = await handleCallSweep(makeDbDeps(), CALL_TTL_MS);
+  if (swept.length) console.log(`[calls] swept ${swept.length} stale mailbox(es)`);
 });
 
 // Narrowed to presence/availableUntil so we're not invoked on every write to
