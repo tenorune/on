@@ -260,11 +260,25 @@ function dedupeServerFavorites(arr: Array<FavoriteComboLike | null | undefined> 
 // Writes hit userPrefs/{uid}/notify/{targetUid}/{type} via mergeUserPrefs.
 const NOTIFY_KEY = 'statusapp_notify_prefs';
 
+// Raw-string memo (same shape as store.ts's getFollowing): parsing the same
+// string every reconcile pass is pure waste. The raw value is still read (and
+// compared) every call, so direct/cross-tab writes are still seen. Callers
+// mutate the returned map's top-level keys only (see setNotifyPref /
+// syncFromServer), so a shallow copy is enough to protect the memo.
+let _notifyRaw: string | null = null;
+let _notifyParsed: Record<string, NotifyPrefsEntry> = {};
+
 function readNotifyCache(): Record<string, NotifyPrefsEntry> {
+  const raw = localStorage.getItem(NOTIFY_KEY);
+  if (raw !== null && raw === _notifyRaw) return { ..._notifyParsed };
+  let parsed: Record<string, NotifyPrefsEntry> = {};
   // Cast: JSON.parse tolerates null at runtime (coerced to "null" → null,
   // caught by the || {}); the lib typing only admits strings.
-  try { return JSON.parse(localStorage.getItem(NOTIFY_KEY) as string) || {}; }
-  catch { return {}; }
+  try { parsed = JSON.parse(raw as string) || {}; }
+  catch { /* malformed → {} */ }
+  _notifyRaw = raw;
+  _notifyParsed = parsed;
+  return { ...parsed };
 }
 function writeNotifyCache(map: Record<string, NotifyPrefsEntry>) {
   try { localStorage.setItem(NOTIFY_KEY, JSON.stringify(map)); } catch { /* quota */ }
@@ -365,9 +379,22 @@ export function selectStalePushTokens(
 // these (spec 2026-07-18 §6.1). Cached as one JSON map so reads stay sync.
 const LOCATION_PREFS_KEY = 'statusapp_location_prefs';
 
+// Raw-string memo (same shape as store.ts's getFollowing / readNotifyCache
+// above). No caller mutates map.groups in place (setLocationOptIn replaces it
+// wholesale; syncFromServer only reads it), so a shallow copy is enough to
+// protect the memo.
+let _locationRaw: string | null = null;
+let _locationParsed: { direct?: boolean; groups?: Record<string, boolean> } = {};
+
 function readLocationCache(): { direct?: boolean; groups?: Record<string, boolean> } {
-  try { return JSON.parse(localStorage.getItem(LOCATION_PREFS_KEY) as string) || {}; }
-  catch { return {}; }
+  const raw = localStorage.getItem(LOCATION_PREFS_KEY);
+  if (raw !== null && raw === _locationRaw) return { ..._locationParsed };
+  let parsed: { direct?: boolean; groups?: Record<string, boolean> } = {};
+  try { parsed = JSON.parse(raw as string) || {}; }
+  catch { /* malformed → {} */ }
+  _locationRaw = raw;
+  _locationParsed = parsed;
+  return { ...parsed };
 }
 function writeLocationCache(map: { direct?: boolean; groups?: Record<string, boolean> }) {
   try { localStorage.setItem(LOCATION_PREFS_KEY, JSON.stringify(map)); } catch { /* quota */ }

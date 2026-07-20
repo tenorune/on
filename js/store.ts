@@ -142,12 +142,23 @@ function setPaletteState(state: unknown) {
 
 const FAVORITES_KEY = 'statusapp_favorites';
 
+// Raw-string memo (same shape as getFollowing above): parsing the same string
+// every call is pure waste. The raw value is still read (and compared) every
+// call, so direct/cross-tab writes are still seen.
+let _favoritesRaw: string | null = null;
+let _favoritesParsed: any[] = [];
+
 function getFavorites(): any[] {
+  const raw = localStorage.getItem(FAVORITES_KEY);
+  if (raw !== null && raw === _favoritesRaw) return _favoritesParsed.slice();
+  let parsed: any[] = [];
   try {
-    const parsed = JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]');
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
-  } catch (_) { return []; }
+    const p = JSON.parse(raw || '[]');
+    if (Array.isArray(p)) parsed = p;
+  } catch { /* malformed → [] */ }
+  _favoritesRaw = raw;
+  _favoritesParsed = parsed;
+  return parsed.slice();
 }
 
 function setFavorites(arr: unknown[]) {

@@ -463,3 +463,78 @@ test('notify-prefs-synced fires only when a per-person pref actually changed', (
   expect(seen).toHaveBeenCalledTimes(2);
   document.removeEventListener('notify-prefs-synced', seen);
 });
+
+// ── readNotifyCache / readLocationCache parse memoization ──
+// Both caches are internal (not exported); exercised through the public
+// getters (getNotifyPrefs / getLocationOptIn / getOptedInLocationGids) that
+// call them on every invocation, mirroring store.ts's getFollowing raw-string
+// memo pattern.
+describe('notify/location cache parse memoization', () => {
+  beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); initPrefs('me123'); });
+
+  test('getNotifyPrefs: unchanged raw skips re-parse', () => {
+    localStorage.setItem('statusapp_notify_prefs', JSON.stringify({ alex: { knock: true, call: false, availability: false } }));
+    const spy = jest.spyOn(JSON, 'parse');
+    getNotifyPrefs('alex');
+    const callsAfterFirst = spy.mock.calls.length;
+    getNotifyPrefs('alex');
+    expect(spy.mock.calls.length).toBe(callsAfterFirst); // second call: no re-parse
+    spy.mockRestore();
+  });
+
+  test('getNotifyPrefs: a direct localStorage write between calls is honored (cross-tab safety)', () => {
+    localStorage.setItem('statusapp_notify_prefs', JSON.stringify({ alex: { knock: true, call: false, availability: false } }));
+    getNotifyPrefs('alex');
+    localStorage.setItem('statusapp_notify_prefs', JSON.stringify({ alex: { knock: false, call: true, availability: false } }));
+    expect(getNotifyPrefs('alex')).toEqual({ knock: false, call: true, availability: false });
+  });
+
+  test('round trip: setNotifyPref (readNotifyCache → mutate → writeNotifyCache) is never served stale', () => {
+    getNotifyPrefs('alex'); // prime the memo on an empty cache
+    setNotifyPref('alex', 'knock', true);
+    expect(getNotifyPrefs('alex')).toEqual({ knock: true, call: false, availability: false });
+  });
+
+  test('round trip: syncFromServer (readNotifyCache → mutate → writeNotifyCache) is never served stale', () => {
+    getNotifyPrefs('bea'); // prime the memo on an empty cache
+    syncFromServer({ notify: { bea: { knock: true, call: false, availability: true } } });
+    expect(getNotifyPrefs('bea')).toEqual({ knock: true, call: false, availability: true });
+  });
+
+  test('getLocationOptIn: unchanged raw skips re-parse', () => {
+    localStorage.setItem('statusapp_location_prefs', JSON.stringify({ direct: true, groups: { G1: true } }));
+    const spy = jest.spyOn(JSON, 'parse');
+    prefs.getLocationOptIn('direct');
+    const callsAfterFirst = spy.mock.calls.length;
+    prefs.getLocationOptIn('direct');
+    expect(spy.mock.calls.length).toBe(callsAfterFirst); // second call: no re-parse
+    spy.mockRestore();
+  });
+
+  test('getLocationOptIn: a direct localStorage write between calls is honored (cross-tab safety)', () => {
+    localStorage.setItem('statusapp_location_prefs', JSON.stringify({ direct: true, groups: {} }));
+    prefs.getLocationOptIn('direct');
+    localStorage.setItem('statusapp_location_prefs', JSON.stringify({ direct: false, groups: {} }));
+    expect(prefs.getLocationOptIn('direct')).toBe(false);
+  });
+
+  test('round trip: setLocationOptIn (readLocationCache → mutate → writeLocationCache) is never served stale', () => {
+    prefs.getLocationOptIn('direct'); // prime the memo on an empty cache
+    prefs.setLocationOptIn('direct', true);
+    expect(prefs.getLocationOptIn('direct')).toBe(true);
+  });
+
+  test('round trip: setLocationOptIn on a group replaces map.groups wholesale and is never served stale', () => {
+    prefs.setLocationOptIn('G1', true);
+    prefs.getOptedInLocationGids(); // prime the memo
+    prefs.setLocationOptIn('G2', true);
+    expect(prefs.getOptedInLocationGids().sort()).toEqual(['G1', 'G2']);
+  });
+
+  test('round trip: syncFromServer location (readLocationCache → mutate → writeLocationCache) is never served stale', () => {
+    prefs.getLocationOptIn('direct'); // prime the memo on an empty cache
+    syncFromServer({ location: { direct: true, groups: { G1: true } } });
+    expect(prefs.getLocationOptIn('direct')).toBe(true);
+    expect(prefs.getLocationOptIn('G1')).toBe(true);
+  });
+});
