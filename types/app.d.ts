@@ -70,6 +70,9 @@ interface PresenceNode {
    * client, NOT-available to the server notifier — the pinned divergence in
    * tests/presencePredicateParity.test.js. */
   availableUntil?: number | null;
+  /** Dot/status color (users/{uid}/presence.statusColor and the presence half
+   * of a group statusOverride — js/db/groups.ts mergeStatusOverride). */
+  statusColor?: string | null;
 }
 
 /** groups/{gid}/members/{uid}/statusOverride — per-audience status. */

@@ -5,7 +5,7 @@ import { getDatabase } from 'firebase-admin/database';
 import { getMessaging } from 'firebase-admin/messaging';
 import { onValueCreated, onValueWritten } from 'firebase-functions/v2/database';
 import { setGlobalOptions } from 'firebase-functions/v2';
-import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest } from './notifier.js';
+import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest, statusOverrideChanged } from './notifier.js';
 import { onCall as httpsOnCall, onRequest } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
@@ -149,31 +149,27 @@ export const onAvailability = onValueWritten('/users/{uid}/presence/availableUnt
   return handleAvailability(makeDeps(), event.params.uid, event.data.before.val(), event.data.after.val());
 });
 
-// A group member's per-group override changed. handleGroupOverrideChange computes
-// whether their EFFECTIVE in-group availability flipped off→on (reading their primary
-// for the override-off case) and notifies opted-in co-members. Same RTDB region as
-// the others (setGlobalOptions above).
-export const onMemberOverride = onValueWritten('/groups/{groupId}/members/{memberUid}/statusOverride', (event) => {
-  return handleGroupOverrideChange(
-    makeDeps(),
-    event.params.groupId,
-    event.params.memberUid,
-    event.data.before.val(),
-    event.data.after.val(),
-  );
-});
-
-// A group membership node was written. On DELETION (leave / kick / group
-// teardown), revoke the departed member's coarse location cell so it can't
-// outlive membership. Handler no-ops on create/update.
-export const onMemberRemoved = onValueWritten('/groups/{groupId}/members/{memberUid}', (event) => {
-  return handleMemberRemoved(
-    makeDbDeps(),
-    event.params.groupId,
-    event.params.memberUid,
-    event.data.before.val(),
-    event.data.after.val(),
-  );
+// A group membership node was written — ONE trigger for the whole member
+// node. RTDB triggers match any write at or below their path, so the previous
+// split (an override-leaf trigger + a member-node trigger) doubled every
+// statusOverride write into a second, no-op invocation (audit F7).
+//  - deletion (leave / kick / teardown): revoke the departed member's coarse
+//    location cell so it can't outlive membership (handleMemberRemoved no-ops
+//    on create/update);
+//  - statusOverride transition: notify opted-in co-members. Gated on a real
+//    override change so displayName/join writes skip the notify path (and its
+//    presence read) — matching the old leaf trigger, which also fired on
+//    member deletion (the leaf vanishes with the node), preserved here.
+export const onMemberWritten = onValueWritten('/groups/{groupId}/members/{memberUid}', async (event) => {
+  const before = event.data.before.val();
+  const after = event.data.after.val();
+  const { groupId, memberUid } = event.params;
+  await handleMemberRemoved(makeDbDeps(), groupId, memberUid, before, after);
+  const beforeOv = (before && before.statusOverride) || null;
+  const afterOv = (after && after.statusOverride) || null;
+  if (statusOverrideChanged(beforeOv, afterOv)) {
+    await handleGroupOverrideChange(makeDeps(), groupId, memberUid, beforeOv, afterOv);
+  }
 });
 
 // A pending group invite was created in the invitee's mailbox. onValueCreated

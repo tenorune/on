@@ -274,6 +274,21 @@ export async function handleGroupOverrideChange(deps, groupId, memberUid, before
   if (isOn && !wasOn) await notifyGroupAvailability(deps, groupId, memberUid, now);
 }
 
+// Field-compare of two statusOverride values. The merged member-node trigger
+// (index.js onMemberWritten) uses this to skip the notify path — and its
+// presence read — when a member write (displayName edit, join) didn't touch
+// the override. null and undefined both mean "absent".
+/**
+ * @param {StatusOverride | null | undefined} a
+ * @param {StatusOverride | null | undefined} b
+ */
+export function statusOverrideChanged(a, b) {
+  if (a == null || b == null) return (a ?? null) !== (b ?? null);
+  return a.enabled !== b.enabled
+    || a.statusColor !== b.statusColor
+    || a.availableUntil !== b.availableUntil;
+}
+
 /**
  * @param {NotifierDeps} deps
  * @param {string} calleeId
@@ -316,10 +331,10 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   // label adds no information and its "in {group}" reading can misleadingly
   // imply the availability is group-scoped. A group label is only meaningful
   // when the in-group status DIVERGES from the primary (an override-ON group),
-  // which is handled by onMemberOverride → notifyGroupAvailability, not here.
+  // which is handled by onMemberWritten's override branch → notifyGroupAvailability, not here.
   //
   // Known accepted caveat (#215 finding #7): this in-memory `notified` set
-  // can't coordinate with the SEPARATE onMemberOverride invocation, so a
+  // can't coordinate with the SEPARATE onMemberWritten invocation, so a
   // recipient who is both a Direct follower and an override-ON co-member can
   // still get a rare duplicate (one push per trigger). Accepted as-is for a
   // 50–100-user app rather than adding a cross-invocation notifierState stamp.
@@ -367,7 +382,7 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   if (directDelivered > 0) await deps.update('notifierState/availability', { [uid]: now });
 
   // Group co-members — only for groups where this member's override is OFF, so the
-  // group is showing their primary. Override-ON groups are driven by onMemberOverride.
+  // group is showing their primary. Override-ON groups are driven by onMemberWritten.
   // The shared `notified` set dedups across Direct + every group.
   const groups = await deps.getVal(`users/${uid}/groups`);
   const gids = groups ? Object.keys(groups) : [];

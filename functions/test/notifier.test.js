@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest } from '../notifier.js';
+import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest, statusOverrideChanged } from '../notifier.js';
 import channelDefault from '../../test-fixtures/notify-channel-vectors.json' with { type: 'json' };
 
 function makeDeps(overrides = {}) {
@@ -300,7 +300,7 @@ describe('handleAvailability → group co-members (primary path)', () => {
       'userPrefs/a/notify/star': { availability: true },
       'userPrefs/a/pushTokens': { tokA: {} },
       'notifierState/groupAvailability/gOff/star': null,
-      // gOn: override enabled → handled by onMemberOverride, not the primary path
+      // gOn: override enabled → handled by onMemberWritten's override branch, not the primary path
       'groups/gOn/members/star/statusOverride': { enabled: true, status: 'available', availableUntil: FUTURE },
       'groups/gOn/members': { star: {}, b: {} },
       'userPrefs/b/notify/star': { availability: true },
@@ -814,5 +814,23 @@ describe('token-less push fallback (W1 J#3)', () => {
     };
     expect(await sendToUser(deps, 'u1', { title: 't' }, {})).toBe(false);
     expect(deps.sendTelegram).toHaveBeenCalledTimes(1); // no second attempt
+  });
+});
+
+describe('statusOverrideChanged (merged member-trigger gate)', () => {
+  test('absent on both sides — null vs undefined — is unchanged', () => {
+    expect(statusOverrideChanged(null, undefined)).toBe(false);
+    expect(statusOverrideChanged(undefined, undefined)).toBe(false);
+  });
+  test('appearing or disappearing is a change', () => {
+    expect(statusOverrideChanged(null, { enabled: true })).toBe(true);
+    expect(statusOverrideChanged({ enabled: true }, null)).toBe(true);
+  });
+  test('field flips are changes; identical values are not', () => {
+    const a = { enabled: true, statusColor: 'green', availableUntil: 5 };
+    expect(statusOverrideChanged(a, { ...a })).toBe(false);
+    expect(statusOverrideChanged(a, { ...a, enabled: false })).toBe(true);
+    expect(statusOverrideChanged(a, { ...a, statusColor: 'red' })).toBe(true);
+    expect(statusOverrideChanged(a, { ...a, availableUntil: 9 })).toBe(true);
   });
 });
