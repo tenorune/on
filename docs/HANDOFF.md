@@ -11,41 +11,34 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**EXECUTE the TIER 3 performance-fix plan on this feature branch:**
-`docs/superpowers/plans/2026-07-20-performance-fixes-tier3.md` — 14 small,
-independent low-severity fixes (render-churn, timer-hygiene, cache-memo,
-listener-hygiene, no-op-write). None touches schema or reviewed security
-semantics; tasks are ordered by leverage and any subset can ship. Use
-superpowers:subagent-driven-development (fresh implementer per task, per-task
-review) per the plan header, and do the pre-flight plan scan first. Realign:
+**The Tier 3 performance-fix batch is DONE and merged to this feature branch.**
+All 14 tasks of `docs/superpowers/plans/2026-07-20-performance-fixes-tier3.md`
+plus a review-minor cleanup shipped via subagent-driven-development (fresh
+implementer per task, per-task spec+quality review, final whole-branch review —
+verdict "ready"; see History for the per-task list). Tip is `eca3c0e` on BOTH
+`claude/knockknock-perf-fixes-tier3-2j9hj9` (where it was built) and
+`claude/knockknock-feature-dev-9a3ysy` (fast-forward merge, operator-directed).
+Both pushed; `origin/*` == local. Realign:
 
 ```
 git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
 ```
 
-The tip must be `9f434d0` (F3/F6/F8 + cleanup atop the 8 branch perf-fix
-commits — see History) — else STOP, origin is authoritative.
+Tip must be `eca3c0e` — else STOP, origin is authoritative.
 
-**Verification state:** green bar OBSERVED at `9f434d0` (web jest 1983/1983 ·
-functions 430/430 · rules 108/108 · typechecks clean · zero TS suppressions).
-Re-run the gates as each task's steps direct.
+**Next actions (nothing deploys from sessions):**
 
-**Plan-execution notes (read before Task 1):**
+1. Maintainer merges `claude/knockknock-feature-dev-9a3ysy` → `dev` (and
+   `dev` → `main`).
+2. DEPLOY the accumulated branch work (security fixes + all three perf batches)
+   per the Deploy ordering below — the LOAD-BEARING `pushTokens` (F6c) sequence
+   is the one that bites.
+3. No unstarted plan remains on this branch. Next feature work starts from a
+   fresh brainstorm/plan.
 
-- **Tier 3 findings were agent-reported and NOT individually re-verified — each
-  task's FIRST step re-verifies its finding against the working tree; if the
-  code differs, STOP that task and report** rather than forcing the change (the
-  plan's Global Constraints make this binding). Line refs were written against
-  an older tree; re-verify every ref before editing.
-- Location landmines apply to Tier 3 Tasks 3/6/7 (see Landmines below): never
-  delete nodes on availability flaps; `evaluateAvailability()` stays the single
-  availability authority; distance attaches stay gated on `isContextPublished`.
-- Jest gotchas: the repo's Jest rejects `--testPathPattern` (singular) — use
-  `--testPathPatterns` (plural). `jest.isolateModules()` does NOT reset Jest's
-  file-content cache keyed by absolute path, so a test that stamps a template
-  into a temp file and `require()`s it must use a **unique** temp filename per
-  call or it silently replays the prior stamp.
+**Verification state:** green bar OBSERVED at `eca3c0e` (web jest 2037/2037 ·
+functions 432/432 · rules 108/108 · typechecks clean · zero TS suppressions).
 
 **Audit docs (sources of truth):**
 
@@ -69,6 +62,17 @@ deploys from sessions):**
   (`onMemberOverride`/`onMemberRemoved` → `onMemberWritten`); T7 needs a
   post-deploy `curl -I /dist/chunks/<hash>.js` → `immutable` while
   `/dist/bundle.js` stays `no-cache`.
+- **Tier 3 perf batch:** client-only (render/timer/cache/listener hygiene); the
+  one functions touch is a no-op `/start` route-write skip
+  (`functions/telegram.js`, T13b) — ships with the normal functions deploy, no
+  ordering dependency. **T3's stale-gid sweep** keys off the RTDB rules-denied
+  `set()` rejection shape — VERIFIED against the database emulator with the real
+  SDK (2026-07-20): `err.code === "PERMISSION_DENIED"`, `err.message ===
+  "PERMISSION_DENIED: Permission denied"`, and T3's `/permission.denied/i` guard
+  (on `code ?? message`) matches. No longer an unverified caveat. (Recipe if you
+  need to re-check: temp probe under `tests/rules/` mirroring
+  `locations.test.js`'s "non-member cannot write a cell" denial, dump `err` to a
+  file, `npm run test:rules`, delete the probe.)
 
 **Open items (parked, operator-ruled only):**
 
@@ -79,9 +83,10 @@ deploys from sessions):**
   deliberate fail-safe, debatable.
 - Known-deferred minors (unrelated to security, none device-visible): denied
   glyph state isn't sticky · 'unsupported' title says "check permissions" ·
-  `formatDistancePrecise` 999.6–999.99 m renders "1000 meters away" · stale
-  opted-in gids produce a harmless denied write every 60s · cross-device
-  prompt-suppression relies on the Permissions API.
+  `formatDistancePrecise` 999.6–999.99 m renders "1000 meters away" ·
+  cross-device prompt-suppression relies on the Permissions API. (The old
+  "stale opted-in gids → harmless denied write every 60s" minor is FIXED by
+  Tier 3 T3 — the loop now sweeps the orphaned opt-in and can idle.)
 - Follow-ups triaged 2026-07-17: **#290** in-app-browser dead tap · **#286** no
   invite revoke on Telegram surface · closed-unreproduced "revoked follow
   request still in inbox" (reopen only with a repro).
@@ -210,6 +215,11 @@ proxy and would abort an `&&` chain. Functions deps are required for
   in `tests/following.test.js`; ALSO bites `tests/me.test.js` (a later describe
   resets modules — bind mocks at top level, not inside test bodies).
 - **`jest.clearAllMocks()` doesn't clear `mockResolvedValue` implementations.**
+- **This repo's Jest uses `--testPathPatterns` (PLURAL)** — the singular
+  `--testPathPattern` is rejected. And `jest.isolateModules()` does NOT reset
+  Jest's file-content cache keyed by absolute path, so a test that stamps a
+  template into a temp file and `require()`s it must use a **unique** temp
+  filename per call or it silently replays the prior stamp.
 - **Splash gating has two modes** (`js/app.ts`): warm boots gate on the LOCAL
   followee count; any boot that calls `rearmSplash()` gates on SERVER truth.
   Don't re-introduce local-cache reads into the cold path.
@@ -235,6 +245,30 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **Tier 3 performance fixes (2026-07-20, `d4be799..eca3c0e`, built on
+  `claude/knockknock-perf-fixes-tier3-2j9hj9`, fast-forward-merged to
+  `claude/knockknock-feature-dev-9a3ysy`, both pushed):** executed
+  `2026-07-20-performance-fixes-tier3.md` (14 low-severity tasks) via
+  subagent-driven development — fresh implementer per task, per-task spec+quality
+  review, final whole-branch review ("ready"). T1 roster repaint-only-the-ticking-
+  row (two-signal flip check deliberately keeps T2's distance-reconcile alive) ·
+  T2 one distance sub per mutual (cell closes while precise is live) · T3 sweep
+  stale gid opt-ins on a denied cell write (fixes the old "denied write every 60s"
+  minor; error shape emulator-verified) · T4 knock buffer/drain on
+  drawer-close/canvas-exit instead of full re-init, + cross-context stash fix ·
+  T5 fire-and-forget lastVisited + hoisted prefs read · T6 hidden-tab timer guards
+  (label/countdown/peek) · T7 raw-string parse memos (favorites/notify/location) ·
+  T8 cached geolocation PermissionStatus · T9 O(1) row-lookup maps (isConnected
+  fail-safe) · T10 in-place canvas preview append + malformed-base clamp · T11
+  removed leaked capture-phase pointerdown listener · T12 single
+  `watchUserGroups` listen (removal detector rides groupNav's enumeration) · T13
+  inbox null-cache + `/start` no-op skip + `lastSeen` throttle · T14 ownStatus →
+  presenceHub. Two per-task reviews caught real Important issues (T4 dropped
+  cross-context held knocks; T10 threw RangeError on a malformed peer `base`) —
+  both fixed + re-reviewed. Cleanup (`eca3c0e`): knock →visible double-present
+  dedup, extracted `stashCrossContextKnock`, fixed a stale roster comment. Gates
+  green at `eca3c0e` (web 2037 · functions 432 · rules 108 · typechecks clean ·
+  0 suppressions). DEPLOY pending (client-only; see Deploy ordering).
 - **Pre-existing performance fixes (2026-07-20, `611daf3..9f434d0`, pushed
   fast-forward onto `claude/knockknock-feature-dev-9a3ysy`):** executed
   `2026-07-20-performance-fixes-preexisting.md` (F3/F6/F8) via
@@ -250,7 +284,8 @@ Everything below shipped. Detail is in git + plans + the archived handoff.
   are `retry:false`). The Task 3 review caught a second AND third un-migrated
   reader of the relocated node (fix `6532e38`); a final cleanup (`9f434d0`)
   addressed doc/test minors and added the DEPLOY-PROD.md pushTokens runbook.
-  DEPLOY still pending (see Deploy ordering above). Tier 3 is now the active plan.
+  DEPLOY still pending (see Deploy ordering above). Tier 3 shipped atop this
+  (see the top of History).
 - **Branch-introduced performance fixes (2026-07-20, `5463888..d73deb3` + hardening
   `135a166`, merged into `claude/knockknock-feature-dev-9a3ysy` fast-forward):**
   executed `2026-07-20-performance-fixes.md` (F1/F2/F4/F5/F7/F10/F9) via
@@ -269,7 +304,7 @@ Everything below shipped. Detail is in git + plans + the archived handoff.
   with today's writers). DEPLOY still pending (nothing deploys from sessions): T5
   deletes two functions; T7 needs a post-deploy `curl -I /dist/chunks/<hash>.js`
   → `immutable` while `/dist/bundle.js` stays `no-cache` (commit bodies carry the
-  notes). `2026-07-20-performance-fixes-tier3.md` remains unstarted.
+  notes). `2026-07-20-performance-fixes-tier3.md` shipped (top of History).
 - **Performance audit (2026-07-20, this branch, docs-only,
   `32b280d`+`8cc04f2`):** four-domain parallel audit vs main (location client,
   boot/render, functions, data model + load); Tier 1&2 findings source-verified
