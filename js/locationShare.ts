@@ -71,6 +71,16 @@ let _unsubOwn: (() => void) | null = null;
 let _visListener: (() => void) | null = null;
 let _prefsSyncedListener: (() => void) | null = null;
 
+// TEMP DIAGNOSTIC — macOS PWA location no-op / stuck-off investigation
+// (2026-07-21). Dormant unless localStorage 'locdbg' === '1'. Enable on-device
+// (Safari → Develop → the PWA → Web Inspector console: `localStorage.locdbg='1'`,
+// then re-toggle the glyph) to trace which layer of the publish pipeline fails —
+// the glyph prove, the tick's own geolocation read, the permission gate, or the
+// RTDB write. Remove once root-caused.
+function locDbg(...args: unknown[]): void {
+  try { if (localStorage.getItem('locdbg') === '1') console.warn('[LOCDBG]', ...args); } catch { /* storage denied */ }
+}
+
 function anyOptIn(): boolean {
   return getLocationOptIn('direct') || _getOptedInGids().length > 0;
 }
@@ -213,6 +223,7 @@ function evaluateAvailability() {
 function revokePermissionTeardown() {
   const gids = _getOptedInGids(); // snapshot BEFORE flipping prefs — see clearPublished
   const contexts = [...(getLocationOptIn('direct') ? ['direct'] : []), ...gids];
+  locDbg('revokePermissionTeardown → flipping OFF', contexts);
   stopLoop();
   clearPublished(gids);
   _publishedContexts.clear();
@@ -263,18 +274,21 @@ async function tick(): Promise<void> {
   evaluateAvailability();
   const direct = getLocationOptIn('direct') && contextAvailable('direct');
   const gids = _getOptedInGids().filter((gid) => contextAvailable(gid));
-  if (!direct && gids.length === 0) return;
-  if (!(await tickPermissionGranted())) return;
+  locDbg('tick', { direct, gids, directOptIn: getLocationOptIn('direct'), directAvail: contextAvailable('direct') });
+  if (!direct && gids.length === 0) { locDbg('tick skip: nothing available'); return; }
+  if (!(await tickPermissionGranted())) { locDbg('tick skip: permission gate closed'); return; }
   let pos;
   try {
     pos = await getPositionOnce(direct
       ? { highAccuracy: true, maximumAge: 30000 }
       : { highAccuracy: false, maximumAge: CELL_FIX_MAX_AGE_MS });
+    locDbg('tick getPosition ok', pos);
   }
   catch (err) {
     // code 1 = PERMISSION_DENIED: revoked mid-flight → full teardown. Every
     // other failure is a silent failed tick (Decision 3).
-    if ((err as { code?: number })?.code === 1) revokePermissionTeardown();
+    locDbg('tick getPosition REJECTED', 'code=' + (err as { code?: number })?.code, (err as { message?: string })?.message);
+    if ((err as { code?: number })?.code === 1) { locDbg('→ revokePermissionTeardown'); revokePermissionTeardown(); }
     return;
   }
   const now = Date.now();
@@ -282,11 +296,13 @@ async function tick(): Promise<void> {
     const uid = _userId;
     const last = _lastPublished.get('direct');
     if (!last || haversineMeters(last.lat, last.lng, pos.lat, pos.lng) >= RAW_REPUBLISH_MIN_METERS) {
+      locDbg('publishLocation → calling', uid);
       publishLocation(uid, pos.lat, pos.lng, now).then(() => {
+        locDbg('publishLocation OK');
         _lastPublished.set('direct', { lat: pos.lat, lng: pos.lng, landedAt: now });
         markPublished('direct');
-      }).catch(() => {});
-    }
+      }).catch((e) => { locDbg('publishLocation FAILED', String((e as { code?: string; message?: string })?.code ?? (e as { message?: string })?.message ?? e)); });
+    } else { locDbg('publishLocation suppressed (unchanged raw point)'); }
   }
   // One write per cell, NOT multipath with the raw point — a stale-membership
   // cell denial must not take the precise tier down with it (db/location.js).
@@ -297,11 +313,14 @@ async function tick(): Promise<void> {
     const uid = _userId;
     const last = _lastPublished.get(gid);
     if (last && last.lat === cell.lat && last.lng === cell.lng
-        && now - last.landedAt < STALE_MEMBERSHIP_PROBE_MS) continue;
+        && now - last.landedAt < STALE_MEMBERSHIP_PROBE_MS) { locDbg('publishLocationCell suppressed (unchanged cell)', gid); continue; }
+    locDbg('publishLocationCell → calling', gid, cell);
     publishLocationCell(gid, uid, pos.lat, pos.lng, now).then(() => {
+      locDbg('publishLocationCell OK', gid);
       _lastPublished.set(gid, { lat: cell.lat, lng: cell.lng, landedAt: now });
       markPublished(gid);
     }).catch((err) => {
+      locDbg('publishLocationCell FAILED', gid, String((err as { code?: string; message?: string })?.code ?? (err as { message?: string })?.message ?? ''));
       // A PERMISSION_DENIED cell write means stale membership (kicked while
       // opted in) — the rules' delete-only carve-out still allows clearing.
       // Sweep: clear the orphaned cell, drop the opt-in, and let the normal
@@ -310,7 +329,8 @@ async function tick(): Promise<void> {
       // rules-denied `set` is expected to reject with error.code ===
       // 'PERMISSION_DENIED' and/or a message containing 'permission_denied'.
       const reason = String((err as { code?: string; message?: string })?.code ?? (err as { message?: string })?.message ?? '');
-      if (!/permission.denied/i.test(reason)) return;
+      if (!/permission.denied/i.test(reason)) { locDbg('publishLocationCell fail: non-denied, silent', gid); return; }
+      locDbg('publishLocationCell DENIED → stale-membership sweep flips opt-in OFF', gid);
       clearLocationCells(uid, [gid]).catch(() => {});
       setLocationOptIn(gid, false);
       unmarkPublished([gid]);
@@ -435,6 +455,7 @@ export function initLocationShare(userId: string, getOptedInGids: () => string[]
 // The glyph handler. Flips the context's pref; first enable proves permission
 // with an immediate position read before committing the pref.
 export async function toggleContext(context: string): Promise<'on' | 'off' | 'denied' | 'unsupported'> {
+  locDbg('toggleContext', context, 'currentlyOptedIn=' + getLocationOptIn(context));
   if (getLocationOptIn(context)) {
     // Snapshot before flipping the pref — see clearPublished's note.
     const gidsBeforeToggle = _getOptedInGids();
@@ -463,24 +484,15 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
     document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context } }));
     return 'off';
   }
-  if (capabilityState() === 'unsupported') return 'unsupported';
+  if (capabilityState() === 'unsupported') { locDbg('toggleContext enable: capabilityState unsupported'); return 'unsupported'; }
   try {
     await getPositionOnce(); // permission prompt fires here, on explicit intent
+    locDbg('toggleContext enable: prove getPosition ok', context);
   } catch (err) {
+    locDbg('toggleContext enable: prove REJECTED', context, 'code=' + (err as { code?: number })?.code, (err as { message?: string })?.message);
     if ((err as { code?: number })?.code === 1) return 'denied';
     return 'unsupported';
   }
-  // That live read is authoritative proof geolocation is granted for use right
-  // now — prime the tick permission-gate cache with it so the immediate publish
-  // this explicit enable triggers isn't suppressed by a stale/lagging
-  // Permissions API state. macOS/iOS PWA (device-observed): after the loop idles
-  // on a prior glyph-off the OS downgrades the standing permission back to
-  // 'prompt', and navigator.permissions reports that even though this
-  // getPositionOnce just succeeded — which otherwise made every re-enable a
-  // silent no-op (glyph on, but locations/{uid} + cells never written). A later
-  // revocation stays fail-safe: the next tick's capture rejects code 1 →
-  // revokePermissionTeardown.
-  _geoPermStatus = { state: 'granted' };
   // reconcile()->startLoop() (via evaluateAvailability) already runs an
   // immediate tick when starting a stopped loop; only run the explicit tick
   // below for the already-running case (startLoop() is a no-op there), or
@@ -489,6 +501,7 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
   setLocationOptIn(context, true);
   syncGroupStatusSubs();
   evaluateAvailability();
+  locDbg('toggleContext enabled', context, { wasRunning, avail: contextAvailable(context), anyPublishable: anyPublishable(), running: _timer !== null });
   if (wasRunning) {
     // Loop already publishing: this context's node doesn't exist yet, and it
     // isn't in _publishedContexts, so its surfaces won't attach-race the

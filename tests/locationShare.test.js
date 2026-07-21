@@ -747,54 +747,6 @@ describe('geolocation PermissionStatus caching', () => {
   });
 });
 
-// Device-observed (macOS/iOS PWA): after the capture loop idles on a glyph-off,
-// the OS downgrades the standing geolocation permission back to 'prompt' and
-// navigator.permissions reports that — yet an explicit getCurrentPosition on the
-// next glyph tap still succeeds. The tap proved permission with a LIVE read; the
-// immediate publish it triggers must ride that proof, not the background-tick's
-// query gate. Otherwise the glyph turns on and off once, then every re-enable is
-// a silent no-op: the glyph paints on but locations/{uid} and locationCells/ are
-// never written. Global gate → both Direct and group contexts are affected.
-describe('explicit re-enable is not blocked by a stale permission state (macOS/iOS PWA)', () => {
-  function installPermissions(status) {
-    Object.defineProperty(global.navigator, 'permissions', {
-      configurable: true,
-      value: { query: jest.fn(async () => status) },
-    });
-  }
-
-  test('Direct: glyph off then on republishes the raw point though the query now reads "prompt"', async () => {
-    const status = { state: 'granted', addEventListener: jest.fn() };
-    installPermissions(status);
-    const { initLocationShare, toggleContext } = share();
-    initLocationShare('me', () => []);
-    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
-    await toggleContext('direct'); await flush();      // first enable — publishes
-    expect(db.publishLocation).toHaveBeenCalled();
-    await toggleContext('direct'); await flush();      // off — loop idles
-    status.state = 'prompt';                            // OS downgrades while idle
-    db.publishLocation.mockClear();
-    await expect(toggleContext('direct')).resolves.toBe('on'); // re-enable: live prove OK
-    await flush();
-    expect(db.publishLocation).toHaveBeenCalledTimes(1);
-  });
-
-  test('group: glyph off then on republishes the cell though the query now reads "prompt"', async () => {
-    const status = { state: 'granted', addEventListener: jest.fn() };
-    installPermissions(status);
-    const { initLocationShare, toggleContext } = share();
-    initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
-    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
-    await toggleContext('G1'); await flush();          // first enable — publishes cell
-    expect(db.publishLocationCell).toHaveBeenCalled();
-    await toggleContext('G1'); await flush();           // off
-    status.state = 'prompt';
-    db.publishLocationCell.mockClear();
-    await expect(toggleContext('G1')).resolves.toBe('on'); // re-enable
-    await flush();
-    expect(db.publishLocationCell).toHaveBeenCalledTimes(1);
-  });
-});
 
 // Group location is independent of the Direct context (operator call at
 // device smoke): a group's cell publishing and availability key off the OWN
