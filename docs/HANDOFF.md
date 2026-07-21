@@ -11,27 +11,32 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**Maintainer merge + deploy — the audit-2 perf-fix batch is DONE, tested,
-and pushed.** All ten tasks of
-`docs/superpowers/plans/2026-07-21-performance-fixes-audit2.md` (findings
-N1–N5 + N7–N10) shipped 2026-07-21 via subagent-driven development —
-implementer + spec/quality review per task, whole-branch opus review at the
-end ("ready to merge", zero Critical/Important). Detail in History below and
-in the commit bodies `0ce40fa..cea4593` (+ cleanup `75eeade`).
+**Continue location-sharing debugging on the device.** This session
+(2026-07-21) landed two fixes on top of the audit-2 batch (see "This session"
+in History). The macOS/iOS location-glyph **WebKit geolocation hang** is fixed
+and **device-verified**: the browser path now streams from ONE `watchPosition`
+instead of repeated `getCurrentPosition` (which hangs → code-3 timeout → frozen
+distance + stuck-OFF glyph). A **dormant `[LOCDBG]` trace is intentionally still
+in `js/locationShare.ts`** for the next round of device debugging.
 
-Tip is `75eeade` on `claude/knockknock-feature-dev-9a3ysy`, pushed; `origin`
-== local. The identical batch is also on `claude/session-yjbet1` (the
-session branch it was built on) at `75eeade` — both remotes equal. Code tip
-is now `cea4593` (the batch's last code commit); `75eeade` is the test/comment
-cleanup atop it. Realign a fresh session:
+> ⚠️ **Strip the `[LOCDBG]` instrumentation before this branch merges to `dev`.**
+> Search `locDbg` / `LOCDBG` in `js/locationShare.ts` — one helper + call sites.
+
+Branch tip is `5b40a1d` on `claude/knockknock-feature-dev-9a3ysy`, pushed;
+`origin` == local. **The old `…-audit-2-handoff-jemuil` branch is GONE from
+origin — `9a3ysy` is authoritative.** (A container reclaim briefly showed a
+stale mirror at `85f8031` mid-session; `5b40a1d` was intact on origin. Lesson:
+push AND re-fetch to confirm.) Realign a fresh session:
 
 ```
 git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
+git log --oneline -1   # must show 5b40a1d — else STOP, origin is authoritative
 ```
 
-`git log --oneline -1` must show `75eeade` (chore cleanup) — else STOP,
-origin is authoritative.
+Enable the on-device trace via Web Inspector: `localStorage.locdbg='1'`, then
+re-toggle the glyph / walk and read the `[LOCDBG]` lines (`watch fix`,
+`publishLocation OK`, or a `code=N` reject).
 
 **Next actions (nothing deploys from sessions):**
 
@@ -310,6 +315,25 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **This session (2026-07-21b) — 3 fixes on `9a3ysy` atop the audit-2 batch,
+  systematic-debugging + TDD, all pushed:**
+  - `1633be5` **fix(redeem):** the inbox Join Direct-flash guard (`a9223c2`)
+    only covered the in-app flow; the "Redeem an invite" form's group-join
+    (`handleRedeemInvite` in `js/following.ts`) reached `navigateToGroup` by the
+    other door with no guard. Wrapped its brokered redeem in
+    `beginGroupEntryTransition`/`endGroupEntryTransition`. +3 tests.
+  - **location-glyph no-op/stuck-OFF (macOS/iOS PWA):** two dead ends first —
+    `81e5664` primed the tick permission-gate cache from the live prove (wrong
+    layer; **reverted** in `85f8031`, which also added the dormant `[LOCDBG]`
+    trace). Device trace then showed the real cause: **`getCurrentPosition`
+    hangs on repeated WebKit calls → code-3 timeout** (frozen distance +
+    stuck-OFF). `5b40a1d` **fix(location):** browser path now streams from ONE
+    `watchPosition` into a `_lastFix` cache; `getPositionOnce` serves it (same
+    contract), never a per-read cold call. Accuracy-tiered (high for Direct,
+    coarse for cells); code-1 → teardown, code-2/3 keep last-known. Telegram
+    path untouched. **Device-verified.** `locationShare.test.js` reworked to a
+    `watchPosition` mock (`fireWatch`/`fireWatchError`); +2 regression guards.
+    `[LOCDBG]` still in for continued debugging — strip before dev merge.
 - **Audit-2 perf-fix batch executed (2026-07-21, `0ce40fa..cea4593` + cleanup
   `75eeade`, built on `claude/session-yjbet1`, fast-forward-merged to
   `claude/knockknock-feature-dev-9a3ysy`, both pushed):** the 10-task
