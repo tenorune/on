@@ -708,10 +708,12 @@ function initStores(session: BootSession): StoresReady {
   // userId before initNav → startCardsRowSubscriptions opens any watch.
   initStatusStore(userId);
   initNav(userId);
-  initNavRow();  // intra-initStores order: register its onContextChange listener
-                 // BEFORE the enterGroupContext listener below, so renderNavRow
-                 // runs first on each emit and creates #group-override-toggle-slot
-                 // before enterGroupContext looks for it.
+  initNavRow();  // registers its onContextChange listener before the one below,
+                 // so renderNavRow creates #group-override-toggle-slot first.
+                 // (Since audit-2 N5a, enterGroupContext runs async via
+                 // withGroupContext once a dynamic import resolves, so it is
+                 // strictly later regardless — this ordering is now belt-and-
+                 // suspenders, not load-bearing.)
   onContextChange((ctx) => {
     if (ctx.context === 'group') {
       const gid = ctx.groupId as string;

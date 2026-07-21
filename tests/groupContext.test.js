@@ -362,6 +362,17 @@ describe('groupContext scaffolding', () => {
 });
 
 describe('group roster render', () => {
+  // Shared MutationObserver helper: capture records via the callback. A no-op
+  // observer callback drains the queue before takeRecords() runs, so
+  // callback-capture is the reliable technique in this jsdom setup. Used by the
+  // Task-1 repaint tests and the audit-2 N3 appearance-tick test.
+  function observeRow(el) {
+    const records = [];
+    const mo = new MutationObserver((muts) => records.push(...muts));
+    mo.observe(el, { attributes: true, attributeOldValue: true, childList: true, subtree: true, characterData: true });
+    return { records, disconnect: () => mo.disconnect() };
+  }
+
   beforeEach(() => {
     jest.clearAllMocks();
     setupContextDom();
@@ -583,13 +594,6 @@ describe('group roster render', () => {
   // Direct-list discipline (js/following.ts ~1093-1102): repaint only the
   // ticking member's row; resort only when effective availability flips.
   describe('presence ticks repaint only the ticking row (Task 1)', () => {
-    function observeRow(el) {
-      const records = [];
-      const mo = new MutationObserver((muts) => records.push(...muts));
-      mo.observe(el, { attributes: true, childList: true, subtree: true, characterData: true });
-      return { records, disconnect: () => mo.disconnect() };
-    }
-
     test('a lastSeen-only tick does not touch the other members\' rows', async () => {
       let membersCb;
       const statusCbs = {};
@@ -672,21 +676,13 @@ describe('group roster render', () => {
       membersCb(base);
       await Promise.resolve();
       const rowU3 = document.querySelector('[data-user-id="u3"]');
-      // NOTE: deviates from the brief's literal `mo.takeRecords()` snippet —
-      // verified empirically that with a no-op observer callback, the
-      // microtask that flushes jsdom's MutationObserver queue invokes the
-      // callback (draining the queue) before takeRecords() runs, so
-      // takeRecords() always returns 0 regardless of whether mutations
-      // happened. Using the same callback-array-capture technique as the
-      // file's existing Task-1 repaint tests (observeRow, ~L586-591) instead,
-      // which correctly captures records via the callback itself.
-      const records = [];
-      const mo = new MutationObserver((muts) => records.push(...muts));
-      mo.observe(rowU3, { childList: true, characterData: true, subtree: true, attributes: true, attributeOldValue: true });
+      // Callback-capture (not takeRecords()) via the shared observeRow helper:
+      // a no-op observer callback drains the queue before takeRecords() runs.
+      const obsU3 = observeRow(rowU3);
       membersCb({ ...base, u2: { ...base.u2, statusOverride: { ...base.u2.statusOverride, statusColor: '#222222' } } });
       await Promise.resolve();
-      mo.disconnect();
-      expect(records.length).toBe(0); // untouched row: zero DOM work
+      obsU3.disconnect();
+      expect(obsU3.records.length).toBe(0); // untouched row: zero DOM work
 
       // The touched row DID repaint — same observable paintRosterRow effects
       // the file's existing tests assert for a member row's statusColor:
