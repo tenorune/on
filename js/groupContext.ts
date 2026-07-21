@@ -412,6 +412,35 @@ function teardownAllDistanceSubs() {
   _preciseDistances.clear();
 }
 
+// Audit-2 N3 — client analogue of the notifier's availability-relevant gate.
+// Classifies a members tick against the previous map: 'appearance' means the
+// maps differ ONLY in override appearance fields (statusColor/paletteKey) —
+// same uid set, same non-override member fields, same enabled/status/
+// availableUntil — so membership, ordering, distance eligibility, and the
+// status-sub set are all guaranteed unchanged and only touched rows need a
+// repaint. 'none' is a byte-equivalent echo. Anything else (join/leave,
+// rename, an availability-affecting override change, an unknown new member
+// field — the structural compare fails safe) is 'full'.
+function classifyMembersTick(prev: Record<string, MemberEntry>, next: Record<string, MemberEntry>): 'full' | 'appearance' | 'none' {
+  const nextKeys = Object.keys(next);
+  if (Object.keys(prev).length !== nextKeys.length) return 'full';
+  let sawAppearance = false;
+  for (const uid of nextKeys) {
+    const a = prev[uid];
+    const b = next[uid];
+    if (!a) return 'full';
+    if (JSON.stringify({ ...a, statusOverride: null }) !== JSON.stringify({ ...b, statusOverride: null })) return 'full';
+    const oa = a.statusOverride || null;
+    const ob = b.statusOverride || null;
+    if ((oa === null) !== (ob === null)) return 'full';
+    if (oa && ob) {
+      if (oa.enabled !== ob.enabled || oa.status !== ob.status || oa.availableUntil !== ob.availableUntil) return 'full';
+      if (oa.statusColor !== ob.statusColor || oa.paletteKey !== ob.paletteKey) sawAppearance = true;
+    }
+  }
+  return sawAppearance ? 'appearance' : 'none';
+}
+
 function renderRoster(members: Record<string, MemberEntry>, ownUserId: string) {
   const list = document.getElementById('group-roster');
   if (!list) return;
@@ -1273,14 +1302,29 @@ export function enterGroupContext(groupId: string, userId: string) {
   if (rosterListEl) rosterListEl.innerHTML = '';
   let drainedKnocksOnEntry = false;
   _membersUnsub = watchGroupMembers(groupId, (members) => {
-    _lastMembers = (members as Record<string, MemberEntry>);
+    const typed = ((members as Record<string, MemberEntry>) || {});
+    const prev = _lastMembers;
+    const prevOverrides = _membersOverrides;
+    _lastMembers = typed;
     _membersOverrides = {};
-    for (const [uid, m] of Object.entries((members as Record<string, MemberEntry>) || {})) {
+    for (const [uid, m] of Object.entries(typed)) {
       _membersOverrides[uid] = m.statusOverride || null;
     }
-    _ownDisplayName = ((members as Record<string, MemberEntry>))?.[userId]?.displayName || null;
-    renderRoster((members as Record<string, MemberEntry>), userId);
-    syncStatusSubscriptions(new Set(Object.keys(members || {})));
+    _ownDisplayName = typed?.[userId]?.displayName || null;
+    const kind = prev === null ? 'full' : classifyMembersTick(prev, typed);
+    if (kind === 'appearance') {
+      // Hot path (audit-2 N3): a co-member's swatch/palette tap. Repaint just
+      // the touched rows — membership and availability are identical, so the
+      // reconcile/distance/status-sub passes would all be no-ops.
+      for (const uid of Object.keys(typed)) {
+        const po = prevOverrides[uid] || null;
+        const no = _membersOverrides[uid];
+        if (po && no && (po.statusColor !== no.statusColor || po.paletteKey !== no.paletteKey)) paintRosterRow(uid);
+      }
+    } else if (kind === 'full') {
+      renderRoster(typed, userId);
+      syncStatusSubscriptions(new Set(Object.keys(typed)));
+    } // 'none': byte-equivalent echo — nothing to do.
     // Replay any knocks that arrived while the user wasn't in this group.
     // Wait for the first members tick so the roster lis exist before drain
     // tries to look them up; one-shot per enterGroupContext call.

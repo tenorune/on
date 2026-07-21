@@ -651,6 +651,94 @@ describe('group roster render', () => {
     });
   });
 
+  // Perf audit item (audit-2 N3): the open group's watchGroupMembers callback
+  // had zero change detection — every co-member statusOverride write (per
+  // swatch/palette tap) re-ran the FULL pass (renderRoster -> reconcile-
+  // DistanceSubs, reconcileChildren repainting every row, refreshHints) and
+  // syncStatusSubscriptions for every viewer in the group, even though
+  // appearance fields (statusColor/paletteKey) can't change membership,
+  // names, ordering, distance eligibility, or the status-sub set. Client
+  // analogue of Task 3's server-side gate.
+  describe('appearance-only member ticks take the fast path (audit-2 N3)', () => {
+    test('a statusColor-only override tick repaints only the touched row (audit-2 N3)', async () => {
+      let membersCb;
+      db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+      enterGroupContext('G1', 'me');
+      const base = {
+        me: { displayName: 'Me' },
+        u2: { displayName: 'Bea', statusOverride: { enabled: true, status: 'available', statusColor: '#111111', availableUntil: null } },
+        u3: { displayName: 'Cal' },
+      };
+      membersCb(base);
+      await Promise.resolve();
+      const rowU3 = document.querySelector('[data-user-id="u3"]');
+      // NOTE: deviates from the brief's literal `mo.takeRecords()` snippet —
+      // verified empirically that with a no-op observer callback, the
+      // microtask that flushes jsdom's MutationObserver queue invokes the
+      // callback (draining the queue) before takeRecords() runs, so
+      // takeRecords() always returns 0 regardless of whether mutations
+      // happened. Using the same callback-array-capture technique as the
+      // file's existing Task-1 repaint tests (observeRow, ~L586-591) instead,
+      // which correctly captures records via the callback itself.
+      const records = [];
+      const mo = new MutationObserver((muts) => records.push(...muts));
+      mo.observe(rowU3, { childList: true, characterData: true, subtree: true, attributes: true, attributeOldValue: true });
+      membersCb({ ...base, u2: { ...base.u2, statusOverride: { ...base.u2.statusOverride, statusColor: '#222222' } } });
+      await Promise.resolve();
+      mo.disconnect();
+      expect(records.length).toBe(0); // untouched row: zero DOM work
+
+      // The touched row DID repaint — same observable paintRosterRow effects
+      // the file's existing tests assert for a member row's statusColor:
+      // the .status-available span's inline color (copied from "available
+      // member with statusColor but no paletteKey has fuzzy time in
+      // statusColor", ~L1758-1763) and the dot's painted background (copied
+      // from "dot click going Available keeps the override's statusColor on
+      // the optimistic update", ~L1267-1269 — paintStatusDot is the same
+      // function for both the own-status dot and a roster row's .person-dot).
+      const rowU2 = document.querySelector('[data-user-id="u2"]');
+      const span = rowU2.querySelector('.status-available');
+      expect(span).not.toBeNull();
+      expect(span.getAttribute('style')).toMatch(/color:\s*#222222/i);
+      const dot = rowU2.querySelector('.person-dot');
+      expect(dot.style.background).not.toBe('');
+      expect(dot.style.background.toLowerCase()).toMatch(/222222|34,\s*34,\s*34/);
+    });
+
+    test('a membership change still runs the full reconcile after an appearance tick', async () => {
+      let membersCb;
+      db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+      enterGroupContext('G1', 'me');
+      const base = { me: { displayName: 'Me' }, u2: { displayName: 'Bea' } };
+      membersCb(base);
+      await Promise.resolve();
+      membersCb({ ...base, u4: { displayName: 'Dex' } }); // join
+      await Promise.resolve();
+      expect(document.querySelector('[data-user-id="u4"]')).not.toBeNull();
+    });
+
+    test('an override enabled-flip is NOT the fast path (ordering may change)', async () => {
+      let membersCb;
+      db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+      enterGroupContext('G1', 'me');
+      const ov = { enabled: true, status: 'available', statusColor: '#111111', availableUntil: null };
+      const base = { me: { displayName: 'Me' }, u2: { displayName: 'Bea', statusOverride: ov } };
+      membersCb(base);
+      await Promise.resolve();
+      membersCb({ ...base, u2: { ...base.u2, statusOverride: { ...ov, enabled: false } } });
+      await Promise.resolve();
+      // Full pass ran: the row left the available cohort. Same assertions the
+      // file's existing availability tests make for this transition — dataset
+      // .available (copied from "member with override.enabled uses override
+      // status not primary", ~L1723) and the .person-dot 'available' class
+      // toggle (same test, ~L1728) — inverted here since u2 is leaving the
+      // available cohort rather than entering it.
+      const li = document.querySelector('[data-user-id="u2"]');
+      expect(li.dataset.available).toBe('false');
+      expect(li.querySelector('.person-dot').classList.contains('available')).toBe(false);
+    });
+  });
+
   function captureRosterCallbacks() {
     let metaCb, membersCb;
     groupNav.subscribeGroupMeta.mockImplementation((g, cb) => { metaCb = cb; return () => {}; });
