@@ -1212,7 +1212,14 @@ function initServiceWorker() {
     reloading = true;
     window.location.reload();
   });
-  navigator.serviceWorker.register('/sw.js').then((reg) => {
+  // updateViaCache 'none' + the /sw.js no-store hosting header (firebase.json)
+  // both exist for the same device-observed iOS WebKit failure (2026-07-21):
+  // the SW update check was answered from HTTP-cache revalidation state with
+  // stale sw.js bytes, so update() "succeeded" seeing the old worker for days
+  // and the PWA never auto-updated. Belt and braces — keep both. The URL must
+  // stay literally '/sw.js': a cache-busting query would force an
+  // install+reload even for byte-identical workers (a reload on every boot).
+  navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((reg) => {
     ((window) as Window & { __swRegistration?: ServiceWorkerRegistration }).__swRegistration = reg;
     // iOS standalone PWAs resume without a navigation, so the browser never
     // re-checks sw.js on its own. Poke it on every foreground (and once at

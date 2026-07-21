@@ -62,6 +62,18 @@ describe('shell precache completeness', () => {
     expect(cached).toEqual(expect.arrayContaining(['/dist/bundle.js']));
     expect(cached.some((u) => u.includes('__'))).toBe(false);
   });
+
+  test('registration bypasses the HTTP cache for update checks (updateViaCache none)', () => {
+    // iOS WebKit device-observed (2026-07-21): the SW update check was
+    // answered from HTTP-cache revalidation state with stale sw.js bytes, so
+    // the PWA never saw deployed updates. updateViaCache:'none' is the
+    // spec-level belt to firebase.json's no-store braces — losing either
+    // regresses iOS auto-update. The URL must stay literally '/sw.js':
+    // cache-busting queries force an install+reload even for byte-identical
+    // workers (a reload on every boot), so a changing URL is a trap.
+    const src = fs.readFileSync(path.resolve(__dirname, '..', 'js', 'app.ts'), 'utf8');
+    expect(src).toMatch(/register\('\/sw\.js',\s*\{\s*updateViaCache:\s*'none'\s*\}\)/);
+  });
 });
 
 describe('fetch handler — only the same-origin shell is intercepted', () => {

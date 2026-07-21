@@ -60,4 +60,20 @@ describe('firebase.json hosting headers', () => {
     expect(all).toBeDefined();
     expect(all.headers).toContainEqual({ key: 'Permissions-Policy', value: 'geolocation=(self)' });
   });
+
+  test('sw.js is served no-store, in a block AFTER the "**" no-cache rule', () => {
+    // no-cache (revalidate) is NOT enough for the worker script: iOS WebKit
+    // has been device-observed (2026-07-21) answering the SW update check
+    // from its conditional-revalidation state with stale bytes — update()
+    // "succeeds" seeing the old sw.js for days while the server serves a new
+    // one, so the PWA never auto-updates. no-store leaves nothing to
+    // revalidate on either the client or CDN side. Firebase applies the
+    // LATER matching headers block for a duplicate key, so this block must
+    // stay after '**' (same ordering constraint as the chunks rule).
+    const cfg = JSON.parse(readRoot('firebase.json'));
+    const idxAll = cfg.hosting.headers.findIndex((h) => h.source === '**');
+    const idxSw = cfg.hosting.headers.findIndex((h) => h.source === '/sw.js');
+    expect(idxSw).toBeGreaterThan(idxAll);
+    expect(cfg.hosting.headers[idxSw].headers).toContainEqual({ key: 'Cache-Control', value: 'no-store' });
+  });
 });
