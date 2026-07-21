@@ -71,6 +71,63 @@ let _unsubOwn: (() => void) | null = null;
 let _visListener: (() => void) | null = null;
 let _prefsSyncedListener: (() => void) | null = null;
 
+// Browser geolocation runs as ONE long-lived watchPosition, not a per-read
+// getCurrentPosition. On WebKit (macOS/iOS PWA + Safari) repeated cold
+// getCurrentPosition calls hang after the first fix or two and then reject
+// code 3 ("Timeout expired") — device trace 2026-07-21. That silently killed
+// publishing (own node froze → distance stuck at last-known until reload) and,
+// on the glyph-tap prove, returned 'unsupported' so the glyph stuck OFF. The
+// watch streams fixes into _lastFix as the user moves; getPositionOnce serves
+// that cache (keeping its Promise<coords>/reject-with-code contract) instead of
+// firing its own read. Telegram keeps its LocationManager path — no WebKit hang
+// there. _watchWaiters are one-shot getPositionOnce callers parked until the
+// next fix/error arrives (no cached fix fresh enough to serve synchronously).
+let _watchId: number | null = null;
+let _watchHighAccuracy = false;
+let _lastFix: { lat: number; lng: number; at: number } | null = null;
+let _watchWaiters: Array<(r: { lat: number; lng: number } | { code: number }) => void> = [];
+
+function drainWatchWaiters(r: { lat: number; lng: number } | { code: number }): void {
+  const waiters = _watchWaiters;
+  _watchWaiters = [];
+  for (const w of waiters) { try { w(r); } catch { /* waiter threw */ } }
+}
+
+// (Re)start the browser watch. No-op if already running at the same accuracy
+// tier; a tier change (Direct opt-in flipping precise↔coarse) restarts it.
+function startGeoWatch(highAccuracy: boolean): void {
+  if (!navigator.geolocation || !navigator.geolocation.watchPosition) return;
+  if (_watchId !== null && _watchHighAccuracy === highAccuracy) return;
+  // Restart for a tier change — clear the old watch but DON'T drain waiters
+  // (a getPositionOnce may have just parked one for this very start).
+  if (_watchId !== null && navigator.geolocation.clearWatch) navigator.geolocation.clearWatch(_watchId);
+  _watchId = null;
+  _watchHighAccuracy = highAccuracy;
+  _watchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      _lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, at: Date.now() };
+      locDbg('watch fix', _lastFix);
+      drainWatchWaiters({ lat: _lastFix.lat, lng: _lastFix.lng });
+    },
+    (err) => {
+      const code = (err as { code?: number })?.code;
+      locDbg('watch error', 'code=' + code);
+      drainWatchWaiters({ code: code ?? 2 });
+      // code 1 = PERMISSION_DENIED: revoked → full teardown. code 2/3
+      // (position-unavailable / timeout) keep the last fix and the watch up so
+      // a later fix resumes publishing — no teardown, matching a silent tick.
+      if (code === 1) { locDbg('watch → revokePermissionTeardown'); revokePermissionTeardown(); }
+    },
+    { enableHighAccuracy: highAccuracy, timeout: 20000, maximumAge: 30000 },
+  );
+}
+
+function stopGeoWatch(): void {
+  if (_watchId !== null && navigator.geolocation?.clearWatch) navigator.geolocation.clearWatch(_watchId);
+  _watchId = null;
+  drainWatchWaiters({ code: 2 }); // unblock any parked reader — the watch is gone
+}
+
 // TEMP DIAGNOSTIC — macOS PWA location no-op / stuck-off investigation
 // (2026-07-21). Dormant unless localStorage 'locdbg' === '1'. Enable on-device
 // (Safari → Develop → the PWA → Web Inspector console: `localStorage.locdbg='1'`,
@@ -86,15 +143,12 @@ function anyOptIn(): boolean {
 }
 
 // One position read, browser or Telegram. Rejects with the underlying error;
-// callers map code 1 (PERMISSION_DENIED) to the denied state. Options apply
-// to the browser path only (Telegram's LocationManager has no accuracy/age
-// API): the precise tier and the glyph-tap prove keep a fresh high-accuracy
-// fix; cell-only ticks take a coarse fix up to 90s old — the ~1.1km cell
-// quantization makes a per-minute high-accuracy GPS wakeup pure battery
-// burn (audit F2).
-const CELL_FIX_MAX_AGE_MS = 90000;
-
-function getPositionOnce(opts?: { highAccuracy?: boolean; maximumAge?: number }): Promise<{ lat: number; lng: number }> {
+// callers map code 1 (PERMISSION_DENIED) to the denied state. `highAccuracy`
+// applies to the browser path only — it tiers the shared watch: high for the
+// precise (Direct) tier + the glyph-tap prove, coarse for cell-only ticks,
+// since the ~1.1km cell quantization makes a high-accuracy GPS wakeup pure
+// battery burn (audit F2). Telegram's LocationManager has no accuracy API.
+function getPositionOnce(opts?: { highAccuracy?: boolean }): Promise<{ lat: number; lng: number }> {
   if (isTelegramContext()) {
     return new Promise((resolve, reject) => {
       const lm = (window as unknown as {
@@ -119,13 +173,29 @@ function getPositionOnce(opts?: { highAccuracy?: boolean; maximumAge?: number })
       else lm.init(read);
     });
   }
+  // Browser: serve the long-lived watch's cache (see _watchId note) — never a
+  // fresh getCurrentPosition, which hangs on repeat under WebKit. Ensure the
+  // watch is running at the requested accuracy tier, then return a fresh-enough
+  // cached fix synchronously, or park until the next fix/error the watch emits.
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) { reject(new Error('unsupported')); return; }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      (err) => reject(err),
-      { enableHighAccuracy: opts?.highAccuracy ?? true, timeout: 20000, maximumAge: opts?.maximumAge ?? 30000 },
-    );
+    if (!navigator.geolocation || !navigator.geolocation.watchPosition) { reject(new Error('unsupported')); return; }
+    let settled = false;
+    const onResult = (r: { lat: number; lng: number } | { code: number }) => {
+      if (settled) return;
+      settled = true;
+      if ('code' in r) reject({ code: r.code }); else resolve(r);
+    };
+    // Park BEFORE starting so a synchronously-delivered first fix/error (the
+    // real watch fires async, but nothing may rely on that) still reaches us.
+    _watchWaiters.push(onResult);
+    startGeoWatch(opts?.highAccuracy ?? true);
+    // No synchronous delivery, but a prior fix is cached: serve it at ANY age —
+    // last-known model, the freshest the OS pushed (the watch chases newer).
+    // A context that has never had a fix stays parked for the first delivery.
+    if (!settled && _lastFix) {
+      _watchWaiters = _watchWaiters.filter((w) => w !== onResult);
+      onResult({ lat: _lastFix.lat, lng: _lastFix.lng });
+    }
   });
 }
 
@@ -279,9 +349,7 @@ async function tick(): Promise<void> {
   if (!(await tickPermissionGranted())) { locDbg('tick skip: permission gate closed'); return; }
   let pos;
   try {
-    pos = await getPositionOnce(direct
-      ? { highAccuracy: true, maximumAge: 30000 }
-      : { highAccuracy: false, maximumAge: CELL_FIX_MAX_AGE_MS });
+    pos = await getPositionOnce({ highAccuracy: direct });
     locDbg('tick getPosition ok', pos);
   }
   catch (err) {
@@ -349,6 +417,7 @@ function startLoop() {
 
 function stopLoop() {
   if (_timer !== null) { clearInterval(_timer); _timer = null; }
+  stopGeoWatch(); // nothing publishes while stopped — release the geolocation watch
 }
 
 // `gids` lets a caller pass a snapshot taken BEFORE flipping a pref — needed
@@ -530,5 +599,6 @@ export function _resetLocationShare() {
   _lastPresence = null;
   _getOptedInGids = () => [];
   _geoPermStatus = null;
+  _lastFix = null; // stopLoop() above already cleared the watch itself
   dispatchPublishingChanged();
 }

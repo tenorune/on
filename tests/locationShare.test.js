@@ -52,6 +52,15 @@ const prefs = require('../js/prefs.js');
 
 const POS = { coords: { latitude: 52.52, longitude: 13.405 } };
 let geoBehavior;
+// The browser path runs a single long-lived watchPosition; ticks read its cache
+// (js/locationShare _watchId). watchPosition delivers the initial fix via
+// geoBehavior on start (mirroring the old getCurrentPosition), and retains its
+// callbacks so a test can push later movement/errors with fireWatch/fireWatchError.
+let _watchOk = null;
+let _watchErr = null;
+let _curPos = null; // latest position the browser watch would deliver; fireWatch updates it
+const fireWatch = (coords) => { _curPos = coords; if (_watchOk) _watchOk({ coords }); };
+const fireWatchError = (code) => { if (_watchErr) _watchErr({ code }); };
 
 beforeEach(() => {
   jest.useFakeTimers();
@@ -61,10 +70,18 @@ beforeEach(() => {
   // the existence probes to their default explicitly per test.
   db.hasLocationNode.mockResolvedValue(false);
   db.hasLocationCell.mockResolvedValue(false);
-  geoBehavior = (ok, err) => ok(POS);
+  // Default: any watch (re)start delivers the CURRENT position, so a tier
+  // restart (Direct precise ↔ group coarse) never clobbers a fireWatch'd move.
+  _curPos = { latitude: 52.52, longitude: 13.405 };
+  geoBehavior = (ok) => ok({ coords: _curPos });
+  _watchOk = null; _watchErr = null;
   Object.defineProperty(global.navigator, 'geolocation', {
     configurable: true,
-    value: { getCurrentPosition: jest.fn((ok, err) => geoBehavior(ok, err)) },
+    value: {
+      getCurrentPosition: jest.fn((ok, err) => geoBehavior(ok, err)),
+      watchPosition: jest.fn((ok, err) => { _watchOk = ok; _watchErr = err; geoBehavior(ok, err); return 1; }),
+      clearWatch: jest.fn(() => { _watchOk = null; _watchErr = null; }),
+    },
   });
   prefs.initPrefs('me');
 });
@@ -153,7 +170,7 @@ test('toggling direct off with a group still opted in clears only the raw point 
   // The loop itself must still be running for the surviving group — move to a
   // new cell so this tick proves liveness rather than being suppressed as a
   // no-op (audit F1: G1's cell already landed at POS above).
-  geoBehavior = (ok) => ok({ coords: { latitude: 52.54, longitude: 13.405 } }); // ≥2 cells away
+  fireWatch({ latitude: 52.54, longitude: 13.405 }); // move ≥2 cells away (a new watch fix)
   jest.advanceTimersByTime(60000);
   await flush();
   expect(db.publishLocationCell).toHaveBeenCalled();
@@ -425,8 +442,7 @@ test('revokePermissionTeardown resets published state and dispatches location-pu
   expect(isContextPublished('direct')).toBe(true);
   let sawFalse = false;
   document.addEventListener('location-publishing-changed', () => { sawFalse = isContextPublished('direct') === false; });
-  geoBehavior = (ok, err) => err({ code: 1 }); // OS-level revocation mid-flight
-  jest.advanceTimersByTime(60000);
+  fireWatchError(1); // OS-level revocation surfaces on the watch, not a per-tick read
   await flush();
   expect(sawFalse).toBe(true);
   expect(isContextPublished('direct')).toBe(false);
@@ -479,8 +495,7 @@ test('permission revoked mid-flight (tick errors code 1) → clear, loop stopped
   db.publishLocationCell.mockClear();
   const seen = [];
   document.addEventListener('location-optin-changed', () => seen.push(1));
-  geoBehavior = (ok, err) => err({ code: 1 }); // OS-level revocation mid-flight
-  jest.advanceTimersByTime(60000);
+  fireWatchError(1); // OS-level revocation surfaces on the watch, not a per-tick read
   await flush();
   // Everything published is deleted (the G1 cell included), spec §5/§8…
   expect(db.clearLocationData).toHaveBeenCalledWith('me', ['G1']);
@@ -509,7 +524,7 @@ test('a PERMISSION_DENIED cell write sweeps the stale gid opt-in, clears the orp
   expect(db.publishLocationCell).toHaveBeenCalledTimes(1); // initial cell landed at POS
   // Move to a new cell so the next tick actually attempts a write instead of
   // being suppressed as a no-op (audit F1) — then that write gets denied.
-  geoBehavior = (ok) => ok({ coords: { latitude: 52.54, longitude: 13.405 } }); // ≥2 cells away
+  fireWatch({ latitude: 52.54, longitude: 13.405 }); // move ≥2 cells away (a new watch fix)
   db.publishLocationCell.mockRejectedValueOnce({ code: 'PERMISSION_DENIED' });
   const seen = [];
   document.addEventListener('location-optin-changed', (e) => seen.push(e.detail.context));
@@ -535,7 +550,7 @@ test('a network-style rejection on a cell write changes nothing (Decision 3: sil
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
   await toggleContext('G1');
   await flush();
-  geoBehavior = (ok) => ok({ coords: { latitude: 52.54, longitude: 13.405 } }); // ≥2 cells away
+  fireWatch({ latitude: 52.54, longitude: 13.405 }); // move ≥2 cells away (a new watch fix)
   db.publishLocationCell.mockRejectedValueOnce({ code: 'unavailable' });
   const seen = [];
   document.addEventListener('location-optin-changed', (e) => seen.push(e.detail.context));
@@ -553,15 +568,14 @@ test('a failed tick is silent — no clear, loop continues', async () => {
   ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
   await toggleContext('direct');
   await flush();
-  geoBehavior = (ok, err) => err({ code: 3 }); // TIMEOUT
-  jest.advanceTimersByTime(60000);
+  fireWatchError(3); // a watch TIMEOUT — silent (no teardown), last-known stands
   await flush();
   expect(db.clearLocationData).not.toHaveBeenCalled();
   // Recovery tick moves ≥10m from the original POS — the first publish (from
   // toggleContext, above) already landed at POS, so a same-POS retry here
   // would be a legitimate no-op (audit F1) rather than proof the loop
   // recovered from the failed tick.
-  geoBehavior = (ok) => ok({ coords: { latitude: 52.5205, longitude: 13.405 } }); // ~55m
+  fireWatch({ latitude: 52.5205, longitude: 13.405 }); // ~55m — a new watch fix
   db.publishLocation.mockClear();
   jest.advanceTimersByTime(60000);
   await flush();
@@ -591,7 +605,7 @@ test('toggling one of several contexts off clears just that cell — cells-only,
   // Direct keeps publishing on the next tick — move ≥10m so this tick proves
   // liveness rather than being suppressed as a no-op (audit F1: direct's raw
   // point already landed at 52.52,13.405 above).
-  geoBehavior = (ok) => ok({ coords: { latitude: 52.5205, longitude: 13.405 } }); // ~55m
+  fireWatch({ latitude: 52.5205, longitude: 13.405 }); // ~55m — a new watch fix
   jest.advanceTimersByTime(60000);
   await flush();
   expect(db.publishLocation).toHaveBeenCalledWith('me', 52.5205, 13.405, expect.any(Number));
@@ -769,7 +783,7 @@ describe('group publishing is independent of Direct availability', () => {
     // Cross-cell move — G1's cell already landed at 52.52,13.405 above, so an
     // unmoved tick here would be a legitimate no-op (audit F1) rather than
     // proof the override-available tier is still firing.
-    geoBehavior = (ok) => ok({ coords: { latitude: 52.54, longitude: 13.405 } }); // ≥2 cells away
+    fireWatch({ latitude: 52.54, longitude: 13.405 }); // move ≥2 cells away (a new watch fix)
     jest.advanceTimersByTime(60000);
     await flush();
     expect(db.publishLocationCell).toHaveBeenCalledWith('G1', 'me', 52.54, 13.405, expect.any(Number));
@@ -793,7 +807,7 @@ describe('group publishing is independent of Direct availability', () => {
     // Cross-cell move — G1's cell already landed at POS above, so an unmoved
     // tick here would be a legitimate no-op (audit F1) rather than proof the
     // override-available group keeps publishing.
-    geoBehavior = (ok) => ok({ coords: { latitude: 52.54, longitude: 13.405 } }); // ≥2 cells away
+    fireWatch({ latitude: 52.54, longitude: 13.405 }); // move ≥2 cells away (a new watch fix)
     jest.advanceTimersByTime(60000);
     await flush();
     expect(db.publishLocationCell).toHaveBeenCalledTimes(1);
@@ -956,7 +970,7 @@ describe('no-op publish suppression (audit F1)', () => {
     db.publishLocation.mockClear();
     db.publishLocationCell.mockClear();
     // ~0.0005° lat ≈ 55 m: leaves the 10 m raw threshold, stays in the 0.01° cell.
-    geoBehavior = (ok) => ok({ coords: { latitude: 52.5205, longitude: 13.405 } });
+    fireWatch({ latitude: 52.5205, longitude: 13.405 });
     jest.advanceTimersByTime(60000);
     await flush();
     expect(db.publishLocation).toHaveBeenCalledTimes(1);
@@ -970,7 +984,7 @@ describe('no-op publish suppression (audit F1)', () => {
     await toggleContext('G1');
     await flush();
     db.publishLocationCell.mockClear();
-    geoBehavior = (ok) => ok({ coords: { latitude: 52.54, longitude: 13.405 } }); // ≥2 cells away
+    fireWatch({ latitude: 52.54, longitude: 13.405 }); // move ≥2 cells away (a new watch fix)
     jest.advanceTimersByTime(60000);
     await flush();
     expect(db.publishLocationCell).toHaveBeenCalledTimes(1);
@@ -1013,55 +1027,98 @@ test('hidden document no longer pauses ticks — publishing continues off-screen
   db.publishLocation.mockClear();
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
   document.dispatchEvent(new Event('visibilitychange'));
-  // Each of the two ticks in this window must move ≥10m from the last landed
-  // point, or the second (same-position) tick would be a legitimate no-op
-  // (audit F1) rather than proof ticks keep running while hidden.
-  let _n = 0;
-  geoBehavior = (ok) => ok({ coords: { latitude: 52.52 + 0.001 * (++_n), longitude: 13.405 } });
-  jest.advanceTimersByTime(120000);
+  // Each of the two ticks in this window must land a ≥10m move (else audit F1
+  // suppresses it) — delivered as fresh watch fixes while hidden.
+  fireWatch({ latitude: 52.521, longitude: 13.405 });
+  jest.advanceTimersByTime(60000);
+  await flush();
+  fireWatch({ latitude: 52.522, longitude: 13.405 });
+  jest.advanceTimersByTime(60000);
   await flush();
   expect(db.publishLocation).toHaveBeenCalledTimes(2);
   // Returning to visible still runs an opportunistic immediate tick (the
-  // browser throttles background timers on real devices — this catches up).
+  // browser throttles background timers on real devices — this catches up); a
+  // fresh fix proves it publishes rather than being suppressed as a no-op.
   db.publishLocation.mockClear();
+  fireWatch({ latitude: 52.523, longitude: 13.405 });
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   document.dispatchEvent(new Event('visibilitychange'));
   await flush();
   expect(db.publishLocation).toHaveBeenCalledTimes(1);
 });
 
-describe('GPS options by tier (audit F2)', () => {
-  const lastGeoOpts = () =>
-    navigator.geolocation.getCurrentPosition.mock.calls.at(-1)[2];
+describe('GPS accuracy tier (audit F2)', () => {
+  // The browser path runs ONE long-lived watchPosition (js/locationShare
+  // _watchId), tiered by accuracy: high while Direct is opted in (precise
+  // distance), coarse when only groups (cells) are. maximumAge is now the
+  // watch's own fixed setting, not a per-read option.
+  const lastWatchOpts = () =>
+    navigator.geolocation.watchPosition.mock.calls.at(-1)[2];
 
-  test('a tick publishing the precise tier requests a high-accuracy, fresh fix', async () => {
+  test('the precise (Direct) tier runs a high-accuracy watch', async () => {
     const { initLocationShare, toggleContext } = share();
     initLocationShare('me', () => []);
     ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
     await toggleContext('direct');
     await flush();
-    expect(lastGeoOpts()).toMatchObject({ enableHighAccuracy: true, maximumAge: 30000 });
+    expect(lastWatchOpts()).toMatchObject({ enableHighAccuracy: true });
   });
 
-  test('a cell-only tick requests a coarse fix and accepts one up to 90s old', async () => {
+  test('a cell-only context runs a coarse watch', async () => {
     const { initLocationShare, toggleContext } = share();
     initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
     ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
-    await toggleContext('G1'); // direct never opted in → cell-only ticks
+    await toggleContext('G1'); // direct never opted in → cell-only
     await flush();
-    // The toggle's prove-read keeps the default (explicit-intent) options; the
-    // loop tick that follows is what must go coarse.
+    // The prove starts the watch high (explicit intent); the cell tick that
+    // follows restarts it coarse.
     jest.advanceTimersByTime(60000);
     await flush();
-    expect(lastGeoOpts()).toMatchObject({ enableHighAccuracy: false, maximumAge: 90000 });
+    expect(lastWatchOpts()).toMatchObject({ enableHighAccuracy: false });
   });
 
-  test('the glyph-tap prove read keeps explicit-intent defaults', async () => {
+  test('the glyph-tap prove starts a high-accuracy watch (explicit intent)', async () => {
     const { initLocationShare, toggleContext } = share();
     initLocationShare('me', () => []);
     ownStatus.__fireOwnStatus({ status: 'unavailable', availableUntil: null });
-    await toggleContext('direct'); // prove-read fires even while unavailable
-    expect(lastGeoOpts()).toMatchObject({ enableHighAccuracy: true, maximumAge: 30000 });
+    await toggleContext('direct'); // prove fires even while unavailable
+    expect(lastWatchOpts()).toMatchObject({ enableHighAccuracy: true });
+  });
+});
+
+// The WebKit repeated-getCurrentPosition hang (macOS/iOS PWA + Safari, device
+// trace 2026-07-21): the first cold read or two resolve, then later reads hang
+// to a code-3 timeout — freezing publishing (peer distance stuck at last-known)
+// and, on the prove, sticking the glyph OFF. The browser path now runs ONE
+// long-lived watchPosition and never a per-read getCurrentPosition.
+describe('browser geolocation runs a single watch, not repeated getCurrentPosition', () => {
+  test('the loop never fires getCurrentPosition — the watch is the only browser reader', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush();
+    jest.advanceTimersByTime(180000); // three more ticks — repeated cold reads is exactly what hung
+    await flush();
+    expect(navigator.geolocation.getCurrentPosition).not.toHaveBeenCalled();
+    expect(navigator.geolocation.watchPosition).toHaveBeenCalled();
+  });
+
+  test('movement streamed by the watch keeps republishing — the own node tracks the walk', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush();
+    db.publishLocation.mockClear();
+    // ~110m per step; each fix clears the 10m threshold, so the own node (and a
+    // peer's combined distance) tracks the walk instead of freezing.
+    for (let i = 1; i <= 4; i++) {
+      fireWatch({ latitude: 52.52 + 0.001 * i, longitude: 13.405 });
+      jest.advanceTimersByTime(60000);
+      await flush();
+    }
+    expect(db.publishLocation).toHaveBeenCalledTimes(4);
   });
 });
 
