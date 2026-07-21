@@ -1,0 +1,71 @@
+# Performance & Efficiency Audit #2 — Findings
+
+**Branch:** `claude/knockknock-feature-dev-9a3ysy` @ `b51ca36` · **Baseline:** merge-base with `main` = `56f93af`
+**Date:** 2026-07-21 · **Session:** operator-directed audit (investigate/report only)
+**Prior audit:** `docs/superpowers/specs/2026-07-20-performance-audit-findings.md` (26 findings, all fixed and 26/26 verified before this pass)
+
+## Method
+
+Four parallel read-only audit agents over independent domains — (1) the post-audit commits themselves (perf batches + the 2026-07-21 post-smoke quartet) checked for regressions the fixes introduced, (2) client hot paths with fresh eyes (DOM/layout, memory/listener lifecycle, allocation churn, RTDB watch overlap, CSS), (3) Cloud Functions trigger topology + rules + data model, (4) bundle/SW/network load path. Each agent was seeded with the prior findings spec as an exclusion list; only new items, residuals, or regressions qualify. Every Tier 1/2 claim below was then directly source-verified in the coordinating session (✓ OBSERVED).
+
+**Prior-fix regression check: 26/26 CLEAN.** Three agents independently spot-verified the prior fixes in current source (leaf meta listens, `_lastPublished` dedupe, coarse cell fixes, distance memo, merged member trigger, immutable chunks + SW carry-over, hidden-tab guards, row maps, knock drain, pushTokens relocation, etc.). No fix found regressed. The only defect *introduced by* a fix is N2 below (an interaction between two of them).
+
+**Verification ledger:** N1–N4 and N7–N9 directly source-verified (OBSERVED). N5, N6, N10 are agent-reported with citations, spot-consistent but not independently re-verified. No build was run (no `node_modules` in the audit env) — bundle-size claims derive from the import graph and file sizes, not measured output. No runtime profiling; severities are code-derived estimates.
+
+---
+
+## Tier 1 — highest impact
+
+### N1 ✓ · Canvas code-split silently defeated by one static import — entry bundle ships the draw engine to every visitor — BRANCH, MED-HIGH (client boot)
+
+`js/following.ts:31` statically imports `enterCanvas, exitCanvas, showPeerLeftDialog` from `./canvas.js`, while `js/following.ts:503` dynamically `import('./canvas.js')`s the same module — clear evidence the lazy-load was intended. esbuild bundles any statically-referenced module into the importer's chunk, and `following.ts` is statically imported by `app.ts`, so `canvas.ts` (~950 lines) + `canvasDelta.ts` land in the entry bundle; the dynamic import at :503 resolves in-bundle and produces no separate chunk. `following.ts:31` is the only static importer (grep-confirmed). Every visitor downloads and parses the full draw-together engine at boot; only an active call/draw session uses it.
+**Direction:** drop the static import; convert the three call sites (`:357`, `:912` — both already promise-chained — and `:503`) to dynamic import. esbuild then emits a real lazy canvas chunk. Pair with N6/N10.
+
+### N2 ✓ · No-op cell-publish suppression defeats the stale-gid sweep — a kicked, stationary user's tick loop never idles — BRANCH (fix interaction), MED (battery)
+
+`5463888` added `if (last && last.lat === cell.lat && last.lng === cell.lng) continue;` (`js/locationShare.ts:291`); `d079d55`'s stale-membership sweep lives in the *write's* `.catch` (`:295-311`) and fires only when a cell write actually rejects `PERMISSION_DENIED`. A member kicked server-side while opted in keeps their last-landed cell in `_lastPublished` (nothing clears it on a kick), so while they stay inside the same ~1.1 km cell every tick hits the `continue` and the denied write — and thus the sweep — never happens. Meanwhile the cancelled override watch's primary fallback keeps `contextAvailable(gid)` true, so `anyPublishable()` holds and the 60s loop plus its coarse GPS fix run indefinitely for a phantom membership — exactly the never-idle cost `d079d55` was written to eliminate, surviving in the stationary case. Sweep fires only on physically crossing a cell boundary.
+**Direction:** let the sweep run without requiring a landed write — e.g. bypass the no-op guard for a gid whose override watch is in the cancelled state, or probe stale membership once on the first tick after an enumeration/override-cancel event.
+
+---
+
+## Tier 2 — meaningful, bounded
+
+### N3 ✓ · Open-group roster runs the full reconcile on every co-member `statusOverride` write — PRE-EXISTING structure (branch-era machinery), LOW-MED
+
+`js/groupContext.ts:1275-1291`: `watchGroupMembers` covers the whole members subtree — which contains hot `statusOverride` (rewritten per swatch tap) — and its callback has no change detection: every co-member palette tap re-runs `_membersOverrides` rebuild, `renderRoster()` (→ `reconcileDistanceSubs` walking every member with fresh Sets, `reconcileChildren` with per-row `paintRosterRow` innerHTML, `refreshHints()`), and `syncStatusSubscriptions()` — across every viewer currently in the group, for a change that alters neither membership nor ordering. This is the members-subtree analogue of fixed F3 (which narrowed only the *meta* listen). Bounded to the open group; DOM reconcile avoids node churn — hence LOW-MED.
+**Direction:** diff incoming membership key-set + per-uid overrides against the previous tick; when only overrides changed, repaint affected rows and skip `reconcileDistanceSubs`/`syncStatusSubscriptions`.
+
+### N4 ✓ · Color-only override edits pay a wasted presence read in `onMemberWritten` — BRANCH (residual of F7 fix), LOW-MED
+
+`functions/notifier.js:326-332` (`statusOverrideChanged`) diffs `enabled`/`status`/`statusColor`/`availableUntil`; `functions/index.js:170` uses it as the sole gate for `handleGroupOverrideChange`, which unconditionally reads full `users/{memberUid}/presence` (`notifier.js:310`). But `effectiveAvailable` (`presence-core.js:56-59`) never depends on `statusColor` — so a `statusColor`-only write (group complement-color tap via `setOverrideAppearance`, `js/groups.ts:294-304`) triggers the presence read and then computes a guaranteed `wasOn === isOn` no-op. This sits on the hottest function-triggering client path. (A `paletteKey`-only write is already skipped — `statusOverrideChanged` doesn't compare it.)
+**Direction:** gate the notify path on an availability-relevant compare (`enabled`/`status`/`availableUntil` only).
+
+### N5 · Telegram suite, `groupContext`, and `inbox` eagerly bundled into the entry chunk — PRE-EXISTING, LOW-MED (agent-reported)
+
+`js/app.ts:25-42` statically imports ~46 modules; besides wordlist + messaging nothing splits. The full Telegram flow set (`telegram.ts`, `telegramChrome/FirstRun/LinkArrival/Onramp/Settings/LinkCopy`) is functional only inside a Telegram webview yet parsed by every web visitor; `groupContext.ts` (~1.6 k lines, also pinned via `favorites.ts:9`) is dead weight for Direct-first boots; `inbox.ts` (~400 lines) is used only on inbox open. `isTelegramContext()` is a cheap synchronous check suitable as a dynamic-import gate. Boot is splash-gated, so the added await is invisible.
+**Direction:** dynamic-import the Telegram suite behind `isTelegramContext()` first (cleanest win); optionally defer inbox/group-context for Direct-first boots.
+
+### N6 · SW precaches rarely-used lazy chunks on first install — BRANCH-amplified (residual of F9), LOW-MED (agent-reported)
+
+`scripts/build.js` enumerates every file in `dist/chunks/` into the SW's `__CHUNK_LIST__`; on first install `cache.addAll` downloads all of them — including the ~78 KB wordlist chunk used only by account-creation/phrase-restore/graduation (and, after N1, the canvas chunk). F9's fix addressed cross-deploy re-fetch, not first-install bandwidth. The fetch handler is cache-first read-only, so on-demand chunks are currently never runtime-cached.
+**Direction:** exclude rarely-used lazy chunks from precache; add a cache-put for same-origin chunk fetches so they cache on first use.
+
+---
+
+## Tier 3 — low severity, batch opportunistically
+
+- **N7 ✓ · Availability group fan-out re-reads the sender's own `presence/code` per override-off group** (`functions/notifier.js:404-406` resolves `senderFallback` once; `notifyGroupAvailability` → `resolveGroupMemberName` `:263`, `:130-133` re-reads the same leaf per group). G duplicate reads per availability broadcast. RESIDUAL of F8's parallel refactor. **Direction:** thread the precomputed fallback down.
+- **N8 ✓ · 30s countdown hidden-tab skip lacks the visibility catch-up its sibling has** (`js/me.ts:208-215` skips DOM writes while hidden with no `visibilitychange` handler; `following.ts:392-396` from the same commit pairs skip + catch-up). Up to ~30 s stale `#time-remaining` on return-to-visible; cosmetic (the `setUnavailable` transition still fires hidden). BRANCH (`fd6a540`). **Direction:** mirror `following.ts`.
+- **N9 ✓ · Per-`pointermove` color/width derivation in the draw loop** (`js/canvas.ts:901-902`): `safeCssColor(_penColor)` (regex + string alloc) and `_thickness * _canvas.width` recomputed per event, though neither can change mid-stroke. NOTE the per-segment ctx-state *assignments* are load-bearing (concurrent peer `renderStroke` mutates shared ctx state — in-code comment `:897-900`) — cache only the derivations, computed once in `onPointerDown`. BRANCH-era. 
+- **N10 · `canvas.css` render-blocking in `<head>`** for a feature hidden until a draw session (`index.template.html:30`); naive deferral would flash `#canvas-screen` (its hidden state comes from `canvas.css:4`), so pair deferral with a one-line inline hidden guard. PRE-EXISTING. (Agent-reported.)
+
+---
+
+## Confirmed clean (no action)
+
+- **Trigger topology:** 7 RTDB triggers, zero path overlap post-F7-fix; the highest-frequency client writes (60 s location publishes, pref/palette echoes, presence leaf writes) fire **zero** functions; no cascades beyond the accepted call-reaper no-ops; no missing `.indexOn`.
+- **Rules:** no `root.child()` chains on the hot `statusOverride` write path; the `locationCells` membership check is security-required.
+- **Client memory:** all traced Maps/subscription registries have symmetric teardown; no unbounded growth found.
+- **CSS runtime:** all infinite `box-shadow` pulse animations are state-gated to single elements; no `will-change` abuse; layout-animating transitions are one-shot. Nothing multiplies across rows.
+- **Load path:** hosting headers correct per-path (immutable chunks / no-cache shell / no-store `sw.js` — deliberate, test-pinned); Firebase SDK imports fully modular; no web fonts; preconnects + modulepreload chain-flattening present; icons/sourcemap off the critical path.
+- **Post-smoke quartet** (8d83e3a, eeef878, 5d8b3b8, a9223c2) and the remaining perf-batch commits individually re-audited: clean apart from N2/N8 above; the SW-diagnostics probes are debug-gated to zero cost for normal users.
