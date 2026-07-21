@@ -28,7 +28,6 @@ import { ensureNotificationsReady } from './notifyPrompt.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS, paintStatusDot } from './palettes.js';
 import { sendKnock, getFloatedUserIds, noteDirectActivity } from './knock.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
-import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 import { reconcileChildren } from './reconcile.js';
 import { refreshHints, clearActiveHint } from './hintRotation.js';
 import { setListEmpty } from './firstRun.js';
@@ -354,7 +353,10 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
           ? (getPaletteByKey(peerData.paletteKey)?.theme?.surface || '#1e293b') : '#1e293b';
         const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
         const peerColor = peerData?.statusColor || '#22c55e';
-        enterCanvas(peerId, resolveDisplayName(entry), myUserId, myColor, peerColor, peerSurface, () => exitCallMode(myUserId))
+        // Lazy chunk: the canvas engine loads on first call entry, not at boot
+        // (audit-2 N1 — a stray static import defeated the split).
+        import('./canvas.js')
+          .then(({ enterCanvas }) => enterCanvas(peerId, resolveDisplayName(entry), myUserId, myColor, peerColor, peerSurface, () => exitCallMode(myUserId)))
           .catch((err) => console.error('enterCanvas (answered) failed:', err));
       }
       return;
@@ -909,9 +911,11 @@ function createFolloweeRow(entry: FollowingEntry, myUserId: string, isMutual = f
           callModeCalleeId = entry.userId;
           _incomingCall = null;
           answerCall(myUserId, entry.userId).catch(() => {});
-          enterCanvas(entry.userId, resolveDisplayName(entry), myUserId, myColor, peerColor, peerSurface, () => {
-            exitCallMode(myUserId);
-          }).catch(err => console.error('enterCanvas failed:', err));
+          import('./canvas.js')
+            .then(({ enterCanvas }) => enterCanvas(entry.userId, resolveDisplayName(entry), myUserId, myColor, peerColor, peerSurface, () => {
+              exitCallMode(myUserId);
+            }))
+            .catch(err => console.error('enterCanvas failed:', err));
         } else if (!li.classList.contains('call-mode')) {
           enterCallMode(entry, myUserId);
         }
