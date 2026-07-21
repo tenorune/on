@@ -35,7 +35,41 @@ export async function gatherNotifyDebugInfo(userId: string) {
   try { server = await readPushTokens(userId); } catch { server = null; }
   const serverTokens = server ? Object.keys(server) : [];
   const controller = (typeof navigator !== 'undefined' && navigator.serviceWorker && navigator.serviceWorker.controller) || null;
+  // SW auto-update diagnostics: the registration's lifecycle state
+  // distinguishes "never registered / registration lost" from "registered but
+  // stale"; a parked waiting worker is a smell on its own (skipWaiting should
+  // never leave one).
+  let swReg = '(unsupported)';
+  const sw = (typeof navigator !== 'undefined' && navigator.serviceWorker) || null;
+  if (sw?.getRegistration) {
+    try {
+      const reg = await sw.getRegistration();
+      swReg = reg
+        ? [
+          reg.installing ? `installing:${reg.installing.state}` : null,
+          reg.waiting ? `waiting:${reg.waiting.state}` : null,
+          reg.active ? `active:${reg.active.state}` : null,
+        ].filter(Boolean).join(' ') || '(registration, no workers)'
+        : '(no registration)';
+    } catch (err) { swReg = `(getRegistration failed: ${(err as Error)?.message ?? err})`; }
+  }
+  // What the server offers RIGHT NOW: a cache-bypassing read of /sw.js,
+  // reporting the stamped cache version (or its absence — a rewrite serving
+  // HTML in sw.js's place shows up here as text/html + no version). Compared
+  // against the controlling worker's debug-pong this answers "is this device
+  // behind?" without serviceworker-internals — the iOS PWA has no such surface.
+  let swServed = '(unsupported)';
+  if (typeof fetch === 'function') {
+    try {
+      const res = await fetch('/sw.js', { cache: 'no-store' });
+      const type = res.headers?.get?.('content-type') || '?';
+      const m = (await res.text()).match(/const CACHE = '([^']+)'/);
+      swServed = `${m ? m[1] : '(no cache version in body)'} (${res.status} ${type})`;
+    } catch (err) { swServed = `(fetch failed: ${(err as Error)?.message ?? err})`; }
+  }
   return {
+    swReg,
+    swServed,
     permission,
     capability,
     localToken: tail(local),
@@ -69,8 +103,13 @@ function render() {
     row('local token', i.localToken, i.localToken === '(none)'),
     row('server tokens', String(i.serverTokenCount), i.serverTokenCount === 0),
     row('local on server?', i.localTokenOnServer ? 'yes' : 'NO', !i.localTokenOnServer),
+    row('SW reg', i.swReg, i.swReg.startsWith('(no registration') || i.swReg.includes('waiting:')),
     row('SW cache', _swCache || '(asking…)'),
     row('SW controller', i.swController),
+    // Warn when the controlling worker's version is known and the server is
+    // serving something else — the device is running a stale build (or the
+    // serve is broken), i.e. exactly the auto-update failure being chased.
+    row('sw.js served', i.swServed, !!(_swCache && !i.swServed.startsWith(_swCache))),
     row('last push', lastPush, false),
     row('UA', i.ua),
   ].join('');
