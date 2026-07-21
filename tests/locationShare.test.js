@@ -770,6 +770,36 @@ describe('geolocation PermissionStatus caching', () => {
     expect(db.publishLocation).toHaveBeenCalledWith('me', 52.52, 13.405, expect.any(Number));
   });
 
+  test("a retained status that spuriously flips non-granted is dropped and re-queried — the device proof still opens the gate", async () => {
+    // Device trace 2026-07-21 21:12:05: one tick hit "permission gate closed"
+    // AFTER the proof was seeded and ticks had been passing — around a
+    // suspension/resume, WebKit flipped the retained PermissionStatus off
+    // 'granted'. A cached non-granted state must never be trusted outright:
+    // drop the cache and fall through to a fresh query, where the device
+    // proof applies to a 'prompt' answer.
+    const status = { state: 'granted', addEventListener: jest.fn() };
+    Object.defineProperty(global.navigator, 'permissions', {
+      configurable: true,
+      value: { query: jest.fn(async () => status) },
+    });
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct'); // proof seeded via the prove's fix
+    await flush();
+    expect(db.publishLocation).toHaveBeenCalledTimes(1);
+    db.publishLocation.mockClear();
+
+    // The spurious flip: the retained object AND fresh queries now say
+    // 'prompt' (the same object is returned by the next query).
+    status.state = 'prompt';
+    fireWatch({ latitude: 52.53, longitude: 13.405 }); // movement, so a publish isn't suppressed
+    jest.advanceTimersByTime(60000);
+    await flush(); await flush();
+    expect(navigator.permissions.query).toHaveBeenCalledTimes(2);
+    expect(db.publishLocation).toHaveBeenCalledWith('me', 52.53, 13.405, expect.any(Number));
+  });
+
   test("revocation (code 1) clears the device proof — a later session's 'prompt' is genuine and the gate stays closed", async () => {
     // After a real revocation the 'prompt' answer is no lie: capturing WOULD
     // prompt. The teardown must drop the proof so a cross-device-synced
@@ -820,12 +850,14 @@ describe('geolocation PermissionStatus caching', () => {
     db.publishLocation.mockClear();
     navigator.geolocation.getCurrentPosition.mockClear();
 
-    // The browser mutates the retained object in place on revocation — no
-    // re-query needed for the cache to observe the flip.
+    // The browser mutates the retained object in place on revocation. A
+    // cached non-granted state is no longer trusted outright (WebKit flips
+    // retained objects spuriously around resume) — the tick re-queries, and
+    // the honest 'denied' answer keeps capture off either way.
     status.state = 'denied';
     jest.advanceTimersByTime(60000);
     await flush(); await flush();
-    expect(navigator.permissions.query).toHaveBeenCalledTimes(1);
+    expect(navigator.permissions.query).toHaveBeenCalledTimes(2);
     expect(navigator.geolocation.getCurrentPosition).not.toHaveBeenCalled();
     expect(db.publishLocation).not.toHaveBeenCalled();
   });
@@ -1115,6 +1147,74 @@ test('hidden document no longer pauses ticks — publishing continues off-screen
   document.dispatchEvent(new Event('visibilitychange'));
   await flush();
   expect(db.publishLocation).toHaveBeenCalledTimes(1);
+});
+
+// Device trace 2026-07-21 21:12–21:22 (tram bug, resume leg): iOS suspension
+// kills the watchPosition stream silently — NO error callback, so _watchId
+// still looks live and startGeoWatch no-ops. getPositionOnce then served the
+// pre-suspension _lastFix at any age, and every tick republished/suppressed
+// the frozen point for 10+ minutes. Recovery is two-pronged: a tick refuses a
+// fix older than a full tick interval (restart the watch, wait for a real
+// fix), and returning to foreground rebuilds the watch outright.
+describe('dead-watch recovery (tram bug, resume leg)', () => {
+  test('a tick never serves a fix older than one tick interval — it restarts the watch and publishes the fresh fix', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush();
+    expect(db.publishLocation).toHaveBeenCalledTimes(1);
+    expect(navigator.geolocation.watchPosition).toHaveBeenCalledTimes(1);
+    db.publishLocation.mockClear();
+
+    // The watch dies silently: no further fixes, no error. The +60s tick may
+    // still serve the 60s-old fix (unchanged → suppressed); by the +120s tick
+    // the cache is stale and MUST NOT satisfy the read. The device has moved
+    // meanwhile — the restarted watch delivers the current position.
+    _curPos = { latitude: 52.53, longitude: 13.405 };
+    jest.advanceTimersByTime(120000);
+    await flush(); await flush();
+    expect(navigator.geolocation.clearWatch).toHaveBeenCalled();
+    expect(navigator.geolocation.watchPosition).toHaveBeenCalledTimes(2);
+    expect(db.publishLocation).toHaveBeenCalledWith('me', 52.53, 13.405, expect.any(Number));
+  });
+
+  test('returning to foreground rebuilds the watch and the catch-up tick publishes the fresh post-resume fix', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush();
+    expect(navigator.geolocation.watchPosition).toHaveBeenCalledTimes(1);
+    db.publishLocation.mockClear();
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    // Suspension killed the watch silently; the device moved meanwhile. On
+    // resume the rebuilt watch delivers the current position and the
+    // opportunistic tick publishes it — the frozen cache must not survive.
+    _curPos = { latitude: 52.53, longitude: 13.405 };
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flush(); await flush();
+    expect(navigator.geolocation.watchPosition).toHaveBeenCalledTimes(2);
+    expect(db.publishLocation).toHaveBeenCalledWith('me', 52.53, 13.405, expect.any(Number));
+  });
+
+  test('a live watch (fresh fixes flowing) is never restarted by ticks', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush();
+    for (let i = 0; i < 3; i++) {
+      jest.advanceTimersByTime(55000);
+      fireWatch({ latitude: 52.52, longitude: 13.405 }); // stationary jitter keeps the cache fresh
+      jest.advanceTimersByTime(5000);
+      await flush();
+    }
+    expect(navigator.geolocation.watchPosition).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('GPS accuracy tier (audit F2)', () => {

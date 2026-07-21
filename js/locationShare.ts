@@ -21,6 +21,10 @@ import { isTelegramContext } from './telegram.js';
 import { snapToCell, haversineMeters } from '../shared/geo.js';
 
 const TICK_MS = 60000;
+// A cached watch fix older than this cannot satisfy a position read — see
+// getPositionOnce (a live watch streams ~1 fix/s; a full silent tick interval
+// means the stream is dead).
+const STALE_FIX_MAX_AGE_MS = TICK_MS;
 
 let _userId: string | null = null;
 let _getOptedInGids: () => string[] = () => [];
@@ -129,6 +133,19 @@ function stopGeoWatch(): void {
   drainWatchWaiters({ code: 2 }); // unblock any parked reader — the watch is gone
 }
 
+// Tear down and rebuild the watch at its current tier. Needed because iOS
+// suspension kills a running watch WITHOUT any error callback (device trace
+// 2026-07-21, tram bug): _watchId still looks live, so startGeoWatch alone
+// no-ops and the dead stream would serve its frozen _lastFix forever. Waiters
+// are NOT drained — a parked getPositionOnce caller is served by the rebuilt
+// watch's first fix/error.
+function restartGeoWatch(): void {
+  if (_watchId === null) return;
+  if (navigator.geolocation?.clearWatch) navigator.geolocation.clearWatch(_watchId);
+  _watchId = null;
+  startGeoWatch(_watchHighAccuracy);
+}
+
 // TEMP DIAGNOSTIC — macOS PWA location no-op / stuck-off investigation
 // (2026-07-21). Dormant unless localStorage 'locdbg' === '1'. Enable on-device
 // (Safari → Develop → the PWA → Web Inspector console: `localStorage.locdbg='1'`,
@@ -205,13 +222,23 @@ function getPositionOnce(opts?: { highAccuracy?: boolean }): Promise<{ lat: numb
     // Park BEFORE starting so a synchronously-delivered first fix/error (the
     // real watch fires async, but nothing may rely on that) still reaches us.
     _watchWaiters.push(onResult);
+    const hadWatch = _watchId !== null;
     startGeoWatch(opts?.highAccuracy ?? true);
-    // No synchronous delivery, but a prior fix is cached: serve it at ANY age —
-    // last-known model, the freshest the OS pushed (the watch chases newer).
+    // No synchronous delivery, but a prior fix is cached: serve it if it is
+    // fresher than one tick interval — the freshest the OS pushed (the watch
+    // chases newer). An OLDER cache means the supposedly-live watch delivered
+    // nothing for a whole tick: iOS suspension kills the stream with no error
+    // callback (device trace 2026-07-21), so rebuild it and stay parked for a
+    // real fix (the watch's own 20s timeout rejects code 3 if none comes).
     // A context that has never had a fix stays parked for the first delivery.
     if (!settled && _lastFix) {
-      _watchWaiters = _watchWaiters.filter((w) => w !== onResult);
-      onResult({ lat: _lastFix.lat, lng: _lastFix.lng });
+      if (Date.now() - _lastFix.at <= STALE_FIX_MAX_AGE_MS) {
+        _watchWaiters = _watchWaiters.filter((w) => w !== onResult);
+        onResult({ lat: _lastFix.lat, lng: _lastFix.lng });
+      } else if (hadWatch) {
+        locDbg('watch restart (stale fix)', _lastFix);
+        restartGeoWatch();
+      }
     }
   });
 }
@@ -360,7 +387,14 @@ async function tickPermissionGranted(): Promise<boolean> {
     permissions?: { query?: (d: { name: string }) => Promise<{ state: string; addEventListener?: (t: string, l: () => void) => void }> };
   }).permissions;
   if (!perms?.query) return true;
-  if (_geoPermStatus) return _geoPermStatus.state === 'granted';
+  if (_geoPermStatus) {
+    if (_geoPermStatus.state === 'granted') return true;
+    // Never trust a retained non-granted state outright: WebKit can flip the
+    // retained object spuriously around suspend/resume (device trace
+    // 2026-07-21 21:12:05, one gate-closed tick amid healthy ones). Drop the
+    // cache and fall through to a fresh query, where the device proof applies.
+    _geoPermStatus = null;
+  }
   try {
     const status = await perms.query({ name: 'geolocation' });
     // Cache ONLY a granted status (else keep per-tick queries): iOS WebKit
@@ -555,9 +589,13 @@ export function initLocationShare(userId: string, getOptedInGids: () => string[]
   document.addEventListener('location-prefs-synced', _prefsSyncedListener);
   // Ticks run regardless of visibility (last-known model), but real browsers
   // throttle background timers — an opportunistic tick on return to
-  // foreground catches the cadence back up.
+  // foreground catches the cadence back up. The watch is rebuilt FIRST:
+  // suspension kills it with no error callback (device trace 2026-07-21), so
+  // the catch-up tick would otherwise read the frozen pre-suspension cache.
   _visListener = () => {
-    if (document.visibilityState === 'visible' && _timer !== null) tick();
+    if (document.visibilityState !== 'visible') return;
+    if (_watchId !== null) { locDbg('watch restart (resume)'); restartGeoWatch(); }
+    if (_timer !== null) tick();
   };
   document.addEventListener('visibilitychange', _visListener);
 }
