@@ -11,73 +11,73 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**Execute the audit-2 perf-fix plan** —
-`docs/superpowers/plans/2026-07-21-performance-fixes-audit2.md`: ten
-independent, individually-shippable tasks covering findings N1–N5 + N7–N10
-of the second performance audit (run 2026-07-21, after the first audit's
-26 findings were all fixed; every finding source-verified in
-`docs/superpowers/specs/2026-07-21-performance-audit-2-findings.md`).
-Headliners: a stray static import in `js/following.ts:31` defeats the
-intended canvas code-split (Task 1), and the no-op cell-publish suppression
-defeats the stale-membership sweep for a kicked *stationary* user — the
-loop can't idle until they cross a ~1.1 km cell boundary (Task 2). Tasks 7
-and 8 both edit `js/app.ts` — run them in order; everything else is
-independent, any subset can ship. First choice of the session: execution
-mode — subagent-driven per task (the plan's recommendation) or inline with
-checkpoints. Install deps first (Environment below). The plan's per-task
-commit steps are operator-sanctioned.
+**Maintainer merge + deploy — the audit-2 perf-fix batch is DONE, tested,
+and pushed.** All ten tasks of
+`docs/superpowers/plans/2026-07-21-performance-fixes-audit2.md` (findings
+N1–N5 + N7–N10) shipped 2026-07-21 via subagent-driven development —
+implementer + spec/quality review per task, whole-branch opus review at the
+end ("ready to merge", zero Critical/Important). Detail in History below and
+in the commit bodies `0ce40fa..cea4593` (+ cleanup `75eeade`).
 
-Tip is the 2026-07-21 `docs(handoff)` commit sitting directly atop
-`8d58960` on `claude/knockknock-feature-dev-9a3ysy`, pushed; `origin/*` ==
-local (code tip is still `a9223c2`; everything above it is docs only —
-audit spec, plan, verification updates, this handoff). Realign:
+Tip is `75eeade` on `claude/knockknock-feature-dev-9a3ysy`, pushed; `origin`
+== local. The identical batch is also on `claude/session-yjbet1` (the
+session branch it was built on) at `75eeade` — both remotes equal. Code tip
+is now `cea4593` (the batch's last code commit); `75eeade` is the test/comment
+cleanup atop it. Realign a fresh session:
 
 ```
 git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
 ```
 
-`git log --oneline -2` must show a `docs(handoff)` commit atop `8d58960` —
-else STOP, origin is authoritative.
+`git log --oneline -1` must show `75eeade` (chore cleanup) — else STOP,
+origin is authoritative.
 
 **Next actions (nothing deploys from sessions):**
 
 1. Maintainer merges `claude/knockknock-feature-dev-9a3ysy` → `dev` (and
-   `dev` → `main`).
-2. DEPLOY the accumulated branch work (security fixes + all three perf batches
-   + the four 2026-07-21 fixes) per the Deploy ordering below — the
-   LOAD-BEARING `pushTokens` (F6c) sequence is the one that bites.
+   `dev` → `main`). The audit-2 batch is now part of the accumulated branch
+   work.
+2. DEPLOY the accumulated branch work (security fixes + all three prior perf
+   batches + the four 2026-07-21 fixes + this audit-2 batch) per the Deploy
+   ordering below — the LOAD-BEARING `pushTokens` (F6c) sequence is the one
+   that bites. The audit-2 batch adds NO ordering constraints (client +
+   functions only — no rules, no schema), so it rides the same deploy train.
 3. Post-deploy: run the deferred smoke items (`docs/DEPLOY-PROD.md` verify
-   steps), plus this session's device checks: iOS PWA glyph-on publishes
+   steps), plus the prior-session device checks: iOS PWA glyph-on publishes
    within a tick when a prior session's opt-in was already on (the `45d7bec`
    scenario) · the group roster keeps a mutual's coarse distance after the
    viewer enables Direct (the `8d83e3a` scenario) · inbox Join shows
    prompt → dark → group with no Direct/nav-code flash (`a9223c2`) · the
-   #156 panel's new `SW reg` / `sw.js served` rows.
+   #156 panel's `SW reg` / `sw.js served` rows. PLUS the audit-2
+   device-smoke notes (from the plan's per-task footers): boot-into-group +
+   rapid Direct↔group flip now fetch the groupContext chunk (N5a) · Telegram
+   Mini App chrome/first-run/deep-link/link-screen still work as lazy chunks
+   (N5b) · first-ever cold-cache draw-session entry shows no flash/layout
+   shift as canvas.css loads on demand (N10).
 4. **iOS auto-update needs a TWO-deploy verification** (`5d8b3b8`): deploy 1
    ships the fix but devices still fetch it via the old, stale-prone check
    (a stuck device may need one manual `reg.update()` nudge via Web
    Inspector); only deploy 2 — the next shell change after that — tests the
    claim, by landing on the iOS PWA organically (relaunch, no inspector).
-5. The audit-2 plan (top of this section) is the unstarted work on this
-   branch. Its tasks add NO deploy-ordering constraints (client + functions
-   only — no rules, no schema), so they can ride the same deploy train as
-   the accumulated work or a later one; merge/deploy sequencing is the
-   maintainer's call.
 
-**Verification state:** green bar OBSERVED at code tip `a9223c2` (web jest
-2049/2049 · functions 432/432 · rules 108/108 · both typechecks clean ·
-zero TS suppressions). Commits since are docs-only (OBSERVED via
-`git diff --stat a9223c2..8d58960`); suites not re-run in the 2026-07-21
-audit/planning container (no deps installed, no code delta).
+**Verification state:** green bar OBSERVED at `75eeade` (the current tip on
+both feature branches) — web jest 2056/2056 · functions 432→436/436 · both
+typechecks (`typecheck` + `typecheck:scripts`) clean · production build
+emits lazy chunks for canvas + groupContext + the four Telegram flow modules
+(`enterGroupContext` absent from `dist/bundle.js`). Zero NEW TS suppressions
+in the batch (one PRE-EXISTING `as any` at `js/telegram.ts:17`, untouched).
+Rules suite (108) not re-run — the batch touched no rules. All suites run in
+this container with deps installed (Environment below).
 
 **Audit docs (sources of truth):**
 
-- **Audit 2 (current work):** findings
+- **Audit 2 (SHIPPED — all ten fixes landed, see History):** findings
   `docs/superpowers/specs/2026-07-21-performance-audit-2-findings.md` (all
-  ten source-verified, corrections inline) · plan
+  ten source-verified, corrections inline; N2 severity correction applied by
+  the fix) · plan
   `docs/superpowers/plans/2026-07-21-performance-fixes-audit2.md` (10 tasks,
-  complete code per step).
+  complete code per step). N6 remains parked (Open items).
 - Audit 1 (all 26 findings FIXED, see History):
   `docs/superpowers/specs/2026-07-20-performance-audit-findings.md`.
 
@@ -310,6 +310,37 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **Audit-2 perf-fix batch executed (2026-07-21, `0ce40fa..cea4593` + cleanup
+  `75eeade`, built on `claude/session-yjbet1`, fast-forward-merged to
+  `claude/knockknock-feature-dev-9a3ysy`, both pushed):** the 10-task
+  `2026-07-21-performance-fixes-audit2.md` plan via subagent-driven
+  development — fresh implementer per task, per-task spec+quality review,
+  final whole-branch opus review ("ready to merge", zero Critical/Important).
+  N1 canvas lazy-split restored (dropped stray static import → chunk emits) ·
+  N2 stale-membership 10-min probe window so the sweep fires for a kicked
+  *stationary* user (`STALE_MEMBERSHIP_PROBE_MS`; `_lastPublished` gained
+  `landedAt`) · N4 `statusOverrideChanged`→`availabilityRelevantOverrideChange`
+  (appearance-only override edits skip the notify gate + its presence read) ·
+  N7 availability sender's `presence/code` resolved once, threaded through the
+  group fan-out · N8 countdown-label visibilitychange catch-up (+ a me.test
+  mock-fidelity fix: restored the `< 1m` branch) · N3 `classifyMembersTick`
+  appearance-only roster fast path (client analogue of N4; fails safe to
+  'full') · N5a lazy-load groupContext (largest client module) via serialized
+  `withGroupContext` · N5b lazy-load the four Telegram-webview-only flow
+  modules (`tgFirstRun` threaded through `BootSession`) · N9 per-stroke canvas
+  derivations (per-segment ctx assignments preserved) · N10 on-demand
+  canvas.css (JS-injected `<link>` + inline `<style>` flow guard, CSP-safe —
+  no `onload`). Three review loops caught real issues: N8's mock was silently
+  vacuous (flat `'2h'`) → made value-sensitive; N5a left a required favorites
+  test-flush uncommitted (red-in-isolation) → folded into the commit; N5b's
+  brief mis-assumed one function scope → adapted via `BootSession` threading.
+  Cross-task parity verified (server N4 ↔ client N3 gate agree on
+  appearance-vs-availability fields; N5a+N5b compose cleanly on `js/app.ts`).
+  Gates green at `75eeade` (web 2056 · functions 436 · typechecks clean · build
+  emits all lazy chunks · zero new suppressions). N6 (SW precache-all) stayed
+  PARKED as a product call — the only audit-2 finding without a plan task.
+  DEPLOY pending (client + functions only, no ordering constraints; see Deploy
+  ordering).
 - **Audit #2 + planning session (2026-07-21, docs-only `8d3d354..8d58960`):**
   second performance audit over the branch (4 parallel read-only agents +
   session-side verification of every claim; prior 26 fixes independently
