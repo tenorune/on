@@ -103,6 +103,30 @@ describe('canvas re-entry is idempotent (peer-dot duplication)', () => {
   });
 });
 
+describe('canvas.css injection (audit-2 N10)', () => {
+  function setupCanvasDom() {
+    document.body.innerHTML = `
+      <div id="app-header"></div>
+      <div id="favorites-strip"></div>
+      <div id="main-list"></div>
+      <div id="canvas-screen"><canvas id="draw-canvas"></canvas></div>`;
+    HTMLCanvasElement.prototype.getContext = () => fakeCtx();
+  }
+
+  test('enterCanvas injects the canvas stylesheet once (audit-2 N10)', async () => {
+    setupCanvasDom();
+    await enterCanvas('peer1', 'Peer', 'me', '#111111', '#abcdef', '#000000', () => {});
+    // jsdom never fires `transitionend`, mirroring the interrupted fade-out:
+    // exitCanvas's deferred float cleanup does not run.
+    exitCanvas();
+    await enterCanvas('peer1', 'Peer', 'me', '#111111', '#abcdef', '#000000', () => {});
+
+    expect(document.querySelectorAll('link[data-canvas-css]').length).toBe(1);
+    expect(document.querySelector('link[data-canvas-css]').getAttribute('href')).toBe('dist/css/canvas.css');
+    exitCanvas();
+  });
+});
+
 describe('canvas capture-phase pointerdown listener does not leak per session', () => {
   function setupCanvasDom() {
     document.body.innerHTML = `

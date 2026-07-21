@@ -389,7 +389,23 @@ export function showPeerLeftDialog(container: HTMLElement, peerName: string, onD
 
 // ─── Enter / Exit ────────────────────────────────────────────────────────────
 
+// canvas.css styles only the #canvas-screen overlay; shipping it render-
+// blocking in <head> taxed first paint for every visitor (audit-2 N10). The
+// SW still precaches it (sw SHELL), so this load is instant after the first
+// visit and works offline. No load-await needed: index.html's inline
+// #canvas-screen{display:none} guard hides the screen until the sheet
+// applies, then the .active opacity transition takes over.
+function ensureCanvasCss() {
+  if (document.querySelector('link[data-canvas-css]')) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'dist/css/canvas.css';
+  link.setAttribute('data-canvas-css', '1');
+  document.head.appendChild(link);
+}
+
 export async function enterCanvas(peerId: string, peerName: string, myUserId: string, myStatusColor: string, peerStatusColor: string, callerSurface: string, onExit: () => void) {
+  ensureCanvasCss();
   _canvasId = getCanvasId(myUserId, peerId);
   _myUserId = myUserId;
   _peerId = peerId;
