@@ -235,6 +235,16 @@ describe('resolveGroupMemberName', () => {
     const deps3 = makeDeps({ store: {} });
     expect(await resolveGroupMemberName(deps3, 'g1', 'u')).toBe('Someone');
   });
+  test('a precomputed fallback skips the presence/code read entirely (audit-2 N7)', async () => {
+    const deps = makeDeps({ store: { 'users/u/presence/code': 'ABC123' } });
+    expect(await resolveGroupMemberName(deps, 'g1', 'u', 'K7Q2ZP')).toBe('K7Q2ZP');
+    expect(deps.getVal).toHaveBeenCalledTimes(1);
+    expect(deps.getVal).toHaveBeenCalledWith('groups/g1/members/u/displayName');
+  });
+  test('displayName still wins over a precomputed fallback', async () => {
+    const deps = makeDeps({ store: { 'groups/g1/members/u/displayName': 'Bobby' } });
+    expect(await resolveGroupMemberName(deps, 'g1', 'u', 'K7Q2ZP')).toBe('Bobby');
+  });
 });
 
 describe('notifyGroupAvailability', () => {
@@ -544,6 +554,21 @@ describe('handleAvailability → multi-group fan-out: exactly one push + selecti
     // both groups delivered → both stamped
     expect(deps.update).toHaveBeenCalledWith('notifierState/groupAvailability/g1', { bob: 1000 });
     expect(deps.update).toHaveBeenCalledWith('notifierState/groupAvailability/g2', { bob: 1000 });
+  });
+
+  test('group fan-out reads users/{uid}/presence/code exactly once across groups (audit-2 N7)', async () => {
+    const deps = makeDeps({ store: {
+      'users/star/presence/status': 'available',
+      'users/star/presence/code': 'STARCODE',
+      'users/star/groups': { g1: true, g2: true, g3: true },
+      'groups/g1/members': { star: {}, m1: {} },
+      'groups/g2/members': { star: {}, m2: {} },
+      'groups/g3/members': { star: {}, m3: {} },
+      'notifierState/availability/star': null,
+    }});
+    await handleAvailability(deps, 'star', null, FUTURE);
+    const codeReads = deps.getVal.mock.calls.filter(([p]) => p === 'users/star/presence/code').length;
+    expect(codeReads).toBe(1);
   });
 });
 

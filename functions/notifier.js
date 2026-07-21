@@ -122,8 +122,17 @@ export async function resolveName(deps, viewerUid, targetUid) {
  * @param {NotifierDeps} deps
  * @param {string | undefined} groupId
  * @param {string} uid
+ * @param {string | null} [fallback]
  */
-export async function resolveGroupMemberName(deps, groupId, uid) {
+export async function resolveGroupMemberName(deps, groupId, uid, fallback = null) {
+  // A precomputed fallback (the member's code resolved once by the caller)
+  // skips the per-group re-read of users/{uid}/presence/code — the availability
+  // group fan-out otherwise re-reads the same leaf once per override-off group
+  // (audit-2 N7). Precedence unchanged: displayName > code > 'Someone'.
+  if (fallback !== null) {
+    const displayName = await deps.getVal(`groups/${groupId}/members/${uid}/displayName`);
+    return displayName || fallback;
+  }
   // Fetch the code fallback IN PARALLEL with the displayName (one extra tiny read
   // on the hit path; ~half the latency on the miss path). Precedence unchanged:
   // displayName > code > 'Someone'.
@@ -253,15 +262,16 @@ export async function handleFollowRequest(deps, targetUid, requesterUid, record)
  * @param {string} memberUid
  * @param {number} now
  * @param {Set<string> | null} [alreadyNotified]
+ * @param {string | null} [senderFallback]
  */
-export async function notifyGroupAvailability(deps, groupId, memberUid, now, alreadyNotified = null) {
+export async function notifyGroupAvailability(deps, groupId, memberUid, now, alreadyNotified = null, senderFallback = null) {
   const lastTs = await deps.getVal(`notifierState/groupAvailability/${groupId}/${memberUid}`);
   if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) return;
   // Resolve the shared per-event data once (name + group label + roster) before
   // fanning out — these don't vary by recipient, so reading them per co-member
   // was an N+1.
   const [name, group, members] = await Promise.all([
-    resolveGroupMemberName(deps, groupId, memberUid),
+    resolveGroupMemberName(deps, groupId, memberUid, senderFallback),
     deps.getVal(`groups/${groupId}/name`),
     deps.getVal(`groups/${groupId}/members`),
   ]);
@@ -400,12 +410,11 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   ]);
   const directCooled = withinCooldown(directCooledTs, now, AVAIL_COOLDOWN_MS);
   const followerIds = (followers ? Object.keys(followers) : []).filter((fid) => fid !== uid);
-  // Resolve the sender's shared fallback name once (code → 'Someone'); only the
-  // per-viewer following label varies. This collapses the per-follower re-read
-  // of users/{uid}/presence/code that resolveName() did inside the old loop.
-  const senderFallback = followerIds.length
-    ? ((await deps.getVal(`users/${uid}/presence/code`)) || 'Someone')
-    : 'Someone';
+  // Resolve the sender's shared fallback name once (code → 'Someone') for BOTH
+  // the Direct pass and the group fan-out; only the per-viewer following label
+  // (and per-group displayName) varies. Threading it into notifyGroupAvailability
+  // collapses the per-group re-read of this same leaf (audit-2 N7).
+  const senderFallback = ((await deps.getVal(`users/${uid}/presence/code`)) || 'Someone');
   // Fan the independent per-follower prefs-read + send out in parallel. Each
   // opted-in follower is marked notified (so the group pass never doubles them),
   // even when the Direct cooldown suppresses the actual send.
@@ -442,6 +451,6 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   const overrides = await Promise.all(gids.map((gid) => deps.getVal(`groups/${gid}/members/${uid}/statusOverride`)));
   for (let i = 0; i < gids.length; i += 1) {
     if (overrides[i] && overrides[i].enabled === true) continue;
-    await notifyGroupAvailability(deps, gids[i], uid, now, notified);
+    await notifyGroupAvailability(deps, gids[i], uid, now, notified, senderFallback);
   }
 }
