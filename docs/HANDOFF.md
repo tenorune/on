@@ -11,23 +11,34 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**Four post-smoke fixes landed 2026-07-21 on top of the finished perf-batch
-work** (which is review-verified 26/26 and mostly device-smoked — see
-History): the group-roster distance loss for mutuals who don't share in
-Direct (`8d83e3a`), SW auto-update diagnostics in the #156 panel
-(`eeef878`), the iOS-PWA auto-update fix (`5d8b3b8`), and the inbox-join
-Direct-flash guard (`a9223c2`). All are hosting-only — no new deploy-ordering
-constraints beyond the existing ones below.
+**Execute the audit-2 perf-fix plan** —
+`docs/superpowers/plans/2026-07-21-performance-fixes-audit2.md`: ten
+independent, individually-shippable tasks covering findings N1–N5 + N7–N10
+of the second performance audit (run 2026-07-21, after the first audit's
+26 findings were all fixed; every finding source-verified in
+`docs/superpowers/specs/2026-07-21-performance-audit-2-findings.md`).
+Headliners: a stray static import in `js/following.ts:31` defeats the
+intended canvas code-split (Task 1), and the no-op cell-publish suppression
+defeats the stale-membership sweep for a kicked *stationary* user — the
+loop can't idle until they cross a ~1.1 km cell boundary (Task 2). Tasks 7
+and 8 both edit `js/app.ts` — run them in order; everything else is
+independent, any subset can ship. First choice of the session: execution
+mode — subagent-driven per task (the plan's recommendation) or inline with
+checkpoints. Install deps first (Environment below). The plan's per-task
+commit steps are operator-sanctioned.
 
-Tip is `a9223c2` on `claude/knockknock-feature-dev-9a3ysy`, pushed;
-`origin/*` == local. Realign:
+Tip is the 2026-07-21 `docs(handoff)` commit sitting directly atop
+`8d58960` on `claude/knockknock-feature-dev-9a3ysy`, pushed; `origin/*` ==
+local (code tip is still `a9223c2`; everything above it is docs only —
+audit spec, plan, verification updates, this handoff). Realign:
 
 ```
 git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
 ```
 
-Tip must be `a9223c2` — else STOP, origin is authoritative.
+`git log --oneline -2` must show a `docs(handoff)` commit atop `8d58960` —
+else STOP, origin is authoritative.
 
 **Next actions (nothing deploys from sessions):**
 
@@ -48,18 +59,27 @@ Tip must be `a9223c2` — else STOP, origin is authoritative.
    (a stuck device may need one manual `reg.update()` nudge via Web
    Inspector); only deploy 2 — the next shell change after that — tests the
    claim, by landing on the iOS PWA organically (relaunch, no inspector).
-5. No unstarted plan remains on this branch. Next feature work starts from a
-   fresh brainstorm/plan.
+5. The audit-2 plan (top of this section) is the unstarted work on this
+   branch. Its tasks add NO deploy-ordering constraints (client + functions
+   only — no rules, no schema), so they can ride the same deploy train as
+   the accumulated work or a later one; merge/deploy sequencing is the
+   maintainer's call.
 
-**Verification state:** green bar OBSERVED at `a9223c2` (web jest 2049/2049 ·
-functions 432/432 · rules 108/108 · both typechecks clean · zero TS
-suppressions added by this branch).
+**Verification state:** green bar OBSERVED at code tip `a9223c2` (web jest
+2049/2049 · functions 432/432 · rules 108/108 · both typechecks clean ·
+zero TS suppressions). Commits since are docs-only (OBSERVED via
+`git diff --stat a9223c2..8d58960`); suites not re-run in the 2026-07-21
+audit/planning container (no deps installed, no code delta).
 
 **Audit docs (sources of truth):**
 
-- Findings: `docs/superpowers/specs/2026-07-20-performance-audit-findings.md`
-  (Tier 1&2 source-verified; Tier 3 agent-reported). ALL Tier 1&2 findings
-  (F1–F10) are now DONE (see History); Tier 3 is the plan above.
+- **Audit 2 (current work):** findings
+  `docs/superpowers/specs/2026-07-21-performance-audit-2-findings.md` (all
+  ten source-verified, corrections inline) · plan
+  `docs/superpowers/plans/2026-07-21-performance-fixes-audit2.md` (10 tasks,
+  complete code per step).
+- Audit 1 (all 26 findings FIXED, see History):
+  `docs/superpowers/specs/2026-07-20-performance-audit-findings.md`.
 
 **Deploy ordering (recorded in commit bodies + `docs/DEPLOY-PROD.md`; nothing
 deploys from sessions):**
@@ -90,6 +110,13 @@ deploys from sessions):**
   file, `npm run test:rules`, delete the probe.)
 
 **Open items (parked, operator-ruled only):**
+
+- **Audit-2 N6 — SW precaches ALL chunks on first install** (incl. the ~78 KB
+  wordlist; canvas joins after Task 1). Verified: exclusion costs nothing on
+  repeat loads (immutable chunk headers → browser HTTP cache), so the trade
+  is purely first-install bytes vs OFFLINE availability of a flow before its
+  first use (e.g. offline phrase-restore on a fresh install). Product call —
+  the only audit-2 finding without a plan task.
 
 - **Self-heal for auto-update-stuck devices** (option B from the 2026-07-21
   iOS investigation, parked): devices running a pre-`5d8b3b8` build carry the
@@ -283,6 +310,22 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **Audit #2 + planning session (2026-07-21, docs-only `8d3d354..8d58960`):**
+  second performance audit over the branch (4 parallel read-only agents +
+  session-side verification of every claim; prior 26 fixes independently
+  re-verified intact, zero regressions). 10 new findings (N1–N10), all
+  source-verified with corrections recorded inline (N2 exposure narrowed to
+  mid-session kicks; N5's telegramOnramp is web-facing, not webview-only;
+  N10's deferral hazard is layout shift, not a flash; N6 exclusion is free
+  on repeats thanks to the immutable headers). Operator ruled: plan
+  N1–N5+N7–N10 (the 10-task plan above), park N6 as a product decision.
+  Notable verified-clean: trigger topology has zero overlaps and the
+  high-frequency client writes (location publishes, palette echoes,
+  presence leaves) fire no functions; CSS runtime animations all
+  state-gated; SDK imports fully modular. N4 broadcast question answered
+  in-source: color reaches peers via RTDB listener fan-out, never via the
+  notifier (push payloads are title/body only) — the narrowed gate removes
+  a read that always preceded a no-op.
 - **Post-smoke fix session (2026-07-21, `8d83e3a..a9223c2`):** four
   operator-reported issues root-caused and fixed test-first. (1) `8d83e3a` —
   group roster lost a mutual's coarse distance the moment the viewer enabled
