@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Land the operator-selected batch from `docs/superpowers/specs/2026-07-21-performance-audit-2-findings.md`: restore the canvas lazy-split (N1), let the stale-membership sweep fire without movement (N2), stop paying a presence read for color-only override edits (N4), read the availability sender's code once instead of per group (N7), and catch the countdown label up on return-to-visible (N8).
+**Goal:** Land the operator-selected batch from `docs/superpowers/specs/2026-07-21-performance-audit-2-findings.md`: restore the canvas lazy-split (N1), let the stale-membership sweep fire without movement (N2), stop paying a presence read for color-only override edits (N4), read the availability sender's code once instead of per group (N7), catch the countdown label up on return-to-visible (N8) — plus the 2026-07-21 fold-in: appearance-only roster fast path (N3), lazy-load `groupContext` and the Telegram-context-only flows (N5), per-stroke canvas derivations (N9), and on-demand `canvas.css` (N10).
 
-**Architecture:** Five independent, individually-shippable tasks — two client hot-path fixes (N2, N8), one client build/boot fix (N1), two Cloud Functions read reductions (N4, N7). No schema changes, no rules changes, no reviewed-decision territory. Ordered by leverage; any subset can ship.
+**Architecture:** Ten independent, individually-shippable tasks — client hot-path fixes (N2, N3, N8, N9), client build/boot fixes (N1, N5×2, N10), two Cloud Functions read reductions (N4, N7). No schema changes, no rules changes, no reviewed-decision territory. Ordered by leverage; any subset can ship. Tasks 7 and 8 both edit `js/app.ts` — execute them in order, not in parallel. N5 scope revisions found during planning verification: the inbox split is dropped (its heavy imports — `groups`, `groupNav`, `groupDisplayNamePrompt` — are already-eager core modules, and `renderInboxNavSlot` is pinned into the eager nav reconcile, so the split is a real refactor for ~400 own-lines of savings); `telegramOnramp`/`telegramEscapeHatch` stay eager (web-facing — see the spec's N5 corrections).
 
 **Tech Stack:** vanilla TS + esbuild (ESM code-splitting already on), Firebase RTDB web SDK, Cloud Functions v2 (plain JS + JSDoc), Jest (web at repo root, functions in `functions/`).
 
@@ -563,14 +563,527 @@ git commit -m "fix(me): catch the countdown label up on return-to-visible (hidde
 
 ---
 
+### Task 6: N3 — appearance-only fast path for the open-group roster
+
+**Files:**
+- Modify: `js/groupContext.ts` (new helper near `renderRoster`; members-watch callback at `:1275-1291`; `_lastMembers` reset at group entry `:1272-1274`)
+- Test: `tests/groupContext.test.js`
+
+**Interfaces:**
+- Consumes: existing `paintRosterRow(uid, node?)` (row lookup via `_rowByUid` with querySelector fallback), `renderRoster`, `syncStatusSubscriptions`.
+- Produces: `classifyMembersTick(prev, next): 'full' | 'appearance' | 'none'` (module-internal).
+
+**Why:** The open group's `watchGroupMembers` callback has zero change detection: every co-member `statusOverride` write (per swatch/palette tap) re-runs the full pass — `_membersOverrides` rebuild, `renderRoster` (→ `reconcileDistanceSubs` walking every member with fresh Sets, `reconcileChildren` repainting every row, `refreshHints`), and `syncStatusSubscriptions` — for every viewer in the group. This is the client analogue of Task 3's server-side gate: appearance fields (`statusColor`/`paletteKey`) can't change membership, names, ordering, distance eligibility, or the status-sub set, so those passes are guaranteed no-ops.
+
+- [ ] **Step 1: Re-verify the `_lastMembers` lifecycle** (correctness precondition for the fast path)
+
+Run: `grep -n "_lastMembers" js/groupContext.ts`
+Confirm where `_lastMembers` is reset. If `enterGroupContext` does NOT null it before subscribing, the first tick of a new group could be classified against the *previous* group's map — Step 3 adds the explicit reset regardless; this step is to confirm no other consumer relies on it surviving group exit (expected consumers: `syncRosterOrder`, the location-event re-renders — all roster-scoped).
+
+- [ ] **Step 2: Write the failing tests**
+
+In `tests/groupContext.test.js`, using the file's existing members-watch harness (`db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; })` — same pattern as the existing tests at `:377`/`:393`, and the MutationObserver technique from the Tier-3 Task-1 repaint test):
+
+```js
+test('a statusColor-only override tick repaints only the touched row (audit-2 N3)', async () => {
+  let membersCb;
+  db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+  enterGroupContext('G1', 'me');
+  const base = {
+    me: { displayName: 'Me' },
+    u2: { displayName: 'Bea', statusOverride: { enabled: true, status: 'available', statusColor: '#111111', availableUntil: null } },
+    u3: { displayName: 'Cal' },
+  };
+  membersCb(base);
+  await Promise.resolve();
+  const rowU3 = document.querySelector('[data-user-id="u3"]');
+  const mo = new MutationObserver(() => {});
+  mo.observe(rowU3, { childList: true, characterData: true, subtree: true, attributes: true, attributeOldValue: true });
+  membersCb({ ...base, u2: { ...base.u2, statusOverride: { ...base.u2.statusOverride, statusColor: '#222222' } } });
+  await Promise.resolve();
+  expect(mo.takeRecords().length).toBe(0); // untouched row: zero DOM work
+  // The touched row DID repaint — assert the same observable paintRosterRow
+  // effect the file's existing repaint tests assert (dot/border color for u2).
+});
+
+test('a membership change still runs the full reconcile after an appearance tick', async () => {
+  let membersCb;
+  db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+  enterGroupContext('G1', 'me');
+  const base = { me: { displayName: 'Me' }, u2: { displayName: 'Bea' } };
+  membersCb(base);
+  await Promise.resolve();
+  membersCb({ ...base, u4: { displayName: 'Dex' } }); // join
+  await Promise.resolve();
+  expect(document.querySelector('[data-user-id="u4"]')).not.toBeNull();
+});
+
+test('an override enabled-flip is NOT the fast path (ordering may change)', async () => {
+  let membersCb;
+  db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+  enterGroupContext('G1', 'me');
+  const ov = { enabled: true, status: 'available', statusColor: '#111111', availableUntil: null };
+  const base = { me: { displayName: 'Me' }, u2: { displayName: 'Bea', statusOverride: ov } };
+  membersCb(base);
+  await Promise.resolve();
+  membersCb({ ...base, u2: { ...base.u2, statusOverride: { ...ov, enabled: false } } });
+  await Promise.resolve();
+  // Full pass ran: assert whatever ordering/paint effect the file's existing
+  // availability-flip tests assert for a row leaving the available cohort.
+});
+```
+
+(Where a comment says "assert the same observable effect as the file's existing tests", copy those exact assertions — they pin `paintRosterRow`'s current markup; do not invent new selectors.)
+
+- [ ] **Step 3: Run to verify failure**
+
+Run: `npx jest --maxWorkers=2 --testPathPatterns groupContext`
+Expected: FAIL — the first test's MutationObserver sees records on `u3`'s row (full reconcile repaints every row today).
+
+- [ ] **Step 4: Implement**
+
+In `js/groupContext.ts`, add above `renderRoster`:
+
+```ts
+// Audit-2 N3 — client analogue of the notifier's availability-relevant gate.
+// Classifies a members tick against the previous map: 'appearance' means the
+// maps differ ONLY in override appearance fields (statusColor/paletteKey) —
+// same uid set, same non-override member fields, same enabled/status/
+// availableUntil — so membership, ordering, distance eligibility, and the
+// status-sub set are all guaranteed unchanged and only touched rows need a
+// repaint. 'none' is a byte-equivalent echo. Anything else (join/leave,
+// rename, an availability-affecting override change, an unknown new member
+// field — the structural compare fails safe) is 'full'.
+function classifyMembersTick(prev: Record<string, MemberEntry>, next: Record<string, MemberEntry>): 'full' | 'appearance' | 'none' {
+  const nextKeys = Object.keys(next);
+  if (Object.keys(prev).length !== nextKeys.length) return 'full';
+  let sawAppearance = false;
+  for (const uid of nextKeys) {
+    const a = prev[uid];
+    const b = next[uid];
+    if (!a) return 'full';
+    if (JSON.stringify({ ...a, statusOverride: null }) !== JSON.stringify({ ...b, statusOverride: null })) return 'full';
+    const oa = a.statusOverride || null;
+    const ob = b.statusOverride || null;
+    if ((oa === null) !== (ob === null)) return 'full';
+    if (oa && ob) {
+      if (oa.enabled !== ob.enabled || oa.status !== ob.status || oa.availableUntil !== ob.availableUntil) return 'full';
+      if (oa.statusColor !== ob.statusColor || oa.paletteKey !== ob.paletteKey) sawAppearance = true;
+    }
+  }
+  return sawAppearance ? 'appearance' : 'none';
+}
+```
+
+At group entry, alongside the roster clear (`:1272-1273`), add the reset so a new group's first tick can never classify against the previous group's map:
+
+```ts
+  const rosterListEl = document.getElementById('group-roster');
+  if (rosterListEl) rosterListEl.innerHTML = '';
+  _lastMembers = null;
+```
+
+Replace the members-watch callback body (`:1275-1291`):
+
+```ts
+  _membersUnsub = watchGroupMembers(groupId, (members) => {
+    const typed = ((members as Record<string, MemberEntry>) || {});
+    const prev = _lastMembers;
+    const prevOverrides = _membersOverrides;
+    _lastMembers = typed;
+    _membersOverrides = {};
+    for (const [uid, m] of Object.entries(typed)) {
+      _membersOverrides[uid] = m.statusOverride || null;
+    }
+    _ownDisplayName = typed?.[userId]?.displayName || null;
+    const kind = prev === null ? 'full' : classifyMembersTick(prev, typed);
+    if (kind === 'appearance') {
+      // Hot path (audit-2 N3): a co-member's swatch/palette tap. Repaint just
+      // the touched rows — membership and availability are identical, so the
+      // reconcile/distance/status-sub passes would all be no-ops.
+      for (const uid of Object.keys(typed)) {
+        const po = prevOverrides[uid] || null;
+        const no = _membersOverrides[uid];
+        if (po && no && (po.statusColor !== no.statusColor || po.paletteKey !== no.paletteKey)) paintRosterRow(uid);
+      }
+    } else if (kind === 'full') {
+      renderRoster(typed, userId);
+      syncStatusSubscriptions(new Set(Object.keys(typed)));
+    } // 'none': byte-equivalent echo — nothing to do.
+    // Replay any knocks that arrived while the user wasn't in this group.
+    // Wait for the first members tick so the roster lis exist before drain
+    // tries to look them up; one-shot per enterGroupContext call.
+    if (!drainedKnocksOnEntry) {
+      drainedKnocksOnEntry = true;
+      drainPendingKnocks(groupId);
+    }
+  });
+```
+
+- [ ] **Step 5: Run the suite + typecheck**
+
+Run: `npx jest --maxWorkers=2 --testPathPatterns groupContext && npm run typecheck`
+Expected: PASS — including every pre-existing roster test (join/leave, availability flips, invite-row, drawer survival). If any pre-existing test fails, the classification is too aggressive — fix the classifier, do not weaken the test.
+
+- [ ] **Step 6: Full web suite, then commit**
+
+Run: `npx jest --maxWorkers=2`
+
+```bash
+git add js/groupContext.ts tests/groupContext.test.js
+git commit -m "perf(roster): appearance-only member ticks repaint touched rows, skip the full reconcile"
+```
+
+---
+
+### Task 7: N5a — lazy-load `groupContext` (break both entry-chunk pins)
+
+**Files:**
+- Modify: `js/app.ts:25` (delete import; add `withGroupContext` helper; convert `:701-702`)
+- Modify: `js/favorites.ts:9` (delete import), `:456` (dynamic call)
+- Test: existing suites (`tests/groupContext.test.js` requires the module directly — unaffected; boot/nav tests may need a microtask flush, see Step 4)
+
+**Interfaces:**
+- Consumes: `groupContext.ts`'s existing exports (`enterGroupContext`, `exitGroupContext`, `applyAdoptedComboInGroup`) — signatures unchanged.
+- Produces: `withGroupContext(fn)` (app.ts-internal serialized loader).
+
+**Why:** `groupContext.ts` (1,643 lines — the largest client module) is pinned into the entry chunk by exactly two static importers (verified): `app.ts:25` and `favorites.ts:9`. Direct-first boots parse all of it for nothing. `buildGroupCombo` has no external importers (test-only export); no other module imports the file; it has no top-level `document`/`window` listeners (verified — its listeners are armed inside `enterGroupContext`), so deferring the module defers nothing but its own definition cost.
+
+- [ ] **Step 1: Delete the static imports**
+
+Remove `js/app.ts:25` (`import { enterGroupContext, exitGroupContext } from './groupContext.js';`) and `js/favorites.ts:9` (`import { applyAdoptedComboInGroup } from './groupContext.js';`).
+
+- [ ] **Step 2: Add the serialized loader and convert the context-change site**
+
+In `js/app.ts`, near the other boot helpers:
+
+```ts
+// groupContext (~1.6k lines) is the largest client module and only group
+// sessions need it — lazy chunk (audit-2 N5). Serialized through one promise
+// chain so a rapid group→direct→group flip can never interleave enter/exit
+// out of order once the chunk is in flight.
+let _gcChain: Promise<unknown> = Promise.resolve();
+function withGroupContext(fn: (m: typeof import('./groupContext.js')) => void): void {
+  _gcChain = _gcChain
+    .then(() => import('./groupContext.js'))
+    .then(fn)
+    .catch((err) => console.error('groupContext load failed:', err));
+}
+```
+
+Convert `:701-702` (inside the `onContextChange` handler — capture `ctx` fields before the async hop):
+
+```ts
+    if (ctx.context === 'group') {
+      const gid = ctx.groupId as string;
+      withGroupContext((m) => m.enterGroupContext(gid, userId));
+    } else {
+      withGroupContext((m) => m.exitGroupContext());
+    }
+```
+
+- [ ] **Step 3: Convert the favorites adopt site**
+
+`js/favorites.ts:456` — this fires from a tap while *in* group context, so the chunk is already loaded and the import resolves from cache:
+
+```ts
+    import('./groupContext.js')
+      .then(({ applyAdoptedComboInGroup }) => applyAdoptedComboInGroup(combo.statusColor, combo.paletteKey ?? null))
+      .catch(() => {});
+```
+
+- [ ] **Step 4: Typecheck + full web suite**
+
+Run: `npm run typecheck && npx jest --maxWorkers=2`
+Expected: typecheck clean (`typeof import('./groupContext.js')` in type position is erased at build — no runtime pin). Under Jest, babel compiles `import()` to `require`, so module resolution is synchronous but the `.then` still defers one microtask: a test that drives a context change and asserts group DOM *synchronously* may now need an `await Promise.resolve()` (or the file's existing flush helper) before its assertions. Fix such tests by adding the flush — the semantics under test are unchanged; do NOT re-add a static import to appease a test.
+
+- [ ] **Step 5: Verify the split in build output**
+
+Run: `npm run build && ls dist/chunks/`
+Expected: a `groupContext-<hash>.js` chunk appears; `dist/bundle.js` shrinks materially. `grep -c "chunks/groupContext" index.html` prints `0` (lazy chunks excluded from modulepreload).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add js/app.ts js/favorites.ts
+git commit -m "perf(boot): lazy-load groupContext — Direct-first boots stop parsing the largest client module"
+```
+
+**Device-smoke note (post-deploy):** a group-context boot now fetches the chunk before the roster appears (SW-precached, so instant after first visit); verify the boot-into-group path and a rapid Direct↔group flip on device.
+
+---
+
+### Task 8: N5b — lazy-load the Telegram-context-only flow modules
+
+**Files:**
+- Modify: `js/app.ts:34-36` (delete three imports), `:602` + `:665` (type positions), `:652`, `:667-672`, `:776`, `:937`, `:942`
+- Test: existing suites (Telegram module tests import their modules directly — unaffected)
+
+**Interfaces:**
+- Consumes: existing exports of `telegramChrome.ts`, `telegramFirstRun.ts`, `telegramLinkArrival.ts`, `telegramSettings.ts` — signatures unchanged.
+- Produces: `tgFirstRun` (a function-scoped module handle alongside `tgInvite` in the boot flow).
+
+**Why:** `telegramChrome` (119), `telegramFirstRun` (176), `telegramSettings` (160), and `telegramLinkArrival` (78) run only inside the Telegram webview, and every `app.ts` call site is already behind `isTelegramContext()` (verified: `:652`, `:666`, `:937`, `:942`) — yet all four parse at boot for every web visitor (the majority). Keep eager: `telegram.ts` + `telegramBridge.ts` (they ARE the gate), `telegramOnramp`/`telegramEscapeHatch` (web-facing — spec N5 corrections). `telegramFirstRun` statically imports `telegramSettings`, so those two share a lazy graph — fine, both are Telegram-only.
+
+- [ ] **Step 1: Delete the static imports; fix the type positions**
+
+Remove `js/app.ts:34-36`:
+
+```ts
+import { initTelegramChrome } from './telegramChrome.js';
+import { telegramInviteGate, stampInviteOutcome, redemptionConsumedToken } from './telegramFirstRun.js';
+import { runLinkArrival } from './telegramLinkArrival.js';
+```
+
+At `:602` and `:665`, replace the type `Awaited<ReturnType<typeof telegramInviteGate>>` with:
+
+```ts
+Awaited<ReturnType<typeof import('./telegramFirstRun.js').telegramInviteGate>>
+```
+
+(Type-position dynamic import — erased at compile, no chunk pin, no suppression.)
+
+- [ ] **Step 2: Convert the chrome site (`:652`)**
+
+```ts
+  if (isTelegramContext()) {
+    import('./telegramChrome.js')
+      .then(({ initTelegramChrome }) => initTelegramChrome())
+      .catch((err) => console.error('telegramChrome load failed:', err));
+  }
+```
+
+- [ ] **Step 3: Convert the boot-gate block (`:665-672`) with a scoped module handle**
+
+`tgInvite` at `:665` and its consumer at `:776` share one function scope (verified), so capture the module once — the `:776` site stays synchronous and its ordering with `cleanInviteParamFromUrl()` is preserved:
+
+```ts
+  let tgInvite: Awaited<ReturnType<typeof import('./telegramFirstRun.js').telegramInviteGate>> = null;
+  let tgFirstRun: typeof import('./telegramFirstRun.js') | null = null;
+  if (!pendingInviteToken && isTelegramContext()) {
+    const { runLinkArrival } = await import('./telegramLinkArrival.js');
+    if (await runLinkArrival({ dismissSplash })) return null; // onramp link handled — reboots on success
+    tgFirstRun = await import('./telegramFirstRun.js');
+    tgInvite = await tgFirstRun.telegramInviteGate({
+      linked: isTelegramLinked(),
+      isNew,
+      dismissSplash,
+    });
+```
+
+(The block is already inside an async function — the awaits are legal and splash-gated.)
+
+- [ ] **Step 4: Convert the redemption-stamp site (`:776`)**
+
+```ts
+      if (tgInvite && tgFirstRun && tgFirstRun.redemptionConsumedToken(result)) tgFirstRun.stampInviteOutcome(tgInvite.token, 'redeemed');
+```
+
+- [ ] **Step 5: Convert the settings sites (`:937`, `:942`)**
+
+```ts
+  if (isTelegramContext()) {
+    import('./telegramSettings.js')
+      .then(({ initTelegramSettings }) => initTelegramSettings(userId))
+      .catch((err) => console.error('telegramSettings load failed:', err));
+  }
+```
+
+And the `onLink` callback (`showLinkScreen` takes no arguments — verified `telegramSettings.ts:96`):
+
+```ts
+    onLink: isTelegramContext()
+      ? () => { import('./telegramSettings.js').then(({ showLinkScreen }) => showLinkScreen()).catch(() => {}); }
+      : null,
+```
+
+- [ ] **Step 6: Typecheck + full web suite**
+
+Run: `npm run typecheck && npx jest --maxWorkers=2`
+Expected: clean + green. Same microtask caveat as Task 7 Step 4 for any boot test that drives the Telegram path synchronously.
+
+- [ ] **Step 7: Verify the split in build output**
+
+Run: `npm run build && ls dist/chunks/`
+Expected: new lazy chunk(s) covering telegramChrome / telegramFirstRun+telegramSettings / telegramLinkArrival (esbuild may merge them — any arrangement is fine as long as they are NOT in `dist/bundle.js`: `grep -c initTelegramChrome dist/bundle.js` prints `0`).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add js/app.ts
+git commit -m "perf(boot): lazy-load Telegram-context flow modules — web visitors stop parsing webview-only code"
+```
+
+**Device-smoke note (post-deploy):** verify inside the Telegram Mini App — chrome init, first-run interstitial, deep-linked invite, link screen from first-run empty state.
+
+---
+
+### Task 9: N9 — per-stroke canvas derivations
+
+**Files:**
+- Modify: `js/canvas.ts` (module vars near `:29-30`; `onPointerDown` `:876-877`; `onPointerMove` `:901-902`)
+- Test: existing `tests/canvas.test.js`, `tests/canvas-screenshot.test.js` (behavior-preserving refactor — the existing stroke tests are the pin)
+
+**Interfaces:** module-internal only (`_strokeCss`, `_strokeWidthPx`).
+
+**Why:** `onPointerMove` recomputes `safeCssColor(_penColor)` (regex + string alloc) and `_thickness * _canvas.width` on every pointermove at input-device rate, though neither input can change mid-stroke (toolbox taps land between strokes). The per-segment ctx *assignments* are load-bearing — a concurrent peer `renderStroke` mutates shared ctx state (in-code comment at `:897-900`) — so only the derivations move.
+
+- [ ] **Step 1: Add the stroke-constant module vars**
+
+Near the pen state (`js/canvas.ts:29-30`):
+
+```ts
+// Stroke-constant derivations, computed once per stroke (onPointerDown):
+// safeCssColor is a regex + string alloc and the width a float derive; neither
+// input can change mid-stroke (toolbox taps land between strokes), so deriving
+// them per pointermove was pure per-event allocation (audit-2 N9). The
+// per-segment ctx ASSIGNMENTS stay — a concurrent peer renderStroke mutates
+// shared ctx state (see onPointerMove's comment).
+let _strokeCss = '';
+let _strokeWidthPx = 0;
+```
+
+- [ ] **Step 2: Derive once in `onPointerDown` (`:876-877`)**
+
+```ts
+  _strokeCss = safeCssColor(_penColor);
+  _strokeWidthPx = _thickness * _canvas.width;
+  _ctx.strokeStyle = _strokeCss;
+  _ctx.lineWidth = _strokeWidthPx;
+```
+
+- [ ] **Step 3: Consume in `onPointerMove` (`:901-902`)**
+
+Replace:
+
+```ts
+  _ctx.strokeStyle = safeCssColor(_penColor);
+  _ctx.lineWidth = _thickness * _canvas.width;
+```
+
+with:
+
+```ts
+  _ctx.strokeStyle = _strokeCss;
+  _ctx.lineWidth = _strokeWidthPx;
+```
+
+(Leave `lineCap`/`lineJoin`/`beginPath`/`moveTo`/`lineTo`/`stroke` untouched.)
+
+- [ ] **Step 4: Run the canvas suites + typecheck, then commit**
+
+Run: `npx jest --maxWorkers=2 --testPathPatterns canvas && npm run typecheck`
+Expected: PASS (refactor is observationally identical per stroke).
+
+```bash
+git add js/canvas.ts
+git commit -m "perf(canvas): derive stroke color/width once per stroke, not per pointermove"
+```
+
+---
+
+### Task 10: N10 — on-demand `canvas.css` with an inline flow guard
+
+**Files:**
+- Modify: `index.template.html:30` (replace the link with an inline guard)
+- Modify: `js/canvas.ts` (add `ensureCanvasCss`; call at the top of `enterCanvas`)
+- Modify: `tests/sw.test.js:42` (comment only — the SHELL assertion is unchanged)
+- Test: `tests/canvas.test.js`
+
+**Interfaces:** `ensureCanvasCss()` (canvas.ts-internal).
+
+**CSP constraint (why not `onload`):** `script-src` is hash-allowlisted with no `unsafe-inline` (`firebase.json:27` + the meta at `index.template.html:17`), so the classic `media="print" onload="this.media='all'"` trick is **blocked** — an `onload` attribute is an inline event handler. `style-src` HAS `unsafe-inline`, so an inline `<style>` guard is fine. Hence: JS-injected stylesheet + inline style guard.
+
+**Why the guard is mandatory:** `#canvas-screen` is hidden by `opacity:0; pointer-events:none` on `position:fixed` (`canvas.css:4-16`) — the div holds a bare `<canvas>` (`index.template.html:325-327`), so without canvas.css loaded the unstyled ~300×150 canvas box enters normal flow at the top of `<body>` and shifts the entire layout. The guard's `display:none` keeps it out of flow until the sheet lands; canvas.css's own `display:flex` (same specificity, later in cascade order once the link is appended) overrides the guard, at which point `opacity` takes over.
+
+- [ ] **Step 1: Write the failing test**
+
+In `tests/canvas.test.js`, using the file's existing `enterCanvas` fixture (reuse the exact arguments its existing entry tests pass):
+
+```js
+test('enterCanvas injects the canvas stylesheet once (audit-2 N10)', async () => {
+  // <same enterCanvas invocation as the file's existing entry test>
+  // <enter a second time / re-enter per the file's existing re-entry pattern>
+  expect(document.querySelectorAll('link[data-canvas-css]').length).toBe(1);
+  expect(document.querySelector('link[data-canvas-css]').getAttribute('href')).toBe('dist/css/canvas.css');
+});
+```
+
+Run: `npx jest --maxWorkers=2 --testPathPatterns canvas` — expected: FAIL (no such link is injected today).
+
+- [ ] **Step 2: Replace the head link with the guard**
+
+`index.template.html:30` — replace:
+
+```html
+  <link rel="stylesheet" href="dist/css/canvas.css" />
+```
+
+with:
+
+```html
+  <!-- canvas.css is injected on demand by js/canvas.ts (audit-2 N10). This
+       guard keeps the bare #canvas-screen <canvas> out of document flow until
+       that sheet lands (its display:flex, later in the cascade, overrides).
+       Inline style is CSP-legal (style-src 'unsafe-inline'); an onload
+       attribute on a link would NOT be (script-src has no unsafe-inline). -->
+  <style>#canvas-screen{display:none}</style>
+```
+
+- [ ] **Step 3: Inject from `enterCanvas`**
+
+In `js/canvas.ts`, add near the top-level helpers:
+
+```ts
+// canvas.css styles only the #canvas-screen overlay; shipping it render-
+// blocking in <head> taxed first paint for every visitor (audit-2 N10). The
+// SW still precaches it (sw SHELL), so this load is instant after the first
+// visit and works offline. No load-await needed: index.html's inline
+// #canvas-screen{display:none} guard hides the screen until the sheet
+// applies, then the .active opacity transition takes over.
+function ensureCanvasCss() {
+  if (document.querySelector('link[data-canvas-css]')) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'dist/css/canvas.css';
+  link.setAttribute('data-canvas-css', '1');
+  document.head.appendChild(link);
+}
+```
+
+Add `ensureCanvasCss();` as the first statement of `enterCanvas`.
+
+- [ ] **Step 4: Update the stale test comment**
+
+`tests/sw.test.js:42` — the comment "dist/css/canvas.css is loaded by index.template.html" becomes "dist/css/canvas.css is injected on demand by canvas.ts; precached so entry is instant and works offline". The `arrayContaining(['/dist/css/canvas.css'])` assertion itself is UNCHANGED — the file stays in the SW SHELL deliberately.
+
+- [ ] **Step 5: Run suites + typecheck + build**
+
+Run: `npx jest --maxWorkers=2 --testPathPatterns "canvas|sw" && npm run typecheck && npm run build`
+Expected: all green; build succeeds (`scripts/build.js` references canvas.css only for the CSS build and the SW hash — both still apply; verify `grep -c canvas.css index.html` prints `0` for a `<link>` and the inline guard is present).
+
+- [ ] **Step 6: Full web suite, then commit**
+
+Run: `npx jest --maxWorkers=2`
+
+```bash
+git add index.template.html js/canvas.ts tests/sw.test.js tests/canvas.test.js
+git commit -m "perf(paint): load canvas.css on demand — inline guard keeps the overlay out of flow (CSP-safe)"
+```
+
+**Device-smoke note (post-deploy):** first-ever draw-session entry on a cold cache — confirm no flash/layout shift and the overlay fades in normally.
+
+---
+
 ## Final verification (after all tasks)
 
 - [ ] `npx jest --maxWorkers=2` — all green (baseline 2049 + new tests)
 - [ ] `cd functions && npm test && cd /home/user/on` — all green (baseline 432 + new tests)
 - [ ] `npm run typecheck` — clean, zero suppressions added
-- [ ] `npm run build` — succeeds; `dist/chunks/` contains a `canvas-<hash>.js` chunk
+- [ ] `npm run build` — succeeds; `dist/chunks/` contains lazy chunks for canvas, groupContext, and the Telegram flow modules; `dist/bundle.js` contains none of them (`grep -c enterGroupContext dist/bundle.js` → `0` is a quick smoke)
 - [ ] `npm run test:rules` only if rules were touched (they are not in this plan)
 
-## Coverage vs the C-batch selection
+## Coverage vs the selection
 
-N1 → Task 1 · N2 → Task 2 (incl. spec severity correction) · N4 → Task 3 · N7 → Task 4 · N8 → Task 5. Deliberately out of scope: N3 (roster diffing — larger reconcile surgery, plan separately), N5/N6 (bundle/pre-cache policy — operator decision on precache-all first), N9/N10 (canvas micro-alloc + CSS deferral — batch with the next canvas work).
+N1 → Task 1 · N2 → Task 2 (incl. spec severity correction) · N4 → Task 3 · N7 → Task 4 · N8 → Task 5 · N3 → Task 6 · N5 → Tasks 7+8 (scope revisions: inbox split dropped — slot pinned into eager nav, heavy deps already eager; onramp/escapeHatch stay eager as web-facing) · N9 → Task 9 · N10 → Task 10.
+Remaining out of scope: N6 (precache-all — pending the operator's offline-completeness call).
