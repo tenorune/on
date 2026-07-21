@@ -470,6 +470,17 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
     if ((err as { code?: number })?.code === 1) return 'denied';
     return 'unsupported';
   }
+  // That live read is authoritative proof geolocation is granted for use right
+  // now — prime the tick permission-gate cache with it so the immediate publish
+  // this explicit enable triggers isn't suppressed by a stale/lagging
+  // Permissions API state. macOS/iOS PWA (device-observed): after the loop idles
+  // on a prior glyph-off the OS downgrades the standing permission back to
+  // 'prompt', and navigator.permissions reports that even though this
+  // getPositionOnce just succeeded — which otherwise made every re-enable a
+  // silent no-op (glyph on, but locations/{uid} + cells never written). A later
+  // revocation stays fail-safe: the next tick's capture rejects code 1 →
+  // revokePermissionTeardown.
+  _geoPermStatus = { state: 'granted' };
   // reconcile()->startLoop() (via evaluateAvailability) already runs an
   // immediate tick when starting a stopped loop; only run the explicit tick
   // below for the already-running case (startLoop() is a no-op there), or
