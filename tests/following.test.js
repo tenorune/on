@@ -176,6 +176,12 @@ jest.mock('../js/invites.js', () => ({
 jest.mock('../js/groupDisplayNamePrompt.js', () => ({
   showGroupDisplayNamePrompt: jest.fn(() => Promise.resolve('Me')),
 }));
+// The redeem form's group-join path wraps the brokered redeem in the same
+// Direct-flash guard the inbox Join uses (a9223c2); spy on the pair.
+jest.mock('../js/groupNav.js', () => ({
+  beginGroupEntryTransition: jest.fn(),
+  endGroupEntryTransition: jest.fn(),
+}));
 
 const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations, watchFollowerNames } = require('../js/db.js');
 const { getFollowing, setFollowing, updateFollowingCode, getFollowerName, setFollowerName, removeFollowing } = require('../js/store.js');
@@ -2778,6 +2784,11 @@ describe('unified redeem form (spec N6)', () => {
   const type = (v) => { input().value = v; input().dispatchEvent(new Event('input', { bubbles: true })); };
   const flush = () => new Promise((r) => setTimeout(r, 0));
   let onInviteRedeemed;
+  // Capture the guard spies at describe-evaluation time — the same references
+  // following.js bound at file load — so a later test's jest.resetModules()
+  // can't hand beforeEach a fresh (unwatched) mock instead (same pattern the
+  // palette describes below document).
+  const { beginGroupEntryTransition, endGroupEntryTransition } = require('../js/groupNav.js');
 
   beforeEach(() => {
     setupDom();
@@ -2785,6 +2796,8 @@ describe('unified redeem form (spec N6)', () => {
     attemptRedeemFromUrl.mockReset();
     resolveInvitePreview.mockReset();
     resolveInvitePreview.mockImplementation(() => Promise.resolve(null));
+    beginGroupEntryTransition.mockReset();
+    endGroupEntryTransition.mockReset();
     onInviteRedeemed = jest.fn();
     initList('myUid', 'MYCODE', { onInviteRedeemed });
   });
@@ -2847,6 +2860,53 @@ describe('unified redeem form (spec N6)', () => {
     await flush();
     expect(document.getElementById('add-error').textContent).toBe('This invite link has expired.');
     expect(document.getElementById('add-error').classList.contains('hidden')).toBe(false);
+  });
+
+  // Direct-flash guard (a9223c2 covered inbox Join; the same bug reached the
+  // redeem form): a group join brokers a slow post-prompt redeem whose own
+  // enumeration echo would paint the new group's card over a still-visible
+  // Direct after closeAddForm. The group branch must hold the guard across the
+  // redeem and hand off (restore=false) to navigateToGroup's render on success.
+  test('group join holds the entry guard across the brokered redeem and hands off to navigation', async () => {
+    attemptRedeemFromUrl
+      .mockResolvedValueOnce({ ok: false, reason: 'needs-display-name', groupId: 'G1', groupName: 'Hikers', cache: { marker: 1 } })
+      .mockResolvedValueOnce({ ok: true, groupId: 'G1', groupName: 'Hikers' });
+    type(INVITE_URL);
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    // Guard opened before the second (brokered) redeem, and before navigation fired.
+    expect(beginGroupEntryTransition).toHaveBeenCalledTimes(1);
+    expect(beginGroupEntryTransition.mock.invocationCallOrder[0])
+      .toBeLessThan(attemptRedeemFromUrl.mock.invocationCallOrder[1]);
+    // Handed off to navigateToGroup's own render — released without restoring Direct.
+    expect(endGroupEntryTransition).toHaveBeenCalledWith(false);
+    expect(endGroupEntryTransition).not.toHaveBeenCalledWith(true);
+    expect(endGroupEntryTransition.mock.invocationCallOrder[0])
+      .toBeLessThan(onInviteRedeemed.mock.invocationCallOrder[0]);
+    expect(onInviteRedeemed).toHaveBeenCalledWith({ ok: true, groupId: 'G1', groupName: 'Hikers' });
+  });
+
+  test('group join whose post-prompt redeem fails restores Direct and skips navigation', async () => {
+    attemptRedeemFromUrl
+      .mockResolvedValueOnce({ ok: false, reason: 'needs-display-name', groupId: 'G1', groupName: 'Hikers', cache: { marker: 1 } })
+      .mockResolvedValueOnce({ ok: false, reason: 'cap' });
+    type(INVITE_URL);
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    expect(beginGroupEntryTransition).toHaveBeenCalledTimes(1);
+    expect(endGroupEntryTransition).toHaveBeenCalledWith(true); // Direct comes back
+    expect(endGroupEntryTransition).not.toHaveBeenCalledWith(false);
+    expect(onInviteRedeemed).not.toHaveBeenCalled();
+    expect(document.getElementById('add-error').textContent).toBe('This invite has reached its limit.');
+  });
+
+  test('a plain follow redemption never touches the group-entry guard', async () => {
+    attemptRedeemFromUrl.mockResolvedValueOnce({ ok: true, creatorLabel: 'Ana' });
+    type(INVITE_URL);
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    expect(beginGroupEntryTransition).not.toHaveBeenCalled();
+    expect(endGroupEntryTransition).not.toHaveBeenCalled();
   });
 
   test('garbage on submit gets the unified error', async () => {

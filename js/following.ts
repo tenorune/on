@@ -34,6 +34,7 @@ import { setListEmpty } from './firstRun.js';
 import { extractInviteTokenFromText } from './inviteText.js';
 import { attemptRedeemFromUrl, resolveInvitePreview } from './invites.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
+import { beginGroupEntryTransition, endGroupEntryTransition } from './groupNav.js';
 
 // Local contact shape (mirrors store.js's FollowingEntry) and the presence-node
 // view this module reads/writes. UserData carries the runtime-present fields
@@ -1419,18 +1420,37 @@ async function handleRedeemInvite(myUserId: string, myCode: string, token: strin
   const submit = (document.getElementById('add-submit-btn') as HTMLButtonElement);
   errorEl.classList.add('hidden');
   submit.disabled = true;
+  // True once the group-entry guard is open (needs-display-name branch only),
+  // so the shared success/failure tails below know to release it.
+  let entryGuardOpen = false;
   try {
     let result = (await attemptRedeemFromUrl(token, myUserId, myCode, {}) as RedeemResult | null);
     if (result && result.ok === false && result.reason === 'needs-display-name') {
       const displayName = await showGroupDisplayNamePrompt(result.groupName || 'this group', '');
+      // Group joins navigate straight into the group. Hide Direct + the nav row
+      // and suspend renderNavRow across the brokered redeem below: it's a slow
+      // callable whose own users/{uid}/groups write echoes an enumeration tick
+      // that would paint the new group's card (backend code as the name — no
+      // meta sub yet) over a still-visible Direct once closeAddForm reveals it.
+      // Same flash the inbox Join guards (a9223c2); the redeem form reached it
+      // by the other door. Released to navigateToGroup's own render on success
+      // (restore=false), or restored on failure (restore=true).
+      beginGroupEntryTransition();
+      entryGuardOpen = true;
       result = (await attemptRedeemFromUrl(token, myUserId, myCode, { displayName, cache: (result.cache as NonNullable<Parameters<typeof attemptRedeemFromUrl>[3]>['cache']) }) as RedeemResult | null);
     }
     if (result && result.ok) {
       closeAddForm();
       renderList();
+      // Release the guard (leaving Direct hidden) so navigateToGroup's synchronous
+      // emit inside the callback owns the next paint — prompt → dark body → group.
+      if (entryGuardOpen) endGroupEntryTransition(false);
       if (_onInviteRedeemed) await _onInviteRedeemed(result);
       return;
     }
+    // Redeem failed (or was declined) — bring Direct back so the inline error
+    // shows in the still-open form.
+    if (entryGuardOpen) endGroupEntryTransition(true);
     showError(errorEl, redeemFailureMessage(result && result.reason));
   } finally {
     submit.disabled = false;
