@@ -1075,3 +1075,58 @@ test('a prefs echo does not re-probe contexts already marked published (audit F5
   await flush();
   expect(db.hasLocationNode).not.toHaveBeenCalled();
 });
+
+test('an unchanged cell is re-attempted once the stale-membership probe window lapses (audit-2 N2)', async () => {
+  const { initLocationShare, toggleContext } = share();
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 7200000 });
+  await toggleContext('G1');
+  await flush();
+  expect(db.publishLocationCell).toHaveBeenCalledTimes(1); // initial cell landed
+  db.publishLocationCell.mockClear();
+  // Stationary: the next nine 60s ticks are all no-op-suppressed (audit F1).
+  for (let i = 0; i < 9; i++) { jest.advanceTimersByTime(60000); await flush(); }
+  expect(db.publishLocationCell).not.toHaveBeenCalled();
+  // The tenth tick crosses the 10-min probe window: the unchanged cell is
+  // written once anyway, so a stale membership can be caught (the sweep keys
+  // off this write's rejection — audit-2 N2).
+  jest.advanceTimersByTime(60000);
+  await flush();
+  expect(db.publishLocationCell).toHaveBeenCalledTimes(1);
+  db.publishLocationCell.mockClear();
+  // A landed probe re-arms the window: the following tick suppresses again.
+  jest.advanceTimersByTime(60000);
+  await flush();
+  expect(db.publishLocationCell).not.toHaveBeenCalled();
+});
+
+test('a kicked, stationary member is swept by the probe write without crossing a cell boundary (audit-2 N2)', async () => {
+  const { initLocationShare, toggleContext } = share();
+  initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 7200000 });
+  await toggleContext('G1');
+  await flush();
+  expect(db.publishLocationCell).toHaveBeenCalledTimes(1);
+  // Kick happens server-side: the client keeps the opt-in, the landed cell in
+  // _lastPublished, and the (now stale) gid status fallback. All later cell
+  // writes are rules-denied.
+  db.publishLocationCell.mockRejectedValue({ code: 'PERMISSION_DENIED' });
+  db.publishLocationCell.mockClear();
+  const seen = [];
+  document.addEventListener('location-optin-changed', (e) => seen.push(e.detail.context));
+  // Stationary — no cell boundary is ever crossed. Nine suppressed ticks…
+  for (let i = 0; i < 9; i++) { jest.advanceTimersByTime(60000); await flush(); }
+  expect(db.publishLocationCell).not.toHaveBeenCalled();
+  // …then the probe tick attempts the write; the denial fires the existing sweep.
+  jest.advanceTimersByTime(60000);
+  await flush();
+  await flush();
+  expect(prefs.getLocationOptIn('G1')).toBe(false);
+  expect(db.clearLocationCells).toHaveBeenCalledWith('me', ['G1']);
+  expect(seen).toEqual(['G1']);
+  // Sweep idled the loop: nothing publishes on the next advance.
+  db.publishLocationCell.mockClear();
+  jest.advanceTimersByTime(60000);
+  await flush();
+  expect(db.publishLocationCell).not.toHaveBeenCalled();
+});

@@ -56,8 +56,16 @@ const _ctxWasAvailable = new Map<string, boolean>();
 // retry), and dropped wherever the context's node is deleted so re-enable
 // republishes. updatedAt stops refreshing on suppressed ticks — nothing reads
 // it (spec v1: "nothing gates on it").
-const _lastPublished = new Map<string, { lat: number; lng: number }>();
+const _lastPublished = new Map<string, { lat: number; lng: number; landedAt: number }>();
 const RAW_REPUBLISH_MIN_METERS = 10;
+// Audit-2 N2: the no-op skip above must not permanently silence the write the
+// stale-membership sweep keys off. A mid-session kick leaves the landed cell
+// in _lastPublished (nothing clears it client-side) while the gid still looks
+// available via the status fallback — a stationary user would never attempt
+// the denied write that fires the sweep, and the loop (plus its per-minute
+// GPS fix) could not idle until a ~1.1km cell boundary was crossed. Let an
+// unchanged cell through once per probe window; a landed probe re-arms it.
+const STALE_MEMBERSHIP_PROBE_MS = 600000;
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _unsubOwn: (() => void) | null = null;
 let _visListener: (() => void) | null = null;
@@ -275,7 +283,7 @@ async function tick(): Promise<void> {
     const last = _lastPublished.get('direct');
     if (!last || haversineMeters(last.lat, last.lng, pos.lat, pos.lng) >= RAW_REPUBLISH_MIN_METERS) {
       publishLocation(uid, pos.lat, pos.lng, now).then(() => {
-        _lastPublished.set('direct', { lat: pos.lat, lng: pos.lng });
+        _lastPublished.set('direct', { lat: pos.lat, lng: pos.lng, landedAt: now });
         markPublished('direct');
       }).catch(() => {});
     }
@@ -288,9 +296,10 @@ async function tick(): Promise<void> {
   for (const gid of gids) {
     const uid = _userId;
     const last = _lastPublished.get(gid);
-    if (last && last.lat === cell.lat && last.lng === cell.lng) continue;
+    if (last && last.lat === cell.lat && last.lng === cell.lng
+        && now - last.landedAt < STALE_MEMBERSHIP_PROBE_MS) continue;
     publishLocationCell(gid, uid, pos.lat, pos.lng, now).then(() => {
-      _lastPublished.set(gid, cell);
+      _lastPublished.set(gid, { lat: cell.lat, lng: cell.lng, landedAt: now });
       markPublished(gid);
     }).catch((err) => {
       // A PERMISSION_DENIED cell write means stale membership (kicked while
