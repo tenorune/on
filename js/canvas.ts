@@ -28,6 +28,14 @@ let _myUserId = null as unknown as string;
 let _peerName = '';
 let _penColor = '#22c55e';
 let _thickness = THICKNESS_VALUES[2]; // default medium
+// Stroke-constant derivations, computed once per stroke (onPointerDown):
+// safeCssColor is a regex + string alloc and the width a float derive; neither
+// input can change mid-stroke (toolbox taps land between strokes), so deriving
+// them per pointermove was pure per-event allocation (audit-2 N9). The
+// per-segment ctx ASSIGNMENTS stay — a concurrent peer renderStroke mutates
+// shared ctx state (see onPointerMove's comment).
+let _strokeCss = '';
+let _strokeWidthPx = 0;
 let _isDrawing = false;
 // The toolbox for the currently active canvas session, bound each enterCanvas
 // and cleared on exitCanvas. Backs _onScreenPointerDownCapture below: a single
@@ -873,8 +881,10 @@ function onPointerDown(e: PointerEvent) {
   _currentPoints = [[nx, ny]];
   _lastSentIndex = 0;
 
-  _ctx.strokeStyle = safeCssColor(_penColor);
-  _ctx.lineWidth = _thickness * _canvas.width;
+  _strokeCss = safeCssColor(_penColor);
+  _strokeWidthPx = _thickness * _canvas.width;
+  _ctx.strokeStyle = _strokeCss;
+  _ctx.lineWidth = _strokeWidthPx;
   _ctx.lineCap = 'round';
   _ctx.lineJoin = 'round';
   _ctx.beginPath();
@@ -898,8 +908,8 @@ function onPointerMove(e: PointerEvent) {
   // change strokeStyle, lineWidth, and the path's current point via renderStroke;
   // without this we'd inherit the peer's color and draw a line from peer's last
   // point to ours.
-  _ctx.strokeStyle = safeCssColor(_penColor);
-  _ctx.lineWidth = _thickness * _canvas.width;
+  _ctx.strokeStyle = _strokeCss;
+  _ctx.lineWidth = _strokeWidthPx;
   _ctx.lineCap = 'round';
   _ctx.lineJoin = 'round';
   _ctx.beginPath();
