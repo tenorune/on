@@ -1201,6 +1201,50 @@ describe('dead-watch recovery (tram bug, resume leg)', () => {
     expect(db.publishLocation).toHaveBeenCalledWith('me', 52.53, 13.405, expect.any(Number));
   });
 
+  // Device trace 2026-07-21 21:55:29: on resume, the throttled interval tick
+  // and the visibility catch-up tick fire together — each restarted the watch
+  // (the second discarding the first) and both raced the <10m suppression
+  // before either write landed, duplicating the publish.
+  test('the resume double-fire restarts the watch only once (dedupe window)', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush();
+    expect(navigator.geolocation.watchPosition).toHaveBeenCalledTimes(1);
+
+    geoBehavior = () => {}; // the dead watch delivers nothing — even a restart stays silent
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    jest.advanceTimersByTime(120000); // the +120s tick hits the stale guard → one restart
+    await flush();
+    expect(navigator.geolocation.watchPosition).toHaveBeenCalledTimes(2);
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    document.dispatchEvent(new Event('visibilitychange')); // resume lands in the same instant
+    await flush();
+    expect(navigator.geolocation.watchPosition).toHaveBeenCalledTimes(2); // deduped, not a third watch
+  });
+
+  test('the resume double-tick publishes once, not twice', async () => {
+    const { initLocationShare, toggleContext } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await toggleContext('direct');
+    await flush();
+    db.publishLocation.mockClear();
+
+    fireWatch({ latitude: 52.53, longitude: 13.405 }); // fresh moved fix — a publish is due
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    // Device ordering (trace 21:55:29.045/.052): the interval tick fires
+    // first, the visibility catch-up tick lands in the same instant — before
+    // the first tick's write resolves, so the <10m suppression can't see it.
+    jest.advanceTimersByTime(60000);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flush(); await flush();
+    expect(db.publishLocation).toHaveBeenCalledTimes(1);
+  });
+
   test('a live watch (fresh fixes flowing) is never restarted by ticks', async () => {
     const { initLocationShare, toggleContext } = share();
     initLocationShare('me', () => []);

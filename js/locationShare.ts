@@ -138,9 +138,17 @@ function stopGeoWatch(): void {
 // 2026-07-21, tram bug): _watchId still looks live, so startGeoWatch alone
 // no-ops and the dead stream would serve its frozen _lastFix forever. Waiters
 // are NOT drained — a parked getPositionOnce caller is served by the rebuilt
-// watch's first fix/error.
+// watch's first fix/error. Restarts within the dedupe window collapse into
+// one: on resume the stale-fix guard and the visibility handler both fire
+// within ms (trace 21:55:29), and the second rebuild would discard a fresh
+// watch that hasn't had time to deliver yet.
+let _lastWatchRestartAt = 0;
+const WATCH_RESTART_DEDUPE_MS = 10000;
 function restartGeoWatch(): void {
   if (_watchId === null) return;
+  const now = Date.now();
+  if (now - _lastWatchRestartAt < WATCH_RESTART_DEDUPE_MS) { locDbg('watch restart deduped'); return; }
+  _lastWatchRestartAt = now;
   if (navigator.geolocation?.clearWatch) navigator.geolocation.clearWatch(_watchId);
   _watchId = null;
   startGeoWatch(_watchHighAccuracy);
@@ -412,7 +420,22 @@ async function tickPermissionGranted(): Promise<boolean> {
   } catch { return true; } // a query the browser rejects must not silence the loop
 }
 
+// One tick in flight is enough: resume moments double-fire (the throttled
+// interval tick + the visibility catch-up tick, device trace 2026-07-21
+// 21:55:29) — both read the same fix and race the <10m suppression before
+// either write lands, duplicating the publish. The age bound keeps a tick
+// wedged on a dead watch (a parked read that never settles — no error
+// callback ever fires) from silencing the loop: after half a tick interval
+// the next tick proceeds regardless.
+let _tickInFlightSince: number | null = null;
 async function tick(): Promise<void> {
+  const now0 = Date.now();
+  if (_tickInFlightSince !== null && now0 - _tickInFlightSince < TICK_MS / 2) { locDbg('tick skip: already in flight'); return; }
+  _tickInFlightSince = now0;
+  try { await tickInner(); } finally { _tickInFlightSince = null; }
+}
+
+async function tickInner(): Promise<void> {
   if (!_userId) return;
   // Time lapses fire no data tick — re-derive first (dispatches + stops the
   // loop if nothing is publishable anymore).
@@ -679,5 +702,7 @@ export function _resetLocationShare() {
   _getOptedInGids = () => [];
   _geoPermStatus = null;
   _lastFix = null; // stopLoop() above already cleared the watch itself
+  _lastWatchRestartAt = 0;
+  _tickInFlightSince = null;
   dispatchPublishingChanged();
 }
