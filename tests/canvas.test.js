@@ -127,6 +127,53 @@ describe('canvas.css injection (audit-2 N10)', () => {
   });
 });
 
+describe('first-entry canvas sizing vs the on-demand stylesheet (call canvas 0×0 regression)', () => {
+  // Device 2026-07-21: first canvas entry per page load rendered an invisible
+  // 0×0 canvas — nothing drawable, underlying UI showing through — and healed
+  // on re-entry. enterCanvas sized the canvas synchronously after injecting
+  // canvas.css: the sheet cannot have applied in the same task, so the inline
+  // #canvas-screen{display:none} boot guard was still in force and
+  // clientWidth/Height read 0. Entry must wait until the sheet applies
+  // (display flips) before sizing.
+  function setupGuardedCanvasDom() {
+    document.head.innerHTML = '<style>#canvas-screen{display:none}</style>';
+    document.body.innerHTML = `
+      <div id="app-header"></div>
+      <div id="favorites-strip"></div>
+      <div id="main-list"></div>
+      <div id="canvas-screen"><canvas id="draw-canvas"></canvas></div>`;
+    HTMLCanvasElement.prototype.getContext = () => fakeCtx();
+    // Faithful to a real layout engine: a display:none element measures 0.
+    const screen = document.getElementById('canvas-screen');
+    for (const [prop, size] of [['clientWidth', 800], ['clientHeight', 600]]) {
+      Object.defineProperty(screen, prop, {
+        configurable: true,
+        get() { return getComputedStyle(this).display === 'none' ? 0 : size; },
+      });
+    }
+    return screen;
+  }
+
+  afterEach(() => { document.head.innerHTML = ''; });
+
+  test('enterCanvas defers sizing until the injected sheet applies — first entry is never 0×0', async () => {
+    setupGuardedCanvasDom();
+    const entry = enterCanvas('peer1', 'Peer', 'me', '#111111', '#abcdef', '#000000', () => {});
+    await Promise.resolve(); // let any synchronous-path sizing land
+    // The sheet arrives a moment later (jsdom loads no real <link>; the
+    // appended style stands in for canvas.css's #canvas-screen{display:flex}).
+    const sheet = document.createElement('style');
+    sheet.textContent = '#canvas-screen{display:flex}';
+    document.head.appendChild(sheet);
+    await entry;
+
+    const canvas = document.getElementById('draw-canvas');
+    expect(canvas.width).toBe(800);
+    expect(canvas.height).toBe(600);
+    exitCanvas();
+  });
+});
+
 describe('canvas capture-phase pointerdown listener does not leak per session', () => {
   function setupCanvasDom() {
     document.body.innerHTML = `

@@ -392,20 +392,37 @@ export function showPeerLeftDialog(container: HTMLElement, peerName: string, onD
 // canvas.css styles only the #canvas-screen overlay; shipping it render-
 // blocking in <head> taxed first paint for every visitor (audit-2 N10). The
 // SW still precaches it (sw SHELL), so this load is instant after the first
-// visit and works offline. No load-await needed: index.html's inline
-// #canvas-screen{display:none} guard hides the screen until the sheet
-// applies, then the .active opacity transition takes over.
-function ensureCanvasCss() {
-  if (document.querySelector('link[data-canvas-css]')) return;
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = 'dist/css/canvas.css';
-  link.setAttribute('data-canvas-css', '1');
-  document.head.appendChild(link);
+// visit and works offline. Entry MUST await the sheet's application before
+// measuring: index.html's inline #canvas-screen{display:none} guard is in
+// force until then, so a synchronous first-entry sized the canvas off a
+// display:none element — 0×0 backing store, invisible strokes, underlying UI
+// showing through (device 2026-07-21; healed on re-entry, which is why it
+// looked intermittent). "Applied" is detected by the guard's display flipping
+// (canvas.css sets display:flex) — link load events alone don't say when the
+// cascade lands, and jsdom never fires them. Bounded so a failed load (first
+// visit offline, pre-SW) degrades to the old behavior instead of wedging.
+const CANVAS_CSS_APPLY_CAP_MS = 3000;
+function ensureCanvasCss(screen: HTMLElement): Promise<void> {
+  if (!document.querySelector('link[data-canvas-css]')) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'dist/css/canvas.css';
+    link.setAttribute('data-canvas-css', '1');
+    document.head.appendChild(link);
+  }
+  if (getComputedStyle(screen).display !== 'none') return Promise.resolve();
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    const check = () => {
+      if (getComputedStyle(screen).display !== 'none' || Date.now() - t0 > CANVAS_CSS_APPLY_CAP_MS) { resolve(); return; }
+      requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  });
 }
 
 export async function enterCanvas(peerId: string, peerName: string, myUserId: string, myStatusColor: string, peerStatusColor: string, callerSurface: string, onExit: () => void) {
-  ensureCanvasCss();
+  await ensureCanvasCss(document.getElementById('canvas-screen') as HTMLElement);
   _canvasId = getCanvasId(myUserId, peerId);
   _myUserId = myUserId;
   _peerId = peerId;
