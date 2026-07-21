@@ -6,7 +6,6 @@ import { setStatusColor } from './db.js';
 import { getFavorites, setFavorites, isHintSeen, markHintSeen, isFavoritesCollapsed, setFavoritesCollapsed } from './prefs.js';
 import { safeCssColor } from './utils.js';
 import { getCurrentContext, onContextChange } from './groupNav.js';
-import { applyAdoptedComboInGroup } from './groupContext.js';
 
 const MAX_FAVORITES = 8;
 const DEFAULT_STATUS_COLOR = '#22c55e';  // default green (forest primary)
@@ -453,7 +452,9 @@ function handleHistoryTap(idx: number) {
   // path as long-press group adoption from a roster member, sourced
   // from the pill instead. In Direct, restore the live picker state.
   if (getCurrentContext().context === 'group') {
-    applyAdoptedComboInGroup(combo.statusColor, combo.paletteKey ?? null);
+    import('./groupContext.js')
+      .then(({ applyAdoptedComboInGroup }) => applyAdoptedComboInGroup(combo.statusColor, combo.paletteKey ?? null))
+      .catch(() => {});
     return;
   }
 

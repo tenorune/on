@@ -22,7 +22,6 @@ import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, apply
 import { routeNotificationClick } from './notifyRouting.js';
 import { initOwnStatus, subscribeOwnStatus } from './ownStatus.js';
 import { initStatusStore } from './statusStore.js';
-import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector, showToast } from './groups.js';
 import { initInbox, openInboxModal } from './inbox.js';
 import { initFollowGrants } from './followRequests.js';
@@ -675,6 +674,18 @@ async function resolveIdentity(intent: BootIntent): Promise<BootSession | null> 
   return { userId, code, isNew, pendingInviteToken, tgInvite };
 }
 
+// groupContext (~1.6k lines) is the largest client module and only group
+// sessions need it — lazy chunk (audit-2 N5). Serialized through one promise
+// chain so a rapid group→direct→group flip can never interleave enter/exit
+// out of order once the chunk is in flight.
+let _gcChain: Promise<unknown> = Promise.resolve();
+function withGroupContext(fn: (m: typeof import('./groupContext.js')) => void): void {
+  _gcChain = _gcChain
+    .then(() => import('./groupContext.js'))
+    .then(fn)
+    .catch((err) => console.error('groupContext load failed:', err));
+}
+
 // Stage 2: store initialization — own-status watch, per-group status store,
 // navigation wiring, and prefs. Returns a StoresReady token that Stage 3
 // requires, so entering the redemption/restore flow before the stores exist is
@@ -698,8 +709,12 @@ function initStores(session: BootSession): StoresReady {
                  // runs first on each emit and creates #group-override-toggle-slot
                  // before enterGroupContext looks for it.
   onContextChange((ctx) => {
-    if (ctx.context === 'group') enterGroupContext(((ctx.groupId) as string), userId);
-    else exitGroupContext();
+    if (ctx.context === 'group') {
+      const gid = ctx.groupId as string;
+      withGroupContext((m) => m.enterGroupContext(gid, userId));
+    } else {
+      withGroupContext((m) => m.exitGroupContext());
+    }
   });
   // Make the prefs module aware of who's writing: setCurrentContext (prefs.js)
   // only mirrors to userPrefs/{uid}/ when it knows the userId, and Stage 3

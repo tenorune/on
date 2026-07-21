@@ -752,7 +752,7 @@ describe('strip available in both contexts', () => {
     expect(db.setStatusColor).toHaveBeenCalledWith('myUid', '#ff00aa');
   });
 
-  test('tapping a pill in group context calls applyAdoptedComboInGroup, NOT Direct path', () => {
+  test('tapping a pill in group context calls applyAdoptedComboInGroup, NOT Direct path', async () => {
     jest.resetModules();
     document.body.innerHTML =
       '<div id="favorites-strip"></div><div id="group-favorites-strip"></div>';
@@ -799,6 +799,13 @@ describe('strip available in both contexts', () => {
     setFavoritesCollapsed_(false);
     const groupPill = document.querySelector('#group-favorites-strip .fav-pill[data-type="history"]');
     groupPill.click();
+    // favorites.js now loads groupContext.js via a dynamic import() (N5a lazy
+    // chunk); under Jest babel compiles import() to
+    // Promise.resolve().then(() => require(...)).then(handler), so two
+    // microtask ticks need to flush (one for babel's interop hop, one for
+    // our own .then) before the mock call is observable.
+    await Promise.resolve();
+    await Promise.resolve();
     const groupContextMock = require('../js/groupContext.js');
     expect(groupContextMock.applyAdoptedComboInGroup).toHaveBeenCalledWith('#ff00aa', 'forest');
     expect(palettes.switchSet).not.toHaveBeenCalled();
