@@ -11,24 +11,15 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**All three perf batches are DONE, review-verified 26/26, and mostly
-device-smoked.** A full implementation-vs-plan verification pass (2026-07-20,
-three parallel read-only agents + coordinator spot-checks) confirmed every task
-of all three perf plans faithful to its behavioral contract — no undocumented
-deviations. The operator then ran the on-device smoke checklist: **most items
-verified on device; a subset was deferred as too difficult to exercise right
-now** (not itemized; the deploy-gated ones — F6c push migration flow, F7
-single-notification, F9 header/SW checks — can only run post-deploy anyway,
-per `docs/DEPLOY-PROD.md` verify steps).
+**Four post-smoke fixes landed 2026-07-21 on top of the finished perf-batch
+work** (which is review-verified 26/26 and mostly device-smoked — see
+History): the group-roster distance loss for mutuals who don't share in
+Direct (`8d83e3a`), SW auto-update diagnostics in the #156 panel
+(`eeef878`), the iOS-PWA auto-update fix (`5d8b3b8`), and the inbox-join
+Direct-flash guard (`a9223c2`). All are hosting-only — no new deploy-ordering
+constraints beyond the existing ones below.
 
-Smoke testing found ONE real regression, now fixed: **iOS PWA glyph-on wrote
-the pref but never published** — Tier 3 T8's PermissionStatus cache froze a
-pre-grant `'prompt'` object (iOS WebKit never updates a retained status; a
-fresh query said `'granted'`, device-probed). Fix `45d7bec`: cache only a
-granted status; non-granted states re-query per tick. Client-only — rides the
-hosting deploy, no ordering constraint.
-
-Tip is `45d7bec` on `claude/knockknock-feature-dev-9a3ysy`, pushed;
+Tip is `a9223c2` on `claude/knockknock-feature-dev-9a3ysy`, pushed;
 `origin/*` == local. Realign:
 
 ```
@@ -36,24 +27,33 @@ git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
 ```
 
-Tip must be `45d7bec` — else STOP, origin is authoritative.
+Tip must be `a9223c2` — else STOP, origin is authoritative.
 
 **Next actions (nothing deploys from sessions):**
 
 1. Maintainer merges `claude/knockknock-feature-dev-9a3ysy` → `dev` (and
    `dev` → `main`).
 2. DEPLOY the accumulated branch work (security fixes + all three perf batches
-   + the iOS glyph fix) per the Deploy ordering below — the LOAD-BEARING
-   `pushTokens` (F6c) sequence is the one that bites.
+   + the four 2026-07-21 fixes) per the Deploy ordering below — the
+   LOAD-BEARING `pushTokens` (F6c) sequence is the one that bites.
 3. Post-deploy: run the deferred smoke items (`docs/DEPLOY-PROD.md` verify
-   steps), including: iOS PWA glyph-on publishes within a tick when a prior
-   session's opt-in was already on (the `45d7bec` scenario).
-4. No unstarted plan remains on this branch. Next feature work starts from a
+   steps), plus this session's device checks: iOS PWA glyph-on publishes
+   within a tick when a prior session's opt-in was already on (the `45d7bec`
+   scenario) · the group roster keeps a mutual's coarse distance after the
+   viewer enables Direct (the `8d83e3a` scenario) · inbox Join shows
+   prompt → dark → group with no Direct/nav-code flash (`a9223c2`) · the
+   #156 panel's new `SW reg` / `sw.js served` rows.
+4. **iOS auto-update needs a TWO-deploy verification** (`5d8b3b8`): deploy 1
+   ships the fix but devices still fetch it via the old, stale-prone check
+   (a stuck device may need one manual `reg.update()` nudge via Web
+   Inspector); only deploy 2 — the next shell change after that — tests the
+   claim, by landing on the iOS PWA organically (relaunch, no inspector).
+5. No unstarted plan remains on this branch. Next feature work starts from a
    fresh brainstorm/plan.
 
-**Verification state:** green bar OBSERVED at `45d7bec` (web jest 2038/2038 ·
-functions 432/432 · rules 108/108 · typechecks clean · zero TS suppressions
-added by this branch).
+**Verification state:** green bar OBSERVED at `a9223c2` (web jest 2049/2049 ·
+functions 432/432 · rules 108/108 · both typechecks clean · zero TS
+suppressions added by this branch).
 
 **Audit docs (sources of truth):**
 
@@ -90,6 +90,18 @@ deploys from sessions):**
   file, `npm run test:rules`, delete the probe.)
 
 **Open items (parked, operator-ruled only):**
+
+- **Self-heal for auto-update-stuck devices** (option B from the 2026-07-21
+  iOS investigation, parked): devices running a pre-`5d8b3b8` build carry the
+  stale SW-update-check exposure until they take one update; if stuck prod
+  users surface post-rollout, a page-side probe (no-store fetch of `/sw.js`,
+  compare vs `caches.keys()`, escalate) is designable — needs care around
+  reload loops.
+- **`?notifydebug=1` cannot reach the installed iOS PWA** (no URL bar;
+  Safari-tab localStorage is partitioned from the PWA's). Chosen path for
+  iOS diagnosis: macOS Safari → Develop → cabled device Web Inspector. A
+  prefs-synced opt-in (enable from any device, syncs via userPrefs) was
+  considered and not built.
 
 - **#288** — root-caused and fixed on this branch (self-join blocked, joins
   brokered); close the issue once this branch merges and deploys.
@@ -255,6 +267,12 @@ proxy and would abort an `&&` chain. Functions deps are required for
 - **Hosting serves the repo root** (`"public": "."`). `dist/`, `index.html`,
   `sw.js` are gitignored build artifacts — never commit them; edit
   `index.template.html`.
+- **`sw.js` must stay `Cache-Control: no-store` and registered with
+  `updateViaCache: 'none'`** (both pinned by tests) — iOS WebKit
+  device-observed (2026-07-21) answering the SW update check from stale
+  revalidation state for days under plain `no-cache`. And never cache-bust
+  the registration URL: a script-URL change forces install+reload even for
+  byte-identical workers. Full write-up: `docs/pwa-auto-update.md` piece 4.
 - **Prod build needs `.env.production`** or preconnect + Firebase config
   silently no-op.
 - **Run typechecks from the repo root.**
@@ -265,6 +283,30 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **Post-smoke fix session (2026-07-21, `8d83e3a..a9223c2`):** four
+  operator-reported issues root-caused and fixed test-first. (1) `8d83e3a` —
+  group roster lost a mutual's coarse distance the moment the viewer enabled
+  Direct: precise-tier eligibility (mutual + primary-available) excluded the
+  cell sub on mere *eligibility*, but a mutual with Direct off publishes no
+  raw point, so precise emitted null forever with no fallback; the exclusion
+  is now data-driven (only a DELIVERED precise number displaces the cell sub;
+  the precise callback re-runs the reconcile on number↔null transitions) —
+  Task 2's one-listen-per-mutual contract revised accordingly. (2) `eeef878`
+  — #156 panel gained `SW reg` (registration lifecycle) and `sw.js served`
+  (no-store probe: served cache-version + status + MIME, warns when it
+  differs from the controlling worker's). (3) `5d8b3b8` — iOS PWA never saw
+  deployed sw.js updates: cornered via cabled Web Inspector (healthy
+  registration, device on old cache version, server serving new,
+  `update()` resolving with no updatefound; a fresh-URL registration
+  unstuck it); local Chromium+emulator repro had already proven the whole
+  four-piece update cycle sound, exonerating the code pattern and Task 7's
+  headers (live-channel curls confirmed `no-cache`+etag correct). Fix:
+  `/sw.js` served `no-store` + `updateViaCache:'none'` at register, doc
+  updated. (4) `a9223c2` — inbox Join flashed Direct + the new group's
+  backend code in the nav row during the now-slow brokered joinGroup
+  callable (Fix 2b widened an always-present race window); exported
+  begin/endGroupEntryTransition guard (the create-group modal's suspend
+  dance, reusable), name seeded via setLastKnownGroupName.
 - **Verification pass + on-device smoke + iOS glyph fix (2026-07-20,
   `45d7bec`):** all 26 tasks of the three perf plans verified against source
   by three parallel read-only agents with coordinator spot-checks — 26/26
