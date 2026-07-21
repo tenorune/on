@@ -735,6 +735,76 @@ describe('geolocation PermissionStatus caching', () => {
     expect(db.publishLocation).toHaveBeenCalled();
   });
 
+  test("a device-proven grant unfreezes later sessions whose fresh query lies 'prompt' (iOS PWA reload regression)", async () => {
+    // Device-observed (iOS PWA, [LOCDBG] capture 2026-07-21): after a reload,
+    // a FRESH permissions.query answers 'prompt' even though geolocation is
+    // granted (using it fires no prompt) — WebKit reports 'granted' only once
+    // the session has actually used geolocation. Every background tick after
+    // any reload skipped at the gate until a glyph re-toggle (which bypasses
+    // the gate on explicit intent). The gate must trust a device-local proof:
+    // a session that actually obtained a fix without a prompt records it, and
+    // a later session's 'prompt' answer is overridden by that proof.
+    // Session 1: genuinely granted — the glyph toggle proves it with a fix.
+    Object.defineProperty(global.navigator, 'permissions', {
+      configurable: true,
+      value: { query: jest.fn(async () => ({ state: 'granted' })) },
+    });
+    const { initLocationShare, toggleContext, _resetLocationShare } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await expect(toggleContext('direct')).resolves.toBe('on');
+    await flush();
+    expect(db.publishLocation).toHaveBeenCalledTimes(1);
+
+    // "Reload": fresh module state, localStorage (opt-in + proof) persists,
+    // and the fresh session's query now lies 'prompt'.
+    _resetLocationShare();
+    db.publishLocation.mockClear();
+    Object.defineProperty(global.navigator, 'permissions', {
+      configurable: true,
+      value: { query: jest.fn(async () => ({ state: 'prompt' })) },
+    });
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await flush(); await flush();
+    expect(db.publishLocation).toHaveBeenCalledWith('me', 52.52, 13.405, expect.any(Number));
+  });
+
+  test("revocation (code 1) clears the device proof — a later session's 'prompt' is genuine and the gate stays closed", async () => {
+    // After a real revocation the 'prompt' answer is no lie: capturing WOULD
+    // prompt. The teardown must drop the proof so a cross-device-synced
+    // opt-in landing later can't surprise-prompt from a background tick.
+    Object.defineProperty(global.navigator, 'permissions', {
+      configurable: true,
+      value: { query: jest.fn(async () => ({ state: 'granted' })) },
+    });
+    const { initLocationShare, toggleContext, _resetLocationShare } = share();
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await expect(toggleContext('direct')).resolves.toBe('on');
+    await flush();
+    expect(db.publishLocation).toHaveBeenCalledTimes(1); // proof recorded via the fix
+
+    fireWatchError(1); // OS permission revoked mid-session → teardown
+    await flush();
+
+    // Next session: opt-in arrives via cross-device sync; the fresh query's
+    // 'prompt' is now the truth. No capture, no prompt.
+    _resetLocationShare();
+    db.publishLocation.mockClear();
+    navigator.geolocation.watchPosition.mockClear();
+    Object.defineProperty(global.navigator, 'permissions', {
+      configurable: true,
+      value: { query: jest.fn(async () => ({ state: 'prompt' })) },
+    });
+    prefs.setLocationOptIn('direct', true);
+    initLocationShare('me', () => []);
+    ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+    await flush(); await flush();
+    expect(navigator.geolocation.watchPosition).not.toHaveBeenCalled();
+    expect(db.publishLocation).not.toHaveBeenCalled();
+  });
+
   test('a cached status whose .state later flips to non-granted makes the next tick skip capture', async () => {
     const status = { state: 'granted', addEventListener: jest.fn() };
     Object.defineProperty(global.navigator, 'permissions', {

@@ -124,6 +124,10 @@ export const DEVICE_SCOPED_KEYS = [
   'statusapp_tg_onramp_dismissed',
   'statusapp_onramp_consumed',
   'statusapp_lastseen_touched',
+  // Geolocation grant proven on this device (js/locationShare.ts): the OS/site
+  // permission it mirrors is per-device, not per-account — an owner change
+  // doesn't revoke it. Cleared only when revocation is actually observed.
+  'statusapp_geo_grant_proven',
 ];
 
 // Device/account-independent key PREFIXES that survive an owner change.

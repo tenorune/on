@@ -106,6 +106,7 @@ function startGeoWatch(highAccuracy: boolean): void {
   _watchId = navigator.geolocation.watchPosition(
     (pos) => {
       _lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, at: Date.now() };
+      markGrantProven(); // a fix arrived without a prompt — grant proven on THIS device
       locDbg('watch fix', _lastFix);
       drainWatchWaiters({ lat: _lastFix.lat, lng: _lastFix.lng });
     },
@@ -310,6 +311,7 @@ function revokePermissionTeardown() {
   const gids = _getOptedInGids(); // snapshot BEFORE flipping prefs — see clearPublished
   const contexts = [...(getLocationOptIn('direct') ? ['direct'] : []), ...gids];
   locDbg('revokePermissionTeardown → flipping OFF', contexts);
+  clearGrantProven(); // 'prompt' is genuine after a real revocation — see GEO_PROVEN_KEY
   stopLoop();
   clearPublished(gids);
   _publishedContexts.clear();
@@ -333,6 +335,25 @@ function revokePermissionTeardown() {
 // the pre-gate behavior. NOT used by the glyph-tap path (toggleContext),
 // which must keep prompting on explicit intent.
 let _geoPermStatus: { state: string; addEventListener?: (t: string, l: () => void) => void } | null = null;
+// Device-local "geolocation grant proven here": set the first time a watch fix
+// actually arrives (obtaining a fix never prompts unless the state is genuinely
+// pre-grant, so a delivered fix ⇒ granted on this device). Persisted because
+// iOS WebKit (PWA, [LOCDBG] capture 2026-07-21) answers a FRESH
+// permissions.query with 'prompt' after every reload until the session has
+// used geolocation — the gate below trusted that lie, so background ticks
+// froze after any reload until a glyph re-toggle. A 'prompt' answer is
+// overridden by this proof; a device that never got a fix (cross-device-synced
+// opt-in, spec §5) has no proof and keeps the no-surprise-prompt gate closed.
+const GEO_PROVEN_KEY = 'statusapp_geo_grant_proven';
+function grantProven(): boolean {
+  try { return localStorage.getItem(GEO_PROVEN_KEY) === '1'; } catch { return false; }
+}
+function markGrantProven(): void {
+  try { if (localStorage.getItem(GEO_PROVEN_KEY) !== '1') localStorage.setItem(GEO_PROVEN_KEY, '1'); } catch { /* storage denied */ }
+}
+function clearGrantProven(): void {
+  try { localStorage.removeItem(GEO_PROVEN_KEY); } catch { /* storage denied */ }
+}
 async function tickPermissionGranted(): Promise<boolean> {
   if (isTelegramContext()) return true;
   const perms = (navigator as Navigator & {
@@ -349,7 +370,11 @@ async function tickPermissionGranted(): Promise<boolean> {
     // query returned 'granted'. A cached granted status stays fail-safe on
     // revocation: capture itself rejects code 1 → revokePermissionTeardown.
     if (status.state === 'granted' && typeof status.addEventListener === 'function') _geoPermStatus = status;
-    return status.state === 'granted';
+    if (status.state === 'granted') return true;
+    // 'prompt' from a fresh query is a lie on iOS WebKit when this device
+    // already proved the grant (see GEO_PROVEN_KEY) — capture won't prompt.
+    if (status.state === 'prompt' && grantProven()) return true;
+    return false;
   } catch { return true; } // a query the browser rejects must not silence the loop
 }
 
