@@ -78,6 +78,29 @@ export async function navigateToGroup(groupId: string) {
   setLastVisited(_myUserId as string, groupId, Date.now()).catch(() => {});
 }
 
+// Guard for slow group-entries driven from OUTSIDE this module (inbox Join →
+// brokered joinGroup callable): hides the Direct surface + nav row and
+// suspends renderNavRow, so the enumeration tick fired by the join's own
+// users/{uid}/groups write can't unhide the row and flash the new group's
+// card (backend code as the name — no meta sub yet) over a still-visible
+// Direct. The create-group modal's onSubmit does this same dance with the
+// module-local state directly. end(restore=true) reverses the hiding (join
+// failed, Direct comes back); restore=false leaves both hidden so
+// navigateToGroup's synchronous emit owns the next paint.
+export function beginGroupEntryTransition() {
+  document.getElementById('nav-row')?.classList.add('hidden');
+  document.getElementById('main-ui-direct')?.classList.add('hidden');
+  _suspendRenderNavRow = true;
+}
+
+export function endGroupEntryTransition(restoreDirect: boolean) {
+  _suspendRenderNavRow = false;
+  if (restoreDirect) {
+    document.getElementById('nav-row')?.classList.remove('hidden');
+    document.getElementById('main-ui-direct')?.classList.remove('hidden');
+  }
+}
+
 export function applyServerCurrentContext(rawValue: string | null | undefined) {
   const next = parseContextString(rawValue);
   if (next.context === _state.context && next.groupId === _state.groupId) return;

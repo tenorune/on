@@ -6,7 +6,7 @@
 import { watchPendingInvites, deletePendingInvite, readGroupName, readMember,
   watchFollowRequests, deleteFollowRequest, writeFollowGrant } from './db.js';
 import { joinGroup, showToast } from './groups.js';
-import { navigateToGroup } from './groupNav.js';
+import { navigateToGroup, beginGroupEntryTransition, endGroupEntryTransition, setLastKnownGroupName } from './groupNav.js';
 import { getFollowing } from './prefs.js';
 import { setFollowerName } from './store.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
@@ -340,6 +340,12 @@ async function handleJoin(groupId: string, groupName: string) {
   // Prompt for the invitee's per-group display name (mirrors Flow A/B).
   closeInboxModal();
   const displayName = await showGroupDisplayNamePrompt(groupName);
+  // The brokered join below is a slow callable round-trip; without this guard
+  // the wait exposes Direct, and the join's own enumeration echo paints the
+  // new group's card (backend code as the name) into the nav row mid-flight
+  // (2026-07-21 regression — the group context must be the next thing visible
+  // after the prompt).
+  beginGroupEntryTransition();
   try {
     // Pass the group + membership we already read so joinGroup skips its own
     // membership-gated reads — a not-yet-member can't read the whole groups/{gid}
@@ -347,13 +353,20 @@ async function handleJoin(groupId: string, groupName: string) {
     await joinGroup(groupId, _myUid, displayName, { group, existing: existingMember });
   } catch (e) {
     // Join failed — a network error, or the group was deleted in the race
-    // window after our existence check. Leave the pending invite in place so the
-    // Inbox row stays (re-opening re-renders a fresh, enabled Join), re-enable
-    // the captured button, and surface the error rather than swallowing it.
+    // window after our existence check. Restore Direct, leave the pending
+    // invite in place so the Inbox row stays (re-opening re-renders a fresh,
+    // enabled Join), re-enable the captured button, and surface the error
+    // rather than swallowing it.
+    endGroupEntryTransition(true);
     if (joinBtn) joinBtn.disabled = false;
     showToast((e as { message?: string }).message || "Couldn't join this group. Try again.");
     return;
   }
+  // Seed the name so the group-mode nav paints it immediately (not the
+  // backend code) — same prime as the invite-redemption flow — then release
+  // the guard (still hidden) for navigateToGroup's own render.
+  setLastKnownGroupName(groupId, (group as { name?: string })?.name || groupName);
+  endGroupEntryTransition(false);
   await Promise.all([
     deletePendingInvite(_myUid, groupId),
     navigateToGroup(groupId),

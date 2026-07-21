@@ -173,7 +173,7 @@ describe('groupNav state machine', () => {
   });
 });
 
-const { initNavRow, onCreateRequested, openCreateGroupModal, getLastKnownGroupName, startCardsRowSubscriptions, subscribeGroupMeta } = require('../js/groupNav');
+const { initNavRow, onCreateRequested, openCreateGroupModal, getLastKnownGroupName, startCardsRowSubscriptions, subscribeGroupMeta, beginGroupEntryTransition, endGroupEntryTransition } = require('../js/groupNav');
 
 function setupCreateModalDom() {
   // Replace the bare #create-group-modal placeholder (from setupNavDom) with
@@ -391,6 +391,61 @@ function setupNavDom() {
     <div id="create-group-modal" class="hidden"></div>
   `;
 }
+
+// Guard for slow group-entries driven from OUTSIDE this module (inbox Join →
+// brokered joinGroup callable, 2026-07-21 regression): the join's own
+// users/{uid}/groups write fires an enumeration tick mid-flight, which
+// repainted the nav row with the new group's card (backend code as the name,
+// no meta yet) over a still-visible Direct — a flash the create-group modal
+// already suppresses via its own suspend dance.
+describe('group-entry transition guard', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupNavDom();
+  });
+
+  function wireDirectMode() {
+    let enumCb;
+    db.watchUserGroups.mockImplementation((uid, cb) => { enumCb = cb; return () => {}; });
+    db.watchGroupMeta.mockImplementation(() => () => {});
+    db.watchOwnMemberOverride.mockImplementation(() => () => {});
+    db.watchStatus.mockImplementation(() => () => {});
+    initNav('me');
+    initNavRow();
+    startCardsRowSubscriptions();
+    enumCb({});
+    return (v) => enumCb(v);
+  }
+
+  test('begin hides Direct + nav row and suspends renderNavRow against enumeration ticks', () => {
+    const tick = wireDirectMode();
+    beginGroupEntryTransition();
+    expect(document.getElementById('main-ui-direct').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('nav-row').classList.contains('hidden')).toBe(true);
+    tick({ G1: { lastVisited: 100 } }); // the join's own enumeration echo
+    expect(document.getElementById('nav-row').classList.contains('hidden')).toBe(true);
+    expect(document.querySelector('#nav-row .group-card')).toBeNull();
+  });
+
+  test('end(restore=true) brings Direct + nav row back (join failed)', () => {
+    wireDirectMode();
+    beginGroupEntryTransition();
+    endGroupEntryTransition(true);
+    expect(document.getElementById('main-ui-direct').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('nav-row').classList.contains('hidden')).toBe(false);
+  });
+
+  test('end(restore=false) leaves both hidden and re-enables renderNavRow for the next emit', () => {
+    const tick = wireDirectMode();
+    beginGroupEntryTransition();
+    endGroupEntryTransition(false);
+    expect(document.getElementById('main-ui-direct').classList.contains('hidden')).toBe(true);
+    expect(document.getElementById('nav-row').classList.contains('hidden')).toBe(true);
+    // Suspension lifted: the next tick renders (and manages visibility) normally.
+    tick({ G1: { lastVisited: 100 } });
+    expect(document.querySelector('#nav-row .group-card')).not.toBeNull();
+  });
+});
 
 describe('renderNavRow — Direct mode', () => {
   beforeEach(() => {

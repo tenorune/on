@@ -15,6 +15,9 @@ jest.mock('../js/groups.js', () => ({
 }));
 jest.mock('../js/groupNav.js', () => ({
   navigateToGroup: jest.fn().mockResolvedValue(undefined),
+  beginGroupEntryTransition: jest.fn(),
+  endGroupEntryTransition: jest.fn(),
+  setLastKnownGroupName: jest.fn(),
 }));
 jest.mock('../js/prefs.js', () => ({
   getFollowing: jest.fn(() => [
@@ -245,6 +248,18 @@ describe('Inbox', () => {
     expect(groups.joinGroup).toHaveBeenCalledWith('G1', 'me', 'My Group Name', { group: { name: 'Family' }, existing: null });
     expect(db.deletePendingInvite).toHaveBeenCalledWith('me', 'G1');
     expect(groupNav.navigateToGroup).toHaveBeenCalledWith('G1');
+    // Flash guard (2026-07-21 regression): the brokered join is a slow
+    // callable round-trip — Direct + nav row must be hidden BEFORE it runs
+    // (or its enumeration echo paints the new group's code over Direct), the
+    // real group name seeded, and the guard released (hidden) only for
+    // navigateToGroup's own render to take over.
+    expect(groupNav.beginGroupEntryTransition).toHaveBeenCalled();
+    expect(groupNav.beginGroupEntryTransition.mock.invocationCallOrder[0])
+      .toBeLessThan(groups.joinGroup.mock.invocationCallOrder[0]);
+    expect(groupNav.setLastKnownGroupName).toHaveBeenCalledWith('G1', 'Family');
+    expect(groupNav.endGroupEntryTransition).toHaveBeenCalledWith(false);
+    expect(groupNav.endGroupEntryTransition.mock.invocationCallOrder[0])
+      .toBeLessThan(groupNav.navigateToGroup.mock.invocationCallOrder[0]);
   });
 
   test('Join surfaces an error and keeps the pending invite when joinGroup fails', async () => {
@@ -265,6 +280,8 @@ describe('Inbox', () => {
     expect(groupNav.navigateToGroup).not.toHaveBeenCalled();
     expect(groups.showToast).toHaveBeenCalledWith('Network down');
     expect(joinBtn.disabled).toBe(false);
+    // Flash guard released with restore=true: Direct + nav row come back.
+    expect(groupNav.endGroupEntryTransition).toHaveBeenCalledWith(true);
   });
 
   test('Join on a row where the user is already a member silently dismisses (no prompt, no joinGroup)', async () => {
