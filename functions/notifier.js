@@ -315,19 +315,21 @@ export async function handleGroupOverrideChange(deps, groupId, memberUid, before
   if (isOn && !wasOn) await notifyGroupAvailability(deps, groupId, memberUid, now);
 }
 
-// Field-compare of two statusOverride values. The merged member-node trigger
-// (index.js onMemberWritten) uses this to skip the notify path — and its
-// presence read — when a member write (displayName edit, join) didn't touch
-// the override. null and undefined both mean "absent".
+// Availability-relevant field-compare of two statusOverride values. The merged
+// member-node trigger (index.js onMemberWritten) uses this to skip the notify
+// path — and its presence read — when a member write couldn't have changed
+// effectiveAvailable: displayName/join writes, and appearance-only override
+// edits (statusColor/paletteKey, written per group palette tap — audit-2 N4).
+// effectiveAvailable (presence-core.js) reads only enabled/status/availableUntil.
+// null and undefined both mean "absent".
 /**
  * @param {StatusOverride | null | undefined} a
  * @param {StatusOverride | null | undefined} b
  */
-export function statusOverrideChanged(a, b) {
+export function availabilityRelevantOverrideChange(a, b) {
   if (a == null || b == null) return (a ?? null) !== (b ?? null);
   return a.enabled !== b.enabled
     || a.status !== b.status
-    || a.statusColor !== b.statusColor
     || a.availableUntil !== b.availableUntil;
 }
 

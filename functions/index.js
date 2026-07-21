@@ -5,7 +5,7 @@ import { getDatabase } from 'firebase-admin/database';
 import { getMessaging } from 'firebase-admin/messaging';
 import { onValueCreated, onValueWritten } from 'firebase-functions/v2/database';
 import { setGlobalOptions } from 'firebase-functions/v2';
-import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest, statusOverrideChanged } from './notifier.js';
+import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest, availabilityRelevantOverrideChange } from './notifier.js';
 import { onCall as httpsOnCall, onRequest } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
@@ -157,9 +157,10 @@ export const onAvailability = onValueWritten('/users/{uid}/presence/availableUnt
 //    location cell so it can't outlive membership (handleMemberRemoved no-ops
 //    on create/update);
 //  - statusOverride transition: notify opted-in co-members. Gated on a real
-//    override change so displayName/join writes skip the notify path (and its
-//    presence read) — matching the old leaf trigger, which also fired on
-//    member deletion (the leaf vanishes with the node), preserved here.
+//    override change so displayName/join writes and appearance-only override
+//    edits skip the notify path (and its presence read) — matching the old
+//    leaf trigger, which also fired on member deletion (the leaf vanishes
+//    with the node), preserved here.
 export const onMemberWritten = onValueWritten('/groups/{groupId}/members/{memberUid}', async (event) => {
   const before = event.data.before.val();
   const after = event.data.after.val();
@@ -167,7 +168,7 @@ export const onMemberWritten = onValueWritten('/groups/{groupId}/members/{member
   await handleMemberRemoved(makeDbDeps(), groupId, memberUid, before, after);
   const beforeOv = (before && before.statusOverride) || null;
   const afterOv = (after && after.statusOverride) || null;
-  if (statusOverrideChanged(beforeOv, afterOv)) {
+  if (availabilityRelevantOverrideChange(beforeOv, afterOv)) {
     await handleGroupOverrideChange(makeDeps(), groupId, memberUid, beforeOv, afterOv);
   }
 });

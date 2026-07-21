@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest, statusOverrideChanged } from '../notifier.js';
+import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest, availabilityRelevantOverrideChange } from '../notifier.js';
 import channelDefault from '../../test-fixtures/notify-channel-vectors.json' with { type: 'json' };
 
 function makeDeps(overrides = {}) {
@@ -865,21 +865,25 @@ describe('token-less push fallback (W1 J#3)', () => {
   });
 });
 
-describe('statusOverrideChanged (merged member-trigger gate)', () => {
-  test('absent on both sides — null vs undefined — is unchanged', () => {
-    expect(statusOverrideChanged(null, undefined)).toBe(false);
-    expect(statusOverrideChanged(undefined, undefined)).toBe(false);
+describe('availabilityRelevantOverrideChange (merged member-trigger gate)', () => {
+  test('absent on both sides is not a change', () => {
+    expect(availabilityRelevantOverrideChange(null, undefined)).toBe(false);
+    expect(availabilityRelevantOverrideChange(undefined, undefined)).toBe(false);
   });
-  test('appearing or disappearing is a change', () => {
-    expect(statusOverrideChanged(null, { enabled: true })).toBe(true);
-    expect(statusOverrideChanged({ enabled: true }, null)).toBe(true);
+  test('appearing or vanishing is a change', () => {
+    expect(availabilityRelevantOverrideChange(null, { enabled: true })).toBe(true);
+    expect(availabilityRelevantOverrideChange({ enabled: true }, null)).toBe(true);
   });
-  test('field flips are changes; identical values are not', () => {
-    const a = { enabled: true, status: 'available', statusColor: 'green', availableUntil: 5 };
-    expect(statusOverrideChanged(a, { ...a })).toBe(false);
-    expect(statusOverrideChanged(a, { ...a, enabled: false })).toBe(true);
-    expect(statusOverrideChanged(a, { ...a, status: 'unavailable' })).toBe(true);
-    expect(statusOverrideChanged(a, { ...a, statusColor: 'red' })).toBe(true);
-    expect(statusOverrideChanged(a, { ...a, availableUntil: 9 })).toBe(true);
+  test('availability-relevant field diffs are changes', () => {
+    const a = { enabled: true, status: 'available', statusColor: 'blue', availableUntil: 99 };
+    expect(availabilityRelevantOverrideChange(a, { ...a })).toBe(false);
+    expect(availabilityRelevantOverrideChange(a, { ...a, enabled: false })).toBe(true);
+    expect(availabilityRelevantOverrideChange(a, { ...a, status: 'unavailable' })).toBe(true);
+    expect(availabilityRelevantOverrideChange(a, { ...a, availableUntil: 100 })).toBe(true);
+  });
+  test('appearance-only diffs are NOT changes — effectiveAvailable never reads them (audit-2 N4)', () => {
+    const a = { enabled: true, status: 'available', statusColor: 'blue', availableUntil: 99 };
+    expect(availabilityRelevantOverrideChange(a, { ...a, statusColor: 'red' })).toBe(false);
+    expect(availabilityRelevantOverrideChange(a, { ...a, paletteKey: 'sunset' })).toBe(false);
   });
 });
