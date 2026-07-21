@@ -6,7 +6,18 @@ jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
   isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
   isAvailable: (s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now()),
-  formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
+  // Value-sensitive (not a flat '2h' stand-in): the N8 catch-up test needs the
+  // label text to actually change once time has passed, so this mirrors the
+  // real shared/timeFormat.js shape (Nh Mm) closely enough to discriminate.
+  formatTimeRemaining: (ms) => {
+    if (ms <= 0) return '';
+    const totalMinutes = Math.floor(ms / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes}m`;
+    if (minutes === 0) return `${hours}h`;
+    return `${hours}h ${minutes}m`;
+  },
   timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
   setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
   claimInviteToken: jest.fn(),
@@ -226,6 +237,19 @@ test('countdown timer fires expiry (setUnavailable) even while hidden — state 
   jest.advanceTimersByTime(35000);
   expect(document.getElementById('my-dot').classList.contains('available')).toBe(false);
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+});
+
+test('returning to visible catches the countdown label up immediately (audit-2 N8)', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  jest.advanceTimersByTime(250);
+  const el = document.getElementById('time-remaining');
+  Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+  jest.advanceTimersByTime(3600000); // an hour passes hidden — every 30s tick skips the write
+  const stale = el.textContent;      // still shows ~2h
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  document.dispatchEvent(new Event('visibilitychange'));
+  expect(el.textContent).not.toBe(stale); // caught up (~1h) without waiting for the next tick
+  expect(el.textContent).toMatch(/left$/);
 });
 
 // --- chip migration ---

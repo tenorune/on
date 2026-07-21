@@ -15,6 +15,7 @@ let countdownTimer: ReturnType<typeof setInterval> | null = null;
 // marker: a subscription tick carrying exactly this window while the dot is
 // already available is the echo of our own optimistic write, not news.
 let _countdownUntil: number | null = null;
+let _countdownVisHandler: (() => void) | null = null;
 let currentChipIndex = 3; // default: 2 hours
 let firstUseActive = false;
 let ownStatusSignalled = false;
@@ -213,6 +214,17 @@ function startCountdown(availableUntil: number | null) {
       document.getElementById('time-remaining')!.textContent = formatTimeRemaining(ms) + ' left';
     }
   }, 30000);
+  // Hidden-tab ticks skip the label write (paint-only; the expiry transition
+  // above still fires) — catch the label up the moment the tab is visible
+  // again, else it sits up to ~30s stale (audit-2 N8; mirrors following.ts's
+  // 60s label refresh from the same fix batch).
+  if (_countdownVisHandler) document.removeEventListener('visibilitychange', _countdownVisHandler);
+  _countdownVisHandler = () => {
+    if (document.visibilityState !== 'visible' || _countdownUntil == null) return;
+    const ms = timeRemainingMs(_countdownUntil);
+    if (ms > 0) document.getElementById('time-remaining')!.textContent = formatTimeRemaining(ms) + ' left';
+  };
+  document.addEventListener('visibilitychange', _countdownVisHandler);
 }
 
 function setAvailable(availableUntil: number | null) {
@@ -274,6 +286,7 @@ function setUnavailable() {
   _countdownUntil = null;
   // clearInterval(null) is a no-op at runtime; the cast only appeases the checker.
   clearInterval(countdownTimer as ReturnType<typeof setInterval>);
+  if (_countdownVisHandler) { document.removeEventListener('visibilitychange', _countdownVisHandler); _countdownVisHandler = null; }
 
   const drawer = document.getElementById('code-drawer');
   const mycodeChip = document.getElementById('mycode-chip');
