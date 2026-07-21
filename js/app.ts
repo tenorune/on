@@ -30,11 +30,7 @@ import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
 import { isTelegramContext, ensureTelegramIdentity, isTelegramLinked, telegramFirstName } from './telegram.js';
 import { telegramBridgeReady } from './telegramBridge.js';
-import { initTelegramChrome } from './telegramChrome.js';
-import { telegramInviteGate, stampInviteOutcome, redemptionConsumedToken } from './telegramFirstRun.js';
-import { runLinkArrival } from './telegramLinkArrival.js';
 import { ensureCacheOwner } from './cacheOwner.js';
-import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
 import { showGraduationInfo } from './graduation.js';
 import { syncNotifyChannel } from './notifyChannel.js';
 import { syncBotDelivery } from './notifySuppression.js';
@@ -598,7 +594,8 @@ type BootSession = {
   code: string;
   isNew: boolean;
   pendingInviteToken: string | null;   // may be updated by the Telegram invite gate
-  tgInvite: Awaited<ReturnType<typeof telegramInviteGate>>;
+  tgInvite: Awaited<ReturnType<typeof import('./telegramFirstRun.js').telegramInviteGate>>;
+  tgFirstRun: typeof import('./telegramFirstRun.js') | null;
 };
 // Branded ordering token: zero runtime payload, proof that initStores has run.
 // resolveEntryContext requires one, so it is unrepresentable before the stores exist.
@@ -648,7 +645,11 @@ function parseBootIntent(): BootIntent | null {
 async function resolveIdentity(intent: BootIntent): Promise<BootSession | null> {
   let pendingInviteToken = intent.pendingInviteToken;
   const { identity, isNew } = await ensureIdentity(pendingInviteToken);
-  if (isTelegramContext()) initTelegramChrome();
+  if (isTelegramContext()) {
+    import('./telegramChrome.js')
+      .then(({ initTelegramChrome }) => initTelegramChrome())
+      .catch((err) => console.error('telegramChrome load failed:', err));
+  }
   const { userId, code } = identity;
 
   // Wipe another account's cached state before anything reads it (see
@@ -661,17 +662,20 @@ async function resolveIdentity(intent: BootIntent): Promise<BootSession | null> 
   // Telegram deep-linked invite (t.me ...?startapp=<token>): gate before the
   // normal redemption flow. Linked accounts redeem silently; unlinked arrivals
   // get the first-run interstitial (spec §1).
-  let tgInvite: Awaited<ReturnType<typeof telegramInviteGate>> = null;
+  let tgInvite: Awaited<ReturnType<typeof import('./telegramFirstRun.js').telegramInviteGate>> = null;
+  let tgFirstRun: typeof import('./telegramFirstRun.js') | null = null;
   if (!pendingInviteToken && isTelegramContext()) {
+    const { runLinkArrival } = await import('./telegramLinkArrival.js');
     if (await runLinkArrival({ dismissSplash })) return null; // onramp link handled — reboots on success
-    tgInvite = await telegramInviteGate({
+    tgFirstRun = await import('./telegramFirstRun.js');
+    tgInvite = await tgFirstRun.telegramInviteGate({
       linked: isTelegramLinked(),
       isNew,
       dismissSplash,
     });
     if (tgInvite) pendingInviteToken = tgInvite.token;
   }
-  return { userId, code, isNew, pendingInviteToken, tgInvite };
+  return { userId, code, isNew, pendingInviteToken, tgInvite, tgFirstRun };
 }
 
 // groupContext (~1.6k lines) is the largest client module and only group
@@ -728,7 +732,7 @@ function initStores(session: BootSession): StoresReady {
 // initStores). Returns whether we landed in a group so Stage 4/5 can reveal the
 // right surface.
 async function resolveEntryContext(session: BootSession, intent: BootIntent, stores: StoresReady): Promise<Landing> {
-  const { userId, code, isNew, pendingInviteToken, tgInvite } = session;
+  const { userId, code, isNew, pendingInviteToken, tgInvite, tgFirstRun } = session;
   let landedInGroup = false;
 
   if (pendingInviteToken) {
@@ -788,7 +792,7 @@ async function resolveEntryContext(session: BootSession, intent: BootIntent, sto
       reconcileSilentRedeemToast(result, tgInvite, beatShown);
       // A consumed token never re-runs the ceremony on a re-tapped chat link
       // (W1 J#4) — stamp it (covers the silent-redeem path too).
-      if (tgInvite && redemptionConsumedToken(result)) stampInviteOutcome(tgInvite.token, 'redeemed');
+      if (tgInvite && tgFirstRun && tgFirstRun.redemptionConsumedToken(result)) tgFirstRun.stampInviteOutcome(tgInvite.token, 'redeemed');
       // Clean the URL so a refresh doesn't re-trigger.
       cleanInviteParamFromUrl();
       if (result.ok && result.groupId) {
@@ -949,12 +953,18 @@ function startSubscriptions(session: BootSession, landing: Landing): void {
 async function initSurfaces(session: BootSession, intent: BootIntent, landing: Landing): Promise<void> {
   const { userId, code, isNew } = session;
   initCodeDrawer(userId, code);
-  if (isTelegramContext()) initTelegramSettings(userId);
+  if (isTelegramContext()) {
+    import('./telegramSettings.js')
+      .then(({ initTelegramSettings }) => initTelegramSettings(userId))
+      .catch((err) => console.error('telegramSettings load failed:', err));
+  }
   // Empty-state primary "Invite your people": Telegram shares the deep link
   // straight to the native share sheet (spec §3/§4); web opens the invite modal.
   initFirstRun({
     onInvite: startPersonalInviteFlow,
-    onLink: isTelegramContext() ? showLinkScreen : null,
+    onLink: isTelegramContext()
+      ? () => { import('./telegramSettings.js').then(({ showLinkScreen }) => showLinkScreen()).catch(() => {}); }
+      : null,
     onGraduateInfo: isTelegramContext() ? showGraduationInfo : null,
   });
   const landingMsg = consumeGraduationNotice();
