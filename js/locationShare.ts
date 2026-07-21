@@ -133,9 +133,25 @@ function stopGeoWatch(): void {
 // (Safari → Develop → the PWA → Web Inspector console: `localStorage.locdbg='1'`,
 // then re-toggle the glyph) to trace which layer of the publish pipeline fails —
 // the glyph prove, the tick's own geolocation read, the permission gate, or the
-// RTDB write. Remove once root-caused.
+// RTDB write. Lines also land in a localStorage ring buffer ('locdbgbuf', last
+// 300, ISO-timestamped) so an UNTETHERED reproduction survives: the Web
+// Inspector detaches (and its console history is lost) whenever the PWA is
+// backgrounded — dump afterwards with `copy(localStorage.locdbgbuf)`. Remove
+// once root-caused.
+const LOCDBG_BUF_LINES = 300;
 function locDbg(...args: unknown[]): void {
-  try { if (localStorage.getItem('locdbg') === '1') console.warn('[LOCDBG]', ...args); } catch { /* storage denied */ }
+  try {
+    if (localStorage.getItem('locdbg') !== '1') return;
+    console.warn('[LOCDBG]', ...args);
+    const part = (a: unknown): string => {
+      if (typeof a === 'string') return a;
+      try { return JSON.stringify(a) ?? String(a); } catch { return String(a); }
+    };
+    const line = new Date().toISOString() + ' ' + args.map(part).join(' ');
+    const buf = (localStorage.getItem('locdbgbuf') ?? '').split('\n').filter(Boolean);
+    buf.push(line);
+    localStorage.setItem('locdbgbuf', buf.slice(-LOCDBG_BUF_LINES).join('\n'));
+  } catch { /* storage denied/full — console line above still fired */ }
 }
 
 function anyOptIn(): boolean {
