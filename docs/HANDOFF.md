@@ -11,53 +11,55 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**Polish pass in preparation for the feature release, on
-`claude/knockknock-feature-dev-9a3ysy`.** Operator-directed (2026-07-22).
-Polish sources to draw from: the "Known-deferred minors" list under Open
-items below, plus anything the operator surfaces hands-on. This session
-(2026-07-21/22) closed the location tram-freeze bug (three root causes, all
-device-evidenced via the `[LOCDBG]` buffer) and a canvas first-entry 0×0
-regression — see History.
+**Release-polish pass DONE (2026-07-22) on
+`claude/knockknock-polish-pass-8kb77v`** (cut from `9a3ysy`'s tip `837ee8a`;
+this branch now supersedes `9a3ysy` as the merge candidate). Shipped:
+the `[LOCDBG]` strip (release gate — done, `locdbg` grep over `js/`+`tests/`
+is empty) and four Known-deferred minors: sticky denied glyph state ·
+dedicated 'unsupported' glyph title · `formatDistancePrecise` 999.6–999.99 m
+edge · the stale error-shape comment. Plus one hardening the sticky-denied
+TDD surfaced: a `_watchGeneration` guard so a synchronously-delivered code-1
+watch error can't resurrect a dead watch id (details in History). Remaining
+polish source: whatever the operator surfaces hands-on — the glyph changes
+are visual, expect device iteration.
 
-> ⚠️ **Strip the `[LOCDBG]` instrumentation before this branch merges to `dev`.**
-> Search `locDbg` / `LOCDBG` in `js/locationShare.ts` — one helper (now with a
-> `locdbgbuf` localStorage ring buffer) + call sites, including the
-> `watch restart` / `tick skip: already in flight` lines added this session.
-> Part of the release polish.
-
-Branch tip is `86504e6`, pushed; `origin` == local. **`9a3ysy` is
-authoritative** (the old `…-audit-2-handoff-jemuil` branch is gone from
-origin). Realign a fresh session:
+Code tip is `4ac099c`; a docs(handoff) commit rides atop. Realign a fresh
+session:
 
 ```
 git fetch origin
-git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
-git log --oneline -1   # must show 86504e6 — else STOP, origin is authoritative
+git checkout -B claude/knockknock-polish-pass-8kb77v origin/claude/knockknock-polish-pass-8kb77v
+git log --oneline -2   # must show 4ac099c under the docs commit — else STOP, origin is authoritative
 ```
 
 **Deploy-gated device verification still owed (the fixes are code-complete and
 unit-verified; the end-to-end scenarios are not yet re-run on a build that has
-them all):**
+them all).** NOTE: the `[LOCDBG]` trace instrumentation is now stripped —
+verify by observable behavior; re-instrument locally from `86504e6`'s diff
+only if a scenario fails:
 
 - **Tram scenario end-to-end:** distance visibly updating again after
-  backgrounding + return, NO glyph toggle needed. Trace (`localStorage.locdbg='1'`,
-  dump `localStorage.locdbgbuf.split('\n').slice(-80)` — `copy()` is broken
-  over remote inspection) should show ONE `watch restart (resume)`, fresh
-  `watch fix` coords, one publish; duplicates marked `watch restart deduped` /
-  `tick skip: already in flight`.
+  backgrounding + return, NO glyph toggle needed, and no duplicate publishes
+  (peer listeners tick once per move).
 - **Reload leg:** reload with the glyph already ON → ticks publish within a
-  minute, no toggle (`tick getPosition ok`, never `permission gate closed`).
-  One glyph toggle per device seeds the `statusapp_geo_grant_proven` marker
-  the first time a device runs a build with `7a37887`.
+  minute, no toggle. One glyph toggle per device seeds the
+  `statusapp_geo_grant_proven` marker the first time a device runs a build
+  with `7a37887`.
 - **Canvas on a call from a FRESH page load** — the case that always broke
   pre-`86504e6`. If "nav visible" ever recurs, check the console for
   `enterCanvas (answered) failed:` (lazy canvas chunk load failure is
   swallowed there — `js/following.ts:361`).
+- **NEW (polish pass, device-check the visuals):** deny the OS prompt on a
+  glyph tap → glyph paints denied AND STAYS denied across prefs syncs /
+  re-renders (previously washed back to plain off); revoke mid-session →
+  same sticky denied on both the Direct header and group band glyphs; a
+  no-geolocation browser shows title "Location unavailable — not supported
+  on this device" instead of the "check permissions" advice.
 
 **Next actions (nothing deploys from sessions):**
 
-1. Maintainer merges `claude/knockknock-feature-dev-9a3ysy` → `dev` (and
-   `dev` → `main`) — AFTER the LOCDBG strip.
+1. Maintainer merges `claude/knockknock-polish-pass-8kb77v` → `dev` (and
+   `dev` → `main`) — the LOCDBG strip gate is satisfied.
 2. DEPLOY the accumulated branch work (security fixes + all three prior perf
    batches + audit-2 batch + the 2026-07-21/22 fixes) per the Deploy
    ordering below — the LOAD-BEARING `pushTokens` (F6c) sequence is the one
@@ -82,11 +84,11 @@ them all):**
    Inspector); only deploy 2 — the next shell change after that — tests the
    claim, by landing on the iOS PWA organically (relaunch, no inspector).
 
-**Verification state:** green bar OBSERVED at `86504e6` (tip, == origin) —
-web jest 2070/2070 · functions 436/436 · both typechecks clean · production
-build completes (`node scripts/prod.js`). Rules suite (108) not re-run —
-nothing since the audit-2 batch touched rules. All suites run in this
-container with deps installed (Environment below).
+**Verification state:** green bar OBSERVED at `4ac099c` (polish-pass code
+tip) — web jest 2080/2080 · functions 438/438 · both typechecks clean ·
+production build completes (`node scripts/prod.js`). Rules suite (108) not
+re-run — nothing since the audit-2 batch touched rules. All suites run in
+this container with deps installed (Environment below).
 
 **Audit docs (sources of truth):**
 
@@ -153,17 +155,13 @@ deploys from sessions):**
 - One open product decision (unruled, not part of any plan): revoking OS
   location permission on ONE device flips the ACCOUNT-WIDE opt-in off —
   deliberate fail-safe, debatable.
-- Known-deferred minors (unrelated to security, none device-visible): denied
-  glyph state isn't sticky · 'unsupported' title says "check permissions" ·
-  `formatDistancePrecise` 999.6–999.99 m renders "1000 meters away" ·
-  cross-device prompt-suppression relies on the Permissions API (a fresh
-  session whose opt-in synced from elsewhere stays silent while the state is
-  genuinely `'prompt'` — designed, no surprise prompts) · stale comment at the
-  cell-publish catch in `js/locationShare.ts` (~:294) still says "Error shape
-  not device-verified" though the shape was emulator-verified — one-line doc
-  fix whenever convenient. (The old "stale opted-in gids → harmless denied
-  write every 60s" minor is FIXED by Tier 3 T3 — the loop now sweeps the
-  orphaned opt-in and can idle.)
+- Known-deferred minors: all cleared by the 2026-07-22 polish pass except
+  one, which stays as-designed (operator-ruled): cross-device
+  prompt-suppression relies on the Permissions API (a fresh session whose
+  opt-in synced from elsewhere stays silent while the state is genuinely
+  `'prompt'` — designed, no surprise prompts). (The older "stale opted-in
+  gids → harmless denied write every 60s" minor was already FIXED by Tier 3
+  T3.)
 - Follow-ups triaged 2026-07-17: **#290** in-app-browser dead tap · **#286** no
   invite revoke on Telegram surface · closed-unreproduced "revoked follow
   request still in inbox" (reopen only with a repro).
@@ -328,7 +326,33 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
-- **This session (2026-07-21c/22) — tram-freeze root-caused via device traces +
+- **This session (2026-07-22b) — release-polish pass, 3 commits
+  `00c88dd..4ac099c` on `claude/knockknock-polish-pass-8kb77v` (cut from
+  `9a3ysy` at `837ee8a`), all TDD:**
+  - `00c88dd` **fix(geo):** `formatDistancePrecise` meters/km watershed moved
+    from 1000 to 999.5 — 999.6–999.99 m rendered the never-valid "1000 meters
+    away". Fixture vectors pin both sides in web + functions suites
+    (`npm run sync-shared` applied).
+  - `880c54d` **fix(location-ui):** (1) sticky denied glyph — locationShare
+    exports `isPermissionDenied()` (set on code-1 prove reject + revocation
+    teardown; cleared on delivered fix / successful prove / reset); both
+    surfaces' repaint paths (prefs-synced, opt-in-changed, band render)
+    consult it via per-surface state helpers (`directGlyphState` in me.ts,
+    `groupGlyphState` in groupContext.ts — deliberately duplicated:
+    groupContext's tests mock me.js wholesale, importing would make the group
+    coverage vacuous). Previously the teardown's own opt-in-changed dispatch
+    washed the denied paint back to off. (2) `paintLocationGlyph` gained an
+    'unsupported' state — same `.denied` visual, own title ("Location
+    unavailable — not supported on this device"); tap handlers pass
+    `toggleContext`'s result straight through. (3) `_watchGeneration` guard:
+    a code-1 watch error delivered synchronously (allowed by the
+    getPositionOnce contract) ran the teardown before `startGeoWatch`'s id
+    assignment, resurrecting a dead watch — the next glyph prove parked
+    forever. Surfaced by the sticky-denied test's denied→re-prove leg.
+  - `4ac099c` **chore(location):** `[LOCDBG]` instrumentation stripped (the
+    release gate) — helper, ring buffer, all call sites; capture citations
+    normalized to "device trace 2026-07-21". Stale cell-publish catch comment
+    updated (error shape WAS emulator-verified 2026-07-20).
   canvas 0×0 fix, 4 commits `7364a80..86504e6` on `9a3ysy`, all pushed:**
   Bug report: distance froze at last-known after backgrounding the PWA;
   reload didn't recover, glyph off/on did. Method: `[LOCDBG]` extended with a
