@@ -783,7 +783,7 @@ describe('geolocation PermissionStatus caching', () => {
   });
 
   test("a device-proven grant unfreezes later sessions whose fresh query lies 'prompt' (iOS PWA reload regression)", async () => {
-    // Device-observed (iOS PWA, [LOCDBG] capture 2026-07-21): after a reload,
+    // Device-observed (iOS PWA, device trace 2026-07-21): after a reload,
     // a FRESH permissions.query answers 'prompt' even though geolocation is
     // granted (using it fires no prompt) — WebKit reports 'granted' only once
     // the session has actually used geolocation. Every background tick after

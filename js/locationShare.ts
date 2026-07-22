@@ -126,17 +126,15 @@ function startGeoWatch(highAccuracy: boolean): void {
       _lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, at: Date.now() };
       markGrantProven(); // a fix arrived without a prompt — grant proven on THIS device
       _permissionDenied = false; // a delivered fix means the permission is granted
-      locDbg('watch fix', _lastFix);
       drainWatchWaiters({ lat: _lastFix.lat, lng: _lastFix.lng });
     },
     (err) => {
       const code = (err as { code?: number })?.code;
-      locDbg('watch error', 'code=' + code);
       drainWatchWaiters({ code: code ?? 2 });
       // code 1 = PERMISSION_DENIED: revoked → full teardown. code 2/3
       // (position-unavailable / timeout) keep the last fix and the watch up so
       // a later fix resumes publishing — no teardown, matching a silent tick.
-      if (code === 1) { locDbg('watch → revokePermissionTeardown'); revokePermissionTeardown(); }
+      if (code === 1) revokePermissionTeardown();
     },
     { enableHighAccuracy: highAccuracy, timeout: 20000, maximumAge: 30000 },
   );
@@ -165,37 +163,11 @@ const WATCH_RESTART_DEDUPE_MS = 10000;
 function restartGeoWatch(): void {
   if (_watchId === null) return;
   const now = Date.now();
-  if (now - _lastWatchRestartAt < WATCH_RESTART_DEDUPE_MS) { locDbg('watch restart deduped'); return; }
+  if (now - _lastWatchRestartAt < WATCH_RESTART_DEDUPE_MS) return;
   _lastWatchRestartAt = now;
   if (navigator.geolocation?.clearWatch) navigator.geolocation.clearWatch(_watchId);
   _watchId = null;
   startGeoWatch(_watchHighAccuracy);
-}
-
-// TEMP DIAGNOSTIC — macOS PWA location no-op / stuck-off investigation
-// (2026-07-21). Dormant unless localStorage 'locdbg' === '1'. Enable on-device
-// (Safari → Develop → the PWA → Web Inspector console: `localStorage.locdbg='1'`,
-// then re-toggle the glyph) to trace which layer of the publish pipeline fails —
-// the glyph prove, the tick's own geolocation read, the permission gate, or the
-// RTDB write. Lines also land in a localStorage ring buffer ('locdbgbuf', last
-// 300, ISO-timestamped) so an UNTETHERED reproduction survives: the Web
-// Inspector detaches (and its console history is lost) whenever the PWA is
-// backgrounded — dump afterwards with `copy(localStorage.locdbgbuf)`. Remove
-// once root-caused.
-const LOCDBG_BUF_LINES = 300;
-function locDbg(...args: unknown[]): void {
-  try {
-    if (localStorage.getItem('locdbg') !== '1') return;
-    console.warn('[LOCDBG]', ...args);
-    const part = (a: unknown): string => {
-      if (typeof a === 'string') return a;
-      try { return JSON.stringify(a) ?? String(a); } catch { return String(a); }
-    };
-    const line = new Date().toISOString() + ' ' + args.map(part).join(' ');
-    const buf = (localStorage.getItem('locdbgbuf') ?? '').split('\n').filter(Boolean);
-    buf.push(line);
-    localStorage.setItem('locdbgbuf', buf.slice(-LOCDBG_BUF_LINES).join('\n'));
-  } catch { /* storage denied/full — console line above still fired */ }
 }
 
 function anyOptIn(): boolean {
@@ -262,7 +234,6 @@ function getPositionOnce(opts?: { highAccuracy?: boolean }): Promise<{ lat: numb
         _watchWaiters = _watchWaiters.filter((w) => w !== onResult);
         onResult({ lat: _lastFix.lat, lng: _lastFix.lng });
       } else if (hadWatch) {
-        locDbg('watch restart (stale fix)', _lastFix);
         restartGeoWatch();
       }
     }
@@ -369,7 +340,6 @@ function evaluateAvailability() {
 function revokePermissionTeardown() {
   const gids = _getOptedInGids(); // snapshot BEFORE flipping prefs — see clearPublished
   const contexts = [...(getLocationOptIn('direct') ? ['direct'] : []), ...gids];
-  locDbg('revokePermissionTeardown → flipping OFF', contexts);
   _permissionDenied = true;
   clearGrantProven(); // 'prompt' is genuine after a real revocation — see GEO_PROVEN_KEY
   stopLoop();
@@ -398,7 +368,7 @@ let _geoPermStatus: { state: string; addEventListener?: (t: string, l: () => voi
 // Device-local "geolocation grant proven here": set the first time a watch fix
 // actually arrives (obtaining a fix never prompts unless the state is genuinely
 // pre-grant, so a delivered fix ⇒ granted on this device). Persisted because
-// iOS WebKit (PWA, [LOCDBG] capture 2026-07-21) answers a FRESH
+// iOS WebKit (PWA, device trace 2026-07-21) answers a FRESH
 // permissions.query with 'prompt' after every reload until the session has
 // used geolocation — the gate below trusted that lie, so background ticks
 // froze after any reload until a glyph re-toggle. A 'prompt' answer is
@@ -455,7 +425,7 @@ async function tickPermissionGranted(): Promise<boolean> {
 let _tickInFlightSince: number | null = null;
 async function tick(): Promise<void> {
   const now0 = Date.now();
-  if (_tickInFlightSince !== null && now0 - _tickInFlightSince < TICK_MS / 2) { locDbg('tick skip: already in flight'); return; }
+  if (_tickInFlightSince !== null && now0 - _tickInFlightSince < TICK_MS / 2) return;
   _tickInFlightSince = now0;
   try { await tickInner(); } finally { _tickInFlightSince = null; }
 }
@@ -467,19 +437,16 @@ async function tickInner(): Promise<void> {
   evaluateAvailability();
   const direct = getLocationOptIn('direct') && contextAvailable('direct');
   const gids = _getOptedInGids().filter((gid) => contextAvailable(gid));
-  locDbg('tick', { direct, gids, directOptIn: getLocationOptIn('direct'), directAvail: contextAvailable('direct') });
-  if (!direct && gids.length === 0) { locDbg('tick skip: nothing available'); return; }
-  if (!(await tickPermissionGranted())) { locDbg('tick skip: permission gate closed'); return; }
+  if (!direct && gids.length === 0) return;
+  if (!(await tickPermissionGranted())) return;
   let pos;
   try {
     pos = await getPositionOnce({ highAccuracy: direct });
-    locDbg('tick getPosition ok', pos);
   }
   catch (err) {
     // code 1 = PERMISSION_DENIED: revoked mid-flight → full teardown. Every
     // other failure is a silent failed tick (Decision 3).
-    locDbg('tick getPosition REJECTED', 'code=' + (err as { code?: number })?.code, (err as { message?: string })?.message);
-    if ((err as { code?: number })?.code === 1) { locDbg('→ revokePermissionTeardown'); revokePermissionTeardown(); }
+    if ((err as { code?: number })?.code === 1) revokePermissionTeardown();
     return;
   }
   const now = Date.now();
@@ -487,13 +454,11 @@ async function tickInner(): Promise<void> {
     const uid = _userId;
     const last = _lastPublished.get('direct');
     if (!last || haversineMeters(last.lat, last.lng, pos.lat, pos.lng) >= RAW_REPUBLISH_MIN_METERS) {
-      locDbg('publishLocation → calling', uid);
       publishLocation(uid, pos.lat, pos.lng, now).then(() => {
-        locDbg('publishLocation OK');
         _lastPublished.set('direct', { lat: pos.lat, lng: pos.lng, landedAt: now });
         markPublished('direct');
-      }).catch((e) => { locDbg('publishLocation FAILED', String((e as { code?: string; message?: string })?.code ?? (e as { message?: string })?.message ?? e)); });
-    } else { locDbg('publishLocation suppressed (unchanged raw point)'); }
+      }).catch(() => {}); // failed tick is silent (Decision 3); no entry recorded → next tick retries
+    }
   }
   // One write per cell, NOT multipath with the raw point — a stale-membership
   // cell denial must not take the precise tier down with it (db/location.js).
@@ -504,24 +469,21 @@ async function tickInner(): Promise<void> {
     const uid = _userId;
     const last = _lastPublished.get(gid);
     if (last && last.lat === cell.lat && last.lng === cell.lng
-        && now - last.landedAt < STALE_MEMBERSHIP_PROBE_MS) { locDbg('publishLocationCell suppressed (unchanged cell)', gid); continue; }
-    locDbg('publishLocationCell → calling', gid, cell);
+        && now - last.landedAt < STALE_MEMBERSHIP_PROBE_MS) continue;
     publishLocationCell(gid, uid, pos.lat, pos.lng, now).then(() => {
-      locDbg('publishLocationCell OK', gid);
       _lastPublished.set(gid, { lat: cell.lat, lng: cell.lng, landedAt: now });
       markPublished(gid);
     }).catch((err) => {
-      locDbg('publishLocationCell FAILED', gid, String((err as { code?: string; message?: string })?.code ?? (err as { message?: string })?.message ?? ''));
       // A PERMISSION_DENIED cell write means stale membership (kicked while
       // opted in) — the rules' delete-only carve-out still allows clearing.
       // Sweep: clear the orphaned cell, drop the opt-in, and let the normal
       // teardown paths idle the loop. Anything else stays a silent failed
-      // tick (Decision 3). Error shape not device-verified: the web SDK's
-      // rules-denied `set` is expected to reject with error.code ===
-      // 'PERMISSION_DENIED' and/or a message containing 'permission_denied'.
+      // tick (Decision 3). Error shape emulator-verified against the real
+      // SDK (2026-07-20): a rules-denied `set` rejects with error.code ===
+      // 'PERMISSION_DENIED' and message 'PERMISSION_DENIED: Permission
+      // denied' — both matched by the guard below.
       const reason = String((err as { code?: string; message?: string })?.code ?? (err as { message?: string })?.message ?? '');
-      if (!/permission.denied/i.test(reason)) { locDbg('publishLocationCell fail: non-denied, silent', gid); return; }
-      locDbg('publishLocationCell DENIED → stale-membership sweep flips opt-in OFF', gid);
+      if (!/permission.denied/i.test(reason)) return;
       clearLocationCells(uid, [gid]).catch(() => {});
       setLocationOptIn(gid, false);
       unmarkPublished([gid]);
@@ -642,7 +604,7 @@ export function initLocationShare(userId: string, getOptedInGids: () => string[]
   // the catch-up tick would otherwise read the frozen pre-suspension cache.
   _visListener = () => {
     if (document.visibilityState !== 'visible') return;
-    if (_watchId !== null) { locDbg('watch restart (resume)'); restartGeoWatch(); }
+    if (_watchId !== null) restartGeoWatch();
     if (_timer !== null) tick();
   };
   document.addEventListener('visibilitychange', _visListener);
@@ -651,7 +613,6 @@ export function initLocationShare(userId: string, getOptedInGids: () => string[]
 // The glyph handler. Flips the context's pref; first enable proves permission
 // with an immediate position read before committing the pref.
 export async function toggleContext(context: string): Promise<'on' | 'off' | 'denied' | 'unsupported'> {
-  locDbg('toggleContext', context, 'currentlyOptedIn=' + getLocationOptIn(context));
   if (getLocationOptIn(context)) {
     // Snapshot before flipping the pref — see clearPublished's note.
     const gidsBeforeToggle = _getOptedInGids();
@@ -680,13 +641,11 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
     document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context } }));
     return 'off';
   }
-  if (capabilityState() === 'unsupported') { locDbg('toggleContext enable: capabilityState unsupported'); return 'unsupported'; }
+  if (capabilityState() === 'unsupported') return 'unsupported';
   try {
     await getPositionOnce(); // permission prompt fires here, on explicit intent
-    locDbg('toggleContext enable: prove getPosition ok', context);
     _permissionDenied = false; // covers the Telegram path, which has no watch-fix hook
   } catch (err) {
-    locDbg('toggleContext enable: prove REJECTED', context, 'code=' + (err as { code?: number })?.code, (err as { message?: string })?.message);
     if ((err as { code?: number })?.code === 1) { _permissionDenied = true; return 'denied'; }
     return 'unsupported';
   }
@@ -698,7 +657,6 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
   setLocationOptIn(context, true);
   syncGroupStatusSubs();
   evaluateAvailability();
-  locDbg('toggleContext enabled', context, { wasRunning, avail: contextAvailable(context), anyPublishable: anyPublishable(), running: _timer !== null });
   if (wasRunning) {
     // Loop already publishing: this context's node doesn't exist yet, and it
     // isn't in _publishedContexts, so its surfaces won't attach-race the
