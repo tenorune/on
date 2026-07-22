@@ -1,8 +1,8 @@
 /** @jest-environment jsdom */
 // tests/utils.test.js
-const { hexToRgb, resolveDisplayName } = require('../js/utils.js');
+const { hexToRgb, resolveDisplayName, distanceFragmentHtml } = require('../js/utils.js');
 import vectors from '../test-fixtures/time-format-vectors.json';
-import { formatTimeRemaining, formatTimeRemainingFuzzy } from '../js/utils.js';
+import { formatTimeRemaining, formatTimeRemainingFuzzy, formatAgeFuzzy } from '../js/utils.js';
 
 describe('resolveDisplayName', () => {
   test('prefers the label when set', () => {
@@ -15,6 +15,21 @@ describe('resolveDisplayName', () => {
   test('returns "" rather than undefined for a missing/empty entry', () => {
     expect(resolveDisplayName(null)).toBe('');
     expect(resolveDisplayName({})).toBe('');
+  });
+});
+
+// The distance fragment ALWAYS renders on its own line (operator call) — a
+// block span with no separator dot, so "<1 km" / "away" can never split and
+// no " · " ever precedes it.
+describe('distance fragment', () => {
+  test('distanceFragmentHtml renders a single .loc-frag span, escaped, no separator', () => {
+    const el = document.createElement('span');
+    el.innerHTML = 'Available for an hour' + distanceFragmentHtml('<1 km away');
+    expect(el.textContent).toBe('Available for an hour<1 km away');
+    expect(el.textContent).not.toContain('·');
+    const frag = el.querySelector('.loc-frag');
+    expect(frag.textContent).toBe('<1 km away');
+    expect(frag.querySelector('*')).toBeNull(); // flat span — nothing nested to style apart
   });
 });
 
@@ -37,9 +52,10 @@ describe('hexToRgb', () => {
 });
 
 describe('time formatters (fixture-pinned, shared with functions/presence-core.js)', () => {
-  test.each(vectors)('js/utils time vectors: %j', ({ ms, precise, fuzzy }) => {
+  test.each(vectors)('js/utils time vectors: %j', ({ ms, precise, fuzzy, age }) => {
     expect(formatTimeRemaining(ms)).toBe(precise);
     expect(formatTimeRemainingFuzzy(ms)).toBe(fuzzy);
+    expect(formatAgeFuzzy(ms)).toBe(age);
   });
 });
 

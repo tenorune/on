@@ -19,6 +19,7 @@ const workDir = mkdtempSync(path.join(tmpdir(), 'wordlist-'));
 try {
   execSync('npm pack eff-diceware-passphrase', { cwd: workDir, stdio: 'pipe' });
   execSync('tar xzf eff-diceware-passphrase-*.tgz', { cwd: workDir, stdio: 'pipe' });
+  /** @type {string[]} */
   const raw = JSON.parse(readFileSync(path.join(workDir, 'package', 'wordlist.json'), 'utf8'));
   const filtered = raw.filter((w) => /^[a-z]+$/.test(w));
   const dropped = raw.filter((w) => !/^[a-z]+$/.test(w));
@@ -26,7 +27,7 @@ try {
   console.log(`Filtered: ${filtered.length} words (dropped ${dropped.length}: ${dropped.join(', ')})`);
 
   const body = filtered.map((w) => `  "${w}",`).join('\n');
-  const file = `// js/wordlist.js — EFF long wordlist (public domain), filtered to ${filtered.length} words
+  const file = `// js/wordlist.ts — EFF long wordlist (public domain), filtered to ${filtered.length} words
 // Source: https://www.eff.org/dice (eff_large_wordlist.txt)
 // Filter: kept only entries matching /^[a-z]+$/ (dropped: ${dropped.join(', ')})
 // Regenerate with: node scripts/gen-wordlist.js
@@ -36,9 +37,9 @@ ${body}
 
 const WORDSET = new Set(WORDLIST);
 
-module.exports = { WORDLIST, WORDSET };
+export { WORDLIST, WORDSET };
 `;
-  const outPath = path.resolve(__dirname, '..', 'js', 'wordlist.js');
+  const outPath = path.resolve(__dirname, '..', 'js', 'wordlist.ts');
   writeFileSync(outPath, file);
   console.log(`Wrote: ${outPath}`);
 } finally {

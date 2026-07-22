@@ -12,7 +12,7 @@ const {
   setLastVisited,
   writeGroup, readGroup, readGroupName, renameGroup, deleteGroup, watchGroupMeta,
   writeMember, readMember, readMembers, removeMember, setMemberDisplayName, watchGroupMembers,
-  writeGroupInvite, readGroupInvites, setGroupInviteRevoked, incrementGroupInviteRedemptions, watchGroupInvites,
+  writeGroupInvite, readGroupInvites, setGroupInviteRevoked, watchGroupInvites,
   setStatusOverride, clearStatusOverride, watchOwnMemberOverride,
   writeFollowRequest, watchFollowRequests, deleteFollowRequest,
   writeFollowGrant, watchFollowGrants, deleteFollowGrant,
@@ -192,6 +192,23 @@ describe('call mailboxes', () => {
     onValue.mockImplementationOnce(() => () => {});
     watchOwnCall('me', jest.fn());
     expect(ref).toHaveBeenCalledWith({}, 'calls/me');
+  });
+
+  test('endCall clears own mailbox when the atomic both-null is denied (peer node gone)', async () => {
+    // Peer mailbox already gone → nulling it is denied by the calls .write rule,
+    // which fails the whole atomic update. endCall must fall back to clearing our
+    // OWN node (single-path set(null), always allowed) so we can leave the canvas.
+    update.mockRejectedValueOnce(new Error('PERMISSION_DENIED: update at /calls'));
+    set.mockResolvedValue();
+    await endCall('me', 'peerGone');
+    expect(ref).toHaveBeenCalledWith({}, 'calls/me');
+    expect(set).toHaveBeenCalledWith('mock-ref', null);
+  });
+
+  test('endCall does NOT issue the own-only fallback when the atomic update succeeds', async () => {
+    update.mockResolvedValue();
+    await endCall('me', 'peer');
+    expect(set).not.toHaveBeenCalled();
   });
 
   test('startCall with a clearUid nulls the prior ringer mailbox in the same update', async () => {
@@ -493,26 +510,29 @@ describe('group entity ops', () => {
     expect(remove).toHaveBeenCalled();
   });
 
-  test('watchGroupMeta subscribes to groups/{groupId} and strips members/invites for the meta-only callback', () => {
-    let cb;
-    onValue.mockImplementation((_ref, fn) => { cb = fn; return () => {}; });
+  test('watchGroupMeta subscribes to groups/{groupId}/name and groups/{groupId}/ownerId as leaf listens (audit F3), never the group root', () => {
     const seen = [];
     watchGroupMeta('G1ABCD23', (meta) => seen.push(meta));
-    cb({ exists: () => true, val: () => ({ name: 'Family', ownerId: 'uid1', createdAt: 1, members: { u: {} }, invites: { i: {} } }) });
-    expect(seen[0]).toEqual({ name: 'Family', ownerId: 'uid1', createdAt: 1 });
-    cb({ exists: () => false });
-    expect(seen[1]).toBeNull();
+    expect(ref).toHaveBeenCalledWith({}, 'groups/G1ABCD23/name');
+    expect(ref).toHaveBeenCalledWith({}, 'groups/G1ABCD23/ownerId');
+    expect(ref).not.toHaveBeenCalledWith({}, 'groups/G1ABCD23');
+    const nameCallIndex = ref.mock.calls.findIndex(([, path]) => path.endsWith('/name'));
+    const ownerCallIndex = ref.mock.calls.findIndex(([, path]) => path.endsWith('/ownerId'));
+    const [, nameCb] = onValue.mock.calls[nameCallIndex];
+    const [, ownerCb] = onValue.mock.calls[ownerCallIndex];
+    nameCb({ exists: () => true, val: () => 'Family' });
+    ownerCb({ exists: () => true, val: () => 'uid1' });
+    expect(seen[seen.length - 1]).toEqual({ name: 'Family', ownerId: 'uid1' });
   });
 
-  test('watchGroupMeta fires null when the listener is CANCELLED (owner deleted the group → read permission lost)', () => {
-    // Real Firebase never delivers a null value here: the group node is
-    // membership-gated, so its deletion cancels the member's listener with
-    // PERMISSION_DENIED (the onValue cancel callback), not a null snapshot.
-    let cancelCb;
-    onValue.mockImplementation((_ref, _fn, cancel) => { cancelCb = cancel; return () => {}; });
+  test('watchGroupMeta fires null when the ownerId listener is CANCELLED (owner deleted the group / member kicked → read permission lost)', () => {
+    // Real Firebase never delivers a null value here: groups/{gid}/ownerId is
+    // membership-gated, so deletion (or a kick) cancels the member's listener
+    // with PERMISSION_DENIED (the onValue cancel callback), not a null snapshot.
     const seen = [];
     watchGroupMeta('G1ABCD23', (meta) => seen.push(meta));
-    cancelCb(new Error('permission_denied'));
+    const [, , ownerCancel] = onValue.mock.calls[1];
+    ownerCancel(new Error('permission_denied'));
     expect(seen).toEqual([null]);
   });
 });
@@ -550,11 +570,16 @@ describe('group members', () => {
     expect(await readMembers('G1')).toEqual({});
   });
 
-  test('removeMember removes the member record', async () => {
-    remove.mockResolvedValue();
+  test('removeMember deletes the member record AND their location cell in ONE multipath update (spec §8)', async () => {
+    // "Own cell deleted in the same update as the leave" — the delete-only
+    // rules carve-out on locationCells guarantees the cell path passes even
+    // as membership goes away in the same write.
+    update.mockResolvedValue();
     await removeMember('G1', 'uid2');
-    expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/members/uid2');
-    expect(remove).toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      'groups/G1/members/uid2': null,
+      'locationCells/G1/uid2': null,
+    });
   });
 
   test('setMemberDisplayName updates only the displayName field', async () => {
@@ -597,14 +622,6 @@ describe('group invite ops', () => {
     await setGroupInviteRevoked('G1', 'T');
     expect(update).toHaveBeenCalledWith('mock-ref', { revoked: true });
     expect(ref).toHaveBeenLastCalledWith({}, 'groups/G1/invites/T');
-  });
-
-  test('incrementGroupInviteRedemptions transactionally bumps the counter', async () => {
-    runTransaction.mockResolvedValue({ committed: true });
-    await incrementGroupInviteRedemptions('G1', 'T');
-    const handler = runTransaction.mock.calls[0][1];
-    expect(handler(3)).toBe(4);
-    expect(handler(null)).toBe(1);
   });
 
   test('watchGroupInvites subscribes to the collection', () => {
@@ -886,4 +903,51 @@ describe('presence subtree', () => {
   });
   // (setLastVisited is covered in the 'user-side groups enumeration' describe —
   // not a presence field, so no duplicate here.)
+});
+
+describe('location db primitives', () => {
+  const { watchLocation, watchLocationCell, clearLocationCells, clearLocationData } = require('../js/db');
+  beforeEach(() => jest.clearAllMocks());
+
+  test('watchLocation emits null when the listener is CANCELLED (reciprocity lost → PERMISSION_DENIED)', () => {
+    // Real infra: deleting locations/{me} (going unavailable) makes RTDB
+    // re-evaluate reciprocity for active listeners and CANCEL them — the SDK
+    // fires the cancel callback, not a null-value tick. Without wiring it, a
+    // cancelled watch strands its last coordinate in the hub's combine().
+    let cancelCb;
+    onValue.mockImplementationOnce((_r, _fn, cancel) => { cancelCb = cancel; return () => {}; });
+    const seen = [];
+    watchLocation('peer', (loc) => seen.push(loc));
+    expect(typeof cancelCb).toBe('function');
+    cancelCb(new Error('permission_denied'));
+    expect(seen).toEqual([null]);
+  });
+
+  test('watchLocationCell emits null when the listener is CANCELLED', () => {
+    let cancelCb;
+    onValue.mockImplementationOnce((_r, _fn, cancel) => { cancelCb = cancel; return () => {}; });
+    const seen = [];
+    watchLocationCell('G1', 'peer', (loc) => seen.push(loc));
+    expect(typeof cancelCb).toBe('function');
+    cancelCb(new Error('permission_denied'));
+    expect(seen).toEqual([null]);
+  });
+
+  test('clearLocationCells deletes ONLY the given cells — never locations/{uid}', async () => {
+    update.mockResolvedValue();
+    await clearLocationCells('me', ['G1', 'G2']);
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      'locationCells/G1/me': null,
+      'locationCells/G2/me': null,
+    });
+  });
+
+  test('clearLocationData deletes the raw point plus every given cell in one multipath update', async () => {
+    update.mockResolvedValue();
+    await clearLocationData('me', ['G1']);
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      'locations/me': null,
+      'locationCells/G1/me': null,
+    });
+  });
 });

@@ -4,10 +4,36 @@
 import { timingSafeEqual } from 'crypto';
 import { ensureTelegramUser } from './telegram-auth.js';
 import { WELCOME_STRANGER_TEXT, openAppKeyboard, GROUP_ID_RE, UID_RE, rootUpdate } from './telegram-shared.js';
-import { effectiveAvailable, primaryAvailable, clampName, statusCircle, formatTimeRemaining, formatTimeRemainingFuzzy } from './presence-core.js';
+import { effectiveAvailable, primaryAvailable, clampName, statusCircle, formatTimeRemaining, formatTimeRemainingFuzzy, formatAgeFuzzy } from './presence-core.js';
+import { haversineMeters, formatDistancePrecise, formatDistanceCoarse } from './_shared/geo.js';
+
+/**
+ * The webhook's injected surface (index.js telegramWebhook builds it): the
+ * RTDB adapter quintet plus the Telegram config/API pieces the router needs.
+ * Deliberately NOT the full TelegramAuthDeps — the webhook never mints tokens
+ * or rate-limits, so index.js doesn't provide those members here.
+ * @typedef {{
+ *   getVal: (path: string) => Promise<any>,
+ *   set: (path: string, value: unknown) => Promise<unknown>,
+ *   update: (path: string, writes: Record<string, unknown>) => Promise<unknown>,
+ *   transaction: (path: string, fn: (current: any) => unknown) => Promise<{ committed: boolean }>,
+ *   now: () => number,
+ *   uidSecret?: string | null,
+ *   appUrl?: string | null,
+ *   setAuthEmail?: ((uid: string, email: string) => Promise<unknown>) | null,
+ *   generateCode?: (() => string) | null,
+ *   tg: {
+ *     sendMessage?: ((chatId: string, text: string, extra?: object) => Promise<unknown>) | null,
+ *     answerCallbackQuery: (id: string, text: string) => Promise<unknown>,
+ *     editMessageText?: ((chatId: string, messageId: number, text: string, extra?: object) => Promise<unknown>) | null,
+ *   },
+ * }} TelegramBotDeps
+ */
+/** @typedef {(text: string, extra?: object) => void} ReplyFn */
 
 // Required format of each callback action's arg, checked before dispatch.
 // A malformed arg — or an unknown action — is refused without touching the DB.
+/** @type {Record<string, RegExp>} */
 const CALLBACK_ARG_RE = {
   knock: UID_RE,
   invite_accept: GROUP_ID_RE,
@@ -18,12 +44,13 @@ const CALLBACK_ARG_RE = {
 
 // contextGroupId rides the callback so a knock-back lands as a group knock.
 // 64-byte callback_data cap: 'knock:' + 32-hex uid + ':' + 8-char gid = 47.
-const knockCallback = (data) =>
+const knockCallback = (/** @type {{ targetUid?: string, contextGroupId?: string }} */ data) =>
   data.contextGroupId ? `knock:${data.targetUid}:${data.contextGroupId}` : `knock:${data.targetUid}`;
 
 // Inline keyboard for a notification, keyed by the same data.type the FCM
 // payload carries. Simple reactions are callbacks handled by the webhook;
 // answering a call needs the canvas, so it deep-links into the Mini App.
+/** @param {any} data @param {string | null | undefined} appUrl */
 export function buildNotificationKeyboard(data, appUrl) {
   switch (data?.type) {
     case 'knock':
@@ -48,10 +75,11 @@ export function buildNotificationKeyboard(data, appUrl) {
 }
 
 // "30m", "2h", "1h30m", "90", "45 min" → minutes, clamped to 5..1440. null when unparseable.
+/** @param {unknown} raw @returns {number | null} */
 export function parseDurationMinutes(raw) {
   const s = String(raw ?? '').trim().toLowerCase();
   if (!s) return null;
-  const clamp = (m) => Math.max(5, Math.min(1440, m));
+  const clamp = (/** @type {number} */ m) => Math.max(5, Math.min(1440, m));
   if (/^\d+$/.test(s)) return clamp(parseInt(s, 10));
   const m = s.match(/^(?:(\d+)\s*h(?:rs?)?)?\s*(?:(\d+)\s*m(?:in)?s?)?$/);
   if (!m || (!m[1] && !m[2])) return null;
@@ -60,6 +88,7 @@ export function parseDurationMinutes(raw) {
 
 // A failed group query that reads like a botched duration (a digit, a time
 // word, or "for") earns a format hint rather than a bare "no group" (B#4).
+/** @param {string} s */
 function looksLikeDuration(s) {
   return /\d/.test(s) || /\b(for|hours?|hrs?|mins?|minutes?)\b/i.test(s);
 }
@@ -72,13 +101,14 @@ function looksLikeDuration(s) {
 export const COMMANDS = [
   { command: 'status',        args: '[group] [30m|2h]', description: 'go available (default 1h)' },
   { command: 'off',           args: '[group]',          description: 'go unavailable' },
+  { command: 'locoff',        args: '[group]',          description: 'stop your location beacon' },
   { command: 'who',           args: '[group]',          description: "who's available now" },
   { command: 'knock',         args: '<name>',           description: 'send a knock (searches your people, then your groups)' },
   { command: 'groups',        args: '',                 description: 'your groups' },
   { command: 'notifications', args: 'push|telegram',    description: 'where notifications go' },
   { command: 'help',          args: '',                 description: 'this list' },
 ];
-const cmdLine = (c) => `/${c.command}${c.args ? ` ${c.args}` : ''} — ${c.description}`;
+const cmdLine = (/** @type {(typeof COMMANDS)[number]} */ c) => `/${c.command}${c.args ? ` ${c.args}` : ''} — ${c.description}`;
 export const HELP_TEXT = ['KnockKnock commands:', ...COMMANDS.map(cmdLine)].join('\n');
 
 // [{command, description}] for the Bot API's setMyCommands (bare command, no
@@ -101,9 +131,45 @@ export function pickPlayfulEmoji(rand = Math.random) {
   return PLAYFUL_EMOJI[Math.floor(rand() * PLAYFUL_EMOJI.length)];
 }
 
+// Beacon nudge (operator spec 2026-07-22): a going-available confirm carries a
+// "by the way" suffix when that context's location beacon is on — the bot only
+// sets presence, so a persisted last-known point becomes peer-visible again
+// WITHOUT the bot being able to refresh it. Only fires when the opt-in is ON
+// and the node exists with a numeric updatedAt (a never-published beacon has
+// nothing peers can see; the opt-in branch is the same userPrefs node the
+// app's cross-device glyph sync reads), and only once the point is at least
+// 5 minutes old — a fresh beacon isn't worth a "by the way" (operator call
+// 2026-07-22). NOTE the age is "last landed write": the app's no-op
+// suppression keeps a stationary sharer's point unwritten, so an old age can
+// mean "hasn't moved", not "dead" — hence "if you want to".
+const BEACON_NUDGE_MIN_AGE_MS = 5 * 60000;
+/** @param {TelegramBotDeps} deps @param {string} uid */
+async function directBeaconSuffix(deps, uid) {
+  const [optIn, node] = await Promise.all([
+    deps.getVal(`userPrefs/${uid}/location/direct`),
+    deps.getVal(`locations/${uid}`),
+  ]);
+  if (optIn !== true || typeof node?.updatedAt !== 'number') return '';
+  const age = deps.now() - node.updatedAt;
+  if (age < BEACON_NUDGE_MIN_AGE_MS) return '';
+  return ` By the way, your location last updated ${formatAgeFuzzy(age)} ago - open the app if you want to update it, or /locoff to stop the beacon.`;
+}
+/** @param {TelegramBotDeps} deps @param {string} uid @param {string} gid @param {string} name */
+async function groupBeaconSuffix(deps, uid, gid, name) {
+  const [optIn, cell] = await Promise.all([
+    deps.getVal(`userPrefs/${uid}/location/groups/${gid}`),
+    deps.getVal(`locationCells/${gid}/${uid}`),
+  ]);
+  if (optIn !== true || typeof cell?.updatedAt !== 'number') return '';
+  const age = deps.now() - cell.updatedAt;
+  if (age < BEACON_NUDGE_MIN_AGE_MS) return '';
+  return ` By the way, your location in ${name} last updated ${formatAgeFuzzy(age)} ago - open the app if you want to update it, or /locoff ${name} to stop the beacon.`;
+}
+
 // The one way a webhook entry point resolves its Telegram sender to an app
 // account: telegramUsers/{tgId} → { mapping, uid }. Both null/undefined-safe —
 // callers decide how to bail when the sender isn't mapped.
+/** @param {TelegramBotDeps} deps @param {string | number} tgId */
 async function resolveTelegramUid(deps, tgId) {
   const mapping = await deps.getVal(`telegramUsers/${String(tgId)}`);
   return { mapping, uid: mapping?.uid };
@@ -115,6 +181,7 @@ async function resolveTelegramUid(deps, tgId) {
 // request with it — one method per update — instead of a separate Bot API
 // call. Callbacks return nothing: they need two tg calls (answerCallbackQuery
 // + editMessageText) whose text depends on the DB result, so they keep tgApi.
+/** @param {TelegramBotDeps} deps @param {any} update */
 export async function handleUpdate(deps, update) {
   try {
     if (update?.message) return await handleMessage(deps, update.message);
@@ -125,6 +192,7 @@ export async function handleUpdate(deps, update) {
   return undefined;
 }
 
+/** @param {TelegramBotDeps} deps @param {any} msg */
 async function handleMessage(deps, msg) {
   if (msg.chat?.type !== 'private' || !msg.from) return undefined;
   const chatId = String(msg.chat.id);
@@ -139,11 +207,19 @@ async function handleMessage(deps, msg) {
   // returned as the webhook-reply payload rather than sent (F#5). A flow
   // that never replies (can't happen today) would just answer plain 200.
   let pending;
-  const reply = (text, extra = {}) => { pending = { chat_id: chatId, text, ...extra }; };
+  const reply = (/** @type {string} */ text, extra = {}) => { pending = { chat_id: chatId, text, ...extra }; };
   await routeCommand(deps, msg, chatId, cmd, args, reply);
   return pending;
 }
 
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {any} msg
+ * @param {string} chatId
+ * @param {string} cmd
+ * @param {string[]} args
+ * @param {ReplyFn} reply
+ */
 async function routeCommand(deps, msg, chatId, cmd, args, reply) {
   if (cmd === '/start') {
     // First-contact detection must precede ensureTelegramUser (which creates
@@ -151,14 +227,21 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
     // account to exist even before the Mini App is ever opened. The mapping
     // is passed through (and presence comes back) so nothing is read twice.
     const { mapping: known } = await resolveTelegramUid(deps, msg.from.id);
-    const { uid, presence } = await ensureTelegramUser(deps, msg.from, known);
+    // Cast: ensureTelegramUser's typedef names the full auth-deps surface, but
+    // it only touches the members TelegramBotDeps carries (db quintet,
+    // uidSecret, setAuthEmail?, generateCode?) — see its body.
+    const { uid, presence } = await ensureTelegramUser(/** @type {any} */ (deps), msg.from, known);
     // Keep the chat route current (first /start after a Mini-App-only signup,
     // or Telegram reassigning chat ids) — sendToUser reads telegramByUid.
-    // Both sides of the route in one multi-path write.
-    await rootUpdate(deps, {
-      [`telegramUsers/${String(msg.from.id)}/chatId`]: chatId,
-      [`telegramByUid/${uid}/chatId`]: chatId,
-    });
+    // Both sides of the route in one multi-path write; skipped when the chat
+    // id is already current (both sides always move together, so checking
+    // the one side already read above is enough to know neither needs it).
+    if (!known || known.chatId !== chatId) {
+      await rootUpdate(deps, {
+        [`telegramUsers/${String(msg.from.id)}/chatId`]: chatId,
+        [`telegramByUid/${uid}/chatId`]: chatId,
+      });
+    }
     if (!known) {
       // Stranger: funnel, no command list (spec §2). /help keeps the full list.
       await reply(WELCOME_STRANGER_TEXT, openAppKeyboard(deps.appUrl));
@@ -167,7 +250,9 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
     // Returning: compact live status, duration-based (no server-side timezone).
     const on = primaryAvailable(presence, deps.now());
     if (on) {
-      await reply(`You're ${statusCircle(presence.statusColor)} available for another ${formatTimeRemaining(presence.availableUntil - deps.now())}. /off to stop.`, openAppKeyboard(deps.appUrl));
+      // Available = a live beacon's point is peer-visible right now → same
+      // nudge as the /status confirm. The unavailable branch never nudges.
+      await reply(`You're ${statusCircle(presence.statusColor)} available for another ${formatTimeRemaining(presence.availableUntil - deps.now())}. /off to go unavailable.${await directBeaconSuffix(deps, uid)}`, openAppKeyboard(deps.appUrl));
     } else {
       await reply("You're unavailable right now. /status to go available.", openAppKeyboard(deps.appUrl));
     }
@@ -194,7 +279,7 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
           availableUntil: deps.now() + asDuration * 60000,
           lastSeen: deps.now(),
         });
-        await reply(`You're ${statusCircle(color)} available for ${formatTimeRemaining(asDuration * 60000)}. /off to stop.`);
+        await reply(`You're ${statusCircle(color)} available for ${formatTimeRemaining(asDuration * 60000)}. /off to go unavailable.${await directBeaconSuffix(deps, uid)}`);
         return;
       }
       // Group form: a trailing duration token splits off; the rest names the group.
@@ -212,6 +297,24 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
       await reply("You're unavailable.");
       return;
     }
+    case '/locoff': {
+      // Bot-side glyph-off: flips the SAME userPrefs opt-in the app's glyph
+      // writes and deletes the context's node in ONE atomic multi-path write
+      // (the pair the app's toggleContext off-branch writes separately —
+      // Admin-SDK gets to be atomic about it). Running app sessions converge
+      // via the normal userPrefs echo; peer listeners on the deleted node are
+      // cancelled by rules re-evaluation, exactly like an in-app glyph-off.
+      // Direct and group beacons are independent contexts — never both.
+      if (args.length) { await handleLocOffGroup(deps, uid, args.join(' '), reply); return; }
+      const optIn = await deps.getVal(`userPrefs/${uid}/location/direct`);
+      if (optIn !== true) { await reply('Your location beacon for mutuals was already off.'); return; }
+      await rootUpdate(deps, {
+        [`userPrefs/${uid}/location/direct`]: false,
+        [`locations/${uid}`]: null,
+      });
+      await reply('Your location beacon for mutuals is off.');
+      return;
+    }
     case '/notifications': {
       const choice = (args[0] || '').toLowerCase();
       if (choice !== 'push' && choice !== 'telegram') {
@@ -221,8 +324,11 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
       if (choice === 'push') {
         // W1 J#3 (mirrors the app's channel pill): don't write a push channel
         // this account can't receive on — the notifier's token-less fallback
-        // would mask it, but the shown state would lie.
-        const tokensMap = await deps.getVal(`userPrefs/${uid}/pushTokens`);
+        // would mask it, but the shown state would lie. Dual-read: prefer the
+        // relocated top-level node, fall back to legacy userPrefs until the
+        // migration completes — matches sendToUser in functions/notifier.js.
+        const tokensMap = await deps.getVal(`pushTokens/${uid}`)
+          .then((v) => v ?? deps.getVal(`userPrefs/${uid}/pushTokens`)); // legacy fallback until migration completes
         if (!tokensMap || Object.keys(tokensMap).length === 0) {
           await reply("Push isn't set up on any device yet — open KnockKnock in a browser first. You'll keep getting messages here.");
           return;
@@ -246,14 +352,22 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
 // including contextGroupId: set on create, overwrite on increment, else carry.
 // Returns whether the transaction committed — an aborted (capped) knock must
 // not be confirmed as sent (W1 B#2).
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} recipientUid
+ * @param {string} senderUid
+ * @param {string} [contextGroupId]
+ */
 async function writeKnock(deps, recipientUid, senderUid, contextGroupId) {
   const res = await deps.transaction(`knocks/${recipientUid}/${senderUid}`, (current) => {
     if (current === null) {
+      /** @type {{ count: number, ts: number, contextGroupId?: string }} */
       const next = { count: 1, ts: deps.now() };
       if (contextGroupId) next.contextGroupId = contextGroupId;
       return next;
     }
     if (current.count >= 5) return undefined; // abort — capped
+    /** @type {{ count: number, ts: number, contextGroupId?: string }} */
     const next = { count: current.count + 1, ts: deps.now() };
     if (contextGroupId) next.contextGroupId = contextGroupId;
     else if (current.contextGroupId) next.contextGroupId = current.contextGroupId;
@@ -262,6 +376,7 @@ async function writeKnock(deps, recipientUid, senderUid, contextGroupId) {
   return res.committed;
 }
 
+/** @param {TelegramBotDeps} deps @param {string} uid */
 async function readFollowing(deps, uid) {
   const data = (await deps.getVal(`userPrefs/${uid}/following`)) || {};
   return Object.entries(data).map(([fid, v]) => ({ userId: fid, code: v?.code ?? '', label: v?.label ?? '' }));
@@ -269,6 +384,7 @@ async function readFollowing(deps, uid) {
 
 // Case-insensitive substring match over the user's own groups' names
 // (spec 2026-07-07 naming decision — the /knock idiom applied to groups).
+/** @param {TelegramBotDeps} deps @param {string} uid @param {string} query */
 async function matchGroupsByName(deps, uid, query) {
   const groups = (await deps.getVal(`users/${uid}/groups`)) || {};
   const q = query.toLowerCase();
@@ -282,6 +398,14 @@ async function matchGroupsByName(deps, uid, query) {
 // Shared arity guard for group-arg commands: replies and returns null unless
 // exactly one group matches. No inline keyboard — /status//off carry extra
 // args that don't fit a callback, so the retry is plain text for all three.
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {ReplyFn} reply
+ * @param {string} [noMatchHint]
+ * @param {((name: string) => string) | null} [retryCmd]
+ */
 async function resolveGroupArg(deps, uid, query, reply, noMatchHint = '', retryCmd = null) {
   const matches = await matchGroupsByName(deps, uid, query);
   if (matches.length === 0) { await reply(`No group matching "${query}".${noMatchHint}`); return null; }
@@ -289,7 +413,8 @@ async function resolveGroupArg(deps, uid, query, reply, noMatchHint = '', retryC
     // B#3: a free-text "give me more letters" reply can't be answered (it hits
     // the unknown-command dump). Spell out the ready-made retry command per
     // candidate — carrying the pending duration — so the user taps/edits it.
-    await reply(`Which group? Try ${matches.map((m) => retryCmd(m.name)).join(' or ')}.`);
+    // (Cast: every ambiguous-match caller passes retryCmd.)
+    await reply(`Which group? Try ${matches.map((m) => /** @type {(name: string) => string} */ (retryCmd)(m.name)).join(' or ')}.`);
     return null;
   }
   return matches[0];
@@ -300,43 +425,75 @@ async function resolveGroupArg(deps, uid, query, reply, noMatchHint = '', retryC
 // status fields only (enabled/statusColor/paletteKey untouched — the client's
 // mergeStatusOverride contract); override OFF → the group mirrors global
 // presence, so the bot only explains (globalOn/globalOff). Fan-out for the ON
-// write rides the onMemberOverride RTDB trigger — Admin-SDK writes fire it too.
+// write rides the onMemberWritten RTDB trigger — Admin-SDK writes fire it too.
 // Presence is prefetched beside the override even though only the OFF branch
 // needs it — one wasted read on the ON path buys a round-trip of latency.
 // `fields` is a thunk evaluated at write time so availableUntil is stamped
 // from now() AFTER the reads, exactly as the pre-merge handlers did.
-async function setGroupPresence(deps, uid, query, reply, fields, messages, noMatchHint = '', retryCmd = null) {
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {ReplyFn} reply
+ * @param {() => Record<string, unknown>} fields
+ * @param {{ confirm: (name: string, color?: any) => string, globalOn: (name: string) => string, globalOff: (name: string) => string }} messages
+ * @param {string} [noMatchHint]
+ * @param {((name: string) => string) | null} [retryCmd]
+ * @param {((gid: string, name: string) => Promise<string>) | null} [suffixFor]
+ *   Appended to the confirm AND globalOn replies — both are "you're available
+ *   in this group right now" moments where a live beacon's cell is
+ *   peer-visible (the beacon nudge). Never on globalOff (not available →
+ *   nothing peers can see). /off passes nothing.
+ */
+async function setGroupPresence(deps, uid, query, reply, fields, messages, noMatchHint = '', retryCmd = null, suffixFor = null) {
   const match = await resolveGroupArg(deps, uid, query, reply, noMatchHint, retryCmd);
   if (!match) return;
   const [override, presence] = await Promise.all([
     deps.getVal(`groups/${match.gid}/members/${uid}/statusOverride`),
     deps.getVal(`users/${uid}/presence`),
   ]);
+  const suffix = () => (suffixFor ? suffixFor(match.gid, match.name) : Promise.resolve(''));
   if (override && override.enabled === true) {
     await deps.update(`groups/${match.gid}/members/${uid}/statusOverride`, fields());
     // Dot color = the group override's own statusColor; a missing/invalid one
     // falls through to statusCircle's 🟢 fallback (matching /who, /groups, and
     // the client roster) rather than borrowing the primary presence color.
-    await reply(messages.confirm(match.name, override.statusColor));
+    await reply(messages.confirm(match.name, override.statusColor) + await suffix());
     return;
   }
   const globallyOn = primaryAvailable(presence, deps.now());
-  await reply((globallyOn ? messages.globalOn : messages.globalOff)(match.name));
+  if (globallyOn) { await reply(messages.globalOn(match.name) + await suffix()); return; }
+  await reply(messages.globalOff(match.name));
 }
 
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {number} minutes
+ * @param {ReplyFn} reply
+ * @param {string} [durToken]
+ */
 async function handleGroupStatus(deps, uid, query, minutes, reply, durToken = '') {
   const noMatchHint = looksLikeDuration(query) ? ' Durations look like 2h or 30m — try /status 2h.' : '';
-  const retryCmd = (name) => `/status ${name}${durToken ? ` ${durToken}` : ''}`;
+  const retryCmd = (/** @type {string} */ name) => `/status ${name}${durToken ? ` ${durToken}` : ''}`;
   await setGroupPresence(deps, uid, query, reply,
     () => ({ status: 'available', availableUntil: deps.now() + minutes * 60000 }),
     {
-      confirm: (name, color) => `You're ${statusCircle(color)} available in ${name} for ${formatTimeRemaining(minutes * 60000)}. /off ${name} to stop.`,
+      confirm: (name, color) => `You're ${statusCircle(color)} available in ${name} for ${formatTimeRemaining(minutes * 60000)}. /off ${name} to go unavailable.`,
       globalOn: (name) => `${name} follows your global status — you're already available there.`,
       globalOff: (name) => `${name} follows your global status. /status goes available everywhere, or turn on a group status in the app.`,
     },
-    noMatchHint, retryCmd);
+    noMatchHint, retryCmd,
+    (gid, name) => groupBeaconSuffix(deps, uid, gid, name));
 }
 
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {ReplyFn} reply
+ */
 async function handleGroupOff(deps, uid, query, reply) {
   await setGroupPresence(deps, uid, query, reply,
     // null availableUntil deletes the key on RTDB — same shape the client's
@@ -350,12 +507,62 @@ async function handleGroupOff(deps, uid, query, reply) {
     '', (name) => `/off ${name}`);
 }
 
+// /locoff <group> — the group flavor of the bot-side glyph-off (see the
+// /locoff case). Only groups the user is still in are reachable by name
+// (matchGroupsByName enumerates memberships); an orphaned opt-in for a left
+// group stays the app-side stale-membership sweep's job.
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {ReplyFn} reply
+ */
+async function handleLocOffGroup(deps, uid, query, reply) {
+  const match = await resolveGroupArg(deps, uid, query, reply, '', (name) => `/locoff ${name}`);
+  if (!match) return;
+  const optIn = await deps.getVal(`userPrefs/${uid}/location/groups/${match.gid}`);
+  if (optIn !== true) { await reply(`Your location beacon in ${match.name} was already off.`); return; }
+  await rootUpdate(deps, {
+    [`userPrefs/${uid}/location/groups/${match.gid}`]: false,
+    [`locationCells/${match.gid}/${uid}`]: null,
+  });
+  await reply(`Your location beacon in ${match.name} is off.`);
+}
+
 // /who <group>: co-members' effective in-group availability (the /groups idiom).
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {ReplyFn} reply
+ */
 async function handleWhoGroup(deps, uid, query, reply) {
   const match = await resolveGroupArg(deps, uid, query, reply, '', (name) => `/who ${name}`);
   if (!match) return;
   const members = (await deps.getVal(`groups/${match.gid}/members`)) || {};
   const coMembers = Object.entries(members).filter(([mid]) => mid !== uid);
+  // Distance requires the requester to be de facto sharing IN THIS GROUP:
+  // their EFFECTIVE in-group availability (override wins when enabled —
+  // group location is independent of the Direct context, mirroring the
+  // client's per-context gating), plus their persisted cell. A requester
+  // unavailable in the group sees no distances.
+  const myPresence = await deps.getVal(`users/${uid}/presence`);
+  const myCell = effectiveAvailable(members[uid]?.statusOverride, myPresence?.status, myPresence?.availableUntil, deps.now())
+    ? await deps.getVal(`locationCells/${match.gid}/${uid}`)
+    : null;
+  // Precise cascade — the ONLY Direct↔group relationship: a co-member who is
+  // a MUTUAL, while BOTH sides are broadcasting in Direct (primary-available
+  // with a raw point), upgrades their line from the coarse cell to the
+  // precise distance, mirroring the app roster. The requester half is
+  // resolved once here; the per-member half below.
+  const myLoc = primaryAvailable(myPresence, deps.now())
+    ? await deps.getVal(`locations/${uid}`)
+    : null;
+  // One read each of the requester's own followers map and this group's cell
+  // map replaces a per-member child read of both (audit F10) — the map loop
+  // below only indexes into them.
+  const myFollowers = myLoc ? ((await deps.getVal(`users/${uid}/followers`)) || {}) : {};
+  const groupCells = myCell ? ((await deps.getVal(`locationCells/${match.gid}`)) || {}) : null;
   const lines = (await Promise.all(coMembers.map(async ([mid, m]) => {
     const presence = await deps.getVal(`users/${mid}/presence`);
     if (!effectiveAvailable(m?.statusOverride, presence?.status, presence?.availableUntil, deps.now())) return null;
@@ -365,7 +572,31 @@ async function handleWhoGroup(deps, uid, query, reply) {
     const until = on ? ov.availableUntil : presence?.availableUntil;
     const remaining = formatTimeRemainingFuzzy(until - deps.now());
     const tail = remaining ? ` — ${remaining} left` : '';
-    return `${statusCircle(color)} ${m?.displayName || 'Someone'}${tail}`;
+    let dist = '';
+    if (myLoc && primaryAvailable(presence, deps.now()) && myFollowers[mid]) {
+      // Admin SDK bypasses rules — mirror them explicitly: mutuality on BOTH
+      // authoritative follower edges (the requester's own following list is
+      // mailbox-reconciled client-side only and can be stale), plus the
+      // member's raw point. The member's PRIMARY availability gates the
+      // cascade — an override-available member with Direct off keeps their
+      // persisted raw point private to the coarse tier. `myFollowers[mid]`
+      // IS the `users/{uid}/followers/{mid}` gate, read from the prefetched
+      // map (audit F10) rather than a per-member child read.
+      const [theirLoc, followerOfThem] = await Promise.all([
+        deps.getVal(`locations/${mid}`),
+        deps.getVal(`users/${mid}/followers/${uid}`),
+      ]);
+      if (theirLoc && followerOfThem) {
+        dist = ` · ${formatDistancePrecise(haversineMeters(myLoc.lat, myLoc.lng, theirLoc.lat, theirLoc.lng))}`;
+      }
+    }
+    if (!dist && myCell && groupCells) {
+      const theirCell = groupCells[mid];
+      if (theirCell) {
+        dist = ` · ${formatDistanceCoarse(haversineMeters(myCell.lat, myCell.lng, theirCell.lat, theirCell.lng))}`;
+      }
+    }
+    return `${statusCircle(color)} ${m?.displayName || 'Someone'}${tail}${dist}`;
   }))).filter(Boolean);
   await reply(lines.length
     ? `Available in ${match.name}:\n${lines.join('\n')}`
@@ -376,6 +607,11 @@ async function handleWhoGroup(deps, uid, query, reply) {
 // name match — ONE copy of the cap + hint string + keyboard shape, shared by the
 // /knock following-match and group-reach branches (C5). `toButton(entry)` maps
 // each entry to its inline-button; only the button differs between callers.
+/**
+ * @param {ReplyFn} reply
+ * @param {any[]} entries
+ * @param {(e: any) => { text: string, callback_data: string }} toButton
+ */
 function replyDisambiguation(reply, entries, toButton) {
   const CAP = 8;
   const overflow = entries.length - CAP;
@@ -385,10 +621,18 @@ function replyDisambiguation(reply, entries, toButton) {
 
 // No Direct match — search shared-group rosters (spec 2026-07-07 §2): anyone
 // visible in a group you're in is knockable, with that group as context.
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {string} rawQuery
+ * @param {ReplyFn} reply
+ */
 async function knockGroupReach(deps, uid, query, rawQuery, reply) {
   const groups = (await deps.getVal(`users/${uid}/groups`)) || {};
   const perGroup = await Promise.all(Object.keys(groups).map(async (gid) => {
     const members = await deps.getVal(`groups/${gid}/members`);
+    /** @type {Array<{ uid: string, gid: string, name: string, groupName?: string }>} */
     const matches = [];
     for (const [mid, m] of Object.entries(members || {})) {
       if (mid === uid) continue;
@@ -417,6 +661,13 @@ async function knockGroupReach(deps, uid, query, rawQuery, reply) {
   await reply(committed ? `Knocked on ${found[0].name} (${found[0].groupName}).` : KNOCK_CAP_TEXT);
 }
 
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} cmd
+ * @param {string[]} args
+ * @param {ReplyFn} reply
+ */
 async function handleSocialCommand(deps, uid, cmd, args, reply) {
   if (cmd === '/who') {
     const groupQuery = args.join(' ').trim();
@@ -428,12 +679,42 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
       await reply("You're not following anyone yet — invite people from the app.", openAppKeyboard(deps.appUrl));
       return;
     }
+    // Distance requires the requester to be de facto sharing: available
+    // (primary presence) with a persisted node. Last-known nodes outlive
+    // availability, so the presence gate — not node existence — is what
+    // keeps an unavailable requester from seeing distances (mirrors the
+    // app surfaces' isOwnAvailable eligibility).
+    const myPresence = await deps.getVal(`users/${uid}/presence`);
+    const myLoc = primaryAvailable(myPresence, deps.now())
+      ? await deps.getVal(`locations/${uid}`)
+      : null;
+    // One read of the requester's own followers map replaces a per-member
+    // child read of it (audit F10) — the map loop below only indexes into it.
+    const myFollowers = myLoc ? ((await deps.getVal(`users/${uid}/followers`)) || {}) : {};
     const lines = (await Promise.all(following.map(async (entry) => {
       const presence = await deps.getVal(`users/${entry.userId}/presence`);
       if (!primaryAvailable(presence, deps.now())) return null;
       const remaining = formatTimeRemainingFuzzy(presence.availableUntil - deps.now());
       const tail = remaining ? ` — ${remaining} left` : '';
-      return `${statusCircle(presence.statusColor)} ${entry.label || entry.code}${tail}`;
+      let dist = '';
+      if (myLoc && myFollowers[entry.userId]) {
+        // Explicit gates — Admin SDK bypasses rules: both publishing +
+        // mutuality checked on BOTH authoritative followers edges. The
+        // requester's own following list is NOT authoritative for the
+        // requester→target edge (it's mailbox-reconciled client-side only, so
+        // it can be stale after a revocation); the rules gate on
+        // users/{target}/followers/{requester}, and the bot must mirror that.
+        // `myFollowers[entry.userId]` IS that requester→target edge, read
+        // from the prefetched map (audit F10) rather than a per-member read.
+        const [theirLoc, followerOfThem] = await Promise.all([
+          deps.getVal(`locations/${entry.userId}`),
+          deps.getVal(`users/${entry.userId}/followers/${uid}`),
+        ]);
+        if (theirLoc && followerOfThem) {
+          dist = ` · ${formatDistancePrecise(haversineMeters(myLoc.lat, myLoc.lng, theirLoc.lat, theirLoc.lng))}`;
+        }
+      }
+      return `${statusCircle(presence.statusColor)} ${entry.label || entry.code}${tail}${dist}`;
     }))).filter(Boolean);
     await reply(lines.length ? `Available now:\n${lines.join('\n')}` : 'No one is available right now.');
     return;
@@ -493,6 +774,12 @@ async function handleSocialCommand(deps, uid, cmd, args, reply) {
 // caller wants a button to survive on the resolved message (U1.6 — the join
 // outcome keeps an Open KnockKnock button so it isn't a dead end). Omitted → the
 // inline keyboard is dropped as before, so stale action buttons can't be tapped.
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {any} cq
+ * @param {string} outcome
+ * @param {object} [extra]
+ */
 export async function resolveSourceMessage(deps, cq, outcome, extra) {
   const msg = cq?.message;
   if (!msg?.message_id || !msg.chat?.id || !deps.tg.editMessageText) return;
@@ -504,9 +791,10 @@ export async function resolveSourceMessage(deps, cq, outcome, extra) {
   } catch { /* cosmetic — see above */ }
 }
 
+/** @param {TelegramBotDeps} deps @param {any} cq */
 async function handleCallback(deps, cq) {
   if (!cq?.id || !cq.from) return;
-  const answer = (text) => deps.tg.answerCallbackQuery(cq.id, text);
+  const answer = (/** @type {string} */ text) => deps.tg.answerCallbackQuery(cq.id, text);
   const { uid: me } = await resolveTelegramUid(deps, cq.from.id);
   if (!me) { await answer('Open KnockKnock first.'); return; }
   const [action, arg, arg2] = String(cq.data || '').split(':');
@@ -529,6 +817,14 @@ async function handleCallback(deps, cq) {
   }
 }
 
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} me
+ * @param {string} action
+ * @param {string} arg
+ * @param {any} cq
+ * @param {(text: string) => Promise<unknown>} answer
+ */
 async function handleInboxCallback(deps, me, action, arg, cq, answer) {
   if (action === 'invite_accept' || action === 'invite_decline') {
     const groupId = arg;
@@ -665,6 +961,7 @@ async function handleInboxCallback(deps, me, action, arg, cq, answer) {
 
 // Constant-shape check of Telegram's X-Telegram-Bot-Api-Secret-Token header.
 // An unset secret refuses everything — the webhook is dead until configured.
+/** @param {unknown} headerValue @param {string | null | undefined} secret */
 export function webhookAuthorized(headerValue, secret) {
   if (!secret || typeof headerValue !== 'string') return false;
   const a = Buffer.from(headerValue);

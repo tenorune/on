@@ -6,9 +6,14 @@ jest.mock('../js/db.js', () => ({
   deletePendingInvite: jest.fn().mockResolvedValue(undefined),
   readPendingInviteesForGroup: jest.fn().mockResolvedValue([]),
   readPushTokens: jest.fn().mockResolvedValue(null),
+  writePushToken: jest.fn().mockResolvedValue(undefined),
+  touchPushTokenDb: jest.fn().mockResolvedValue(undefined),
+  removePushTokenDb: jest.fn().mockResolvedValue(undefined),
+  removePushTokens: jest.fn().mockResolvedValue(undefined),
 }));
 
 const { mergeUserPrefs } = require('../js/db.js');
+const prefs = require('../js/prefs.js');
 const {
   initPrefs,
   isHintSeen, markHintSeen,
@@ -262,34 +267,41 @@ describe('notify prefs', () => {
 });
 
 const { addPushToken, removePushToken, getRegisteredPushToken, touchPushToken, cullStalePushTokens } = require('../js/prefs.js');
-const { readPushTokens } = require('../js/db.js');
+const { readPushTokens, writePushToken, touchPushTokenDb, removePushTokenDb, removePushTokens } = require('../js/db.js');
 
 describe('push tokens', () => {
-  beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); initPrefs('me123'); });
+  beforeEach(() => {
+    localStorage.clear();
+    writePushToken.mockClear(); touchPushTokenDb.mockClear(); removePushTokenDb.mockClear();
+    initPrefs('me123');
+  });
 
+  // F6: token records now live at the top-level pushTokens/{uid}/{token} node
+  // (owner-only), written through the dedicated db helpers rather than folded
+  // into a userPrefs merge.
   test('addPushToken writes the token record (createdAt + lastSeen + ua) and records it locally', () => {
     addPushToken('tok-abc');
-    expect(mergeUserPrefs).toHaveBeenCalledWith('me123',
-      expect.objectContaining({ 'pushTokens/tok-abc': expect.objectContaining({ createdAt: expect.any(Number), lastSeen: expect.any(Number) }) }));
+    expect(writePushToken).toHaveBeenCalledWith('me123', 'tok-abc',
+      expect.objectContaining({ createdAt: expect.any(Number), lastSeen: expect.any(Number), ua: expect.any(String) }));
     expect(getRegisteredPushToken()).toBe('tok-abc');
   });
 
   test('touchPushToken bumps only the lastSeen leaf (preserving createdAt/ua)', () => {
     touchPushToken('tok-abc');
-    expect(mergeUserPrefs).toHaveBeenCalledWith('me123', { 'pushTokens/tok-abc/lastSeen': expect.any(Number) });
+    expect(touchPushTokenDb).toHaveBeenCalledWith('me123', 'tok-abc', expect.any(Number));
   });
 
   test('removePushToken nulls the path and clears the local record', () => {
-    addPushToken('tok-abc'); mergeUserPrefs.mockClear();
+    addPushToken('tok-abc'); removePushTokenDb.mockClear();
     removePushToken('tok-abc');
-    expect(mergeUserPrefs).toHaveBeenCalledWith('me123', { 'pushTokens/tok-abc': null });
+    expect(removePushTokenDb).toHaveBeenCalledWith('me123', 'tok-abc');
     expect(getRegisteredPushToken()).toBe(null);
   });
 });
 
 describe('cullStalePushTokens', () => {
   const DAY = 24 * 60 * 60 * 1000;
-  beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); readPushTokens.mockReset(); initPrefs('me123'); });
+  beforeEach(() => { localStorage.clear(); removePushTokens.mockClear(); readPushTokens.mockReset(); initPrefs('me123'); });
 
   test('deletes tokens past the TTL, keeping the active and fresh ones', async () => {
     addPushToken('active'); // localStorage active token = 'active'
@@ -300,16 +312,16 @@ describe('cullStalePushTokens', () => {
       stale1: { lastSeen: now - 100 * DAY },
       stale2: { createdAt: now - 120 * DAY }, // legacy record, no lastSeen
     });
-    mergeUserPrefs.mockClear();
+    removePushTokens.mockClear();
     await cullStalePushTokens();
-    expect(mergeUserPrefs).toHaveBeenCalledWith('me123', { 'pushTokens/stale1': null, 'pushTokens/stale2': null });
+    expect(removePushTokens).toHaveBeenCalledWith('me123', ['stale1', 'stale2']);
   });
 
   test('no write when nothing is stale', async () => {
     readPushTokens.mockResolvedValue({ a: { lastSeen: Date.now() } });
-    mergeUserPrefs.mockClear();
+    removePushTokens.mockClear();
     await cullStalePushTokens();
-    expect(mergeUserPrefs).not.toHaveBeenCalled();
+    expect(removePushTokens).not.toHaveBeenCalled();
   });
 });
 
@@ -372,4 +384,157 @@ test('setPaletteStateLocal writes localStorage only — never userPrefs (no inac
   setPaletteStateLocal(TWO_SET_STATE);
   expect(mergeUserPrefs).not.toHaveBeenCalled();
   expect(getPaletteState().sets['2'].selectedKey).toBe('venom'); // still applied locally
+});
+
+describe('location opt-in prefs', () => {
+  beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); initPrefs('me'); });
+
+  test('defaults off for direct and any group', () => {
+    expect(prefs.getLocationOptIn('direct')).toBe(false);
+    expect(prefs.getLocationOptIn('G1')).toBe(false);
+  });
+
+  test('set direct writes cache and userPrefs', () => {
+    prefs.setLocationOptIn('direct', true);
+    expect(prefs.getLocationOptIn('direct')).toBe(true);
+    expect(mergeUserPrefs).toHaveBeenCalledWith('me', { 'location/direct': true });
+  });
+
+  test('set group writes cache and userPrefs', () => {
+    prefs.setLocationOptIn('G1', true);
+    expect(prefs.getLocationOptIn('G1')).toBe(true);
+    expect(prefs.getLocationOptIn('G2')).toBe(false);
+    expect(mergeUserPrefs).toHaveBeenCalledWith('me', { 'location/groups/G1': true });
+  });
+
+  test('syncFromServer hydrates the cache and dispatches location-prefs-synced', () => {
+    const seen = jest.fn();
+    document.addEventListener('location-prefs-synced', seen);
+    prefs.syncFromServer({ location: { direct: true, groups: { G1: true, G2: false } } });
+    expect(prefs.getLocationOptIn('direct')).toBe(true);
+    expect(prefs.getLocationOptIn('G1')).toBe(true);
+    expect(prefs.getLocationOptIn('G2')).toBe(false);
+    expect(seen).toHaveBeenCalled();
+  });
+
+  test('getOptedInLocationGids returns only groups opted in, no membership filter', () => {
+    prefs.setLocationOptIn('G1', true);
+    prefs.setLocationOptIn('G2', false);
+    expect(prefs.getOptedInLocationGids()).toEqual(['G1']);
+  });
+
+  test('syncFromServer dispatches location-prefs-synced only on a real opt-in change (audit F5)', () => {
+    const seen = jest.fn();
+    document.addEventListener('location-prefs-synced', seen);
+    syncFromServer({ location: { direct: true, groups: { G1: true } } });
+    expect(seen).toHaveBeenCalledTimes(1); // first sync into an empty cache
+    syncFromServer({ location: { direct: true, groups: { G1: true } } });
+    expect(seen).toHaveBeenCalledTimes(1); // identical echo — no dispatch
+    syncFromServer({ location: { direct: true, groups: { G1: true }, extra: 1 } });
+    expect(seen).toHaveBeenCalledTimes(1); // unknown keys don't count as change
+    syncFromServer({ location: { direct: false, groups: { G1: true } } });
+    expect(seen).toHaveBeenCalledTimes(2); // real flip
+    syncFromServer({ location: { direct: false, groups: { G1: true, G2: true } } });
+    expect(seen).toHaveBeenCalledTimes(3); // new gid
+    document.removeEventListener('location-prefs-synced', seen);
+  });
+});
+
+test('favorites-synced fires only when the merged list actually changed (audit F6)', () => {
+  const seen = jest.fn();
+  document.addEventListener('favorites-synced', seen);
+  syncFromServer({ favorites: [{ statusColor: 'green', surface2: 'a' }] });
+  expect(seen).toHaveBeenCalledTimes(1);
+  syncFromServer({ favorites: [{ statusColor: 'green', surface2: 'a' }] }); // identical echo
+  expect(seen).toHaveBeenCalledTimes(1);
+  syncFromServer({ favorites: [{ statusColor: 'red', surface2: 'a' }] });
+  expect(seen).toHaveBeenCalledTimes(2);
+  document.removeEventListener('favorites-synced', seen);
+});
+
+test('notify-prefs-synced fires only when a per-person pref actually changed', () => {
+  const seen = jest.fn();
+  document.addEventListener('notify-prefs-synced', seen);
+  syncFromServer({ notify: { u1: { knock: true, call: false, availability: false } } });
+  expect(seen).toHaveBeenCalledTimes(1);
+  syncFromServer({ notify: { u1: { knock: true, call: false, availability: false } } });
+  expect(seen).toHaveBeenCalledTimes(1);
+  syncFromServer({ notify: { u1: { knock: false, call: false, availability: false } } });
+  expect(seen).toHaveBeenCalledTimes(2);
+  document.removeEventListener('notify-prefs-synced', seen);
+});
+
+// ── readNotifyCache / readLocationCache parse memoization ──
+// Both caches are internal (not exported); exercised through the public
+// getters (getNotifyPrefs / getLocationOptIn / getOptedInLocationGids) that
+// call them on every invocation, mirroring store.ts's getFollowing raw-string
+// memo pattern.
+describe('notify/location cache parse memoization', () => {
+  beforeEach(() => { localStorage.clear(); mergeUserPrefs.mockClear(); initPrefs('me123'); });
+
+  test('getNotifyPrefs: unchanged raw skips re-parse', () => {
+    localStorage.setItem('statusapp_notify_prefs', JSON.stringify({ alex: { knock: true, call: false, availability: false } }));
+    const spy = jest.spyOn(JSON, 'parse');
+    getNotifyPrefs('alex');
+    const callsAfterFirst = spy.mock.calls.length;
+    getNotifyPrefs('alex');
+    expect(spy.mock.calls.length).toBe(callsAfterFirst); // second call: no re-parse
+    spy.mockRestore();
+  });
+
+  test('getNotifyPrefs: a direct localStorage write between calls is honored (cross-tab safety)', () => {
+    localStorage.setItem('statusapp_notify_prefs', JSON.stringify({ alex: { knock: true, call: false, availability: false } }));
+    getNotifyPrefs('alex');
+    localStorage.setItem('statusapp_notify_prefs', JSON.stringify({ alex: { knock: false, call: true, availability: false } }));
+    expect(getNotifyPrefs('alex')).toEqual({ knock: false, call: true, availability: false });
+  });
+
+  test('round trip: setNotifyPref (readNotifyCache → mutate → writeNotifyCache) is never served stale', () => {
+    getNotifyPrefs('alex'); // prime the memo on an empty cache
+    setNotifyPref('alex', 'knock', true);
+    expect(getNotifyPrefs('alex')).toEqual({ knock: true, call: false, availability: false });
+  });
+
+  test('round trip: syncFromServer (readNotifyCache → mutate → writeNotifyCache) is never served stale', () => {
+    getNotifyPrefs('bea'); // prime the memo on an empty cache
+    syncFromServer({ notify: { bea: { knock: true, call: false, availability: true } } });
+    expect(getNotifyPrefs('bea')).toEqual({ knock: true, call: false, availability: true });
+  });
+
+  test('getLocationOptIn: unchanged raw skips re-parse', () => {
+    localStorage.setItem('statusapp_location_prefs', JSON.stringify({ direct: true, groups: { G1: true } }));
+    const spy = jest.spyOn(JSON, 'parse');
+    prefs.getLocationOptIn('direct');
+    const callsAfterFirst = spy.mock.calls.length;
+    prefs.getLocationOptIn('direct');
+    expect(spy.mock.calls.length).toBe(callsAfterFirst); // second call: no re-parse
+    spy.mockRestore();
+  });
+
+  test('getLocationOptIn: a direct localStorage write between calls is honored (cross-tab safety)', () => {
+    localStorage.setItem('statusapp_location_prefs', JSON.stringify({ direct: true, groups: {} }));
+    prefs.getLocationOptIn('direct');
+    localStorage.setItem('statusapp_location_prefs', JSON.stringify({ direct: false, groups: {} }));
+    expect(prefs.getLocationOptIn('direct')).toBe(false);
+  });
+
+  test('round trip: setLocationOptIn (readLocationCache → mutate → writeLocationCache) is never served stale', () => {
+    prefs.getLocationOptIn('direct'); // prime the memo on an empty cache
+    prefs.setLocationOptIn('direct', true);
+    expect(prefs.getLocationOptIn('direct')).toBe(true);
+  });
+
+  test('round trip: setLocationOptIn on a group replaces map.groups wholesale and is never served stale', () => {
+    prefs.setLocationOptIn('G1', true);
+    prefs.getOptedInLocationGids(); // prime the memo
+    prefs.setLocationOptIn('G2', true);
+    expect(prefs.getOptedInLocationGids().sort()).toEqual(['G1', 'G2']);
+  });
+
+  test('round trip: syncFromServer location (readLocationCache → mutate → writeLocationCache) is never served stale', () => {
+    prefs.getLocationOptIn('direct'); // prime the memo on an empty cache
+    syncFromServer({ location: { direct: true, groups: { G1: true } } });
+    expect(prefs.getLocationOptIn('direct')).toBe(true);
+    expect(prefs.getLocationOptIn('G1')).toBe(true);
+  });
 });

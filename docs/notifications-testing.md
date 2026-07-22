@@ -35,7 +35,7 @@ Key consequences:
 - **Deleting a Chrome/Safari PWA leaves residue.** macOS keeps the per-app
   notification entry (no per-app delete); Chrome still considers the PWA installed
   (retains SW, caches, permission). A "reinstall" reattaches to the old state.
-- **Each fresh install mints a new FCM token** under `userPrefs/{uid}/pushTokens`.
+- **Each fresh install mints a new FCM token** under `pushTokens/{uid}`.
   Dead tokens are dropped automatically (server drops `registration-token-not-
   registered` on a failed send; client TTL-culls tokens unseen >90 days, #157),
   but mid-test you can briefly see several tokens.

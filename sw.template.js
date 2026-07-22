@@ -1,16 +1,36 @@
 // sw.template.js — source for the service worker.
 // The build (scripts/build.js writeServiceWorker) stamps the cache name below
 // with a hash of the shell assets and writes sw.js. The hash changes whenever
-// the shell (index.html, css/app.css, dist/bundle.js, manifest.json) changes, so
+// the shell (index.html, dist/css/app.css, dist/css/canvas.css, dist/bundle.js,
+// manifest.json) changes, so
 // every real deploy ships a byte-different sw.js → the browser detects the
 // update, installs the fresh shell, activates, and the page reloads (see
 // app.js). No manual version bump required.
 const CACHE = '__CACHE_VERSION__';
-const SHELL = ['/', '/index.html', '/css/app.css', '/dist/bundle.js', '/manifest.json'];
+const SHELL = ['/', '/index.html', '/dist/css/app.css', '/dist/css/canvas.css', '/dist/bundle.js', '/manifest.json'];
+
+// Code-split chunks, substituted at build (comma-joined). The unsubstituted
+// template filters to [] so tests can load this file directly.
+const CHUNKS = '__CHUNK_LIST__'.split(',').filter((s) => s && s.indexOf('__') !== 0);
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL)),
+    caches.open(CACHE).then(async (cache) => {
+      // Chunk filenames are content-hashed — a URL that exists in a previous
+      // version's cache is byte-identical, so copy it across instead of
+      // re-fetching the whole set on every deploy (activate deletes the old
+      // cache afterwards, which used to throw all unchanged chunks away).
+      // The shell proper (unhashed URLs) is always re-fetched.
+      const missing = [];
+      await Promise.all(CHUNKS.map((url) =>
+        caches.match(url).then((prior) => {
+          if (prior) return cache.put(url, prior);
+          missing.push(url);
+          return undefined;
+        }),
+      ));
+      await cache.addAll(SHELL.concat(missing));
+    }),
   );
   self.skipWaiting();
 });

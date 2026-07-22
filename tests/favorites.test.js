@@ -3,6 +3,10 @@ jest.mock('../js/notifyPrompt.js', () => ({ requestPermissionAndRegister: jest.f
 // inviteModal.js (reached transitively via groupNav.js → groupContext.js) now
 // imports telegram.js, which pulls in firebase/auth; stub it out inertly.
 jest.mock('../js/telegram.js', () => ({ isTelegramContext: jest.fn(() => false), openTelegramShare: jest.fn() }));
+// groups.js (reached transitively via groupNav.js) now calls the joinGroup
+// callable via firebase-config.js (Fix 2b), which pulls in firebase/auth the
+// same way telegram.js does above; stub it out inertly for the same reason.
+jest.mock('../js/firebase-config.js', () => ({ callJoinGroup: jest.fn() }));
 
 // ─── Store helpers ──────────────────────────────────────────────────────────
 // These tests use the REAL store implementation with jsdom localStorage.
@@ -88,7 +92,6 @@ jest.mock('../js/db.js', () => ({
   writeGroupInvite: jest.fn(),
   readGroupInvites: jest.fn().mockResolvedValue({}),
   setGroupInviteRevoked: jest.fn(),
-  incrementGroupInviteRedemptions: jest.fn(),
   watchGroupInvites: jest.fn(() => () => {}),
   setStatusOverride: jest.fn().mockResolvedValue(undefined),
   clearStatusOverride: jest.fn().mockResolvedValue(undefined),
@@ -232,6 +235,84 @@ describe('renderStrip / initFavoritesStrip', () => {
   });
 });
 
+describe('doPeek hidden-tab guard (Task 6)', () => {
+  // FTU peek (peekStrip → doPeek) only attaches when stripPeek is NOT yet
+  // seen — deliberately do not mark it seen here (unlike the shared
+  // setupDom() above), so renderCollapsed's peek branch actually fires.
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="favorites-strip"></div>';
+    document.documentElement.style.setProperty('--my-status', '#22c55e');
+    document.documentElement.style.setProperty('--my-glow', 'rgba(34,197,94,0.4)');
+    localStorage.clear();
+    localStorage.setItem('statusapp_seen_theme', '1');
+    jest.resetModules();
+    jest.useFakeTimers();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    jest.mock('../js/features.js', () => ({ PALETTES_ENABLED: true, PALETTE_INTERACTIONS_ENABLED: true }));
+    jest.mock('../js/palettes.js', () => ({
+      ...jest.requireActual('../js/palettes.js'),
+      switchSet: jest.fn(),
+      enterPaletteMode: jest.fn(),
+      exitPaletteMode: jest.fn(),
+      getPaletteByKey: jest.fn(() => null),
+      getGlowForColor: jest.fn(() => 'rgba(34,197,94,0.4)'),
+    }));
+    jest.mock('../js/db.js', () => ({
+      setStatusColor: jest.fn().mockResolvedValue(undefined),
+      setUserFavorites: jest.fn().mockResolvedValue(undefined),
+    }));
+    jest.mock('../js/store.js', () => ({
+      ...jest.requireActual('../js/store.js'),
+      getPaletteState: jest.fn(() => ({
+        activeSet: 1,
+        sets: { '1': { selectedKey: 'forest', activePaletteKey: null }, '2': { selectedKey: 'volt', activePaletteKey: null } },
+      })),
+      setPaletteState: jest.fn(),
+      getFavorites: jest.fn(() => [
+        { statusColor: '#818cf8', surface: '#111', surface2: '#1e1b4b', paletteKey: 'iris', selectedKey: 'iris', activeSet: 1 },
+      ]),
+      setFavorites: jest.fn(),
+    }));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function initPeek() {
+    const { initFavoritesStrip } = require('../js/favorites.js');
+    initFavoritesStrip('myUid');
+    return document.querySelector('.fav-peek-wrapper');
+  }
+
+  test('peek reschedules without style mutation while hidden', () => {
+    const wrapper = initPeek();
+    expect(wrapper).not.toBeNull();
+    const initialMaxHeight = wrapper.style.maxHeight;
+
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    jest.advanceTimersByTime(3000); // first doPeek fire — should reschedule, no style churn
+    expect(wrapper.parentNode).not.toBeNull();
+    expect(wrapper.style.maxHeight).toBe(initialMaxHeight);
+
+    jest.advanceTimersByTime(6000); // rescheduled fire — still hidden, still no churn
+    expect(wrapper.parentNode).not.toBeNull();
+    expect(wrapper.style.maxHeight).toBe(initialMaxHeight);
+  });
+
+  test('peek still stops (strip opened) even while hidden', () => {
+    const wrapper = initPeek();
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    // Simulate the user having opened the strip elsewhere — the stop
+    // condition must win over the hidden-reschedule, per the required
+    // placement (stop-check BEFORE the hidden-check in doPeek).
+    localStorage.setItem('statusapp_seen_strip_peek_done', '1');
+
+    jest.advanceTimersByTime(3000);
+
+    expect(wrapper.parentNode).toBeNull();
+  });
+});
 
 describe('history pill tap interactions (adopt-only)', () => {
   let tapHistoryPill, localMocks;
@@ -671,7 +752,7 @@ describe('strip available in both contexts', () => {
     expect(db.setStatusColor).toHaveBeenCalledWith('myUid', '#ff00aa');
   });
 
-  test('tapping a pill in group context calls applyAdoptedComboInGroup, NOT Direct path', () => {
+  test('tapping a pill in group context calls applyAdoptedComboInGroup, NOT Direct path', async () => {
     jest.resetModules();
     document.body.innerHTML =
       '<div id="favorites-strip"></div><div id="group-favorites-strip"></div>';
@@ -718,6 +799,13 @@ describe('strip available in both contexts', () => {
     setFavoritesCollapsed_(false);
     const groupPill = document.querySelector('#group-favorites-strip .fav-pill[data-type="history"]');
     groupPill.click();
+    // favorites.js now loads groupContext.js via a dynamic import() (N5a lazy
+    // chunk); under Jest babel compiles import() to
+    // Promise.resolve().then(() => require(...)).then(handler), so two
+    // microtask ticks need to flush (one for babel's interop hop, one for
+    // our own .then) before the mock call is observable.
+    await Promise.resolve();
+    await Promise.resolve();
     const groupContextMock = require('../js/groupContext.js');
     expect(groupContextMock.applyAdoptedComboInGroup).toHaveBeenCalledWith('#ff00aa', 'forest');
     expect(palettes.switchSet).not.toHaveBeenCalled();

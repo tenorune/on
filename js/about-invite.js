@@ -1,4 +1,6 @@
 // js/about-invite.js
+// Must stay .js — served unbundled via <script src> from about.template.html; a
+// rename to .ts 404s in prod. Tripwired by tests/about-page.test.js.
 // /about page only. When opened as /about?i=TOKEN, fetch the invite preview from
 // the unauthenticated resolveInvitePreview Cloud callable and show a one-line
 // "You've been invited…" framing. The page has no Firebase config/SDK, so this is
@@ -31,8 +33,10 @@
       } else {
         return;
       }
-      el.textContent = text; // textContent (not innerHTML) — label/groupName are user-controlled
-      el.classList.remove('hidden');
+      // el is guarded non-null above; the native checker drops that narrowing inside this closure, so re-assert via JSDoc cast.
+      var frame = /** @type {HTMLElement} */ (el);
+      frame.textContent = text; // textContent (not innerHTML) — label/groupName are user-controlled
+      frame.classList.remove('hidden');
     })
     .catch(function () { /* framing is non-critical */ });
 })();

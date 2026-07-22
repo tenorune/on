@@ -3,10 +3,27 @@
 const { readFileSync, writeFileSync, existsSync } = require('fs');
 const { createHash } = require('crypto');
 const path = require('path');
+const esbuild = require('esbuild');
 
+// Minified (prod) or plain (dev) copies of the stylesheets, served from
+// dist/css/. Sources in css/ stay readable; hosting ignores them (firebase.json).
+/** @param {boolean} minify */
+function buildCss(minify) {
+  esbuild.buildSync({
+    entryPoints: ['css/app.css', 'css/canvas.css', 'css/about.css'],
+    outdir: 'dist/css',
+    minify,
+  });
+}
+
+/**
+ * @param {string} filename
+ * @returns {Record<string, string>}
+ */
 function loadEnv(filename) {
   const envPath = path.resolve(__dirname, '..', filename);
   if (!existsSync(envPath)) return {};
+  /** @type {Record<string, string>} */
   const vars = {};
   readFileSync(envPath, 'utf8').split('\n').forEach(line => {
     line = line.trim();
@@ -33,6 +50,7 @@ const FIREBASE_KEYS = [
   'FIREBASE_VAPID_KEY',
 ];
 
+/** @type {Record<string, string>} */
 const define = {};
 FIREBASE_KEYS.forEach(key => {
   define[`process.env.${key}`] = JSON.stringify(env[key] || 'REPLACE_ME');
@@ -42,7 +60,7 @@ FIREBASE_KEYS.forEach(key => {
 // precedence as writeIndexHtml/writeAboutHtml). CI builds rely on this — the
 // FIREBASE_CONFIG_* secrets are write-only blobs, so the deploy workflows
 // pass these through the Build step's `env:` instead of the secret.
-const envVal = (key) => process.env[key] || env[key] || '';
+const envVal = (/** @type {string} */ key) => process.env[key] || env[key] || '';
 
 // Optional Mini App deep-link base, e.g. "https://t.me/knockknock_test_bot/app".
 // Empty (not REPLACE_ME) when unset so client code can feature-detect it.
@@ -53,16 +71,69 @@ define['process.env.TELEGRAM_APP_LINK'] = JSON.stringify(envVal('TELEGRAM_APP_LI
 define['process.env.DEV_RESET_SECRET'] = JSON.stringify(envVal('DEV_RESET_SECRET'));
 define['process.env.DEV_RESET_HOSTS']  = JSON.stringify(envVal('DEV_RESET_HOSTS'));
 
+/** @param {unknown} s */
 function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Preconnect hints for the origins every boot hits before the bundle can ask
+// for them: the RTDB websocket origin (from the env's databaseURL) and the two
+// Firebase Auth REST origins (sign-in mint + token refresh). CORS fetches need
+// the crossorigin connection pool; the RTDB websocket does not. Fail-closed:
+// no/placeholder config (test builds) emits nothing.
+/** @param {string} databaseUrl */
+function preconnectLinks(databaseUrl) {
+  if (!databaseUrl || databaseUrl === 'REPLACE_ME') return '';
+  let origin;
+  try { origin = new URL(databaseUrl).origin; } catch { return ''; }
+  return [
+    `<link rel="preconnect" href="${origin}">`,
+    '<link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>',
+    '<link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>',
+  ].join('\n  ');
+}
+
+// Modulepreload hints for the chunks the bundle pulls in via STATIC imports.
+// The browser only discovers those after fetching dist/bundle.js, so a first
+// visit (no SW cache yet) pays a sequential fetch chain (bundle → shared
+// chunk → shared chunk); preloading flattens it to one round trip. Lazy
+// import() chunks are deliberately excluded — preloading them would defeat
+// the split. Fail-closed: no built bundle (tests; dev.js writes index.html
+// before its watch build) emits nothing, which is fine — the chain only
+// matters for SW-less first visits in prod.
+/** @param {string} [rootDir] repo root override for tests */
+function modulepreloadLinks(rootDir) {
+  const root = rootDir || path.resolve(__dirname, '..');
+  const bundlePath = path.join(root, 'dist', 'bundle.js');
+  if (!existsSync(bundlePath)) return '';
+  // Static ESM refs in esbuild output: `from"./chunks/x.js"` / `import"./chunks/x.js"`
+  // (bundle) and `from"./x.js"` (chunk → sibling), with spaces when unminified.
+  // Dynamic import("...") never matches — a paren, not a quote, follows `import`.
+  const staticRefs = (/** @type {string} */ src) =>
+    [...src.matchAll(/(?:from|import)\s*"\.\/(?:chunks\/)?([^"/]+\.js)"/g)].map((m) => m[1]);
+  /** @type {Set<string>} */
+  const seen = new Set();
+  const queue = staticRefs(readFileSync(bundlePath, 'utf8'));
+  while (queue.length) {
+    const name = queue.shift();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    const p = path.join(root, 'dist', 'chunks', name);
+    if (existsSync(p)) queue.push(...staticRefs(readFileSync(p, 'utf8')));
+  }
+  return [...seen].sort().map((n) => `<link rel="modulepreload" href="dist/chunks/${n}">`).join('\n  ');
+}
+
+/** @param {string} defaultTitle */
 function writeIndexHtml(defaultTitle) {
   const templatePath = path.resolve(__dirname, '..', 'index.template.html');
   const outPath = path.resolve(__dirname, '..', 'index.html');
   const title = process.env.APP_TITLE || env.APP_TITLE || defaultTitle;
   const template = readFileSync(templatePath, 'utf8');
-  writeFileSync(outPath, template.replaceAll('__APP_TITLE__', escapeHtml(title)));
+  writeFileSync(outPath, template
+    .replaceAll('__APP_TITLE__', escapeHtml(title))
+    .replaceAll('__PRECONNECT_LINKS__', preconnectLinks(envVal('FIREBASE_DATABASE_URL')))
+    .replaceAll('__MODULEPRELOAD_LINKS__', modulepreloadLinks()));
   return title;
 }
 
@@ -72,17 +143,33 @@ function writeIndexHtml(defaultTitle) {
 // and the esbuild bundle so the hashed inputs exist.
 function writeServiceWorker() {
   const root = path.resolve(__dirname, '..');
+  const { readdirSync } = require('fs');
   const template = readFileSync(path.join(root, 'sw.template.js'), 'utf8');
+  /** @type {string[]} */
+  let chunks = [];
+  try {
+    chunks = readdirSync(path.join(root, 'dist', 'chunks'))
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => `/dist/chunks/${f}`)
+      .sort();
+  } catch { /* no chunks dir (pre-split build) */ }
   const hash = createHash('sha256');
-  for (const f of ['dist/bundle.js', 'css/app.css', 'index.html', 'manifest.json']) {
+  const hashed = ['dist/bundle.js', 'dist/css/app.css', 'dist/css/canvas.css', 'index.html', 'manifest.json', ...chunks.map((c) => c.slice(1))];
+  for (const f of hashed) {
     const p = path.join(root, f);
     if (existsSync(p)) hash.update(readFileSync(p));
   }
   const version = `knockknock-${hash.digest('hex').slice(0, 12)}`;
-  writeFileSync(path.join(root, 'sw.js'), template.replace(/__CACHE_VERSION__/g, version));
+  writeFileSync(path.join(root, 'sw.js'), template
+    .replace(/__CACHE_VERSION__/g, version)
+    .replace('__CHUNK_LIST__', chunks.join(',')));
   return version;
 }
 
+/**
+ * @param {string} template
+ * @param {Record<string, string>} vars
+ */
 function renderAbout(template, vars) {
   const title = vars.APP_TITLE || 'KnockKnock';
   const region = vars.DATA_REGION
@@ -103,6 +190,7 @@ function renderAbout(template, vars) {
 // Absolute URL of the unauthenticated resolveInvitePreview callable, for the
 // /about page's invite framing (it has no Firebase config to derive it from).
 // Region is fixed at europe-west1 to match js/firebase-config.js getFunctions().
+/** @param {string} projectId */
 function invitePreviewUrl(projectId) {
   return projectId
     ? `https://europe-west1-${projectId}.cloudfunctions.net/resolveInvitePreview`
@@ -124,6 +212,7 @@ function readTelegramEnabled() {
   }
 }
 
+/** @param {string} defaultTitle */
 function writeAboutHtml(defaultTitle) {
   const templatePath = path.resolve(__dirname, '..', 'about.template.html');
   const outPath = path.resolve(__dirname, '..', 'about.html');
@@ -140,4 +229,4 @@ function writeAboutHtml(defaultTitle) {
   writeFileSync(outPath, out);
 }
 
-module.exports = { define, envFile, writeIndexHtml, writeServiceWorker, renderAbout, writeAboutHtml, invitePreviewUrl, readTelegramEnabled };
+module.exports = { define, envFile, writeIndexHtml, writeServiceWorker, renderAbout, writeAboutHtml, invitePreviewUrl, readTelegramEnabled, buildCss, preconnectLinks, modulepreloadLinks };

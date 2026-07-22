@@ -1,4 +1,6 @@
 // js/about-telegram.js
+// Must stay .js — served unbundled via <script src> from about.template.html; a
+// rename to .ts 404s in prod. Tripwired by tests/about-page.test.js.
 // /about + /invite only. Owns the Telegram-facing page behavior (spec N4):
 //   - token-less pages: unhide the standing bare "Open in Telegram" CTA when
 //     the build substituted a real deep link (fail-closed on __…__);
@@ -10,6 +12,10 @@
 //     else collapse the marketing behind the "More about …" expander.
 // Plain classic script (CSP script-src 'self'); tested via vm sandbox.
 (function () {
+  /**
+   * @param {HTMLElement | null} el
+   * @returns {string | null}
+   */
   function realLink(el) {
     var v = el && el.getAttribute('data-telegram-link');
     return (v && v.indexOf('__') !== 0) ? v : null; // unsubstituted placeholder → no link
@@ -24,7 +30,12 @@
   if (!token) {
     // Plain marketing page: just the standing bare Telegram door (A3).
     var bare = realLink(introTg);
-    if (bare) { introTg.setAttribute('href', bare); introTg.classList.remove('hidden'); }
+    // bare non-null implies introTg non-null (realLink null-guards el); cast to satisfy the checker.
+    if (bare) {
+      var bareEl = /** @type {HTMLElement} */ (introTg);
+      bareEl.setAttribute('href', bare);
+      bareEl.classList.remove('hidden');
+    }
     return;
   }
 
@@ -55,8 +66,10 @@
   var tgCta = document.getElementById('invite-telegram-cta');
   var deep = realLink(tgCta);
   if (deep) {
-    tgCta.setAttribute('href', deep + '?startapp=' + token);
-    tgCta.classList.remove('hidden');
+    // deep non-null implies tgCta non-null (realLink null-guards el); cast to satisfy the checker.
+    var tgEl = /** @type {HTMLElement} */ (tgCta);
+    tgEl.setAttribute('href', deep + '?startapp=' + token);
+    tgEl.classList.remove('hidden');
   }
 
   landing.classList.remove('hidden');
@@ -86,13 +99,15 @@
   var copyOut = document.getElementById('invite-copy-fallback');
   if (copyBtn) {
     copyBtn.addEventListener('click', function () {
+      // copyBtn guarded non-null above; native checker drops that narrowing in the nested then-closure, so cast.
+      var btn = /** @type {HTMLElement} */ (copyBtn);
       var url = location.origin + '/invite?i=' + token;
       var write = (navigator.clipboard && navigator.clipboard.writeText)
         ? navigator.clipboard.writeText(url)
         : Promise.reject(new Error('no clipboard api'));
       write.then(function () {
-        copyBtn.textContent = 'Copied!';
-        setTimeout(function () { copyBtn.textContent = 'Copy'; }, 1500);
+        btn.textContent = 'Copied!';
+        setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
       }).catch(function () {
         // Webviews commonly deny clipboard writes (C7) — show the URL to select.
         if (copyOut) { copyOut.textContent = url; copyOut.classList.remove('hidden'); }

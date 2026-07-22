@@ -1,4 +1,6 @@
 // js/about-cta.js
+// Must stay .js — served unbundled via <script src> from about.template.html; a
+// rename to .ts 404s in prod. Tripwired by tests/about-page.test.js.
 // /about page only. Rewrites the "Open app" links so they (a) carry any invite
 // token through to the app, and (b) on mobile, break out of in-app browsers
 // (Telegram's in-app Safari is byte-identical to real Safari, so detection is

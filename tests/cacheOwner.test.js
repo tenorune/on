@@ -118,7 +118,7 @@ test('every statusapp_ key in js/ is classified (no silent drift)', () => {
   const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) return walk(full);
-    return e.isFile() && e.name.endsWith('.js') ? [full] : [];
+    return e.isFile() && /\.(js|ts)$/.test(e.name) ? [full] : [];
   });
   const keys = new Set();
   for (const file of walk(jsDir)) {

@@ -27,6 +27,18 @@ const { showLinkScreen } = require('../js/telegramSettings.js');
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+// Poll a condition across microtask ticks — for spots that need to observe a
+// state that lands after an await (e.g. setButtonBusy, now reached only after
+// the onSubmit handler awaits the lazy-loaded parseRecoveryCode) but before
+// the handler's later async work (e.g. the callable) settles.
+async function waitForMicrotask(cond, tries = 50) {
+  for (let i = 0; i < tries; i += 1) {
+    if (cond()) return;
+    await Promise.resolve();
+  }
+  throw new Error('waitForMicrotask: condition not met in time');
+}
+
 function mountDom() {
   document.body.innerHTML = `
     <div id="code-drawer">
@@ -266,12 +278,19 @@ test('link submit: shared busy pair + stale idleLabel from the restore flow cann
   const submit = document.getElementById('restore-submit-btn');
   // A prior showRestoreScreen busy cycle leaves its stashed idle label behind.
   submit.dataset.idleLabel = 'Paste & Sign in';
-  callLinkTelegram.mockRejectedValue(new Error('network'));
+  // Hold the callable pending so the busy state is observable before it
+  // settles — onSubmit now awaits parseRecoveryCode (the lazy-load call site)
+  // before setButtonBusy, so a mockRejectedValue (already-settled) callable
+  // would race the revert against this assertion.
+  let rejectLink;
+  callLinkTelegram.mockImplementation(() => new Promise((_resolve, reject) => { rejectLink = reject; }));
   showLinkScreen();
   document.getElementById('restore-input').value = 'abacus-abdomen-abdominal-abide';
   submit.click();
+  await waitForMicrotask(() => submit.disabled === true);
   expect(submit.disabled).toBe(true);
   expect(submit.textContent).toBe('Linking…');
+  rejectLink(new Error('network'));
   await flush();
   // Failure reverts to THIS screen's label, not the restore flow's stash.
   expect(submit.disabled).toBe(false);

@@ -1,5 +1,19 @@
 // functions/notifier.js — delivery + per-event handlers. Deps are injected.
 import { wantsKnock, wantsCall, wantsAvailability, availabilityTurnedOn, withinCooldown, buildMessage, effectiveAvailable } from './presence-core.js';
+import { telegramPreferred } from './_shared/notifyDelivery.js';
+
+/**
+ * The injected I/O surface (built by functions/index.js; tests inject fakes).
+ * getVal returns raw RTDB snapshot values — `any` by design at this seam;
+ * the ambient wire types (UserPrefs etc.) document the shapes downstream.
+ * @typedef {{
+ *   getVal: (path: string) => Promise<any>,
+ *   update: (path: string, writes: Record<string, unknown>) => Promise<unknown>,
+ *   send: (tokens: string[], message: { title: string, body: string }, data?: Record<string, string>) => Promise<{ failedTokens?: string[] }>,
+ *   sendTelegram?: ((chatId: unknown, message: { title: string, body: string }, data?: Record<string, string>) => Promise<unknown>) | null,
+ *   now: () => number,
+ * }} NotifierDeps
+ */
 
 const AVAIL_COOLDOWN_MS = 5 * 60 * 1000;
 // Per-(recipient, sender) send cooldowns (R1.5 #179 S3). Each directed event
@@ -14,6 +28,12 @@ const CALL_COOLDOWN_MS = 30 * 1000;
 const INVITE_COOLDOWN_MS = 30 * 1000;
 const FOLLOW_REQ_COOLDOWN_MS = 30 * 1000;
 
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} uid
+ * @param {{ title: string, body: string }} message
+ * @param {Record<string, string>} [data]
+ */
 export async function sendToUser(deps, uid, message, data) {
   // Experimental Telegram channel (spec 2026-07-02): a linked user whose
   // notifyChannel is 'telegram' gets a bot message instead of web push. The
@@ -22,15 +42,17 @@ export async function sendToUser(deps, uid, message, data) {
   // (user blocked the bot, missing route, bot unconfigured) falls back to FCM.
   // channel !== 'push' (not === 'telegram'): a MISSING channel on a routed
   // account reads as telegram, matching the client predicates in
-  // js/notifySuppression.js botDelivered and js/notifyChannel.js — this is the
-  // third reader of that default, and the three must never disagree.
+  // js/notifySuppression.js botDelivered and js/notifyChannel.js — the default
+  // lives in _shared/notifyDelivery.js telegramPreferred (source: shared/), one
+  // copy for all three readers.
   // The pushTokens read starts up front so the FCM fall-through never pays it
   // as an extra sequential round-trip, but it is only AWAITED on that
   // fall-through — a failed tokens read must not break healthy telegram
   // delivery, and the FCM path still surfaces the original error. The empty
   // catch keeps a never-awaited rejection (telegram succeeded) from becoming
   // an unhandled-rejection crash; awaiting the promise below still throws.
-  const tokensPromise = deps.getVal(`userPrefs/${uid}/pushTokens`);
+  const tokensPromise = deps.getVal(`pushTokens/${uid}`)
+    .then((v) => v ?? deps.getVal(`userPrefs/${uid}/pushTokens`)); // legacy fallback until migration completes
   tokensPromise.catch(() => {});
   let tgRoute = null;
   let triedTelegram = false;
@@ -40,12 +62,12 @@ export async function sendToUser(deps, uid, message, data) {
       deps.getVal(`telegramByUid/${uid}`),
     ]);
     tgRoute = route;
-    if (channel !== 'push' && tgRoute && tgRoute.chatId) {
+    if (telegramPreferred(channel) && tgRoute && tgRoute.chatId) {
       triedTelegram = true;
       try {
         if (await deps.sendTelegram(tgRoute.chatId, message, data)) return true;
       } catch (e) {
-        console.error(`[notify] telegram send failed for ${uid}: ${e?.message || e}`);
+        console.error(`[notify] telegram send failed for ${uid}: ${/** @type {any} */ (e)?.message || e}`);
       }
     }
   }
@@ -61,7 +83,7 @@ export async function sendToUser(deps, uid, message, data) {
       try {
         return !!(await deps.sendTelegram(tgRoute.chatId, message, data));
       } catch (e) {
-        console.error(`[notify] telegram fallback failed for ${uid}: ${e?.message || e}`);
+        console.error(`[notify] telegram fallback failed for ${uid}: ${/** @type {any} */ (e)?.message || e}`);
         return false;
       }
     }
@@ -69,39 +91,89 @@ export async function sendToUser(deps, uid, message, data) {
   }
   const { failedTokens } = await deps.send(tokens, message, data);
   if (failedTokens && failedTokens.length) {
+    /** @type {Record<string, null>} */
     const nulls = {};
     for (const t of failedTokens) nulls[t] = null;
-    await deps.update(`userPrefs/${uid}/pushTokens`, nulls);
+    await deps.update(`pushTokens/${uid}`, nulls);
   }
   // Delivered if at least one token wasn't rejected.
   return (failedTokens?.length || 0) < tokens.length;
 }
 
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} viewerUid
+ * @param {string} targetUid
+ */
 export async function resolveName(deps, viewerUid, targetUid) {
-  const follow = await deps.getVal(`userPrefs/${viewerUid}/following/${targetUid}`);
+  // Fetch the code fallback IN PARALLEL with the following label (one extra tiny
+  // read on the hit path; ~half the latency on the miss path). Precedence is
+  // unchanged: label > code-form > 'Someone'.
+  const [follow, code] = await Promise.all([
+    deps.getVal(`userPrefs/${viewerUid}/following/${targetUid}`),
+    deps.getVal(`users/${targetUid}/presence/code`),
+  ]);
   if (follow && follow.label) return follow.label;
-  const code = await deps.getVal(`users/${targetUid}/presence/code`);
   if (code) return `Your contact ${code}`; // B#10: a bare code reads like a glitch in chat
   return 'Someone';
 }
 
-export async function resolveGroupMemberName(deps, groupId, uid) {
-  const displayName = await deps.getVal(`groups/${groupId}/members/${uid}/displayName`);
+/**
+ * @param {NotifierDeps} deps
+ * @param {string | undefined} groupId
+ * @param {string} uid
+ * @param {string | null} [fallback]
+ */
+export async function resolveGroupMemberName(deps, groupId, uid, fallback = null) {
+  // A precomputed fallback (the member's code resolved once by the caller)
+  // skips the per-group re-read of users/{uid}/presence/code — the availability
+  // group fan-out otherwise re-reads the same leaf once per override-off group
+  // (audit-2 N7). Precedence unchanged: displayName > code > 'Someone'.
+  if (fallback !== null) {
+    const displayName = await deps.getVal(`groups/${groupId}/members/${uid}/displayName`);
+    return displayName || fallback;
+  }
+  // Fetch the code fallback IN PARALLEL with the displayName (one extra tiny read
+  // on the hit path; ~half the latency on the miss path). Precedence unchanged:
+  // displayName > code > 'Someone'.
+  const [displayName, code] = await Promise.all([
+    deps.getVal(`groups/${groupId}/members/${uid}/displayName`),
+    deps.getVal(`users/${uid}/presence/code`),
+  ]);
   if (displayName) return displayName;
-  const code = await deps.getVal(`users/${uid}/presence/code`);
   if (code) return code;
   return 'Someone';
 }
 
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} recipientId
+ * @param {string} senderId
+ * @param {{ contextGroupId?: string } | null | undefined} record
+ */
 export async function handleKnock(deps, recipientId, senderId, record) {
-  const prefs = await deps.getVal(`userPrefs/${recipientId}/notify/${senderId}`);
-  if (!wantsKnock(prefs)) return;
   const now = deps.now();
-  if (withinCooldown(await deps.getVal(`notifierState/knockCooldown/${recipientId}/${senderId}`), now, KNOCK_COOLDOWN_MS)) return;
+  // Phase 1 — the two gates, in parallel (they were sequential; both are always
+  // needed unless the FIRST fails, and the cooldown read is tiny). Gate order is
+  // preserved: an opted-out recipient still does ZERO name/group/send reads, a
+  // cooled event still does no name reads — both just also pay one tiny cooldown
+  // read that used to be skipped on the opted-out exit.
+  // F8 accepted trade: parallelizing means a previously-skipped cooldown read can
+  // now reject on an opted-out exit, broadening the reject surface on this path.
+  // Accepted because this trigger is retry:false and no send decision changes.
+  const [prefs, cooldown] = await Promise.all([
+    deps.getVal(`userPrefs/${recipientId}/notify/${senderId}`),
+    deps.getVal(`notifierState/knockCooldown/${recipientId}/${senderId}`),
+  ]);
+  if (!wantsKnock(prefs)) return;
+  if (withinCooldown(cooldown, now, KNOCK_COOLDOWN_MS)) return;
   const groupId = record && record.contextGroupId;
   if (groupId) {
-    const name = await resolveGroupMemberName(deps, groupId, senderId);
-    const group = await deps.getVal(`groups/${groupId}/name`);
+    // Phase 2 — name + group name in parallel.
+    const [name, group] = await Promise.all([
+      resolveGroupMemberName(deps, groupId, senderId),
+      deps.getVal(`groups/${groupId}/name`),
+    ]);
     await sendToUser(deps, recipientId,
       buildMessage('knock', name, { group: group || undefined }),
       { type: 'knock', targetUid: senderId, contextGroupId: groupId });
@@ -118,13 +190,27 @@ export async function handleKnock(deps, recipientId, senderId, record) {
 // the invitee follows, or a group owner), so there is no per-person opt-in gate
 // like knocks/availability. Payload carries type:'invite' and NO contextGroupId:
 // the invitee is not a member yet, so the deep link opens the Inbox, not the group.
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} inviteeUid
+ * @param {string} groupId
+ * @param {{ from?: string } | null | undefined} record
+ */
 export async function handleInvite(deps, inviteeUid, groupId, record) {
   if (!record || !record.from) return;
   const now = deps.now();
-  if (withinCooldown(await deps.getVal(`notifierState/inviteCooldown/${inviteeUid}/${record.from}`), now, INVITE_COOLDOWN_MS)) return;
-  const follow = await deps.getVal(`userPrefs/${inviteeUid}/following/${record.from}`);
+  // One parallel phase: cooldown + follow-label + group-name (all three always
+  // needed unless cooled; the cooled case pays two wasted tiny reads, accepted
+  // for ~3x fewer round-trips on the common path). Cooldown gate is checked
+  // AFTER — order preserved. The fallback resolver still only runs when there's
+  // no follow label.
+  const [cooldown, follow, group] = await Promise.all([
+    deps.getVal(`notifierState/inviteCooldown/${inviteeUid}/${record.from}`),
+    deps.getVal(`userPrefs/${inviteeUid}/following/${record.from}`),
+    deps.getVal(`groups/${groupId}/name`),
+  ]);
+  if (withinCooldown(cooldown, now, INVITE_COOLDOWN_MS)) return;
   const name = (follow && follow.label) || await resolveGroupMemberName(deps, groupId, record.from);
-  const group = await deps.getVal(`groups/${groupId}/name`);
   await sendToUser(deps, inviteeUid,
     buildMessage('invite', name, { group: group || undefined }),
     { type: 'invite', targetUid: record.from, groupId });
@@ -137,15 +223,32 @@ export async function handleInvite(deps, inviteeUid, groupId, record) {
 // for the requester when they already follow them, else the requester's display
 // name in the shared group the request came from. Payload carries type:'followRequest'
 // and NO contextGroupId — the deep link opens the Inbox to approve/decline.
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} targetUid
+ * @param {string} requesterUid
+ * @param {{ from?: string, groupId?: string } | null | undefined} record
+ */
 export async function handleFollowRequest(deps, targetUid, requesterUid, record) {
   if (!record || !record.from) return;
   const now = deps.now();
-  if (withinCooldown(await deps.getVal(`notifierState/followReqCooldown/${targetUid}/${requesterUid}`), now, FOLLOW_REQ_COOLDOWN_MS)) return;
-  const follow = await deps.getVal(`userPrefs/${targetUid}/following/${requesterUid}`);
+  // One parallel phase: cooldown + follow-label + (conditional) group-name. The
+  // group-name is CONDITIONAL — absent groupId resolves to null, exactly as the
+  // old sequential ternary did. Cooldown gate checked AFTER — order preserved;
+  // the cooled path pays two wasted tiny reads for ~3x fewer round-trips on the
+  // common path. Fallback resolver still only runs when there's no follow label.
+  const [cooldown, follow, group] = await Promise.all([
+    deps.getVal(`notifierState/followReqCooldown/${targetUid}/${requesterUid}`),
+    deps.getVal(`userPrefs/${targetUid}/following/${requesterUid}`),
+    // Name the shared group the request came from ("Cara in Hiking wants to
+    // follow you") — same shape as invites; absent/unreadable → nameless copy.
+    record.groupId ? deps.getVal(`groups/${record.groupId}/name`) : Promise.resolve(null),
+  ]);
+  if (withinCooldown(cooldown, now, FOLLOW_REQ_COOLDOWN_MS)) return;
   const name = (follow && follow.label)
     || await resolveGroupMemberName(deps, record.groupId, requesterUid);
   await sendToUser(deps, targetUid,
-    buildMessage('followRequest', name),
+    buildMessage('followRequest', name, { group: group || undefined }),
     { type: 'followRequest', targetUid: requesterUid });
   await deps.update(`notifierState/followReqCooldown/${targetUid}`, { [requesterUid]: now });
 }
@@ -153,14 +256,22 @@ export async function handleFollowRequest(deps, targetUid, requesterUid, record)
 // Notify the OTHER members of a group that `memberUid` is available in it.
 // Caller decides the "became available" transition; this just fans out with a
 // per-(group, member) cooldown so availability in one group doesn't mute another.
-export async function notifyGroupAvailability(deps, groupId, memberUid, now, alreadyNotified = null) {
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} groupId
+ * @param {string} memberUid
+ * @param {number} now
+ * @param {Set<string> | null} [alreadyNotified]
+ * @param {string | null} [senderFallback]
+ */
+export async function notifyGroupAvailability(deps, groupId, memberUid, now, alreadyNotified = null, senderFallback = null) {
   const lastTs = await deps.getVal(`notifierState/groupAvailability/${groupId}/${memberUid}`);
   if (withinCooldown(lastTs, now, AVAIL_COOLDOWN_MS)) return;
   // Resolve the shared per-event data once (name + group label + roster) before
   // fanning out — these don't vary by recipient, so reading them per co-member
   // was an N+1.
   const [name, group, members] = await Promise.all([
-    resolveGroupMemberName(deps, groupId, memberUid),
+    resolveGroupMemberName(deps, groupId, memberUid, senderFallback),
     deps.getVal(`groups/${groupId}/name`),
     deps.getVal(`groups/${groupId}/members`),
   ]);
@@ -194,6 +305,13 @@ export async function notifyGroupAvailability(deps, groupId, memberUid, now, alr
 // the member's EFFECTIVE in-group availability flips off→on. `before == null`
 // means the member just joined (first override write) — not a "became available"
 // event, so we skip it to avoid a blast on every new member.
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} groupId
+ * @param {string} memberUid
+ * @param {StatusOverride | null | undefined} before
+ * @param {StatusOverride | null | undefined} after
+ */
 export async function handleGroupOverrideChange(deps, groupId, memberUid, before, after) {
   if (before == null) return;
   const now = deps.now();
@@ -207,17 +325,52 @@ export async function handleGroupOverrideChange(deps, groupId, memberUid, before
   if (isOn && !wasOn) await notifyGroupAvailability(deps, groupId, memberUid, now);
 }
 
+// Availability-relevant field-compare of two statusOverride values. The merged
+// member-node trigger (index.js onMemberWritten) uses this to skip the notify
+// path — and its presence read — when a member write couldn't have changed
+// effectiveAvailable: displayName/join writes, and appearance-only override
+// edits (statusColor/paletteKey, written per group palette tap — audit-2 N4).
+// effectiveAvailable (presence-core.js) reads only enabled/status/availableUntil.
+// null and undefined both mean "absent".
+/**
+ * @param {StatusOverride | null | undefined} a
+ * @param {StatusOverride | null | undefined} b
+ */
+export function availabilityRelevantOverrideChange(a, b) {
+  if (a == null || b == null) return (a ?? null) !== (b ?? null);
+  return a.enabled !== b.enabled
+    || a.status !== b.status
+    || a.availableUntil !== b.availableUntil;
+}
+
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} calleeId
+ * @param {string} callerId
+ */
 export async function handleCall(deps, calleeId, callerId) {
-  const prefs = await deps.getVal(`userPrefs/${calleeId}/notify/${callerId}`);
-  if (!wantsCall(prefs)) return;
   const now = deps.now();
-  if (withinCooldown(await deps.getVal(`notifierState/callCooldown/${calleeId}/${callerId}`), now, CALL_COOLDOWN_MS)) return;
+  // Phase 1 — the two gates, in parallel (same shape as handleKnock). Gate order
+  // preserved: an opted-out callee still does ZERO name/send reads (paying only
+  // one extra tiny cooldown read); a cooled event still does no name read.
+  const [prefs, cooldown] = await Promise.all([
+    deps.getVal(`userPrefs/${calleeId}/notify/${callerId}`),
+    deps.getVal(`notifierState/callCooldown/${calleeId}/${callerId}`),
+  ]);
+  if (!wantsCall(prefs)) return;
+  if (withinCooldown(cooldown, now, CALL_COOLDOWN_MS)) return;
   const name = await resolveName(deps, calleeId, callerId);
   await sendToUser(deps, calleeId, buildMessage('call', name), { type: 'call', targetUid: callerId });
   await deps.update(`notifierState/callCooldown/${calleeId}`, { [callerId]: now });
 }
 
 // Triggered on a write to users/{uid}/presence/availableUntil (before/after are that value).
+/**
+ * @param {NotifierDeps} deps
+ * @param {string} uid
+ * @param {number | null | undefined} beforeAU
+ * @param {number | null | undefined} afterAU
+ */
 export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   const now = deps.now();
   const status = await deps.getVal(`users/${uid}/presence/status`);
@@ -238,13 +391,14 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   // label adds no information and its "in {group}" reading can misleadingly
   // imply the availability is group-scoped. A group label is only meaningful
   // when the in-group status DIVERGES from the primary (an override-ON group),
-  // which is handled by onMemberOverride → notifyGroupAvailability, not here.
+  // which is handled by onMemberWritten's override branch → notifyGroupAvailability, not here.
   //
   // Known accepted caveat (#215 finding #7): this in-memory `notified` set
-  // can't coordinate with the SEPARATE onMemberOverride invocation, so a
+  // can't coordinate with the SEPARATE onMemberWritten invocation, so a
   // recipient who is both a Direct follower and an override-ON co-member can
   // still get a rare duplicate (one push per trigger). Accepted as-is for a
   // 50–100-user app rather than adding a cross-invocation notifierState stamp.
+  /** @type {Set<string>} */
   const notified = new Set();
 
   // Direct followers — own per-uid cooldown. Followers are marked notified even
@@ -256,12 +410,11 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   ]);
   const directCooled = withinCooldown(directCooledTs, now, AVAIL_COOLDOWN_MS);
   const followerIds = (followers ? Object.keys(followers) : []).filter((fid) => fid !== uid);
-  // Resolve the sender's shared fallback name once (code → 'Someone'); only the
-  // per-viewer following label varies. This collapses the per-follower re-read
-  // of users/{uid}/presence/code that resolveName() did inside the old loop.
-  const senderFallback = followerIds.length
-    ? ((await deps.getVal(`users/${uid}/presence/code`)) || 'Someone')
-    : 'Someone';
+  // Resolve the sender's shared fallback name once (code → 'Someone') for BOTH
+  // the Direct pass and the group fan-out; only the per-viewer following label
+  // (and per-group displayName) varies. Threading it into notifyGroupAvailability
+  // collapses the per-group re-read of this same leaf (audit-2 N7).
+  const senderFallback = ((await deps.getVal(`users/${uid}/presence/code`)) || 'Someone');
   // Fan the independent per-follower prefs-read + send out in parallel. Each
   // opted-in follower is marked notified (so the group pass never doubles them),
   // even when the Direct cooldown suppresses the actual send.
@@ -282,13 +435,13 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   }));
   let directDelivered = 0;
   for (const r of results) {
-    if (r.opted) notified.add(r.fid);
+    if (r.opted) notified.add(/** @type {string} */ (r.fid)); // opted:true always carries fid
     if (r.sent) directDelivered++;
   }
   if (directDelivered > 0) await deps.update('notifierState/availability', { [uid]: now });
 
   // Group co-members — only for groups where this member's override is OFF, so the
-  // group is showing their primary. Override-ON groups are driven by onMemberOverride.
+  // group is showing their primary. Override-ON groups are driven by onMemberWritten.
   // The shared `notified` set dedups across Direct + every group.
   const groups = await deps.getVal(`users/${uid}/groups`);
   const gids = groups ? Object.keys(groups) : [];
@@ -298,6 +451,6 @@ export async function handleAvailability(deps, uid, beforeAU, afterAU) {
   const overrides = await Promise.all(gids.map((gid) => deps.getVal(`groups/${gid}/members/${uid}/statusOverride`)));
   for (let i = 0; i < gids.length; i += 1) {
     if (overrides[i] && overrides[i].enabled === true) continue;
-    await notifyGroupAvailability(deps, gids[i], uid, now, notified);
+    await notifyGroupAvailability(deps, gids[i], uid, now, notified, senderFallback);
   }
 }

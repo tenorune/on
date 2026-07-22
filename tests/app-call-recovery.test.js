@@ -50,8 +50,12 @@ jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
   watchOwnCall: jest.fn(() => () => {}),
   endCall: jest.fn().mockResolvedValue(undefined),
+  // Default: peer's mailbox still references us (not an orphan) so the happy-path
+  // recovery tests re-enter as before. The orphan test overrides this to null.
+  getCall: jest.fn().mockResolvedValue({ to: 'me', from: 'me', ts: 1 }),
   getUser: jest.fn().mockResolvedValue(null),
   getUserPrefs: jest.fn().mockResolvedValue(null),
+  getCurrentContextPref: jest.fn().mockResolvedValue(null),
   readGroup: jest.fn().mockResolvedValue(null),
   readGroupName: jest.fn().mockResolvedValue(null),
   watchUserPrefs: jest.fn(() => () => {}),
@@ -91,7 +95,6 @@ jest.mock('../js/db.js', () => ({
   writeGroupInvite: jest.fn(),
   readGroupInvites: jest.fn().mockResolvedValue({}),
   setGroupInviteRevoked: jest.fn(),
-  incrementGroupInviteRedemptions: jest.fn(),
   watchGroupInvites: jest.fn(() => () => {}),
   setStatusOverride: jest.fn().mockResolvedValue(undefined),
   clearStatusOverride: jest.fn().mockResolvedValue(undefined),
@@ -194,6 +197,9 @@ jest.mock('../js/prefs.js', () => ({
     sets: { '1': { selectedKey: 'default', activePaletteKey: 'default' } },
   })),
   getFollowing: jest.fn().mockReturnValue([]),
+  // locationShare's boot seeding reads these synchronously at init.
+  getLocationOptIn: jest.fn(() => false),
+  getOptedInLocationGids: jest.fn(() => []),
 }));
 
 jest.mock('../js/groupNav.js', () => ({
@@ -321,6 +327,42 @@ describe('app.js boot-recovery: watchOwnCall callback', () => {
     expect(reEnterCallMode).toHaveBeenCalledWith(PEER_ENTRY, PEER_DATA, 'me');
   });
 
+  test('orphan self-heal: answered but peer mailbox no longer references me → endCall, no re-enter', async () => {
+    const { getFollowing } = require('../js/store.js');
+    const { getUser, getCall, endCall } = require('../js/db.js');
+    const { reEnterCallMode } = require('../js/following.js');
+
+    getFollowing.mockReturnValue([PEER_ENTRY]);
+    getUser.mockResolvedValue(PEER_DATA);
+    getCall.mockResolvedValue(null); // peer's mailbox is gone — we're the orphan
+
+    const cb = await loadAppAndCaptureRecoveryCb();
+    expect(cb).not.toBeNull();
+
+    await cb({ to: 'peer', answered: true, ts: 1 });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(reEnterCallMode).not.toHaveBeenCalled();
+    expect(endCall).toHaveBeenCalledWith('me', 'peer');
+  });
+
+  test('orphan self-heal: peer mailbox that has moved to another call → treated as orphan', async () => {
+    const { getFollowing } = require('../js/store.js');
+    const { getUser, getCall, endCall } = require('../js/db.js');
+    const { reEnterCallMode } = require('../js/following.js');
+
+    getFollowing.mockReturnValue([PEER_ENTRY]);
+    getUser.mockResolvedValue(PEER_DATA);
+    getCall.mockResolvedValue({ to: 'someoneElse', ts: 9 }); // peer moved on
+
+    const cb = await loadAppAndCaptureRecoveryCb();
+    await cb({ to: 'peer', answered: true, ts: 1 });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(reEnterCallMode).not.toHaveBeenCalled();
+    expect(endCall).toHaveBeenCalledWith('me', 'peer');
+  });
+
   test('cleanup: peer NOT in following → endCall called, reEnterCallMode not called', async () => {
     const { getFollowing } = require('../js/store.js');
     const { endCall } = require('../js/db.js');
@@ -376,7 +418,7 @@ describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)'
     const { setCurrentContext } = require('../js/prefs.js');
 
     invites.extractInboxIntentFromUrl.mockReturnValue(true);
-    db.getUserPrefs.mockResolvedValue({ currentContext: 'group:fam' }); // last context was a group
+    db.getCurrentContextPref.mockResolvedValue('group:fam'); // last context was a group
     db.readGroupName.mockResolvedValue({ name: 'Fam' }); // would otherwise drive navigateToGroup
 
     await bootApp();
@@ -396,7 +438,7 @@ describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)'
     const { setCurrentContext } = require('../js/prefs.js');
 
     invites.extractDirectIntentFromUrl.mockReturnValue(true);
-    db.getUserPrefs.mockResolvedValue({ currentContext: 'group:fam' }); // last context was a group
+    db.getCurrentContextPref.mockResolvedValue('group:fam'); // last context was a group
     db.readGroupName.mockResolvedValue({ name: 'Fam' }); // would otherwise drive navigateToGroup
 
     await bootApp();
@@ -413,13 +455,29 @@ describe('app.js boot: inbox deep-link (cold tap on an invite / follow-request)'
     const { openInboxModal } = require('../js/inbox.js');
 
     invites.extractInboxIntentFromUrl.mockReturnValue(false);
-    db.getUserPrefs.mockResolvedValue({ currentContext: 'group:fam' });
+    db.getCurrentContextPref.mockResolvedValue('group:fam');
     db.readGroupName.mockResolvedValue({ name: 'Fam' });
 
     await bootApp();
 
     expect(navigateToGroup).toHaveBeenCalledWith('fam');
     expect(openInboxModal).not.toHaveBeenCalled();
+  });
+
+  test('returning-user boot resolves currentContext from the leaf, not the whole prefs node (audit F6)', async () => {
+    const invites = require('../js/invites.js');
+    const db = require('../js/db.js');
+    const { navigateToGroup } = require('../js/groupNav.js');
+
+    invites.extractInboxIntentFromUrl.mockReturnValue(false);
+    db.getCurrentContextPref.mockResolvedValue('group:G1');
+    db.readGroupName.mockResolvedValue({ name: 'G1' });
+
+    await bootApp();
+
+    expect(db.getCurrentContextPref).toHaveBeenCalledWith('me');
+    expect(db.getUserPrefs).not.toHaveBeenCalled();
+    expect(navigateToGroup).toHaveBeenCalledWith('G1');
   });
 
   test('boot signs in (ensureSignedIn) before wiring RTDB watchers', async () => {

@@ -36,4 +36,44 @@ describe.each([
   test('still deploys functions (the step this guard protects)', () => {
     expect(wf).toMatch(/--only [^\n]*functions/);
   });
+
+  test('typechecks scripts/ alongside the root typecheck before deploy', () => {
+    // scripts/*.js are covered by tsconfig.scripts.json (Node-typed), separate
+    // from the browser root tsconfig; both must gate CI so a scripts type
+    // regression fails the build the same way a client one does.
+    const scriptsCheck = wf.indexOf('npm run typecheck:scripts');
+    const deploy = wf.indexOf('npx firebase deploy');
+    expect(scriptsCheck).toBeGreaterThan(-1);
+    expect(deploy).toBeGreaterThan(-1);
+    expect(scriptsCheck).toBeLessThan(deploy);
+  });
+});
+
+// Pin the hosting headers the location feature depends on (spec §9): the
+// Permissions-Policy grant is what lets same-origin pages call the
+// Geolocation API once browsers enforce the policy — losing it silently
+// breaks capture in production while dev (no headers) keeps working.
+describe('firebase.json hosting headers', () => {
+  test('Permissions-Policy allows geolocation for self on every route', () => {
+    const cfg = JSON.parse(readRoot('firebase.json'));
+    const all = cfg.hosting.headers.find((h) => h.source === '**');
+    expect(all).toBeDefined();
+    expect(all.headers).toContainEqual({ key: 'Permissions-Policy', value: 'geolocation=(self)' });
+  });
+
+  test('sw.js is served no-store, in a block AFTER the "**" no-cache rule', () => {
+    // no-cache (revalidate) is NOT enough for the worker script: iOS WebKit
+    // has been device-observed (2026-07-21) answering the SW update check
+    // from its conditional-revalidation state with stale bytes — update()
+    // "succeeds" seeing the old sw.js for days while the server serves a new
+    // one, so the PWA never auto-updates. no-store leaves nothing to
+    // revalidate on either the client or CDN side. Firebase applies the
+    // LATER matching headers block for a duplicate key, so this block must
+    // stay after '**' (same ordering constraint as the chunks rule).
+    const cfg = JSON.parse(readRoot('firebase.json'));
+    const idxAll = cfg.hosting.headers.findIndex((h) => h.source === '**');
+    const idxSw = cfg.hosting.headers.findIndex((h) => h.source === '/sw.js');
+    expect(idxSw).toBeGreaterThan(idxAll);
+    expect(cfg.hosting.headers[idxSw].headers).toContainEqual({ key: 'Cache-Control', value: 'no-store' });
+  });
 });

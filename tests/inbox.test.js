@@ -15,6 +15,9 @@ jest.mock('../js/groups.js', () => ({
 }));
 jest.mock('../js/groupNav.js', () => ({
   navigateToGroup: jest.fn().mockResolvedValue(undefined),
+  beginGroupEntryTransition: jest.fn(),
+  endGroupEntryTransition: jest.fn(),
+  setLastKnownGroupName: jest.fn(),
 }));
 jest.mock('../js/prefs.js', () => ({
   getFollowing: jest.fn(() => [
@@ -119,6 +122,18 @@ describe('Inbox', () => {
     cb({ G1: { from: 'uOwner1', ts: 100 } });
     await openInboxModal();   // render 1 → readGroupName('G1')
     await openInboxModal();   // render 2 → served from the session cache
+    expect(db.readGroupName).toHaveBeenCalledTimes(1);
+    expect(db.readGroupName).toHaveBeenCalledWith('G1');
+  });
+
+  test('caches a null group-name result too — a deleted group is not re-fetched every render', async () => {
+    let cb;
+    db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
+    db.readGroupName.mockResolvedValue(null); // deleted group → name-leaf read returns null
+    initInbox('me');
+    cb({ G1: { from: 'uOwner1', ts: 100 } });
+    await openInboxModal();   // render 1 → readGroupName('G1') → null
+    await openInboxModal();   // render 2 → should be served from the null cache
     expect(db.readGroupName).toHaveBeenCalledTimes(1);
     expect(db.readGroupName).toHaveBeenCalledWith('G1');
   });
@@ -233,6 +248,18 @@ describe('Inbox', () => {
     expect(groups.joinGroup).toHaveBeenCalledWith('G1', 'me', 'My Group Name', { group: { name: 'Family' }, existing: null });
     expect(db.deletePendingInvite).toHaveBeenCalledWith('me', 'G1');
     expect(groupNav.navigateToGroup).toHaveBeenCalledWith('G1');
+    // Flash guard (2026-07-21 regression): the brokered join is a slow
+    // callable round-trip — Direct + nav row must be hidden BEFORE it runs
+    // (or its enumeration echo paints the new group's code over Direct), the
+    // real group name seeded, and the guard released (hidden) only for
+    // navigateToGroup's own render to take over.
+    expect(groupNav.beginGroupEntryTransition).toHaveBeenCalled();
+    expect(groupNav.beginGroupEntryTransition.mock.invocationCallOrder[0])
+      .toBeLessThan(groups.joinGroup.mock.invocationCallOrder[0]);
+    expect(groupNav.setLastKnownGroupName).toHaveBeenCalledWith('G1', 'Family');
+    expect(groupNav.endGroupEntryTransition).toHaveBeenCalledWith(false);
+    expect(groupNav.endGroupEntryTransition.mock.invocationCallOrder[0])
+      .toBeLessThan(groupNav.navigateToGroup.mock.invocationCallOrder[0]);
   });
 
   test('Join surfaces an error and keeps the pending invite when joinGroup fails', async () => {
@@ -253,6 +280,8 @@ describe('Inbox', () => {
     expect(groupNav.navigateToGroup).not.toHaveBeenCalled();
     expect(groups.showToast).toHaveBeenCalledWith('Network down');
     expect(joinBtn.disabled).toBe(false);
+    // Flash guard released with restore=true: Direct + nav row come back.
+    expect(groupNav.endGroupEntryTransition).toHaveBeenCalledWith(true);
   });
 
   test('Join on a row where the user is already a member silently dismisses (no prompt, no joinGroup)', async () => {
@@ -358,6 +387,7 @@ describe('Inbox — follow requests', () => {
     // member record carries the display name the requester saw on the roster.
     db.readMember.mockImplementation(async (gid, uid) =>
       uid === 'me' ? { displayName: 'My Roster Name' } : { displayName: 'Req Name' });
+    db.readGroupName.mockResolvedValue(null); // group name unresolvable → nameless copy
     const { inviteCb, frCb } = initWithCallbacks();
     inviteCb({});
     frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
@@ -403,6 +433,7 @@ describe('Inbox — follow requests', () => {
 
   test('uses the viewer label for the requester when followed', async () => {
     // prefs.getFollowing mock returns uOwner1 labelled "Owner One"
+    db.readGroupName.mockResolvedValue(null);
     const { inviteCb, frCb } = initWithCallbacks();
     inviteCb({});
     frCb({ uOwner1: { from: 'uOwner1', groupId: 'g1', ts: 7 } });
@@ -410,6 +441,31 @@ describe('Inbox — follow requests', () => {
     const row = document.querySelector('.inbox-row[data-requester-id="uOwner1"]');
     expect(row.querySelector('.inbox-row-text').textContent).toBe('Owner One wants to follow you.');
     expect(db.readMember).not.toHaveBeenCalledWith('g1', 'uOwner1');
+  });
+
+  test('follow-request row names the group the requester is from', async () => {
+    db.readMember.mockResolvedValue({ displayName: 'Req Name' });
+    db.readGroupName.mockResolvedValue({ name: 'Hiking' });
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+    await openInboxModal();
+    const row = document.querySelector('.inbox-row[data-requester-id="req"]');
+    expect(row.querySelector('.inbox-row-text').textContent).toBe('Req Name in Hiking wants to follow you.');
+  });
+
+  test('a denied member read falls back instead of breaking the whole render', async () => {
+    // The requester may have left the shared group — that read is
+    // membership-gated and rejects; the row must still render.
+    db.readMember.mockRejectedValue(new Error('Permission denied'));
+    db.readGroupName.mockResolvedValue(null);
+    const { inviteCb, frCb } = initWithCallbacks();
+    inviteCb({});
+    frCb({ req: { from: 'req', groupId: 'g1', ts: 5 } });
+    await openInboxModal();
+    const row = document.querySelector('.inbox-row[data-requester-id="req"]');
+    expect(row).not.toBeNull();
+    expect(row.querySelector('.inbox-row-text').textContent).toBe('Someone wants to follow you.');
   });
 
   test('a failed Approve re-enables the button and does not delete the request', async () => {

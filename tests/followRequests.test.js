@@ -13,10 +13,14 @@ jest.mock('../js/prefs.js', () => ({
 jest.mock('../js/groups.js', () => ({
   showToast: jest.fn(),
 }));
+jest.mock('../js/promptModal.js', () => ({
+  showConfirmModal: jest.fn(),
+}));
 
 const db = require('../js/db.js');
 const prefs = require('../js/prefs.js');
 const { showToast } = require('../js/groups.js');
+const { showConfirmModal } = require('../js/promptModal.js');
 const {
   requestToFollow, cancelFollowRequest, isRequested, isFollowRequestEligible,
   createRequestFollowButton, initFollowGrants,
@@ -26,6 +30,15 @@ beforeEach(() => {
   jest.clearAllMocks();
   try { localStorage.clear(); } catch { /* no-op */ }
   prefs.getFollowing.mockReturnValue([]);
+  // Default: the user confirms. Mirrors the real modal's contract — the
+  // confirm tap runs onConfirm with the modal held open; a throwing onConfirm
+  // keeps it open (here: resolves false, the caller sees "not sent").
+  showConfirmModal.mockImplementation(async ({ onConfirm }) => {
+    if (onConfirm) {
+      try { await onConfirm(); } catch { return false; }
+    }
+    return true;
+  });
 });
 
 describe('requestToFollow', () => {
@@ -94,6 +107,56 @@ describe('createRequestFollowButton', () => {
     expect(btn.classList.contains('requested')).toBe(false);
     expect(btn.getAttribute('aria-label')).toBe('Request to follow');
     expect(showToast).toHaveBeenCalledWith('You cancelled your request to follow Bea.');
+  });
+
+  test('a request click asks for confirmation naming the member', async () => {
+    const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
+    btn.click();
+    await settle();
+    expect(showConfirmModal).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Send a request to follow Bea?',
+      confirmLabel: 'Send request',
+      confirmVariant: 'affirmative',
+    }));
+    expect(db.writeFollowRequest).toHaveBeenCalledWith('me', 'tgt', 'g1');
+  });
+
+  test('a dismissed confirm sends nothing and stays unrequested', async () => {
+    showConfirmModal.mockResolvedValueOnce(false);
+    const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
+    btn.click();
+    await settle();
+    expect(db.writeFollowRequest).not.toHaveBeenCalled();
+    expect(isRequested('tgt')).toBe(false);
+    expect(btn.classList.contains('requested')).toBe(false);
+    expect(btn.disabled).toBe(false);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  test('a cancel click asks for confirmation naming the member', async () => {
+    localStorage.setItem('statusapp_follow_requested', JSON.stringify(['tgt']));
+    const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
+    btn.click();
+    await settle();
+    expect(showConfirmModal).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Cancel your request to follow Bea?',
+      confirmLabel: 'Cancel request',
+      cancelLabel: 'Keep request',
+    }));
+    expect(db.deleteFollowRequest).toHaveBeenCalledWith('tgt', 'me');
+  });
+
+  test('a dismissed cancel-confirm leaves the request pending', async () => {
+    localStorage.setItem('statusapp_follow_requested', JSON.stringify(['tgt']));
+    showConfirmModal.mockResolvedValueOnce(false);
+    const btn = createRequestFollowButton('me', 'tgt', 'g1', 'Bea');
+    btn.click();
+    await settle();
+    expect(db.deleteFollowRequest).not.toHaveBeenCalled();
+    expect(isRequested('tgt')).toBe(true);
+    expect(btn.classList.contains('requested')).toBe(true);
+    expect(btn.disabled).toBe(false);
+    expect(showToast).not.toHaveBeenCalled();
   });
 
   test('a click does not bubble to the row (knock guard)', () => {

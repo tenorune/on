@@ -26,7 +26,7 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png" />
   <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="css/about.css" />
+  <link rel="stylesheet" href="dist/css/about.css" />
   <script>try{var t=JSON.parse(localStorage.getItem('statusapp_theme')||'null');if(t){var r=document.documentElement;r.style.setProperty('--bg',t.bg);r.style.setProperty('--surface',t.surface);r.style.setProperty('--surface2',t.surface2);r.style.setProperty('--text',t.text);r.style.setProperty('--text-muted',t.textMuted);r.style.setProperty('--accent',t.accent);r.style.setProperty('--error-bg',t.errorBg);r.style.setProperty('--error-text',t.errorText);}}catch(e){}</script>
   <script>(function(){try{var s=JSON.parse(localStorage.getItem('statusapp_palette_state')||'null');if(!s||!s.sets)return;var set=s.sets[String(s.activeSet)];var c=set&&set.selectedColor;if(typeof c!=='string'||!/^#[0-9a-fA-F]{3,8}$/.test(c))return;document.documentElement.style.setProperty('--status-echo',c);}catch(e){}})();</script>
 </head>
@@ -110,6 +110,15 @@
       </article>
 
       <article class="feature">
+        <h3>Distance</h3>
+        <p>An optional sense of how far away someone is &mdash; never a map, never a dot.</p>
+        <details>
+          <summary>How distance works</summary>
+          <p>Tap the pin to share your location with a mutual, and if they share back you'll each see a rough distance &mdash; &ldquo;120 meters away&rdquo;, &ldquo;2.3 km away&rdquo;. It's opt-in per contact and per group, off until you turn it on, and gone the moment you turn it off. Inside a group it stays deliberately coarse (&ldquo;&lt;1 km away&rdquo;, &ldquo;~3 km away&rdquo;); only a direct, mutual pairing shows the finer number. No one ever sees <em>where</em> you are &mdash; only how far.</p>
+        </details>
+      </article>
+
+      <article class="feature">
         <h3>Notifications</h3>
         <p>Off by default, and yours to shape.</p>
         <details>
@@ -123,7 +132,7 @@
         <p>__APP_TITLE__ also lives inside Telegram.</p>
         <details>
           <summary>How Telegram works</summary>
-          <p>Open the bot and you're in — your Telegram identity signs you in, no phrase to type. The bot handles the basics right from chat (go available, see who's free, knock), and notifications can arrive as bot messages instead of push. Already have an account here? Link it once and Telegram becomes another door to the same you.</p>
+          <p>Open the bot and you're in — your Telegram identity signs you in, no phrase to type. The bot handles the basics right from chat (go available, see who's free, knock), and notifications can arrive as bot messages instead of push. Sharing distance and want to step out of sight? <code>/locoff</code> turns it off without opening the app. Already have an account here? Link it once and Telegram becomes another door to the same you.</p>
         </details>
       </article>
     </section>
@@ -133,6 +142,7 @@
       <ul>
         <li><strong>No email, phone, or social sign-up.</strong> Your account is a four-word secret phrase.</li>
         <li><strong>Only your people see you.</strong> Your status is visible to the contacts you've connected with — and to fellow members inside a group.</li>
+        <li><strong>Distance is opt-in and mutual.</strong> Turn it on and, if a contact does too, you each see a rough distance — never a location or a map. Groups only ever show a coarse distance.</li>
         <li><strong>No ads. No tracking. No analytics.</strong> Nothing about you is sold or measured.</li>
         <li><strong>A small, invite-based space</strong> — not a public network.</li>
       </ul>
@@ -146,6 +156,9 @@
 
       <h3>What others can see — and what they can't</h3>
       <p>The people you've connected with can see your availability, your status, and your color, updating in real time. Inside a group, fellow members see the status you've set for that group. Everything else — who your contacts are, your settings, your saved colors — stays private to you.</p>
+
+      <h3>Distance is optional and mutual</h3>
+      <p>You can choose to share a rough distance with a contact by tapping the pin. It only appears when you've both turned it on, and either of you can turn it off at any time — which deletes the point you last shared. What's shared is a distance, not a place: no map, no pin dropped on a map, no location history. With a direct mutual the distance is precise to a point; inside a group it's blurred to a coarse band. And the app only reads your location while it's open in front of you — there's no background tracking, so put it away and it simply stops updating.</p>
 
       <h3>Where your data lives</h3>
       <p>__APP_TITLE__ runs on Firebase (Google Cloud). Your data is stored in a Realtime Database hosted in __DATA_REGION__. Access is locked down so each account can only read and write its own data — the only thing shared is the presence others need in order to see your status. When you sign in, a small server function checks your phrase and hands your device a token; your phrase itself is never stored as a password.</p>

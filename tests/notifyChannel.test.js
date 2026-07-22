@@ -2,7 +2,10 @@
 // The notification-channel toggle pill, driven reactively from userPrefs so it
 // stays live across surfaces/devices (link/unlink and channel switches reflect
 // without a reload). Shared by the Telegram drawer and the web drawer.
-jest.mock('../js/db.js', () => ({ mergeUserPrefs: jest.fn(async () => {}) }));
+jest.mock('../js/db.js', () => ({
+  mergeUserPrefs: jest.fn(async () => {}),
+  readPushTokens: jest.fn(async () => null),
+}));
 jest.mock('../js/telegram.js', () => ({
   isTelegramContext: jest.fn(() => false),
   isTelegramLinked: jest.fn(() => false),
@@ -10,7 +13,7 @@ jest.mock('../js/telegram.js', () => ({
 jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn(async () => {}) }));
 jest.mock('../js/notifySuppression.js', () => ({ syncBotDelivery: jest.fn() }));
 jest.mock('../js/groups.js', () => ({ showToast: jest.fn() }));
-const { mergeUserPrefs } = require('../js/db.js');
+const { mergeUserPrefs, readPushTokens } = require('../js/db.js');
 const { isTelegramContext, isTelegramLinked } = require('../js/telegram.js');
 const { ensureNotificationsReady } = require('../js/notifyPrompt.js');
 const { syncBotDelivery } = require('../js/notifySuppression.js');
@@ -31,6 +34,7 @@ function mountDom() {
 beforeEach(() => {
   jest.clearAllMocks();
   mergeUserPrefs.mockResolvedValue(undefined);
+  readPushTokens.mockResolvedValue(null); // new path empty by default; tests opt in per-case
   isTelegramContext.mockReturnValue(false); // web by default
   isTelegramLinked.mockReturnValue(false);
   // jsdom has no Notification; the pill's honesty guards read its permission.
@@ -104,8 +108,11 @@ test('unlink transition: shown → hidden when the telegram marker clears', () =
 test('clicking a segment persists the channel and optimistically moves the active state', async () => {
   syncNotifyChannel('u1', LINKED('telegram'));
   document.querySelector('[data-channel="push"]').click();
-  expect(active()).toBe('push'); // optimistic, before the round-trip resolves
+  // The honesty check (accountHasPushTokens) now awaits readPushTokens before the
+  // optimistic setActive, so the flip lands after a microtask tick rather than
+  // synchronously with the click — flush before asserting it.
   await flush();
+  expect(active()).toBe('push'); // optimistic — this resolves before mergeUserPrefs's OWN write is asserted below
   expect(mergeUserPrefs).toHaveBeenCalledWith('u1', { notifyChannel: 'push' });
 });
 
@@ -237,6 +244,51 @@ describe('web: Push switch stays honest when no device can receive push', () => 
     expect(mergeUserPrefs).toHaveBeenCalledWith('u1', { notifyChannel: 'push' });
     expect(active()).toBe('push');
     expect(showToast).not.toHaveBeenCalled();
+  });
+});
+
+// accountHasPushTokens dual-sources: the relocated top-level pushTokens/{uid}
+// node (via readPushTokens) is checked first, with the legacy in-memory
+// lastPrefs.pushTokens as a fallback for an account not yet migrated during
+// the deploy window. Mirrors the sendToUser (functions/notifier.js) and
+// /notifications push (functions/telegram.js) dual-read contract.
+describe('accountHasPushTokens dual-reads the relocated node then legacy prefs', () => {
+  // Permission denied on THIS device isolates the assertion to accountHasPushTokens
+  // itself (mirrors the existing "another device holds a token" case above) —
+  // a granted/default permission would let the switch through regardless of tokens.
+  test('token under the NEW path (readPushTokens): switch to push is allowed', async () => {
+    global.Notification = { permission: 'denied' };
+    readPushTokens.mockResolvedValue({ tok1: { createdAt: 1 } });
+    syncNotifyChannel('u1', LINKED('telegram')); // no legacy pushTokens on prefs
+    document.querySelector('[data-channel="push"]').click();
+    await flush();
+    expect(readPushTokens).toHaveBeenCalledWith('u1');
+    expect(mergeUserPrefs).toHaveBeenCalledWith('u1', { notifyChannel: 'push' });
+    expect(active()).toBe('push');
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  test('new path empty, token only in legacy lastPrefs.pushTokens: fallback allows the switch', async () => {
+    global.Notification = { permission: 'denied' };
+    readPushTokens.mockResolvedValue(null); // not yet migrated
+    syncNotifyChannel('u1', { ...LINKED('telegram'), pushTokens: { tok1: true } });
+    document.querySelector('[data-channel="push"]').click();
+    await flush();
+    expect(mergeUserPrefs).toHaveBeenCalledWith('u1', { notifyChannel: 'push' });
+    expect(active()).toBe('push');
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  test('neither the new path nor legacy prefs has a token: switch is refused', async () => {
+    global.Notification = { permission: 'denied' };
+    readPushTokens.mockResolvedValue(null);
+    syncNotifyChannel('u1', LINKED('telegram')); // no pushTokens anywhere
+    document.querySelector('[data-channel="push"]').click();
+    await flush();
+    expect(showToast).toHaveBeenCalledWith(
+      'Notifications are blocked in this browser — allow them in your browser settings first. Messages keep arriving via Telegram.');
+    expect(mergeUserPrefs).not.toHaveBeenCalled();
+    expect(active()).toBe('telegram');
   });
 });
 

@@ -9,8 +9,9 @@ A real-time **ambient-presence** [PWA](https://en.wikipedia.org/wiki/Progressive
 - **Call mode + shared canvas** — Swipe right to call a mutual; they swipe right to answer. Answering opens a collaborative drawing canvas that persists per user-pair.
 - **Palettes & favorites** — 16 palettes across two sets (Natural + Electric), each a full UI theme; up to 8 saved color combos. Long-press a contact's card to **adopt** their color + theme.
 - **Groups** — Create groups, invite via link or in-app picker, and set a **per-audience status** (a different availability/color for each group than your primary). An Inbox surfaces pending invites and follow requests.
+- **Distance (opt-in)** — Share a rough distance with the people who matter, per context. Reciprocal: it appears only when both sides opt in. A direct mutual pairing shows a precise distance (`120 meters away`), group rosters show a coarse band (`<1 km away`). Location itself is never shown — only distance, and only while the app is open (no background tracking).
 - **Push notifications** — Web Push (FCM) for knocks, calls, availability, group invites, and follow requests, with per-contact opt-in. Platform-aware install guidance where the OS requires it (iOS Home Screen, macOS Dock).
-- **Telegram Mini App (experimental)** — the same app running inside Telegram: auto sign-in via Telegram's signed identity, a companion bot that covers the core loop from chat (go available, see who's free, knock), invite deep links, and notifications as bot messages instead of Web Push. Behind the `TELEGRAM_ENABLED` flag.
+- **Telegram Mini App (experimental)** — the same app running inside Telegram: auto sign-in via Telegram's signed identity, a companion bot that covers the core loop from chat (go available, see who's free, knock, `/locoff` to stop sharing distance), a `/status` freshness nudge while a location beacon is on, invite deep links, and notifications as bot messages instead of Web Push. Behind the `TELEGRAM_ENABLED` flag.
 - **Phrase-based identity** — A 4-word secret phrase is your account; type it on any device to restore. No email, no social sign-up.
 - **PWA** — Installable, standalone, offline shell, auto-updating service worker.
 
@@ -26,10 +27,11 @@ KnockKnock is a sandbox & playground for me to explore agent-assisted design and
 
 ## Tech Stack
 
-- **Vanilla JS** (ES modules, bundled with esbuild — no framework)
+- **Vanilla JS + gradual TypeScript** (ES modules, bundled with esbuild — no framework; `tsc --noEmit` typecheck in CI)
 - **Firebase Realtime Database** — security rules scoped to `auth.uid` (a user can only touch their own data), with field-level validation
 - **Firebase Authentication** (custom tokens) — minted by the `validateRecovery` Cloud Function; the secret phrase is exchanged for a token so `auth.uid === userId`
 - **Firebase Cloud Functions** (`functions/`) — push-notification triggers (knock/call/availability/invite/follow-request → FCM) **and** the `validateRecovery` token-minting callable
+- **`shared/`** — pure modules used by both the web client and Cloud Functions (time formatting, notify-channel default, name caps, id formats); functions consume a committed mirror (`functions/_shared/`, `npm run sync-shared`) since deploys archive only `functions/`
 - **Firebase Cloud Messaging** + Web Push (notifications)
 - **Firebase Hosting** (deploys via GitHub Actions)
 - **HTML Canvas API** (drawing engine)
@@ -103,7 +105,7 @@ users/{uid}/
 
 userPrefs/{uid}/              # private per-user state (only the owner reads)
   following/{followeeId}, favorites, paletteState, perGroup/{groupId}/…
-  hints/…, notify/{contactId}/…, pushTokens/{token}
+  hints/…, notify/{contactId}/…, location/…   # per-context opt-in state
 
 groups/{groupId}/
   name, ownerId, createdAt
@@ -116,6 +118,9 @@ pendingInvites/{inviteeUid}/{groupId}     # in-app group invites
 followRequests/{targetUid}/…, followGrants/{requesterUid}/…
 inviteIndex/{token}, groupIdIndex/{groupId}
 canvases/{sortedPairId}/{bg, presence, strokes}
+locations/{uid}                           # precise point (lat/lng) — readable only by a mutual who also shares (Direct tier)
+locationCells/{gid}/{uid}                 # coarse grid cell per group — readable by fellow group members
+pushTokens/{uid}/{token}                  # Web Push / FCM registration tokens (top-level; relocated off userPrefs, audit F6c)
 notifierState/…              # server-only push cooldowns/dedup
 ```
 

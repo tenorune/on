@@ -55,6 +55,74 @@ describe('gatherNotifyDebugInfo', () => {
   });
 });
 
+// SW auto-update diagnostics (#156 extension): the panel must show the
+// registration's lifecycle state and what /sw.js the SERVER currently
+// serves, so "device stuck on an old build" vs "registration broken" vs
+// "serving broken" are distinguishable from the panel alone (no
+// serviceworker-internals — the iOS PWA has no such surface).
+describe('gatherNotifyDebugInfo — SW registration + served sw.js', () => {
+  afterEach(() => {
+    delete navigator.serviceWorker;
+    delete global.fetch;
+  });
+
+  function mockSw({ registration } = {}) {
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: { getRegistration: jest.fn().mockResolvedValue(registration), controller: null },
+    });
+  }
+
+  test('no registration → "(no registration)"', async () => {
+    mockSw({ registration: undefined });
+    global.fetch = jest.fn().mockRejectedValue(new Error('offline'));
+    const info = await gatherNotifyDebugInfo('me');
+    expect(info.swReg).toBe('(no registration)');
+  });
+
+  test('active registration → its state; a parked waiting worker is reported too', async () => {
+    mockSw({ registration: { installing: null, waiting: { state: 'installed' }, active: { state: 'activated' } } });
+    global.fetch = jest.fn().mockRejectedValue(new Error('offline'));
+    const info = await gatherNotifyDebugInfo('me');
+    expect(info.swReg).toContain('active:activated');
+    expect(info.swReg).toContain('waiting:installed');
+  });
+
+  test('served sw.js probe reports status, content-type, and the served cache version', async () => {
+    mockSw({ registration: undefined });
+    global.fetch = jest.fn().mockResolvedValue({
+      status: 200,
+      headers: { get: (k) => (k.toLowerCase() === 'content-type' ? 'application/javascript; charset=utf-8' : null) },
+      text: () => Promise.resolve("const CACHE = 'knockknock-abc123def456';\n"),
+    });
+    const info = await gatherNotifyDebugInfo('me');
+    expect(global.fetch).toHaveBeenCalledWith('/sw.js', expect.objectContaining({ cache: 'no-store' }));
+    expect(info.swServed).toContain('knockknock-abc123def456');
+    expect(info.swServed).toContain('200');
+    expect(info.swServed).toContain('application/javascript');
+  });
+
+  test('served sw.js that is NOT the worker script (rewrite served HTML) is visible', async () => {
+    mockSw({ registration: undefined });
+    global.fetch = jest.fn().mockResolvedValue({
+      status: 200,
+      headers: { get: () => 'text/html; charset=utf-8' },
+      text: () => Promise.resolve('<!doctype html><html>…</html>'),
+    });
+    const info = await gatherNotifyDebugInfo('me');
+    expect(info.swServed).toContain('text/html');
+    expect(info.swServed).toContain('(no cache version in body)');
+  });
+
+  test('a failed sw.js probe reports the failure instead of hanging the row', async () => {
+    mockSw({ registration: undefined });
+    global.fetch = jest.fn().mockRejectedValue(new Error('net down'));
+    const info = await gatherNotifyDebugInfo('me');
+    expect(info.swServed).toContain('fetch failed');
+    expect(info.swServed).toContain('net down');
+  });
+});
+
 describe('notifyDebugActive (runtime opt-in)', () => {
   test('off by default', () => {
     expect(notifyDebugActive()).toBe(false);

@@ -6,6 +6,7 @@ import { HttpsError } from 'firebase-functions/v2/https';
 // wordlist check — server-side, format + normalization is all that's needed for
 // a correct uid; a non-real code just derives a dead uid). The normalized form
 // MUST match the client's so the derived uid matches.
+/** @param {unknown} input @returns {string | null} */
 export function normalizeRecoveryCode(input) {
   if (typeof input !== 'string') return null;
   const normalized = input.toLowerCase().replace(/[\s,\-]+/g, '-').replace(/^-+|-+$/g, '');
@@ -17,6 +18,7 @@ export function normalizeRecoveryCode(input) {
 }
 
 // Mirror js/identity.js deriveUserIdFromRecoveryCode: sha256 hex, first 32 chars.
+/** @param {string} normalizedCode @returns {Promise<string>} */
 export async function deriveUid(normalizedCode) {
   return createHash('sha256').update(normalizedCode, 'utf8').digest('hex').slice(0, 32);
 }
@@ -27,6 +29,10 @@ export async function deriveUid(normalizedCode) {
 //    guessed), not the client IP: an attacker can't rotate the key by spoofing
 //    X-Forwarded-For, and the shared store holds the limit across instances.
 //  - deps.mintToken(uid): getAuth().createCustomToken.
+/**
+ * @param {{ data?: { code?: unknown } }} request
+ * @param {{ allowAttempt: (uid: string) => Promise<boolean>, mintToken: (uid: string) => Promise<string> }} deps
+ */
 export async function validateRecoveryHandler(request, deps) {
   const normalized = normalizeRecoveryCode(request.data?.code);
   if (!normalized) throw new HttpsError('invalid-argument', 'Invalid recovery code.');

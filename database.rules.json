@@ -31,14 +31,14 @@
         },
         "followers": {
           "$follower": {
-            ".write": "auth != null && (auth.uid === $follower || auth.uid === $uid)",
-            ".validate": "newData.isString() && newData.val().length <= 16"
+            ".write": "auth != null && (auth.uid === $follower || (auth.uid === $uid && !newData.exists()))",
+            ".validate": "newData.isString() && newData.val().length <= 16 && auth.uid === $follower"
           }
         },
         "followerNames": {
           "$follower": {
-            ".write": "auth != null && (auth.uid === $follower || auth.uid === $uid)",
-            ".validate": "newData.isString() && newData.val().length <= 40"
+            ".write": "auth != null && (auth.uid === $follower || (auth.uid === $uid && !newData.exists()))",
+            ".validate": "newData.isString() && newData.val().length <= 40 && auth.uid === $follower"
           }
         }
       }
@@ -62,7 +62,7 @@
     "groups": {
       "$gid": {
         ".read": "auth != null && data.child('members').child(auth.uid).exists()",
-        ".write": "auth != null && (data.child('ownerId').val() === auth.uid || newData.child('ownerId').val() === auth.uid)",
+        ".write": "auth != null && (data.child('ownerId').val() === auth.uid || (!data.exists() && newData.child('ownerId').val() === auth.uid))",
         "name": { ".read": "auth != null", ".validate": "newData.isString() && newData.val().length <= 64" },
         "ownerId": { ".validate": "newData.isString() && newData.val().length <= 64" },
         "createdAt": { ".validate": "newData.isNumber()" },
@@ -72,15 +72,15 @@
           "$token": {
             ".read": "auth != null",
             "redemptionsUsed": {
-              ".write": "auth != null",
-              ".validate": "newData.isNumber() && (root.child('groups').child($gid).child('ownerId').val() === auth.uid || newData.val() === (data.exists() ? data.val() : 0) + 1)"
+              ".write": "auth != null && root.child('groups').child($gid).child('ownerId').val() === auth.uid",
+              ".validate": "newData.isNumber()"
             }
           }
         },
         "members": {
           "$uid": {
             ".read": "auth != null && auth.uid === $uid",
-            ".write": "auth != null && (auth.uid === $uid || data.parent().parent().child('ownerId').val() === auth.uid)"
+            ".write": "auth != null && ((auth.uid === $uid && (data.exists() || !newData.exists())) || data.parent().parent().child('ownerId').val() === auth.uid)"
           }
         }
       }
@@ -172,6 +172,43 @@
       "$canvasId": {
         ".read": "auth != null && ($canvasId.beginsWith(auth.uid + '_') || $canvasId.endsWith('_' + auth.uid))",
         ".write": "auth != null && ($canvasId.beginsWith(auth.uid + '_') || $canvasId.endsWith('_' + auth.uid))"
+      }
+    },
+    "locations": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || (root.child('users').child($uid).child('followers').child(auth.uid).exists() && root.child('users').child(auth.uid).child('followers').child($uid).exists() && root.child('locations').child(auth.uid).exists()))",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['lat', 'lng', 'updatedAt'])",
+        "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+        "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+        "updatedAt": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    },
+    "locationCells": {
+      "$gid": {
+        "$uid": {
+          ".read": "auth != null && root.child('groups').child($gid).child('members').child(auth.uid).exists() && root.child('locationCells').child($gid).child(auth.uid).exists()",
+          ".write": "auth != null && auth.uid === $uid && (root.child('groups').child($gid).child('members').child(auth.uid).exists() || !newData.exists())",
+          ".validate": "newData.hasChildren(['lat', 'lng', 'updatedAt'])",
+          "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+          "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+          "updatedAt": { ".validate": "newData.isNumber()" },
+          "$other": { ".validate": false }
+        }
+      }
+    },
+    "pushTokens": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "$token": {
+          ".validate": "newData.hasChildren(['createdAt', 'lastSeen'])",
+          "createdAt": { ".validate": "newData.isNumber()" },
+          "lastSeen": { ".validate": "newData.isNumber()" },
+          "ua": { ".validate": "newData.isString() && newData.val().length <= 512" },
+          "$other": { ".validate": false }
+        }
       }
     },
     "notifierState": { ".read": false, ".write": false },

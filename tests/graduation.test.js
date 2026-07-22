@@ -115,6 +115,10 @@ describe('startGraduation onConfirm', () => {
   test('success: graduates then stamps the landing marker', async () => {
     const { startGraduation } = require('../js/graduation.js');
     startGraduation();
+    // startGraduation now awaits generateRecoveryCode (the lazy-load call
+    // site) before calling showRecoveryCodeModal, so that call lands a tick
+    // after the synchronous call above.
+    await flush();
     const onConfirm = showRecoveryCodeModal.mock.calls[0][1];
     await onConfirm('gamma-delta-echo-foxtrot');
     expect(callGraduateTelegram).toHaveBeenCalledWith('signed-init-data', 'gamma-delta-echo-foxtrot');
@@ -127,6 +131,10 @@ describe('startGraduation onConfirm', () => {
     const { storeGraduatedPhrase } = require('../js/graduationPhrase.js');
     const { startGraduation } = require('../js/graduation.js');
     startGraduation();
+    // startGraduation now awaits generateRecoveryCode (the lazy-load call
+    // site) before calling showRecoveryCodeModal, so that call lands a tick
+    // after the synchronous call above.
+    await flush();
     const onConfirm = showRecoveryCodeModal.mock.calls[0][1];
     await onConfirm('gamma-delta-echo-foxtrot');
     expect(storeGraduatedPhrase).toHaveBeenCalledWith('uid-gamma-delta-echo-foxtrot', 'gamma-delta-echo-foxtrot');
@@ -136,6 +144,10 @@ describe('startGraduation onConfirm', () => {
     callGraduateTelegram.mockRejectedValueOnce(Object.assign(new Error('nope'), { code: 'functions/already-exists' }));
     const { startGraduation } = require('../js/graduation.js');
     startGraduation();
+    // startGraduation now awaits generateRecoveryCode (the lazy-load call
+    // site) before calling showRecoveryCodeModal, so that call lands a tick
+    // after the synchronous call above.
+    await flush();
     const onConfirm = showRecoveryCodeModal.mock.calls[0][1];
     await expect(onConfirm('gamma-delta-echo-foxtrot')).rejects.toMatchObject({
       userMessage: "Couldn't set that up right now. Try again.",

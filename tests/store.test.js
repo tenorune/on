@@ -3,6 +3,7 @@ const {
   getFollowing, addFollowing, removeFollowing, isFollowing,
   getLastTimeout, setLastTimeout, renameFollowing, updateFollowingCode,
   getPalette, getPaletteState, setPaletteState,
+  getFavorites, setFavorites,
 } = require('../js/store');
 
 beforeEach(() => {
@@ -143,6 +144,62 @@ test('setPaletteState round-trips via getPaletteState', () => {
   setPaletteState(state);
   const loaded = getPaletteState();
   expect(loaded.sets['1'].selectedKey).toBe('gold');
+});
+
+describe('parse memoization', () => {
+  test('unchanged raw skips re-parse but still returns a fresh array', () => {
+    localStorage.setItem('statusapp_following', JSON.stringify([{ userId: 'u1', code: 'C1' }]));
+    const spy = jest.spyOn(JSON, 'parse');
+    const a = getFollowing();
+    const callsAfterFirst = spy.mock.calls.length;
+    const b = getFollowing();
+    expect(spy.mock.calls.length).toBe(callsAfterFirst); // second call: no parse
+    expect(b).toEqual(a);
+    expect(b).not.toBe(a); // fresh copy — callers mutate their list
+    spy.mockRestore();
+  });
+
+  test('a direct localStorage write between calls is honored (cross-tab safety)', () => {
+    localStorage.setItem('statusapp_following', JSON.stringify([{ userId: 'u1', code: 'C1' }]));
+    getFollowing();
+    localStorage.setItem('statusapp_following', JSON.stringify([{ userId: 'u2', code: 'C2' }]));
+    expect(getFollowing()).toEqual([{ userId: 'u2', code: 'C2' }]);
+  });
+
+  test('getFavorites: unchanged raw skips re-parse but still returns a fresh array', () => {
+    localStorage.setItem('statusapp_favorites', JSON.stringify([{ statusColor: 'green' }]));
+    const spy = jest.spyOn(JSON, 'parse');
+    const a = getFavorites();
+    const callsAfterFirst = spy.mock.calls.length;
+    const b = getFavorites();
+    expect(spy.mock.calls.length).toBe(callsAfterFirst); // second call: no parse
+    expect(b).toEqual(a);
+    expect(b).not.toBe(a); // fresh copy — callers mutate their list
+    spy.mockRestore();
+  });
+
+  test('getFavorites: a direct localStorage write between calls is honored (cross-tab safety)', () => {
+    localStorage.setItem('statusapp_favorites', JSON.stringify([{ statusColor: 'green' }]));
+    getFavorites();
+    localStorage.setItem('statusapp_favorites', JSON.stringify([{ statusColor: 'red' }]));
+    expect(getFavorites()).toEqual([{ statusColor: 'red' }]);
+  });
+
+  test('getFavorites: setFavorites write is reflected on the next read (no stale memo)', () => {
+    getFavorites(); // prime the memo on empty store
+    setFavorites([{ statusColor: 'blue' }]);
+    expect(getFavorites()).toEqual([{ statusColor: 'blue' }]);
+  });
+
+  test('getFavorites: malformed JSON still falls back to []', () => {
+    localStorage.setItem('statusapp_favorites', 'not json');
+    expect(getFavorites()).toEqual([]);
+  });
+
+  test('getFavorites: non-array JSON still falls back to []', () => {
+    localStorage.setItem('statusapp_favorites', JSON.stringify({ not: 'an array' }));
+    expect(getFavorites()).toEqual([]);
+  });
 });
 
 // Call-counter tests moved to tests/prefs.test.js — counters now sync via

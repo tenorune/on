@@ -15,11 +15,12 @@ test('pendingInvites: a member can invite (from===self); a non-member cannot', a
   await assertSucceeds(dbAs(env, 'invitee').ref('pendingInvites/invitee').get());
 });
 
-test('groups: only a member can read; self-join allowed (lighter)', async () => {
+test('groups: only a member can read; self-join blocked by rule (Fix 2c)', async () => {
   await seed(env, (db) => db.ref('groups/G1').set({ ownerId: 'owner', members: { owner: { role: 'owner' } } }));
   await assertFails(dbAs(env, 'outsider').ref('groups/G1').get());
   await assertSucceeds(dbAs(env, 'owner').ref('groups/G1').get());
-  await assertSucceeds(dbAs(env, 'joiner').ref('groups/G1/members/joiner').set({ role: 'member' })); // self-join
+  // Self-join is now blocked (Fix 2c); clients must use the joinGroup callable (Admin SDK).
+  await assertFails(dbAs(env, 'joiner').ref('groups/G1/members/joiner').set({ role: 'member' }));
 });
 
 test('codeIndex: can point a code at your own uid only', async () => {

@@ -2,7 +2,7 @@ import {
   withinCooldown, isFutureMs, availabilityTurnedOn,
   wantsKnock, wantsCall, wantsAvailability, buildMessage,
   overrideAvailable, effectiveAvailable, primaryAvailable, clampName,
-  formatTimeRemaining, formatTimeRemainingFuzzy, statusCircle,
+  formatTimeRemaining, formatTimeRemainingFuzzy, formatAgeFuzzy, statusCircle,
 } from '../presence-core.js';
 import vectors from '../../test-fixtures/time-format-vectors.json' with { type: 'json' };
 
@@ -54,6 +54,11 @@ describe('messages', () => {
     expect(buildMessage('call', 'Alex K.')).toEqual({ title: 'Alex K. is calling', body: '' });
     expect(buildMessage('availability', 'Bea')).toEqual({ title: 'Bea is available', body: '' });
     expect(buildMessage('followRequest', 'Cara')).toEqual({ title: 'Cara wants to follow you', body: '' });
+  });
+
+  test('buildMessage followRequest with a group names the group', () => {
+    expect(buildMessage('followRequest', 'Cara', { group: 'Hiking' }))
+      .toEqual({ title: 'Cara in Hiking wants to follow you', body: '' });
   });
 
   test('buildMessage clamps over-long names and group labels (FCM title hygiene)', () => {
@@ -140,9 +145,10 @@ describe('buildMessage invite titles', () => {
 });
 
 describe('time formatters (fixture-pinned, shared with js/utils.js)', () => {
-  test.each(vectors)('presence-core time vectors: %j', ({ ms, precise, fuzzy }) => {
+  test.each(vectors)('presence-core time vectors: %j', ({ ms, precise, fuzzy, age }) => {
     expect(formatTimeRemaining(ms)).toBe(precise);
     expect(formatTimeRemainingFuzzy(ms)).toBe(fuzzy);
+    expect(formatAgeFuzzy(ms)).toBe(age);
   });
 });
 

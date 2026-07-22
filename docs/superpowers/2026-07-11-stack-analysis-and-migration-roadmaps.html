@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KnockKnock — stack analysis &amp; migration roadmaps</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface2: #eef0f4;
+    --border: #d6dae2;
+    --text: #1c2330;
+    --muted: #5b6575;
+    --accent: #22577a;
+    --good: #2e7d46;
+    --good-bg: #e7f4ea;
+    --bad: #b3383e;
+    --bad-bg: #faecec;
+    --warn: #9a6a00;
+    --warn-bg: #fbf3dc;
+    --ts: #4a5fc0;
+    --ts-bg: #eef1fb;
+    --shared: #17739e;
+    --shared-bg: #e9f6fd;
+    --code-bg: #eceef3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f;
+      --surface: #1c222c;
+      --surface2: #232b37;
+      --border: #38414f;
+      --text: #e6eaf1;
+      --muted: #9aa5b5;
+      --accent: #7fb3d8;
+      --good: #7cc98f;
+      --good-bg: #1d2f24;
+      --bad: #e08a8e;
+      --bad-bg: #332022;
+      --warn: #d9b45c;
+      --warn-bg: #2e2817;
+      --ts: #97a6e8;
+      --ts-bg: #1e2335;
+      --shared: #6cc4ea;
+      --shared-bg: #162a35;
+      --code-bg: #262d3a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 60rem; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 .3rem; }
+  h2 { font-size: 1.3rem; margin: 2.6rem 0 .8rem; padding-top: 1.2rem; border-top: 1px solid var(--border); }
+  h3 { font-size: 1.05rem; margin: 1.8rem 0 .5rem; }
+  p, li { max-width: 56rem; }
+  .meta { color: var(--muted); font-size: .9rem; margin-bottom: 1.5rem; }
+  code {
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: .1em .35em;
+    font: .86em/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.4rem;
+    margin: 1.4rem 0 0;
+  }
+  .toc ol { margin: .4rem 0 0; padding-left: 1.3rem; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .part-tag {
+    display: inline-block;
+    font-size: .72rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: .15em .7em;
+    margin-bottom: .4rem;
+  }
+  .tag-analysis { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+  .tag-ts { background: var(--ts-bg); color: var(--ts); border: 1px solid var(--ts); }
+  .tag-shared { background: var(--shared-bg); color: var(--shared); border: 1px solid var(--shared); }
+  .part-title { font-size: 1.45rem; margin: 0 0 .8rem; }
+  section.part {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.6rem 1.8rem 1.8rem;
+    margin-top: 2.2rem;
+  }
+  section.part h2 { border-top: none; padding-top: 0; margin-top: 2rem; }
+  section.part h2:first-of-type { margin-top: 1.4rem; }
+  .table-wrap { overflow-x: auto; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { border: 1px solid var(--border); padding: .5rem .7rem; text-align: left; vertical-align: top; }
+  th { background: var(--surface2); }
+  .verdict {
+    border-left: 4px solid var(--good);
+    background: var(--good-bg);
+    border-radius: 0 8px 8px 0;
+    padding: .9rem 1.1rem;
+    margin: 1.2rem 0;
+  }
+  .callout {
+    border-left: 4px solid var(--warn);
+    background: var(--warn-bg);
+    border-radius: 0 8px 8px 0;
+    padding: .9rem 1.1rem;
+    margin: 1.2rem 0;
+  }
+  .wargame {
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--bad);
+    background: var(--surface2);
+    border-radius: 0 8px 8px 0;
+    padding: .8rem 1.1rem;
+    margin: .9rem 0;
+  }
+  .wargame .wid { font-weight: 700; color: var(--bad); margin-right: .4em; }
+  .phase {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface2);
+    padding: .8rem 1.1rem;
+    margin: .9rem 0;
+  }
+  .phase .pid { font-weight: 700; color: var(--accent); }
+  .obs-unk { color: var(--muted); font-size: .92rem; border-top: 1px dashed var(--border); margin-top: 1.4rem; padding-top: .8rem; }
+  .obs-unk b { color: var(--text); }
+  ul, ol { padding-left: 1.4rem; }
+  li { margin: .25rem 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>KnockKnock — stack analysis &amp; migration roadmaps</h1>
+<p class="meta">2026-07-11 · analysis at tip <code>e013a0c</code> (branch <code>claude/knockknock-pwa-next-846uue</code> = <code>t1r1jp</code>) · markdown source: <code>2026-07-11-stack-analysis-and-migration-roadmaps.md</code></p>
+
+<div class="toc">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#part1">Stack &amp; architecture analysis</a> — the chosen stack in light of features, user needs, and goals; opinionated best-fit recommendation</li>
+    <li><a href="#doc1">Document 1 — Gradual TypeScript adoption roadmap</a> — phases, landmines, wargames, blast radius</li>
+    <li><a href="#doc2">Document 2 — Shared-package specification</a> (<code>js/</code> ⇄ <code>functions/</code>) — architecture options, migration plan, wargames, blast radius</li>
+    <li><a href="#seq">Recommended combined sequencing</a></li>
+  </ol>
+  <p style="margin:.6rem 0 0; color:var(--muted); font-size:.88rem;">Grounded in the repo at <code>e013a0c</code>: esbuild bundling from <code>js/app.js</code>, babel-jest/jsdom (1688 web tests), bare-Node-ESM Jest (357 functions tests), <code>firebase deploy --only hosting,database,functions</code> from CI with <code>"source": "functions"</code>.</p>
+</div>
+
+<!-- ============================ PART 1 ============================ -->
+<section class="part" id="part1">
+<span class="part-tag tag-analysis">Part 1 · Analysis</span>
+<h2 class="part-title" style="border:none; padding:0;">Stack &amp; architecture analysis</h2>
+
+<h2>What the app is, in one line</h2>
+<p>A real-time ambient-presence app for a small personal graph — "let the people who matter know when you're free" — delivered as an installable PWA and, lately, a Telegram Mini App, built explicitly as a sandbox for agent-assisted development (per the README's Author's Note: experimental, discovery-oriented, "not for everybody").</p>
+
+<h2>The stack as found</h2>
+<div class="table-wrap"><table>
+  <tr><th>Layer</th><th>Choice</th><th>Size</th></tr>
+  <tr><td>Client</td><td>Vanilla JS ES modules, no framework, esbuild bundle</td><td>~22k lines across 65+ modules</td></tr>
+  <tr><td>Styling</td><td>Hand-written CSS + custom properties (16 full UI themes)</td><td>~1.8k lines</td></tr>
+  <tr><td>Backend</td><td>Firebase: RTDB + security rules, Auth (custom tokens), Cloud Functions (Node 22), FCM, Hosting</td><td>~2.2k lines of functions, ~400 lines of rules</td></tr>
+  <tr><td>Identity</td><td>4-word phrase → <code>sha256(phrase)</code> = uid, exchanged for a custom token server-side</td><td>—</td></tr>
+  <tr><td>Tests</td><td>Jest + jsdom (1688 web), separate Jest suite (357 functions), rules suite via emulator</td><td>—</td></tr>
+</table></div>
+<p>Runtime dependency count on the client: <strong>one</strong> (<code>firebase</code>). Everything else is dev tooling.</p>
+
+<h2>Fit against the app's actual needs</h2>
+<p><strong>Real-time presence is RTDB's native sport.</strong> The core loop — tiny status writes fanned out to a handful of listeners with sub-second latency, connection-state semantics, per-pair canvases — is exactly the workload RTDB was built for and prices well (per-connection, not per-read). Firestore would be the wrong trade here: higher read costs for chatty presence updates, worse latency, no gain for a dataset this shape. The rules language is the weak spot — awkward to express cross-user invariants (issue #288's self-join-by-gid hole is a symptom), which pushes trust logic into Cloud Functions — but the repo already treats that correctly (server-only subtrees, callables for anything cross-account, a dedicated rules test suite).</p>
+<p><strong>Phrase-based identity is the most opinionated and most load-bearing choice.</strong> No email, no OAuth, no vendor identity — a 4-word phrase, hashed, exchanged for a custom token. For a product whose pitch is "close friends, zero signup friction," this is a genuinely good fit that a conventional auth stack would actively damage. Its costs (phrase = full credential, plaintext vault in localStorage, the whole duplicate-account class of bugs recent sessions closed) are real but known, documented, and accepted in the security review.</p>
+<p><strong>No-framework vanilla JS: unfashionable, and correct — for <em>this</em> app.</strong> The usual argument for React/Vue/Svelte is coordinating complex derived UI state across a team. Here: the state model is "RTDB listener fires → update a card," there's effectively one screen plus a drawer, the team is one operator plus agents, and the delivery targets (installable PWA, Telegram webview, in-app-browser escape flows) reward a small fast-booting bundle above almost everything else. The single runtime dependency also means near-zero supply-chain and upgrade-treadmill surface — which matters a lot for a solo experimental project that goes through intense burst development and then rests. The 1688 jsdom tests do the regression-safety job a framework's declarative layer would otherwise do.</p>
+<p>That said, the history shows where the no-framework choice <em>bleeds</em>: the recurring class of work around competing surfaces (toast vs. promo vs. install nudge vs. guidance banner needing a <code>#bottom-stack</code> one-at-a-time arbiter, promos deferring to first-run resolution, pre-paint config selection to kill flashes) is hand-rolled UI-state orchestration — precisely what a reactive view layer gives you for free. It's been handled with discipline (explicit arbiters, change-events, guard tests), but it's the tax being paid.</p>
+
+<h2>Where the friction genuinely is</h2>
+<ol>
+  <li><strong>No static types.</strong> 22k lines of dynamically-typed JS with heavy cross-module contracts (<code>prefs.telegram != null</code> read identically in three places, byte-identical formatter copies). The repo compensates with fixture-pinned "drift-scan" tests — which is clever, but it's hand-building what a type system provides.</li>
+  <li><strong>Client/functions code sharing is by disciplined duplication.</strong> <code>presence-core.js</code> formatters and classification lists are duplicated and guard-tested rather than shared, because there's no workspace/package structure spanning <code>js/</code> and <code>functions/</code>.</li>
+  <li><strong>Rules expressiveness</strong> (above) — mitigated, not solved.</li>
+</ol>
+<p>None of these are architecture failures; all three are the predictable costs of the chosen stack, currently paid down by test discipline.</p>
+
+<h2>Recommendation (opinionated)</h2>
+<div class="verdict">
+<p style="margin:0 0 .6rem;"><strong>Keep the current stack. It is the right one — not by default, but on the merits.</strong> Firebase RTDB + custom-token phrase auth + Cloud Functions matches the workload (presence fan-out, tiny social graph, no ops budget); vanilla JS + esbuild matches the delivery constraints (webviews, PWA boot, one-person maintenance) and the project's stated goal of being an agent-development playground where the whole surface stays legible. A framework rewrite or a backend migration would burn months to solve problems this app doesn't have, and would forfeit the near-zero dependency surface, the boot speed, and 2000+ passing tests.</p>
+<p style="margin:0;">Two incremental amendments worth their cost, in priority order: <strong>gradual TypeScript adoption</strong> (→ Document 1) and <strong>a small shared package</strong> for the duplicated units (→ Document 2). Explicitly <em>not</em> recommended: a view framework — if the surface-arbitration tax keeps growing, the proportionate response is a ~1kB reactive primitive for the banner/toast/promo layer only, and even that isn't warranted yet.</p>
+</div>
+<p class="obs-unk"><b>OBSERVED:</b> everything above about code size, dependencies, features, and past friction comes from the repo and its handoff history. <b>UNKNOWN:</b> runtime economics (Firebase bill, actual user count) and any maintainer appetite for TS — both could shift the amendment priorities, neither changes the headline verdict.</p>
+</section>
+
+<!-- ============================ DOC 1 ============================ -->
+<section class="part" id="doc1">
+<span class="part-tag tag-ts">Document 1 · Roadmap</span>
+<h2 class="part-title" style="border:none; padding:0;">Gradual TypeScript adoption</h2>
+
+<h2>Ground truth the roadmap must respect</h2>
+<ol>
+  <li><strong>esbuild already compiles TS natively.</strong> <code>scripts/prod.js</code> / <code>dev.js</code> bundle <code>js/app.js</code>; adding <code>.ts</code> files requires zero build-machinery change. esbuild also resolves <code>import './x.js'</code> to <code>x.ts</code> (TS-compat resolution), so converted modules don't force import-specifier churn in their importers.</li>
+  <li><strong>TS is erasure-only here.</strong> No runtime artifact changes shape; <code>dist/bundle.js</code> remains the deploy unit. There is no version-skew or deploy dimension to this migration at all — the entire blast radius is <strong>build + test infrastructure and developer workflow</strong>.</li>
+  <li><strong>The functions side has no build step.</strong> <code>functions/</code> deploys as-is (plain ESM, Node 22) and its Jest runs bare Node ESM with <code>transform: {}</code>. Full TS there requires introducing a compile step into the deploy path — a qualitatively bigger change than anything on the client.</li>
+  <li><strong>Several things read <code>.js</code> source text or paths literally</strong> (the landmine table below). These, not type errors, are where a naive rename breaks production.</li>
+</ol>
+
+<h2>Strategy</h2>
+<p><strong>Two tracks.</strong> Client (<code>js/</code>): full gradual TS via esbuild, strict-by-default for converted files. Functions (<code>functions/</code>): JSDoc + <code>@ts-check</code> only — full type coverage, zero build-step change, zero deploy-path change. Revisit full-TS for functions only if Document 2's Option C (bundled functions) is ever adopted, which it is not recommended to be.</p>
+<p><strong>One shared <code>tsconfig.json</code></strong>, <code>noEmit: true</code>, <code>allowJs: true</code>, <code>checkJs: false</code> globally (opt in per-file with <code>// @ts-check</code>), <code>strict: true</code> (applies fully to <code>.ts</code> files). Type-checking is a separate command (<code>npm run typecheck</code> → <code>tsc --noEmit</code>), never in the esbuild path — the red→green TDD loop stays exactly as fast as today.</p>
+
+<h2>Phases</h2>
+<div class="phase"><span class="pid">Phase 0 — Scaffold</span> (no source change, ~1 session).
+Add <code>typescript</code> devDependency, <code>tsconfig.json</code>, <code>npm run typecheck</code>, and a <code>typecheck</code> step in both CI workflows <em>after</em> the test steps. Update the web Jest transform to <code>'^.+\.(js|ts)$': 'babel-jest'</code> plus <code>@babel/preset-typescript</code>, and add <code>moduleNameMapper: { '^(\.{1,2}/.*)\.js$': '$1' }</code> so <code>.js</code> specifiers resolve to future <code>.ts</code> files under Jest the way they already do under esbuild. <strong>Gate: 1688/1688 web + 357/357 functions green with zero source edits, <code>npm run build</code> byte-comparable output.</strong> This commit deliberately isolates the highest-blast-radius infra change from any actual conversion.</div>
+<div class="phase"><span class="pid">Phase 1 — Ambient contract types</span> (~1 session).
+Create <code>types/</code> with <code>.d.ts</code> declarations for the load-bearing shapes: <code>UserPrefs</code> (incl. <code>telegram</code>, <code>notifyChannel</code>), presence/<code>statusOverride</code>, invite records, identity, the RTDB paths' value shapes. No renames. Turn on <code>// @ts-check</code> + JSDoc imports in the contract-seam files where cross-module drift has historically cost real sessions: <code>js/notifyChannel.js</code>, <code>js/notifySuppression.js</code>, <code>js/prefs.js</code>, <code>js/inviteFlow.js</code>. This is where types start paying before any file is <code>.ts</code>.</div>
+<div class="phase"><span class="pid">Phase 2 — Leaf conversions</span> (2–3 sessions, mechanical).
+Convert pure, dependency-light modules: <code>utils.js</code>†, <code>features.js</code>†, <code>inviteText.js</code>, <code>palettes.js</code>, <code>wordlist.js</code>, <code>hintRotation.js</code>, <code>notifyRouting.js</code>, <code>inviteBootGate.js</code> (pure by design), <code>telegramLinkCopy.js</code>. † = landmine-listed below; convert only with their coupled fixes in the same commit. Policy: <strong>conversion commits are type-only</strong> — if the checker exposes a real bug, it gets its own commit (or issue) first; never fix-and-convert in one diff.</div>
+<div class="phase"><span class="pid">Phase 3 — The <code>db/</code> layer and stateful modules</span> (3–4 sessions).
+<code>js/db/*</code>, <code>store.js</code>, <code>identity.js</code>, <code>prefs.js</code>, then the feature modules. DOM-heavy orchestrators (<code>app.js</code>, <code>following.js</code>, <code>groupNav.js</code>, <code>canvas.js</code>) go last — they're where <code>strict</code> DOM nullability is noisiest and where the payoff is smallest. It is legitimate to leave the worst of these as <code>@ts-check</code> JSDoc indefinitely.</div>
+<div class="phase"><span class="pid">Phase 4 — Functions track</span> (parallel, any time after Phase 1).
+<code>// @ts-check</code> + JSDoc across <code>functions/*.js</code>, sharing the <code>types/</code> shapes via JSDoc <code>@typedef</code> imports. <code>tsconfig</code> gets a second project reference or an <code>include</code> that covers <code>functions/</code>. No deploy change, no <code>functions/package.json</code> change.</div>
+<div class="phase"><span class="pid">Phase 5 — Ratchet and guard retirement.</span>
+CI typecheck is already blocking from Phase 0; the ratchet is the shrinking <code>checkJs</code>-exempt list. Retire guard tests <strong>only</strong> where types fully subsume them (e.g. an internal shape assertion). Keep every fixture that pins behavior across runtimes or into <code>database.rules.json</code> (<code>time-format-vectors.json</code>, <code>notify-channel-vectors.json</code>, <code>name-cap-invariant.test.js</code>) — types cannot see the rules file or prove two implementations behave identically.</div>
+
+<h2>Landmines (things that break on rename, not on types)</h2>
+<div class="table-wrap"><table>
+  <tr><th>Landmine</th><th>What breaks</th><th>Fix policy</th></tr>
+  <tr><td><code>scripts/build.js:113</code> reads <code>js/features.js</code> <strong>source text</strong> to gate <code>__TELEGRAM_APP_LINK__</code> (fail-closed)</td><td>Renaming to <code>features.ts</code> → <code>readFileSync</code> throws → build fails loudly (good), or worse: a future "graceful" fallback would silently disable Telegram links</td><td>Update <code>build.js</code> in the same commit; the fail-closed design means the failure mode is loud, but verify <code>npm run build</code> in that commit's gate</td></tr>
+  <tr><td><code>tests/cacheOwner*.test.js:118</code> filesystem drift-scan walks <code>js/</code> for <code>statusapp_*</code> keys</td><td>Scan filtering on <code>.js</code> silently stops scanning converted files → drift guard goes blind (false green)</td><td>Extend the walk to <code>.ts</code> in Phase 0, before any conversion — a guard that can go silently blind is the worst class of breakage</td></tr>
+  <tr><td><code>tests/name-cap-invariant.test.js</code> and similar read specific source paths across <code>js/</code>/<code>functions/</code>/rules</td><td>Red test on rename (loud, safe)</td><td>Update paths in the conversion commit</td></tr>
+  <tr><td>The CSP-hashed inline <code>&lt;head&gt;</code> script in <code>about.template.html</code></td><td>Not bundled, not affected — <strong>out of scope; never TS-ify template inline scripts</strong></td><td>Explicit non-goal</td></tr>
+  <tr><td>Gitignored build artifacts + deploy-from-origin</td><td>Unchanged pipeline; a converted file that's pushed but not rebuilt behaves exactly like today's stale-bundle landmine</td><td>No new exposure, note only</td></tr>
+</table></div>
+
+<h2>Wargames</h2>
+<div class="wargame"><span class="wid">W1</span><strong>The Phase-0 transform flip breaks a swath of tests.</strong> <code>moduleNameMapper</code> stripping <code>.js</code> could collide with mocks registered by exact specifier (<code>jest.mock('./x.js')</code>) or with the fixture JSON imports. <em>Play it out:</em> the failure is immediate and loud across the suite; because the commit contains zero source changes, the diff to inspect is nine lines of config. Mitigation is the phase design itself. Rollback: revert one commit. Residual risk: low.</div>
+<div class="wargame"><span class="wid">W2</span><strong><code>utils.js</code> conversion vs. the functions duplicate.</strong> <code>formatTimeRemaining</code>/<code>Fuzzy</code> exist twice (<code>js/utils.js:88</code>, <code>functions/presence-core.js</code>), pinned by shared fixture vectors. Converting the client copy to TS makes the two copies <em>textually</em> divergent forever, entrenching duplication-by-fixture. <em>Play it out:</em> nothing breaks — the vectors still pin behavior — but the Document 2 migration gets harder because "move the file" becomes "move and down-compile". <strong>Sequencing rule: run Document 2's extraction of any shared unit <em>before</em> Phase 2/3 touches its client copy.</strong> This is the one hard ordering constraint between the two documents.</div>
+<div class="wargame"><span class="wid">W3</span><strong>Strictness flood.</strong> A converted mid-graph module (<code>store.js</code>) surfaces 60 errors in its still-JS callers. <em>Play it out:</em> <code>checkJs: false</code> means JS callers aren't checked, so the flood can't happen from below; errors appear only inside the converted file. If a converted file's own errors exceed a session's budget, demote it to <code>@ts-check</code> + <code>@ts-expect-error</code> markers and move on — the ratchet is monotonic, not per-file-perfect.</div>
+<div class="wargame"><span class="wid">W4</span><strong>The checker finds a real latent bug mid-conversion</strong> (probable in the <code>prefs</code>/notify seams — that's why they're Phase 1). <em>Play it out:</em> the temptation is to fix inline; that turns a "type-only, behavior-identical" commit into one needing on-device verification. Policy above: separate commit, own test, own walkthrough item. Conversion commits must stay skimmable-as-safe.</div>
+<div class="wargame"><span class="wid">W5</span><strong>Agent/TDD workflow drag.</strong> Typecheck as a separate command means an agent can go red→green without fighting types, then reconcile. The realistic failure is agents <em>forgetting</em> <code>npm run typecheck</code> locally and CI catching it late; acceptable — CI is the ratchet's teeth, and it blocks deploy (the test job gates the deploy job in both workflows).</div>
+<div class="wargame"><span class="wid">W6</span><strong>Behavior drift hidden in a conversion.</strong> Enum-narrowing or a default-parameter change slips in. <em>Detection:</em> run unminified dev builds before/after and diff — for a faithful conversion the output diff is near-empty and reviewable. Worth doing for Phase 3 modules; overkill for Phase 2 leaves.</div>
+
+<h2>Blast radius summary</h2>
+<p>Runtime: <strong>zero by construction</strong> (erasure + unchanged pipeline). Test infra: one loud, isolated Phase-0 commit. Build: one landmine (<code>build.js</code>/<code>features</code>) with a loud failure mode. Deploy/CSP/rules/service-worker: untouched. Rollback at every phase is <code>git revert</code> of self-contained commits; no artifact, schema, or data migration ever occurs. The real cost is sustained attention across ~6–9 sessions and the W2 ordering constraint with Document 2.</p>
+</section>
+
+<!-- ============================ DOC 2 ============================ -->
+<section class="part" id="doc2">
+<span class="part-tag tag-shared">Document 2 · Specification</span>
+<h2 class="part-title" style="border:none; padding:0;">Shared packages (<code>js/</code> ⇄ <code>functions/</code>)</h2>
+
+<h2>The problem, precisely</h2>
+<p>Six units exist in two or three places, kept honest today by fixture tests and cross-reference comments:</p>
+<div class="table-wrap"><table>
+  <tr><th>#</th><th>Unit</th><th>Client copy</th><th>Functions copy</th><th>Third copy</th><th>Guard today</th></tr>
+  <tr><td>1</td><td>Time formatters (<code>formatTimeRemaining</code>, <code>…Fuzzy</code>)</td><td><code>js/utils.js:88</code></td><td><code>functions/presence-core.js</code></td><td>—</td><td><code>time-format-vectors.json</code>, both suites</td></tr>
+  <tr><td>2</td><td>Notify-channel delivery predicate (<code>channel !== 'push'</code> ⇒ bot)</td><td><code>js/notifyChannel.js</code>, <code>js/notifySuppression.js</code></td><td><code>functions/notifier.js</code></td><td>—</td><td><code>notify-channel-vectors.json</code>, 3 readers + cross-ref comments</td></tr>
+  <tr><td>3</td><td>40-char name cap</td><td><code>js/telegram.js:32</code> (<code>TG_NAME_CAP</code>)</td><td><code>clampName</code></td><td><code>database.rules.json</code></td><td><code>tests/name-cap-invariant.test.js</code></td></tr>
+  <tr><td>4</td><td>Id formats (<code>GROUP_ID_RE</code>, <code>UID_RE</code>)</td><td><code>js/notifyRouting.js:17</code>, <code>js/groups.js</code> (generator), <code>js/identity.js</code> (uid derivation)</td><td><code>functions/telegram-shared.js:13</code></td><td><code>database.rules.json</code></td><td>comments only</td></tr>
+  <tr><td>5</td><td>Availability predicates</td><td><code>js/</code> has its own <code>isAvailable</code> (different shape)</td><td><code>primaryAvailable</code>, <code>effectiveAvailable</code></td><td>—</td><td><strong>semantic</strong> duplicate only — not textual</td></tr>
+  <tr><td>6</td><td>Status-circle / time copy for bot parity</td><td>palette color names</td><td><code>statusCircle</code></td><td>—</td><td>fixture</td></tr>
+</table></div>
+<p class="obs-unk"><b>OBSERVED:</b> #1–#4 are true duplicates. <b>UNKNOWN</b> until migration-time inspection: whether #5's client and server predicates are actually behavior-identical (they were written independently against the same model) — treat #5 as a <em>verification</em> task, not a mechanical move.</p>
+
+<h2>The constraint that shapes everything</h2>
+<p><code>firebase deploy --only functions</code> archives the <code>functions/</code> directory (<code>"source": "functions"</code>) and installs <code>functions/package.json</code> dependencies in the cloud. <strong>Anything outside <code>functions/</code> does not ship.</strong> Three architectures:</p>
+<ul>
+  <li><strong>Option A — committed mirror.</strong> <code>shared/</code> is the single source of truth; a script (<code>scripts/sync-shared.js</code>) copies it byte-for-byte to <code>functions/_shared/</code>; the mirror is <strong>committed</strong>; guard tests in <em>both</em> suites assert byte-equality. Client imports <code>../shared/x.js</code> directly (esbuild and babel-jest both resolve it trivially); functions import <code>./_shared/x.js</code>.</li>
+  <li><strong>Option B — npm workspaces + <code>file:</code> dependency.</strong> Real package semantics, but the Firebase CLI's handling of local/workspace deps is version-sensitive and has a long history of monorepo breakage; it makes the <em>deploy</em> — the least observable, least testable stage, and the one that runs <code>--force</code> from CI — the failure point. Also would drag <code>isolate-package</code>-style tooling into a repo whose whole character is one runtime dependency.</li>
+  <li><strong>Option C — esbuild-bundle <code>functions/</code> into a self-contained artifact.</strong> Solves sharing as a side effect, but converts every deploy into shipping a novel artifact, complicates stack traces for <code>firebase-admin</code>-adjacent failures, and rebuilds the deploy pipeline to deduplicate ~300 lines. Wildly disproportionate.</li>
+</ul>
+<div class="verdict"><strong>Recommendation: Option A.</strong> It is unglamorous, but it is testable at the test stage (not the deploy stage), requires zero new dependencies, matches the repo's existing idiom (generated-artifact scripts + loud guard tests, exactly like the CSP-hash guard and the <code>cacheOwner</code> drift-scan), and keeps <code>functions/</code> self-contained so <em>nothing</em> about deploy, the emulator, the A5 runbook, or the dev-push-wipes-functions landmine changes. The mirror-staleness risk it introduces is fully covered by a byte-equality guard that runs in the CI test job, which already gates the deploy job.</div>
+
+<h2>Specification</h2>
+<p><strong>Layout.</strong> <code>shared/</code> at repo root: plain <code>.js</code> ESM, extensionful relative imports, <strong>zero imports from <code>js/</code>, <code>functions/</code>, or node_modules</strong> — pure, dependency-free modules only (the same discipline <code>functions/presence-core.js</code> already declares in its header). Files: <code>shared/timeFormat.js</code>, <code>shared/notifyDelivery.js</code>, <code>shared/limits.js</code> (name cap), <code>shared/idFormats.js</code>, and eventually <code>shared/presence.js</code>.</p>
+<p><strong>Sync.</strong> <code>scripts/sync-shared.js</code> — recursive byte-identical copy <code>shared/</code> → <code>functions/_shared/</code>. No generated-file header is prepended (it would break byte-equality checking and tempt hand-edits anyway); instead the provenance note lives <em>in</em> the source files in <code>shared/</code> ("consumed by js/ directly and by functions/ via the committed <code>functions/_shared/</code> mirror"). Add <code>npm run sync-shared</code>. The mirror is committed, not gitignored — this is the load-bearing choice: deploy-from-origin needs no build hook, and staleness is caught by tests rather than by production.</p>
+<p><strong>Guards.</strong> One test in the web suite and one in the functions suite, both trivially: read every file in <code>shared/</code>, read its counterpart in <code>functions/_shared/</code>, assert byte-equal, and assert no orphans in the mirror. Failure message says exactly <code>run: npm run sync-shared</code>. A second guard in the web suite asserts <code>shared/*.js</code> contains no <code>import</code> from outside <code>shared/</code> (the purity fence — see W4).</p>
+<p><strong>Consumption pattern: re-export, don't rewire.</strong> <code>js/utils.js</code> keeps exporting <code>formatTimeRemaining</code> — its body becomes <code>export { formatTimeRemaining, formatTimeRemainingFuzzy } from '../shared/timeFormat.js'</code>. Likewise <code>functions/presence-core.js</code> re-exports from <code>./_shared/timeFormat.js</code>. Zero import churn across the ~65 client modules and the functions call sites; every existing test keeps passing <em>through</em> the re-export, which means the existing suites verify the plumbing for free. Direct imports of <code>shared/</code> can happen organically in new code.</p>
+<p><strong>What explicitly stays duplicated.</strong> <code>database.rules.json</code> cannot import JavaScript — the 40-cap and id-format copies there remain, and <code>tests/name-cap-invariant.test.js</code> (and a new id-format sibling) remain as the <em>only</em> mechanism spanning into rules. The fixture vector files also remain: after migration they pin the <em>shared</em> implementation's behavior, which is still worth pinning (they're the spec; the byte-guard only proves the two runtimes run the same bytes).</p>
+
+<h2>Migration plan (one unit per commit, TDD-shaped)</h2>
+<ol>
+  <li><strong>T1 — Scaffold</strong>: <code>shared/</code> (empty-ish), sync script, both freshness guards, purity-fence guard, npm script. Gate: both suites green, <code>npm run build</code> clean.</li>
+  <li><strong>T2 — Time formatters</strong> (#1; lowest risk, best-guarded): move into <code>shared/timeFormat.js</code>, re-export from both current homes, sync, run fixtures. Gate additionally: an unminified bundle diff shows only the re-export plumbing.</li>
+  <li><strong>T3 — Notify predicate</strong> (#2): extract <code>botDelivered(prefs)</code>-equivalent into <code>shared/notifyDelivery.js</code>; all three readers re-export/consume; retire the three-way cross-ref comments in favor of one pointer each; vectors retained.</li>
+  <li><strong>T4 — Name cap</strong> (#3): <code>shared/limits.js</code> with <code>NAME_CAP = 40</code> + <code>clampName</code>; client <code>TG_NAME_CAP</code> and functions <code>clampName</code> consume; invariant test now checks shared-vs-rules (two-way instead of three-way).</li>
+  <li><strong>T5 — Id formats</strong> (#4): <code>shared/idFormats.js</code>; <code>js/notifyRouting.js</code> + <code>functions/telegram-shared.js</code> consume; add the missing fixture-style test; <code>js/groups.js</code>'s generator asserts against the shared regex in its test.</li>
+  <li><strong>T6 — Presence predicates</strong> (#5): <em>verification first</em> — table client <code>isAvailable</code> vs. functions <code>primaryAvailable</code>/<code>effectiveAvailable</code> behavior over a written vector set; unify <strong>only if identical</strong>; if they differ, the difference is either a latent bug (file it) or intentional (document it, don't unify).</li>
+  <li><strong>T7 — Docs</strong>: HANDOFF landmine entry ("edit <code>shared/</code>, never <code>functions/_shared/</code>; sync before commit"), README stack note.</li>
+</ol>
+<p>Each of T2–T6 is independently revertable; the re-export pattern means a revert touches two files plus the mirror.</p>
+
+<h2>Wargames</h2>
+<div class="wargame"><span class="wid">W1</span><strong>Stale mirror reaches deploy.</strong> Someone edits <code>shared/timeFormat.js</code>, forgets to sync, pushes. <em>Play it out:</em> web-suite freshness guard is red → CI test job fails → deploy job never runs (both workflows gate deploy on tests). The nastier variant: someone edits <code>functions/_shared/</code> <strong>directly</strong> — functions tests pass against the edited mirror (false confidence), but the byte-guard is still red because source ≠ mirror, and the guard's message points at <code>shared/</code> as truth. Residual hole: an operator deploying manually with tests skipped — same hole that exists today for everything else; no new exposure.</div>
+<div class="wargame"><span class="wid">W2</span><strong>The deploy assumption is wrong.</strong> The spec assumes the Firebase CLI archives arbitrary files inside <code>functions/</code>. It does — <code>_shared/*.js</code> are ordinary source files, not dependencies — but <em>verify before relying</em>: T1's gate should include one emulator boot (<code>firebase emulators:exec</code>) of a function importing from <code>_shared/</code>, and T2 should ride to production alongside an otherwise-planned deploy (A5 is pending anyway) with a smoke check of one bot <code>/status</code> reply (exercises <code>formatTimeRemainingFuzzy</code> server-side). UNKNOWN until then; the emulator makes it a cheap known.</div>
+<div class="wargame"><span class="wid">W3</span><strong>Highest-value target = highest blast radius.</strong> The notify predicate (T3) sits in <code>functions/notifier.js</code> — get it wrong and <em>notifications silently stop</em> for telegram-routed users (the worst failure class: invisible). Mitigations: T3 is a re-export with the 10-case vector file unchanged and all three readers' existing tests unchanged; the vectors were built precisely to pin this cliff. Still: T3's done-gate is the operator observing one real knock → Telegram message and one → push, post-deploy. Not green suites.</div>
+<div class="wargame"><span class="wid">W4</span><strong>Shared becomes a junk drawer / grows dependencies.</strong> Someone adds a <code>shared/</code> helper that imports <code>js/store.js</code>, and now <code>functions/</code> transitively mirrors client state code, or worse, the <code>firebase</code> client SDK. The purity-fence guard test (no imports leaving <code>shared/</code>) makes this a red test instead of a code-review catch. Policy corollary: when client and server needs for a shared unit <em>diverge</em> (e.g., the bot wants a different fuzzy-time voice), the answer is to fork that unit back out deliberately — never to grow config flags inside <code>shared/</code>.</div>
+<div class="wargame"><span class="wid">W5</span><strong>Import-cycle regression.</strong> <code>functions/telegram-shared.js</code> exists specifically to break a <code>telegram.js</code> ↔ <code>telegram-auth.js</code> cycle. Moving its regexes to <code>_shared/</code> preserves that (leaf moves further down); but if T6 ever pulls something from <code>presence-core.js</code> that <code>notifier.js</code> <em>and</em> <code>telegram.js</code> reach differently, cycles could reappear. Cheap insurance: <code>shared/</code> files import nothing (W4's fence), so they can never participate in a cycle.</div>
+<div class="wargame"><span class="wid">W6</span><strong>Sync-script defects.</strong> Partial copy, CRLF mangling, a deleted shared file leaving an orphan in the mirror. All three are exactly what the byte-equality + no-orphan guard catches; the script can be dumb because the guard is strict.</div>
+<div class="wargame"><span class="wid">W7</span><strong>Interaction with the TS roadmap</strong> (Document 1, W2 mirror-image). If <code>shared/</code> ever became <code>.ts</code>, the mirror would need compilation (functions run bare Node ESM — no types allowed) and byte-equality stops being meaningful. <strong>Decision: <code>shared/</code> stays plain <code>.js</code> with JSDoc types permanently.</strong> It's a few hundred lines of pure functions; JSDoc + <code>@ts-check</code> gives them full type coverage under Document 1's Phase 4 machinery with zero build implications. And sequence T2 before Document 1 Phase 2 touches <code>js/utils.js</code>.</div>
+<div class="wargame"><span class="wid">W8</span><strong>The A5 / branch-only-functions landmine.</strong> Unchanged: a <code>dev</code> push still wipes branch-only Telegram functions until redeploy. The mirror rides inside <code>functions/</code>, so it deploys and gets wiped in exactly the same motion as everything else. No new interaction — but T2+'s first production exercise should ride the already-pending A5 redeploy rather than trigger its own.</div>
+
+<h2>Blast radius summary</h2>
+<p>Client: near-zero (re-exports; bundle content changes are the moved bytes themselves; SW cache hash re-stamps automatically per the build). Functions: the real surface — T3 touches the notification-delivery spine and T5 touches the bot's attacker-controllable-input validation; both are re-export-shaped and vector-pinned, with post-deploy on-device checks as the done-gate. Deploy pipeline: <strong>zero changes</strong> (the committed mirror is the entire trick). Rules: untouched. Rollback: per-commit revert, at most three files each. Steady-state cost: one habit ("edit <code>shared/</code>, run sync") enforced by a loud guard, replacing today's cost (N copies + cross-ref comments + remembering they exist).</p>
+</section>
+
+<!-- ============================ SEQUENCING ============================ -->
+<section class="part" id="seq">
+<span class="part-tag tag-analysis">Sequencing</span>
+<h2 class="part-title" style="border:none; padding:0;">Recommended combined sequencing</h2>
+<ol>
+  <li>Doc 2 T1–T2 (scaffold + formatters)</li>
+  <li>Doc 1 Phase 0–1 (TS scaffold + ambient types)</li>
+  <li>Doc 2 T3–T5</li>
+  <li>Doc 1 Phase 2+ (leaf conversions, now free to touch <code>utils.js</code>)</li>
+  <li>Doc 2 T6 (predicate verification, benefiting from types)</li>
+  <li>Doc 1 Phases 3–5 at leisure</li>
+</ol>
+<div class="callout">The only hard ordering constraint is <em>shared-extraction before TS-conversion for any unit appearing in both plans</em>; everything else is parallelizable across sessions.</div>
+</section>
+
+</main>
+</body>
+</html>

@@ -5,11 +5,15 @@ import { getDatabase } from 'firebase-admin/database';
 import { getMessaging } from 'firebase-admin/messaging';
 import { onValueCreated, onValueWritten } from 'firebase-functions/v2/database';
 import { setGlobalOptions } from 'firebase-functions/v2';
-import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest } from './notifier.js';
+import { handleKnock, handleCall, handleAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest, availabilityRelevantOverrideChange } from './notifier.js';
 import { onCall as httpsOnCall, onRequest } from 'firebase-functions/v2/https';
 import { getAuth } from 'firebase-admin/auth';
 import { validateRecoveryHandler } from './auth.js';
+import { handleMemberRemoved } from './group-cleanup.js';
 import { resolveInvitePreviewHandler } from './invites.js';
+import { joinGroupHandler } from './group-join.js';
+import { handleCallCleanup, handleCallSweep, CALL_TTL_MS } from './call-cleanup.js';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { validateTelegramHandler, linkTelegramHandler, unlinkTelegramHandler, graduateTelegramHandler, mintTelegramLinkTokenHandler, redeemTelegramLinkTokenHandler } from './telegram-auth.js';
 import { buildNotificationKeyboard, handleUpdate, webhookAuthorized, botCommandsPayload } from './telegram.js';
 
@@ -29,6 +33,7 @@ const messaging = getMessaging();
 
 // Raw Bot API call. Returns the result object, or null on any failure (logged).
 // Node 18+ global fetch; no SDK dependency.
+/** @param {string} method @param {object} payload */
 async function tgApi(method, payload) {
   const res = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/${method}`, {
     method: 'POST',
@@ -45,7 +50,7 @@ async function tgApi(method, payload) {
 
 // The one sendMessage lambda: the auth callable's welcome DM and the webhook's
 // replies go through the same call shape (tgApi reads the env token lazily).
-const tgSendMessage = (chatId, text, extra = {}) => tgApi('sendMessage', { chat_id: chatId, text, ...extra });
+const tgSendMessage = (/** @type {string} */ chatId, /** @type {string} */ text, extra = {}) => tgApi('sendMessage', { chat_id: chatId, text, ...extra });
 
 // The RTDB adapter quintet every handler family shares — ONE definition of
 // how paths map onto the Admin SDK, spread into the notifier deps, the
@@ -53,10 +58,10 @@ const tgSendMessage = (chatId, text, extra = {}) => tgApi('sendMessage', { chat_
 function makeDbDeps() {
   return {
     now: () => Date.now(),
-    getVal: async (path) => (await db.ref(path).get()).val(),
-    set: async (path, value) => { await db.ref(path).set(value); },
-    update: async (path, obj) => { await db.ref(path).update(obj); },
-    transaction: async (path, fn) => {
+    getVal: async (/** @type {string} */ path) => (await db.ref(path).get()).val(),
+    set: async (/** @type {string} */ path, /** @type {unknown} */ value) => { await db.ref(path).set(value); },
+    update: async (/** @type {string} */ path, /** @type {Record<string, unknown>} */ obj) => { await db.ref(path).update(obj); },
+    transaction: async (/** @type {string} */ path, /** @type {(current: any) => unknown} */ fn) => {
       const res = await db.ref(path).transaction(fn);
       return { committed: res.committed };
     },
@@ -66,7 +71,7 @@ function makeDbDeps() {
 function makeDeps() {
   return {
     ...makeDbDeps(),
-    send: async (tokens, message, data) => {
+    send: async (/** @type {string[]} */ tokens, /** @type {{ title: string, body: string }} */ message, /** @type {Record<string, string> | undefined} */ data) => {
       const res = await messaging.sendEachForMulticast({
         tokens,
         // Data-only message (no `notification` block): the service worker fully
@@ -76,9 +81,12 @@ function makeDeps() {
         data: {
           title: message.title || '',
           body: message.body || '',
-          ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+          // Cast: every handler passes data; the deps signature keeps it
+          // optional only because sendToUser's own param is optional.
+          ...Object.fromEntries(Object.entries(/** @type {Record<string, string>} */ (data)).map(([k, v]) => [k, String(v)])),
         },
       });
+      /** @type {string[]} */
       const failedTokens = [];
       res.responses.forEach((r, i) => {
         if (!r.success) {
@@ -93,7 +101,7 @@ function makeDeps() {
     // Present only when the bot is configured; sendToUser treats absence as
     // "FCM only". message.title carries the whole notification text (body is '').
     sendTelegram: process.env.TELEGRAM_BOT_TOKEN
-      ? async (chatId, message, data) => {
+      ? async (/** @type {unknown} */ chatId, /** @type {{ title: string, body: string }} */ message, /** @type {Record<string, string> | undefined} */ data) => {
           const keyboard = buildNotificationKeyboard(data, process.env.TELEGRAM_APP_URL || '');
           const result = await tgApi('sendMessage', {
             chat_id: chatId,
@@ -113,10 +121,24 @@ export const onKnock = onValueCreated('/knocks/{recipientId}/{senderId}', (event
 export const onCall = onValueWritten('/calls/{uid}', (event) => {
   const after = event.data.after.val();
   const before = event.data.before.val();
+  // A mailbox was DELETED → reap the counterpart if it still references this
+  // user, so the peer isn't stranded on the canvas unable to clear their own
+  // node (the rules deny that once ours is gone). See call-cleanup.js.
+  if (!after && before) return handleCallCleanup(makeDeps(), event.params.uid, before);
   // Only notify the callee on a fresh unanswered ring (calls/{callee}.from set).
   if (!after || !after.from || after.answered) return null;
   if (before && before.from === after.from) return null;
   return handleCall(makeDeps(), event.params.uid, after.from);
+});
+
+// Hourly sweep of stale call mailboxes. Catches the case onCall's deletion
+// reaper can't: BOTH clients died mid-call without a clean hangup, so neither
+// node was ever deleted and no deletion event fires. Nulls any mailbox older
+// than CALL_TTL_MS (or malformed); each null then trips onCall to fan out its
+// counterpart. See call-cleanup.js.
+export const sweepStaleCalls = onSchedule('every 60 minutes', async () => {
+  const swept = await handleCallSweep(makeDbDeps(), CALL_TTL_MS);
+  if (swept.length) console.log(`[calls] swept ${swept.length} stale mailbox(es)`);
 });
 
 // Narrowed to presence/availableUntil so we're not invoked on every write to
@@ -127,18 +149,28 @@ export const onAvailability = onValueWritten('/users/{uid}/presence/availableUnt
   return handleAvailability(makeDeps(), event.params.uid, event.data.before.val(), event.data.after.val());
 });
 
-// A group member's per-group override changed. handleGroupOverrideChange computes
-// whether their EFFECTIVE in-group availability flipped off→on (reading their primary
-// for the override-off case) and notifies opted-in co-members. Same RTDB region as
-// the others (setGlobalOptions above).
-export const onMemberOverride = onValueWritten('/groups/{groupId}/members/{memberUid}/statusOverride', (event) => {
-  return handleGroupOverrideChange(
-    makeDeps(),
-    event.params.groupId,
-    event.params.memberUid,
-    event.data.before.val(),
-    event.data.after.val(),
-  );
+// A group membership node was written — ONE trigger for the whole member
+// node. RTDB triggers match any write at or below their path, so the previous
+// split (an override-leaf trigger + a member-node trigger) doubled every
+// statusOverride write into a second, no-op invocation (audit F7).
+//  - deletion (leave / kick / teardown): revoke the departed member's coarse
+//    location cell so it can't outlive membership (handleMemberRemoved no-ops
+//    on create/update);
+//  - statusOverride transition: notify opted-in co-members. Gated on a real
+//    override change so displayName/join writes and appearance-only override
+//    edits skip the notify path (and its presence read) — matching the old
+//    leaf trigger, which also fired on member deletion (the leaf vanishes
+//    with the node), preserved here.
+export const onMemberWritten = onValueWritten('/groups/{groupId}/members/{memberUid}', async (event) => {
+  const before = event.data.before.val();
+  const after = event.data.after.val();
+  const { groupId, memberUid } = event.params;
+  await handleMemberRemoved(makeDbDeps(), groupId, memberUid, before, after);
+  const beforeOv = (before && before.statusOverride) || null;
+  const afterOv = (after && after.statusOverride) || null;
+  if (availabilityRelevantOverrideChange(beforeOv, afterOv)) {
+    await handleGroupOverrideChange(makeDeps(), groupId, memberUid, beforeOv, afterOv);
+  }
 });
 
 // A pending group invite was created in the invitee's mailbox. onValueCreated
@@ -164,6 +196,12 @@ const RECOVERY_PER_UID_LIMIT = 10;
 const RECOVERY_GLOBAL_LIMIT = 60;
 const RECOVERY_WINDOW_MS = 60 * 1000;
 
+/**
+ * @param {import('firebase-admin/database').Reference} ref
+ * @param {number} limit
+ * @param {number} now
+ * @param {number} windowMs
+ */
 async function bumpFixedWindow(ref, limit, now, windowMs) {
   let allowed = true;
   await ref.transaction((cur) => {
@@ -175,6 +213,10 @@ async function bumpFixedWindow(ref, limit, now, windowMs) {
   return allowed;
 }
 
+/**
+ * @param {import('firebase-admin/database').Database} db
+ * @param {string} uid
+ */
 async function allowRecoveryAttempt(db, uid) {
   const now = Date.now();
   if (!(await bumpFixedWindow(db.ref(`notifierState/recoveryRate/perUid/${uid}`), RECOVERY_PER_UID_LIMIT, now, RECOVERY_WINDOW_MS))) return false;
@@ -186,8 +228,8 @@ async function allowRecoveryAttempt(db, uid) {
 // the same region as the rest (setGlobalOptions above). See auth.js / R1 spec.
 export const validateRecovery = httpsOnCall((request) =>
   validateRecoveryHandler(request, {
-    allowAttempt: (uid) => allowRecoveryAttempt(getDatabase(), uid),
-    mintToken: (uid) => getAuth().createCustomToken(uid),
+    allowAttempt: (/** @type {string} */ uid) => allowRecoveryAttempt(getDatabase(), uid),
+    mintToken: (/** @type {string} */ uid) => getAuth().createCustomToken(uid),
   }));
 
 // Unauthenticated callable: the welcome screen names the inviter/group before the
@@ -196,7 +238,22 @@ export const validateRecovery = httpsOnCall((request) =>
 // fields. Invite tokens are 128-bit, so enumeration is infeasible. See invites.js.
 export const resolveInvitePreview = httpsOnCall((request) =>
   resolveInvitePreviewHandler(request, {
-    getVal: (path) => db.ref(path).get().then((snap) => snap.val()),
+    getVal: (/** @type {string} */ path) => db.ref(path).get().then((snap) => snap.val()),
+  }));
+
+// Authenticated callable: server-authoritative group join (Fix 2, option A).
+// Validates a real entitlement (invite token or pending invite) before writing
+// the member node via Admin SDK, closing the #288 self-join surface once the
+// members .write rule is tightened (see database.rules.json). See group-join.js.
+export const joinGroup = httpsOnCall((request) =>
+  joinGroupHandler(request, {
+    now: () => Date.now(),
+    getVal: (/** @type {string} */ path) => db.ref(path).get().then((snap) => snap.val()),
+    set: (/** @type {string} */ path, /** @type {unknown} */ value) => db.ref(path).set(value),
+    transaction: async (/** @type {string} */ path, /** @type {(c: any) => unknown} */ fn) => {
+      const res = await db.ref(path).transaction(fn);
+      return { committed: res.committed };
+    },
   }));
 
 // ── Telegram (experimental; inert unless TELEGRAM_BOT_TOKEN is set in the
@@ -209,9 +266,9 @@ function makeTelegramAuthDeps() {
     // the public tgId (F1 #287). Must be set alongside the bot token.
     uidSecret: process.env.TELEGRAM_UID_SECRET || null,
     appUrl: process.env.TELEGRAM_APP_URL || '',
-    mintToken: (uid) => getAuth().createCustomToken(uid),
+    mintToken: (/** @type {string} */ uid) => getAuth().createCustomToken(uid),
     randomToken: () => randomBytes(16).toString('base64url'),
-    allowAttempt: (uid) => allowRecoveryAttempt(getDatabase(), uid),
+    allowAttempt: (/** @type {string} */ uid) => allowRecoveryAttempt(getDatabase(), uid),
     setAuthEmail: setTelegramAuthEmail,
     // First-open welcome DM (validateTelegramHandler). Null when the bot isn't
     // configured, so the handler skips it; mirrors the webhook's tg.sendMessage.
@@ -221,12 +278,13 @@ function makeTelegramAuthDeps() {
 
 // Create-or-update: the Auth record doesn't exist until the client's first
 // signInWithCustomToken, so pre-create it; later re-bootstraps hit update.
+/** @param {string} uid @param {string} email */
 async function setTelegramAuthEmail(uid, email) {
   const auth = getAuth();
   try {
     await auth.updateUser(uid, { email });
   } catch (e) {
-    if (e?.code === 'auth/user-not-found') await auth.createUser({ uid, email });
+    if (/** @type {any} */ (e)?.code === 'auth/user-not-found') await auth.createUser({ uid, email });
     else throw e;
   }
 }
@@ -256,8 +314,8 @@ export const telegramWebhook = onRequest(async (req, res) => {
     setAuthEmail: setTelegramAuthEmail,
     tg: {
       sendMessage: tgSendMessage,
-      answerCallbackQuery: (id, text) => tgApi('answerCallbackQuery', { callback_query_id: id, text }),
-      editMessageText: (chatId, messageId, text, extra = {}) =>
+      answerCallbackQuery: (/** @type {string} */ id, /** @type {string} */ text) => tgApi('answerCallbackQuery', { callback_query_id: id, text }),
+      editMessageText: (/** @type {string} */ chatId, /** @type {number} */ messageId, /** @type {string} */ text, extra = {}) =>
         tgApi('editMessageText', { chat_id: chatId, message_id: messageId, text, ...extra }),
     },
   }, req.body);
@@ -266,6 +324,7 @@ export const telegramWebhook = onRequest(async (req, res) => {
   // sendMessage HTTPS call. Nested objects must be JSON-serialized in a
   // webhook reply (Bot API convention), hence the reply_markup stringify.
   if (replyPayload) {
+    /** @type {Record<string, any>} */
     const method = { method: 'sendMessage', ...replyPayload };
     if (method.reply_markup) method.reply_markup = JSON.stringify(method.reply_markup);
     res.status(200).json(method);

@@ -28,6 +28,8 @@ body {
   max-width: 640px;
   margin: 0 auto;
   padding: 0 1.25rem 4rem;
+  /* Disable double-tap zoom on fast taps (pinch-zoom stays available). */
+  touch-action: manipulation;
 }
 
 a { color: var(--accent); }

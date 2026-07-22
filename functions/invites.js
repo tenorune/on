@@ -10,6 +10,10 @@ import { HttpsError } from 'firebase-functions/v2/https';
 //
 // deps.getVal(path): reads the value at an RTDB path (injected so the handler is
 // testable without firebase-admin).
+/**
+ * @param {{ data?: { token?: unknown } }} request
+ * @param {{ getVal: (path: string) => Promise<any> }} deps
+ */
 export async function resolveInvitePreviewHandler(request, deps) {
   const token = request.data?.token;
   // Same shape as the client's extractInviteTokenFromUrl guard.
