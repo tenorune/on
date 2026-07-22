@@ -448,6 +448,29 @@ test('revokePermissionTeardown resets published state and dispatches location-pu
   expect(isContextPublished('direct')).toBe(false);
 });
 
+test('a prefs echo that dropped a context unmarks it as published (bot /locoff, sibling glyph-off)', async () => {
+  // The Telegram bot's /locoff (and a sibling device's glyph-off) flip the
+  // opt-in AND delete the node server-side; this session only sees the
+  // userPrefs echo. The published set must drop the context, or the surfaces
+  // keep (and could re-open) distance subs against a deleted node — an attach
+  // there is rules-denied and permanently cancelled.
+  const { initLocationShare, toggleContext, isContextPublished } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  expect(isContextPublished('direct')).toBe(true);
+
+  // The echo lands in the prefs cache before the event fires — mirror that.
+  prefs.setLocationOptIn('direct', false);
+  let sawFalse = false;
+  document.addEventListener('location-publishing-changed', () => { sawFalse = isContextPublished('direct') === false; });
+  document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+  await flush();
+  expect(isContextPublished('direct')).toBe(false);
+  expect(sawFalse).toBe(true); // surfaces were told, not just silently unmarked
+});
+
 test('_resetLocationShare resets published state and dispatches location-publishing-changed', async () => {
   const { initLocationShare, toggleContext, isContextPublished, _resetLocationShare } = share();
   initLocationShare('me', () => []);

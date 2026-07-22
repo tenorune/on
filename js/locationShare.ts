@@ -590,8 +590,13 @@ export function initLocationShare(userId: string, getOptedInGids: () => string[]
   seedPublishedFromServer();
   // A server echo of the prefs can opt a context in/out from another device —
   // re-sync the per-gid status subs, re-derive availability, and re-probe for
-  // nodes the other device may have published.
+  // nodes the other device may have published. A context the echo dropped is
+  // also UNMARKED: whoever flipped it off (sibling glyph-off, the Telegram
+  // bot's /locoff) deleted its node with the pref, and a stale published
+  // entry would let the surfaces hold or re-open subs against the deleted
+  // node — an attach there is rules-denied and permanently cancelled.
   _prefsSyncedListener = () => {
+    unmarkPublished([..._publishedContexts].filter((context) => !getLocationOptIn(context)));
     syncGroupStatusSubs();
     evaluateAvailability();
     seedPublishedFromServer();
