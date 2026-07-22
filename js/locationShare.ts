@@ -88,6 +88,13 @@ let _prefsSyncedListener: (() => void) | null = null;
 // next fix/error arrives (no cached fix fresh enough to serve synchronously).
 let _watchId: number | null = null;
 let _watchHighAccuracy = false;
+// Sticky "OS permission is denied" marker for the glyph surfaces: set on a
+// code-1 prove reject and on the mid-flight revocation teardown, cleared the
+// moment a fix is delivered or a prove succeeds (either implies granted).
+// Without it, the repaint paths that read only the opt-in (prefs sync,
+// opt-in-changed, band render) washed a just-painted denied glyph back to
+// plain off — the denied state never survived its own dispatch.
+let _permissionDenied = false;
 let _lastFix: { lat: number; lng: number; at: number } | null = null;
 let _watchWaiters: Array<(r: { lat: number; lng: number } | { code: number }) => void> = [];
 
@@ -99,6 +106,12 @@ function drainWatchWaiters(r: { lat: number; lng: number } | { code: number }): 
 
 // (Re)start the browser watch. No-op if already running at the same accuracy
 // tier; a tier change (Direct opt-in flipping precise↔coarse) restarts it.
+// _watchGeneration detects a stopGeoWatch that ran DURING watchPosition's
+// callback: delivery is allowed to be synchronous (see getPositionOnce), so a
+// synchronous code-1 error tears everything down before the id assignment
+// below — which would then resurrect a dead watch, and the next glyph prove
+// would park forever against a stream that no longer delivers.
+let _watchGeneration = 0;
 function startGeoWatch(highAccuracy: boolean): void {
   if (!navigator.geolocation || !navigator.geolocation.watchPosition) return;
   if (_watchId !== null && _watchHighAccuracy === highAccuracy) return;
@@ -107,10 +120,12 @@ function startGeoWatch(highAccuracy: boolean): void {
   if (_watchId !== null && navigator.geolocation.clearWatch) navigator.geolocation.clearWatch(_watchId);
   _watchId = null;
   _watchHighAccuracy = highAccuracy;
-  _watchId = navigator.geolocation.watchPosition(
+  const gen = _watchGeneration;
+  const id = navigator.geolocation.watchPosition(
     (pos) => {
       _lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, at: Date.now() };
       markGrantProven(); // a fix arrived without a prompt — grant proven on THIS device
+      _permissionDenied = false; // a delivered fix means the permission is granted
       locDbg('watch fix', _lastFix);
       drainWatchWaiters({ lat: _lastFix.lat, lng: _lastFix.lng });
     },
@@ -125,9 +140,12 @@ function startGeoWatch(highAccuracy: boolean): void {
     },
     { enableHighAccuracy: highAccuracy, timeout: 20000, maximumAge: 30000 },
   );
+  if (gen === _watchGeneration) _watchId = id;
+  else if (navigator.geolocation.clearWatch) navigator.geolocation.clearWatch(id); // torn down mid-callback
 }
 
 function stopGeoWatch(): void {
+  _watchGeneration++; // invalidate an id assignment still pending in startGeoWatch
   if (_watchId !== null && navigator.geolocation?.clearWatch) navigator.geolocation.clearWatch(_watchId);
   _watchId = null;
   drainWatchWaiters({ code: 2 }); // unblock any parked reader — the watch is gone
@@ -285,6 +303,12 @@ export function isContextAvailable(context: string): boolean {
   return contextAvailable(context);
 }
 
+// Sticky denied read for the glyph paint paths (me.ts / groupContext.ts) —
+// see _permissionDenied's note.
+export function isPermissionDenied(): boolean {
+  return _permissionDenied;
+}
+
 // Announces a publishing-state transition (a context's first landed publish,
 // a node deletion, or a per-context availability flip) to the distance
 // surfaces so their reconcile passes re-run eligibility.
@@ -346,6 +370,7 @@ function revokePermissionTeardown() {
   const gids = _getOptedInGids(); // snapshot BEFORE flipping prefs — see clearPublished
   const contexts = [...(getLocationOptIn('direct') ? ['direct'] : []), ...gids];
   locDbg('revokePermissionTeardown → flipping OFF', contexts);
+  _permissionDenied = true;
   clearGrantProven(); // 'prompt' is genuine after a real revocation — see GEO_PROVEN_KEY
   stopLoop();
   clearPublished(gids);
@@ -659,9 +684,10 @@ export async function toggleContext(context: string): Promise<'on' | 'off' | 'de
   try {
     await getPositionOnce(); // permission prompt fires here, on explicit intent
     locDbg('toggleContext enable: prove getPosition ok', context);
+    _permissionDenied = false; // covers the Telegram path, which has no watch-fix hook
   } catch (err) {
     locDbg('toggleContext enable: prove REJECTED', context, 'code=' + (err as { code?: number })?.code, (err as { message?: string })?.message);
-    if ((err as { code?: number })?.code === 1) return 'denied';
+    if ((err as { code?: number })?.code === 1) { _permissionDenied = true; return 'denied'; }
     return 'unsupported';
   }
   // reconcile()->startLoop() (via evaluateAvailability) already runs an
@@ -701,6 +727,7 @@ export function _resetLocationShare() {
   _lastPresence = null;
   _getOptedInGids = () => [];
   _geoPermStatus = null;
+  _permissionDenied = false;
   _lastFix = null; // stopLoop() above already cleared the watch itself
   _lastWatchRestartAt = 0;
   _tickInFlightSince = null;

@@ -77,6 +77,7 @@ jest.mock('../js/groups.js', () => ({
 jest.mock('../js/locationShare.js', () => ({
   toggleContext: jest.fn(),
   capabilityState: jest.fn(() => 'supported'),
+  isPermissionDenied: jest.fn(() => false),
   initLocationShare: jest.fn(),
   _resetLocationShare: jest.fn(),
 }));
@@ -84,7 +85,7 @@ jest.mock('../js/locationShare.js', () => ({
 const { setStatus } = require('../js/db.js');
 const { getLastTimeout, setLastTimeout } = require('../js/store.js');
 const { applyOwnStatus, initHeader, enterFirstUseMode, setOwnStatusReadyCallback } = require('../js/me.js');
-const { toggleContext, capabilityState } = require('../js/locationShare.js');
+const { toggleContext, capabilityState, isPermissionDenied } = require('../js/locationShare.js');
 // Top-level bind (NOT a require inside a test body): a later describe runs
 // jest.resetModules(), after which an in-test require would return a FRESH
 // mock instance while me.js keeps the original — same landmine as
@@ -117,6 +118,8 @@ beforeEach(() => {
   makeFixture();
   jest.clearAllMocks();
   getLastTimeout.mockReturnValue(2); // old-format default — set AFTER clearAllMocks
+  // clearAllMocks keeps a prior test's mockReturnValue — re-pin the default.
+  isPermissionDenied.mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -721,12 +724,27 @@ describe('location glyph (Direct header)', () => {
     expect(glyph.style.display).toBe('none');
   });
 
-  test('capabilityState unsupported paints denied at init, regardless of opt-in', () => {
+  test('capabilityState unsupported paints the denied visual at init, regardless of opt-in', () => {
     setLocationOptIn('direct', true);
     capabilityState.mockReturnValueOnce('unsupported');
     initHeader('uid1');
     const glyph = document.getElementById('location-glyph');
     expect(glyph.classList.contains('denied')).toBe(true);
+    // …but with its own title: "check permissions" is wrong advice on a
+    // device that has no geolocation permission to check.
+    expect(glyph.title).toBe('Location unavailable — not supported on this device');
+  });
+
+  test('a tap resolving unsupported paints the unsupported title, not the permissions one', async () => {
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+
+    toggleContext.mockResolvedValueOnce('unsupported');
+    glyph.click();
+    await Promise.resolve();
+
+    expect(glyph.classList.contains('denied')).toBe(true);
+    expect(glyph.title).toBe('Location unavailable — not supported on this device');
   });
 
   test('click calls toggleContext("direct") and repaints from the result', async () => {
@@ -796,5 +814,34 @@ describe('location glyph (Direct header)', () => {
     document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context: 'direct' } }));
 
     expect(glyph.classList.contains('on')).toBe(false);
+  });
+
+  test('denied state is sticky: event repaints keep the denied paint while the permission stays denied', () => {
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+
+    // The revocation teardown flips the pref off, sets the denied flag, and
+    // dispatches the event; the repaint must not wash denied back to plain off.
+    isPermissionDenied.mockReturnValue(true);
+    document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context: 'direct' } }));
+    expect(glyph.classList.contains('denied')).toBe(true);
+    expect(glyph.title).toBe('Location unavailable — check permissions');
+
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+    expect(glyph.classList.contains('denied')).toBe(true);
+
+    // Once no longer denied (e.g. a later successful glyph prove), the same
+    // events paint plain opt-in state again.
+    isPermissionDenied.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+    expect(glyph.classList.contains('denied')).toBe(false);
+  });
+
+  test('denied state is sticky at init: a reload-free re-init paints denied over the raw opt-in', () => {
+    isPermissionDenied.mockReturnValue(true);
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+    expect(glyph.classList.contains('denied')).toBe(true);
+    expect(glyph.title).toBe('Location unavailable — check permissions');
   });
 });

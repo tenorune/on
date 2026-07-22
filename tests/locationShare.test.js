@@ -482,6 +482,53 @@ test('permission denial returns denied, flips the pref back off, and clears', as
   expect(db.publishLocation).not.toHaveBeenCalled();
 });
 
+test('isPermissionDenied: set by a denied glyph prove, cleared by a later successful prove', async () => {
+  const { initLocationShare, toggleContext, isPermissionDenied } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  expect(isPermissionDenied()).toBe(false);
+
+  geoBehavior = (ok, err) => err({ code: 1 }); // PERMISSION_DENIED
+  await expect(toggleContext('direct')).resolves.toBe('denied');
+  // Sticky: repaint paths consult this so event-driven repaints (prefs sync,
+  // opt-in-changed) keep showing denied instead of washing back to off.
+  expect(isPermissionDenied()).toBe(true);
+
+  // Permission re-granted in OS settings → the next glyph prove succeeds and
+  // lifts the flag.
+  geoBehavior = (ok) => ok({ coords: _curPos });
+  await expect(toggleContext('direct')).resolves.toBe('on');
+  expect(isPermissionDenied()).toBe(false);
+});
+
+test('isPermissionDenied: set by a mid-flight revocation (watch error code 1), not by transient errors', async () => {
+  const { initLocationShare, toggleContext, isPermissionDenied } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  expect(isPermissionDenied()).toBe(false);
+
+  fireWatchError(3); // timeout — a silent failed tick, NOT a denial
+  await flush();
+  expect(isPermissionDenied()).toBe(false);
+
+  fireWatchError(1); // OS-level revocation → teardown sets the sticky flag
+  await flush();
+  expect(isPermissionDenied()).toBe(true);
+});
+
+test('isPermissionDenied: cleared by _resetLocationShare', async () => {
+  const { initLocationShare, toggleContext, isPermissionDenied, _resetLocationShare } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  geoBehavior = (ok, err) => err({ code: 1 });
+  await toggleContext('direct');
+  expect(isPermissionDenied()).toBe(true);
+  _resetLocationShare();
+  expect(isPermissionDenied()).toBe(false);
+});
+
 test('permission revoked mid-flight (tick errors code 1) → clear, loop stopped, opt-ins off, glyph event', async () => {
   const { initLocationShare, toggleContext } = share();
   initLocationShare('me', () => (prefs.getLocationOptIn('G1') ? ['G1'] : []));

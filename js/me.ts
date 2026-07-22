@@ -6,7 +6,7 @@ import { saveCombo, buildDirectCombo } from './favorites.js';
 import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
 import { markHintSeen, getLastTimeout, setLastTimeout, getLocationOptIn } from './prefs.js';
 import { CHIP_VALUES, chipIndexForMinutes } from './status.js';
-import { toggleContext, capabilityState } from './locationShare.js';
+import { toggleContext, capabilityState, isPermissionDenied } from './locationShare.js';
 import { showToast, LOCATION_DENIED_TOAST } from './groups.js';
 
 let savingEnabled = false;
@@ -25,14 +25,28 @@ function migrateToChipIndex() {
   return chipIndexForMinutes(getLastTimeout());
 }
 
-// Paint a location glyph's tri-state. Shared by the Direct header (me.js) and
+// Paint a location glyph's state. Shared by the Direct header (me.js) and
 // the group band (groupContext.js) — same classes, different element.
-export function paintLocationGlyph(el: HTMLElement, state: 'on' | 'off' | 'denied') {
+// 'unsupported' shares denied's visual (same .denied class) but gets its own
+// title: "check permissions" is wrong advice on a device with no geolocation.
+export function paintLocationGlyph(el: HTMLElement, state: 'on' | 'off' | 'denied' | 'unsupported') {
   el.classList.toggle('on', state === 'on');
-  el.classList.toggle('denied', state === 'denied');
+  el.classList.toggle('denied', state === 'denied' || state === 'unsupported');
   el.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
   if (state === 'denied') el.title = 'Location unavailable — check permissions';
+  else if (state === 'unsupported') el.title = 'Location unavailable — not supported on this device';
   else el.removeAttribute('title');
+}
+
+// The glyph state a repaint should show: capability and the sticky OS-denied
+// marker outrank the raw opt-in — without them, the event-driven repaints
+// (prefs sync, opt-in-changed) washed a denied paint back to plain off the
+// moment the teardown's own event fired. groupContext.js keeps its own copy
+// (against the current gid): importing this one would be mock-vacuous there.
+function directGlyphState(): 'on' | 'off' | 'denied' | 'unsupported' {
+  if (capabilityState() === 'unsupported') return 'unsupported';
+  if (isPermissionDenied()) return 'denied';
+  return getLocationOptIn('direct') ? 'on' : 'off';
 }
 
 // Called when the userPrefs-synced lastTimeoutMinutes changes (cross-device).
@@ -120,21 +134,20 @@ export function initHeader(myUserId: string) {
 
   const locGlyph = document.getElementById('location-glyph');
   if (locGlyph) {
-    paintLocationGlyph(locGlyph, getLocationOptIn('direct') ? 'on' : 'off');
-    if (capabilityState() === 'unsupported') paintLocationGlyph(locGlyph, 'denied');
+    paintLocationGlyph(locGlyph, directGlyphState());
     locGlyph.addEventListener('click', async () => {
       const state = await toggleContext('direct');
-      paintLocationGlyph(locGlyph, state === 'on' ? 'on' : state === 'off' ? 'off' : 'denied');
+      paintLocationGlyph(locGlyph, state);
       if (state === 'denied') showToast(LOCATION_DENIED_TOAST);
     });
     // Cross-device echo: another device flipping the pref repaints this glyph.
     document.addEventListener('location-prefs-synced', () => {
-      paintLocationGlyph(locGlyph, getLocationOptIn('direct') ? 'on' : 'off');
+      paintLocationGlyph(locGlyph, directGlyphState());
     });
     // Pref flipped outside the tap path (locationShare's mid-flight-revocation
     // teardown): the tap handler above never runs, so the paint rides the event.
     document.addEventListener('location-optin-changed', () => {
-      paintLocationGlyph(locGlyph, getLocationOptIn('direct') ? 'on' : 'off');
+      paintLocationGlyph(locGlyph, directGlyphState());
     });
   }
 }
