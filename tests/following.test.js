@@ -963,7 +963,7 @@ describe('palette card styling', () => {
     complements: [],
   };
 
-  function setupOneFollowee(paletteKey) {
+  function setupOneFollowee(paletteKey, statusColor) {
     setupDom();
     getFollowing.mockReturnValue([{ userId: 'user1', code: 'ABC123', label: 'Jordan' }]);
 
@@ -983,7 +983,7 @@ describe('palette card styling', () => {
     watchFollowersCallback([]);     // no followers — 'Jordan' appears in Following section
 
     // Trigger watchPresence with palette data
-    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, paletteKey });
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 3600000, paletteKey, statusColor });
     return document.querySelector('[data-user-id="user1"]');
   }
 
@@ -1022,12 +1022,16 @@ describe('palette card styling', () => {
     expect(statusEl.style.color).toBe('rgb(95, 154, 207)');
   });
 
-  test('available span inside status gets palette.color when available', () => {
+  test('available span inside status keeps statusColor (not palette.color) when palette-themed', () => {
     getPaletteByKey.mockReturnValue(OCEAN_PALETTE);
-    const li = setupOneFollowee('ocean');
+    // statusColor (#a855f7) deliberately differs from the palette key color
+    // (#3b82f6). The fuzzy-time text follows the member's status color — so it
+    // agrees with the status dot and the group roster — NOT the card's
+    // palette/border color.
+    const li = setupOneFollowee('ocean', '#a855f7');
     const span = li.querySelector('.status-available');
     expect(span).not.toBeNull();
-    expect(span.style.color).toBe('rgb(59, 130, 246)');
+    expect(span.style.color).toBe('rgb(168, 85, 247)');
   });
 
   test('palette card stamps --card-muted with the palette muted (distance line color source)', () => {
