@@ -23,8 +23,28 @@ watch error can't resurrect a dead watch id (details in History). Remaining
 polish source: whatever the operator surfaces hands-on — the glyph changes
 are visual, expect device iteration.
 
-Code tip is `4ac099c`; a docs(handoff) commit rides atop. Realign a fresh
-session:
+**Also shipped on this branch (2026-07-22c): the Telegram bot beacon nudge +
+`/locoff`** (operator-spec'd, copy operator-authored): going available via
+`/status`, `/status <group>` (confirm AND the follows-global "already
+available there" reply), or `/start`'s returning-available line now appends
+"By the way, your location [in <group>] last updated <age> ago - open the
+app if you want to update it, or /locoff [<group>] to stop the beacon."
+whenever that context's opt-in is ON and its node exists. `/locoff [group]`
+is the bot-side glyph-off: atomically flips the same `userPrefs` opt-in the
+app writes + deletes the context's node; app sessions converge via the
+prefs echo (which now also UNMARKS dropped contexts from the published set
+— fixes a latent sibling-glyph-off staleness too). Copy change ruled by the
+operator: every availability confirm now says "/off to go unavailable."
+instead of "/off to stop." New shared `formatAgeFuzzy` (floors on purpose;
+"moments" under a minute) is fixture-pinned in both suites.
+⚠️ **This batch touches `functions/`** (telegram.js + the `_shared`
+mirror) — the "everything since audit-2 is client-only" note below no
+longer covers the branch tip; the bot changes ride the normal functions
+deploy, no ordering constraints (new command + reply suffixes only; the
+command menu re-registers via setMyCommands at deploy).
+
+Code tip is `4ac099c` + the 2026-07-22c commits; a docs(handoff) commit
+rides atop. Realign a fresh session:
 
 ```
 git fetch origin
@@ -55,6 +75,12 @@ only if a scenario fails:
   same sticky denied on both the Direct header and group band glyphs; a
   no-geolocation browser shows title "Location unavailable — not supported
   on this device" instead of the "check permissions" advice.
+- **NEW (bot beacon, needs the functions deploy):** `/status` with the
+  direct beacon on → confirm carries the age nudge; `/status <group>`
+  likewise (both override-ON confirm and the follows-global reply);
+  `/locoff` → glyph on an open app session flips OFF within a prefs-echo
+  beat and the roster distance for that context goes away on peers;
+  `/locoff <group>` leaves the direct beacon (and other groups) untouched.
 
 **Next actions (nothing deploys from sessions):**
 
@@ -84,11 +110,11 @@ only if a scenario fails:
    Inspector); only deploy 2 — the next shell change after that — tests the
    claim, by landing on the iOS PWA organically (relaunch, no inspector).
 
-**Verification state:** green bar OBSERVED at `4ac099c` (polish-pass code
-tip) — web jest 2080/2080 · functions 438/438 · both typechecks clean ·
-production build completes (`node scripts/prod.js`). Rules suite (108) not
-re-run — nothing since the audit-2 batch touched rules. All suites run in
-this container with deps installed (Environment below).
+**Verification state:** green bar OBSERVED at the 2026-07-22c tip — web
+jest 2085/2085 · functions 459/459 · both typechecks clean · production
+build completes (`node scripts/prod.js`). Rules suite (108) not re-run —
+nothing since the audit-2 batch touched rules. All suites run in this
+container with deps installed (Environment below).
 
 **Audit docs (sources of truth):**
 
@@ -326,7 +352,24 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
-- **This session (2026-07-22b) — release-polish pass, 3 commits
+- **This session (2026-07-22c) — Telegram beacon nudge + /locoff, TDD, on
+  `claude/knockknock-polish-pass-8kb77v`:** operator-spec'd over three
+  design rounds (feasibility → response-case enumeration → operator-authored
+  copy). `formatAgeFuzzy` in `shared/timeFormat.js` (fixture gained an `age`
+  column + day-scale rows; floors on purpose — an age nudge must understate).
+  `functions/telegram.js`: beacon suffix helpers (opt-in ON + node with
+  numeric `updatedAt`, read from the same `userPrefs/{uid}/location` branch
+  the app's glyph sync writes) wired into the global `/status` confirm, the
+  `/start` returning-available line, and `setGroupPresence` via an optional
+  `suffixFor` hook (confirm + globalOn only — globalOff means the cell isn't
+  peer-visible; `/off` passes nothing). `/locoff [group]`: opt-in flip + node
+  delete in one atomic `rootUpdate`; group flavor rides `resolveGroupArg`
+  (B#3 retry idiom). Copy ruled: "/off … to go unavailable." everywhere the
+  confirms said "to stop." Client (`js/locationShare.ts`): the prefs-echo
+  handler now unmarks published contexts whose opt-in dropped — without it
+  the surfaces held/re-opened subs against the bot-deleted node (also a
+  latent sibling-device glyph-off bug). NOTE: first functions-touching
+  change since the audit-2 batch (deploy note in What's next).
   `00c88dd..4ac099c` on `claude/knockknock-polish-pass-8kb77v` (cut from
   `9a3ysy` at `837ee8a`), all TDD:**
   - `00c88dd` **fix(geo):** `formatDistancePrecise` meters/km watershed moved
