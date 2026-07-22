@@ -4,7 +4,7 @@
 import { timingSafeEqual } from 'crypto';
 import { ensureTelegramUser } from './telegram-auth.js';
 import { WELCOME_STRANGER_TEXT, openAppKeyboard, GROUP_ID_RE, UID_RE, rootUpdate } from './telegram-shared.js';
-import { effectiveAvailable, primaryAvailable, clampName, statusCircle, formatTimeRemaining, formatTimeRemainingFuzzy } from './presence-core.js';
+import { effectiveAvailable, primaryAvailable, clampName, statusCircle, formatTimeRemaining, formatTimeRemainingFuzzy, formatAgeFuzzy } from './presence-core.js';
 import { haversineMeters, formatDistancePrecise, formatDistanceCoarse } from './_shared/geo.js';
 
 /**
@@ -101,6 +101,7 @@ function looksLikeDuration(s) {
 export const COMMANDS = [
   { command: 'status',        args: '[group] [30m|2h]', description: 'go available (default 1h)' },
   { command: 'off',           args: '[group]',          description: 'go unavailable' },
+  { command: 'locoff',        args: '[group]',          description: 'stop your location beacon' },
   { command: 'who',           args: '[group]',          description: "who's available now" },
   { command: 'knock',         args: '<name>',           description: 'send a knock (searches your people, then your groups)' },
   { command: 'groups',        args: '',                 description: 'your groups' },
@@ -128,6 +129,34 @@ const KNOCK_CAP_TEXT = "You've already knocked a few times — give them a momen
 const PLAYFUL_EMOJI = ['🐥', '🍑', '🍆', '💦', '🫦', '🌚'];
 export function pickPlayfulEmoji(rand = Math.random) {
   return PLAYFUL_EMOJI[Math.floor(rand() * PLAYFUL_EMOJI.length)];
+}
+
+// Beacon nudge (operator spec 2026-07-22): a going-available confirm carries a
+// "by the way" suffix when that context's location beacon is on — the bot only
+// sets presence, so a persisted last-known point becomes peer-visible again
+// WITHOUT the bot being able to refresh it. Only fires when the opt-in is ON
+// and the node exists with a numeric updatedAt (a never-published beacon has
+// nothing peers can see; the opt-in branch is the same userPrefs node the
+// app's cross-device glyph sync reads). NOTE the age is "last landed write":
+// the app's no-op suppression keeps a stationary sharer's point unwritten, so
+// an old age can mean "hasn't moved", not "dead" — hence "if you want to".
+/** @param {TelegramBotDeps} deps @param {string} uid */
+async function directBeaconSuffix(deps, uid) {
+  const [optIn, node] = await Promise.all([
+    deps.getVal(`userPrefs/${uid}/location/direct`),
+    deps.getVal(`locations/${uid}`),
+  ]);
+  if (optIn !== true || typeof node?.updatedAt !== 'number') return '';
+  return ` By the way, your location last updated ${formatAgeFuzzy(deps.now() - node.updatedAt)} ago - open the app if you want to update it, or /locoff to stop the beacon.`;
+}
+/** @param {TelegramBotDeps} deps @param {string} uid @param {string} gid @param {string} name */
+async function groupBeaconSuffix(deps, uid, gid, name) {
+  const [optIn, cell] = await Promise.all([
+    deps.getVal(`userPrefs/${uid}/location/groups/${gid}`),
+    deps.getVal(`locationCells/${gid}/${uid}`),
+  ]);
+  if (optIn !== true || typeof cell?.updatedAt !== 'number') return '';
+  return ` By the way, your location in ${name} last updated ${formatAgeFuzzy(deps.now() - cell.updatedAt)} ago - open the app if you want to update it, or /locoff ${name} to stop the beacon.`;
 }
 
 // The one way a webhook entry point resolves its Telegram sender to an app
@@ -214,7 +243,9 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
     // Returning: compact live status, duration-based (no server-side timezone).
     const on = primaryAvailable(presence, deps.now());
     if (on) {
-      await reply(`You're ${statusCircle(presence.statusColor)} available for another ${formatTimeRemaining(presence.availableUntil - deps.now())}. /off to stop.`, openAppKeyboard(deps.appUrl));
+      // Available = a live beacon's point is peer-visible right now → same
+      // nudge as the /status confirm. The unavailable branch never nudges.
+      await reply(`You're ${statusCircle(presence.statusColor)} available for another ${formatTimeRemaining(presence.availableUntil - deps.now())}. /off to go unavailable.${await directBeaconSuffix(deps, uid)}`, openAppKeyboard(deps.appUrl));
     } else {
       await reply("You're unavailable right now. /status to go available.", openAppKeyboard(deps.appUrl));
     }
@@ -241,7 +272,7 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
           availableUntil: deps.now() + asDuration * 60000,
           lastSeen: deps.now(),
         });
-        await reply(`You're ${statusCircle(color)} available for ${formatTimeRemaining(asDuration * 60000)}. /off to stop.`);
+        await reply(`You're ${statusCircle(color)} available for ${formatTimeRemaining(asDuration * 60000)}. /off to go unavailable.${await directBeaconSuffix(deps, uid)}`);
         return;
       }
       // Group form: a trailing duration token splits off; the rest names the group.
@@ -257,6 +288,24 @@ async function routeCommand(deps, msg, chatId, cmd, args, reply) {
       // Mirrors js/db/social.js writeBackExpired + a lastSeen touch.
       await deps.update(`users/${uid}/presence`, { status: 'unavailable', availableUntil: null, lastSeen: deps.now() });
       await reply("You're unavailable.");
+      return;
+    }
+    case '/locoff': {
+      // Bot-side glyph-off: flips the SAME userPrefs opt-in the app's glyph
+      // writes and deletes the context's node in ONE atomic multi-path write
+      // (the pair the app's toggleContext off-branch writes separately —
+      // Admin-SDK gets to be atomic about it). Running app sessions converge
+      // via the normal userPrefs echo; peer listeners on the deleted node are
+      // cancelled by rules re-evaluation, exactly like an in-app glyph-off.
+      // Direct and group beacons are independent contexts — never both.
+      if (args.length) { await handleLocOffGroup(deps, uid, args.join(' '), reply); return; }
+      const optIn = await deps.getVal(`userPrefs/${uid}/location/direct`);
+      if (optIn !== true) { await reply('Your location beacon for mutuals was already off.'); return; }
+      await rootUpdate(deps, {
+        [`userPrefs/${uid}/location/direct`]: false,
+        [`locations/${uid}`]: null,
+      });
+      await reply('Your location beacon for mutuals is off.');
       return;
     }
     case '/notifications': {
@@ -383,24 +432,31 @@ async function resolveGroupArg(deps, uid, query, reply, noMatchHint = '', retryC
  * @param {{ confirm: (name: string, color?: any) => string, globalOn: (name: string) => string, globalOff: (name: string) => string }} messages
  * @param {string} [noMatchHint]
  * @param {((name: string) => string) | null} [retryCmd]
+ * @param {((gid: string, name: string) => Promise<string>) | null} [suffixFor]
+ *   Appended to the confirm AND globalOn replies — both are "you're available
+ *   in this group right now" moments where a live beacon's cell is
+ *   peer-visible (the beacon nudge). Never on globalOff (not available →
+ *   nothing peers can see). /off passes nothing.
  */
-async function setGroupPresence(deps, uid, query, reply, fields, messages, noMatchHint = '', retryCmd = null) {
+async function setGroupPresence(deps, uid, query, reply, fields, messages, noMatchHint = '', retryCmd = null, suffixFor = null) {
   const match = await resolveGroupArg(deps, uid, query, reply, noMatchHint, retryCmd);
   if (!match) return;
   const [override, presence] = await Promise.all([
     deps.getVal(`groups/${match.gid}/members/${uid}/statusOverride`),
     deps.getVal(`users/${uid}/presence`),
   ]);
+  const suffix = () => (suffixFor ? suffixFor(match.gid, match.name) : Promise.resolve(''));
   if (override && override.enabled === true) {
     await deps.update(`groups/${match.gid}/members/${uid}/statusOverride`, fields());
     // Dot color = the group override's own statusColor; a missing/invalid one
     // falls through to statusCircle's 🟢 fallback (matching /who, /groups, and
     // the client roster) rather than borrowing the primary presence color.
-    await reply(messages.confirm(match.name, override.statusColor));
+    await reply(messages.confirm(match.name, override.statusColor) + await suffix());
     return;
   }
   const globallyOn = primaryAvailable(presence, deps.now());
-  await reply((globallyOn ? messages.globalOn : messages.globalOff)(match.name));
+  if (globallyOn) { await reply(messages.globalOn(match.name) + await suffix()); return; }
+  await reply(messages.globalOff(match.name));
 }
 
 /**
@@ -417,11 +473,12 @@ async function handleGroupStatus(deps, uid, query, minutes, reply, durToken = ''
   await setGroupPresence(deps, uid, query, reply,
     () => ({ status: 'available', availableUntil: deps.now() + minutes * 60000 }),
     {
-      confirm: (name, color) => `You're ${statusCircle(color)} available in ${name} for ${formatTimeRemaining(minutes * 60000)}. /off ${name} to stop.`,
+      confirm: (name, color) => `You're ${statusCircle(color)} available in ${name} for ${formatTimeRemaining(minutes * 60000)}. /off ${name} to go unavailable.`,
       globalOn: (name) => `${name} follows your global status — you're already available there.`,
       globalOff: (name) => `${name} follows your global status. /status goes available everywhere, or turn on a group status in the app.`,
     },
-    noMatchHint, retryCmd);
+    noMatchHint, retryCmd,
+    (gid, name) => groupBeaconSuffix(deps, uid, gid, name));
 }
 
 /**
@@ -441,6 +498,28 @@ async function handleGroupOff(deps, uid, query, reply) {
       globalOff: (name) => `You're already unavailable in ${name}.`,
     },
     '', (name) => `/off ${name}`);
+}
+
+// /locoff <group> — the group flavor of the bot-side glyph-off (see the
+// /locoff case). Only groups the user is still in are reachable by name
+// (matchGroupsByName enumerates memberships); an orphaned opt-in for a left
+// group stays the app-side stale-membership sweep's job.
+/**
+ * @param {TelegramBotDeps} deps
+ * @param {string} uid
+ * @param {string} query
+ * @param {ReplyFn} reply
+ */
+async function handleLocOffGroup(deps, uid, query, reply) {
+  const match = await resolveGroupArg(deps, uid, query, reply, '', (name) => `/locoff ${name}`);
+  if (!match) return;
+  const optIn = await deps.getVal(`userPrefs/${uid}/location/groups/${match.gid}`);
+  if (optIn !== true) { await reply(`Your location beacon in ${match.name} was already off.`); return; }
+  await rootUpdate(deps, {
+    [`userPrefs/${uid}/location/groups/${match.gid}`]: false,
+    [`locationCells/${match.gid}/${uid}`]: null,
+  });
+  await reply(`Your location beacon in ${match.name} is off.`);
 }
 
 // /who <group>: co-members' effective in-group availability (the /groups idiom).
