@@ -17,6 +17,8 @@
     { "m": 1, "text": "1 meter away" },
     { "m": 120.4, "text": "120 meters away" },
     { "m": 999, "text": "999 meters away" },
+    { "m": 999.4, "text": "999 meters away" },
+    { "m": 999.6, "text": "1.0 km away" },
     { "m": 1000, "text": "1.0 km away" },
     { "m": 2340, "text": "2.3 km away" },
     { "m": 9949, "text": "9.9 km away" },
