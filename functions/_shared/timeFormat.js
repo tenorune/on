@@ -29,10 +29,10 @@ function hourWord(n) { return HOUR_WORDS[n] ?? String(n); }
 // Bare phrase like the two above — the caller owns the " ago" suffix. Floors
 // on purpose ("1 hour ago" at 1h59m): an age nudge should understate, never
 // claim more staleness than has elapsed. <1 min (incl. 0/negative clock skew)
-// reads "seconds".
+// reads "moments".
 /** @param {number} ms @returns {string} */
 export function formatAgeFuzzy(ms) {
-  if (ms < 60000) return 'seconds';
+  if (ms < 60000) return 'moments';
   const minutes = Math.floor(ms / 60000);
   if (minutes < 60) return minutes === 1 ? '1 minute' : `${minutes} minutes`;
   const hours = Math.floor(ms / 3600000);

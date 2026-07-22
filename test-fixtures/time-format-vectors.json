@@ -1,6 +1,6 @@
 [
-  { "ms": 0,         "precise": "",       "fuzzy": "",                    "age": "seconds" },
-  { "ms": 30000,     "precise": "< 1m",   "fuzzy": "just a few minutes",  "age": "seconds" },
+  { "ms": 0,         "precise": "",       "fuzzy": "",                    "age": "moments" },
+  { "ms": 30000,     "precise": "< 1m",   "fuzzy": "just a few minutes",  "age": "moments" },
   { "ms": 60000,     "precise": "1m",     "fuzzy": "just a few minutes",  "age": "1 minute" },
   { "ms": 240000,    "precise": "4m",     "fuzzy": "just a few minutes",  "age": "4 minutes" },
   { "ms": 1800000,   "precise": "30m",    "fuzzy": "about half an hour",  "age": "30 minutes" },
