@@ -36,7 +36,8 @@ prefs echo (which now also UNMARKS dropped contexts from the published set
 — fixes a latent sibling-glyph-off staleness too). Copy change ruled by the
 operator: every availability confirm now says "/off to go unavailable."
 instead of "/off to stop." New shared `formatAgeFuzzy` (floors on purpose;
-"moments" under a minute) is fixture-pinned in both suites.
+"seconds" under a minute) is fixture-pinned in both suites; the bot's
+suffix additionally gates on ≥5 min of age (fresh beacons don't nudge).
 ⚠️ **This batch touches `functions/`** (telegram.js + the `_shared`
 mirror) — the "everything since audit-2 is client-only" note below no
 longer covers the branch tip; the bot changes ride the normal functions
