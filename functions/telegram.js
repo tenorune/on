@@ -137,9 +137,12 @@ export function pickPlayfulEmoji(rand = Math.random) {
 // WITHOUT the bot being able to refresh it. Only fires when the opt-in is ON
 // and the node exists with a numeric updatedAt (a never-published beacon has
 // nothing peers can see; the opt-in branch is the same userPrefs node the
-// app's cross-device glyph sync reads). NOTE the age is "last landed write":
-// the app's no-op suppression keeps a stationary sharer's point unwritten, so
-// an old age can mean "hasn't moved", not "dead" — hence "if you want to".
+// app's cross-device glyph sync reads), and only once the point is at least
+// 5 minutes old — a fresh beacon isn't worth a "by the way" (operator call
+// 2026-07-22). NOTE the age is "last landed write": the app's no-op
+// suppression keeps a stationary sharer's point unwritten, so an old age can
+// mean "hasn't moved", not "dead" — hence "if you want to".
+const BEACON_NUDGE_MIN_AGE_MS = 5 * 60000;
 /** @param {TelegramBotDeps} deps @param {string} uid */
 async function directBeaconSuffix(deps, uid) {
   const [optIn, node] = await Promise.all([
@@ -147,7 +150,9 @@ async function directBeaconSuffix(deps, uid) {
     deps.getVal(`locations/${uid}`),
   ]);
   if (optIn !== true || typeof node?.updatedAt !== 'number') return '';
-  return ` By the way, your location last updated ${formatAgeFuzzy(deps.now() - node.updatedAt)} ago - open the app if you want to update it, or /locoff to stop the beacon.`;
+  const age = deps.now() - node.updatedAt;
+  if (age < BEACON_NUDGE_MIN_AGE_MS) return '';
+  return ` By the way, your location last updated ${formatAgeFuzzy(age)} ago - open the app if you want to update it, or /locoff to stop the beacon.`;
 }
 /** @param {TelegramBotDeps} deps @param {string} uid @param {string} gid @param {string} name */
 async function groupBeaconSuffix(deps, uid, gid, name) {
@@ -156,7 +161,9 @@ async function groupBeaconSuffix(deps, uid, gid, name) {
     deps.getVal(`locationCells/${gid}/${uid}`),
   ]);
   if (optIn !== true || typeof cell?.updatedAt !== 'number') return '';
-  return ` By the way, your location in ${name} last updated ${formatAgeFuzzy(deps.now() - cell.updatedAt)} ago - open the app if you want to update it, or /locoff ${name} to stop the beacon.`;
+  const age = deps.now() - cell.updatedAt;
+  if (age < BEACON_NUDGE_MIN_AGE_MS) return '';
+  return ` By the way, your location in ${name} last updated ${formatAgeFuzzy(age)} ago - open the app if you want to update it, or /locoff ${name} to stop the beacon.`;
 }
 
 // The one way a webhook entry point resolves its Telegram sender to an app

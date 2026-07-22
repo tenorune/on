@@ -1794,6 +1794,31 @@ describe('handleUpdate: beacon suffix on going available', () => {
       + ' By the way, your location last updated 12 hours ago - open the app if you want to update it, or /locoff to stop the beacon.');
   });
 
+  test('/status with a FRESH beacon (under 5 minutes old) → no nudge, plain confirm', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirectBeacon(deps.store, uid, 1_000_000 - 2 * 60000); // 2 minutes old
+    const reply = await handleUpdate(deps, msgUpdate('/status 1h'));
+    expect(reply.text).toBe("You're 🟢 available for 1h. /off to go unavailable.");
+  });
+
+  test('/status at exactly the 5-minute boundary → nudge shows ("5 minutes ago")', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirectBeacon(deps.store, uid, 1_000_000 - 5 * 60000);
+    const reply = await handleUpdate(deps, msgUpdate('/status 1h'));
+    expect(reply.text).toContain('your location last updated 5 minutes ago');
+  });
+
+  test('/status <group> with a fresh cell (under 5 minutes) → no nudge either', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupBeacon(deps.store, uid, 1_000_000 - 60000); // 1 minute old
+    deps.store[`groups/G1/members/${uid}/statusOverride`] = { enabled: true, status: 'unavailable' };
+    const reply = await handleUpdate(deps, msgUpdate('/status divers 2h'));
+    expect(reply.text).toBe("You're 🟢 available in Divers for 2h. /off Divers to go unavailable.");
+  });
+
   test('/status with the beacon opt-in OFF → no suffix even though a node lingers', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
