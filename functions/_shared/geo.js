@@ -38,7 +38,9 @@ export function snapToCell(lat, lng) {
 /** Precise-tier text: "120 meters away" / "2.3 km away" / "23 km away".
  * @param {number} m @returns {string} */
 export function formatDistancePrecise(m) {
-  if (m < 1000) {
+  // 999.5 is the meters/km watershed, not 1000: Math.round would render
+  // 999.6 as the never-valid "1000 meters away" instead of "1.0 km away".
+  if (m < 999.5) {
     const n = Math.round(m);
     return n === 1 ? '1 meter away' : `${n} meters away`;
   }

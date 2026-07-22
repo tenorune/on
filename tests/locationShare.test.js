@@ -448,6 +448,29 @@ test('revokePermissionTeardown resets published state and dispatches location-pu
   expect(isContextPublished('direct')).toBe(false);
 });
 
+test('a prefs echo that dropped a context unmarks it as published (bot /locoff, sibling glyph-off)', async () => {
+  // The Telegram bot's /locoff (and a sibling device's glyph-off) flip the
+  // opt-in AND delete the node server-side; this session only sees the
+  // userPrefs echo. The published set must drop the context, or the surfaces
+  // keep (and could re-open) distance subs against a deleted node — an attach
+  // there is rules-denied and permanently cancelled.
+  const { initLocationShare, toggleContext, isContextPublished } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  expect(isContextPublished('direct')).toBe(true);
+
+  // The echo lands in the prefs cache before the event fires — mirror that.
+  prefs.setLocationOptIn('direct', false);
+  let sawFalse = false;
+  document.addEventListener('location-publishing-changed', () => { sawFalse = isContextPublished('direct') === false; });
+  document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+  await flush();
+  expect(isContextPublished('direct')).toBe(false);
+  expect(sawFalse).toBe(true); // surfaces were told, not just silently unmarked
+});
+
 test('_resetLocationShare resets published state and dispatches location-publishing-changed', async () => {
   const { initLocationShare, toggleContext, isContextPublished, _resetLocationShare } = share();
   initLocationShare('me', () => []);
@@ -480,6 +503,53 @@ test('permission denial returns denied, flips the pref back off, and clears', as
   await expect(toggleContext('direct')).resolves.toBe('denied');
   expect(prefs.getLocationOptIn('direct')).toBe(false);
   expect(db.publishLocation).not.toHaveBeenCalled();
+});
+
+test('isPermissionDenied: set by a denied glyph prove, cleared by a later successful prove', async () => {
+  const { initLocationShare, toggleContext, isPermissionDenied } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  expect(isPermissionDenied()).toBe(false);
+
+  geoBehavior = (ok, err) => err({ code: 1 }); // PERMISSION_DENIED
+  await expect(toggleContext('direct')).resolves.toBe('denied');
+  // Sticky: repaint paths consult this so event-driven repaints (prefs sync,
+  // opt-in-changed) keep showing denied instead of washing back to off.
+  expect(isPermissionDenied()).toBe(true);
+
+  // Permission re-granted in OS settings → the next glyph prove succeeds and
+  // lifts the flag.
+  geoBehavior = (ok) => ok({ coords: _curPos });
+  await expect(toggleContext('direct')).resolves.toBe('on');
+  expect(isPermissionDenied()).toBe(false);
+});
+
+test('isPermissionDenied: set by a mid-flight revocation (watch error code 1), not by transient errors', async () => {
+  const { initLocationShare, toggleContext, isPermissionDenied } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  await toggleContext('direct');
+  await flush();
+  expect(isPermissionDenied()).toBe(false);
+
+  fireWatchError(3); // timeout — a silent failed tick, NOT a denial
+  await flush();
+  expect(isPermissionDenied()).toBe(false);
+
+  fireWatchError(1); // OS-level revocation → teardown sets the sticky flag
+  await flush();
+  expect(isPermissionDenied()).toBe(true);
+});
+
+test('isPermissionDenied: cleared by _resetLocationShare', async () => {
+  const { initLocationShare, toggleContext, isPermissionDenied, _resetLocationShare } = share();
+  initLocationShare('me', () => []);
+  ownStatus.__fireOwnStatus({ status: 'available', availableUntil: Date.now() + 3600000 });
+  geoBehavior = (ok, err) => err({ code: 1 });
+  await toggleContext('direct');
+  expect(isPermissionDenied()).toBe(true);
+  _resetLocationShare();
+  expect(isPermissionDenied()).toBe(false);
 });
 
 test('permission revoked mid-flight (tick errors code 1) → clear, loop stopped, opt-ins off, glyph event', async () => {
@@ -736,7 +806,7 @@ describe('geolocation PermissionStatus caching', () => {
   });
 
   test("a device-proven grant unfreezes later sessions whose fresh query lies 'prompt' (iOS PWA reload regression)", async () => {
-    // Device-observed (iOS PWA, [LOCDBG] capture 2026-07-21): after a reload,
+    // Device-observed (iOS PWA, device trace 2026-07-21): after a reload,
     // a FRESH permissions.query answers 'prompt' even though geolocation is
     // granted (using it fires no prompt) — WebKit reports 'granted' only once
     // the session has actually used geolocation. Every background tick after

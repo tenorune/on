@@ -42,7 +42,7 @@ import {
 } from './hints.js';
 import { clearFirstUsePulse, paintLocationGlyph } from './me.js';
 import { refreshHints, clearActiveHint } from './hintRotation.js';
-import { toggleContext, capabilityState, isContextPublished, isContextAvailable } from './locationShare.js';
+import { toggleContext, capabilityState, isPermissionDenied, isContextPublished, isContextAvailable } from './locationShare.js';
 import { subscribeCellDistance, subscribeDistance } from './locationHub.js';
 import { formatDistanceCoarse, formatDistancePrecise } from '../shared/geo.js';
 
@@ -643,14 +643,10 @@ function renderOwnStatusRow() {
     timeChip.textContent = CHIP_VALUES[chipIndexForMinutes(effectiveMinutes)].text;
   }
 
-  // Coarse-tier location glyph: paint tri-state from the CURRENT group's
-  // opt-in (not a captured gid — entering a different group must repaint
-  // from that group's own pref) every time the own-status band renders.
-  if (glyph) {
-    const gid = getCurrentGroupId();
-    paintLocationGlyph(glyph, capabilityState() === 'unsupported' ? 'denied'
-      : getLocationOptIn(gid) ? 'on' : 'off');
-  }
+  // Coarse-tier location glyph: paint from the CURRENT group's opt-in (not a
+  // captured gid — entering a different group must repaint from that group's
+  // own pref) every time the own-status band renders.
+  if (glyph) paintLocationGlyph(glyph, groupGlyphState(getCurrentGroupId()));
 
   if (timeRemaining) {
     // null availableUntil means open-ended; no countdown to show
@@ -1236,6 +1232,15 @@ function installGroupSyncListeners() {
 // time the event fires. Guarded by _glyphWired so switching groups
 // repeatedly never piles up duplicate listeners on the persistent element.
 let _glyphWired = false;
+// The state a repaint should show for the group's glyph: capability and the
+// sticky OS-denied marker outrank the raw opt-in, so event-driven repaints
+// can't wash a denied paint back to plain off. me.js keeps the Direct twin
+// (directGlyphState) — its export would be mock-vacuous in this module's tests.
+function groupGlyphState(gid: string | null): 'on' | 'off' | 'denied' | 'unsupported' {
+  if (capabilityState() === 'unsupported') return 'unsupported';
+  if (isPermissionDenied()) return 'denied';
+  return gid != null && getLocationOptIn(gid) ? 'on' : 'off';
+}
 function wireGroupLocationGlyph() {
   if (_glyphWired) return;
   _glyphWired = true;
@@ -1245,18 +1250,18 @@ function wireGroupLocationGlyph() {
     const gid = getCurrentGroupId();
     if (!gid) return;
     const state = await toggleContext(gid);
-    paintLocationGlyph(glyph, state === 'on' ? 'on' : state === 'off' ? 'off' : 'denied');
+    paintLocationGlyph(glyph, state);
     if (state === 'denied') showToast(LOCATION_DENIED_TOAST);
   });
   document.addEventListener('location-prefs-synced', () => {
     const gid = getCurrentGroupId();
-    if (gid) paintLocationGlyph(glyph, getLocationOptIn(gid) ? 'on' : 'off');
+    if (gid) paintLocationGlyph(glyph, groupGlyphState(gid));
   });
   // Pref flipped outside the tap path (locationShare's mid-flight-revocation
   // teardown): the click handler above never runs, so the paint rides the event.
   document.addEventListener('location-optin-changed', () => {
     const gid = getCurrentGroupId();
-    if (gid) paintLocationGlyph(glyph, getLocationOptIn(gid) ? 'on' : 'off');
+    if (gid) paintLocationGlyph(glyph, groupGlyphState(gid));
   });
 }
 

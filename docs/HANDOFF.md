@@ -11,53 +11,82 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**Polish pass in preparation for the feature release, on
-`claude/knockknock-feature-dev-9a3ysy`.** Operator-directed (2026-07-22).
-Polish sources to draw from: the "Known-deferred minors" list under Open
-items below, plus anything the operator surfaces hands-on. This session
-(2026-07-21/22) closed the location tram-freeze bug (three root causes, all
-device-evidenced via the `[LOCDBG]` buffer) and a canvas first-entry 0×0
-regression — see History.
+**Release-polish pass DONE (2026-07-22) on
+`claude/knockknock-polish-pass-8kb77v`** (cut from `9a3ysy`'s tip `837ee8a`;
+this branch now supersedes `9a3ysy` as the merge candidate). Shipped:
+the `[LOCDBG]` strip (release gate — done, `locdbg` grep over `js/`+`tests/`
+is empty) and four Known-deferred minors: sticky denied glyph state ·
+dedicated 'unsupported' glyph title · `formatDistancePrecise` 999.6–999.99 m
+edge · the stale error-shape comment. Plus one hardening the sticky-denied
+TDD surfaced: a `_watchGeneration` guard so a synchronously-delivered code-1
+watch error can't resurrect a dead watch id (details in History). Remaining
+polish source: whatever the operator surfaces hands-on — the glyph changes
+are visual, expect device iteration.
 
-> ⚠️ **Strip the `[LOCDBG]` instrumentation before this branch merges to `dev`.**
-> Search `locDbg` / `LOCDBG` in `js/locationShare.ts` — one helper (now with a
-> `locdbgbuf` localStorage ring buffer) + call sites, including the
-> `watch restart` / `tick skip: already in flight` lines added this session.
-> Part of the release polish.
+**Also shipped on this branch (2026-07-22c): the Telegram bot beacon nudge +
+`/locoff`** (operator-spec'd, copy operator-authored): going available via
+`/status`, `/status <group>` (confirm AND the follows-global "already
+available there" reply), or `/start`'s returning-available line now appends
+"By the way, your location [in <group>] last updated <age> ago - open the
+app if you want to update it, or /locoff [<group>] to stop the beacon."
+whenever that context's opt-in is ON and its node exists. `/locoff [group]`
+is the bot-side glyph-off: atomically flips the same `userPrefs` opt-in the
+app writes + deletes the context's node; app sessions converge via the
+prefs echo (which now also UNMARKS dropped contexts from the published set
+— fixes a latent sibling-glyph-off staleness too). Copy change ruled by the
+operator: every availability confirm now says "/off to go unavailable."
+instead of "/off to stop." New shared `formatAgeFuzzy` (floors on purpose;
+"seconds" under a minute) is fixture-pinned in both suites; the bot's
+suffix additionally gates on ≥5 min of age (fresh beacons don't nudge).
+⚠️ **This batch touches `functions/`** (telegram.js + the `_shared`
+mirror) — the "everything since audit-2 is client-only" note below no
+longer covers the branch tip; the bot changes ride the normal functions
+deploy, no ordering constraints (new command + reply suffixes only; the
+command menu re-registers via setMyCommands at deploy).
 
-Branch tip is `86504e6`, pushed; `origin` == local. **`9a3ysy` is
-authoritative** (the old `…-audit-2-handoff-jemuil` branch is gone from
-origin). Realign a fresh session:
+Code tip is `4ac099c` + the 2026-07-22c commits; a docs(handoff) commit
+rides atop. Realign a fresh session:
 
 ```
 git fetch origin
-git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
-git log --oneline -1   # must show 86504e6 — else STOP, origin is authoritative
+git checkout -B claude/knockknock-polish-pass-8kb77v origin/claude/knockknock-polish-pass-8kb77v
+git log --oneline -2   # must show 4ac099c under the docs commit — else STOP, origin is authoritative
 ```
 
 **Deploy-gated device verification still owed (the fixes are code-complete and
 unit-verified; the end-to-end scenarios are not yet re-run on a build that has
-them all):**
+them all).** NOTE: the `[LOCDBG]` trace instrumentation is now stripped —
+verify by observable behavior; re-instrument locally from `86504e6`'s diff
+only if a scenario fails:
 
 - **Tram scenario end-to-end:** distance visibly updating again after
-  backgrounding + return, NO glyph toggle needed. Trace (`localStorage.locdbg='1'`,
-  dump `localStorage.locdbgbuf.split('\n').slice(-80)` — `copy()` is broken
-  over remote inspection) should show ONE `watch restart (resume)`, fresh
-  `watch fix` coords, one publish; duplicates marked `watch restart deduped` /
-  `tick skip: already in flight`.
+  backgrounding + return, NO glyph toggle needed, and no duplicate publishes
+  (peer listeners tick once per move).
 - **Reload leg:** reload with the glyph already ON → ticks publish within a
-  minute, no toggle (`tick getPosition ok`, never `permission gate closed`).
-  One glyph toggle per device seeds the `statusapp_geo_grant_proven` marker
-  the first time a device runs a build with `7a37887`.
+  minute, no toggle. One glyph toggle per device seeds the
+  `statusapp_geo_grant_proven` marker the first time a device runs a build
+  with `7a37887`.
 - **Canvas on a call from a FRESH page load** — the case that always broke
   pre-`86504e6`. If "nav visible" ever recurs, check the console for
   `enterCanvas (answered) failed:` (lazy canvas chunk load failure is
   swallowed there — `js/following.ts:361`).
+- **NEW (polish pass, device-check the visuals):** deny the OS prompt on a
+  glyph tap → glyph paints denied AND STAYS denied across prefs syncs /
+  re-renders (previously washed back to plain off); revoke mid-session →
+  same sticky denied on both the Direct header and group band glyphs; a
+  no-geolocation browser shows title "Location unavailable — not supported
+  on this device" instead of the "check permissions" advice.
+- **NEW (bot beacon, needs the functions deploy):** `/status` with the
+  direct beacon on → confirm carries the age nudge; `/status <group>`
+  likewise (both override-ON confirm and the follows-global reply);
+  `/locoff` → glyph on an open app session flips OFF within a prefs-echo
+  beat and the roster distance for that context goes away on peers;
+  `/locoff <group>` leaves the direct beacon (and other groups) untouched.
 
 **Next actions (nothing deploys from sessions):**
 
-1. Maintainer merges `claude/knockknock-feature-dev-9a3ysy` → `dev` (and
-   `dev` → `main`) — AFTER the LOCDBG strip.
+1. Maintainer merges `claude/knockknock-polish-pass-8kb77v` → `dev` (and
+   `dev` → `main`) — the LOCDBG strip gate is satisfied.
 2. DEPLOY the accumulated branch work (security fixes + all three prior perf
    batches + audit-2 batch + the 2026-07-21/22 fixes) per the Deploy
    ordering below — the LOAD-BEARING `pushTokens` (F6c) sequence is the one
@@ -82,8 +111,8 @@ them all):**
    Inspector); only deploy 2 — the next shell change after that — tests the
    claim, by landing on the iOS PWA organically (relaunch, no inspector).
 
-**Verification state:** green bar OBSERVED at `86504e6` (tip, == origin) —
-web jest 2070/2070 · functions 436/436 · both typechecks clean · production
+**Verification state:** green bar OBSERVED at the 2026-07-22c tip — web
+jest 2085/2085 · functions 459/459 · both typechecks clean · production
 build completes (`node scripts/prod.js`). Rules suite (108) not re-run —
 nothing since the audit-2 batch touched rules. All suites run in this
 container with deps installed (Environment below).
@@ -153,17 +182,13 @@ deploys from sessions):**
 - One open product decision (unruled, not part of any plan): revoking OS
   location permission on ONE device flips the ACCOUNT-WIDE opt-in off —
   deliberate fail-safe, debatable.
-- Known-deferred minors (unrelated to security, none device-visible): denied
-  glyph state isn't sticky · 'unsupported' title says "check permissions" ·
-  `formatDistancePrecise` 999.6–999.99 m renders "1000 meters away" ·
-  cross-device prompt-suppression relies on the Permissions API (a fresh
-  session whose opt-in synced from elsewhere stays silent while the state is
-  genuinely `'prompt'` — designed, no surprise prompts) · stale comment at the
-  cell-publish catch in `js/locationShare.ts` (~:294) still says "Error shape
-  not device-verified" though the shape was emulator-verified — one-line doc
-  fix whenever convenient. (The old "stale opted-in gids → harmless denied
-  write every 60s" minor is FIXED by Tier 3 T3 — the loop now sweeps the
-  orphaned opt-in and can idle.)
+- Known-deferred minors: all cleared by the 2026-07-22 polish pass except
+  one, which stays as-designed (operator-ruled): cross-device
+  prompt-suppression relies on the Permissions API (a fresh session whose
+  opt-in synced from elsewhere stays silent while the state is genuinely
+  `'prompt'` — designed, no surprise prompts). (The older "stale opted-in
+  gids → harmless denied write every 60s" minor was already FIXED by Tier 3
+  T3.)
 - Follow-ups triaged 2026-07-17: **#290** in-app-browser dead tap · **#286** no
   invite revoke on Telegram surface · closed-unreproduced "revoked follow
   request still in inbox" (reopen only with a repro).
@@ -328,7 +353,50 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
-- **This session (2026-07-21c/22) — tram-freeze root-caused via device traces +
+- **This session (2026-07-22c) — Telegram beacon nudge + /locoff, TDD, on
+  `claude/knockknock-polish-pass-8kb77v`:** operator-spec'd over three
+  design rounds (feasibility → response-case enumeration → operator-authored
+  copy). `formatAgeFuzzy` in `shared/timeFormat.js` (fixture gained an `age`
+  column + day-scale rows; floors on purpose — an age nudge must understate).
+  `functions/telegram.js`: beacon suffix helpers (opt-in ON + node with
+  numeric `updatedAt`, read from the same `userPrefs/{uid}/location` branch
+  the app's glyph sync writes) wired into the global `/status` confirm, the
+  `/start` returning-available line, and `setGroupPresence` via an optional
+  `suffixFor` hook (confirm + globalOn only — globalOff means the cell isn't
+  peer-visible; `/off` passes nothing). `/locoff [group]`: opt-in flip + node
+  delete in one atomic `rootUpdate`; group flavor rides `resolveGroupArg`
+  (B#3 retry idiom). Copy ruled: "/off … to go unavailable." everywhere the
+  confirms said "to stop." Client (`js/locationShare.ts`): the prefs-echo
+  handler now unmarks published contexts whose opt-in dropped — without it
+  the surfaces held/re-opened subs against the bot-deleted node (also a
+  latent sibling-device glyph-off bug). NOTE: first functions-touching
+  change since the audit-2 batch (deploy note in What's next).
+  `00c88dd..4ac099c` on `claude/knockknock-polish-pass-8kb77v` (cut from
+  `9a3ysy` at `837ee8a`), all TDD:**
+  - `00c88dd` **fix(geo):** `formatDistancePrecise` meters/km watershed moved
+    from 1000 to 999.5 — 999.6–999.99 m rendered the never-valid "1000 meters
+    away". Fixture vectors pin both sides in web + functions suites
+    (`npm run sync-shared` applied).
+  - `880c54d` **fix(location-ui):** (1) sticky denied glyph — locationShare
+    exports `isPermissionDenied()` (set on code-1 prove reject + revocation
+    teardown; cleared on delivered fix / successful prove / reset); both
+    surfaces' repaint paths (prefs-synced, opt-in-changed, band render)
+    consult it via per-surface state helpers (`directGlyphState` in me.ts,
+    `groupGlyphState` in groupContext.ts — deliberately duplicated:
+    groupContext's tests mock me.js wholesale, importing would make the group
+    coverage vacuous). Previously the teardown's own opt-in-changed dispatch
+    washed the denied paint back to off. (2) `paintLocationGlyph` gained an
+    'unsupported' state — same `.denied` visual, own title ("Location
+    unavailable — not supported on this device"); tap handlers pass
+    `toggleContext`'s result straight through. (3) `_watchGeneration` guard:
+    a code-1 watch error delivered synchronously (allowed by the
+    getPositionOnce contract) ran the teardown before `startGeoWatch`'s id
+    assignment, resurrecting a dead watch — the next glyph prove parked
+    forever. Surfaced by the sticky-denied test's denied→re-prove leg.
+  - `4ac099c` **chore(location):** `[LOCDBG]` instrumentation stripped (the
+    release gate) — helper, ring buffer, all call sites; capture citations
+    normalized to "device trace 2026-07-21". Stale cell-publish catch comment
+    updated (error shape WAS emulator-verified 2026-07-20).
   canvas 0×0 fix, 4 commits `7364a80..86504e6` on `9a3ysy`, all pushed:**
   Bug report: distance froze at last-known after backgrounding the PWA;
   reload didn't recover, glyph off/on did. Method: `[LOCDBG]` extended with a

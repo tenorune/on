@@ -165,6 +165,7 @@ jest.mock('../js/prefs.js', () => ({
 jest.mock('../js/locationShare.js', () => ({
   toggleContext: jest.fn(),
   capabilityState: jest.fn(() => 'supported'),
+  isPermissionDenied: jest.fn(() => false),
   // Distance-sub eligibility requires the context's own node to exist
   // (last-known model) AND own availability IN THAT CONTEXT (de facto
   // sharing; group availability is override-aware and independent of
@@ -199,9 +200,10 @@ jest.mock('../js/me.js', () => ({
   // pattern as the cardDrawer/notifyBell functional mocks in this file.
   paintLocationGlyph: jest.fn((el, state) => {
     el.classList.toggle('on', state === 'on');
-    el.classList.toggle('denied', state === 'denied');
+    el.classList.toggle('denied', state === 'denied' || state === 'unsupported');
     el.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
     if (state === 'denied') el.title = 'Location unavailable — check permissions';
+    else if (state === 'unsupported') el.title = 'Location unavailable — not supported on this device';
     else el.removeAttribute('title');
   }),
 }));
@@ -1660,6 +1662,7 @@ describe('group location glyph (band)', () => {
     require('../js/presenceHub.js')._resetPresenceHub();
     require('../js/statusStore.js').__reset();
     locationShareMod.capabilityState.mockImplementation(() => 'supported');
+    locationShareMod.isPermissionDenied.mockImplementation(() => false);
     prefsMod.getLocationOptIn.mockImplementation(() => false);
   });
 
@@ -1693,6 +1696,41 @@ describe('group location glyph (band)', () => {
     primaryCb({ status: 'unavailable', availableUntil: null });
     const glyph = document.getElementById('group-location-glyph');
     expect(glyph.classList.contains('denied')).toBe(true);
+    // Its own title — "check permissions" is wrong advice when there is no
+    // geolocation permission to check.
+    expect(glyph.title).toBe('Location unavailable — not supported on this device');
+  });
+
+  test('a tap resolving unsupported paints the unsupported title, not the permissions one', async () => {
+    gc.enterGroupContext('G1', 'me');
+    const glyph = document.getElementById('group-location-glyph');
+
+    locationShareMod.toggleContext.mockResolvedValueOnce('unsupported');
+    glyph.click();
+    await Promise.resolve();
+
+    expect(glyph.classList.contains('denied')).toBe(true);
+    expect(glyph.title).toBe('Location unavailable — not supported on this device');
+  });
+
+  test('denied state is sticky: event repaints keep the denied paint while the permission stays denied', () => {
+    gc.enterGroupContext('G1', 'me');
+    const glyph = document.getElementById('group-location-glyph');
+
+    // Revocation teardown: pref flipped off, denied flag set, event dispatched
+    // — the repaint must not wash denied back to plain off.
+    locationShareMod.isPermissionDenied.mockImplementation(() => true);
+    document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context: 'G1' } }));
+    expect(glyph.classList.contains('denied')).toBe(true);
+    expect(glyph.title).toBe('Location unavailable — check permissions');
+
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+    expect(glyph.classList.contains('denied')).toBe(true);
+
+    // Denied lifted (e.g. a later successful glyph prove) → plain opt-in paint.
+    locationShareMod.isPermissionDenied.mockImplementation(() => false);
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+    expect(glyph.classList.contains('denied')).toBe(false);
   });
 
   test('click calls toggleContext(currentGid) and repaints from the result', async () => {

@@ -100,8 +100,8 @@ export function timeRemainingMs(availableUntil: number | null | undefined): numb
 // Imported (not just re-exported) because availableForText below uses the
 // fuzzy formatter locally; exported so call sites and tests keep importing
 // from utils.
-import { formatTimeRemaining, formatTimeRemainingFuzzy } from '../shared/timeFormat.js';
-export { formatTimeRemaining, formatTimeRemainingFuzzy };
+import { formatTimeRemaining, formatTimeRemainingFuzzy, formatAgeFuzzy } from '../shared/timeFormat.js';
+export { formatTimeRemaining, formatTimeRemainingFuzzy, formatAgeFuzzy };
 
 export function formatLastSeen(lastSeenMs: number | null | undefined): string | null {
   if (lastSeenMs == null) return null;
