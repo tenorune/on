@@ -1214,8 +1214,12 @@ export function updateFolloweeRow(entry: FollowingEntry, userData: UserData, myU
       // stamped on the li (not the fragment) so label-only innerHTML
       // rebuilds keep the card-palette muted without re-running this branch.
       li.style.setProperty('--card-muted', palette.theme.textMuted);
-      const availableSpan = (statusEl.querySelector('.status-available') as HTMLElement | null);
-      if (availableSpan) availableSpan.style.color = palette.color;
+      // .status-available keeps its inline statusColor (set above). The fuzzy
+      // time follows the member's status color, not the palette theme — so the
+      // text agrees with the status dot, mirroring the group roster
+      // (groupContext.ts). Overriding to palette.color made the Direct text
+      // disagree with the dot whenever a member's statusColor differed from
+      // their palette's key color.
     } else {
       li.style.background      = '';
       li.style.borderLeftColor = '';
