@@ -11,43 +11,58 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**Continue location-sharing debugging on the device.** This session
-(2026-07-21) landed two fixes on top of the audit-2 batch (see "This session"
-in History). The macOS/iOS location-glyph **WebKit geolocation hang** is fixed
-and **device-verified**: the browser path now streams from ONE `watchPosition`
-instead of repeated `getCurrentPosition` (which hangs → code-3 timeout → frozen
-distance + stuck-OFF glyph). A **dormant `[LOCDBG]` trace is intentionally still
-in `js/locationShare.ts`** for the next round of device debugging.
+**Polish pass in preparation for the feature release, on
+`claude/knockknock-feature-dev-9a3ysy`.** Operator-directed (2026-07-22).
+Polish sources to draw from: the "Known-deferred minors" list under Open
+items below, plus anything the operator surfaces hands-on. This session
+(2026-07-21/22) closed the location tram-freeze bug (three root causes, all
+device-evidenced via the `[LOCDBG]` buffer) and a canvas first-entry 0×0
+regression — see History.
 
 > ⚠️ **Strip the `[LOCDBG]` instrumentation before this branch merges to `dev`.**
-> Search `locDbg` / `LOCDBG` in `js/locationShare.ts` — one helper + call sites.
+> Search `locDbg` / `LOCDBG` in `js/locationShare.ts` — one helper (now with a
+> `locdbgbuf` localStorage ring buffer) + call sites, including the
+> `watch restart` / `tick skip: already in flight` lines added this session.
+> Part of the release polish.
 
-Branch tip is `5b40a1d` on `claude/knockknock-feature-dev-9a3ysy`, pushed;
-`origin` == local. **The old `…-audit-2-handoff-jemuil` branch is GONE from
-origin — `9a3ysy` is authoritative.** (A container reclaim briefly showed a
-stale mirror at `85f8031` mid-session; `5b40a1d` was intact on origin. Lesson:
-push AND re-fetch to confirm.) Realign a fresh session:
+Branch tip is `86504e6`, pushed; `origin` == local. **`9a3ysy` is
+authoritative** (the old `…-audit-2-handoff-jemuil` branch is gone from
+origin). Realign a fresh session:
 
 ```
 git fetch origin
 git checkout -B claude/knockknock-feature-dev-9a3ysy origin/claude/knockknock-feature-dev-9a3ysy
-git log --oneline -1   # must show 5b40a1d — else STOP, origin is authoritative
+git log --oneline -1   # must show 86504e6 — else STOP, origin is authoritative
 ```
 
-Enable the on-device trace via Web Inspector: `localStorage.locdbg='1'`, then
-re-toggle the glyph / walk and read the `[LOCDBG]` lines (`watch fix`,
-`publishLocation OK`, or a `code=N` reject).
+**Deploy-gated device verification still owed (the fixes are code-complete and
+unit-verified; the end-to-end scenarios are not yet re-run on a build that has
+them all):**
+
+- **Tram scenario end-to-end:** distance visibly updating again after
+  backgrounding + return, NO glyph toggle needed. Trace (`localStorage.locdbg='1'`,
+  dump `localStorage.locdbgbuf.split('\n').slice(-80)` — `copy()` is broken
+  over remote inspection) should show ONE `watch restart (resume)`, fresh
+  `watch fix` coords, one publish; duplicates marked `watch restart deduped` /
+  `tick skip: already in flight`.
+- **Reload leg:** reload with the glyph already ON → ticks publish within a
+  minute, no toggle (`tick getPosition ok`, never `permission gate closed`).
+  One glyph toggle per device seeds the `statusapp_geo_grant_proven` marker
+  the first time a device runs a build with `7a37887`.
+- **Canvas on a call from a FRESH page load** — the case that always broke
+  pre-`86504e6`. If "nav visible" ever recurs, check the console for
+  `enterCanvas (answered) failed:` (lazy canvas chunk load failure is
+  swallowed there — `js/following.ts:361`).
 
 **Next actions (nothing deploys from sessions):**
 
 1. Maintainer merges `claude/knockknock-feature-dev-9a3ysy` → `dev` (and
-   `dev` → `main`). The audit-2 batch is now part of the accumulated branch
-   work.
+   `dev` → `main`) — AFTER the LOCDBG strip.
 2. DEPLOY the accumulated branch work (security fixes + all three prior perf
-   batches + the four 2026-07-21 fixes + this audit-2 batch) per the Deploy
+   batches + audit-2 batch + the 2026-07-21/22 fixes) per the Deploy
    ordering below — the LOAD-BEARING `pushTokens` (F6c) sequence is the one
-   that bites. The audit-2 batch adds NO ordering constraints (client +
-   functions only — no rules, no schema), so it rides the same deploy train.
+   that bites. Everything since the audit-2 batch is client-only (no rules,
+   no schema, no functions), so it all rides the same deploy train.
 3. Post-deploy: run the deferred smoke items (`docs/DEPLOY-PROD.md` verify
    steps), plus the prior-session device checks: iOS PWA glyph-on publishes
    within a tick when a prior session's opt-in was already on (the `45d7bec`
@@ -59,21 +74,19 @@ re-toggle the glyph / walk and read the `[LOCDBG]` lines (`watch fix`,
    rapid Direct↔group flip now fetch the groupContext chunk (N5a) · Telegram
    Mini App chrome/first-run/deep-link/link-screen still work as lazy chunks
    (N5b) · first-ever cold-cache draw-session entry shows no flash/layout
-   shift as canvas.css loads on demand (N10).
+   shift as canvas.css loads on demand (N10) — now ALSO verify the first
+   entry draws at full size (`86504e6`).
 4. **iOS auto-update needs a TWO-deploy verification** (`5d8b3b8`): deploy 1
    ships the fix but devices still fetch it via the old, stale-prone check
    (a stuck device may need one manual `reg.update()` nudge via Web
    Inspector); only deploy 2 — the next shell change after that — tests the
    claim, by landing on the iOS PWA organically (relaunch, no inspector).
 
-**Verification state:** green bar OBSERVED at `75eeade` (the current tip on
-both feature branches) — web jest 2056/2056 · functions 432→436/436 · both
-typechecks (`typecheck` + `typecheck:scripts`) clean · production build
-emits lazy chunks for canvas + groupContext + the four Telegram flow modules
-(`enterGroupContext` absent from `dist/bundle.js`). Zero NEW TS suppressions
-in the batch (one PRE-EXISTING `as any` at `js/telegram.ts:17`, untouched).
-Rules suite (108) not re-run — the batch touched no rules. All suites run in
-this container with deps installed (Environment below).
+**Verification state:** green bar OBSERVED at `86504e6` (tip, == origin) —
+web jest 2070/2070 · functions 436/436 · both typechecks clean · production
+build completes (`node scripts/prod.js`). Rules suite (108) not re-run —
+nothing since the audit-2 batch touched rules. All suites run in this
+container with deps installed (Environment below).
 
 **Audit docs (sources of truth):**
 
@@ -315,6 +328,40 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **This session (2026-07-21c/22) — tram-freeze root-caused via device traces +
+  canvas 0×0 fix, 4 commits `7364a80..86504e6` on `9a3ysy`, all pushed:**
+  Bug report: distance froze at last-known after backgrounding the PWA;
+  reload didn't recover, glyph off/on did. Method: `[LOCDBG]` extended with a
+  localStorage ring buffer (`7364a80`) so untethered reproductions survive
+  the Web Inspector detaching; two device captures then isolated THREE
+  stacked causes, each fixed TDD:
+  - `7a37887` **permission-gate reload freeze:** iOS WebKit answers a FRESH
+    `permissions.query` with `'prompt'` after every reload until the session
+    uses geolocation — every tick skipped at the gate until a glyph toggle.
+    Fix: device-local proof marker `statusapp_geo_grant_proven` (set on any
+    delivered watch fix, cleared on real code-1 revocation; device-scoped in
+    `cacheOwner`) lets the gate pass a lying `'prompt'`; never-proven devices
+    (cross-device-synced opt-in, spec §5) keep the no-surprise-prompt gate.
+  - `8e3f17e` **suspension-killed watch (the tram freeze proper):** iOS kills
+    the `watchPosition` stream on suspend with NO error callback — dead
+    `_watchId` looked live, `getPositionOnce` served the frozen `_lastFix` at
+    any age, ticks republished/suppressed the same point for 10+ min
+    (buffer-trace-observed). Fix: ticks refuse a fix older than one tick
+    interval (restart the watch, stay parked for a real fix);
+    visibility→visible rebuilds the watch before the catch-up tick; a cached
+    PermissionStatus is only trusted when it says granted (WebKit flips
+    retained objects spuriously around resume). Plus resume double-fire
+    dedupe: one watch restart (10s window), one tick in flight (age-bounded
+    so a wedged tick can't silence the loop). Recovery device-verified:
+    fresh moved fix + publish within ~30ms of resume.
+  - `86504e6` **canvas first-entry 0×0** (regression from audit-2 N10,
+    `cea4593`): `enterCanvas` sized the canvas synchronously after injecting
+    the on-demand canvas.css — the inline `display:none` boot guard was
+    still in force, so first entry per page load got a 0×0 backing store
+    (invisible strokes, transparent overlay); re-entry worked, which made it
+    look intermittent. Fix: `ensureCanvasCss` resolves when the sheet has
+    APPLIED (guard's display flips; 3s cap degrades to old behavior), entry
+    awaits it before measuring.
 - **This session (2026-07-21b) — 3 fixes on `9a3ysy` atop the audit-2 batch,
   systematic-debugging + TDD, all pushed:**
   - `1633be5` **fix(redeem):** the inbox Join Direct-flash guard (`a9223c2`)
