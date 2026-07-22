@@ -12,6 +12,7 @@ describe('COMMANDS', () => {
       'KnockKnock commands:',
       '/status [group] [30m|2h] — go available (default 1h)',
       '/off [group] — go unavailable',
+      '/locoff [group] — stop your location beacon',
       "/who [group] — who's available now",
       '/knock <name> — send a knock (searches your people, then your groups)',
       '/groups — your groups',
@@ -238,7 +239,7 @@ describe('/start first contact vs returning', () => {
     deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'available', availableUntil: deps.now() + 30 * 60000 };
     const reply = await handleUpdate(deps, msgUpdate('/start'));
     const text = reply.text;
-    expect(text).toBe("You're 🟢 available for another 30m. /off to stop.");
+    expect(text).toBe("You're 🟢 available for another 30m. /off to go unavailable.");
   });
 
   // Spec 2 Task 10 (B#14d): the /start echo gets the status-color dot + a
@@ -248,7 +249,7 @@ describe('/start first contact vs returning', () => {
     const uid = seedUser(deps.store);
     deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'available', statusColor: '#3b82f6', availableUntil: deps.now() + 5_400_000 };
     const reply = await handleUpdate(deps, msgUpdate('/start'));
-    expect(reply.text).toBe("You're 🔵 available for another 1h 30m. /off to stop.");
+    expect(reply.text).toBe("You're 🔵 available for another 1h 30m. /off to go unavailable.");
   });
 
   test('returning + unavailable: compact status reply', async () => {
@@ -268,9 +269,12 @@ describe('/start first contact vs returning', () => {
 
   // F#4: /start used to read telegramUsers/{tgId} and users/{uid}/presence
   // twice each and write the chat route as two sequential updates.
+  // (Seeded with a stale chatId so the route write still fires here — the
+  // no-write-when-unchanged case is covered by Task 13b below.)
   test('returning /start: mapping and presence each read ONCE, chat route one update', async () => {
     const deps = makeBotDeps({});
     const uid = seedUser(deps.store);
+    deps.store['telegramUsers/42'] = { uid, chatId: 'old-chat-id' };
     const reply = await handleUpdate(deps, msgUpdate('/start'));
     const reads = deps.getVal.mock.calls.map(([p]) => p);
     expect(reads.filter((p) => p === 'telegramUsers/42')).toHaveLength(1);
@@ -280,6 +284,32 @@ describe('/start first contact vs returning', () => {
     expect(deps.store[`telegramByUid/${uid}/chatId`]).toBe('42');
     expect(reply.text).toBe("You're unavailable right now. /status to go available.");
   });
+
+  // Task 13b: both route sides are always written together (one multi-path
+  // rootUpdate) — so checking one side (the already-read `known` mapping)
+  // is enough to know both are already current, and the no-op write can be
+  // skipped entirely.
+  test('repeat /start with the SAME chatId performs NO route write (no-op skip)', async () => {
+    const deps = makeBotDeps({});
+    const uid = seedUser(deps.store); // chatId already '42', matching msgUpdate's chat.id
+    deps.store[`telegramByUid/${uid}/chatId`] = '42';
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.store['telegramUsers/42'].chatId).toBe('42'); // untouched — already current
+    expect(deps.store[`telegramByUid/${uid}/chatId`]).toBe('42');
+    expect(reply.text).toBe("You're unavailable right now. /status to go available.");
+  });
+
+  test('/start with a CHANGED chatId still writes BOTH route paths', async () => {
+    const deps = makeBotDeps({});
+    const uid = seedUser(deps.store);
+    deps.store['telegramUsers/42'] = { uid, chatId: 'stale-chat-id' };
+    deps.store[`telegramByUid/${uid}/chatId`] = 'stale-chat-id';
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
+    expect(deps.update).toHaveBeenCalledTimes(1);
+    expect(deps.store['telegramUsers/42/chatId']).toBe('42');
+    expect(deps.store[`telegramByUid/${uid}/chatId`]).toBe('42');
+  });
 });
 
 describe('handleUpdate: /status confirm (B#14d dot + precise duration)', () => {
@@ -288,7 +318,7 @@ describe('handleUpdate: /status confirm (B#14d dot + precise duration)', () => {
     const uid = seedUser(deps.store);
     deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'unavailable', availableUntil: null, statusColor: '#3b82f6' };
     const reply = await handleUpdate(deps, msgUpdate('/status 2h'));
-    expect(reply.text).toBe("You're 🔵 available for 2h. /off to stop.");
+    expect(reply.text).toBe("You're 🔵 available for 2h. /off to go unavailable.");
   });
 });
 
@@ -300,7 +330,7 @@ describe('handleUpdate: /status and /off', () => {
     expect(deps.update).toHaveBeenCalledWith(`users/${uid}/presence`, {
       status: 'available', availableUntil: 1_000_000 + 30 * 60000, lastSeen: 1_000_000,
     });
-    expect(reply.text).toBe("You're 🟢 available for 30m. /off to stop.");
+    expect(reply.text).toBe("You're 🟢 available for 30m. /off to go unavailable.");
   });
   test('/status with no arg defaults to 60m', async () => {
     const deps = makeBotDeps();
@@ -401,7 +431,7 @@ describe('handleUpdate: /status <group>', () => {
       status: 'available', availableUntil: 1_000_000 + 120 * 60000,
     });
     expect(deps.update).toHaveBeenCalledTimes(1); // no global presence write
-    expect(reply.text).toBe("You're 🟢 available in Divers for 2h. /off Divers to stop.");
+    expect(reply.text).toBe("You're 🟢 available in Divers for 2h. /off Divers to go unavailable.");
   });
 
   // Spec 2 Task 10 (B#14d): the group confirm's dot is the OVERRIDE's own
@@ -413,7 +443,7 @@ describe('handleUpdate: /status <group>', () => {
     const uid = seedUser(deps.store);
     seedStatusGroup(deps.store, uid, { enabled: true, status: 'unavailable', statusColor: '#8800ff' });
     const reply = await handleUpdate(deps, msgUpdate('/status divers 2h'));
-    expect(reply.text).toBe("You're 🟣 available in Divers for 2h. /off Divers to stop.");
+    expect(reply.text).toBe("You're 🟣 available in Divers for 2h. /off Divers to go unavailable.");
   });
 
   // Aligned with /who + /groups + the client roster: an enabled override with
@@ -425,7 +455,7 @@ describe('handleUpdate: /status <group>', () => {
     deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'unavailable', availableUntil: null, statusColor: '#3b82f6' };
     seedStatusGroup(deps.store, uid, { enabled: true, status: 'unavailable' });
     const reply = await handleUpdate(deps, msgUpdate('/status divers 2h'));
-    expect(reply.text).toBe("You're 🟢 available in Divers for 2h. /off Divers to stop.");
+    expect(reply.text).toBe("You're 🟢 available in Divers for 2h. /off Divers to go unavailable.");
   });
   test('override ON, no duration → defaults to 60m', async () => {
     const deps = makeBotDeps();
@@ -528,7 +558,7 @@ describe('handleUpdate: /notifications and /help', () => {
   test('/notifications push and telegram set the channel; bad arg explains', async () => {
     const deps = makeBotDeps();
     const uid = seedUser(deps.store);
-    deps.store[`userPrefs/${uid}/pushTokens`] = { tok1: true };
+    deps.store[`pushTokens/${uid}`] = { tok1: true };
     let reply = await handleUpdate(deps, msgUpdate('/notifications push'));
     expect(deps.store[`userPrefs/${uid}/notifyChannel`]).toBe('push');
     reply = await handleUpdate(deps, msgUpdate('/notifications telegram'));
@@ -570,6 +600,17 @@ describe('/notifications push without tokens (W1 J#3)', () => {
   });
 
   test('switches normally when a token exists', async () => {
+    const store = {};
+    const uid = seedUser(store);
+    store[`pushTokens/${uid}`] = { tok1: true };
+    const deps = makeBotDeps(store);
+    const reply = await handleUpdate(deps, msgUpdate('/notifications push'));
+    expect(store[`userPrefs/${uid}/notifyChannel`]).toBe('push');
+  });
+
+  // Migration window: an account not yet migrated still has its tokens under
+  // the legacy path only — the dual-read fallback must still let it switch.
+  test('legacy fallback: switches when only the legacy path has a token', async () => {
     const store = {};
     const uid = seedUser(store);
     store[`userPrefs/${uid}/pushTokens`] = { tok1: true };
@@ -692,6 +733,249 @@ describe('handleUpdate: /who <group>', () => {
     const reply = await handleUpdate(deps, msgUpdate('/who divers'));
     expect(reply.text).toContain('🟣 ');
     expect(reply.text).toContain('just over two hours left');
+  });
+});
+
+// Task 11: the Admin SDK bypasses database rules, so /who's distance text
+// re-implements every gate the rules enforce client-side, explicitly, here.
+describe('handleUpdate: /who distance (Task 11)', () => {
+  function seedDirect(store, uid) {
+    store[`userPrefs/${uid}/following`] = { f1: { code: 'CODE01', label: 'Bea' } };
+    store['users/f1/presence'] = { status: 'available', availableUntil: 2_000_000 };
+  }
+  test('precise fragment when requester + target both publish, are mutual, and the requester is available', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirect(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/f1`] = 'CODE01'; // f1 follows uid back…
+    deps.store[`users/f1/followers/${uid}`] = 'MYCODE'; // …and uid is REGISTERED as f1's follower
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).toBe('Available now:\n🟢 Bea — about 15 minutes left · 65 meters away');
+  });
+  test('requester unavailable → no distance fragment even with a persisted last-known node (de facto not sharing)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store); // seeds requester presence UNAVAILABLE
+    seedDirect(deps.store, uid);
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/f1`] = 'CODE01';
+    deps.store[`users/f1/followers/${uid}`] = 'MYCODE';
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).not.toContain('·');
+  });
+  test('requester not publishing → no distance fragment', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirect(deps.store, uid);
+    // No locations/{uid} — requester isn't publishing.
+    deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/f1`] = 'CODE01';
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).not.toContain('·');
+  });
+  test('target publishing but NOT mutual → no distance fragment', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirect(deps.store, uid);
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/f1/followers/${uid}`] = 'MYCODE';
+    // No users/{uid}/followers/f1 — f1 doesn't follow back.
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).not.toContain('·');
+  });
+  test('revoked follow (requester\'s following entry stale, absent from target\'s followers) → no fragment (F5)', async () => {
+    // The requester's own following list is mailbox-reconciled client-side
+    // only — after f1 revokes, the bot may still see the stale entry. The
+    // AUTHORITATIVE requester→target edge is users/f1/followers/{uid}; the
+    // rules gate on it, so the bot must too.
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirect(deps.store, uid);
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/f1`] = 'CODE01'; // f1 follows me
+    // users/f1/followers/{uid} ABSENT — my follower registration was revoked.
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).not.toContain('·');
+  });
+  // Audit F10: users/{uid}/followers is the requester's OWN fixed followers
+  // map — reading it once and indexing per member replaces a per-member
+  // child read of the same map, with identical gating (myFollowers[mid]).
+  test('reads the requester\'s own-followers map once, not per member (audit F10)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirect(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/f1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/f1`] = 'CODE01';
+    deps.store[`users/f1/followers/${uid}`] = 'MYCODE';
+    const reply = await handleUpdate(deps, msgUpdate('/who'));
+    expect(reply.text).toBe('Available now:\n🟢 Bea — about 15 minutes left · 65 meters away');
+    const paths = deps.getVal.mock.calls.map(([p]) => p);
+    expect(paths).toContain(`users/${uid}/followers`);
+    expect(paths.filter((p) => p.startsWith(`users/${uid}/followers/`))).toEqual([]);
+  });
+});
+
+describe('handleUpdate: /who <group> distance (Task 11)', () => {
+  function seedGroupOne(store, uid) {
+    store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    store['groups/G1/name'] = 'Divers';
+    store['groups/G1/members'] = {
+      [uid]: { displayName: 'Me' },
+      m1: { displayName: 'Bea', statusOverride: { enabled: false } },
+    };
+    store['users/m1/presence'] = { status: 'available', availableUntil: 2_000_000 };
+  }
+  test('coarse fragment when requester + target both have a cell and the requester is available in the group', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupOne(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toBe('Available in Divers:\n🟢 Bea — about 15 minutes left · <1 km away');
+  });
+  test('precise cascade: mutuals both broadcasting in Direct see the precise fragment in /who <group>, not the coarse cell', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupOne(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    // Both sides broadcasting in Direct (primary-available + raw point)…
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/m1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    // …mutual on BOTH authoritative follower edges…
+    deps.store[`users/${uid}/followers/m1`] = 'CODE01';
+    deps.store[`users/m1/followers/${uid}`] = 'MYCODE';
+    // …and both have cells (the coarse tier the precise one must beat).
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toContain('· 65 meters away');
+    expect(reply.text).not.toContain('<1 km away');
+  });
+  test('precise cascade gate: target primary-unavailable (override-available in group) → coarse only, no precise leak', async () => {
+    // The ANN/BOB scenario on the bot surface: the mutual's persisted raw
+    // point must not render precise while their Direct side is off.
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupOne(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    deps.store['users/m1/presence'] = { status: 'unavailable', availableUntil: null };
+    deps.store['groups/G1/members'].m1.statusOverride = { enabled: true, status: 'available', availableUntil: 2_000_000 };
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/m1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 }; // persisted last-known
+    deps.store[`users/${uid}/followers/m1`] = 'CODE01';
+    deps.store[`users/m1/followers/${uid}`] = 'MYCODE';
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toContain('· <1 km away');
+    expect(reply.text).not.toContain(' m\n');
+    expect(reply.text).not.toMatch(/· \d+ m/);
+  });
+  test('precise cascade gate: NOT mutual (one edge missing) → coarse only', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupOne(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/m1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/m1`] = 'CODE01'; // m1 follows me…
+    // …but users/m1/followers/{uid} is ABSENT — not mutual.
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toContain('· <1 km away');
+    expect(reply.text).not.toMatch(/· \d+ m/);
+  });
+  test('requester unavailable in the group → no distance fragment even with a persisted cell (de facto not sharing)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store); // seeds requester presence UNAVAILABLE
+    seedGroupOne(deps.store, uid);
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).not.toContain('·');
+  });
+  test('requester gate is EFFECTIVE in-group availability: a group override re-enables the fragment (group location is independent of Direct)', async () => {
+    // Group location is independent of the Direct context: the requester's
+    // in-group sharing keys off their EFFECTIVE availability there — the
+    // override wins when enabled — mirroring the client's per-context
+    // publish gating. Primary-unavailable + override-available → sharing in
+    // the group → sees coarse distances.
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store); // primary presence unavailable
+    seedGroupOne(deps.store, uid);
+    deps.store['groups/G1/members'][uid].statusOverride = {
+      enabled: true, status: 'available', availableUntil: 2_000_000,
+    };
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toContain('· <1 km away');
+  });
+  test('requester override says UNAVAILABLE while primary is available → no fragment (override wins both ways)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    seedGroupOne(deps.store, uid);
+    deps.store['groups/G1/members'][uid].statusOverride = { enabled: true, status: 'unavailable', availableUntil: null };
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).not.toContain('·');
+  });
+  test('requester cell missing → no distance fragment', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupOne(deps.store, uid);
+    // No locationCells/G1/{uid} — requester has no cell in this group.
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).not.toContain('·');
+  });
+  // Audit F10: users/{uid}/followers (the requester's own fixed followers
+  // map) and locationCells/{gid} (this group's cell map) are each read ONCE
+  // and indexed per co-member, replacing a per-member child read of both —
+  // same gating (myFollowers[mid], groupCells[mid]), fewer round trips.
+  test('reads own-followers and the group cell map once, not per member (audit F10)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupOne(deps.store, uid);
+    deps.store[`users/${uid}/presence`].status = 'available';
+    deps.store[`users/${uid}/presence`].availableUntil = 2_000_000;
+    // Both sides broadcasting in Direct (myLoc truthy) AND both have cells
+    // (myCell truthy) exercises both prefetches in one pass.
+    deps.store[`locations/${uid}`] = { lat: 52.5200, lng: 13.4050, updatedAt: 1 };
+    deps.store['locations/m1'] = { lat: 52.5205, lng: 13.4055, updatedAt: 1 };
+    deps.store[`users/${uid}/followers/m1`] = 'CODE01';
+    deps.store['users/m1/followers/' + uid] = 'MYCODE';
+    deps.store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    deps.store['locationCells/G1/m1'] = { lat: 52.52, lng: 13.40, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/who divers'));
+    expect(reply.text).toContain('· 65 meters away');
+    const paths = deps.getVal.mock.calls.map(([p]) => p);
+    expect(paths).toContain(`users/${uid}/followers`);
+    expect(paths).toContain('locationCells/G1');
+    expect(paths.filter((p) => p.startsWith(`users/${uid}/followers/`))).toEqual([]);
+    // The requester's OWN cell (`locationCells/G1/{uid}`, resolving myCell) is
+    // a single legitimate read, not a per-co-member one — only a read of a
+    // CO-MEMBER's cell (m1's) would mean the prefetch didn't replace the loop.
+    expect(paths.filter((p) => p.startsWith('locationCells/G1/') && p !== `locationCells/G1/${uid}`)).toEqual([]);
   });
 });
 
@@ -1485,5 +1769,228 @@ describe('webhookAuthorized', () => {
     expect(webhookAuthorized(undefined, 's3cret')).toBe(false);
     expect(webhookAuthorized('', '')).toBe(false);
     expect(webhookAuthorized('anything', undefined)).toBe(false);
+  });
+});
+
+// Beacon nudge (operator spec 2026-07-22): going available in a context where
+// the location beacon is on appends a "by the way" suffix — the bot can't
+// refresh the location (only the app publishes), so the confirm surfaces the
+// node's age and the two ways out (open the app / /locoff). Suffix fires only
+// when the context's opt-in is ON **and** its node exists (a never-published
+// beacon has nothing peers can see). userPrefs/{uid}/location is the same
+// branch the app's cross-device glyph sync reads.
+describe('handleUpdate: beacon suffix on going available', () => {
+  const seedDirectBeacon = (store, uid, updatedAt) => {
+    store[`userPrefs/${uid}/location/direct`] = true;
+    store[`locations/${uid}`] = { lat: 52.52, lng: 13.405, updatedAt };
+  };
+
+  test('/status with the direct beacon on + node → confirm carries the age nudge', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirectBeacon(deps.store, uid, 1_000_000 - 43_200_000); // 12h old
+    const reply = await handleUpdate(deps, msgUpdate('/status 1h'));
+    expect(reply.text).toBe("You're 🟢 available for 1h. /off to go unavailable."
+      + ' By the way, your location last updated 12 hours ago - open the app if you want to update it, or /locoff to stop the beacon.');
+  });
+
+  test('/status with a FRESH beacon (under 5 minutes old) → no nudge, plain confirm', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirectBeacon(deps.store, uid, 1_000_000 - 2 * 60000); // 2 minutes old
+    const reply = await handleUpdate(deps, msgUpdate('/status 1h'));
+    expect(reply.text).toBe("You're 🟢 available for 1h. /off to go unavailable.");
+  });
+
+  test('/status at exactly the 5-minute boundary → nudge shows ("5 minutes ago")', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirectBeacon(deps.store, uid, 1_000_000 - 5 * 60000);
+    const reply = await handleUpdate(deps, msgUpdate('/status 1h'));
+    expect(reply.text).toContain('your location last updated 5 minutes ago');
+  });
+
+  test('/status <group> with a fresh cell (under 5 minutes) → no nudge either', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupBeacon(deps.store, uid, 1_000_000 - 60000); // 1 minute old
+    deps.store[`groups/G1/members/${uid}/statusOverride`] = { enabled: true, status: 'unavailable' };
+    const reply = await handleUpdate(deps, msgUpdate('/status divers 2h'));
+    expect(reply.text).toBe("You're 🟢 available in Divers for 2h. /off Divers to go unavailable.");
+  });
+
+  test('/status with the beacon opt-in OFF → no suffix even though a node lingers', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`locations/${uid}`] = { lat: 1, lng: 2, updatedAt: 400_000 };
+    const reply = await handleUpdate(deps, msgUpdate('/status 1h'));
+    expect(reply.text).toBe("You're 🟢 available for 1h. /off to go unavailable.");
+  });
+
+  test('/status with the opt-in ON but no node ever published → no suffix', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/location/direct`] = true;
+    const reply = await handleUpdate(deps, msgUpdate('/status 1h'));
+    expect(reply.text).toBe("You're 🟢 available for 1h. /off to go unavailable.");
+  });
+
+  test('/start returning + available with the beacon on → status line carries the nudge', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'available', availableUntil: 1_000_000 + 30 * 60000 };
+    seedDirectBeacon(deps.store, uid, 400_000); // 10 minutes old
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
+    expect(reply.text).toBe("You're 🟢 available for another 30m. /off to go unavailable."
+      + ' By the way, your location last updated 10 minutes ago - open the app if you want to update it, or /locoff to stop the beacon.');
+  });
+
+  test('/start returning + unavailable → untouched, no beacon reads needed', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedDirectBeacon(deps.store, uid, 400_000);
+    const reply = await handleUpdate(deps, msgUpdate('/start'));
+    expect(reply.text).toBe("You're unavailable right now. /status to go available.");
+  });
+
+  const seedGroupBeacon = (store, uid, updatedAt) => {
+    store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    store['groups/G1/name'] = 'Divers';
+    store[`userPrefs/${uid}/location/groups/G1`] = true;
+    store[`locationCells/G1/${uid}`] = { lat: 52.52, lng: 13.41, updatedAt };
+  };
+
+  test('/status <group> confirm (override ON) + group beacon → group-flavored nudge', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupBeacon(deps.store, uid, 1_000_000 - 43_200_000);
+    deps.store[`groups/G1/members/${uid}/statusOverride`] = { enabled: true, status: 'unavailable' };
+    const reply = await handleUpdate(deps, msgUpdate('/status divers 2h'));
+    expect(reply.text).toBe("You're 🟢 available in Divers for 2h. /off Divers to go unavailable."
+      + ' By the way, your location in Divers last updated 12 hours ago - open the app if you want to update it, or /locoff Divers to stop the beacon.');
+  });
+
+  test('/status <group> globalOn (override OFF, globally available) also carries the nudge — same peer-visible moment', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupBeacon(deps.store, uid, 400_000);
+    deps.store[`groups/G1/members/${uid}/statusOverride`] = { enabled: false };
+    deps.store[`users/${uid}/presence`] = { code: 'AAAAAA', status: 'available', availableUntil: 2_000_000 };
+    const reply = await handleUpdate(deps, msgUpdate('/status divers'));
+    expect(reply.text).toBe("Divers follows your global status — you're already available there."
+      + ' By the way, your location in Divers last updated 10 minutes ago - open the app if you want to update it, or /locoff Divers to stop the beacon.');
+  });
+
+  test('/status <group> globalOff → never a nudge (unavailable means the cell is not peer-visible)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupBeacon(deps.store, uid, 400_000);
+    deps.store[`groups/G1/members/${uid}/statusOverride`] = { enabled: false };
+    const reply = await handleUpdate(deps, msgUpdate('/status divers'));
+    expect(reply.text).toBe('Divers follows your global status. /status goes available everywhere, or turn on a group status in the app.');
+  });
+
+  test('/off <group> stays nudge-free (suffix is a going-available concern)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroupBeacon(deps.store, uid, 400_000);
+    deps.store[`groups/G1/members/${uid}/statusOverride`] = { enabled: true, status: 'available', availableUntil: 2_000_000 };
+    const reply = await handleUpdate(deps, msgUpdate('/off divers'));
+    expect(reply.text).toBe("You're unavailable in Divers.");
+  });
+});
+
+// /locoff [group] — the bot-side glyph-off (operator spec 2026-07-22): flips
+// the SAME userPrefs opt-in the app's glyph writes and deletes the context's
+// node in ONE atomic multi-path write (pref + node move together, like the
+// app's toggleContext off-branch). Running app sessions converge via the
+// normal userPrefs echo. Direct and group beacons are independent contexts —
+// /locoff never touches the other one.
+describe('handleUpdate: /locoff', () => {
+  test('direct beacon on → pref off + node deleted atomically, confirm reply', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/location/direct`] = true;
+    deps.store[`locations/${uid}`] = { lat: 1, lng: 2, updatedAt: 400_000 };
+    const reply = await handleUpdate(deps, msgUpdate('/locoff'));
+    expect(reply.text).toBe('Your location beacon for mutuals is off.');
+    expect(deps.store[`userPrefs/${uid}/location/direct`]).toBe(false);
+    expect(deps.store[`locations/${uid}`]).toBeNull(); // written-null = deleted
+  });
+
+  test('direct beacon already off → no write, already-off reply', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`locations/${uid}`] = { lat: 1, lng: 2, updatedAt: 400_000 }; // lingering node alone ≠ beacon on
+    const reply = await handleUpdate(deps, msgUpdate('/locoff'));
+    expect(reply.text).toBe('Your location beacon for mutuals was already off.');
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(deps.store[`locations/${uid}`]).toMatchObject({ lat: 1 }); // untouched
+  });
+
+  test('direct /locoff leaves group beacons alone', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`userPrefs/${uid}/location/direct`] = true;
+    deps.store[`userPrefs/${uid}/location/groups/G1`] = true;
+    deps.store[`locationCells/G1/${uid}`] = { lat: 1, lng: 2, updatedAt: 1 };
+    await handleUpdate(deps, msgUpdate('/locoff'));
+    expect(deps.store[`userPrefs/${uid}/location/groups/G1`]).toBe(true);
+    expect(deps.store[`locationCells/G1/${uid}`]).toMatchObject({ lat: 1 });
+  });
+
+  const seedGroup = (store, uid) => {
+    store[`users/${uid}/groups`] = { G1: { lastVisited: 1 } };
+    store['groups/G1/name'] = 'Divers';
+  };
+
+  test('group beacon on → pref off + cell deleted, confirm reply; direct untouched', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroup(deps.store, uid);
+    deps.store[`userPrefs/${uid}/location/direct`] = true;
+    deps.store[`locations/${uid}`] = { lat: 9, lng: 9, updatedAt: 1 };
+    deps.store[`userPrefs/${uid}/location/groups/G1`] = true;
+    deps.store[`locationCells/G1/${uid}`] = { lat: 1, lng: 2, updatedAt: 1 };
+    const reply = await handleUpdate(deps, msgUpdate('/locoff divers'));
+    expect(reply.text).toBe('Your location beacon in Divers is off.');
+    expect(deps.store[`userPrefs/${uid}/location/groups/G1`]).toBe(false);
+    expect(deps.store[`locationCells/G1/${uid}`]).toBeNull();
+    expect(deps.store[`userPrefs/${uid}/location/direct`]).toBe(true);
+    expect(deps.store[`locations/${uid}`]).toMatchObject({ lat: 9 });
+  });
+
+  test('group beacon already off → no write, already-off reply', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    seedGroup(deps.store, uid);
+    const reply = await handleUpdate(deps, msgUpdate('/locoff divers'));
+    expect(reply.text).toBe('Your location beacon in Divers was already off.');
+    expect(deps.update).not.toHaveBeenCalled();
+  });
+
+  test('ambiguous group → /locoff retry commands per candidate (B#3 idiom)', async () => {
+    const deps = makeBotDeps();
+    const uid = seedUser(deps.store);
+    deps.store[`users/${uid}/groups`] = { G1: { lastVisited: 1 }, G2: { lastVisited: 1 } };
+    deps.store['groups/G1/name'] = 'Family';
+    deps.store['groups/G2/name'] = 'Fam club';
+    const reply = await handleUpdate(deps, msgUpdate('/locoff fam'));
+    expect(reply.text).toBe('Which group? Try /locoff Family or /locoff Fam club.');
+    expect(deps.update).not.toHaveBeenCalled();
+  });
+
+  test('no matching group → no-match reply', async () => {
+    const deps = makeBotDeps();
+    seedUser(deps.store);
+    const reply = await handleUpdate(deps, msgUpdate('/locoff nowhere'));
+    expect(reply.text).toBe('No group matching "nowhere".');
+  });
+
+  test('unknown tg user → open-app prompt, nothing written', async () => {
+    const deps = makeBotDeps();
+    const reply = await handleUpdate(deps, msgUpdate('/locoff'));
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(reply.text).toMatch(/open/i);
   });
 });

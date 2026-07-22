@@ -8,14 +8,14 @@
 import { watchGroupMembers, watchGroupInvites, removeUserGroupsEntry, formatTimeRemaining, timeRemainingMs, isAvailable } from './db.js';
 import { subscribePresence } from './presenceHub.js';
 import { reconcileChildren } from './reconcile.js';
-import { safeCssColor, availableForText } from './utils.js';
+import { safeCssColor, availableForText, distanceFragmentHtml } from './utils.js';
 import { CHIP_VALUES, chipIndexForMinutes, effectiveStatus } from './status.js';
 import { navigateToDirect, subscribeGroupMeta } from './groupNav.js';
 import { subscribeOwnOverride, getOwnOverride, pushOptimistic } from './statusStore.js';
 import { subscribeOwnStatus } from './ownStatus.js';
 import { renameGroup, deleteGroup, leaveGroup, editOwnDisplayName,
          setOverrideStatusAvailable, setOverrideStatusUnavailable,
-         setOverrideAppearance, showToast } from './groups.js';
+         setOverrideAppearance, showToast, LOCATION_DENIED_TOAST } from './groups.js';
 import { showTextPrompt, showConfirmModal } from './promptModal.js';
 import {
   getPaletteState,
@@ -23,6 +23,7 @@ import {
   getGroupChipMinutes, setGroupChipMinutes,
   getGroupPaletteState, setGroupPaletteState,
   isHintSeen, markHintSeen,
+  getLocationOptIn,
 } from './prefs.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
 import { openInviteModal } from './inviteModal.js';
@@ -39,8 +40,11 @@ import {
   shouldShowDotGoHint,
   isLongpressHintEligible,
 } from './hints.js';
-import { clearFirstUsePulse } from './me.js';
+import { clearFirstUsePulse, paintLocationGlyph } from './me.js';
 import { refreshHints, clearActiveHint } from './hintRotation.js';
+import { toggleContext, capabilityState, isPermissionDenied, isContextPublished, isContextAvailable } from './locationShare.js';
+import { subscribeCellDistance, subscribeDistance } from './locationHub.js';
+import { formatDistanceCoarse, formatDistancePrecise } from '../shared/geo.js';
 
 type PresenceLike = { status?: string | null; availableUntil?: number | null; statusColor?: string | null; paletteKey?: string | null };
 type OverrideEntry = PresenceLike & { enabled?: boolean | null };
@@ -53,6 +57,26 @@ let _metaUnsub: (() => void) | null = null;
 let _membersUnsub: (() => void) | null = null;
 let _invitesUnsub: (() => void) | null = null;
 const _statusUnsubs = new Map<string, () => void>(); // memberUid → unsubscribe fn
+// uid -> roster row element, populated by renderRoster's reconcile update
+// hook. Pure optimization over paintRosterRow's querySelector default arg —
+// that querySelector fallback stays as the correctness backstop (rows painted
+// outside reconcile, e.g. float restores, and a self-heal if isConnected ever
+// finds the cached node detached).
+const _rowByUid = new Map<string, HTMLElement>();
+// Distance ticks land here; paintRosterRow reads them when painting a
+// member's status suffix. Cell subscription: one per rendered roster member,
+// open exactly while getLocationOptIn(currentGid). Precise subscription:
+// additionally only for mutuals while getLocationOptIn('direct') — precise
+// wins over cell when both are known (spec §6.2). The invariant "each map's
+// keyset == currently eligible" is maintained by reconcileDistanceSubs, which
+// renderRoster calls on every pass — mirrors js/following.ts's
+// reconcileDistanceSubs (Task 9's fix for the same leak class: opening/
+// closing subs only at row-create/row-remove misses eligibility churn on a
+// row that stays mounted — opt-in flips, mutual-set changes, roster churn).
+const _cellDistances = new Map<string, number | null>();    // memberUid → meters | null
+const _cellUnsubs = new Map<string, () => void>();          // memberUid → unsubscribe fn
+const _preciseDistances = new Map<string, number | null>(); // memberUid → meters | null
+const _preciseUnsubs = new Map<string, () => void>();       // memberUid → unsubscribe fn
 // Session-singleton: null between sessions, set for the whole in-group lifetime.
 // Typed non-null so the ~30 uses don't each need a cast; the `if (!_currentGroupId)`
 // guards are defensive and still fire at runtime.
@@ -273,9 +297,161 @@ function createRosterRow(uid: string, member: MemberEntry, ownUserId: string) {
   return li;
 }
 
+// Brings the open cell/precise distance subscriptions back in line with
+// "currently rendered roster member ∧ opted in". Called by renderRoster
+// BEFORE reconcileChildren/DOM paint on every pass, so it covers every way
+// eligibility can churn while a row stays mounted: own group opt-in flips on
+// (open cell subs for already-rendered members), opt-in flips off (close
+// everything + drop the cache before the paint that follows can read it), a
+// member losing/gaining mutuality (precise sub churn independent of cell),
+// and roster membership changes (a departed member's uid is simply absent
+// from `memberUids`). `memberUids` must be the roster's current member set
+// (excluding own uid) — callers pass an empty set when nothing should stay
+// open.
+function reconcileDistanceSubs(memberUids: Set<string>, myUserId: string, groupId: string) {
+  // Eligibility is "viewer shares in the relevant context" (last-known
+  // model): opt-in ∧ that context's own node known to exist ∧ own
+  // availability IN THAT CONTEXT. Without the published half, listeners
+  // attached before the node exists are rules-denied and cancelled
+  // PERMANENTLY by the SDK, and the "already open" guards below would block
+  // any resubscribe. Per-context on BOTH halves: the cell tier keys off THIS
+  // group's own cell + own effective in-group availability (override-aware —
+  // group location is independent of Direct), the precise tier off the own
+  // raw point + Direct/primary availability. The availability half is the
+  // display gate: a context-unavailable viewer is de facto not sharing there
+  // and must not see that tier; closing is safe to reverse since the
+  // persisted nodes make the reopen cancel-free. Mirrors following.ts's
+  // reconcileDistanceSubs — deliberate parallel.
+  const eligible = isContextAvailable(groupId) && isContextPublished(groupId) && getLocationOptIn(groupId);
+  const cellEligible = new Set(eligible ? memberUids : []);
+  const mutualIds = new Set(getCurrentMutuals().map((m: { userId: string }) => m.userId));
+  const directOn = isContextAvailable('direct') && isContextPublished('direct') && getLocationOptIn('direct');
+  const preciseEligible = new Set<string>();
+  if (directOn) {
+    for (const uid of memberUids) {
+      if (!mutualIds.has(uid)) continue;
+      // Precise cascades into the group only while the MUTUAL broadcasts in
+      // Direct: their PRIMARY availability drives their raw-point publishing
+      // (a group override never publishes), so a Direct-unavailable mutual's
+      // persisted locations node must not render precise here — the roster
+      // falls back to their coarse cell. Their Direct opt-OUT needs no gate:
+      // opting out deletes the node and the precise watch emits null. Member
+      // presence ticks call syncRosterOrder → this reconcile, so the sub
+      // opens/closes with their primary flips.
+      const primary = _memberPrimaries.get(uid) || null;
+      if (!isAvailable(primary?.status ?? null, primary?.availableUntil ?? null)) continue;
+      preciseEligible.add(uid);
+    }
+  }
+  // Precise wins at paint, so a mutual eligible for both tiers only needs the
+  // wire listen that actually renders — the redundant cell sub would just
+  // re-deliver every peer cell write for a tier that never paints. But the
+  // exclusion is DATA-driven, not eligibility-driven: a Direct-available
+  // mutual whose Direct location is simply off publishes no raw point, so
+  // their precise watch emits null forever — excluding on mere eligibility
+  // tore down the coarse tier with nothing to replace it (2026-07-20 bug:
+  // the roster lost B's distance the moment the viewer enabled Direct).
+  // Only a precise value that actually renders displaces the cell sub; the
+  // precise callback below re-runs this reconcile on a number↔null
+  // transition, so the redundant sub closes once precise is live and
+  // reopens (cancel-free — last-known model + isContextPublished already
+  // gate cellEligible) the moment it lapses.
+  for (const uid of preciseEligible) {
+    if (typeof _preciseDistances.get(uid) === 'number') cellEligible.delete(uid);
+  }
+
+  _cellUnsubs.forEach((unsub, uid) => {
+    if (cellEligible.has(uid)) return;
+    unsub();
+    _cellUnsubs.delete(uid);
+    _cellDistances.delete(uid);
+  });
+  for (const uid of cellEligible) {
+    if (_cellUnsubs.has(uid)) continue; // already open — never overwrite without unsubbing first
+    _cellUnsubs.set(uid, subscribeCellDistance(groupId, myUserId, uid, (meters) => {
+      _cellDistances.set(uid, meters);
+      paintRosterRow(uid);
+      refreshHints();
+    }));
+  }
+
+  _preciseUnsubs.forEach((unsub, uid) => {
+    if (preciseEligible.has(uid)) return;
+    unsub();
+    _preciseUnsubs.delete(uid);
+    _preciseDistances.delete(uid);
+  });
+  for (const uid of preciseEligible) {
+    if (_preciseUnsubs.has(uid)) continue;
+    _preciseUnsubs.set(uid, subscribeDistance(myUserId, uid, (meters) => {
+      // A number↔null transition flips this uid's cell-tier exclusion (see
+      // above) — re-run the reconcile so the redundant cell sub closes when
+      // precise starts rendering and reopens when it stops. Same-kind ticks
+      // (number→number movement, repeated null) skip it.
+      const rendered = typeof _preciseDistances.get(uid) === 'number';
+      _preciseDistances.set(uid, meters);
+      if (rendered !== (typeof meters === 'number') && _currentGroupId && _lastMembers) {
+        const memberUids = new Set(Object.keys(_lastMembers).filter((u) => u !== myUserId));
+        reconcileDistanceSubs(memberUids, myUserId, _currentGroupId);
+      }
+      paintRosterRow(uid);
+      refreshHints();
+    }));
+  }
+}
+
+// Full teardown — called on group exit (and defensively at entry, mirroring
+// _statusUnsubs) so a stale subscription from a previous group can never
+// survive into the next one under the same uid.
+function teardownAllDistanceSubs() {
+  _cellUnsubs.forEach((fn) => fn());
+  _cellUnsubs.clear();
+  _cellDistances.clear();
+  _preciseUnsubs.forEach((fn) => fn());
+  _preciseUnsubs.clear();
+  _preciseDistances.clear();
+}
+
+// Audit-2 N3 — client analogue of the notifier's availability-relevant gate.
+// Classifies a members tick against the previous map: 'appearance' means the
+// maps differ ONLY in override appearance fields (statusColor/paletteKey) —
+// same uid set, same non-override member fields, same enabled/status/
+// availableUntil — so membership, ordering, distance eligibility, and the
+// status-sub set are all guaranteed unchanged and only touched rows need a
+// repaint. 'none' is a byte-equivalent echo. Anything else (join/leave,
+// rename, an availability-affecting override change, an unknown new member
+// field — the structural compare fails safe) is 'full'.
+function classifyMembersTick(prev: Record<string, MemberEntry>, next: Record<string, MemberEntry>): 'full' | 'appearance' | 'none' {
+  const nextKeys = Object.keys(next);
+  if (Object.keys(prev).length !== nextKeys.length) return 'full';
+  let sawAppearance = false;
+  for (const uid of nextKeys) {
+    const a = prev[uid];
+    const b = next[uid];
+    if (!a) return 'full';
+    if (JSON.stringify({ ...a, statusOverride: null }) !== JSON.stringify({ ...b, statusOverride: null })) return 'full';
+    const oa = a.statusOverride || null;
+    const ob = b.statusOverride || null;
+    if ((oa === null) !== (ob === null)) return 'full';
+    if (oa && ob) {
+      if (oa.enabled !== ob.enabled || oa.status !== ob.status || oa.availableUntil !== ob.availableUntil) return 'full';
+      if (oa.statusColor !== ob.statusColor || oa.paletteKey !== ob.paletteKey) sawAppearance = true;
+    }
+  }
+  return sawAppearance ? 'appearance' : 'none';
+}
+
 function renderRoster(members: Record<string, MemberEntry>, ownUserId: string) {
   const list = document.getElementById('group-roster');
   if (!list) return;
+  // Reconcile distance subs before the DOM paint below — update()'s repaint
+  // of every surviving row reads _cellDistances/_preciseDistances
+  // synchronously, so eligibility must already be current. Mirrors
+  // following.ts's reconcileDistanceSubs call ordering.
+  if (_currentGroupId) {
+    const memberUids = new Set(Object.keys(members || {}).filter((uid) => uid !== ownUserId));
+    reconcileDistanceSubs(memberUids, ownUserId, _currentGroupId);
+  }
   reconcileChildren(list, rosterKeys(members, ownUserId), {
     create: (key) => {
       if (key === 'invite-row') return createInviteRow(ownUserId);
@@ -288,6 +464,14 @@ function renderRoster(members: Record<string, MemberEntry>, ownUserId: string) {
       const member = (members || {})[uid];
       const label = node.querySelector('.person-label');
       if (label && member) label.textContent = member.displayName || uid;
+      // createRosterRow always stamps data-user-id before returning the node,
+      // and reconcile runs update() immediately after create() (before
+      // insertion) — so node.dataset.userId is already populated here even for
+      // a brand-new row. Prefer it over rosterUidOf(key) for the map key so a
+      // lookup by uid always agrees with what's actually on the DOM node.
+      // Refreshed every pass (not just create) so the map self-heals.
+      const nodeUid = node.dataset.userId;
+      if (nodeUid) _rowByUid.set(nodeUid, node);
       // Pass `node`: reconcile runs update() BEFORE inserting a freshly-created
       // row, so a getElementById/querySelector lookup would miss it and the dot
       // would keep createRosterRow's default until a later re-render (the
@@ -299,8 +483,18 @@ function renderRoster(members: Record<string, MemberEntry>, ownUserId: string) {
     // renderRoster used to do — the leak vector was the wipe itself).
     onRemove: (node) => {
       if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
+      // Identity-guarded: only delete if this removed node is still the one
+      // the map has on file for its uid. A member's eligibility-bit key flip
+      // (m:uid:0 -> m:uid:1) removes the old key's row and creates a new one
+      // for the same uid within the same reconcile pass — guard against ever
+      // deleting a fresher entry.
+      const uid = node.dataset.userId;
+      if (uid && _rowByUid.get(uid) === node) _rowByUid.delete(uid);
     },
   });
+  // paintRosterRow no longer calls refreshHints itself (that was a full hint
+  // scan per row); run it once per render pass instead.
+  refreshHints();
 }
 
 // Re-converge roster order after a status change (availability moved a row).
@@ -310,7 +504,13 @@ function syncRosterOrder() {
   renderRoster(_lastMembers, _currentUserId);
 }
 
-function paintRosterRow(uid: string, li: HTMLElement | null = document.querySelector(`#group-roster [data-user-id="${uid}"]`) as HTMLElement | null) {
+function rosterRow(uid: string): HTMLElement | null {
+  const cached = _rowByUid.get(uid);
+  if (cached && cached.isConnected) return cached;
+  return (document.querySelector(`#group-roster [data-user-id="${uid}"]`) as HTMLElement | null);
+}
+
+function paintRosterRow(uid: string, li: HTMLElement | null = rosterRow(uid)) {
   if (!li) return;
   // Effective values: override-on means "independent in this group" — pull
   // every field (status/availableUntil/color/paletteKey) exclusively from
@@ -343,7 +543,11 @@ function paintRosterRow(uid: string, li: HTMLElement | null = document.querySele
       // paletteKey still gets the right text color — without the inline
       // style, the CSS rule (.status-available → var(--green)) wins and
       // the fuzzy time renders forest green.
-      const text = availableForText(availableUntil);
+      const precise = _preciseDistances.get(uid);
+      const cell = _cellDistances.get(uid);
+      const dist = typeof precise === 'number' ? distanceFragmentHtml(formatDistancePrecise(precise))
+        : typeof cell === 'number' ? distanceFragmentHtml(formatDistanceCoarse(cell)) : '';
+      const text = availableForText(availableUntil) + dist;
       const inlineColor = color ? safeCssColor(color) : '';
       statusEl.innerHTML = inlineColor
         ? `<span class="status-available" style="color:${inlineColor}">${text}</span>`
@@ -361,6 +565,8 @@ function paintRosterRow(uid: string, li: HTMLElement | null = document.querySele
   if (PALETTES_ENABLED && palette && available) {
     li.style.background = palette.theme.surface;
     li.style.borderLeftColor = palette.color;
+    // Distance line reads var(--card-muted, --text-muted) — see following.ts.
+    li.style.setProperty('--card-muted', palette.theme.textMuted);
     if (statusEl) {
       statusEl.style.color = palette.theme.textMuted;
       // .status-available's inline color (set in the innerHTML above) is
@@ -374,6 +580,7 @@ function paintRosterRow(uid: string, li: HTMLElement | null = document.querySele
   } else {
     li.style.background = '';
     li.style.borderLeftColor = available && color ? safeCssColor(color) : '';
+    li.style.removeProperty('--card-muted');
     if (statusEl) statusEl.style.color = '';
   }
   // FTU longpress eligibility — stamp attributes; js/hintRotation.js owns the
@@ -388,7 +595,6 @@ function paintRosterRow(uid: string, li: HTMLElement | null = document.querySele
   li.dataset.hintAvail = available ? '1' : '0';
   li.dataset.hintLongpress = longpressEligible ? '1' : '0';
   li.dataset.hintSwipe = '0';
-  refreshHints();
 }
 
 function renderOwnStatusRow() {
@@ -397,6 +603,7 @@ function renderOwnStatusRow() {
   const timeRemaining = document.getElementById('group-time-remaining');
   const timeChip = document.getElementById('group-time-chip');
   const toggle = document.getElementById('group-override-toggle');
+  const glyph = document.getElementById('group-location-glyph');
   if (!dot || !label) return;
 
   const overrideOn = !!(_ownOverride && _ownOverride.enabled === true);
@@ -436,6 +643,11 @@ function renderOwnStatusRow() {
     timeChip.textContent = CHIP_VALUES[chipIndexForMinutes(effectiveMinutes)].text;
   }
 
+  // Coarse-tier location glyph: paint from the CURRENT group's opt-in (not a
+  // captured gid — entering a different group must repaint from that group's
+  // own pref) every time the own-status band renders.
+  if (glyph) paintLocationGlyph(glyph, groupGlyphState(getCurrentGroupId()));
+
   if (timeRemaining) {
     // null availableUntil means open-ended; no countdown to show
     if (available && availableUntil) {
@@ -443,11 +655,14 @@ function renderOwnStatusRow() {
       if (formatted) {
         timeRemaining.textContent = formatted + ' left';
         timeRemaining.style.display = '';
+        if (glyph) glyph.style.display = '';
       } else {
         timeRemaining.style.display = 'none';
+        if (glyph) glyph.style.display = 'none';
       }
     } else {
       timeRemaining.style.display = 'none';
+      if (glyph) glyph.style.display = 'none';
     }
   }
 
@@ -816,6 +1031,19 @@ function syncStatusSubscriptions(memberUids: Set<string>) {
       // Through the shared presence hub — a member who is also a Direct followee
       // is watched once at the RTDB layer (#214 R3).
       _statusUnsubs.set(uid, subscribePresence(uid, (data) => {
+        // Read effective availability, AND raw primary availability, BEFORE
+        // overwriting _memberPrimaries — both "before" values must come from
+        // the stored (pre-tick) primary. The raw-primary half matters
+        // independently of the effective (override-aware) half: an
+        // override-enabled member's row sort order never moves off their
+        // override, but reconcileDistanceSubs' precise-tier eligibility keys
+        // off the member's raw primary availability (their override never
+        // publishes raw points — see reconcileDistanceSubs above), so a
+        // primary flip under an active override must still resync subs even
+        // though it can't flip the row's effective availability.
+        const oldPrimary = _memberPrimaries.get(uid) || null;
+        const wasAvailable = memberEffectiveAvailable(uid);
+        const wasPrimaryAvailable = isAvailable(oldPrimary?.status ?? null, oldPrimary?.availableUntil ?? null);
         _memberPrimaries.set(uid, data
           ? {
               status: data.status,
@@ -824,8 +1052,21 @@ function syncStatusSubscriptions(memberUids: Set<string>) {
               paletteKey: (data as PresenceLike).paletteKey || null,
             }
           : null);
-        // renderRoster's update repaints every row, including this one.
-        syncRosterOrder();
+        // Mirror the Direct-list discipline (js/following.ts ~1093-1102): a
+        // full resort only when availability actually flips — e.g. a
+        // lastSeen-only write (stamped on every peer app-open,
+        // js/db/social.ts:293) leaves both availability signals unchanged and
+        // shouldn't pay for a full re-sort + repaint of every row. Otherwise,
+        // repaint just the ticking member's row.
+        const isAvailableNow = memberEffectiveAvailable(uid);
+        const newPrimary = _memberPrimaries.get(uid) || null;
+        const isPrimaryAvailableNow = isAvailable(newPrimary?.status ?? null, newPrimary?.availableUntil ?? null);
+        if (isAvailableNow !== wasAvailable || isPrimaryAvailableNow !== wasPrimaryAvailable) {
+          syncRosterOrder();
+        } else {
+          paintRosterRow(uid);
+          refreshHints();
+        }
       }));
     }
   }
@@ -958,6 +1199,70 @@ function installGroupSyncListeners() {
     if (!_currentGroupId || _lastMembers === null) return;
     syncRosterOrder();
   });
+  // Own group opt-in flipped (glyph tap, via locationShare.ts's toggleContext)
+  // or a server echo of location prefs landed (prefs.ts's syncFromServer) —
+  // either can flip cell OR precise eligibility (the latter checks
+  // getLocationOptIn('direct') too). syncRosterOrder's renderRoster call
+  // runs reconcileDistanceSubs unconditionally, so this re-render opens/
+  // closes subs for already-rendered rows immediately — it doesn't wait for
+  // a row's key to churn.
+  document.addEventListener('location-optin-changed', () => {
+    if (!_currentGroupId || _lastMembers === null) return;
+    syncRosterOrder();
+  });
+  document.addEventListener('location-prefs-synced', () => {
+    if (!_currentGroupId || _lastMembers === null) return;
+    syncRosterOrder();
+  });
+  // Own published state changed (locationShare.ts — a context's first
+  // publish landed, the boot seed found a persisted node, or a teardown
+  // deleted it). Same re-render: reconcileDistanceSubs keys both tiers'
+  // eligibility off the own node existing, so this opens subs when a node
+  // arrives and closes them when it is deleted (the server cancelled the
+  // old listeners; they must be recreated, never reused).
+  document.addEventListener('location-publishing-changed', () => {
+    if (!_currentGroupId || _lastMembers === null) return;
+    syncRosterOrder();
+  });
+}
+
+// One-time (module-lifetime, not per-entry) wiring for the group band's
+// location glyph: click toggles the CURRENT group's context, and a
+// cross-device pref sync repaints from whatever group is current at the
+// time the event fires. Guarded by _glyphWired so switching groups
+// repeatedly never piles up duplicate listeners on the persistent element.
+let _glyphWired = false;
+// The state a repaint should show for the group's glyph: capability and the
+// sticky OS-denied marker outrank the raw opt-in, so event-driven repaints
+// can't wash a denied paint back to plain off. me.js keeps the Direct twin
+// (directGlyphState) — its export would be mock-vacuous in this module's tests.
+function groupGlyphState(gid: string | null): 'on' | 'off' | 'denied' | 'unsupported' {
+  if (capabilityState() === 'unsupported') return 'unsupported';
+  if (isPermissionDenied()) return 'denied';
+  return gid != null && getLocationOptIn(gid) ? 'on' : 'off';
+}
+function wireGroupLocationGlyph() {
+  if (_glyphWired) return;
+  _glyphWired = true;
+  const glyph = document.getElementById('group-location-glyph');
+  if (!glyph) return;
+  glyph.addEventListener('click', async () => {
+    const gid = getCurrentGroupId();
+    if (!gid) return;
+    const state = await toggleContext(gid);
+    paintLocationGlyph(glyph, state);
+    if (state === 'denied') showToast(LOCATION_DENIED_TOAST);
+  });
+  document.addEventListener('location-prefs-synced', () => {
+    const gid = getCurrentGroupId();
+    if (gid) paintLocationGlyph(glyph, groupGlyphState(gid));
+  });
+  // Pref flipped outside the tap path (locationShare's mid-flight-revocation
+  // teardown): the click handler above never runs, so the paint rides the event.
+  document.addEventListener('location-optin-changed', () => {
+    const gid = getCurrentGroupId();
+    if (gid) paintLocationGlyph(glyph, groupGlyphState(gid));
+  });
 }
 
 export function enterGroupContext(groupId: string, userId: string) {
@@ -965,6 +1270,7 @@ export function enterGroupContext(groupId: string, userId: string) {
   _currentGroupId = groupId;
   _currentUserId = userId;
   installGroupSyncListeners();
+  wireGroupLocationGlyph();
 
   const root = document.getElementById('group-context-root');
   const direct = document.getElementById('main-ui-direct');
@@ -981,7 +1287,13 @@ export function enterGroupContext(groupId: string, userId: string) {
   if (_membersUnsub) _membersUnsub();
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
+  _rowByUid.clear();
   _memberPrimaries.clear();
+  // A stale cell/precise sub from a previous group must never survive into
+  // this one under the same member uid — reconcileDistanceSubs alone
+  // wouldn't catch that (an eligible uid already has an entry in the map, so
+  // it would skip resubscribing, leaving the OLD group's cell watch open).
+  teardownAllDistanceSubs();
   _membersOverrides = {};
   _lastMembers = null;
   _groupOwnerId = null;
@@ -995,14 +1307,29 @@ export function enterGroupContext(groupId: string, userId: string) {
   if (rosterListEl) rosterListEl.innerHTML = '';
   let drainedKnocksOnEntry = false;
   _membersUnsub = watchGroupMembers(groupId, (members) => {
-    _lastMembers = (members as Record<string, MemberEntry>);
+    const typed = ((members as Record<string, MemberEntry>) || {});
+    const prev = _lastMembers;
+    const prevOverrides = _membersOverrides;
+    _lastMembers = typed;
     _membersOverrides = {};
-    for (const [uid, m] of Object.entries((members as Record<string, MemberEntry>) || {})) {
+    for (const [uid, m] of Object.entries(typed)) {
       _membersOverrides[uid] = m.statusOverride || null;
     }
-    _ownDisplayName = ((members as Record<string, MemberEntry>))?.[userId]?.displayName || null;
-    renderRoster((members as Record<string, MemberEntry>), userId);
-    syncStatusSubscriptions(new Set(Object.keys(members || {})));
+    _ownDisplayName = typed?.[userId]?.displayName || null;
+    const kind = prev === null ? 'full' : classifyMembersTick(prev, typed);
+    if (kind === 'appearance') {
+      // Hot path (audit-2 N3): a co-member's swatch/palette tap. Repaint just
+      // the touched rows — membership and availability are identical, so the
+      // reconcile/distance/status-sub passes would all be no-ops.
+      for (const uid of Object.keys(typed)) {
+        const po = prevOverrides[uid] || null;
+        const no = _membersOverrides[uid];
+        if (po && no && (po.statusColor !== no.statusColor || po.paletteKey !== no.paletteKey)) paintRosterRow(uid);
+      }
+    } else if (kind === 'full') {
+      renderRoster(typed, userId);
+      syncStatusSubscriptions(new Set(Object.keys(typed)));
+    } // 'none': byte-equivalent echo — nothing to do.
     // Replay any knocks that arrived while the user wasn't in this group.
     // Wait for the first members tick so the roster lis exist before drain
     // tries to look them up; one-shot per enterGroupContext call.
@@ -1076,8 +1403,10 @@ export function enterGroupContext(groupId: string, userId: string) {
     renderOwnStatusRow();
     // Re-paint roster rows: the FTU longpress hint compares each member's
     // combo against _ownOverride, so a change here needs to re-evaluate the
-    // show/hide for every row.
+    // show/hide for every row. paintRosterRow no longer calls refreshHints
+    // itself, so run it once for the whole pass instead of once per row.
     for (const uid of _memberPrimaries.keys()) paintRosterRow(uid);
+    refreshHints();
   });
 
   // The chain-icon override toggle lives in the nav row and is fully owned by
@@ -1172,8 +1501,9 @@ export function enterGroupContext(groupId: string, userId: string) {
       // Group entity was deleted. Non-owner members never had their
       // users/{uid}/groups/{groupId} entry cleared by the owner (the
       // owner has no permission to write to other users' records).
-      // Clear it locally; the watchUserGroups delta in groups.js then
-      // surfaces the "deleted" toast and navigates back to Direct.
+      // Clear it locally; groupNav's next enumeration tick then fans out to
+      // groups.js's removal detector, which surfaces the "deleted" toast and
+      // navigates back to Direct.
       removeUserGroupsEntry(userId, groupId).catch(() => {});
       return;
     }
@@ -1204,6 +1534,8 @@ export function exitGroupContext() {
   _memberPrimaries.clear();
   _statusUnsubs.forEach((fn) => fn());
   _statusUnsubs.clear();
+  _rowByUid.clear();
+  teardownAllDistanceSubs();
   _currentGroupId = null as unknown as string;
   _currentUserId = null as unknown as string;
   _activeGroupInvite = null;
@@ -1318,6 +1650,7 @@ function triggerGroupAdoption(srcUid: string, ownUid: string) {
     // hint until the async override echo repaints (the Direct path self-heals via
     // the my-combo-changed listener; group has no equivalent here).
     for (const uid of _memberPrimaries.keys()) paintRosterRow(uid);
+    refreshHints();
   }
 
   // 7. Visual flash on the source row.

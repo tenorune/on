@@ -6,7 +6,19 @@ jest.mock('../js/db.js', () => ({
   setStatus: jest.fn().mockResolvedValue(undefined),
   isExpired: (t) => t !== null && t !== undefined && t < Date.now(),
   isAvailable: (s, t) => s === 'available' && !(t !== null && t !== undefined && t < Date.now()),
-  formatTimeRemaining: (ms) => ms > 0 ? '2h' : '',
+  // Value-sensitive (not a flat '2h' stand-in): the N8 catch-up test needs the
+  // label text to actually change once time has passed, so this mirrors the
+  // real shared/timeFormat.js shape (Nh Mm) closely enough to discriminate.
+  formatTimeRemaining: (ms) => {
+    if (ms <= 0) return '';
+    if (ms < 60000) return '< 1m';
+    const totalMinutes = Math.floor(ms / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes}m`;
+    if (minutes === 0) return `${hours}h`;
+    return `${hours}h ${minutes}m`;
+  },
   timeRemainingMs: (t) => !t ? 0 : Math.max(0, t - Date.now()),
   setLastTimeoutMinutes: jest.fn().mockResolvedValue(undefined),
   claimInviteToken: jest.fn(),
@@ -41,7 +53,6 @@ jest.mock('../js/db.js', () => ({
   writeGroupInvite: jest.fn(),
   readGroupInvites: jest.fn().mockResolvedValue({}),
   setGroupInviteRevoked: jest.fn(),
-  incrementGroupInviteRedemptions: jest.fn(),
   watchGroupInvites: jest.fn(() => () => {}),
   setStatusOverride: jest.fn().mockResolvedValue(undefined),
   clearStatusOverride: jest.fn().mockResolvedValue(undefined),
@@ -59,10 +70,30 @@ jest.mock('../js/store.js', () => ({
   setLastTimeout: jest.fn(),
   getPaletteState: jest.fn(() => ({ activeSet: 1, sets: { '1': { selectedKey: 'forest' }, '2': { selectedKey: 'volt' } } })),
 }));
+jest.mock('../js/groups.js', () => ({
+  showToast: jest.fn(),
+  LOCATION_DENIED_TOAST: 'Location permission is denied — allow location access for this app in your device settings.',
+}));
+jest.mock('../js/locationShare.js', () => ({
+  toggleContext: jest.fn(),
+  capabilityState: jest.fn(() => 'supported'),
+  isPermissionDenied: jest.fn(() => false),
+  initLocationShare: jest.fn(),
+  _resetLocationShare: jest.fn(),
+}));
 
 const { setStatus } = require('../js/db.js');
 const { getLastTimeout, setLastTimeout } = require('../js/store.js');
 const { applyOwnStatus, initHeader, enterFirstUseMode, setOwnStatusReadyCallback } = require('../js/me.js');
+const { toggleContext, capabilityState, isPermissionDenied } = require('../js/locationShare.js');
+// Top-level bind (NOT a require inside a test body): a later describe runs
+// jest.resetModules(), after which an in-test require would return a FRESH
+// mock instance while me.js keeps the original — same landmine as
+// following.test.js's mid-file require.
+const { showToast } = require('../js/groups.js');
+// prefs.js is NOT mocked — real module, backed by the mocked store.js/db.js above,
+// so getLocationOptIn/setLocationOptIn exercise real localStorage caching.
+const { getLocationOptIn, setLocationOptIn } = require('../js/prefs.js');
 
 // jsdom doesn't apply stylesheets. #header-chips is always display:flex in CSS;
 // opacity and pointer-events are controlled by JS.
@@ -71,6 +102,7 @@ function makeFixture() {
     <div id="my-dot"></div>
     <span id="my-status-label" class="status-label">Unavailable</span>
     <span id="time-remaining" style="display:none"></span>
+    <button id="location-glyph" class="location-glyph" aria-label="Share location" aria-pressed="false" style="display:none"></button>
     <div id="header-chips">
       <button id="time-chip" class="chip time-chip"></button>
       <button id="mycode-chip" class="chip"></button>
@@ -86,6 +118,8 @@ beforeEach(() => {
   makeFixture();
   jest.clearAllMocks();
   getLastTimeout.mockReturnValue(2); // old-format default — set AFTER clearAllMocks
+  // clearAllMocks keeps a prior test's mockReturnValue — re-pin the default.
+  isPermissionDenied.mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -178,6 +212,48 @@ test('countdown timer fires after expiry: dot loses available class', () => {
   expect(document.getElementById('my-dot').classList.contains('available')).toBe(true);
   jest.advanceTimersByTime(35000);
   expect(document.getElementById('my-dot').classList.contains('available')).toBe(false);
+});
+
+// --- Task 6: hidden-tab guard on the 30s countdown tick ---
+
+test('30s countdown tick skips the time-remaining textContent write while hidden', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  jest.advanceTimersByTime(250);
+  const el = document.getElementById('time-remaining');
+  // innerHTML/textContent assignment always tears down + rebuilds child nodes
+  // in jsdom, so a childList MutationObserver fires on every repaint even when
+  // the recomposed text happens to be identical to what's already there.
+  const mo = new MutationObserver(() => {});
+  mo.observe(el, { childList: true, characterData: true, subtree: true });
+
+  Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+  jest.advanceTimersByTime(30000);
+
+  expect(mo.takeRecords().length).toBe(0);
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+});
+
+test('countdown timer fires expiry (setUnavailable) even while hidden — state transition, not paint, must not be skipped', () => {
+  const availableUntil = Date.now() + 1000;
+  applyOwnStatus('available', availableUntil);
+  expect(document.getElementById('my-dot').classList.contains('available')).toBe(true);
+  Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+  jest.advanceTimersByTime(35000);
+  expect(document.getElementById('my-dot').classList.contains('available')).toBe(false);
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+});
+
+test('returning to visible catches the countdown label up immediately (audit-2 N8)', () => {
+  applyOwnStatus('available', Date.now() + 7200000);
+  jest.advanceTimersByTime(250);
+  const el = document.getElementById('time-remaining');
+  Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+  jest.advanceTimersByTime(3600000); // an hour passes hidden — every 30s tick skips the write
+  const stale = el.textContent;      // still shows ~2h
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  document.dispatchEvent(new Event('visibilitychange'));
+  expect(el.textContent).not.toBe(stale); // caught up (~1h) without waiting for the next tick
+  expect(el.textContent).toMatch(/left$/);
 });
 
 // --- chip migration ---
@@ -618,5 +694,154 @@ describe('saveCombo guard in setAvailable', () => {
     applyOwnStatus('available', Date.now() + 7200000);
     expect(saveComboMock).toHaveBeenCalledTimes(1);
     expect(saveComboMock).toHaveBeenCalledWith({}); // buildDirectCombo mock returns {}
+  });
+});
+
+describe('location glyph (Direct header)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  test('hidden while unavailable, shown while available, reflects opt-in', () => {
+    setLocationOptIn('direct', true);
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+
+    // Initial paint from getLocationOptIn happens in initHeader, independent
+    // of availability.
+    expect(glyph.classList.contains('on')).toBe(true);
+
+    // display:none is the markup default (mirrors #time-remaining) until the
+    // dot goes available.
+    expect(glyph.style.display).toBe('none');
+
+    applyOwnStatus('available', Date.now() + 7200000);
+    jest.advanceTimersByTime(250);
+    expect(glyph.style.display).not.toBe('none');
+
+    applyOwnStatus('unavailable', null);
+    jest.advanceTimersByTime(250);
+    expect(glyph.style.display).toBe('none');
+  });
+
+  test('capabilityState unsupported paints the denied visual at init, regardless of opt-in', () => {
+    setLocationOptIn('direct', true);
+    capabilityState.mockReturnValueOnce('unsupported');
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+    expect(glyph.classList.contains('denied')).toBe(true);
+    // …but with its own title: "check permissions" is wrong advice on a
+    // device that has no geolocation permission to check.
+    expect(glyph.title).toBe('Location unavailable — not supported on this device');
+  });
+
+  test('a tap resolving unsupported paints the unsupported title, not the permissions one', async () => {
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+
+    toggleContext.mockResolvedValueOnce('unsupported');
+    glyph.click();
+    await Promise.resolve();
+
+    expect(glyph.classList.contains('denied')).toBe(true);
+    expect(glyph.title).toBe('Location unavailable — not supported on this device');
+  });
+
+  test('click calls toggleContext("direct") and repaints from the result', async () => {
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+    expect(glyph.classList.contains('on')).toBe(false);
+
+    toggleContext.mockResolvedValueOnce('on');
+    glyph.click();
+    await Promise.resolve();
+
+    expect(toggleContext).toHaveBeenCalledWith('direct');
+    expect(glyph.classList.contains('on')).toBe(true);
+    expect(glyph.getAttribute('aria-pressed')).toBe('true');
+    expect(glyph.title).toBe('');
+
+    toggleContext.mockResolvedValueOnce('denied');
+    glyph.click();
+    await Promise.resolve();
+
+    expect(glyph.classList.contains('on')).toBe(false);
+    expect(glyph.classList.contains('denied')).toBe(true);
+    expect(glyph.getAttribute('aria-pressed')).toBe('false');
+    expect(glyph.title).toBe('Location unavailable — check permissions');
+  });
+
+  test('a denied tap shows the permission toast (OS-level deny makes the glyph read as a no-op otherwise)', async () => {
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+
+    toggleContext.mockResolvedValueOnce('denied');
+    glyph.click();
+    await Promise.resolve();
+    expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/location permission/i));
+
+    // An ordinary on/off tap never toasts.
+    showToast.mockClear();
+    toggleContext.mockResolvedValueOnce('on');
+    glyph.click();
+    await Promise.resolve();
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  test('cross-device pref sync (location-prefs-synced) repaints the glyph', () => {
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+    expect(glyph.classList.contains('on')).toBe(false);
+
+    // Simulate another device's opt-in landing via prefs.syncFromServer, which
+    // writes the localStorage cache and dispatches this event.
+    setLocationOptIn('direct', true);
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+
+    expect(glyph.classList.contains('on')).toBe(true);
+  });
+
+  test('opt-in flipped outside the tap path (location-optin-changed — e.g. revocation teardown) repaints the glyph', () => {
+    setLocationOptIn('direct', true);
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+    expect(glyph.classList.contains('on')).toBe(true);
+
+    // locationShare's mid-flight-revocation teardown flips the pref off and
+    // dispatches this event — no glyph tap involved, so the paint must ride
+    // the event.
+    setLocationOptIn('direct', false);
+    document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context: 'direct' } }));
+
+    expect(glyph.classList.contains('on')).toBe(false);
+  });
+
+  test('denied state is sticky: event repaints keep the denied paint while the permission stays denied', () => {
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+
+    // The revocation teardown flips the pref off, sets the denied flag, and
+    // dispatches the event; the repaint must not wash denied back to plain off.
+    isPermissionDenied.mockReturnValue(true);
+    document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context: 'direct' } }));
+    expect(glyph.classList.contains('denied')).toBe(true);
+    expect(glyph.title).toBe('Location unavailable — check permissions');
+
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+    expect(glyph.classList.contains('denied')).toBe(true);
+
+    // Once no longer denied (e.g. a later successful glyph prove), the same
+    // events paint plain opt-in state again.
+    isPermissionDenied.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+    expect(glyph.classList.contains('denied')).toBe(false);
+  });
+
+  test('denied state is sticky at init: a reload-free re-init paints denied over the raw opt-in', () => {
+    isPermissionDenied.mockReturnValue(true);
+    initHeader('uid1');
+    const glyph = document.getElementById('location-glyph');
+    expect(glyph.classList.contains('denied')).toBe(true);
+    expect(glyph.title).toBe('Location unavailable — check permissions');
   });
 });

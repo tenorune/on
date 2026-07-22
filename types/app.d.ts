@@ -51,6 +51,8 @@ interface UserPrefs {
   } | null> | null;
   /** Per-person notification prefs, keyed by target uid. */
   notify?: Record<string, NotifyPrefsEntry | null> | null;
+  /** Per-context location-sharing opt-in ('direct' plus per-group ids). */
+  location?: { direct?: boolean; groups?: Record<string, boolean> } | null;
 }
 
 /** userPrefs/{uid}/notify/{targetUid} — per-person notification toggles. */
@@ -68,10 +70,20 @@ interface PresenceNode {
    * client, NOT-available to the server notifier — the pinned divergence in
    * tests/presencePredicateParity.test.js. */
   availableUntil?: number | null;
+  /** Dot/status color (users/{uid}/presence.statusColor and the presence half
+   * of a group statusOverride — js/db/groups.ts mergeStatusOverride). */
+  statusColor?: string | null;
 }
 
 /** groups/{gid}/members/{uid}/statusOverride — per-audience status. */
 interface StatusOverride extends PresenceNode {
   /** The bot/server only honor the override when enabled === true. */
   enabled?: boolean | null;
+}
+
+/** locations/{uid} and locationCells/{gid}/{uid} nodes. */
+interface LocationNode {
+  lat?: number;
+  lng?: number;
+  updatedAt?: number;
 }

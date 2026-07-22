@@ -329,7 +329,7 @@ functions already exist on an *old* trigger path — i.e. dev.)
     - Groups: group appears in the Direct topnav; navigate in/out and confirm the
       card persists and sorts.
 20. **Push end-to-end** (first time on prod): grant notifications on an installed
-    PWA, confirm a token lands under `userPrefs/{uid}/pushTokens`, then have a
+    PWA, confirm a token lands under `pushTokens/{uid}`, then have a
     second account knock/call → OS notification appears. Watch Functions logs for
     FCM `success`.
 21. **Hard-reload / reinstall the PWA** to confirm the new service worker + bundle
@@ -353,7 +353,7 @@ functions already exist on an *old* trigger path — i.e. dev.)
 
 25. Watch Functions logs for `registration-token-not-registered` — expected for
     stale FCM tokens; the sender prunes them, and the client TTL cull (#157) bounds
-    `userPrefs/{uid}/pushTokens` over time.
+    `pushTokens/{uid}` over time.
 26. Delete the local prod service-account JSON; rotate the key if exposed.
 27. Desktop notifications remain under investigation (#156) — not a blocker for
     the mobile-verified deploy.
@@ -422,3 +422,56 @@ invites then prompt *"What name would you like to use in '{group}'?"*.
 - **Rollback:** `firebase functions:delete resolveInvitePreview --project <id>`
   returns to the prior behavior (no framing for unauthenticated users); the
   client handles its absence gracefully.
+
+---
+
+## Addendum — pushTokens relocation (audit F6c)
+
+FCM push-token records moved from `userPrefs/{uid}/pushTokens` to a top-level,
+owner-only `pushTokens/{uid}/{token}` node (keeps them out of the wholesale
+userPrefs watch). Every reader dual-reads (new path, then legacy fallback), so
+each step is safe on its own — but the deploy ORDER below is load-bearing.
+Deploy in exactly this sequence:
+
+1. **Rules first** — deploy RTDB rules:
+   ```bash
+   npx firebase deploy --only database --project <prodId>
+   ```
+   Makes `pushTokens/{uid}` writable. Must precede any client/function that
+   writes the new path, or those writes get PERMISSION_DENIED.
+2. **Functions** — deploy functions:
+   ```bash
+   npx firebase deploy --only functions --project <prodId>
+   ```
+   The notifier (`sendToUser`) and the Telegram `/notifications` gate now
+   dual-read new-then-legacy. Safe before hosting: a read of the
+   not-yet-populated new node falls back to legacy.
+3. **Hosting** — deploy the web build:
+   ```bash
+   npx firebase deploy --only hosting --project <prodId>
+   ```
+   Clients now WRITE tokens to the new path and the channel pill dual-reads.
+   Existing tokens remain only in legacy until step 4.
+4. **Migrate** — dry-run first (prints what it WOULD move, changes nothing):
+   ```bash
+   cd functions
+   export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat path/to/prod-service-account.json)"
+   node migrate-push-tokens.js --project <prodId>
+   ```
+   Review, then apply:
+   ```bash
+   node migrate-push-tokens.js --project <prodId> --apply
+   ```
+   It copies every existing `userPrefs/{uid}/pushTokens` record to
+   `pushTokens/{uid}/{token}` and nulls the legacy copy in ONE atomic
+   multi-path update — idempotent and re-runnable. Needs the prod
+   service-account JSON (see §0.7).
+5. **Cleanup (LATER, separate follow-up commit — only after you confirm
+   migration)** — drop the legacy fallback in all THREE dual-readers:
+   `sendToUser` (functions/notifier.js), the bot gate (functions/telegram.js),
+   and the pill (js/notifyChannel.ts accountHasPushTokens). This is NOT part
+   of this deploy.
+
+**Verify:** after step 3, register a device and confirm the token lands under
+`pushTokens/{uid}` (not `userPrefs/{uid}/pushTokens`). After step 4, confirm
+`userPrefs/{uid}/pushTokens` is empty for migrated users.

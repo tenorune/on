@@ -40,4 +40,31 @@ describe('applyDrawingPayload', () => {
   test('null buffer starts fresh from the payload tail', () => {
     expect(applyDrawingPayload(null, { base: 2, points: [[0.2, 0.2]] })).toEqual([[0.2, 0.2]]);
   });
+
+  test('append path mutates the buffer in place (same array identity)', () => {
+    const b = [[0, 0]];
+    const r = applyDrawingPayload(b, { points: [[1, 1]], base: 1 });
+    expect(r).toBe(b);
+    expect(r).toEqual([[0, 0], [1, 1]]);
+  });
+
+  test('replace path (base undefined) still returns a fresh array', () => {
+    const b = [[0, 0]];
+    const r = applyDrawingPayload(b, { points: [[9, 9]] });
+    expect(r).not.toBe(b);
+  });
+
+  test('malformed peer base: negative base does not throw and yields a usable array', () => {
+    expect(() => applyDrawingPayload([[0, 0]], { points: [[1, 1]], base: -3 })).not.toThrow();
+    const r = applyDrawingPayload([[0, 0]], { points: [[1, 1]], base: -3 });
+    expect(Array.isArray(r)).toBe(true);
+    expect(r).toEqual([[1, 1]]);
+  });
+
+  test('malformed peer base: NaN base does not throw and yields a usable array', () => {
+    expect(() => applyDrawingPayload([[0, 0]], { points: [[1, 1]], base: NaN })).not.toThrow();
+    const r = applyDrawingPayload([[0, 0]], { points: [[1, 1]], base: NaN });
+    expect(Array.isArray(r)).toBe(true);
+    expect(r).toEqual([[1, 1]]);
+  });
 });

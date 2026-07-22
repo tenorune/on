@@ -87,8 +87,8 @@ describe('M1 users/{uid} read scoping', () => {
 // redeemGroupInvite (non-member) now uses readGroupInvite(groupId, token)
 // (single-token read) instead of readGroupInvites(groupId) (whole collection),
 // so the rule is per-token, not collection-level — symmetric with personal invites.
-// then writeMember(self), writeUserGroupsEntry(self), and
-//   incrementGroupInviteRedemptions → groups/{gid}/invites/{token}/redemptionsUsed (C2).
+// then writeUserGroupsEntry(self); the member write and the redemptionsUsed
+// bump both happen server-side in the joinGroup callable (Admin SDK) (C2).
 describe('C2 + group-redeem non-member read flow', () => {
   beforeEach(async () => {
     await seed(env, async (db) => {
@@ -126,9 +126,18 @@ describe('C2 + group-redeem non-member read flow', () => {
     await assertFails(dbAs(env, 'joiner').ref('groups/G1/members/owner').get());
   });
 
-  test('a non-member joiner CAN self-join (writeMember) and bump redemptionsUsed (C2)', async () => {
-    await assertSucceeds(dbAs(env, 'joiner').ref('groups/G1/members/joiner').set({ role: 'member', displayName: 'J', joinedAt: 1 }));
-    await assertSucceeds(dbAs(env, 'joiner').ref('groups/G1/invites/TOKG/redemptionsUsed').set(1));
+  test('a non-member joiner CANNOT self-join directly (join only via callable); CANNOT bump redemptionsUsed even as a member (Fix B)', async () => {
+    // Self-join at the rules level is now blocked (Fix 2c); clients must use the joinGroup callable (Admin SDK).
+    await assertFails(dbAs(env, 'joiner').ref('groups/G1/members/joiner').set({ role: 'member', displayName: 'J', joinedAt: 1 }));
+    // Fix B: the redemption counter bump is now owner-only at the rules level.
+    // The legitimate bump moved server-side to the joinGroup callable (Admin
+    // SDK, bypasses rules) — a member (even one added via that callable) can
+    // no longer walk the counter from the client. This inverts the old C2
+    // assertion, which is exactly the behavior Fix B outlaws.
+    await seed(env, async (db) => {
+      await db.ref('groups/G1/members/joiner').set({ role: 'member', displayName: 'J', joinedAt: 1 });
+    });
+    await assertFails(dbAs(env, 'joiner').ref('groups/G1/invites/TOKG/redemptionsUsed').set(1));
   });
 
   test('a true outsider (no member row, after join not happening) still cannot read the member list', async () => {

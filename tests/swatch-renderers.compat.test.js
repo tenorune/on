@@ -65,6 +65,12 @@ jest.mock('../js/store.js', () => ({
   getFavorites: jest.fn(() => []),
   getPalette: jest.fn(),
   setPalette: jest.fn(),
+  // groupContext.js's chain now reaches following.js's getCurrentMutuals()
+  // unconditionally on every roster render (Task 10's reconcileDistanceSubs,
+  // called from renderRoster) — following.js is intentionally left unmocked
+  // in this suite (see the firstRun.js mock comment above), and its real
+  // getCurrentMutuals() calls this store getter.
+  getFollowing: jest.fn(() => []),
 }));
 
 jest.mock('../js/prefs.js', () => ({
@@ -91,6 +97,18 @@ jest.mock('../js/prefs.js', () => ({
   incrementMadeCallCount: jest.fn(),
   getAnsweredCallCount: jest.fn(() => 0),
   incrementAnsweredCallCount: jest.fn(),
+  getLocationOptIn: jest.fn(() => false),
+}));
+// groupContext.js now imports js/locationShare.js (Task 8's group band
+// glyph). Unmocked, that pulls in js/telegram.ts → firebase/auth, which
+// needs `fetch` and blows up module load in this Node test environment —
+// this suite has no #group-location-glyph in its DOM fixtures so none of
+// this is ever exercised, but the import chain still has to resolve.
+jest.mock('../js/locationShare.js', () => ({
+  toggleContext: jest.fn(),
+  capabilityState: jest.fn(() => 'supported'),
+  isContextPublished: jest.fn(() => false),
+  isContextAvailable: jest.fn(() => false),
 }));
 
 jest.mock('../js/groupNav.js', () => ({
@@ -175,7 +193,7 @@ jest.mock('../js/features.js', () => ({
   PALETTE_INTERACTIONS_ENABLED: true,
   CALL_ENABLED: true,
 }));
-jest.mock('../js/me.js', () => ({ clearFirstUsePulse: jest.fn() }));
+jest.mock('../js/me.js', () => ({ clearFirstUsePulse: jest.fn(), paintLocationGlyph: jest.fn() }));
 
 if (typeof PointerEvent === 'undefined') {
   global.PointerEvent = class PointerEvent extends MouseEvent {

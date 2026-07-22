@@ -128,7 +128,9 @@ function initServiceWorker() {
     reloading = true;
     window.location.reload();
   });
-  navigator.serviceWorker.register('/sw.js').then((reg) => {
+  // updateViaCache 'none' makes update checks bypass the HTTP cache at the
+  // spec level — see piece 4 for why the default is not enough on iOS.
+  navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((reg) => {
     // Piece 4: iOS standalone PWAs resume without a navigation, so the
     // browser never re-checks sw.js on its own. Poke it on every foreground
     // (and once at launch) so a deployed update is noticed promptly.
@@ -155,19 +157,37 @@ Why this shape:
   indefinitely. Desktop/Android benefit too — updates land on foreground
   instead of next launch.
 
-## Piece 4 — hosting: `sw.js` must never be long-cached
+## Piece 4 — hosting: `sw.js` must be `no-store`, everything else revalidates
 
-Serve with revalidation, e.g. (Firebase Hosting syntax):
+Serve the app `no-cache`, but `sw.js` itself `no-store` (Firebase Hosting
+syntax; when a path matches multiple blocks, the LATER block wins for a
+duplicate header key — keep the `sw.js` block after `**`):
 
 ```json
 "headers": [
-  { "source": "**", "headers": [ { "key": "Cache-Control", "value": "no-cache" } ] }
+  { "source": "**", "headers": [ { "key": "Cache-Control", "value": "no-cache" } ] },
+  { "source": "/sw.js", "headers": [ { "key": "Cache-Control", "value": "no-store" } ] }
 ]
 ```
 
 - `no-cache` means "revalidate before use" (a conditional request, usually a
   cheap 304), not "don't cache". Instant loads and offline still come from the
   SW cache, so the HTTP cache adds little here — correctness beats it.
+- **`no-cache` is NOT enough for `sw.js` itself** (device-observed, iOS
+  WebKit, 2026-07-21): the SW *update check* was answered from
+  conditional-revalidation cache state with stale bytes — `reg.update()`
+  "succeeded" seeing the old worker for days while every unconditional fetch
+  of the same URL returned the new one, so the PWA never auto-updated.
+  `no-store` leaves nothing to revalidate on either the client or CDN side.
+  Pair it with `updateViaCache: 'none'` at `register()` (piece 3) — belt and
+  braces against the same failure. The cost is one small unconditional fetch
+  per check instead of a 304, for one file.
+- **Do NOT reach for a cache-busting registration URL** (`sw.js?v=…`)
+  instead: a script-URL change forces an install+activate+reload even when
+  the worker bytes are identical — with a per-boot value that is a visible
+  reload on every app open. And a build-stamped value can't help the stuck
+  devices anyway: the registering code is itself served from the old SW's
+  cache-first shell, so the stamp never changes exactly where it would matter.
 - **A long-cached `sw.js` breaks the entire scheme**: the browser re-checks
   the file but the CDN/HTTP cache keeps handing back the old bytes, and no
   client ever updates. If anything must be long-cached, exempt `sw.js` (and
@@ -181,7 +201,8 @@ Serve with revalidation, e.g. (Firebase Hosting syntax):
 
 1. Deploy: build re-stamps `sw.js` with a new hash (only if shell bytes changed).
 2. User foregrounds the PWA → `visibilitychange` → `reg.update()`.
-3. Browser fetches `sw.js` (hosting revalidates, no stale copy), sees new bytes.
+3. Browser fetches `sw.js` (`no-store` + `updateViaCache: 'none'` — a full
+   fresh read, no stale copy possible), sees new bytes.
 4. New worker installs: precaches the **new** shell into the **new** cache
    while the old one still serves the page.
 5. `skipWaiting` → activate → old caches deleted → `clients.claim()`.
@@ -201,7 +222,9 @@ their next open. Nobody ever sees a "please refresh" prompt.
 - [ ] Same-origin check in `fetch` — do not proxy cross-origin requests
       (breaks Safari + third-party SDKs).
 - [ ] `hadController` guard so first install doesn't reload new visitors.
-- [ ] `Cache-Control` on `sw.js` must force revalidation.
+- [ ] `Cache-Control` on `sw.js` must be `no-store` — revalidation
+      (`no-cache`) is not enough on iOS WebKit; pair with
+      `updateViaCache: 'none'` at `register()`.
 - [ ] **Skip SW registration inside embedded webviews** (e.g. a Telegram
       Mini App): there's no offline-shell need there, and the update-reload
       cycle fights the host's own webview lifecycle. Detect the context and

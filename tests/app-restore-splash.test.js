@@ -59,6 +59,7 @@ jest.mock('../js/db.js', () => ({
   endCall: jest.fn().mockResolvedValue(undefined),
   getUser: jest.fn().mockResolvedValue({ code: 'MYCODE' }),
   getUserPrefs: jest.fn().mockResolvedValue(null),
+  getCurrentContextPref: jest.fn().mockResolvedValue(null),
   readGroup: jest.fn().mockResolvedValue(null),
   readGroupName: jest.fn().mockResolvedValue(null),
   watchUserPrefs: jest.fn(() => () => {}),
@@ -98,7 +99,6 @@ jest.mock('../js/db.js', () => ({
   writeGroupInvite: jest.fn(),
   readGroupInvites: jest.fn().mockResolvedValue({}),
   setGroupInviteRevoked: jest.fn(),
-  incrementGroupInviteRedemptions: jest.fn(),
   watchGroupInvites: jest.fn(() => () => {}),
   setStatusOverride: jest.fn().mockResolvedValue(undefined),
   clearStatusOverride: jest.fn().mockResolvedValue(undefined),
@@ -204,6 +204,9 @@ jest.mock('../js/prefs.js', () => ({
     sets: { '1': { selectedKey: 'default', activePaletteKey: 'default' } },
   })),
   getFollowing: jest.fn().mockReturnValue([]),
+  // locationShare's boot seeding reads these synchronously at init.
+  getLocationOptIn: jest.fn(() => false),
+  getOptedInLocationGids: jest.fn(() => []),
 }));
 
 jest.mock('../js/groupNav.js', () => ({

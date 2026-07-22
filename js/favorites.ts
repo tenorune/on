@@ -6,7 +6,6 @@ import { setStatusColor } from './db.js';
 import { getFavorites, setFavorites, isHintSeen, markHintSeen, isFavoritesCollapsed, setFavoritesCollapsed } from './prefs.js';
 import { safeCssColor } from './utils.js';
 import { getCurrentContext, onContextChange } from './groupNav.js';
-import { applyAdoptedComboInGroup } from './groupContext.js';
 
 const MAX_FAVORITES = 8;
 const DEFAULT_STATUS_COLOR = '#22c55e';  // default green (forest primary)
@@ -383,6 +382,10 @@ function peekStrip(container: HTMLElement, history: Combo[], homeContext = 'dire
       if (line) line.style.filter = '';
       return;
     }
+    // Hidden tab: keep the schedule alive without style churn. Placed AFTER
+    // the stop-condition above so a peek that should actually stop (strip
+    // opened, wrapper removed) still stops even while hidden.
+    if (document.visibilityState === 'hidden') { setTimeout(doPeek, 6000); return; }
     // Suppress the hint when the active context doesn't match this
     // peek's home context — the peek wrapper is body-level so it'd
     // otherwise float over the wrong view. Force-collapse and
@@ -449,7 +452,9 @@ function handleHistoryTap(idx: number) {
   // path as long-press group adoption from a roster member, sourced
   // from the pill instead. In Direct, restore the live picker state.
   if (getCurrentContext().context === 'group') {
-    applyAdoptedComboInGroup(combo.statusColor, combo.paletteKey ?? null);
+    import('./groupContext.js')
+      .then(({ applyAdoptedComboInGroup }) => applyAdoptedComboInGroup(combo.statusColor, combo.paletteKey ?? null))
+      .catch(() => {});
     return;
   }
 

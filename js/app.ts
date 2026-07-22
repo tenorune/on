@@ -1,7 +1,8 @@
 // js/app.ts
 import { loadIdentity, saveIdentity, clearIdentity, generateCode, generateRecoveryCode, parseRecoveryCode, deriveUserIdFromRecoveryCode } from './identity.js';
-import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getCall, getUser, getUserPrefs, readGroupName } from './db.js';
+import { initUser, isExpired, writeBackExpired, userExists, touchLastSeen, setStatus, watchOwnCall, endCall, getCall, getUser, getCurrentContextPref, readGroupName } from './db.js';
 import { initHeader, applyOwnStatus, enterFirstUseMode, setOwnStatusReadyCallback } from './me.js';
+import { initLocationShare } from './locationShare.js';
 import { initList, setFolloweeReadyCallback, setFollowingListReadyCallback, reEnterCallMode, type InitListOptions } from './following.js';
 import { initKnocks } from './knock.js';
 import { initCodeDrawer, updateMyCode, startPersonalInviteFlow } from './mycode.js';
@@ -15,13 +16,12 @@ import { initFavoritesStrip } from './favorites.js';
 import { getPaletteState, getFollowing } from './store.js';
 import { attemptRedeemFromUrl, extractInviteTokenFromUrl, extractInboxIntentFromUrl, extractDirectIntentFromUrl, resolveInvitePreview } from './invites.js';
 import { decideBootRedirect, readBootRedirectContext } from './inviteBootGate.js';
-import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext } from './prefs.js';
+import { initPrefs, syncFromServer as syncPrefsFromServer, setCurrentContext as setPrefsCurrentContext, getOptedInLocationGids } from './prefs.js';
 import { watchUserPrefs } from './db.js';
 import { initNav, startCardsRowSubscriptions, initNavRow, onContextChange, applyServerCurrentContext, navigateToGroup, navigateToDirect, setLastKnownGroupName, setGroupsReadyCallback, getCurrentContext } from './groupNav.js';
 import { routeNotificationClick } from './notifyRouting.js';
 import { initOwnStatus, subscribeOwnStatus } from './ownStatus.js';
 import { initStatusStore } from './statusStore.js';
-import { enterGroupContext, exitGroupContext } from './groupContext.js';
 import { initGroupRemovalDetector, showToast } from './groups.js';
 import { initInbox, openInboxModal } from './inbox.js';
 import { initFollowGrants } from './followRequests.js';
@@ -30,11 +30,7 @@ import { ensureSignedIn } from './auth.js';
 import { shouldPrimeRestore, isStandalone, onboardingLane, installStepBodyHtml } from './installGuidance.js';
 import { isTelegramContext, ensureTelegramIdentity, isTelegramLinked, telegramFirstName } from './telegram.js';
 import { telegramBridgeReady } from './telegramBridge.js';
-import { initTelegramChrome } from './telegramChrome.js';
-import { telegramInviteGate, stampInviteOutcome, redemptionConsumedToken } from './telegramFirstRun.js';
-import { runLinkArrival } from './telegramLinkArrival.js';
 import { ensureCacheOwner } from './cacheOwner.js';
-import { initTelegramSettings, showLinkScreen } from './telegramSettings.js';
 import { showGraduationInfo } from './graduation.js';
 import { syncNotifyChannel } from './notifyChannel.js';
 import { syncBotDelivery } from './notifySuppression.js';
@@ -598,7 +594,8 @@ type BootSession = {
   code: string;
   isNew: boolean;
   pendingInviteToken: string | null;   // may be updated by the Telegram invite gate
-  tgInvite: Awaited<ReturnType<typeof telegramInviteGate>>;
+  tgInvite: Awaited<ReturnType<typeof import('./telegramFirstRun.js').telegramInviteGate>>;
+  tgFirstRun: typeof import('./telegramFirstRun.js') | null;
 };
 // Branded ordering token: zero runtime payload, proof that initStores has run.
 // resolveEntryContext requires one, so it is unrepresentable before the stores exist.
@@ -648,7 +645,11 @@ function parseBootIntent(): BootIntent | null {
 async function resolveIdentity(intent: BootIntent): Promise<BootSession | null> {
   let pendingInviteToken = intent.pendingInviteToken;
   const { identity, isNew } = await ensureIdentity(pendingInviteToken);
-  if (isTelegramContext()) initTelegramChrome();
+  if (isTelegramContext()) {
+    import('./telegramChrome.js')
+      .then(({ initTelegramChrome }) => initTelegramChrome())
+      .catch((err) => console.error('telegramChrome load failed:', err));
+  }
   const { userId, code } = identity;
 
   // Wipe another account's cached state before anything reads it (see
@@ -661,17 +662,32 @@ async function resolveIdentity(intent: BootIntent): Promise<BootSession | null> 
   // Telegram deep-linked invite (t.me ...?startapp=<token>): gate before the
   // normal redemption flow. Linked accounts redeem silently; unlinked arrivals
   // get the first-run interstitial (spec §1).
-  let tgInvite: Awaited<ReturnType<typeof telegramInviteGate>> = null;
+  let tgInvite: Awaited<ReturnType<typeof import('./telegramFirstRun.js').telegramInviteGate>> = null;
+  let tgFirstRun: typeof import('./telegramFirstRun.js') | null = null;
   if (!pendingInviteToken && isTelegramContext()) {
+    const { runLinkArrival } = await import('./telegramLinkArrival.js');
     if (await runLinkArrival({ dismissSplash })) return null; // onramp link handled — reboots on success
-    tgInvite = await telegramInviteGate({
+    tgFirstRun = await import('./telegramFirstRun.js');
+    tgInvite = await tgFirstRun.telegramInviteGate({
       linked: isTelegramLinked(),
       isNew,
       dismissSplash,
     });
     if (tgInvite) pendingInviteToken = tgInvite.token;
   }
-  return { userId, code, isNew, pendingInviteToken, tgInvite };
+  return { userId, code, isNew, pendingInviteToken, tgInvite, tgFirstRun };
+}
+
+// groupContext (~1.6k lines) is the largest client module and only group
+// sessions need it — lazy chunk (audit-2 N5). Serialized through one promise
+// chain so a rapid group→direct→group flip can never interleave enter/exit
+// out of order once the chunk is in flight.
+let _gcChain: Promise<unknown> = Promise.resolve();
+function withGroupContext(fn: (m: typeof import('./groupContext.js')) => void): void {
+  _gcChain = _gcChain
+    .then(() => import('./groupContext.js'))
+    .then(fn)
+    .catch((err) => console.error('groupContext load failed:', err));
 }
 
 // Stage 2: store initialization — own-status watch, per-group status store,
@@ -692,13 +708,19 @@ function initStores(session: BootSession): StoresReady {
   // userId before initNav → startCardsRowSubscriptions opens any watch.
   initStatusStore(userId);
   initNav(userId);
-  initNavRow();  // intra-initStores order: register its onContextChange listener
-                 // BEFORE the enterGroupContext listener below, so renderNavRow
-                 // runs first on each emit and creates #group-override-toggle-slot
-                 // before enterGroupContext looks for it.
+  initNavRow();  // registers its onContextChange listener before the one below,
+                 // so renderNavRow creates #group-override-toggle-slot first.
+                 // (Since audit-2 N5a, enterGroupContext runs async via
+                 // withGroupContext once a dynamic import resolves, so it is
+                 // strictly later regardless — this ordering is now belt-and-
+                 // suspenders, not load-bearing.)
   onContextChange((ctx) => {
-    if (ctx.context === 'group') enterGroupContext(((ctx.groupId) as string), userId);
-    else exitGroupContext();
+    if (ctx.context === 'group') {
+      const gid = ctx.groupId as string;
+      withGroupContext((m) => m.enterGroupContext(gid, userId));
+    } else {
+      withGroupContext((m) => m.exitGroupContext());
+    }
   });
   // Make the prefs module aware of who's writing: setCurrentContext (prefs.js)
   // only mirrors to userPrefs/{uid}/ when it knows the userId, and Stage 3
@@ -712,7 +734,7 @@ function initStores(session: BootSession): StoresReady {
 // initStores). Returns whether we landed in a group so Stage 4/5 can reveal the
 // right surface.
 async function resolveEntryContext(session: BootSession, intent: BootIntent, stores: StoresReady): Promise<Landing> {
-  const { userId, code, isNew, pendingInviteToken, tgInvite } = session;
+  const { userId, code, isNew, pendingInviteToken, tgInvite, tgFirstRun } = session;
   let landedInGroup = false;
 
   if (pendingInviteToken) {
@@ -772,7 +794,7 @@ async function resolveEntryContext(session: BootSession, intent: BootIntent, sto
       reconcileSilentRedeemToast(result, tgInvite, beatShown);
       // A consumed token never re-runs the ceremony on a re-tapped chat link
       // (W1 J#4) — stamp it (covers the silent-redeem path too).
-      if (tgInvite && redemptionConsumedToken(result)) stampInviteOutcome(tgInvite.token, 'redeemed');
+      if (tgInvite && tgFirstRun && tgFirstRun.redemptionConsumedToken(result)) tgFirstRun.stampInviteOutcome(tgInvite.token, 'redeemed');
       // Clean the URL so a refresh doesn't re-trigger.
       cleanInviteParamFromUrl();
       if (result.ok && result.groupId) {
@@ -821,14 +843,18 @@ async function resolveEntryContext(session: BootSession, intent: BootIntent, sto
     // context with the real name once watchGroupMeta lands. Hiding the
     // direct shell + nav row across the prefetch keeps the screen empty
     // until we know where we're landing.
+    // Start the leaf read before the DOM-hiding work below so the network
+    // round-trip overlaps the synchronous DOM manipulation instead of
+    // waiting behind it.
+    const ccPromise = getCurrentContextPref(userId);
     const directEl = document.getElementById('main-ui-direct');
     const navRowEl = document.getElementById('nav-row');
     if (directEl) directEl.classList.add('hidden');
     if (navRowEl) navRowEl.classList.add('hidden');
     try {
-      // currentContext lives in userPrefs/{uid}/ after the migration.
-      const prefsSnap = await getUserPrefs(userId);
-      const cc = prefsSnap?.currentContext;
+      // currentContext leaf only — the full node is downloaded once, by
+      // watchUserPrefs (Stage 4).
+      const cc = await ccPromise;
       if (typeof cc === 'string' && cc.startsWith('group:')) {
         const groupId = cc.slice(6);
         // Name leaf only: if the user was removed from this group while away,
@@ -871,9 +897,20 @@ async function resolveEntryContext(session: BootSession, intent: BootIntent, sto
 // group), so requiring resolveEntryContext's return (Landing) makes early
 // subscription unrepresentable. This replaces the old ordering comments at the
 // pinDirect force-write and initPrefs sites.
+const LAST_SEEN_TOUCH_KEY = 'statusapp_lastseen_touched';
+
 function startSubscriptions(session: BootSession, landing: Landing): void {
   const { userId } = session;
-  touchLastSeen(userId).catch(() => {});
+  // Every app open used to stamp lastSeen unconditionally, ticking every
+  // follower's presence watcher just from a re-open. formatLastSeen's display
+  // granularity is far coarser than per-open precision, and setStatus still
+  // stamps lastSeen on every real status write, so throttling this to once
+  // per 30 minutes per device doesn't affect real availability changes.
+  const lastTouch = Number(localStorage.getItem(LAST_SEEN_TOUCH_KEY) || 0);
+  if (Date.now() - lastTouch > 30 * 60 * 1000) {
+    touchLastSeen(userId).catch(() => {});
+    try { localStorage.setItem(LAST_SEEN_TOUCH_KEY, String(Date.now())); } catch { /* quota */ }
+  }
 
   // Cross-device user-preferences sync: reconciles local cache with server on
   // every change. Writes throughout the app (markHintSeen, incrementMadeCallCount,
@@ -918,17 +955,24 @@ function startSubscriptions(session: BootSession, landing: Landing): void {
 async function initSurfaces(session: BootSession, intent: BootIntent, landing: Landing): Promise<void> {
   const { userId, code, isNew } = session;
   initCodeDrawer(userId, code);
-  if (isTelegramContext()) initTelegramSettings(userId);
+  if (isTelegramContext()) {
+    import('./telegramSettings.js')
+      .then(({ initTelegramSettings }) => initTelegramSettings(userId))
+      .catch((err) => console.error('telegramSettings load failed:', err));
+  }
   // Empty-state primary "Invite your people": Telegram shares the deep link
   // straight to the native share sheet (spec §3/§4); web opens the invite modal.
   initFirstRun({
     onInvite: startPersonalInviteFlow,
-    onLink: isTelegramContext() ? showLinkScreen : null,
+    onLink: isTelegramContext()
+      ? () => { import('./telegramSettings.js').then(({ showLinkScreen }) => showLinkScreen()).catch(() => {}); }
+      : null,
     onGraduateInfo: isTelegramContext() ? showGraduationInfo : null,
   });
   const landingMsg = consumeGraduationNotice();
   if (landingMsg) showToast(landingMsg);
   initHeader(userId);
+  initLocationShare(userId, getOptedInLocationGids);
   if (!splashDone) {
     if (coldSplashGating) {
       // Re-armed splash (fresh-device restore, or an invite-redemption boot
@@ -1195,7 +1239,14 @@ function initServiceWorker() {
     reloading = true;
     window.location.reload();
   });
-  navigator.serviceWorker.register('/sw.js').then((reg) => {
+  // updateViaCache 'none' + the /sw.js no-store hosting header (firebase.json)
+  // both exist for the same device-observed iOS WebKit failure (2026-07-21):
+  // the SW update check was answered from HTTP-cache revalidation state with
+  // stale sw.js bytes, so update() "succeeded" seeing the old worker for days
+  // and the PWA never auto-updated. Belt and braces — keep both. The URL must
+  // stay literally '/sw.js': a cache-busting query would force an
+  // install+reload even for byte-identical workers (a reload on every boot).
+  navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then((reg) => {
     ((window) as Window & { __swRegistration?: ServiceWorkerRegistration }).__swRegistration = reg;
     // iOS standalone PWAs resume without a navigation, so the browser never
     // re-checks sw.js on its own. Poke it on every foreground (and once at

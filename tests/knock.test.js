@@ -428,36 +428,34 @@ describe('visibilitychange re-init', () => {
 // --- card-drawer-close replay ---
 
 describe('card-drawer-close replay', () => {
-  test('dispatching card-drawer-close causes initKnocks to re-run and animate a deferred knock', async () => {
-    const ts = Date.now() - 1000; // 1 second ago — within 24h, will be deferred
+  test('card-drawer-close drains a knock buffered while the drawer was open (no getKnocks re-read)', async () => {
+    // Previously card-drawer-close ran a full initKnocks (fresh getKnocks +
+    // listener re-attach). Now the knock that arrived while the drawer was open
+    // is buffered in memory and simply presented on close — the listener never
+    // died, so re-reading the server is waste this test guards against.
+    let liveCb;
     getKnocks.mockResolvedValue({ exists: () => false });
-    watchKnocksAdded.mockReturnValue(jest.fn());
+    watchKnocksAdded.mockImplementation((_uid, cb) => { liveCb = cb; return jest.fn(); });
     clearKnock.mockResolvedValue();
+    const { isCardDrawerOpen } = require('../js/cardDrawer.js');
 
-    // Initial call to cache the userId inside the module
     await initKnocks('myUid');
+    const getKnocksCallsBefore = getKnocks.mock.calls.length;
 
-    // Now seed a deferred knock for alice so the replay picks it up
     const li = makeLi('alice');
-    getKnocks.mockResolvedValue({
-      exists: () => true,
-      val: () => ({ alice: { count: 1, ts } }),
-    });
+    // Drawer open when the knock arrives → buffered, not presented.
+    isCardDrawerOpen.mockReturnValue(true);
+    liveCb('alice', { count: 1, ts: Date.now() });
+    expect(li.classList.contains('knock-deferred')).toBe(false);
 
-    // Trigger replay via card-drawer-close (mirrors the visibilitychange replay path).
-    // The event handler calls initKnocks() internally; we need to flush all
-    // microtasks it enqueues (getKnocks is a resolved promise, so one tick per
-    // await inside initKnocks). Using a zero-delay timer flush is the safest
-    // way to drain an unknown number of microtask continuations.
+    // Closing the drawer drains the buffer (rAF runs synchronously in this harness).
+    isCardDrawerOpen.mockReturnValue(false);
     document.dispatchEvent(new Event('card-drawer-close'));
 
-    // Drain all pending microtasks by awaiting a chain long enough to let the
-    // internal getKnocks().then() chain settle.
-    for (let i = 0; i < 10; i++) await Promise.resolve();
-
-    // The deferred knock should have been animated on alice's li
+    // The buffered knock is presented and cleared, with NO extra getKnocks read.
     expect(li.classList.contains('knock-deferred')).toBe(true);
     expect(clearKnock).toHaveBeenCalledWith('myUid', 'alice');
+    expect(getKnocks.mock.calls.length).toBe(getKnocksCallsBefore);
   });
 });
 
@@ -1136,5 +1134,252 @@ describe('Direct-knock pending stash (live listener)', () => {
     expect(document.querySelector('[data-user-id="alice"]').classList.contains('knock-live')).toBe(false);
     // Knock stays in DB so drainPendingDirectKnocks can replay + clear it on entry.
     expect(clearKnock).not.toHaveBeenCalled();
+  });
+});
+
+// --- held-while-away buffer (Task 4) ---
+// A knock that arrives while the tab is occluded (backgrounded, drawer open, on
+// canvas) is buffered in memory and left in the DB. On drawer-close / canvas-exit
+// it is drained from the buffer (no full initKnocks re-read). On visibilitychange
+// →visible the buffer is drained FIRST, then the full initKnocks safety-net runs.
+describe('held-while-away buffer: drain on drawer-close/canvas-exit instead of re-init', () => {
+  async function setupLiveListener() {
+    let liveCallback;
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockImplementation((_uid, cb) => { liveCallback = cb; return jest.fn(); });
+    clearKnock.mockResolvedValue();
+    await initKnocks('myUid');
+    return liveCallback;
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    const { isCardDrawerOpen } = require('../js/cardDrawer.js');
+    isCardDrawerOpen.mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  test('a knock arriving while hidden is buffered: no float, no present, and NOT cleared from DB', async () => {
+    const { getFloatedUserIds } = require('../js/knock.js');
+    const fire = await setupLiveListener();
+    const li = makeLi('alice');
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+
+    fire('alice', { count: 1, ts: Date.now() });
+
+    // Buffered only — nothing presented, nothing floated, DB untouched (backstop).
+    expect(li.classList.contains('knock-deferred')).toBe(false);
+    expect(li.classList.contains('knock-live')).toBe(false);
+    expect(getFloatedUserIds()).not.toContain('alice');
+    expect(clearKnock).not.toHaveBeenCalled();
+  });
+
+  test('card-drawer-close drains the buffered knock WITHOUT re-reading the DB (getKnocks not called again)', async () => {
+    const fire = await setupLiveListener();
+    const { isCardDrawerOpen } = require('../js/cardDrawer.js');
+    const li = makeLi('alice');
+    isCardDrawerOpen.mockReturnValue(true);
+    const getKnocksCallsBefore = getKnocks.mock.calls.length;
+
+    // Knock arrives while the drawer is open → buffered, not presented.
+    fire('alice', { count: 1, ts: Date.now() });
+    expect(li.classList.contains('knock-deferred')).toBe(false);
+
+    // Closing the drawer drains the buffer (rAF runs synchronously in this harness).
+    document.dispatchEvent(new Event('card-drawer-close'));
+
+    expect(li.classList.contains('knock-deferred')).toBe(true);
+    expect(clearKnock).toHaveBeenCalledWith('myUid', 'alice');
+    // The perf win: no full initKnocks re-init, so getKnocks was NOT called again.
+    expect(getKnocks.mock.calls.length).toBe(getKnocksCallsBefore);
+  });
+
+  test('canvas-exited drains the buffered knock WITHOUT re-reading the DB', async () => {
+    const fire = await setupLiveListener();
+    const canvas = document.createElement('div');
+    canvas.id = 'canvas-screen';
+    canvas.classList.add('active');
+    document.body.appendChild(canvas);
+    const li = makeLi('alice');
+    const getKnocksCallsBefore = getKnocks.mock.calls.length;
+
+    // Knock arrives while on canvas → buffered.
+    fire('alice', { count: 1, ts: Date.now() });
+    expect(li.classList.contains('knock-deferred')).toBe(false);
+
+    document.dispatchEvent(new Event('canvas-exited'));
+
+    expect(li.classList.contains('knock-deferred')).toBe(true);
+    expect(clearKnock).toHaveBeenCalledWith('myUid', 'alice');
+    expect(getKnocks.mock.calls.length).toBe(getKnocksCallsBefore);
+  });
+
+  test('visibilitychange→visible drains the buffer FIRST, then still runs the full initKnocks safety net', async () => {
+    const fire = await setupLiveListener();
+    const li = makeLi('alice');
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    fire('alice', { count: 1, ts: Date.now() }); // buffered while hidden
+    const getKnocksCallsBefore = getKnocks.mock.calls.length;
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    // drainHeldKnocks presented + cleared the buffered knock synchronously...
+    expect(li.classList.contains('knock-deferred')).toBe(true);
+    expect(clearKnock).toHaveBeenCalledWith('myUid', 'alice');
+    // ...and the full initKnocks safety net still ran (getKnocks re-read the DB).
+    expect(getKnocks.mock.calls.length).toBeGreaterThan(getKnocksCallsBefore);
+  });
+
+  test('drain empties the buffer: a second drawer-close does not re-present or re-clear (no double-present)', async () => {
+    const fire = await setupLiveListener();
+    const { isCardDrawerOpen } = require('../js/cardDrawer.js');
+    const li = makeLi('alice');
+    isCardDrawerOpen.mockReturnValue(true);
+    fire('alice', { count: 1, ts: Date.now() });
+
+    document.dispatchEvent(new Event('card-drawer-close'));
+    expect(clearKnock).toHaveBeenCalledTimes(1);
+
+    // Buffer is now empty — a second drain is a no-op.
+    li.classList.remove('knock-deferred');
+    document.dispatchEvent(new Event('card-drawer-close'));
+    expect(clearKnock).toHaveBeenCalledTimes(1);
+    expect(li.classList.contains('knock-deferred')).toBe(false);
+  });
+
+  test('card-drawer-close: a cross-context held knock (group-scoped, user not in that group) is stashed + badged instead of dropped, and stays in the DB', async () => {
+    const fire = await setupLiveListener();
+    const { isCardDrawerOpen } = require('../js/cardDrawer.js');
+    isCardDrawerOpen.mockReturnValue(true);
+    // Default getCurrentContext mock (see top-level beforeEach) is
+    // { context: 'direct', groupId: null } — so a knock scoped to group
+    // 'G1' has no matching li: findKnockTargetCard returns null because the
+    // user isn't in group context at all (mirrors a knock for a different
+    // group, or a Direct-scope knock while in a group, just as easily).
+    const card = document.createElement('div');
+    card.className = 'group-card';
+    card.dataset.groupId = 'G1';
+    document.body.appendChild(card);
+
+    // Knock arrives while the drawer is open → buffered, not presented.
+    fire('alice', { count: 1, ts: Date.now(), contextGroupId: 'G1' });
+
+    document.dispatchEvent(new Event('card-drawer-close'));
+
+    // Stashed + badged (bumpGroupCardBadge toggles this class) instead of
+    // being dropped silently.
+    expect(card.classList.contains('knock-pending')).toBe(true);
+    // The knock must stay in the DB — only a successfully-presented
+    // (li-found) knock is cleared; drainPendingKnocks clears this one when
+    // the user later navigates into G1.
+    expect(clearKnock).not.toHaveBeenCalledWith('myUid', 'alice');
+
+    // Confirm the replay path actually works: entering G1 later drains and
+    // clears it (proves it was stashed correctly, not just left dangling).
+    const { drainPendingKnocks } = require('../js/knock.js');
+    const { getCurrentContext } = require('../js/groupNav.js');
+    getCurrentContext.mockReturnValue({ context: 'group', groupId: 'G1' });
+    const groupRoster = document.createElement('div');
+    groupRoster.id = 'group-roster';
+    groupRoster.innerHTML = '<li data-user-id="alice"></li>';
+    document.body.appendChild(groupRoster);
+    drainPendingKnocks('G1');
+    expect(clearKnock).toHaveBeenCalledWith('myUid', 'alice');
+  });
+
+  test('card-drawer-close: a cross-context held Direct-scope knock (user not in Direct) is stashed + badged instead of dropped, and stays in the DB', async () => {
+    const { getCurrentContext } = require('../js/groupNav.js');
+    getCurrentContext.mockReturnValue({ context: 'group', groupId: 'G1' });
+    const fire = await setupLiveListener();
+    const { isCardDrawerOpen } = require('../js/cardDrawer.js');
+    isCardDrawerOpen.mockReturnValue(true);
+    const directCard = document.createElement('div');
+    directCard.className = 'group-card';
+    directCard.dataset.nav = 'direct';
+    document.body.appendChild(directCard);
+
+    // Direct-scope knock (no contextGroupId) arrives while user is in group
+    // context → findKnockTargetCard returns null (cur.context !== 'direct').
+    fire('alice', { count: 1, ts: Date.now() });
+
+    document.dispatchEvent(new Event('card-drawer-close'));
+
+    expect(directCard.classList.contains('knock-pending')).toBe(true);
+    expect(clearKnock).not.toHaveBeenCalledWith('myUid', 'alice');
+  });
+});
+
+// --- M1: →visible double-present guard ---
+// drainHeldKnocks presents+clears in-context held knocks; initKnocks then
+// re-reads getKnocks as a safety net. If the RTDB remove hasn't propagated
+// yet, the same knock can still be in that snapshot — without a skip set,
+// step 7 would re-animate it a second time.
+describe('M1: visibilitychange->visible does not double-pulse when the DB remove has not propagated', () => {
+  async function setupLiveListener() {
+    let liveCallback;
+    getKnocks.mockResolvedValue({ exists: () => false });
+    watchKnocksAdded.mockImplementation((_uid, cb) => { liveCallback = cb; return jest.fn(); });
+    clearKnock.mockResolvedValue();
+    await initKnocks('myUid');
+    return liveCallback;
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  test('an in-context knock buffered while hidden pulses exactly once even if getKnocks still returns it on re-init', async () => {
+    const fire = await setupLiveListener();
+    // Unique sender id — this test file accumulates stray visibilitychange
+    // listeners from earlier tests' un-drained module instances (each test
+    // re-requires knock.js without ever removing the previous test's
+    // document-level listener). Using an id no other test touches means
+    // those stray listeners find no matching li for it and no-op, so the
+    // per-li spy below only ever observes THIS test's presentation.
+    const sid = 'aliceM1Guard';
+    const li = makeLi(sid);
+
+    // Knock arrives while backgrounded — buffered, li stays in the DOM
+    // (in-context: Direct contact row exists), left in the DB.
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    const ts = Date.now();
+    fire(sid, { count: 1, ts });
+    expect(li.classList.contains('knock-deferred')).toBe(false);
+
+    // Count how many times THIS li's classList gets 'knock-deferred' added —
+    // applyDeferredKnock is the only code that adds it, once per
+    // presentation attempt for this sender. Scoped to this li's own
+    // classList object, so it can't be polluted by other listeners touching
+    // unrelated elements.
+    let deferredAddCount = 0;
+    const origAdd = li.classList.add.bind(li.classList);
+    jest.spyOn(li.classList, 'add').mockImplementation((...cls) => {
+      if (cls.includes('knock-deferred')) deferredAddCount += 1;
+      return origAdd(...cls);
+    });
+
+    // Simulate the RTDB remove not having propagated: getKnocks' snapshot
+    // (read by initKnocks' safety-net re-init) still contains this sender's knock.
+    getKnocks.mockResolvedValue({
+      exists: () => true,
+      val: () => ({ [sid]: { count: 1, ts } }),
+    });
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    // Flush the async chain inside initKnocks (await getKnocks, await
+    // Promise.all(clearKnock...)) so step 7 has had a chance to run.
+    await jest.runAllTimersAsync();
+
+    expect(li.classList.contains('knock-deferred')).toBe(true);
+    expect(deferredAddCount).toBe(1); // drain presented it once; step 7's skip set prevents a second pulse
   });
 });

@@ -27,7 +27,12 @@
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png" />
   <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
   <link rel="stylesheet" href="dist/css/app.css" />
-  <link rel="stylesheet" href="dist/css/canvas.css" />
+  <!-- canvas.css is injected on demand by js/canvas.ts (audit-2 N10). This
+       guard keeps the bare #canvas-screen <canvas> out of document flow until
+       that sheet lands (its display:flex, later in the cascade, overrides).
+       Inline style is CSP-legal (style-src 'unsafe-inline'); an onload
+       attribute on a link would NOT be (script-src has no unsafe-inline). -->
+  <style>#canvas-screen{display:none}</style>
   <script>try{var t=JSON.parse(localStorage.getItem('statusapp_theme')||'null');if(t){var r=document.documentElement;r.style.setProperty('--bg',t.bg);r.style.setProperty('--surface',t.surface);r.style.setProperty('--surface2',t.surface2);r.style.setProperty('--text',t.text);r.style.setProperty('--text-muted',t.textMuted);r.style.setProperty('--accent',t.accent);r.style.setProperty('--error-bg',t.errorBg);r.style.setProperty('--error-text',t.errorText);}}catch(e){}</script>
 </head>
 <body>
@@ -267,6 +272,14 @@
           <div id="header-status-row">
             <span id="my-status-label" class="status-label">Unavailable</span>
             <span id="time-remaining" style="display:none"></span>
+            <button id="location-glyph" class="location-glyph" aria-label="Share location" aria-pressed="false" style="display:none">
+              <!-- Pin + inner circle as ONE evenodd path: OFF strokes both
+                   outlines; ON fills the pin with the circle as a real hole
+                   (css .location-glyph.on). -->
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path fill-rule="evenodd" d="M12 21s-7-5.1-7-11a7 7 0 0 1 14 0c0 5.9-7 11-7 11z M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/>
+              </svg>
+            </button>
           </div>
           <div id="header-chips">
             <button id="time-chip" class="chip time-chip">2 hours</button>
@@ -371,6 +384,12 @@
           <div class="group-header-status-row">
             <span id="group-my-status-label" class="status-label">Unavailable</span>
             <span id="group-time-remaining" style="display:none"></span>
+            <button id="group-location-glyph" class="location-glyph" aria-label="Share location" aria-pressed="false" style="display:none">
+              <!-- Same evenodd pin as the Direct header's #location-glyph. -->
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path fill-rule="evenodd" d="M12 21s-7-5.1-7-11a7 7 0 0 1 14 0c0 5.9-7 11-7 11z M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/>
+              </svg>
+            </button>
           </div>
           <div class="group-header-chips">
             <button id="group-time-chip" class="chip time-chip">2 hours</button>

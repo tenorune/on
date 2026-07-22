@@ -4,8 +4,10 @@ import { getPaletteState } from './store.js';
 import { PALETTES_ENABLED } from './features.js';
 import { saveCombo, buildDirectCombo } from './favorites.js';
 import { applyThemeHint, restoreSetSwitchPulse } from './palettes.js';
-import { markHintSeen, getLastTimeout, setLastTimeout } from './prefs.js';
+import { markHintSeen, getLastTimeout, setLastTimeout, getLocationOptIn } from './prefs.js';
 import { CHIP_VALUES, chipIndexForMinutes } from './status.js';
+import { toggleContext, capabilityState, isPermissionDenied } from './locationShare.js';
+import { showToast, LOCATION_DENIED_TOAST } from './groups.js';
 
 let savingEnabled = false;
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
@@ -13,6 +15,7 @@ let countdownTimer: ReturnType<typeof setInterval> | null = null;
 // marker: a subscription tick carrying exactly this window while the dot is
 // already available is the echo of our own optimistic write, not news.
 let _countdownUntil: number | null = null;
+let _countdownVisHandler: (() => void) | null = null;
 let currentChipIndex = 3; // default: 2 hours
 let firstUseActive = false;
 let ownStatusSignalled = false;
@@ -20,6 +23,30 @@ let onOwnStatusReady: (() => void) | null = null;
 
 function migrateToChipIndex() {
   return chipIndexForMinutes(getLastTimeout());
+}
+
+// Paint a location glyph's state. Shared by the Direct header (me.js) and
+// the group band (groupContext.js) — same classes, different element.
+// 'unsupported' shares denied's visual (same .denied class) but gets its own
+// title: "check permissions" is wrong advice on a device with no geolocation.
+export function paintLocationGlyph(el: HTMLElement, state: 'on' | 'off' | 'denied' | 'unsupported') {
+  el.classList.toggle('on', state === 'on');
+  el.classList.toggle('denied', state === 'denied' || state === 'unsupported');
+  el.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
+  if (state === 'denied') el.title = 'Location unavailable — check permissions';
+  else if (state === 'unsupported') el.title = 'Location unavailable — not supported on this device';
+  else el.removeAttribute('title');
+}
+
+// The glyph state a repaint should show: capability and the sticky OS-denied
+// marker outrank the raw opt-in — without them, the event-driven repaints
+// (prefs sync, opt-in-changed) washed a denied paint back to plain off the
+// moment the teardown's own event fired. groupContext.js keeps its own copy
+// (against the current gid): importing this one would be mock-vacuous there.
+function directGlyphState(): 'on' | 'off' | 'denied' | 'unsupported' {
+  if (capabilityState() === 'unsupported') return 'unsupported';
+  if (isPermissionDenied()) return 'denied';
+  return getLocationOptIn('direct') ? 'on' : 'off';
 }
 
 // Called when the userPrefs-synced lastTimeoutMinutes changes (cross-device).
@@ -104,6 +131,25 @@ export function initHeader(myUserId: string) {
       if (copyBtn) copyBtn.textContent = 'Copy';
     }
   });
+
+  const locGlyph = document.getElementById('location-glyph');
+  if (locGlyph) {
+    paintLocationGlyph(locGlyph, directGlyphState());
+    locGlyph.addEventListener('click', async () => {
+      const state = await toggleContext('direct');
+      paintLocationGlyph(locGlyph, state);
+      if (state === 'denied') showToast(LOCATION_DENIED_TOAST);
+    });
+    // Cross-device echo: another device flipping the pref repaints this glyph.
+    document.addEventListener('location-prefs-synced', () => {
+      paintLocationGlyph(locGlyph, directGlyphState());
+    });
+    // Pref flipped outside the tap path (locationShare's mid-flight-revocation
+    // teardown): the tap handler above never runs, so the paint rides the event.
+    document.addEventListener('location-optin-changed', () => {
+      paintLocationGlyph(locGlyph, directGlyphState());
+    });
+  }
 }
 
 // Strips the FTU pulse from both dots. Idempotent; safe to call when neither
@@ -176,11 +222,22 @@ function startCountdown(availableUntil: number | null) {
   countdownTimer = setInterval(() => {
     const ms = timeRemainingMs(availableUntil);
     if (ms <= 0) {
-      setUnavailable();
-    } else {
+      setUnavailable(); // state transition — must fire even while hidden
+    } else if (document.visibilityState !== 'hidden') {
       document.getElementById('time-remaining')!.textContent = formatTimeRemaining(ms) + ' left';
     }
   }, 30000);
+  // Hidden-tab ticks skip the label write (paint-only; the expiry transition
+  // above still fires) — catch the label up the moment the tab is visible
+  // again, else it sits up to ~30s stale (audit-2 N8; mirrors following.ts's
+  // 60s label refresh from the same fix batch).
+  if (_countdownVisHandler) document.removeEventListener('visibilitychange', _countdownVisHandler);
+  _countdownVisHandler = () => {
+    if (document.visibilityState !== 'visible' || _countdownUntil == null) return;
+    const ms = timeRemainingMs(_countdownUntil);
+    if (ms > 0) document.getElementById('time-remaining')!.textContent = formatTimeRemaining(ms) + ' left';
+  };
+  document.addEventListener('visibilitychange', _countdownVisHandler);
 }
 
 function setAvailable(availableUntil: number | null) {
@@ -200,6 +257,7 @@ function setAvailable(availableUntil: number | null) {
   const label = document.getElementById('my-status-label')!;
   const chips = document.getElementById('header-chips')!;
   const timeRemaining = document.getElementById('time-remaining')!;
+  const lg = document.getElementById('location-glyph');
 
   // Same-frame swap (operator call: Direct must read as instantaneous, like
   // the group context) — no staged fade-out/swap/fade-in choreography; any
@@ -216,6 +274,7 @@ function setAvailable(availableUntil: number | null) {
   timeRemaining.textContent = formatTimeRemaining(timeRemainingMs(availableUntil)) + ' left';
   timeRemaining.style.display = '';
   timeRemaining.style.opacity = '1';
+  if (lg) lg.style.display = '';
   chips.style.pointerEvents = 'auto';
   chips.style.opacity = '1';
 }
@@ -225,6 +284,7 @@ function setUnavailable() {
   const label = document.getElementById('my-status-label')!;
   const chips = document.getElementById('header-chips')!;
   const timeRemaining = document.getElementById('time-remaining')!;
+  const lg = document.getElementById('location-glyph');
 
   // Idempotence: already fully unavailable (dot off AND the chips faded — the
   // latter distinguishes an applied unavailable from the markup default) →
@@ -239,6 +299,7 @@ function setUnavailable() {
   _countdownUntil = null;
   // clearInterval(null) is a no-op at runtime; the cast only appeases the checker.
   clearInterval(countdownTimer as ReturnType<typeof setInterval>);
+  if (_countdownVisHandler) { document.removeEventListener('visibilitychange', _countdownVisHandler); _countdownVisHandler = null; }
 
   const drawer = document.getElementById('code-drawer');
   const mycodeChip = document.getElementById('mycode-chip');
@@ -254,6 +315,7 @@ function setUnavailable() {
   }
   timeRemaining.style.display = 'none';
   timeRemaining.style.opacity = '';
+  if (lg) lg.style.display = 'none';
   label.classList.remove('available');
   label.textContent = 'Unavailable';
   label.style.opacity = '1';

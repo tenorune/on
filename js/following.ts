@@ -6,6 +6,9 @@ import {
   watchFollowing, setFollowingEntry, removeFollowingEntry, watchRevocations,
 } from './db.js';
 import { subscribePresence } from './presenceHub.js';
+import { subscribeDistance } from './locationHub.js';
+import { isContextPublished, isContextAvailable } from './locationShare.js';
+import { formatDistancePrecise } from '../shared/geo.js';
 import {
   getFollowing, addFollowing, removeFollowing, renameFollowing, updateFollowingCode,
   setFollowing, getFollowerName, setFollowerName,
@@ -14,9 +17,9 @@ import {
   isHintSeen, markHintSeen,
   getMadeCallCount, incrementMadeCallCount, getAnsweredCallCount, incrementAnsweredCallCount,
   getPaletteState, setPaletteState,
-  getFavorites,
+  getFavorites, getLocationOptIn,
 } from './prefs.js';
-import { escapeHtml, hexToRgb, safeCssColor, resolveDisplayName, availableForText } from './utils.js';
+import { escapeHtml, hexToRgb, safeCssColor, resolveDisplayName, availableForText, distanceFragmentHtml } from './utils.js';
 import { isLongpressHintEligible, isSwipeHintEligible } from './hints.js';
 import { PALETTES_ENABLED, PALETTE_INTERACTIONS_ENABLED, KNOCK_ENABLED, CALL_ENABLED, NOTIFICATIONS_ENABLED } from './features.js';
 import { createNotifyBell } from './notifyBell.js';
@@ -25,13 +28,13 @@ import { ensureNotificationsReady } from './notifyPrompt.js';
 import { getGlowForColor, getPaletteByKey, enterPaletteMode, switchSet, PALETTE_SETS, paintStatusDot } from './palettes.js';
 import { sendKnock, getFloatedUserIds, noteDirectActivity } from './knock.js';
 import { saveCombo, buildAdoptedCombo } from './favorites.js';
-import { enterCanvas, exitCanvas, showPeerLeftDialog } from './canvas.js';
 import { reconcileChildren } from './reconcile.js';
 import { refreshHints, clearActiveHint } from './hintRotation.js';
 import { setListEmpty } from './firstRun.js';
 import { extractInviteTokenFromText } from './inviteText.js';
 import { attemptRedeemFromUrl, resolveInvitePreview } from './invites.js';
 import { showGroupDisplayNamePrompt } from './groupDisplayNamePrompt.js';
+import { beginGroupEntryTransition, endGroupEntryTransition } from './groupNav.js';
 
 // Local contact shape (mirrors store.js's FollowingEntry) and the presence-node
 // view this module reads/writes. UserData carries the runtime-present fields
@@ -49,6 +52,16 @@ const unsubscribers = new Map<string, () => void>(); // userId → unsubscribe f
 const editingSet = new Set<string>();
 const lastUserData = new Map<string, UserData>(); // userId → most recent userData from Firebase
 const renderedFollowees = new Set<string>();
+
+// Distance ticks land here; updateFolloweeRow reads it when painting. One
+// subscription per rendered MUTUAL row, open exactly while our own Direct
+// publishing pref is on (rules would deny the reads regardless — we just
+// never attempt them). The invariant "_distanceUnsubs' keyset == currently
+// rendered mutuals ∧ opt-in on" is maintained by reconcileDistanceSubs, which
+// renderList calls on every pass — so it self-heals on any renderList trigger
+// (opt-in flip, mutual-set change, initList, …), not just row create/teardown.
+const _distances = new Map<string, number | null>();
+const _distanceUnsubs = new Map<string, () => void>();
 let onFolloweeReady: (() => void) | null = null;
 let onFollowingListReady: ((count: number) => void) | null = null;
 let _onInviteRedeemed: InviteRedeemedCb | null = null;
@@ -57,7 +70,18 @@ let _onInviteRedeemed: InviteRedeemedCb | null = null;
 // attribute for the same uid. Scope every Direct-list row lookup to #people-list
 // so a mutual who is also a group member never has their Direct row resolve to
 // the group roster — which leaked their Direct status into the group card.
+//
+// uid -> row element, populated by the reconcile create/update hooks in
+// renderList (this module's own #people-list nodes only, so it can never leak
+// a group-roster node for the same uid). This is a pure optimization over the
+// querySelector scan below — followeeRow always double-checks isConnected
+// before trusting the cache, so a missed/late removal can only cost an extra
+// scan, never hand back a wrong/detached row.
+const _rowByUid = new Map<string, HTMLElement>();
+
 function followeeRow(userId: string): HTMLElement | null {
+  const cached = _rowByUid.get(userId);
+  if (cached && cached.isConnected) return cached;
   return (document.querySelector(`#people-list [data-user-id="${userId}"]`) as HTMLElement | null);
 }
 
@@ -67,6 +91,7 @@ let unsubFollowerNames: (() => void) | null = null;
 let unsubFollowing: (() => void) | null = null;
 let unsubRevocations: (() => void) | null = null;
 let refreshInterval: ReturnType<typeof setInterval> | null = null;
+let _labelVisibilityHandler: (() => void) | null = null;
 let pendingAction: ConfirmAction | null = null; // { type: 'unfollow'|'removeFollower', userId, myUserId }
 // Session-singleton: null before init, set to myUserId at init, stable for the
 // in-view lifetime — typed non-null so its reads don't each need a cast.
@@ -75,6 +100,60 @@ let callModeCalleeId: string | null = null;   // userId of callee while in call 
 let _incomingCall: { from: string } | null = null; // { from } when someone is ringing me; null otherwise
 export function getIncomingCallFrom() { return _incomingCall?.from ?? null; }
 let unsubOwnCall: (() => void) | null = null;
+
+// Tears down every per-followee watch (presence + distance) and cached state
+// for a userId that's leaving the active set entirely (unfollowed, revoked,
+// or dropped by a server sync). Centralized so the distance subscription
+// stays paired with the presence one at every teardown site.
+function teardownFolloweeWatches(userId: string) {
+  const unsub = unsubscribers.get(userId);
+  if (unsub) unsub();
+  unsubscribers.delete(userId);
+  lastUserData.delete(userId);
+  _distanceUnsubs.get(userId)?.();
+  _distanceUnsubs.delete(userId);
+  _distances.delete(userId);
+}
+
+// Brings the open distance subscriptions back in line with "currently
+// rendered mutual ∧ opted in to Direct location sharing". Called by renderList
+// BEFORE reconcileChildren/DOM paint on every pass, so it covers all three
+// ways eligibility can churn while a row stays mounted: opt-in flips on (open
+// subs for already-rendered mutuals), opt-in flips off (close everything +
+// drop the cache before the paint that follows can read it), and a row
+// transitioning mutual → following-only (closes the sub the old key's
+// onRemove never touched, before the new non-mutual row's first paint).
+// `mutuals` must be the FollowingEntry list currently in the Mutuals section —
+// callers pass an empty array when nothing should stay open.
+function reconcileDistanceSubs(mutuals: FollowingEntry[], myUserId: string) {
+  // Eligibility is "viewer shares in Direct" (last-known model): opt-in ∧
+  // own node known to exist ∧ own availability. Without the published half,
+  // attaching before locations/{me} exists gets rules-denied — the SDK
+  // cancels the listener PERMANENTLY, and the "already open" guard below
+  // would then block any resubscribe for the whole session. The availability
+  // half is the display gate: an unavailable viewer is de facto not sharing
+  // and must not see distances. Closing on unavailable is safe to reverse —
+  // nodes persist, so the reopen attaches to live nodes with no cancel risk.
+  const eligibleIds = (getLocationOptIn('direct') && isContextPublished('direct') && isContextAvailable('direct'))
+    ? new Set(mutuals.map(e => e.userId)) : new Set<string>();
+
+  _distanceUnsubs.forEach((unsub, userId) => {
+    if (eligibleIds.has(userId)) return;
+    unsub();
+    _distanceUnsubs.delete(userId);
+    _distances.delete(userId);
+  });
+
+  for (const entry of mutuals) {
+    if (!eligibleIds.has(entry.userId)) continue;
+    if (_distanceUnsubs.has(entry.userId)) continue; // already open — never overwrite without unsubbing first
+    _distanceUnsubs.set(entry.userId, subscribeDistance(myUserId, entry.userId, (meters) => {
+      _distances.set(entry.userId, meters);
+      const data = lastUserData.get(entry.userId);
+      if (data) updateFolloweeRow(entry, data, myUserId);
+    }));
+  }
+}
 
 function showConfirm(title: string, btnText: string, action: ConfirmAction) {
   pendingAction = action;
@@ -94,10 +173,7 @@ async function doConfirm() {
   dismissConfirm();
 
   if (action.type === 'unfollow') {
-    const unsub = unsubscribers.get(action.userId);
-    if (unsub) unsub();
-    unsubscribers.delete(action.userId);
-    lastUserData.delete(action.userId);
+    teardownFolloweeWatches(action.userId);
     await unregisterAsFollower(action.userId, action.myUserId);
     removeFollowing(action.userId);
     removeFollowingEntry(action.myUserId, action.userId).catch(() => {});
@@ -109,6 +185,22 @@ async function doConfirm() {
     latestFollowersSnapshot = latestFollowersSnapshot.filter(f => f.userId !== action.userId);
     renderList();
   }
+}
+
+// The ONE composition of an available row's status text: fuzzy time plus the
+// distance suffix for mutual rows with a known distance. updateFolloweeRow's
+// full paint and _refreshTimeLabels' label-only path must both go through
+// this — a refresh that recomposes only the time wipes the suffix until the
+// next distance tick lands (device-visible: distance blinking out for ~10s
+// every minute). The mutual gate reads li.dataset.mutual (not just the cache):
+// a mutual→following-only transition can leave a stale _distances value
+// around for one microtask before reconcileDistanceSubs (run at the end of
+// the same renderList pass) deletes it — keying off the row means the
+// non-mutual card can never render it, even transiently.
+function availableStatusText(li: HTMLElement, userId: string, availableUntil: number | null): string {
+  const meters = li.dataset.mutual === '1' ? _distances.get(userId) : undefined;
+  const dist = typeof meters === 'number' ? distanceFragmentHtml(formatDistancePrecise(meters)) : '';
+  return availableForText(availableUntil) + dist;
 }
 
 // 60s tick: advance "available for …" labels in place. A row whose
@@ -124,9 +216,11 @@ export function _refreshTimeLabels(myUserId: string) {
       updateFolloweeRow(entry, userData, myUserId); // expired since last tick — full state flip
       return;
     }
-    const span = followeeRow(entry.userId)?.querySelector('.status-available');
-    if (span) span.textContent = availableForText(userData.availableUntil);
-    else updateFolloweeRow(entry, userData, myUserId); // unexpected row shape — full paint
+    const li = followeeRow(entry.userId);
+    const span = li?.querySelector('.status-available') as HTMLElement | null;
+    if (li && span) {
+      span.innerHTML = availableStatusText(li, entry.userId, userData.availableUntil ?? null);
+    } else updateFolloweeRow(entry, userData, myUserId); // unexpected row shape — full paint
   });
 }
 
@@ -140,6 +234,10 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
   unsubscribers.forEach((unsub) => unsub());
   unsubscribers.clear();
   lastUserData.clear();
+  _distanceUnsubs.forEach((unsub) => unsub());
+  _distanceUnsubs.clear();
+  _distances.clear();
+  _rowByUid.clear();
   editingSet.clear();
   callModeCalleeId = null;
   _incomingCall = null;
@@ -151,6 +249,7 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
   _inviteModeToken = null;
   _previewSeq++;
   if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+  if (_labelVisibilityHandler) { document.removeEventListener('visibilitychange', _labelVisibilityHandler); _labelVisibilityHandler = null; }
 
   // Inject confirm sheet once
   if (!document.getElementById('unfollow-confirm')) {
@@ -228,9 +327,7 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
       if (!getFollowing().some((f) => f.userId === revokerId)) continue;
       removeFollowing(revokerId);
       removeFollowingEntry(myUserId, revokerId).catch(() => {});
-      const unsub = unsubscribers.get(revokerId);
-      if (unsub) { unsub(); unsubscribers.delete(revokerId); }
-      lastUserData.delete(revokerId);
+      teardownFolloweeWatches(revokerId);
     }
     renderList();
   });
@@ -257,7 +354,10 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
           ? (getPaletteByKey(peerData.paletteKey)?.theme?.surface || '#1e293b') : '#1e293b';
         const myColor = getComputedStyle(document.documentElement).getPropertyValue('--my-status').trim() || '#22c55e';
         const peerColor = peerData?.statusColor || '#22c55e';
-        enterCanvas(peerId, resolveDisplayName(entry), myUserId, myColor, peerColor, peerSurface, () => exitCallMode(myUserId))
+        // Lazy chunk: the canvas engine loads on first call entry, not at boot
+        // (audit-2 N1 — a stray static import defeated the split).
+        import('./canvas.js')
+          .then(({ enterCanvas }) => enterCanvas(peerId, resolveDisplayName(entry), myUserId, myColor, peerColor, peerSurface, () => exitCallMode(myUserId)))
           .catch((err) => console.error('enterCanvas (answered) failed:', err));
       }
       return;
@@ -287,8 +387,16 @@ export function initList(myUserId: string, myCode: string, { onInviteRedeemed = 
     if (!call && callModeCalleeId !== null) handlePeerEnded(myUserId);
   });
 
-  // Refresh time labels every 60s (label-only; see _refreshTimeLabels)
-  refreshInterval = setInterval(() => _refreshTimeLabels(myUserId), 60000);
+  // Refresh time labels every 60s (label-only; see _refreshTimeLabels). Guarded
+  // so a hidden tab does no DOM work between ticks; the visibilitychange
+  // listener below catches the labels up the moment the tab becomes visible
+  // again (otherwise they'd sit stale until the next 60s tick landed).
+  refreshInterval = setInterval(() => {
+    if (document.visibilityState === 'hidden') return;
+    _refreshTimeLabels(myUserId);
+  }, 60000);
+  _labelVisibilityHandler = () => { if (document.visibilityState === 'visible') _refreshTimeLabels(myUserId); };
+  document.addEventListener('visibilitychange', _labelVisibilityHandler);
 
   (document.getElementById('add-person-btn') as HTMLElement).addEventListener('click', () => {
     const form = (document.getElementById('add-person-form') as HTMLElement);
@@ -475,13 +583,18 @@ function renderList() {
   // Preserving existing subscriptions prevents a visible flash to "Unavailable"
   // on every followers-list change, and keeps lastUserData accurate for sorting.
   const activeUserIds = new Set([...mutuals, ...followingOnly].map(e => e.userId));
-  unsubscribers.forEach((unsub, userId) => {
-    if (!activeUserIds.has(userId)) {
-      unsub();
-      unsubscribers.delete(userId);
-      lastUserData.delete(userId);
-    }
+  unsubscribers.forEach((_unsub, userId) => {
+    if (!activeUserIds.has(userId)) teardownFolloweeWatches(userId);
   });
+
+  // Runs BEFORE reconcileChildren below: the update()/create() callbacks (and
+  // the post-reconcile cache-repaint loop) read _distances synchronously while
+  // painting, so eligibility must already be settled by the time they run —
+  // otherwise a row losing its subscription this pass (opt-in off, or mutual →
+  // following-only) would still paint the stale value it's about to lose.
+  // subscribeDistance itself doesn't need the DOM node to exist yet (its first
+  // tick lands async), so opening subs here for freshly-mutual rows is safe too.
+  reconcileDistanceSubs(mutuals, myUserId);
 
   const list = (document.getElementById('people-list') as HTMLElement);
 
@@ -493,6 +606,8 @@ function renderList() {
       update: () => {},
       onRemove: (node) => {
         if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
+        const uid = node.dataset.userId;
+        if (uid && _rowByUid.get(uid) === node) _rowByUid.delete(uid);
       },
     });
     list.style.display = 'none';
@@ -594,6 +709,13 @@ function renderList() {
     },
     update: (node, key) => {
       if (key.startsWith('label:')) return;
+      // create() always stamps data-user-id before returning the node, and
+      // reconcile runs update() immediately after create() (before insertion)
+      // — so the attribute is already set here even for a brand-new row.
+      // Refreshed on every pass (not just create) so the map self-heals if a
+      // row's identity ever changes underneath the same key.
+      const uid = node.dataset.userId;
+      if (uid) _rowByUid.set(uid, node);
       const entry = entryByKey.get(key);
       if (key.startsWith('follower:')) {
         // Refresh the CODE (Name) label — the name can be learned post-create.
@@ -620,6 +742,12 @@ function renderList() {
     // re-entrancy guard mid-removal).
     onRemove: (node) => {
       if (isCardDrawerOpen() && node.querySelector('.card-drawer')) closeCardDrawer();
+      // Identity-guarded: only delete if this removed node is still the one
+      // the map has on file for its uid. Protects against a create-before-
+      // remove ordering for the same uid within a pass (mirrors the roster's
+      // eligibility-bit key flip) from wiping out a fresher entry.
+      const uid = node.dataset.userId;
+      if (uid && _rowByUid.get(uid) === node) _rowByUid.delete(uid);
     },
   });
 
@@ -784,9 +912,11 @@ function createFolloweeRow(entry: FollowingEntry, myUserId: string, isMutual = f
           callModeCalleeId = entry.userId;
           _incomingCall = null;
           answerCall(myUserId, entry.userId).catch(() => {});
-          enterCanvas(entry.userId, resolveDisplayName(entry), myUserId, myColor, peerColor, peerSurface, () => {
-            exitCallMode(myUserId);
-          }).catch(err => console.error('enterCanvas failed:', err));
+          import('./canvas.js')
+            .then(({ enterCanvas }) => enterCanvas(entry.userId, resolveDisplayName(entry), myUserId, myColor, peerColor, peerSurface, () => {
+              exitCallMode(myUserId);
+            }))
+            .catch(err => console.error('enterCanvas failed:', err));
         } else if (!li.classList.contains('call-mode')) {
           enterCallMode(entry, myUserId);
         }
@@ -872,6 +1002,10 @@ function createFolloweeRow(entry: FollowingEntry, myUserId: string, isMutual = f
     li.appendChild(actions[0].el);
   }
 
+  // Distance subscriptions are opened by reconcileDistanceSubs, called earlier
+  // in the renderList pass this row was created in (before reconcileChildren).
+  // Not needed here — no dependency on this DOM node existing.
+
   return li;
 }
 
@@ -948,12 +1082,8 @@ function syncFollowingFromServer(myUserId: string, serverFollowing: { userId: st
   // Tear down watchers for followees that disappeared; new ones will be
   // resubscribed by renderList.
   const serverIds = new Set(serverFollowing.map(e => e.userId));
-  for (const [uid, unsub] of unsubscribers.entries()) {
-    if (!serverIds.has(uid)) {
-      unsub();
-      unsubscribers.delete(uid);
-      lastUserData.delete(uid);
-    }
+  for (const uid of [...unsubscribers.keys()]) {
+    if (!serverIds.has(uid)) teardownFolloweeWatches(uid);
   }
   renderList();
 }
@@ -1002,8 +1132,9 @@ function subscribeToFollowee(entry: FollowingEntry, myUserId: string) {
       return;
     }
 
-    // Re-sort only when availability actually flips (group context re-sorts on
-    // every tick; Direct only on change to avoid reordering rows mid-interaction).
+    // Re-sort only when availability actually flips — group context also
+    // resorts only on a flip now (groupContext.js's syncRosterOrder), same as
+    // Direct here, to avoid reordering rows mid-interaction on every tick.
     const prev = lastUserData.get(entry.userId);
     const flipped = isAvailable(prev?.status, prev?.availableUntil)
       !== isAvailable(userData.status, userData.availableUntil);
@@ -1051,7 +1182,7 @@ export function updateFolloweeRow(entry: FollowingEntry, userData: UserData, myU
       ? `<span style="color:${safeCssColor(color)}">${callText}</span>`
       : callText;
   } else if (isAvail) {
-    const text = availableForText(userData.availableUntil);
+    const text = availableStatusText(li, entry.userId, userData.availableUntil ?? null);
     statusText = PALETTES_ENABLED
       ? `<span class="status-available" style="color:${safeCssColor(color)}">${text}</span>`
       : `<span class="status-available">${text}</span>`;
@@ -1079,17 +1210,23 @@ export function updateFolloweeRow(entry: FollowingEntry, userData: UserData, myU
       li.style.background      = palette.theme.surface;
       li.style.borderLeftColor = palette.color;
       statusEl.style.color     = palette.theme.textMuted;
+      // The distance line reads var(--card-muted, --text-muted) from CSS —
+      // stamped on the li (not the fragment) so label-only innerHTML
+      // rebuilds keep the card-palette muted without re-running this branch.
+      li.style.setProperty('--card-muted', palette.theme.textMuted);
       const availableSpan = (statusEl.querySelector('.status-available') as HTMLElement | null);
       if (availableSpan) availableSpan.style.color = palette.color;
     } else {
       li.style.background      = '';
       li.style.borderLeftColor = '';
       statusEl.style.color     = '';
+      li.style.removeProperty('--card-muted');
     }
   } else {
     li.style.background      = '';
     li.style.borderLeftColor = isAvail ? safeCssColor(color) : '';
     if (statusEl) statusEl.style.color = '';
+    li.style.removeProperty('--card-muted');
   }
 
   // Call mode glow — caller side (this card is our active callee) or receiver side (they called us)
@@ -1142,6 +1279,23 @@ document.addEventListener('my-combo-changed', () => {
 // A knock float expired (knock.js). The card is no longer floated; re-sort so it
 // lands in its correct current position instead of a stale captured one.
 document.addEventListener('knock-float-restored', () => scheduleResort());
+
+// Our own Direct location opt-in flipped (glyph tap, via locationShare.ts's
+// toggleContext) or a server echo of prefs landed (prefs.ts's syncFromServer).
+// renderList's reconcileDistanceSubs pass (run unconditionally at the end of
+// every renderList) re-evaluates every currently-rendered mutual against the
+// new opt-in value, so this re-render opens/closes subs for already-rendered
+// mutual rows immediately — it does not wait for the row's section key to churn.
+document.addEventListener('location-optin-changed', () => renderList());
+document.addEventListener('location-prefs-synced', () => renderList());
+// Our own published state changed (locationShare.ts — a context's first
+// publish landed, the boot seed found a persisted node, or a teardown path
+// deleted it). Same reconcile path: eligibility keys off the node existing,
+// so this opens subs when the Direct node arrives and closes them when it is
+// deleted (the server cancels the underlying listeners when our node
+// disappears — they must be recreated, never reused). Unlike the two above,
+// this can fire before initList — so it guards on init having happened.
+document.addEventListener('location-publishing-changed', () => { if (myUserIdRef) renderList(); });
 
 // On drawer close, reconcile deferred receiver-side call-mode against the
 // latest known state — but ONLY for rows that actually have an incoming call
@@ -1266,18 +1420,37 @@ async function handleRedeemInvite(myUserId: string, myCode: string, token: strin
   const submit = (document.getElementById('add-submit-btn') as HTMLButtonElement);
   errorEl.classList.add('hidden');
   submit.disabled = true;
+  // True once the group-entry guard is open (needs-display-name branch only),
+  // so the shared success/failure tails below know to release it.
+  let entryGuardOpen = false;
   try {
     let result = (await attemptRedeemFromUrl(token, myUserId, myCode, {}) as RedeemResult | null);
     if (result && result.ok === false && result.reason === 'needs-display-name') {
       const displayName = await showGroupDisplayNamePrompt(result.groupName || 'this group', '');
+      // Group joins navigate straight into the group. Hide Direct + the nav row
+      // and suspend renderNavRow across the brokered redeem below: it's a slow
+      // callable whose own users/{uid}/groups write echoes an enumeration tick
+      // that would paint the new group's card (backend code as the name — no
+      // meta sub yet) over a still-visible Direct once closeAddForm reveals it.
+      // Same flash the inbox Join guards (a9223c2); the redeem form reached it
+      // by the other door. Released to navigateToGroup's own render on success
+      // (restore=false), or restored on failure (restore=true).
+      beginGroupEntryTransition();
+      entryGuardOpen = true;
       result = (await attemptRedeemFromUrl(token, myUserId, myCode, { displayName, cache: (result.cache as NonNullable<Parameters<typeof attemptRedeemFromUrl>[3]>['cache']) }) as RedeemResult | null);
     }
     if (result && result.ok) {
       closeAddForm();
       renderList();
+      // Release the guard (leaving Direct hidden) so navigateToGroup's synchronous
+      // emit inside the callback owns the next paint — prompt → dark body → group.
+      if (entryGuardOpen) endGroupEntryTransition(false);
       if (_onInviteRedeemed) await _onInviteRedeemed(result);
       return;
     }
+    // Redeem failed (or was declined) — bring Direct back so the inline error
+    // shows in the still-open form.
+    if (entryGuardOpen) endGroupEntryTransition(true);
     showError(errorEl, redeemFailureMessage(result && result.reason));
   } finally {
     submit.disabled = false;

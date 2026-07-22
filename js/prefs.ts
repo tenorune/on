@@ -11,7 +11,10 @@
 // To make a piece of state syncable: add a getter (defaults to localStorage),
 // add a setter (writes both layers), handle it in syncFromServer.
 
-import { mergeUserPrefs, readPushTokens } from './db.js';
+import {
+  mergeUserPrefs, readPushTokens,
+  writePushToken, touchPushTokenDb, removePushTokenDb, removePushTokens,
+} from './db.js';
 import {
   getPaletteState as storeGetPaletteState,
   setPaletteState as storeSetPaletteState,
@@ -257,11 +260,25 @@ function dedupeServerFavorites(arr: Array<FavoriteComboLike | null | undefined> 
 // Writes hit userPrefs/{uid}/notify/{targetUid}/{type} via mergeUserPrefs.
 const NOTIFY_KEY = 'statusapp_notify_prefs';
 
+// Raw-string memo (same shape as store.ts's getFollowing): parsing the same
+// string every reconcile pass is pure waste. The raw value is still read (and
+// compared) every call, so direct/cross-tab writes are still seen. Callers
+// mutate the returned map's top-level keys only (see setNotifyPref /
+// syncFromServer), so a shallow copy is enough to protect the memo.
+let _notifyRaw: string | null = null;
+let _notifyParsed: Record<string, NotifyPrefsEntry> = {};
+
 function readNotifyCache(): Record<string, NotifyPrefsEntry> {
+  const raw = localStorage.getItem(NOTIFY_KEY);
+  if (raw !== null && raw === _notifyRaw) return { ..._notifyParsed };
+  let parsed: Record<string, NotifyPrefsEntry> = {};
   // Cast: JSON.parse tolerates null at runtime (coerced to "null" → null,
   // caught by the || {}); the lib typing only admits strings.
-  try { return JSON.parse(localStorage.getItem(NOTIFY_KEY) as string) || {}; }
-  catch { return {}; }
+  try { parsed = JSON.parse(raw as string) || {}; }
+  catch { /* malformed → {} */ }
+  _notifyRaw = raw;
+  _notifyParsed = parsed;
+  return { ...parsed };
 }
 function writeNotifyCache(map: Record<string, NotifyPrefsEntry>) {
   try { localStorage.setItem(NOTIFY_KEY, JSON.stringify(map)); } catch { /* quota */ }
@@ -306,9 +323,7 @@ export function addPushToken(token: string | null | undefined) {
   try { localStorage.setItem(PUSH_TOKEN_KEY, token); } catch { /* quota */ }
   if (_myUserId) {
     const now = Date.now();
-    mergeUserPrefs(_myUserId, {
-      [`pushTokens/${token}`]: { createdAt: now, lastSeen: now, ua: navigator.userAgent || '' },
-    }).catch(() => {});
+    writePushToken(_myUserId, token, { createdAt: now, lastSeen: now, ua: navigator.userAgent || '' }).catch(() => {});
   }
 }
 
@@ -316,7 +331,7 @@ export function addPushToken(token: string | null | undefined) {
 // granted), preserving createdAt/ua. Drives the stale-token TTL cull below.
 export function touchPushToken(token: string | null | undefined) {
   if (!token || !_myUserId) return;
-  mergeUserPrefs(_myUserId, { [`pushTokens/${token}/lastSeen`]: Date.now() }).catch(() => {});
+  touchPushTokenDb(_myUserId, token, Date.now()).catch(() => {});
 }
 
 // Prune the user's own tokens not seen within the TTL — orphans left by deleted
@@ -332,15 +347,13 @@ export async function cullStalePushTokens() {
     activeToken: getRegisteredPushToken(), now: Date.now(), maxAgeMs: PUSH_TOKEN_TTL_MS,
   });
   if (!stale.length) return;
-  const updates: Record<string, null> = {};
-  for (const token of stale) updates[`pushTokens/${token}`] = null;
-  await mergeUserPrefs(_myUserId, updates).catch(() => {});
+  await removePushTokens(_myUserId, stale).catch(() => {});
 }
 
 export function removePushToken(token: string | null | undefined) {
   if (!token) return;
   if (localStorage.getItem(PUSH_TOKEN_KEY) === token) localStorage.removeItem(PUSH_TOKEN_KEY);
-  if (_myUserId) mergeUserPrefs(_myUserId, { [`pushTokens/${token}`]: null }).catch(() => {});
+  if (_myUserId) removePushTokenDb(_myUserId, token).catch(() => {});
 }
 
 // Pure: which tokens in `map` are stale (last seen beyond maxAgeMs), excluding
@@ -359,6 +372,57 @@ export function selectStalePushTokens(
     if (now - ts > maxAgeMs) stale.push(token);
   }
   return stale;
+}
+
+// ── Location sharing opt-in (per context: 'direct' | groupId) ───────────────
+// The glyph next to the time-remaining text is the ONLY control surface for
+// these (spec 2026-07-18 §6.1). Cached as one JSON map so reads stay sync.
+const LOCATION_PREFS_KEY = 'statusapp_location_prefs';
+
+// Raw-string memo (same shape as store.ts's getFollowing / readNotifyCache
+// above). No caller mutates map.groups in place (setLocationOptIn replaces it
+// wholesale; syncFromServer only reads it), so a shallow copy is enough to
+// protect the memo.
+let _locationRaw: string | null = null;
+let _locationParsed: { direct?: boolean; groups?: Record<string, boolean> } = {};
+
+function readLocationCache(): { direct?: boolean; groups?: Record<string, boolean> } {
+  const raw = localStorage.getItem(LOCATION_PREFS_KEY);
+  if (raw !== null && raw === _locationRaw) return { ..._locationParsed };
+  let parsed: { direct?: boolean; groups?: Record<string, boolean> } = {};
+  try { parsed = JSON.parse(raw as string) || {}; }
+  catch { /* malformed → {} */ }
+  _locationRaw = raw;
+  _locationParsed = parsed;
+  return { ...parsed };
+}
+function writeLocationCache(map: { direct?: boolean; groups?: Record<string, boolean> }) {
+  try { localStorage.setItem(LOCATION_PREFS_KEY, JSON.stringify(map)); } catch { /* quota */ }
+}
+
+export function getLocationOptIn(context: string): boolean {
+  const map = readLocationCache();
+  return context === 'direct' ? !!map.direct : !!map.groups?.[context];
+}
+
+export function setLocationOptIn(context: string, on: boolean) {
+  const map = readLocationCache();
+  if (context === 'direct') map.direct = !!on;
+  else map.groups = { ...(map.groups || {}), [context]: !!on };
+  writeLocationCache(map);
+  if (_myUserId) {
+    const field = context === 'direct' ? 'location/direct' : `location/groups/${context}`;
+    mergeUserPrefs(_myUserId, { [field]: !!on }).catch(() => {});
+  }
+}
+
+// All group ids whose location opt-in is on. NO membership filter on purpose:
+// locationShare uses this both to publish (a stale gid fails as one harmless
+// denied write) and to CLEAR — including sweeping the orphaned cell of a
+// group the user was kicked from (rules delete-only carve-out).
+export function getOptedInLocationGids(): string[] {
+  const groups = readLocationCache().groups || {};
+  return Object.keys(groups).filter((gid) => groups[gid]);
 }
 
 // ── Watch reconciliation ─────────────────────────────────────────────────────
@@ -439,8 +503,12 @@ export function syncFromServer(serverPrefs: UserPrefs | null | undefined) {
       pendingHead.push(l);
     }
     const merged = [...pendingHead, ...serverDeduped].slice(0, 8);
+    const unchanged = JSON.stringify(merged) === JSON.stringify(local);
     storeSetFavorites(merged);
-    document.dispatchEvent(new CustomEvent('favorites-synced'));
+    // Dispatch only on real change: syncFromServer runs on every prefs echo
+    // (each group swatch tap), and favorites exist forever once created — the
+    // unconditional dispatch rebuilt both strip containers per echo (audit F6).
+    if (!unchanged) document.dispatchEvent(new CustomEvent('favorites-synced'));
   }
   // currentContext
   if (typeof serverPrefs.currentContext === 'string') {
@@ -478,12 +546,33 @@ export function syncFromServer(serverPrefs: UserPrefs | null | undefined) {
   // Notification preferences (per-person knock/call/availability)
   if (serverPrefs.notify && typeof serverPrefs.notify === 'object') {
     const map = readNotifyCache();
+    let changed = false;
     for (const [targetUid, prefs] of Object.entries(serverPrefs.notify)) {
-      map[targetUid] = {
-        knock: !!prefs?.knock, call: !!prefs?.call, availability: !!prefs?.availability,
-      };
+      const next = { knock: !!prefs?.knock, call: !!prefs?.call, availability: !!prefs?.availability };
+      const cur = map[targetUid];
+      if (!cur || cur.knock !== next.knock || cur.call !== next.call || cur.availability !== next.availability) changed = true;
+      map[targetUid] = next;
     }
     writeNotifyCache(map);
-    document.dispatchEvent(new CustomEvent('notify-prefs-synced'));
+    if (changed) document.dispatchEvent(new CustomEvent('notify-prefs-synced'));
+  }
+  // Location-sharing opt-ins (per context). Dispatch only on a REAL change:
+  // syncFromServer runs on every userPrefs echo (each sibling-device swatch
+  // tap), and once `location` exists it exists forever — an unconditional
+  // dispatch re-ran two full list renders plus per-context server probes per
+  // echo (audit F5). Own-write echoes are no-ops here because setLocationOptIn
+  // already wrote the cache before the server round-trip.
+  if (serverPrefs.location && typeof serverPrefs.location === 'object') {
+    const next = {
+      direct: !!serverPrefs.location.direct,
+      groups: { ...(serverPrefs.location.groups || {}) },
+    };
+    const cur = readLocationCache();
+    const curGroups = cur.groups || {};
+    const gids = new Set([...Object.keys(curGroups), ...Object.keys(next.groups)]);
+    const changed = !!cur.direct !== next.direct
+      || [...gids].some((gid) => !!curGroups[gid] !== !!next.groups[gid]);
+    writeLocationCache(next);
+    if (changed) document.dispatchEvent(new CustomEvent('location-prefs-synced'));
   }
 }

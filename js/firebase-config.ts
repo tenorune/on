@@ -22,6 +22,7 @@ export const auth = getAuth(app);
 const _functions = getFunctions(app, 'europe-west1');
 const _validateRecovery = httpsCallable(_functions, 'validateRecovery');
 const _resolveInvitePreview = httpsCallable(_functions, 'resolveInvitePreview');
+const _joinGroup = httpsCallable(_functions, 'joinGroup');
 
 // Calls the validateRecovery callable; returns the Firebase custom token string.
 export async function callValidateRecovery(code: string): Promise<string> {
@@ -34,6 +35,14 @@ export async function callValidateRecovery(code: string): Promise<string> {
 export async function callResolveInvitePreview(token: string) {
   const { data } = await _resolveInvitePreview({ token });
   return (data as { preview?: unknown } | null | undefined)?.preview ?? null;
+}
+
+// Calls the joinGroup callable (Fix 2). Returns the handler result shape.
+export async function callJoinGroup(
+  args: { groupId: string; displayName: string; token?: string },
+): Promise<{ ok: boolean; groupId?: string; alreadyMember?: boolean; reason?: string }> {
+  const { data } = await _joinGroup(args);
+  return data as { ok: boolean; groupId?: string; alreadyMember?: boolean; reason?: string };
 }
 
 const _validateTelegram = httpsCallable(_functions, 'validateTelegram');

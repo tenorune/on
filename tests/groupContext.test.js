@@ -118,6 +118,7 @@ jest.mock('../js/groups.js', () => ({
   setOverrideStatusUnavailable: jest.fn().mockResolvedValue(undefined),
   setOverrideAppearance: jest.fn().mockResolvedValue(undefined),
   showToast: jest.fn(),
+  LOCATION_DENIED_TOAST: 'Location permission is denied — allow location access for this app in your device settings.',
 }));
 jest.mock('../js/promptModal.js', () => ({
   showTextPrompt: jest.fn(),
@@ -159,6 +160,23 @@ jest.mock('../js/prefs.js', () => ({
   setLastTimeout: jest.fn(),
   getGroupChipMinutes: jest.fn(() => null),
   setGroupChipMinutes: jest.fn(),
+  getLocationOptIn: jest.fn(() => false),
+}));
+jest.mock('../js/locationShare.js', () => ({
+  toggleContext: jest.fn(),
+  capabilityState: jest.fn(() => 'supported'),
+  isPermissionDenied: jest.fn(() => false),
+  // Distance-sub eligibility requires the context's own node to exist
+  // (last-known model) AND own availability IN THAT CONTEXT (de facto
+  // sharing; group availability is override-aware and independent of
+  // Direct) — default true so the roster distance tests exercise the
+  // opt-in axis independently.
+  isContextPublished: jest.fn(() => true),
+  isContextAvailable: jest.fn(() => true),
+}));
+jest.mock('../js/locationHub.js', () => ({
+  subscribeCellDistance: jest.fn(() => jest.fn()),
+  subscribeDistance: jest.fn(() => jest.fn()),
 }));
 jest.mock('../js/knock.js', () => ({
   sendKnock: jest.fn(),
@@ -177,6 +195,17 @@ jest.mock('../js/notifyBell.js', () => ({ createNotifyBell: jest.fn(), isNotifyP
 jest.mock('../js/notifyPrompt.js', () => ({ ensureNotificationsReady: jest.fn() }));
 jest.mock('../js/me.js', () => ({
   clearFirstUsePulse: jest.fn(),
+  // Real implementation (mirrors js/me.js's paintLocationGlyph) so the group
+  // glyph tests can assert on actual DOM state, not just call args — same
+  // pattern as the cardDrawer/notifyBell functional mocks in this file.
+  paintLocationGlyph: jest.fn((el, state) => {
+    el.classList.toggle('on', state === 'on');
+    el.classList.toggle('denied', state === 'denied' || state === 'unsupported');
+    el.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
+    if (state === 'denied') el.title = 'Location unavailable — check permissions';
+    else if (state === 'unsupported') el.title = 'Location unavailable — not supported on this device';
+    else el.removeAttribute('title');
+  }),
 }));
 jest.mock('../js/following.js', () => ({
   getCurrentFollowersMap: jest.fn(() => ({})),
@@ -254,6 +283,7 @@ function setupContextDom() {
             <div class="group-header-status-row">
               <span id="group-my-status-label" class="status-label">Unavailable</span>
               <span id="group-time-remaining" style="display:none"></span>
+              <button id="group-location-glyph" class="location-glyph" aria-label="Share location" aria-pressed="false" style="display:none"></button>
             </div>
             <div class="group-header-chips">
               <button id="group-time-chip" class="chip time-chip">2 hours</button>
@@ -334,6 +364,17 @@ describe('groupContext scaffolding', () => {
 });
 
 describe('group roster render', () => {
+  // Shared MutationObserver helper: capture records via the callback. A no-op
+  // observer callback drains the queue before takeRecords() runs, so
+  // callback-capture is the reliable technique in this jsdom setup. Used by the
+  // Task-1 repaint tests and the audit-2 N3 appearance-tick test.
+  function observeRow(el) {
+    const records = [];
+    const mo = new MutationObserver((muts) => records.push(...muts));
+    mo.observe(el, { attributes: true, attributeOldValue: true, childList: true, subtree: true, characterData: true });
+    return { records, disconnect: () => mo.disconnect() };
+  }
+
   beforeEach(() => {
     jest.clearAllMocks();
     setupContextDom();
@@ -547,6 +588,153 @@ describe('group roster render', () => {
     });
     expect(unsubByUid.a).not.toHaveBeenCalled(); // Alice's sub stays
     expect(unsubByUid.b).toHaveBeenCalled();     // Bob's sub torn down
+  });
+
+  // Perf audit item: syncStatusSubscriptions' subscribePresence callback used to
+  // call syncRosterOrder() (full resort + repaint of every row) on every tick,
+  // including lastSeen-only writes stamped on every peer app-open. Mirrors the
+  // Direct-list discipline (js/following.ts ~1093-1102): repaint only the
+  // ticking member's row; resort only when effective availability flips.
+  describe('presence ticks repaint only the ticking row (Task 1)', () => {
+    test('a lastSeen-only tick does not touch the other members\' rows', async () => {
+      let membersCb;
+      const statusCbs = {};
+      db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+      db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+      enterGroupContext('G1', 'me');
+      membersCb({
+        a: { role: 'member', displayName: 'Alice', joinedAt: 1 },
+        b: { role: 'member', displayName: 'Bob', joinedAt: 2 },
+        c: { role: 'member', displayName: 'Carol', joinedAt: 3 },
+      });
+      // Establish a baseline presence for all three (all unavailable).
+      statusCbs.a({ status: 'unavailable', availableUntil: null, lastSeen: 1000 });
+      statusCbs.b({ status: 'unavailable', availableUntil: null, lastSeen: 1000 });
+      statusCbs.c({ status: 'unavailable', availableUntil: null, lastSeen: 1000 });
+
+      const rowA = document.querySelector('#group-roster [data-user-id="a"]');
+      const rowB = document.querySelector('#group-roster [data-user-id="b"]');
+      const rowC = document.querySelector('#group-roster [data-user-id="c"]');
+      const obsA = observeRow(rowA);
+      const obsB = observeRow(rowB);
+      const obsC = observeRow(rowC);
+
+      // lastSeen-only tick on Alice: same status/availableUntil (no availability
+      // flip), just a newer lastSeen stamp (js/db/social.ts:293 writes this on
+      // every peer app-open).
+      statusCbs.a({ status: 'unavailable', availableUntil: null, lastSeen: 2000 });
+      await Promise.resolve(); // flush the MutationObserver microtask queue
+
+      obsA.disconnect(); obsB.disconnect(); obsC.disconnect();
+
+      expect(obsA.records.length).toBeGreaterThan(0); // the ticking row IS repainted
+      expect(obsB.records.length).toBe(0); // untouched — no full resort/repaint
+      expect(obsC.records.length).toBe(0); // untouched — no full resort/repaint
+    });
+
+    test('an availability flip still reorders the roster', () => {
+      let membersCb;
+      const statusCbs = {};
+      db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+      db.watchPresence.mockImplementation((uid, cb) => { statusCbs[uid] = cb; return () => {}; });
+      enterGroupContext('G1', 'me');
+      membersCb({
+        a: { role: 'member', displayName: 'Alice', joinedAt: 1 },
+        b: { role: 'member', displayName: 'Bob', joinedAt: 2 },
+        c: { role: 'member', displayName: 'Carol', joinedAt: 3 },
+      });
+      statusCbs.a({ status: 'unavailable', availableUntil: null });
+      statusCbs.b({ status: 'unavailable', availableUntil: null });
+      statusCbs.c({ status: 'unavailable', availableUntil: null });
+
+      const order = () => Array.from(document.querySelectorAll('#group-roster li[data-user-id]'))
+        .map((el) => el.dataset.userId);
+      expect(order()).toEqual(['a', 'b', 'c']); // alphabetical, all unavailable
+
+      // Carol flips to available — must float to the top (a resort, not just a repaint).
+      statusCbs.c({ status: 'available', availableUntil: Date.now() + 60000 });
+      expect(order()).toEqual(['c', 'a', 'b']);
+    });
+  });
+
+  // Perf audit item (audit-2 N3): the open group's watchGroupMembers callback
+  // had zero change detection — every co-member statusOverride write (per
+  // swatch/palette tap) re-ran the FULL pass (renderRoster -> reconcile-
+  // DistanceSubs, reconcileChildren repainting every row, refreshHints) and
+  // syncStatusSubscriptions for every viewer in the group, even though
+  // appearance fields (statusColor/paletteKey) can't change membership,
+  // names, ordering, distance eligibility, or the status-sub set. Client
+  // analogue of Task 3's server-side gate.
+  describe('appearance-only member ticks take the fast path (audit-2 N3)', () => {
+    test('a statusColor-only override tick repaints only the touched row (audit-2 N3)', async () => {
+      let membersCb;
+      db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+      enterGroupContext('G1', 'me');
+      const base = {
+        me: { displayName: 'Me' },
+        u2: { displayName: 'Bea', statusOverride: { enabled: true, status: 'available', statusColor: '#111111', availableUntil: null } },
+        u3: { displayName: 'Cal' },
+      };
+      membersCb(base);
+      await Promise.resolve();
+      const rowU3 = document.querySelector('[data-user-id="u3"]');
+      // Callback-capture (not takeRecords()) via the shared observeRow helper:
+      // a no-op observer callback drains the queue before takeRecords() runs.
+      const obsU3 = observeRow(rowU3);
+      membersCb({ ...base, u2: { ...base.u2, statusOverride: { ...base.u2.statusOverride, statusColor: '#222222' } } });
+      await Promise.resolve();
+      obsU3.disconnect();
+      expect(obsU3.records.length).toBe(0); // untouched row: zero DOM work
+
+      // The touched row DID repaint — same observable paintRosterRow effects
+      // the file's existing tests assert for a member row's statusColor:
+      // the .status-available span's inline color (copied from "available
+      // member with statusColor but no paletteKey has fuzzy time in
+      // statusColor", ~L1758-1763) and the dot's painted background (copied
+      // from "dot click going Available keeps the override's statusColor on
+      // the optimistic update", ~L1267-1269 — paintStatusDot is the same
+      // function for both the own-status dot and a roster row's .person-dot).
+      const rowU2 = document.querySelector('[data-user-id="u2"]');
+      const span = rowU2.querySelector('.status-available');
+      expect(span).not.toBeNull();
+      expect(span.getAttribute('style')).toMatch(/color:\s*#222222/i);
+      const dot = rowU2.querySelector('.person-dot');
+      expect(dot.style.background).not.toBe('');
+      expect(dot.style.background.toLowerCase()).toMatch(/222222|34,\s*34,\s*34/);
+    });
+
+    test('a membership change still runs the full reconcile after an appearance tick', async () => {
+      let membersCb;
+      db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+      enterGroupContext('G1', 'me');
+      const base = { me: { displayName: 'Me' }, u2: { displayName: 'Bea' } };
+      membersCb(base);
+      await Promise.resolve();
+      membersCb({ ...base, u4: { displayName: 'Dex' } }); // join
+      await Promise.resolve();
+      expect(document.querySelector('[data-user-id="u4"]')).not.toBeNull();
+    });
+
+    test('an override enabled-flip is NOT the fast path (ordering may change)', async () => {
+      let membersCb;
+      db.watchGroupMembers.mockImplementation((groupId, cb) => { membersCb = cb; return () => {}; });
+      enterGroupContext('G1', 'me');
+      const ov = { enabled: true, status: 'available', statusColor: '#111111', availableUntil: null };
+      const base = { me: { displayName: 'Me' }, u2: { displayName: 'Bea', statusOverride: ov } };
+      membersCb(base);
+      await Promise.resolve();
+      membersCb({ ...base, u2: { ...base.u2, statusOverride: { ...ov, enabled: false } } });
+      await Promise.resolve();
+      // Full pass ran: the row left the available cohort. Same assertions the
+      // file's existing availability tests make for this transition — dataset
+      // .available (copied from "member with override.enabled uses override
+      // status not primary", ~L1723) and the .person-dot 'available' class
+      // toggle (same test, ~L1728) — inverted here since u2 is leaving the
+      // available cohort rather than entering it.
+      const li = document.querySelector('[data-user-id="u2"]');
+      expect(li.dataset.available).toBe('false');
+      expect(li.querySelector('.person-dot').classList.contains('available')).toBe(false);
+    });
   });
 
   function captureRosterCallbacks() {
@@ -1447,6 +1635,183 @@ describe('own status row', () => {
   });
 });
 
+// The module wires the glyph's click + location-prefs-synced listeners ONCE
+// per module lifetime (guarded by the internal _glyphWired flag — see the
+// brief: "one-time listener wiring... NOT per entry"). Every other describe
+// block above already calls enterGroupContext against its own fresh DOM
+// (setupContextDom() replaces document.body.innerHTML per test), so by the
+// time this describe runs, _glyphWired is permanently true and pointing at a
+// long-discarded element. Each test here resets the module registry and
+// re-requires js/groupContext.js (mid-file-require pattern, mirroring
+// following.test.js's jest.resetModules()+jest.mock() sequences) to get a
+// fresh module instance — and therefore a fresh _glyphWired — bound to that
+// test's own DOM. jest.mock() factories declared at the top of this file are
+// hoisted and stay registered across resetModules(), so no re-registration
+// is needed, only re-require.
+describe('group location glyph (band)', () => {
+  let gc, ownStatusMod, prefsMod, locationShareMod;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.clearAllMocks();
+    setupContextDom();
+    ownStatusMod = require('../js/ownStatus.js');
+    prefsMod = require('../js/prefs.js');
+    locationShareMod = require('../js/locationShare.js');
+    gc = require('../js/groupContext.js');
+    require('../js/presenceHub.js')._resetPresenceHub();
+    require('../js/statusStore.js').__reset();
+    locationShareMod.capabilityState.mockImplementation(() => 'supported');
+    locationShareMod.isPermissionDenied.mockImplementation(() => false);
+    prefsMod.getLocationOptIn.mockImplementation(() => false);
+  });
+
+  test('hidden while the band is unavailable, shown while available, reflects the group\'s opt-in', () => {
+    prefsMod.getLocationOptIn.mockImplementation((gid) => gid === 'G1');
+    let primaryCb;
+    ownStatusMod.subscribeOwnStatus.mockImplementation((cb) => { primaryCb = cb; return () => {}; });
+    gc.enterGroupContext('G1', 'me');
+    const glyph = document.getElementById('group-location-glyph');
+
+    // Painted from the group's opt-in as soon as the own-status band
+    // renders, independent of availability — mirrors Direct's #location-glyph.
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    expect(glyph.classList.contains('on')).toBe(true);
+    // display tracks the band's own availability exactly like #group-time-remaining.
+    expect(glyph.style.display).toBe('none');
+
+    primaryCb({ status: 'available', availableUntil: Date.now() + 90 * 60000 });
+    expect(glyph.style.display).not.toBe('none');
+
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    expect(glyph.style.display).toBe('none');
+  });
+
+  test('capabilityState unsupported paints denied on the group glyph, regardless of opt-in', () => {
+    prefsMod.getLocationOptIn.mockImplementation(() => true);
+    locationShareMod.capabilityState.mockImplementation(() => 'unsupported');
+    let primaryCb;
+    ownStatusMod.subscribeOwnStatus.mockImplementation((cb) => { primaryCb = cb; return () => {}; });
+    gc.enterGroupContext('G1', 'me');
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    const glyph = document.getElementById('group-location-glyph');
+    expect(glyph.classList.contains('denied')).toBe(true);
+    // Its own title — "check permissions" is wrong advice when there is no
+    // geolocation permission to check.
+    expect(glyph.title).toBe('Location unavailable — not supported on this device');
+  });
+
+  test('a tap resolving unsupported paints the unsupported title, not the permissions one', async () => {
+    gc.enterGroupContext('G1', 'me');
+    const glyph = document.getElementById('group-location-glyph');
+
+    locationShareMod.toggleContext.mockResolvedValueOnce('unsupported');
+    glyph.click();
+    await Promise.resolve();
+
+    expect(glyph.classList.contains('denied')).toBe(true);
+    expect(glyph.title).toBe('Location unavailable — not supported on this device');
+  });
+
+  test('denied state is sticky: event repaints keep the denied paint while the permission stays denied', () => {
+    gc.enterGroupContext('G1', 'me');
+    const glyph = document.getElementById('group-location-glyph');
+
+    // Revocation teardown: pref flipped off, denied flag set, event dispatched
+    // — the repaint must not wash denied back to plain off.
+    locationShareMod.isPermissionDenied.mockImplementation(() => true);
+    document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context: 'G1' } }));
+    expect(glyph.classList.contains('denied')).toBe(true);
+    expect(glyph.title).toBe('Location unavailable — check permissions');
+
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+    expect(glyph.classList.contains('denied')).toBe(true);
+
+    // Denied lifted (e.g. a later successful glyph prove) → plain opt-in paint.
+    locationShareMod.isPermissionDenied.mockImplementation(() => false);
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+    expect(glyph.classList.contains('denied')).toBe(false);
+  });
+
+  test('click calls toggleContext(currentGid) and repaints from the result', async () => {
+    let primaryCb;
+    ownStatusMod.subscribeOwnStatus.mockImplementation((cb) => { primaryCb = cb; return () => {}; });
+    gc.enterGroupContext('G1', 'me');
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    const glyph = document.getElementById('group-location-glyph');
+    expect(glyph.classList.contains('on')).toBe(false);
+
+    locationShareMod.toggleContext.mockResolvedValueOnce('on');
+    glyph.click();
+    await Promise.resolve();
+
+    expect(locationShareMod.toggleContext).toHaveBeenCalledWith('G1');
+    expect(glyph.classList.contains('on')).toBe(true);
+    expect(glyph.getAttribute('aria-pressed')).toBe('true');
+
+    locationShareMod.toggleContext.mockResolvedValueOnce('denied');
+    glyph.click();
+    await Promise.resolve();
+
+    expect(glyph.classList.contains('on')).toBe(false);
+    expect(glyph.classList.contains('denied')).toBe(true);
+    // A denied tap also toasts — the OS-level deny otherwise reads as a no-op.
+    const { showToast } = require('../js/groups.js');
+    expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/location permission/i));
+  });
+
+  test('entering a DIFFERENT group repaints the glyph from THAT group\'s pref (no stale gid)', () => {
+    prefsMod.getLocationOptIn.mockImplementation((gid) => gid === 'G2');
+    let primaryCb;
+    ownStatusMod.subscribeOwnStatus.mockImplementation((cb) => { primaryCb = cb; return () => {}; });
+
+    gc.enterGroupContext('G1', 'me');
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    let glyph = document.getElementById('group-location-glyph');
+    expect(glyph.classList.contains('on')).toBe(false); // G1's opt-in is off
+
+    gc.enterGroupContext('G2', 'me'); // same mockImplementation re-captures the new cb
+    primaryCb({ status: 'unavailable', availableUntil: null });
+    glyph = document.getElementById('group-location-glyph');
+    expect(glyph.classList.contains('on')).toBe(true); // G2's opt-in is on
+  });
+
+  test('location-prefs-synced repaints the group glyph from the current group\'s pref (cross-device)', () => {
+    prefsMod.getLocationOptIn.mockImplementation(() => false);
+    gc.enterGroupContext('G1', 'me');
+    const glyph = document.getElementById('group-location-glyph');
+    expect(glyph.classList.contains('on')).toBe(false);
+
+    prefsMod.getLocationOptIn.mockImplementation((gid) => gid === 'G1');
+    document.dispatchEvent(new CustomEvent('location-prefs-synced'));
+    expect(glyph.classList.contains('on')).toBe(true);
+  });
+
+  test('location-optin-changed (e.g. revocation teardown) repaints the group glyph from the current pref', () => {
+    prefsMod.getLocationOptIn.mockImplementation(() => false);
+    gc.enterGroupContext('G1', 'me');
+    const glyph = document.getElementById('group-location-glyph');
+    expect(glyph.classList.contains('on')).toBe(false);
+
+    // locationShare flips prefs outside the tap path (revocation teardown)
+    // and dispatches this event — the paint must ride it, mirroring the
+    // location-prefs-synced listener above.
+    prefsMod.getLocationOptIn.mockImplementation((gid) => gid === 'G1');
+    document.dispatchEvent(new CustomEvent('location-optin-changed', { detail: { context: 'G1' } }));
+    expect(glyph.classList.contains('on')).toBe(true);
+  });
+
+  test('re-entering the group context does not double-wire the glyph click listener', async () => {
+    gc.enterGroupContext('G1', 'me');
+    gc.enterGroupContext('G1', 'me'); // second entry — must not add a second listener
+    const glyph = document.getElementById('group-location-glyph');
+    locationShareMod.toggleContext.mockResolvedValueOnce('on');
+    glyph.click();
+    await Promise.resolve();
+    expect(locationShareMod.toggleContext).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('roster context-aware status', () => {
   function captureMembers() {
     let membersCb;
@@ -1572,6 +1937,582 @@ describe('roster context-aware status', () => {
     expect(li.style.background).toBe('');
     const statusEl = li.querySelector('.person-status');
     expect(statusEl.style.color).toBe('');
+  });
+});
+
+// --- Coarse distance on the group roster (Task 10) ---
+//
+// Contract:
+// 1. Own group opt-in ON + co-member cell distance known + member available →
+//    status text ends with " · <1 km away" (or "~N km").
+// 2. Own group opt-in OFF → no cell subscriptions, no suffix.
+// 3. Member ALSO a Direct-publishing mutual with precise distance known →
+//    precise text wins ("· 120 m", not "· <1 km away").
+// 4. Unavailable member → status stays EMPTY (the roster's existing rule) —
+//    no distance-only text appears.
+//
+// Reconcile regressions (mirrors Task 9's fix in js/following.ts): opening
+// subs only at row-create and closing only at row-remove leaks when a row's
+// eligibility changes while it stays rendered. Tests 5-9 pin the
+// reconcileDistanceSubs pass — called from renderRoster on every render —
+// against opt-in flips, group exit, roster removal, and mutuality loss.
+describe('distance on group roster (Task 10)', () => {
+  const { subscribeCellDistance, subscribeDistance } = require('../js/locationHub.js');
+  const { getLocationOptIn } = require('../js/prefs.js');
+  const { getCurrentMutuals } = require('../js/following.js');
+  const { isContextPublished, isContextAvailable } = require('../js/locationShare.js');
+
+  afterEach(() => {
+    isContextPublished.mockImplementation(() => true);
+    isContextAvailable.mockImplementation(() => true);
+  });
+
+  function captureMembers() {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((g, cb) => { membersCb = cb; return () => {}; });
+    return () => membersCb;
+  }
+  function captureStatuses() {
+    const cbs = {};
+    db.watchPresence.mockImplementation((uid, cb) => { cbs[uid] = cb; return () => {}; });
+    return cbs;
+  }
+  function fireAvailable(statusCbs, uid) {
+    statusCbs[uid]?.({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+  }
+
+  let cellCbs, preciseCbs;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+    getLocationOptIn.mockImplementation(() => false);
+    getCurrentMutuals.mockImplementation(() => []);
+    cellCbs = new Map();    // peerUid -> cb
+    preciseCbs = new Map(); // peerUid -> cb
+    subscribeCellDistance.mockImplementation((gid, myUid, peerUid, cb) => {
+      cellCbs.set(peerUid, cb);
+      return jest.fn();
+    });
+    subscribeDistance.mockImplementation((myUid, peerUid, cb) => {
+      preciseCbs.set(peerUid, cb);
+      return jest.fn();
+    });
+  });
+
+  test('1. own group opt-in ON + cell distance known + available → coarse suffix', () => {
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
+    cellCbs.get('uidA')(500);
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/<1 km away$/);
+    // Block fragment (utils.distanceFragmentHtml): own line, no separator.
+    const row = document.querySelector('#group-roster [data-user-id="uidA"]');
+    expect(row.querySelector('.person-status .loc-frag').textContent).toBe('<1 km away');
+    expect(row.querySelector('.person-status').textContent).not.toContain('·');
+  });
+
+  test('2. own group opt-in OFF → no cell subscriptions, no suffix', () => {
+    getLocationOptIn.mockImplementation(() => false);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).not.toHaveBeenCalled();
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).not.toContain('away');
+  });
+
+  test('3. member ALSO a Direct-publishing mutual with precise distance known → precise wins', () => {
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1' || ctx === 'direct');
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeDistance).toHaveBeenCalledWith('me', 'uidA', expect.any(Function));
+    cellCbs.get('uidA')(500);
+    preciseCbs.get('uidA')(120);
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/120 meters away$/);
+    expect(status).not.toContain('<1 km away');
+  });
+
+  test('mutual who never broadcasts in Direct: precise stays null → coarse cell distance keeps rendering (2026-07-20 bug)', () => {
+    // The A/B device scenario: both share in the group; B has Direct OFF.
+    // Viewer enables Direct → B becomes precise-ELIGIBLE (mutual +
+    // primary-available), but B publishes no raw point, so the precise watch
+    // emits null forever. Mere eligibility must not tear the coarse tier
+    // down — only a precise value that actually RENDERS may exclude it.
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1' || ctx === 'direct');
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    // Roster-load reconcile (presence unknown yet) opens the coarse sub.
+    const firstCellUnsub = subscribeCellDistance.mock.results[0].value;
+    cellCbs.get('uidA')(500);
+    // B goes available in Direct AND the group → precise-eligible.
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeDistance).toHaveBeenCalledWith('me', 'uidA', expect.any(Function));
+    // Precise has DELIVERED nothing — the cell sub must stay open.
+    expect(firstCellUnsub).not.toHaveBeenCalled();
+    // B's locations node doesn't exist → the precise watch emits null.
+    preciseCbs.get('uidA')(null);
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/<1 km away$/);
+  });
+
+  test('Task 2: mutual whose precise tier RENDERS keeps only the precise sub open; cell reopens once primary lapses', () => {
+    // Precise wins at paint, so the cell sub for a precise-RENDERING mutual
+    // is pure waste — every peer cell write re-delivers into a tier that
+    // never paints. reconcileDistanceSubs excludes such uids from
+    // cellEligible: exactly one wire listen per such mutual, not two. The
+    // exclusion keys off a DELIVERED precise number, not mere eligibility —
+    // an eligible mutual with no raw point emits null forever and must keep
+    // the coarse tier (the 2026-07-20 bug's contract revision).
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1' || ctx === 'direct');
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: {
+        role: 'member', displayName: 'A', joinedAt: 2,
+        // Override keeps the row rendering "available" in-group even once
+        // primary presence lapses below, so the coarse-fallback assertion at
+        // the end isn't confounded by the unrelated "unavailable → empty
+        // status" rule (Test 4's contract).
+        statusOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 },
+      },
+    });
+    // Roster-load reconcile fires before any presence is known, so uidA is
+    // (transiently) cell-only-eligible and the coarse sub opens once here.
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(1);
+    const firstCellUnsub = subscribeCellDistance.mock.results[0].value;
+
+    // Primary available: uidA becomes cell- AND precise-eligible. The cell
+    // sub survives eligibility alone — precise hasn't delivered a number
+    // yet, and tearing coarse down now would leave nothing rendering if the
+    // mutual turns out not to broadcast in Direct.
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeDistance).toHaveBeenCalledWith('me', 'uidA', expect.any(Function));
+    expect(firstCellUnsub).not.toHaveBeenCalled();
+    // Precise DELIVERS → it renders from here on; the now-redundant cell sub
+    // closes (transition re-runs the reconcile) and must not reopen while
+    // precise stays live.
+    preciseCbs.get('uidA')(120);
+    expect(firstCellUnsub).toHaveBeenCalled();
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(1); // still just the one, now-closed, call
+    expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/120 meters away$/);
+
+    // Primary lapses → precise eligibility drops → the cell sub reopens
+    // (reopen is cancel-free: the peer's cell node persists and
+    // isContextPublished is already part of cellEligible's guard).
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+    statusCbs['uidA']?.({ status: 'unavailable', availableUntil: null });
+    expect(preciseUnsub).toHaveBeenCalled();
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
+    cellCbs.get('uidA')(500);
+    expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/<1 km away$/);
+  });
+
+  test('precise cascades only while the mutual broadcasts in Direct: primary-unavailable member (override-available in group) gets coarse; primary up-flip upgrades to precise', () => {
+    // The ANN/BOB device scenario: ANN is Unavailable in Direct but Available
+    // in the group via her override. Her persisted locations node must NOT
+    // render precise for BOB — her primary availability drives her raw-point
+    // publishing (a group override never publishes), so precise is off and
+    // the roster falls back to her coarse cell.
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1' || ctx === 'direct');
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: {
+        role: 'member', displayName: 'A', joinedAt: 2,
+        statusOverride: { enabled: true, status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 },
+      },
+    });
+    // Primary presence: UNAVAILABLE (the row still renders available via the override).
+    statusCbs['uidA']?.({ status: 'unavailable', availableUntil: null });
+    expect(subscribeDistance).not.toHaveBeenCalled();
+    expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
+    cellCbs.get('uidA')(500);
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/<1 km away$/);
+
+    // ANN goes Available in Direct → she is broadcasting precise again; the
+    // presence tick re-runs the reconcile and the precise sub opens.
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeDistance).toHaveBeenCalledWith('me', 'uidA', expect.any(Function));
+    preciseCbs.get('uidA')(120);
+    expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/120 meters away$/);
+
+    // …and back to primary-unavailable: the precise sub closes and a FRESH
+    // cell sub reopens (the redundant-parallel cell sub was excluded/closed
+    // while precise was live, so its cached distance was dropped too — the
+    // roster shows the coarse suffix again once the new cell sub delivers).
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+    statusCbs['uidA']?.({ status: 'unavailable', availableUntil: null });
+    expect(preciseUnsub).toHaveBeenCalled();
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
+    cellCbs.get('uidA')(500);
+    expect(document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent).toMatch(/<1 km away$/);
+  });
+
+  test('4. unavailable member → status stays EMPTY, no distance-only text', () => {
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
+    const getMembers = captureMembers();
+    captureStatuses(); // never fired — member stays unavailable
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    if (cellCbs.get('uidA')) cellCbs.get('uidA')(500);
+    const statusEl = document.querySelector('#group-roster [data-user-id="uidA"] .person-status');
+    expect(statusEl.textContent).toBe('');
+  });
+
+  test('5. opt-in flips ON mid-session (row already rendered) → subscription opens and a tick paints the suffix', () => {
+    getLocationOptIn.mockImplementation(() => false);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).not.toHaveBeenCalled();
+
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
+    document.dispatchEvent(new CustomEvent('location-optin-changed'));
+
+    expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
+    cellCbs.get('uidA')(500);
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/<1 km away$/);
+  });
+
+  test('6. opt-in flips OFF mid-session (suffix shown) → subscription is unsubbed and the suffix disappears', () => {
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    cellCbs.get('uidA')(500);
+    let status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/<1 km away$/);
+
+    const unsub = subscribeCellDistance.mock.results[0].value;
+    getLocationOptIn.mockImplementation(() => false);
+    document.dispatchEvent(new CustomEvent('location-optin-changed'));
+
+    expect(unsub).toHaveBeenCalled();
+    status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).not.toContain('away');
+  });
+
+  test('7. group exit tears down all cell + precise subscriptions', () => {
+    getLocationOptIn.mockImplementation(() => true); // 'G1' and 'direct' both on
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    const cellUnsub = subscribeCellDistance.mock.results[0].value;
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+
+    exitGroupContext();
+
+    expect(cellUnsub).toHaveBeenCalled();
+    expect(preciseUnsub).toHaveBeenCalled();
+  });
+
+  test('8. member removed from roster tears down their cell + precise subscriptions', () => {
+    getLocationOptIn.mockImplementation(() => true);
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    const cellUnsub = subscribeCellDistance.mock.results[0].value;
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+
+    // uidA leaves the group — next members tick omits them.
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+    });
+
+    expect(cellUnsub).toHaveBeenCalled();
+    expect(preciseUnsub).toHaveBeenCalled();
+    expect(document.querySelector('#group-roster [data-user-id="uidA"]')).toBeNull();
+  });
+
+  test('9. mutuality lost mid-session → precise subscription closes, coarse suffix keeps showing', () => {
+    getLocationOptIn.mockImplementation(() => true);
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    cellCbs.get('uidA')(500);
+    preciseCbs.get('uidA')(120);
+    let status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/120 meters away$/);
+
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+    getCurrentMutuals.mockImplementation(() => []);
+    document.dispatchEvent(new CustomEvent('following-synced'));
+
+    expect(preciseUnsub).toHaveBeenCalled();
+    // The redundant-parallel cell sub was closed (cache dropped) while
+    // precise rendered, so a FRESH cell sub reopened here — the coarse
+    // suffix returns once it delivers.
+    cellCbs.get('uidA')(500);
+    status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/<1 km away$/);
+  });
+
+  test('10. own nodes deleted (unpublished) → cell + precise subs close; republish reopens FRESH subs', () => {
+    getLocationOptIn.mockImplementation(() => true); // 'G1' and 'direct' both on
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(1);
+    expect(subscribeDistance).toHaveBeenCalledTimes(1);
+    const cellUnsub = subscribeCellDistance.mock.results[0].value;
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+
+    // Own nodes deleted (opt-out on another device, permission revocation) —
+    // eligibility must close both tiers' subs (the server cancelled the
+    // underlying listeners when locations/cells vanished).
+    isContextPublished.mockImplementation(() => false);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(cellUnsub).toHaveBeenCalled();
+    expect(preciseUnsub).toHaveBeenCalled();
+
+    // Nodes republished: BOTH tiers reopen fresh — the fresh precise sub has
+    // delivered nothing yet, so the cell exclusion (data-driven, Task 2 as
+    // revised 2026-07-20) doesn't apply until precise renders again.
+    isContextPublished.mockImplementation(() => true);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
+    expect(subscribeDistance).toHaveBeenCalledTimes(2);
+    // Precise delivers → the redundant cell sub closes again.
+    const secondCellUnsub = subscribeCellDistance.mock.results[1].value;
+    preciseCbs.get('uidA')(120);
+    expect(secondCellUnsub).toHaveBeenCalled();
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
+  });
+
+  test('cell tier is independent of Direct: own Direct unavailable but group-available → coarse subs open, precise stays closed', () => {
+    // The viewer-side of the independence rule: being unavailable in Direct
+    // (primary) must not hide the group's coarse distances when the viewer
+    // is available IN THE GROUP (override). Precise stays closed — that
+    // tier belongs to the Direct context.
+    isContextAvailable.mockImplementation((ctx) => ctx === 'G1');
+    getLocationOptIn.mockImplementation(() => true); // 'G1' and 'direct' both on
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
+    expect(subscribeDistance).not.toHaveBeenCalled();
+    cellCbs.get('uidA')(500);
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/<1 km away$/);
+  });
+
+  test('own availability drops → cell + precise subs close; available again reopens (viewer must be de facto sharing to see)', () => {
+    getLocationOptIn.mockImplementation(() => true);
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(1);
+    expect(subscribeDistance).toHaveBeenCalledTimes(1);
+    const cellUnsub = subscribeCellDistance.mock.results[0].value;
+    const preciseUnsub = subscribeDistance.mock.results[0].value;
+
+    isContextAvailable.mockImplementation(() => false);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(cellUnsub).toHaveBeenCalled();
+    expect(preciseUnsub).toHaveBeenCalled();
+
+    // Available again: BOTH tiers reopen fresh — the fresh precise sub has
+    // delivered nothing yet, so the cell exclusion (data-driven, Task 2 as
+    // revised 2026-07-20) doesn't apply until precise renders again.
+    isContextAvailable.mockImplementation(() => true);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(subscribeCellDistance).toHaveBeenCalledTimes(2);
+    expect(subscribeDistance).toHaveBeenCalledTimes(2);
+  });
+
+  test('11. entering while opted in but own nodes not yet published → no subs open', () => {
+    isContextPublished.mockImplementation(() => false);
+    getLocationOptIn.mockImplementation(() => true);
+    getCurrentMutuals.mockImplementation(() => [{ userId: 'uidA', label: 'A', code: 'X' }]);
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).not.toHaveBeenCalled();
+    expect(subscribeDistance).not.toHaveBeenCalled();
+  });
+});
+
+// --- uid -> row-element map for paintRosterRow's default arg (perf) ---
+//
+// paintRosterRow's default `li` argument used to be a plain
+// `#group-roster [data-user-id="uid"]` querySelector scan, run on every
+// distance/presence tick for every roster row. renderRoster's reconcile
+// update hook now populates a module-level uid->node map so the common,
+// still-connected case skips the DOM scan — but the map is only an
+// optimization: rosterRow() double-checks isConnected before trusting it, so
+// a missed/late removal can only cost an extra querySelector, never hand back
+// a wrong or detached row. Mirrors the followeeRow map in js/following.ts.
+describe('paintRosterRow uid map (perf)', () => {
+  const { subscribeCellDistance, subscribeDistance } = require('../js/locationHub.js');
+  const { getLocationOptIn } = require('../js/prefs.js');
+  const { getCurrentMutuals } = require('../js/following.js');
+
+  function captureMembers() {
+    let membersCb;
+    db.watchGroupMembers.mockImplementation((g, cb) => { membersCb = cb; return () => {}; });
+    return () => membersCb;
+  }
+  function captureStatuses() {
+    const cbs = {};
+    db.watchPresence.mockImplementation((uid, cb) => { cbs[uid] = cb; return () => {}; });
+    return cbs;
+  }
+  function fireAvailable(statusCbs, uid) {
+    statusCbs[uid]?.({ status: 'available', availableUntil: Date.now() + 60 * 60 * 1000 });
+  }
+
+  let cellCbs;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupContextDom();
+    getCurrentMutuals.mockImplementation(() => []);
+    cellCbs = new Map(); // peerUid -> cb
+    subscribeCellDistance.mockImplementation((gid, myUid, peerUid, cb) => {
+      cellCbs.set(peerUid, cb);
+      return jest.fn();
+    });
+    subscribeDistance.mockImplementation(() => jest.fn());
+  });
+
+  test('a mapped, connected roster row is resolved without a live document.querySelector', () => {
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
+
+    const spy = jest.spyOn(document, 'querySelector');
+    // The cell-distance tick callback calls paintRosterRow(uid) with its
+    // default arg (no `node` passed) — this must resolve from the uid map
+    // without falling back to a document-level scan.
+    cellCbs.get('uidA')(500);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+
+    const status = document.querySelector('#group-roster [data-user-id="uidA"] .person-status').textContent;
+    expect(status).toMatch(/<1 km away$/);
+  });
+
+  test('removing the roster row clears its map entry — a later paint falls back to querySelector and finds nothing', () => {
+    getLocationOptIn.mockImplementation((ctx) => ctx === 'G1');
+    const getMembers = captureMembers();
+    const statusCbs = captureStatuses();
+    enterGroupContext('G1', 'me');
+    getMembers()({
+      me: { role: 'owner', displayName: 'Me', joinedAt: 1 },
+      uidA: { role: 'member', displayName: 'A', joinedAt: 2 },
+    });
+    fireAvailable(statusCbs, 'uidA');
+    expect(subscribeCellDistance).toHaveBeenCalledWith('G1', 'me', 'uidA', expect.any(Function));
+    expect(document.querySelector('#group-roster [data-user-id="uidA"]')).not.toBeNull();
+
+    // uidA leaves the group: the roster row is torn down (reconcile onRemove)
+    // and must delete the stale map entry.
+    getMembers()({ me: { role: 'owner', displayName: 'Me', joinedAt: 1 } });
+    expect(document.querySelector('#group-roster [data-user-id="uidA"]')).toBeNull();
+
+    const spy = jest.spyOn(document, 'querySelector');
+    // A distance tick landing after teardown (the closure still holds the old
+    // callback) must never resurrect the detached row from a stale map entry.
+    expect(() => cellCbs.get('uidA')(500)).not.toThrow();
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('uidA'));
+    spy.mockRestore();
   });
 });
 

@@ -100,8 +100,8 @@ export function timeRemainingMs(availableUntil: number | null | undefined): numb
 // Imported (not just re-exported) because availableForText below uses the
 // fuzzy formatter locally; exported so call sites and tests keep importing
 // from utils.
-import { formatTimeRemaining, formatTimeRemainingFuzzy } from '../shared/timeFormat.js';
-export { formatTimeRemaining, formatTimeRemainingFuzzy };
+import { formatTimeRemaining, formatTimeRemainingFuzzy, formatAgeFuzzy } from '../shared/timeFormat.js';
+export { formatTimeRemaining, formatTimeRemainingFuzzy, formatAgeFuzzy };
 
 export function formatLastSeen(lastSeenMs: number | null | undefined): string | null {
   if (lastSeenMs == null) return null;
@@ -119,5 +119,13 @@ export function formatLastSeen(lastSeenMs: number | null | undefined): string | 
 export function availableForText(availableUntil: number | null | undefined): string {
   const remaining = availableUntil ? formatTimeRemainingFuzzy(timeRemainingMs(availableUntil)) : '';
   return remaining ? `Available for ${remaining}` : 'Available';
+}
+
+// The distance line under a status text (operator call: ALWAYS its own line,
+// never inline with a " · " separator — and being one block span, "<1 km" /
+// "away" can never split across lines either). Escaped — formatDistanceCoarse
+// emits "<1".
+export function distanceFragmentHtml(distanceText: string): string {
+  return `<span class="loc-frag">${escapeHtml(distanceText)}</span>`;
 }
 

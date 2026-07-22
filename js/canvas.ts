@@ -28,7 +28,40 @@ let _myUserId = null as unknown as string;
 let _peerName = '';
 let _penColor = '#22c55e';
 let _thickness = THICKNESS_VALUES[2]; // default medium
+// Stroke-constant derivations, computed once per stroke (onPointerDown):
+// safeCssColor is a regex + string alloc and the width a float derive; neither
+// input can change mid-stroke (toolbox taps land between strokes), so deriving
+// them per pointermove was pure per-event allocation (audit-2 N9). The
+// per-segment ctx ASSIGNMENTS stay — a concurrent peer renderStroke mutates
+// shared ctx state (see onPointerMove's comment).
+let _strokeCss = '';
+let _strokeWidthPx = 0;
 let _isDrawing = false;
+// The toolbox for the currently active canvas session, bound each enterCanvas
+// and cleared on exitCanvas. Backs _onScreenPointerDownCapture below: a single
+// module-level listener stays registered on the persistent #canvas-screen
+// across sessions, and this variable is how it knows which toolbox is "current"
+// without needing a new closure (and thus a new leaked listener) per session.
+let _activeToolbox: HTMLElement | null = null;
+
+// Close-on-tap-outside-toolbox handler for the canvas screen, registered on the
+// PERSISTENT #canvas-screen element (capture phase) — see buildFloatingUI and
+// exitCanvas. Because this is a single stable function reference, adding it on
+// every enterCanvas is idempotent (same fn + same capture flag => no dupe per
+// the DOM spec), and exitCanvas can reliably remove it, unlike the inline arrow
+// this replaced, which created a brand-new closure — and thus a new leaked
+// listener over that session's toolbox — on every enterCanvas.
+const _onScreenPointerDownCapture = (e: PointerEvent) => {
+  const toolbox = _activeToolbox;
+  if (!toolbox) return;
+  if (!toolbox.contains(e.target as Node | null) && toolbox.classList.contains('open')) {
+    animateToolbox(toolbox, false);
+    const undo = document.getElementById('canvas-undo');
+    if (undo) undo.style.display = '';
+    e.stopPropagation();
+    _isDrawing = false;
+  }
+};
 // Canvas bounding rect, cached at stroke start (pointerdown). getBoundingClientRect
 // forces a layout/reflow; calling it on every pointermove was the per-segment hot
 // path. The canvas isn't resized mid-stroke, so one read per stroke is sufficient.
@@ -265,16 +298,12 @@ function buildFloatingUI(container: HTMLElement, penColors: string[], bgColors: 
   });
   container.appendChild(toolbox);
 
-  // Close on tap outside toolbox — suppress the draw that would otherwise start
-  container.addEventListener('pointerdown', (e) => {
-    if (!toolbox.contains((e.target as Node | null)) && toolbox.classList.contains('open')) {
-      animateToolbox(toolbox, false);
-      const undo = document.getElementById('canvas-undo');
-      if (undo) undo.style.display = '';
-      e.stopPropagation();
-      _isDrawing = false;
-    }
-  }, true);
+  // Close on tap outside toolbox — suppress the draw that would otherwise start.
+  // container IS the persistent #canvas-screen; the listener itself is a stable
+  // module-level function (see _onScreenPointerDownCapture) so re-adding it here
+  // on every enterCanvas doesn't accumulate listeners, and exitCanvas can remove it.
+  _activeToolbox = toolbox;
+  container.addEventListener('pointerdown', _onScreenPointerDownCapture, true);
 
   // Undo button (bottom-left)
   const undoBtn = document.createElement('div');
@@ -360,7 +389,40 @@ export function showPeerLeftDialog(container: HTMLElement, peerName: string, onD
 
 // ─── Enter / Exit ────────────────────────────────────────────────────────────
 
+// canvas.css styles only the #canvas-screen overlay; shipping it render-
+// blocking in <head> taxed first paint for every visitor (audit-2 N10). The
+// SW still precaches it (sw SHELL), so this load is instant after the first
+// visit and works offline. Entry MUST await the sheet's application before
+// measuring: index.html's inline #canvas-screen{display:none} guard is in
+// force until then, so a synchronous first-entry sized the canvas off a
+// display:none element — 0×0 backing store, invisible strokes, underlying UI
+// showing through (device 2026-07-21; healed on re-entry, which is why it
+// looked intermittent). "Applied" is detected by the guard's display flipping
+// (canvas.css sets display:flex) — link load events alone don't say when the
+// cascade lands, and jsdom never fires them. Bounded so a failed load (first
+// visit offline, pre-SW) degrades to the old behavior instead of wedging.
+const CANVAS_CSS_APPLY_CAP_MS = 3000;
+function ensureCanvasCss(screen: HTMLElement): Promise<void> {
+  if (!document.querySelector('link[data-canvas-css]')) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'dist/css/canvas.css';
+    link.setAttribute('data-canvas-css', '1');
+    document.head.appendChild(link);
+  }
+  if (getComputedStyle(screen).display !== 'none') return Promise.resolve();
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    const check = () => {
+      if (getComputedStyle(screen).display !== 'none' || Date.now() - t0 > CANVAS_CSS_APPLY_CAP_MS) { resolve(); return; }
+      requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  });
+}
+
 export async function enterCanvas(peerId: string, peerName: string, myUserId: string, myStatusColor: string, peerStatusColor: string, callerSurface: string, onExit: () => void) {
+  await ensureCanvasCss(document.getElementById('canvas-screen') as HTMLElement);
   _canvasId = getCanvasId(myUserId, peerId);
   _myUserId = myUserId;
   _peerId = peerId;
@@ -552,6 +614,8 @@ export function exitCanvas() {
     screen.classList.remove('screenshot-mode');
     screen.removeEventListener('gesturestart', preventZoom);
     screen.removeEventListener('touchmove', preventMultiTouch);
+    screen.removeEventListener('pointerdown', _onScreenPointerDownCapture, true);
+    _activeToolbox = null;
 
     // Wait for fade-out, then clean up
     screen.addEventListener('transitionend', function onFadeOut() {
@@ -850,8 +914,10 @@ function onPointerDown(e: PointerEvent) {
   _currentPoints = [[nx, ny]];
   _lastSentIndex = 0;
 
-  _ctx.strokeStyle = safeCssColor(_penColor);
-  _ctx.lineWidth = _thickness * _canvas.width;
+  _strokeCss = safeCssColor(_penColor);
+  _strokeWidthPx = _thickness * _canvas.width;
+  _ctx.strokeStyle = _strokeCss;
+  _ctx.lineWidth = _strokeWidthPx;
   _ctx.lineCap = 'round';
   _ctx.lineJoin = 'round';
   _ctx.beginPath();
@@ -875,8 +941,8 @@ function onPointerMove(e: PointerEvent) {
   // change strokeStyle, lineWidth, and the path's current point via renderStroke;
   // without this we'd inherit the peer's color and draw a line from peer's last
   // point to ours.
-  _ctx.strokeStyle = safeCssColor(_penColor);
-  _ctx.lineWidth = _thickness * _canvas.width;
+  _ctx.strokeStyle = _strokeCss;
+  _ctx.lineWidth = _strokeWidthPx;
   _ctx.lineCap = 'round';
   _ctx.lineJoin = 'round';
   _ctx.beginPath();

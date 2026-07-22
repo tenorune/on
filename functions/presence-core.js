@@ -75,7 +75,7 @@ export function primaryAvailable(presence, now) {
 // the committed mirror functions/_shared/ (npm run sync-shared — never edit
 // the mirror by hand). Re-exported so telegram.js and the tests keep
 // importing from presence-core.
-export { formatTimeRemaining, formatTimeRemainingFuzzy } from './_shared/timeFormat.js';
+export { formatTimeRemaining, formatTimeRemainingFuzzy, formatAgeFuzzy } from './_shared/timeFormat.js';
 
 /** @type {Record<string, (name: string) => string>} */
 const TITLES = {

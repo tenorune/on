@@ -6,12 +6,12 @@ import {
   removeMember, removeUserGroupsEntry, deleteGroup as dbDeleteGroup,
   renameGroup as dbRenameGroup, setMemberDisplayName,
   readGroup, readGroupName, readMember,
-  watchUserGroups,
   mergeStatusOverride,
   readPendingInviteesForGroup, deletePendingInvite,
 } from './db.js';
-import { navigateToDirect, getCurrentContext, getLastKnownGroupName } from './groupNav.js';
+import { navigateToDirect, getCurrentContext, getLastKnownGroupName, subscribeGroupEnumeration } from './groupNav.js';
 import { clearGroupPaletteState } from './prefs.js';
+import { callJoinGroup } from './firebase-config.js';
 
 const NAME_MAX = 40;
 const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -116,7 +116,7 @@ export async function joinGroup(
   groupId: string,
   joinerUid: string,
   displayNameRaw: unknown,
-  opts: { group?: unknown; existing?: unknown } = {},
+  opts: { group?: unknown; existing?: unknown; token?: string } = {},
 ) {
   const displayName = validateName(displayNameRaw, 'Display name');
   // Allow callers that have already fetched these (e.g. redeemGroupInvite) to
@@ -129,22 +129,14 @@ export async function joinGroup(
   const existing = ('existing' in opts) ? opts.existing : await readMember(groupId, joinerUid);
   const now = Date.now();
   if (!existing) {
-    // Fresh membership: drop any per-group palette selection left over from a
-    // PRIOR membership. The default override below carries no statusColor/
-    // paletteKey, and groupContext seeds the color from the local per-group
-    // palette state — a stale selection would seed an orphaned color (e.g. a
-    // ROSE-palette WHITE with no theme), producing an impossible combo.
+    // Fresh membership: drop any stale per-group palette selection (see note
+    // below) BEFORE the brokered write so groupContext seeds a clean color.
     clearGroupPaletteState(groupId);
-    await writeMember(groupId, joinerUid, {
-      role: 'member',
-      displayName,
-      joinedAt: now,
-      // Default override ON + Available for 2h so the joiner is immediately
-      // visible to other group members. They can flip the override off via
-      // the nav toggle if they prefer to broadcast their primary status, or
-      // tap the dot to go unavailable.
-      statusOverride: { enabled: true, status: 'available', availableUntil: now + 2 * 60 * 60 * 1000 },
-    });
+    // Server-authoritative join: the callable validates entitlement and writes
+    // the member node (Admin SDK). The client can no longer self-write it once
+    // the members .write rule is tightened (Task 5).
+    const res = await callJoinGroup({ groupId, displayName, ...(opts.token ? { token: opts.token } : {}) });
+    if (!res.ok) throw new Error(res.reason || 'join-failed');
   }
   // Always bump lastVisited so the group surfaces at the top of the joiner's cards row.
   await writeUserGroupsEntry(joinerUid, groupId, { lastVisited: now });
@@ -161,7 +153,7 @@ let _detectorUnsub: (() => void) | null = null;
 export function initGroupRemovalDetector(myUserId: string) {
   if (_detectorUnsub) _detectorUnsub();
   _prevEnum = null;
-  _detectorUnsub = watchUserGroups(myUserId, async (collection) => {
+  _detectorUnsub = subscribeGroupEnumeration(async (collection) => {
     const next = collection || {};
     if (_prevEnum === null) { _prevEnum = next; return; }
     const removed = Object.keys(_prevEnum).filter((id) => !next[id]);
@@ -201,6 +193,13 @@ async function handleGroupRemoval(myUserId: string, groupId: string) {
     await navigateToDirect();
   }
 }
+
+// One copy of the location-glyph denied-tap toast, shared by both glyph
+// handlers (me.ts / groupContext.ts): with location denied at the OS level
+// (e.g. iOS Safari Websites set to "Never") the tap otherwise reads as a
+// silent no-op.
+export const LOCATION_DENIED_TOAST =
+  'Location permission is denied — allow location access for this app in your device settings.';
 
 // Generic dismissable toast (the markup ids predate other consumers, hence
 // group-removal-*). Also used by followRequests.js for the request/cancel

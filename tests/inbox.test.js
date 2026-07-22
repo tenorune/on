@@ -15,6 +15,9 @@ jest.mock('../js/groups.js', () => ({
 }));
 jest.mock('../js/groupNav.js', () => ({
   navigateToGroup: jest.fn().mockResolvedValue(undefined),
+  beginGroupEntryTransition: jest.fn(),
+  endGroupEntryTransition: jest.fn(),
+  setLastKnownGroupName: jest.fn(),
 }));
 jest.mock('../js/prefs.js', () => ({
   getFollowing: jest.fn(() => [
@@ -119,6 +122,18 @@ describe('Inbox', () => {
     cb({ G1: { from: 'uOwner1', ts: 100 } });
     await openInboxModal();   // render 1 → readGroupName('G1')
     await openInboxModal();   // render 2 → served from the session cache
+    expect(db.readGroupName).toHaveBeenCalledTimes(1);
+    expect(db.readGroupName).toHaveBeenCalledWith('G1');
+  });
+
+  test('caches a null group-name result too — a deleted group is not re-fetched every render', async () => {
+    let cb;
+    db.watchPendingInvites.mockImplementation((_uid, fn) => { cb = fn; return () => {}; });
+    db.readGroupName.mockResolvedValue(null); // deleted group → name-leaf read returns null
+    initInbox('me');
+    cb({ G1: { from: 'uOwner1', ts: 100 } });
+    await openInboxModal();   // render 1 → readGroupName('G1') → null
+    await openInboxModal();   // render 2 → should be served from the null cache
     expect(db.readGroupName).toHaveBeenCalledTimes(1);
     expect(db.readGroupName).toHaveBeenCalledWith('G1');
   });
@@ -233,6 +248,18 @@ describe('Inbox', () => {
     expect(groups.joinGroup).toHaveBeenCalledWith('G1', 'me', 'My Group Name', { group: { name: 'Family' }, existing: null });
     expect(db.deletePendingInvite).toHaveBeenCalledWith('me', 'G1');
     expect(groupNav.navigateToGroup).toHaveBeenCalledWith('G1');
+    // Flash guard (2026-07-21 regression): the brokered join is a slow
+    // callable round-trip — Direct + nav row must be hidden BEFORE it runs
+    // (or its enumeration echo paints the new group's code over Direct), the
+    // real group name seeded, and the guard released (hidden) only for
+    // navigateToGroup's own render to take over.
+    expect(groupNav.beginGroupEntryTransition).toHaveBeenCalled();
+    expect(groupNav.beginGroupEntryTransition.mock.invocationCallOrder[0])
+      .toBeLessThan(groups.joinGroup.mock.invocationCallOrder[0]);
+    expect(groupNav.setLastKnownGroupName).toHaveBeenCalledWith('G1', 'Family');
+    expect(groupNav.endGroupEntryTransition).toHaveBeenCalledWith(false);
+    expect(groupNav.endGroupEntryTransition.mock.invocationCallOrder[0])
+      .toBeLessThan(groupNav.navigateToGroup.mock.invocationCallOrder[0]);
   });
 
   test('Join surfaces an error and keeps the pending invite when joinGroup fails', async () => {
@@ -253,6 +280,8 @@ describe('Inbox', () => {
     expect(groupNav.navigateToGroup).not.toHaveBeenCalled();
     expect(groups.showToast).toHaveBeenCalledWith('Network down');
     expect(joinBtn.disabled).toBe(false);
+    // Flash guard released with restore=true: Direct + nav row come back.
+    expect(groupNav.endGroupEntryTransition).toHaveBeenCalledWith(true);
   });
 
   test('Join on a row where the user is already a member silently dismisses (no prompt, no joinGroup)', async () => {

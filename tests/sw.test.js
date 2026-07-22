@@ -39,8 +39,9 @@ function clickEvent(data) {
 
 describe('shell precache completeness', () => {
   test('SHELL precaches every stylesheet the shell loads', async () => {
-    // dist/css/canvas.css is loaded by index.template.html; a shell asset missing
-    // from SHELL renders unstyled offline and ships no SW update when it changes.
+    // dist/css/canvas.css is injected on demand by canvas.ts; precached so
+    // entry is instant and works offline. A shell asset missing from SHELL
+    // renders unstyled offline and ships no SW update when it changes.
     const { handlers, addAll } = loadSwWithMockSelf();
     const waited = [];
     handlers.install({ waitUntil: (p) => waited.push(p) });
@@ -61,6 +62,18 @@ describe('shell precache completeness', () => {
     const cached = addAll.mock.calls[0][0];
     expect(cached).toEqual(expect.arrayContaining(['/dist/bundle.js']));
     expect(cached.some((u) => u.includes('__'))).toBe(false);
+  });
+
+  test('registration bypasses the HTTP cache for update checks (updateViaCache none)', () => {
+    // iOS WebKit device-observed (2026-07-21): the SW update check was
+    // answered from HTTP-cache revalidation state with stale sw.js bytes, so
+    // the PWA never saw deployed updates. updateViaCache:'none' is the
+    // spec-level belt to firebase.json's no-store braces — losing either
+    // regresses iOS auto-update. The URL must stay literally '/sw.js':
+    // cache-busting queries force an install+reload even for byte-identical
+    // workers (a reload on every boot), so a changing URL is a trap.
+    const src = fs.readFileSync(path.resolve(__dirname, '..', 'js', 'app.ts'), 'utf8');
+    expect(src).toMatch(/register\('\/sw\.js',\s*\{\s*updateViaCache:\s*'none'\s*\}\)/);
   });
 });
 
@@ -214,5 +227,66 @@ describe('debug instrumentation (#156)', () => {
     const post = jest.fn();
     handlers.message({ data: { kind: 'debug-ping' }, source: { postMessage: post } });
     expect(post).toHaveBeenCalledWith(expect.objectContaining({ kind: 'debug-pong', cache: '__CACHE_VERSION__' }));
+  });
+});
+
+describe('chunk carry-over on install (audit F9)', () => {
+  const fsx = require('fs');
+  // Jest's runtime caches file content by absolute path for the lifetime of
+  // the worker (jest.isolateModules only sandboxes the module *registry*, not
+  // that content cache), so re-writing the SAME tmp filename across calls in
+  // this file makes a later require() silently replay an earlier stamp's
+  // source. A per-call unique filename gives each stamp its own path.
+  let stampCounter = 0;
+  function loadStampedSw(chunkList, { priorMatch } = {}) {
+    const handlers = {};
+    const addAll = jest.fn().mockResolvedValue(undefined);
+    const put = jest.fn().mockResolvedValue(undefined);
+    global.self = {
+      addEventListener: (type, fn) => { handlers[type] = fn; },
+      skipWaiting: jest.fn(),
+      clients: { claim: jest.fn(), matchAll: jest.fn().mockResolvedValue([]) },
+      registration: { showNotification: jest.fn() },
+      location: { origin: 'https://app.example' },
+    };
+    global.fetch = jest.fn().mockResolvedValue('network-response');
+    global.caches = {
+      open: jest.fn().mockResolvedValue({ addAll, put }),
+      keys: jest.fn().mockResolvedValue([]),
+      match: jest.fn((url) => Promise.resolve(priorMatch ? priorMatch(url) : undefined)),
+    };
+    const src = fsx.readFileSync(path.join(__dirname, '..', 'sw.template.js'), 'utf8')
+      .replace(/__CACHE_VERSION__/g, 'knockknock-test')
+      .replace('__CHUNK_LIST__', chunkList.join(','));
+    const tmp = path.join(__dirname, `tmp-sw-stamped-${stampCounter++}.js`);
+    fsx.writeFileSync(tmp, src);
+    jest.isolateModules(() => { require(tmp); });
+    fsx.unlinkSync(tmp);
+    return { handlers, addAll, put };
+  }
+
+  test('a chunk present in a previous cache is copied, not re-fetched', async () => {
+    const prior = { cached: true };
+    const { handlers, addAll, put } = loadStampedSw(
+      ['/dist/chunks/wordlist-abc123.js', '/dist/chunks/new-def456.js'],
+      { priorMatch: (url) => (url === '/dist/chunks/wordlist-abc123.js' ? prior : undefined) },
+    );
+    const waited = [];
+    handlers.install({ waitUntil: (p) => waited.push(p) });
+    await Promise.all(waited);
+    expect(put).toHaveBeenCalledWith('/dist/chunks/wordlist-abc123.js', prior);
+    const fetched = addAll.mock.calls[0][0];
+    expect(fetched).not.toContain('/dist/chunks/wordlist-abc123.js'); // carried over
+    expect(fetched).toContain('/dist/chunks/new-def456.js');          // genuinely new
+    expect(fetched).toContain('/dist/bundle.js');                     // shell always re-fetched
+  });
+
+  test('with no previous caches every chunk is fetched (fresh install)', async () => {
+    const { handlers, addAll, put } = loadStampedSw(['/dist/chunks/a-1.js']);
+    const waited = [];
+    handlers.install({ waitUntil: (p) => waited.push(p) });
+    await Promise.all(waited);
+    expect(put).not.toHaveBeenCalled();
+    expect(addAll.mock.calls[0][0]).toContain('/dist/chunks/a-1.js');
   });
 });

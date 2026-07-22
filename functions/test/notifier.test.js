@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest } from '../notifier.js';
+import { sendToUser, resolveName, handleKnock, handleCall, handleAvailability, resolveGroupMemberName, notifyGroupAvailability, handleGroupOverrideChange, handleInvite, handleFollowRequest, availabilityRelevantOverrideChange } from '../notifier.js';
 import channelDefault from '../../test-fixtures/notify-channel-vectors.json' with { type: 'json' };
 
 function makeDeps(overrides = {}) {
@@ -20,16 +20,43 @@ describe('sendToUser', () => {
     await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
     expect(deps.send).not.toHaveBeenCalled();
   });
-  test('sends to all registered tokens', async () => {
+  // F6: tokens now live at the top-level pushTokens/{uid} node; sendToUser reads
+  // it first and only falls back to the legacy userPrefs copy until migration.
+  test('sends to tokens under the new pushTokens/{uid} path', async () => {
+    const deps = makeDeps({ store: { 'pushTokens/u1': { tokA: {}, tokB: {} } } });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, { type: 'knock' });
+    expect(deps.send).toHaveBeenCalledWith(['tokA', 'tokB'], { title: 'hi', body: '' }, { type: 'knock' });
+  });
+  // Legacy fallback: a user not yet migrated (tokens still only under userPrefs)
+  // still receives — the new-path read returns undefined and we fall back.
+  test('legacy-only user still receives via the userPrefs fallback', async () => {
     const deps = makeDeps({ store: { 'userPrefs/u1/pushTokens': { tokA: {}, tokB: {} } } });
     await sendToUser(deps, 'u1', { title: 'hi', body: '' }, { type: 'knock' });
     expect(deps.send).toHaveBeenCalledWith(['tokA', 'tokB'], { title: 'hi', body: '' }, { type: 'knock' });
   });
-  test('prunes failed tokens', async () => {
+  // The new path wins when both exist (post-migration the legacy copy is gone,
+  // but during the window the new path is authoritative).
+  test('new path takes precedence over the legacy copy when both exist', async () => {
+    const deps = makeDeps({ store: {
+      'pushTokens/u1': { tokNew: {} },
+      'userPrefs/u1/pushTokens': { tokOld: {} },
+    } });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.send).toHaveBeenCalledWith(['tokNew'], { title: 'hi', body: '' }, {});
+  });
+  test('prunes failed tokens to the NEW path', async () => {
+    const deps = makeDeps({ store: { 'pushTokens/u1': { tokA: {}, tokBad: {} } } });
+    deps.send = jest.fn(async () => ({ failedTokens: ['tokBad'] }));
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.update).toHaveBeenCalledWith('pushTokens/u1', { tokBad: null });
+  });
+  // Even a legacy-only send prunes to the new path — the migration removes the
+  // legacy copies, the prune never writes back into userPrefs.
+  test('a legacy-fallback send still prunes failed tokens to the NEW path', async () => {
     const deps = makeDeps({ store: { 'userPrefs/u1/pushTokens': { tokA: {}, tokBad: {} } } });
     deps.send = jest.fn(async () => ({ failedTokens: ['tokBad'] }));
     await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
-    expect(deps.update).toHaveBeenCalledWith('userPrefs/u1/pushTokens', { tokBad: null });
+    expect(deps.update).toHaveBeenCalledWith('pushTokens/u1', { tokBad: null });
   });
 });
 
@@ -96,6 +123,19 @@ describe('handleKnock', () => {
   test('does nothing when not opted in', async () => {
     const deps = makeDeps({ store: { 'userPrefs/rcpt/notify/sndr': { knock: false } } });
     await handleKnock(deps, 'rcpt', 'sndr', { count: 1, ts: 1 });
+    expect(deps.send).not.toHaveBeenCalled();
+  });
+  // audit F8 gate preservation: phase 1 reads BOTH gates in parallel, so an
+  // opted-out recipient now also reads the cooldown (one extra tiny read) but
+  // still does ZERO name/group/send reads.
+  test('opted-out knock still reads only prefs + cooldown (audit F8 gate preservation)', async () => {
+    const reads = [];
+    const deps = makeDeps({ getVal: jest.fn((p) => { reads.push(p); return Promise.resolve(null); }) }); // null prefs → not opted in
+    await handleKnock(deps, 'r1', 's1', {});
+    expect(reads.sort()).toEqual([
+      'notifierState/knockCooldown/r1/s1',
+      'userPrefs/r1/notify/s1',
+    ]);
     expect(deps.send).not.toHaveBeenCalled();
   });
 });
@@ -194,6 +234,16 @@ describe('resolveGroupMemberName', () => {
 
     const deps3 = makeDeps({ store: {} });
     expect(await resolveGroupMemberName(deps3, 'g1', 'u')).toBe('Someone');
+  });
+  test('a precomputed fallback skips the presence/code read entirely (audit-2 N7)', async () => {
+    const deps = makeDeps({ store: { 'users/u/presence/code': 'ABC123' } });
+    expect(await resolveGroupMemberName(deps, 'g1', 'u', 'K7Q2ZP')).toBe('K7Q2ZP');
+    expect(deps.getVal).toHaveBeenCalledTimes(1);
+    expect(deps.getVal).toHaveBeenCalledWith('groups/g1/members/u/displayName');
+  });
+  test('displayName still wins over a precomputed fallback', async () => {
+    const deps = makeDeps({ store: { 'groups/g1/members/u/displayName': 'Bobby' } });
+    expect(await resolveGroupMemberName(deps, 'g1', 'u', 'K7Q2ZP')).toBe('Bobby');
   });
 });
 
@@ -300,7 +350,7 @@ describe('handleAvailability → group co-members (primary path)', () => {
       'userPrefs/a/notify/star': { availability: true },
       'userPrefs/a/pushTokens': { tokA: {} },
       'notifierState/groupAvailability/gOff/star': null,
-      // gOn: override enabled → handled by onMemberOverride, not the primary path
+      // gOn: override enabled → handled by onMemberWritten's override branch, not the primary path
       'groups/gOn/members/star/statusOverride': { enabled: true, status: 'available', availableUntil: FUTURE },
       'groups/gOn/members': { star: {}, b: {} },
       'userPrefs/b/notify/star': { availability: true },
@@ -504,6 +554,21 @@ describe('handleAvailability → multi-group fan-out: exactly one push + selecti
     // both groups delivered → both stamped
     expect(deps.update).toHaveBeenCalledWith('notifierState/groupAvailability/g1', { bob: 1000 });
     expect(deps.update).toHaveBeenCalledWith('notifierState/groupAvailability/g2', { bob: 1000 });
+  });
+
+  test('group fan-out reads users/{uid}/presence/code exactly once across groups (audit-2 N7)', async () => {
+    const deps = makeDeps({ store: {
+      'users/star/presence/status': 'available',
+      'users/star/presence/code': 'STARCODE',
+      'users/star/groups': { g1: true, g2: true, g3: true },
+      'groups/g1/members': { star: {}, m1: {} },
+      'groups/g2/members': { star: {}, m2: {} },
+      'groups/g3/members': { star: {}, m3: {} },
+      'notifierState/availability/star': null,
+    }});
+    await handleAvailability(deps, 'star', null, FUTURE);
+    const codeReads = deps.getVal.mock.calls.filter(([p]) => p === 'users/star/presence/code').length;
+    expect(codeReads).toBe(1);
   });
 });
 
@@ -750,10 +815,18 @@ describe('sendToUser telegram channel', () => {
     });
     await expect(sendToUser(deps, 'u1', { title: 'hi', body: '' }, {})).rejects.toThrow(/transient/);
   });
-  test('bot NOT configured: pushTokens is still the only read', async () => {
+  test('bot NOT configured: only the token reads happen (new path, then legacy fallback)', async () => {
     const deps = makeDeps({ store: { ...tgStore } });
     await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
-    expect(deps.getVal.mock.calls.map(([p]) => p)).toEqual(['userPrefs/u1/pushTokens']);
+    // tgStore keeps tokens under the legacy path, so the new-path read misses and
+    // the legacy fallback fires — exactly two reads, both for tokens.
+    expect(deps.getVal.mock.calls.map(([p]) => p)).toEqual(['pushTokens/u1', 'userPrefs/u1/pushTokens']);
+    expect(deps.send).toHaveBeenCalled();
+  });
+  test('bot NOT configured, tokens on the new path: a single token read', async () => {
+    const deps = makeDeps({ store: { 'pushTokens/u1': { tokA: {} } } });
+    await sendToUser(deps, 'u1', { title: 'hi', body: '' }, {});
+    expect(deps.getVal.mock.calls.map(([p]) => p)).toEqual(['pushTokens/u1']);
     expect(deps.send).toHaveBeenCalled();
   });
 
@@ -814,5 +887,28 @@ describe('token-less push fallback (W1 J#3)', () => {
     };
     expect(await sendToUser(deps, 'u1', { title: 't' }, {})).toBe(false);
     expect(deps.sendTelegram).toHaveBeenCalledTimes(1); // no second attempt
+  });
+});
+
+describe('availabilityRelevantOverrideChange (merged member-trigger gate)', () => {
+  test('absent on both sides is not a change', () => {
+    expect(availabilityRelevantOverrideChange(null, undefined)).toBe(false);
+    expect(availabilityRelevantOverrideChange(undefined, undefined)).toBe(false);
+  });
+  test('appearing or vanishing is a change', () => {
+    expect(availabilityRelevantOverrideChange(null, { enabled: true })).toBe(true);
+    expect(availabilityRelevantOverrideChange({ enabled: true }, null)).toBe(true);
+  });
+  test('availability-relevant field diffs are changes', () => {
+    const a = { enabled: true, status: 'available', statusColor: 'blue', availableUntil: 99 };
+    expect(availabilityRelevantOverrideChange(a, { ...a })).toBe(false);
+    expect(availabilityRelevantOverrideChange(a, { ...a, enabled: false })).toBe(true);
+    expect(availabilityRelevantOverrideChange(a, { ...a, status: 'unavailable' })).toBe(true);
+    expect(availabilityRelevantOverrideChange(a, { ...a, availableUntil: 100 })).toBe(true);
+  });
+  test('appearance-only diffs are NOT changes — effectiveAvailable never reads them (audit-2 N4)', () => {
+    const a = { enabled: true, status: 'available', statusColor: 'blue', availableUntil: 99 };
+    expect(availabilityRelevantOverrideChange(a, { ...a, statusColor: 'red' })).toBe(false);
+    expect(availabilityRelevantOverrideChange(a, { ...a, paletteKey: 'sunset' })).toBe(false);
   });
 });

@@ -99,7 +99,6 @@ jest.mock('../js/db.js', () => ({
   writeGroupInvite: jest.fn(),
   readGroupInvites: jest.fn().mockResolvedValue({}),
   setGroupInviteRevoked: jest.fn(),
-  incrementGroupInviteRedemptions: jest.fn(),
   watchGroupInvites: jest.fn(() => () => {}),
   setStatusOverride: jest.fn().mockResolvedValue(undefined),
   clearStatusOverride: jest.fn().mockResolvedValue(undefined),
@@ -155,6 +154,20 @@ jest.mock('../js/prefs.js', () => ({
     },
   }),
   setPaletteState: jest.fn(),
+  getLocationOptIn: jest.fn(() => false),
+}));
+jest.mock('../js/locationHub.js', () => ({
+  subscribeDistance: jest.fn(() => jest.fn()),
+}));
+// Distance-sub eligibility requires the viewer's own Direct node to exist
+// (last-known model: attach-before-publish is rules-denied and permanently
+// cancelled) — default true so the render tests above/below exercise the
+// opt-in axis independently.
+jest.mock('../js/locationShare.js', () => ({
+  isContextPublished: jest.fn(() => true),
+  // Seeing distances also requires being available in the relevant context
+  // (de facto sharing) — default true so the render tests exercise other axes.
+  isContextAvailable: jest.fn(() => true),
 }));
 jest.mock('../js/invites.js', () => ({
   attemptRedeemFromUrl: jest.fn(),
@@ -162,6 +175,12 @@ jest.mock('../js/invites.js', () => ({
 }));
 jest.mock('../js/groupDisplayNamePrompt.js', () => ({
   showGroupDisplayNamePrompt: jest.fn(() => Promise.resolve('Me')),
+}));
+// The redeem form's group-join path wraps the brokered redeem in the same
+// Direct-flash guard the inbox Join uses (a9223c2); spy on the pair.
+jest.mock('../js/groupNav.js', () => ({
+  beginGroupEntryTransition: jest.fn(),
+  endGroupEntryTransition: jest.fn(),
 }));
 
 const { watchPresence, watchFollowers, watchFollowing, startCall, answerCall, endCall, watchOwnCall, watchRevocations, watchFollowerNames } = require('../js/db.js');
@@ -711,6 +730,230 @@ describe('updateFolloweeRow: palette-aware dot and status text', () => {
   });
 });
 
+// --- Distance on Direct mutual cards (Task 9) ---
+//
+// Contract:
+// 1. A MUTUAL row (li.dataset.mutual === '1'), available, with a known
+//    distance and direct opt-in ON renders status text matching
+//    /Available for .* · 120 m$/.
+// 2. Distance ticks re-render: pushing a new meters value through the
+//    subscribeDistance callback updates the suffix without a presence tick.
+// 3. Direct opt-in OFF → no subscribeDistance calls at all, no suffix.
+// 4. Non-mutual rows (Following/Followers sections) never subscribe.
+// 5. distance null → suffix absent (plain "Available for …").
+describe('Distance on Direct mutual cards (Task 9)', () => {
+  // Bound at describe-eval time (landmine: describe bodies run during Jest's
+  // collection pass, before any jest.resetModules() inside an EARLIER test's
+  // body has executed — so requiring here shares the same module instance as
+  // the top-level requires above, not a rebound one from a later test's
+  // resetModules() call).
+  const { subscribeDistance } = require('../js/locationHub.js');
+  const { getLocationOptIn } = require('../js/prefs.js');
+  const { isContextPublished, isContextAvailable } = require('../js/locationShare.js');
+
+  let watchFollowersCallback;
+  let watchPresenceCallback;
+  let distanceCbs;
+
+  // jest.clearAllMocks() does NOT clear mockReturnValue/mockImplementation —
+  // every test below sets getLocationOptIn's return explicitly instead of
+  // relying on a beforeEach default, and this afterEach restores the "off"
+  // default so the mock doesn't leak a stale `true` into later describes.
+  afterEach(() => {
+    getLocationOptIn.mockReturnValue(false);
+    isContextPublished.mockImplementation(() => true);
+    isContextAvailable.mockImplementation(() => true);
+    subscribeDistance.mockReset();
+    subscribeDistance.mockImplementation(() => jest.fn());
+  });
+
+  function setupMutual(userId, optIn) {
+    setupDom();
+    jest.clearAllMocks();
+    getLocationOptIn.mockReturnValue(optIn);
+    distanceCbs = new Map();
+    subscribeDistance.mockImplementation((_myUid, peerUid, cb) => {
+      distanceCbs.set(peerUid, cb);
+      return jest.fn();
+    });
+    watchFollowers.mockImplementation((_uid, cb) => { watchFollowersCallback = cb; return jest.fn(); });
+    watchPresence.mockImplementation((_uid, cb) => { watchPresenceCallback = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([{ userId, code: 'XY9K2M', label: 'Alice' }]);
+    initList('myUid', 'MYCODE');
+    watchFollowersCallback([{ userId, code: 'XY9K2M' }]); // makes the row mutual
+  }
+
+  function fireAvailable(userId) {
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 7200000, statusColor: '#22c55e' });
+  }
+
+  test('1. mutual + available + known distance + opt-in ON renders "Available for …" + "120 meters away" on its own line', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(120);
+    const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
+    expect(status).toMatch(/Available for .*120 meters away$/);
+    // The distance is a block fragment (utils.distanceFragmentHtml): always
+    // its own line under the availability text, no separator dot.
+    const li = document.querySelector('[data-user-id="u1"]');
+    expect(li.querySelector('.person-status .loc-frag').textContent).toBe('120 meters away');
+    expect(li.querySelector('.person-status').textContent).not.toContain('·');
+  });
+
+  test('2. a later distance tick updates the suffix without a presence tick', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(500);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/500 meters away$/);
+    distanceCbs.get('u1')(1200); // no presence tick in between
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/1\.2 km away$/);
+  });
+
+  test('3. direct opt-in OFF → subscribeDistance is never called, no suffix', () => {
+    setupMutual('u1', false);
+    fireAvailable('u1');
+    expect(subscribeDistance).not.toHaveBeenCalled();
+    const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
+    expect(status).toContain('Available for');
+    expect(status).not.toContain('away');
+  });
+
+  test('4. non-mutual rows never subscribe', () => {
+    setupDom();
+    jest.clearAllMocks();
+    getLocationOptIn.mockReturnValue(true);
+    subscribeDistance.mockImplementation((_myUid, peerUid, cb) => { distanceCbs?.set(peerUid, cb); return jest.fn(); });
+    watchFollowers.mockImplementation((_uid, cb) => { watchFollowersCallback = cb; return jest.fn(); });
+    watchPresence.mockImplementation((_uid, cb) => { watchPresenceCallback = cb; return jest.fn(); });
+    getFollowing.mockReturnValue([{ userId: 'u2', code: 'AB1234', label: 'Bea' }]);
+    initList('myUid', 'MYCODE');
+    watchFollowersCallback([]); // no followers → Following-only, non-mutual
+    fireAvailable('u2');
+    expect(subscribeDistance).not.toHaveBeenCalled();
+  });
+
+  test('5. distance null → suffix absent (plain "Available for …")', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(null);
+    const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
+    expect(status).toContain('Available for');
+    expect(status).not.toContain('away');
+  });
+
+  test('6. opt-in flips ON mid-session (row already rendered mutual) → subscription opens and a tick paints the suffix', () => {
+    setupMutual('u1', false); // rendered mutual, opt-in OFF — no subscription yet
+    fireAvailable('u1');
+    expect(subscribeDistance).not.toHaveBeenCalled();
+
+    getLocationOptIn.mockReturnValue(true);
+    document.dispatchEvent(new CustomEvent('location-optin-changed'));
+
+    expect(subscribeDistance).toHaveBeenCalledWith('myUid', 'u1', expect.any(Function));
+    distanceCbs.get('u1')(120);
+
+    const status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
+    expect(status).toMatch(/Available for .*120 meters away$/);
+  });
+
+  test('7. opt-in flips OFF mid-session (live distance shown) → subscription is unsubbed and the suffix disappears', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(120);
+    let status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
+    expect(status).toMatch(/120 meters away$/);
+
+    const unsub = subscribeDistance.mock.results[0].value; // the jest.fn() returned to createFolloweeRow's caller
+    getLocationOptIn.mockReturnValue(false);
+    document.dispatchEvent(new CustomEvent('location-optin-changed'));
+
+    expect(unsub).toHaveBeenCalled();
+    status = document.querySelector('[data-user-id="u1"] .person-status').textContent;
+    expect(status).toContain('Available for');
+    expect(status).not.toContain('away');
+  });
+
+  test('8. mutual → following-only transition (distance shown) → old subscription unsubbed and the new row shows no suffix', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(120);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/120 meters away$/);
+
+    const unsub = subscribeDistance.mock.results[0].value;
+
+    // Follower data drops u1 out of the followers list — same getFollowing()
+    // entry stays, so u1 is now Following-only instead of Mutual.
+    watchFollowersCallback([]);
+
+    expect(unsub).toHaveBeenCalled();
+    const li = document.querySelector('[data-user-id="u1"]');
+    expect(li.dataset.mutual).not.toBe('1');
+    expect(li.querySelector('.person-status').textContent).not.toContain('away');
+  });
+
+  test('label-only 60s refresh keeps the distance suffix (device blink: suffix wiped each minute until the next distance tick)', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(120);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/120 meters away$/);
+    // The 60s interval path — must recompose the SAME text as the full paint,
+    // distance included, or the suffix disappears until a publish lands.
+    _refreshTimeLabels('myUid');
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/120 meters away$/);
+  });
+
+  test('own availability drops → subs close and the suffix disappears; available again reopens (viewer must be de facto sharing to see)', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(120);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/120 meters away$/);
+    const unsub = subscribeDistance.mock.results[0].value;
+
+    isContextAvailable.mockImplementation(() => false);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(unsub).toHaveBeenCalled();
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).not.toContain('away');
+
+    // Back available: the persisted nodes make an immediate reattach safe.
+    isContextAvailable.mockImplementation(() => true);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(subscribeDistance).toHaveBeenCalledTimes(2);
+  });
+
+  test('9. own Direct node deleted (unpublished) → subs close; republish reopens FRESH subs', () => {
+    setupMutual('u1', true);
+    fireAvailable('u1');
+    distanceCbs.get('u1')(120);
+    expect(subscribeDistance).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).toMatch(/120 meters away$/);
+    const unsub = subscribeDistance.mock.results[0].value;
+
+    // Own node deleted (opt-out on another device, permission revocation —
+    // RTDB cancels every peer listener). Eligibility must close the subs.
+    isContextPublished.mockImplementation(() => false);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(unsub).toHaveBeenCalled();
+    expect(document.querySelector('[data-user-id="u1"] .person-status').textContent).not.toContain('away');
+
+    // Node republished: subs must REOPEN with fresh underlying listeners —
+    // the old ones were cancelled server-side and never fire again.
+    isContextPublished.mockImplementation(() => true);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(subscribeDistance).toHaveBeenCalledTimes(2);
+  });
+
+  test('10. boot opted-in but own node not yet published → no distance subs until the publish (or boot seed) lands', () => {
+    isContextPublished.mockImplementation(() => false);
+    setupMutual('u1', true); // opt-in ON, own node absent
+    fireAvailable('u1');
+    expect(subscribeDistance).not.toHaveBeenCalled();
+
+    isContextPublished.mockImplementation(() => true);
+    document.dispatchEvent(new CustomEvent('location-publishing-changed'));
+    expect(subscribeDistance).toHaveBeenCalledWith('myUid', 'u1', expect.any(Function));
+  });
+});
+
 // --- Palette Cards (Increment 3) ---
 
 describe('palette card styling', () => {
@@ -787,10 +1030,19 @@ describe('palette card styling', () => {
     expect(span.style.color).toBe('rgb(59, 130, 246)');
   });
 
+  test('palette card stamps --card-muted with the palette muted (distance line color source)', () => {
+    getPaletteByKey.mockReturnValue(OCEAN_PALETTE);
+    const li = setupOneFollowee('ocean');
+    expect(li.style.getPropertyValue('--card-muted')).toBe(OCEAN_PALETTE.theme.textMuted);
+  });
+
   test('card with paletteKey: null renders with default CSS, no inline background', () => {
     getPaletteByKey.mockReturnValue(null);
     const li = setupOneFollowee(null);
     expect(li.style.background).toBe('');
+    // No palette → the distance line falls back to the active theme's
+    // --text-muted (no per-card override stamped).
+    expect(li.style.getPropertyValue('--card-muted')).toBe('');
   });
 
   test('card with unknown paletteKey string falls back to default CSS, no inline background', () => {
@@ -2532,6 +2784,11 @@ describe('unified redeem form (spec N6)', () => {
   const type = (v) => { input().value = v; input().dispatchEvent(new Event('input', { bubbles: true })); };
   const flush = () => new Promise((r) => setTimeout(r, 0));
   let onInviteRedeemed;
+  // Capture the guard spies at describe-evaluation time — the same references
+  // following.js bound at file load — so a later test's jest.resetModules()
+  // can't hand beforeEach a fresh (unwatched) mock instead (same pattern the
+  // palette describes below document).
+  const { beginGroupEntryTransition, endGroupEntryTransition } = require('../js/groupNav.js');
 
   beforeEach(() => {
     setupDom();
@@ -2539,6 +2796,8 @@ describe('unified redeem form (spec N6)', () => {
     attemptRedeemFromUrl.mockReset();
     resolveInvitePreview.mockReset();
     resolveInvitePreview.mockImplementation(() => Promise.resolve(null));
+    beginGroupEntryTransition.mockReset();
+    endGroupEntryTransition.mockReset();
     onInviteRedeemed = jest.fn();
     initList('myUid', 'MYCODE', { onInviteRedeemed });
   });
@@ -2603,6 +2862,53 @@ describe('unified redeem form (spec N6)', () => {
     expect(document.getElementById('add-error').classList.contains('hidden')).toBe(false);
   });
 
+  // Direct-flash guard (a9223c2 covered inbox Join; the same bug reached the
+  // redeem form): a group join brokers a slow post-prompt redeem whose own
+  // enumeration echo would paint the new group's card over a still-visible
+  // Direct after closeAddForm. The group branch must hold the guard across the
+  // redeem and hand off (restore=false) to navigateToGroup's render on success.
+  test('group join holds the entry guard across the brokered redeem and hands off to navigation', async () => {
+    attemptRedeemFromUrl
+      .mockResolvedValueOnce({ ok: false, reason: 'needs-display-name', groupId: 'G1', groupName: 'Hikers', cache: { marker: 1 } })
+      .mockResolvedValueOnce({ ok: true, groupId: 'G1', groupName: 'Hikers' });
+    type(INVITE_URL);
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    // Guard opened before the second (brokered) redeem, and before navigation fired.
+    expect(beginGroupEntryTransition).toHaveBeenCalledTimes(1);
+    expect(beginGroupEntryTransition.mock.invocationCallOrder[0])
+      .toBeLessThan(attemptRedeemFromUrl.mock.invocationCallOrder[1]);
+    // Handed off to navigateToGroup's own render — released without restoring Direct.
+    expect(endGroupEntryTransition).toHaveBeenCalledWith(false);
+    expect(endGroupEntryTransition).not.toHaveBeenCalledWith(true);
+    expect(endGroupEntryTransition.mock.invocationCallOrder[0])
+      .toBeLessThan(onInviteRedeemed.mock.invocationCallOrder[0]);
+    expect(onInviteRedeemed).toHaveBeenCalledWith({ ok: true, groupId: 'G1', groupName: 'Hikers' });
+  });
+
+  test('group join whose post-prompt redeem fails restores Direct and skips navigation', async () => {
+    attemptRedeemFromUrl
+      .mockResolvedValueOnce({ ok: false, reason: 'needs-display-name', groupId: 'G1', groupName: 'Hikers', cache: { marker: 1 } })
+      .mockResolvedValueOnce({ ok: false, reason: 'cap' });
+    type(INVITE_URL);
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    expect(beginGroupEntryTransition).toHaveBeenCalledTimes(1);
+    expect(endGroupEntryTransition).toHaveBeenCalledWith(true); // Direct comes back
+    expect(endGroupEntryTransition).not.toHaveBeenCalledWith(false);
+    expect(onInviteRedeemed).not.toHaveBeenCalled();
+    expect(document.getElementById('add-error').textContent).toBe('This invite has reached its limit.');
+  });
+
+  test('a plain follow redemption never touches the group-entry guard', async () => {
+    attemptRedeemFromUrl.mockResolvedValueOnce({ ok: true, creatorLabel: 'Ana' });
+    type(INVITE_URL);
+    document.getElementById('add-submit-btn').click();
+    await flush();
+    expect(beginGroupEntryTransition).not.toHaveBeenCalled();
+    expect(endGroupEntryTransition).not.toHaveBeenCalled();
+  });
+
   test('garbage on submit gets the unified error', async () => {
     type('hello there');
     document.getElementById('add-submit-btn').click();
@@ -2632,6 +2938,90 @@ describe('60s time-label refresh', () => {
     expect(row.querySelector('.person-dot')).toBe(dotBefore);
     // … and the label reflects the current remaining time.
     expect(spanBefore.textContent).toMatch(/1\s*h|hour|9\d\s*min/i);
+  });
+});
+
+describe('60s time-label refresh: hidden-tab guard (Task 6)', () => {
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    resetRenderedFollowees();
+    jest.useFakeTimers();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  const AVAILABLE = { status: 'available', availableUntil: Date.now() + 90 * 60000, statusColor: '#22c55e' };
+
+  // innerHTML assignment always tears down + rebuilds child nodes in jsdom, so
+  // a childList MutationObserver fires on every repaint even when the
+  // recomposed text happens to be identical to what's already there —
+  // takeRecords() drains the (synchronous) pending-record queue without
+  // waiting on the observer's own microtask callback.
+  function watchSpanMutations(span) {
+    const mo = new MutationObserver(() => {});
+    mo.observe(span, { childList: true, characterData: true, subtree: true });
+    return () => mo.takeRecords().length;
+  }
+
+  // setupMutualAndFireStatus's presence callback schedules a queueMicrotask
+  // resort (scheduleResort/runResort — see following.ts) that rebuilds the
+  // row once, replacing the very span a caller might have just captured.
+  // Flushing here settles that pending resort BEFORE the test grabs its
+  // reference, so the 60s-guard tests observe the actual long-lived node the
+  // interval/visibilitychange handler will operate on, not a stale one.
+  async function settleMicrotasks() {
+    await jest.advanceTimersByTimeAsync(0);
+  }
+
+  test('interval tick performs no DOM write while hidden', async () => {
+    const li = setupMutualAndFireStatus('hiddenTabUser', AVAILABLE, 'me');
+    await settleMicrotasks();
+    const span = li.querySelector('.status-available');
+    const getWriteCount = watchSpanMutations(span);
+
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    jest.advanceTimersByTime(60000);
+
+    expect(getWriteCount()).toBe(0);
+  });
+
+  test('visibilitychange to visible performs exactly one catch-up refresh', async () => {
+    const li = setupMutualAndFireStatus('hiddenTabUser', AVAILABLE, 'me');
+    await settleMicrotasks();
+    const span = li.querySelector('.status-available');
+    const getWriteCount = watchSpanMutations(span);
+
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    jest.advanceTimersByTime(60000); // skipped tick — contributes 0 writes
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(getWriteCount()).toBe(1);
+  });
+
+  test('teardown on re-init removes the prior visibilitychange listener (no leak)', () => {
+    // Settle any listener left dangling by module state from an earlier test
+    // in this file (following.js isn't reset between tests in this describe)
+    // BEFORE spying, so every add the spies observe below has a matching
+    // teardown-triggered remove — steady-state, no leftover-state ambiguity.
+    setupMutualAndFireStatus('hiddenTabUser', AVAILABLE, 'me');
+
+    const addSpy = jest.spyOn(document, 'addEventListener');
+    const removeSpy = jest.spyOn(document, 'removeEventListener');
+
+    setupMutualAndFireStatus('hiddenTabUser', AVAILABLE, 'me'); // re-init #1: old listener torn down, new one added
+    setupMutualAndFireStatus('hiddenTabUser', AVAILABLE, 'me'); // re-init #2: same
+
+    const added = addSpy.mock.calls.filter((c) => c[0] === 'visibilitychange').length;
+    const removed = removeSpy.mock.calls.filter((c) => c[0] === 'visibilitychange').length;
+    expect(added).toBe(2);
+    expect(removed).toBe(2); // exactly one remove per add — no accumulation
   });
 });
 
@@ -2675,5 +3065,71 @@ describe('setFollowingListReadyCallback (post-restore splash gating)', () => {
       { userId: 'u2', code: 'C2', label: 'Two' },
     ]);
     expect(ready).toHaveBeenCalledWith(2);
+  });
+});
+
+// --- uid -> row-element map for followeeRow (perf: O(1) row lookup) ---
+//
+// followeeRow used to be a plain `#people-list [data-user-id="uid"]`
+// querySelector scan on every per-row repaint. reconcileChildren's create/
+// update hooks now populate a module-level uid->node map so the common,
+// still-connected case skips the DOM scan entirely — but the map is only an
+// optimization: followeeRow double-checks isConnected before trusting it, so
+// a missed/late removal can only cost an extra querySelector, never hand back
+// a wrong or detached row.
+describe('followeeRow uid map (perf)', () => {
+  let watchFollowersCallback;
+  let watchPresenceCallback;
+
+  beforeEach(() => {
+    setupDom();
+    jest.clearAllMocks();
+    watchFollowers.mockImplementation((_userId, cb) => {
+      watchFollowersCallback = cb;
+      return jest.fn();
+    });
+    watchPresence.mockImplementation((_userId, cb) => {
+      watchPresenceCallback = cb;
+      return jest.fn();
+    });
+  });
+
+  test('a mapped, connected row is resolved without a live document.querySelector', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'XY9K2M', label: 'Alice' }]);
+    initList('myUid', 'MYCODE');
+    watchFollowersCallback([{ userId: 'u1', code: 'XY9K2M' }]); // renders the row, populates the map
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 7200000, statusColor: '#22c55e' });
+
+    const spy = jest.spyOn(document, 'querySelector');
+    // _refreshTimeLabels' label-only path calls followeeRow(entry.userId)
+    // internally; with a mapped, connected row this must resolve without
+    // falling back to a document-level scan.
+    _refreshTimeLabels('myUid');
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  test('removing the row clears its map entry — a later lookup falls back to querySelector and finds nothing', () => {
+    getFollowing.mockReturnValue([{ userId: 'u1', code: 'XY9K2M', label: 'Alice' }]);
+    initList('myUid', 'MYCODE');
+    watchFollowersCallback([{ userId: 'u1', code: 'XY9K2M' }]);
+    watchPresenceCallback({ status: 'available', availableUntil: Date.now() + 7200000, statusColor: '#22c55e' });
+    expect(document.querySelector('[data-user-id="u1"]')).not.toBeNull();
+
+    // Fully drop u1 (server-side unfollow) and re-render: the row is removed
+    // from #people-list, and its onRemove hook must delete the stale map
+    // entry so it can never be handed back for a future 'u1' lookup.
+    getFollowing.mockReturnValue([]);
+    watchFollowersCallback([]);
+    expect(document.querySelector('[data-user-id="u1"]')).toBeNull();
+
+    const spy = jest.spyOn(document, 'querySelector');
+    expect(() => {
+      updateFolloweeRow({ userId: 'u1', code: 'XY9K2M' }, { status: 'available', availableUntil: Date.now() + 7200000 }, 'myUid');
+    }).not.toThrow();
+    // Map miss (or a stale/detached entry) must fall through to the live
+    // querySelector fallback — never a silently-reused stale node.
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('u1'));
+    spy.mockRestore();
   });
 });

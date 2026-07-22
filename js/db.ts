@@ -10,5 +10,6 @@ export {
 } from './utils.js';
 
 export * from './db/social.js';
+export * from './db/location.js';
 export * from './db/groups.js';
 export * from './db/canvas.js';

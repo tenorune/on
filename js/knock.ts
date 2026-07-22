@@ -23,6 +23,28 @@ let pendingByGroup = new Map<string, Set<string>>(); // groupId → Set<senderId
                                  // wasn't in the right group context; drained on enter.
 let pendingDirect = new Set<string>();  // senderIds for Direct-scope knocks received while
                                  // user wasn't in Direct context; drained on entry.
+// Knocks received while the tab is occluded (backgrounded / drawer open / on
+// canvas). Buffered in memory instead of forcing a full initKnocks re-read on
+// drawer-close / canvas-exit — the listener never died, so re-fetching is waste.
+// The knock is LEFT in the DB at buffer time (see the live handler): the DB is
+// the cold-start backstop for a tab closed while still hidden. Only presentation
+// (drainHeldKnocks) clears it. Keyed by senderId; a repeat overwrites the payload.
+const _heldWhileAway = new Map<string, KnockPayload>();
+
+// Shared by the live handler, initKnocks' step-7 else-branches, and
+// drainHeldKnocks' !li branch: stash a cross-context knock (the target li
+// isn't in the current DOM context) so it replays on navigation, and badge
+// the relevant chip (group card or Direct) immediately.
+function stashCrossContextKnock(sid: string, contextGroupId: string | null) {
+  if (contextGroupId) {
+    bumpGroupCardBadge(contextGroupId);
+    if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
+    pendingByGroup.get(contextGroupId)!.add(sid);
+  } else {
+    pendingDirect.add(sid);
+    bumpDirectBadge();
+  }
+}
 
 // Send a knock to recipientId. Guards: debounce (300ms). Flash fires only after debounce passes.
 export function sendKnock(recipientId: string, senderId: string, statusColor?: string, opts: { contextGroupId?: string } = {}) {
@@ -48,7 +70,13 @@ export function sendKnock(recipientId: string, senderId: string, statusColor?: s
 }
 
 // Initialize knock state and start listening. Call after initList so DOM exists.
-export async function initKnocks(myUserId: string) {
+// skipSids: sids already presented+cleared by a preceding drainHeldKnocks call
+// in this same →visible handling (see the visibilitychange listener below) —
+// skipped in step 7 so a knock that lingers in the snapshot (RTDB remove not
+// yet propagated) isn't pulsed a second time. Callers other than that one
+// handler pass no skipSids (defaults empty) — this is intentionally scoped
+// per-call, not module-level state.
+export async function initKnocks(myUserId: string, skipSids: Set<string> = new Set()) {
   cachedUserId = myUserId;
 
   // Reset all module-level state
@@ -95,14 +123,15 @@ export async function initKnocks(myUserId: string) {
     const contextGroupId = payload.contextGroupId || null;
     // Skip senders from the initial snapshot (handled as deferred)
     if (snapshotPending || deferredKeys.has(sid)) return;
-    // App is backgrounded or on canvas — leave knock in DB so the next initKnocks
-    // (on foreground / canvas exit) picks it up via getKnocks and shows it as deferred.
-    if (document.visibilityState !== 'visible') return;
-    // A tool drawer is open — defer like the backgrounded case: leave the knock
-    // in the DB so the card-drawer-close replay (initKnocks) shows it.
-    if (isCardDrawerOpen()) return;
+    // App is backgrounded — buffer in memory (drained on visibilitychange→visible)
+    // AND leave the knock in the DB as the cold-start backstop for a tab closed
+    // while still hidden. Do NOT clearKnock here — only presentation (drain) clears.
+    if (document.visibilityState !== 'visible') { _heldWhileAway.set(sid, payload); return; }
+    // A tool drawer is open — buffer + leave in DB; drained on card-drawer-close.
+    if (isCardDrawerOpen()) { _heldWhileAway.set(sid, payload); return; }
+    // On canvas — buffer + leave in DB; drained on canvas-exited.
     const canvasScreen = document.getElementById('canvas-screen');
-    if (canvasScreen && canvasScreen.classList.contains('active')) return;
+    if (canvasScreen && canvasScreen.classList.contains('active')) { _heldWhileAway.set(sid, payload); return; }
     // Stale-knock check: only knocks that are clearly older than "this
     // session" should fall to the deferred path. Tolerate up to 60s of
     // clock skew between sender and recipient — without this, a fresh
@@ -115,17 +144,9 @@ export async function initKnocks(myUserId: string) {
     }
     const li = findKnockTargetCard(sid, contextGroupId);
     if (!li) {
-      if (contextGroupId) {
-        bumpGroupCardBadge(contextGroupId);
-        // Stash so the animation replays when the user enters this group.
-        if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
-        pendingByGroup.get(contextGroupId)!.add(sid);
-      } else {
-        // Direct-scope knock arrived while the user is in a group context.
-        // Stash + badge on the Direct chip; drain on context entry.
-        pendingDirect.add(sid);
-        bumpDirectBadge();
-      }
+      // Stash + badge (group card or Direct chip) so the animation replays
+      // when the user enters the right context.
+      stashCrossContextKnock(sid, contextGroupId);
       // Knock stays in DB on purpose — drainPendingKnocks /
       // drainPendingDirectKnocks clear it after replaying the animation.
       return;
@@ -193,21 +214,20 @@ export async function initKnocks(myUserId: string) {
   //    findKnockTargetCard returns null — stash so drainPendingKnocks can
   //    replay the animation when they navigate to the group.
   toAnimate.forEach(({ senderId, contextGroupId }) => {
+    // Already presented+cleared by the preceding drainHeldKnocks in this same
+    // →visible pairing — skip so an un-propagated remove doesn't re-pulse it.
+    // (clearKnock above still ran for it — harmless/idempotent.)
+    if (skipSids.has(senderId)) return;
     const li = findKnockTargetCard(senderId, contextGroupId);
     if (li) {
       // Move first, animate next frame — see drainPendingKnocks for the
       // rationale.
       applyFloatToTop(li);
       requestAnimationFrame(() => applyDeferredKnock(senderId, contextGroupId));
-    } else if (contextGroupId) {
-      if (!pendingByGroup.has(contextGroupId)) pendingByGroup.set(contextGroupId, new Set());
-      pendingByGroup.get(contextGroupId)!.add(senderId);
-      bumpGroupCardBadge(contextGroupId);
     } else {
-      // Direct knock + user is currently in a group context. Stash so the
-      // animation replays when they return to Direct; flag the chip too.
-      pendingDirect.add(senderId);
-      bumpDirectBadge();
+      // Cross-context: group-scoped knock while elsewhere, or a Direct knock
+      // while the user is in a group context. Stash + badge; replays on entry.
+      stashCrossContextKnock(senderId, contextGroupId);
     }
   });
 }
@@ -269,6 +289,55 @@ export function drainPendingKnocks(groupId: string) {
   window.scrollTo(0, 0);
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
+}
+
+/**
+ * Present knocks buffered while the tab was occluded (backgrounded / drawer open
+ * / on canvas). Called on card-drawer-close, canvas-exited, and — before the
+ * initKnocks safety net — on visibilitychange→visible. Mirrors drainPendingKnocks
+ * exactly: snapshot-then-clear the buffer up front (so a re-entrant call can't
+ * double-animate), then per held sender apply float-to-top synchronously, run the
+ * deferred pulse in the next rAF (keyframe/reflow rationale is documented at
+ * drainPendingKnocks + applyDeferredKnock), and clear the knock from the DB.
+ * A sender whose li is not in the current DOM context (cross-context knock —
+ * e.g. Direct while in a group, or a different group) is stashed + badged via
+ * the same pendingByGroup/pendingDirect fallback the live handler uses, and is
+ * left in the DB so drainPendingKnocks/drainPendingDirectKnocks clears it on
+ * navigation to that context.
+ *
+ * Returns the set of sids that were actually presented-and-cleared here (the
+ * li-found branch) — NOT the stashed !li ones, which stay in the DB on
+ * purpose. The →visible handler passes this set into initKnocks so a knock
+ * already presented here isn't re-pulsed if it still lingers in the
+ * getKnocks snapshot (RTDB remove not yet propagated).
+ */
+function drainHeldKnocks(): Set<string> {
+  const drained = new Set<string>();
+  if (_heldWhileAway.size === 0) return drained;
+  // Snapshot then clear so re-entry doesn't double-animate.
+  const held = Array.from(_heldWhileAway.entries());
+  _heldWhileAway.clear();
+  if (!cachedUserId) return drained;
+  held.forEach(([sid, payload]) => {
+    const contextGroupId = payload.contextGroupId || null;
+    const li = findKnockTargetCard(sid, contextGroupId);
+    if (!li) {
+      // Target card not in the current DOM context (e.g. a Direct-scope
+      // knock buffered while the user is in a group, or a knock for a
+      // different group). Fall back to the same stash+badge path the live
+      // handler uses — badge immediately and replay on navigation, instead
+      // of dropping the knock silently.
+      stashCrossContextKnock(sid, contextGroupId);
+      // Knock stays in DB on purpose — drainPendingKnocks /
+      // drainPendingDirectKnocks clear it after replaying the animation.
+      return;
+    }
+    applyFloatToTop(li);
+    requestAnimationFrame(() => applyDeferredKnock(sid, contextGroupId));
+    drained.add(sid);
+    clearKnock(cachedUserId!, sid).catch(() => {});
+  });
+  return drained;
 }
 
 // Returns the color to use for knock animations on this card.
@@ -498,11 +567,25 @@ document.addEventListener('visibilitychange', () => {
     if (entry?.timerId) clearTimeout(entry.timerId);
     restoreFromFloat(userId);
   });
-  if (cachedUserId) initKnocks(cachedUserId);
+  // Drain the in-memory buffer FIRST so held knocks present immediately and their
+  // clearKnock removes them from the DB before initKnocks' getKnocks read — this
+  // prevents double-presentation in the common case. The full initKnocks stays
+  // as the safety net for a genuinely backgrounded tab that missed throttled
+  // events the listener never delivered (the server re-read catches those).
+  // Robust against the write-before-read timing too: drainHeldKnocks returns
+  // the sids it just presented+cleared, and that set is passed into initKnocks
+  // as skipSids — so even if the RTDB remove hasn't propagated by the time
+  // getKnocks re-reads (the same sid still in the snapshot), step 7 skips it
+  // instead of pulsing it a second time.
+  const drained = drainHeldKnocks();
+  if (cachedUserId) initKnocks(cachedUserId, drained);
 });
 document.addEventListener('canvas-exited', () => {
-  if (cachedUserId) initKnocks(cachedUserId);
+  // Tab never left the foreground and the listener never died — just present the
+  // buffered knocks; no full initKnocks re-read needed.
+  drainHeldKnocks();
 });
 document.addEventListener('card-drawer-close', () => {
-  if (cachedUserId) initKnocks(cachedUserId);
+  // Same as canvas-exit: drain the in-memory buffer instead of re-initializing.
+  drainHeldKnocks();
 });

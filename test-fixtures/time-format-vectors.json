@@ -1,11 +1,15 @@
 [
-  { "ms": 30000,    "precise": "< 1m",   "fuzzy": "just a few minutes" },
-  { "ms": 240000,   "precise": "4m",     "fuzzy": "just a few minutes" },
-  { "ms": 1800000,  "precise": "30m",    "fuzzy": "about half an hour" },
-  { "ms": 3600000,  "precise": "1h",     "fuzzy": "about an hour" },
-  { "ms": 5400000,  "precise": "1h 30m", "fuzzy": "one to two hours" },
-  { "ms": 7200000,  "precise": "2h",     "fuzzy": "just over two hours" },
-  { "ms": 9000000,  "precise": "2h 30m", "fuzzy": "about three hours" },
-  { "ms": 10800000, "precise": "3h",     "fuzzy": "just over three hours" },
-  { "ms": 13500000, "precise": "3h 45m", "fuzzy": "nearly four hours" }
+  { "ms": 0,         "precise": "",       "fuzzy": "",                    "age": "moments" },
+  { "ms": 30000,     "precise": "< 1m",   "fuzzy": "just a few minutes",  "age": "moments" },
+  { "ms": 60000,     "precise": "1m",     "fuzzy": "just a few minutes",  "age": "1 minute" },
+  { "ms": 240000,    "precise": "4m",     "fuzzy": "just a few minutes",  "age": "4 minutes" },
+  { "ms": 1800000,   "precise": "30m",    "fuzzy": "about half an hour",  "age": "30 minutes" },
+  { "ms": 3600000,   "precise": "1h",     "fuzzy": "about an hour",       "age": "1 hour" },
+  { "ms": 5400000,   "precise": "1h 30m", "fuzzy": "one to two hours",    "age": "1 hour" },
+  { "ms": 7200000,   "precise": "2h",     "fuzzy": "just over two hours", "age": "2 hours" },
+  { "ms": 9000000,   "precise": "2h 30m", "fuzzy": "about three hours",   "age": "2 hours" },
+  { "ms": 10800000,  "precise": "3h",     "fuzzy": "just over three hours", "age": "3 hours" },
+  { "ms": 13500000,  "precise": "3h 45m", "fuzzy": "nearly four hours",   "age": "3 hours" },
+  { "ms": 172800000, "precise": "48h",    "fuzzy": "just over 48 hours",  "age": "2 days" },
+  { "ms": 466200000, "precise": "129h 30m", "fuzzy": "about 130 hours",   "age": "5 days" }
 ]
