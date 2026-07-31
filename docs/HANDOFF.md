@@ -11,187 +11,45 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**Release-polish pass DONE (2026-07-22) on
-`claude/knockknock-polish-pass-8kb77v`** (cut from `9a3ysy`'s tip `837ee8a`;
-this branch now supersedes `9a3ysy` as the merge candidate). Shipped:
-the `[LOCDBG]` strip (release gate — done, `locdbg` grep over `js/`+`tests/`
-is empty) and four Known-deferred minors: sticky denied glyph state ·
-dedicated 'unsupported' glyph title · `formatDistancePrecise` 999.6–999.99 m
-edge · the stale error-shape comment. Plus one hardening the sticky-denied
-TDD surfaced: a `_watchGeneration` guard so a synchronously-delivered code-1
-watch error can't resurrect a dead watch id (details in History). Remaining
-polish source: whatever the operator surfaces hands-on — the glyph changes
-are visual, expect device iteration.
+**UI improvements — operator-directed, this is the next session's focus.**
+⚠️ **Do not touch code without the operator's explicit say-so** — propose the
+change and get approval BEFORE any edit. The operator drives; expect
+hands-on, device-driven iteration on anything visual ("done" is their call).
 
-**Also shipped on this branch (2026-07-22c): the Telegram bot beacon nudge +
-`/locoff`** (operator-spec'd, copy operator-authored): going available via
-`/status`, `/status <group>` (confirm AND the follows-global "already
-available there" reply), or `/start`'s returning-available line now appends
-"By the way, your location [in <group>] last updated <age> ago - open the
-app if you want to update it, or /locoff [<group>] to stop the beacon."
-whenever that context's opt-in is ON and its node exists. `/locoff [group]`
-is the bot-side glyph-off: atomically flips the same `userPrefs` opt-in the
-app writes + deletes the context's node; app sessions converge via the
-prefs echo (which now also UNMARKS dropped contexts from the published set
-— fixes a latent sibling-glyph-off staleness too). Copy change ruled by the
-operator: every availability confirm now says "/off to go unavailable."
-instead of "/off to stop." New shared `formatAgeFuzzy` (floors on purpose;
-"moments" under a minute) is fixture-pinned in both suites; the bot's
-suffix additionally gates on ≥5 min of age (fresh beacons don't nudge).
-⚠️ **This batch touches `functions/`** (telegram.js + the `_shared`
-mirror) — the "everything since audit-2 is client-only" note below no
-longer covers the branch tip; the bot changes ride the normal functions
-deploy, no ordering constraints (new command + reply suffixes only; the
-command menu re-registers via setMyCommands at deploy).
+## Where things stand (2026-07-31)
 
-Code tip is `4ac099c` + the 2026-07-22c commits; a docs(handoff) commit
-rides atop. Realign a fresh session:
+Everything below is SHIPPED and merged; no pending uncommitted/unpushed work.
+`dev` and `main` (origin) are tree-identical.
 
-```
-git fetch origin
-git checkout -B claude/knockknock-polish-pass-8kb77v origin/claude/knockknock-polish-pass-8kb77v
-git log --oneline -2   # must show 4ac099c under the docs commit — else STOP, origin is authoritative
-```
+- **v2.0.0 released.** `dev` → `main` merged by the maintainer (`main` =
+  `731eed9`); tagged `v2.0.0` on GitHub at the release commit `ca1d1fa`.
+  v2.0.0 = 352 commits since v1.3.0 — opt-in location/distance sharing, the
+  Telegram Mini App + bot (beacon nudge + `/locoff`), two performance-audit
+  passes + a security batch, the TypeScript migration, PWA auto-update
+  hardening. Release notes (v1.3.0…v2.0.0) live on the GitHub release.
+- **Release content (this session).** New `README.md` feature + data-model
+  updates and refreshed About-page content for distance sharing and the
+  Telegram commands (`76454d6`).
+- **Direct status-text-color fix (this session, device-verified).**
+  `js/following.ts` no longer overrides the "Available for…" text to the
+  palette key color; it follows the member's `statusColor`, so the label
+  agrees with the status dot (mirrors the group roster). Shipped to `dev` +
+  `main` (`361e65c`). **NOT in the `v2.0.0` tag** — operator chose no new
+  tag, so it rides the branch; the next tagged release (`v2.0.1`+) includes
+  it.
 
-**Deploy-gated device verification still owed (the fixes are code-complete and
-unit-verified; the end-to-end scenarios are not yet re-run on a build that has
-them all).** NOTE: the `[LOCDBG]` trace instrumentation is now stripped —
-verify by observable behavior; re-instrument locally from `86504e6`'s diff
-only if a scenario fails:
+**Deploy state:** merging `dev` → `main` may trigger the gated prod deploy
+workflow (required-reviewer). If a prod deploy is still owed, the ordering is
+the LOAD-BEARING `pushTokens` F6c sequence + a functions deploy (the Telegram
+beacon batch touches `functions/`) — full runbook in `docs/DEPLOY-PROD.md`.
+Nothing deploys from sessions.
 
-- **Tram scenario end-to-end:** distance visibly updating again after
-  backgrounding + return, NO glyph toggle needed, and no duplicate publishes
-  (peer listeners tick once per move).
-- **Reload leg:** reload with the glyph already ON → ticks publish within a
-  minute, no toggle. One glyph toggle per device seeds the
-  `statusapp_geo_grant_proven` marker the first time a device runs a build
-  with `7a37887`.
-- **Canvas on a call from a FRESH page load** — the case that always broke
-  pre-`86504e6`. If "nav visible" ever recurs, check the console for
-  `enterCanvas (answered) failed:` (lazy canvas chunk load failure is
-  swallowed there — `js/following.ts:361`).
-- **NEW (polish pass, device-check the visuals):** deny the OS prompt on a
-  glyph tap → glyph paints denied AND STAYS denied across prefs syncs /
-  re-renders (previously washed back to plain off); revoke mid-session →
-  same sticky denied on both the Direct header and group band glyphs; a
-  no-geolocation browser shows title "Location unavailable — not supported
-  on this device" instead of the "check permissions" advice.
-- **NEW (bot beacon, needs the functions deploy):** `/status` with the
-  direct beacon on → confirm carries the age nudge; `/status <group>`
-  likewise (both override-ON confirm and the follows-global reply);
-  `/locoff` → glyph on an open app session flips OFF within a prefs-echo
-  beat and the roster distance for that context goes away on peers;
-  `/locoff <group>` leaves the direct beacon (and other groups) untouched.
+## Verification state
 
-**Next actions (nothing deploys from sessions):**
-
-1. Maintainer merges `claude/knockknock-polish-pass-8kb77v` → `dev` (and
-   `dev` → `main`) — the LOCDBG strip gate is satisfied.
-2. DEPLOY the accumulated branch work (security fixes + all three prior perf
-   batches + audit-2 batch + the 2026-07-21/22 fixes) per the Deploy
-   ordering below — the LOAD-BEARING `pushTokens` (F6c) sequence is the one
-   that bites. Everything since the audit-2 batch is client-only (no rules,
-   no schema, no functions), so it all rides the same deploy train.
-3. Post-deploy: run the deferred smoke items (`docs/DEPLOY-PROD.md` verify
-   steps), plus the prior-session device checks: iOS PWA glyph-on publishes
-   within a tick when a prior session's opt-in was already on (the `45d7bec`
-   scenario) · the group roster keeps a mutual's coarse distance after the
-   viewer enables Direct (the `8d83e3a` scenario) · inbox Join shows
-   prompt → dark → group with no Direct/nav-code flash (`a9223c2`) · the
-   #156 panel's `SW reg` / `sw.js served` rows. PLUS the audit-2
-   device-smoke notes (from the plan's per-task footers): boot-into-group +
-   rapid Direct↔group flip now fetch the groupContext chunk (N5a) · Telegram
-   Mini App chrome/first-run/deep-link/link-screen still work as lazy chunks
-   (N5b) · first-ever cold-cache draw-session entry shows no flash/layout
-   shift as canvas.css loads on demand (N10) — now ALSO verify the first
-   entry draws at full size (`86504e6`).
-4. **iOS auto-update needs a TWO-deploy verification** (`5d8b3b8`): deploy 1
-   ships the fix but devices still fetch it via the old, stale-prone check
-   (a stuck device may need one manual `reg.update()` nudge via Web
-   Inspector); only deploy 2 — the next shell change after that — tests the
-   claim, by landing on the iOS PWA organically (relaunch, no inspector).
-
-**Verification state:** green bar OBSERVED at the 2026-07-22c tip — web
-jest 2085/2085 · functions 459/459 · both typechecks clean · production
-build completes (`node scripts/prod.js`). Rules suite (108) not re-run —
-nothing since the audit-2 batch touched rules. All suites run in this
-container with deps installed (Environment below).
-
-**Audit docs (sources of truth):**
-
-- **Audit 2 (SHIPPED — all ten fixes landed, see History):** findings
-  `docs/superpowers/specs/2026-07-21-performance-audit-2-findings.md` (all
-  ten source-verified, corrections inline; N2 severity correction applied by
-  the fix) · plan
-  `docs/superpowers/plans/2026-07-21-performance-fixes-audit2.md` (10 tasks,
-  complete code per step). N6 remains parked (Open items).
-- Audit 1 (all 26 findings FIXED, see History):
-  `docs/superpowers/specs/2026-07-20-performance-audit-findings.md`.
-
-**Deploy ordering (recorded in commit bodies + `docs/DEPLOY-PROD.md`; nothing
-deploys from sessions):**
-
-- **`pushTokens` relocation (F6c) — LOAD-BEARING:** rules → functions →
-  hosting → `node functions/migrate-push-tokens.js --apply` → later a **separate
-  cleanup commit** drops the legacy fallback in all three dual-readers
-  (`sendToUser`, `functions/telegram.js`, `js/notifyChannel.ts`). Full runbook:
-  `docs/DEPLOY-PROD.md` → "Addendum — pushTokens relocation (audit F6c)".
-- **Security fixes:** Fix 1 rules-only · Fix 3 functions-only · the `joinGroup`
-  callable must deploy **before or with** the members `.write` tighten and the
-  `redemptionsUsed` owner-only rule (old cached clients get permission-denied on
-  direct member writes until reload — intended trade-off).
-- **Branch perf fixes:** T5 deletes two functions
-  (`onMemberOverride`/`onMemberRemoved` → `onMemberWritten`); T7 needs a
-  post-deploy `curl -I /dist/chunks/<hash>.js` → `immutable` while
-  `/dist/bundle.js` stays `no-cache`.
-- **Tier 3 perf batch:** client-only (render/timer/cache/listener hygiene); the
-  one functions touch is a no-op `/start` route-write skip
-  (`functions/telegram.js`, T13b) — ships with the normal functions deploy, no
-  ordering dependency. **T3's stale-gid sweep** keys off the RTDB rules-denied
-  `set()` rejection shape — VERIFIED against the database emulator with the real
-  SDK (2026-07-20): `err.code === "PERMISSION_DENIED"`, `err.message ===
-  "PERMISSION_DENIED: Permission denied"`, and T3's `/permission.denied/i` guard
-  (on `code ?? message`) matches. No longer an unverified caveat. (Recipe if you
-  need to re-check: temp probe under `tests/rules/` mirroring
-  `locations.test.js`'s "non-member cannot write a cell" denial, dump `err` to a
-  file, `npm run test:rules`, delete the probe.)
-
-**Open items (parked, operator-ruled only):**
-
-- **Audit-2 N6 — SW precaches ALL chunks on first install** (incl. the ~78 KB
-  wordlist; canvas joins after Task 1). Verified: exclusion costs nothing on
-  repeat loads (immutable chunk headers → browser HTTP cache), so the trade
-  is purely first-install bytes vs OFFLINE availability of a flow before its
-  first use (e.g. offline phrase-restore on a fresh install). Product call —
-  the only audit-2 finding without a plan task.
-
-- **Self-heal for auto-update-stuck devices** (option B from the 2026-07-21
-  iOS investigation, parked): devices running a pre-`5d8b3b8` build carry the
-  stale SW-update-check exposure until they take one update; if stuck prod
-  users surface post-rollout, a page-side probe (no-store fetch of `/sw.js`,
-  compare vs `caches.keys()`, escalate) is designable — needs care around
-  reload loops.
-- **`?notifydebug=1` cannot reach the installed iOS PWA** (no URL bar;
-  Safari-tab localStorage is partitioned from the PWA's). Chosen path for
-  iOS diagnosis: macOS Safari → Develop → cabled device Web Inspector. A
-  prefs-synced opt-in (enable from any device, syncs via userPrefs) was
-  considered and not built.
-
-- **#288** — root-caused and fixed on this branch (self-join blocked, joins
-  brokered); close the issue once this branch merges and deploys.
-- One open product decision (unruled, not part of any plan): revoking OS
-  location permission on ONE device flips the ACCOUNT-WIDE opt-in off —
-  deliberate fail-safe, debatable.
-- Known-deferred minors: all cleared by the 2026-07-22 polish pass except
-  one, which stays as-designed (operator-ruled): cross-device
-  prompt-suppression relies on the Permissions API (a fresh session whose
-  opt-in synced from elsewhere stays silent while the state is genuinely
-  `'prompt'` — designed, no surprise prompts). (The older "stale opted-in
-  gids → harmless denied write every 60s" minor was already FIXED by Tier 3
-  T3.)
-- Follow-ups triaged 2026-07-17: **#290** in-app-browser dead tap · **#286** no
-  invite revoke on Telegram surface · closed-unreproduced "revoked follow
-  request still in inbox" (reopen only with a repro).
+Green bar OBSERVED at `dev`/`main` `361e65c` (2026-07-31, deps installed in
+this container): web jest **2085/2085** (87 suites) · functions **462/462**
+(13 suites) · `typecheck` + `typecheck:scripts` clean · prod build completes
+(`node scripts/prod.js`).
 
 ## On-ramp
 
@@ -257,6 +115,7 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 ## Landmines (read before touching code)
 
+- **Direct available-text color follows `statusColor`, NOT the palette key color.** `js/following.ts`'s palette card branch must not re-set `.status-available`'s color to `palette.color`: the fuzzy-time label follows the member's status color so it agrees with the status dot, mirroring `groupContext.ts` ("fuzzy time follows status color, not theme"). Re-adding the override reintroduces the 2026-07-31 mismatch (dot one color, label the palette/border color) — visible whenever a member's `statusColor` differs from their palette's key color. Pinned by `tests/following.test.js` ("available span … keeps statusColor").
 - **RTDB rules: a granted ancestor `.write` cannot be revoked by a child
   `.write`.** Under `users/$uid` (blanket self `.write`), enforcement must be
   `.validate` (doesn't cascade, skipped on delete) — that's why the
@@ -353,6 +212,7 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **This session (2026-07-31) — release content + Direct status-color fix.** New README/about distance+Telegram content (`76454d6`). Removed the Direct available-text `palette.color` override so the label follows `statusColor` (`361e65c`, TDD, device-verified). Maintainer merged `dev` → `main`; `v2.0.0` tagged on GitHub at `ca1d1fa` (release notes cover v1.3.0→v2.0.0). The status-color fix is post-tag on `main` — no new tag (operator call).
 - **This session (2026-07-22c) — Telegram beacon nudge + /locoff, TDD, on
   `claude/knockknock-polish-pass-8kb77v`:** operator-spec'd over three
   design rounds (feasibility → response-case enumeration → operator-authored
