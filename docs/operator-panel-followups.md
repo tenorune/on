@@ -17,7 +17,7 @@ each was ruled on rather than dropped.
 
 Ten items. One blocks production use; the rest are ranked by whether anything
 downstream depends on them. IDs are stable — cite them rather than re-describing
-the item. **R1-R4 are closed** (`<COMMIT>`) and detailed under "Parked
+the item. **R1-R4 are closed** (`c1b2cf9`) and detailed under "Parked
 residuals" below; their IDs are retired, not reused.
 
 | ID | Item | Where | Weight |
@@ -42,7 +42,7 @@ platform nothing exercises).
 
 **Shipped since this file was written:** the `locations`/`locationCells`
 enumerator follow-up (`4dea508`), the link-write fold (`16e5ae9`), and all four
-parked residuals R1-R4 (`<COMMIT>`). None is owed any more.
+parked residuals R1-R4 (`c1b2cf9`). None is owed any more.
 
 ---
 
@@ -151,7 +151,7 @@ against them. Only the third is an open item.
 
 ---
 
-## Parked residuals — ALL FOUR CLOSED (`<COMMIT>`)
+## Parked residuals — ALL FOUR CLOSED (`c1b2cf9`)
 
 Kept for the reasoning. Each was real, each was ruled non-blocking, and none was
 load-bearing — which is exactly why they survived two follow-ups without being
