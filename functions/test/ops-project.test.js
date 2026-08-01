@@ -136,6 +136,125 @@ describe('buildRows', () => {
     delete w.users.u1.presence.lastSeen;
     expect(buildRows(w, SECRET).map((r) => r.uid)).toEqual(['u2', 'u1']);
   });
+
+  // `status` is the string SITTING IN THE DATABASE. It is not the answer to
+  // "is this account available", because availability is timed: the app writes
+  // 'available' with an availableUntil and never rewrites the status when that
+  // moment passes. An account last seen fifteen days ago still reads
+  // status='available' forever, and the panel used to print exactly that.
+  //
+  // The predicate is NOT re-derived here. functions/presence-core.js
+  // primaryAvailable is the server-side one, pinned against the client's by
+  // tests/presencePredicateParity.test.js; a third copy in the panel is how
+  // three predicates start disagreeing.
+  describe('effective availability', () => {
+    test('a live availability window reads available', () => {
+      const row = buildRows(world(), SECRET, NOW).find((r) => r.uid === 'u1');
+      expect(row.available).toBe(true);
+    });
+
+    // The operator's report: accounts marked available that could not be.
+    test('an expired availability window does NOT read available', () => {
+      const w = world();
+      w.users.u1.presence.availableUntil = NOW - 1;
+      const row = buildRows(w, SECRET, NOW).find((r) => r.uid === 'u1');
+      expect(row.available).toBe(false);
+    });
+
+    test('an unavailable account reads unavailable whatever the window says', () => {
+      const w = world();
+      w.users.u2.presence.availableUntil = NOW + 60_000;
+      expect(buildRows(w, SECRET, NOW).find((r) => r.uid === 'u2').available).toBe(false);
+    });
+
+    // Open-ended availability is the documented client/server divergence
+    // (tests/presencePredicateParity.test.js). The panel follows the SERVER
+    // predicate — fail-closed — because an operator deciding whether to purge
+    // an account should not be told it is live on an input no writer emits.
+    test('available with no availableUntil follows the server predicate, not the client one', () => {
+      const w = world();
+      w.users.u1.presence.availableUntil = null;
+      expect(buildRows(w, SECRET, NOW).find((r) => r.uid === 'u1').available).toBe(false);
+    });
+
+    // The panel's job is to show what is in the database, so the raw string
+    // has to survive alongside the computed answer — an operator needs to see
+    // that the stored status says 'available' while the account is not.
+    test('the stored status string is still carried, not replaced', () => {
+      const w = world();
+      w.users.u1.presence.availableUntil = NOW - 1;
+      const row = buildRows(w, SECRET, NOW).find((r) => r.uid === 'u1');
+      expect(row.status).toBe('available');
+      expect(row.availableUntil).toBe(NOW - 1);
+    });
+  });
+
+  // The label the status column actually prints. Computed here rather than in
+  // panel.html for the same reason as the ages: the page has no unit coverage,
+  // and this is the cell that was telling the operator the wrong thing.
+  describe('status label', () => {
+    const rowFor = (mutate) => {
+      const w = world();
+      mutate(w.users.u1.presence);
+      return buildRows(w, SECRET, NOW).find((r) => r.uid === 'u1');
+    };
+
+    test('a live window reads plainly available', () => {
+      const row = rowFor((p) => { p.availableUntil = NOW + 60_000; });
+      expect(row.statusLabel).toBe('available');
+      expect(row.statusTitle).toBeNull();
+    });
+
+    // Not "available", and not a bare "unavailable" either — the stored string
+    // still says available, and an operator looking at a purge candidate should
+    // be able to see both facts without opening the database.
+    test('an expired window reads expired and says when, and how it is stored', () => {
+      const row = rowFor((p) => { p.availableUntil = NOW - (15 * 24 + 9) * 60 * 60_000; });
+      expect(row.statusLabel).toBe('expired');
+      expect(row.statusTitle).toBe('stored status is "available"; the window ended 15d 9h ago');
+    });
+
+    // integrity.js already reports this as an `available-without-until` error.
+    // The status cell must not quietly render it as either available or
+    // expired — neither is true, and the row is the one an operator sees first.
+    test('available with no window is named as such, not flattened', () => {
+      const row = rowFor((p) => { p.availableUntil = null; });
+      expect(row.statusLabel).toBe('available (no window)');
+      expect(row.statusTitle).toMatch(/availableUntil/);
+    });
+
+    test('any other stored status passes through unchanged', () => {
+      const row = rowFor((p) => { p.status = 'unavailable'; p.availableUntil = null; });
+      expect(row.statusLabel).toBe('unavailable');
+    });
+
+    test('no stored status at all is a dash', () => {
+      const row = rowFor((p) => { delete p.status; delete p.availableUntil; });
+      expect(row.statusLabel).toBe('—');
+    });
+  });
+
+  // Rendered server-side because panel.html cannot be unit-tested: it is served
+  // as one static file with no bundler, so a formatter living in it is a rule
+  // no test can reach.
+  describe('human-readable ages', () => {
+    test('createdAt and lastSeen arrive preformatted', () => {
+      const row = buildRows(world(), SECRET, NOW).find((r) => r.uid === 'u1');
+      expect(row.createdAtLabel).toBe('15m ago');
+      expect(row.lastSeenLabel).toBe('<1m ago');
+    });
+
+    test('an absent timestamp is a dash, not an age since the epoch', () => {
+      const row = buildRows(world(), SECRET, NOW).find((r) => r.uid === 'u2');
+      expect(row.createdAtLabel).toBe('—');
+    });
+
+    test('the raw timestamps survive, so the table can still sort on them', () => {
+      const row = buildRows(world(), SECRET, NOW).find((r) => r.uid === 'u1');
+      expect(row.createdAt).toBe(NOW - 900_000);
+      expect(row.lastSeen).toBe(NOW - 1000);
+    });
+  });
 });
 
 describe('buildDetail', () => {
@@ -161,13 +280,44 @@ describe('buildDetail', () => {
     const d = buildDetail(world(), 'u1', SECRET);
     expect(d.location.hasPoint).toBe(true);
     expect(d.location.fixAge).toBe(30_000);
-    expect(d.location.cells).toEqual([{ gid: 'g1', fixAge: 40_000 }]);
+    expect(d.location.cells).toEqual([{ gid: 'g1', fixAge: 40_000, fixAgeLabel: '<1m' }]);
   });
 
   test('push tokens carry per-token lastSeen and ua', () => {
-    expect(buildDetail(world(), 'u1', SECRET).pushTokens).toEqual([
-      { token: 'tokA', lastSeen: NOW - 2000, ua: 'iPhone' },
+    expect(buildDetail(world(), 'u1', SECRET, NOW).pushTokens).toEqual([
+      { token: 'tokA', lastSeen: NOW - 2000, ua: 'iPhone', lastSeenLabel: '<1m ago' },
     ]);
+  });
+
+  // The detail view rendered these two as raw seconds, so a fix taken a
+  // fortnight ago read "1328700s old" — the same unit problem as the table,
+  // in the view an operator opens right before pressing purge.
+  describe('durations in the detail view are legible too', () => {
+    test('a stale point fix reads in days, not seconds', () => {
+      const w = world();
+      w.locations.u1.updatedAt = NOW - (15 * 24 * 60 + 9 * 60) * 60_000;
+      expect(buildDetail(w, 'u1', SECRET, NOW).location.fixAgeLabel).toBe('15d 9h');
+    });
+
+    test('an absent point has no age label to give', () => {
+      const w = world();
+      delete w.locations.u1;
+      const d = buildDetail(w, 'u1', SECRET, NOW);
+      expect(d.location.hasPoint).toBe(false);
+      expect(d.location.fixAgeLabel).toBeNull();
+    });
+
+    test('a stale push token reads in days too', () => {
+      const w = world();
+      w.pushTokens.u1.tokA.lastSeen = NOW - 3 * 24 * 60 * 60_000;
+      expect(buildDetail(w, 'u1', SECRET, NOW).pushTokens[0].lastSeenLabel).toBe('3d 0h ago');
+    });
+
+    test('the detail inherits the row availability, computed at the same instant', () => {
+      const w = world();
+      w.users.u1.presence.availableUntil = NOW - 1;
+      expect(buildDetail(w, 'u1', SECRET, NOW).available).toBe(false);
+    });
   });
 
   test('an unknown uid returns null', () => {

@@ -1,5 +1,11 @@
 // functions/ops/project.js — pure snapshot → display shapes. No I/O.
 import { classifyProvenance } from './provenance.js';
+import { agoLabel, humanDuration, statusLabelling } from './format.js';
+// The SERVER availability predicate, pinned against the client's by
+// tests/presencePredicateParity.test.js. Imported rather than re-derived: a
+// third predicate is how three of them start disagreeing, and this one decides
+// what an operator sees before pressing a destructive button.
+import { primaryAvailable } from '../presence-core.js';
 
 /**
  * Canvas keys are SORTED uid pairs, so a uid can appear on either side.
@@ -31,19 +37,32 @@ function contactSets(snapshot, uid) {
  * @param {string | null | undefined} secret
  * @returns {import('./types.js').Row[]}
  */
-export function buildRows(snapshot, secret) {
+export function buildRows(snapshot, secret, now = Date.now()) {
   const authByUid = new Map(snapshot.authUsers.map((u) => [u.uid, u]));
   const rows = Object.keys(snapshot.users || {}).map((uid) => {
     const presence = snapshot.users[uid]?.presence || {};
     const { followers, following } = contactSets(snapshot, uid);
+    const createdAt = authByUid.get(uid)?.createdAt ?? null;
+    const lastSeen = typeof presence.lastSeen === 'number' ? presence.lastSeen : null;
+    const status = presence.status ?? null;
+    const availableUntil = typeof presence.availableUntil === 'number' ? presence.availableUntil : null;
+    const available = primaryAvailable(presence, now);
     return {
       uid,
       code: presence.code ?? null,
       provenance: classifyProvenance(uid, snapshot, secret),
-      createdAt: authByUid.get(uid)?.createdAt ?? null,
-      lastSeen: typeof presence.lastSeen === 'number' ? presence.lastSeen : null,
-      status: presence.status ?? null,
-      availableUntil: typeof presence.availableUntil === 'number' ? presence.availableUntil : null,
+      createdAt,
+      createdAtLabel: agoLabel(createdAt, now),
+      lastSeen,
+      lastSeenLabel: agoLabel(lastSeen, now),
+      status,
+      availableUntil,
+      // Whether the account is available RIGHT NOW, which `status` alone never
+      // answered: availability is timed, and nothing rewrites the stored string
+      // when the window closes. Uses the pinned server predicate rather than a
+      // third copy — see the test's note.
+      available,
+      ...statusLabelling(status, availableUntil, available, now),
       contacts: new Set([...followers, ...following]).size,
       groupCount: Object.keys(snapshot.users[uid]?.groups || {}).length,
       canvasCount: canvasPeers(snapshot.canvasKeys, uid).length,
@@ -64,9 +83,9 @@ export function buildRows(snapshot, secret) {
  * @param {string | null | undefined} secret
  * @returns {import('./types.js').Detail | null}
  */
-export function buildDetail(snapshot, uid, secret) {
+export function buildDetail(snapshot, uid, secret, now = Date.now()) {
   if (!snapshot.users?.[uid]) return null;
-  const row = buildRows(snapshot, secret).find((r) => r.uid === uid);
+  const row = buildRows(snapshot, secret, now).find((r) => r.uid === uid);
   if (!row) return null;
   const { followers, following, mutuals } = contactSets(snapshot, uid);
 
@@ -84,12 +103,13 @@ export function buildDetail(snapshot, uid, secret) {
   });
 
   const point = snapshot.locations?.[uid];
+  const pointFixAge = point ? age(snapshot.takenAt, point.updatedAt) : null;
   const cells = Object.keys(snapshot.locationCells || {})
     .filter((gid) => snapshot.locationCells[gid]?.[uid])
-    .map((gid) => ({
-      gid,
-      fixAge: age(snapshot.takenAt, snapshot.locationCells[gid][uid].updatedAt),
-    }));
+    .map((gid) => {
+      const fixAge = age(snapshot.takenAt, snapshot.locationCells[gid][uid].updatedAt);
+      return { gid, fixAge, fixAgeLabel: fixAge == null ? null : humanDuration(fixAge) };
+    });
 
   const link = snapshot.telegramByUid?.[uid];
   const tgId = link?.tgId != null ? String(link.tgId) : null;
@@ -101,11 +121,10 @@ export function buildDetail(snapshot, uid, secret) {
     mutuals,
     groups,
     canvases: canvasPeers(snapshot.canvasKeys, uid),
-    pushTokens: Object.entries(snapshot.pushTokens?.[uid] || {}).map(([token, t]) => ({
-      token,
-      lastSeen: typeof t?.lastSeen === 'number' ? t.lastSeen : null,
-      ua: t?.ua ?? null,
-    })),
+    pushTokens: Object.entries(snapshot.pushTokens?.[uid] || {}).map(([token, t]) => {
+      const lastSeen = typeof t?.lastSeen === 'number' ? t.lastSeen : null;
+      return { token, lastSeen, lastSeenLabel: agoLabel(lastSeen, now), ua: t?.ua ?? null };
+    }),
     telegram: tgId ? {
       tgId,
       chatId: link.chatId ?? null,
@@ -114,7 +133,8 @@ export function buildDetail(snapshot, uid, secret) {
     } : null,
     location: {
       hasPoint: Boolean(point),
-      fixAge: point ? age(snapshot.takenAt, point.updatedAt) : null,
+      fixAge: pointFixAge,
+      fixAgeLabel: pointFixAge == null ? null : humanDuration(pointFixAge),
       cells,
     },
   };

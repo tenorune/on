@@ -34,7 +34,7 @@
 <div id="users">
   <table><thead><tr>
     <th data-k="uid">uid</th><th data-k="code">code</th><th data-k="provenance">origin</th>
-    <th data-k="createdAt">created</th><th data-k="lastSeen">last active</th><th data-k="status">status</th>
+    <th data-k="createdAt">created</th><th data-k="lastSeen">last active</th><th data-k="statusLabel">status</th>
     <th data-k="contacts">contacts</th><th data-k="groupCount">groups</th><th data-k="canvasCount">canvas</th>
     <th data-k="pushTokenCount">tokens</th><th data-k="notifyChannel">channel</th><th data-k="locationOptIn">loc</th>
   </tr></thead><tbody id="rows"></tbody></table>
@@ -62,7 +62,10 @@ const api = async (path, body) => {
 };
 const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let state = { rows: [], sort: 'lastSeen', dir: -1, nonce: null, uid: null, canvasKeys: { examined: true, count: 0, error: null } };
-const ago = (t) => (t == null ? '—' : `${Math.round((Date.now() - t) / 60000)}m ago`);
+// Ages and the status label arrive PREFORMATTED from ops/format.js. This file
+// is served as one static asset with no bundler, so nothing in it can be unit
+// tested — anything with a rule in it belongs on the server side, where it is
+// covered. Raw timestamps still ride along for the column sort.
 
 // "This account has no canvases" and "canvases were not examined" are DIFFERENT
 // facts, and an operator approving a destructive write has to know which one
@@ -96,7 +99,8 @@ function render() {
   $('rows').innerHTML = rows.map((r) => `<tr data-uid="${esc(r.uid)}">
     <td>${esc(r.uid.slice(0, 10))}…</td><td>${esc(r.code || '—')}</td>
     <td><span class="badge ${r.provenance.exact ? '' : 'inexact'}">${esc(r.provenance.kind)}</span></td>
-    <td>${ago(r.createdAt)}</td><td>${ago(r.lastSeen)}</td><td>${esc(r.status || '—')}</td>
+    <td>${esc(r.createdAtLabel)}</td><td>${esc(r.lastSeenLabel)}</td>
+    <td${r.statusTitle ? ` class="inexact" title="${esc(r.statusTitle)}"` : ''}>${esc(r.statusLabel)}</td>
     <td>${r.contacts}</td><td>${r.groupCount}</td><td>${canvasCell(r)}</td>
     <td>${r.pushTokenCount}</td><td>${esc(r.notifyChannel || '—')}</td><td>${r.locationOptIn ? 'on' : '—'}</td>
   </tr>`).join('');
@@ -131,8 +135,8 @@ async function openDetail(uid) {
     <table><tr><th>group</th><th>name in group</th><th>role</th><th>owner</th><th>override</th></tr>
     ${detail.groups.map((g) => `<tr><td>${esc(g.name || g.gid)}</td><td>${esc(g.displayName || '—')}</td><td>${esc(g.role || '—')}</td><td>${g.isOwner ? 'yes' : '—'}</td><td>${g.hasStatusOverride ? 'yes' : '—'}</td></tr>`).join('')}</table>
     <p>canvases: ${canvases}</p>
-    <p>tokens: ${detail.pushTokens.map((t) => `${esc(t.token.slice(0, 8))}… ${ago(t.lastSeen)}`).join(' · ') || 'none'} · channel ${esc(detail.notifyChannel || '—')}</p>
-    <p>location: ${detail.location.hasPoint ? `point ${Math.round(detail.location.fixAge / 1000)}s old` : 'off'}${detail.location.cells.map((c) => ` · ${esc(c.gid)} ${Math.round(c.fixAge / 1000)}s`).join('')}</p>
+    <p>tokens: ${detail.pushTokens.map((t) => `${esc(t.token.slice(0, 8))}… ${esc(t.lastSeenLabel)}`).join(' · ') || 'none'} · channel ${esc(detail.notifyChannel || '—')}</p>
+    <p>location: ${detail.location.hasPoint ? `point ${esc(detail.location.fixAgeLabel)} old` : 'off'}${detail.location.cells.map((c) => ` · ${esc(c.gid)} ${esc(c.fixAgeLabel)}`).join('')}</p>
     <p>telegram: ${detail.telegram ? `tgId ${esc(detail.telegram.tgId)}` : 'none'}</p>
     <button data-act="purge">purge…</button>
     <button data-act="merge">merge into…</button>

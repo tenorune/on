@@ -617,14 +617,18 @@ export function createRoutes(ctx) {
         project: opts.projectId,
         isProd: isProductionTarget(opts),
         canvasKeys: canvasScope(snap),
-        rows: buildRows(snap, opts.uidSecret),
+        // Ages and availability are computed against the SNAPSHOT's instant,
+        // not the wall clock. Snapshots are cached, and a table whose ages
+        // drift away from the data they describe would quietly disagree with
+        // its own takenAt header.
+        rows: buildRows(snap, opts.uidSecret, snap.takenAt),
       };
     },
 
     'GET /api/detail': async (input) => {
       const uid = requireString(asQuery(input).get('uid'), 'uid');
       const snap = await current();
-      const detail = buildDetail(snap, uid, opts.uidSecret);
+      const detail = buildDetail(snap, uid, opts.uidSecret, snap.takenAt);
       if (!detail) throw new Error(`no account at users/${uid}`);
       // A detail view is not an approval of anything: the nonce it issues
       // carries NO plan, so an execute presenting it is refused (see

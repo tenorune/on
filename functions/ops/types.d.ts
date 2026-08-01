@@ -60,9 +60,15 @@ export interface Row {
   code: string | null;
   provenance: ProvenanceResult;
   createdAt: number | null;
+  createdAtLabel: string;
   lastSeen: number | null;
+  lastSeenLabel: string;
   status: string | null;
   availableUntil: number | null;
+  /** The pinned server predicate's answer as of the snapshot — NOT `status`. */
+  available: boolean;
+  statusLabel: string;
+  statusTitle: string | null;
   contacts: number;
   groupCount: number;
   canvasCount: number;
@@ -77,9 +83,14 @@ export interface Detail extends Row {
   mutuals: string[];
   groups: GroupMembership[];
   canvases: Array<{ peer: string; key: string }>;
-  pushTokens: Array<{ token: string; lastSeen: number | null; ua: string | null }>;
+  pushTokens: Array<{ token: string; lastSeen: number | null; lastSeenLabel: string; ua: string | null }>;
   telegram: { tgId: string; chatId: string | null; mappingLinkedAt: number | null; prefsLinkedAt: number | null } | null;
-  location: { hasPoint: boolean; fixAge: number | null; cells: Array<{ gid: string; fixAge: number | null }> };
+  location: {
+    hasPoint: boolean;
+    fixAge: number | null;
+    fixAgeLabel: string | null;
+    cells: Array<{ gid: string; fixAge: number | null; fixAgeLabel: string | null }>;
+  };
 }
 
 export interface Finding {

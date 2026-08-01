@@ -538,6 +538,28 @@ describe('canvasKeys omitted vs empty are different facts', () => {
     expect(impact.losses.some((l) => l.includes('could not be enumerated'))).toBe(true);
   });
 
+  // panel.html cannot be imported, so these are source assertions — the only
+  // reachable check that the page did not keep a private copy of a rule. The
+  // behaviour itself is covered in ops-project/ops-format.
+  test('the panel formats no durations of its own', () => {
+    const page = readFileSync(join(OPS_DIR, 'panel.html'), 'utf8');
+    // The old inline formatter, and the two raw-seconds renders beside it.
+    expect(page).not.toMatch(/\/\s*60000/);
+    expect(page).not.toMatch(/fixAge\s*\/\s*1000/);
+    expect(page).toMatch(/createdAtLabel/);
+    expect(page).toMatch(/lastSeenLabel/);
+    expect(page).toMatch(/fixAgeLabel/);
+  });
+
+  // The bug the operator hit: a table full of accounts reading "available"
+  // that had not been seen in weeks. The cell must render the computed label,
+  // never the stored string.
+  test('the status cell renders the computed label, not the stored status', () => {
+    const page = readFileSync(join(OPS_DIR, 'panel.html'), 'utf8');
+    expect(page).toMatch(/statusLabel/);
+    expect(page).not.toMatch(/esc\(r\.status\b/);
+  });
+
   test('the panel renders the two states with different text', () => {
     const page = readFileSync(join(OPS_DIR, 'panel.html'), 'utf8');
     // "no canvases" and "not examined" must not share a rendering.
