@@ -11,15 +11,37 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**UI improvements — operator-directed, this is the next session's focus.**
+**Implement the operator control panel** — a local-only Admin-SDK ops tool
+(user list, merge, purge, Telegram link-without-loss, integrity report).
+
+- **Plan:** `docs/superpowers/plans/2026-08-01-operator-control-panel.md` —
+  11 TDD tasks, 61 steps, per-task commits sanctioned by the plan.
+- **Spec:** `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md`
+  — decisions D1–D6 and their rationale; read §7 (merge family rules) and
+  §8 (the Telegram link case) before writing merge code.
+- **Branch:** work continues on `claude/knockknock-ui-improvements-7bm5o9`
+  (cut from `dev` at `4d1d98a`; two docs commits on it, both pushed).
+- **Execution mode is undecided** — the operator has not yet chosen
+  subagent-driven vs inline. Ask before starting.
+
+**Start with Task 1 regardless of anything else.** It closes a CONFIRMED live
+exposure: `hosting.ignore` omits `functions/**` while hosting is
+`"public": "."`, so the deployed site serves Cloud Functions source as static
+files (verified 2026-08-01, `curl -sI …/functions/telegram-auth.js` → 200).
+That fix stands alone and does not depend on the panel.
+
 ⚠️ **Do not touch code without the operator's explicit say-so** — propose the
 change and get approval BEFORE any edit. The operator drives; expect
-hands-on, device-driven iteration on anything visual ("done" is their call).
+hands-on iteration ("done" is their call).
 
-## Where things stand (2026-07-31)
+## Where things stand (2026-08-01)
+
+Design + plan for the ops panel are committed and pushed on
+`claude/knockknock-ui-improvements-7bm5o9`. **No code has been written** —
+the branch is docs-only. `dev` and `main` are unchanged and tree-identical;
+the maintainer merges, so the branch stays open.
 
 Everything below is SHIPPED and merged; no pending uncommitted/unpushed work.
-`dev` and `main` (origin) are tree-identical.
 
 - **v2.0.0 released.** `dev` → `main` merged by the maintainer (`main` =
   `731eed9`); tagged `v2.0.0` on GitHub at the release commit `ca1d1fa`.
@@ -46,10 +68,11 @@ Nothing deploys from sessions.
 
 ## Verification state
 
-Green bar OBSERVED at `dev`/`main` `361e65c` (2026-07-31, deps installed in
-this container): web jest **2085/2085** (87 suites) · functions **462/462**
-(13 suites) · `typecheck` + `typecheck:scripts` clean · prod build completes
-(`node scripts/prod.js`).
+Green bar OBSERVED at `27719fd` (2026-08-01, docs-only branch tip): web jest
+**2085/2085** (87 suites) · functions **462/462** (13 suites) · `typecheck` +
+`typecheck:scripts` clean · prod build completes (`node scripts/prod.js`,
+`.env.production` present). Identical counts to the `361e65c` baseline, as
+expected — this session changed no code.
 
 ## On-ramp
 
@@ -115,6 +138,35 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 ## Landmines (read before touching code)
 
+- **Hosting serves Cloud Functions source today.** `hosting.ignore` omits
+  `functions/**` while `hosting.public` is `"."`, and Firebase Hosting does
+  NOT auto-exclude the functions source dir — it uploads everything under
+  `public` minus `ignore`. Confirmed live 2026-08-01 (200 on
+  `/functions/telegram-auth.js`). Not a secret leak (public repo, secrets in
+  env) but it is server-side code on a public URL. Ops-panel plan Task 1
+  fixes it and pins both lists with a test. **Related trap:** specifying
+  `functions.ignore` **replaces** the CLI defaults — re-list `node_modules`,
+  `.git`, `firebase-debug.log`, `firebase-debug.*.log` or the deploy archive
+  balloons.
+- **`crossRefRenderers` in `functions/telegram-auth.js` is the ONE residue
+  enumerator.** Expunge and graduation share it deliberately so a new
+  cross-user residue family can't be added to one and missed by the other
+  (the reason `followerNames` had to land in both). The ops panel's merge
+  becomes its third consumer. Add new families THERE, never in a consumer.
+- **`uid = sha256(phrase)` is one-way, so "has a phrase" is not observable.**
+  It's inferable: uids come from exactly three paths (web `initUser`,
+  Telegram bootstrap via `deriveTelegramUid`, graduation), so not-derived ⇒
+  phrase-born. And graduated-vs-linked is a **heuristic** —
+  `userPrefs/{uid}/telegram/linkedAt < telegramUsers/{tgId}.linkedAt` means
+  graduated, because `performLink` writes both in the same update while
+  graduation copies the prefs subtree wholesale. It reads "linked" for a
+  graduated account that later re-links. Don't present it as fact.
+- **Production's Telegram link DESTROYS a derived account.** `performLink`
+  calls `expungeDerivedAccount` on a standalone derived account
+  (`functions/telegram-auth.js:210`), and the only warning
+  (`redeemTelegramLinkTokenHandler`) counts just followers/following/groups —
+  silent about owned groups (deleted for ALL members), canvases, and invite
+  tokens. "contacts: 0, groups: 0" can still be a lossy link.
 - **Direct available-text color follows `statusColor`, NOT the palette key color.** `js/following.ts`'s palette card branch must not re-set `.status-available`'s color to `palette.color`: the fuzzy-time label follows the member's status color so it agrees with the status dot, mirroring `groupContext.ts` ("fuzzy time follows status color, not theme"). Re-adding the override reintroduces the 2026-07-31 mismatch (dot one color, label the palette/border color) — visible whenever a member's `statusColor` differs from their palette's key color. Pinned by `tests/following.test.js` ("available span … keeps statusColor").
 - **RTDB rules: a granted ancestor `.write` cannot be revoked by a child
   `.write`.** Under `users/$uid` (blanket self `.write`), enforcement must be
@@ -212,6 +264,21 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **This session (2026-08-01) — ops-panel design + plan, docs only
+  (`39b4980`, `27719fd` on `claude/knockknock-ui-improvements-7bm5o9`).**
+  Brainstormed to an approved spec, then a TDD plan. No code written; gates
+  re-verified green at the branch tip. Decisions recorded in the spec: local
+  Node CLI under `functions/ops/` bound to `127.0.0.1` (the RTDB rules are
+  owner-scoped, so no browser client can enumerate accounts — the panel goes
+  through the Admin SDK); `.js` + JSDoc, not `.ts`, since nothing compiles it
+  and `tsconfig` already strict-checks `functions/**/*.js`; purge reuses the
+  shipped `expungeDerivedAccount` while merge is the one new primitive
+  (`graduateAccountData` refuses a live target); "link via merge" does what
+  production cannot — link a Telegram-derived account to a phrase account
+  with nothing lost. Found and confirmed the hosting-serves-functions
+  exposure (now a landmine, fixed by plan Task 1). Deferred deliberately:
+  D5's Auth-record deletion, until `admin.auth().deleteUser` behaviour on a
+  custom-token uid is verified on dev.
 - **This session (2026-07-31) — release content + Direct status-color fix.** New README/about distance+Telegram content (`76454d6`). Removed the Direct available-text `palette.color` override so the label follows `statusColor` (`361e65c`, TDD, device-verified). Maintainer merged `dev` → `main`; `v2.0.0` tagged on GitHub at `ca1d1fa` (release notes cover v1.3.0→v2.0.0). The status-color fix is post-tag on `main` — no new tag (operator call).
 - **This session (2026-07-22c) — Telegram beacon nudge + /locoff, TDD, on
   `claude/knockknock-polish-pass-8kb77v`:** operator-spec'd over three
