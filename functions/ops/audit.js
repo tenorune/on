@@ -203,3 +203,34 @@ export function writeAuditRecord(fs, dir, record) {
   fsyncDir(fs, dir);
   return file;
 }
+
+/**
+ * Append the OUTCOME of a destructive write, after the fact.
+ *
+ * The pre-image dump has to be complete and fsynced BEFORE the destructive
+ * write is issued — that is its entire purpose, since the window it protects
+ * is the one between "the values still exist" and "they do not". So the
+ * outcome cannot ride on the same record: writeAuditRecord is called first
+ * with a `pending` outcome, and this appends the resolution as a second JSONL
+ * line correlated by `ts`/`op`/`uids` and by the pre-image file path.
+ *
+ * No directory fsync here: `audit.jsonl` already exists (writeAuditRecord
+ * created and synced it), so this append adds no new directory entry.
+ *
+ * @param {AuditFs} fs
+ * @param {string} dir
+ * @param {{
+ *   ts: number,
+ *   op: string,
+ *   project: string,
+ *   uids: string[],
+ *   paths: number,
+ *   preImageFile: string,
+ *   completedAt: number,
+ *   outcome: string,
+ * }} record
+ */
+export function appendAuditOutcome(fs, dir, record) {
+  fs.appendFileSync(`${dir}/audit.jsonl`, `${JSON.stringify(record)}\n`);
+  fsyncFile(fs, `${dir}/audit.jsonl`);
+}
