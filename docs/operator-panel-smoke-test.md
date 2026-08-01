@@ -59,6 +59,15 @@ names a different project.
 **Expect NOT to see:** `TELEGRAM_UID_SECRET unset`. If you do, the secret did not
 reach the process and provenance results in step 4 are meaningless.
 
+If the secret is already in `functions/.env`, drop that line from the command —
+the panel reads those two variables from that file and says so on stdout
+(`loaded from functions/.env: …`). A value passed on the command line still
+wins. Note the shell trap this replaces: a `\` with a **trailing space** ends the
+line instead of continuing it, so the assignment binds to an empty command and
+never reaches `node`; the same happens if the variable is assigned on its own
+line without `export`. In both cases the process starts and reports the secret
+as unset, which is what the check above is for.
+
 This is the first moment `deps.js` runs. A malformed credential surfaces here as
 a `JSON.parse` or `cert()` throw.
 

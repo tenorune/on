@@ -41,6 +41,23 @@ Then open <http://127.0.0.1:8787>.
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` | **yes** | the server refuses to start |
 | `TELEGRAM_UID_SECRET` | no | **provenance degrades** — see below |
 
+Either may come from `functions/.env` instead of the command line — that file is
+where `functions/.env.example` already tells you to keep `TELEGRAM_UID_SECRET`,
+and the panel now reads it rather than reporting a secret you did set as
+`unset`. **Anything passed on the command line wins**, so a one-off run can
+still point at another project's secret without editing the file. Whatever is
+taken from the file is named on stdout at startup:
+
+```
+loaded from functions/.env: TELEGRAM_UID_SECRET
+```
+
+Only those two variables are read from it. The panel holds a database-admin
+credential, so letting a file set anything else in this process — `PROD_PROJECT`
+decides the production gate — would be a wider blast radius than the confusion
+it removes. `functions/.env.<projectId>` is **not** consulted: those files are
+committed, and a secret does not belong in one.
+
 `TELEGRAM_UID_SECRET` is the HMAC secret `deriveTelegramUid` uses. With it, the
 panel can recompute a Telegram-derived uid from a `tgId` and say *exactly* how
 an account was created. Without it, the origin column falls back to a

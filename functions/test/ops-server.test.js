@@ -6,6 +6,7 @@ import { jest } from '@jest/globals';
 import { makeStoreDeps } from './store-deps.js';
 import {
   parseArgs,
+  withEnvFile,
   assertProdGate,
   isProductionTarget,
   requireConfirm,
@@ -75,6 +76,90 @@ describe('parseArgs', () => {
   test('an empty or whitespace prod-project reads as unknown, not as a project name', () => {
     expect(parseArgs(['--project', 'demo'], { ...ENV, PROD_PROJECT: '   ' }).prodProject).toBeNull();
     expect(parseArgs(['--project', 'demo', '--prod-project', ''], ENV).prodProject).toBeNull();
+  });
+});
+
+// The panel is a plain `node ops/server.js`, not a Firebase CLI invocation, so
+// nothing auto-loads functions/.env — yet that file is exactly where
+// functions/.env.example tells the operator TELEGRAM_UID_SECRET lives. Reading
+// it here closes that gap. It stays SCOPED to the two variables the panel
+// documents: this process holds a database-admin credential, and a dotenv file
+// that can set arbitrary variables in it is a wider blast radius than the
+// problem being fixed.
+describe('withEnvFile', () => {
+  test('supplies a panel variable the process environment does not have', () => {
+    const { env } = withEnvFile({}, 'TELEGRAM_UID_SECRET=from-file');
+    expect(env.TELEGRAM_UID_SECRET).toBe('from-file');
+  });
+
+  // The inline prefix is how the README and the smoke test both invoke this,
+  // and it is how an operator points one run at a different project. A file on
+  // disk must never quietly beat what the operator typed.
+  test('the process environment wins over the file', () => {
+    const { env } = withEnvFile({ TELEGRAM_UID_SECRET: 'inline' }, 'TELEGRAM_UID_SECRET=from-file');
+    expect(env.TELEGRAM_UID_SECRET).toBe('inline');
+  });
+
+  // Same reasoning as the prod-project gate above: '' is an unparseable
+  // environment, not a declaration, so the file is still the better answer.
+  test('an empty or whitespace inline value does not beat the file', () => {
+    expect(withEnvFile({ TELEGRAM_UID_SECRET: '' }, 'TELEGRAM_UID_SECRET=from-file').env.TELEGRAM_UID_SECRET)
+      .toBe('from-file');
+    expect(withEnvFile({ TELEGRAM_UID_SECRET: '  ' }, 'TELEGRAM_UID_SECRET=from-file').env.TELEGRAM_UID_SECRET)
+      .toBe('from-file');
+  });
+
+  test('ignores variables outside the panel scope', () => {
+    const { env } = withEnvFile({}, 'TELEGRAM_BOT_TOKEN=123:secret\nFUNCTIONS_REGION=us-central1');
+    expect(env.TELEGRAM_BOT_TOKEN).toBeUndefined();
+    expect(env.FUNCTIONS_REGION).toBeUndefined();
+  });
+
+  test('ignores comments and blank lines', () => {
+    const { env } = withEnvFile({}, '# TELEGRAM_UID_SECRET=commented-out\n\n   \nTELEGRAM_UID_SECRET=real');
+    expect(env.TELEGRAM_UID_SECRET).toBe('real');
+  });
+
+  test('strips surrounding quotes but keeps the value intact', () => {
+    expect(withEnvFile({}, 'TELEGRAM_UID_SECRET="quoted"').env.TELEGRAM_UID_SECRET).toBe('quoted');
+    expect(withEnvFile({}, "TELEGRAM_UID_SECRET='quoted'").env.TELEGRAM_UID_SECRET).toBe('quoted');
+  });
+
+  // A secret is an arbitrary byte string. Anything that looks like dotenv
+  // syntax inside it — '#', '=' — is part of the secret, not markup, and
+  // trimming it would derive every Telegram uid wrong while looking healthy.
+  test('does not treat # or = inside a value as syntax', () => {
+    expect(withEnvFile({}, 'TELEGRAM_UID_SECRET=a#b=c').env.TELEGRAM_UID_SECRET).toBe('a#b=c');
+  });
+
+  test('names which variables came from the file, so startup can say so', () => {
+    const { loaded } = withEnvFile(
+      { GOOGLE_APPLICATION_CREDENTIALS_JSON: '{"x":1}' },
+      'TELEGRAM_UID_SECRET=from-file\nGOOGLE_APPLICATION_CREDENTIALS_JSON={"y":2}',
+    );
+    expect(loaded).toEqual(['TELEGRAM_UID_SECRET']);
+  });
+
+  test('a missing file changes nothing', () => {
+    const { env, loaded } = withEnvFile({ TELEGRAM_UID_SECRET: 'inline' }, null);
+    expect(env.TELEGRAM_UID_SECRET).toBe('inline');
+    expect(loaded).toEqual([]);
+  });
+
+  test('does not mutate the environment it was handed', () => {
+    const original = {};
+    withEnvFile(original, 'TELEGRAM_UID_SECRET=from-file');
+    expect(original.TELEGRAM_UID_SECRET).toBeUndefined();
+  });
+
+  // The whole point of the change: the value reaches parseArgs, so the panel
+  // stops reporting "unset" for a secret the operator did set.
+  test('a file-supplied secret reaches parseArgs', () => {
+    const { env } = withEnvFile(
+      { GOOGLE_APPLICATION_CREDENTIALS_JSON: '{"x":1}' },
+      'TELEGRAM_UID_SECRET=from-file',
+    );
+    expect(parseArgs(['--project', 'demo'], env).uidSecret).toBe('from-file');
   });
 });
 

@@ -8,6 +8,9 @@
 //   TELEGRAM_UID_SECRET                 = enables exact provenance
 //   --prod-project <id> --i-know-this-is-prod   to point at production
 //
+// Both variables also fall back to functions/.env (and ONLY those two — see
+// PANEL_ENV_KEYS). Anything set on the command line wins over that file.
+//
 // This file is the only caller of ops/{snapshot,project,integrity,merge,purge,
 // audit}.js, so every safety property those modules prove is only real if the
 // wiring here preserves it. The three that are load-bearing:
@@ -90,6 +93,77 @@ export const ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '[::1]'];
 function cleaned(value) {
   const trimmed = (value || '').trim();
   return trimmed === '' ? null : trimmed;
+}
+
+/**
+ * The ONLY variables the panel will accept from functions/.env.
+ *
+ * The panel is a plain `node ops/server.js`, so nothing auto-loads that file
+ * the way the Firebase CLI does at deploy — yet functions/.env.example points
+ * the operator there for TELEGRAM_UID_SECRET, and a secret that is genuinely
+ * set still reads "unset" here. Reading the file closes that gap.
+ *
+ * It stays an allowlist rather than a general dotenv load because this process
+ * holds a database-admin credential: letting a file set arbitrary variables in
+ * it (FUNCTIONS_REGION, DATABASE_URL, PROD_PROJECT — the last of which decides
+ * the production gate) is a wider blast radius than the problem being fixed.
+ */
+export const PANEL_ENV_KEYS = ['GOOGLE_APPLICATION_CREDENTIALS_JSON', 'TELEGRAM_UID_SECRET'];
+
+/**
+ * A dotenv value with one layer of matching surrounding quotes removed. Only a
+ * *matched* pair is stripped, so a value that merely starts with a quote keeps
+ * it — the secret is arbitrary bytes and guessing at its shape corrupts it.
+ * @param {string} raw
+ */
+function unquote(raw) {
+  const value = raw.trim();
+  const quote = value[0];
+  const quoted = (quote === '"' || quote === "'") && value.length >= 2 && value.endsWith(quote);
+  return quoted ? value.slice(1, -1) : value;
+}
+
+/**
+ * Layer a functions/.env file UNDERNEATH the real process environment.
+ *
+ * The inline prefix always wins: it is how both the README and the smoke test
+ * invoke this, and how an operator points a single run at a different project.
+ * A file on disk quietly beating what was typed on the command line would make
+ * the panel lie about which project's secret it is using. An inline value that
+ * is empty or whitespace is not a declaration (see `cleaned`), so the file is
+ * still the better answer there.
+ *
+ * @param {Record<string, string | undefined>} env the process environment
+ * @param {string | null} fileText functions/.env contents, or null if absent
+ * @returns {{ env: Record<string, string | undefined>, loaded: string[] }}
+ *   the merged environment, and the variables that came from the file — the
+ *   caller reports those at startup so nothing is absorbed silently.
+ */
+export function withEnvFile(env, fileText) {
+  const merged = { ...env };
+  /** @type {string[]} */
+  const loaded = [];
+  if (!fileText) return { env: merged, loaded };
+
+  for (const line of fileText.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '' || trimmed.startsWith('#')) continue;
+
+    // Split on the FIRST '=' only, and never strip a trailing '#' comment: a
+    // secret is arbitrary bytes, so '#' and '=' inside the value are part of
+    // it. Truncating one would re-derive every Telegram uid wrong while the
+    // panel looked perfectly healthy.
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+
+    const key = trimmed.slice(0, eq).trim();
+    if (!PANEL_ENV_KEYS.includes(key)) continue;
+    if (cleaned(merged[key]) !== null) continue;
+
+    merged[key] = unquote(trimmed.slice(eq + 1));
+    loaded.push(key);
+  }
+  return { env: merged, loaded };
 }
 
 /**
@@ -675,8 +749,25 @@ export function createHttpServer({ routes, page }) {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
+/**
+ * functions/.env, or null when there is no such file. A read that fails for any
+ * reason OTHER than absence is fatal: an unreadable file is a configuration the
+ * operator needs to see, and swallowing it would reproduce the exact confusion
+ * this loading exists to end — a secret that is set but silently missing.
+ * @param {string} path
+ */
+function readEnvFile(path) {
+  try {
+    return nodeFs.readFileSync(path, 'utf8');
+  } catch (e) {
+    if (/** @type {{ code?: string }} */ (e).code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
 async function main() {
-  const opts = parseArgs(proc.argv.slice(2), proc.env);
+  const { env, loaded } = withEnvFile(proc.env, readEnvFile(join(HERE, '..', '.env')));
+  const opts = parseArgs(proc.argv.slice(2), env);
   assertProdGate(opts);
   const { deps, io, auth } = makeOpsDeps(opts);
   const routes = createRoutes({ deps, io, opts, fs: nodeFs, auth });
@@ -691,6 +782,7 @@ async function main() {
         ? '*** PRODUCTION ***'
         : '*** ASSUMING PRODUCTION — no --prod-project declared ***');
     }
+    if (loaded.length) console.log(`loaded from functions/.env: ${loaded.join(', ')}`);
     if (!opts.uidSecret) console.log('TELEGRAM_UID_SECRET unset — provenance will read "unknown"');
     console.log(`audit trail: ${opts.auditDir}/`);
   });
