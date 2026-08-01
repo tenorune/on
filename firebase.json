@@ -9,11 +9,12 @@
   },
   "functions": {
     "source": "functions",
-    "predeploy": ["npm --prefix \"$RESOURCE_DIR\" ci"]
+    "predeploy": ["npm --prefix \"$RESOURCE_DIR\" ci"],
+    "ignore": ["node_modules", ".git", "firebase-debug.log", "firebase-debug.*.log", "ops/**"]
   },
   "hosting": {
     "public": ".",
-    "ignore": ["firebase.json", ".firebaserc", "**/.*", "**/node_modules/**", "tests/**", "scripts/**", "docs/**", "css/**", "package.json", "package-lock.json", "jest.config.js", "babel.config.js", "*.md"],
+    "ignore": ["firebase.json", ".firebaserc", "**/.*", "**/node_modules/**", "tests/**", "scripts/**", "docs/**", "css/**", "package.json", "package-lock.json", "jest.config.js", "babel.config.js", "*.md", "functions/**"],
     "rewrites": [
       { "source": "/about", "destination": "/about.html" },
       { "source": "/invite", "destination": "/about.html" },
