@@ -36,10 +36,28 @@ hands-on iteration ("done" is their call).
 
 ## Where things stand (2026-08-01)
 
-Design + plan for the ops panel are committed and pushed on
-`claude/knockknock-ui-improvements-7bm5o9`. **No code has been written** —
-the branch is docs-only. `dev` and `main` are unchanged and tree-identical;
-the maintainer merges, so the branch stays open.
+The operator control panel is built: all 10 code tasks of the 11-task plan
+landed on `claude/knockknock-ui-improvements-7bm5o9` (subagent-driven,
+per-task commits, each reviewed); this doc update is Task 11, the plan's
+last. `functions/ops/` holds the local Admin-SDK CLI + page
+(`server.js`, `panel.html`, `merge.js`, `purge.js`, `audit.js`, `integrity.js`,
+`provenance.js`, `project.js`, `snapshot.js`, `deps.js`) and its own
+`README.md` runbook — read that before running it. **The panel is local-only
+and has never been deployed and never will be**: it isn't part of the
+Firebase Hosting or Cloud Functions deploy surface (excluded from the
+functions archive via `functions.ignore`'s `ops/**`), it runs as a Node CLI
+an operator starts by hand against a target project, and it binds `127.0.0.1`
+only. `dev` and `main` are unchanged and tree-identical; the maintainer
+merges, so the branch stays open.
+
+**Owed before this is trusted with production data:** a manual smoke test
+against a real dev Firebase project. No service-account credential has
+existed in any container this work ran in, so `deps.js`, `panel.html`'s
+browser behavior, and the Host/Origin guard as seen from an actual browser
+are all UNEXERCISED — every green test below covers the wiring, not the live
+system. Also worth knowing: approvals are per-uid and held in memory, so the
+panel is single-operator by construction — two people running it against the
+same project at once do not share approval state.
 
 Everything below is SHIPPED and merged; no pending uncommitted/unpushed work.
 
@@ -68,11 +86,14 @@ Nothing deploys from sessions.
 
 ## Verification state
 
-Green bar OBSERVED at `27719fd` (2026-08-01, docs-only branch tip): web jest
-**2085/2085** (87 suites) · functions **462/462** (13 suites) · `typecheck` +
-`typecheck:scripts` clean · prod build completes (`node scripts/prod.js`,
-`.env.production` present). Identical counts to the `361e65c` baseline, as
-expected — this session changed no code.
+Green bar OBSERVED at `8a7505e` (2026-08-01, ops-panel branch tip, Task 10's
+full run): web jest **2089/2089** (88 suites) · functions **696/696** (22
+suites) · `typecheck` + `typecheck:scripts` clean. The jump from the
+`27719fd` baseline (2085/462) is the ops panel's own tests
+(`functions/test/ops-*.test.js`) plus the `expungeDerivedAccount` split;
+nothing pre-existing changed shape. Not re-run this session: prod build
+(`node scripts/prod.js`) — no functions-deploy-affecting or hosting-affecting
+change here beyond Task 1's ignore-list fix, already covered above.
 
 ## On-ramp
 
@@ -153,6 +174,14 @@ proxy and would abort an `&&` chain. Functions deps are required for
   cross-user residue family can't be added to one and missed by the other
   (the reason `followerNames` had to land in both). The ops panel's merge
   becomes its third consumer. Add new families THERE, never in a consumer.
+  Pinned by the parity test in `functions/test/ops-merge.test.js`
+  ("parity with the shared residue enumerator").
+- **The ops panel binds `127.0.0.1` only** (`functions/ops/server.js`). It
+  holds a service-account credential in-process for the life of the run —
+  never bind it to `0.0.0.0`, pass `--host`, or put it behind a tunnel or
+  reverse proxy; there is no such flag on purpose. Loopback binding alone
+  doesn't stop DNS rebinding, which is why the server also checks `Host` and
+  `Origin` on every request (see `functions/ops/README.md`).
 - **`uid = sha256(phrase)` is one-way, so "has a phrase" is not observable.**
   It's inferable: uids come from exactly three paths (web `initUser`,
   Telegram bootstrap via `deriveTelegramUid`, graduation), so not-derived ⇒
