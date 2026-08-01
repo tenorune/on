@@ -350,15 +350,25 @@ export async function buildMergePlan(deps, opts) {
     const survivorLink = await deps.getVal(`telegramByUid/${S}`);
     if (survivorLink?.tgId && String(survivorLink.tgId) !== tgId) {
       // The survivor's own prior mapping is torn down to make room — but only
-      // if it is genuinely the survivor's; the builder refuses and names the
-      // real owner when the reverse index points at a mapping someone else
-      // holds. Its prefs are overwritten by the link writes below either way.
+      // if it is genuinely the survivor's, or the LOSER's (an account this
+      // merge is destroying anyway, hence `ownUids`). The builder refuses and
+      // names the real owner when the reverse index points at a mapping an
+      // uninvolved third party holds. Its prefs are overwritten by the link
+      // writes below either way.
       const priorTgId = String(survivorLink.tgId);
-      const teardown = await buildMappingTeardown(deps, { tgId: priorTgId, owner: S, context: `replaced by ${L}'s Telegram on this merge` });
-      conflict('telegram-relink', `telegramByUid/${S}`, `survivor already holds tgId ${priorTgId}`, 'its mapping is dropped and replaced by the loser tgId');
+      const teardown = await buildMappingTeardown(deps, {
+        tgId: priorTgId, owner: S, ownUids: [L], context: `replaced by ${L}'s Telegram on this merge`,
+      });
       foldLinkWrites(teardown);
+      // Report the relink ONLY when the teardown actually produced the delete.
+      // Raising it unconditionally — as this block used to — put a conflict
+      // saying "its mapping is dropped" beside the teardown's own conflict
+      // saying "left untouched", about the same tgId, in the same report.
       if (writes[`telegramUsers/${priorTgId}`] === null) {
-        losses.push(`telegramUsers/${priorTgId} dropped (the survivor's prior Telegram link)`);
+        conflict('telegram-relink', `telegramByUid/${S}`, `survivor's reverse index points at tgId ${priorTgId}`, 'that mapping is dropped and replaced by the loser tgId');
+        losses.push(teardown.priorUid === L
+          ? `telegramUsers/${priorTgId} dropped (held by ${L}, which this merge destroys)`
+          : `telegramUsers/${priorTgId} dropped (the survivor's prior Telegram link)`);
       }
     }
     // ownUids: a prior holder that is the loser or the survivor needs no

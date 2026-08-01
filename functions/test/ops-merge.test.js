@@ -450,6 +450,62 @@ describe('telegram repoint', () => {
     expect(losses.some((l) => l.includes('telegramUsers/99') && l.includes('Y'))).toBe(true);
     expect(losses.some((l) => l.includes('telegramUsers/99 dropped'))).toBe(false);
   });
+
+  // R1: the relink conflict used to be raised unconditionally, BEFORE the
+  // teardown was folded in. When the teardown refuses, the operator was shown
+  // two conflicts on the same tgId saying opposite things.
+  test('a refused teardown does not also raise a conflict claiming the mapping was dropped', async () => {
+    const deps = world({
+      'telegramUsers/42': { uid: 'L', chatId: '42' },
+      'telegramByUid/L': { tgId: '42', chatId: '42' },
+      'telegramByUid/S': { tgId: '99', chatId: '99' },
+      'telegramUsers/99': { uid: 'Y', chatId: '99' },
+      'users/Y': { presence: { code: 'YYY111' } },
+    });
+
+    const { conflicts } = await buildMergePlan(deps, { loserUid: 'L', survivorUid: 'S', now: NOW, telegramRepoint: true });
+
+    // The refusal stands on its own; nothing may claim the opposite beside it.
+    expect(conflicts.some((c) => c.kind === 'telegram-mapping-not-owned' && c.path === 'telegramUsers/99')).toBe(true);
+    expect(conflicts.some((c) => c.kind === 'telegram-relink' && c.path === 'telegramByUid/S')).toBe(false);
+  });
+
+  // R2: buildMappingTeardown had no ownUids, so a mapping held by the LOSER —
+  // an account this very merge destroys — was refused as if it belonged to an
+  // uninvolved third party, and the loss text promised its Telegram would keep
+  // working. users/L is nulled moments later, so that promise was false.
+  test('a survivor reverse index pointing at a mapping the LOSER holds is torn down, not refused', async () => {
+    const deps = world({
+      'telegramUsers/42': { uid: 'L', chatId: '42' },
+      'telegramByUid/L': { tgId: '42', chatId: '42' },
+      // S's reverse index claims tgId 99 — and 99 belongs to L, who is about
+      // to stop existing.
+      'telegramByUid/S': { tgId: '99', chatId: '99' },
+      'telegramUsers/99': { uid: 'L', chatId: '99' },
+    });
+
+    const { writes, losses } = await buildMergePlan(deps, { loserUid: 'L', survivorUid: 'S', now: NOW, telegramRepoint: true });
+
+    expect(writes['telegramUsers/99']).toBeNull();
+    expect(losses.some((l) => l.includes('telegramUsers/99') && l.includes('keeps working'))).toBe(false);
+  });
+
+  test('a mapping held by an uninvolved third party is still refused', async () => {
+    // The guard R2 relaxes must not relax any further: only accounts this
+    // operation is already destroying earn the teardown.
+    const deps = world({
+      'telegramUsers/42': { uid: 'L', chatId: '42' },
+      'telegramByUid/L': { tgId: '42', chatId: '42' },
+      'telegramByUid/S': { tgId: '99', chatId: '99' },
+      'telegramUsers/99': { uid: 'Z', chatId: '99' },
+      'users/Z': { presence: { code: 'ZZZ111' } },
+    });
+
+    const { writes, conflicts } = await buildMergePlan(deps, { loserUid: 'L', survivorUid: 'S', now: NOW, telegramRepoint: true });
+
+    expect(writes['telegramUsers/99']).toBeUndefined();
+    expect(conflicts.some((c) => c.kind === 'telegram-mapping-not-owned')).toBe(true);
+  });
 });
 
 describe('the loser is gone afterwards', () => {

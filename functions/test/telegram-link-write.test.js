@@ -176,6 +176,33 @@ describe('buildMappingTeardown — a global key is never deleted unread', () => 
     expect(conflicts).toEqual([]);
   });
 
+  // R2. Red-green for this ran at the merge level (ops-merge.test.js, "a
+  // survivor reverse index pointing at a mapping the LOSER holds"); these pin
+  // the builder's own contract so the rule is legible where it lives.
+  test('a holder listed in ownUids is torn down — it is part of the operation', async () => {
+    const deps = makeStoreDeps({ 'telegramUsers/42': { uid: 'L', chatId: '42' } });
+    const { writes, conflicts } = await buildMappingTeardown(deps, {
+      tgId: '42', owner: 'S', ownUids: ['L'], context: 'L is merged away into S',
+    });
+    expect(writes).toEqual({ 'telegramUsers/42': null });
+    expect(conflicts).toEqual([]);
+  });
+
+  test('a holder outside ownUids is still refused', async () => {
+    const deps = makeStoreDeps({ 'telegramUsers/42': { uid: 'Z', chatId: '42' } });
+    const { writes, conflicts } = await buildMappingTeardown(deps, {
+      tgId: '42', owner: 'S', ownUids: ['L'], context: 'L is merged away into S',
+    });
+    expect(writes).toEqual({});
+    expect(conflicts[0].kind).toBe('telegram-mapping-not-owned');
+  });
+
+  test('reports who held the mapping, so a caller need not read it again', async () => {
+    const deps = makeStoreDeps({ 'telegramUsers/42': { uid: 'D', chatId: '42' } });
+    const { priorUid } = await buildMappingTeardown(deps, { tgId: '42', owner: 'D', context: 'D is purged' });
+    expect(priorUid).toBe('D');
+  });
+
   test('a mapping node carrying no uid is refused rather than assumed ours', async () => {
     const deps = makeStoreDeps({ 'telegramUsers/42': { chatId: '42' } });
     const { writes, conflicts } = await buildMappingTeardown(deps, { tgId: '42', owner: 'D', context: 'D is purged' });

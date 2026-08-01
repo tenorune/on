@@ -35,7 +35,7 @@ import { DROP_MAILBOXES as TRANSIENT_MAILBOXES, UNION_MAILBOXES as DURABLE_MAILB
 // ops/merge.js: performLink's writes existed here as a third hand-written copy
 // that had already drifted from the shipped one. Both entry points READ
 // telegramUsers/{tgId} before touching it — see telegram-link-write.js for why.
-import { buildLinkWrites, buildMappingTeardown } from '../telegram-link-write.js';
+import { buildLinkWrites, buildMappingTeardown, readMapping } from '../telegram-link-write.js';
 
 /** @typedef {import('../telegram-link-write.js').ReadDeps} ReadDeps */
 
@@ -416,13 +416,24 @@ export async function buildProductionLinkPlan(deps, { derivedUid, phraseUid, now
     // performLink overwrites the reverse index and the prefs without touching
     // the old forward mapping. Reproduced verbatim — but an overwrite the
     // operator cannot see is exactly the defect this report exists to prevent.
+    //
+    // Who that stale mapping belongs to is READ, not inferred. This block used
+    // to assert it was "left pointing at {phraseUid}" on the strength of the
+    // reverse index alone — and the reverse index is precisely the thing that
+    // can be wrong, which is why integrity.js raises
+    // `telegram-mapping-asymmetric` for the disagreement at error severity.
+    const staleTgId = String(phraseLink.tgId);
+    const { prior: stalePrior, priorUid: staleHolder } = await readMapping(deps, staleTgId);
+    const heldBy = stalePrior === null || stalePrior === undefined
+      ? 'nothing — that mapping is already gone'
+      : (staleHolder ?? 'a mapping node carrying no uid');
     conflicts.push({
       kind: 'telegram-relink',
       path: `telegramByUid/${phraseUid}`,
-      detail: `${phraseUid} already holds tgId ${phraseLink.tgId}`,
-      resolution: `overwritten with tgId ${tgId}; telegramUsers/${phraseLink.tgId} is left pointing at ${phraseUid}, exactly as performLink leaves it`,
+      detail: `${phraseUid} already holds tgId ${staleTgId}`,
+      resolution: `overwritten with tgId ${tgId}; telegramUsers/${staleTgId} is left behind, held by ${heldBy}, exactly as performLink leaves it`,
     });
-    losses.push(`${phraseUid}'s prior Telegram link (tgId ${phraseLink.tgId}) is replaced; telegramUsers/${phraseLink.tgId} is left behind as a stale second mapping`);
+    losses.push(`${phraseUid}'s prior Telegram link (tgId ${staleTgId}) is replaced; telegramUsers/${staleTgId} is left behind as a stale second mapping, held by ${heldBy}`);
   }
 
   Object.assign(writes, linkWrites.writes);

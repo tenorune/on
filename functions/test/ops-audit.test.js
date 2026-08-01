@@ -225,3 +225,43 @@ describe('canvas metadata parity with merge.js', () => {
     expect(Object.keys(pre['canvases/aaa_bbb']).sort()).toEqual([...CANVAS_CARRIED, 'strokes'].sort());
   });
 });
+
+// R3: the fsyncDir catch branch was the one behaviour added in the final fix
+// wave with no test. It is the difference between a bare EISDIR out of an audit
+// write and a message that says which platform requirement was violated.
+describe('fsyncDir failure is diagnosable', () => {
+  test('a directory openSync failure names the platform requirement and keeps the cause', () => {
+    const { fs: fakeFs } = makeFakeFs();
+    const eisdir = new FakeFsError("EISDIR: illegal operation on a directory, open '/audit'", 'EISDIR');
+    const realOpen = fakeFs.openSync;
+    // Only the DIRECTORY open fails — the pre-image and JSONL opens must still
+    // work, or the test would pass for the wrong reason.
+    fakeFs.openSync = (path) => {
+      if (path === '/audit') throw eisdir;
+      return realOpen(path);
+    };
+
+    expect(() => writeAuditRecord(fakeFs, '/audit', {
+      ts: 4000, op: 'purge', project: 'demo', uids: ['u1'], preImage: { a: 1 }, outcome: 'ok',
+    })).toThrow(/requires Linux or macOS/);
+  });
+
+  test('the raised error carries the original fs error as its cause', () => {
+    const { fs: fakeFs } = makeFakeFs();
+    const eisdir = new FakeFsError("EISDIR: illegal operation on a directory, open '/audit'", 'EISDIR');
+    const realOpen = fakeFs.openSync;
+    fakeFs.openSync = (path) => {
+      if (path === '/audit') throw eisdir;
+      return realOpen(path);
+    };
+
+    let caught;
+    try {
+      writeAuditRecord(fakeFs, '/audit', {
+        ts: 4001, op: 'purge', project: 'demo', uids: ['u1'], preImage: { a: 1 }, outcome: 'ok',
+      });
+    } catch (err) { caught = err; }
+
+    expect(caught.cause).toBe(eisdir);
+  });
+});

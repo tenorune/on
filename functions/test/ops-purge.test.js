@@ -368,6 +368,38 @@ describe('buildProductionLinkPlan', () => {
     expect(writes['userPrefs/P/notifyChannel']).toBe('telegram');
   });
 
+  // R4: the report asserted the stale mapping is "left pointing at {phraseUid}"
+  // as fact, but that ownership was INFERRED from the phrase account's reverse
+  // index and never read. The reverse index is exactly the thing that can be
+  // wrong — integrity.js raises telegram-mapping-asymmetric for it at error
+  // severity.
+  test('names the real holder of the stale mapping rather than assuming the phrase account', async () => {
+    const deps = linkable();
+    // P's reverse index claims tgId 77, but 77 really belongs to W.
+    deps.store['telegramByUid/P'] = { tgId: '77', chatId: '77' };
+    deps.store['telegramUsers/77'] = { uid: 'W', chatId: '77' };
+    deps.store['users/W'] = { presence: { code: 'WWW111' } };
+
+    const { conflicts, losses } = await buildProductionLinkPlan(deps, { derivedUid: 'E', phraseUid: 'P', now: NOW });
+
+    const relink = conflicts.find((c) => c.kind === 'telegram-relink' && c.path === 'telegramByUid/P');
+    expect(relink).toBeDefined();
+    expect(relink.resolution).toContain('W');
+    expect(relink.resolution).not.toMatch(/left pointing at P\b/);
+    expect(losses.some((l) => l.includes('telegramUsers/77') && l.includes('W'))).toBe(true);
+  });
+
+  test('still reports the ordinary case, where the phrase account really does hold it', async () => {
+    const deps = linkable();
+    deps.store['telegramByUid/P'] = { tgId: '77', chatId: '77' };
+    deps.store['telegramUsers/77'] = { uid: 'P', chatId: '77' };
+
+    const { conflicts } = await buildProductionLinkPlan(deps, { derivedUid: 'E', phraseUid: 'P', now: NOW });
+
+    const relink = conflicts.find((c) => c.kind === 'telegram-relink' && c.path === 'telegramByUid/P');
+    expect(relink.resolution).toContain('P');
+  });
+
   test('previews without writing', async () => {
     const deps = linkable();
     const before = JSON.stringify(deps.store);

@@ -49,10 +49,15 @@
 export const LINK_NODE_FIELDS = ['uid', 'chatId', 'linkedAt'];
 
 /**
+ * `priorUid` is set by buildMappingTeardown — who held telegramUsers/{tgId}
+ * before this operation, so a caller can name them without a second read. It is
+ * absent from buildLinkWrites' result, which reports a prior holder through its
+ * conflict and loss lines instead.
  * @typedef {{
  *   writes: Record<string, unknown>,
  *   conflicts: import('./ops/types.js').Conflict[],
  *   losses: string[],
+ *   priorUid?: string | null,
  * }} LinkWriteResult
  */
 
@@ -73,14 +78,26 @@ export async function readMapping(deps, tgId) {
  * path that holds nothing is a no-op, and conditioning residue nulls on a read
  * is how the shipped enumerator drifted once already.
  *
+ * `ownUids` widens "actually holds it" to the other accounts this operation is
+ * already destroying, and it is not optional politeness. Without it, a mapping
+ * held by a merge's LOSER was refused as though it belonged to an uninvolved
+ * third party — and the refusal's loss line promised "the forward mapping stays
+ * with its owner, whose Telegram keeps working" while the caller nulled
+ * `users/{loser}` moments later. The promise was false in exactly that case.
+ * A holder outside `owner` and `ownUids` is still a real third party and is
+ * still refused.
+ *
+ * `priorUid` is returned so a caller can describe WHOSE mapping it was without
+ * reading the node a second time.
+ *
  * @param {ReadDeps} deps
- * @param {{ tgId: string, owner: string, context: string }} opts `context`
+ * @param {{ tgId: string, owner: string, context: string, ownUids?: string[] }} opts `context`
  *   names the operation in the loss line ("purged", "merged away").
  * @returns {Promise<LinkWriteResult>}
  */
-export async function buildMappingTeardown(deps, { tgId, owner, context }) {
+export async function buildMappingTeardown(deps, { tgId, owner, context, ownUids = [] }) {
   const { prior, priorUid } = await readMapping(deps, tgId);
-  if (prior && priorUid !== owner) {
+  if (prior && priorUid !== owner && !(priorUid !== null && ownUids.includes(priorUid))) {
     const whose = priorUid ? priorUid : 'a mapping node carrying no uid';
     return {
       writes: {},
@@ -94,9 +111,10 @@ export async function buildMappingTeardown(deps, { tgId, owner, context }) {
         `telegramUsers/${tgId} is NOT deleted — it belongs to ${whose}, not to ${owner} (${context}). `
         + `${owner}'s reverse index is removed; the forward mapping stays with its owner, whose Telegram keeps working.`,
       ],
+      priorUid,
     };
   }
-  return { writes: { [`telegramUsers/${tgId}`]: null }, conflicts: [], losses: [] };
+  return { writes: { [`telegramUsers/${tgId}`]: null }, conflicts: [], losses: [], priorUid };
 }
 
 /**

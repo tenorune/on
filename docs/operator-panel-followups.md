@@ -15,19 +15,16 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Fourteen items. One blocks production use; the rest are ranked by whether
-anything downstream depends on them. IDs are stable — cite them rather than
-re-describing the item.
+Ten items. One blocks production use; the rest are ranked by whether anything
+downstream depends on them. IDs are stable — cite them rather than re-describing
+the item. **R1-R4 are closed** (`<COMMIT>`) and detailed under "Parked
+residuals" below; their IDs are retired, not reused.
 
 | ID | Item | Where | Weight |
 |---|---|---|---|
 | **S1** | The manual dev-project smoke test | whole panel | **Blocks production use** |
 | **G1** | Divergence check compares paths, not write values | `ops/merge.js:212-213` | Known gap, bounded |
 | **G2** | Auth-record deletion has no route (D5) | `ops/server.js` | Deferred by decision |
-| **R1** | Contradictory `telegram-relink` + teardown conflicts on one `tgId` | `ops/merge.js` | Report wording |
-| **R2** | `buildMappingTeardown` takes no `ownUids`; loss text false in one case | `telegram-link-write.js` | Report wording |
-| **R3** | `fsyncDir` catch branch has no test | `ops/audit.js` | Untested, fails closed |
-| **R4** | Stale-mapping ownership asserted as fact, never read | `ops/purge.js` | Report wording |
 | **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | Minor |
 | **M2** | Detail lookup builds and sorts every row to find one | `ops/project.js:69` | Minor |
 | **M3** | Canvas-key split inlined rather than shared | `ops/integrity.js:190` | Minor |
@@ -44,8 +41,8 @@ on Windows — a portable skip would silently downgrade durability on the one
 platform nothing exercises).
 
 **Shipped since this file was written:** the `locations`/`locationCells`
-enumerator follow-up (`4dea508`) and the link-write fold (`16e5ae9`), both
-detailed below. Neither is owed any more.
+enumerator follow-up (`4dea508`), the link-write fold (`16e5ae9`), and all four
+parked residuals R1-R4 (`<COMMIT>`). None is owed any more.
 
 ---
 
@@ -154,29 +151,23 @@ against them. Only the third is an open item.
 
 ---
 
-## Parked residuals
+## Parked residuals — ALL FOUR CLOSED (`<COMMIT>`)
 
-Real, ruled non-blocking, none load-bearing — no later work builds on them and
-none reveals a design defect. Three of the four are report *wording* that
-overstates what happens in a contrived state; all are reported to the operator
-rather than silent.
+Kept for the reasoning. Each was real, each was ruled non-blocking, and none was
+load-bearing — which is exactly why they survived two follow-ups without being
+fixed, and why they are recorded here rather than quietly dropped.
 
-**Three of these were ruled "fix with the follow-up". The link-write follow-up
-shipped (`16e5ae9`) and did NOT fix them** — it was scoped to making the write
-block genuinely shared, and widening it to report wording would have mixed a
-behaviour-preserving refactor of shipped code with report changes. They are
-still open, and they no longer have a scheduled carrier.
-
-| ID | Where | What | Ruling |
+| ID | Where | What it was | How it was closed |
 |---|---|---|---|
-| **R1** | `ops/merge.js` | The `telegram-relink` conflict is raised unconditionally *before* the mapping teardown is folded in, so when the teardown refuses, the operator sees two contradictory conflicts on the same `tgId`. | Both are shown, neither is silent. Wording. STILL OPEN. |
-| **R2** | `telegram-link-write.js` (was `ops/link-write.js`) | `buildMappingTeardown` takes no `ownUids`. In merge-with-repoint where the *survivor's* reverse index points at a mapping owned by the *loser*, it refuses, `users/{loser}` is nulled anyway, and the forward mapping is left pointing at a deleted uid — while the loss text claims "the forward mapping stays with its owner, whose Telegram keeps working". False in that one case. | Contrived, reported, and no partial write in the dangerous direction. STILL OPEN. |
-| **R3** | `ops/audit.js` | The `fsyncDir` catch branch is the one behaviour added in the final fix wave with no test, though the fs is trivially mockable. | Fails closed; nothing builds on it. Park — but it is the cheapest item on this page, and M4 is the same file and the same afternoon. |
-| **R4** | `ops/purge.js` | The production-link plan asserts a stale forward mapping is "left pointing at {phraseUid}" as fact, but that ownership is *inferred* from the reverse index and never read. | The safety argument holds — nothing is written to that path, so no third party can be harmed. Wording; wants a `readMapping`. STILL OPEN. |
+| **R1** | `ops/merge.js` | The `telegram-relink` conflict was raised unconditionally *before* the mapping teardown was folded in, so when the teardown refused, the operator saw two conflicts on the same `tgId` saying opposite things — "its mapping is dropped" beside "left untouched". | The conflict is now raised only when the teardown actually produced the delete, conditioned on the same `writes[...] === null` check the loss line already used. A refusal now stands alone. |
+| **R2** | `telegram-link-write.js` | `buildMappingTeardown` took no `ownUids`, so a mapping held by a merge's LOSER was refused as though it belonged to an uninvolved third party — and the refusal promised "the forward mapping stays with its owner, whose Telegram keeps working" while the caller nulled `users/{loser}` moments later. False in exactly that case. | The teardown takes `ownUids` (like `buildLinkWrites` always did) and tears down a mapping held by an account the operation is already destroying. A holder outside `owner` + `ownUids` is still refused — pinned by a test at both the builder and merge levels. |
+| **R3** | `ops/audit.js` | The `fsyncDir` catch branch — the one behaviour added in the final fix wave — had no test. | Two tests: the raised error names the platform requirement, and it carries the original fs error as `cause`. **The branch was already correct**; this was missing coverage, not a defect, and both tests passed on first run. |
+| **R4** | `ops/purge.js` | The production-link plan asserted a stale forward mapping was "left pointing at {phraseUid}" as fact, but that ownership was *inferred* from the reverse index and never read — and the reverse index is precisely what `telegram-mapping-asymmetric` exists to flag. | The plan now `readMapping`s the stale `tgId` and names the real holder, distinguishing "already gone" from "a mapping node carrying no uid" from a named third party. |
 
-R1, R2 and R4 are all *report wording* in the Telegram-mapping area and all
-touch `ops/` only. They are one small change together, and doing them together
-is the reason they were grouped under a single carrier in the first place.
+R2 is the only one that changed behaviour rather than words. It is confined to
+the ops panel: `buildMappingTeardown` lives in a shipped file but shipped
+`performLink` does not call it — only `ops/merge.js` and `ops/purge.js` do, and
+only merge passes `ownUids`.
 
 ---
 
