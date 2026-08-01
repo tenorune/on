@@ -32,7 +32,10 @@ History) and one remains:
    in, so `deps.js`, `panel.html`'s browser behavior, and the Host/Origin
    guard as seen from a real browser are all unexercised. Do this before the
    panel touches production. Every green number below covers the wiring, not
-   the live system.
+   the live system. **The script is written:
+   `docs/operator-panel-smoke-test.md`** — ten ordered steps with expected
+   observations, seven copy-paste `curl` probes for the guard, and a results
+   table. It has never been run; running it is the work.
 
 Done, on this branch:
 

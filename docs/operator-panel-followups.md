@@ -25,6 +25,9 @@ is the one that was never optional.
    authentication boundary — the server holds full database admin and has no
    login.
 
+   The checklist for it is `docs/operator-panel-smoke-test.md`. Writing it did
+   not exercise anything — it is a script, and its own header says so.
+
 2. ~~**The `locations`/`locationCells` enumerator follow-up.**~~ Done in
    `4dea508`, all four parts in one change. Both families and the
    unjoined-invite `pendingInvitesByGroup` entries are in `crossRefRenderers`;
