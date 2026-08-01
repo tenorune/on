@@ -19,7 +19,12 @@ Telegram link-without-loss, integrity report); its own `README.md` is the
 runbook. See "Where things stand" below for what's still owed before it's
 trusted with production data.
 
-Two concrete pieces of follow-up work, neither started:
+**`docs/operator-panel-followups.md` is the companion to this section** — it
+carries the parked residuals, the reasoning behind each known gap, and the
+deferred minors, distilled from the implementation session's review ledger.
+Read it before touching `functions/ops/` or `functions/telegram-auth.js`.
+
+Three concrete pieces of follow-up work, none started:
 
 1. **The manual dev-project smoke test.** No service-account credential has
    existed in any container this work ran in, so `deps.js`, `panel.html`'s
@@ -32,6 +37,13 @@ Two concrete pieces of follow-up work, neither started:
    `pendingInvitesByGroup` merge/purge asymmetry — all in one change, ruled
    to its own branch since it touches `functions/telegram-auth.js`'s live
    expunge behaviour.
+3. **Fold the shipped link-write copy into `functions/ops/link-write.js`.**
+   The Telegram mapping write exists in two implementations — shipped
+   `performLink` (`functions/telegram-auth.js:207-224`) and the shared ops
+   builder. `functions/test/ops-link-write.test.js` *executes* `performLink`
+   and compares write-maps, so drift turns the suite red — but it is a
+   tripwire, not a fix: nothing makes them share code. Folding it in means
+   `performLink` calling `buildLinkWrites`. Shipped code, so its own branch.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -49,7 +61,7 @@ landed on `claude/knockknock-ui-improvements-7bm5o9` (subagent-driven,
 per-task commits, each reviewed); this doc update is Task 11, the plan's
 last. `functions/ops/` holds the local Admin-SDK CLI + page
 (`server.js`, `panel.html`, `merge.js`, `purge.js`, `audit.js`, `integrity.js`,
-`provenance.js`, `project.js`, `snapshot.js`, `deps.js`) and its own
+`provenance.js`, `project.js`, `snapshot.js`, `deps.js`, `link-write.js`) and its own
 `README.md` runbook — read that before running it. **The panel is local-only
 and has never been deployed and never will be**: it isn't part of the
 Firebase Hosting or Cloud Functions deploy surface (excluded from the
@@ -94,14 +106,23 @@ Nothing deploys from sessions.
 
 ## Verification state
 
-Green bar OBSERVED at `8a7505e` (2026-08-01, ops-panel branch tip, Task 10's
-full run): web jest **2089/2089** (88 suites) · functions **696/696** (22
-suites) · `typecheck` + `typecheck:scripts` clean. The jump from the
-`27719fd` baseline (2085/462) is the ops panel's own tests
-(`functions/test/ops-*.test.js`) plus the `expungeDerivedAccount` split;
-nothing pre-existing changed shape. Not re-run this session: prod build
-(`node scripts/prod.js`) — no functions-deploy-affecting or hosting-affecting
-change here beyond Task 1's ignore-list fix, already covered above.
+Green bar OBSERVED at `b59add9` (2026-08-01, ops-panel branch tip, after the
+final whole-branch review's fix wave): web jest **2089/2089** (88 suites) ·
+functions **713/713** (23 suites) · `typecheck` + `typecheck:scripts` clean ·
+`node scripts/prod.js` builds. The jump from the `27719fd` baseline
+(2085/462) is the ops panel's own tests (`functions/test/ops-*.test.js`) plus
+the `expungeDerivedAccount` split; nothing pre-existing changed shape.
+
+`functions/test/telegram-auth.test.js` has a **0-line diff across the entire
+branch** — that is the standing proof the `expungeDerivedAccount` split
+preserved shipped behaviour. Do not edit it; if it goes red, the refactor is
+wrong.
+
+**What green does NOT cover:** the panel has never run against a real Firebase
+project — no service-account credential existed in any container this work ran
+in. `deps.js`, `panel.html`'s browser behaviour, and the `Host`/`Origin` guard
+from a real browser are unexercised, and that guard is the panel's only
+authentication boundary.
 
 ## On-ramp
 
