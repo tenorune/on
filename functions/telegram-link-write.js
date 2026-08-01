@@ -1,21 +1,23 @@
-// functions/ops/link-write.js — the ONE Telegram mapping write-block the ops
-// panel uses, and the ONE place a mapping is torn down.
+// functions/telegram-link-write.js — the ONE Telegram mapping write-block, and
+// the ONE place a mapping is torn down. Used by shipped performLink and by the
+// ops panel alike.
 //
-// performLink (functions/telegram-auth.js:196) writes the forward mapping, the
-// reverse index and the three prefs keys as a single block. Before this module
-// that block existed in THREE hand-written copies — the shipped one, one in
-// ops/merge.js and one in ops/purge.js — and the two ops copies had already
-// drifted from the shipped one three ways: `chatId` precedence, what happens to
-// a prior holder, and whether the mapping fields performLink discards are
-// reported at all. merge.js's comment said it "mirrors performLink exactly" and
-// it did not. Same shape as the crossRefRenderers and CANVAS_CARRIED landmines
-// this plan already fixed twice: one behaviour, several transcriptions, and
-// nothing that fails when they disagree.
+// performLink (functions/telegram-auth.js) writes the forward mapping, the
+// reverse index and the three prefs keys as a single block. That block once
+// existed in THREE hand-written copies — the shipped one, one in ops/merge.js
+// and one in ops/purge.js — and the two ops copies had already drifted from the
+// shipped one three ways: `chatId` precedence, what happens to a prior holder,
+// and whether the mapping fields performLink discards are reported at all.
+// merge.js's comment said it "mirrors performLink exactly" and it did not. Same
+// shape as the crossRefRenderers and CANVAS_CARRIED landmines: one behaviour,
+// several transcriptions, and nothing that fails when they disagree.
 //
-// Three copies are now two — the shipped one and this one — and
-// functions/test/ops-link-write.test.js RUNS the shipped performLink and
-// asserts this module produces the same observable writes. Folding the shipped
-// copy in means editing telegram-auth.js, which is follow-up-branch work (R9).
+// There is now ONE copy. This module started life at functions/ops/link-write.js
+// with a parity test standing in for shared code; it lives HERE, outside ops/,
+// because `functions.ignore` excludes `ops/**` from the deploy archive — a
+// shipped module importing from there would deploy a Cloud Function that dies at
+// cold start on a missing module, taking the whole Telegram link flow with it.
+// Nothing in this file may import from ops/ at runtime for the same reason.
 //
 // OWNERSHIP — why both entry points read before they write.
 // telegramUsers/{tgId} is a GLOBAL key. The account an operator names is not
@@ -49,7 +51,7 @@ export const LINK_NODE_FIELDS = ['uid', 'chatId', 'linkedAt'];
 /**
  * @typedef {{
  *   writes: Record<string, unknown>,
- *   conflicts: import('./types.js').Conflict[],
+ *   conflicts: import('./ops/types.js').Conflict[],
  *   losses: string[],
  * }} LinkWriteResult
  */
@@ -114,6 +116,14 @@ export async function buildMappingTeardown(deps, { tgId, owner, context }) {
  * as performLink's direct-relink branch handles a real phrase account: prefs
  * reset to push, account left intact, and named in the report.
  *
+ * `prior` lets a caller that ALREADY read telegramUsers/{tgId} hand the node
+ * over instead of paying a second read of a global key — performLink's own
+ * callers pass it one, and re-reading here would both cost a round trip and
+ * give this builder a different view of the key than the caller it serves.
+ * `undefined` means "not supplied, read it"; `null` means "supplied, and there
+ * is no mapping" — the two are NOT the same and an absent node is a normal,
+ * expected state.
+ *
  * @param {ReadDeps} deps
  * @param {{
  *   tgId: string,
@@ -121,16 +131,19 @@ export async function buildMappingTeardown(deps, { tgId, owner, context }) {
  *   now: number,
  *   fallbackChatId?: string | null,
  *   ownUids?: string[],
+ *   prior?: any,
  * }} opts
  * @returns {Promise<LinkWriteResult>}
  */
-export async function buildLinkWrites(deps, { tgId, uid, now, fallbackChatId, ownUids = [] }) {
-  const { prior, priorUid } = await readMapping(deps, tgId);
+export async function buildLinkWrites(deps, { tgId, uid, now, fallbackChatId, ownUids = [], prior: suppliedPrior }) {
+  const { prior, priorUid } = suppliedPrior === undefined
+    ? await readMapping(deps, tgId)
+    : { prior: suppliedPrior, priorUid: suppliedPrior?.uid ? String(suppliedPrior.uid) : null };
   const chatId = prior?.chatId || fallbackChatId || tgId;
 
   /** @type {Record<string, unknown>} */
   const writes = {};
-  /** @type {import('./types.js').Conflict[]} */
+  /** @type {import('./ops/types.js').Conflict[]} */
   const conflicts = [];
   /** @type {string[]} */
   const losses = [];

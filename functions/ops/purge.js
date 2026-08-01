@@ -34,10 +34,10 @@ import { DROP_MAILBOXES as TRANSIENT_MAILBOXES, UNION_MAILBOXES as DURABLE_MAILB
 // The ONE Telegram mapping write-block (and the ONE teardown), shared with
 // ops/merge.js: performLink's writes existed here as a third hand-written copy
 // that had already drifted from the shipped one. Both entry points READ
-// telegramUsers/{tgId} before touching it — see link-write.js for why.
-import { buildLinkWrites, buildMappingTeardown } from './link-write.js';
+// telegramUsers/{tgId} before touching it — see telegram-link-write.js for why.
+import { buildLinkWrites, buildMappingTeardown } from '../telegram-link-write.js';
 
-/** @typedef {import('./link-write.js').ReadDeps} ReadDeps */
+/** @typedef {import('../telegram-link-write.js').ReadDeps} ReadDeps */
 
 // The two RTDB nodes this module reads whole, typed to exactly the fields it
 // reads BY NAME and no further. Declared here rather than in ops/types.d.ts

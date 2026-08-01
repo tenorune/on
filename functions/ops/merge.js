@@ -26,8 +26,8 @@ import { crossRefRenderers, OWN_MAILBOXES } from '../telegram-auth.js';
 import { canvasPeers } from './project.js';
 // The ONE Telegram mapping write-block (and the ONE teardown), shared with
 // ops/purge.js. Both READ telegramUsers/{tgId} before touching it — see
-// link-write.js for why a global key must never be written unread.
-import { buildLinkWrites, buildMappingTeardown } from './link-write.js';
+// telegram-link-write.js for why a global key must never be written unread.
+import { buildLinkWrites, buildMappingTeardown } from '../telegram-link-write.js';
 
 /** Transient: a knock or a call is stale within seconds, and merging call state resurrects stuck calls (D3). */
 export const DROP_MAILBOXES = ['knocks', 'calls'];
@@ -59,7 +59,7 @@ export const CANVAS_CARRIED = ['bg'];
 const canvasKeyFor = (a, b) => [a, b].sort().join('_');
 
 /**
- * @param {import('./link-write.js').ReadDeps} deps
+ * @param {import('../telegram-link-write.js').ReadDeps} deps
  * @param {{
  *   loserUid: string,
  *   survivorUid: string,
@@ -331,13 +331,13 @@ export async function buildMergePlan(deps, opts) {
 
   // --- telegram repoint: the SHARED link-write builder (§8.3) ----------------
   // Every write and every delete of a telegramUsers/{tgId} node goes through
-  // ops/link-write.js, which reads the node first. This block used to hand-copy
+  // telegram-link-write.js, which reads the node first. This block used to hand-copy
   // performLink's write list and never read telegramUsers at all, so it could
   // (a) delete a mapping belonging to a live third account while telling the
   // operator it deleted the loser's, (b) overwrite that same third account's
   // mapping with the survivor's uid raising no conflict whatsoever, and
   // (c) silently drop mapping fields performLink does not restate.
-  /** @param {import('./link-write.js').LinkWriteResult} result */
+  /** @param {import('../telegram-link-write.js').LinkWriteResult} result */
   const foldLinkWrites = (result) => {
     Object.assign(writes, result.writes);
     conflicts.push(...result.conflicts);

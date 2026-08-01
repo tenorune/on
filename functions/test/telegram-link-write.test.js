@@ -2,7 +2,7 @@ import { makeStoreDeps } from './store-deps.js';
 import { performLink, deriveTelegramUid } from '../telegram-auth.js';
 import {
   buildLinkWrites, buildMappingTeardown, readMapping, LINK_NODE_FIELDS,
-} from '../ops/link-write.js';
+} from '../telegram-link-write.js';
 
 const NOW = 1_750_000_000_000;
 const SECRET = 'test-uid-secret';
@@ -45,37 +45,43 @@ function worlds(seed) {
 
 // The defect this module exists to close: performLink's write block had THREE
 // hand-written copies (shipped, ops/merge.js, ops/purge.js) that had already
-// drifted three ways. There are two copies now, and this suite fails if they
-// stop agreeing — it runs the shipped function rather than restating it.
-describe('parity with the shipped performLink', () => {
+// drifted three ways. There is ONE now — performLink calls buildLinkWrites —
+// so a test comparing the two would compare the builder with itself. These
+// EXECUTE the shipped performLink and check its writes against literal expected
+// values instead: the oracle is written out here, not produced by the code under
+// test, so the suite still fails if the shared block changes shape.
+describe('the shipped performLink writes, through the shared builder', () => {
   const base = {
     'users/P': { presence: { code: 'PPP111' } },
     'userPrefs/P': { notifyChannel: 'push' },
   };
 
-  test('a fresh tgId produces byte-identical writes', async () => {
-    const [ship, ops] = worlds(base);
-    const expected = await shippedWrites(ship, 'P', '42');
-    const { writes } = await buildLinkWrites(ops, { tgId: '42', uid: 'P', now: NOW });
-    expect(writes).toEqual(expected);
-    // and the block really is the five keys, not an empty agreement
-    expect(Object.keys(writes).sort()).toEqual([
-      'telegramByUid/P', 'telegramUsers/42',
-      'userPrefs/P/notifyChannel', 'userPrefs/P/telegram/linkedAt', 'userPrefs/P/telegram/tgId',
-    ]);
+  test('a fresh tgId produces exactly the five-key mapping block', async () => {
+    const [ship] = worlds(base);
+
+    const writes = await shippedWrites(ship, 'P', '42');
+
+    expect(writes).toEqual({
+      'telegramUsers/42': { uid: 'P', chatId: '42', linkedAt: NOW },
+      'telegramByUid/P': { tgId: '42', chatId: '42' },
+      'userPrefs/P/telegram/tgId': '42',
+      'userPrefs/P/telegram/linkedAt': NOW,
+      'userPrefs/P/notifyChannel': 'telegram',
+    });
   });
 
-  test('an existing mapping the same account holds keeps performLink chatId precedence', async () => {
-    const seed = { ...base, 'telegramUsers/42': { uid: 'P', chatId: '777', createdAt: 100 } };
-    const [ship, ops] = worlds(seed);
-    const expected = await shippedWrites(ship, 'P', '42');
-    const { writes } = await buildLinkWrites(ops, { tgId: '42', uid: 'P', now: NOW });
-    expect(writes).toEqual(expected);
-    // the prior chatId wins over the tgId fallback in BOTH
+  test('an existing mapping the same account holds keeps its chatId', async () => {
+    const [ship] = worlds({ ...base, 'telegramUsers/42': { uid: 'P', chatId: '777', createdAt: 100 } });
+
+    const writes = await shippedWrites(ship, 'P', '42');
+
+    // The prior chatId wins over the tgId fallback, and createdAt dies with the
+    // node — performLink replaces telegramUsers/{tgId} wholesale.
     expect(writes['telegramUsers/42']).toEqual({ uid: 'P', chatId: '777', linkedAt: NOW });
+    expect(writes['telegramByUid/P']).toEqual({ tgId: '42', chatId: '777' });
   });
 
-  test('a mapping held by another phrase account gets performLink direct-relink reset', async () => {
+  test('a mapping held by another phrase account gets the direct-relink reset', async () => {
     const seed = {
       ...base,
       'users/X': { presence: { code: 'XXX111' } },
@@ -84,13 +90,20 @@ describe('parity with the shipped performLink', () => {
       'userPrefs/X': { notifyChannel: 'telegram', telegram: { tgId: '42', linkedAt: 5 } },
     };
     const [ship, ops] = worlds(seed);
-    const expected = await shippedWrites(ship, 'P', '42');
     // X is a real phrase account, not the tgId's derived uid — so performLink
     // takes the reset branch rather than the expunge branch.
     expect(deriveTelegramUid('42', SECRET)).not.toBe('X');
-    const { writes, conflicts, losses } = await buildLinkWrites(ops, { tgId: '42', uid: 'P', now: NOW });
-    expect(writes).toEqual(expected);
-    // the writes match, and unlike production the ops path SAYS whose they are
+
+    const writes = await shippedWrites(ship, 'P', '42');
+
+    // X keeps its account; only its telegram routing is reset.
+    expect(writes['telegramByUid/X']).toBeNull();
+    expect(writes['userPrefs/X/telegram']).toBeNull();
+    expect(writes['userPrefs/X/notifyChannel']).toBe('push');
+    expect(writes['users/X']).toBeUndefined();
+    // Same world through the ops entry point: identical writes, and unlike
+    // production it SAYS whose they are.
+    const { conflicts, losses } = await buildLinkWrites(ops, { tgId: '42', uid: 'P', now: NOW });
     expect(conflicts.some((c) => c.kind === 'telegram-relink' && c.detail.includes('X'))).toBe(true);
     expect(losses.some((l) => l.includes('X') && l.includes('push'))).toBe(true);
   });
@@ -176,5 +189,38 @@ describe('readMapping', () => {
     const deps = makeStoreDeps({ 'telegramUsers/42': { uid: 'D' } });
     expect(await readMapping(deps, '42')).toEqual({ prior: { uid: 'D' }, priorUid: 'D' });
     expect(await readMapping(deps, '99')).toEqual({ prior: null, priorUid: null });
+  });
+});
+
+// The seam the shipped fold needs: performLink already holds the mapping node
+// (its callers pass one in to avoid a second read of a global key), so the
+// shared builder has to be able to take that value instead of re-reading it.
+describe('buildLinkWrites: a caller-supplied prior mapping', () => {
+  test('uses the supplied node instead of reading telegramUsers again', async () => {
+    const deps = makeStoreDeps({ 'telegramUsers/42': { uid: 'STALE', chatId: 'STALE_CHAT' } });
+
+    const { writes } = await buildLinkWrites(deps, {
+      tgId: '42',
+      uid: 'P',
+      now: NOW,
+      prior: { uid: 'FRESH', chatId: 'FRESH_CHAT' },
+    });
+
+    expect(writes['telegramUsers/42']).toEqual({ uid: 'P', chatId: 'FRESH_CHAT', linkedAt: NOW });
+    expect(deps.getVal).not.toHaveBeenCalledWith('telegramUsers/42');
+  });
+
+  test('an explicitly absent prior mapping is honoured, not treated as unsupplied', async () => {
+    const deps = makeStoreDeps({ 'telegramUsers/42': { uid: 'STALE', chatId: 'STALE_CHAT' } });
+
+    const { writes, conflicts } = await buildLinkWrites(deps, {
+      tgId: '42', uid: 'P', now: NOW, prior: null,
+    });
+
+    // No prior holder, so no third-party reset and no relink conflict, and the
+    // chatId falls back to the tgId exactly as performLink does.
+    expect(writes['telegramUsers/42']).toEqual({ uid: 'P', chatId: '42', linkedAt: NOW });
+    expect(conflicts).toEqual([]);
+    expect(deps.getVal).not.toHaveBeenCalledWith('telegramUsers/42');
   });
 });

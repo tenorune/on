@@ -5,6 +5,11 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { normalizeRecoveryCode, deriveUid } from './auth.js';
 import { WELCOME_STRANGER_TEXT, openAppKeyboard, rootUpdate } from './telegram-shared.js';
+// The ONE Telegram mapping write-block, shared with the ops panel. It lives
+// outside ops/ because `functions.ignore` excludes `ops/**` from the deploy
+// archive — importing it from there would ship a function that dies at cold
+// start. See telegram-link-write.js.
+import { buildLinkWrites } from './telegram-link-write.js';
 
 /**
  * The injected I/O surface (built by functions/index.js; tests inject fakes).
@@ -200,28 +205,28 @@ export async function performLink(deps, uid, tgUser, priorMapping) {
     priorMapping === undefined ? deps.getVal(`telegramUsers/${tgId}`) : Promise.resolve(priorMapping),
   ]);
   if (!presence) throw new HttpsError('not-found', 'No account with that phrase.');
-  const chatId = prior?.chatId || tgId;
   const now = deps.now();
   /** @type {Record<string, unknown>} */
   const writes = {};
-  if (prior && prior.uid !== uid) {
-    if (prior.uid === deriveTelegramUid(tgId, deps.uidSecret)) {
-      // Linking retires the temporary Telegram-derived account completely.
-      await expungeDerivedAccount(deps, prior.uid);
-      writes[`telegramByUid/${prior.uid}`] = null;
-    } else {
-      // Direct relink (A→B): account A is a real phrase account — never expunge;
-      // just reset its prefs off telegram (as unlinkTelegramHandler does).
-      writes[`telegramByUid/${prior.uid}`] = null;
-      writes[`userPrefs/${prior.uid}/telegram`] = null;
-      writes[`userPrefs/${prior.uid}/notifyChannel`] = 'push';
-    }
+  // The derived-prior branch is the one thing the shared builder cannot express:
+  // it DESTROYS the prior account rather than resetting it. Handle it here, then
+  // declare that uid `own` so the builder does not also emit the third-party
+  // reset writes for an account that is about to stop existing.
+  /** @type {string[]} */
+  const ownUids = [];
+  if (prior && prior.uid !== uid && prior.uid === deriveTelegramUid(tgId, deps.uidSecret)) {
+    // Linking retires the temporary Telegram-derived account completely.
+    await expungeDerivedAccount(deps, prior.uid);
+    writes[`telegramByUid/${prior.uid}`] = null;
+    ownUids.push(prior.uid);
   }
-  writes[`telegramUsers/${tgId}`] = { uid, chatId, linkedAt: now };
-  writes[`telegramByUid/${uid}`] = { tgId, chatId };
-  writes[`userPrefs/${uid}/telegram/tgId`] = tgId;
-  writes[`userPrefs/${uid}/telegram/linkedAt`] = now;
-  writes[`userPrefs/${uid}/notifyChannel`] = 'telegram';
+  // Everything else — the mapping node, the reverse index, the three prefs keys,
+  // and the direct-relink reset of a real phrase account that held this tgId —
+  // comes from the ONE shared builder (telegram-link-write.js), which the ops
+  // panel calls too. `prior` is handed over rather than re-read: this function
+  // already has it, and its callers may have supplied it explicitly.
+  const link = await buildLinkWrites(deps, { tgId, uid, now, ownUids, prior: prior ?? null });
+  Object.assign(writes, link.writes);
   await rootUpdate(deps, writes);
   return { token: await deps.mintToken(uid) };
 }
