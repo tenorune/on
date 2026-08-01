@@ -177,6 +177,17 @@ Two details worth being precise about:
   and the production link stamp the current time into what they write; those
   values are captured in full by the pre-image dump instead.
 
+  One documented gap this leaves: at `merge.js:212-213`, when the survivor is
+  not yet a member of a group, the whole `loserMember` record is copied to
+  `groups/{gid}/members/{S}` as-is. If the loser's `role` flips
+  `member`→`owner` between preview and execute *without* `ownerId` changing,
+  the path set, losses and conflicts are all identical — the divergence check
+  does not fire, and the survivor silently gains owner in that group. The
+  operator is not misled about anything they actually read: that `role` value
+  is never displayed in the preview, and the pre-image still captures the
+  prior value, so it is recoverable after the fact. It just isn't caught at
+  execute time — written down here rather than left to be rediscovered.
+
 ## The server answers only to itself
 
 Loopback binding alone does not stop **DNS rebinding**: a page you are browsing

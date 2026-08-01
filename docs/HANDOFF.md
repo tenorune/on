@@ -11,24 +11,32 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**Implement the operator control panel** — a local-only Admin-SDK ops tool
-(user list, merge, purge, Telegram link-without-loss, integrity report).
+**The operator control panel is built and reviewed** — all 11 tasks of
+`docs/superpowers/plans/2026-08-01-operator-control-panel.md` landed on
+`claude/knockknock-ui-improvements-7bm5o9` (per-task commits, each reviewed).
+`functions/ops/` is the local Admin-SDK CLI (user list, merge, purge,
+Telegram link-without-loss, integrity report); its own `README.md` is the
+runbook. See "Where things stand" below for what's still owed before it's
+trusted with production data.
 
-- **Plan:** `docs/superpowers/plans/2026-08-01-operator-control-panel.md` —
-  11 TDD tasks, 61 steps, per-task commits sanctioned by the plan.
-- **Spec:** `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md`
-  — decisions D1–D6 and their rationale; read §7 (merge family rules) and
-  §8 (the Telegram link case) before writing merge code.
-- **Branch:** work continues on `claude/knockknock-ui-improvements-7bm5o9`
-  (cut from `dev` at `4d1d98a`; two docs commits on it, both pushed).
-- **Execution mode is undecided** — the operator has not yet chosen
-  subagent-driven vs inline. Ask before starting.
+Two concrete pieces of follow-up work, neither started:
 
-**Start with Task 1 regardless of anything else.** It closes a CONFIRMED live
-exposure: `hosting.ignore` omits `functions/**` while hosting is
-`"public": "."`, so the deployed site serves Cloud Functions source as static
-files (verified 2026-08-01, `curl -sI …/functions/telegram-auth.js` → 200).
-That fix stands alone and does not depend on the panel.
+1. **The manual dev-project smoke test.** No service-account credential has
+   existed in any container this work ran in, so `deps.js`, `panel.html`'s
+   browser behavior, and the Host/Origin guard as seen from a real browser
+   are all unexercised. Do this before the panel touches production.
+2. **The `crossRefRenderers` locations follow-up** (its own Landmines entry
+   below) — add `locations/{uid}` and `locationCells/{gid}/{uid}` to the
+   shared residue enumerator, remove the now-redundant local handling in
+   `merge.js`/`purge.js`, decide the owned-group orphan case, and fix the
+   `pendingInvitesByGroup` merge/purge asymmetry — all in one change, ruled
+   to its own branch since it touches `functions/telegram-auth.js`'s live
+   expunge behaviour.
+
+Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
+decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
+Telegram link case) matter most if you touch merge code. `dev`/`main` are
+unaffected — the maintainer merges this branch when ready.
 
 ⚠️ **Do not touch code without the operator's explicit say-so** — propose the
 change and get approval BEFORE any edit. The operator drives; expect
@@ -176,6 +184,25 @@ proxy and would abort an `&&` chain. Functions deps are required for
   becomes its third consumer. Add new families THERE, never in a consumer.
   Pinned by the parity test in `functions/test/ops-merge.test.js`
   ("parity with the shared residue enumerator").
+- **`crossRefRenderers` does not yet enumerate `locations/{uid}` or
+  `locationCells/{gid}/{uid}` — known gap, not a regression.** This predates
+  the ops panel; Task 6's `expungeDerivedAccount` split was proven
+  behaviour-preserving, it didn't introduce the gap. Confirmed consequences:
+  `expungeDerivedAccount` leaves both families behind when it tears down a
+  Telegram-derived account; graduation does not move them; `merge.js` and
+  `purge.js` each handle the two families locally instead of through the
+  enumerator; the integrity report surfaces the residue (design spec
+  §333-334). The follow-up is ruled to its own branch and must do all of the
+  following in ONE change or it lands half-done: (a) add both families to
+  `crossRefRenderers`; (b) remove the now-redundant local handling from
+  `merge.js` and `purge.js`; (c) decide the owned-group case — deleting a
+  group wholesale orphans *other* members' `locationCells/{gid}/{m}`, which
+  Task 8 deliberately declined to invent a delete for; (d) sweep up the
+  `pendingInvitesByGroup` asymmetry, where `merge.js` nulls entries for gids
+  the account is invited-to-but-not-a-member-of (the enumerator can't see
+  those) and `purge.js` does not. Note that (a) changes *live* expunge
+  behaviour, so it needs its own new tests — Task 6's behaviour-preservation
+  guarantee for `functions/telegram-auth.js` stops covering that change.
 - **The ops panel binds `127.0.0.1` only** (`functions/ops/server.js`). It
   holds a service-account credential in-process for the life of the run —
   never bind it to `0.0.0.0`, pass `--host`, or put it behind a tunnel or
