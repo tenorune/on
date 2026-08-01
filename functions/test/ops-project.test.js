@@ -1,7 +1,48 @@
 import { buildRows, buildDetail, canvasPeers } from '../ops/project.js';
+import { deriveTelegramUid } from '../telegram-auth.js';
 
 const SECRET = 'test-uid-secret';
 const NOW = 1_750_000_000_000;
+
+// A Telegram-derived account: the uid IS the secret-keyed HMAC of the tgId
+// (see telegram-auth.js deriveTelegramUid), so classifyProvenance's
+// uid-derivation branch — the one place `secret` actually matters — only
+// fires when the uid in the fixture equals this real derived value. Computed
+// here (not hardcoded) so the fixture stays correct if the derivation ever
+// changes shape.
+const TG_ID = '918273645';
+const DERIVED_UID = deriveTelegramUid(TG_ID, SECRET);
+
+// A second fixture world, disjoint from world() above, for the one account
+// that is genuinely telegram-derived and genuinely telegram-linked — so the
+// shared 13-test fixture above stays untouched.
+function telegramWorld() {
+  return {
+    users: {
+      [DERIVED_UID]: {
+        presence: { code: 'CCC333', status: 'available', availableUntil: null, lastSeen: NOW - 100 },
+        followers: {},
+        groups: {},
+      },
+    },
+    userPrefs: {
+      [DERIVED_UID]: { following: {}, notifyChannel: 'telegram', telegram: { tgId: TG_ID, linkedAt: NOW - 400_000 } },
+    },
+    groups: {},
+    telegramUsers: { [TG_ID]: { uid: DERIVED_UID, chatId: TG_ID, linkedAt: NOW - 500_000 } },
+    telegramByUid: { [DERIVED_UID]: { tgId: TG_ID, chatId: TG_ID } },
+    pushTokens: {},
+    locations: {},
+    locationCells: {},
+    knocks: {}, calls: {}, followRequests: {}, followGrants: {},
+    pendingInvites: {}, pendingInvitesByGroup: {}, revocations: {},
+    codeIndex: { CCC333: DERIVED_UID },
+    inviteIndex: {}, groupIdIndex: {},
+    canvasKeys: [],
+    authUsers: [],
+    takenAt: NOW,
+  };
+}
 
 // One fixture world reused across the projection tests: u1 is a phrase account
 // in a group it owns, mutual with u2, sharing a canvas with u2.
@@ -131,5 +172,32 @@ describe('buildDetail', () => {
 
   test('an unknown uid returns null', () => {
     expect(buildDetail(world(), 'nope', SECRET)).toBeNull();
+  });
+});
+
+// Closes a coverage gap: none of the 13 tests above populate telegramByUid,
+// so classifyProvenance's uid-derivation branch — the only place the
+// `secret` argument does anything — was never exercised through project.js,
+// and buildDetail's `telegram` object was never asserted non-null.
+describe('buildRows provenance on a telegram-derived account', () => {
+  test('classifies via the real secret-keyed derivation (fails if secret is dropped from the classifyProvenance call)', () => {
+    const rows = buildRows(telegramWorld(), SECRET);
+    const row = rows.find((r) => r.uid === DERIVED_UID);
+    // If buildRows called classifyProvenance(uid, snapshot) without the
+    // secret, deriveTelegramUid would throw on a missing secret and this
+    // would come back { kind: 'unknown', exact: false, tgId } instead.
+    expect(row.provenance).toEqual({ kind: 'telegram-derived', exact: true, tgId: TG_ID });
+  });
+});
+
+describe('buildDetail telegram mapping', () => {
+  test('reports the real tgId, chatId, and both linkedAt timestamps when linked', () => {
+    const d = buildDetail(telegramWorld(), DERIVED_UID, SECRET);
+    expect(d.telegram).toEqual({
+      tgId: TG_ID,
+      chatId: TG_ID,
+      mappingLinkedAt: NOW - 500_000,
+      prefsLinkedAt: NOW - 400_000,
+    });
   });
 });
