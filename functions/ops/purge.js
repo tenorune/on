@@ -91,10 +91,15 @@ function countEntries(value) {
 }
 
 /**
- * The loss report. Every line describes something the write-set destroys;
- * `keeps` holds the things an operator might FEAR are losses but are not —
- * transient mailboxes, a position fix, and the push tokens expunge leaves
- * behind. Canvas and Telegram lines are derived from the finished write-set
+ * The loss report. Every line describes something the operator loses; `keeps`
+ * holds only the three families spec §269-270 names as explicitly NOT a loss —
+ * knocks, calls and location nodes — so the report is not noisy. "The write-set
+ * does not destroy it" is NOT the test for a keep: push tokens and a stranded
+ * canvas survive in the database and are still losses, because nothing carries
+ * them and no one can reach them again.
+ *
+ * ONE report for purge and link impact, so the two can never disagree about a
+ * family. Canvas and Telegram lines are derived from the finished write-set
  * rather than re-guessed, so a family the enumerator declines to null can never
  * be reported as deleted (and vice versa).
  *
@@ -166,8 +171,13 @@ async function describeImpact(deps, uid, { own, prefs, writes, canvasKeys, tgId 
         losses.push(`canvases/${key} (with ${peer}) is deleted — the drawing history is lost`);
       } else {
         // The enumerator only emits canvases with a follower/followee, so a
-        // canvas with a stranger survives the account. Residue, not a loss.
-        keeps.push(`canvases/${key} is NOT deleted (${peer} is not a contact) — left behind as residue`);
+        // canvas with a stranger is NOT deleted — and saying "deleted" would
+        // claim a write the enumerator declined. It is still a loss: the only
+        // account that could reach this drawing is the one being destroyed, so
+        // the surviving peer keeps a canvas nobody can open again. §255-270
+        // lists canvases among the losses; its not-a-loss list is knocks,
+        // calls and location nodes only.
+        losses.push(`canvases/${key} (with ${peer}) is NOT deleted but is stranded — ${peer} is not a contact, so the drawing survives as an orphan no one can reach through this account again`);
       }
     }
   }
@@ -191,17 +201,22 @@ async function describeImpact(deps, uid, { own, prefs, writes, canvasKeys, tgId 
     losses.push(`telegramUsers/${tgId} deleted — this Telegram is unlinked, and the next Mini App open bootstraps a brand-new empty account`);
   }
 
-  // --- not losses -----------------------------------------------------------
-  if (countEntries(await deps.getVal(`locations/${uid}`))) {
-    keeps.push(`locations/${uid} deleted — a position fix, not durable state, not a loss`);
-  }
+  // --- push tokens: a loss, per spec §255-270 -------------------------------
   const tokens = countEntries(await deps.getVal(`pushTokens/${uid}`));
   if (tokens) {
-    // Expunge does not null pushTokens and this module does not add it (that
-    // family belongs in the shared enumerator, not here). Nothing is destroyed,
-    // so it is not a loss — but the operator should know it is left behind;
-    // integrity.js flags it as push-tokens-dangling.
-    keeps.push(`pushTokens/${uid} (${tokens}) is NOT deleted — expunge leaves it as residue (integrity: push-tokens-dangling)`);
+    // Nothing is destroyed here — expunge never nulls pushTokens, and this
+    // module does not add it (that family belongs in the shared enumerator).
+    // But "nothing is destroyed" is not the test: merge UNIONS this family so
+    // both devices stay reachable, and neither purge nor the link path carries
+    // it, so the devices go dead. Going dead unnoticed is the loss. The spec's
+    // not-a-loss list is knocks, calls and location nodes — push tokens are on
+    // the loss side of it.
+    losses.push(`pushTokens/${uid}: ${tokens} device token(s) are not carried — those devices stop receiving notifications for this account, and the node is left behind as residue (integrity: push-tokens-dangling)`);
+  }
+
+  // --- not losses (spec §269-270: knocks, calls, location nodes) ------------
+  if (countEntries(await deps.getVal(`locations/${uid}`))) {
+    keeps.push(`locations/${uid} deleted — a position fix, not durable state, not a loss`);
   }
 
   return { losses, keeps };

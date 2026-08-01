@@ -241,12 +241,23 @@ describe('buildLinkImpact', () => {
     expect(impact.losses.some((l) => l.includes('pendingInvites/E'))).toBe(true);
   });
 
-  test('push tokens are reported as left behind, not as a loss', async () => {
+  test('push tokens alone make it lossy — the devices stop being reachable', async () => {
     const deps = empty();
     deps.store['pushTokens/E'] = { tok: { createdAt: 1, lastSeen: 2 } };
     const impact = await buildLinkImpact(deps, 'E');
-    expect(impact.verdict).toBe('safe');
-    expect(impact.keeps.some((k) => k.includes('pushTokens/E'))).toBe(true);
+    expect(impact.verdict).toBe('lossy');
+    expect(impact.losses.some((l) => l.includes('pushTokens/E') && l.includes('stop receiving'))).toBe(true);
+    expect(impact.keeps.some((k) => k.includes('pushTokens'))).toBe(false);
+  });
+
+  test('purge and link impact agree about push tokens', async () => {
+    const deps = loaded();
+    deps.store['pushTokens/D'] = { tok: { createdAt: 1, lastSeen: 2 } };
+    const purge = await buildPurgePlan(deps, 'D');
+    const impact = await buildLinkImpact(deps, 'D');
+    const line = (/** @type {string[]} */ ls) => ls.filter((l) => l.includes('pushTokens/D'));
+    expect(line(purge.losses)).toHaveLength(1);
+    expect(line(impact.losses)).toEqual(line(purge.losses));
   });
 
   test('a contact with an unknown canvas list is never reported as safe', async () => {
@@ -266,11 +277,15 @@ describe('buildLinkImpact', () => {
     expect(impact.losses.some((l) => l.toLowerCase().includes('canvas'))).toBe(false);
   });
 
-  test('a canvas with a non-contact is reported as left behind, not as deleted', async () => {
+  test('a stranded canvas is a loss, and is never described as deleted', async () => {
     const deps = empty();
     const impact = await buildLinkImpact(deps, 'E', ['E_stranger']);
-    expect(impact.losses.some((l) => l.includes('E_stranger'))).toBe(false);
-    expect(impact.keeps.some((k) => k.includes('E_stranger') && k.includes('NOT deleted'))).toBe(true);
+    const line = impact.losses.find((l) => l.includes('E_stranger'));
+    expect(impact.verdict).toBe('lossy');
+    // Still a loss the operator must see, but the report must not claim a
+    // delete the enumerator declined to make.
+    expect(line).toContain('NOT deleted');
+    expect(impact.keeps.some((k) => k.includes('E_stranger'))).toBe(false);
   });
 
   test('does not mutate and reads no canvas subtree', async () => {
