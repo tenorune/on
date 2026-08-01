@@ -77,8 +77,12 @@ which is gitignored — **never commit its contents**):
 * `audit.jsonl` — two lines per operation: a `pending` line written *before*
   the update, and an `ok` / `failed: …` line written after. Both carry the same
   `ts`/`op`/`uids` and the same `preImageFile`, so a `pending` line with no
-  resolution means the process died mid-write and the pre-image is the record
-  of what was there.
+  resolution normally means the process died mid-write and the pre-image is the
+  record of what was there. The one other way to get a bare `pending` line is an
+  outcome-append that itself failed — in that case the panel pops a warning
+  saying **the write succeeded**, and the operation is still reported as `ok`.
+  A completed destructive write is never reported as a failure; an operator who
+  believed it failed would run it again.
 
 Two caveats the file states for itself:
 
@@ -149,7 +153,48 @@ canvas loss.
 | `POST /api/link/production/preview` | plan + nonce; writes nothing |
 | `POST /api/link/production/execute` | **destructive** |
 
-Every execute route requires the uid typed back *and* the nonce from the
-matching preview, burns the nonce on use, re-reads the database rather than
-trusting the minutes-old snapshot the preview was built from, dumps and flushes
-the pre-image, and only then issues one atomic `update()`.
+Every execute route requires the uid typed back *and* a nonce, burns that
+approval on use, re-reads the database rather than trusting the minutes-old
+snapshot the preview was built from, **checks the re-derived plan against the
+one you approved**, dumps and flushes the pre-image, and only then issues one
+atomic `update()`.
+
+Two details worth being precise about:
+
+* **Nonces are keyed by uid, not by operation.** A nonce is a random UUID
+  scoped to an account, so it is not "the nonce from *this* preview" in any
+  stronger sense than "the most recent approval recorded for that uid". What
+  makes an approval specific is the plan stored beside it: a nonce issued by
+  `GET /api/detail` carries no plan and cannot execute anything, and a nonce
+  issued by a purge preview will not carry a merge, because the merge's plan
+  will not match the purge's.
+* **Re-reading can change the plan, and that is a refusal, not an
+  auto-correct.** The execute rebuilds the plan against fresh data and compares
+  its write paths, its losses and its conflicts to what you actually read. If
+  anything differs — a new follower, a group that appeared, a conflict that
+  resolved — the request is refused with a diff and nothing is written. Preview
+  again and read the new plan. Write *values* are not compared, because merge
+  and the production link stamp the current time into what they write; those
+  values are captured in full by the pre-image dump instead.
+
+## The server answers only to itself
+
+Loopback binding alone does not stop **DNS rebinding**: a page you are browsing
+can resolve an attacker-controlled name to `127.0.0.1`, become same-origin with
+this server, and then read `/api/snapshot` (every uid, share code and tgId) and
+drive the execute routes — a cross-origin POST without custom headers is a
+"simple request" and is delivered whatever the response says.
+
+So every request is checked before it is routed, the page included:
+
+* the `Host` header must be `127.0.0.1`, `localhost` or `[::1]`, on the port
+  this process is actually listening on;
+* an `Origin` header, if present, must be a loopback origin on that same port.
+
+Anything else gets a `403` and is never routed. (`Origin` cannot be blanket-
+rejected: browsers attach it to every same-origin POST too, so the panel's own
+preview and execute calls carry one.)
+
+If you see `refused: Host "…"` in the browser, you reached the panel through a
+hostname rather than through `http://127.0.0.1:<port>` — use the literal
+address.

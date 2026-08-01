@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { jest } from '@jest/globals';
@@ -10,7 +11,9 @@ import {
   requireConfirm,
   createRoutes,
   createHttpServer,
+  originRefusal,
   BIND_ADDRESS,
+  ALLOWED_HOSTS,
 } from '../ops/server.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -141,6 +144,10 @@ function makeAuditFs(events) {
   let nextFd = 1;
   /** @type {Error | null} */
   let writeFailure = null;
+  /** @type {Error | null} */
+  let appendFailure = null;
+  let appendsBeforeFailure = 0;
+  let appends = 0;
   const fs = {
     mkdirSync: () => {},
     writeFileSync: (path, body, opts) => {
@@ -155,6 +162,8 @@ function makeAuditFs(events) {
     },
     appendFileSync: (path, body) => {
       if (writeFailure) throw writeFailure;
+      appends += 1;
+      if (appendFailure && appends > appendsBeforeFailure) throw appendFailure;
       files[path] = (files[path] || '') + body;
       events.push(`append:${path}`);
     },
@@ -162,7 +171,15 @@ function makeAuditFs(events) {
     fsyncSync: (fd) => { events.push(`fsync:${openFds[fd]}`); },
     closeSync: (fd) => { delete openFds[fd]; },
   };
-  return { fs, files, failWrites: (err) => { writeFailure = err; } };
+  return {
+    fs,
+    files,
+    failWrites: (err) => { writeFailure = err; },
+    // writeAuditRecord appends the `pending` line first; appendAuditOutcome
+    // appends the resolution second. failAppendsAfter(1) therefore breaks the
+    // OUTCOME append only, leaving the pre-image dump intact.
+    failAppendsAfter: (n, err) => { appendsBeforeFailure = n; appendFailure = err; },
+  };
 }
 
 const NOW = 1_750_000_000_000;
@@ -524,6 +541,259 @@ describe('merge preview and execute cannot drift', () => {
   });
 });
 
+// --- FINDING 1: unguessable nonces ----------------------------------------
+describe('nonces', () => {
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+  test('a nonce is a random UUID, not derivable from the uid', async () => {
+    const { routes } = harness();
+    const a = await routes['POST /api/purge/preview']({ uid: 'L' });
+    expect(a.nonce).toMatch(UUID);
+    expect(a.nonce).not.toContain('L');
+    const b = await routes['POST /api/purge/preview']({ uid: 'L' });
+    expect(b.nonce).not.toBe(a.nonce);
+  });
+
+  test('two servers do not share a nonce sequence', async () => {
+    const a = await harness().routes['POST /api/purge/preview']({ uid: 'L' });
+    const b = await harness().routes['POST /api/purge/preview']({ uid: 'L' });
+    expect(a.nonce).not.toBe(b.nonce);
+  });
+});
+
+// --- FINDING 2: the executed plan must be the approved plan -----------------
+describe('an execute must apply the plan the operator approved', () => {
+  test('an unchanged plan proceeds', async () => {
+    const { routes, store } = harness();
+    const { nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    const res = await routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce });
+    expect(res.ok).toBe(true);
+    expect(store['users/L']).toBeNull();
+  });
+
+  test('a plan that diverged after the preview is REFUSED and writes nothing', async () => {
+    const { routes, store, events, deps } = harness();
+    const { nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+
+    // someone follows L between the preview and the execute: a new contact
+    // loss and a new write path the operator never read
+    store['users/newPeer'] = { presence: { code: 'NEW001' }, followers: { L: 'LLL111' } };
+    store['userPrefs/newPeer'] = { following: { L: { code: 'LLL111', label: 'L' } } };
+    store['users/L'].followers.newPeer = 'NEW001';
+
+    await expect(routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce }))
+      .rejects.toThrow(/the plan you approved is not the plan this would apply/);
+    expect(events).not.toContain('rootUpdate');
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(store['users/L']).toBeDefined();
+  });
+
+  test('the refusal names what changed and tells the operator to preview again', async () => {
+    const { routes, store } = harness();
+    const { nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    store['users/newPeer'] = { presence: { code: 'NEW001' }, followers: { L: 'LLL111' } };
+    store['userPrefs/newPeer'] = { following: { L: { code: 'LLL111', label: 'L' } } };
+    store['users/L'].followers.newPeer = 'NEW001';
+
+    await expect(routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce }))
+      .rejects.toThrow(/Preview again[\s\S]*newPeer/);
+  });
+
+  test('a merge whose plan diverged is refused too', async () => {
+    const { routes, events, store } = harness();
+    const { nonce } = await routes['POST /api/merge/preview']({ loserUid: 'L', survivorUid: 'S' });
+    store['users/L'].groups.g3 = { lastVisited: 1 };
+    store['groups/g3'] = { name: 'New Group', ownerId: 'other', members: { L: { role: 'member' }, other: { role: 'owner' } } };
+
+    await expect(routes['POST /api/merge/execute']({ loserUid: 'L', survivorUid: 'S', confirmUid: 'L', nonce }))
+      .rejects.toThrow(/not the plan this would apply/);
+    expect(events).not.toContain('rootUpdate');
+  });
+
+  // A GET /api/detail nonce authorises no plan at all; spec §3.1 keys nonces by
+  // uid, so without this it would have carried a purge through.
+  test('a nonce from a detail view cannot execute anything', async () => {
+    const { routes, events } = harness();
+    const { nonce } = await routes['GET /api/detail'](new URLSearchParams({ uid: 'L' }));
+    await expect(routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce }))
+      .rejects.toThrow(/did not come from a preview/);
+    expect(events).not.toContain('rootUpdate');
+  });
+});
+
+// --- FINDING 3: the production-link route gets the same treatment ----------
+const LINKED = (extra = {}) => world({
+  'telegramByUid/L': { tgId: '55', chatId: '99' },
+  'telegramUsers/55': { uid: 'L', chatId: '99', createdAt: 7 },
+  ...extra,
+});
+
+describe('POST /api/link/production/execute', () => {
+  const linkHarness = () => harness({ store: LINKED() });
+
+  test('previews, then executes, and destroys the derived account', async () => {
+    const { routes, store } = linkHarness();
+    const { plan, nonce } = await routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    expect(plan.writes['telegramUsers/55']).toEqual({ uid: 'S', chatId: '99', linkedAt: NOW });
+    const res = await routes['POST /api/link/production/execute']({ derivedUid: 'L', phraseUid: 'S', confirmUid: 'L', nonce });
+    expect(res.ok).toBe(true);
+    expect(store['users/L']).toBeNull();
+    expect(store['telegramUsers/55']).toEqual({ uid: 'S', chatId: '99', linkedAt: NOW });
+  });
+
+  test('dumps and flushes the pre-image BEFORE the destructive write', async () => {
+    const { routes, events } = linkHarness();
+    const { nonce } = await routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    await routes['POST /api/link/production/execute']({ derivedUid: 'L', phraseUid: 'S', confirmUid: 'L', nonce });
+
+    const at = events.indexOf('rootUpdate');
+    expect(at).toBeGreaterThan(-1);
+    const before = events.slice(0, at);
+    expect(before.filter((e) => e.startsWith('write:.audit/'))).toHaveLength(1);
+    expect(before.some((e) => e.startsWith('fsync:.audit/') && e.endsWith('.json'))).toBe(true);
+    expect(before).toContain('append:.audit/audit.jsonl');
+    expect(before).toContain('fsync:.audit/audit.jsonl');
+    expect(before).toContain('fsync:.audit');
+  });
+
+  test('a dump I/O failure is FATAL on this route too', async () => {
+    const { routes, events, audit, deps, store } = linkHarness();
+    const { nonce } = await routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    audit.failWrites(new Error('EIO: i/o error, write'));
+    await expect(routes['POST /api/link/production/execute']({ derivedUid: 'L', phraseUid: 'S', confirmUid: 'L', nonce }))
+      .rejects.toThrow(/EIO/);
+    expect(events).not.toContain('rootUpdate');
+    expect(deps.update).not.toHaveBeenCalled();
+    expect(store['users/L']).toBeDefined();
+  });
+
+  test('the dump covers the FULL plan.writes key set, including dropped descendants', async () => {
+    const { routes, audit } = linkHarness();
+    const { plan, nonce } = await routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    await routes['POST /api/link/production/execute']({ derivedUid: 'L', phraseUid: 'S', confirmUid: 'L', nonce });
+    const dumped = Object.keys(preImageRecords(audit)[0].preImage).sort();
+    expect(dumped).toEqual(Object.keys(plan.writes).sort());
+    const payload = Object.keys(wirePayload(plan.writes));
+    expect(dumped.filter((p) => !payload.includes(p)).length).toBeGreaterThan(0);
+  });
+
+  test('snapshot.canvasKeys reaches buildProductionLinkPlan', async () => {
+    const named = await harness({ store: LINKED(), canvasKeys: ['L_shared'] })
+      .routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    expect(named.plan.losses.some((l) => l.includes('canvases/L_shared'))).toBe(true);
+
+    const unknown = await harness({ store: LINKED(), listCanvasKeys: async () => { throw new Error('503'); } })
+      .routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    expect(unknown.canvasKeys.examined).toBe(false);
+    expect(unknown.plan.losses.some((l) => l.includes('could not be enumerated'))).toBe(true);
+  });
+
+  // R6 for linkOptions: preview and execute must build the same arguments, and
+  // a phraseUid swapped between them must not quietly go through.
+  test('linkOptions is shared — the executed plan matches the previewed one', async () => {
+    const { routes, audit } = linkHarness();
+    const { plan, nonce } = await routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    await routes['POST /api/link/production/execute']({ derivedUid: 'L', phraseUid: 'S', confirmUid: 'L', nonce });
+    expect(Object.keys(preImageRecords(audit)[0].preImage).sort()).toEqual(Object.keys(plan.writes).sort());
+  });
+
+  test('a phraseUid swapped between preview and execute is refused', async () => {
+    const { routes, events } = harness({
+      store: LINKED({ 'users/other': { presence: { code: 'OTH001', lastSeen: 1 } } }),
+    });
+    const { nonce } = await routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    await expect(routes['POST /api/link/production/execute']({ derivedUid: 'L', phraseUid: 'other', confirmUid: 'L', nonce }))
+      .rejects.toThrow(/not the plan this would apply/);
+    expect(events).not.toContain('rootUpdate');
+  });
+
+  test('is gated on the derived uid and a nonce', async () => {
+    const { routes, events } = linkHarness();
+    const { nonce } = await routes['POST /api/link/production/preview']({ derivedUid: 'L', phraseUid: 'S' });
+    await expect(routes['POST /api/link/production/execute']({ derivedUid: 'L', phraseUid: 'S', confirmUid: 'S', nonce }))
+      .rejects.toThrow(/confirm/i);
+    await expect(routes['POST /api/link/production/execute']({ derivedUid: 'L', phraseUid: 'S', confirmUid: 'L', nonce: 'x' }))
+      .rejects.toThrow(/nonce/i);
+    expect(events).not.toContain('rootUpdate');
+  });
+});
+
+// --- FINDING 4: a completed write is never reported as a failure ------------
+describe('an outcome-append failure does not mis-report a completed write', () => {
+  test('the operation still succeeds, loudly, when the outcome line cannot be written', async () => {
+    const { routes, audit, store } = harness();
+    const { nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    audit.failAppendsAfter(1, new Error('ENOSPC: no space left on device, write'));
+
+    const res = await routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce });
+    expect(res.ok).toBe(true);
+    expect(res.auditWarning).toMatch(/THE WRITE SUCCEEDED/);
+    expect(res.auditWarning).toMatch(/ENOSPC/);
+    // the write really did land, and the panel is not still serving stale rows
+    expect(store['users/L']).toBeNull();
+    const snap = await routes['GET /api/snapshot'](new URLSearchParams());
+    expect(snap.rows.map((r) => r.uid)).not.toContain('L');
+  });
+
+  test('a successful operation reports no warning', async () => {
+    const { routes } = harness();
+    const { nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    expect((await routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce })).auditWarning).toBeNull();
+  });
+
+  test('an outcome-append failure never masks the real apply error', async () => {
+    const { routes, deps, audit } = harness();
+    const { nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    deps.update = jest.fn(async () => { throw new Error('rtdb exploded'); });
+    audit.failAppendsAfter(1, new Error('ENOSPC: no space left on device, write'));
+
+    await expect(routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce }))
+      .rejects.toThrow(/rtdb exploded/);
+  });
+});
+
+// --- FINDING 1: the same-origin guard --------------------------------------
+describe('originRefusal', () => {
+  const req = (headers, localPort = 8787) => ({ headers, socket: { localPort } });
+
+  test('accepts the loopback names this server binds', () => {
+    for (const name of ALLOWED_HOSTS) {
+      expect(originRefusal(req({ host: `${name}:8787` }))).toBeNull();
+    }
+  });
+
+  test('refuses a rebinding-shaped Host', () => {
+    expect(originRefusal(req({ host: 'evil.example.com:8787' }))).toMatch(/DNS-rebinding/);
+    expect(originRefusal(req({ host: 'ops.internal:8787' }))).toMatch(/DNS-rebinding/);
+    // a loopback name as a SUBDOMAIN of an attacker domain must not pass
+    expect(originRefusal(req({ host: 'localhost.evil.example.com:8787' }))).toMatch(/DNS-rebinding/);
+  });
+
+  test('refuses a missing or malformed Host', () => {
+    expect(originRefusal(req({}))).toMatch(/Host/);
+    expect(originRefusal(req({ host: '' }))).toMatch(/Host/);
+    expect(originRefusal(req({ host: '127.0.0.1:not-a-port' }))).toMatch(/Host/);
+  });
+
+  test('refuses a Host on a port this server is not listening on', () => {
+    expect(originRefusal(req({ host: '127.0.0.1:9999' }))).toMatch(/Host/);
+  });
+
+  test('refuses a cross-origin caller', () => {
+    expect(originRefusal(req({ host: '127.0.0.1:8787', origin: 'https://evil.example.com' }))).toMatch(/cross-origin/);
+    expect(originRefusal(req({ host: '127.0.0.1:8787', origin: 'null' }))).toMatch(/cross-origin/);
+    expect(originRefusal(req({ host: '127.0.0.1:8787', origin: 'http://127.0.0.1:9999' }))).toMatch(/cross-origin/);
+  });
+
+  // The panel's own POSTs are same-origin but STILL carry Origin (the Fetch
+  // standard attaches it to every non-GET/HEAD request), so a blanket
+  // Origin rejection would break the tool.
+  test('accepts the panel page own same-origin Origin on a POST', () => {
+    expect(originRefusal(req({ host: '127.0.0.1:8787', origin: 'http://127.0.0.1:8787' }))).toBeNull();
+    expect(originRefusal(req({ host: 'localhost:8787', origin: 'http://localhost:8787' }))).toBeNull();
+  });
+});
+
 // --- the bind address ------------------------------------------------------
 describe('the HTTP server', () => {
   test('BIND_ADDRESS is the loopback address', () => {
@@ -562,6 +832,54 @@ describe('the HTTP server', () => {
 
       const malformed = await fetch(`${base}/api/purge/preview`, { method: 'POST', body: '{not json' });
       expect(malformed.status).toBe(400);
+    } finally {
+      await new Promise((resolve) => { server.close(() => resolve(undefined)); });
+    }
+  });
+
+  // fetch() cannot set Host (a forbidden header name), so these go over a raw
+  // socket — which is exactly what a rebinding browser or a curl would do.
+  test('the guard runs before ANY routing, including the page', async () => {
+    const { routes } = harness();
+    const server = createHttpServer({ routes, page: '<h1>panel</h1>' });
+    await new Promise((resolve) => { server.listen(0, BIND_ADDRESS, () => resolve(undefined)); });
+    const { port } = server.address();
+    const raw = (headers, path = '/', method = 'GET', body) => new Promise((resolve, reject) => {
+      const req = httpRequest({ host: '127.0.0.1', port, path, method, headers }, (res) => {
+        let data = '';
+        res.on('data', (c) => { data += c; });
+        res.on('end', () => resolve({ status: res.statusCode, body: data }));
+      });
+      req.on('error', reject);
+      if (body) req.write(body);
+      req.end();
+    });
+    try {
+      expect((await raw({ Host: `127.0.0.1:${port}` })).status).toBe(200);
+      expect((await raw({ Host: `localhost:${port}` })).status).toBe(200);
+
+      const rebound = await raw({ Host: `evil.example.com:${port}` });
+      expect(rebound.status).toBe(403);
+      expect(rebound.body).toMatch(/DNS-rebinding/);
+      // the page itself is refused too, not just the API
+      expect(rebound.body).not.toContain('<h1>panel</h1>');
+
+      expect((await raw({ Host: `evil.example.com:${port}` }, '/api/snapshot')).status).toBe(403);
+      expect((await raw({ Host: '127.0.0.1:9999' }, '/api/snapshot')).status).toBe(403);
+
+      const crossOrigin = await raw(
+        { Host: `127.0.0.1:${port}`, Origin: 'https://evil.example.com', 'Content-Type': 'text/plain' },
+        '/api/purge/execute', 'POST', JSON.stringify({ uid: 'L', confirmUid: 'L', nonce: 'x' }),
+      );
+      expect(crossOrigin.status).toBe(403);
+      expect(crossOrigin.body).toMatch(/cross-origin/);
+
+      const sameOrigin = await raw(
+        { Host: `127.0.0.1:${port}`, Origin: `http://127.0.0.1:${port}` },
+        '/api/purge/preview', 'POST', JSON.stringify({ uid: 'L' }),
+      );
+      expect(sameOrigin.status).toBe(200);
+      expect(JSON.parse(sameOrigin.body).nonce).toBeTruthy();
     } finally {
       await new Promise((resolve) => { server.close(() => resolve(undefined)); });
     }

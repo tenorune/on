@@ -23,6 +23,7 @@
 //      descendants that are exactly the values about to die.
 import { createServer } from 'node:http';
 import * as nodeFs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -48,6 +49,19 @@ const DEFAULT_REGION = 'europe-west1';
 
 /** The ONLY address this server ever binds. See the file header. */
 export const BIND_ADDRESS = '127.0.0.1';
+
+/**
+ * The only host names this server will answer to.
+ *
+ * Binding to loopback is NOT sufficient on its own. Under DNS rebinding, a
+ * page the operator is browsing resolves an attacker-controlled name to
+ * 127.0.0.1, becomes same-origin with this server, and can then read
+ * /api/snapshot (every uid, share code and tgId) and drive /api/*&#47;execute — a
+ * cross-origin POST with no custom headers is a "simple request", so it is
+ * delivered and executed regardless of what the response's CORS headers say.
+ * The defence is to check the name the browser THINKS it connected to.
+ */
+export const ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '[::1]'];
 
 /** @typedef {ReturnType<typeof makeOpsDeps>} OpsWiring */
 /** @typedef {OpsWiring['deps']} OpsDeps */
@@ -153,6 +167,74 @@ export function requireConfirm(body, expectedUid, expectedNonce) {
   if (body?.confirmUid !== expectedUid) throw new Error('confirm failed: the typed uid does not match');
   if (!expectedNonce) throw new Error('nonce failed: no preview was issued for this account — preview it again');
   if (body?.nonce !== expectedNonce) throw new Error('nonce failed: this preview is stale — refresh and try again');
+}
+
+// --- same-origin guard -----------------------------------------------------
+
+/**
+ * Split a `Host`-style authority into its name and (optional) port. Returns
+ * null for anything that is not one, so a malformed header is refused rather
+ * than parsed leniently.
+ * @param {string} authority
+ * @returns {{ name: string, port: number | null } | null}
+ */
+function splitAuthority(authority) {
+  const m = /^(\[[0-9a-fA-F:]+\]|[^:[\]]+)(?::([0-9]{1,5}))?$/.exec(authority);
+  if (!m) return null;
+  return { name: m[1].toLowerCase(), port: m[2] === undefined ? null : Number(m[2]) };
+}
+
+/**
+ * Is this authority one of ours? The port must match the socket we are
+ * actually listening on when the header carries one.
+ * @param {string | undefined} authority
+ * @param {number | null | undefined} localPort
+ */
+function isLoopbackAuthority(authority, localPort) {
+  if (typeof authority !== 'string' || authority === '') return false;
+  const parsed = splitAuthority(authority);
+  if (parsed === null) return false;
+  if (!ALLOWED_HOSTS.includes(parsed.name)) return false;
+  if (parsed.port !== null && localPort != null && parsed.port !== localPort) return false;
+  return true;
+}
+
+/**
+ * Reject anything that did not come from the panel page itself.
+ *
+ * `Host` catches DNS rebinding: the browser sends the name it resolved, so
+ * `evil.example.com` never looks like `127.0.0.1` no matter what it resolves
+ * to.
+ *
+ * `Origin` catches an ordinary cross-origin POST. NOTE — the review asked for
+ * "reject any request carrying an Origin header at all"; that is not
+ * implementable, because per the Fetch standard a browser attaches `Origin` to
+ * every request whose method is not GET/HEAD *including same-origin ones*, so
+ * a blanket rejection would 403 the panel's own preview and execute calls and
+ * leave the tool unusable. The equivalent-strength rule is applied instead: an
+ * `Origin`, when present, must itself be a loopback origin on this very port.
+ * A cross-origin caller cannot forge one — `Origin` is a forbidden header name
+ * in the browser.
+ *
+ * @param {import('node:http').IncomingMessage} req
+ * @returns {string | null} the refusal reason, or null when the request is ours
+ */
+export function originRefusal(req) {
+  const localPort = req.socket?.localPort ?? null;
+  const host = req.headers.host;
+  if (!isLoopbackAuthority(host, localPort)) {
+    return `refused: Host "${String(host)}" is not this server's loopback address — `
+      + 'this panel answers only to 127.0.0.1 / localhost on its own port (DNS-rebinding guard)';
+  }
+  const origin = req.headers.origin;
+  if (origin !== undefined) {
+    // "null" (a sandboxed or file: document) is not a loopback origin either.
+    const parsed = /^https?:\/\/(.+)$/.exec(origin);
+    if (parsed === null || !isLoopbackAuthority(parsed[1], localPort)) {
+      return `refused: cross-origin request from "${origin}"`;
+    }
+  }
+  return null;
 }
 
 // --- request narrowing -----------------------------------------------------
@@ -261,25 +343,93 @@ export function createRoutes(ctx) {
     ? { examined: true, count: snap.canvasKeys.length, error: null }
     : { examined: false, count: null, error: canvasKeysError });
 
-  /** Nonces issued by a detail/preview response, consumed by the matching execute. */
-  /** @type {Map<string, string>} */
-  const nonces = new Map();
-  let nonceSeq = 0;
-  /** @param {string} uid */
-  function issueNonce(uid) {
-    nonceSeq += 1;
-    const nonce = `n${nonceSeq}-${uid}`;
-    nonces.set(uid, nonce);
+  /**
+   * What an operator actually READ and typed a uid against. A nonce on its own
+   * authorises a preview EVENT; it says nothing about the plan, and the
+   * execute routes deliberately re-read the database and rebuild the plan
+   * rather than trusting a minutes-old snapshot. Without this, the rebuilt
+   * plan could differ from the one on screen and be applied anyway — the panel
+   * showing one thing and doing another, which is the failure this whole tool
+   * exists to prevent.
+   * @typedef {{ paths: string[], losses: string[], conflicts: string[] }} PlanDigest
+   */
+  /** @typedef {{ nonce: string, approved: PlanDigest | null }} Approval */
+
+  /** @type {Map<string, Approval>} */
+  const approvals = new Map();
+
+  /**
+   * The operator-visible content of a plan. Write VALUES are deliberately not
+   * included: merge and the production link stamp `now` into what they write,
+   * so values legitimately differ between a preview and the execute that
+   * follows it, and comparing them would refuse every real operation. The
+   * values are still captured in full by the pre-image dump.
+   * @param {WritePlan} plan
+   * @returns {PlanDigest}
+   */
+  const digest = (plan) => ({
+    paths: Object.keys(plan.writes).sort(),
+    losses: [...plan.losses],
+    conflicts: plan.conflicts.map((c) => `${c.kind}|${c.path}|${c.detail}|${c.resolution}`),
+  });
+
+  /**
+   * randomUUID, not a counter: `n<seq>-<uid>` was guessable from a uid the
+   * caller already had, which is no confirmation at all against anything that
+   * can reach the socket.
+   * @param {string} uid
+   * @param {WritePlan | null} plan
+   */
+  function issueNonce(uid, plan) {
+    const nonce = randomUUID();
+    approvals.set(uid, { nonce, approved: plan === null ? null : digest(plan) });
     return nonce;
   }
+
   /**
-   * Check the typed uid and the nonce, then BURN the nonce: an approval is for
-   * one write, and a replayed execute must go back through a fresh preview.
+   * Check the typed uid and the nonce, then BURN the approval: it is for one
+   * write, and a replay must go back through a fresh preview.
    * @param {Record<string, unknown>} body @param {string} uid
+   * @returns {PlanDigest} what the operator approved
    */
   function consumeConfirm(body, uid) {
-    requireConfirm(body, uid, nonces.get(uid) ?? null);
-    nonces.delete(uid);
+    const record = approvals.get(uid);
+    requireConfirm(body, uid, record?.nonce ?? null);
+    approvals.delete(uid);
+    if (!record || record.approved === null) {
+      throw new Error(
+        'nonce failed: that approval did not come from a preview of this operation — '
+        + 'preview it, read the plan, and confirm again',
+      );
+    }
+    return record.approved;
+  }
+
+  /**
+   * Refuse when the freshly derived plan is not the plan the operator read.
+   * Neither version is preferred and nothing is auto-applied: the only safe
+   * move is to show the operator the new plan and make them approve that one.
+   * @param {PlanDigest} approved
+   * @param {WritePlan} plan
+   */
+  function assertPlanUnchanged(approved, plan) {
+    const fresh = digest(plan);
+    /** @type {string[]} */
+    const diffs = [];
+    /** @param {string} label @param {string[]} was @param {string[]} now */
+    const compare = (label, was, now) => {
+      for (const item of now) if (!was.includes(item)) diffs.push(`+ ${label}: ${item}`);
+      for (const item of was) if (!now.includes(item)) diffs.push(`- ${label}: ${item}`);
+    };
+    compare('path', approved.paths, fresh.paths);
+    compare('loss', approved.losses, fresh.losses);
+    compare('conflict', approved.conflicts, fresh.conflicts);
+    if (diffs.length) {
+      throw new Error(
+        'refused: the database changed since that preview, so the plan you approved is not the plan '
+        + `this would apply. Nothing was written. Preview again and read the new plan:\n${diffs.join('\n')}`,
+      );
+    }
   }
 
   /**
@@ -322,18 +472,39 @@ export function createRoutes(ctx) {
     try {
       await apply(plan);
     } catch (e) {
-      finish(`failed: ${String(e)}`);
+      // The outcome append must never replace the real reason the write failed.
+      try {
+        finish(`failed: ${String(e)}`);
+      } catch (auditErr) {
+        console.error(`could not append the failed-outcome audit line: ${String(auditErr)}`);
+      }
       cached = null; // the database state after a failed atomic update is not assumed
       throw e;
     }
-    finish('ok');
+
+    // PAST THIS POINT THE WRITE HAPPENED. Nothing below may turn that into a
+    // failed request: telling an operator a destructive write failed when it
+    // succeeded is worse than a crash — they would re-run it, and the panel
+    // would keep serving pre-mutation rows.
     cached = null; // force a fresh read after any mutation
+    /** @type {string | null} */
+    let auditWarning = null;
+    try {
+      finish('ok');
+    } catch (auditErr) {
+      auditWarning = `THE WRITE SUCCEEDED, but the audit outcome line could not be appended (${String(auditErr)}). `
+        + `${preImageFile} is on disk and complete; audit.jsonl still shows this operation as "pending", which normally `
+        + 'means the process died mid-write — here it did not. Reconcile the log by hand.';
+      console.error(auditWarning);
+    }
+
     return {
       ok: true,
       op,
       // NOT "what was written": plan.writes is a superset of the wire payload.
       previewPaths: paths.length,
       preImageFile,
+      auditWarning,
     };
   }
 
@@ -381,7 +552,10 @@ export function createRoutes(ctx) {
       const snap = await current();
       const detail = buildDetail(snap, uid, opts.uidSecret);
       if (!detail) throw new Error(`no account at users/${uid}`);
-      return { detail, nonce: issueNonce(uid), canvasKeys: canvasScope(snap) };
+      // A detail view is not an approval of anything: the nonce it issues
+      // carries NO plan, so an execute presenting it is refused (see
+      // consumeConfirm) until the operation itself has been previewed.
+      return { detail, nonce: issueNonce(uid, null), canvasKeys: canvasScope(snap) };
     },
 
     'GET /api/integrity': async () => ({ findings: runChecks(await current()) }),
@@ -390,18 +564,21 @@ export function createRoutes(ctx) {
       const body = asBody(input);
       const snap = await current();
       const plan = await buildMergePlan(deps, mergeOptions(body, canvasKeysOf(snap), deps.now()));
-      return { plan, nonce: issueNonce(requireString(body.loserUid, 'loserUid')), canvasKeys: canvasScope(snap) };
+      return { plan, nonce: issueNonce(requireString(body.loserUid, 'loserUid'), plan), canvasKeys: canvasScope(snap) };
     },
     'POST /api/merge/execute': async (input) => {
       const body = asBody(input);
-      consumeConfirm(body, requireString(body.loserUid, 'loserUid'));
+      const approved = consumeConfirm(body, requireString(body.loserUid, 'loserUid'));
       // Re-read rather than reuse the cache: the snapshot behind the preview is
       // minutes old by the time an operator types a uid, and a stale
       // snapshot-derived input gating a destructive write has already destroyed
-      // data once in this plan.
+      // data once in this plan. The re-derived plan is then checked AGAINST the
+      // one the operator read — re-reading is right, applying a plan nobody
+      // approved is not.
       const snap = await refresh();
       const options = mergeOptions(body, canvasKeysOf(snap), deps.now());
       const plan = await buildMergePlan(deps, options);
+      assertPlanUnchanged(approved, plan);
       return execute('merge', [options.loserUid, options.survivorUid], plan, (p) => applyMergePlan(deps, p));
     },
 
@@ -410,14 +587,15 @@ export function createRoutes(ctx) {
       const uid = requireString(body.uid, 'uid');
       const snap = await current();
       const plan = await buildPurgePlan(deps, uid, canvasKeysOf(snap));
-      return { plan, nonce: issueNonce(uid), canvasKeys: canvasScope(snap) };
+      return { plan, nonce: issueNonce(uid, plan), canvasKeys: canvasScope(snap) };
     },
     'POST /api/purge/execute': async (input) => {
       const body = asBody(input);
       const uid = requireString(body.uid, 'uid');
-      consumeConfirm(body, uid);
+      const approved = consumeConfirm(body, uid);
       const snap = await refresh();
       const plan = await buildPurgePlan(deps, uid, canvasKeysOf(snap));
+      assertPlanUnchanged(approved, plan);
       return execute('purge', [uid], plan, (p) => applyPurgePlan(deps, p));
     },
 
@@ -432,14 +610,15 @@ export function createRoutes(ctx) {
       const snap = await current();
       const options = linkOptions(body, deps.now());
       const plan = await buildProductionLinkPlan(deps, options, canvasKeysOf(snap));
-      return { plan, nonce: issueNonce(options.derivedUid), canvasKeys: canvasScope(snap) };
+      return { plan, nonce: issueNonce(options.derivedUid, plan), canvasKeys: canvasScope(snap) };
     },
     'POST /api/link/production/execute': async (input) => {
       const body = asBody(input);
-      consumeConfirm(body, requireString(body.derivedUid, 'derivedUid'));
+      const approved = consumeConfirm(body, requireString(body.derivedUid, 'derivedUid'));
       const snap = await refresh();
       const options = linkOptions(body, deps.now());
       const plan = await buildProductionLinkPlan(deps, options, canvasKeysOf(snap));
+      assertPlanUnchanged(approved, plan);
       return execute('link-production', [options.derivedUid, options.phraseUid], plan, (p) => applyPurgePlan(deps, p));
     },
   };
@@ -457,6 +636,12 @@ export function createHttpServer({ routes, page }) {
     const key = `${req.method} ${url.pathname}`;
     /** @param {number} code @param {string} type @param {string} body */
     const send = (code, type, body) => { res.writeHead(code, { 'Content-Type': type }); res.end(body); };
+
+    // Before ANY routing, including the page: this server has no auth and holds
+    // a database-admin credential, so a request that did not come from the
+    // panel itself is refused outright rather than answered.
+    const refusal = originRefusal(req);
+    if (refusal !== null) return send(403, 'text/plain', refusal);
 
     if (key === 'GET /') return send(200, 'text/html; charset=utf-8', page);
     const handler = routes[key];
