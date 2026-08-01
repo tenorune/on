@@ -44,8 +44,12 @@ export const UNION_MAILBOXES = OWN_MAILBOXES.filter((box) => !DROP_MAILBOXES.inc
  * sees it before approving. `drawing`, `presence`, `clearRequest` and
  * `screenshotRequest` are live-session state (the D3 transient argument) and
  * are dropped with it.
+ *
+ * Exported so audit.js's pre-image capture reads exactly this same field set
+ * for a destroyed canvas — one list, not a hand-copied duplicate that could
+ * silently drift (functions/test/ops-audit.test.js has the parity test).
  */
-const CANVAS_CARRIED = ['bg'];
+export const CANVAS_CARRIED = ['bg'];
 
 /** Canvas keys are SORTED uid pairs. @param {string} a @param {string} b */
 const canvasKeyFor = (a, b) => [a, b].sort().join('_');
