@@ -24,31 +24,24 @@ carries the parked residuals, the reasoning behind each known gap, and the
 deferred minors, distilled from the implementation session's review ledger.
 Read it before touching `functions/ops/` or `functions/telegram-auth.js`.
 
-Of the three follow-ups this branch owed, **two are done** (2026-08-01, see
-History) and one remains:
+**THE NEXT ACTION — run the dev-project smoke test.** It is the only thing
+blocking the panel from production data, and it is the one thing no session can
+do for you: no service-account credential has existed in any container this
+work ran in, so `deps.js`, `panel.html`'s browser behavior, and the Host/Origin
+guard as seen from a real browser are all **unexercised**. Every green number
+below covers the wiring, not the live system, and that guard is the panel's
+only authentication boundary on a server holding full database admin.
 
-1. **The manual dev-project smoke test — STILL OWED, still the first thing.**
-   No service-account credential has existed in any container this work ran
-   in, so `deps.js`, `panel.html`'s browser behavior, and the Host/Origin
-   guard as seen from a real browser are all unexercised. Do this before the
-   panel touches production. Every green number below covers the wiring, not
-   the live system. **The script is written:
-   `docs/operator-panel-smoke-test.md`** — ten ordered steps with expected
-   observations, seven copy-paste `curl` probes for the guard, and a results
-   table. It has never been run; running it is the work.
+The script is written and never run: **`docs/operator-panel-smoke-test.md`** —
+ten ordered steps with the observation that decides each one, seven
+copy-paste `curl` probes for the guard, and a results table to fill in. Running
+it is the work. It also settles **G2** (whether `admin.auth().deleteUser` works
+on a custom-token uid) for free, since it puts a dev project in front of you.
 
-Done, on this branch:
-
-- ~~The `crossRefRenderers` locations follow-up~~ — `4dea508`. Both location
-  families and the unjoined-invite `pendingInvitesByGroup` entries are in the
-  shared enumerator; the local copies in `merge.js`/`purge.js` are gone; the
-  owned-group orphan case is handled by a wholesale `locationCells/{gid}` null
-  beside the `pendingInvitesByGroup/{gid}` null already in the owned-group
-  block. This CHANGED live expunge and graduation behaviour and is covered by
-  `functions/test/crossref-locations.test.js`.
-- ~~Fold the shipped link-write copy~~ — `16e5ae9`. The plan as written was
-  undeployable (see the `ops/**` landmine below); the shared builder moved to
-  `functions/telegram-link-write.js` instead and `performLink` now calls it.
+**After that, ten open items** — all ranked with stable IDs in the "at a
+glance" table at the top of `docs/operator-panel-followups.md`: S1 (this smoke
+test), G1 and G2 (known gaps), and M1–M7 (deferred minors, each with its
+`file:line` and why it was left). Nothing else is owed on this branch.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -75,14 +68,11 @@ an operator starts by hand against a target project, and it binds `127.0.0.1`
 only. `dev` and `main` are unchanged and tree-identical; the maintainer
 merges, so the branch stays open.
 
-**Owed before this is trusted with production data:** a manual smoke test
-against a real dev Firebase project. No service-account credential has
-existed in any container this work ran in, so `deps.js`, `panel.html`'s
-browser behavior, and the Host/Origin guard as seen from an actual browser
-are all UNEXERCISED — every green test below covers the wiring, not the live
-system. Also worth knowing: approvals are per-uid and held in memory, so the
-panel is single-operator by construction — two people running it against the
-same project at once do not share approval state.
+**Owed before this is trusted with production data:** the smoke test — see
+"What's next" above, which leads with it, and `docs/operator-panel-smoke-test.md`
+for the script. Also worth knowing here: approvals are per-uid and held in
+memory, so the panel is single-operator by construction — two people running it
+against the same project at once do not share approval state.
 
 Everything below is SHIPPED and merged; no pending uncommitted/unpushed work.
 
@@ -111,14 +101,14 @@ Nothing deploys from sessions.
 
 ## Verification state
 
-Green bar OBSERVED at `16e5ae9` (2026-08-01, ops-panel branch tip, after the
-two residue/link-write follow-ups): web jest **2106/2106** (88 suites) ·
-functions **726/726** (24 suites) · `typecheck` + `typecheck:scripts` clean ·
-`node scripts/prod.js` builds. Movement from the `b59add9` bar (2089/713):
-+11 functions tests for the enumerator's new families, +2 for the
-`buildLinkWrites` pre-read seam, +17 web tests from the per-file
-`ops/**` import guard (one case per top-level `functions/*.js`). Nothing
-pre-existing changed shape.
+Green bar OBSERVED at `8f9ccd1` (2026-08-01, ops-panel branch tip, after the
+two follow-ups and the four parked residuals): web jest **2106/2106**
+(88 suites) · functions **736/736** (24 suites) · `typecheck` +
+`typecheck:scripts` clean · `node scripts/prod.js` builds. Movement from the
+`b59add9` bar (2089/713): +11 functions tests for the enumerator's new
+families, +2 for the `buildLinkWrites` pre-read seam, +10 for the four
+residuals, +17 web tests from the per-file `ops/**` import guard (one case per
+top-level `functions/*.js`). Nothing pre-existing changed shape.
 
 `functions/test/telegram-auth.test.js` has a **0-line diff across the entire
 branch** — that is the standing proof the `expungeDerivedAccount` split
@@ -371,6 +361,19 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **This session (2026-08-01) — the four parked residuals closed
+  (`c1b2cf9`, docs `62beeaa`/`7cc17e1`/`8f9ccd1`).** R1 the merge relink
+  conflict now fires only when the teardown actually deleted (it used to
+  contradict the teardown's own refusal on the same tgId); R2
+  `buildMappingTeardown` gained `ownUids`, so a mapping held by a merge's LOSER
+  is torn down instead of refused with a loss line promising its owner's
+  Telegram keeps working — false, since `users/{loser}` is nulled moments
+  later; R3 the `fsyncDir` catch branch got the two tests it never had (both
+  passed first run — missing coverage, not a defect); R4 the production-link
+  plan now READS who holds a stale mapping instead of inferring it from the
+  reverse index. Also: `docs/operator-panel-smoke-test.md` written (never run),
+  and `docs/operator-panel-followups.md` restructured around an at-a-glance
+  index with stable IDs.
 - **This session (2026-08-01) — two ops-panel follow-ups, TDD
   (`4dea508`, `16e5ae9` on `claude/knockknock-ui-improvements-7bm5o9`).**
   Operator ruled both onto this branch rather than cutting new ones.
