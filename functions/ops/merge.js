@@ -83,12 +83,16 @@ export async function buildMergePlan(deps, opts) {
   const canvasKeys = opts.canvasKeys || [];
   const existingCanvases = new Set(canvasKeys);
 
-  const [loser, survivor, loserPrefs, survivorPrefs, loserTokens] = await Promise.all([
+  const [loser, survivor, loserPrefs, survivorPrefs, loserTokens, loserPendingInvites] = await Promise.all([
     deps.getVal(`users/${L}`),
     deps.getVal(`users/${S}`),
     deps.getVal(`userPrefs/${L}`),
     deps.getVal(`userPrefs/${S}`),
     deps.getVal(`pushTokens/${L}`),
+    // The enumerator needs the loser's pending-invite gids to null their
+    // by-group sweep entries; the mailbox union below re-reads the same node
+    // through its uniform per-box loop.
+    deps.getVal(`pendingInvites/${L}`),
   ]);
   if (!loser) throw new Error(`merge: no account at users/${L}`);
   if (!survivor) throw new Error(`merge: no account at users/${S} — use graduateAccountData for a free target`);
@@ -118,7 +122,7 @@ export async function buildMergePlan(deps, opts) {
   // Canvases are the one exception (see the canvas block below) — they are
   // driven by the authoritative shallow key list so a forgotten canvasKeys
   // cannot silently delete a drawing that was never moved.
-  for (const render of crossRefRenderers({ followers: loser.followers, following: loserPrefs?.following, groups: loser.groups })) {
+  for (const render of crossRefRenderers({ followers: loser.followers, following: loserPrefs?.following, groups: loser.groups, pendingInvites: loserPendingInvites })) {
     const path = render(L);
     if (path.startsWith('canvases/')) continue;
     writes[path] = null;
@@ -242,10 +246,6 @@ export async function buildMergePlan(deps, opts) {
 
     const pending = await deps.getVal(`pendingInvitesByGroup/${gid}/${L}`);
     if (pending !== null && pending !== undefined) writes[`pendingInvitesByGroup/${gid}/${S}`] = pending;
-
-    // Location residue: the loser's fix is dropped, republished on the next
-    // tick (spec §7). Unconditional — a null on an absent cell is a no-op.
-    writes[`locationCells/${gid}/${L}`] = null;
   }
 
   // --- identity: free the loser code (D1), move invite tokens ---------------
@@ -290,12 +290,11 @@ export async function buildMergePlan(deps, opts) {
   }
   // pendingInvites is dual-written with its by-group sweep index
   // (js/db/groups.ts) — moving one without the other is exactly the asymmetry
-  // integrity.js flags. The enumerator cannot see these gids: it only knows the
-  // groups the loser is a MEMBER of, and a pending invite is by definition to a
-  // group they are not in yet.
+  // integrity.js flags. The SURVIVOR side is merge's own business and stays
+  // here; the loser-side nulls come from the enumerator, which is handed the
+  // same mailbox so it can reach the gids `groups` cannot see.
   for (const gid of Object.keys(loserMailboxes.pendingInvites || {})) {
     if (writes[`pendingInvites/${S}/${gid}`] !== undefined) writes[`pendingInvitesByGroup/${gid}/${S}`] = true;
-    if (!gids.includes(gid)) writes[`pendingInvitesByGroup/${gid}/${L}`] = null;
   }
 
   // --- canvases (D2): sorted-pair keys, survivor wins, self-canvas deleted --
@@ -329,9 +328,6 @@ export async function buildMergePlan(deps, opts) {
     }
     writes[`canvases/${key}`] = null;
   }
-
-  // --- locations: loser's dropped, republished on the next tick -------------
-  writes[`locations/${L}`] = null;
 
   // --- telegram repoint: the SHARED link-write builder (§8.3) ----------------
   // Every write and every delete of a telegramUsers/{tgId} node goes through

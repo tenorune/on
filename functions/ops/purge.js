@@ -18,11 +18,12 @@
 // ancestor as a redundant delete. Correct for a loss report; nothing here may
 // be labelled "what will be written".
 //
-// TWO LOCAL FAMILIES, DELIBERATELY. crossRefRenderers does not emit
-// `locations/{uid}` or `locationCells/{gid}/{uid}`, so merge.js handles them
-// locally and this module does the same, identically. Whether they belong in
-// the enumerator is an open question for the operator: answering it would
-// change shipped expunge behaviour, so it is not answered here.
+// NO LOCAL FAMILIES. `locations/{uid}` and `locationCells/{gid}/{uid}` used to
+// be built here and in merge.js, identically, because crossRefRenderers did not
+// emit them; they now come from the enumerator like every other residue family,
+// and the owned-group case they could not express — a deleted group stranding
+// OTHER members' cells — is handled by the wholesale `locationCells/{gid}` null
+// in buildExpungeWrites' owned-group block.
 import { buildExpungeWrites } from '../telegram-auth.js';
 import { rootUpdate } from '../telegram-shared.js';
 import { canvasPeers } from './project.js';
@@ -105,21 +106,6 @@ const PREFS_REPORTED_ELSEWHERE = ['telegram', 'notifyChannel', 'following', 'not
 function expungeWrites(deps, uid, extraNulls) {
   const authDeps = /** @type {import('../telegram-auth.js').TelegramAuthDeps} */ (deps);
   return buildExpungeWrites(authDeps, uid, extraNulls);
-}
-
-/**
- * The two families the shared enumerator does not emit. A null on a path that
- * holds nothing is a no-op, so these are unconditional — conditioning a residue
- * null on a read is exactly how expunge and graduation drifted once before.
- * @param {string} uid
- * @param {string[]} gids
- * @returns {Record<string, null>}
- */
-function locationNulls(uid, gids) {
-  /** @type {Record<string, null>} */
-  const nulls = { [`locations/${uid}`]: null };
-  for (const gid of gids) nulls[`locationCells/${gid}/${uid}`] = null;
-  return nulls;
 }
 
 /**
@@ -304,9 +290,8 @@ export async function buildPurgePlan(deps, uid, canvasKeys) {
   // A typo'd uid must not produce an approvable no-op plan.
   if (!own) throw new Error(`purge: no account at users/${uid}`);
 
-  const gids = Object.keys(own.groups || {});
   /** @type {Record<string, unknown>} */
-  const extraNulls = locationNulls(uid, gids);
+  const extraNulls = {};
 
   // The mapping teardown rides the same extraNulls seam unlinkTelegramHandler
   // uses (spec §8.1), so the whole purge stays ONE atomic update. Without it
@@ -371,7 +356,7 @@ export async function buildLinkImpact(deps, derivedUid, canvasKeys) {
 
   // Linking REPOINTS the mapping rather than deleting it, so no mapping
   // teardown here — and therefore no mapping loss line either.
-  const writes = await expungeWrites(deps, derivedUid, locationNulls(derivedUid, Object.keys(own.groups || {})));
+  const writes = await expungeWrites(deps, derivedUid, {});
   const { losses, keeps } = await describeImpact(deps, derivedUid, {
     own, prefs, writes, canvasKeys, tgId: null,
   });
@@ -406,7 +391,6 @@ export async function buildProductionLinkPlan(deps, { derivedUid, phraseUid, now
   const { own, prefs } = await readOwn(deps, derivedUid);
   const writes = await expungeWrites(deps, derivedUid, {
     [`telegramByUid/${derivedUid}`]: null,
-    ...locationNulls(derivedUid, Object.keys(own?.groups || {})),
   });
 
   /** @type {import('./types.js').Conflict[]} */

@@ -322,12 +322,15 @@ export async function redeemTelegramLinkTokenHandler(request, deps) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function buildExpungeWrites(deps, uid, extraNulls = null) {
-  const [presence, invites, followers, following, groups] = await Promise.all([
+  const [presence, invites, followers, following, groups, pendingInvites] = await Promise.all([
     deps.getVal(`users/${uid}/presence`),
     deps.getVal(`users/${uid}/invites`),
     deps.getVal(`users/${uid}/followers`),
     deps.getVal(`userPrefs/${uid}/following`),
     deps.getVal(`users/${uid}/groups`),
+    // Read for the enumerator's by-group sweep entries: the gids of groups this
+    // account was invited to but never joined are visible nowhere else.
+    deps.getVal(`pendingInvites/${uid}`),
   ]);
 
   const gids = Object.keys(groups || {});
@@ -346,17 +349,22 @@ export async function buildExpungeWrites(deps, uid, extraNulls = null) {
   // SAME family graduation moves, from one enumerator so the two can't drift.
   // A self-follow renders paths under `users/{uid}`/`userPrefs/{uid}` (nulled
   // wholesale below); rootUpdate drops those as redundant deletes.
-  for (const render of crossRefRenderers({ followers, following, groups })) {
+  for (const render of crossRefRenderers({ followers, following, groups, pendingInvites })) {
     nulls[render(uid)] = null;
   }
 
   // Owned groups are removed WHOLE — the enumerator's per-uid membership/pending
   // nulls under them are redundant and dropped by rootUpdate; membership in
   // groups owned by others stays nulled per-uid by the enumerator above.
+  // The by-group index nodes go with them: a group that no longer exists cannot
+  // have pending invites, and its coarse location cells would otherwise be
+  // stranded under a dead gid — including cells belonging to OTHER members,
+  // which the per-uid enumerator has no way to reach.
   gids.forEach((gid, i) => {
     if (ownerIds[i] === uid) {
       nulls[`groups/${gid}`] = null;
       nulls[`pendingInvitesByGroup/${gid}`] = null;
+      nulls[`locationCells/${gid}`] = null;
     }
   });
 
@@ -395,10 +403,13 @@ export const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants
 // enumerator knowing. Order matters: it is the graduation walker's original
 // move order, so the consumed-source dedup picks the same winner.
 /**
- * @param {{ followers?: any, following?: any, groups?: any }} lists
+ * `pendingInvites` is the raw `pendingInvites/{uid}` node and only its KEYS are
+ * read, so it is typed as the map it is rather than joining the three `any`
+ * boundary annotations beside it.
+ * @param {{ followers?: any, following?: any, groups?: any, pendingInvites?: Record<string, unknown> | null }} lists
  * @returns {Array<(u: string) => string>}
  */
-export function crossRefRenderers({ followers, following, groups }) {
+export function crossRefRenderers({ followers, following, groups, pendingInvites }) {
   const followerIds = Object.keys(followers || {});
   const followingIds = Object.keys(following || {});
   const peers = new Set([...followerIds, ...followingIds]);
@@ -420,6 +431,23 @@ export function crossRefRenderers({ followers, following, groups }) {
   }
   for (const box of OWN_MAILBOXES) {
     r.push((u) => `${box}/${u}`);
+  }
+  // Location residue. Appended AFTER the pre-existing families so the order
+  // above — the graduation walker's original move order, which the
+  // consumed-source dedup depends on — is untouched. A location fix is
+  // transient, but it is still uid-keyed cross-user-visible residue: left
+  // behind it is a position for an account that no longer exists (the
+  // `location-dangling` finding), and on graduation it has to follow the
+  // account or the next tick is the only thing that restores it.
+  r.push((u) => `locations/${u}`);
+  for (const gid of gids) r.push((u) => `locationCells/${gid}/${u}`);
+  // Pending invites to groups the account has NOT joined. `groups` cannot see
+  // these — a pending invite is by definition to a group you are not in yet —
+  // so the gids come from the invitee's own mailbox, which is dual-written with
+  // this by-group sweep index (js/db/groups.ts). Moving or deleting one without
+  // the other is exactly the asymmetry integrity.js reports.
+  for (const gid of Object.keys(pendingInvites || {})) {
+    if (!gids.includes(gid)) r.push((u) => `pendingInvitesByGroup/${gid}/${u}`);
   }
   return r;
 }
@@ -454,15 +482,20 @@ export function crossRefRenderers({ followers, following, groups }) {
  * @param {Record<string, unknown> | null} [extraWrites]
  */
 export async function graduateAccountData(deps, oldUid, newUid, extraWrites = null) {
-  const [own, prefs] = await Promise.all([
+  const [own, prefs, pendingInvites] = await Promise.all([
     deps.getVal(`users/${oldUid}`),
     deps.getVal(`userPrefs/${oldUid}`),
+    // Same read expunge makes, for the same reason: the by-group sweep entries
+    // for groups this account was invited to but never joined are not derivable
+    // from its own subtree, and a move that leaves them behind strands them at
+    // a uid that is about to stop existing.
+    deps.getVal(`pendingInvites/${oldUid}`),
   ]);
 
   // Every from→to move pair, from the SAME enumerator expunge nulls (so a new
   // residue family lands in both): render each cross-user path at old→new.
   const gids = Object.keys(own?.groups || {});
-  const moves = crossRefRenderers({ followers: own?.followers, following: prefs?.following, groups: own?.groups })
+  const moves = crossRefRenderers({ followers: own?.followers, following: prefs?.following, groups: own?.groups, pendingInvites })
     .map((render) => [render(oldUid), render(newUid)]);
 
   const [resolvedMoves, owners] = await Promise.all([
