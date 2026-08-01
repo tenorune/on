@@ -312,11 +312,16 @@ export async function redeemTelegramLinkTokenHandler(request, deps) {
 // reverse-index nulls) into the SAME atomic update, so the whole teardown is
 // one write with no dangling-mapping crash window (unlinkTelegramHandler).
 /**
+ * Build the null-set that expunges `uid` — everything expungeDerivedAccount
+ * writes, without applying it. Split out so the ops panel can PREVIEW a purge
+ * (and render it as a loss report) before anything is destroyed; expunge
+ * itself is now this plus one rootUpdate, so preview and execute cannot drift.
  * @param {TelegramAuthDeps} deps
  * @param {string} uid
  * @param {Record<string, unknown> | null} [extraNulls]
+ * @returns {Promise<Record<string, unknown>>}
  */
-export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
+export async function buildExpungeWrites(deps, uid, extraNulls = null) {
   const [presence, invites, followers, following, groups] = await Promise.all([
     deps.getVal(`users/${uid}/presence`),
     deps.getVal(`users/${uid}/invites`),
@@ -360,12 +365,21 @@ export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
 
   if (extraNulls) Object.assign(nulls, extraNulls);
 
-  await rootUpdate(deps, nulls);
+  return nulls;
+}
+
+/**
+ * @param {TelegramAuthDeps} deps
+ * @param {string} uid
+ * @param {Record<string, unknown> | null} [extraNulls]
+ */
+export async function expungeDerivedAccount(deps, uid, extraNulls = null) {
+  await rootUpdate(deps, await buildExpungeWrites(deps, uid, extraNulls));
 }
 
 // Inbound/self mailboxes keyed by uid — deleted on expunge, moved on graduation
 // so a rename leaves no orphaned residue behind at the old uid.
-const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants', 'pendingInvites', 'revocations'];
+export const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants', 'pendingInvites', 'revocations'];
 
 // The cross-user residue a Telegram-derived account leaves on OTHER records:
 // follower/following backrefs (incl. the self-published followerName), shared
@@ -384,7 +398,7 @@ const OWN_MAILBOXES = ['knocks', 'calls', 'followRequests', 'followGrants', 'pen
  * @param {{ followers?: any, following?: any, groups?: any }} lists
  * @returns {Array<(u: string) => string>}
  */
-function crossRefRenderers({ followers, following, groups }) {
+export function crossRefRenderers({ followers, following, groups }) {
   const followerIds = Object.keys(followers || {});
   const followingIds = Object.keys(following || {});
   const peers = new Set([...followerIds, ...followingIds]);
