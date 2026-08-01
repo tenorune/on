@@ -2,6 +2,18 @@ import { makeStoreDeps } from './store-deps.js';
 import { capturePreImage, writeAuditRecord } from '../ops/audit.js';
 import { CANVAS_CARRIED } from '../ops/merge.js';
 
+// A typed stand-in for node:fs's ErrnoException — just enough to carry a
+// `.code`, honestly typed rather than cast through `any` (round-2 review).
+// `types: []` means the ambient `NodeJS.ErrnoException` global isn't
+// available here, so this is a small local class instead.
+class FakeFsError extends Error {
+  /** @param {string} message @param {string} code */
+  constructor(message, code) {
+    super(message);
+    this.code = code;
+  }
+}
+
 // A fake fs that models the durability primitives writeAuditRecord now uses
 // (round-1 review, I2): openSync/fsyncSync/closeSync, and writeFileSync
 // honoring the exclusive-create flag (`wx`) so a same-name write throws
@@ -18,9 +30,7 @@ function makeFakeFs() {
     mkdirSync: () => {},
     writeFileSync: (path, body, opts) => {
       if (opts && opts.flag === 'wx' && Object.prototype.hasOwnProperty.call(files, path)) {
-        const err = new Error(`EEXIST: file already exists, open '${path}'`);
-        /** @type {any} */ (err).code = 'EEXIST';
-        throw err;
+        throw new FakeFsError(`EEXIST: file already exists, open '${path}'`, 'EEXIST');
       }
       files[path] = body;
     },
