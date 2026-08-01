@@ -43,10 +43,19 @@ glance" table at the top of `docs/operator-panel-followups.md`: S1 (this smoke
 test), G1 and G2 (known gaps), and M1–M7 (deferred minors, each with its
 `file:line` and why it was left). Nothing else is owed on this branch.
 
+**Branch status: believed COMPLETE, waiting on the smoke test — not on more
+code.** `claude/knockknock-ui-improvements-7bm5o9` is 32 commits ahead of
+`origin/dev` and 0 behind, tree clean, everything pushed. Every piece of work
+this branch owed has landed: the 11-task panel plan, both follow-ups, and all
+four parked residuals. What remains (S1, G1, G2, M1–M7) is either an operator
+action or explicitly deferred — none of it is unfinished business from the
+build. No PR is open; per convention the maintainer merges when ready, and
+nothing here is waiting on a session.
+
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
 Telegram link case) matter most if you touch merge code. `dev`/`main` are
-unaffected — the maintainer merges this branch when ready.
+unaffected.
 
 ⚠️ **Do not touch code without the operator's explicit say-so** — propose the
 change and get approval BEFORE any edit. The operator drives; expect
