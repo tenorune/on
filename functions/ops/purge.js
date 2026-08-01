@@ -33,6 +33,40 @@ import { DROP_MAILBOXES as TRANSIENT_MAILBOXES, UNION_MAILBOXES as DURABLE_MAILB
 
 /** @typedef {{ getVal: (path: string) => Promise<any> }} ReadDeps */
 
+// The two RTDB nodes this module reads whole, typed to exactly the fields it
+// reads BY NAME and no further. Declared here rather than in ops/types.d.ts
+// because that file holds the panel's read model — Snapshot, Row, Detail,
+// Finding, WritePlan — projections the panel computes, not raw database node
+// shapes (Snapshot itself deliberately types `users` as Record<string, any>).
+// Putting a raw node shape there would read as a canonical schema that nothing
+// else consumes and that would drift from the database in silence. These
+// typedefs claim only what this file depends on, so they cannot be wrong about
+// anything else.
+//
+// Every field is optional and every VALUE is `unknown`: a half-populated
+// account is normal, RTDB prunes empty nodes out of existence, and this module
+// only ever takes Object.keys of these maps. Naming the value shapes (a
+// follower's share code, a group's lastVisited) would be inventing a claim
+// nothing here verifies.
+
+/** A record under `users/{uid}/invites/{token}`. @typedef {{ redemptionsUsed?: number }} InviteRecord */
+
+/**
+ * `users/{uid}`.
+ * @typedef {{
+ *   followers?: Record<string, unknown>,
+ *   groups?: Record<string, unknown>,
+ *   invites?: Record<string, InviteRecord>,
+ * }} AccountNode
+ */
+
+/**
+ * `userPrefs/{uid}`. `following` is the only field read by name; the report
+ * enumerates the REST of the keys at runtime (Object.keys) precisely because it
+ * has to name pref families this typedef does not and should not know about.
+ * @typedef {{ following?: Record<string, unknown> }} PrefsNode
+ */
+
 /**
  * Prefs keys reported by a dedicated line elsewhere in the report; anything
  * else under userPrefs is private state (palette, favorites, hints,
@@ -45,8 +79,12 @@ const PREFS_REPORTED_ELSEWHERE = ['telegram', 'notifyChannel', 'following', 'not
  * (TelegramAuthDeps) because it lives beside the callables, but it reads only
  * through `getVal`. The ops panel's deps (ops/deps.js) have no mintToken /
  * allowAttempt / randomToken, and widening that JSDoc would mean editing
- * shipped telegram-auth.js — out of bounds for this task. One narrow assertion
- * at the single call seam, never `any`, never a suppression.
+ * shipped telegram-auth.js — out of bounds for this task. ONE assertion, at the
+ * single call seam, and not `any`. Be clear about its direction: it WIDENS,
+ * asserting mintToken/allowAttempt/randomToken that ops/deps.js does not have.
+ * Harmless only while buildExpungeWrites reads through getVal alone — if it
+ * ever reaches for another dep, this seam still typechecks and throws at
+ * runtime. Narrowing that function's @param is the fix; it is a follow-up.
  * @param {ReadDeps} deps
  * @param {string} uid
  * @param {Record<string, unknown>} extraNulls
@@ -72,7 +110,11 @@ function locationNulls(uid, gids) {
   return nulls;
 }
 
-/** @param {ReadDeps} deps @param {string} uid */
+/**
+ * @param {ReadDeps} deps
+ * @param {string} uid
+ * @returns {Promise<{ own: AccountNode | null, prefs: PrefsNode | null }>}
+ */
 async function readOwn(deps, uid) {
   // Both nodes are bounded (no canvas, no strokes anywhere beneath them) and
   // are read WHOLE so no per-key enumeration can miss a field, exactly as
@@ -84,7 +126,7 @@ async function readOwn(deps, uid) {
   return { own, prefs };
 }
 
-/** A node's child count, tolerating a leaf or an absent node. @param {any} value */
+/** A node's child count, tolerating a leaf or an absent node. @param {unknown} value */
 function countEntries(value) {
   if (value === null || value === undefined) return 0;
   return typeof value === 'object' ? Object.keys(value).length : 1;
@@ -106,8 +148,8 @@ function countEntries(value) {
  * @param {ReadDeps} deps
  * @param {string} uid
  * @param {{
- *   own: any,
- *   prefs: any,
+ *   own: AccountNode | null,
+ *   prefs: PrefsNode | null,
  *   writes: Record<string, unknown>,
  *   canvasKeys: string[] | undefined,
  *   tgId: string | null,
@@ -151,8 +193,8 @@ async function describeImpact(deps, uid, { own, prefs, writes, canvasKeys, tgId 
   }
 
   // --- invite tokens --------------------------------------------------------
-  for (const [token, rec] of Object.entries(own?.invites || {})) {
-    const used = /** @type {any} */ (rec)?.redemptionsUsed ?? 0;
+  for (const [token, rec] of Object.entries(own?.invites ?? {})) {
+    const used = rec?.redemptionsUsed ?? 0;
     losses.push(`invite token ${token} stops working (${used} redemption(s) used)`);
   }
 
