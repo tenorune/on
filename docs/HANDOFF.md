@@ -24,26 +24,28 @@ carries the parked residuals, the reasoning behind each known gap, and the
 deferred minors, distilled from the implementation session's review ledger.
 Read it before touching `functions/ops/` or `functions/telegram-auth.js`.
 
-Three concrete pieces of follow-up work, none started:
+Of the three follow-ups this branch owed, **two are done** (2026-08-01, see
+History) and one remains:
 
-1. **The manual dev-project smoke test.** No service-account credential has
-   existed in any container this work ran in, so `deps.js`, `panel.html`'s
-   browser behavior, and the Host/Origin guard as seen from a real browser
-   are all unexercised. Do this before the panel touches production.
-2. **The `crossRefRenderers` locations follow-up** (its own Landmines entry
-   below) — add `locations/{uid}` and `locationCells/{gid}/{uid}` to the
-   shared residue enumerator, remove the now-redundant local handling in
-   `merge.js`/`purge.js`, decide the owned-group orphan case, and fix the
-   `pendingInvitesByGroup` merge/purge asymmetry — all in one change, ruled
-   to its own branch since it touches `functions/telegram-auth.js`'s live
-   expunge behaviour.
-3. **Fold the shipped link-write copy into `functions/ops/link-write.js`.**
-   The Telegram mapping write exists in two implementations — shipped
-   `performLink` (`functions/telegram-auth.js:207-224`) and the shared ops
-   builder. `functions/test/ops-link-write.test.js` *executes* `performLink`
-   and compares write-maps, so drift turns the suite red — but it is a
-   tripwire, not a fix: nothing makes them share code. Folding it in means
-   `performLink` calling `buildLinkWrites`. Shipped code, so its own branch.
+1. **The manual dev-project smoke test — STILL OWED, still the first thing.**
+   No service-account credential has existed in any container this work ran
+   in, so `deps.js`, `panel.html`'s browser behavior, and the Host/Origin
+   guard as seen from a real browser are all unexercised. Do this before the
+   panel touches production. Every green number below covers the wiring, not
+   the live system.
+
+Done, on this branch:
+
+- ~~The `crossRefRenderers` locations follow-up~~ — `4dea508`. Both location
+  families and the unjoined-invite `pendingInvitesByGroup` entries are in the
+  shared enumerator; the local copies in `merge.js`/`purge.js` are gone; the
+  owned-group orphan case is handled by a wholesale `locationCells/{gid}` null
+  beside the `pendingInvitesByGroup/{gid}` null already in the owned-group
+  block. This CHANGED live expunge and graduation behaviour and is covered by
+  `functions/test/crossref-locations.test.js`.
+- ~~Fold the shipped link-write copy~~ — `16e5ae9`. The plan as written was
+  undeployable (see the `ops/**` landmine below); the shared builder moved to
+  `functions/telegram-link-write.js` instead and `performLink` now calls it.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -61,7 +63,7 @@ landed on `claude/knockknock-ui-improvements-7bm5o9` (subagent-driven,
 per-task commits, each reviewed); this doc update is Task 11, the plan's
 last. `functions/ops/` holds the local Admin-SDK CLI + page
 (`server.js`, `panel.html`, `merge.js`, `purge.js`, `audit.js`, `integrity.js`,
-`provenance.js`, `project.js`, `snapshot.js`, `deps.js`, `link-write.js`) and its own
+`provenance.js`, `project.js`, `snapshot.js`, `deps.js`) and its own
 `README.md` runbook — read that before running it. **The panel is local-only
 and has never been deployed and never will be**: it isn't part of the
 Firebase Hosting or Cloud Functions deploy surface (excluded from the
@@ -106,17 +108,22 @@ Nothing deploys from sessions.
 
 ## Verification state
 
-Green bar OBSERVED at `b59add9` (2026-08-01, ops-panel branch tip, after the
-final whole-branch review's fix wave): web jest **2089/2089** (88 suites) ·
-functions **713/713** (23 suites) · `typecheck` + `typecheck:scripts` clean ·
-`node scripts/prod.js` builds. The jump from the `27719fd` baseline
-(2085/462) is the ops panel's own tests (`functions/test/ops-*.test.js`) plus
-the `expungeDerivedAccount` split; nothing pre-existing changed shape.
+Green bar OBSERVED at `16e5ae9` (2026-08-01, ops-panel branch tip, after the
+two residue/link-write follow-ups): web jest **2106/2106** (88 suites) ·
+functions **726/726** (24 suites) · `typecheck` + `typecheck:scripts` clean ·
+`node scripts/prod.js` builds. Movement from the `b59add9` bar (2089/713):
++11 functions tests for the enumerator's new families, +2 for the
+`buildLinkWrites` pre-read seam, +17 web tests from the per-file
+`ops/**` import guard (one case per top-level `functions/*.js`). Nothing
+pre-existing changed shape.
 
 `functions/test/telegram-auth.test.js` has a **0-line diff across the entire
 branch** — that is the standing proof the `expungeDerivedAccount` split
 preserved shipped behaviour. Do not edit it; if it goes red, the refactor is
-wrong.
+wrong. It survived both follow-ups, including the one that deliberately
+changed live expunge behaviour: the new coverage went in its own file
+(`functions/test/crossref-locations.test.js`) precisely so the invariant would
+stay meaningful.
 
 **What green does NOT cover:** the panel has never run against a real Firebase
 project — no service-account credential existed in any container this work ran
@@ -210,25 +217,40 @@ proxy and would abort an `&&` chain. Functions deps are required for
   becomes its third consumer. Add new families THERE, never in a consumer.
   Pinned by the parity test in `functions/test/ops-merge.test.js`
   ("parity with the shared residue enumerator").
-- **`crossRefRenderers` does not yet enumerate `locations/{uid}` or
-  `locationCells/{gid}/{uid}` — known gap, not a regression.** This predates
-  the ops panel; Task 6's `expungeDerivedAccount` split was proven
-  behaviour-preserving, it didn't introduce the gap. Confirmed consequences:
-  `expungeDerivedAccount` leaves both families behind when it tears down a
-  Telegram-derived account; graduation does not move them; `merge.js` and
-  `purge.js` each handle the two families locally instead of through the
-  enumerator; the integrity report surfaces the residue (design spec
-  §333-334). The follow-up is ruled to its own branch and must do all of the
-  following in ONE change or it lands half-done: (a) add both families to
-  `crossRefRenderers`; (b) remove the now-redundant local handling from
-  `merge.js` and `purge.js`; (c) decide the owned-group case — deleting a
-  group wholesale orphans *other* members' `locationCells/{gid}/{m}`, which
-  Task 8 deliberately declined to invent a delete for; (d) sweep up the
-  `pendingInvitesByGroup` asymmetry, where `merge.js` nulls entries for gids
-  the account is invited-to-but-not-a-member-of (the enumerator can't see
-  those) and `purge.js` does not. Note that (a) changes *live* expunge
-  behaviour, so it needs its own new tests — Task 6's behaviour-preservation
-  guarantee for `functions/telegram-auth.js` stops covering that change.
+- **`crossRefRenderers` now enumerates the location families and the
+  unjoined-invite entries (`4dea508`) — the old "known gap" is CLOSED.** It
+  emits `locations/{u}`, `locationCells/{gid}/{u}` for each member gid, and
+  `pendingInvitesByGroup/{gid}/{u}` for gids taken from the account's own
+  `pendingInvites/{uid}` mailbox (groups it was invited to but never joined —
+  `groups` cannot see those). Both `buildExpungeWrites` and
+  `graduateAccountData` read that mailbox now. Three consequences to know:
+  (a) expunge DELETES a location fix and graduation MOVES it, where both
+  previously left it behind — live behaviour changed, covered by
+  `functions/test/crossref-locations.test.js`, NOT by
+  `functions/test/telegram-auth.test.js` (whose 0-line diff is preserved);
+  (b) the new families are appended AFTER the pre-existing ones so the
+  graduation walker's move order — which its consumed-source dedup depends on
+  — is untouched; (c) an owned group is deleted wholesale, which would strand
+  *other* members' cells, so `buildExpungeWrites`' owned-group block nulls
+  `locationCells/{gid}` entirely, beside the `pendingInvitesByGroup/{gid}`
+  null already there. `rootUpdate` drops the enumerator's per-uid nulls under
+  it as redundant deletes.
+- **Shipped `functions/*.js` may NEVER import from `functions/ops/` at
+  runtime.** `functions.ignore` excludes `ops/**` from the deploy archive, so
+  such an import deploys cleanly and then dies at cold start on a missing
+  module, taking whatever callable it backs down with it — with every
+  repo-side test green, because the file is present in the repo. This is why
+  the shared Telegram mapping builder lives at
+  `functions/telegram-link-write.js` and not under `ops/` (`16e5ae9`), and
+  why the documented "make `performLink` call `ops/link-write.js`" follow-up
+  could not be executed as written. Pinned per-file by
+  `tests/firebaseConfig.test.js` ("shipped functions code never imports the
+  ops panel"). A JSDoc `import('./ops/types.js')` is a TYPE reference, erased
+  before it runs, and is allowed — the guard skips comment lines. **Do not
+  "simplify" that guard into a block-comment regex strip:** the first version
+  did exactly that and passed against a planted violation, because the `/*`
+  inside the prose `` `ops/**` `` opened a match that ran to the next `*/` and
+  ate the import statements in between.
 - **The ops panel binds `127.0.0.1` only** (`functions/ops/server.js`). It
   holds a service-account credential in-process for the life of the run —
   never bind it to `0.0.0.0`, pass `--host`, or put it behind a tunnel or
@@ -346,6 +368,26 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 Everything below shipped. Detail is in git + plans + the archived handoff.
 
+- **This session (2026-08-01) — two ops-panel follow-ups, TDD
+  (`4dea508`, `16e5ae9` on `claude/knockknock-ui-improvements-7bm5o9`).**
+  Operator ruled both onto this branch rather than cutting new ones.
+  (1) `crossRefRenderers` gained `locations/{u}`, `locationCells/{gid}/{u}`
+  and the unjoined-invite `pendingInvitesByGroup/{gid}/{u}` entries; the local
+  copies in `merge.js`/`purge.js` are gone; the owned-group orphan case is a
+  wholesale `locationCells/{gid}` null in the owned-group block. Changes live
+  expunge + graduation behaviour; new coverage in its own file so
+  `telegram-auth.test.js` keeps its 0-line diff. (2) The Telegram mapping
+  write-block became genuinely shared: the documented plan (`performLink`
+  importing `ops/link-write.js`) was found UNDEPLOYABLE — `functions.ignore`
+  excludes `ops/**`, so it would have shipped a function that dies at cold
+  start with all tests green — so the builder moved to
+  `functions/telegram-link-write.js`, gained an optional pre-read `prior`, and
+  `performLink` now calls it, keeping only its expunge branch. The old parity
+  tests became tautological (they compared the builder with itself) and were
+  rewritten against literal oracles. New per-file guard pins the deploy
+  surface; its first version passed against a planted violation (a `/*` inside
+  the prose `` `ops/**` `` opened a phantom block comment) and was rewritten
+  and re-verified by planting the violation again.
 - **This session (2026-08-01) — ops-panel design + plan, docs only
   (`39b4980`, `27719fd` on `claude/knockknock-ui-improvements-7bm5o9`).**
   Brainstormed to an approved spec, then a TDD plan. No code written; gates
