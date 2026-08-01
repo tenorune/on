@@ -175,7 +175,11 @@ $('detail').onclick = async (e) => {
     if (act === 'purge') {
       const { plan, nonce, canvasKeys } = await api('/api/purge/preview', { uid });
       state.nonce = nonce; state.canvasKeys = canvasKeys; renderCanvasBanner();
+      // Purge raises conflicts too since the Telegram mapping teardown started
+      // refusing to delete a mapping the purged account does not own — showing
+      // only losses would hide the name of the account that really holds it.
       preview(`<h3>purge ${esc(uid)}</h3>${canvasNote()}
+        <pre>${esc(plan.conflicts.map((c) => `${c.kind}: ${c.detail} → ${c.resolution}`).join('\n') || 'no conflicts')}</pre>
         <pre>${esc(plan.losses.join('\n') || 'nothing of value')}</pre>${pathNote(plan)}`,
       async (confirmUid) => {
         await api('/api/purge/execute', { uid, confirmUid, nonce: state.nonce });

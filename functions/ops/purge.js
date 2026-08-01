@@ -30,8 +30,13 @@ import { canvasPeers } from './project.js';
 // stale within seconds, the rest is real state a human would miss. Both lists
 // are derived from OWN_MAILBOXES, so a seventh mailbox lands here on its own.
 import { DROP_MAILBOXES as TRANSIENT_MAILBOXES, UNION_MAILBOXES as DURABLE_MAILBOXES } from './merge.js';
+// The ONE Telegram mapping write-block (and the ONE teardown), shared with
+// ops/merge.js: performLink's writes existed here as a third hand-written copy
+// that had already drifted from the shipped one. Both entry points READ
+// telegramUsers/{tgId} before touching it — see link-write.js for why.
+import { buildLinkWrites, buildMappingTeardown } from './link-write.js';
 
-/** @typedef {{ getVal: (path: string) => Promise<any> }} ReadDeps */
+/** @typedef {import('./link-write.js').ReadDeps} ReadDeps */
 
 // The two RTDB nodes this module reads whole, typed to exactly the fields it
 // reads BY NAME and no further. Declared here rather than in ops/types.d.ts
@@ -61,16 +66,23 @@ import { DROP_MAILBOXES as TRANSIENT_MAILBOXES, UNION_MAILBOXES as DURABLE_MAILB
  */
 
 /**
- * `userPrefs/{uid}`. `following` is the only field read by name; the report
- * enumerates the REST of the keys at runtime (Object.keys) precisely because it
- * has to name pref families this typedef does not and should not know about.
- * @typedef {{ following?: Record<string, unknown> }} PrefsNode
+ * `userPrefs/{uid}`. `following` and `notify` are the only fields read by name;
+ * the report enumerates the REST of the keys at runtime (Object.keys) precisely
+ * because it has to name pref families this typedef does not and should not
+ * know about.
+ * @typedef {{ following?: Record<string, unknown>, notify?: Record<string, unknown> }} PrefsNode
  */
 
 /**
  * Prefs keys reported by a dedicated line elsewhere in the report; anything
  * else under userPrefs is private state (palette, favorites, hints,
  * currentContext) that dies with the account and gets its own loss line.
+ *
+ * `notify` sat in this list while NOTHING reported it — a silent loss inside a
+ * loss-reporting tool. The contact lines name the peer, not the per-contact
+ * notification preference, and merge unions `userPrefs/{uid}/notify/{peer}` as
+ * real state. It now has the dedicated line this list claims for it (below),
+ * so the entry is true rather than merely asserted.
  */
 const PREFS_REPORTED_ELSEWHERE = ['telegram', 'notifyChannel', 'following', 'notify'];
 
@@ -234,6 +246,15 @@ async function describeImpact(deps, uid, { own, prefs, writes, canvasKeys, tgId 
     if (count) keeps.push(`${box}/${uid} deleted (${count}) — transient, not a loss`);
   }
 
+  // --- per-contact notify prefs --------------------------------------------
+  // The dedicated line PREFS_REPORTED_ELSEWHERE claims exists for `notify`.
+  // Merge unions this family BECAUSE it is real state a human chose; purge
+  // deletes it, and the peer's own contact line says nothing about it.
+  const notifyPeers = Object.keys(prefs?.notify || {}).filter((p) => p !== uid);
+  if (notifyPeers.length) {
+    losses.push(`userPrefs/${uid}/notify: per-contact notification settings for ${notifyPeers.join(', ')} are deleted — merge carries these across, this does not, and they are not recreated`);
+  }
+
   // --- private prefs --------------------------------------------------------
   const otherPrefs = Object.keys(prefs || {}).filter((k) => !PREFS_REPORTED_ELSEWHERE.includes(k));
   if (otherPrefs.length) losses.push(`userPrefs/${uid} discarded (${otherPrefs.join(', ')})`);
@@ -290,16 +311,30 @@ export async function buildPurgePlan(deps, uid, canvasKeys) {
   // The mapping teardown rides the same extraNulls seam unlinkTelegramHandler
   // uses (spec §8.1), so the whole purge stays ONE atomic update. Without it
   // the tgId would resolve to a uid with no account.
+  //
+  // But the reverse index is not proof of ownership. telegramUsers/{tgId} is a
+  // GLOBAL key and integrity.js flags — at error severity — the exact state
+  // where it points somewhere else. Nulling it unread is how this tool would
+  // kill a live third account's Telegram while the loss line blamed the uid the
+  // operator typed. The shared builder reads it and refuses when it is not
+  // ours, naming the real holder in a conflict AND a loss line.
+  /** @type {import('./types.js').Conflict[]} */
+  const conflicts = [];
+  /** @type {string[]} */
+  const mappingLosses = [];
   const link = await deps.getVal(`telegramByUid/${uid}`);
   const tgId = link?.tgId ? String(link.tgId) : null;
   if (tgId) {
     extraNulls[`telegramByUid/${uid}`] = null;
-    extraNulls[`telegramUsers/${tgId}`] = null;
+    const teardown = await buildMappingTeardown(deps, { tgId, owner: uid, context: `${uid} is purged` });
+    Object.assign(extraNulls, teardown.writes);
+    conflicts.push(...teardown.conflicts);
+    mappingLosses.push(...teardown.losses);
   }
 
   const writes = await expungeWrites(deps, uid, extraNulls);
   const { losses } = await describeImpact(deps, uid, { own, prefs, writes, canvasKeys, tgId });
-  return { writes, conflicts: [], losses };
+  return { writes, conflicts, losses: [...losses, ...mappingLosses] };
 }
 
 /**
@@ -367,12 +402,6 @@ export async function buildProductionLinkPlan(deps, { derivedUid, phraseUid, now
     throw new Error(`link: no account with that phrase uid (${phraseUid})`);
   }
   const tgId = String(link.tgId);
-  const prior = await deps.getVal(`telegramUsers/${tgId}`);
-  // performLink's precedence, with the reverse index as a middle fallback for
-  // the asymmetric case where the forward mapping is missing entirely (there,
-  // production would invent chatId = tgId; a recorded chatId is strictly
-  // better and this is the only place the two differ).
-  const chatId = prior?.chatId || link.chatId || tgId;
 
   const { own, prefs } = await readOwn(deps, derivedUid);
   const writes = await expungeWrites(deps, derivedUid, {
@@ -385,21 +414,18 @@ export async function buildProductionLinkPlan(deps, { derivedUid, phraseUid, now
   /** @type {string[]} */
   const losses = [];
 
-  if (prior?.uid && prior.uid !== phraseUid && prior.uid !== derivedUid) {
-    // performLink's direct-relink branch (A→B): the prior holder is a real
-    // phrase account, never expunged — its telegram routing is reset instead.
-    // Mirrored exactly, or the panel and the shipped path drift (spec §8.3).
-    conflicts.push({
-      kind: 'telegram-relink',
-      path: `telegramUsers/${tgId}`,
-      detail: `tgId ${tgId} is currently linked to ${prior.uid}, not to ${derivedUid}`,
-      resolution: `${prior.uid} keeps its account; its telegram prefs reset to push, exactly as performLink does`,
-    });
-    writes[`telegramByUid/${prior.uid}`] = null;
-    writes[`userPrefs/${prior.uid}/telegram`] = null;
-    writes[`userPrefs/${prior.uid}/notifyChannel`] = 'push';
-    losses.push(`${prior.uid} loses its Telegram link and is reset to notifyChannel: push`);
-  }
+  // The shared performLink block: the mapping node, the reverse index, the
+  // three prefs keys, the direct-relink reset for a prior holder that is not
+  // part of this operation, and the loss lines for every mapping field
+  // performLink does not restate. ONE copy, shared with ops/merge.js, and it
+  // reads telegramUsers/{tgId} before writing it. `ownUids` says the derived
+  // account (expunged above) and the phrase account (relinked below) need no
+  // reset; anything else holding this tgId is a third party and is named.
+  const linkWrites = await buildLinkWrites(deps, {
+    tgId, uid: phraseUid, now, fallbackChatId: link.chatId, ownUids: [derivedUid, phraseUid],
+  });
+  conflicts.push(...linkWrites.conflicts);
+  losses.push(...linkWrites.losses);
 
   const phraseLink = await deps.getVal(`telegramByUid/${phraseUid}`);
   if (phraseLink?.tgId && String(phraseLink.tgId) !== tgId) {
@@ -415,19 +441,7 @@ export async function buildProductionLinkPlan(deps, { derivedUid, phraseUid, now
     losses.push(`${phraseUid}'s prior Telegram link (tgId ${phraseLink.tgId}) is replaced; telegramUsers/${phraseLink.tgId} is left behind as a stale second mapping`);
   }
 
-  // performLink replaces the mapping NODE, so any child it does not restate
-  // dies with it. createdAt is the one that exists in practice.
-  for (const field of Object.keys(prior || {})) {
-    if (!['uid', 'chatId', 'linkedAt'].includes(field)) {
-      losses.push(`telegramUsers/${tgId}.${field} (${JSON.stringify(prior[field])}) is dropped — performLink replaces the mapping node wholesale`);
-    }
-  }
-
-  writes[`telegramUsers/${tgId}`] = { uid: phraseUid, chatId, linkedAt: now };
-  writes[`telegramByUid/${phraseUid}`] = { tgId, chatId };
-  writes[`userPrefs/${phraseUid}/telegram/tgId`] = tgId;
-  writes[`userPrefs/${phraseUid}/telegram/linkedAt`] = now;
-  writes[`userPrefs/${phraseUid}/notifyChannel`] = 'telegram';
+  Object.assign(writes, linkWrites.writes);
 
   const impact = await describeImpact(deps, derivedUid, { own, prefs, writes, canvasKeys, tgId });
   return { writes, conflicts, losses: [...impact.losses, ...losses] };

@@ -133,10 +133,27 @@ function fsyncFile(fs, path) {
  * brand-new (the per-op file always is on first write; `audit.jsonl` is on
  * the very first call for a given directory), so the directory is synced
  * once per call rather than conditionally guessing which write was new.
+ *
+ * PLATFORM: opening a directory is POSIX-only — Windows fails this with EISDIR
+ * (or EPERM), so this panel runs on Linux or macOS. That is stated in
+ * ops/README.md and it is deliberately NOT papered over: swallowing the error
+ * would silently drop the durability guarantee the whole audit dump exists for,
+ * on the one platform where nothing would ever exercise the alternative path.
+ * Failing closed is right; failing closed with a bare EISDIR from an audit
+ * write is not diagnosable, so the cause is named here.
  * @param {AuditFs} fs @param {string} dir
  */
 function fsyncDir(fs, dir) {
-  const fd = fs.openSync(dir, 'r');
+  let fd;
+  try {
+    fd = fs.openSync(dir, 'r');
+  } catch (err) {
+    throw new Error(
+      `ops audit: cannot fsync the audit directory ${dir}. Opening a directory is POSIX-only — on Windows this fails with EISDIR/EPERM. `
+      + 'The operator panel requires Linux or macOS (functions/ops/README.md § Platform); no destructive write is issued without a durable pre-image.',
+      { cause: err },
+    );
+  }
   try {
     fs.fsyncSync(fd);
   } finally {

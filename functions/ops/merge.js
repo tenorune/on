@@ -24,6 +24,10 @@
 import { rootUpdate } from '../telegram-shared.js';
 import { crossRefRenderers, OWN_MAILBOXES } from '../telegram-auth.js';
 import { canvasPeers } from './project.js';
+// The ONE Telegram mapping write-block (and the ONE teardown), shared with
+// ops/purge.js. Both READ telegramUsers/{tgId} before touching it — see
+// link-write.js for why a global key must never be written unread.
+import { buildLinkWrites, buildMappingTeardown } from './link-write.js';
 
 /** Transient: a knock or a call is stale within seconds, and merging call state resurrects stuck calls (D3). */
 export const DROP_MAILBOXES = ['knocks', 'calls'];
@@ -55,7 +59,7 @@ export const CANVAS_CARRIED = ['bg'];
 const canvasKeyFor = (a, b) => [a, b].sort().join('_');
 
 /**
- * @param {{ getVal: (path: string) => Promise<any> }} deps
+ * @param {import('./link-write.js').ReadDeps} deps
  * @param {{
  *   loserUid: string,
  *   survivorUid: string,
@@ -329,33 +333,54 @@ export async function buildMergePlan(deps, opts) {
   // --- locations: loser's dropped, republished on the next tick -------------
   writes[`locations/${L}`] = null;
 
-  // --- telegram repoint: mirrors performLink exactly (§8.3) ------------------
+  // --- telegram repoint: the SHARED link-write builder (§8.3) ----------------
+  // Every write and every delete of a telegramUsers/{tgId} node goes through
+  // ops/link-write.js, which reads the node first. This block used to hand-copy
+  // performLink's write list and never read telegramUsers at all, so it could
+  // (a) delete a mapping belonging to a live third account while telling the
+  // operator it deleted the loser's, (b) overwrite that same third account's
+  // mapping with the survivor's uid raising no conflict whatsoever, and
+  // (c) silently drop mapping fields performLink does not restate.
+  /** @param {import('./link-write.js').LinkWriteResult} result */
+  const foldLinkWrites = (result) => {
+    Object.assign(writes, result.writes);
+    conflicts.push(...result.conflicts);
+    losses.push(...result.losses);
+  };
   const loserLink = await deps.getVal(`telegramByUid/${L}`);
   if (opts.telegramRepoint) {
     if (!loserLink?.tgId) throw new Error(`merge: telegramRepoint requested but ${L} has no telegram link`);
     const tgId = String(loserLink.tgId);
     const survivorLink = await deps.getVal(`telegramByUid/${S}`);
     if (survivorLink?.tgId && String(survivorLink.tgId) !== tgId) {
-      // performLink's direct-relink branch drops the prior mapping and resets
-      // that account's telegram prefs; here the prior holder IS the survivor,
-      // whose prefs the writes below overwrite with the new link.
-      conflict('telegram-relink', `telegramByUid/${S}`, `survivor already holds tgId ${survivorLink.tgId}`, 'its mapping is dropped and replaced by the loser tgId');
-      writes[`telegramUsers/${survivorLink.tgId}`] = null;
-      losses.push(`telegramUsers/${survivorLink.tgId} dropped (the survivor's prior Telegram link)`);
+      // The survivor's own prior mapping is torn down to make room — but only
+      // if it is genuinely the survivor's; the builder refuses and names the
+      // real owner when the reverse index points at a mapping someone else
+      // holds. Its prefs are overwritten by the link writes below either way.
+      const priorTgId = String(survivorLink.tgId);
+      const teardown = await buildMappingTeardown(deps, { tgId: priorTgId, owner: S, context: `replaced by ${L}'s Telegram on this merge` });
+      conflict('telegram-relink', `telegramByUid/${S}`, `survivor already holds tgId ${priorTgId}`, 'its mapping is dropped and replaced by the loser tgId');
+      foldLinkWrites(teardown);
+      if (writes[`telegramUsers/${priorTgId}`] === null) {
+        losses.push(`telegramUsers/${priorTgId} dropped (the survivor's prior Telegram link)`);
+      }
     }
-    const chatId = loserLink.chatId || tgId;
-    writes[`telegramUsers/${tgId}`] = { uid: S, chatId, linkedAt: now };
+    // ownUids: a prior holder that is the loser or the survivor needs no
+    // direct-relink reset — the loser's reverse index is nulled right here and
+    // the survivor's prefs are overwritten by the link writes.
+    foldLinkWrites(await buildLinkWrites(deps, {
+      tgId, uid: S, now, fallbackChatId: loserLink.chatId, ownUids: [L, S],
+    }));
     writes[`telegramByUid/${L}`] = null;
-    writes[`telegramByUid/${S}`] = { tgId, chatId };
-    writes[`userPrefs/${S}/telegram/tgId`] = tgId;
-    writes[`userPrefs/${S}/telegram/linkedAt`] = now;
-    writes[`userPrefs/${S}/notifyChannel`] = 'telegram';
   } else if (loserLink?.tgId) {
     // Without a repoint the mapping must still come down, or it points at a
     // uid that no longer exists and the next Mini App open bootstraps onto it.
-    writes[`telegramUsers/${loserLink.tgId}`] = null;
+    const tgId = String(loserLink.tgId);
+    foldLinkWrites(await buildMappingTeardown(deps, { tgId, owner: L, context: `${L} is merged away into ${S}` }));
     writes[`telegramByUid/${L}`] = null;
-    losses.push(`telegramUsers/${loserLink.tgId} dropped (the loser's Telegram link is not repointed)`);
+    if (writes[`telegramUsers/${tgId}`] === null) {
+      losses.push(`telegramUsers/${tgId} dropped (the loser's Telegram link is not repointed)`);
+    }
   }
 
   // --- the loser's own subtrees go last: survivor prefs win wholesale -------

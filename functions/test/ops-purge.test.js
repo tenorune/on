@@ -143,6 +143,51 @@ describe('buildPurgePlan', () => {
     expect(await deps.getVal('telegramByUid/D')).toBeNull();
   });
 
+  // THE finding: telegramUsers/{tgId} is a GLOBAL key, and the purged
+  // account's reverse index is not proof that it owns it. integrity.js raises
+  // telegram-mapping-asymmetric at ERROR severity for exactly this state — the
+  // operator sees that error and purges the stale-looking account, and an
+  // unconditional null would take LIVE account X's Telegram down with it while
+  // the loss line said the mapping belonged to the purged uid.
+  test('a mapping the purged account does not own is left alone, and the real owner is named', async () => {
+    const deps = loaded();
+    deps.store['telegramByUid/D'] = { tgId: '42', chatId: '42' };
+    deps.store['telegramUsers/42'] = { uid: 'X', chatId: '42' };
+    deps.store['users/X'] = { presence: { code: 'XXX111' } };
+    const plan = await buildPurgePlan(deps, 'D');
+    expect(plan.writes['telegramUsers/42']).toBeUndefined();
+    expect(plan.writes['telegramByUid/D']).toBeNull();
+    expect(plan.conflicts.some((c) => c.kind === 'telegram-mapping-not-owned' && c.path === 'telegramUsers/42')).toBe(true);
+    expect(plan.losses.some((l) => l.includes('telegramUsers/42') && l.includes('NOT deleted') && l.includes('X'))).toBe(true);
+    // and never the line claiming this Telegram was unlinked by the purge
+    expect(plan.losses.some((l) => l.includes('bootstraps a brand-new empty account'))).toBe(false);
+    // X's Telegram still resolves to X after the purge is applied
+    await applyPurgePlan(deps, plan);
+    expect(await deps.getVal('telegramUsers/42')).toEqual({ uid: 'X', chatId: '42' });
+    expect(await deps.getVal('users/X/presence/code')).toBe('XXX111');
+  });
+
+  test('a mapping the purged account DOES own is still torn down and reported as a loss', async () => {
+    const deps = loaded();
+    deps.store['telegramByUid/D'] = { tgId: '42', chatId: '42' };
+    deps.store['telegramUsers/42'] = { uid: 'D', chatId: '42' };
+    const plan = await buildPurgePlan(deps, 'D');
+    expect(plan.writes['telegramUsers/42']).toBeNull();
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.losses.some((l) => l.includes('bootstraps a brand-new empty account'))).toBe(true);
+  });
+
+  test('per-contact notify prefs are named, not buried in the generic prefs line', async () => {
+    const deps = loaded();
+    deps.store['userPrefs/D/notify'] = { peer: { available: true } };
+    const { losses } = await buildPurgePlan(deps, 'D');
+    // merge unions userPrefs/{uid}/notify/{peer} as real state; purge deletes
+    // it, and the peer's contact line says nothing about the setting itself.
+    const line = losses.find((l) => l.includes('userPrefs/D/notify'));
+    expect(line).toBeDefined();
+    expect(line).toContain('peer');
+  });
+
   test('an account with no telegram mapping gets no mapping writes and no mapping loss', async () => {
     const plan = await buildPurgePlan(loaded(), 'D');
     expect(Object.keys(plan.writes).some((k) => k.startsWith('telegram'))).toBe(false);

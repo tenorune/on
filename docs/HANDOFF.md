@@ -141,8 +141,13 @@ proxy and would abort an `&&` chain. Functions deps are required for
   `dev` (and `dev` → `main`)**. Don't merge to `dev`/`main` yourself, and don't
   create PRs, unless explicitly asked. (When asked, that authorization stands —
   ask *how*, then do it.)
-- Zero TS suppressions (`@ts-ignore` / `@ts-expect-error` / `as any`). `typecheck`
-  + `typecheck:scripts` must stay green.
+- Zero TS suppressions. `typecheck` + `typecheck:scripts` must stay green.
+  Sweep for **all** the forms, not just the TS-syntax ones — the ops-panel plan
+  shipped two `/** @type {any} */` casts past reviews that grepped only for
+  `as any`, one of them in production panel code:
+  `as any`, `@ts-ignore`, `@ts-expect-error`, `@type {any}`, `{any}`, `: any`,
+  `<any>`. The last three also match honest boundary annotations
+  (`Promise<any>` on a raw RTDB read seam); read each hit, do not assume.
 - Set committer identity first (`git config user.email noreply@anthropic.com &&
   git config user.name Claude`) or the stop-hook flags commits Unverified and
   forces amend+re-push.

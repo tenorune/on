@@ -11,6 +11,18 @@ therefore **binds `127.0.0.1` only**. Anything reachable off-box is a full
 database compromise. Do not put it behind a tunnel, a reverse proxy, or
 `--host`; there is no such flag on purpose.
 
+## Platform
+
+**Linux or macOS.** Every destructive route fsyncs the audit directory itself
+before issuing the write, and opening a directory is POSIX-only — on Windows
+`openSync(dir, 'r')` fails with `EISDIR`/`EPERM`, which fails the audit write,
+which by design fails the whole operation. The panel is therefore unusable on a
+Windows box, and that is not degraded silently: the error names the platform
+requirement and points here. A directory entry that is not flushed is a
+pre-image that may not survive the crash it exists for, and the pre-image is the
+only path back from an irreversible write, so the guarantee is not relaxed to
+gain a platform. (Run it under WSL if the operator box is Windows.)
+
 ## Running it
 
 ```bash

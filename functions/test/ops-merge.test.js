@@ -341,18 +341,26 @@ describe('push tokens, mailboxes, canvases', () => {
 });
 
 describe('telegram repoint', () => {
-  test('mirrors performLink writes when telegramRepoint is set', async () => {
+  // performLink replaces the mapping NODE, so `createdAt` here really is
+  // destroyed. This test used to seed it and assert only the resulting node,
+  // which pinned the SILENT drop as correct: merge never read the mapping, so
+  // it could not report what it was about to overwrite. The node assertion is
+  // unchanged — wholesale replacement is production's behaviour — but the drop
+  // must now appear in the loss report the operator approves, exactly as
+  // buildProductionLinkPlan already reported it.
+  test('mirrors performLink writes when telegramRepoint is set, and reports the fields it overwrites', async () => {
     const deps = world({
       'telegramUsers/42': { uid: 'L', chatId: '42', createdAt: 100 },
       'telegramByUid/L': { tgId: '42', chatId: '42' },
     });
-    const { writes } = await buildMergePlan(deps, { loserUid: 'L', survivorUid: 'S', now: NOW, telegramRepoint: true });
+    const { writes, losses } = await buildMergePlan(deps, { loserUid: 'L', survivorUid: 'S', now: NOW, telegramRepoint: true });
     expect(writes['telegramUsers/42']).toEqual({ uid: 'S', chatId: '42', linkedAt: NOW });
     expect(writes['telegramByUid/L']).toBeNull();
     expect(writes['telegramByUid/S']).toEqual({ tgId: '42', chatId: '42' });
     expect(writes['userPrefs/S/telegram/tgId']).toBe('42');
     expect(writes['userPrefs/S/telegram/linkedAt']).toBe(NOW);
     expect(writes['userPrefs/S/notifyChannel']).toBe('telegram');
+    expect(losses.some((l) => l.includes('telegramUsers/42.createdAt') && l.includes('100'))).toBe(true);
   });
 
   test('a survivor already holding a DIFFERENT tgId is reported as a relink conflict', async () => {
@@ -381,6 +389,66 @@ describe('telegram repoint', () => {
     expect(writes['telegramUsers/42']).toBeNull();
     expect(writes['telegramByUid/L']).toBeNull();
     expect(writes['userPrefs/S/notifyChannel']).toBeUndefined();
+  });
+
+  // telegramUsers/{tgId} is a GLOBAL key and the loser's reverse index is not
+  // proof of ownership — integrity.js raises telegram-mapping-asymmetric at
+  // ERROR severity for exactly this state, and the panel exists because that
+  // state occurs in production. Deleting the mapping here would kill LIVE
+  // account X's Telegram (its next Mini App open bootstraps a brand-new empty
+  // account) while the loss line blamed the loser.
+  test('a mapping the loser does not own is left alone, and the real owner is named', async () => {
+    const deps = world({
+      'telegramUsers/42': { uid: 'X', chatId: '42' },
+      'telegramByUid/L': { tgId: '42', chatId: '42' },
+      'users/X': { presence: { code: 'XXX111' } },
+    });
+    const { writes, conflicts, losses } = await merge(deps);
+    expect(writes['telegramUsers/42']).toBeUndefined();
+    expect(writes['telegramByUid/L']).toBeNull();
+    expect(conflicts.some((c) => c.kind === 'telegram-mapping-not-owned' && c.path === 'telegramUsers/42')).toBe(true);
+    expect(losses.some((l) => l.includes('telegramUsers/42') && l.includes('NOT deleted') && l.includes('X'))).toBe(true);
+    // and never the old line claiming the loser's link was dropped
+    expect(losses.some((l) => l.includes('telegramUsers/42 dropped'))).toBe(false);
+    // X's Telegram still works after the merge is applied
+    await applyMergePlan(deps, await merge(deps));
+    expect(await deps.getVal('telegramUsers/42')).toEqual({ uid: 'X', chatId: '42' });
+  });
+
+  test('repointing a tgId a third account holds resets that account instead of silently stealing it', async () => {
+    const deps = world({
+      'telegramUsers/42': { uid: 'X', chatId: '42' },
+      'telegramByUid/L': { tgId: '42', chatId: '42' },
+      'telegramByUid/X': { tgId: '42', chatId: '42' },
+      'users/X': { presence: { code: 'XXX111' } },
+      'userPrefs/X': { notifyChannel: 'telegram', telegram: { tgId: '42', linkedAt: 5 } },
+    });
+    const { writes, conflicts, losses } = await buildMergePlan(deps, { loserUid: 'L', survivorUid: 'S', now: NOW, telegramRepoint: true });
+    // the repoint still happens — that is performLink's own behaviour — but X
+    // is reset exactly as performLink resets a prior phrase holder, and the
+    // operator reads X's name in a conflict and a loss before confirming.
+    expect(writes['telegramUsers/42']).toEqual({ uid: 'S', chatId: '42', linkedAt: NOW });
+    expect(writes['telegramByUid/X']).toBeNull();
+    expect(writes['userPrefs/X/telegram']).toBeNull();
+    expect(writes['userPrefs/X/notifyChannel']).toBe('push');
+    expect(conflicts.some((c) => c.kind === 'telegram-relink' && c.detail.includes('X'))).toBe(true);
+    expect(losses.some((l) => l.includes('X') && l.includes('push'))).toBe(true);
+  });
+
+  test('a survivor reverse index pointing at a mapping someone else holds is not deleted', async () => {
+    const deps = world({
+      'telegramUsers/42': { uid: 'L', chatId: '42' },
+      'telegramByUid/L': { tgId: '42', chatId: '42' },
+      // S's reverse index claims tgId 99, but 99 really belongs to Y
+      'telegramByUid/S': { tgId: '99', chatId: '99' },
+      'telegramUsers/99': { uid: 'Y', chatId: '99' },
+      'users/Y': { presence: { code: 'YYY111' } },
+    });
+    const { writes, conflicts, losses } = await buildMergePlan(deps, { loserUid: 'L', survivorUid: 'S', now: NOW, telegramRepoint: true });
+    expect(writes['telegramUsers/99']).toBeUndefined();
+    expect(conflicts.some((c) => c.kind === 'telegram-mapping-not-owned' && c.path === 'telegramUsers/99')).toBe(true);
+    expect(losses.some((l) => l.includes('telegramUsers/99') && l.includes('Y'))).toBe(true);
+    expect(losses.some((l) => l.includes('telegramUsers/99 dropped'))).toBe(false);
   });
 });
 
