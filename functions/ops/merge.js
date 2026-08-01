@@ -66,9 +66,11 @@ export async function buildMergePlan(deps, opts) {
   const { loserUid: L, survivorUid: S, now } = opts;
   if (L === S) throw new Error('merge: loser and survivor are the same uid');
   const adopt = new Set(opts.adoptGroupNames || []);
-  // The shallow canvas key list is AUTHORITATIVE about which canvases exist —
-  // it is the only way to know without reading a node whose strokes child is
-  // unbounded. Omitting it therefore leaves canvases untouched (recoverable
+  // The shallow canvas key list is the only way to learn which canvases exist
+  // without reading a node whose strokes child is unbounded — but it is the one
+  // input that comes from the SNAPSHOT rather than the live re-read, so treat
+  // it as best-available, never as authoritative: the canvas block below stays
+  // safe when it is stale. Omitting it leaves canvases untouched (recoverable
   // residue) rather than deleting drawings that were never moved.
   const canvasKeys = opts.canvasKeys || [];
   const existingCanvases = new Set(canvasKeys);
@@ -92,7 +94,13 @@ export async function buildMergePlan(deps, opts) {
   /** @type {(kind: string, path: string, detail: string, resolution: string) => void} */
   const conflict = (kind, path, detail, resolution) => conflicts.push({ kind, path, detail, resolution });
 
-  const survivorCode = survivor.presence?.code ?? null;
+  // Every repointed peer backref carries this. Without it `followers/{S}` would
+  // be written as null — a DELETE — and every peer who followed only the loser
+  // would silently lose the contact, with no conflict and no loss line. An
+  // account with no share code cannot be followed at all, so it is not a merge
+  // target; refuse rather than build a plan whose loss report is a lie.
+  const survivorCode = survivor.presence?.code;
+  if (!survivorCode) throw new Error(`merge: no share code at users/${S}/presence/code — the survivor is not a usable merge target`);
   const gids = Object.keys(loser.groups || {});
 
   // --- loser-side residue: THE shared enumerator, never a local list ---------
@@ -173,16 +181,15 @@ export async function buildMergePlan(deps, opts) {
       const already = await deps.getVal(`users/${peer}/followers/${S}`);
       if (already === null || already === undefined) {
         writes[`users/${peer}/followers/${S}`] = survivorCode;
-        // followerNames/{uid} is the name THAT uid publishes about itself.
-        // There is no account-level name node to read the survivor's from
-        // (js/db/social.ts writes it per-follow from a client-supplied name),
-        // and publishing the loser's under the survivor would be the same
-        // defect as carrying the loser's code. So it is left unpublished —
-        // the app's own documented degradation to a bare code — and reported.
+        // followerNames/{uid} is the name that uid publishes about itself, and
+        // it is REPOINTED (spec §7's peer-backref row), not dropped. A name is
+        // not a resolvable identifier: the code has to become the survivor's
+        // because the loser's resolves to a uid that is about to stop existing,
+        // whereas the published name belongs to the one human behind both
+        // accounts, so carrying it across is lossless. Dropping it would
+        // degrade every such peer to a bare code on every merge.
         const priorName = await deps.getVal(`users/${peer}/followerNames/${L}`);
-        if (priorName !== null && priorName !== undefined) {
-          losses.push(`users/${peer}/followerNames/${S} not published — ${peer} sees the survivor's bare code (the loser published "${priorName}")`);
-        }
+        if (priorName !== null && priorName !== undefined) writes[`users/${peer}/followerNames/${S}`] = priorName;
       } else {
         conflict('contact-collapsed', `users/${peer}/followers/${S}`, `${peer} was followed by both accounts`, 'survivor entry kept');
       }
@@ -263,7 +270,14 @@ export async function buildMergePlan(deps, opts) {
     loserMailboxes[box] = own;
     for (const [key, rec] of Object.entries(own || {})) {
       const already = await deps.getVal(`${box}/${S}/${key}`);
-      if (already === null || already === undefined) writes[`${box}/${S}/${key}`] = rec;
+      if (already === null || already === undefined) {
+        writes[`${box}/${S}/${key}`] = rec;
+      } else {
+        // D3 unions these BECAUSE they are real state, so a dropped one is a
+        // real loss and has to be in the report the operator approves.
+        conflict('mailbox-collision', `${box}/${S}/${key}`, `both accounts hold ${box} entry ${key}`, 'survivor entry kept');
+        losses.push(`${box}/${L}/${key} dropped (the survivor already holds ${box}/${S}/${key})`);
+      }
     }
   }
   // pendingInvites is dual-written with its by-group sweep index
@@ -290,16 +304,19 @@ export async function buildMergePlan(deps, opts) {
       conflict('canvas-collision', `canvases/${target}`, `both accounts have a canvas with ${peer}`, "survivor's drawing kept, loser's deleted");
       losses.push(`canvases/${key} deleted (collision with canvases/${target}) — its strokes are lost`);
     } else {
-      // METADATA ONLY. Reading canvases/${key} whole would pull the unbounded
-      // strokes node into an update payload; each carried child is read as its
-      // own leaf so no canvas subtree is ever loaded.
-      /** @type {Record<string, unknown>} */
-      const carried = {};
+      // METADATA ONLY, and LEAF BY LEAF in both directions. Reading
+      // canvases/${key} whole would pull the unbounded strokes node into an
+      // update payload, so each carried child is read as its own leaf; writing
+      // canvases/${target} whole would REPLACE that node, deleting the
+      // survivor's strokes. The collision guard above cannot be trusted to
+      // prevent that: canvasKeys is the one input that does not come from the
+      // live re-read, so a canvas created between snapshot and preview is
+      // absent from it and lands here. Writing leaves degrades that race from
+      // "the survivor's drawing is destroyed" to "its bg is overwritten".
       for (const field of CANVAS_CARRIED) {
         const value = await deps.getVal(`canvases/${key}/${field}`);
-        if (value !== null && value !== undefined) carried[field] = value;
+        if (value !== null && value !== undefined) writes[`canvases/${target}/${field}`] = value;
       }
-      if (Object.keys(carried).length) writes[`canvases/${target}`] = carried;
       losses.push(`canvases/${key} → canvases/${target}: settings carried, strokes NOT — the drawing is lost`);
     }
     writes[`canvases/${key}`] = null;

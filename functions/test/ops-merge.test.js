@@ -98,11 +98,19 @@ describe('contacts', () => {
     expect(JSON.stringify(writes['userPrefs/onlyL/following/S'])).not.toContain('LLL111');
   });
 
-  test('the survivor never inherits the loser published name', async () => {
-    const { writes, losses } = await merge(world());
-    expect(writes['users/onlyL/followerNames/S']).toBeUndefined();
+  // §7 peer-backref row: followerNames is repointed, not dropped. A published
+  // name is not a resolvable identifier — it belongs to the one human behind
+  // both accounts — so carrying it across is lossless, where carrying the
+  // loser's CODE would point the peer at a uid that stops existing.
+  test('the published name is repointed to the survivor, not dropped', async () => {
+    const { writes } = await merge(world());
+    expect(writes['users/onlyL/followerNames/S']).toBe('LoserPublished');
     expect(writes['users/onlyL/followerNames/L']).toBeNull();
-    expect(losses.some((l) => l.includes('users/onlyL/followerNames/S'))).toBe(true);
+  });
+
+  test('a survivor with no share code is refused, never a silent contact delete', async () => {
+    const deps = world({ 'users/S/presence': { status: 'unavailable', lastSeen: 1000 } });
+    await expect(merge(deps)).rejects.toThrow(/no share code/);
   });
 
   test('a peer who followed BOTH collapses to one card, reported as a conflict', async () => {
@@ -229,10 +237,14 @@ describe('push tokens, mailboxes, canvases', () => {
     expect(DROP_MAILBOXES.filter((b) => UNION_MAILBOXES.includes(b))).toEqual([]);
   });
 
-  test('a durable mailbox entry the survivor already holds is not overwritten', async () => {
+  test('a durable mailbox entry the survivor already holds is kept AND the drop is reported', async () => {
     const deps = world({ 'pendingInvites/S': { g3: { from: 'someone-else', ts: 1 } } });
-    const { writes } = await merge(deps);
+    const { writes, conflicts, losses } = await merge(deps);
     expect(writes['pendingInvites/S/g3']).toBeUndefined();
+    // D3 unions these because they are real state, so a dropped one is a real
+    // loss the operator must see before approving.
+    expect(conflicts.some((c) => c.kind === 'mailbox-collision' && c.path === 'pendingInvites/S/g3')).toBe(true);
+    expect(losses.some((l) => l.includes('pendingInvites/L/g3'))).toBe(true);
   });
 
   test('a moved pending invite keeps its by-group mirror in step', async () => {
@@ -259,9 +271,31 @@ describe('push tokens, mailboxes, canvases', () => {
     const deps = world({ 'canvases/L_peerz': { bg: '#ffeecc', strokes: { s1: { color: 'red' } } } });
     const { writes, losses } = await buildMergePlan(deps, { loserUid: 'L', survivorUid: 'S', now: NOW, canvasKeys: ['L_peerz'] });
     // sorted([S, peerz]) — NOT a string replacement of the uid
-    expect(writes['canvases/S_peerz']).toEqual({ bg: '#ffeecc' });
+    expect(writes['canvases/S_peerz/bg']).toBe('#ffeecc');
+    expect(writes['canvases/S_peerz']).toBeUndefined(); // never a wholesale node write
     expect(writes['canvases/L_peerz']).toBeNull();
     expect(losses.some((l) => l.includes('canvases/L_peerz') && l.includes('strokes'))).toBe(true);
+  });
+
+  // canvasKeys is the ONE input that does not come from the live re-read — it
+  // comes from the snapshot. A canvas created between snapshot and preview is
+  // absent from it, so the collision guard misses and the move lands on a live
+  // node. A wholesale node write would delete the survivor's strokes with no
+  // conflict and no loss line, making the approved loss report say the
+  // opposite of what happens. Leaf writes bound that race to a lost bg.
+  test('a survivor canvas missing from a stale canvasKeys keeps its strokes', async () => {
+    const deps = world({
+      'canvases/L_peerz': { bg: '#111', strokes: { loser: { color: 'red' } } },
+      'canvases/S_peerz': { bg: '#222', strokes: { survivor: { color: 'blue' } } },
+    });
+    const plan = await buildMergePlan(deps, { loserUid: 'L', survivorUid: 'S', now: NOW, canvasKeys: ['L_peerz'] });
+    expect(plan.writes['canvases/S_peerz']).toBeUndefined();
+    expect(plan.writes['canvases/S_peerz/bg']).toBe('#111');
+
+    await applyMergePlan(deps, plan);
+    // read off the raw store, so even the test never asks for a strokes node
+    expect(deps.store['canvases/S_peerz'].strokes).toEqual({ survivor: { color: 'blue' } });
+    expect(await deps.getVal('canvases/S_peerz/bg')).toBe('#111');
   });
 
   test('no code path reads a canvas subtree or carries strokes into the write-set', async () => {
@@ -368,7 +402,18 @@ describe('the loser is gone afterwards', () => {
   // catches execute-did-LESS; it does not catch execute-did-MORE, which is the
   // direction that burns an operator who approved a loss report.
   test('the wire payload is exactly the previewed write-set, no more and no less', async () => {
-    const deps = world({ 'canvases/L_peerz': { bg: '#ffeecc', strokes: { s1: { color: 'red' } } } });
+    // The self-follow is here on purpose: it is what makes the preview a strict
+    // superset (its backrefs are nulls under a nulled ancestor), so the
+    // exception clause below is exercised rather than merely present.
+    const deps = world({
+      'canvases/L_peerz': { bg: '#ffeecc', strokes: { s1: { color: 'red' } } },
+      'users/L/followers': { shared: 'SHR001', onlyL: 'ONL001', L: 'LLL111' },
+      'userPrefs/L/following': {
+        shared: { code: 'SHR001', label: 'Shared' },
+        onlyL: { code: 'ONL001', label: 'Only L' },
+        L: { code: 'LLL111', label: 'me' },
+      },
+    });
     const plan = await buildMergePlan(deps, { loserUid: 'L', survivorUid: 'S', now: NOW, canvasKeys: ['L_peerz'] });
     await applyMergePlan(deps, plan);
 
@@ -385,11 +430,13 @@ describe('the loser is gone afterwards', () => {
     // the wire is a null already covered by a nulled ancestor (the preview is a
     // superset — a loss report, not the payload).
     const nulledAncestors = Object.keys(payload).filter((k) => payload[k] === null);
-    for (const [key, value] of Object.entries(plan.writes)) {
-      if (key in payload) continue;
-      const redundant = value === null && nulledAncestors.some((a) => key.startsWith(`${a}/`));
+    const dropped = Object.keys(plan.writes).filter((k) => !(k in payload));
+    for (const key of dropped) {
+      const redundant = plan.writes[key] === null && nulledAncestors.some((a) => key.startsWith(`${a}/`));
       expect({ key, redundantDelete: redundant }).toEqual({ key, redundantDelete: true });
     }
+    // the exception clause above must actually have run
+    expect(dropped.length).toBeGreaterThan(0);
   });
 });
 
