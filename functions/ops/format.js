@@ -7,28 +7,14 @@
 // therefore lives out here and reaches the page as a preformatted string; the
 // page renders, it does not decide.
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
+// Duration formatting has ONE home — shared/timeFormat.js, consumed here via
+// the committed mirror functions/_shared/ (npm run sync-shared; never edit the
+// mirror by hand) and pinned on both sides by
+// test-fixtures/time-format-vectors.json. Re-exported so the panel's callers
+// import their formatting from one place.
+import { humanDuration } from '../_shared/timeFormat.js';
 
-/**
- * A span of milliseconds as something an operator can read at a glance.
- *
- * Raw minutes stop being useful within a few hours, and the accounts table is
- * scanned to judge whether an account is live or dead — "22145m" is arithmetic
- * homework, "15d 8h" is an answer. Sub-minute reads `<1m` rather than `0m`,
- * which would claim more precision than "just now" deserves.
- *
- * @param {number} ms a non-negative span
- * @returns {string}
- */
-export function humanDuration(ms) {
-  const span = Math.max(0, ms);
-  if (span < MINUTE) return '<1m';
-  if (span < HOUR) return `${Math.floor(span / MINUTE)}m`;
-  if (span < DAY) return `${Math.floor(span / HOUR)}h ${Math.floor((span % HOUR) / MINUTE)}m`;
-  return `${Math.floor(span / DAY)}d ${Math.floor((span % DAY) / HOUR)}h`;
-}
+export { humanDuration };
 
 /**
  * A timestamp as an age relative to `now`.
