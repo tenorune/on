@@ -80,14 +80,16 @@ confirmed working on a custom-token uid, which was the original deferral's
 question. The rules gap underneath it is filed as **G3**. Full reasoning and the
 measurements live in `docs/operator-panel-followups.md`.
 
-**Thirteen open items, four closed** — all ranked with stable IDs in the "at a
-glance" table at the top of `docs/operator-panel-followups.md`. **S1 is now
-CLOSED** (the smoke test ran to completion). Open: G1, G3, **G4** and G6 (known
+**Twelve open items, five closed** — all ranked with stable IDs in the "at a
+glance" table at the top of `docs/operator-panel-followups.md`. **S1 and M9 are
+now CLOSED** (the smoke test ran to completion; M9's `op` guard shipped straight
+after, because completing the leg is what made it urgent — a real merge dump now
+sits in `.ops-audit/` beside the purge dumps). Open: G1, G3, **G4** and G6 (known
 gaps — G3 and G6 are whole-app rules gaps, not panel items; G4 and G6 both came
-out of running the smoke test, and G6 has no mitigation at all), and M1–M9
-(deferred minors, each with its `file:line` and why it was left —
-**M9 is filed as a minor but is not one**: it is the only entry there that can
-drive a bad destructive write, and it says so).
+out of running the smoke test, and G6 has no mitigation at all), and M1–M8
+(deferred minors, each with its `file:line` and why it was left; none of them
+affects the correctness of a destructive write, which is the test to re-apply
+before promoting one).
 **G5 is closed** (`0f31553`) and stays in that table with its reasoning, like G2,
 because *why it survived every review* is the useful part. It carries one open
 half, deliberately not done: `integrity.js` only catches residue families someone
@@ -187,17 +189,17 @@ equally safe.
 
 ## Verification state
 
-Green bar OBSERVED at `2dec78c` (2026-08-03, = `origin/dev`): web jest
-**2123/2123** (88 suites, unchanged) · functions **909/909** (31 suites) ·
+Green bar OBSERVED at `f927c6e` (2026-08-03, = `origin/dev`): web jest
+**2123/2123** (88 suites, unchanged) · functions **916/916** (31 suites) ·
 `typecheck` + `typecheck:scripts` clean · `node scripts/prod.js` builds · zero
 new suppressions across all seven forms.
 
-Functions movement from the `5f4dcd5` bar (879/30), all from the merge leg:
-**+26** and a new suite (`ops-merge-fixture.test.js`) for the seed and its
-read-back, **+4** in the same suite for the verifier's key-order fix. Web is
-untouched throughout.
+Functions movement from the `5f4dcd5` bar (879/30): **+26** and a new suite
+(`ops-merge-fixture.test.js`) for the merge leg's seed and its read-back, **+4**
+in the same suite for the verifier's key-order fix, **+7** in `ops-restore.test.js`
+for M9's `op` guard. Web is untouched throughout.
 
-Prior bars: `5f4dcd5` functions 879 (30). `0f31553` functions 857 (28).
+Prior bars: `2dec78c` functions 909 (31). `5f4dcd5` functions 879 (30). `0f31553` functions 857 (28).
 `373b7ec` functions 842 (27).
 `f38f5cb` functions 807 (26).
 
@@ -271,6 +273,15 @@ each carries its evidence):
   `JSON.stringify` output and RTDB returns keys in its own order. Now an
   order-insensitive deep compare for records, order-SENSITIVE for arrays, with
   sorted-key failure rendering. Found on the first live run, after a green suite.
+- `3e1f0c8` the smoke test recorded complete; **S1 closed**.
+- **M9 closed** — `restore-preimage.js` now refuses a dump whose `op` is not
+  `purge` (`opGuard`, +7 tests). An **allowlist**, so an absent or unrecognised
+  `op` is refused rather than assumed; it fires on a **dry run** too, because the
+  dry run writes nothing but its verdicts and its `RESIDUE SWEEP` are the
+  misleading part; override is `--i-know-this-is-not-a-purge`. Verified by
+  planting two violations **and** by running the CLI against fabricated merge /
+  purge / no-`op` dumps — the pure function having tests says nothing about the
+  wiring, which is the mistake the `ops/**` import guard made twice.
 
 ⚠️ **`functions/test/telegram-auth.test.js`'s 0-line diff ENDED, deliberately,
 with the `inviteIndex` fix.** Read this before concluding the file drifted.

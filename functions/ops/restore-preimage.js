@@ -53,6 +53,12 @@
 // for a users/ or userPrefs/ node that exists again because a client
 // republished after the purge — --merge-account (captured values win, anything
 // written since is kept) or --replace-account (overwrite it wholesale).
+//
+// IT READS ONLY PURGE DUMPS (M9, see opGuard). Every verdict below assumes a
+// purge NULLED every path in its write-set; a merge dump breaks that assumption
+// in both directions, so it is refused — on a dry run too, because the dry run's
+// verdicts and its RESIDUE SWEEP are the misleading part. Override with
+// --i-know-this-is-not-a-purge, or just read the dump with jq.
 import * as nodeFs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -435,6 +441,58 @@ export function buildEnumerationRepair(candidates, liveValues) {
   return { writes, skipped };
 }
 
+/**
+ * Which audit dumps this tool may read back. **M9.**
+ *
+ * Everything above rests on one assumption — `classify` states it at line 204 —
+ * that **a purge NULLED every path in its write-set**. That is what makes a live
+ * value equal to the dumped one mean "a client put it back", what makes an empty
+ * path mean "the delete landed", and what the RESIDUE SWEEP and PEER REPUBLISH
+ * blocks are counting. None of it survives a different `op`:
+ *
+ *   * a **merge**'s write-set is mostly non-null CARRIES onto the survivor, so
+ *     the sweep and the republish attribution are meaningless — and worse, the
+ *     `restore` verdict on the paths the merge *did* null would put `users/{loser}`
+ *     and its residue back, pointing into a graph that has moved on;
+ *   * a **restore**'s own dump is the pre-restore state, so replaying it undoes
+ *     the restore.
+ *
+ * The dump's `op` was read and printed here from the start and never checked.
+ * That was survivable only while no non-purge dump existed; the merge leg ran on
+ * 2026-08-03 and put one in `.ops-audit/` beside the purge dumps, one tab-complete
+ * away from the familiar command.
+ *
+ * An allowlist, not a denylist: an absent, empty or unrecognised `op` is refused
+ * rather than assumed to be a purge, because the assumption is the whole risk.
+ * The override exists so a deliberate choice is possible, and it is named so it
+ * cannot be typed by reflex.
+ *
+ * It fires on a DRY RUN too. The dry run writes nothing, but its output is
+ * precisely what would send an operator hunting residue that is not there — and
+ * `jq` reads a dump of any shape without pretending to interpret it (README,
+ * "Reading a pre-image back").
+ *
+ * @param {string | null | undefined} op the dump's `op` field
+ * @param {boolean} override
+ * @returns {{ ok: boolean, detail: string }}
+ */
+export function opGuard(op, override) {
+  if (op === 'purge') return { ok: true, detail: 'op=purge' };
+  const named = op ? `"${op}"` : 'absent';
+  if (override) {
+    return { ok: true, detail: `op ${named} — refusal overridden by --i-know-this-is-not-a-purge; every verdict below assumes a purge nulled these paths, and for a ${op || 'dump with no op'} that is not true` };
+  }
+  const why = op === 'merge'
+    ? 'a merge carries most of its write-set onto the survivor instead of nulling it, so the verdicts, the RESIDUE SWEEP and the PEER REPUBLISH block would all be wrong — and restoring the paths it DID null would partially resurrect the merged-away account'
+    : op === 'restore'
+      ? 'a restore dump holds the PRE-restore state, so replaying it undoes the restore'
+      : `only a purge dump can be read back, and this one's op is ${named}`;
+  return {
+    ok: false,
+    detail: `refusing: ${why}. Read it with jq instead (README, "Reading a pre-image back"), or pass --i-know-this-is-not-a-purge.`,
+  };
+}
+
 // --- CLI ---------------------------------------------------------------------
 
 /** @param {string[]} argv @param {string} name */
@@ -497,6 +555,12 @@ async function main() {
   if (dump.project !== projectId) {
     console.log(`  ⚠ the dump was taken against project "${dump.project}", you are pointed at "${projectId}"`);
   }
+
+  // M9. Before any live read, and on a dry run as much as on a --yes: the dry
+  // run writes nothing, but its verdicts and its sweep are the misleading part.
+  const guard = opGuard(dump.op, argv.includes('--i-know-this-is-not-a-purge'));
+  if (!guard.ok) throw new Error(guard.detail);
+  if (dump.op !== 'purge') console.log(`  ⚠ ${guard.detail}`);
 
   const { deps } = makeOpsDeps({ projectId, saJson, databaseURL });
 

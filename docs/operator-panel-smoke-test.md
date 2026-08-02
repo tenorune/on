@@ -319,9 +319,10 @@ claim, and exits non-zero if anything is owed.
 
 Two notes specific to this leg. The accounts are **synthetic and never opened in
 a client**, so **G3** and **G6** have no author here — an app-born peer would
-re-open both, and G6 has no mitigation. And do **not** point
-`ops/restore-preimage.js` at the merge's dump: it is purge-shaped, assumes every
-dumped path was nulled, and has no guard on the dump's `op`.
+re-open both, and G6 has no mitigation. And `ops/restore-preimage.js` will
+**refuse** the merge's dump (**M9**): it is purge-shaped, assumes every dumped
+path was nulled, and now checks the dump's `op` rather than trusting you to
+remember. Read a merge dump with `jq`.
 
 ### 10. Recover a pre-image
 

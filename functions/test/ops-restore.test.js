@@ -15,6 +15,7 @@ import {
   buildEnumerationRepair,
   summarizeResidue,
   summarizeRepublished,
+  opGuard,
 } from '../ops/restore-preimage.js';
 
 const STROKES_MARKER = 'strokes not captured — canvases/*/strokes is unbounded and is never read or written by the ops audit dump';
@@ -429,5 +430,57 @@ describe('classify — an already-there on a peer\'s node is a republish, not a 
     const { decisions } = planRestore({ 'userPrefs/M/following/T': { code: 'T00001' } }, {}, { uid: 'T' });
 
     expect(summarizeRepublished(decisions)).toEqual([]);
+  });
+});
+
+// --- M9: the dump's `op` was read, printed, and never checked ---------------
+//
+// Every judgement in this module rests on "a purge NULLED every path in its
+// write-set" (restore-preimage.js:204). That is false for a MERGE, whose
+// write-set is mostly non-null carries onto the survivor — so the verdicts, the
+// RESIDUE SWEEP and the PEER REPUBLISH block would all be built on an assumption
+// that does not hold, and the `restore` verdict on paths the merge nulled would
+// partially resurrect the merged-away account.
+//
+// This mattered in the abstract until 2026-08-03, when the merge leg ran and put
+// a real merge dump in .ops-audit/ next to the purge dumps. The guard fires on a
+// DRY RUN too: the dry run writes nothing, but its output is exactly what sends
+// an operator hunting residue that is not there.
+describe('opGuard — only a purge dump may be read back', () => {
+  test('a purge dump passes', () => {
+    expect(opGuard('purge', false)).toMatchObject({ ok: true });
+  });
+
+  test('a merge dump is refused, and the refusal says what would go wrong', () => {
+    const v = opGuard('merge', false);
+    expect(v.ok).toBe(false);
+    expect(v.detail).toContain('merge');
+    expect(v.detail).toContain('--i-know-this-is-not-a-purge');
+  });
+
+  test("a restore's own dump is refused — replaying it would undo the restore", () => {
+    expect(opGuard('restore', false).ok).toBe(false);
+  });
+
+  test('a dump with no op at all is refused rather than assumed to be a purge', () => {
+    expect(opGuard(undefined, false).ok).toBe(false);
+    expect(opGuard(null, false).ok).toBe(false);
+    expect(opGuard('', false).ok).toBe(false);
+  });
+
+  test('an unrecognised op is refused — the list is an allowlist, not a denylist', () => {
+    expect(opGuard('link-production', false).ok).toBe(false);
+    expect(opGuard('PURGE', false).ok).toBe(false);
+  });
+
+  test('the override lets it through and says so, so the transcript records the choice', () => {
+    const v = opGuard('merge', true);
+    expect(v.ok).toBe(true);
+    expect(v.detail).toContain('overridden');
+    expect(v.detail).toContain('merge');
+  });
+
+  test('the override does not silently bless a purge into looking overridden', () => {
+    expect(opGuard('purge', true).detail).not.toContain('overridden');
   });
 });

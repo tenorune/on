@@ -305,10 +305,12 @@ Two limits, both structural rather than fixable:
 The purge side of smoke-test step 9 has the residue sweep above. The **merge**
 side has its own pair, because the sweep cannot serve it: `restore-preimage.js`
 is purge-shaped — its whole verdict model rests on "a purge NULLED every path in
-its write-set" — and it has **no guard on the dump's `op`**. A merge's write-set
-is mostly non-null *carries* onto the survivor, so pointing the sweep at a merge
-dump produces verdicts, a `RESIDUE SWEEP` and a `PEER REPUBLISH` block all built
-on an assumption that does not hold. Don't.
+its write-set", and a merge's write-set is mostly non-null *carries* onto the
+survivor. It now **refuses** a non-purge dump rather than leaving that to
+discipline (**M9**): the refusal fires on a dry run too, since the dry run's
+verdicts and its `RESIDUE SWEEP` are the misleading part. Read a merge dump with
+`jq` instead, or override with `--i-know-this-is-not-a-purge` and believe none of
+what it prints.
 
 ```bash
 cd functions
@@ -347,6 +349,10 @@ Four things worth knowing before the first run:
 * **Refresh the panel after seeding.** The canvas key list comes from the
   snapshot's shallow REST read, not from the live re-read, so a canvas seeded
   after the last refresh is invisible to the plan and never moves.
+* **The merge's own dump is not restorable with this panel.** `restore-preimage.js`
+  refuses it (**M9**), and there is no merge equivalent — a merge is not undone by
+  replaying a write-set, because the survivor's own prior state is entangled with
+  what was carried onto it. Plan a merge as one-way.
 * **`adoptGroupNames` has no UI.** `server.js` accepts it and `merge.js`
   implements it, but `panel.html` never sends it — so a `group-member-collision`
   previewed from the browser always resolves *"survivor's record kept"*. The

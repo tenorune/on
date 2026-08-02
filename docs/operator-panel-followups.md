@@ -15,10 +15,12 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Thirteen open, four closed. **S1 is closed** — the smoke test ran to completion
+Twelve open, five closed. **S1 is closed** — the smoke test ran to completion
 across 2026-08-02 and 2026-08-03, all ten steps — so nothing here blocks pointing
-the panel at production data any more. The rest are ranked by whether anything
-downstream depends on them. IDs are stable — cite
+the panel at production data any more. **M9 is closed** too, and it was never
+really a minor: it was the one entry that could drive a bad destructive write,
+and closing it was the first thing the completed smoke test made urgent. The rest
+are ranked by whether anything downstream depends on them. IDs are stable — cite
 them rather than re-describing the item. **R1-R4 are closed** (`c1b2cf9`) and
 detailed under "Parked residuals" below; their IDs are retired, not reused.
 **G2 is closed** too, and stays in the table with its reasoning because *why*
@@ -48,7 +50,7 @@ G6 is the one gap here with no available mitigation.
 | **M6** | Approvals have no TTL, and detail-view overwrites a pending one | `ops/server.js:359,385` | Minor |
 | **M7** | Production banner does not name the project inline | `ops/server.js:690-692` | Minor |
 | **M8** | `adoptGroupNames` is unreachable from the browser | `ops/panel.html:207,228` | Minor |
-| **M9** | `restore-preimage.js` has no guard on the dump's `op` | `ops/restore-preimage.js:488-499` | Minor **by filing only** — see below |
+| **M9** | ~~`restore-preimage.js` has no guard on the dump's `op`~~ | `ops/restore-preimage.js` | **CLOSED** — the one entry here that could drive a bad destructive write |
 
 **Standing constraints, not work items** — these are decisions, and nothing is
 owed against them: the panel is single-operator by construction (approvals are
@@ -545,11 +547,11 @@ the test to re-apply if you are tempted to promote one. They are listed
 individually because a paragraph of nine clauses is not a list anyone can act
 on or check off.
 
-⚠️ **M9 does not pass that test, and is in this section by filing convention
-rather than because it belongs here.** It is the one to promote first: pointing
-`restore-preimage.js --yes` at a MERGE dump issues writes off a model that does
-not hold, and can partially resurrect a merged-away account. It sits below with
-the reasoning; do not read the section heading as a verdict on it.
+⚠️ **M9 never passed that test — it was the one entry here that could drive a bad
+destructive write, and it is now CLOSED.** It is kept below because *why it was
+mis-filed* is the useful part: it was recorded as a minor because that was the
+namespace it arrived in, not because anyone judged it one, and the row said so
+rather than letting the section heading stand as a verdict.
 
 | ID | Where | What | Why it was left |
 |---|---|---|---|
@@ -561,7 +563,7 @@ the reasoning; do not read the section heading as a verdict on it.
 | **M6** | `ops/server.js:359,385` | Approvals live in a `Map` with no TTL, and `GET /api/detail` issues a nonce through the same `approvals.set(uid, …)` that previews use — so opening a detail view **overwrites a pending approval** for that uid. | It fails toward refusal, never toward an unapproved write: the overwriting nonce carries `approved: null`, so an execute against it is rejected and the operator previews again. Annoying, not dangerous. |
 | **M7** | `ops/server.js:690-692` | The production banner does not name the project inline. | The startup line immediately above it does (`project=<id>`). Duplication, not absence. |
 | **M8** | `ops/panel.html:207,228` | `adoptGroupNames` is accepted by `server.js:623` and implemented by `merge.js:229-231`, but **`panel.html` never sends it** — both merge buttons post only `{loserUid, survivorUid}` (+`telegramRepoint`). So a `group-member-collision` previewed from the browser always resolves *"survivor's record kept"*, and the loser's per-group `displayName` can never be adopted without POSTing the route by hand. | It fails toward the conservative resolution: the survivor's own record is what survives, which is the safe half of the choice, and the preview states that resolution honestly rather than promising an adoption that will not happen. A capability gap, not a correctness one. Worth knowing when reading the merge leg's results — it is why the per-group name **carry** has to come from a group only the loser is in (`merge.js:220-221`), which is what `ops/merge-fixture.js` seeds. |
-| **M9** | `ops/restore-preimage.js:488-499` | The dump is read for `preImage` and its `op` is printed but never checked. Every judgement below rests on **"a purge NULLED every path in its write-set"** (`:204`) — true for a purge, false for a merge, whose write-set is mostly non-null *carries* onto the survivor. So the verdicts, the `RESIDUE SWEEP` and the `PEER REPUBLISH` block are all built on an assumption that does not hold for a merge dump, and the `restore` verdict on paths the merge nulled would **partially resurrect the merged-away account** — `users/{loser}` and its residue back, pointing into a graph that has moved on. | **This is the one minor here that can drive a bad destructive write**, so it is filed as a minor rather than judged one. What holds meanwhile: the tool is dry-run by default, so reaching the writes takes an explicit `--yes`; and most changed paths land on `conflict` (a refusal) rather than `restore`. ⚠️ **The third guard is gone as of 2026-08-03**: the merge leg has now run, so `.ops-audit/` holds a real merge dump and the hazard is reachable by anyone who reaches for the familiar restore command. The fix is small and obvious — refuse a dump whose `op` is not `purge` unless a flag says otherwise — and it should land before anyone points a restore at that dump. Documented in `functions/ops/README.md` ("Seeding and verifying a merge") and `docs/operator-panel-smoke-test.md` step 9 in the meantime. |
+| **M9** — **CLOSED** | `ops/restore-preimage.js` (`opGuard`) | The dump was read for `preImage` and its `op` printed but never checked. Every judgement in that module rests on **"a purge NULLED every path in its write-set"** (`:204`) — true for a purge, false for a merge, whose write-set is mostly non-null *carries* onto the survivor. So the verdicts, the `RESIDUE SWEEP` and the `PEER REPUBLISH` block were all built on an assumption that does not hold for a merge dump, and the `restore` verdict on the paths the merge *did* null would **partially resurrect the merged-away account**. A restore's own dump has the mirror problem: it holds the PRE-restore state, so replaying it undoes the restore. | **Closed** by `opGuard`. It is an **allowlist** — an absent, empty or unrecognised `op` is refused rather than assumed to be a purge, because the assumption *is* the risk. It fires on a **dry run** too: the dry run writes nothing, but its verdicts and its sweep are the misleading part, and `jq` reads a dump of any shape without pretending to interpret it. The override is `--i-know-this-is-not-a-purge`, named so it cannot be typed by reflex, and it prints what it is overriding. Deferring stopped being tenable on 2026-08-03, when the merge leg put a real merge dump in `.ops-audit/` beside the purge dumps, one tab-complete from the familiar command. Verified by planting two violations (an always-ok guard, and the allowlist turned into a denylist) **and** by running the CLI against fabricated merge / purge / no-`op` dumps — tests on the pure function prove nothing about the wiring, which is the mistake the `ops/**` import guard made twice. |
 
 **One review-method note worth keeping:** grepping for `as any` alone is
 insufficient — `/** @type {any} */` is the same escape hatch in JSDoc and slipped
