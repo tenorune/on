@@ -197,6 +197,7 @@ $('detail').onclick = async (e) => {
         const res = await api('/api/purge/execute', {
           uid, confirmUid, nonce: state.nonce, deleteAuthRecord,
         });
+        if (res.sessionNote) alert(res.sessionNote);
         if (res.authWarning) alert(res.authWarning);
         await refresh();
       });

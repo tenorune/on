@@ -15,7 +15,8 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Twelve open, five closed. **S1 is closed** — the smoke test ran to completion
+Twelve open, six closed. **G8 is the newest** — found on 2026-08-03 by running
+the residue recipe, and closed the same day. **S1 is closed** — the smoke test ran to completion
 across 2026-08-02 and 2026-08-03, all ten steps — so nothing here blocks pointing
 the panel at production data any more. **M9 is closed** too, and it was never
 really a minor: it was the one entry that could drive a bad destructive write,
@@ -42,6 +43,7 @@ G6 is the one gap here with no available mitigation.
 | **G5** | ~~Expunge and graduation stranded `pushTokens/{uid}`~~ | `functions/telegram-auth.js` | **CLOSED** — F6c relocated the node and the deletion path never followed |
 | **G6** | A peer's client republishes cross-user residue, permanently | `database.rules.json` (whole-app, sibling of G3) | Known gap, **no mitigation** — detection only |
 | **G7** | ~~Expunge stranded `groupIdIndex` + group-scoped `inviteIndex`~~ | `functions/telegram-auth.js` | **CLOSED** — indexes pointing into a wholesale-deleted group |
+| **G8** | ~~Purge refused any account with no Auth record~~ | `ops/server.js:720` | **CLOSED** — it refused the safest case, and blocked the G3/G6 mitigation |
 | **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | Minor |
 | **M2** | Detail lookup builds and sorts every row to find one | `ops/project.js:69` | Minor |
 | **M3** | Canvas-key split inlined rather than shared | `ops/integrity.js:190` | Minor |
@@ -509,6 +511,51 @@ clean up by hand.
 **Also worth knowing:** the integrity report is the only thing that surfaces
 this. The residue sweep cannot — a republished path is not transient, and the
 sweep only speaks about the families it refuses to restore.
+
+### G8 — purge refused any account with no Auth record — CLOSED
+
+Found on dev 2026-08-03, while running the residue-sweep recipe: purging a
+seeded fixture account failed with `There is no user record corresponding to the
+provided identifier.` and wrote nothing.
+
+**What was wrong.** `server.js:720` called `auth.revokeRefreshTokens(uid)`
+unguarded, ahead of the destructive write. Firebase Auth throws
+`auth/user-not-found` for a uid it has never seen, so the purge aborted — and it
+aborted on the **safest possible case**: no Auth record means no session, so
+there is nothing to outlive the write and nothing to republish a cache. The
+guard existed to stop a purge that *cannot* end a live session; it also stopped
+every purge that had no session to end.
+
+**Why it mattered more than it looked.** Every account
+`ops/seed-merge-fixture.js` writes is RTDB-only — that is the whole point of the
+synthetic-fixture pattern, and it is **the one documented mitigation for G3 and
+G6**. So the panel could not purge exactly the accounts the runbook tells you to
+seed, and the recipe for observing the residue sweep's `present` branch was
+unrunnable. Every live purge in the smoke test used an app-born account, which
+is why nine months of green tests and a completed smoke test never met it.
+
+**Why no test caught it.** No session container has ever held a service-account
+credential, so nothing in a session reaches the Auth path at all; the route's
+tests stubbed `revokeRefreshTokens` as succeeding, because that is what it does
+for an account that exists. The stub was right about the case it modelled and
+silent about the one nobody had thought of.
+
+**Closed** by an allowlist of one code, the same shape as `opGuard`:
+`auth/user-not-found` proceeds and returns a `sessionNote` naming what happened;
+**every other failure still refuses**, because that is the G2 case and unchanged.
+`readAuthIdentity` (`server.js:520-529`) already applied this principle to the
+Auth *delete* — "already absent is not a failure" — so the fix made the revoke
+agree with its own neighbour. Two consequences handled with it: ticking the
+Auth-delete box on such an account no longer calls `deleteUser` on a record that
+was never there (it would have warned about failing to delete nothing), and
+`panel.html` surfaces the note rather than dropping it. Verified by planting
+three violations — an allowlist removed, the refusal restored, and the panel line
+deleted — which turn 2, 16 and 1 tests red respectively.
+
+**The general lesson**, which outlives the bug: a fail-closed guard needs to say
+what the benign absence is. "Refuse unless the dangerous thing succeeded" and
+"refuse unless the dangerous thing was possible" read identically in code and
+differ completely in effect.
 
 ## Parked residuals — ALL FOUR CLOSED (`c1b2cf9`)
 

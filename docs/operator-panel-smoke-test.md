@@ -20,12 +20,32 @@ opposite one, where the mapping must come **down** rather than repoint, or it
 points at a uid that no longer exists and the next Mini App open bootstraps onto
 it. **Every live merge path the panel offers has now been run at least once.**
 
-**What is still unexercised** is no longer a merge path: it is the residue
-sweep's `present` branch (the `✗` output — every live sweep came back clean, so
-half that rendering is pinned only by tests) and the `PEER REPUBLISH` block,
-which was written from a diagnosis rather than from watching it print. Both are
-pinned by tests and by nothing else, which is not the same as observed — this
-whole document exists because that distinction has cost four production defects.
+**Both remaining renderings ran on 2026-08-03**, and nothing on this page is
+unexercised any more. A seeded fixture's loser was purged, then two paths from
+its own pre-image dump were written back: `locations/{L}` (any non-null value
+reaches the branch) and `userPrefs/{F1}/following/{L}` (byte-identical, which
+the `already-there` compare requires). The dry run then printed both:
+`RESIDUE SWEEP` with `swept: 7`, one still holding data — the `✗` line naming
+`locations/smk-res1-loser` with `keys: lat, lng, updatedAt` — and a
+`PEER REPUBLISH` block naming the follower path and `smk-res1-follower` as its
+writer.
+
+⚠️ **The rendering is observed; the CAUSATION is not.** An operator credential
+put those values back, not a peer's client inside the G3 window. The block's own
+sentence — "that account's own client put it back" — is false in this run. What
+this exercised is the classification (`TRANSIENT`, `PEER_OWNED`),
+`summarizeResidue`/`summarizeRepublished`, the attribution picking the right uid
+out of the path, and the operator-facing text. Reproducing the cause still needs
+a real signed-in client held open, which is the hazard the synthetic-fixture
+pattern exists to avoid. Do not cite this run as a live G6 sighting; the one of
+those remains 2026-08-02.
+
+**The run also found G8.** The purge refused the fixture account outright —
+`revokeRefreshTokens` throws `auth/user-not-found` for a uid Firebase Auth has
+never seen, and the guard treated that as a failed revocation. So the panel could
+not purge a synthetic account at all, which is the mitigation this whole document
+recommends for G3 and G6. Filed and closed the same day; details in
+`docs/operator-panel-followups.md`.
 
 The results table at the bottom records what was observed. Read it before
 treating any row as settled.

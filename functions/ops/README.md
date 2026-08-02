@@ -139,6 +139,16 @@ revoke fails the purge is refused outright: a purge that will be undone is worse
 than one that did not happen, because the operator walks away believing it
 worked.
 
+**One failure is benign and does not refuse (G8):** `auth/user-not-found`, which
+is what Firebase Auth throws for a uid it has never seen. No Auth record means no
+session, so there is nothing to outlive the write — the purge proceeds and the
+panel shows a `NO AUTH RECORD` note saying so. This is the ordinary case for a
+**synthetic** account: everything `ops/seed-merge-fixture.js` writes is RTDB-only,
+and until 2026-08-03 the unguarded revoke made those accounts impossible to purge
+through the panel at all — the accounts this runbook tells you to seed precisely
+because they have no client (G3, G6). Ticking the Auth-record box on one is a
+no-op rather than a warning. **Every other revoke failure still refuses.**
+
 **What revoking does NOT do — measured on dev, 2026-08-02.** Revocation does not
 evict a live session. An already-issued ID token stays valid until it expires,
 and `database.rules.json` never checks `auth.token.auth_time`, so the client

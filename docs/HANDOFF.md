@@ -370,10 +370,17 @@ both CLIs say so. This also settled a wiring question the tests could not reach:
 had the flag been dropped between the CLI and the fixture, a `third-party` run
 would have seeded the loser shape and come back owed. It did not.
 
-**Still never exercised:** the sweep's `present` branch (the `✗` output — every
-live sweep came back clean, so half that rendering is pinned only by tests), and
-the `PEER REPUBLISH` block, which was written from a diagnosis rather than from
-watching it print. No merge path is on this list any more.
+**The last two renderings ran on 2026-08-03, and the list is now empty.** A
+seeded fixture's loser was purged and two paths were replayed out of its own
+pre-image: the dry run printed `RESIDUE SWEEP` with `swept: 7`, one `✗`
+(`locations/smk-res1-loser`, `keys: lat, lng, updatedAt`), and a
+`PEER REPUBLISH` block naming `smk-res1-follower`.
+
+⚠️ **Rendering observed, causation NOT.** An operator credential wrote those
+values back, not a peer's client in the G3 window — so the block's "that
+account's own client put it back" is false in that run. It exercised the
+classification, the attribution and the text; the live G6 sighting is still the
+one from 2026-08-02, and this run must not be cited as a second.
 
 ## On-ramp
 
@@ -470,6 +477,19 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 ## Landmines (read before touching code)
 
+- **A fail-closed guard must say what the BENIGN absence is (G8).** The purge
+  revoked refresh tokens before its write and refused if that threw — correct for
+  an account whose session it could not end, and wrong for an account that has no
+  session at all. `revokeRefreshTokens` throws `auth/user-not-found` for a uid
+  Firebase Auth has never seen, so every RTDB-only account was refused: every
+  `ops/seed-merge-fixture.js` account, and every synthetic account the runbook
+  prescribes as the ONLY mitigation for G3 and G6. "Refuse unless the dangerous
+  thing succeeded" and "refuse unless the dangerous thing was possible" look
+  identical in code. Fixed with an allowlist of one code (`server.js:720`), like
+  `opGuard`; `readAuthIdentity` already did this and the revoke did not, so the
+  precedent was sitting two hundred lines away. **Nothing in a session can reach
+  the Auth path** — no container has a service-account credential — so this class
+  of defect is operator-run-only, every time.
 - **RTDB returns an object's keys in ITS order, not the order you wrote them, so
   `JSON.stringify(live) === JSON.stringify(expected)` is a false-negative
   generator.** Cost a live run on 2026-08-03: `ops/verify-merge.js` reported

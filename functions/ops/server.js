@@ -717,10 +717,34 @@ export function createRoutes(ctx) {
 
       // Revoke BEFORE the write. After it, there is a window in which the
       // client can put back exactly what was deleted — which is the bug.
-      await auth.revokeRefreshTokens(uid);
+      //
+      // An account Firebase Auth has never seen is the ONE benign failure here
+      // (G8, found on dev 2026-08-03): no Auth record means no session, so
+      // there is nothing to outlive the write and nothing to republish a cache.
+      // Refusing it refused the safest case — and made purging a synthetic
+      // account impossible, which is the documented mitigation for G3 and G6
+      // and what every ops/seed-merge-fixture.js account is. An ALLOWLIST of
+      // one code, like opGuard's: any other failure is a revoke that should
+      // have worked and did not, and that is G2, so it still refuses.
+      /** @type {string | undefined} */
+      let sessionNote;
+      try {
+        await auth.revokeRefreshTokens(uid);
+      } catch (e) {
+        if (/** @type {{ code?: string }} */ (e)?.code !== 'auth/user-not-found') {
+          throw new Error(`purge refused: the account's session could not be revoked (${String(e)}). A purge whose session cannot be ended does not stick.`);
+        }
+        sessionNote = `NO AUTH RECORD for ${uid} — nothing to revoke, so no session can survive this purge. Deletion proceeded. An RTDB-only account (a seeded fixture, or one whose Auth record was already removed) is the expected case.`;
+      }
 
-      const result = await execute('purge', [uid], plan, (p) => applyPurgePlan(deps, p), authRecord);
+      const executed = await execute('purge', [uid], plan, (p) => applyPurgePlan(deps, p), authRecord);
+      const result = sessionNote ? { ...executed, sessionNote } : executed;
       if (!deleteAuthRecord) return result;
+
+      // Nothing to delete, and calling deleteUser anyway would warn about a
+      // record that never existed. readAuthIdentity already returns null for
+      // exactly this case, so the absence is established, not assumed.
+      if (!authRecord) return { ...result, authRecordDeleted: false, authRecord: null };
 
       // Irreversible LAST, and — like the audit-outcome append above — a
       // failure here may not turn a completed purge into a failed request.
