@@ -253,7 +253,11 @@ export async function buildMergePlan(deps, opts) {
   if (loserCode) writes[`codeIndex/${loserCode}`] = null;
   for (const [token, rec] of Object.entries(loser.invites || {})) {
     writes[`users/${S}/invites/${token}`] = rec;
-    writes[`inviteIndex/${token}`] = { ownerPath: `users/${S}/invites/${token}`, ownerUid: S };
+    // `scope` is load-bearing: resolveInvitePreviewHandler (functions/invites.js:27,35)
+    // branches on it and serves no preview at all without it, so omitting it kept
+    // the token resolving while silently dropping its welcome-screen framing.
+    // Personal by construction — these come from the loser's own `invites` node.
+    writes[`inviteIndex/${token}`] = { scope: 'personal', ownerPath: `users/${S}/invites/${token}`, ownerUid: S };
   }
   const loserLastSeen = loser.presence?.lastSeen;
   const survivorLastSeen = survivor.presence?.lastSeen;

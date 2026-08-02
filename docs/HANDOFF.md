@@ -233,14 +233,33 @@ each carries its evidence):
   real production defect, found by `integrity.js` on a live purge and filed as
   **G5**. +7 tests in a new file.
 
-`functions/test/telegram-auth.test.js` has a **0-line diff across the entire
-branch** — that is the standing proof the `expungeDerivedAccount` split
-preserved shipped behaviour. Do not edit it; if it goes red, the refactor is
-wrong. It has now survived THREE deliberate changes to live expunge behaviour
-(`4dea508`, `0f31553`, and the graduation move in the latter); each time the new
-coverage went in its own file — `functions/test/crossref-locations.test.js` and
-`functions/test/expunge-push-tokens.test.js` — precisely so the invariant would
-stay meaningful. That is the pattern to follow for the next one.
+⚠️ **`functions/test/telegram-auth.test.js`'s 0-line diff ENDED, deliberately,
+with the `inviteIndex` fix.** Read this before concluding the file drifted.
+
+For most of the branch it had a 0-line diff, and that was the standing proof the
+`expungeDerivedAccount` split preserved shipped behaviour. It survived FOUR
+deliberate changes to live expunge behaviour (`4dea508`, `0f31553`, `1f639ee`,
+and the graduation move inside `0f31553`) because each time the new coverage went
+into its own file — `crossref-locations.test.js`, `expunge-push-tokens.test.js`,
+the additions to `ops-expunge-build.test.js`. **That is still the pattern to
+follow**, and it is still the first thing to try.
+
+It stopped working for the `inviteIndex` fix because the suite did not merely
+fail to cover the behaviour — it **asserted the bug**. Line 580 read
+`expect(deps.store['inviteIndex/TOK1']).toBe(NEW)`, pinning a bare-uid write
+where the schema and `database.rules.json:56` require
+`{ scope, ownerPath, ownerUid }`. No amount of new coverage elsewhere changes an
+assertion that names the old value directly, so honouring the invariant would
+have meant keeping a live production defect *because a test asserted it*.
+
+**Exactly one assertion changed**, in the same commit as the behaviour, with the
+reasoning in the commit body and the full write-up in
+`functions/test/graduate-invite-index.test.js`. Nothing else in the file moved.
+
+The rule going forward: the invariant is refactor-safety, not a freeze. A red in
+that file still means "the refactor is wrong" **unless** you can show the
+assertion itself encodes a defect — and then you change that one assertion, in
+the behaviour's own commit, and say so here.
 
 **What green does NOT cover:** no session container has ever held a
 service-account credential, so nothing in a session has contacted a real

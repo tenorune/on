@@ -575,9 +575,16 @@ describe('graduateAccountData', () => {
     });
     expect(deps.store[`users/${OLD}`]).not.toBeNull();
 
-    // Indexes repointed:
+    // Indexes repointed. codeIndex really is a bare uid; inviteIndex is
+    // { scope, ownerPath, ownerUid } (js/db/social.ts:44-54,
+    // database.rules.json:56) and used to be overwritten with a bare uid here —
+    // see functions/test/graduate-invite-index.test.js.
     expect(deps.store['codeIndex/DERV01']).toBe(NEW);
-    expect(deps.store['inviteIndex/TOK1']).toBe(NEW);
+    expect(deps.store['inviteIndex/TOK1']).toEqual({
+      scope: 'personal',
+      ownerPath: `users/${NEW}/invites/TOK1`,
+      ownerUid: NEW,
+    });
 
     // Follower backref moved:
     expect(deps.store[`userPrefs/f1/following/${OLD}`]).toBeNull();

@@ -362,15 +362,40 @@ Two deliberate non-changes:
 * **Graduation needs nothing.** `groupIdIndex` carries no uid, and a graduated
   account's owned groups are not deleted.
 
-**Found while checking this, NOT fixed — worth its own item.**
-`graduateAccountData:539-541` writes `inviteIndex/{token} = newUid`, a bare
-string, where the schema and `database.rules.json:56` both require an object with
-`ownerPath` and `ownerUid`. It runs through the Admin SDK so the rules do not stop
-it. After a graduation, `resolveInvitePreviewHandler` reads `index.scope` →
-`undefined` → returns `{ preview: null }`, so the invite silently stops previewing.
-The correct behaviour is to repoint `ownerPath` and `ownerUid`, not to overwrite
-the record with a uid — the line looks like the `codeIndex/{code} = newUid`
-pattern on the line above being copied to an index with a different shape.
+**Found while checking this, and fixed after it — `inviteIndex` had drifted to
+THREE shapes across three writers:**
+
+| Writer | Was | Preview worked? |
+| --- | --- | --- |
+| `claimInviteToken` (`js/db/social.ts:44-54`) | `{scope, ownerPath, ownerUid}` | yes — this is the schema |
+| `ops/merge.js:256` | `{ownerPath, ownerUid}` | **no** — `scope` missing |
+| `graduateAccountData:539-541` | `newUid`, a bare **string** | **no**, and it violates `database.rules.json:56` |
+
+`resolveInvitePreviewHandler` (`functions/invites.js:27,35`) branches on
+`index.scope` and returns `{ preview: null }` for anything else, so both broken
+shapes silently killed the invite's welcome-screen framing while the token itself
+kept resolving. Graduation's also broke the rules' own invariant — it landed only
+because the Admin SDK bypasses validation — and stranded `ownerUid` at the dead
+uid, which gates index DELETION (`database.rules.json:55`), so the graduated
+account could never release its own token.
+
+The bare-uid line was `codeIndex/{code} = newUid` from the line directly above,
+copied onto an index with a different shape. Both writers now emit the full
+`{scope, ownerPath, ownerUid}`; `scope` is `personal` by construction in both,
+since each reads the account's *own* `invites` node and group-scoped tokens live
+under `groups/{gid}/invites`.
+
+⚠️ Fixing graduation required changing **one assertion** in
+`functions/test/telegram-auth.test.js`, which had been pinning the malformed
+write — the first break in that file's 0-line diff, done deliberately and
+recorded in `docs/HANDOFF.md`. New coverage is in
+`functions/test/graduate-invite-index.test.js`.
+
+**Still open, and it is the same question G5 left:** nothing enumerates the
+group-scoped tokens an account created in groups it does *not* own. Their
+`ownerUid` still names the dead uid after a purge or graduation, so nobody can
+release them. Not dangling — the records resolve — so the integrity report will
+not flag it.
 
 ### G6 — a PEER's client republishes cross-user residue, permanently
 

@@ -191,7 +191,11 @@ describe('identity and indexes', () => {
   test('invite tokens move and their index repoints, so links keep working', async () => {
     const { writes } = await merge(world());
     expect(writes['users/S/invites/tokL']).toEqual({ redemptionsUsed: 2 });
-    expect(writes['inviteIndex/tokL']).toEqual({ ownerPath: 'users/S/invites/tokL', ownerUid: 'S' });
+    // `scope` is load-bearing, not decoration: resolveInvitePreviewHandler
+    // (functions/invites.js:27,35) branches on it and returns no preview at all
+    // for an entry that lacks it, so a merged token used to keep resolving while
+    // silently losing its welcome-screen framing.
+    expect(writes['inviteIndex/tokL']).toEqual({ scope: 'personal', ownerPath: 'users/S/invites/tokL', ownerUid: 'S' });
   });
 
   test('lastSeen takes the max of the two accounts', async () => {

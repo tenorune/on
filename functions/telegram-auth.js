@@ -555,7 +555,21 @@ export async function graduateAccountData(deps, oldUid, newUid, extraWrites = nu
   const code = own?.presence?.code;
   if (code) writes[`codeIndex/${code}`] = newUid;
   for (const token of Object.keys(own?.invites || {})) {
-    writes[`inviteIndex/${token}`] = newUid;
+    // NOT a bare uid — that is `codeIndex`'s shape, one line up, and copying it
+    // here overwrote the record with a string. An invite index entry is
+    // `{ scope, ownerPath, ownerUid }` (`js/db/social.ts:44-54`), validated by
+    // `database.rules.json:56`; the Admin SDK bypasses that validation, so the
+    // malformed write landed and `resolveInvitePreviewHandler`
+    // (`functions/invites.js:27,35`) then read `scope` as undefined and served
+    // no preview. `ownerUid` also gates index DELETION in the rules, so leaving
+    // it at the old uid stranded the token beyond its own owner's reach.
+    // These are the account's OWN invites, so the scope is personal by
+    // construction — group-scoped tokens live under `groups/{gid}/invites`.
+    writes[`inviteIndex/${token}`] = {
+      scope: 'personal',
+      ownerPath: `users/${newUid}/invites/${token}`,
+      ownerUid: newUid,
+    };
   }
 
   // 3. The moves: write the new key, drop the old — skipping absent sources.
