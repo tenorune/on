@@ -220,6 +220,50 @@ Restoring is a hand-written `update()` built from `.preImage`, run after you
 have decided which subtrees should come back. A blind replay would resurrect
 paths that other operations have legitimately changed since.
 
+`ops/restore-preimage.js` is that update, scripted — the decisions are still
+yours, it just does the arithmetic and refuses the traps:
+
+```bash
+cd functions
+GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)" \
+node ops/restore-preimage.js --file .ops-audit/<ts>-purge-<uid>.json \
+  --project <dev-project-id> --prod-project <prod-project-id>
+```
+
+**Dry run by default**: it reads every dumped path as it stands *now*, prints a
+verdict per path — `restore`, `conflict`, `folded`, `already-there`,
+`skip-canvas`, `skip-transient`, `skip-absent` — and writes nothing. `--yes`
+issues one atomic root update, preceded by its own `op: restore` pre-image dump,
+so undoing a purge is as auditable as the purge was. The production gate is the
+same one the panel uses, including "undeclared counts as production".
+
+Four things it will not do on its own, each with an opt-in flag:
+
+| Situation | Default | Flag |
+| --- | --- | --- |
+| a canvas: the dump holds `bg` plus a *marker string* where the strokes were, so replaying the node writes that sentence into the database | skipped | `--restore-canvas-bg` (the `bg` leaf only) |
+| `locations`, `locationCells`, `knocks`, `calls` — stale within seconds, and clients republish them | skipped | `--restore-transient` |
+| `users/{uid}` or `userPrefs/{uid}` exists again because a client republished after the purge (G3) | conflict | `--merge-account` (captured values win, anything written since is kept) or `--replace-account` (wholesale) |
+| a restored group whose other members' nav entries their own clients deleted (**G4**) | not attempted | `--heal-group-enumeration` |
+
+Two refusals worth knowing, both of which reached a live run before they were
+caught:
+
+* **Nested paths.** A purged owner's write-set contains `groups/{gid}` *and*
+  `groups/{gid}/members/{uid}`; RTDB rejects an update naming both. The purge
+  survives it because `rootUpdate` drops the redundant nulls, so a restore does
+  the mirror-image collapse — folding the descendant into the ancestor, which
+  also carries the *other* members' rows. If the two captured values disagree it
+  refuses rather than dropping one.
+* **A global index held by someone else.** `codeIndex`, `inviteIndex`,
+  `telegramUsers`, `telegramByUid` are never taken back automatically. A mapping
+  that already points at the restored account (the deterministic-uid bootstrap
+  re-stamping it) is reported as already-there, not as a hijack.
+
+Restoring is not symmetrical with purging, and the asymmetry is G4: the dump
+holds what the purge *wrote*, never what it merely *caused*. See
+`docs/operator-panel-followups.md`.
+
 ## What each action destroys
 
 | Action | What it destroys |

@@ -15,19 +15,22 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Ten open, one closed. S1 blocks production use; the rest are ranked by whether
-anything downstream depends on them. IDs are stable — cite them rather than
-re-describing the item. **R1-R4 are closed** (`c1b2cf9`) and detailed under
-"Parked residuals" below; their IDs are retired, not reused. **G2 is closed**
-too, and stays in the table with its reasoning because *why* the deferral was
-wrong is the useful part.
+Eleven open, one closed. S1 no longer blocks production use outright — the
+smoke test ran on 2026-08-02 and only part of step 9 is left — and the rest are
+ranked by whether anything downstream depends on them. IDs are stable — cite
+them rather than re-describing the item. **R1-R4 are closed** (`c1b2cf9`) and
+detailed under "Parked residuals" below; their IDs are retired, not reused.
+**G2 is closed** too, and stays in the table with its reasoning because *why*
+the deferral was wrong is the useful part. **G4 is new** (2026-08-02) and came
+out of running the smoke test rather than out of a review.
 
 | ID | Item | Where | Weight |
 |---|---|---|---|
-| **S1** | The manual dev-project smoke test | whole panel | **Blocks production use** |
+| **S1** | The manual dev-project smoke test | whole panel | **Mostly done** — 1-8 and 10 pass, 9 partial |
 | **G1** | Divergence check compares paths, not write values | `ops/merge.js:212-213` | Known gap, bounded |
 | **G2** | ~~Auth-record deletion has no route (D5)~~ | `ops/server.js` | **CLOSED** — the deferral was wrong; see below |
 | **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** |
+| **G4** | A pre-image cannot undo a cascade the purge only triggered | `ops/audit.js` (model, not a bug) | Known gap, bounded; mitigated |
 | **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | Minor |
 | **M2** | Detail lookup builds and sorts every row to find one | `ops/project.js:69` | Minor |
 | **M3** | Canvas-key split inlined rather than shared | `ops/integrity.js:190` | Minor |
@@ -54,16 +57,22 @@ parked residuals R1-R4 (`c1b2cf9`). None is owed any more.
 Items 2 and 3 shipped on 2026-08-01 (`4dea508`, `16e5ae9`). One remains, and it
 is the one that was never optional.
 
-1. **S1 — the manual dev-project smoke test — STILL OWED.** No service-account
-   credential existed in any container this work ran in, so `deps.js`,
-   `panel.html`'s browser behaviour, and the `Host`/`Origin` guard as seen from
-   a real browser are all **unexercised**. Every green test number covers the
-   wiring, not the live system. That guard is now the panel's *sole*
-   authentication boundary — the server holds full database admin and has no
-   login.
+1. **S1 — the manual dev-project smoke test — MOSTLY DONE (2026-08-02).**
+   Steps 1-8 and step 10 passed against the dev project; `deps.js`,
+   `panel.html` in a real browser and the `Host`/`Origin` guard — the panel's
+   *sole* authentication boundary, on a server holding full database admin with
+   no login — are no longer unexercised.
 
-   The checklist for it is `docs/operator-panel-smoke-test.md`. Writing it did
-   not exercise anything — it is a script, and its own header says so.
+   **Step 9 is partial.** One purge ran with the Auth-record box OFF. Still
+   owed: the second purge with the box **ticked**, a **merge** to completion,
+   and the residue sweep over `locations/{uid}`, `locationCells/{gid}/{uid}`
+   and an owned group's whole `locationCells/{gid}`. The restore run says
+   nothing about those three families — it classifies them as transient and
+   skips them.
+
+   The checklist and the filled results table are in
+   `docs/operator-panel-smoke-test.md`. Running it produced one new gap (**G4**)
+   and one new tool (`ops/restore-preimage.js`).
 
 2. ~~**The `locations`/`locationCells` enumerator follow-up.**~~ Done in
    `4dea508`, all four parts in one change. Both families and the
@@ -211,7 +220,42 @@ against them. Only the third is an open item.
   The general lesson is worth more than the item: a deferral is only as good as
   the reading it rests on, and this one had never been in front of live data.
 
----
+### G4 — a pre-image cannot undo a cascade the purge only triggered
+
+Found by actually restoring an account, 2026-08-02 (smoke-test step 10), not by
+review. It is a property of the audit model rather than a bug in it, which is
+why it is written down instead of fixed.
+
+**The dump is the purge's write-set.** Everything the purge deleted is in it and
+comes back. But a purge also *causes* deletions it never writes, and those are
+invisible to the dump — nothing captured them, so nothing can replay them.
+
+The live case, device-observed: purging a group's OWNER nulls `groups/{gid}`
+wholesale (`buildExpungeWrites`' owned-group block). Every other member's client
+then deletes its own `users/{member}/groups/{gid}` enumeration entry, because
+the group's meta went null and **an owner has no permission to clear another
+user's record** — `js/groupNav.ts:250-258` and `js/groupContext.ts:1499-1508`
+both do it, deliberately. The purge never touched those paths, so they were
+never in the write-set, so they are not in the pre-image. Restore the group and
+it comes back real, with its member list intact, and **invisible in every other
+member's nav**: the owner sees the members, the members do not see the group.
+`integrity.js:103` already reports that state as `group-enumeration-missing` at
+error severity, which is the fastest way to spot it.
+
+**Mitigated, not closed.** `ops/restore-preimage.js --heal-group-enumeration`
+rebuilds those entries from the *restored* member list — derived repair, labelled
+as such in its output, never presented as recovery. It writes `true` (the
+default shape, `js/db/groups.ts:23-26`) only where no entry exists, so a member
+who still has one keeps their `lastVisited`. Device-verified 2026-08-02.
+
+**What is still open** is the general shape: this is the cascade we know about.
+Any future client-side "the thing I was watching disappeared, clean up after
+myself" reaction has the same property. Two candidates for whoever picks this
+up: teach the purge preview to *name* the cascades it will trigger, so an
+operator sees them before approving; or have the pre-image capture them, which
+means the panel has to model client behaviour and is probably the wrong trade.
+Naming them is the cheaper half and would have turned this from a discovery
+into a line of preview text.
 
 ## Parked residuals — ALL FOUR CLOSED (`c1b2cf9`)
 

@@ -1,9 +1,16 @@
 # Operator panel — dev-project smoke test
 
-**Status: NOT RUN.** No service-account credential has existed in any container
-this panel was built in, so nothing below has been executed even once. This is a
-script to follow, not a record of a passing run. Fill in the results table at the
-bottom as you go.
+**Status: RUN on the dev project, 2026-08-02.** Steps 1-8 passed. Step 9 ran
+**partially** — one purge executed, with the Auth-record box left OFF — and step
+10 passed, in the strongest available form: the dump was read back and turned
+into a working restore of the purged account. The results table at the bottom
+records what was observed and, just as importantly, what each step still owes.
+Read it before treating any row as settled.
+
+The run is also what produced `functions/ops/restore-preimage.js`. Step 10 asks
+whether the artifact every safety property here rests on can be read; the
+honest answer turned out to be "yes, and reading it is not the hard part" —
+see "What a restore cannot recover" below.
 
 `functions/ops/README.md` is the runbook — what the panel is, what each action
 destroys, what every flag means. This file is narrower: it is the ordered
@@ -265,22 +272,53 @@ Follow the README's "Reading a pre-image back" on the dump from step 9 and
 confirm it round-trips. An audit trail nobody has ever read back is not an audit
 trail.
 
+`functions/ops/restore-preimage.js` is the scripted form of that README section
+— dry-run by default, one verdict per path, one atomic update with `--yes`. It
+exists because this step ran for real: the dump was not only read but used to
+put a purged account back.
+
+### What a restore cannot recover
+
+Learned by doing it, 2026-08-02. Reading a pre-image back is easy; knowing what
+it does **not** contain is the part worth writing down.
+
+- **Canvas strokes.** Never captured. Only `bg` is recoverable.
+- **Anything the purge did not itself write.** The dump is the purge's
+  write-set, so a CASCADE the purge merely *triggered* is outside it. The live
+  case: purging a group's owner deletes `groups/{gid}` wholesale, and every
+  other member's client then deletes its own `users/{member}/groups/{gid}`
+  entry (`js/groupNav.ts:250-258`, `js/groupContext.ts:1499-1508`), because an
+  owner has no permission to clear another user's record. Restoring the group
+  therefore leaves it real, membered, and **invisible in every other member's
+  nav** — exactly `integrity.js:103`'s `group-enumeration-missing`.
+  Device-observed, then repaired with `--heal-group-enumeration`, which rebuilds
+  those entries from the restored member list. Filed as **G4**.
+- **A live client's republish is not residue.** If the account's client was open
+  at purge time it puts its cached state back (G3), and on the way *in* that
+  reads as residue the purge missed — on the way *out* it reads as a conflict at
+  `userPrefs/{uid}`. Restoring over it wholesale would drop whatever the client
+  wrote after the purge; `--merge-account` keeps it.
+
 ## Results
+
+Recorded 2026-08-02 from the operator's run. **OBSERVED** means seen; a row that
+still owes something says so, and an unfinished row is not a passing row.
 
 | # | Step | Result | Notes |
 |---|---|---|---|
-| 1 | Starts, banner correct | | |
-| 2 | Prod gate refuses both ways | | |
-| 3 | Snapshot renders, canvases present | | |
-| 4 | Detail + exact provenance | | |
-| 5 | Integrity report runs | | |
-| 6a | Panel's own POSTs allowed | | |
-| 6b | 7 curl probes: 200/403/403/403/403/200/200 | | |
-| 6c | Not reachable off-box | | |
-| 7 | Preview writes nothing | | |
-| 8 | Divergence refused | | |
-| 9 | Execute: atomic, audited, residue gone | | |
-| 10 | Pre-image reads back | | |
+| 1 | Starts, banner correct | PASS | |
+| 2 | Prod gate refuses both ways | PASS | |
+| 3 | Snapshot renders, canvases present | PASS | |
+| 4 | Detail + exact provenance | PASS | |
+| 5 | Integrity report runs | PASS | |
+| 6a | Panel's own POSTs allowed | PASS | |
+| 6b | 7 curl probes: 200/403/403/403/403/200/200 | PASS | |
+| 6c | Not reachable off-box | PASS | |
+| 7 | Preview writes nothing | PASS | |
+| 8 | Divergence refused | PASS | |
+| 9 | Execute: atomic, audited, residue gone | **PARTIAL** | One purge, Auth box **OFF**. The dump was written and the deletes landed — the restore's dry run re-read every dumped path and found all but one empty, which is direct evidence the purge's write-set was applied. **Still owed:** the second purge with the Auth box **ticked**, a **merge** to completion, and the residue sweep over `locations/{uid}`, `locationCells/{gid}/{uid}` and an owned group's whole `locationCells/{gid}` — the restore skips those families as transient, so it says nothing about them. |
+| 10 | Pre-image reads back | **PASS** | Strongest form: all four README read-back commands run verbatim, and the dump was used to restore the account. See "What a restore cannot recover" — the gap found is G4, not a defect in the dump. |
 
-Record the outcome in `docs/HANDOFF.md` when done — that file currently states
-these are unexercised, and it should not keep saying so once they are not.
+Two things the run changed elsewhere: `functions/ops/restore-preimage.js`
+(+ `functions/test/ops-restore.test.js`) and **G4** in
+`docs/operator-panel-followups.md`.

@@ -11,23 +11,30 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**THE NEXT ACTION — finish the smoke test: steps 9 and 10 of
-`docs/operator-panel-smoke-test.md`.** Steps 1-8 PASSED against the dev project
-on 2026-08-02, so `deps.js`, `panel.html` in a real browser and the
-`Host`/`Origin` guard (the panel's only authentication boundary on a server
-holding full database admin) are no longer unexercised. Steps 9 and 10 are.
+**THE NEXT ACTION — finish step 9 of `docs/operator-panel-smoke-test.md`.**
+Steps 1-8 and **step 10** passed against the dev project on 2026-08-02, and that
+file's results table is filled in. Step 9 is **PARTIAL**: one purge ran with the
+Auth-record box OFF, and the restore that followed proved its deletes had landed.
 
-- **Step 9 — execute.** The only step that writes, and the only live look at the
-  residue families this branch changed last: `locations/{uid}`,
-  `locationCells/{gid}/{uid}`, and an owned group's whole `locationCells/{gid}`
-  including other members' cells. **Precondition, not hygiene: close the Mini
-  App and any signed-in web client for the account first** — see the G3 landmine
-  below. Use a fresh throwaway; the account purged on 2026-08-02 is in a mixed
-  state and will read as residue.
-- **Step 10 — read a pre-image back.** Never run, at all. It is the only check
-  that the artifact every safety property here rests on can actually be read.
+What step 9 still owes, all on a **fresh throwaway** — the accounts touched on
+2026-08-02 are in a restored state and will not read cleanly:
 
-Then fill the results table in that file and update this section.
+- the second purge with **the Auth-record box ticked**, checked either side with
+  `auth.listUsers` or `ops/verify-auth-delete.js`;
+- a **merge** to completion;
+- the residue sweep over `locations/{uid}`, `locationCells/{gid}/{uid}` and an
+  owned group's whole `locationCells/{gid}` including other members' cells. The
+  restore says nothing about these — it classifies them transient and skips them
+  — so they remain the branch's least-observed families.
+
+**Precondition, not hygiene: close the Mini App and any signed-in web client for
+the account first** — see the G3 landmine below. It is not theoretical: it fired
+on 2026-08-02, and on the way back out it reappeared as a conflict at
+`userPrefs/{uid}` during the restore.
+
+**Step 10 passed in its strongest form** — the dump was not merely read back but
+used to restore the purged account. That is where `functions/ops/restore-preimage.js`
+and **G4** came from. Read G4 before purging any account that owns a group.
 
 **What the panel is**, if you have not met it: `functions/ops/` is a local
 Admin-SDK CLI plus a one-page browser UI — user list, merge, purge, Telegram
@@ -50,21 +57,20 @@ confirmed working on a custom-token uid, which was the original deferral's
 question. The rules gap underneath it is filed as **G3**. Full reasoning and the
 measurements live in `docs/operator-panel-followups.md`.
 
-**After that, ten open items** — all ranked with stable IDs in the "at a
+**After that, eleven open items** — all ranked with stable IDs in the "at a
 glance" table at the top of `docs/operator-panel-followups.md`: S1 (this smoke
-test), G1 and G3 (known gaps — G3 is a whole-app rules gap, not a panel
-item), and M1–M7 (deferred minors, each with its `file:line`
-and why it was left). Nothing else is owed on this branch.
+test, now down to part of step 9), G1, G3 and **G4** (known gaps — G3 is a
+whole-app rules gap, not a panel item; G4 came out of running the smoke test),
+and M1–M7 (deferred minors, each with its `file:line` and why it was left).
+Nothing else is owed on this branch.
 
-**Branch status (2026-08-02): merged to `dev` at the operator's instruction.**
-`origin/dev` and `origin/claude/knockknock-ui-improvements-7bm5o9` are both
-`3fe25c3` — same commit, nothing uncommitted, nothing unpushed. The feature
-branch is now redundant with `dev` and carries no unique commits. `dev` holds 41
-commits not in `origin/main`; **`dev` → `main` remains the maintainer's**, and no
-PR is open.
+**Branch status (2026-08-02).** Work is on
+`claude/knockknock-smoke-test-9-10-1zohil`, cut from `f38f5cb`, which is where
+`origin/dev` and `origin/claude/knockknock-ui-improvements-7bm5o9` both sit.
+`dev` → `main` remains the maintainer's, and no PR is open.
 
-What remains (S1's last two steps, G1, G3, M1–M7) is either an operator action
-or explicitly deferred — none of it is unfinished build work.
+What remains (the rest of S1's step 9, G1, G3, G4, M1–M7) is either an operator
+action or explicitly deferred — none of it is unfinished build work.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -82,7 +88,7 @@ per-task commits, each reviewed); this doc update is Task 11, the plan's
 last. `functions/ops/` holds the local Admin-SDK CLI + page
 (`server.js`, `panel.html`, `merge.js`, `purge.js`, `audit.js`, `integrity.js`,
 `provenance.js`, `project.js`, `snapshot.js`, `deps.js`, `format.js`,
-`verify-auth-delete.js`) and its own
+`verify-auth-delete.js`, `restore-preimage.js`) and its own
 `README.md` runbook — read that before running it. **The panel is local-only
 and has never been deployed and never will be**: it isn't part of the
 Firebase Hosting or Cloud Functions deploy surface (excluded from the
@@ -91,11 +97,12 @@ an operator starts by hand against a target project, and it binds `127.0.0.1`
 only. **`dev` now carries it** (`3fe25c3`, merged at the operator's
 instruction); `main` does not — that merge is the maintainer's.
 
-**Owed before this is trusted with production data:** smoke-test steps 9 and 10
-— see "What's next" above, which leads with them. Steps 1-8 passed on
-2026-08-02. Also worth knowing here: approvals are per-uid and held in memory,
-so the panel is single-operator by construction — two people running it against
-the same project at once do not share approval state.
+**Owed before this is trusted with production data:** the rest of smoke-test
+step 9 — see "What's next" above, which leads with it. Steps 1-8 and step 10
+passed on 2026-08-02. Also worth knowing here: approvals are per-uid and held in
+memory, so the panel is single-operator by construction — two people running it
+against the same project at once do not share approval state. And a purge is
+recoverable from its pre-image but **not completely** — see G4.
 
 Everything below is SHIPPED and merged; no pending uncommitted/unpushed work.
 
@@ -124,9 +131,14 @@ Nothing deploys from sessions.
 
 ## Verification state
 
-Green bar OBSERVED at `3fe25c3` (2026-08-02, = `origin/dev`): web jest
-**2123/2123** (88 suites) · functions **807/807** (26 suites) · `typecheck` +
-`typecheck:scripts` clean · `node scripts/prod.js` builds.
+Green bar OBSERVED with the restore tool staged on
+`claude/knockknock-smoke-test-9-10-1zohil` (2026-08-02): web jest
+**2123/2123** (88 suites, unchanged) · functions **842/842** (27 suites — the
+35 tests of `ops-restore.test.js`, one new file, nothing pre-existing moved) ·
+`typecheck` + `typecheck:scripts` clean · `node scripts/prod.js` builds.
+
+Prior bar at `f38f5cb` (= `origin/dev`): web 2123/2123 · functions 807/807
+(26 suites).
 
 Movement from the `8f9ccd1` bar (2106/736), all from the six commits below:
 +11 functions tests for `withEnvFile`; +28 for the panel's availability and
@@ -157,11 +169,14 @@ changed live expunge behaviour: the new coverage went in its own file
 (`functions/test/crossref-locations.test.js`) precisely so the invariant would
 stay meaningful.
 
-**What green does NOT cover:** the panel has never run against a real Firebase
-project — no service-account credential existed in any container this work ran
-in. `deps.js`, `panel.html`'s browser behaviour, and the `Host`/`Origin` guard
-from a real browser are unexercised, and that guard is the panel's only
-authentication boundary.
+**What green does NOT cover:** no session container has ever held a
+service-account credential, so nothing in a session has contacted a real
+Firebase project — the panel, the Auth probe and `ops/restore-preimage.js` are
+all operator-machine tools, and their test numbers cover decision logic, not
+live behaviour. What HAS now been exercised on the operator's machine
+(2026-08-02) is smoke-test steps 1-8 and 10: `deps.js`, `panel.html` in a real
+browser, the `Host`/`Origin` guard, one live purge, and one live restore driven
+from its pre-image. Step 9's remaining legs are listed under "What's next".
 
 ## On-ramp
 
@@ -169,12 +184,15 @@ Read in this order; stop when you have what you need.
 
 1. This file — the source of truth for "where things are."
 2. `docs/operator-panel-followups.md` — every open item with a stable ID
-   (**S1**, **G1**, **G3**, **M1–M7**), each with `file:line` and why it was
-   left. Cite the IDs rather than re-describing the items.
-3. `docs/operator-panel-smoke-test.md` — the ten-step script; steps 9 and 10 are
+   (**S1**, **G1**, **G3**, **G4**, **M1–M7**), each with `file:line` and why
+   it was left. Cite the IDs rather than re-describing the items.
+3. `docs/operator-panel-smoke-test.md` — the ten-step script, its filled-in
+   results table, and "What a restore cannot recover"; part of step 9 is
    what remains.
 4. `functions/ops/README.md` — the panel's runbook: how to start it, what each
-   action destroys, why purge ends the session, how to read a pre-image back.
+   action destroys, why purge ends the session, how to read a pre-image back,
+   and how to restore from one (`ops/restore-preimage.js`, and the four things
+   it will not do without an explicit flag).
 5. `CLAUDE.md` (auto-loaded) holds the binding conventions — read it.
 
 Per-feature detail: `docs/superpowers/plans/` and the matching git history.
@@ -194,6 +212,7 @@ Commands (all from repo root unless noted):
 | Dev server (LAN, live-reload) | `node scripts/dev.js` |
 | Operator panel | `cd functions && GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)" node ops/server.js --project <id> --prod-project <prod-id>` |
 | Auth probe (revokes; `--yes-delete` deletes) | `cd functions && node ops/verify-auth-delete.js --project <id> --uid <uid> --prod-project <prod-id>` |
+| Restore from a pre-image (dry run; `--yes` writes) | `cd functions && node ops/restore-preimage.js --file .ops-audit/<ts>-purge-<uid>.json --project <id> --prod-project <prod-id>` |
 
 The panel and the probe need a **service-account credential, which has never
 existed in any container this was built in** — they are operator-machine tools.
@@ -260,6 +279,18 @@ proxy and would abort an `&&` chain. Functions deps are required for
   This is how the first step-9 run produced an hour of false residue:
   `userPrefs/{uid}` came back holding its cached `following` list after a purge
   that had correctly deleted it.
+- **A pre-image undoes what the purge WROTE, never what it CAUSED (G4).** The
+  dump is the purge's write-set, so a cascade the purge merely triggered is not
+  in it and no restore can replay it. Live case, device-observed 2026-08-02:
+  purging a group's OWNER nulls `groups/{gid}` wholesale, and every other
+  member's client then deletes its own `users/{member}/groups/{gid}` entry
+  (`js/groupNav.ts:250-258`, `js/groupContext.ts:1499-1508`) because an owner
+  cannot write another user's record. Restore the group and it comes back real,
+  membered, and **invisible in every other member's nav** — the owner sees the
+  members, the members do not see the group. `integrity.js:103`
+  (`group-enumeration-missing`) reports exactly that state.
+  `ops/restore-preimage.js --heal-group-enumeration` rebuilds the entries from
+  the restored member list; it is derived repair, not recovery, and says so.
 - **Neither revoking nor deleting the Auth record retires a uid.** Telegram uids
   are `deriveTelegramUid(tgId, secret)` — deterministic — and the app mints a
   fresh custom token from initData on every open, so a token issued *after* the
