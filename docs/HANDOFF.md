@@ -15,26 +15,14 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 `docs/operator-panel-smoke-test.md` pass, and S1 is CLOSED** — so nothing blocks
 pointing the panel at production data any more. **No build work is owed.**
 
-**THE ONE CONCRETE ACTION LEFT is an operator run, ~10 minutes**, and it is
-optional: the last unexercised merge path, a plain merge of a **Telegram-linked**
-loser (`merge.js:385-394`'s `buildMappingTeardown` branch). Everything else on the
-list below is either a deliberate deferral or a whole-app gap that is its own
-piece of work.
+**THERE IS NO CONCRETE ACTION LEFT.** The last unexercised merge path — a plain
+merge of a **Telegram-linked** loser, `merge.js:385-394`'s `buildMappingTeardown`
+branch — **ran on 2026-08-03: 61 of 61**, on tag `tdn1`, with integrity clean
+either side and an `ok` line in `.ops-audit/audit.jsonl`. Every live merge path
+the panel offers has now been run at least once. Everything remaining is either a
+deliberate deferral or a whole-app gap that is its own piece of work.
 
-```bash
-cd functions
-export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)"
-node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tdn1 --telegram --yes
-# refresh the panel · integrity report · LOSER row → "merge into…"  (NOT "link via merge…")
-node ops/verify-merge.js       --project $DEV --prod-project $PROD --tag tdn1 --telegram
-node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tdn1 --clean --yes
-```
-
-Expect **61 of 61**. If it prints 65 you pressed the wrong button and ran
-link-via-merge again. Runbook: `functions/ops/README.md`, "Seeding and verifying
-a merge".
-
-Otherwise pick from the open items in `docs/operator-panel-followups.md` — **G3**
+Pick from the open items in `docs/operator-panel-followups.md` — **G3**
 and **G6** are the ones that matter (both whole-app rules gaps, G6 with no
 mitigation at all); M1–M8 are minors that were each ruled non-blocking.
 
@@ -57,15 +45,17 @@ own `--telegram` fixture: **65 of 65** claims, covering all of `buildLinkWrites`
 — mapping node, reverse index, and the prefs side where `telegram-prefs-disagree`
 and `telegram-channel-unroutable` (both integrity ERRORS) live.
 
-⚠️ **One merge path is still unexercised live**: a plain merge of a
-Telegram-linked loser — `merge.js:385-394`'s `buildMappingTeardown` branch, the
-*opposite* branch of the same `if` link-via-merge takes (`:351`). Running one
-says nothing about the other: there the mapping must come **down** rather than
-repoint, or it points at a uid that no longer exists and the next Mini App open
-bootstraps onto it. One run — seed `--telegram`, press `merge into…`, verify
-`--telegram` without `--repoint` (61 claims). Deliberately NOT filed as an open
-item; recorded so nobody reads "S1 closed" as "every merge path has been seen
-live".
+**Plain merge of a Telegram-linked loser, OBSERVED 2026-08-03.** The last
+unexercised merge path — `merge.js:385-394`'s `buildMappingTeardown` branch, the
+*opposite* branch of the same `if` link-via-merge takes (`:351`) — ran on its own
+`--telegram` fixture (tag `tdn1`): **61 of 61** claims under
+`ops/verify-merge.js --telegram`, no `--repoint`. There the mapping must come
+**down** rather than repoint, or it points at a uid that no longer exists and the
+next Mini App open bootstraps onto it. Integrity was clean either side (exactly
+one `auth-missing` INFO per seeded uid before, nothing above INFO after), the
+audit log carried an `ok` line, and the fixture was cleaned. **Every live merge
+path has now been seen; none of them is proven** — one run each, one fixture
+shape each.
 
 **If you run the panel again, the preconditions still stand.** Close the Mini App
 and any signed-in web client for the target account first (**G3**) — it is not
@@ -365,16 +355,15 @@ steps 1-8 and 10 plus step 9's purge side (2026-08-02), and step 9's merge leg
 probed either side), one live restore driven from its pre-image, the
 `RESIDUE SWEEP` clearing an owned group's whole cells node, the integrity report
 over live data (which surfaced G5, G6 and G7), one live plain merge with 57/57
-read-back claims holding, and one live **link via merge** with 65/65.
+read-back claims holding, one live **link via merge** with 65/65, and one live
+**plain merge of a Telegram-linked loser** with 61/61 — the two Telegram variants
+being opposite branches of the same `if` (`merge.js:351` vs `:385`), so each
+needed its own run.
 
-**Still never exercised:** a plain merge of a **Telegram-linked** loser — the
-`buildMappingTeardown` branch (`merge.js:385-394`), 61 read-back claims. Link via
-merge (`:351`, 65 claims) HAS now run; it is the opposite branch of the same
-`if`, so it does not cover this one. Runbook in `functions/ops/README.md`.
-Also unexercised: the sweep's `present` branch (the `✗` output — every live sweep
-came back clean, so half that rendering is pinned only by tests), and the
-`PEER REPUBLISH` block, which was written from a diagnosis rather than from
-watching it print.
+**Still never exercised:** the sweep's `present` branch (the `✗` output — every
+live sweep came back clean, so half that rendering is pinned only by tests), and
+the `PEER REPUBLISH` block, which was written from a diagnosis rather than from
+watching it print. No merge path is on this list any more.
 
 ## On-ramp
 

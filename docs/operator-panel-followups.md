@@ -91,15 +91,17 @@ parked residuals R1-R4 (`c1b2cf9`). None is owed any more.
    including the prefs side, where `telegram-prefs-disagree` and
    `telegram-channel-unroutable` (both integrity ERRORS) live.
 
-   ⚠️ **One merge path is still unexercised live**: a plain merge of a
-   Telegram-linked loser, `merge.js:385-394`'s `buildMappingTeardown` branch.
-   It is the *opposite* branch of the same `if` that link-via-merge takes
-   (`:351`), so running one says nothing about the other — there the mapping must
-   come **down** rather than repoint, or it points at a uid that no longer exists
-   and the next Mini App open bootstraps onto it. One run: seed `--telegram`,
-   press `merge into…`, verify `--telegram` without `--repoint` (61 claims). Not
-   filed as an open item because nothing depends on it — recorded here so nobody
-   reads "S1 closed" as "every merge path has been seen live".
+   **Plain merge of a Telegram-linked loser** — the last unexercised merge path —
+   ran the same day on tag `tdn1`: **61 of 61** claims under
+   `ops/verify-merge.js --telegram`, no `--repoint`. That is
+   `merge.js:385-394`'s `buildMappingTeardown` branch, the *opposite* branch of
+   the same `if` link-via-merge takes (`:351`), so it needed its own run — there
+   the mapping must come **down** rather than repoint, or it points at a uid that
+   no longer exists and the next Mini App open bootstraps onto it. Integrity was
+   clean either side (one `auth-missing` INFO per seeded uid before, nothing above
+   INFO after) and the audit log carried an `ok` line. **Every live merge path has
+   now been seen**; each was seen once, on one fixture shape, which is observed
+   rather than proven.
 
    The checklist and the filled results table are in
    `docs/operator-panel-smoke-test.md`. Running it produced: three new tools
