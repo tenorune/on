@@ -189,7 +189,7 @@ equally safe.
 
 ## Verification state
 
-Green bar OBSERVED at `f927c6e` (2026-08-03, = `origin/dev`): web jest
+Green bar OBSERVED at `2bf54b7` (2026-08-03 — the last code change; `origin/dev` sits one docs-only commit above it): web jest
 **2123/2123** (88 suites, unchanged) · functions **916/916** (31 suites) ·
 `typecheck` + `typecheck:scripts` clean · `node scripts/prod.js` builds · zero
 new suppressions across all seven forms.
