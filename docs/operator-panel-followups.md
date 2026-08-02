@@ -15,9 +15,10 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Fourteen open, three closed. S1 no longer blocks production use outright — the
-smoke test ran on 2026-08-02 and only part of step 9 is left — and the rest are
-ranked by whether anything downstream depends on them. IDs are stable — cite
+Thirteen open, four closed. **S1 is closed** — the smoke test ran to completion
+across 2026-08-02 and 2026-08-03, all ten steps — so nothing here blocks pointing
+the panel at production data any more. The rest are ranked by whether anything
+downstream depends on them. IDs are stable — cite
 them rather than re-describing the item. **R1-R4 are closed** (`c1b2cf9`) and
 detailed under "Parked residuals" below; their IDs are retired, not reused.
 **G2 is closed** too, and stays in the table with its reasoning because *why*
@@ -31,7 +32,7 @@ G6 is the one gap here with no available mitigation.
 
 | ID | Item | Where | Weight |
 |---|---|---|---|
-| **S1** | The manual dev-project smoke test | whole panel | **Mostly done** — 1-8 and 10 pass, 9 partial |
+| **S1** | ~~The manual dev-project smoke test~~ | whole panel | **CLOSED** — all ten steps pass; see below for the two variants it did not cover |
 | **G1** | Divergence check compares paths, not write values | `ops/merge.js:212-213` | Known gap, bounded |
 | **G2** | ~~Auth-record deletion has no route (D5)~~ | `ops/server.js` | **CLOSED** — the deferral was wrong; see below |
 | **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** |
@@ -64,29 +65,42 @@ parked residuals R1-R4 (`c1b2cf9`). None is owed any more.
 
 ## Owed before the panel is pointed at production data
 
-Items 2 and 3 shipped on 2026-08-01 (`4dea508`, `16e5ae9`). One remains, and it
-is the one that was never optional.
+**Nothing.** All three items are done: items 2 and 3 shipped on 2026-08-01
+(`4dea508`, `16e5ae9`), and S1 closed on 2026-08-03.
 
-1. **S1 — the manual dev-project smoke test — MOSTLY DONE (2026-08-02).**
-   Steps 1-8 and step 10 passed against the dev project; `deps.js`,
-   `panel.html` in a real browser and the `Host`/`Origin` guard — the panel's
-   *sole* authentication boundary, on a server holding full database admin with
-   no login — are no longer unexercised.
+1. **S1 — the manual dev-project smoke test — CLOSED (2026-08-02 / 2026-08-03).**
+   All ten steps pass against the dev project. `deps.js`, `panel.html` in a real
+   browser and the `Host`/`Origin` guard — the panel's *sole* authentication
+   boundary, on a server holding full database admin with no login — are no
+   longer unexercised.
 
-   **Step 9 is partial, after two runs.** Run 1 purged with the Auth-record box
-   OFF. Run 2 purged with it **ticked**, probed the Auth record either side
-   (present with empty `providerData` → `NO AUTH RECORD`), and ran the residue
-   sweep on a seeded account: `swept: 4`, all empty — including an owned group's
-   whole `locationCells/{gid}` with another member's cell inside it, which is
-   the claim the whole step existed to check.
+   **Step 9's purge side** closed across three runs on 2026-08-02, the last with
+   the Auth-record box ticked and probed either side, and a residue sweep
+   reporting `swept: 4`, all empty, including an owned group's whole
+   `locationCells/{gid}` with another member's cell inside it.
 
-   **Still owed: a merge to completion.** That is the only leg left.
+   **Step 9's merge leg** closed on 2026-08-03: one plain merge on a fixture
+   seeded by `ops/seed-merge-fixture.js`, **57 of 57** read-back claims holding
+   under `ops/verify-merge.js`, the preview's conflicts and losses read before
+   executing, and an `ok` line in `.ops-audit/audit.jsonl`.
+
+   ⚠️ **Two things the merge leg did NOT cover**, and no other live run does
+   either: the `--telegram` variant, and **link via merge** — the panel's
+   non-lossy link, the one the README tells operators to *prefer*. Both are
+   covered by tests and by the fixture, which is not the same thing; this whole
+   exercise exists because that distinction has cost four production defects.
+   Seeding them is one flag each (`--telegram` on the seed, `--repoint` on the
+   verify), so this is a short run rather than a project. Not filed as an open
+   item because nothing depends on it — recorded here so nobody reads "S1
+   closed" as "every merge path has been seen live".
 
    The checklist and the filled results table are in
-   `docs/operator-panel-smoke-test.md`. Running it has produced, so far: two new
-   tools (`ops/restore-preimage.js` and its residue sweep), one gap that is a
-   property of the model (**G4**), one with no mitigation (**G6**), and two real
-   defects in shipped production code (**G5**, **G7**). Every one of the four
+   `docs/operator-panel-smoke-test.md`. Running it produced: three new tools
+   (`ops/restore-preimage.js` with its residue sweep, plus
+   `ops/seed-merge-fixture.js` and `ops/verify-merge.js`), one gap that is a
+   property of the model (**G4**), one with no mitigation (**G6**), two real
+   defects in shipped production code (**G5**, **G7**), the `inviteIndex` shape
+   fix, and one defect in the leg's own verifier (`2dec78c`). Every one of them
    came from *running* it. None came from a review.
 
 2. ~~**The `locations`/`locationCells` enumerator follow-up.**~~ Done in
@@ -547,7 +561,7 @@ the reasoning; do not read the section heading as a verdict on it.
 | **M6** | `ops/server.js:359,385` | Approvals live in a `Map` with no TTL, and `GET /api/detail` issues a nonce through the same `approvals.set(uid, …)` that previews use — so opening a detail view **overwrites a pending approval** for that uid. | It fails toward refusal, never toward an unapproved write: the overwriting nonce carries `approved: null`, so an execute against it is rejected and the operator previews again. Annoying, not dangerous. |
 | **M7** | `ops/server.js:690-692` | The production banner does not name the project inline. | The startup line immediately above it does (`project=<id>`). Duplication, not absence. |
 | **M8** | `ops/panel.html:207,228` | `adoptGroupNames` is accepted by `server.js:623` and implemented by `merge.js:229-231`, but **`panel.html` never sends it** — both merge buttons post only `{loserUid, survivorUid}` (+`telegramRepoint`). So a `group-member-collision` previewed from the browser always resolves *"survivor's record kept"*, and the loser's per-group `displayName` can never be adopted without POSTing the route by hand. | It fails toward the conservative resolution: the survivor's own record is what survives, which is the safe half of the choice, and the preview states that resolution honestly rather than promising an adoption that will not happen. A capability gap, not a correctness one. Worth knowing when reading the merge leg's results — it is why the per-group name **carry** has to come from a group only the loser is in (`merge.js:220-221`), which is what `ops/merge-fixture.js` seeds. |
-| **M9** | `ops/restore-preimage.js:488-499` | The dump is read for `preImage` and its `op` is printed but never checked. Every judgement below rests on **"a purge NULLED every path in its write-set"** (`:204`) — true for a purge, false for a merge, whose write-set is mostly non-null *carries* onto the survivor. So the verdicts, the `RESIDUE SWEEP` and the `PEER REPUBLISH` block are all built on an assumption that does not hold for a merge dump, and the `restore` verdict on paths the merge nulled would **partially resurrect the merged-away account** — `users/{loser}` and its residue back, pointing into a graph that has moved on. | **This is the one minor here that can drive a bad destructive write**, so it is filed as a minor rather than judged one. What holds meanwhile: the tool is dry-run by default, so reaching the writes takes an explicit `--yes`; most changed paths land on `conflict` (a refusal) rather than `restore`; and no merge dump has ever been read back, because the merge leg has not been run. The fix is small and obvious — refuse a dump whose `op` is not `purge` unless a flag says otherwise — and it should land before anyone points a restore at a merge for the first time. Documented in `functions/ops/README.md` ("Seeding and verifying a merge") and `docs/operator-panel-smoke-test.md` step 9 in the meantime. |
+| **M9** | `ops/restore-preimage.js:488-499` | The dump is read for `preImage` and its `op` is printed but never checked. Every judgement below rests on **"a purge NULLED every path in its write-set"** (`:204`) — true for a purge, false for a merge, whose write-set is mostly non-null *carries* onto the survivor. So the verdicts, the `RESIDUE SWEEP` and the `PEER REPUBLISH` block are all built on an assumption that does not hold for a merge dump, and the `restore` verdict on paths the merge nulled would **partially resurrect the merged-away account** — `users/{loser}` and its residue back, pointing into a graph that has moved on. | **This is the one minor here that can drive a bad destructive write**, so it is filed as a minor rather than judged one. What holds meanwhile: the tool is dry-run by default, so reaching the writes takes an explicit `--yes`; and most changed paths land on `conflict` (a refusal) rather than `restore`. ⚠️ **The third guard is gone as of 2026-08-03**: the merge leg has now run, so `.ops-audit/` holds a real merge dump and the hazard is reachable by anyone who reaches for the familiar restore command. The fix is small and obvious — refuse a dump whose `op` is not `purge` unless a flag says otherwise — and it should land before anyone points a restore at that dump. Documented in `functions/ops/README.md` ("Seeding and verifying a merge") and `docs/operator-panel-smoke-test.md` step 9 in the meantime. |
 
 **One review-method note worth keeping:** grepping for `as any` alone is
 insufficient — `/** @type {any} */` is the same escape hatch in JSDoc and slipped

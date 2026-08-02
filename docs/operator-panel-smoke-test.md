@@ -1,13 +1,20 @@
 # Operator panel — dev-project smoke test
 
-**Status: RUN on the dev project, 2026-08-02.** Steps 1-8 and 10 passed. Step 9's
-**purge side passed** across three runs — the last of them with the Auth-record
-box ticked, probed either side, and a residue sweep that came back clean over an
-owned group's whole cells node. **The merge leg is the only thing still owed in
-the entire smoke test.** Step 10 passed in its strongest available form: the dump
-was read back and turned into a working restore of the purged account. The
-results table at the bottom records what was observed and what each row still
-owes. Read it before treating any row as settled.
+**Status: COMPLETE on the dev project. Steps 1-10 all pass** (steps 1-8 and 10 on
+2026-08-02; step 9's purge side across three runs the same day; step 9's merge
+leg on 2026-08-03). Step 9's purge side closed with the Auth-record box ticked,
+probed either side, and a residue sweep that came back clean over an owned
+group's whole cells node. Step 10 passed in its strongest available form: the
+dump was read back and turned into a working restore of the purged account.
+
+**What the merge leg did NOT cover, and nothing else does either:** it was run as
+a **plain merge**. The `--telegram` variant and **link via merge** (the panel's
+non-lossy link, `telegramRepoint`) are still unexercised against a live project.
+They are pinned by tests and by the fixture, which is not the same thing — this
+whole document exists because that distinction has cost four production defects.
+
+The results table at the bottom records what was observed. Read it before
+treating any row as settled.
 
 The run is also what produced `functions/ops/restore-preimage.js`. Step 10 asks
 whether the artifact every safety property here rests on can be read; the
@@ -366,14 +373,15 @@ still owes something says so, and an unfinished row is not a passing row.
 | 6c | Not reachable off-box | PASS | |
 | 7 | Preview writes nothing | PASS | |
 | 8 | Divergence refused | PASS | |
-| 9 | Execute: atomic, audited, residue gone | **PARTIAL — purge side PASSES, merge still owed** | Three purges. Run 1: Auth box **OFF**; deletes landed, proved by the restore's dry run re-reading every dumped path. Run 2: Auth box **ticked**; sweep `swept: 1` (`locations/{uid}`, empty) — the account had no other location footprint. **Run 3 closed the purge side**: box ticked with `ops/verify-auth-delete.js` either side (empty `providerData` → `NO AUTH RECORD`), and `swept: 4`, all empty, **including an owned group's whole `locationCells/{gid}` with another member's cell in it** — the claim this step existed to check. **Still owed: a merge to completion**, untouched by all three runs. |
+| 9 | Execute: atomic, audited, residue gone | **PASS** | **Purge side (2026-08-02), three runs.** Run 1: Auth box **OFF**; deletes landed, proved by the restore's dry run re-reading every dumped path. Run 2: Auth box **ticked**; sweep `swept: 1` (`locations/{uid}`, empty) — the account had no other location footprint. Run 3 closed it: box ticked with `ops/verify-auth-delete.js` either side (empty `providerData` → `NO AUTH RECORD`), and `swept: 4`, all empty, **including an owned group's whole `locationCells/{gid}` with another member's cell in it** — the claim this step existed to check. **Merge side (2026-08-03), one run**, seeded by `ops/seed-merge-fixture.js --tag run2`: a **plain merge**, **57 of 57** read-back claims holding under `ops/verify-merge.js`, the preview's conflicts and losses read before executing, and an `ok` line for the merge in `.ops-audit/audit.jsonl`. **Not covered:** the `--telegram` variant and **link via merge**. |
 | 10 | Pre-image reads back | **PASS** | Strongest form: all four README read-back commands run verbatim, and the dump was used to restore the account. See "What a restore cannot recover" — the gap found is G4, not a defect in the dump. |
 
-**What running this has cost and bought, as of 2026-08-02.** Every defect below
-was found by running the panel against a live project and reading the integrity
-report. None came from a review; none was caught by the test suite, which was
-green throughout; and none could have been caught by the residue sweep, because
-a path the purge never wrote is not in the dump (G4's boundary).
+**What running this has cost and bought, as of 2026-08-03.** Every defect below
+was found by running the panel against a live project — the first five by
+reading the integrity report, the last by reading the merge leg's own read-back.
+None came from a review; none was caught by the test suite, which was green
+throughout; and none of the first five could have been caught by the residue
+sweep, because a path the purge never wrote is not in the dump (G4's boundary).
 
 - **G5** — expunge and graduation stranded `pushTokens/{uid}` after F6c relocated
   it. Production defect, reached via `performLink`.
@@ -385,6 +393,16 @@ a path the purge never wrote is not in the dump (G4's boundary).
 - **G6** — a *peer's* client republishes cross-user residue, permanently, and no
   mitigation exists. Detection only.
 - **G4** — a pre-image cannot undo a cascade the purge merely triggered.
+- **The merge leg's own verifier cried wolf on a correct merge** (`2dec78c`).
+  Its first live run reported `inviteIndex/{token}` owed against a merge that had
+  written it exactly right: identical keys, identical values, different key
+  ORDER, because RTDB returns an object's keys in its own order and the check
+  compared `JSON.stringify` output. Worth recording next to the production
+  defects rather than filed as a tooling nit — a verifier that cries wolf on a
+  correct destructive write is worse than no verifier, since the operator's next
+  move is to hunt a defect that is not there, on the one leg whose entire purpose
+  is telling real residue from noise. Same lesson as the rest of this list: it
+  survived a green suite and only a live run surfaced it.
 
 New tooling it produced: `functions/ops/restore-preimage.js`, its `RESIDUE SWEEP`
 and `PEER REPUBLISH` blocks, and
