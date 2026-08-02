@@ -13,8 +13,30 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 **THE SMOKE TEST IS COMPLETE. All ten steps of
 `docs/operator-panel-smoke-test.md` pass, and S1 is CLOSED** — so nothing blocks
-pointing the panel at production data any more. There is no single obvious next
-action; pick from the open items in `docs/operator-panel-followups.md`.
+pointing the panel at production data any more. **No build work is owed.**
+
+**THE ONE CONCRETE ACTION LEFT is an operator run, ~10 minutes**, and it is
+optional: the last unexercised merge path, a plain merge of a **Telegram-linked**
+loser (`merge.js:385-394`'s `buildMappingTeardown` branch). Everything else on the
+list below is either a deliberate deferral or a whole-app gap that is its own
+piece of work.
+
+```bash
+cd functions
+export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)"
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tdn1 --telegram --yes
+# refresh the panel · integrity report · LOSER row → "merge into…"  (NOT "link via merge…")
+node ops/verify-merge.js       --project $DEV --prod-project $PROD --tag tdn1 --telegram
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tdn1 --clean --yes
+```
+
+Expect **61 of 61**. If it prints 65 you pressed the wrong button and ran
+link-via-merge again. Runbook: `functions/ops/README.md`, "Seeding and verifying
+a merge".
+
+Otherwise pick from the open items in `docs/operator-panel-followups.md` — **G3**
+and **G6** are the ones that matter (both whole-app rules gaps, G6 with no
+mitigation at all); M1–M8 are minors that were each ruled non-blocking.
 
 **Step 9's purge side, OBSERVED across three runs (2026-08-02).** Run 3 closed it:
 a purge with the **Auth-record box ticked**, `ops/verify-auth-delete.js` run
@@ -105,14 +127,15 @@ remembered to add to it, and a test asserting every own-account top-level node i
 catch the NEXT relocation instead of the last one. Nothing else is owed on this
 branch.
 
-**Branch status (2026-08-03): merged to `dev` at the operator's instruction,
-seven times.** `origin/dev` and `origin/claude/smoke-test-merge-leg-87l2w1` point
-at the **same commit** — fast-forwarded each time, so the feature branch carries
-nothing unique. Nothing uncommitted, nothing unpushed, nothing unmerged into
-`dev`. **`dev` → `main` remains the maintainer's**, and no PR is open.
-`claude/operator-panel-step-9-z31g3w`, `claude/knockknock-smoke-test-9-10-1zohil`
-and `claude/knockknock-ui-improvements-7bm5o9` are previous branches and are
-redundant too.
+**Branch status (2026-08-03): clean.** Nothing uncommitted, nothing unpushed,
+nothing unmerged. `origin/dev` and `origin/claude/smoke-test-merge-leg-87l2w1`
+point at the **same commit** — merged fast-forward at the operator's instruction
+each time, so the feature branch carries nothing unique and is redundant.
+`origin/claude/operator-panel-step-9-z31g3w`,
+`origin/claude/knockknock-smoke-test-9-10-1zohil` and
+`origin/claude/knockknock-ui-improvements-7bm5o9` are previous branches, likewise
+redundant. **`dev` is 62 ahead of `origin/main`; `dev` → `main` remains the
+maintainer's**, and no PR is open.
 
 ⚠️ **`dev` carries THREE production behaviour changes** on the `performLink` →
 `expungeDerivedAccount` path, all riding the next functions deploy: `pushTokens`
@@ -390,7 +413,9 @@ Commands (all from repo root unless noted):
 | Dev server (LAN, live-reload) | `node scripts/dev.js` |
 | Operator panel | `cd functions && GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)" node ops/server.js --project <id> --prod-project <prod-id>` |
 | Auth probe (revokes; `--yes-delete` deletes) | `cd functions && node ops/verify-auth-delete.js --project <id> --uid <uid> --prod-project <prod-id>` |
-| Restore from a pre-image (dry run; `--yes` writes) | `cd functions && node ops/restore-preimage.js --file .ops-audit/<ts>-purge-<uid>.json --project <id> --prod-project <prod-id>` |
+| Restore from a pre-image (dry run; `--yes` writes) | `cd functions && node ops/restore-preimage.js --file .ops-audit/<ts>-purge-<uid>.json --project <id> --prod-project <prod-id>` — **purge dumps only**, it refuses anything else (M9) |
+| Seed a merge fixture (dry run; `--yes` writes, `--clean` removes) | `cd functions && node ops/seed-merge-fixture.js --project <id> --prod-project <prod-id> --tag <tag> [--telegram]` |
+| Verify a merge (reads only; non-zero exit if anything is owed) | `cd functions && node ops/verify-merge.js --project <id> --prod-project <prod-id> --tag <tag> [--telegram] [--repoint]` |
 
 The panel and the probe need a **service-account credential, which has never
 existed in any container this was built in** — they are operator-machine tools.
@@ -446,6 +471,28 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 ## Landmines (read before touching code)
 
+- **RTDB returns an object's keys in ITS order, not the order you wrote them, so
+  `JSON.stringify(live) === JSON.stringify(expected)` is a false-negative
+  generator.** Cost a live run on 2026-08-03: `ops/verify-merge.js` reported
+  `inviteIndex/{token}` owed against a merge that had written it exactly right —
+  identical keys, identical values, shuffled order (`2dec78c`). Compare records
+  with a deep, order-INSENSITIVE equality (`merge-fixture.js`'s `deepEqual`) and
+  keep arrays order-sensitive. The general lesson is worth more than the bug: a
+  verifier that cries wolf on a correct destructive write is worse than no
+  verifier, because the operator's next move is to hunt a defect that is not
+  there. A green test suite says nothing about this — 30 tests passed over it.
+- **`ops/restore-preimage.js` reads PURGE dumps only (M9).** Every verdict in it
+  assumes a purge nulled every path in its write-set. A merge dump breaks that in
+  both directions, and `--yes` against one would partially resurrect the
+  merged-away account. `opGuard` now refuses anything whose `op` is not `purge` —
+  an allowlist, and it fires on a dry run too, because the dry run's verdicts and
+  its `RESIDUE SWEEP` are the misleading part. Read other dumps with `jq`. There
+  is **no merge equivalent of a restore**: plan a merge as one-way.
+- **Testing a pure function proves nothing about whether it is wired in.** The
+  `ops/**` import guard passed against a planted violation this way once, and
+  M9's guard was verified against fabricated merge / purge / no-`op` dumps by
+  running the CLI, not only by unit tests. When you add a guard, plant a
+  violation AND exercise the entry point.
 - **A purge does not survive a client that was open when you ran it (G3).** The
   panel revokes the account's refresh tokens before the write, but revocation
   does NOT evict a live session: an ID token already in the client's hands is
