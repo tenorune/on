@@ -360,6 +360,16 @@ read-back claims holding, one live **link via merge** with 65/65, and one live
 being opposite branches of the same `if` (`merge.js:351` vs `:385`), so each
 needed its own run.
 
+**The teardown branch's four other mapping holders also ran (2026-08-03)**, via
+the `--mapping-shape` flag added the same day: `third-party` 62/62, `no-uid`
+62/62, `absent` 61/61, `survivor` 61/61. Three of the four are REFUSALS — the
+mapping must survive — and each carried a `telegram-mapping-not-owned` conflict
+in the preview with no loss line claiming a delete. Their pre-merge
+`telegram-mapping-asymmetric` ERROR is the state being seeded, not a finding, and
+both CLIs say so. This also settled a wiring question the tests could not reach:
+had the flag been dropped between the CLI and the fixture, a `third-party` run
+would have seeded the loser shape and come back owed. It did not.
+
 **Still never exercised:** the sweep's `present` branch (the `✗` output — every
 live sweep came back clean, so half that rendering is pinned only by tests), and
 the `PEER REPUBLISH` block, which was written from a diagnosis rather than from

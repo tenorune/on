@@ -335,13 +335,14 @@ differs is the panel button and the verify flag:
 | plain + telegram | `merge into…` | `--telegram` | 61 | the loser's mapping comes **down** rather than transferring (`buildMappingTeardown`), and the survivor is not switched onto a channel it cannot receive on | **PASS 2026-08-03**, 61/61 |
 | **link via merge** | `link via merge…` | `--telegram --repoint` | 65 | the mapping **repoints** at the survivor — mapping node, reverse index *and* prefs (`buildLinkWrites`) — on top of all 57 plain-merge claims, which is the claim "non-lossy" actually makes | **PASS 2026-08-03**, 65/65 |
 
-**Inside the plain variant, who holds the mapping decides the outcome.** The
-61/61 run covered the loser holding it, which is the only case that *deletes*;
-`merge.js:389` passes no `ownUids`, so a third party, a `uid`-less node, or the
-survivor all land in the refusal and the mapping must survive. All four are
-seedable with `--mapping-shape` (table in `functions/ops/README.md`) and **none
-has been run live** — their failure mode is a refused delete rather than a wrong
-one, which is why they rank below everything else here.
+**Inside the plain variant, who holds the mapping decides the outcome — and all
+five holders have now been run (2026-08-03).** The loser holding it is the only
+case that *deletes*; `merge.js:389` passes no `ownUids`, so a third party, a
+`uid`-less node, or the survivor all land in the refusal and the mapping
+survives. Seeded with `--mapping-shape` (table in `functions/ops/README.md`):
+`third-party` **62/62**, `no-uid` **62/62**, `absent` **61/61**, `survivor`
+**61/61**, each with a `telegram-mapping-not-owned` conflict in the preview
+except `absent`, which raises none. Nothing above INFO after any of them.
 
 They take **opposite branches** of the same `if` (`merge.js:351` vs `:385`), so
 running one says nothing about the other — which is why both rows carry their own
@@ -411,7 +412,7 @@ still owes something says so, and an unfinished row is not a passing row.
 | 6c | Not reachable off-box | PASS | |
 | 7 | Preview writes nothing | PASS | |
 | 8 | Divergence refused | PASS | |
-| 9 | Execute: atomic, audited, residue gone | **PASS** | **Purge side (2026-08-02), three runs.** Run 1: Auth box **OFF**; deletes landed, proved by the restore's dry run re-reading every dumped path. Run 2: Auth box **ticked**; sweep `swept: 1` (`locations/{uid}`, empty) — the account had no other location footprint. Run 3 closed it: box ticked with `ops/verify-auth-delete.js` either side (empty `providerData` → `NO AUTH RECORD`), and `swept: 4`, all empty, **including an owned group's whole `locationCells/{gid}` with another member's cell in it** — the claim this step existed to check. **Merge side (2026-08-03), one run**, seeded by `ops/seed-merge-fixture.js --tag run2`: a **plain merge**, **57 of 57** read-back claims holding under `ops/verify-merge.js`, the preview's conflicts and losses read before executing, and an `ok` line for the merge in `.ops-audit/audit.jsonl`. **Link via merge (2026-08-03), one run**, seeded `--telegram` on its own tag: **65 of 65** claims under `ops/verify-merge.js --telegram --repoint`, covering the whole of `buildLinkWrites` including the prefs side. **Plain merge of a Telegram-linked loser (2026-08-03), one run**, seeded `--telegram` on tag `tdn1`: **61 of 61** claims under `ops/verify-merge.js --telegram` (no `--repoint`), exercising `buildMappingTeardown` — the opposite branch of the same `if`. Integrity was clean either side of it: exactly one `auth-missing` (INFO) per seeded uid before, nothing above INFO after; `ok` line in `.ops-audit/audit.jsonl`; fixture cleaned. **Every live merge path is now covered.** |
+| 9 | Execute: atomic, audited, residue gone | **PASS** | **Purge side (2026-08-02), three runs.** Run 1: Auth box **OFF**; deletes landed, proved by the restore's dry run re-reading every dumped path. Run 2: Auth box **ticked**; sweep `swept: 1` (`locations/{uid}`, empty) — the account had no other location footprint. Run 3 closed it: box ticked with `ops/verify-auth-delete.js` either side (empty `providerData` → `NO AUTH RECORD`), and `swept: 4`, all empty, **including an owned group's whole `locationCells/{gid}` with another member's cell in it** — the claim this step existed to check. **Merge side (2026-08-03), one run**, seeded by `ops/seed-merge-fixture.js --tag run2`: a **plain merge**, **57 of 57** read-back claims holding under `ops/verify-merge.js`, the preview's conflicts and losses read before executing, and an `ok` line for the merge in `.ops-audit/audit.jsonl`. **Link via merge (2026-08-03), one run**, seeded `--telegram` on its own tag: **65 of 65** claims under `ops/verify-merge.js --telegram --repoint`, covering the whole of `buildLinkWrites` including the prefs side. **Plain merge of a Telegram-linked loser (2026-08-03), one run**, seeded `--telegram` on tag `tdn1`: **61 of 61** claims under `ops/verify-merge.js --telegram` (no `--repoint`), exercising `buildMappingTeardown` — the opposite branch of the same `if`. Integrity was clean either side of it: exactly one `auth-missing` (INFO) per seeded uid before, nothing above INFO after; `ok` line in `.ops-audit/audit.jsonl`; fixture cleaned. **The other four mapping holders (2026-08-03), one run each**, via `--mapping-shape`: `third-party` 62/62, `no-uid` 62/62, `absent` 61/61, `survivor` 61/61 — the three refusal shapes each raising a `telegram-mapping-not-owned` conflict in the preview and deleting nothing, `absent` raising none. Their pre-merge integrity ERROR (`telegram-mapping-asymmetric`, plus a WARN on `no-uid`) is the state being seeded, not a finding. **Every live merge path and every branch of the teardown is now covered.** |
 | 10 | Pre-image reads back | **PASS** | Strongest form: all four README read-back commands run verbatim, and the dump was used to restore the account. See "What a restore cannot recover" — the gap found is G4, not a defect in the dump. |
 
 **What running this has cost and bought, as of 2026-08-03.** Every defect below

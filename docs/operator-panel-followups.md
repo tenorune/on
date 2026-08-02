@@ -99,9 +99,15 @@ parked residuals R1-R4 (`c1b2cf9`). None is owed any more.
    the mapping must come **down** rather than repoint, or it points at a uid that
    no longer exists and the next Mini App open bootstraps onto it. Integrity was
    clean either side (one `auth-missing` INFO per seeded uid before, nothing above
-   INFO after) and the audit log carried an `ok` line. **Every live merge path has
-   now been seen**; each was seen once, on one fixture shape, which is observed
-   rather than proven.
+   INFO after) and the audit log carried an `ok` line.
+
+   **And the teardown's other four mapping holders ran the same day**, on the
+   `--mapping-shape` flag added for them: `third-party` 62/62, `no-uid` 62/62,
+   `absent` 61/61, `survivor` 61/61. Three are REFUSALS, where the mapping must
+   survive and the preview must say so — the property R2 exists to protect, since
+   a wrong delete here unlinks an account the operation was never touching.
+   **Every live merge path and every teardown branch has now been seen**; each
+   was seen once, on one fixture, which is observed rather than proven.
 
    The checklist and the filled results table are in
    `docs/operator-panel-smoke-test.md`. Running it produced: three new tools

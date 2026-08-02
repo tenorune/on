@@ -122,9 +122,11 @@ export function fixtureCanvasKeys({ tag }) {
  *
  * merge.js:389 calls buildMappingTeardown with `owner: L` and NO `ownUids`, so
  * everything except `loser` lands in the builder's refusal
- * (telegram-link-write.js:100) and the mapping must SURVIVE the merge. Only
- * `loser` was ever run live (61/61, 2026-08-03); the rest are seedable so the
- * refusal can be watched rather than reasoned about.
+ * (telegram-link-write.js:100) and the mapping must SURVIVE the merge.
+ *
+ * All five ran on dev, 2026-08-03, one run each: `loser` 61/61, `third-party`
+ * 62/62, `no-uid` 62/62, `absent` 61/61, `survivor` 61/61. The refusals were
+ * watched rather than reasoned about, which is what these exist for.
  *
  * `survivor` is the one refusal that is right rather than merely safe: S is not
  * destroyed by this merge, so the loss line's "the forward mapping stays with

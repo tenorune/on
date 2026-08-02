@@ -379,10 +379,18 @@ mapping must **survive** the merge. Pass the same shape to both CLIs:
 | `--mapping-shape` | Who holds the mapping | What must happen | Run live? |
 |---|---|---|---|
 | `loser` (default) | the loser | torn down | **PASS 2026-08-03**, 61/61 |
-| `third-party` | `P2`, not in the merge | **refused**; P2's Telegram keeps working | not yet |
-| `no-uid` | a mapping node with no `uid` | **refused** — no provable owner, so no delete on a guess | not yet |
-| `absent` | nobody; the reverse index points at nothing | nulled anyway (a no-op) | not yet |
-| `survivor` | the survivor | **refused**, and correctly — `S` is still here | not yet |
+| `third-party` | `P2`, not in the merge | **refused**; P2's Telegram keeps working | **PASS 2026-08-03**, 62/62 |
+| `no-uid` | a mapping node with no `uid` | **refused** — no provable owner, so no delete on a guess | **PASS 2026-08-03**, 62/62 |
+| `absent` | nobody; the reverse index points at nothing | nulled anyway (a no-op) | **PASS 2026-08-03**, 61/61 |
+| `survivor` | the survivor | **refused**, and correctly — `S` is still here | **PASS 2026-08-03**, 61/61 |
+
+**All five ran on dev, 2026-08-03.** On each of the three refusal shapes the
+preview carried a `telegram-mapping-not-owned` conflict and **no** loss line
+claiming the mapping was dropped; `absent` raised no conflict at all. Integrity
+before each merge showed the expected `telegram-mapping-asymmetric` ERROR (plus
+`telegram-mapping-dangling`, WARN, on `no-uid` only) and nothing above INFO
+after. Every tag was cleaned. **Observed once each, on one fixture per shape** —
+which is coverage of the branch, not proof of it.
 
 ```bash
 node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tp1 --telegram --mapping-shape third-party --yes
