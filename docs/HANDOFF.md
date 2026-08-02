@@ -64,10 +64,15 @@ whole-app rules gap, not a panel item; G4 came out of running the smoke test),
 and M1–M7 (deferred minors, each with its `file:line` and why it was left).
 Nothing else is owed on this branch.
 
-**Branch status (2026-08-02).** Work is on
-`claude/knockknock-smoke-test-9-10-1zohil`, cut from `f38f5cb`, which is where
-`origin/dev` and `origin/claude/knockknock-ui-improvements-7bm5o9` both sit.
-`dev` → `main` remains the maintainer's, and no PR is open.
+**Branch status (2026-08-02): merged to `dev` at the operator's instruction.**
+`origin/dev` and `origin/claude/knockknock-smoke-test-9-10-1zohil` are both
+`373b7ec` — fast-forwarded from `f38f5cb`, so the two commits
+(`71bb86c` the restore tool + tests, `373b7ec` the docs) are the same objects on
+both refs and the feature branch carries nothing unique. Nothing uncommitted,
+nothing unpushed, nothing unmerged into `dev`. `dev` is 44 commits ahead of
+`origin/main`; **`dev` → `main` remains the maintainer's**, and no PR is open.
+`claude/knockknock-ui-improvements-7bm5o9` is the previous branch and is
+redundant too.
 
 What remains (the rest of S1's step 9, G1, G3, G4, M1–M7) is either an operator
 action or explicitly deferred — none of it is unfinished build work.
@@ -131,14 +136,19 @@ Nothing deploys from sessions.
 
 ## Verification state
 
-Green bar OBSERVED with the restore tool staged on
-`claude/knockknock-smoke-test-9-10-1zohil` (2026-08-02): web jest
+Green bar OBSERVED at `373b7ec` (2026-08-02, = `origin/dev`): web jest
 **2123/2123** (88 suites, unchanged) · functions **842/842** (27 suites — the
 35 tests of `ops-restore.test.js`, one new file, nothing pre-existing moved) ·
 `typecheck` + `typecheck:scripts` clean · `node scripts/prod.js` builds.
 
-Prior bar at `f38f5cb` (= `origin/dev`): web 2123/2123 · functions 807/807
-(26 suites).
+Prior bar at `f38f5cb`: web 2123/2123 · functions 807/807 (26 suites).
+
+**Run the gates from the repo root.** A `cd functions` in an earlier command
+lingers in the session shell, and from there `npx jest` runs the ROOT config
+against the functions tree (27 suites "fail", 0 tests) while `npm run
+typecheck` errors out as an unknown script. Worse, piping either to `tail`
+returns tail's exit status, so an `&&` chain sails past the failure and prints
+its own success line. Both traps fired in one command this session.
 
 Movement from the `8f9ccd1` bar (2106/736), all from the six commits below:
 +11 functions tests for `withEnvFile`; +28 for the panel's availability and
@@ -160,6 +170,11 @@ each carries its evidence):
 - `bc5e91a` `ops/verify-auth-delete.js`, the Auth probe.
 - `3fe25c3` narrowed what the session handling claims, to match what was
   measured; G3 filed.
+- `71bb86c` `ops/restore-preimage.js` + 35 tests — undo a purge from its
+  pre-image dump. Dry-run by default, one atomic update with `--yes`, its own
+  `op: restore` audit dump.
+- `373b7ec` the smoke-test results table, G4, the runbook section, and this
+  file.
 
 `functions/test/telegram-auth.test.js` has a **0-line diff across the entire
 branch** — that is the standing proof the `expungeDerivedAccount` split
