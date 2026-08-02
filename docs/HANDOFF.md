@@ -13,19 +13,40 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 **THE NEXT ACTION — finish step 9 of `docs/operator-panel-smoke-test.md`.**
 Steps 1-8 and **step 10** passed against the dev project on 2026-08-02, and that
-file's results table is filled in. Step 9 is **PARTIAL**: one purge ran with the
-Auth-record box OFF, and the restore that followed proved its deletes had landed.
+file's results table is filled in. Step 9 is still **PARTIAL** after two runs.
+
+Run 1 (2026-08-02): one purge with the Auth-record box OFF; the restore that
+followed proved its deletes had landed.
+Run 2 (2026-08-02): a purge **with the Auth-record box ticked**, followed by the
+residue sweep. The sweep reported `swept: 1` — `locations/{uid}`, empty — so it
+executed and rendered correctly but covered only one of the three owed families.
 
 What step 9 still owes, all on a **fresh throwaway** — the accounts touched on
 2026-08-02 are in a restored state and will not read cleanly:
 
-- the second purge with **the Auth-record box ticked**, checked either side with
-  `auth.listUsers` or `ops/verify-auth-delete.js`;
-- a **merge** to completion;
-- the residue sweep over `locations/{uid}`, `locationCells/{gid}/{uid}` and an
-  owned group's whole `locationCells/{gid}` including other members' cells. The
-  restore says nothing about these — it classifies them transient and skips them
-  — so they remain the branch's least-observed families.
+- a **merge** to completion. Untouched by either run;
+- the residue sweep over `locationCells/{gid}/{uid}` **and an owned group's whole
+  `locationCells/{gid}` including other members' cells**. Run 2's account had no
+  such footprint, so the branch's least-observed behaviour is still unobserved.
+  **Seed the throwaway for it**: glyph on with a real fix published; membership
+  in two groups with cells published in both; ownership of a third group where
+  another member has published a cell. That yields `swept: 4+` instead of 1;
+- the Auth check *either side* of the ticked purge, via `auth.listUsers` or
+  `ops/verify-auth-delete.js`. Run 2 ticked the box but the before/after probe
+  was not reported, so the record's deletion is inferred, not observed.
+
+**The sweep is scripted now** (`a0119a8`): run `ops/restore-preimage.js` against
+the dump with **no flags** — it writes nothing — and read its `RESIDUE SWEEP`
+block. See `functions/ops/README.md`, "Sweeping a purge for residue". Do not pass
+`--restore-transient`: that opts the paths back into the restore and the sweep
+goes silent. Its `present` branch (the `✗` output) has still never rendered.
+
+**Run 2 also found a real production defect**, which is the strongest argument
+yet for finishing this: `integrity.js`'s `push-tokens-dangling` on the purged
+uid, root-caused to expunge and graduation both stranding `pushTokens/{uid}`
+after F6c relocated it. Fixed in `0f31553`, filed as **G5**. Neither the test
+suite, four reviews, nor the residue sweep could have caught it — see the
+relocation landmine below, which has been corrected as a result.
 
 **Precondition, not hygiene: close the Mini App and any signed-in web client for
 the account first** — see the G3 landmine below. It is not theoretical: it fired
@@ -62,20 +83,32 @@ glance" table at the top of `docs/operator-panel-followups.md`: S1 (this smoke
 test, now down to part of step 9), G1, G3 and **G4** (known gaps — G3 is a
 whole-app rules gap, not a panel item; G4 came out of running the smoke test),
 and M1–M7 (deferred minors, each with its `file:line` and why it was left).
-Nothing else is owed on this branch.
+**G5 is closed** (`0f31553`) and stays in that table with its reasoning, like G2,
+because *why it survived every review* is the useful part. It carries one open
+half, deliberately not done: `integrity.js` only catches residue families someone
+remembered to add to it, and a test asserting every own-account top-level node in
+`database.rules.json` is either in the expunge null-set or explicitly exempt would
+catch the NEXT relocation instead of the last one. Nothing else is owed on this
+branch.
 
-**Branch status (2026-08-02): merged to `dev` at the operator's instruction.**
-`origin/dev` and `origin/claude/knockknock-smoke-test-9-10-1zohil` point at the
-**same commit** — fast-forwarded from `f38f5cb`, so `71bb86c` (the restore tool
-+ tests), `373b7ec` (the docs) and this reconciliation are the same objects on
-both refs and the feature branch carries nothing unique. Nothing uncommitted,
-nothing unpushed, nothing unmerged into `dev`. `dev` is 44 commits ahead of
+**Branch status (2026-08-02): merged to `dev` at the operator's instruction,
+twice.** `origin/dev` and `origin/claude/operator-panel-step-9-z31g3w` point at
+the **same commit** — fast-forwarded from `fcc6b3f` through `a0119a8` to
+`0f31553`, so the feature branch carries nothing unique. Nothing uncommitted,
+nothing unpushed, nothing unmerged into `dev`. `dev` is 48 commits ahead of
 `origin/main`; **`dev` → `main` remains the maintainer's**, and no PR is open.
-`claude/knockknock-ui-improvements-7bm5o9` is the previous branch and is
+`claude/knockknock-smoke-test-9-10-1zohil` and
+`claude/knockknock-ui-improvements-7bm5o9` are previous branches and are
 redundant too.
 
-What remains (the rest of S1's step 9, G1, G3, G4, M1–M7) is either an operator
-action or explicitly deferred — none of it is unfinished build work.
+⚠️ **`dev` now carries a production behaviour change** (`0f31553` — `performLink`
+calls `expungeDerivedAccount`, so the `pushTokens` fix is on the production path).
+It rides the next functions deploy; `docs/DEPLOY-PROD.md` is the runbook and
+nothing deploys from sessions.
+
+What remains (the rest of S1's step 9, G1, G3, G4, G5's open half, M1–M7) is
+either an operator action or explicitly deferred — none of it is unfinished build
+work.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -134,14 +167,30 @@ the LOAD-BEARING `pushTokens` F6c sequence + a functions deploy (the Telegram
 beacon batch touches `functions/`) — full runbook in `docs/DEPLOY-PROD.md`.
 Nothing deploys from sessions.
 
+`0f31553` adds to that functions deploy and touches the same F6c node, so read
+the two together. It needs no migration ordering of its own: expunge nulls
+`userPrefs/{uid}` wholesale (which takes the legacy
+`userPrefs/{uid}/pushTokens` with it) *and* the new `pushTokens/{uid}`, and
+graduation copies the prefs subtree wholesale *and* moves the new node — so
+un-migrated and migrated accounts are both fully covered whichever side of the
+migration they are on. Deploying it before or after the migration completes is
+equally safe.
+
 ## Verification state
 
-Green bar OBSERVED at `373b7ec` (2026-08-02, = `origin/dev`): web jest
-**2123/2123** (88 suites, unchanged) · functions **842/842** (27 suites — the
-35 tests of `ops-restore.test.js`, one new file, nothing pre-existing moved) ·
-`typecheck` + `typecheck:scripts` clean · `node scripts/prod.js` builds.
+Green bar OBSERVED at `0f31553` (2026-08-02, = `origin/dev`): web jest
+**2123/2123** (88 suites, unchanged) · functions **857/857** (28 suites) ·
+`typecheck` + `typecheck:scripts` clean · `node scripts/prod.js` builds · zero
+new suppressions across all seven forms.
 
-Prior bar at `f38f5cb`: web 2123/2123 · functions 807/807 (26 suites).
+Functions movement from the `373b7ec` bar (842/27): **+8** for the residue sweep
+(`a0119a8`, into the existing `ops-restore.test.js`) and **+7 plus one new
+suite** for the `pushTokens` fix (`0f31553`,
+`functions/test/expunge-push-tokens.test.js`). Nothing pre-existing moved or
+changed shape. Web is untouched by both.
+
+Prior bars: `373b7ec` web 2123 · functions 842 (27). `f38f5cb` web 2123 ·
+functions 807 (26).
 
 **Run the gates from the repo root.** A `cd functions` in an earlier command
 lingers in the session shell, and from there `npx jest` runs the ROOT config
@@ -175,23 +224,39 @@ each carries its evidence):
   `op: restore` audit dump.
 - `373b7ec` the smoke-test results table, G4, the runbook section, and this
   file.
+- `a0119a8` the restore's dry run now sweeps a purge for residue. Its transient
+  branch had the live value in hand and discarded it; it now reports `gone` /
+  `present` per path plus the surviving keys, and the CLI prints a
+  `RESIDUE SWEEP` block. Restore behaviour is unchanged and the 35 pre-existing
+  cases pin that. +8 tests.
+- `0f31553` expunge and graduation now take `pushTokens/{uid}` with them — a
+  real production defect, found by `integrity.js` on a live purge and filed as
+  **G5**. +7 tests in a new file.
 
 `functions/test/telegram-auth.test.js` has a **0-line diff across the entire
 branch** — that is the standing proof the `expungeDerivedAccount` split
 preserved shipped behaviour. Do not edit it; if it goes red, the refactor is
-wrong. It survived both follow-ups, including the one that deliberately
-changed live expunge behaviour: the new coverage went in its own file
-(`functions/test/crossref-locations.test.js`) precisely so the invariant would
-stay meaningful.
+wrong. It has now survived THREE deliberate changes to live expunge behaviour
+(`4dea508`, `0f31553`, and the graduation move in the latter); each time the new
+coverage went in its own file — `functions/test/crossref-locations.test.js` and
+`functions/test/expunge-push-tokens.test.js` — precisely so the invariant would
+stay meaningful. That is the pattern to follow for the next one.
 
 **What green does NOT cover:** no session container has ever held a
 service-account credential, so nothing in a session has contacted a real
 Firebase project — the panel, the Auth probe and `ops/restore-preimage.js` are
 all operator-machine tools, and their test numbers cover decision logic, not
 live behaviour. What HAS now been exercised on the operator's machine
-(2026-08-02) is smoke-test steps 1-8 and 10: `deps.js`, `panel.html` in a real
-browser, the `Host`/`Origin` guard, one live purge, and one live restore driven
-from its pre-image. Step 9's remaining legs are listed under "What's next".
+(2026-08-02) is smoke-test steps 1-8 and 10, plus two step-9 runs: `deps.js`,
+`panel.html` in a real browser, the `Host`/`Origin` guard, two live purges (one
+with the Auth-record box ticked), one live restore driven from its pre-image, the
+`RESIDUE SWEEP` block rendering its clean branch, and the integrity report over
+live data — which is what surfaced G5. Step 9's remaining legs are listed under
+"What's next".
+
+**Still never printed:** the sweep's `present` branch (the `✗` output, the
+`keys:` list, the G3 caveat lines). Both live sweeps came back clean, so half
+that rendering is pinned only by tests.
 
 ## On-ramp
 
@@ -200,7 +265,8 @@ Read in this order; stop when you have what you need.
 1. This file — the source of truth for "where things are."
 2. `docs/operator-panel-followups.md` — every open item with a stable ID
    (**S1**, **G1**, **G3**, **G4**, **M1–M7**), each with `file:line` and why
-   it was left. Cite the IDs rather than re-describing the items.
+   it was left, plus closed-but-instructive **G2** and **G5**. Cite the IDs
+   rather than re-describing the items.
 3. `docs/operator-panel-smoke-test.md` — the ten-step script, its filled-in
    results table, and "What a restore cannot recover"; part of step 9 is
    what remains.
@@ -432,14 +498,35 @@ proxy and would abort an `&&` chain. Functions deps are required for
 - **`shared/` is mirrored into `functions/_shared/` by `npm run sync-shared`** —
   never edit the mirror by hand; edit `shared/` and re-sync (jest + the
   fixture `test-fixtures/geo-vectors.json` pin parity).
-- **Relocating a watched RTDB path requires sweeping EVERY reader.** F6c moved
-  `pushTokens` off the `userPrefs` watch; the plan named only the notifier as
-  reader, but review found TWO more (`functions/telegram.js` `/notifications`
-  gate, `js/notifyChannel.ts` `accountHasPushTokens` pill) that read the old
-  path. All three now dual-read (new-then-legacy) during the migration window; a
-  later cleanup commit drops the fallbacks together. When you move a node, grep
-  the WHOLE tree (`js/` AND `functions/`) for the old path before trusting the
-  plan's readers list.
+- **Relocating an RTDB path requires sweeping every reader, every writer, AND
+  every DELETE/MOVE path.** This landmine used to say "every reader", and that
+  wording is exactly what let **G5** ship. F6c moved `pushTokens` off the
+  `userPrefs` watch; the plan named only the notifier as reader, but review found
+  TWO more (`functions/telegram.js` `/notifications` gate, `js/notifyChannel.ts`
+  `accountHasPushTokens` pill) that read the old path. All three now dual-read
+  (new-then-legacy) during the migration window; a later cleanup commit drops the
+  fallbacks together. The reader sweep was done properly — and it was the wrong
+  half of the job.
+  **What it missed:** `pushTokens` used to live INSIDE `userPrefs/{uid}`, so
+  `buildExpungeWrites`' wholesale `userPrefs/{uid}` null destroyed it for free
+  and no code ever named it. After the move, nothing deleted it: every purge
+  stranded `pushTokens/{uid}` under a dead uid, and `graduateAccountData` — which
+  copies `users`/`userPrefs` wholesale — left a graduated account's devices
+  registered to the OLD uid with no `pushTokens` node on the new one. Both
+  reached PRODUCTION, since `performLink` calls `expungeDerivedAccount`
+  (`telegram-auth.js:210`). Fixed in `0f31553`; the reasoning is G5 in
+  `docs/operator-panel-followups.md`.
+  **The rule, corrected:** when you move a node, grep the WHOLE tree (`js/` AND
+  `functions/`) for the old path, and then separately ask *what used to delete
+  this by accident* — anything that was destroyed as a side effect of a wholesale
+  parent null now needs naming explicitly. A node that was never mentioned in the
+  code is the dangerous case, because grep for the old path finds nothing.
+  **How it was caught:** `integrity.js:187`'s `push-tokens-dangling`, on a live
+  dev project. Not by tests (all green), not by four reviews, and not by the
+  pre-image residue sweep — a path the purge never wrote is not in the dump, so
+  the sweep is structurally blind to it (G4's boundary). `integrity.js` is the
+  cross-account census; it only catches families someone thought to add to it,
+  which is the open half of G5.
 - **One trigger `onMemberWritten` now owns the whole `groups/{gid}/members/{uid}`
   node** (`functions/index.js`): deletion → cell revocation, `statusOverride`
   change → co-member notify, gated by `statusOverrideChanged` (`notifier.js`,
