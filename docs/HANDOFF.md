@@ -65,9 +65,9 @@ and M1–M7 (deferred minors, each with its `file:line` and why it was left).
 Nothing else is owed on this branch.
 
 **Branch status (2026-08-02): merged to `dev` at the operator's instruction.**
-`origin/dev` and `origin/claude/knockknock-smoke-test-9-10-1zohil` are both
-`373b7ec` — fast-forwarded from `f38f5cb`, so the two commits
-(`71bb86c` the restore tool + tests, `373b7ec` the docs) are the same objects on
+`origin/dev` and `origin/claude/knockknock-smoke-test-9-10-1zohil` point at the
+**same commit** — fast-forwarded from `f38f5cb`, so `71bb86c` (the restore tool
++ tests), `373b7ec` (the docs) and this reconciliation are the same objects on
 both refs and the feature branch carries nothing unique. Nothing uncommitted,
 nothing unpushed, nothing unmerged into `dev`. `dev` is 44 commits ahead of
 `origin/main`; **`dev` → `main` remains the maintainer's**, and no PR is open.
