@@ -123,13 +123,44 @@ Two caveats the file states for itself:
   That is deliberate: the dropped descendants are exactly the values that die
   with no other record.
 
+### Why purge ends the session
+
+Observed on dev, 2026-08-02: a purge deleted `userPrefs/{uid}` and the account's
+still-signed-in client put the node straight back, holding the same `following`
+keys and none of its other fields. The Auth record survives a purge, so the
+custom-token session stays valid, and the rules let that session write
+`users/{uid}`, `userPrefs/{uid}` **and its own rows in every peer's
+`followers`/`followerNames`** — so a live client can undo the cross-user cleanup
+as well as its own account.
+
+Purge therefore revokes the account's refresh tokens **before** issuing the
+write. Revoking afterwards would leave the same race in a smaller window. If the
+revoke fails the purge is refused outright: a purge that will be undone is worse
+than one that did not happen, because the operator walks away believing it
+worked.
+
+**Caveat to confirm on your own project:** revocation does not invalidate an
+already-issued ID token — Firebase honours those until they expire unless the
+rules check `auth.token.auth_time`. `database.rules.json` does not, so expect a
+window after the revoke in which an active client can still write. Deleting the
+Auth record does not close that window either.
+
 ### Reading a pre-image back
+
+**The `outcome` field in the per-op file always reads `pending`.** That is by
+design (`audit.js:230-232`) — the resolution is appended to `audit.jsonl` as a
+second line correlated by `ts`, never written back into the dump. Read the
+outcome from the log, not the dump:
+
+```bash
+jq -c 'select(.ts == <ts>) | {ts,op,uids,outcome}' .ops-audit/audit.jsonl
+```
 
 There is no automated restore, on purpose. To inspect one:
 
 ```bash
 cd functions
-jq -r '.op, .outcome, (.preImage | keys[])' .ops-audit/<file>.json   # what was touched
+jq -r '.op, (.preImage | keys[])' .ops-audit/<file>.json             # what was touched
 jq '.preImage["users/<uid>"]' .ops-audit/<file>.json                 # one node's old value
 tail -5 .ops-audit/audit.jsonl | jq .                                # recent operations
 ```
@@ -142,7 +173,7 @@ paths that other operations have legitimately changed since.
 
 | Action | What it destroys |
 | --- | --- |
-| **purge** | the account and everything the shared expunge enumerator nulls: `users/{uid}`, prefs, its code-index entry, its invite tokens (and their index rows), its rows in every peer's follower/following lists, groups it **owns for every member**, its shared canvases, its durable mailboxes, its location nodes and its Telegram mapping. Push tokens are left behind as residue but stop working. |
+| **purge** | the account and everything the shared expunge enumerator nulls: `users/{uid}`, prefs, its code-index entry, its invite tokens (and their index rows), its rows in every peer's follower/following lists, groups it **owns for every member**, its shared canvases, its durable mailboxes, its location nodes and its Telegram mapping. It also **revokes the account's refresh tokens** before the write. Push tokens are left behind as residue but stop working. With `deleteAuthRecord`, the Auth record goes too — opt-in, and the one thing here no pre-image can undo. |
 | **merge** | the loser account. Contacts, group memberships and per-group display names, canvases, durable mailboxes and push tokens are carried to the survivor; `knocks`/`calls` are dropped as transient. Conflicts (a group both are in, a per-group name on both sides) are listed in the preview with the resolution the plan will take. |
 | **link via merge** | **nothing.** This is the non-lossy link: the same merge path with the Telegram mapping repointed at the survivor, so contacts, groups, per-group names and canvases all transfer. **Prefer it.** |
 | **link as production** | the Telegram-derived account, exactly as the shipped `performLink` would — expunge, then link. Production's own gate only counts followers/following/groups, so it is silent about owned groups, canvases, redeemed invite tokens and durable mailboxes. Use it only when the impact report says `safe`. |

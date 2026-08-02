@@ -324,7 +324,32 @@ const AUTH_USERS = [
   { uid: 'onlyL', email: null, createdAt: 40 },
 ];
 
-function harness({ store = world(), canvasKeys = ['L_shared'], listCanvasKeys } = {}) {
+// A purge that leaves the account's session alive does not stick: the client
+// keeps its cached state and republishes it into the database the purge just
+// cleared (observed on dev, 2026-08-02 — userPrefs/{uid} came back holding the
+// same `following` keys and none of the other fields). So the routes need an
+// Admin-SDK auth handle, and the stub records call ORDER alongside the write.
+function makeAuthStub(events, { failRevoke = false, failDelete = false, record = { uid: 'L', email: 'l@example.com', metadata: { creationTime: '2026-01-01T00:00:00Z' } } } = {}) {
+  return {
+    revokeRefreshTokens: jest.fn(async (uid) => {
+      events.push(`revoke:${uid}`);
+      if (failRevoke) throw new Error('revoke boom');
+    }),
+    getUser: jest.fn(async (uid) => {
+      events.push(`getUser:${uid}`);
+      if (!record) throw Object.assign(new Error('no user'), { code: 'auth/user-not-found' });
+      return record;
+    }),
+    deleteUser: jest.fn(async (uid) => {
+      events.push(`deleteUser:${uid}`);
+      if (failDelete) throw new Error('delete boom');
+    }),
+  };
+}
+
+function harness({
+  store = world(), canvasKeys = ['L_shared'], listCanvasKeys, auth: authOverride, omitAuth = false,
+} = {}) {
   /** @type {string[]} */
   const events = [];
   const deps = makeStoreDeps(store);
@@ -348,8 +373,9 @@ function harness({ store = world(), canvasKeys = ['L_shared'], listCanvasKeys } 
     auditDir: '.audit',
   };
   const audit = makeAuditFs(events);
-  const routes = createRoutes({ deps, io, opts, fs: audit.fs });
-  return { routes, deps, events, audit, store, opts };
+  const auth = omitAuth ? undefined : (authOverride || makeAuthStub(events));
+  const routes = createRoutes({ deps, io, opts, fs: audit.fs, auth });
+  return { routes, deps, events, audit, store, opts, auth };
 }
 
 /** rootUpdate's projection, re-derived independently of the modules under test. */
@@ -397,6 +423,99 @@ describe('read routes', () => {
     const { routes } = harness();
     const res = await routes['GET /api/integrity'](new URLSearchParams());
     expect(Array.isArray(res.findings)).toBe(true);
+  });
+});
+
+// A purge deletes database state. It did NOT, until now, do anything about the
+// session holding that state: the Auth record survives (G2/D5), its custom-token
+// session stays valid, and the client republishes its cache into the nodes the
+// purge just cleared. Rules allow that session to write users/{uid},
+// userPrefs/{uid} AND its own rows in every peer's followers/followerNames, so
+// the resurrection reaches cross-user residue too.
+describe('purge ends the purged account\'s session', () => {
+  test('refresh tokens are revoked BEFORE the destructive write, closing the race', async () => {
+    const { routes, events, auth } = harness();
+    const { nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    await routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce });
+
+    expect(auth.revokeRefreshTokens).toHaveBeenCalledWith('L');
+    // Order is the point: a revoke after the write leaves a window in which the
+    // client can put back exactly what was just deleted.
+    expect(events.indexOf('revoke:L')).toBeLessThan(events.indexOf('rootUpdate'));
+  });
+
+  // Fail closed. A purge whose session cannot be ended does not stick, and a
+  // tool that reports success for a write the client will undo is worse than
+  // one that refuses.
+  test('a revoke failure refuses the purge, and nothing is written', async () => {
+    /** @type {string[]} */
+    const evs = [];
+    const h = harness({ auth: makeAuthStub(evs, { failRevoke: true }) });
+    const { nonce } = await h.routes['POST /api/purge/preview']({ uid: 'L' });
+    await expect(h.routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce }))
+      .rejects.toThrow(/revoke/i);
+    expect(h.events).not.toContain('rootUpdate');
+  });
+
+  test('purge refuses outright when no auth handle is wired', async () => {
+    const { routes, events } = harness({ omitAuth: true });
+    const { nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    await expect(routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce }))
+      .rejects.toThrow(/auth/i);
+    expect(events).not.toContain('rootUpdate');
+  });
+});
+
+// D5, opt-in. Deleting an Auth record is the one destruction the pre-image
+// cannot cover — a dumped RTDB subtree can be replayed, a deleted Auth user
+// cannot — so it is off by default and never implied by the purge confirm.
+describe('purge --delete-auth-record (opt in)', () => {
+  test('the Auth record is NOT deleted by default', async () => {
+    const { routes, auth } = harness();
+    const { nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    await routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce });
+    expect(auth.deleteUser).not.toHaveBeenCalled();
+  });
+
+  test('the flag deletes it, AFTER the recoverable write has succeeded', async () => {
+    const { routes, events, auth } = harness();
+    const { nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    const res = await routes['POST /api/purge/execute']({
+      uid: 'L', confirmUid: 'L', nonce, deleteAuthRecord: true,
+    });
+
+    expect(auth.deleteUser).toHaveBeenCalledWith('L');
+    // Irreversible last: if the RTDB write fails there is nothing to be sorry
+    // about, and the pre-image still describes a live account.
+    expect(events.indexOf('deleteUser:L')).toBeGreaterThan(events.indexOf('rootUpdate'));
+    expect(res.authRecordDeleted).toBe(true);
+  });
+
+  // No pre-image can restore an Auth record, so the fields that identify it are
+  // read and recorded before it goes.
+  test('the Auth identity is captured before the delete', async () => {
+    const { routes, events, auth } = harness();
+    const { nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    await routes['POST /api/purge/execute']({
+      uid: 'L', confirmUid: 'L', nonce, deleteAuthRecord: true,
+    });
+    expect(auth.getUser).toHaveBeenCalledWith('L');
+    expect(events.indexOf('getUser:L')).toBeLessThan(events.indexOf('deleteUser:L'));
+  });
+
+  // Same rule as the audit-outcome append: past the write, nothing may turn a
+  // completed purge into a failed request.
+  test('a delete failure warns rather than reporting the purge as failed', async () => {
+    /** @type {string[]} */
+    const evs = [];
+    const h = harness({ auth: makeAuthStub(evs, { failDelete: true }) });
+    const { nonce } = await h.routes['POST /api/purge/preview']({ uid: 'L' });
+    const res = await h.routes['POST /api/purge/execute']({
+      uid: 'L', confirmUid: 'L', nonce, deleteAuthRecord: true,
+    });
+    expect(res.authRecordDeleted).toBe(false);
+    expect(res.authWarning).toMatch(/delete boom/);
+    expect(h.events).toContain('rootUpdate');
   });
 });
 

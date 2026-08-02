@@ -206,7 +206,18 @@ snapshot. Note its documented limit: write *values* are not compared, so the
 
 ### 9. Execute, on data you are willing to lose
 
-Run one purge and one merge to completion on throwaway accounts.
+**Close the Mini App and any signed-in web client for the account you are about
+to purge, before you press execute.** Purge now revokes that account's refresh
+tokens first, but an already-issued ID token stays valid until it expires, so a
+live client can still write during that window — and what it writes looks
+exactly like residue the purge missed. The first run of this step lost an hour
+to that: `userPrefs/{uid}` came back with its cached `following` list moments
+after a purge that had correctly deleted it.
+
+Run one purge and one merge to completion on throwaway accounts. Do the purge
+twice if you have the accounts for it — once with the **delete the Auth record**
+box left off, once with it ticked — and check `auth.listUsers` (or the Firebase
+console) for the record either surviving or being gone.
 
 **Expect after each:**
 

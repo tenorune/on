@@ -352,15 +352,18 @@ function stringList(value, field) {
  *   fs: AuditFs,
  *   auth?: OpsWiring['auth'],
  * }} ctx
- * `auth` is carried from makeOpsDeps but no route uses it: the Admin-SDK auth
- * handle is already closed over by io.listAuthUsers, and the one route that
- * would need it directly — D5, deleting the Auth record alongside a purge — is
- * deferred on purpose until admin.auth().deleteUser is verified against a
- * custom-token uid on dev.
+ * `auth` is REQUIRED by the purge route and optional elsewhere. It stopped
+ * being a nicety on 2026-08-02: a purge on dev deleted `userPrefs/{uid}`, and
+ * the account's still-signed-in client put the node back with its cached
+ * `following` list (same keys, none of the other fields). Purge clears the
+ * database; only revoking the session stops the client refilling it. The rules
+ * let that session write `users/{uid}`, `userPrefs/{uid}` and its own rows in
+ * every peer's `followers`/`followerNames`, so the resurrection reaches
+ * cross-user residue too.
  * @returns {Record<string, RouteHandler>}
  */
 export function createRoutes(ctx) {
-  const { deps, io, opts, fs } = ctx;
+  const { deps, io, opts, fs, auth } = ctx;
 
   /** @type {Snapshot | null} */
   let cached = null;
@@ -507,6 +510,25 @@ export function createRoutes(ctx) {
   }
 
   /**
+   * The Auth record's identifying fields, or null when there is none. Read
+   * before an opt-in Auth deletion so the audit record carries the one thing a
+   * pre-image cannot: an Auth user, once deleted, has no dump to replay.
+   * @param {NonNullable<OpsWiring['auth']>} authHandle
+   * @param {string} uid
+   * @returns {Promise<{ uid: string, email: string | null, creationTime: string | null } | null>}
+   */
+  async function readAuthIdentity(authHandle, uid) {
+    try {
+      const user = await authHandle.getUser(uid);
+      return { uid: user.uid, email: user.email ?? null, creationTime: user.metadata?.creationTime ?? null };
+    } catch (e) {
+      // Already absent is not a failure — the purge should still proceed.
+      if (/** @type {{ code?: string }} */ (e)?.code === 'auth/user-not-found') return null;
+      throw e;
+    }
+  }
+
+  /**
    * Capture the pre-image, FLUSH IT TO DISK, and only then apply.
    *
    * The ordering is the whole artifact. writeAuditRecord fsyncs the pre-image
@@ -520,8 +542,11 @@ export function createRoutes(ctx) {
    * @param {string[]} uids
    * @param {WritePlan} plan
    * @param {(plan: WritePlan) => Promise<void>} apply
+   * @param {{ uid: string, email: string | null, creationTime: string | null } | null} [authRecord]
+   *   identity of an Auth record this operation is about to delete, recorded in
+   *   the audit file because no pre-image can bring one back.
    */
-  async function execute(op, uids, plan, apply) {
+  async function execute(op, uids, plan, apply, authRecord = null) {
     // The FULL preview write-set, not the wire payload: rootUpdate drops a null
     // that sits under an already-nulled ancestor, and those dropped descendants
     // are precisely the values that disappear with no other record of them.
@@ -535,6 +560,9 @@ export function createRoutes(ctx) {
       project: opts.projectId,
       uids,
       preImage,
+      // Present only when an Auth deletion was opted into. It is not a
+      // pre-image — nothing can replay it — but it records what existed.
+      ...(authRecord ? { authRecord } : {}),
       outcome: 'pending — pre-image captured and flushed; the destructive write has not been issued yet',
     });
 
@@ -674,7 +702,39 @@ export function createRoutes(ctx) {
       const snap = await refresh();
       const plan = await buildPurgePlan(deps, uid, canvasKeysOf(snap));
       assertPlanUnchanged(approved, plan);
-      return execute('purge', [uid], plan, (p) => applyPurgePlan(deps, p));
+
+      // FAIL CLOSED. A purge whose session cannot be ended does not stick, and
+      // reporting success for a write the client will undo is worse than
+      // refusing: the operator walks away believing the account is gone.
+      if (!auth) {
+        throw new Error('purge needs an Admin-SDK auth handle to end the account\'s session — refusing');
+      }
+      const deleteAuthRecord = body.deleteAuthRecord === true;
+
+      // Read the identity BEFORE anything destructive: no pre-image can restore
+      // an Auth record, so these fields are the only trace it ever existed.
+      const authRecord = deleteAuthRecord ? await readAuthIdentity(auth, uid) : null;
+
+      // Revoke BEFORE the write. After it, there is a window in which the
+      // client can put back exactly what was deleted — which is the bug.
+      await auth.revokeRefreshTokens(uid);
+
+      const result = await execute('purge', [uid], plan, (p) => applyPurgePlan(deps, p), authRecord);
+      if (!deleteAuthRecord) return result;
+
+      // Irreversible LAST, and — like the audit-outcome append above — a
+      // failure here may not turn a completed purge into a failed request.
+      try {
+        await auth.deleteUser(uid);
+        return { ...result, authRecordDeleted: true, authRecord };
+      } catch (e) {
+        return {
+          ...result,
+          authRecordDeleted: false,
+          authRecord,
+          authWarning: `THE PURGE SUCCEEDED and the session is revoked, but the Auth record could not be deleted (${String(e)}). The record remains; the account cannot sign back in until it is removed by hand.`,
+        };
+      }
     },
 
     'POST /api/link/impact': async (input) => {

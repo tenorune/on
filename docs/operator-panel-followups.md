@@ -15,16 +15,18 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Ten items. One blocks production use; the rest are ranked by whether anything
-downstream depends on them. IDs are stable — cite them rather than re-describing
-the item. **R1-R4 are closed** (`c1b2cf9`) and detailed under "Parked
-residuals" below; their IDs are retired, not reused.
+Nine open, one closed. S1 blocks production use; the rest are ranked by whether
+anything downstream depends on them. IDs are stable — cite them rather than
+re-describing the item. **R1-R4 are closed** (`c1b2cf9`) and detailed under
+"Parked residuals" below; their IDs are retired, not reused. **G2 is closed**
+too, and stays in the table with its reasoning because *why* the deferral was
+wrong is the useful part.
 
 | ID | Item | Where | Weight |
 |---|---|---|---|
 | **S1** | The manual dev-project smoke test | whole panel | **Blocks production use** |
 | **G1** | Divergence check compares paths, not write values | `ops/merge.js:212-213` | Known gap, bounded |
-| **G2** | Auth-record deletion has no route (D5) | `ops/server.js` | Deferred by decision |
+| **G2** | ~~Auth-record deletion has no route (D5)~~ | `ops/server.js` | **CLOSED** — the deferral was wrong; see below |
 | **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | Minor |
 | **M2** | Detail lookup builds and sorts every row to find one | `ops/project.js:69` | Minor |
 | **M3** | Canvas-key split inlined rather than shared | `ops/integrity.js:190` | Minor |
@@ -143,11 +145,30 @@ against them. Only the third is an open item.
   `EISDIR` on Windows. Documented as a requirement (Linux/macOS, or WSL) rather
   than skipped, because a portable skip would silently downgrade durability on
   the one platform nothing here exercises. It fails closed with a named cause.
-- **G2 — auth-record deletion is deferred deliberately.** `admin.auth().deleteUser`
-  on a custom-token uid is unverified against dev, so there is no route and no
-  checkbox. **S1 is the natural place to settle this**: once the panel is in
-  front of a dev project, verifying that call is minutes of work, and it is the
-  only thing standing between here and a decision.
+- **G2 — the deferral was WRONG, and S1 proved it.** This entry sat under
+  "standing constraints" on the reading that a surviving Auth record is inert
+  leftovers — a tidiness item worth a checkbox one day. It is not. It is what
+  keeps the purged account's session alive.
+
+  Observed on dev, 2026-08-02, during the first real step 9: a purge correctly
+  deleted `userPrefs/{uid}` — the path was in the plan, the pre-image proves it,
+  `rootUpdate` could not have pruned it, and `audit.jsonl` says `ok` — and the
+  account's still-signed-in client put the node straight back with its cached
+  `following` keys and none of its other fields. Only a session authenticated as
+  that uid may write there (`database.rules.json`), and that session survived
+  because purge never touched the Auth record. The rules also let it write
+  `users/{peer}/followers/{uid}` and `followerNames`, so a live client can undo
+  the *cross-user* cleanup too, not just its own account.
+
+  Closed by revoking the account's refresh tokens **before** the write, refusing
+  the purge outright if that fails, plus an opt-in `deleteAuthRecord` flag for
+  the record itself — off by default, because it is the one destruction no
+  pre-image can undo. **Still unverified:** `deleteUser` against a real
+  custom-token uid, which is what the original deferral was waiting on. The
+  tests use a stub; the next step 9 settles it.
+
+  The general lesson is worth more than the item: a deferral is only as good as
+  the reading it rests on, and this one had never been in front of live data.
 
 ---
 

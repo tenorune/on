@@ -184,9 +184,18 @@ $('detail').onclick = async (e) => {
       // only losses would hide the name of the account that really holds it.
       preview(`<h3>purge ${esc(uid)}</h3>${canvasNote()}
         <pre>${esc(plan.conflicts.map((c) => `${c.kind}: ${c.detail} → ${c.resolution}`).join('\n') || 'no conflicts')}</pre>
-        <pre>${esc(plan.losses.join('\n') || 'nothing of value')}</pre>${pathNote(plan)}`,
+        <pre>${esc(plan.losses.join('\n') || 'nothing of value')}</pre>${pathNote(plan)}
+        <p class="footnote">The account's session is revoked before the write either way — without that the
+        client puts back what this deletes.</p>
+        <label><input type="checkbox" id="purge-delete-auth"> also delete the Auth record
+        (<strong>irreversible — the pre-image cannot restore it</strong>; leave off to keep a
+        sign-in-disabled record)</label>`,
       async (confirmUid) => {
-        await api('/api/purge/execute', { uid, confirmUid, nonce: state.nonce });
+        const deleteAuthRecord = Boolean($('purge-delete-auth')?.checked);
+        const res = await api('/api/purge/execute', {
+          uid, confirmUid, nonce: state.nonce, deleteAuthRecord,
+        });
+        if (res.authWarning) alert(res.authWarning);
         await refresh();
       });
     }

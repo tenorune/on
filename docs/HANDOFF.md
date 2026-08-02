@@ -35,19 +35,31 @@ only authentication boundary on a server holding full database admin.
 The script is written and never run: **`docs/operator-panel-smoke-test.md`** —
 ten ordered steps with the observation that decides each one, seven
 copy-paste `curl` probes for the guard, and a results table to fill in. Running
-it is the work. It also settles **G2** (whether `admin.auth().deleteUser` works
-on a custom-token uid) for free, since it puts a dev project in front of you.
+it is the work — and steps 1-8 have now been run against dev, which is where
+**G2 stopped being a deferrable minor**. A purge correctly deleted
+`userPrefs/{uid}` and the account's still-signed-in client put it straight back:
+the Auth record survives a purge, so the session does, and a live client can
+undo both its own account's cleanup and its rows in every peer's follower
+lists. Purge now revokes refresh tokens before the write, refuses if that fails,
+and takes an opt-in `deleteAuthRecord` flag. G2 is CLOSED with the reasoning in
+`docs/operator-panel-followups.md`. What the smoke test still settles for free
+is the original question — whether `admin.auth().deleteUser` works on a
+custom-token uid — since the tests use a stub.
 
-**After that, ten open items** — all ranked with stable IDs in the "at a
+**Steps 9 and 10 remain**, and step 9 now carries a precondition: close the Mini
+App and any signed-in web client for the account being purged, or a republish
+will look exactly like residue the purge missed.
+
+**After that, nine open items** — all ranked with stable IDs in the "at a
 glance" table at the top of `docs/operator-panel-followups.md`: S1 (this smoke
-test), G1 and G2 (known gaps), and M1–M7 (deferred minors, each with its
-`file:line` and why it was left). Nothing else is owed on this branch.
+test), G1 (known gap), and M1–M7 (deferred minors, each with its `file:line`
+and why it was left). Nothing else is owed on this branch.
 
 **Branch status: believed COMPLETE, waiting on the smoke test — not on more
 code.** `claude/knockknock-ui-improvements-7bm5o9` is 32 commits ahead of
 `origin/dev` and 0 behind, tree clean, everything pushed. Every piece of work
 this branch owed has landed: the 11-task panel plan, both follow-ups, and all
-four parked residuals. What remains (S1, G1, G2, M1–M7) is either an operator
+four parked residuals. What remains (S1, G1, M1–M7) is either an operator
 action or explicitly deferred — none of it is unfinished business from the
 build. No PR is open; per convention the maintainer merges when ready, and
 nothing here is waiting on a session.
