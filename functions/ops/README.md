@@ -145,6 +145,30 @@ rules check `auth.token.auth_time`. `database.rules.json` does not, so expect a
 window after the revoke in which an active client can still write. Deleting the
 Auth record does not close that window either.
 
+### Proving the Auth calls on a custom-token uid
+
+`ops/verify-auth-delete.js` settles what D5 was originally deferred pending. A
+custom-token uid is not a special kind of record — after one
+`signInWithCustomToken` it is an ordinary Auth user, marked only by an empty
+`providerData` and a `creationTime` equal to that first sign-in.
+
+```bash
+cd functions
+GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)" \
+node ops/verify-auth-delete.js --project <dev-project-id> --uid <uid> \
+  --prod-project <prod-project-id> [--yes-delete]
+```
+
+Without `--yes-delete` it reads and revokes only — both recoverable. It refuses
+to run against the declared production project at all.
+
+It cannot prove everything. **The revoke window** (an already-issued ID token
+stays valid until it expires) and **whether the uid comes back** are device
+observations, not API ones — smoke-test steps 3, 4 and 6. Expect the uid to come
+back: it is `deriveTelegramUid(tgId, secret)`, deterministic, so the next Mini
+App open mints a token for the same uid and a new record appears under it.
+Deleting the record ends the session; it does not retire the uid.
+
 ### Reading a pre-image back
 
 **The `outcome` field in the per-op file always reads `pending`.** That is by

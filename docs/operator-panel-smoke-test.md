@@ -219,6 +219,20 @@ twice if you have the accounts for it — once with the **delete the Auth record
 box left off, once with it ticked — and check `auth.listUsers` (or the Firebase
 console) for the record either surviving or being gone.
 
+For the Auth side, `functions/ops/verify-auth-delete.js` does the scripted part
+and prints the fields rather than leaving you reading console screenshots
+(README, "Proving the Auth calls on a custom-token uid"). Three of its checks
+are yours, not the script's:
+
+- **the revoke window** — with the client open, change status from the app right
+  after a revoke. Expect it to **succeed**: the ID token is still valid and the
+  rules do not check `auth.token.auth_time`. Force a token refresh, retry, and
+  expect failure. That brackets the window.
+- **the uid coming back** — after `--yes-delete`, reopen the Mini App. Expect a
+  **new** Auth record under the **same** uid. If that holds, deleting ends the
+  session but does not retire the uid, and the README's claim for the flag needs
+  narrowing to say exactly that.
+
 **Expect after each:**
 
 - the write lands as **one** atomic update — the account and its residue go
