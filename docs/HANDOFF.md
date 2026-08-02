@@ -80,7 +80,9 @@ measurements live in `docs/operator-panel-followups.md`.
 glance" table at the top of `docs/operator-panel-followups.md`: S1 (this smoke
 test, now down to part of step 9), G1, G3 and **G4** (known gaps — G3 is a
 whole-app rules gap, not a panel item; G4 came out of running the smoke test),
-and M1–M7 (deferred minors, each with its `file:line` and why it was left).
+and M1–M9 (deferred minors, each with its `file:line` and why it was left —
+**M9 is filed as a minor but is not one**: it is the only entry there that can
+drive a bad destructive write, and it says so).
 **G5 is closed** (`0f31553`) and stays in that table with its reasoning, like G2,
 because *why it survived every review* is the useful part. It carries one open
 half, deliberately not done: `integrity.js` only catches residue families someone
@@ -104,7 +106,7 @@ deploy: `pushTokens` cleanup (`0f31553`), the owned-group index releases
 (`1f639ee`), and the `inviteIndex` shape fix (`2fcc51f`). `docs/DEPLOY-PROD.md`
 is the runbook; nothing deploys from sessions.
 
-What remains (S1's merge leg, G1, G3, G4, G6, M1–M7) is either an operator action
+What remains (S1's merge leg, G1, G3, G4, G6, M1–M9) is either an operator action
 or explicitly deferred — none of it is unfinished build work.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
@@ -294,7 +296,7 @@ Read in this order; stop when you have what you need.
 
 1. This file — the source of truth for "where things are."
 2. `docs/operator-panel-followups.md` — every open item with a stable ID
-   (**S1**, **G1**, **G3**, **G4**, **G6**, **M1–M7**), each with `file:line` and
+   (**S1**, **G1**, **G3**, **G4**, **G6**, **M1–M9**), each with `file:line` and
    why it was left, plus closed-but-instructive **G2**, **G5** and **G7**. Read
    **G6** before purging anything real: it is the one gap with no mitigation.
    Cite the IDs rather than re-describing the items.
