@@ -335,6 +335,14 @@ differs is the panel button and the verify flag:
 | plain + telegram | `merge into…` | `--telegram` | 61 | the loser's mapping comes **down** rather than transferring (`buildMappingTeardown`), and the survivor is not switched onto a channel it cannot receive on | **PASS 2026-08-03**, 61/61 |
 | **link via merge** | `link via merge…` | `--telegram --repoint` | 65 | the mapping **repoints** at the survivor — mapping node, reverse index *and* prefs (`buildLinkWrites`) — on top of all 57 plain-merge claims, which is the claim "non-lossy" actually makes | **PASS 2026-08-03**, 65/65 |
 
+**Inside the plain variant, who holds the mapping decides the outcome.** The
+61/61 run covered the loser holding it, which is the only case that *deletes*;
+`merge.js:389` passes no `ownUids`, so a third party, a `uid`-less node, or the
+survivor all land in the refusal and the mapping must survive. All four are
+seedable with `--mapping-shape` (table in `functions/ops/README.md`) and **none
+has been run live** — their failure mode is a refused delete rather than a wrong
+one, which is why they rank below everything else here.
+
 They take **opposite branches** of the same `if` (`merge.js:351` vs `:385`), so
 running one says nothing about the other — which is why both rows carry their own
 date and claim count. Link via merge was run first because it is the link the

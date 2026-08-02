@@ -369,6 +369,46 @@ receive on. Both are seeded by the same flag; only the panel button and the
 which is why each carries its own date and claim count above. Both have now been
 run against a live project, once each.
 
+#### Who holds the mapping — `--mapping-shape`
+
+The 61/61 run above covered one case: the **loser** holds `telegramUsers/{tgId}`,
+so the teardown deletes it. `merge.js:389` passes **no `ownUids`**, so every other
+holder lands in the builder's refusal (`telegram-link-write.js:100`) and the
+mapping must **survive** the merge. Pass the same shape to both CLIs:
+
+| `--mapping-shape` | Who holds the mapping | What must happen | Run live? |
+|---|---|---|---|
+| `loser` (default) | the loser | torn down | **PASS 2026-08-03**, 61/61 |
+| `third-party` | `P2`, not in the merge | **refused**; P2's Telegram keeps working | not yet |
+| `no-uid` | a mapping node with no `uid` | **refused** — no provable owner, so no delete on a guess | not yet |
+| `absent` | nobody; the reverse index points at nothing | nulled anyway (a no-op) | not yet |
+| `survivor` | the survivor | **refused**, and correctly — `S` is still here | not yet |
+
+```bash
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tp1 --telegram --mapping-shape third-party --yes
+# refresh · integrity · LOSER row → "merge into…" · READ THE PREVIEW: a
+#   telegram-mapping-not-owned conflict must be there, and NO loss line saying
+#   the mapping was dropped
+node ops/verify-merge.js --project $DEV --prod-project $PROD --tag tp1 --telegram --mapping-shape third-party
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tp1 --clean --yes
+```
+
+Three things this changes about the checklist above:
+
+* **A refusal shape seeds a deliberately inconsistent account**, so the "no
+  errors before the merge" rule does not hold for it: expect
+  `telegram-mapping-asymmetric` (ERROR) against the loser, and for `no-uid` a
+  `telegram-mapping-dangling` (WARN) as well. That is the state being tested.
+  Both CLIs say so in their notes.
+* **Verify with the shape you seeded.** The claims differ per shape — `loser`
+  asserts the mapping is GONE, three of the others assert it is still there — so
+  a mismatch reports a correct merge as owed, which is the `2dec78c` failure
+  deliberately re-created. A shape without `--telegram`, or combined with
+  `--repoint`, is refused rather than coerced, before the credential is read.
+* **`absent` reads back identically to `loser`** — a null over a path that held
+  nothing leaves the same tree. What differs is the preview's loss line, which
+  no read-back can see; read it on the panel or the run says nothing.
+
 All five action buttons render unconditionally, so `link via merge…` is offered
 for a synthetic account like any other. Note the origin badge will read
 *inexact*: these uids are not `deriveTelegramUid(tgId, secret)`, so provenance

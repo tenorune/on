@@ -34,7 +34,7 @@
 import * as nodeFs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { makeOpsDeps } from './deps.js';
-import { buildMergeAssertions, checkAssertion, fixtureUids } from './merge-fixture.js';
+import { buildMergeAssertions, checkAssertion, fixtureUids, assertMappingShape } from './merge-fixture.js';
 
 const proc = /** @type {{ argv: string[]; env: Record<string, string | undefined>; exit: (code?: number) => never }} */ (
   /** @type {unknown} */ (process)
@@ -57,9 +57,14 @@ async function main() {
   const tag = (flag(argv, '--tag') || '').trim();
   const telegram = argv.includes('--telegram');
   const repoint = argv.includes('--repoint');
+  const mappingShape = flag(argv, '--mapping-shape') || 'loser';
 
   if (!projectId) throw new Error('need --project <firebase-project-id>');
   if (!/^[a-z0-9]{1,16}$/.test(tag)) throw new Error('need --tag <the tag the fixture was seeded with>');
+  // Before the credential: the claims this builds describe one specific merge,
+  // and reading them back against a different one is the cry-wolf failure
+  // (2dec78c) rather than a discovery.
+  assertMappingShape({ mappingShape, telegram, repoint });
 
   // This one only READS, so the gate is a warning rather than a refusal —
   // reading production to check a dev merge is pointless, not dangerous.
@@ -78,10 +83,10 @@ async function main() {
 
   const { deps } = makeOpsDeps({ projectId, saJson, databaseURL });
   const { L, S } = fixtureUids(tag);
-  const assertions = buildMergeAssertions({ tag, telegram, repoint });
+  const assertions = buildMergeAssertions({ tag, telegram, repoint, mappingShape });
 
   console.log(`\nmerge ${L} → ${S}`);
-  console.log(`project=${projectId} tag=${tag}${telegram ? (repoint ? ' variant=link-via-merge' : ' variant=plain+telegram') : ''}`);
+  console.log(`project=${projectId} tag=${tag}${telegram ? (repoint ? ' variant=link-via-merge' : ` variant=plain+telegram mapping-shape=${mappingShape}`) : ''}`);
   console.log(`checking ${assertions.length} claim(s)\n`);
 
   // Every path is read live and independently. Canvas nodes are read as named
