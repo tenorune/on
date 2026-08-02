@@ -30,13 +30,20 @@ executing, and an `ok` line for the merge in `.ops-audit/audit.jsonl`. It
 exercised the `inviteIndex` `scope` fix (`2fcc51f`) and `merge.js`'s own
 `pushTokens` carry on live data, neither of which had ever been observed.
 
-⚠️ **Two merge variants are still unexercised live**: `--telegram`, and **link
-via merge** (`telegramRepoint`) — the panel's non-lossy link, the one
-`functions/ops/README.md` tells operators to *prefer*. Both are covered by tests
-and by the fixture, which is not the same thing. Seeding each is one flag
-(`--telegram` on the seed, `--repoint` on the verify), so it is a short run.
-Deliberately NOT filed as an open item — nothing depends on it — but do not read
-"S1 closed" as "every merge path has been seen live".
+**Link via merge, OBSERVED 2026-08-03.** The panel's non-lossy link ran on its
+own `--telegram` fixture: **65 of 65** claims, covering all of `buildLinkWrites`
+— mapping node, reverse index, and the prefs side where `telegram-prefs-disagree`
+and `telegram-channel-unroutable` (both integrity ERRORS) live.
+
+⚠️ **One merge path is still unexercised live**: a plain merge of a
+Telegram-linked loser — `merge.js:385-394`'s `buildMappingTeardown` branch, the
+*opposite* branch of the same `if` link-via-merge takes (`:351`). Running one
+says nothing about the other: there the mapping must come **down** rather than
+repoint, or it points at a uid that no longer exists and the next Mini App open
+bootstraps onto it. One run — seed `--telegram`, press `merge into…`, verify
+`--telegram` without `--repoint` (61 claims). Deliberately NOT filed as an open
+item; recorded so nobody reads "S1 closed" as "every merge path has been seen
+live".
 
 **If you run the panel again, the preconditions still stand.** Close the Mini App
 and any signed-in web client for the target account first (**G3**) — it is not
@@ -334,14 +341,13 @@ steps 1-8 and 10 plus step 9's purge side (2026-08-02), and step 9's merge leg
 `Host`/`Origin` guard, three live purges (one with the Auth-record box ticked,
 probed either side), one live restore driven from its pre-image, the
 `RESIDUE SWEEP` clearing an owned group's whole cells node, the integrity report
-over live data (which surfaced G5, G6 and G7), and one live plain merge with
-57/57 read-back claims holding.
+over live data (which surfaced G5, G6 and G7), one live plain merge with 57/57
+read-back claims holding, and one live **link via merge** with 65/65.
 
-**Still never exercised:** the `--telegram` merge variant (61 read-back claims)
-and **link via merge** (`telegramRepoint`, 65 claims) — the non-lossy link the
-README tells operators to prefer and the path production's `performLink` shadows.
-Both are seeded by one flag and differ only in the panel button and `--repoint`;
-the runbook for each is in `functions/ops/README.md`.
+**Still never exercised:** a plain merge of a **Telegram-linked** loser — the
+`buildMappingTeardown` branch (`merge.js:385-394`), 61 read-back claims. Link via
+merge (`:351`, 65 claims) HAS now run; it is the opposite branch of the same
+`if`, so it does not cover this one. Runbook in `functions/ops/README.md`.
 Also unexercised: the sweep's `present` branch (the `✗` output — every live sweep
 came back clean, so half that rendering is pinned only by tests), and the
 `PEER REPUBLISH` block, which was written from a diagnosis rather than from

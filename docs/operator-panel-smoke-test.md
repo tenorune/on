@@ -7,11 +7,20 @@ probed either side, and a residue sweep that came back clean over an owned
 group's whole cells node. Step 10 passed in its strongest available form: the
 dump was read back and turned into a working restore of the purged account.
 
-**What the merge leg did NOT cover, and nothing else does either:** it was run as
-a **plain merge**. The `--telegram` variant and **link via merge** (the panel's
-non-lossy link, `telegramRepoint`) are still unexercised against a live project.
-They are pinned by tests and by the fixture, which is not the same thing — this
-whole document exists because that distinction has cost four production defects.
+**Link via merge — the panel's non-lossy link — also ran, 2026-08-03**, on its own
+`--telegram` fixture: **65 of 65** claims holding, covering the whole of
+`buildLinkWrites` (mapping node, reverse index, and the prefs side where
+`telegram-prefs-disagree` and `telegram-channel-unroutable` both live).
+
+**What is still unexercised, and nothing else covers it:** a **plain merge of a
+Telegram-linked loser** — `merge.js:385-394`'s `buildMappingTeardown` branch. It
+is not the branch link-via-merge takes; it is the opposite one, where the mapping
+must come **down** rather than repoint, or it points at a uid that no longer
+exists and the next Mini App open bootstraps onto it. One run: seed with
+`--telegram`, press `merge into…` rather than `link via merge…`, verify with
+`--telegram` and no `--repoint` (61 claims). It is pinned by tests and by the
+fixture, which is not the same thing — this whole document exists because that
+distinction has cost four production defects.
 
 The results table at the bottom records what was observed. Read it before
 treating any row as settled.
@@ -313,17 +322,18 @@ with a purge), all three canvas branches, push tokens on both sides, an invite
 token with its index entry (the `2fcc51f` `scope` fix on live data), a durable
 mailbox collision, and `knocks`/`calls` to drop. **57 claims.**
 
-**The two variants, each one flag away** and neither yet run against a live
-project. Seed both with `--telegram`; what differs is the panel button and the
-verify flag:
+**The two variants, each one flag away.** Seed both with `--telegram`; what
+differs is the panel button and the verify flag:
 
-| Variant | Panel button | Verify | Claims | What it proves |
-|---|---|---|---|---|
-| plain + telegram | `merge into…` | `--telegram` | 61 | the loser's mapping comes **down** rather than transferring, and the survivor is not switched onto a channel it cannot receive on |
-| **link via merge** | `link via merge…` | `--telegram --repoint` | 65 | the mapping **repoints** at the survivor — mapping node, reverse index *and* prefs — on top of all 57 plain-merge claims, which is the claim "non-lossy" actually makes |
+| Variant | Panel button | Verify | Claims | What it proves | Run? |
+|---|---|---|---|---|---|
+| plain + telegram | `merge into…` | `--telegram` | 61 | the loser's mapping comes **down** rather than transferring (`buildMappingTeardown`), and the survivor is not switched onto a channel it cannot receive on | **not yet** |
+| **link via merge** | `link via merge…` | `--telegram --repoint` | 65 | the mapping **repoints** at the survivor — mapping node, reverse index *and* prefs (`buildLinkWrites`) — on top of all 57 plain-merge claims, which is the claim "non-lossy" actually makes | **PASS 2026-08-03**, 65/65 |
 
-Link via merge is the one worth running first: it is the link the runbook tells
-operators to *prefer*, and the path production's `performLink` shadows.
+They take **opposite branches** of the same `if` (`merge.js:351` vs `:385`), so
+running one says nothing about the other. Link via merge was run first because it
+is the link the runbook tells operators to *prefer* and the path production's
+`performLink` shadows; the teardown branch is what is left.
 
 Read the preview's conflicts and losses before executing — that is the half no
 read-back can check for you. Then `verify-merge` answers the rest, one line per
@@ -386,7 +396,7 @@ still owes something says so, and an unfinished row is not a passing row.
 | 6c | Not reachable off-box | PASS | |
 | 7 | Preview writes nothing | PASS | |
 | 8 | Divergence refused | PASS | |
-| 9 | Execute: atomic, audited, residue gone | **PASS** | **Purge side (2026-08-02), three runs.** Run 1: Auth box **OFF**; deletes landed, proved by the restore's dry run re-reading every dumped path. Run 2: Auth box **ticked**; sweep `swept: 1` (`locations/{uid}`, empty) — the account had no other location footprint. Run 3 closed it: box ticked with `ops/verify-auth-delete.js` either side (empty `providerData` → `NO AUTH RECORD`), and `swept: 4`, all empty, **including an owned group's whole `locationCells/{gid}` with another member's cell in it** — the claim this step existed to check. **Merge side (2026-08-03), one run**, seeded by `ops/seed-merge-fixture.js --tag run2`: a **plain merge**, **57 of 57** read-back claims holding under `ops/verify-merge.js`, the preview's conflicts and losses read before executing, and an `ok` line for the merge in `.ops-audit/audit.jsonl`. **Not covered:** the `--telegram` variant and **link via merge**. |
+| 9 | Execute: atomic, audited, residue gone | **PASS** | **Purge side (2026-08-02), three runs.** Run 1: Auth box **OFF**; deletes landed, proved by the restore's dry run re-reading every dumped path. Run 2: Auth box **ticked**; sweep `swept: 1` (`locations/{uid}`, empty) — the account had no other location footprint. Run 3 closed it: box ticked with `ops/verify-auth-delete.js` either side (empty `providerData` → `NO AUTH RECORD`), and `swept: 4`, all empty, **including an owned group's whole `locationCells/{gid}` with another member's cell in it** — the claim this step existed to check. **Merge side (2026-08-03), one run**, seeded by `ops/seed-merge-fixture.js --tag run2`: a **plain merge**, **57 of 57** read-back claims holding under `ops/verify-merge.js`, the preview's conflicts and losses read before executing, and an `ok` line for the merge in `.ops-audit/audit.jsonl`. **Link via merge (2026-08-03), one run**, seeded `--telegram` on its own tag: **65 of 65** claims under `ops/verify-merge.js --telegram --repoint`, covering the whole of `buildLinkWrites` including the prefs side. **Still not covered:** a plain merge of a Telegram-linked loser — `buildMappingTeardown`, the opposite branch. |
 | 10 | Pre-image reads back | **PASS** | Strongest form: all four README read-back commands run verbatim, and the dump was used to restore the account. See "What a restore cannot recover" — the gap found is G4, not a defect in the dump. |
 
 **What running this has cost and bought, as of 2026-08-03.** Every defect below

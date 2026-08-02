@@ -332,9 +332,8 @@ node ops/seed-merge-fixture.js --project <dev-id> --prod-project <prod-id> --tag
 Add `--telegram` to seed a mapping on the loser; add `--repoint` to `verify-merge`
 when the merge was run as **link via merge** rather than as a plain merge.
 
-**The link-via-merge variant**, which is worth running on its own because it is
-the link this README tells you to *prefer* and the one production's `performLink`
-shadows:
+**The link-via-merge variant** — the link this README tells you to *prefer* and
+the one production's `performLink` shadows. **Exercised on dev 2026-08-03, 65/65:**
 
 ```bash
 node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag lvm1 --telegram --yes
@@ -356,7 +355,9 @@ Run the **plain** merge with `--telegram` (no `--repoint`, 61 claims) and you ar
 checking the opposite property — that the mapping comes *down* rather than
 transferring, and that the survivor is not switched onto a channel it cannot
 receive on. Both are seeded by the same flag; only the panel button and the
-`--repoint` flag differ.
+`--repoint` flag differ. **They take opposite branches of the same `if`**
+(`merge.js:351` vs `:385`), so a green run of one says nothing about the other —
+the teardown branch is the one still never run against a live project.
 
 All five action buttons render unconditionally, so `link via merge…` is offered
 for a synthetic account like any other. Note the origin badge will read
