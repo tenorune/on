@@ -1,11 +1,13 @@
 # Operator panel — dev-project smoke test
 
-**Status: RUN on the dev project, 2026-08-02.** Steps 1-8 passed. Step 9 ran
-**partially** — one purge executed, with the Auth-record box left OFF — and step
-10 passed, in the strongest available form: the dump was read back and turned
-into a working restore of the purged account. The results table at the bottom
-records what was observed and, just as importantly, what each step still owes.
-Read it before treating any row as settled.
+**Status: RUN on the dev project, 2026-08-02.** Steps 1-8 and 10 passed. Step 9's
+**purge side passed** across three runs — the last of them with the Auth-record
+box ticked, probed either side, and a residue sweep that came back clean over an
+owned group's whole cells node. **The merge leg is the only thing still owed in
+the entire smoke test.** Step 10 passed in its strongest available form: the dump
+was read back and turned into a working restore of the purged account. The
+results table at the bottom records what was observed and what each row still
+owes. Read it before treating any row as settled.
 
 The run is also what produced `functions/ops/restore-preimage.js`. Step 10 asks
 whether the artifact every safety property here rests on can be read; the
@@ -328,9 +330,28 @@ still owes something says so, and an unfinished row is not a passing row.
 | 6c | Not reachable off-box | PASS | |
 | 7 | Preview writes nothing | PASS | |
 | 8 | Divergence refused | PASS | |
-| 9 | Execute: atomic, audited, residue gone | **PARTIAL** | One purge, Auth box **OFF**. The dump was written and the deletes landed — the restore's dry run re-read every dumped path and found all but one empty, which is direct evidence the purge's write-set was applied. **Still owed:** the second purge with the Auth box **ticked**, a **merge** to completion, and the residue sweep over `locations/{uid}`, `locationCells/{gid}/{uid}` and an owned group's whole `locationCells/{gid}` — the restore skips those families as transient, so it says nothing about them. |
+| 9 | Execute: atomic, audited, residue gone | **PARTIAL — purge side PASSES, merge still owed** | Three purges. Run 1: Auth box **OFF**; deletes landed, proved by the restore's dry run re-reading every dumped path. Run 2: Auth box **ticked**; sweep `swept: 1` (`locations/{uid}`, empty) — the account had no other location footprint. **Run 3 closed the purge side**: box ticked with `ops/verify-auth-delete.js` either side (empty `providerData` → `NO AUTH RECORD`), and `swept: 4`, all empty, **including an owned group's whole `locationCells/{gid}` with another member's cell in it** — the claim this step existed to check. **Still owed: a merge to completion**, untouched by all three runs. |
 | 10 | Pre-image reads back | **PASS** | Strongest form: all four README read-back commands run verbatim, and the dump was used to restore the account. See "What a restore cannot recover" — the gap found is G4, not a defect in the dump. |
 
-Two things the run changed elsewhere: `functions/ops/restore-preimage.js`
-(+ `functions/test/ops-restore.test.js`) and **G4** in
-`docs/operator-panel-followups.md`.
+**What running this has cost and bought, as of 2026-08-02.** Every defect below
+was found by running the panel against a live project and reading the integrity
+report. None came from a review; none was caught by the test suite, which was
+green throughout; and none could have been caught by the residue sweep, because
+a path the purge never wrote is not in the dump (G4's boundary).
+
+- **G5** — expunge and graduation stranded `pushTokens/{uid}` after F6c relocated
+  it. Production defect, reached via `performLink`.
+- **G7** — a purge left an owned group's `groupIdIndex` lock and the index rows
+  of every invite issued in it. Production defect. The stranded lock burned those
+  group codes permanently.
+- **The `inviteIndex` shape** — graduation overwrote the record with a bare uid
+  and merge omitted `scope`; both silently killed the invite preview.
+- **G6** — a *peer's* client republishes cross-user residue, permanently, and no
+  mitigation exists. Detection only.
+- **G4** — a pre-image cannot undo a cascade the purge merely triggered.
+
+New tooling it produced: `functions/ops/restore-preimage.js`, its `RESIDUE SWEEP`
+and `PEER REPUBLISH` blocks, and
+`functions/test/expunge-completeness.test.js` — the guard that fails when a new
+top-level node in `database.rules.json` has not been classified against the
+expunge, so the next relocation is caught by CI rather than by a live purge.

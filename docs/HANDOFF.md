@@ -11,42 +11,40 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**THE NEXT ACTION — finish step 9 of `docs/operator-panel-smoke-test.md`.**
-Steps 1-8 and **step 10** passed against the dev project on 2026-08-02, and that
-file's results table is filled in. Step 9 is still **PARTIAL** after two runs.
+**THE NEXT ACTION — run the MERGE leg of step 9 in
+`docs/operator-panel-smoke-test.md`. It is the only unfinished part of the whole
+smoke test.** Steps 1-8 and 10 pass; step 9's purge side is done and observed.
 
-Run 1 (2026-08-02): one purge with the Auth-record box OFF; the restore that
-followed proved its deletes had landed.
-Run 2 (2026-08-02): a purge **with the Auth-record box ticked**, followed by the
-residue sweep. The sweep reported `swept: 1` — `locations/{uid}`, empty — so it
-executed and rendered correctly but covered only one of the three owed families.
+**Step 9's purge side, OBSERVED across three runs (2026-08-02).** Run 3 closed it:
+a purge with the **Auth-record box ticked**, `ops/verify-auth-delete.js` run
+either side (record with empty `providerData` → `NO AUTH RECORD`), and the
+residue sweep reporting `swept: 4`, all empty — **including an owned group's
+whole `locationCells/{gid}` with another member's cell inside it**, which is the
+claim the entire step existed to check. Nothing is owed on the purge side.
 
-What step 9 still owes, all on a **fresh throwaway** — the accounts touched on
-2026-08-02 are in a restored state and will not read cleanly:
+**What the merge leg needs.** Two fresh throwaways, L (loser) and S (survivor),
+seeded so the merge is not trivial: each following a distinct contact; one group
+BOTH are in (forces a conflict row); a per-group display name on both sides in
+that group (a second conflict row); a canvas on L; push tokens on L. Preview,
+read the plan and its conflict resolutions, execute, then verify L's contacts,
+groups, per-group names and canvases are on S, `pushTokens/L` is gone with its
+tokens under `pushTokens/S`, `knocks`/`calls` were dropped as transient, and
+`users/L`/`userPrefs/L` are gone.
 
-- a **merge** to completion. Untouched by either run;
-- the residue sweep over `locationCells/{gid}/{uid}` **and an owned group's whole
-  `locationCells/{gid}` including other members' cells**. Run 2's account had no
-  such footprint, so the branch's least-observed behaviour is still unobserved.
-  **Seed the throwaway for it**: glyph on with a real fix published; membership
-  in two groups with cells published in both; ownership of a third group where
-  another member has published a cell. That yields `swept: 4+` instead of 1;
-- the Auth check *either side* of the ticked purge, via `auth.listUsers` or
-  `ops/verify-auth-delete.js`. Run 2 ticked the box but the before/after probe
-  was not reported, so the record's deletion is inferred, not observed.
+It is worth more now than when it was written: it exercises the `inviteIndex`
+`scope` fix (`2fcc51f`) on a live project, and `merge.js`'s own `pushTokens`
+carry has never been observed either.
 
-**The sweep is scripted now** (`a0119a8`): run `ops/restore-preimage.js` against
-the dump with **no flags** — it writes nothing — and read its `RESIDUE SWEEP`
-block. See `functions/ops/README.md`, "Sweeping a purge for residue". Do not pass
-`--restore-transient`: that opts the paths back into the restore and the sweep
-goes silent. Its `present` branch (the `✗` output) has still never rendered.
+**Precondition, not hygiene — close the clients first (G3).** And note **G6**:
+closing the PURGED account's clients is not sufficient, because a PEER's client
+republishes cross-user residue permanently. There is no mitigation for that; the
+tool now detects it and prints a `PEER REPUBLISH` block.
 
-**Run 2 also found a real production defect**, which is the strongest argument
-yet for finishing this: `integrity.js`'s `push-tokens-dangling` on the purged
-uid, root-caused to expunge and graduation both stranding `pushTokens/{uid}`
-after F6c relocated it. Fixed in `0f31553`, filed as **G5**. Neither the test
-suite, four reviews, nor the residue sweep could have caught it — see the
-relocation landmine below, which has been corrected as a result.
+**Everything found this session came from RUNNING the panel, not from reviewing
+it.** Four defects in shipped production code — G5, both halves of G7, and the
+`inviteIndex` shape — all surfaced by `integrity.js` on a live project, with a
+full green bar and four prior reviews having walked past every one. That is the
+argument for finishing the last leg rather than declaring it close enough.
 
 **Precondition, not hygiene: close the Mini App and any signed-in web client for
 the account first** — see the G3 landmine below. It is not theoretical: it fired
@@ -92,23 +90,22 @@ catch the NEXT relocation instead of the last one. Nothing else is owed on this
 branch.
 
 **Branch status (2026-08-02): merged to `dev` at the operator's instruction,
-twice.** `origin/dev` and `origin/claude/operator-panel-step-9-z31g3w` point at
-the **same commit** — fast-forwarded from `fcc6b3f` through `a0119a8` to
-`0f31553`, so the feature branch carries nothing unique. Nothing uncommitted,
-nothing unpushed, nothing unmerged into `dev`. `dev` is 48 commits ahead of
-`origin/main`; **`dev` → `main` remains the maintainer's**, and no PR is open.
-`claude/knockknock-smoke-test-9-10-1zohil` and
-`claude/knockknock-ui-improvements-7bm5o9` are previous branches and are
+five times.** `origin/dev` and `origin/claude/operator-panel-step-9-z31g3w` point
+at the **same commit** (`5f4dcd5`) — fast-forwarded each time, so the feature
+branch carries nothing unique. Nothing uncommitted, nothing unpushed, nothing
+unmerged into `dev`. `dev` is 53 commits ahead of `origin/main`; **`dev` → `main`
+remains the maintainer's**, and no PR is open. `claude/knockknock-smoke-test-9-10-1zohil`
+and `claude/knockknock-ui-improvements-7bm5o9` are previous branches and are
 redundant too.
 
-⚠️ **`dev` now carries a production behaviour change** (`0f31553` — `performLink`
-calls `expungeDerivedAccount`, so the `pushTokens` fix is on the production path).
-It rides the next functions deploy; `docs/DEPLOY-PROD.md` is the runbook and
-nothing deploys from sessions.
+⚠️ **`dev` carries THREE production behaviour changes from this session**, all on
+the `performLink` → `expungeDerivedAccount` path, all riding the next functions
+deploy: `pushTokens` cleanup (`0f31553`), the owned-group index releases
+(`1f639ee`), and the `inviteIndex` shape fix (`2fcc51f`). `docs/DEPLOY-PROD.md`
+is the runbook; nothing deploys from sessions.
 
-What remains (the rest of S1's step 9, G1, G3, G4, G5's open half, M1–M7) is
-either an operator action or explicitly deferred — none of it is unfinished build
-work.
+What remains (S1's merge leg, G1, G3, G4, G6, M1–M7) is either an operator action
+or explicitly deferred — none of it is unfinished build work.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -178,19 +175,19 @@ equally safe.
 
 ## Verification state
 
-Green bar OBSERVED at `0f31553` (2026-08-02, = `origin/dev`): web jest
-**2123/2123** (88 suites, unchanged) · functions **857/857** (28 suites) ·
+Green bar OBSERVED at `5f4dcd5` (2026-08-02, = `origin/dev`): web jest
+**2123/2123** (88 suites, unchanged) · functions **879/879** (30 suites) ·
 `typecheck` + `typecheck:scripts` clean · `node scripts/prod.js` builds · zero
 new suppressions across all seven forms.
 
-Functions movement from the `373b7ec` bar (842/27): **+8** for the residue sweep
-(`a0119a8`, into the existing `ops-restore.test.js`) and **+7 plus one new
-suite** for the `pushTokens` fix (`0f31553`,
-`functions/test/expunge-push-tokens.test.js`). Nothing pre-existing moved or
-changed shape. Web is untouched by both.
+Functions movement from the `373b7ec` bar (842/27), all from this session:
+**+8** residue sweep · **+7** and a new suite for `pushTokens` · **+13** for the
+owned-group index releases and peer-republish detection · **+5** and a new suite
+for the `inviteIndex` shape · **+4** and a new suite for the completeness guard.
+Web is untouched throughout.
 
-Prior bars: `373b7ec` web 2123 · functions 842 (27). `f38f5cb` web 2123 ·
-functions 807 (26).
+Prior bars: `0f31553` functions 857 (28). `373b7ec` functions 842 (27).
+`f38f5cb` functions 807 (26).
 
 **Run the gates from the repo root.** A `cd functions` in an earlier command
 lingers in the session shell, and from there `npx jest` runs the ROOT config
@@ -232,6 +229,19 @@ each carries its evidence):
 - `0f31553` expunge and graduation now take `pushTokens/{uid}` with them — a
   real production defect, found by `integrity.js` on a live purge and filed as
   **G5**. +7 tests in a new file.
+- `e5099d0` the relocation landmine corrected (it named readers only, which is
+  what let G5 ship) and this file reconciled.
+- `1f639ee` a purge now releases an owned group's `groupIdIndex` lock and the
+  index rows of every invite issued in it — **G7**, found the same way. Also adds
+  peer-republish detection to the restore's dry run — **G6**.
+- `2fcc51f` `inviteIndex` keeps its `{scope, ownerPath, ownerUid}` shape through
+  a graduation and a merge; both had been writing malformed entries that silently
+  killed the invite preview. **This is where `telegram-auth.test.js`'s 0-line
+  diff deliberately ended** — see the ⚠️ above.
+- `ae467b3` the ops README's destroy table said the opposite of what purge does.
+- `5f4dcd5` `functions/test/expunge-completeness.test.js` — the guard that fails
+  when a new top-level node in `database.rules.json` is not classified against
+  the expunge. Verified by planting three violations, not by passing.
 
 ⚠️ **`functions/test/telegram-auth.test.js`'s 0-line diff ENDED, deliberately,
 with the `inviteIndex` fix.** Read this before concluding the file drifted.
@@ -266,16 +276,17 @@ service-account credential, so nothing in a session has contacted a real
 Firebase project — the panel, the Auth probe and `ops/restore-preimage.js` are
 all operator-machine tools, and their test numbers cover decision logic, not
 live behaviour. What HAS now been exercised on the operator's machine
-(2026-08-02) is smoke-test steps 1-8 and 10, plus two step-9 runs: `deps.js`,
-`panel.html` in a real browser, the `Host`/`Origin` guard, two live purges (one
-with the Auth-record box ticked), one live restore driven from its pre-image, the
-`RESIDUE SWEEP` block rendering its clean branch, and the integrity report over
-live data — which is what surfaced G5. Step 9's remaining legs are listed under
-"What's next".
+(2026-08-02) is smoke-test steps 1-8, 10, and **all of step 9 except the merge**:
+`deps.js`, `panel.html` in a real browser, the `Host`/`Origin` guard, three live
+purges (one with the Auth-record box ticked, probed either side), one live
+restore driven from its pre-image, the `RESIDUE SWEEP` clearing an owned group's
+whole cells node, and the integrity report over live data — which is what
+surfaced G5, G6 and G7.
 
-**Still never printed:** the sweep's `present` branch (the `✗` output, the
-`keys:` list, the G3 caveat lines). Both live sweeps came back clean, so half
-that rendering is pinned only by tests.
+**Still never exercised:** the merge leg (see "What's next"), the sweep's
+`present` branch (the `✗` output — every live sweep came back clean, so half that
+rendering is pinned only by tests), and the `PEER REPUBLISH` block, which was
+written from a diagnosis rather than from watching it print.
 
 ## On-ramp
 
@@ -283,9 +294,10 @@ Read in this order; stop when you have what you need.
 
 1. This file — the source of truth for "where things are."
 2. `docs/operator-panel-followups.md` — every open item with a stable ID
-   (**S1**, **G1**, **G3**, **G4**, **M1–M7**), each with `file:line` and why
-   it was left, plus closed-but-instructive **G2** and **G5**. Cite the IDs
-   rather than re-describing the items.
+   (**S1**, **G1**, **G3**, **G4**, **G6**, **M1–M7**), each with `file:line` and
+   why it was left, plus closed-but-instructive **G2**, **G5** and **G7**. Read
+   **G6** before purging anything real: it is the one gap with no mitigation.
+   Cite the IDs rather than re-describing the items.
 3. `docs/operator-panel-smoke-test.md` — the ten-step script, its filled-in
    results table, and "What a restore cannot recover"; part of step 9 is
    what remains.
