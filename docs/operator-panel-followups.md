@@ -15,7 +15,7 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Nine open, one closed. S1 blocks production use; the rest are ranked by whether
+Ten open, one closed. S1 blocks production use; the rest are ranked by whether
 anything downstream depends on them. IDs are stable — cite them rather than
 re-describing the item. **R1-R4 are closed** (`c1b2cf9`) and detailed under
 "Parked residuals" below; their IDs are retired, not reused. **G2 is closed**
@@ -27,6 +27,7 @@ wrong is the useful part.
 | **S1** | The manual dev-project smoke test | whole panel | **Blocks production use** |
 | **G1** | Divergence check compares paths, not write values | `ops/merge.js:212-213` | Known gap, bounded |
 | **G2** | ~~Auth-record deletion has no route (D5)~~ | `ops/server.js` | **CLOSED** — the deferral was wrong; see below |
+| **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** |
 | **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | Minor |
 | **M2** | Detail lookup builds and sorts every row to find one | `ops/project.js:69` | Minor |
 | **M3** | Canvas-key split inlined rather than shared | `ops/integrity.js:190` | Minor |
@@ -163,9 +164,49 @@ against them. Only the third is an open item.
   Closed by revoking the account's refresh tokens **before** the write, refusing
   the purge outright if that fails, plus an opt-in `deleteAuthRecord` flag for
   the record itself — off by default, because it is the one destruction no
-  pre-image can undo. **Still unverified:** `deleteUser` against a real
-  custom-token uid, which is what the original deferral was waiting on. The
-  tests use a stub; the next step 9 settles it.
+  pre-image can undo.
+
+  **Verified against dev, 2026-08-02** (`ops/verify-auth-delete.js`), and the
+  result narrows what the fix claims. `deleteUser` works on a custom-token uid —
+  the original deferral's question — but neither call does as much as the name
+  suggests:
+
+  - Revocation does not evict a live session. Timed: writes still landed 33 min
+    after the revoke, were refused by 66, bracketing the ID token's own one-hour
+    expiry. The window runs from the client's last open, not from the revoke, so
+    a client opened just before a purge has nearly an hour to undo it. Closing
+    it properly needs `auth.token.auth_time` in `database.rules.json` — a
+    whole-app change, not a panel one.
+  - Deleting the record does not retire the uid. Telegram uids are derived
+    deterministically and the app mints a fresh custom token on every open, so
+    reopening produced a new Auth record under the same uid.
+
+  So the honest claim is narrow: **a client already open at purge time cannot
+  republish its cache.** Closing the account's clients before executing remains
+  the only reliable mitigation, and it is now step 9's stated precondition. The
+  underlying rules gap is tracked separately as **G3**.
+
+- **G3 — a revoked session keeps writing for up to an hour.** Fell out of
+  closing G2, and it is NOT a panel item: `database.rules.json` never checks
+  `auth.token.auth_time`, so an ID token already in the client's hands is
+  honoured until it expires no matter what the Admin SDK was told. Measured on
+  dev, 2026-08-02: writes still landed 33 minutes after `revokeRefreshTokens`
+  and were refused by 66, bracketing the token's own one-hour expiry. The window
+  runs from the client's last open, so revoking sooner does not shorten it.
+
+  **Why it is not fixed here.** The fix is a rules change — record a revocation
+  time per uid and compare `auth.token.auth_time` against it on every write — and
+  that touches every write path in the app, not the panel's. It also needs a
+  place to store the revocation time that the rules can read, and a decision
+  about what happens to a client mid-session when its token is rejected. That is
+  its own piece of work with its own blast radius, and bolting it onto an
+  operator-tool branch would be the wrong place to get it wrong.
+
+  **What holds in the meantime:** close the account's clients before purging
+  (smoke-test step 9). That is stated wherever the purge is described — README,
+  the panel's own confirm dialog, and the smoke test — rather than left as
+  folklore. Anyone picking G3 up should start from the measurement above rather
+  than re-deriving it.
 
   The general lesson is worth more than the item: a deferral is only as good as
   the reading it rests on, and this one had never been in front of live data.

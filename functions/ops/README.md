@@ -139,11 +139,38 @@ revoke fails the purge is refused outright: a purge that will be undone is worse
 than one that did not happen, because the operator walks away believing it
 worked.
 
-**Caveat to confirm on your own project:** revocation does not invalidate an
-already-issued ID token — Firebase honours those until they expire unless the
-rules check `auth.token.auth_time`. `database.rules.json` does not, so expect a
-window after the revoke in which an active client can still write. Deleting the
-Auth record does not close that window either.
+**What revoking does NOT do — measured on dev, 2026-08-02.** Revocation does not
+evict a live session. An already-issued ID token stays valid until it expires,
+and `database.rules.json` never checks `auth.token.auth_time`, so the client
+keeps writing. Timed against a Mini App left open across a revoke:
+
+| | |
+| --- | --- |
+| client opened, token issued | 15:19 |
+| refresh tokens revoked | 15:20 |
+| last **successful** write | 15:53 (+33 min) |
+| first **failed** write | 16:26 (+66 min) |
+
+The cut-off is the ID token's own expiry, not the revoke — a one-hour token
+issued at 15:19 dies at 16:19, inside that bracket. **The window is measured
+from when the client last got a token, so a client opened moments before a purge
+has close to a full hour of write capability.** Revoking earlier does not shorten
+it, and `deleteAuthRecord` does not either: deleting a record no more invalidates
+an outstanding ID token than revoking does.
+
+The only reliable mitigation is the one in smoke-test step 9: **close the
+account's clients before executing.** Closing the rules gap properly would mean
+checking `auth.token.auth_time` in `database.rules.json` — a whole-app change,
+not a panel one, and not attempted here.
+
+**And neither call retires the uid.** Telegram uids are
+`deriveTelegramUid(tgId, secret)` — deterministic — and the app mints a fresh
+custom token from Telegram's initData on every open. A token issued *after* the
+revocation time produces a perfectly valid new session, so reopening the Mini App
+defeats both the revoke and the delete: confirmed on dev, a new Auth record
+appeared under the same uid. What the session handling buys is precise and
+narrow — **a client that was already open at purge time cannot republish its
+cached state.** It is not "the account is gone for good".
 
 ### Proving the Auth calls on a custom-token uid
 
@@ -197,7 +224,7 @@ paths that other operations have legitimately changed since.
 
 | Action | What it destroys |
 | --- | --- |
-| **purge** | the account and everything the shared expunge enumerator nulls: `users/{uid}`, prefs, its code-index entry, its invite tokens (and their index rows), its rows in every peer's follower/following lists, groups it **owns for every member**, its shared canvases, its durable mailboxes, its location nodes and its Telegram mapping. It also **revokes the account's refresh tokens** before the write. Push tokens are left behind as residue but stop working. With `deleteAuthRecord`, the Auth record goes too — opt-in, and the one thing here no pre-image can undo. |
+| **purge** | the account and everything the shared expunge enumerator nulls: `users/{uid}`, prefs, its code-index entry, its invite tokens (and their index rows), its rows in every peer's follower/following lists, groups it **owns for every member**, its shared canvases, its durable mailboxes, its location nodes and its Telegram mapping. It also **revokes the account's refresh tokens** before the write. Push tokens are left behind as residue but stop working. With `deleteAuthRecord`, the Auth record goes too — opt-in, and the one thing here no pre-image can undo. Neither the revoke nor the delete prevents the account existing again at the same uid on next app open; both only stop an already-open client republishing its cache. See "Why purge ends the session". |
 | **merge** | the loser account. Contacts, group memberships and per-group display names, canvases, durable mailboxes and push tokens are carried to the survivor; `knocks`/`calls` are dropped as transient. Conflicts (a group both are in, a per-group name on both sides) are listed in the preview with the resolution the plan will take. |
 | **link via merge** | **nothing.** This is the non-lossy link: the same merge path with the Telegram mapping repointed at the survivor, so contacts, groups, per-group names and canvases all transfer. **Prefer it.** |
 | **link as production** | the Telegram-derived account, exactly as the shipped `performLink` would — expunge, then link. Production's own gate only counts followers/following/groups, so it is silent about owned groups, canvases, redeemed invite tokens and durable mailboxes. Use it only when the impact report says `safe`. |

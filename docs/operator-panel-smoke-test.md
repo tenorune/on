@@ -207,12 +207,16 @@ snapshot. Note its documented limit: write *values* are not compared, so the
 ### 9. Execute, on data you are willing to lose
 
 **Close the Mini App and any signed-in web client for the account you are about
-to purge, before you press execute.** Purge now revokes that account's refresh
-tokens first, but an already-issued ID token stays valid until it expires, so a
-live client can still write during that window — and what it writes looks
-exactly like residue the purge missed. The first run of this step lost an hour
-to that: `userPrefs/{uid}` came back with its cached `following` list moments
-after a purge that had correctly deleted it.
+to purge, before you press execute.** This is not hygiene — it is the only
+reliable mitigation. Purge revokes that account's refresh tokens first, but
+revocation does not evict a live session: measured on dev 2026-08-02, a client
+kept writing for **at least 33 minutes** after the revoke and had stopped by
+**66**, the cut-off being its ID token's own one-hour expiry. The window runs
+from when the client last opened, so a client opened just before a purge has
+close to a full hour in which it can put back what the purge deleted — and what
+it writes looks exactly like residue the purge missed. The first run of this step
+lost an hour to that: `userPrefs/{uid}` came back with its cached `following`
+list after a purge that had correctly deleted it.
 
 Run one purge and one merge to completion on throwaway accounts. Do the purge
 twice if you have the accounts for it — once with the **delete the Auth record**
@@ -224,14 +228,22 @@ and prints the fields rather than leaving you reading console screenshots
 (README, "Proving the Auth calls on a custom-token uid"). Three of its checks
 are yours, not the script's:
 
-- **the revoke window** — with the client open, change status from the app right
-  after a revoke. Expect it to **succeed**: the ID token is still valid and the
-  rules do not check `auth.token.auth_time`. Force a token refresh, retry, and
-  expect failure. That brackets the window.
-- **the uid coming back** — after `--yes-delete`, reopen the Mini App. Expect a
-  **new** Auth record under the **same** uid. If that holds, deleting ends the
-  session but does not retire the uid, and the README's claim for the flag needs
-  narrowing to say exactly that.
+- **the revoke window** — MEASURED 2026-08-02: writes kept landing 33 min after
+  the revoke and were refused by 66, bracketing the ID token's one-hour expiry.
+  Re-measure only if the rules gain an `auth.token.auth_time` check or the token
+  lifetime changes.
+- **the uid coming back** — CONFIRMED 2026-08-02: after `--yes-delete`, reopening
+  the Mini App produced a new Auth record under the **same** uid. Telegram uids
+  are derived deterministically and the app mints a fresh custom token on every
+  open, so neither the revoke nor the delete retires the account.
+
+One artifact to expect if you probe an **un-purged** account: the recreated Auth
+record has no `tg-<uid>@telegram.invalid` identifier. That stamp is applied only
+on the no-mapping bootstrap branch (`telegram-auth.js:127-147`), and the probe
+leaves `telegramUsers/{tgId}` intact, so the branch is skipped. A real purge
+deletes the mapping, so the stamp is reapplied. Not a defect — but an unstamped
+record loses the "(telegram-derived)" label in the `auth-orphan` integrity
+finding (`integrity.js:207`).
 
 **Expect after each:**
 

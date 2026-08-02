@@ -185,11 +185,13 @@ $('detail').onclick = async (e) => {
       preview(`<h3>purge ${esc(uid)}</h3>${canvasNote()}
         <pre>${esc(plan.conflicts.map((c) => `${c.kind}: ${c.detail} → ${c.resolution}`).join('\n') || 'no conflicts')}</pre>
         <pre>${esc(plan.losses.join('\n') || 'nothing of value')}</pre>${pathNote(plan)}
-        <p class="footnote">The account's session is revoked before the write either way — without that the
-        client puts back what this deletes.</p>
+        <p class="footnote">The account's session is revoked before the write either way. That stops a
+        client that is <em>already open</em> from republishing its cache — it does NOT evict one: an
+        ID token already in hand keeps working until it expires (measured: up to ~1h from when the
+        client last opened). <strong>Close the account's app before executing.</strong></p>
         <label><input type="checkbox" id="purge-delete-auth"> also delete the Auth record
-        (<strong>irreversible — the pre-image cannot restore it</strong>; leave off to keep a
-        sign-in-disabled record)</label>`,
+        (<strong>irreversible — the pre-image cannot restore it</strong>). Does not retire the uid:
+        the app mints a fresh token on next open and the account returns at the same uid.</label>`,
       async (confirmUid) => {
         const deleteAuthRecord = Boolean($('purge-delete-auth')?.checked);
         const res = await api('/api/purge/execute', {
