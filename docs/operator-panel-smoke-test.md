@@ -262,6 +262,18 @@ finding (`integrity.js:207`).
   `locations/{uid}`, `locationCells/{gid}/{uid}` for each of its groups, and —
   if the purged account **owned** a group — that `locationCells/{gid}` is gone
   **entirely**, including cells belonging to other members.
+
+  This is scripted now, so it is not a console-reading exercise: run
+  `ops/restore-preimage.js` against the dump with **no flags** — it writes
+  nothing — and read its `RESIDUE SWEEP` block (README, "Sweeping a purge for
+  residue"). It re-reads every dumped path live and reports each of those
+  families as empty or still holding data, naming the surviving keys; for an
+  owned group's whole cells node that key list *is* the other members. Two
+  limits it states itself: it sweeps only paths the purge **wrote** (G4), and a
+  path still holding data may be a live client's republish rather than a missed
+  delete (G3) — if you did not close the clients first, re-run once the window
+  has passed. Do **not** pass `--restore-transient`: that opts these paths back
+  into the restore and the sweep goes silent.
 - if the account held a Telegram mapping, `telegramUsers/{tgId}` is gone; if it
   pointed at a mapping owned by someone *else*, that mapping is **untouched**
   and the report said so.

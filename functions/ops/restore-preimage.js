@@ -15,6 +15,13 @@
 // purge used — preceded by its own pre-image dump, so undoing a purge is
 // itself as auditable as the purge was.
 //
+// The dry run doubles as the purge's RESIDUE SWEEP (smoke-test step 9). It
+// re-reads every dumped path live, so it can answer "did the deletes actually
+// land" for the families it will not restore — locations/{uid},
+// locationCells/{gid}/{uid}, and an owned group's whole locationCells/{gid}
+// including other members' cells. Running it with no flags writes nothing and
+// prints that sweep; it does not require any intent to restore.
+//
 // Lives under ops/ so it is never deployed: firebase.json ignores `ops/**`, and
 // tests/firebaseConfig.test.js pins that exclusion.
 //
@@ -95,7 +102,20 @@ const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArr
  */
 
 /**
- * @typedef {{ verdict: string, write?: [string, unknown], why: string }} Decision
+ * `residue`/`holds` are set only by the transient branch — the sweep reads them
+ * and nothing else does, so a non-transient verdict cannot pollute the result.
+ *
+ * @typedef {{
+ *   verdict: string,
+ *   write?: [string, unknown],
+ *   why: string,
+ *   residue?: 'gone' | 'present',
+ *   holds?: string[],
+ * }} Decision
+ */
+
+/**
+ * @typedef {{ path: string, verdict: string, why: string, residue?: 'gone' | 'present', holds?: string[] }} DecisionRow
  */
 
 /**
@@ -155,7 +175,21 @@ export function classify(path, dumped, live, opts = {}) {
   }
 
   if (TRANSIENT.test(path) && !opts.transient) {
-    return { verdict: 'skip-transient', why: 'position/knock/call state goes stale in seconds; clients republish it' };
+    // Not restored — but the live value was read to get here, and throwing it
+    // away is how this branch used to make the purge's least-observed families
+    // unobservable. These are exactly the paths smoke-test step 9's residue
+    // sweep asks about (locations/{uid}, locationCells/{gid}/{uid}, and an
+    // owned group's whole locationCells/{gid} including other members' cells),
+    // and the answer is already in hand. Report it; still write nothing.
+    const gone = same(live, null);
+    return {
+      verdict: 'skip-transient',
+      residue: gone ? 'gone' : 'present',
+      holds: isPlainObject(live) ? Object.keys(live) : [],
+      why: gone
+        ? 'not restored (clients republish it) — and the path is EMPTY now, so the purge cleared it'
+        : `not restored (clients republish it) — but the path STILL HOLDS ${JSON.stringify(live).slice(0, 120)}`,
+    };
   }
 
   if (same(live, dumped)) {
@@ -255,19 +289,21 @@ export function collapseRedundant(writes) {
  * @param {Record<string, unknown>} liveValues the same keys, current values
  * @param {RestoreOptions} [opts]
  * @returns {{
- *   decisions: Array<{ path: string, verdict: string, why: string }>,
+ *   decisions: DecisionRow[],
  *   writes: Record<string, unknown>,
  *   dropped: Array<{ path: string, under: string }>,
  * }}
  */
 export function planRestore(preImage, liveValues, opts = {}) {
-  /** @type {Array<{ path: string, verdict: string, why: string }>} */
+  /** @type {DecisionRow[]} */
   const decisions = [];
   /** @type {Record<string, unknown>} */
   const raw = {};
   for (const path of Object.keys(preImage)) {
     const d = classify(path, preImage[path], liveValues[path] ?? null, opts);
-    decisions.push({ path, verdict: d.verdict, why: d.why });
+    decisions.push(d.residue === undefined
+      ? { path, verdict: d.verdict, why: d.why }
+      : { path, verdict: d.verdict, why: d.why, residue: d.residue, holds: d.holds ?? [] });
     if (d.write) raw[d.write[0]] = d.write[1];
   }
   const { writes, dropped } = collapseRedundant(raw);
@@ -279,6 +315,25 @@ export function planRestore(preImage, liveValues, opts = {}) {
     }
   }
   return { decisions, writes, dropped };
+}
+
+/**
+ * The residue sweep, over a plan's decision rows.
+ *
+ * `clean` is a claim about the paths the DUMP names, and nothing wider: a
+ * family the purge never wrote is not in the write-set, so it is not swept.
+ * That is the same boundary G4 draws for the restore itself — the dump is the
+ * purge's write-set, never a census of the database.
+ *
+ * @param {DecisionRow[]} decisions
+ * @returns {{ swept: number, clean: boolean, present: Array<{ path: string, holds: string[] }> }}
+ */
+export function summarizeResidue(decisions) {
+  const swept = decisions.filter((d) => d.residue !== undefined);
+  const present = swept
+    .filter((d) => d.residue === 'present')
+    .map((d) => ({ path: d.path, holds: d.holds ?? [] }));
+  return { swept: swept.length, clean: present.length === 0, present };
 }
 
 /**
@@ -420,6 +475,26 @@ async function main() {
     if (!rows.length) continue;
     console.log(`\n${verdict.toUpperCase()} (${rows.length})`);
     for (const r of rows) console.log(`  ${r.path}\n      ${r.why}`);
+  }
+
+  // The residue sweep (smoke-test step 9). The per-path lines above already
+  // carry it; this is the headline, because "did the location families actually
+  // die" is a yes/no an operator should not have to reassemble from verdicts.
+  const residue = summarizeResidue(decisions);
+  if (residue.swept) {
+    console.log(`\nRESIDUE SWEEP — ${residue.swept} transient path(s) from the write-set, re-read live`);
+    if (residue.clean) {
+      console.log('  ✓ all empty — every path the purge wrote in these families is gone');
+    } else {
+      console.log(`  ✗ ${residue.present.length} still holding data:`);
+      for (const r of residue.present) {
+        console.log(`      ${r.path}${r.holds.length ? `   keys: ${r.holds.join(', ')}` : ''}`);
+      }
+      console.log('  Before calling this a missed delete: a client that was open at purge time');
+      console.log('  republishes its cache for up to its ID token\'s remaining hour (G3), and that');
+      console.log('  looks identical to residue. Re-run this once the window has passed.');
+    }
+    console.log('  Scope: only paths the purge WROTE. A family it never touched is not in the dump (G4).');
   }
 
   // For the account's own nodes, show the key-level shape of the disagreement.

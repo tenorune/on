@@ -264,6 +264,42 @@ Restoring is not symmetrical with purging, and the asymmetry is G4: the dump
 holds what the purge *wrote*, never what it merely *caused*. See
 `docs/operator-panel-followups.md`.
 
+### Sweeping a purge for residue
+
+The dry run is also how you check that a purge's deletes actually landed, which
+is what smoke-test step 9 asks for and the one thing no other tool answers.
+
+Run it with **no flags** — it writes nothing and needs no intent to restore:
+
+```bash
+cd functions
+GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)" \
+node ops/restore-preimage.js --file .ops-audit/<ts>-purge-<uid>.json \
+  --project <dev-project-id> --prod-project <prod-project-id>
+```
+
+Under the verdict list it prints a `RESIDUE SWEEP` block covering the families it
+refuses to restore — `locations/{uid}`, `locationCells/{gid}/{uid}`, and, when
+the purged account **owned** a group, that group's whole `locationCells/{gid}`
+including cells belonging to *other* members. Those are the families
+`crossRefRenderers` gained most recently, and they are the ones a restore's
+verdicts are silent about, because "skipped" says nothing about whether the path
+is empty. The sweep reports each as empty or still holding data, and names the
+surviving keys — for a whole-group cells node, that key list *is* the other
+members.
+
+Two limits, both structural rather than fixable:
+
+* **It sweeps only paths the purge wrote.** A family the purge never touched is
+  not in the write-set, so it is not in the dump and the sweep cannot speak to
+  it. Same boundary as G4. `integrity.js` is the cross-account census; this is
+  not.
+* **A path holding data is not proof of a missed delete.** A client that was
+  open at purge time republishes its cache for up to its ID token's remaining
+  hour (**G3**), and that is indistinguishable from residue on the way in. Close
+  the account's clients before purging; if you did not, re-run the sweep once the
+  window has passed rather than reading the first result as a defect.
+
 ## What each action destroys
 
 | Action | What it destroys |

@@ -13,6 +13,7 @@ import {
   planRestore,
   enumerationCandidates,
   buildEnumerationRepair,
+  summarizeResidue,
 } from '../ops/restore-preimage.js';
 
 const STROKES_MARKER = 'strokes not captured — canvases/*/strokes is unbounded and is never read or written by the ops audit dump';
@@ -279,5 +280,73 @@ describe('group-enumeration repair — the cascade no pre-image can hold', () =>
     const repair = buildEnumerationRepair(candidates, {});
     const keys = Object.keys({ ...writes, ...repair.writes });
     expect(keys.filter((k) => keys.some((a) => a !== k && k.startsWith(`${a}/`)))).toEqual([]);
+  });
+});
+
+// The residue sweep — smoke-test step 9's least-observed leg.
+//
+// The purge's location families are the ones this branch changed most recently
+// (crossRefRenderers gained locations/{u} and locationCells/{gid}/{u} in
+// 4dea508, and buildExpungeWrites nulls an OWNED group's locationCells/{gid}
+// wholesale), and nothing has ever watched them die on a live project. The
+// restore's dry run reads every dumped path as it stands now, so it already
+// holds the answer — it just used to throw it away at the transient branch and
+// report a flat "skipped". These pin the reporting; the restore PAYLOAD is
+// unchanged, which is what the verdict assertions below are for.
+describe('residue sweep — what the transient branch now reports', () => {
+  test('a transient path that is empty now reports its residue gone', () => {
+    const d = classify('locations/T1', { lat: 1, lng: 2 }, null);
+    expect(d.verdict).toBe('skip-transient');
+    expect(d.residue).toBe('gone');
+  });
+
+  test('a transient path that still holds data reports residue present', () => {
+    const d = classify('locations/T1', { lat: 1, lng: 2 }, { lat: 9, lng: 9 });
+    expect(d.verdict).toBe('skip-transient');
+    expect(d.residue).toBe('present');
+  });
+
+  test("an owned group's whole cells node names the members whose cells survived", () => {
+    const dumped = { T1: { cell: 'u10j4' }, CAT: { cell: 'u10j5' }, ANN: { cell: 'u10j6' } };
+    const d = classify('locationCells/DIVERS', dumped, { CAT: { cell: 'u10j5' }, ANN: { cell: 'u10j6' } });
+    expect(d.residue).toBe('present');
+    expect(d.holds).toEqual(['CAT', 'ANN']);
+  });
+
+  test('a non-transient path carries no residue field, so the sweep cannot be polluted by it', () => {
+    const d = classify('users/T1', { name: 'x' }, null);
+    expect(d.residue).toBeUndefined();
+  });
+
+  test('--restore-transient still turns an empty path into a restore, and claims no residue', () => {
+    const d = classify('locations/T1', { lat: 1 }, null, { transient: true });
+    expect(d.verdict).toBe('restore');
+    expect(d.residue).toBeUndefined();
+  });
+
+  test('the findings survive planRestore into the decision rows', () => {
+    const preImage = { 'locations/T1': { lat: 1 }, 'locationCells/DIVERS/T1': { cell: 'u10j4' } };
+    const { decisions } = planRestore(preImage, { 'locations/T1': { lat: 9 } });
+    expect(decisions.find((d) => d.path === 'locations/T1')?.residue).toBe('present');
+    expect(decisions.find((d) => d.path === 'locationCells/DIVERS/T1')?.residue).toBe('gone');
+  });
+
+  test('a sweep with every family empty is clean', () => {
+    const { decisions } = planRestore(
+      { 'locations/T1': { lat: 1 }, 'locationCells/DIVERS/T1': { cell: 'u10j4' }, 'users/T1': { name: 'x' } },
+      {},
+    );
+    expect(summarizeResidue(decisions)).toEqual({ swept: 2, clean: true, present: [] });
+  });
+
+  test('a sweep naming the paths that still hold data is not clean', () => {
+    const { decisions } = planRestore(
+      { 'locations/T1': { lat: 1 }, 'locationCells/DIVERS': { T1: { cell: 'u10j4' }, CAT: { cell: 'u10j5' } } },
+      { 'locationCells/DIVERS': { CAT: { cell: 'u10j5' } } },
+    );
+    const summary = summarizeResidue(decisions);
+    expect(summary.clean).toBe(false);
+    expect(summary.swept).toBe(2);
+    expect(summary.present).toEqual([{ path: 'locationCells/DIVERS', holds: ['CAT'] }]);
   });
 });
