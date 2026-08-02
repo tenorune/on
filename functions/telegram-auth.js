@@ -375,6 +375,14 @@ export async function buildExpungeWrites(deps, uid, extraNulls = null) {
 
   nulls[`users/${uid}`] = null;
   nulls[`userPrefs/${uid}`] = null;
+  // F6c moved push tokens OUT of userPrefs/{uid}/pushTokens to their own
+  // owner-only node, so the wholesale null above stopped reaching them and every
+  // expunge stranded them under a uid with no user record. Not a crossRefRenderers
+  // family: this is the account's own top-level node, not residue on someone
+  // else's. Found by the panel's integrity report (push-tokens-dangling) — the
+  // pre-image residue sweep cannot see it, because a path the purge never wrote
+  // is not in the dump.
+  nulls[`pushTokens/${uid}`] = null;
 
   if (extraNulls) Object.assign(nulls, extraNulls);
 
@@ -487,7 +495,7 @@ export function crossRefRenderers({ followers, following, groups, pendingInvites
  * @param {Record<string, unknown> | null} [extraWrites]
  */
 export async function graduateAccountData(deps, oldUid, newUid, extraWrites = null) {
-  const [own, prefs, pendingInvites] = await Promise.all([
+  const [own, prefs, pendingInvites, pushTokens] = await Promise.all([
     deps.getVal(`users/${oldUid}`),
     deps.getVal(`userPrefs/${oldUid}`),
     // Same read expunge makes, for the same reason: the by-group sweep entries
@@ -495,6 +503,10 @@ export async function graduateAccountData(deps, oldUid, newUid, extraWrites = nu
     // from its own subtree, and a move that leaves them behind strands them at
     // a uid that is about to stop existing.
     deps.getVal(`pendingInvites/${oldUid}`),
+    // F6c's node, for F6c's reason: it is no longer inside the userPrefs subtree
+    // copied wholesale below, so without this the devices stay registered to a
+    // uid that is about to stop existing and the graduated account has none.
+    deps.getVal(`pushTokens/${oldUid}`),
   ]);
 
   // Every from→to move pair, from the SAME enumerator expunge nulls (so a new
@@ -511,9 +523,15 @@ export async function graduateAccountData(deps, oldUid, newUid, extraWrites = nu
   /** @type {Record<string, unknown>} */
   const writes = {};
 
-  // 1. Copy the own subtree verbatim to the new uid.
+  // 1. Copy the own subtree verbatim to the new uid. Push tokens ride along:
+  // same person, same devices, and leaving them behind both strands them and
+  // silently costs the graduated account its notifications.
   if (own) writes[`users/${newUid}`] = own;
   if (prefs) writes[`userPrefs/${newUid}`] = prefs;
+  if (pushTokens) {
+    writes[`pushTokens/${newUid}`] = pushTokens;
+    writes[`pushTokens/${oldUid}`] = null;
+  }
 
   // 2. Repoint indexes that resolve to the account.
   const code = own?.presence?.code;

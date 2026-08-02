@@ -15,14 +15,16 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Eleven open, one closed. S1 no longer blocks production use outright — the
+Eleven open, two closed. S1 no longer blocks production use outright — the
 smoke test ran on 2026-08-02 and only part of step 9 is left — and the rest are
 ranked by whether anything downstream depends on them. IDs are stable — cite
 them rather than re-describing the item. **R1-R4 are closed** (`c1b2cf9`) and
 detailed under "Parked residuals" below; their IDs are retired, not reused.
 **G2 is closed** too, and stays in the table with its reasoning because *why*
-the deferral was wrong is the useful part. **G4 is new** (2026-08-02) and came
-out of running the smoke test rather than out of a review.
+the deferral was wrong is the useful part. **G4 and G5 are new** (2026-08-02)
+and both came out of *running* the smoke test rather than out of a review — G5
+is a real defect in shipped production code that four reviews and a full green
+bar had walked past, found by the panel's integrity report.
 
 | ID | Item | Where | Weight |
 |---|---|---|---|
@@ -31,6 +33,7 @@ out of running the smoke test rather than out of a review.
 | **G2** | ~~Auth-record deletion has no route (D5)~~ | `ops/server.js` | **CLOSED** — the deferral was wrong; see below |
 | **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** |
 | **G4** | A pre-image cannot undo a cascade the purge only triggered | `ops/audit.js` (model, not a bug) | Known gap, bounded; mitigated |
+| **G5** | ~~Expunge and graduation stranded `pushTokens/{uid}`~~ | `functions/telegram-auth.js` | **CLOSED** — F6c relocated the node and the deletion path never followed |
 | **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | Minor |
 | **M2** | Detail lookup builds and sorts every row to find one | `ops/project.js:69` | Minor |
 | **M3** | Canvas-key split inlined rather than shared | `ops/integrity.js:190` | Minor |
@@ -256,6 +259,62 @@ operator sees them before approving; or have the pre-image capture them, which
 means the panel has to model client behaviour and is probably the wrong trade.
 Naming them is the cheaper half and would have turned this from a discovery
 into a line of preview text.
+
+### G5 — expunge and graduation stranded `pushTokens/{uid}` — CLOSED
+
+Found on dev 2026-08-02, during the second run at smoke-test step 9. Kept here
+because *how it survived every review* is the useful part.
+
+**What was wrong.** `buildExpungeWrites` nulled two own-account nodes,
+`users/{uid}` and `userPrefs/{uid}`. Push tokens used to live *inside* the
+second one, at `userPrefs/{uid}/pushTokens`, so the wholesale null destroyed
+them for free and nothing named them. **F6c relocated them** to a top-level
+owner-only `pushTokens/{uid}` node — so `watchUserPrefs` would stop downloading
+them on every boot — and the deletion path never followed. `graduateAccountData`
+had the same hole from the same cause: it copies `users`/`userPrefs` wholesale,
+so the tokens used to ride along inside the prefs subtree, and afterwards they
+did not.
+
+Two consequences, both confirmed against source before the fix:
+
+* every purge left `pushTokens/{uid}` under a uid with no user record — **and
+  not only in the panel**, since production's `performLink` calls
+  `expungeDerivedAccount` on a standalone derived account
+  (`telegram-auth.js:210`);
+* a graduated account's devices stayed registered to the *old* uid and the new
+  one had no `pushTokens` node at all. Pre-migration accounts were masked by
+  `notifier.js:55`'s legacy `userPrefs/{uid}/pushTokens` fallback, which is
+  exactly the kind of accident that hides a bug until the migration completes.
+
+**Why the reviews missed it.** The HANDOFF landmine for F6c says relocating a
+watched path means sweeping every **reader**, and that sweep was done properly —
+it found three (`notifier.js`, `functions/telegram.js`, `js/notifyChannel.ts`),
+all dual-reading. Nobody swept the **deleter**. The rule as written names the
+wrong half of the problem: a relocated node needs its writers, readers *and*
+its delete/move paths swept.
+
+**Why no amount of smoke-testing step 9 would have found it either.**
+`pushTokens/{uid}` was not in the purge's write-set, so it was not in the
+pre-image dump, so the residue sweep is structurally blind to it — that is
+**G4's boundary**, printed by the tool itself. `integrity.js:187`'s
+`push-tokens-dangling` is what surfaced it, which is the division of labour
+working as designed: the sweep audits what the purge wrote, the integrity report
+is the cross-account census.
+
+**Fixed** by adding `pushTokens/{uid}` to the expunge null-set beside
+`users`/`userPrefs`, and moving it old→new in graduation. Deliberately **not**
+routed through `crossRefRenderers`, despite that enumerator being the standing
+home for "a new residue family": it renders paths under *other* users' subtrees,
+and this is the account's own top-level node. Coverage in
+`functions/test/expunge-push-tokens.test.js` — its own file, so
+`telegram-auth.test.js` keeps the 0-line diff that pins the
+`expungeDerivedAccount` split.
+
+**Worth a follow-up, not done here:** `integrity.js` is the only thing that
+would have caught this, and it only catches families someone thought to add to
+it. A test asserting that every own-account top-level node in
+`database.rules.json` is either in the expunge null-set or explicitly exempt
+would catch the *next* relocation instead of the last one.
 
 ## Parked residuals — ALL FOUR CLOSED (`c1b2cf9`)
 
