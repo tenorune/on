@@ -85,6 +85,13 @@ const OWN_NODE = /^(users|userPrefs)\/[^/]+$/;
 
 const CANVAS = /^canvases(\/|$)/;
 
+// A path INSIDE another account's own subtree. Both roots are owner-only writes
+// (database.rules.json:6 and the users/$uid blanket self-write), which is what
+// makes a republish there attributable to exactly one client. Requires a deeper
+// segment, so the account's own `users/{uid}` / `userPrefs/{uid}` nodes — nulled
+// wholesale by the purge — do not match.
+const PEER_OWNED = /^(users|userPrefs)\/([^/]+)\/.+/;
+
 /** @param {unknown} a @param {unknown} b */
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
@@ -111,11 +118,12 @@ const isPlainObject = (v) => typeof v === 'object' && v !== null && !Array.isArr
  *   why: string,
  *   residue?: 'gone' | 'present',
  *   holds?: string[],
+ *   republishedBy?: string,
  * }} Decision
  */
 
 /**
- * @typedef {{ path: string, verdict: string, why: string, residue?: 'gone' | 'present', holds?: string[] }} DecisionRow
+ * @typedef {{ path: string, verdict: string, why: string, residue?: 'gone' | 'present', holds?: string[], republishedBy?: string }} DecisionRow
  */
 
 /**
@@ -193,6 +201,23 @@ export function classify(path, dumped, live, opts = {}) {
   }
 
   if (same(live, dumped)) {
+    // A purge NULLED every path in its write-set, so a value that matches the
+    // capture did not survive — it came BACK. Under another account's own node
+    // that is attributable: `users/$uid` and `userPrefs/$uid` are owner-only in
+    // database.rules.json, no function writes them, so the only possible author
+    // is that account's own client replaying its cache inside the G3 token
+    // window. G6, device-observed on dev 2026-08-02.
+    //
+    // Deliberately narrow. A group node is NOT claimed: an owner can write
+    // another member's row, so attribution there would be a guess.
+    const peer = PEER_OWNED.exec(path)?.[2];
+    if (peer !== undefined && peer !== opts.uid) {
+      return {
+        verdict: 'already-there',
+        republishedBy: peer,
+        why: `the live value matches the dump — but the purge nulled this path, so ${peer}'s own client put it back (G3 window). It now points at a uid that no longer exists, and nothing will delete it again.`,
+      };
+    }
     return { verdict: 'already-there', why: 'the live value already matches the dump' };
   }
 
@@ -301,9 +326,11 @@ export function planRestore(preImage, liveValues, opts = {}) {
   const raw = {};
   for (const path of Object.keys(preImage)) {
     const d = classify(path, preImage[path], liveValues[path] ?? null, opts);
-    decisions.push(d.residue === undefined
-      ? { path, verdict: d.verdict, why: d.why }
-      : { path, verdict: d.verdict, why: d.why, residue: d.residue, holds: d.holds ?? [] });
+    /** @type {DecisionRow} */
+    const row = { path, verdict: d.verdict, why: d.why };
+    if (d.residue !== undefined) { row.residue = d.residue; row.holds = d.holds ?? []; }
+    if (d.republishedBy !== undefined) row.republishedBy = d.republishedBy;
+    decisions.push(row);
     if (d.write) raw[d.write[0]] = d.write[1];
   }
   const { writes, dropped } = collapseRedundant(raw);
@@ -334,6 +361,23 @@ export function summarizeResidue(decisions) {
     .filter((d) => d.residue === 'present')
     .map((d) => ({ path: d.path, holds: d.holds ?? [] }));
   return { swept: swept.length, clean: present.length === 0, present };
+}
+
+/**
+ * Peer republishes (G6) found in a plan — paths another account's client wrote
+ * back after the purge deleted them.
+ *
+ * Unlike residue, this is not something a later re-run clears: the entry names a
+ * uid that no longer exists, so nothing in the app will ever delete it again.
+ * The G3 window is when the damage lands, not how long it lasts.
+ *
+ * @param {DecisionRow[]} decisions
+ * @returns {Array<{ path: string, by: string }>}
+ */
+export function summarizeRepublished(decisions) {
+  return decisions
+    .filter((d) => d.republishedBy !== undefined)
+    .map((d) => ({ path: d.path, by: /** @type {string} */ (d.republishedBy) }));
 }
 
 /**
@@ -495,6 +539,20 @@ async function main() {
       console.log('  looks identical to residue. Re-run this once the window has passed.');
     }
     console.log('  Scope: only paths the purge WROTE. A family it never touched is not in the dump (G4).');
+  }
+
+  // Peer republishes (G6). Reported separately from the verdict list because
+  // `already-there` reads as benign there, and on a peer's node it is the
+  // opposite — and permanent.
+  const republished = summarizeRepublished(decisions);
+  if (republished.length) {
+    console.log(`\nPEER REPUBLISH — ${republished.length} path(s) another account's client put back`);
+    for (const r of republished) console.log(`      ${r.path}\n        written by ${r.by}`);
+    console.log('  The purge nulled these and they returned with the captured value. Only that');
+    console.log('  account\'s own client can write there, so it replayed its cache inside the G3');
+    console.log('  window. This does NOT age out: each entry names a uid that no longer exists,');
+    console.log('  and nothing in the app will delete it again. Closing the PURGED account\'s');
+    console.log('  clients does not prevent it — see G6 in docs/operator-panel-followups.md.');
   }
 
   // For the account's own nodes, show the key-level shape of the disagreement.

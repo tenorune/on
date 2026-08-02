@@ -340,6 +340,11 @@ export async function buildExpungeWrites(deps, uid, extraNulls = null) {
 
   const gids = Object.keys(groups || {});
   const ownerIds = await Promise.all(gids.map((gid) => deps.getVal(`groups/${gid}/ownerId`)));
+  const ownedGids = gids.filter((_, i) => ownerIds[i] === uid);
+  // Read only for the groups about to be deleted. An invite in a group that
+  // SURVIVES still resolves to a live record, so its index entry is not residue
+  // and must not be released.
+  const ownedInvites = await Promise.all(ownedGids.map((gid) => deps.getVal(`groups/${gid}/invites`)));
 
   /** @type {Record<string, unknown>} */
   const nulls = {};
@@ -365,11 +370,24 @@ export async function buildExpungeWrites(deps, uid, extraNulls = null) {
   // have pending invites, and its coarse location cells would otherwise be
   // stranded under a dead gid — including cells belonging to OTHER members,
   // which the per-uid enumerator has no way to reach.
-  gids.forEach((gid, i) => {
-    if (ownerIds[i] === uid) {
-      nulls[`groups/${gid}`] = null;
-      nulls[`pendingInvitesByGroup/${gid}`] = null;
-      nulls[`locationCells/${gid}`] = null;
+  ownedGids.forEach((gid, i) => {
+    nulls[`groups/${gid}`] = null;
+    nulls[`pendingInvitesByGroup/${gid}`] = null;
+    nulls[`locationCells/${gid}`] = null;
+    // The id-index entry is a bare `true` existence lock keyed by this same gid
+    // (`js/db/groups.ts:14-21`), claimed transactionally at creation and released
+    // nowhere else. Left behind it outlives the group permanently and burns that
+    // group code: allocation can never reclaim it.
+    nulls[`groupIdIndex/${gid}`] = null;
+    // Every invite issued IN this group, whoever issued it — the records die with
+    // the group, so each index entry would otherwise resolve to nothing. The
+    // per-account `users/{uid}/invites` sweep above cannot reach these: an
+    // invite's `ownerPath` is EITHER `users/{uid}/invites/{token}` OR
+    // `groups/{gid}/invites/{token}` (`js/db/social.ts:38-54`), and only the
+    // first is derivable from the account's own subtree. Same reasoning as the
+    // `locationCells/{gid}` null above, which also takes other members' rows.
+    for (const token of Object.keys(ownedInvites[i] || {})) {
+      nulls[`inviteIndex/${token}`] = null;
     }
   });
 

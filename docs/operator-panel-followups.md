@@ -15,16 +15,19 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Eleven open, two closed. S1 no longer blocks production use outright — the
+Twelve open, three closed. S1 no longer blocks production use outright — the
 smoke test ran on 2026-08-02 and only part of step 9 is left — and the rest are
 ranked by whether anything downstream depends on them. IDs are stable — cite
 them rather than re-describing the item. **R1-R4 are closed** (`c1b2cf9`) and
 detailed under "Parked residuals" below; their IDs are retired, not reused.
 **G2 is closed** too, and stays in the table with its reasoning because *why*
-the deferral was wrong is the useful part. **G4 and G5 are new** (2026-08-02)
-and both came out of *running* the smoke test rather than out of a review — G5
-is a real defect in shipped production code that four reviews and a full green
-bar had walked past, found by the panel's integrity report.
+the deferral was wrong is the useful part. **G4, G5, G6 and G7 are new**
+(2026-08-02) and all four came out of *running* the smoke test rather than out of
+a review. G5 and G7 are real defects in shipped production code that four reviews
+and a full green bar had walked past; both were found by the panel's integrity
+report, not by the residue sweep, and both have the same shape — a wholesale
+parent null destroys a record and strands the global key that resolves to it.
+G6 is the one gap here with no available mitigation.
 
 | ID | Item | Where | Weight |
 |---|---|---|---|
@@ -34,6 +37,8 @@ bar had walked past, found by the panel's integrity report.
 | **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** |
 | **G4** | A pre-image cannot undo a cascade the purge only triggered | `ops/audit.js` (model, not a bug) | Known gap, bounded; mitigated |
 | **G5** | ~~Expunge and graduation stranded `pushTokens/{uid}`~~ | `functions/telegram-auth.js` | **CLOSED** — F6c relocated the node and the deletion path never followed |
+| **G6** | A peer's client republishes cross-user residue, permanently | `database.rules.json` (whole-app, sibling of G3) | Known gap, **no mitigation** — detection only |
+| **G7** | ~~Expunge stranded `groupIdIndex` + group-scoped `inviteIndex`~~ | `functions/telegram-auth.js` | **CLOSED** — indexes pointing into a wholesale-deleted group |
 | **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | Minor |
 | **M2** | Detail lookup builds and sorts every row to find one | `ops/project.js:69` | Minor |
 | **M3** | Canvas-key split inlined rather than shared | `ops/integrity.js:190` | Minor |
@@ -66,16 +71,21 @@ is the one that was never optional.
    *sole* authentication boundary, on a server holding full database admin with
    no login — are no longer unexercised.
 
-   **Step 9 is partial.** One purge ran with the Auth-record box OFF. Still
-   owed: the second purge with the box **ticked**, a **merge** to completion,
-   and the residue sweep over `locations/{uid}`, `locationCells/{gid}/{uid}`
-   and an owned group's whole `locationCells/{gid}`. The restore run says
-   nothing about those three families — it classifies them as transient and
-   skips them.
+   **Step 9 is partial, after two runs.** Run 1 purged with the Auth-record box
+   OFF. Run 2 purged with it **ticked**, probed the Auth record either side
+   (present with empty `providerData` → `NO AUTH RECORD`), and ran the residue
+   sweep on a seeded account: `swept: 4`, all empty — including an owned group's
+   whole `locationCells/{gid}` with another member's cell inside it, which is
+   the claim the whole step existed to check.
+
+   **Still owed: a merge to completion.** That is the only leg left.
 
    The checklist and the filled results table are in
-   `docs/operator-panel-smoke-test.md`. Running it produced one new gap (**G4**)
-   and one new tool (`ops/restore-preimage.js`).
+   `docs/operator-panel-smoke-test.md`. Running it has produced, so far: two new
+   tools (`ops/restore-preimage.js` and its residue sweep), one gap that is a
+   property of the model (**G4**), one with no mitigation (**G6**), and two real
+   defects in shipped production code (**G5**, **G7**). Every one of the four
+   came from *running* it. None came from a review.
 
 2. ~~**The `locations`/`locationCells` enumerator follow-up.**~~ Done in
    `4dea508`, all four parts in one change. Both families and the
@@ -315,6 +325,115 @@ would have caught this, and it only catches families someone thought to add to
 it. A test asserting that every own-account top-level node in
 `database.rules.json` is either in the expunge null-set or explicitly exempt
 would catch the *next* relocation instead of the last one.
+
+### G7 — expunge stranded the indexes pointing into a deleted group — CLOSED
+
+Found on dev 2026-08-02 by the integrity report, in the same run as G6:
+`group-id-index-dangling` on both groups the purged account owned, and
+`invite-index-dangling` on two tokens issued in them. **Same shape as G5** — a
+wholesale parent null destroys a record and strands the global key that resolves
+to it — and the same blind spot: neither path was in the write-set, so the
+pre-image residue sweep could not see them (G4's boundary).
+
+**`groupIdIndex/{gid}`** is a bare `true` existence lock, keyed by the same gid
+as `groups/{gid}` (`js/db/groups.ts:12-21`), claimed transactionally at creation
+and released nowhere. `grep` found **zero** references to it anywhere in
+`functions/`. Left behind, it outlives the group permanently and **burns that
+group code**: allocation can never reclaim it.
+
+**`inviteIndex/{token}`** is `{scope, ownerPath, ownerUid}`
+(`js/db/social.ts:44-54`), and `ownerPath` is **either**
+`users/{uid}/invites/{token}` **or** `groups/{gid}/invites/{token}`.
+`buildExpungeWrites` only ever enumerated the first, from the account's own
+`users/{uid}/invites` — so a group-scoped token was structurally invisible to it.
+When the owned group is nulled wholesale the invite records die and their index
+entries survive, resolving to nothing.
+
+**Fixed** in the owned-group block, which now also nulls `groupIdIndex/{gid}` and
+every `inviteIndex/{token}` found under `groups/{gid}/invites` — **including
+tokens a different member issued**, since the records die with the group either
+way. Exactly the reasoning already applied to `locationCells/{gid}`, which also
+takes other members' rows.
+
+Two deliberate non-changes:
+
+* **A group owned by someone else keeps both.** The group survives, so its lock
+  and its invite records still resolve. Only groups being deleted release them.
+* **Graduation needs nothing.** `groupIdIndex` carries no uid, and a graduated
+  account's owned groups are not deleted.
+
+**Found while checking this, NOT fixed — worth its own item.**
+`graduateAccountData:539-541` writes `inviteIndex/{token} = newUid`, a bare
+string, where the schema and `database.rules.json:56` both require an object with
+`ownerPath` and `ownerUid`. It runs through the Admin SDK so the rules do not stop
+it. After a graduation, `resolveInvitePreviewHandler` reads `index.scope` →
+`undefined` → returns `{ preview: null }`, so the invite silently stops previewing.
+The correct behaviour is to repoint `ownerPath` and `ownerUid`, not to overwrite
+the record with a uid — the line looks like the `codeIndex/{code} = newUid`
+pattern on the line above being copied to an index with a different shape.
+
+### G6 — a PEER's client republishes cross-user residue, permanently
+
+Device-observed on dev 2026-08-02, during the second step-9 run. **This is a
+whole-app gap, a sibling of G3 — not a panel item.** It is also the one finding
+here with no available mitigation.
+
+**What happened.** A purge nulled `userPrefs/{M}/following/{T}` as part of its
+36-path atomic update. Afterwards the path was live again, holding the captured
+value. The integrity report flagged it as `follow-dangling`.
+
+**Why it is not an enumerator bug.** Five observations close the chain:
+
+1. the audit log recorded `outcome: ok`, 72 ms after capture — the update landed;
+2. the path was among the 36 in the write-set (`.preImage` keys confirm it);
+3. the restore's dry run returned **`already-there`** — the live value is
+   *byte-identical* to the pre-purge capture;
+4. **no Cloud Function writes `following/`** — all five references in
+   `functions/` are `getVal` reads;
+5. `userPrefs/$uid` is **owner-only write** (`database.rules.json:6`).
+
+4 and 5 leave exactly one possible author: **M's own client**, replaying its
+cached `{code, label}` inside the G3 token window. `crossRefRenderers` rendered
+the path correctly and the purge deleted it correctly.
+
+**Why it is worse than G3 as written.** G3 says revoked sessions keep writing for
+up to an hour, which reads as a problem that expires with the window. This one
+does not. The purged account's own republish lands in nodes belonging to a uid
+that no longer exists — ugly but self-contained. A *peer's* republish is
+**permanent**: `userPrefs/{M}/following/{T}` now points at a dead uid, and
+nothing will ever remove it. T is gone, so no future purge, unfollow or cascade
+touches that path again. The window is when the damage is written; the damage
+does not expire.
+
+**And the documented mitigation does not reach it.** "Close the account's clients
+before purging" is achievable. "Close every peer's client" is not — not on dev,
+and certainly not in production, where `performLink` runs the same expunge with
+no operator present at all.
+
+**Relationship to G4.** Same mechanism, opposite sign. G4 is a purge causing
+peers to DELETE things (`users/{member}/groups/{gid}`); G6 is a purge causing
+peers to RE-CREATE things. The group case has a client-side cleanup path, which
+is exactly what makes it G4; the follow case has none, which is what makes G6
+permanent.
+
+**Mitigated only by detection** (`0f31553`+). `ops/restore-preimage.js` now
+distinguishes `already-there` on a peer-owned path from the benign kind and
+prints a `PEER REPUBLISH` block naming the path and the account that wrote it.
+Scoped deliberately to `users/{other}/**` and `userPrefs/{other}/**`, both
+owner-only in the rules, so the attribution has exactly one possible author; a
+group node is not claimed, because an owner can write another member's row and
+that would be a guess.
+
+**The real fix is G3's.** `database.rules.json` never checks
+`auth.token.auth_time`, which is what leaves the window open at all. Close that
+and G6 closes with it. Until then, treat a `follow-dangling` finding in the hour
+after a purge as expected rather than as evidence of a missed delete — and note
+that "expected" here still means a permanent dangling reference somebody has to
+clean up by hand.
+
+**Also worth knowing:** the integrity report is the only thing that surfaces
+this. The residue sweep cannot — a republished path is not transient, and the
+sweep only speaks about the families it refuses to restore.
 
 ## Parked residuals — ALL FOUR CLOSED (`c1b2cf9`)
 

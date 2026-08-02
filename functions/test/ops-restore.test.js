@@ -14,6 +14,7 @@ import {
   enumerationCandidates,
   buildEnumerationRepair,
   summarizeResidue,
+  summarizeRepublished,
 } from '../ops/restore-preimage.js';
 
 const STROKES_MARKER = 'strokes not captured — canvases/*/strokes is unbounded and is never read or written by the ops audit dump';
@@ -348,5 +349,85 @@ describe('residue sweep — what the transient branch now reports', () => {
     expect(summary.clean).toBe(false);
     expect(summary.swept).toBe(2);
     expect(summary.present).toEqual([{ path: 'locationCells/DIVERS', holds: ['CAT'] }]);
+  });
+});
+
+// Peer republish (G6) — what `already-there` means on someone else's node.
+//
+// Device-observed on dev 2026-08-02. A purge nulled `userPrefs/{M}/following/{T}`
+// as part of its 36-path atomic update; the audit log recorded `outcome: ok`,
+// and the value was live again afterwards, byte-identical to the capture. No
+// Cloud Function writes `following/` — every reference in functions/ is a read —
+// and `userPrefs/$uid` is owner-only write (database.rules.json:6), so the only
+// possible writer was M's own client, replaying its cache inside the G3 token
+// window.
+//
+// The verdict was `already-there`, whose wording ("the live value already matches
+// the dump") reads as benign — nothing to do. On a peer's node after a purge it
+// means the opposite, and the damage is PERMANENT: the entry points at a uid that
+// no longer exists and nothing will ever delete it again.
+//
+// Scoped deliberately to `users/{other}/**` and `userPrefs/{other}/**`. Those are
+// owner-only in the rules, so an identical value there has exactly one possible
+// author. A group node is not claimed, because an owner can write another
+// member's row and the attribution would be a guess.
+describe('classify — an already-there on a peer\'s node is a republish, not a no-op', () => {
+  test('an identical value under another account\'s prefs is attributed to that peer', () => {
+    const d = classify('userPrefs/M/following/T', { code: 'T00001', label: '' }, { code: 'T00001', label: '' }, { uid: 'T' });
+
+    expect(d.verdict).toBe('already-there');
+    expect(d.republishedBy).toBe('M');
+  });
+
+  test('the same under another account\'s users node', () => {
+    const d = classify('users/M/followers/T', 'T00001', 'T00001', { uid: 'T' });
+
+    expect(d.republishedBy).toBe('M');
+  });
+
+  test('the purged account\'s OWN node is not attributed to a peer', () => {
+    const d = classify('userPrefs/T', { a: 1 }, { a: 1 }, { uid: 'T' });
+
+    expect(d.verdict).toBe('already-there');
+    expect(d.republishedBy).toBeUndefined();
+  });
+
+  test('a group node is not claimed — an owner can write another member\'s row', () => {
+    const d = classify('groups/g1/members/T', { role: 'member' }, { role: 'member' }, { uid: 'T' });
+
+    expect(d.republishedBy).toBeUndefined();
+  });
+
+  test('a peer node whose value DIFFERS is still a conflict, not a republish', () => {
+    const d = classify('userPrefs/M/following/T', { code: 'T00001', label: '' }, { code: 'ZZZZZZ', label: 'x' }, { uid: 'T' });
+
+    expect(d.verdict).toBe('conflict');
+    expect(d.republishedBy).toBeUndefined();
+  });
+
+  test('planRestore carries the attribution, and summarizeRepublished collects it', () => {
+    const preImage = {
+      'userPrefs/M/following/T': { code: 'T00001', label: '' },
+      'users/N/followers/T': 'T00001',
+      'userPrefs/T': { a: 1 },
+    };
+    const live = {
+      'userPrefs/M/following/T': { code: 'T00001', label: '' },
+      'users/N/followers/T': 'T00001',
+      'userPrefs/T': { a: 1 },
+    };
+
+    const { decisions } = planRestore(preImage, live, { uid: 'T' });
+
+    expect(summarizeRepublished(decisions)).toEqual([
+      { path: 'userPrefs/M/following/T', by: 'M' },
+      { path: 'users/N/followers/T', by: 'N' },
+    ]);
+  });
+
+  test('a clean purge yields no republish findings', () => {
+    const { decisions } = planRestore({ 'userPrefs/M/following/T': { code: 'T00001' } }, {}, { uid: 'T' });
+
+    expect(summarizeRepublished(decisions)).toEqual([]);
   });
 });
