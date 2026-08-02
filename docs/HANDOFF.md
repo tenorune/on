@@ -11,44 +11,44 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**The operator control panel is built and reviewed** — all 11 tasks of
-`docs/superpowers/plans/2026-08-01-operator-control-panel.md` landed on
-`claude/knockknock-ui-improvements-7bm5o9` (per-task commits, each reviewed).
-`functions/ops/` is the local Admin-SDK CLI (user list, merge, purge,
-Telegram link-without-loss, integrity report); its own `README.md` is the
-runbook. See "Where things stand" below for what's still owed before it's
-trusted with production data.
+**THE NEXT ACTION — finish the smoke test: steps 9 and 10 of
+`docs/operator-panel-smoke-test.md`.** Steps 1-8 PASSED against the dev project
+on 2026-08-02, so `deps.js`, `panel.html` in a real browser and the
+`Host`/`Origin` guard (the panel's only authentication boundary on a server
+holding full database admin) are no longer unexercised. Steps 9 and 10 are.
 
-**`docs/operator-panel-followups.md` is the companion to this section** — it
-carries the parked residuals, the reasoning behind each known gap, and the
-deferred minors, distilled from the implementation session's review ledger.
-Read it before touching `functions/ops/` or `functions/telegram-auth.js`.
+- **Step 9 — execute.** The only step that writes, and the only live look at the
+  residue families this branch changed last: `locations/{uid}`,
+  `locationCells/{gid}/{uid}`, and an owned group's whole `locationCells/{gid}`
+  including other members' cells. **Precondition, not hygiene: close the Mini
+  App and any signed-in web client for the account first** — see the G3 landmine
+  below. Use a fresh throwaway; the account purged on 2026-08-02 is in a mixed
+  state and will read as residue.
+- **Step 10 — read a pre-image back.** Never run, at all. It is the only check
+  that the artifact every safety property here rests on can actually be read.
 
-**THE NEXT ACTION — run the dev-project smoke test.** It is the only thing
-blocking the panel from production data, and it is the one thing no session can
-do for you: no service-account credential has existed in any container this
-work ran in, so `deps.js`, `panel.html`'s browser behavior, and the Host/Origin
-guard as seen from a real browser are all **unexercised**. Every green number
-below covers the wiring, not the live system, and that guard is the panel's
-only authentication boundary on a server holding full database admin.
+Then fill the results table in that file and update this section.
 
-The script is written and never run: **`docs/operator-panel-smoke-test.md`** —
-ten ordered steps with the observation that decides each one, seven
-copy-paste `curl` probes for the guard, and a results table to fill in. Running
-it is the work — and steps 1-8 have now been run against dev, which is where
-**G2 stopped being a deferrable minor**. A purge correctly deleted
-`userPrefs/{uid}` and the account's still-signed-in client put it straight back:
-the Auth record survives a purge, so the session does, and a live client can
-undo both its own account's cleanup and its rows in every peer's follower
-lists. Purge now revokes refresh tokens before the write, refuses if that fails,
-and takes an opt-in `deleteAuthRecord` flag. G2 is CLOSED with the reasoning in
-`docs/operator-panel-followups.md`. What the smoke test still settles for free
-is the original question — whether `admin.auth().deleteUser` works on a
-custom-token uid — since the tests use a stub.
+**What the panel is**, if you have not met it: `functions/ops/` is a local
+Admin-SDK CLI plus a one-page browser UI — user list, merge, purge, Telegram
+link-without-loss, integrity report. It binds `127.0.0.1` only, is excluded from
+every deploy, and holds a full database-admin credential, which is why the
+`Host`/`Origin` guard and the pre-image dump matter as much as they do. Built
+across the 11 tasks of
+`docs/superpowers/plans/2026-08-01-operator-control-panel.md`;
+`functions/ops/README.md` is the runbook and
+`docs/operator-panel-followups.md` carries every open item with a stable ID.
+Read both before touching `functions/ops/` or `functions/telegram-auth.js`.
 
-**Steps 9 and 10 remain**, and step 9 now carries a precondition: close the Mini
-App and any signed-in web client for the account being purged, or a republish
-will look exactly like residue the purge missed.
+**What steps 1-8 already changed.** G2 ("auth-record deletion has no route") was
+recorded as deferred-by-decision on the reading that a surviving Auth record is
+inert. It is not — it keeps the purged account's session alive, and the client
+republishes its cache into the nodes the purge just cleared. Purge now revokes
+refresh tokens before the write, refuses outright if that fails, and takes an
+opt-in `deleteAuthRecord` flag. **G2 is CLOSED**; `admin.auth().deleteUser` is
+confirmed working on a custom-token uid, which was the original deferral's
+question. The rules gap underneath it is filed as **G3**. Full reasoning and the
+measurements live in `docs/operator-panel-followups.md`.
 
 **After that, ten open items** — all ranked with stable IDs in the "at a
 glance" table at the top of `docs/operator-panel-followups.md`: S1 (this smoke
@@ -56,45 +56,46 @@ test), G1 and G3 (known gaps — G3 is a whole-app rules gap, not a panel
 item), and M1–M7 (deferred minors, each with its `file:line`
 and why it was left). Nothing else is owed on this branch.
 
-**Branch status: believed COMPLETE, waiting on the smoke test — not on more
-code.** `claude/knockknock-ui-improvements-7bm5o9` is 32 commits ahead of
-`origin/dev` and 0 behind, tree clean, everything pushed. Every piece of work
-this branch owed has landed: the 11-task panel plan, both follow-ups, and all
-four parked residuals. What remains (S1, G1, G3, M1–M7) is either an operator
-action or explicitly deferred — none of it is unfinished business from the
-build. No PR is open; per convention the maintainer merges when ready, and
-nothing here is waiting on a session.
+**Branch status (2026-08-02): merged to `dev` at the operator's instruction.**
+`origin/dev` and `origin/claude/knockknock-ui-improvements-7bm5o9` are both
+`3fe25c3` — same commit, nothing uncommitted, nothing unpushed. The feature
+branch is now redundant with `dev` and carries no unique commits. `dev` holds 41
+commits not in `origin/main`; **`dev` → `main` remains the maintainer's**, and no
+PR is open.
+
+What remains (S1's last two steps, G1, G3, M1–M7) is either an operator action
+or explicitly deferred — none of it is unfinished build work.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
-Telegram link case) matter most if you touch merge code. `dev`/`main` are
-unaffected.
+Telegram link case) matter most if you touch merge code.
 
 ⚠️ **Do not touch code without the operator's explicit say-so** — propose the
 change and get approval BEFORE any edit. The operator drives; expect
 hands-on iteration ("done" is their call).
 
-## Where things stand (2026-08-01)
+## Where things stand (2026-08-02)
 
 The operator control panel is built: all 10 code tasks of the 11-task plan
 landed on `claude/knockknock-ui-improvements-7bm5o9` (subagent-driven,
 per-task commits, each reviewed); this doc update is Task 11, the plan's
 last. `functions/ops/` holds the local Admin-SDK CLI + page
 (`server.js`, `panel.html`, `merge.js`, `purge.js`, `audit.js`, `integrity.js`,
-`provenance.js`, `project.js`, `snapshot.js`, `deps.js`) and its own
+`provenance.js`, `project.js`, `snapshot.js`, `deps.js`, `format.js`,
+`verify-auth-delete.js`) and its own
 `README.md` runbook — read that before running it. **The panel is local-only
 and has never been deployed and never will be**: it isn't part of the
 Firebase Hosting or Cloud Functions deploy surface (excluded from the
 functions archive via `functions.ignore`'s `ops/**`), it runs as a Node CLI
 an operator starts by hand against a target project, and it binds `127.0.0.1`
-only. `dev` and `main` are unchanged and tree-identical; the maintainer
-merges, so the branch stays open.
+only. **`dev` now carries it** (`3fe25c3`, merged at the operator's
+instruction); `main` does not — that merge is the maintainer's.
 
-**Owed before this is trusted with production data:** the smoke test — see
-"What's next" above, which leads with it, and `docs/operator-panel-smoke-test.md`
-for the script. Also worth knowing here: approvals are per-uid and held in
-memory, so the panel is single-operator by construction — two people running it
-against the same project at once do not share approval state.
+**Owed before this is trusted with production data:** smoke-test steps 9 and 10
+— see "What's next" above, which leads with them. Steps 1-8 passed on
+2026-08-02. Also worth knowing here: approvals are per-uid and held in memory,
+so the panel is single-operator by construction — two people running it against
+the same project at once do not share approval state.
 
 Everything below is SHIPPED and merged; no pending uncommitted/unpushed work.
 
@@ -123,14 +124,30 @@ Nothing deploys from sessions.
 
 ## Verification state
 
-Green bar OBSERVED at `8f9ccd1` (2026-08-01, ops-panel branch tip, after the
-two follow-ups and the four parked residuals): web jest **2106/2106**
-(88 suites) · functions **736/736** (24 suites) · `typecheck` +
-`typecheck:scripts` clean · `node scripts/prod.js` builds. Movement from the
-`b59add9` bar (2089/713): +11 functions tests for the enumerator's new
-families, +2 for the `buildLinkWrites` pre-read seam, +10 for the four
-residuals, +17 web tests from the per-file `ops/**` import guard (one case per
-top-level `functions/*.js`). Nothing pre-existing changed shape.
+Green bar OBSERVED at `3fe25c3` (2026-08-02, = `origin/dev`): web jest
+**2123/2123** (88 suites) · functions **807/807** (26 suites) · `typecheck` +
+`typecheck:scripts` clean · `node scripts/prod.js` builds.
+
+Movement from the `8f9ccd1` bar (2106/736), all from the six commits below:
++11 functions tests for `withEnvFile`; +28 for the panel's availability and
+duration projections; +7 for the purge session handling; +13 for the Auth probe;
+−5 as `humanDuration`'s cases moved into the shared fixture. Web +17: 15
+`humanDuration` vectors plus 2 new rows on the existing formatter loop. Nothing
+pre-existing changed shape.
+
+**Shipped 2026-08-02, all on `dev`** (read the commit bodies, not this list —
+each carries its evidence):
+
+- `0c43518` the panel reads `GOOGLE_APPLICATION_CREDENTIALS_JSON` and
+  `TELEGRAM_UID_SECRET` from `functions/.env`; command line still wins.
+- `f0a8912` the accounts table shows real availability (the stored `status`
+  string is not the answer — availability is timed) and legible ages.
+- `db6bbb0` `humanDuration` moved to `shared/timeFormat.js`, pinned on both
+  sides by `test-fixtures/time-format-vectors.json`.
+- `2531164` purge ends the purged account's session; G2 closed.
+- `bc5e91a` `ops/verify-auth-delete.js`, the Auth probe.
+- `3fe25c3` narrowed what the session handling claims, to match what was
+  measured; G3 filed.
 
 `functions/test/telegram-auth.test.js` has a **0-line diff across the entire
 branch** — that is the standing proof the `expungeDerivedAccount` split
@@ -148,9 +165,19 @@ authentication boundary.
 
 ## On-ramp
 
-- This file is the source of truth for "where things are."
-- `CLAUDE.md` (auto-loaded) holds the binding conventions — read it.
-- Per-feature detail: `docs/superpowers/plans/` and the matching git history.
+Read in this order; stop when you have what you need.
+
+1. This file — the source of truth for "where things are."
+2. `docs/operator-panel-followups.md` — every open item with a stable ID
+   (**S1**, **G1**, **G3**, **M1–M7**), each with `file:line` and why it was
+   left. Cite the IDs rather than re-describing the items.
+3. `docs/operator-panel-smoke-test.md` — the ten-step script; steps 9 and 10 are
+   what remains.
+4. `functions/ops/README.md` — the panel's runbook: how to start it, what each
+   action destroys, why purge ends the session, how to read a pre-image back.
+5. `CLAUDE.md` (auto-loaded) holds the binding conventions — read it.
+
+Per-feature detail: `docs/superpowers/plans/` and the matching git history.
 
 ## Environment
 
@@ -165,6 +192,13 @@ Commands (all from repo root unless noted):
 | Production build | `node scripts/prod.js` |
 | Shared-code mirror | `npm run sync-shared` (shared/ → functions/_shared/) |
 | Dev server (LAN, live-reload) | `node scripts/dev.js` |
+| Operator panel | `cd functions && GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)" node ops/server.js --project <id> --prod-project <prod-id>` |
+| Auth probe (revokes; `--yes-delete` deletes) | `cd functions && node ops/verify-auth-delete.js --project <id> --uid <uid> --prod-project <prod-id>` |
+
+The panel and the probe need a **service-account credential, which has never
+existed in any container this was built in** — they are operator-machine tools.
+`TELEGRAM_UID_SECRET` and the credential are both read from `functions/.env` if
+present, so the inline prefix is optional; anything on the command line wins.
 
 Fresh-container setup (deps aren't pre-installed):
 
@@ -215,6 +249,30 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 ## Landmines (read before touching code)
 
+- **A purge does not survive a client that was open when you ran it (G3).** The
+  panel revokes the account's refresh tokens before the write, but revocation
+  does NOT evict a live session: an ID token already in the client's hands is
+  honoured until it expires, because `database.rules.json` never checks
+  `auth.token.auth_time`. Measured on dev 2026-08-02 — writes still landed 33
+  minutes after the revoke and were refused by 66, bracketing the token's
+  one-hour expiry. The window runs from the client's last open, so revoking
+  sooner does not shorten it. **Close the account's clients before purging.**
+  This is how the first step-9 run produced an hour of false residue:
+  `userPrefs/{uid}` came back holding its cached `following` list after a purge
+  that had correctly deleted it.
+- **Neither revoking nor deleting the Auth record retires a uid.** Telegram uids
+  are `deriveTelegramUid(tgId, secret)` — deterministic — and the app mints a
+  fresh custom token from initData on every open, so a token issued *after* the
+  revocation time yields a valid new session. Confirmed: reopening produced a
+  new Auth record under the same uid. `deleteAuthRecord` buys "an already-open
+  client cannot republish its cache", nothing more.
+- **The `outcome` field inside a per-op audit dump ALWAYS reads `pending`.** By
+  design (`ops/audit.js:230-232`): the resolution is appended to
+  `.ops-audit/audit.jsonl` as a second line correlated by `ts`, never written
+  back into the dump. Read the outcome from the log. A dump saying "the
+  destructive write has not been issued yet" says nothing about whether it was.
+- **`ops/audit.jsonl` records `uids` (an array), not `uid`.** `jq '{uid}'`
+  silently yields null on every line and reads like a bug in the audit trail.
 - **Hosting serves Cloud Functions source today.** `hosting.ignore` omits
   `functions/**` while `hosting.public` is `"."`, and Firebase Hosting does
   NOT auto-exclude the functions source dir — it uploads everything under
