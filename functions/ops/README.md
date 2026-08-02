@@ -304,7 +304,7 @@ Two limits, both structural rather than fixable:
 
 | Action | What it destroys |
 | --- | --- |
-| **purge** | the account and everything the shared expunge enumerator nulls: `users/{uid}`, prefs, its code-index entry, its invite tokens (and their index rows), its rows in every peer's follower/following lists, groups it **owns for every member**, its shared canvases, its durable mailboxes, its location nodes and its Telegram mapping. It also **revokes the account's refresh tokens** before the write. Push tokens are left behind as residue but stop working. With `deleteAuthRecord`, the Auth record goes too — opt-in, and the one thing here no pre-image can undo. Neither the revoke nor the delete prevents the account existing again at the same uid on next app open; both only stop an already-open client republishing its cache. See "Why purge ends the session". |
+| **purge** | the account and everything the shared expunge enumerator nulls: `users/{uid}`, prefs, **its push tokens**, its code-index entry, its invite tokens (and their index rows), its rows in every peer's follower/following lists, groups it **owns for every member**, its shared canvases, its durable mailboxes, its location nodes and its Telegram mapping. For a group it owned it also releases that group's **id-index lock** and the index rows of **every invite issued in it, whoever issued them** — the records die with the group either way. It **revokes the account's refresh tokens** before the write. With `deleteAuthRecord`, the Auth record goes too — opt-in, and the one thing here no pre-image can undo. Neither the revoke nor the delete prevents the account existing again at the same uid on next app open; both only stop an already-open client republishing its cache. See "Why purge ends the session". |
 | **merge** | the loser account. Contacts, group memberships and per-group display names, canvases, durable mailboxes and push tokens are carried to the survivor; `knocks`/`calls` are dropped as transient. Conflicts (a group both are in, a per-group name on both sides) are listed in the preview with the resolution the plan will take. |
 | **link via merge** | **nothing.** This is the non-lossy link: the same merge path with the Telegram mapping repointed at the survivor, so contacts, groups, per-group names and canvases all transfer. **Prefer it.** |
 | **link as production** | the Telegram-derived account, exactly as the shipped `performLink` would — expunge, then link. Production's own gate only counts followers/following/groups, so it is silent about owned groups, canvases, redeemed invite tokens and durable mailboxes. Use it only when the impact report says `safe`. |
@@ -313,9 +313,21 @@ The panel's impact report is deliberately stricter than production's gate:
 `safe` requires contacts, groups, canvases, invite tokens, durable mailboxes and
 non-default prefs *all* to be zero.
 
-Deleting the Firebase **Auth record** alongside a purge is deferred on purpose —
-`admin.auth().deleteUser` has not been verified against a custom-token uid — so
-there is no checkbox for it. A purged account leaves its Auth record behind.
+Deleting the Firebase **Auth record** alongside a purge is an **opt-in checkbox**
+(`deleteAuthRecord`). It was originally deferred pending whether
+`admin.auth().deleteUser` behaves on a custom-token uid; it does, verified on dev
+and again on 2026-08-02 with `ops/verify-auth-delete.js` run either side of a
+real purge — a record with empty `providerData` before, `NO AUTH RECORD` after.
+**G2 is closed.**
+
+What ticking it buys is narrow, and worth being precise about: it stops an
+already-open client republishing its cache. It does **not** retire the uid. A
+Telegram uid is `deriveTelegramUid(tgId, secret)` — deterministic — so the next
+Mini App open mints a fresh token for the *same* uid and a new record appears
+under it. Leaving the box unticked leaves the record behind, and a surviving
+record is not inert: it keeps the purged account's session alive, which is how
+the first step-9 run produced an hour of false residue. See "Why purge ends the
+session" and **G3**.
 
 ## "canvases were not examined" is not "no canvases"
 
