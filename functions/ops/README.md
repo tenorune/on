@@ -300,6 +300,65 @@ Two limits, both structural rather than fixable:
   the account's clients before purging; if you did not, re-run the sweep once the
   window has passed rather than reading the first result as a defect.
 
+### Seeding and verifying a merge
+
+The purge side of smoke-test step 9 has the residue sweep above. The **merge**
+side has its own pair, because the sweep cannot serve it: `restore-preimage.js`
+is purge-shaped — its whole verdict model rests on "a purge NULLED every path in
+its write-set" — and it has **no guard on the dump's `op`**. A merge's write-set
+is mostly non-null *carries* onto the survivor, so pointing the sweep at a merge
+dump produces verdicts, a `RESIDUE SWEEP` and a `PEER REPUBLISH` block all built
+on an assumption that does not hold. Don't.
+
+```bash
+cd functions
+export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)"
+
+# 1. seed — dry run first; it prints the write-set and touches nothing
+node ops/seed-merge-fixture.js --project <dev-id> --prod-project <prod-id> --tag run1
+node ops/seed-merge-fixture.js --project <dev-id> --prod-project <prod-id> --tag run1 --yes
+
+# 2. refresh the panel, run the integrity report, then merge L → S through the UI
+
+# 3. read it back — one line per claim, non-zero exit if anything is owed
+node ops/verify-merge.js --project <dev-id> --prod-project <prod-id> --tag run1
+
+# 4. remove everything the fixture owns, including what the merge created
+node ops/seed-merge-fixture.js --project <dev-id> --prod-project <prod-id> --tag run1 --clean --yes
+```
+
+Add `--telegram` to seed a mapping on the loser; add `--repoint` to `verify-merge`
+when the merge was run as **link via merge** rather than as a plain merge.
+
+Four things worth knowing before the first run:
+
+* **The accounts are synthetic, and that is the point.** `merge.js` reads RTDB
+  and nothing else, so an app-born account exercises no path a seeded one misses
+  — while an app-born account brings a *client*, and on this leg a client is a
+  hazard: **G3** (a revoked session keeps writing for up to an hour) and **G6**
+  (a *peer's* client republishes cross-user residue permanently, with no
+  mitigation). Nothing seeded here is ever opened in a client, so on this leg
+  both have no author.
+* **Expect exactly one integrity finding per seeded uid** — `auth-missing`,
+  severity INFO, an RTDB user with no Auth record. The seed is otherwise
+  self-consistent by construction, so the report should be clean of errors and
+  warnings *before* the merge. That makes `integrity.js` a second verifier:
+  anything worse than INFO afterwards belongs to the merge.
+* **Refresh the panel after seeding.** The canvas key list comes from the
+  snapshot's shallow REST read, not from the live re-read, so a canvas seeded
+  after the last refresh is invisible to the plan and never moves.
+* **`adoptGroupNames` has no UI.** `server.js` accepts it and `merge.js`
+  implements it, but `panel.html` never sends it — so a `group-member-collision`
+  previewed from the browser always resolves *"survivor's record kept"*. The
+  per-group displayName **carry** comes from the group the loser is in and the
+  survivor is not (`merge.js:220-221`), which is why the fixture seeds one of
+  each. To exercise the adopt branch you have to POST the route directly.
+
+The seed's shape and every read-back claim live in `ops/merge-fixture.js` as
+plain values; `functions/test/ops-merge-fixture.test.js` drives that write-set
+through the **real** `buildMergePlan`/`applyMergePlan` and checks each assertion
+against the resulting tree, so the two lists cannot drift away from `merge.js`.
+
 ## What each action destroys
 
 | Action | What it destroys |

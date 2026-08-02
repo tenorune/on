@@ -1,0 +1,478 @@
+// functions/ops/merge-fixture.js — the seed and the read-back for smoke-test
+// step 9's MERGE leg (S1), and nothing else.
+//
+// WHY THIS EXISTS. The merge leg is the last unfinished part of
+// docs/operator-panel-smoke-test.md. It needs two throwaway accounts seeded so
+// the merge is not trivial, and seeding that by hand through the app is both
+// slow and easy to get subtly wrong. The first written-down version of the seed
+// produced NO per-group displayName carry at all: its only shared group hits
+// merge.js's collision branch, whose resolution is "survivor's record kept" —
+// and the loser's name is adopted only via `adoptGroupNames`, which server.js
+// accepts but panel.html never sends. A group the loser is in and the survivor
+// is NOT is what actually carries a per-group name (merge.js:220-221).
+//
+// PURE ON PURPOSE. Everything here is a value: a flat write-set, a list of
+// assertions, and one verdict function. The live wiring is in
+// ops/seed-merge-fixture.js and ops/verify-merge.js, which are thin CLIs over
+// this. functions/test/ops-merge-fixture.test.js drives the write-set through
+// the REAL buildMergePlan/applyMergePlan and checks every assertion against the
+// resulting tree, so these two lists cannot drift apart from merge.js.
+//
+// SYNTHETIC ACCOUNTS ARE THE POINT, not a shortcut. merge.js reads RTDB and
+// nothing else, so an app-born account exercises no code path a seeded one
+// misses — while an app-born account DOES bring a client, and a client is a
+// hazard here, not a feature:
+//   * G3 — a revoked session keeps writing for up to an hour, and what it
+//     republishes is indistinguishable from residue the merge missed;
+//   * G6 — a PEER's client republishes cross-user residue PERMANENTLY, with no
+//     mitigation and no way to close every peer's client.
+// Nothing seeded here is ever opened in a client, so on this leg both have no
+// author. That is worth more than realism.
+//
+// The one integrity finding to expect afterwards is `auth-missing` at INFO
+// severity, once per seeded uid (integrity.js:210-212) — an RTDB user with no
+// Auth record, which is exactly what these are. Everything else is
+// RTDB-internal, and the seed is deliberately self-consistent (reciprocal
+// follows both ways, a followerName for every follower, a codeIndex entry
+// matching every presence code, a groupIdIndex per group, membership and
+// enumeration in both directions, pendingInvites mirrored by group). So the
+// integrity report should be CLEAN of errors and warnings before the merge —
+// which makes it a second verifier: any error or warning afterwards is the
+// merge's doing.
+//
+// Lives under ops/ so it is never deployed: firebase.json ignores `ops/**`, and
+// tests/firebaseConfig.test.js pins that exclusion.
+
+/**
+ * Canvas keys are SORTED uid pairs — the same rule merge.js and project.js use.
+ * @param {string} a @param {string} b
+ */
+const pairKey = (a, b) => [a, b].sort().join('_');
+
+/**
+ * Six accounts, derived from a tag so two runs on the same project never
+ * collide and a half-cleaned run is always identifiable by its tag.
+ *
+ * L  the loser        S  the survivor
+ * P1 followed by L only, member of the loser-only group and the owned group
+ * P2 followed by S only, owner of the shared group and the unjoined group
+ * F1 follows L only   C1 follows and is followed by BOTH (the collapse case)
+ * @param {string} tag
+ */
+export function fixtureUids(tag) {
+  return {
+    L: `smk-${tag}-loser`,
+    S: `smk-${tag}-survivor`,
+    P1: `smk-${tag}-peer1`,
+    P2: `smk-${tag}-peer2`,
+    F1: `smk-${tag}-follower`,
+    C1: `smk-${tag}-both`,
+  };
+}
+
+/**
+ * GA loser only — the per-group displayName CARRY.
+ * GB both       — the collision (survivor's record kept, no adopt UI).
+ * GC loser OWNS — ownership follows, and the group is NOT deleted (unlike a purge).
+ * GD neither    — L has an unjoined pending invite to it.
+ * @param {string} tag
+ */
+export function fixtureGids(tag) {
+  return { GA: `smg-${tag}-carry`, GB: `smg-${tag}-shared`, GC: `smg-${tag}-owned`, GD: `smg-${tag}-invited` };
+}
+
+/** @param {string} tag */
+export function fixtureTokens(tag) {
+  return { inviteL: `smt-${tag}-loserinvite` };
+}
+
+/** @param {string} tag */
+export function fixtureCodes(tag) {
+  const uids = fixtureUids(tag);
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const role of Object.keys(uids)) out[role] = `SMK${tag}${role}`.replace(/[^A-Za-z0-9]/g, '');
+  return out;
+}
+
+/**
+ * A stable numeric Telegram id for the tag. Digits only, because tgIds are
+ * numeric everywhere else and telegramUsers is keyed by them.
+ * @param {string} tag
+ */
+export function fixtureTgId(tag) {
+  let h = 7;
+  for (const ch of tag) h = (h * 31 + ch.charCodeAt(0)) % 100000;
+  return `99${String(h).padStart(5, '0')}`;
+}
+
+/**
+ * The canvas keys that exist AT SEED TIME. The panel gets this list from a
+ * shallow REST read; the tests and the verifier take it from here so a merge
+ * plan can be built without one.
+ * @param {{ tag: string }} opts
+ */
+export function fixtureCanvasKeys({ tag }) {
+  const { L, S, P1, C1 } = fixtureUids(tag);
+  return [pairKey(L, P1), pairKey(L, C1), pairKey(S, C1), pairKey(L, S)];
+}
+
+/**
+ * The whole seed as one flat, DISJOINT write-set — every key is a whole
+ * top-level record, because an RTDB multi-path update refuses two keys where
+ * one is an ancestor of the other.
+ * @param {{ tag: string, now: number, telegram?: boolean }} opts
+ */
+export function buildMergeFixture({ tag, now, telegram = false }) {
+  const uids = fixtureUids(tag);
+  const gids = fixtureGids(tag);
+  const codes = fixtureCodes(tag);
+  const tokens = fixtureTokens(tag);
+  const tgId = fixtureTgId(tag);
+  const { L, S, P1, P2, F1, C1 } = uids;
+  const { GA, GB, GC, GD } = gids;
+
+  /** @type {Record<string, unknown>} */
+  const writes = {};
+
+  // --- the two merging accounts --------------------------------------------
+  // The loser's lastSeen is the NEWER of the two, so merge.js:264 has something
+  // to carry; every presence here is 'unavailable', because 'available' without
+  // a concrete availableUntil is an integrity ERROR.
+  writes[`users/${L}`] = {
+    presence: { code: codes.L, status: 'unavailable', lastSeen: now - 1_000 },
+    followers: { [F1]: codes.F1, [C1]: codes.C1 },
+    followerNames: { [F1]: 'F1 pub', [C1]: 'C1 pub' },
+    groups: {
+      [GA]: { lastVisited: now - 5_000 },
+      // NEWER than the survivor's, so the enumeration entry is carried too.
+      [GB]: { lastVisited: now - 2_000 },
+      [GC]: { lastVisited: now - 9_000 },
+    },
+    invites: { [tokens.inviteL]: { createdAt: now - 50_000, scope: 'personal' } },
+  };
+  writes[`userPrefs/${L}`] = {
+    following: {
+      [P1]: { code: codes.P1, label: 'P1 (L note)' },
+      [C1]: { code: codes.C1, label: 'C1 (L note)' },
+    },
+    notify: { [P1]: { knock: true } },
+    currentContext: 'direct',
+    ...(telegram ? { telegram: { tgId, linkedAt: now - 100_000 } } : {}),
+  };
+  writes[`users/${S}`] = {
+    presence: { code: codes.S, status: 'unavailable', lastSeen: now - 60_000 },
+    followers: { [C1]: codes.C1 },
+    followerNames: { [C1]: 'C1 pub' },
+    groups: { [GB]: { lastVisited: now - 90_000 } },
+  };
+  writes[`userPrefs/${S}`] = {
+    following: {
+      [P2]: { code: codes.P2, label: 'P2 (S note)' },
+      [C1]: { code: codes.C1, label: 'C1 (S note)' },
+    },
+    currentContext: 'direct',
+  };
+
+  // --- the four peers, seeded reciprocally so integrity is clean -----------
+  writes[`users/${P1}`] = {
+    presence: { code: codes.P1, status: 'unavailable', lastSeen: now - 30_000 },
+    followers: { [L]: codes.L },
+    followerNames: { [L]: 'L pub' },
+    groups: { [GA]: { lastVisited: now - 6_000 }, [GC]: { lastVisited: now - 7_000 } },
+  };
+  writes[`users/${P2}`] = {
+    presence: { code: codes.P2, status: 'unavailable', lastSeen: now - 30_000 },
+    followers: { [S]: codes.S },
+    followerNames: { [S]: 'S pub' },
+    groups: { [GB]: { lastVisited: now - 8_000 }, [GD]: { lastVisited: now - 8_500 } },
+  };
+  writes[`users/${F1}`] = {
+    presence: { code: codes.F1, status: 'unavailable', lastSeen: now - 40_000 },
+  };
+  writes[`userPrefs/${F1}`] = { following: { [L]: { code: codes.L, label: 'L (F1 note)' } } };
+  writes[`users/${C1}`] = {
+    presence: { code: codes.C1, status: 'unavailable', lastSeen: now - 20_000 },
+    followers: { [L]: codes.L, [S]: codes.S },
+    followerNames: { [L]: 'L pub', [S]: 'S pub' },
+  };
+  writes[`userPrefs/${C1}`] = {
+    following: {
+      [L]: { code: codes.L, label: 'L (C1 note)' },
+      [S]: { code: codes.S, label: 'S (C1 note)' },
+    },
+  };
+
+  // --- groups ---------------------------------------------------------------
+  writes[`groups/${GA}`] = {
+    name: 'smoke carry group',
+    ownerId: P1,
+    members: {
+      [P1]: { displayName: 'P1 in GA', role: 'owner' },
+      [L]: { displayName: 'L in GA', role: 'member' },
+    },
+  };
+  writes[`groups/${GB}`] = {
+    name: 'smoke shared group',
+    ownerId: P2,
+    members: {
+      [P2]: { displayName: 'P2 in GB', role: 'owner' },
+      [L]: { displayName: 'L in GB', role: 'member' },
+      [S]: { displayName: 'S in GB', role: 'member' },
+    },
+  };
+  writes[`groups/${GC}`] = {
+    name: 'smoke owned group',
+    ownerId: L,
+    members: {
+      [L]: { displayName: 'L in GC', role: 'owner' },
+      [P1]: { displayName: 'P1 in GC', role: 'member' },
+    },
+  };
+  writes[`groups/${GD}`] = {
+    name: 'smoke unjoined group',
+    ownerId: P2,
+    members: { [P2]: { displayName: 'P2 in GD', role: 'owner' } },
+  };
+  for (const gid of [GA, GB, GC, GD]) writes[`groupIdIndex/${gid}`] = true;
+
+  // --- indexes --------------------------------------------------------------
+  for (const role of /** @type {const} */ (['L', 'S', 'P1', 'P2', 'F1', 'C1'])) {
+    writes[`codeIndex/${codes[role]}`] = uids[role];
+  }
+  writes[`inviteIndex/${tokens.inviteL}`] = {
+    scope: 'personal',
+    ownerPath: `users/${L}/invites/${tokens.inviteL}`,
+    ownerUid: L,
+  };
+
+  // --- push tokens: BOTH sides, so the union is observable ------------------
+  writes[`pushTokens/${L}`] = {
+    tokA: { platform: 'web', updatedAt: now - 11_000 },
+    tokB: { platform: 'ios', updatedAt: now - 12_000 },
+  };
+  writes[`pushTokens/${S}`] = { tokC: { platform: 'web', updatedAt: now - 13_000 } };
+
+  // --- mailboxes: two transient, and every durable family ------------------
+  writes[`knocks/${L}`] = { [F1]: { ts: now - 3_000 } };
+  writes[`calls/${L}`] = { ts: now - 1_500, peer: F1 };
+  // followRequests is seeded on BOTH sides at the same key — the deliberate
+  // mailbox-collision, which is a real loss and has to appear in the report.
+  writes[`followRequests/${L}`] = { [P2]: { ts: now - 4_000, side: 'L' } };
+  writes[`followRequests/${S}`] = { [P2]: { side: 'S' } };
+  writes[`followGrants/${L}`] = { [F1]: { ts: now - 4_100 } };
+  writes[`revocations/${L}`] = { [C1]: { ts: now - 4_200 } };
+  // A pending invite to a group L never joined: `groups` cannot see this gid,
+  // so it is the case the enumerator reads out of the mailbox itself.
+  writes[`pendingInvites/${L}`] = { [GD]: { ts: now - 4_300, by: P2 } };
+  writes[`pendingInvitesByGroup/${GD}`] = { [L]: true };
+
+  // --- canvases: all three of merge.js's branches ---------------------------
+  writes[`canvases/${pairKey(L, P1)}`] = { bg: 'grid-dark', strokes: { s1: { pts: [1, 2] } } };
+  writes[`canvases/${pairKey(L, C1)}`] = { bg: 'grid-light', strokes: { s1: { pts: [3, 4] } } };
+  writes[`canvases/${pairKey(S, C1)}`] = { bg: 'plain', strokes: { s1: { pts: [5, 6] } } };
+  writes[`canvases/${pairKey(L, S)}`] = { bg: 'between', strokes: { s1: { pts: [7, 8] } } };
+
+  // --- location: nulled by the enumerator on a merge, never carried --------
+  writes[`locations/${L}`] = { lat: 51.5, lng: -0.12, updatedAt: now - 2_500 };
+  for (const gid of [GA, GB, GC]) {
+    writes[`locationCells/${gid}`] = { [L]: { cell: 'gcpuvxr', updatedAt: now - 2_500 } };
+  }
+
+  // --- telegram, opt-in -----------------------------------------------------
+  if (telegram) {
+    writes[`telegramUsers/${tgId}`] = { uid: L, chatId: tgId, linkedAt: now - 100_000 };
+    writes[`telegramByUid/${L}`] = { tgId, chatId: tgId, linkedAt: now - 100_000 };
+  }
+
+  return { writes, uids, gids, codes, tokens, tgId, canvasKeys: fixtureCanvasKeys({ tag }), notes: fixtureNotes() };
+}
+
+/** What the operator should know before and after, printed by both CLIs. */
+export function fixtureNotes() {
+  return [
+    'Accounts are SYNTHETIC and no client ever holds them, so G3 and G6 have no author on this leg.',
+    'Expect exactly one integrity finding per seeded uid: auth-missing, severity INFO (an RTDB user with no Auth record).',
+    'Expect NO integrity errors or warnings before the merge — the seed is self-consistent. Anything after it is the merge.',
+    'panel.html never sends adoptGroupNames, so the shared group resolves "survivor\'s record kept". The per-group name carry comes from the loser-ONLY group.',
+    'ops/restore-preimage.js is purge-shaped (it assumes every dumped path was NULLED) — do not read a merge dump with it. Verify with ops/verify-merge.js.',
+  ];
+}
+
+/**
+ * Every path the fixture owns, nulled — including the ones the MERGE creates,
+ * which the seed never wrote. Always includes the telegram paths so one cleanup
+ * covers a run of either variant.
+ * @param {{ tag: string }} opts
+ */
+export function buildFixtureCleanup({ tag }) {
+  const seeded = buildMergeFixture({ tag, now: 0, telegram: true }).writes;
+  const { L, S, P1 } = fixtureUids(tag);
+  const tgId = fixtureTgId(tag);
+  /** @type {Record<string, null>} */
+  const out = {};
+  for (const path of Object.keys(seeded)) out[path] = null;
+  // Created by the merge, so absent from the seed's write-set.
+  out[`canvases/${pairKey(S, P1)}`] = null;
+  out[`followGrants/${S}`] = null;
+  out[`revocations/${S}`] = null;
+  out[`pendingInvites/${S}`] = null;
+  out[`telegramByUid/${S}`] = null;
+  out[`telegramUsers/${tgId}`] = null;
+  out[`locations/${S}`] = null;
+  return out;
+}
+
+/**
+ * @typedef {{
+ *   path: string,
+ *   kind: 'gone' | 'present' | 'equals' | 'keys',
+ *   value?: unknown,
+ *   why: string,
+ * }} Assertion
+ */
+
+/**
+ * What the database must look like once the merge has run. Grouped in the order
+ * the smoke test asks for it: contacts, groups, per-group names, canvases, push
+ * tokens, then the loser's own nodes.
+ * @param {{ tag: string, telegram?: boolean, repoint?: boolean }} opts
+ * @returns {Assertion[]}
+ */
+export function buildMergeAssertions({ tag, telegram = false, repoint = false }) {
+  const { L, S, P1, P2, F1, C1 } = fixtureUids(tag);
+  const { GA, GB, GC, GD } = fixtureGids(tag);
+  const codes = fixtureCodes(tag);
+  const { inviteL } = fixtureTokens(tag);
+  const tgId = fixtureTgId(tag);
+  /** @type {Assertion[]} */
+  const a = [];
+  /** @type {(path: string, kind: Assertion['kind'], why: string, value?: unknown) => void} */
+  const add = (path, kind, why, value) => a.push(value === undefined ? { path, kind, why } : { path, kind, value, why });
+
+  // --- contacts -------------------------------------------------------------
+  add(`users/${S}/followers/${F1}`, 'equals', 'F1 followed only the loser, so the contact carries', codes.F1);
+  add(`users/${S}/followerNames/${F1}`, 'equals', "the follower's published name carries with them", 'F1 pub');
+  add(`userPrefs/${S}/following/${P1}`, 'equals', "the loser's card for P1 carries, private label and all", { code: codes.P1, label: 'P1 (L note)' });
+  add(`userPrefs/${F1}/following/${S}`, 'equals', "F1's card is repointed: the CODE becomes the survivor's, F1's own nickname stays", { code: codes.S, label: 'L (F1 note)' });
+  add(`userPrefs/${F1}/following/${L}`, 'gone', 'the backref to the loser is residue and must be nulled');
+  add(`users/${P1}/followers/${S}`, 'equals', 'the loser followed P1, so the survivor appears in P1 followers', codes.S);
+  add(`users/${P1}/followerNames/${S}`, 'equals', 'the name the loser published to P1 is repointed, not dropped', 'L pub');
+  add(`users/${P1}/followers/${L}`, 'gone', 'residue on a peer record');
+  add(`users/${P1}/followerNames/${L}`, 'gone', 'residue on a peer record');
+  add(`users/${C1}/followers/${L}`, 'gone', 'residue, even though C1 followed both');
+  add(`userPrefs/${C1}/following/${L}`, 'gone', 'residue, even though C1 followed both');
+  add(`users/${S}/followers/${C1}`, 'equals', 'C1 followed both: contact-collapsed, survivor entry kept', codes.C1);
+  add(`userPrefs/${S}/following/${C1}`, 'equals', 'both followed C1: contact-collapsed, survivor card kept', { code: codes.C1, label: 'C1 (S note)' });
+  add(`userPrefs/${C1}/following/${S}`, 'equals', "C1 followed both, so C1's own card is untouched", { code: codes.S, label: 'S (C1 note)' });
+
+  // --- groups and per-group names ------------------------------------------
+  add(`groups/${GA}/members/${S}`, 'equals', "the loser-only group carries its WHOLE member record — this is the per-group displayName carry", { displayName: 'L in GA', role: 'member' });
+  add(`groups/${GA}/members/${L}`, 'gone', 'the loser membership is nulled by the shared enumerator');
+  add(`users/${S}/groups/${GA}`, 'present', 'the enumeration entry carries, or the group is invisible in the survivor nav');
+  add(`groups/${GB}/members/${S}/displayName`, 'equals', "the shared group is a collision and the survivor's record wins — panel.html sends no adoptGroupNames", 'S in GB');
+  add(`groups/${GB}/members/${L}`, 'gone', 'the loser membership in the shared group is nulled');
+  add(`users/${S}/groups/${GB}`, 'present', "the loser's visit was the more recent, so its enumeration entry wins");
+  add(`groups/${GC}/ownerId`, 'equals', 'ownership of a group the loser OWNED follows to the survivor', S);
+  add(`groups/${GC}/members/${S}`, 'equals', "the owned group's member record carries, role included", { displayName: 'L in GC', role: 'owner' });
+  add(`groups/${GC}/members/${L}`, 'gone', 'the loser membership is nulled');
+  add(`groups/${GC}/name`, 'present', 'a MERGE does not delete an owned group — the contrast with a purge, which nulls it wholesale');
+  add(`users/${S}/groups/${GC}`, 'present', 'the enumeration entry for the owned group carries');
+
+  // --- mailboxes ------------------------------------------------------------
+  add(`pendingInvites/${S}/${GD}`, 'present', 'a durable mailbox entry unions onto the survivor');
+  add(`pendingInvitesByGroup/${GD}/${S}`, 'equals', 'and its by-group mirror moves with it — moving one without the other is the asymmetry integrity.js flags', true);
+  add(`pendingInvitesByGroup/${GD}/${L}`, 'gone', 'the by-group mirror for the loser is nulled from the mailbox-derived gid');
+  add(`pendingInvites/${L}`, 'gone', 'the loser mailbox is nulled');
+  add(`knocks/${L}`, 'gone', 'knocks are dropped as transient (D3), not carried');
+  add(`calls/${L}`, 'gone', 'calls are dropped as transient (D3) — merging them resurrects stuck calls');
+  add(`followGrants/${S}/${F1}`, 'present', 'a durable mailbox entry unions onto the survivor');
+  add(`followGrants/${L}`, 'gone', 'the loser mailbox is nulled');
+  add(`revocations/${S}/${C1}`, 'present', 'a revocation blocks re-following, so it is durable and unions');
+  add(`revocations/${L}`, 'gone', 'the loser mailbox is nulled');
+  add(`followRequests/${S}/${P2}`, 'equals', 'both held the same key: mailbox-collision, survivor entry kept and the loser entry reported as a loss', { side: 'S' });
+  add(`followRequests/${L}`, 'gone', 'the loser mailbox is nulled');
+
+  // --- identity -------------------------------------------------------------
+  add(`users/${S}/invites/${inviteL}`, 'present', 'the invite token moves to the survivor');
+  add(`inviteIndex/${inviteL}`, 'equals', 'and its index entry keeps the full {scope,ownerPath,ownerUid} shape — a missing scope silently kills the invite preview (the 2fcc51f fix, on live data)', { scope: 'personal', ownerPath: `users/${S}/invites/${inviteL}`, ownerUid: S });
+  add(`codeIndex/${codes.L}`, 'gone', "the loser share code is freed for reuse (D1)");
+  add(`codeIndex/${codes.S}`, 'equals', 'the survivor code is untouched', S);
+  add(`users/${S}/presence/lastSeen`, 'present', "the loser's lastSeen was the newer, so it is carried");
+
+  // --- push tokens ----------------------------------------------------------
+  add(`pushTokens/${S}`, 'keys', "both devices stay reachable: the loser tokens union with the survivor's", ['tokA', 'tokB', 'tokC']);
+  add(`pushTokens/${L}`, 'gone', 'the loser push-token node goes — the G5 family, on the merge path');
+
+  // --- canvases -------------------------------------------------------------
+  add(`canvases/${pairKey(S, P1)}/bg`, 'equals', 'canvas settings carry to the survivor-side key', 'grid-dark');
+  add(`canvases/${pairKey(S, P1)}/strokes`, 'gone', 'strokes are NEVER carried — the drawing is lost, and the loss report says so');
+  add(`canvases/${pairKey(L, P1)}`, 'gone', 'the loser-side canvas is deleted once carried');
+  add(`canvases/${pairKey(S, C1)}/bg`, 'equals', "canvas-collision: the survivor's drawing is kept untouched", 'plain');
+  add(`canvases/${pairKey(L, C1)}`, 'gone', "and the loser's is deleted");
+  add(`canvases/${pairKey(L, S)}`, 'gone', 'a canvas BETWEEN the two merging accounts is deleted, not moved');
+
+  // --- location -------------------------------------------------------------
+  add(`locations/${L}`, 'gone', 'the enumerator nulls a location fix on a merge exactly as on a purge');
+  add(`locations/${S}`, 'gone', 'and it is NOT carried to the survivor — the one family an operator may expect to move');
+  for (const gid of [GA, GB, GC]) {
+    add(`locationCells/${gid}/${L}`, 'gone', 'the coarse cell goes with the location fix');
+  }
+
+  // --- the loser's own subtrees --------------------------------------------
+  add(`users/${L}`, 'gone', 'the loser account is gone');
+  add(`userPrefs/${L}`, 'gone', "the loser prefs are discarded — the survivor's win wholesale");
+
+  // --- telegram, when seeded ------------------------------------------------
+  if (telegram && repoint) {
+    add(`telegramUsers/${tgId}/uid`, 'equals', 'link via merge repoints the mapping at the survivor — the non-lossy link', S);
+    add(`telegramByUid/${S}/tgId`, 'equals', 'and the reverse index follows', tgId);
+    add(`telegramByUid/${L}`, 'gone', 'the loser reverse index is nulled either way');
+  } else if (telegram) {
+    add(`telegramUsers/${tgId}`, 'gone', 'without a repoint the mapping must come down, or the next Mini App open bootstraps onto a dead uid');
+    add(`telegramByUid/${L}`, 'gone', 'the loser reverse index is nulled either way');
+  }
+
+  return a;
+}
+
+/**
+ * RTDB cannot store an empty object, so one reads back as absent.
+ * @param {unknown} v
+ */
+const isEmptyish = (v) => v === null || v === undefined
+  || (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+
+/**
+ * One assertion against one live value. Pure, so the verifier's output is
+ * pinned by tests rather than discovered against live data.
+ * @param {Assertion} assertion
+ * @param {unknown} live
+ * @returns {{ ok: boolean, detail: string }}
+ */
+export function checkAssertion(assertion, live) {
+  /** @param {unknown} v */
+  const show = (v) => (v === undefined ? 'undefined' : JSON.stringify(v));
+  switch (assertion.kind) {
+    case 'gone':
+      return live === null || live === undefined
+        ? { ok: true, detail: 'gone' }
+        : { ok: false, detail: `still holds ${show(live)}` };
+    case 'present':
+      return isEmptyish(live)
+        ? { ok: false, detail: 'absent' }
+        : { ok: true, detail: `present (${show(live)})` };
+    case 'keys': {
+      const want = [...(/** @type {string[]} */ (assertion.value))].sort();
+      const got = isEmptyish(live) ? [] : Object.keys(/** @type {object} */ (live)).sort();
+      return want.length === got.length && want.every((k, i) => k === got[i])
+        ? { ok: true, detail: `keys ${got.join(', ')}` }
+        : { ok: false, detail: `want keys [${want.join(', ')}], got [${got.join(', ')}]` };
+    }
+    case 'equals':
+    default:
+      return JSON.stringify(live) === JSON.stringify(assertion.value)
+        ? { ok: true, detail: `= ${show(live)}` }
+        : { ok: false, detail: `want ${show(assertion.value)}, got ${show(live)}` };
+  }
+}

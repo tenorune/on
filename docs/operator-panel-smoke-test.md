@@ -280,6 +280,42 @@ finding (`integrity.js:207`).
   pointed at a mapping owned by someone *else*, that mapping is **untouched**
   and the report said so.
 
+**The merge leg, scripted.** Seeding two accounts by hand so a merge is not
+trivial is slow and easy to get wrong — the version of this instruction that
+said "one group both are in, a per-group display name on both sides" produces
+**no per-group name carry at all**, because that is the *collision* branch and
+`panel.html` never sends `adoptGroupNames`. So the seed is derived now, and the
+read-back is scripted (runbook: `functions/ops/README.md`, "Seeding and
+verifying a merge"):
+
+```bash
+cd functions
+export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)"
+node ops/seed-merge-fixture.js --project <dev-id> --prod-project <prod-id> --tag run1        # dry run
+node ops/seed-merge-fixture.js --project <dev-id> --prod-project <prod-id> --tag run1 --yes
+# refresh the panel · run the integrity report · merge L → S through the UI
+node ops/verify-merge.js  --project <dev-id> --prod-project <prod-id> --tag run1
+node ops/seed-merge-fixture.js --project <dev-id> --prod-project <prod-id> --tag run1 --clean --yes
+```
+
+The fixture drives every branch the leg exists to observe: a contact each side
+plus one the survivor and loser share, a group only the loser is in (the
+per-group displayName carry), a group both are in (the collision), a group the
+loser **owns** (ownership follows, and the group is *not* deleted — the contrast
+with a purge), all three canvas branches, push tokens on both sides, an invite
+token with its index entry (the `2fcc51f` `scope` fix on live data), a durable
+mailbox collision, and `knocks`/`calls` to drop.
+
+Read the preview's conflicts and losses before executing — that is the half no
+read-back can check for you. Then `verify-merge` answers the rest, one line per
+claim, and exits non-zero if anything is owed.
+
+Two notes specific to this leg. The accounts are **synthetic and never opened in
+a client**, so **G3** and **G6** have no author here — an app-born peer would
+re-open both, and G6 has no mitigation. And do **not** point
+`ops/restore-preimage.js` at the merge's dump: it is purge-shaped, assumes every
+dumped path was nulled, and has no guard on the dump's `op`.
+
 ### 10. Recover a pre-image
 
 Follow the README's "Reading a pre-image back" on the dump from step 9 and
