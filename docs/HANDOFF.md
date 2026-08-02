@@ -15,16 +15,30 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 `docs/operator-panel-smoke-test.md` pass, and S1 is CLOSED** — so nothing blocks
 pointing the panel at production data any more. **No build work is owed.**
 
-**THERE IS NO CONCRETE ACTION LEFT.** The last unexercised merge path — a plain
-merge of a **Telegram-linked** loser, `merge.js:385-394`'s `buildMappingTeardown`
-branch — **ran on 2026-08-03: 61 of 61**, on tag `tdn1`, with integrity clean
-either side and an `ok` line in `.ops-audit/audit.jsonl`. Every live merge path
-the panel offers has now been run at least once. Everything remaining is either a
-deliberate deferral or a whole-app gap that is its own piece of work.
+**THE OPERATOR-FACING LIST IS EMPTY.** Every live merge path, every branch of
+`buildMappingTeardown`, and both of the panel's last never-seen renderings ran on
+dev across 2026-08-02/03. Nothing on `docs/operator-panel-smoke-test.md` is
+unexercised, and no operator run is owed.
 
-Pick from the open items in `docs/operator-panel-followups.md` — **G3**
-and **G6** are the ones that matter (both whole-app rules gaps, G6 with no
-mitigation at all); M1–M8 are minors that were each ruled non-blocking.
+**What is left is G3 and G6 — and they are the same fix.** Both are whole-app
+rules gaps, not panel items. `database.rules.json` never checks
+`auth.token.auth_time`, so a revoked session keeps writing for up to an hour
+(**G3**, measured: writes landing 33 min after the revoke, refused by 66), and a
+**peer's** client republishing inside that window writes cross-user residue that
+is **permanent** (**G6** — it points at a uid that no longer exists, and nothing
+will ever delete it). G6 has **no mitigation**, only detection, and it fires in
+production on `performLink` where no operator is present. Close G3 and G6 closes
+with it.
+
+That is a spec-first piece of work, not an afternoon: it needs a rules-readable
+place to store a per-uid revocation time, a decision about what a mid-session
+client does when its token is refused, and it touches every write path in the
+app. **Start with a spec, not code** — the measurements are already in
+`docs/operator-panel-followups.md`, so don't re-derive them.
+
+Everything else in that file (**G1**, **G4**, **M1–M8**) is a deliberate
+deferral, each with its `file:line` and the reason. The test to re-apply before
+promoting one: does it affect the correctness of a destructive write?
 
 **Step 9's purge side, OBSERVED across three runs (2026-08-02).** Run 3 closed it:
 a purge with the **Auth-record box ticked**, `ops/verify-auth-delete.js` run
@@ -117,15 +131,27 @@ remembered to add to it, and a test asserting every own-account top-level node i
 catch the NEXT relocation instead of the last one. Nothing else is owed on this
 branch.
 
-**Branch status (2026-08-03): clean.** Nothing uncommitted, nothing unpushed,
-nothing unmerged. `origin/dev` and `origin/claude/smoke-test-merge-leg-87l2w1`
-point at the **same commit** — merged fast-forward at the operator's instruction
-each time, so the feature branch carries nothing unique and is redundant.
-`origin/claude/operator-panel-step-9-z31g3w`,
-`origin/claude/knockknock-smoke-test-9-10-1zohil` and
-`origin/claude/knockknock-ui-improvements-7bm5o9` are previous branches, likewise
-redundant. **`dev` is 62 ahead of `origin/main`; `dev` → `main` remains the
-maintainer's**, and no PR is open.
+**Branch status (2026-08-03): clean, and FOUR commits await the maintainer.**
+Nothing uncommitted, nothing unpushed. `claude/knockknock-operator-followups-1kyjy6`
+is **4 ahead of `origin/dev`** (`22abc8a`) and pushed:
+
+| | |
+| --- | --- |
+| `53d4789` | the plain-merge teardown branch ran on dev — 61/61 |
+| `1d3a235` | `--mapping-shape` on both merge-leg CLIs, +17 tests |
+| `44dc688` | the four other mapping holders ran — 62/62, 62/62, 61/61, 61/61 |
+| `864de74` | **G8**: purge no longer refuses an account with no Auth record |
+
+`dev` → `main` and the branch → `dev` are both **the maintainer's**; no PR is
+open, and none was asked for. Older branches
+(`claude/smoke-test-merge-leg-87l2w1`, `claude/operator-panel-step-9-z31g3w`,
+`claude/knockknock-smoke-test-9-10-1zohil`,
+`claude/knockknock-ui-improvements-7bm5o9`) carry nothing unique and are
+redundant. **`dev` is 62 ahead of `origin/main`.**
+
+**Nothing in these four deploys.** `ops/**` is excluded from the functions
+archive, so G8 (`ops/server.js`, `ops/panel.html`) and the merge-leg CLIs ride no
+deploy at all.
 
 ⚠️ **`dev` carries THREE production behaviour changes** on the `performLink` →
 `expungeDerivedAccount` path, all riding the next functions deploy: `pushTokens`
@@ -173,7 +199,9 @@ completely** (**G4**); and **G6** has no mitigation at all, so a peer's client
 can write permanent cross-user residue during any purge or merge, including the
 `performLink` path in production where no operator is present.
 
-Everything below is SHIPPED and merged; no pending uncommitted/unpushed work.
+Everything below is SHIPPED; nothing is uncommitted or unpushed. The four
+commits listed under "Branch status" are pushed but **not yet merged to `dev`** —
+that merge is the maintainer's.
 
 - **v2.0.0 released.** `dev` → `main` merged by the maintainer (`main` =
   `731eed9`); tagged `v2.0.0` on GitHub at the release commit `ca1d1fa`.
@@ -209,18 +237,17 @@ equally safe.
 
 ## Verification state
 
-Green bar OBSERVED at the `origin/dev` tip (2026-08-03): web jest
-**2123/2123** (88 suites, unchanged) · functions **919/919** (31 suites) ·
+Green bar OBSERVED at `864de74`, the branch tip (2026-08-03): web jest
+**2123/2123** (88 suites, unchanged) · functions **941/941** (32 suites) ·
 `typecheck` + `typecheck:scripts` clean · `node scripts/prod.js` builds · zero
 new suppressions across all seven forms.
 
-Functions movement from the `5f4dcd5` bar (879/30): **+26** and a new suite
-(`ops-merge-fixture.test.js`) for the merge leg's seed and its read-back, **+4**
-in the same suite for the verifier's key-order fix, **+7** in `ops-restore.test.js`
-for M9's `op` guard, **+3** for the telegram merge variants. Web is untouched
-throughout.
+Functions movement from the `22abc8a` bar (919/31): **+12** in
+`ops-merge-fixture.test.js` for the mapping shapes, **+5** in a new suite
+(`ops-merge-cli.test.js`) that spawns both merge-leg CLIs, **+5** in
+`ops-server.test.js` for G8. Web is untouched throughout.
 
-Prior bars: `2bf54b7` functions 916 (31). `2dec78c` functions 909 (31). `5f4dcd5` functions 879 (30). `0f31553` functions 857 (28).
+Prior bars: `22abc8a` functions 919 (31). `2bf54b7` functions 916 (31). `2dec78c` functions 909 (31). `5f4dcd5` functions 879 (30). `0f31553` functions 857 (28).
 `373b7ec` functions 842 (27).
 `f38f5cb` functions 807 (26).
 
@@ -277,6 +304,22 @@ each carries its evidence):
 - `5f4dcd5` `functions/test/expunge-completeness.test.js` — the guard that fails
   when a new top-level node in `database.rules.json` is not classified against
   the expunge. Verified by planting three violations, not by passing.
+
+**Shipped 2026-08-03, on `claude/knockknock-operator-followups-1kyjy6`** — pushed,
+awaiting the maintainer's merge to `dev`:
+
+- `53d4789` the plain-merge teardown branch ran on dev, 61/61 — docs only.
+- `1d3a235` `--mapping-shape <loser|third-party|no-uid|absent|survivor>` on
+  `ops/seed-merge-fixture.js` and `ops/verify-merge.js`, so the four holders of
+  `telegramUsers/{tgId}` that `merge.js:389` REFUSES can be seeded and read back.
+  The claims differ per shape; a mismatch would report a correct merge as owed,
+  so a shape without `--telegram` or combined with `--repoint` is refused before
+  the credential is read. +17 tests, verified by planting four violations —
+  **one of which stayed green**, and its gap is recorded in the commit body.
+- `44dc688` the four shapes ran on dev — 62/62, 62/62, 61/61, 61/61 — docs only.
+- `864de74` **G8** fixed: `revokeRefreshTokens` throwing `auth/user-not-found` no
+  longer refuses the purge. Also records the residue sweep's `✗` branch and the
+  `PEER REPUBLISH` block, both run for the first time.
 
 **Shipped 2026-08-03, all on `dev`** — the merge leg:
 
