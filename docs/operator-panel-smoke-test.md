@@ -311,7 +311,19 @@ per-group displayName carry), a group both are in (the collision), a group the
 loser **owns** (ownership follows, and the group is *not* deleted — the contrast
 with a purge), all three canvas branches, push tokens on both sides, an invite
 token with its index entry (the `2fcc51f` `scope` fix on live data), a durable
-mailbox collision, and `knocks`/`calls` to drop.
+mailbox collision, and `knocks`/`calls` to drop. **57 claims.**
+
+**The two variants, each one flag away** and neither yet run against a live
+project. Seed both with `--telegram`; what differs is the panel button and the
+verify flag:
+
+| Variant | Panel button | Verify | Claims | What it proves |
+|---|---|---|---|---|
+| plain + telegram | `merge into…` | `--telegram` | 61 | the loser's mapping comes **down** rather than transferring, and the survivor is not switched onto a channel it cannot receive on |
+| **link via merge** | `link via merge…` | `--telegram --repoint` | 65 | the mapping **repoints** at the survivor — mapping node, reverse index *and* prefs — on top of all 57 plain-merge claims, which is the claim "non-lossy" actually makes |
+
+Link via merge is the one worth running first: it is the link the runbook tells
+operators to *prefer*, and the path production's `performLink` shadows.
 
 Read the preview's conflicts and losses before executing — that is the half no
 read-back can check for you. Then `verify-merge` answers the rest, one line per

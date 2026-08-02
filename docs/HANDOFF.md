@@ -189,17 +189,18 @@ equally safe.
 
 ## Verification state
 
-Green bar OBSERVED at `2bf54b7` (2026-08-03 — the last code change; `origin/dev` sits one docs-only commit above it): web jest
-**2123/2123** (88 suites, unchanged) · functions **916/916** (31 suites) ·
+Green bar OBSERVED at the `origin/dev` tip (2026-08-03): web jest
+**2123/2123** (88 suites, unchanged) · functions **919/919** (31 suites) ·
 `typecheck` + `typecheck:scripts` clean · `node scripts/prod.js` builds · zero
 new suppressions across all seven forms.
 
 Functions movement from the `5f4dcd5` bar (879/30): **+26** and a new suite
 (`ops-merge-fixture.test.js`) for the merge leg's seed and its read-back, **+4**
 in the same suite for the verifier's key-order fix, **+7** in `ops-restore.test.js`
-for M9's `op` guard. Web is untouched throughout.
+for M9's `op` guard, **+3** for the telegram merge variants. Web is untouched
+throughout.
 
-Prior bars: `2dec78c` functions 909 (31). `5f4dcd5` functions 879 (30). `0f31553` functions 857 (28).
+Prior bars: `2bf54b7` functions 916 (31). `2dec78c` functions 909 (31). `5f4dcd5` functions 879 (30). `0f31553` functions 857 (28).
 `373b7ec` functions 842 (27).
 `f38f5cb` functions 807 (26).
 
@@ -274,6 +275,14 @@ each carries its evidence):
   order-insensitive deep compare for records, order-SENSITIVE for arrays, with
   sorted-key failure rendering. Found on the first live run, after a green suite.
 - `3e1f0c8` the smoke test recorded complete; **S1 closed**.
+- **The two telegram merge variants' assertions strengthened** — link via merge
+  had only THREE claims against the plain merge's 57, so a green run would have
+  been weakly earned. `buildLinkWrites` writes five paths and the prefs side is
+  where the loud failures live (`telegram-prefs-disagree` and
+  `telegram-channel-unroutable` are both integrity ERRORS), and none of it was
+  checked. Now 65 claims for link via merge and 61 for plain-plus-telegram, with
+  the runbook for each in `functions/ops/README.md`. Behaviour unchanged —
+  `merge.js` was already right; the verifier was not looking.
 - **M9 closed** — `restore-preimage.js` now refuses a dump whose `op` is not
   `purge` (`opGuard`, +7 tests). An **allowlist**, so an absent or unrecognised
   `op` is refused rather than assumed; it fires on a **dry run** too, because the
@@ -328,12 +337,15 @@ probed either side), one live restore driven from its pre-image, the
 over live data (which surfaced G5, G6 and G7), and one live plain merge with
 57/57 read-back claims holding.
 
-**Still never exercised:** the `--telegram` merge variant and **link via merge**
-(`telegramRepoint`) — the non-lossy link the README tells operators to prefer,
-one flag away on the seed and the verify; the sweep's `present` branch (the `✗`
-output — every live sweep came back clean, so half that rendering is pinned only
-by tests); and the `PEER REPUBLISH` block, which was written from a diagnosis
-rather than from watching it print.
+**Still never exercised:** the `--telegram` merge variant (61 read-back claims)
+and **link via merge** (`telegramRepoint`, 65 claims) — the non-lossy link the
+README tells operators to prefer and the path production's `performLink` shadows.
+Both are seeded by one flag and differ only in the panel button and `--repoint`;
+the runbook for each is in `functions/ops/README.md`.
+Also unexercised: the sweep's `present` branch (the `✗` output — every live sweep
+came back clean, so half that rendering is pinned only by tests), and the
+`PEER REPUBLISH` block, which was written from a diagnosis rather than from
+watching it print.
 
 ## On-ramp
 

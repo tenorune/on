@@ -332,6 +332,37 @@ node ops/seed-merge-fixture.js --project <dev-id> --prod-project <prod-id> --tag
 Add `--telegram` to seed a mapping on the loser; add `--repoint` to `verify-merge`
 when the merge was run as **link via merge** rather than as a plain merge.
 
+**The link-via-merge variant**, which is worth running on its own because it is
+the link this README tells you to *prefer* and the one production's `performLink`
+shadows:
+
+```bash
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag lvm1 --telegram --yes
+# refresh · integrity · click the LOSER row → "link via merge…" (NOT "merge into…")
+#   → paste the SURVIVOR uid → read the plan → type the LOSER uid back
+node ops/verify-merge.js --project $DEV --prod-project $PROD --tag lvm1 --telegram --repoint
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag lvm1 --clean --yes
+```
+
+**65 claims**, against the plain merge's 57 — the extra eight are the whole link,
+not just the mapping node. `buildLinkWrites` writes five paths and the prefs side
+is where the loud failures live: `telegram-prefs-disagree` (prefs `tgId`
+disagreeing with the reverse index) and `telegram-channel-unroutable`
+(`notifyChannel: telegram` with no mapping behind it) are both integrity
+**errors**. The remaining 57 are the plain merge's, unchanged, which is the claim
+"non-lossy" actually makes: everything a merge carries, plus the link.
+
+Run the **plain** merge with `--telegram` (no `--repoint`, 61 claims) and you are
+checking the opposite property — that the mapping comes *down* rather than
+transferring, and that the survivor is not switched onto a channel it cannot
+receive on. Both are seeded by the same flag; only the panel button and the
+`--repoint` flag differ.
+
+All five action buttons render unconditionally, so `link via merge…` is offered
+for a synthetic account like any other. Note the origin badge will read
+*inexact*: these uids are not `deriveTelegramUid(tgId, secret)`, so provenance
+degrades to the heuristic. That is cosmetic here and blocks nothing.
+
 Four things worth knowing before the first run:
 
 * **The accounts are synthetic, and that is the point.** `merge.js` reads RTDB

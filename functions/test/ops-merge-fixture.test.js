@@ -287,12 +287,55 @@ describe('the telegram variants', () => {
     expect(live(`telegramByUid/${L}`)).toBeNull();
   });
 
+  test('a plain merge leaves the survivor with no telegram at all', async () => {
+    const { fixture, live } = await runMerge({ telegram: true });
+    const { S } = fixture.uids;
+    expect(live(`telegramByUid/${S}`)).toBeNull();
+    // The survivor is NOT switched onto a channel it cannot receive on —
+    // integrity.js's `telegram-channel-unroutable` is an ERROR.
+    expect(live(`userPrefs/${S}/notifyChannel`)).toBeNull();
+  });
+
   test('link-via-merge repoints the mapping at the survivor instead', async () => {
     const { fixture, live } = await runMerge({ telegram: true, repoint: true });
     const { L, S } = fixture.uids;
     expect(live(`telegramUsers/${fixture.tgId}/uid`)).toBe(S);
     expect(live(`telegramByUid/${S}/tgId`)).toBe(fixture.tgId);
     expect(live(`telegramByUid/${L}`)).toBeNull();
+  });
+
+  // The variant had only three claims against the plain merge's 57, so "60/60"
+  // would have been weakly earned. buildLinkWrites writes five paths and every
+  // one of them is load-bearing: two integrity checks (telegram-prefs-disagree,
+  // telegram-channel-unroutable) are both ERRORS and both key off the prefs side
+  // that the original three assertions never looked at.
+  test('link-via-merge writes the WHOLE link, mapping and prefs alike', async () => {
+    const { fixture, live } = await runMerge({ telegram: true, repoint: true });
+    const { S } = fixture.uids;
+    const { tgId } = fixture;
+    // chatId comes from the prior mapping, not from the fallback.
+    expect(live(`telegramUsers/${tgId}/chatId`)).toBe(tgId);
+    expect(typeof live(`telegramUsers/${tgId}/linkedAt`)).toBe('number');
+    // The reverse index is exact — it carries no timestamp.
+    expect(live(`telegramByUid/${S}`)).toEqual({ tgId, chatId: tgId });
+    // The prefs side. Disagreement here is telegram-prefs-disagree (ERROR);
+    // a channel with no mapping is telegram-channel-unroutable (ERROR).
+    expect(live(`userPrefs/${S}/telegram/tgId`)).toBe(tgId);
+    expect(typeof live(`userPrefs/${S}/telegram/linkedAt`)).toBe('number');
+    expect(live(`userPrefs/${S}/notifyChannel`)).toBe('telegram');
+  });
+
+  test('link-via-merge is the NON-lossy link — it still carries everything a plain merge does', async () => {
+    const { live } = await runMerge({ telegram: true, repoint: true });
+    // Spot-check the families the README's "link via merge" row promises, since
+    // the whole point of preferring it over "link as production" is that these
+    // survive rather than being expunged.
+    const failures = [];
+    for (const a of buildMergeAssertions({ tag: TAG, telegram: true, repoint: true })) {
+      const res = checkAssertion(a, live(a.path));
+      if (!res.ok) failures.push(`${a.path}: ${res.detail}`);
+    }
+    expect(failures).toEqual([]);
   });
 });
 

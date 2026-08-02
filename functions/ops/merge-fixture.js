@@ -424,13 +424,26 @@ export function buildMergeAssertions({ tag, telegram = false, repoint = false })
   add(`userPrefs/${L}`, 'gone', "the loser prefs are discarded — the survivor's win wholesale");
 
   // --- telegram, when seeded ------------------------------------------------
+  // buildLinkWrites (telegram-link-write.js:188-192) writes FIVE paths, and every
+  // one is load-bearing. Two integrity checks are ERRORS and both key off the
+  // prefs side: `telegram-prefs-disagree` when `userPrefs/{uid}/telegram/tgId`
+  // disagrees with the reverse index, and `telegram-channel-unroutable` when
+  // notifyChannel is telegram with no mapping behind it. Asserting only the
+  // mapping node would leave the half that fails loudest unchecked.
   if (telegram && repoint) {
-    add(`telegramUsers/${tgId}/uid`, 'equals', 'link via merge repoints the mapping at the survivor — the non-lossy link', S);
-    add(`telegramByUid/${S}/tgId`, 'equals', 'and the reverse index follows', tgId);
+    add(`telegramUsers/${tgId}/uid`, 'equals', 'link via merge repoints the mapping at the survivor — this is the non-lossy link', S);
+    add(`telegramUsers/${tgId}/chatId`, 'equals', 'the chatId comes from the PRIOR mapping, not from the fallback', tgId);
+    add(`telegramUsers/${tgId}/linkedAt`, 'present', 'the mapping is re-stamped at link time');
+    add(`telegramByUid/${S}`, 'equals', 'the reverse index is rebuilt exactly — it carries no timestamp of its own', { tgId, chatId: tgId });
     add(`telegramByUid/${L}`, 'gone', 'the loser reverse index is nulled either way');
+    add(`userPrefs/${S}/telegram/tgId`, 'equals', 'the prefs side must agree with the reverse index — disagreement is `telegram-prefs-disagree`, an integrity ERROR', tgId);
+    add(`userPrefs/${S}/telegram/linkedAt`, 'present', 'stamped alongside the mapping');
+    add(`userPrefs/${S}/notifyChannel`, 'equals', 'the survivor is switched onto telegram — and it is routable, because the mapping above exists (`telegram-channel-unroutable` is an ERROR)', 'telegram');
   } else if (telegram) {
     add(`telegramUsers/${tgId}`, 'gone', 'without a repoint the mapping must come down, or the next Mini App open bootstraps onto a dead uid');
     add(`telegramByUid/${L}`, 'gone', 'the loser reverse index is nulled either way');
+    add(`telegramByUid/${S}`, 'gone', 'a plain merge does NOT hand the survivor the Telegram link — that is what link via merge is for');
+    add(`userPrefs/${S}/notifyChannel`, 'gone', 'and it is not switched onto a channel it cannot receive on');
   }
 
   return a;
