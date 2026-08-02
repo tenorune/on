@@ -360,6 +360,44 @@ describe('checkAssertion', () => {
     expect(miss.detail).toContain('"x":2');
   });
 
+  // Found on the FIRST live run of the merge leg (tag run2): the merge had
+  // written inviteIndex correctly and this reported it owed, because RTDB
+  // returned {ownerPath, ownerUid, scope} against an expectation written
+  // {scope, ownerPath, ownerUid}. A verifier that cries wolf on a correct
+  // merge is worse than no verifier — the operator's next move is to go
+  // looking for a defect that is not there.
+  test('equals ignores object key ORDER — RTDB returns keys in its own order', () => {
+    const a = {
+      path: 'p',
+      kind: 'equals',
+      value: { scope: 'personal', ownerPath: 'users/S/invites/T', ownerUid: 'S' },
+      why: 'w',
+    };
+    expect(checkAssertion(a, { ownerPath: 'users/S/invites/T', ownerUid: 'S', scope: 'personal' }).ok).toBe(true);
+  });
+
+  test('equals stays order-SENSITIVE for arrays — order is meaningful in a list, not in a record', () => {
+    const a = { path: 'p', kind: 'equals', value: [1, 2], why: 'w' };
+    expect(checkAssertion(a, [1, 2]).ok).toBe(true);
+    expect(checkAssertion(a, [2, 1]).ok).toBe(false);
+  });
+
+  test('equals still catches a real difference, nested and by key count', () => {
+    const a = { path: 'p', kind: 'equals', value: { a: { b: 1 } }, why: 'w' };
+    expect(checkAssertion(a, { a: { b: 2 } }).ok).toBe(false);
+    expect(checkAssertion(a, { a: { b: 1 }, c: 3 }).ok).toBe(false);
+    expect(checkAssertion(a, {}).ok).toBe(false);
+    expect(checkAssertion(a, null).ok).toBe(false);
+  });
+
+  test('a miss prints both sides with keys SORTED, so two identical-looking values cannot recur', () => {
+    const a = { path: 'p', kind: 'equals', value: { b: 1, a: 2 }, why: 'w' };
+    const miss = checkAssertion(a, { b: 9, a: 2 });
+    expect(miss.ok).toBe(false);
+    expect(miss.detail).toContain('{"a":2,"b":1}');
+    expect(miss.detail).toContain('{"a":2,"b":9}');
+  });
+
   test('keys compares the key SET, so token order never matters', () => {
     const a = { path: 'p', kind: 'keys', value: ['b', 'a'], why: 'w' };
     expect(checkAssertion(a, { a: 1, b: 2 }).ok).toBe(true);

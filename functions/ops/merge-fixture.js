@@ -444,6 +444,56 @@ const isEmptyish = (v) => v === null || v === undefined
   || (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
 
 /**
+ * Order-INSENSITIVE deep equality for records, order-SENSITIVE for arrays.
+ *
+ * RTDB returns an object's keys in its own order, not the order the write used,
+ * so a JSON.stringify comparison reports a false miss on values that are
+ * identical. Observed on the first live run of the merge leg: `inviteIndex` came
+ * back `{ownerPath, ownerUid, scope}` against an expectation written
+ * `{scope, ownerPath, ownerUid}` and was reported owed, on a merge that had done
+ * exactly the right thing. A verifier that cries wolf on a correct merge is
+ * worse than no verifier — it sends the operator hunting a defect that is not
+ * there. Arrays stay order-sensitive: order is meaningful in a list and not in a
+ * record.
+ * @param {unknown} a @param {unknown} b @returns {boolean}
+ */
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  const isArr = Array.isArray(a);
+  if (isArr !== Array.isArray(b)) return false;
+  if (isArr) {
+    const x = /** @type {unknown[]} */ (a);
+    const y = /** @type {unknown[]} */ (b);
+    return x.length === y.length && x.every((v, i) => deepEqual(v, y[i]));
+  }
+  const x = /** @type {Record<string, unknown>} */ (a);
+  const y = /** @type {Record<string, unknown>} */ (b);
+  const xk = Object.keys(x);
+  return xk.length === Object.keys(y).length
+    && xk.every((k) => Object.prototype.hasOwnProperty.call(y, k) && deepEqual(x[k], y[k]));
+}
+
+/**
+ * Render for a FAILURE line, keys sorted. Two values that differ only in key
+ * order are now equal, so anything printed here is a genuine difference — and
+ * sorting both sides is what makes that difference findable by eye instead of
+ * leaving the reader diffing two shuffled objects.
+ * @param {unknown} v @returns {string}
+ */
+function stableShow(v) {
+  if (v === undefined) return 'undefined';
+  return JSON.stringify(v, (_key, value) => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+    const obj = /** @type {Record<string, unknown>} */ (value);
+    /** @type {Record<string, unknown>} */
+    const sorted = {};
+    for (const k of Object.keys(obj).sort()) sorted[k] = obj[k];
+    return sorted;
+  });
+}
+
+/**
  * One assertion against one live value. Pure, so the verifier's output is
  * pinned by tests rather than discovered against live data.
  * @param {Assertion} assertion
@@ -451,8 +501,7 @@ const isEmptyish = (v) => v === null || v === undefined
  * @returns {{ ok: boolean, detail: string }}
  */
 export function checkAssertion(assertion, live) {
-  /** @param {unknown} v */
-  const show = (v) => (v === undefined ? 'undefined' : JSON.stringify(v));
+  const show = stableShow;
   switch (assertion.kind) {
     case 'gone':
       return live === null || live === undefined
@@ -471,7 +520,7 @@ export function checkAssertion(assertion, live) {
     }
     case 'equals':
     default:
-      return JSON.stringify(live) === JSON.stringify(assertion.value)
+      return deepEqual(live, assertion.value)
         ? { ok: true, detail: `= ${show(live)}` }
         : { ok: false, detail: `want ${show(assertion.value)}, got ${show(live)}` };
   }
