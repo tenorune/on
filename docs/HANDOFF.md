@@ -543,9 +543,15 @@ proxy and would abort an `&&` chain. Functions deps are required for
   **How it was caught:** `integrity.js:187`'s `push-tokens-dangling`, on a live
   dev project. Not by tests (all green), not by four reviews, and not by the
   pre-image residue sweep — a path the purge never wrote is not in the dump, so
-  the sweep is structurally blind to it (G4's boundary). `integrity.js` is the
-  cross-account census; it only catches families someone thought to add to it,
-  which is the open half of G5.
+  the sweep is structurally blind to it (G4's boundary).
+  **There is now a guard for the next one:**
+  `functions/test/expunge-completeness.test.js` reads the top-level node list out
+  of `database.rules.json` and fails until every node is classified and every
+  own-account node is provably nulled at `{node}/{uid}`. If you add a top-level
+  node, that test goes red until you say where the expunge stands on it — and
+  `NOT_ACCOUNT_DATA` is not the bucket for making the red go away. It only sees
+  the TOP level, so a stale field inside a record that still resolves (the
+  group-scoped `ownerUid` case in G7) is still nobody's alarm.
 - **One trigger `onMemberWritten` now owns the whole `groups/{gid}/members/{uid}`
   node** (`functions/index.js`): deletion → cell revocation, `statusOverride`
   change → co-member notify, gated by `statusOverrideChanged` (`notifier.js`,

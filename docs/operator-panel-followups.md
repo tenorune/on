@@ -320,11 +320,30 @@ and this is the account's own top-level node. Coverage in
 `telegram-auth.test.js` keeps the 0-line diff that pins the
 `expungeDerivedAccount` split.
 
-**Worth a follow-up, not done here:** `integrity.js` is the only thing that
-would have caught this, and it only catches families someone thought to add to
-it. A test asserting that every own-account top-level node in
-`database.rules.json` is either in the expunge null-set or explicitly exempt
-would catch the *next* relocation instead of the last one.
+**The follow-up this left — now DONE.** `integrity.js` was the only thing that
+would have caught G5, and it only catches families someone thought to add to it.
+`functions/test/expunge-completeness.test.js` is the guard that closes that:
+it reads the top-level node list out of `database.rules.json` — the canonical
+inventory, since the root `$other` denies anything unlisted — and requires every
+node to be classified into exactly one of four buckets, then asserts that every
+own-account node really is nulled at `{node}/{uid}`.
+
+The classification is explicit rather than inferred from the wildcard name,
+because those names do not discriminate: the uid-keyed mailboxes are spelled
+`$recipient`, `$target`, `$invitee`, `$revoked` and `$requester`, so a heuristic
+keyed on `$uid` would have skipped five of them — the same blind spot the guard
+exists to close.
+
+It is a guard, so passing on the first run proves nothing. Verified by planting
+three violations and confirming each is named in the failure: a new unclassified
+top-level node (`deviceSessions`), the G5 regression itself (the
+`pushTokens/{uid}` null removed), and a stale classification entry naming a node
+the rules file no longer has. Same discipline the `ops/**` import guard needed
+after its first version passed against a planted violation.
+
+**What it still cannot see:** anything below the top level. The group-scoped
+`ownerUid` case at the end of G7 is exactly that shape — a stale field inside a
+record that resolves fine — and no top-level inventory will catch it.
 
 ### G7 — expunge stranded the indexes pointing into a deleted group — CLOSED
 
