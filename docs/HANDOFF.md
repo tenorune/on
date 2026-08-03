@@ -49,9 +49,14 @@ client does when its token is refused, and it touches every write path in the
 app. **Start with a spec, not code** — the measurements are already in
 `docs/operator-panel-followups.md`, so don't re-derive them.
 
-Everything else in that file (**G1**, **G4**, **M1–M8**) is a deliberate
-deferral, each with its `file:line` and the reason. The test to re-apply before
-promoting one: does it affect the correctness of a destructive write?
+Everything else in that file (**G1**, **G4**, **G9**, **G10**, **M1–M10**) is a
+deliberate deferral, each with its `file:line` and the reason. The test to
+re-apply before promoting one: does it affect the correctness of a destructive
+write? **G9 passes that test on its face** — `rotateCode`'s fan-out re-creates
+`users/{T}/followers/{me}` for a followee that no longer exists, automatically
+and per entry, which is G6's permanence class in a path the G6 fix does not
+cover. It was filed rather than fixed only because it surfaced in the review
+that closed G6 out, not to rank it below the other deferrals.
 
 **Step 9's purge side, OBSERVED across three runs (2026-08-02).** Run 3 closed it:
 a purge with the **Auth-record box ticked**, `ops/verify-auth-delete.js` run
@@ -129,16 +134,22 @@ confirmed working on a custom-token uid, which was the original deferral's
 question. The rules gap underneath it is filed as **G3**. Full reasoning and the
 measurements live in `docs/operator-panel-followups.md`.
 
-**Eleven open items, six closed** — all ranked with stable IDs in the "at a
+**Fourteen open, seven closed** — all ranked with stable IDs in the "at a
 glance" table at the top of `docs/operator-panel-followups.md`. **S1 and M9 are
 now CLOSED** (the smoke test ran to completion; M9's `op` guard shipped straight
 after, because completing the leg is what made it urgent — a real merge dump now
 sits in `.ops-audit/` beside the purge dumps). Open: G1, **G3** and **G4** (known
 gaps — G3 is a whole-app rules gap, not a panel item; G4 came out of running
-the smoke test), and M1–M8
-(deferred minors, each with its `file:line` and why it was left; none of them
-affects the correctness of a destructive write, which is the test to re-apply
-before promoting one). **G6 is now CLOSED** too (`13cb18c`+`8a0ff62`) — it does
+the smoke test); **G9**, **G10** and **M10**, all three filed 2026-08-03 by the
+review that closed out G6's fix wave, from READING rather than from running; and
+M1–M8 (deferred minors, each with its `file:line` and why it was left; none of
+them affects the correctness of a destructive write, which is the test to
+re-apply before promoting one). **G9 is the one to read first**: `rotateCode`'s
+fan-out (`js/db/social.ts:359-363`) re-creates `users/{T}/followers/{me}` from
+the local cache for a followee that no longer exists — the same permanence class
+as G6, automatic rather than user-driven, and outside the G6 spec's §4.1 sweep
+because that table was scoped to what `crossRefRenderers` enumerates.
+**G6 is now CLOSED** too (`13cb18c`+`8a0ff62`+`e2dde4e`) — it does
 NOT close with G3, contrary to what this file used to say; see "What's next"
 above.
 **G5 is closed** (`0f31553`) and stays in that table with its reasoning, like G2,
@@ -149,11 +160,19 @@ remembered to add to it, and a test asserting every own-account top-level node i
 catch the NEXT relocation instead of the last one. Nothing else is owed on this
 branch.
 
-**Branch status (2026-08-03): clean, and TWELVE commits await the maintainer.**
-Nothing uncommitted, nothing unpushed. The branch was renamed/continued as
-`claude/knockknock-g3-g6-revocation-cy2i0n` (not
-`claude/knockknock-operator-followups-1kyjy6`, named here previously) and is
-**12 ahead of `origin/dev`** (`22abc8a`) and pushed:
+**Branch status (2026-08-03): MERGED TO `dev` AND PUSHED, at the operator's
+explicit instruction.** `origin/dev` moved `22abc8a` → `8ad9ef0`, a `--no-ff`
+merge commit matching `dev`'s own history (`d5c7a53` is the same shape;
+fast-forward was available and deliberately not taken). Nothing uncommitted,
+nothing unpushed, working tree back on the feature branch. **`dev` is now 81
+ahead of `origin/main`**, and `dev` → `main` remains the maintainer's.
+
+The merge carried **17** commits: the five below that
+`claude/knockknock-operator-followups-1kyjy6` had left waiting (that branch is
+at `edb528c`, is a verified ancestor of the merge, and is now fully contained in
+`dev` — it needs no merge of its own), plus the twelve of the G6 work. The
+branch was continued as `claude/knockknock-g3-g6-revocation-cy2i0n`, not
+`claude/knockknock-operator-followups-1kyjy6` as this file named it previously:
 
 | | |
 | --- | --- |
@@ -169,21 +188,35 @@ Nothing uncommitted, nothing unpushed. The branch was renamed/continued as
 | `8620702` | store helpers — `hasSeenServerFollowing`/`markServerFollowingSeen` |
 | `8a0ff62` | client gate — stop republishing a following list the server emptied (**G6**) |
 | `94c9aa6` | classifies `statusapp_following_server_seen` as account-scoped in `js/cacheOwner.ts`, closing a drift-guard failure the six commits above it left open |
+| `41a89d4` | the docs correction — G6 closed, the author named, "closes with G3" struck here and in the followups doc |
+| `b595dcb` | **I1**: an undeliverable follow-grant is now told apart from a transient failure (`js/followRequests.ts`, `followeeExists` in `js/db/social.ts`) |
+| `e2dde4e` | `$sub` refuses a write two levels below a following entry — `$field` alone closed only one |
+| `10e7c0b` | **G9/G10/M10** filed; the spec's §6 table and the forgeable-predicate landmine corrected |
+| `6ff93cb` | the G9 shift was twelve lines, not ten |
 
-`dev` → `main` and the branch → `dev` are both **the maintainer's**; no PR is
-open, and none was asked for. Older branches
+`dev` → `main` is **the maintainer's**; no PR was opened, and none was asked
+for. Older branches
 (`claude/smoke-test-merge-leg-87l2w1`, `claude/operator-panel-step-9-z31g3w`,
 `claude/knockknock-smoke-test-9-10-1zohil`,
 `claude/knockknock-ui-improvements-7bm5o9`) carry nothing unique and are
-redundant. **`dev` is 62 ahead of `origin/main`.**
+redundant, and `claude/knockknock-operator-followups-1kyjy6` now joins them.
+**`dev` is 81 ahead of `origin/main`.**
 
-**Of these twelve, only `13cb18c` rides a deploy.** `ops/**` is excluded from
-the functions archive, so G8 (`ops/server.js`, `ops/panel.html`) and the
-merge-leg CLIs ride no deploy at all, and the spec/plan/store/client-gate/
-cache-owner commits (`bb41719`, `845293b`, `8620702`, `8a0ff62`, `94c9aa6`)
-touch only `docs/` and `js/`, neither of which is a rules deploy surface.
-⚠️ **`13cb18c` is a fourth undeployed behaviour change riding on
-`database.rules.json`**, on top of the three `dev` already carries below.
+**These seventeen touch TWO deploy surfaces, and neither is the functions
+one.** `ops/**` is excluded from the functions archive, so G8
+(`ops/server.js`, `ops/panel.html`) and the merge-leg CLIs ride no deploy at
+all, and the docs commits ride nothing.
+⚠️ **`13cb18c`+`e2dde4e` are an undeployed RULES change** — the fourth
+undeployed behaviour change on `dev`, and the only one on this surface.
+⚠️ **`8620702`, `8a0ff62`, `94c9aa6` and `b595dcb` are undeployed CLIENT
+behaviour**, riding the next **hosting** deploy: the push-up gate, its
+localStorage key and that key's account-scoped classification, plus I1's
+undeliverable-grant handling. Do not read "only `js/`" as "no deploy" —
+`js/` is exactly what Hosting serves.
+The two are independent of each other and of the functions queue: the rules
+guard is the half that actually closes G6 and it binds every client the moment
+it ships, including ones nobody can update; the client half only ever binds
+clients that have updated.
 Rules deploy independently of hosting and functions
 (`firebase deploy --only database`) and bind every client immediately,
 including ones nobody can update. Nothing deploys from sessions;
@@ -197,7 +230,7 @@ nothing deploys from sessions. **The merge-leg work adds nothing to that list** 
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, G4, M1–M9) is either an operator action
+What remains (G1, G3, G4, G9, G10, M1–M10) is either an operator action
 or explicitly deferred — none of it is unfinished build work. **G6 is CLOSED.**
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
@@ -238,9 +271,9 @@ where no operator is present. **G6 is now CLOSED** (`13cb18c`+`8a0ff62`,
 2026-08-03) — see "What's next" at the top of this file; this paragraph is
 left as the historical snapshot it was written as.
 
-Everything below is SHIPPED; nothing is uncommitted or unpushed. The four
-commits listed under "Branch status" are pushed but **not yet merged to `dev`** —
-that merge is the maintainer's.
+Everything below is SHIPPED; nothing is uncommitted or unpushed. The commits
+listed under "Branch status" are **merged to `dev` and pushed** — `dev` → `main`
+is still the maintainer's.
 
 - **v2.0.0 released.** `dev` → `main` merged by the maintainer (`main` =
   `731eed9`); tagged `v2.0.0` on GitHub at the release commit `ca1d1fa`.
@@ -276,10 +309,19 @@ equally safe.
 
 ## Verification state
 
-Green bar OBSERVED at `94c9aa6`, the branch tip (2026-08-03): web jest
-**2130/2130** (88 suites, unchanged) · rules (emulator) **115/115** (12
-suites) · functions **941/941** (32 suites, unchanged) · `typecheck` +
-`typecheck:scripts` clean · `node scripts/prod.js` builds.
+Green bar OBSERVED on the MERGED result at `8ad9ef0` — `dev`'s tip, not the
+branch's (2026-08-03): web jest **2132/2132** (88 suites, unchanged) · rules
+(emulator) **116/116** (12 suites) · functions **941/941** (32 suites,
+unchanged) · `typecheck` + `typecheck:scripts` clean · `node scripts/prod.js`
+builds. Run after the merge on purpose: a green run on the branch only proves
+the branch. The same five were green at the branch tip `6ff93cb` beforehand.
+
+**What that bar does NOT cover, and it is the whole point of this piece of
+work:** nothing here ran against a live Firebase project — no session container
+has ever held a service-account credential — so G6's fix is verified against the
+**rules emulator and jest only**. `database.rules.json` is not deployed by
+anything in a session, which means a live project stays exactly as exposed to G6
+as it was before this branch until the rules ship there.
 
 This bar was not green on the first pass at this tip minus one commit
 (`8a0ff62`): `tests/cacheOwner.test.js`'s drift guard ("every statusapp_ key in
