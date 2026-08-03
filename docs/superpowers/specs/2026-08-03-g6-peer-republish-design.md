@@ -52,7 +52,7 @@ instrumented, and it is not re-run for this spec.
 
 ## 3. The author
 
-`js/following.ts:1055-1063`, in `syncFollowingFromServer` — the callback of the
+`js/following.ts:1068-1073`, in `syncFollowingFromServer` — the callback of the
 `watchFollowing` subscription:
 
 ```ts
@@ -77,9 +77,9 @@ The three other `setFollowingEntry` call sites cannot be the author:
 
 | site | why not |
 |---|---|
-| `js/following.ts:1130` | inside `subscribePresence`, guarded by `if (!userData) return` — a purged uid has no `users/{T}` record, so it returns before writing |
-| `js/following.ts:1345` | label rename, user action |
-| `js/following.ts:1510` | explicit follow, user action |
+| `js/following.ts:1140` | inside `subscribePresence`, guarded by `if (!userData) return` — a purged uid has no `users/{T}` record, so it returns before writing |
+| `js/following.ts:1355` | label rename, user action |
+| `js/following.ts:1520` | explicit follow, user action |
 
 The written value is `{ code, label }` — the shape `getFollowing()` holds in
 `localStorage` — which is why the restore's dry run said `already-there`.
@@ -107,7 +107,7 @@ writes it with no user action:
 
 | path family | peer may write | automatic writer | verdict |
 |---|---|---|---|
-| `userPrefs/{peer}/following/{T}` | yes — owner-write | **yes** — `following.ts:1060` | **fixed here** |
+| `userPrefs/{peer}/following/{T}` | yes — owner-write | **yes** — `following.ts:1070` | **fixed here** |
 | `canvases/{T}_{peer}`, `{peer}_{T}` | yes — `.write` matches either side of the id | no — `setDrawingState` needs the canvas opened (`canvas.ts:737`) | deferred, detection only |
 | `groups/{gid}/members/{T}` | yes — owner may write another member's row | no — `writeMember` only ever writes the caller's own row (`groups.ts:56`, `:147`) | deferred |
 | `pendingInvitesByGroup/{gid}/{T}` | yes — any member | no — sending an invite is a user action | deferred |
@@ -153,17 +153,27 @@ Five properties this rests on:
 3. **`root` in a rule ignores `.read` rules,** so the lookup works even though
    `users/$uid` is owner-read.
 4. **The predicate is `presence/code`, not `users/{T}`.** A bare
-   `users/{T}.exists()` is forgeable: `users/$uid/followers/$follower` is
-   writable by the follower, so a peer's own follower row **creates** the
-   `users/{T}` node. `registerAsFollower` runs before `setFollowingEntry` in
-   `following.ts:1508-1510` and would satisfy the weak predicate every time.
-   `presence/code` has no such `.write` override — the owner-only ancestor rule
-   applies — and both account types write it: `initUser` (`js/db/social.ts:26`)
-   and the Telegram bootstrap (`functions/telegram-auth.js:150-154`).
+   `users/{T}.exists()` is forgeable, and by more than one path — **there are
+   three non-owner writers under `users/$uid`, not two**, and any one of them
+   creates the `users/{T}` node (M5 in the final review, which found the
+   third): `followers/$follower` and `followerNames/$follower` are writable by
+   the follower, so a peer's own follower row **creates** the `users/{T}`
+   node — `registerAsFollower` runs before `setFollowingEntry` in
+   `following.ts:1518-1520` and would satisfy the weak predicate every time —
+   and `invites/$token/redemptionsUsed` grants `.write: "auth != null"` to
+   **any** signed-in uid, for any `$uid`/`$token` (`database.rules.json:34-38`),
+   so redeeming someone else's invite link creates the node with no
+   relationship behind it at all. `presence/code` has no such `.write`
+   override — the owner-only ancestor rule applies — and both account types
+   write it: `initUser` (`js/db/social.ts:26`) and the Telegram bootstrap
+   (`functions/telegram-auth.js:150-154`).
 5. **`.validate` does not run on ancestors of the written path.** A write at
    `following/{T}/label` would skip a guard placed only at `$followee`; the
-   `$field` copy closes that. No code writes that deep today — the `$field` rule
-   is there so a future one cannot walk under the guard.
+   `$field` copy closes that one level. `$field` itself only closes that one
+   level too — a write at `following/{T}/label/x`, two levels below the entry,
+   would skip both copies, which is why `$field` also carries a `$sub: {
+   ".validate": false }` refusing outright anything deeper (M1 in the final
+   review; no code writes that deep today, and the node is the writer's own).
 
 **What it does not do.** It does not remove entries already dangling in
 production; it refuses *writes*, so a stale entry sits untouched until something
@@ -181,7 +191,7 @@ touch anything the Admin SDK does — graduation, merge and expunge bypass rules
   would let a code resolve to an account that failed to claim it, which is worse.
 - **A follow of an account whose presence write failed.** Previously succeeded
   and produced a dangling entry; now refused. That is the guard working, but the
-  failure is silent (`setFollowingEntry(...).catch(() => {})`, `following.ts:1510`)
+  failure is silent (`setFollowingEntry(...).catch(() => {})`, `following.ts:1520`)
   and the row is already in the local list via `addFollowing`. Named in §8 as an
   open question rather than fixed here — surfacing swallowed write failures is a
   change of its own.
@@ -213,7 +223,7 @@ Chosen over deleting the branch or freezing it, on user-visible behaviour:
 | never-migrated device | contacts reach the server, as today | **whole contact list disappears, silently and possibly for good** | contacts stay on one device, invisible on every other |
 | G6: only contact purged | ghost row disappears | same | a contact that can never be available sits there until removed by hand |
 | unfollowed everyone elsewhere | converges | same | the two devices disagree forever |
-| first follow's write was swallowed | repaired next tick, as today | follow silently did not take | contact never reaches the server |
+| first follow's write was swallowed | repaired next tick — but only for a device that has never seen a server list. For an established device whose server list had gone empty (unfollowed everyone), the entry is pruned on the next tick instead: silently indistinguishable from rows 2-3's dead-entry and convergence cases, which need the exact same "empty server list is trusted" read to work (M3, final review) — not a new failure mode, the accepted cost of the other two | follow silently did not take | contact never reaches the server |
 
 If `localStorage` is unavailable, the flag reads absent, the push-up fires, and
 the rules guard refuses it. Degrades to noise, not residue — which is the point

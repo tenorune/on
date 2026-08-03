@@ -591,15 +591,20 @@ proxy and would abort an `&&` chain. Functions deps are required for
   (G6).** `database.rules.json`'s new guard on
   `userPrefs/$uid/following/$followee` needed to answer "does this account
   exist," and a bare `users/{T}.exists()` would have been the obvious
-  predicate — and worthless: `users/$uid/followers/$follower` is writable BY
-  the follower, so a peer's own `registerAsFollower` call creates the
-  `users/{T}` node moments before `setFollowingEntry` runs
-  (`following.ts:1508-1510`), satisfying the weak predicate every time with no
-  real account behind it. The guard checks `presence/code` instead — no
-  client can write another account's presence, so the owner-only ancestor
-  rule on `users/$uid` actually holds there. Before adding a `.exists()`
-  predicate to a rule, ask who else's write can plant the thing you're
-  checking for.
+  predicate — and worthless. There are **three** non-owner writers under
+  `users/$uid`, not two (a final-review finding, M5): `users/$uid/followers/$follower`
+  and `followerNames/$follower` are writable BY the follower, so a peer's own
+  `registerAsFollower` call creates the `users/{T}` node moments before
+  `setFollowingEntry` runs (`following.ts:1518-1520`), satisfying the weak
+  predicate every time with no real account behind it — and
+  `users/$uid/invites/$token/redemptionsUsed` grants `.write: "auth != null"`
+  to **any** signed-in uid, for any `$uid`/`$token` (`database.rules.json:34-38`),
+  so redeeming someone else's invite link creates the same node with nothing
+  more than a token guess behind it. The guard checks `presence/code` instead
+  — no client can write another account's presence, so the owner-only
+  ancestor rule on `users/$uid` actually holds there. Before adding a
+  `.exists()` predicate to a rule, ask who else's write can plant the thing
+  you're checking for.
 - **A new `localStorage` key is not done when it's written and read — it also
   has to be classified.** `js/cacheOwner.ts`'s drift guard
   (`tests/cacheOwner.test.js`, "every statusapp_ key in js/ is classified")
