@@ -32,6 +32,22 @@ and closing it was the first thing the completed smoke test made urgent. The res
 are ranked by whether anything downstream depends on them. IDs are stable — cite
 them rather than re-describing the item. **R1-R4 are closed** (`c1b2cf9`) and
 detailed under "Parked residuals" below; their IDs are retired, not reused.
+
+⚠️ **TWO M-NUMBERINGS EXIST AND THEY COLLIDE.** This file's **M1-M11** are the
+stable IDs. The G6 fix-wave review (2026-08-03) numbered its *own* findings
+M1-M6, and that numbering is cited in prose here and in `docs/HANDOFF.md` —
+where the same letters mean different items entirely:
+
+| cited as | is really | this file's stable ID of that number is |
+| --- | --- | --- |
+| G6-review M2 | **G10** | M2, `ops/project.js:69` |
+| G6-review M4 | **G9** | M4, `ops/audit.js:167` |
+| G6-review M5 | the forgeable-predicate landmine (no row here) | M5, `ops/audit.js:181-189` |
+| G6-review M6 | **M10** | M6, `ops/server.js:359,385` |
+
+Every such citation is now written **G6-review finding Mn** so it cannot be
+read as a stable ID. A bare `Mn` always means this file's table. If a future
+review numbers its own findings, give them a prefix before they reach a doc.
 **G2 is closed** too, and stays in the table with its reasoning because *why*
 the deferral was wrong is the useful part. **G4, G5, G6 and G7 are new**
 (2026-08-02) and all four came out of *running* the smoke test rather than out of
@@ -637,7 +653,8 @@ differ completely in effect.
 
 ### G9 — `rotateCode`'s fan-out re-creates a followers row for a purged followee
 
-Filed 2026-08-03 by the G6 fix-wave review (final-review finding M4). Found by
+Filed 2026-08-03 by the G6 fix-wave review (**G6-review finding M4** — that
+review's own numbering, not this file's stable **M4**). Found by
 reading, not by running the smoke test — **UNKNOWN** whether this has been
 device-observed; nothing here re-derives a live sighting.
 
@@ -700,7 +717,8 @@ branch, has never run against a live Firebase project.
 
 ### G10 — invite redemption can leave an asymmetric follower row for a vanished creator
 
-Filed 2026-08-03 by the G6 fix-wave review (final-review finding M2). Same
+Filed 2026-08-03 by the G6 fix-wave review (**G6-review finding M2** — that
+review's own numbering, not this file's stable **M2**). Same
 scope note as G9: found by reading, not device-observed.
 
 `js/invites.ts:211-212`: `registerAsFollower` runs **before** the now-refusable
@@ -845,7 +863,7 @@ rather than letting the section heading stand as a verdict.
 | **M7** | `ops/server.js:690-692` | The production banner does not name the project inline. | The startup line immediately above it does (`project=<id>`). Duplication, not absence. |
 | **M8** | `ops/panel.html:207,228` | `adoptGroupNames` is accepted by `server.js:623` and implemented by `merge.js:229-231`, but **`panel.html` never sends it** — both merge buttons post only `{loserUid, survivorUid}` (+`telegramRepoint`). So a `group-member-collision` previewed from the browser always resolves *"survivor's record kept"*, and the loser's per-group `displayName` can never be adopted without POSTing the route by hand. | It fails toward the conservative resolution: the survivor's own record is what survives, which is the safe half of the choice, and the preview states that resolution honestly rather than promising an adoption that will not happen. A capability gap, not a correctness one. Worth knowing when reading the merge leg's results — it is why the per-group name **carry** has to come from a group only the loser is in (`merge.js:220-221`), which is what `ops/merge-fixture.js` seeds. |
 | **M9** — **CLOSED** | `ops/restore-preimage.js` (`opGuard`) | The dump was read for `preImage` and its `op` printed but never checked. Every judgement in that module rests on **"a purge NULLED every path in its write-set"** (`:204`) — true for a purge, false for a merge, whose write-set is mostly non-null *carries* onto the survivor. So the verdicts, the `RESIDUE SWEEP` and the `PEER REPUBLISH` block were all built on an assumption that does not hold for a merge dump, and the `restore` verdict on the paths the merge *did* null would **partially resurrect the merged-away account**. A restore's own dump has the mirror problem: it holds the PRE-restore state, so replaying it undoes the restore. | **Closed** by `opGuard`. It is an **allowlist** — an absent, empty or unrecognised `op` is refused rather than assumed to be a purge, because the assumption *is* the risk. It fires on a **dry run** too: the dry run writes nothing, but its verdicts and its sweep are the misleading part, and `jq` reads a dump of any shape without pretending to interpret it. The override is `--i-know-this-is-not-a-purge`, named so it cannot be typed by reflex, and it prints what it is overriding. Deferring stopped being tenable on 2026-08-03, when the merge leg put a real merge dump in `.ops-audit/` beside the purge dumps, one tab-complete from the familiar command. Verified by planting two violations (an always-ok guard, and the allowlist turned into a denylist) **and** by running the CLI against fabricated merge / purge / no-`op` dumps — tests on the pure function prove nothing about the wiring, which is the mistake the `ops/**` import guard made twice. |
-| **M10** | `tests/rules/g6-following-referent.test.js:22` | The G6 rules suite's guarded path (`userPrefs/M/following/T`) is typed by hand in the test, with nothing tying it to the path `js/db/social.ts:287`'s `setFollowingEntry` actually writes. The design spec's §7 asked for that specific case to be "exercised through `setFollowingEntry` itself" — the client half honoured the equivalent requirement (through the `watchFollowing` callback), the rules half did not. | Today the two agree, verified by inspection, and the rules suite is green. But a refactor of that one line in `js/db/social.ts` would leave the guard sitting on a path nothing writes, with the suite still green and nobody told. Filed (final-review finding M6) rather than fixed on this branch: closing it means adding a jest assertion on the ref path `setFollowingEntry` itself builds, which is a client-side (jest) addition to a rules-emulator suite and deserves its own small review rather than riding in on this wave's rules/client split. |
+| **M10** | `tests/rules/g6-following-referent.test.js:22` | The G6 rules suite's guarded path (`userPrefs/M/following/T`) is typed by hand in the test, with nothing tying it to the path `js/db/social.ts:287`'s `setFollowingEntry` actually writes. The design spec's §7 asked for that specific case to be "exercised through `setFollowingEntry` itself" — the client half honoured the equivalent requirement (through the `watchFollowing` callback), the rules half did not. | Today the two agree, verified by inspection, and the rules suite is green. But a refactor of that one line in `js/db/social.ts` would leave the guard sitting on a path nothing writes, with the suite still green and nobody told. Filed (**G6-review finding M6** — that review's own numbering, not this file's stable **M6**) rather than fixed on this branch: closing it means adding a jest assertion on the ref path `setFollowingEntry` itself builds, which is a client-side (jest) addition to a rules-emulator suite and deserves its own small review rather than riding in on this wave's rules/client split. |
 | **M11** | `js/invites.ts:230` | G10's fix hoists `clearRevocation(redeemerUid, creatorUid)` ahead of `setFollowingEntry`, which is the write the G6 rules guard can refuse. When that write IS refused — the creator was purged between the `presence/code` read at `:201` and the write landing — the revocation key has already been cleared, and the redeemer's revocation watcher (`js/following.ts`) uses exactly that key to prune a stale `following/{creator}` entry from the local list. So a *failed* redemption can leave a stale own-side follow that the watcher would otherwise have cleaned up. Note the old ordering did not have this property either by design: it avoided the case by never clearing the key until `registerAsFollower` ran, which is the ordering G10 had to break. | It is in the redeemer's **own** subtree, not a peer's — visible in their own list, and self-correcting on the next successful follow or unfollow of that uid. It is strictly better than what it replaced: the alternative orderings either re-open G10 (cross-user residue under an account that no longer exists, which nothing sweeps) or reintroduce the silent auto-unfollow the whole-branch review caught. Left because the cost is a stale row in the user's own cache-backed list against a permanent cross-user write, and that trade is not close. Closing it means having the refusal path restore the key, or having the watcher prune on a predicate other than the revocation key — either is its own change with its own review. Filed 2026-08-03 by the scoped re-review of the final fix wave. |
 
 **One review-method note worth keeping:** grepping for `as any` alone is

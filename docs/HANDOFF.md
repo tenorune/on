@@ -784,7 +784,9 @@ proxy and would abort an `&&` chain. Functions deps are required for
   `userPrefs/$uid/following/$followee` needed to answer "does this account
   exist," and a bare `users/{T}.exists()` would have been the obvious
   predicate — and worthless. There are **three** non-owner writers under
-  `users/$uid`, not two (a final-review finding, M5): `users/$uid/followers/$follower`
+  `users/$uid`, not two (**G6-review finding M5** — that review's own
+  numbering, NOT the followups ledger's stable **M5**, which is an unrelated
+  `ops/audit.js` retry cap): `users/$uid/followers/$follower`
   and `followerNames/$follower` are writable BY the follower, so a peer's own
   `registerAsFollower` call creates the `users/{T}` node moments before
   `setFollowingEntry` runs (`following.ts:1518-1520`), satisfying the weak
