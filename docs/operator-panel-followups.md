@@ -48,7 +48,7 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 | **S1** | ~~The manual dev-project smoke test~~ | whole panel | **CLOSED** — all ten steps pass; see below for the two variants it did not cover |
 | **G1** | Divergence check compares paths, not write values | `ops/merge.js:212-213` | Known gap, bounded |
 | **G2** | ~~Auth-record deletion has no route (D5)~~ | `ops/server.js` | **CLOSED** — the deferral was wrong; see below |
-| **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** |
+| **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** — **parked as [#302](https://github.com/tenorune/on/issues/302)** |
 | **G4** | A pre-image cannot undo a cascade the purge only triggered | `ops/audit.js` (model, not a bug) | Known gap, bounded; mitigated |
 | **G5** | ~~Expunge and graduation stranded `pushTokens/{uid}`~~ | `functions/telegram-auth.js` | **CLOSED** — F6c relocated the node and the deletion path never followed |
 | **G6** | ~~A peer's client republishes cross-user residue, permanently~~ | `database.rules.json` + `js/following.ts` | **CLOSED** (`13cb18c`+`8a0ff62`) — does NOT close with G3; see below |
@@ -256,12 +256,18 @@ against them. Only the third is an open item.
   the only reliable mitigation, and it is now step 9's stated precondition. The
   underlying rules gap is tracked separately as **G3**.
 
-- **G3 — a revoked session keeps writing for up to an hour.** Fell out of
-  closing G2, and it is NOT a panel item: `database.rules.json` never checks
-  `auth.token.auth_time`, so an ID token already in the client's hands is
-  honoured until it expires no matter what the Admin SDK was told. Measured on
-  dev, 2026-08-02: writes still landed 33 minutes after `revokeRefreshTokens`
-  and were refused by 66, bracketing the token's own one-hour expiry. The window
+- **G3 — a revoked session keeps writing for up to an hour.** **Parked as
+  [#302](https://github.com/tenorune/on/issues/302) (2026-08-03) — spec-first
+  work, not started; nothing is owed on any branch.** This entry stays the
+  ledger of record and the issue is its tracking half; read this before the
+  issue, which summarises it rather than adding to it.
+
+  Fell out of closing G2, and it is NOT a panel item: `database.rules.json`
+  never checks `auth.token.auth_time`, so an ID token already in the client's
+  hands is honoured until it expires no matter what the Admin SDK was told.
+  Measured on dev, 2026-08-02: writes still landed 33 minutes after
+  `revokeRefreshTokens` and were refused by 66, bracketing the token's own
+  one-hour expiry. The window
   runs from the client's last open, so revoking sooner does not shorten it.
 
   **Why it is not fixed here.** The fix is a rules change — record a revocation

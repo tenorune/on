@@ -40,14 +40,22 @@ server list. Full reasoning:
 live project, and `database.rules.json` now carries this as a fourth
 undeployed behaviour change (see the branch-status note below).
 
+**G3 IS PARKED AS [#302](https://github.com/tenorune/on/issues/302)
+(2026-08-03), so NO BUILD WORK IS OWED ON THIS REPO AT ALL.** It is spec-first
+work that has not been started — no spec, no branch, no code. The section below
+describes what it *is*, not something in flight;
+`docs/operator-panel-followups.md`'s G3 entry stays the ledger of record and
+the issue is its tracking half.
+
 **What is left is G3, alone.** `database.rules.json` never checks
 `auth.token.auth_time`, so a revoked session keeps writing for up to an hour
 (**G3**, measured: writes landing 33 min after the revoke, refused by 66).
 That is a spec-first piece of work, not an afternoon: it needs a rules-readable
 place to store a per-uid revocation time, a decision about what a mid-session
 client does when its token is refused, and it touches every write path in the
-app. **Start with a spec, not code** — the measurements are already in
-`docs/operator-panel-followups.md`, so don't re-derive them.
+app. **If and when #302 is picked up, start with a spec, not code** — the
+measurements are already in `docs/operator-panel-followups.md`, so don't
+re-derive them.
 
 Everything else in that file (**G1**, **G4**, **M1–M8**, **M10**, **M11**) is a
 deliberate deferral, each with its `file:line` and the reason. The test to
