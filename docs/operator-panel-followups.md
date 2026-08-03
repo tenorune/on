@@ -64,7 +64,7 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 | ID | Item | Where | Weight |
 |---|---|---|---|
 | **S1** | ~~The manual dev-project smoke test~~ | whole panel | **CLOSED** — all ten steps pass; see below for the two variants it did not cover |
-| **G1** | Divergence check compares paths, not write values | `ops/merge.js:212-213` | Known gap, bounded |
+| **G1** | Divergence check compares paths, not write values | `ops/merge.js:221` | Known gap, bounded — **severity corrected DOWN 2026-08-03**; the `role`-escalation reading was wrong, see below |
 | **G2** | ~~Auth-record deletion has no route (D5)~~ | `ops/server.js` | **CLOSED** — the deferral was wrong; see below |
 | **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** — **parked as [#302](https://github.com/tenorune/on/issues/302)** |
 | **G4** | A pre-image cannot undo a cascade the purge only triggered | `ops/audit.js` (model, not a bug) | Known gap, bounded; mitigated |
@@ -212,16 +212,62 @@ touched and its 0-line diff still holds.
 ### G1 — the preview/execute divergence check compares paths, not values
 
 Execute re-reads the database and refuses if the plan diverged from the one
-previewed. The comparison covers paths, losses and conflicts — **not write
-values**. The one case this misses, constructed during review: if a loser's
-group `role` flips `member` → `owner` between preview and execute *without*
-`ownerId` changing, the path set, losses and conflicts are all identical, the
-refusal does not fire, and the survivor silently gains ownership of a shared
-group.
+previewed. `digest` (`ops/server.js:447-451`) captures sorted write **paths**,
+losses, and conflict strings (`kind|path|detail|resolution`) — **not write
+values**, deliberately: merge stamps `now` into what it writes, so comparing
+values would refuse every real operation.
 
-Bounded on purpose: that value is never displayed in the preview, so the
-operator is not misled about anything they read, and the pre-image dump captures
-the prior value, so it is recoverable.
+So the gap is structural rather than a single case. **Any** value change between
+preview and execute that leaves the path set, the losses and every conflict
+string identical is applied without the operator having seen it — that is most
+of the ~20 value-carrying writes in `buildMergePlan`. For nearly all of them the
+fresh value is the *correct* one (a peer who renamed themselves should have the
+new name carried), which is why this is bounded rather than serious. The check
+is not a freeze; it exists to catch a change that grants something unapproved.
+
+⚠️ **The severity here was overstated, and the correction is the useful part.**
+
+**The `role` case does not do what this entry claimed.** It read: "the survivor
+silently gains ownership of a shared group." It does not. `role` is a
+**write-only field** — `database.rules.json` never mentions it, no Cloud
+Function reads it, and the client does not either (`js/groupContext.ts:51` types
+a member as `{ displayName?, statusOverride? }` — `role` is not in the type).
+Its only appearances are three writes: `js/groups.ts:57`,
+`functions/group-join.js:56`, `functions/telegram.js:886`. Group authority is
+`groups/{gid}/ownerId`, which the rules *do* check (`:74`, `:84`, `:92`). So a
+`role` that rides in unseen grants nothing and displays nothing.
+
+**And the write that confers real ownership is already covered.**
+`merge.js:237` writes `groups/{gid}/ownerId` only `if (ownerId === L)`, so an
+`ownerId` change in the window adds or removes that path — the path-set
+comparison fires. The thing that actually matters is protected.
+
+**Which branch this lives in, since it is easy to get backwards.** The exposed
+write is `merge.js:221`, the **survivor-is-NOT-a-member** branch, where the
+loser's whole member record is copied under one path and every field rides
+invisibly. The **both-members** branch is safe: a role flip there adds
+`groups/{gid}/members/{S}/role` (`:234`) to the path set and the check fires.
+
+**The one field in that record with a real consumer is `statusOverride`, not
+`role`** — and it was recorded nowhere until 2026-08-03. A member is
+`{ role, displayName, joinedAt, statusOverride? }` (`js/db/groups.ts:123`).
+`statusOverride` is read by the `onMemberWritten` trigger
+(`functions/index.js:169-170`), by the co-member notify path
+(`functions/notifier.js:304,328,451`) and by the roster render. So a
+`statusOverride` set on the loser inside the window rides onto the survivor's
+new member record and can fire an availability notification to co-members that
+the operator never approved. That is the actual residual: a spurious notify and
+a roster state, self-correcting the moment the survivor sets their own, not a
+privilege change.
+
+**Net severity: low, and lower than filed.** It needs a manual merge, a
+seconds-to-minutes window between preview and execute, and a *third party* — per
+`database.rules.json:92` only the member themselves or the group's owner can
+write that record — acting inside it. The worst outcome is a field nothing reads
+plus a possible spurious co-member notification. Both documented mitigations
+hold across every field, not just `role`: the value is never displayed in the
+preview, so the operator is not misled about anything they actually read, and
+the pre-image dump captures the prior value, so it is recoverable.
 
 ### Operational shape
 

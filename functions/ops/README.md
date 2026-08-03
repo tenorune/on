@@ -545,16 +545,31 @@ Two details worth being precise about:
   and the production link stamp the current time into what they write; those
   values are captured in full by the pre-image dump instead.
 
-  One documented gap this leaves: at `merge.js:212-213`, when the survivor is
-  not yet a member of a group, the whole `loserMember` record is copied to
-  `groups/{gid}/members/{S}` as-is. If the loser's `role` flips
-  `member`→`owner` between preview and execute *without* `ownerId` changing,
-  the path set, losses and conflicts are all identical — the divergence check
-  does not fire, and the survivor silently gains owner in that group. The
-  operator is not misled about anything they actually read: that `role` value
-  is never displayed in the preview, and the pre-image still captures the
-  prior value, so it is recoverable after the fact. It just isn't caught at
-  execute time — written down here rather than left to be rediscovered.
+  One documented gap this leaves (**G1**): at `merge.js:221`, when the survivor
+  is not yet a member of a group, the whole `loserMember` record is copied to
+  `groups/{gid}/members/{S}` as-is — one path, so a change to *any* field inside
+  it between preview and execute leaves the path set, losses and conflicts
+  identical and the divergence check does not fire.
+
+  ⚠️ **This used to say the survivor "silently gains owner in that group". That
+  is wrong** and the correction matters more than the gap. `role` is a
+  **write-only** field: `database.rules.json` never mentions it, no function
+  reads it, and the client does not type it. Group authority is
+  `groups/{gid}/ownerId`, and merge writes that only `if (ownerId === L)`
+  (`:237`) — so an `ownerId` change *does* move a path and *does* trip the
+  check. Real ownership is protected.
+
+  The field in that record with an actual consumer is **`statusOverride`**,
+  read by the `onMemberWritten` trigger and the co-member notify path. One
+  riding in unseen can fire an availability notification the operator never
+  approved — a spurious notify and a roster state, self-correcting once the
+  survivor sets their own.
+
+  Severity is low: it needs a manual merge, the window between preview and
+  execute, and the member or the group's owner acting inside it. The operator is
+  not misled about anything they actually read — none of these values is
+  displayed in the preview — and the pre-image captures the prior value, so it
+  is recoverable. It just isn't caught at execute time.
 
 ## The server answers only to itself
 
