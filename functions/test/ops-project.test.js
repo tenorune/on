@@ -1,4 +1,8 @@
-import { buildRows, buildDetail, canvasPeers } from '../ops/project.js';
+import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import nodePath from 'node:path';
+import { buildRows, buildDetail, canvasPeers, canvasUids } from '../ops/project.js';
+import { canvasKeyFor } from '../ops/merge.js';
 import { deriveTelegramUid } from '../telegram-auth.js';
 
 const SECRET = 'test-uid-secret';
@@ -99,6 +103,42 @@ describe('canvasPeers', () => {
 
   test('ignores keys that do not name the uid', () => {
     expect(canvasPeers(['u3_u4'], 'u1')).toEqual([]);
+  });
+});
+
+// M3: the canvas key's shape — a sorted uid pair joined by `_` — was written in
+// three places: canvasPeers here, an inline `key.split('_')` in
+// ops/integrity.js, and canvasKeyFor in ops/merge.js. Taking one apart is now
+// canvasUids, consumed by both readers; the guard below is what keeps a fourth
+// copy from appearing, since the concept is one line and re-typing it is
+// always the path of least resistance.
+describe('canvasUids — the ONE place a canvas key is taken apart', () => {
+  test('returns both sides of the pair', () => {
+    expect(canvasUids('u1_u2')).toEqual(['u1', 'u2']);
+  });
+
+  // The join lives in ops/merge.js and is deliberately left there — it is
+  // merge's own write-target builder. Pinning the round trip is what stops the
+  // two halves disagreeing without moving code between modules.
+  test('round-trips with merge.js\'s canvasKeyFor, whichever order the pair arrives in', () => {
+    expect(canvasUids(canvasKeyFor('u2', 'u1'))).toEqual(['u1', 'u2']);
+    expect(canvasUids(canvasKeyFor('u1', 'u2'))).toEqual(['u1', 'u2']);
+  });
+
+  test('canvasPeers reads its pair through it — both sides, either position', () => {
+    const [a, b] = canvasUids('alpha_beta');
+    expect(canvasPeers(['alpha_beta'], a)).toEqual([{ peer: b, key: 'alpha_beta' }]);
+    expect(canvasPeers(['alpha_beta'], b)).toEqual([{ peer: a, key: 'alpha_beta' }]);
+  });
+
+  // A source assertion, and the only reachable check that no module re-typed
+  // the split: ops/project.js is the one file allowed to contain it.
+  test('no other ops module splits a canvas key by hand', () => {
+    const dir = nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), '..', 'ops');
+    const offenders = readdirSync(dir)
+      .filter((f) => f.endsWith('.js') && f !== 'project.js')
+      .filter((f) => readFileSync(nodePath.join(dir, f), 'utf8').includes("split('_')"));
+    expect(offenders).toEqual([]);
   });
 });
 

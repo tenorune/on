@@ -55,8 +55,14 @@ export const UNION_MAILBOXES = OWN_MAILBOXES.filter((box) => !DROP_MAILBOXES.inc
  */
 export const CANVAS_CARRIED = ['bg'];
 
-/** Canvas keys are SORTED uid pairs. @param {string} a @param {string} b */
-const canvasKeyFor = (a, b) => [a, b].sort().join('_');
+/**
+ * Canvas keys are SORTED uid pairs. The other half — taking one apart — is
+ * ops/project.js's canvasUids, and the round trip between the two is pinned in
+ * ops-project.test.js (followups M3). Exported for that test only; every
+ * consumer of the split reads it there.
+ * @param {string} a @param {string} b
+ */
+export const canvasKeyFor = (a, b) => [a, b].sort().join('_');
 
 /**
  * @param {import('../telegram-link-write.js').ReadDeps} deps
@@ -103,8 +109,14 @@ export async function buildMergePlan(deps, opts) {
   const conflicts = [];
   /** @type {string[]} */
   const losses = [];
-  /** @type {(kind: string, path: string, detail: string, resolution: string) => void} */
-  const conflict = (kind, path, detail, resolution) => conflicts.push({ kind, path, detail, resolution });
+  /**
+   * `extra` carries the fields a CALLER needs to act on a conflict — today
+   * just `gid`, so the panel can offer a per-group adoption tick without
+   * parsing a path (M8). Everything the operator READS stays in
+   * `detail`/`resolution`; this is for the machine reading it.
+   * @type {(kind: string, path: string, detail: string, resolution: string, extra?: Partial<import('./types.js').Conflict>) => void}
+   */
+  const conflict = (kind, path, detail, resolution, extra) => conflicts.push({ kind, path, detail, resolution, ...extra });
 
   // Every repointed peer backref carries this. Without it `followers/{S}` would
   // be written as null — a DELETE — and every peer who followed only the loser
@@ -225,6 +237,7 @@ export async function buildMergePlan(deps, opts) {
         `groups/${gid}/members/${S}`,
         `both accounts are members of ${groupName || gid}: "${loserMember.displayName ?? '—'}" vs "${survivorMember.displayName ?? '—'}"`,
         adopt.has(gid) ? "loser's displayName adopted" : "survivor's record kept",
+        { gid },
       );
       if (adopt.has(gid) && loserMember.displayName !== undefined) {
         writes[`groups/${gid}/members/${S}/displayName`] = loserMember.displayName;
@@ -398,7 +411,12 @@ export async function buildMergePlan(deps, opts) {
   writes[`userPrefs/${L}`] = null;
   losses.push(`userPrefs/${L} discarded (survivor's prefs win)`);
 
-  return { writes, conflicts, losses };
+  // No cascades, and this is a claim rather than a placeholder: a merge never
+  // nulls `groups/{gid}` — ownership repoints to the survivor above — so no
+  // other member's client ever sees a group vanish and prunes its own
+  // enumeration entry, which is the purge-side cascade G4 is about. Pinned by
+  // a test that also asserts no whole-group null appears in these writes.
+  return { writes, conflicts, losses, cascades: [] };
 }
 
 /**

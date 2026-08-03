@@ -143,6 +143,17 @@ describe('groups', () => {
     expect(writes['groups/g2/ownerId']).toBe('S');
   });
 
+  // G4's cascade is a purge property, and this is the assertion that says WHY
+  // it is not a merge property: no `groups/{gid}` is nulled here, so no other
+  // member's client sees the group vanish and prunes its own enumeration
+  // entry. If a merge ever starts deleting a group wholesale, this goes red
+  // and the plan owes a prediction like the purge's.
+  test('a merge predicts no cascade — it repoints ownership rather than deleting the group', async () => {
+    const plan = await merge(world());
+    expect(plan.cascades).toEqual([]);
+    expect(Object.entries(plan.writes).filter(([p, v]) => /^groups\/[^/]+$/.test(p) && v === null)).toEqual([]);
+  });
+
   test('a shared group keeps the survivor displayName by default (D4)', async () => {
     const { writes, conflicts } = await merge(world());
     expect(writes['groups/g1/members/S']).toBeUndefined(); // survivor's record untouched
@@ -153,6 +164,23 @@ describe('groups', () => {
   test('adoptGroupNames swaps in the loser displayName for the named group only (D4)', async () => {
     const { writes } = await merge(world(), { adoptGroupNames: ['g1'] });
     expect(writes['groups/g1/members/S/displayName']).toBe('LoserName');
+  });
+
+  // M8: the browser could not reach adoptGroupNames because the preview named
+  // no group a caller could tick. The collision conflict now carries the gid,
+  // which is what panel.html builds its per-group checkbox from — the page has
+  // no DOM harness, so a gid parsed out of `path` there would be an untestable
+  // rule living in the one file nothing covers.
+  test('a group-member collision names the gid a caller would adopt', async () => {
+    const { conflicts } = await merge(world());
+    const collision = conflicts.find((c) => c.kind === 'group-member-collision');
+    expect(collision.gid).toBe('g1');
+    // and it still says which way it resolves, both with and without adoption
+    expect(collision.resolution).toMatch(/survivor's record kept/);
+    const adopted = await merge(world(), { adoptGroupNames: ['g1'] });
+    expect(adopted.conflicts.find((c) => c.kind === 'group-member-collision').gid).toBe('g1');
+    expect(adopted.conflicts.find((c) => c.kind === 'group-member-collision').resolution)
+      .toMatch(/loser's displayName adopted/);
   });
 
   test('the higher role wins on a member collision', async () => {

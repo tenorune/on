@@ -8,6 +8,24 @@ import { agoLabel, humanDuration, statusLabelling } from './format.js';
 import { primaryAvailable } from '../presence-core.js';
 
 /**
+ * Take a canvas key apart. Keys are SORTED uid pairs joined by `_`
+ * (ops/merge.js's canvasKeyFor builds them, and the round trip is pinned in
+ * ops-project.test.js), so the two uids come back in that same order.
+ *
+ * The ONE place this happens (followups M3): the split used to be written here
+ * and again inline in ops/integrity.js. Neither copy was wrong, and integrity
+ * is report-only so a wrong split there misreports rather than mis-deletes —
+ * but one concept transcribed into several places is what produced three
+ * separate defects on this build, and a source assertion in the tests now fails
+ * if another ops module re-types it.
+ * @param {string} key
+ * @returns {string[]}
+ */
+export function canvasUids(key) {
+  return key.split('_');
+}
+
+/**
  * Canvas keys are SORTED uid pairs, so a uid can appear on either side.
  * @param {string[]} canvasKeys
  * @param {string} uid
@@ -17,7 +35,7 @@ export function canvasPeers(canvasKeys, uid) {
   /** @type {Array<{ peer: string, key: string }>} */
   const out = [];
   for (const key of canvasKeys) {
-    const [a, b] = key.split('_');
+    const [a, b] = canvasUids(key);
     if (a === uid) out.push({ peer: b, key });
     else if (b === uid) out.push({ peer: a, key });
   }

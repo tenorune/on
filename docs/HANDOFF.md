@@ -12,18 +12,19 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 ## What's next
 
 **THERE IS A BUILD QUEUE, AND IT IS THE FIRST THING TO READ.** Every open item
-was ruled on 2026-08-03 — six to DO, five WON'T FIX, one parked. The queue lives
-in `docs/operator-panel-followups.md` under **"The next session's queue"**,
+was ruled on 2026-08-03 — six to DO, five WON'T FIX, one parked. **ALL SIX ARE
+NOW DONE (G4, M12, M5, M4, M3, M8) and the queue is EMPTY.** It lived in
+`docs/operator-panel-followups.md` under **"The next session's queue"**,
 directly beneath the at-a-glance table, with what to read before starting each:
 
 | | | |
 |---|---|---|
-| **G4** | name the cascades the purge preview will trigger, so an operator sees them before approving | the FIRST of that entry's two candidates — **not** the pre-image one |
-| **M12** | tie the G6 `presence/code` predicate to `followeeExists` so the two cannot drift | |
-| **M8** | make `adoptGroupNames` reachable from the browser | UI half only; server + merge already exist |
-| **M5** | cap the audit filename-collision retry | rides one commit with M4 |
-| **M4** | test the non-`EEXIST` rethrow | coverage; the branch is already correct |
-| **M3** | take the canvas-key split from the shared helper | |
+| ~~**G4**~~ | ~~name the cascades the purge preview will trigger~~ — **DONE, `33d89ae`**: `plan.cascades` on all four destructive previews, compared preview-to-execute | the FIRST of that entry's two candidates was the one built — **not** the pre-image one |
+| ~~**M12**~~ | ~~tie the G6 `presence/code` predicate to `followeeExists`~~ — **DONE**: a jest guard derives the node path from the rules `.validate` and pins `followeeExists` to it | the `shared/` constant route was NOT taken — the rules file is JSON and cannot import |
+| ~~**M8**~~ | ~~make `adoptGroupNames` reachable from the browser~~ — **DONE**: a tick per colliding group, and ticking re-previews | driven in a real browser against canned responses; the harness is uncommitted |
+| ~~**M5**~~ | ~~cap the audit filename-collision retry~~ — **DONE**: 100 attempts, then a refusal naming the cause | rode one commit with M4, as planned |
+| ~~**M4**~~ | ~~test the non-`EEXIST` rethrow~~ — **DONE**: two cases, plus one for an error with no `code` at all | the branch was already correct; the tests were the item |
+| ~~**M3**~~ | ~~take the canvas-key split from the shared helper~~ — **DONE**: `canvasUids` in `ops/project.js`, plus a guard against a fourth copy | the JOIN stays in `ops/merge.js`; the round trip between the two is pinned instead |
 
 **WON'T FIX: G1, M1, M2, M6, M7.** Ruled, with the reason restated on each — not
 open questions. Raise it before working one, not after.
@@ -84,13 +85,19 @@ re-derive them.
 ⚠️ **EVERY OPEN ITEM IS NOW RULED, AND THERE IS A BUILD QUEUE.** See
 "The next session's queue — operator rulings, 2026-08-03" in
 `docs/operator-panel-followups.md`, immediately under the at-a-glance table.
-**DO: G4** (name the purge preview's cascades — the first of its two
-candidates, not the second), **M12, M8, M5, M4, M3**. **WON'T FIX: G1, M1, M2,
+**G4 is DONE** (`33d89ae` — the purge preview names its cascades; the first of
+its two candidates, not the second). **M12 is DONE** too — the rules predicate
+and `followeeExists` are now tied by a test that derives one from the other.
+**M5 and M4 are DONE** too, in one
+commit as the queue planned, **M3 is DONE**, and **M8 is DONE** — the queue is
+empty. **Nothing on it is owed.** What is left in the followups file is the five
+WON'T FIX rulings, G3 parked as #302, and the deferred minors nobody promoted.
+**WON'T FIX: G1, M1, M2,
 M6, M7** — ruled, not open questions; raise it before working one, not after.
 **G3 is parked** as #302 and is not part of that queue. Nothing in the queue is
 unruled, so a session picking it up does not need to re-litigate any of it.
 
-Everything else in that file (**G1**, **G4**, **M1–M8**, **M12**) is a
+Everything else in that file (**G1**, **M1**, **M2**, **M6**, **M7**) is a
 deliberate deferral, each with its `file:line` and the reason. The test to
 re-apply before promoting one: does it affect the correctness of a destructive
 write? **M10 and M11 are now CLOSED** — both were G6-descended, and closing
@@ -169,7 +176,9 @@ every one.
 
 **Step 10 passed in its strongest form** — the dump was not merely read back but
 used to restore the purged account. That is where `functions/ops/restore-preimage.js`
-and **G4** came from. Read G4 before purging any account that owns a group.
+and **G4** came from. **G4 is now CLOSED** (`33d89ae`): purging an account that
+owns a group still triggers the cascade, and the preview now names it before
+you approve rather than leaving you to find it during a restore.
 
 **What the panel is**, if you have not met it: `functions/ops/` is a local
 Admin-SDK CLI plus a one-page browser UI — user list, merge, purge, Telegram
@@ -192,7 +201,7 @@ confirmed working on a custom-token uid, which was the original deferral's
 question. The rules gap underneath it is filed as **G3**. Full reasoning and the
 measurements live in `docs/operator-panel-followups.md`.
 
-**Twelve open, eleven closed** — all ranked with stable IDs in the "at a
+**Eleven open, twelve closed** — all ranked with stable IDs in the "at a
 glance" table at the top of `docs/operator-panel-followups.md`. **S1 and M9 are
 now CLOSED** (the smoke test ran to completion; M9's `op` guard shipped straight
 after, because completing the leg is what made it urgent — a real merge dump now
@@ -201,9 +210,12 @@ too (`728180d`, `4780b1f`) — see "What's next" above. **M10 and M11 are now
 CLOSED too**: M10 by three jest cases pinning the path `setFollowingEntry`
 builds against the hand-typed path the G6 rules suite guards, M11 by folding
 the revocation clear and the refusable following write into one atomic
-multi-path update (`setFollowingEntryClearingRevocation`). Open: G1, **G3** and
-**G4** (known gaps — G3 is a whole-app rules gap, not a panel item, and is now
-parked as #302; G4 came out of running the smoke test); and M1–M8
+multi-path update (`setFollowingEntryClearingRevocation`). **G4 is now CLOSED**
+too (`33d89ae`) — the preview names the cascade the write-set only triggers;
+the audit model is unchanged, and the cascade list is a hand-maintained model
+of client behaviour rather than an enforced one. Open: G1 and **G3** (G3 is a
+whole-app rules gap, not a panel item, and is now
+parked as #302); and M1–M8
 (deferred minors, each with its `file:line` and why it was left; none of them
 affects the correctness of a destructive write, which is the test to
 re-apply before promoting one).
@@ -222,7 +234,21 @@ node really is nulled at `{node}/{uid}`. Verified by planting three violations,
 not by passing. `docs/operator-panel-followups.md` has said "now DONE" since it
 landed; this file was the stale one. Nothing else is owed on this branch.
 
-**Branch status (2026-08-03, LATEST): `claude/g3-revocation-timeout-eabaf4`
+**Branch status (2026-08-03, LATEST): `claude/knockknock-operator-queue-xycpd8`
+— the WHOLE build queue, NOT merged.** Cut from `dev` at
+`b02dc47`: `33d89ae` (G4's code + tests), `8d8b128` (G4's docs), `f730f34`
+(M12's guard), `3bc2e7c` (M12's docs), `f7fa67d` (M5 + M4, one commit as the
+queue planned), `35e300e` (their docs), `787f6be` (M3), `6c7bce9` (its docs),
+`17945c3` (M8) and this docs update. **Nothing is merged and no PR was opened** — `dev` is the
+maintainer's to take, and merging would deploy (see the deploy warning below).
+
+⚠️ **This branch adds NO deploy surface.** G4's files are under
+`functions/ops/**` — excluded from the functions archive via `functions.ignore`
+— M12's are tests, and the only `js/` movement is comments (no statement moved).
+`database.rules.json` and the shipped `functions/*.js` are untouched, so even a
+merge to `dev` ships no behaviour change anywhere.
+
+**Prior branch status (2026-08-03): `claude/g3-revocation-timeout-eabaf4`
 MERGED TO `dev` AND PUSHED, at the operator's explicit instruction.**
 `origin/dev` moved `7e9a36b` → `dadb529`, a `--no-ff` merge commit matching
 `dev`'s own history (`d47fbbb`, `8ad9ef0`, `d5c7a53` are the same shape;
@@ -373,9 +399,9 @@ the dev project** — CI deploys functions on every push to `dev`.
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, G4, M1–M8, M12) is either an operator action
-or explicitly deferred — none of it is unfinished build work. **G6, G9, G10,
-M10 and M11 are all CLOSED**, and G3 is parked as #302.
+What remains (G1, G3, M1, M2, M6, M7) is either an operator action
+or explicitly deferred — none of it is unfinished build work. **G4, G6, G9,
+G10, M3, M4, M5, M8, M10, M11 and M12 are all CLOSED**, and G3 is parked as #302.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -453,6 +479,100 @@ migration they are on. Deploying it before or after the migration completes is
 equally safe.
 
 ## Verification state
+
+**M8 closure, green bar OBSERVED (2026-08-03) at `17945c3`** — functions
+**964/964** (32 suites, **+5**: the collision conflict carrying its gid, an
+execute whose adoption set was ADDED after the preview refused, the mirror where
+one is DROPPED, and two source assertions over `panel.html`) · typechecks clean,
+zero new suppressions · web and rules untouched.
+
+**M8 is also the one item that was driven in a REAL BROWSER** — Chromium against
+canned API responses, no credential and no database. Unticked: "survivor's
+record kept" over a 3-path write-set. Ticked: "loser's displayName adopted" over
+4 paths. Unticking goes back. The harness is a scratchpad script and is
+deliberately NOT committed: it would drag a playwright dependency into a repo
+with none, and it stubs the very server it would be checking.
+
+⚠️ **Two planted violations initially stayed GREEN here, and that is the finding
+worth carrying forward.** A source assertion that `panel.html` CONTAINS
+`adoptBlock` still passes with the call site deleted, and one that the page
+mentions `onChange` still passes with nothing installing the handler. Both were
+strengthened to assert the call site and the wiring. A control that exists but
+is never rendered is M8's own shape one layer over — the server accepted a flag
+the page never sent — so the guard has to name the seam, not the symbol.
+
+**M3 closure, green bar OBSERVED (2026-08-03) at `787f6be`** — functions
+**959/959** (32 suites, **+4**: `canvasUids` returning both sides, the round
+trip with `ops/merge.js`'s `canvasKeyFor` in either argument order, `canvasPeers`
+reading its pair through it, and the source assertion that no other ops module
+splits a key by hand) · typechecks clean, zero new suppressions · web and rules
+untouched. Verified by planting three violations: integrity re-typing the split
+inline (1 red), `canvasUids` dropping the second uid (**13** red across project,
+integrity and merge — the evidence the helper is wired in rather than merely
+present), and `canvasKeyFor` no longer sorting (6 red); all three files
+byte-identical after the reverts.
+
+**M5 + M4 closure, green bar OBSERVED (2026-08-03) at `f7fa67d`** — functions
+**955/955** (32 suites, **+4**: the EACCES rethrow with exactly one attempt, an
+error carrying no `code` taking the same path, the cap refusing with the base
+name and the attempt count in its message, and five real collisions in a row
+still finding free names) · `typecheck` + `typecheck:scripts` clean, zero new
+suppressions. Web and rules untouched by this work. Verified by planting three
+violations: the rethrow branch removed so a non-EEXIST error is retried (2 red),
+the cap message stripped of the name it was reserving (1), the exhausted loop
+returning instead of throwing (1); `ops/audit.js` byte-identical after the
+reverts. **What it does NOT cover:** the cap has never been reached on real
+hardware — every case drives a fake fs, and the condition it guards (an fs
+answering EEXIST to 100 candidates) has never been observed.
+
+**M12 closure, green bar OBSERVED (2026-08-03) at `f730f34`** on the same
+branch — web jest **2149/2149** (88 suites, **+3**: `followeeExists` probing
+the node the rules `.validate` names, the rules file's own two copies agreeing,
+and the parser refusing a predicate that is no longer an existence chain) ·
+rules (emulator) **118/118** (12, unchanged — `database.rules.json` is
+untouched) · functions **951/951** (32, unchanged) · `typecheck` +
+`typecheck:scripts` clean, zero new suppressions · `node scripts/prod.js`
+builds. Verified by planting four violations, never by passing: the client
+probing `presence` instead of `presence/code` (2 red), the rules keying on
+`presence/status` (1), only the `$field` copy edited (1), the predicate
+rewritten to `hasChild` (1); both files byte-identical after the reverts. **The
+only `js/` movement is comments** — no statement moved.
+
+**What that bar does NOT cover.** The guard proves the two copies name the same
+node; it does not prove the rules and the client draw the same CONCLUSION from
+it, and it says nothing about `getCreatorCode`, which reads the same node for
+its value and is deliberately left untied (see M12's entry). Jest only.
+
+**G4 closure, green bar OBSERVED (2026-08-03) at `33d89ae`** on
+`claude/knockknock-operator-queue-xycpd8`, on a FRESH container after the
+documented `npm ci` — baseline `b02dc47` re-measured on the same container
+(functions 941/941 in 32 suites):
+
+- functions **951/951** (32 suites, unchanged) — **+10**: 7 in
+  `ops-purge.test.js` (the cascade's content, its remedy wording, the predicted
+  path's absence from the write-set, the non-owned and solo-owner silences, an
+  account owning no group, and the production link carrying the same cascades),
+  1 in `ops-merge.test.js` (a merge predicts none, and no whole-group null
+  appears in its writes), 2 in `ops-server.test.js` (the refusal diff names a
+  `+ cascade:`, and every destructive preview renders the block)
+- web jest **2146/2146** (88 suites) — **unchanged**; nothing here touches `js/`
+- rules (emulator) **118/118** (12 suites) — **unchanged**;
+  `database.rules.json` is untouched
+- `typecheck` + `typecheck:scripts` — clean; **zero** new suppressions, all
+  seven forms swept over the diff
+- `node scripts/prod.js` — builds
+
+Each new guard was verified by planting a violation, never by passing: the
+cascade never pushed (6 red), the no-other-members guard dropped (2), the
+production link dropping its cascades (1), the digest no longer comparing them
+(1), merge claiming a cascade it does not have (1), one preview dropping the
+block (1). All four production files byte-identical after every revert.
+
+**What that bar does NOT cover.** Jest only. The cascade block has never been
+rendered in a browser, and no session container has ever held a service-account
+credential, so none of it has run against a live project. The cascade list is a
+hand-maintained model of client behaviour — `none predicted` means none of the
+MODELLED cascades apply, and nothing enforces that the model is complete.
 
 **GREEN BAR OBSERVED ON THE MERGED RESULT at `dadb529` — `dev`'s tip, not the
 branch's (2026-08-03):** web jest **2146/2146** (88 suites) · rules (emulator)
@@ -759,9 +879,9 @@ Read in this order; stop when you have what you need.
 
 1. This file — the source of truth for "where things are."
 2. `docs/operator-panel-followups.md` — every open item with a stable ID
-   (**G1**, **G3**, **G4**, **M1–M9**), each with `file:line` and why it
-   was left, plus closed-but-instructive **S1**, **G2**, **G5**, **G6**, **G7**
-   and **G8**. Read **G6** before purging anything real: the rules guard that
+   (**G1**, **G3**, **M1–M9**), each with `file:line` and why it
+   was left, plus closed-but-instructive **S1**, **G2**, **G4**, **G5**, **G6**,
+   **G7** and **G8**. Read **G6** before purging anything real: the rules guard that
    closes it is verified against the emulator only, is **live on dev** (CI
    deploys rules on every push to `dev`) and **absent on prod** until
    `dev` → `main` — so a prod purge or merge is exactly as exposed as before,
@@ -863,7 +983,9 @@ proxy and would abort an `&&` chain. Functions deps are required for
   * G1's "the survivor silently gains ownership of a shared group" — `role` is
     write-only, read by nothing; real ownership is `ownerId` and it IS covered;
   * G9's "reused rather than re-derived, so the two cannot drift apart" — two
-    independent hand-written copies of the predicate (**M12**);
+    independent hand-written copies of the predicate (**M12**, since CLOSED by
+    building the tie the claim assumed: a test that derives the client's node
+    path from the rules' own `.validate`);
   * M10, found by a review rather than the audit, is the same shape: a guarded
     path nothing tied to what the client writes.
   Three of the four asserted **impossibility or equivalence** ("cannot drift",

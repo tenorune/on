@@ -4,6 +4,13 @@
 // The `available-without-until` check is the same invariant
 // functions/audit-available-null.js audits (that standalone script stays as
 // is); folding it in gives one place to look.
+//
+// The canvas-key split comes from ops/project.js rather than being re-typed
+// here (followups M3) — same reason the availability predicate is imported
+// rather than re-derived: this module decides what an operator reads before
+// pressing a destructive button, and a second copy of a shape is how two
+// copies start disagreeing.
+import { canvasUids } from './project.js';
 
 const STALE_CALL_MS = 10 * 60 * 1000;
 
@@ -187,7 +194,7 @@ export function runChecks(snapshot, opts = {}) {
     if (!exists(uid)) add('warn', 'push-tokens-dangling', uid, `pushTokens/${uid}`, 'push tokens for a uid with no user record');
   }
   for (const key of snapshot.canvasKeys || []) {
-    for (const uid of key.split('_')) {
+    for (const uid of canvasUids(key)) {
       if (!exists(uid)) add('warn', 'canvas-dangling', uid, `canvases/${key}`, 'canvas naming a uid with no user record');
     }
   }

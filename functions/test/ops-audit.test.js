@@ -190,6 +190,85 @@ describe('writeAuditRecord', () => {
     expect(JSON.parse(files[second]).preImage).toEqual({ a: 2 });
   });
 
+  // M4 (this file's stable ID, `ops/audit.js:167`): the rethrow of anything
+  // that is NOT EEXIST. The branch was already correct and had no test — a
+  // retry loop that swallowed, say, EACCES would spin forever on a directory
+  // it cannot write, appending suffixes to a name that will never succeed.
+  test('a write failure that is not a collision propagates unchanged, with no retry', () => {
+    const { fs: fakeFs } = makeFakeFs();
+    const denied = new FakeFsError("EACCES: permission denied, open '/audit/5000-purge-L.json'", 'EACCES');
+    let attempts = 0;
+    fakeFs.writeFileSync = () => { attempts += 1; throw denied; };
+
+    // The SAME error object, not a wrapped or re-typed one: the operator has
+    // to see the real errno, and nothing here can diagnose it better.
+    expect(() => writeAuditRecord(fakeFs, '/audit', {
+      ts: 5000, op: 'purge', project: 'demo', uids: ['L'], preImage: { a: 1 }, outcome: 'ok',
+    })).toThrow(denied);
+    expect(attempts).toBe(1);
+  });
+
+  // An error with no `code` at all takes the same path — isEexist answers
+  // false for anything that is not an object carrying code === 'EEXIST', and
+  // "unrecognised" must mean rethrow rather than retry.
+  test('an error carrying no errno code is rethrown too, never retried', () => {
+    const { fs: fakeFs } = makeFakeFs();
+    const odd = new Error('disk on fire');
+    let attempts = 0;
+    fakeFs.writeFileSync = () => { attempts += 1; throw odd; };
+
+    expect(() => writeAuditRecord(fakeFs, '/audit', {
+      ts: 5100, op: 'purge', project: 'demo', uids: ['L'], preImage: { a: 1 }, outcome: 'ok',
+    })).toThrow(odd);
+    expect(attempts).toBe(1);
+  });
+
+  // M5 (`ops/audit.js:181-189`): the collision retry was `for (;;)`. It
+  // terminates as soon as one name is free, so this is insurance rather than a
+  // fix — but an fs that answers EEXIST to every candidate (a full directory, a
+  // frozen clock, another writer) spun forever inside a panel holding a
+  // database-admin credential, with no destructive write yet issued and no
+  // message.
+  test('the collision retry gives up at a cap, fails closed and names the cause', () => {
+    const { fs: fakeFs } = makeFakeFs();
+    let attempts = 0;
+    fakeFs.writeFileSync = (path) => {
+      attempts += 1;
+      throw new FakeFsError(`EEXIST: file already exists, open '${path}'`, 'EEXIST');
+    };
+
+    /** @type {unknown} */
+    let caught = null;
+    try {
+      writeAuditRecord(fakeFs, '/audit', {
+        ts: 6000, op: 'purge', project: 'demo', uids: ['L'], preImage: { a: 1 }, outcome: 'ok',
+      });
+    } catch (err) { caught = err; }
+
+    expect(String(caught)).toMatch(/could not reserve an audit filename/);
+    // Bounded — and the message names the bound it actually applied and the
+    // name it was reserving, so the operator can look at the directory.
+    expect(attempts).toBeGreaterThan(1);
+    expect(attempts).toBeLessThan(1000);
+    expect(String(caught)).toContain(String(attempts));
+    expect(String(caught)).toContain('/audit/6000-purge-L.json');
+  });
+
+  // Below the cap it must still behave exactly as before: suffix and succeed.
+  // A cap that also broke the ordinary two-way collision would be a worse bug
+  // than the unbounded loop it replaces.
+  test('a run of real collisions below the cap still finds a free name', () => {
+    const { fs: fakeFs, files } = makeFakeFs();
+    const paths = [];
+    for (let i = 0; i < 5; i += 1) {
+      paths.push(writeAuditRecord(fakeFs, '/audit', {
+        ts: 7000, op: 'purge', project: 'demo', uids: ['L'], preImage: { n: i }, outcome: 'ok',
+      }));
+    }
+    expect(new Set(paths).size).toBe(5);
+    paths.forEach((p, i) => expect(JSON.parse(files[p]).preImage).toEqual({ n: i }));
+  });
+
   // Round-1 review (M4): an empty uids array must not crash or produce an
   // `undefined` filename segment.
   test('handles an empty uids array without crashing or writing "undefined"', () => {

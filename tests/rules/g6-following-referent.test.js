@@ -12,6 +12,12 @@
 // userPrefs/{me}/following/{followee}. If you change the path here, change it
 // there too; if that test goes red, this guard is sitting on a path nothing
 // writes and these cases prove nothing.
+//
+// M12 is the same tie one layer over, for the PREDICATE rather than the path:
+// tests/db.test.js, "followeeExists — the predicate the G6 rules guard
+// enforces", reads the `.validate` out of database.rules.json and asserts the
+// client probes that same node. Change which node the predicate keys on and
+// that test goes red rather than the client quietly probing the old one.
 const { assertSucceeds, assertFails } = require('@firebase/rules-unit-testing');
 const { makeTestEnv, dbAs, seed } = require('./helpers');
 

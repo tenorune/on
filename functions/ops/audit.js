@@ -168,27 +168,51 @@ function isEexist(err) {
 }
 
 /**
+ * How many names to try before refusing. A collision needs the same
+ * millisecond, op AND uid, so two or three is already an unusual run and a
+ * hundred is not a real audit directory — it is a clock that stopped, a
+ * directory another process is writing, or an fs answering EEXIST for a reason
+ * that is not "this name is taken". The cap is insurance against spinning
+ * forever in those cases, not a limit any honest workload approaches
+ * (followups M5).
+ */
+const MAX_FILENAME_ATTEMPTS = 100;
+
+/**
  * Reserve a filename exclusively (`wx`, refuses to clobber): a same-
  * millisecond/op/uid collision must not silently overwrite a prior audit
  * record, the one artifact that is the only path back from an irreversible
  * write (round-1 review, M4). Retries with a numeric suffix until an unused
- * name is found.
+ * name is found, up to MAX_FILENAME_ATTEMPTS.
+ *
+ * Both exits fail CLOSED, and neither is silent: anything that is not EEXIST
+ * is rethrown untouched (the errno is the diagnosis, and nothing here can
+ * improve on it), and exhausting the cap throws with the cause named the way
+ * fsyncDir names its own. No destructive write is issued without a durable
+ * pre-image either way.
  * @param {AuditFs} fs @param {string} base @param {string} body
  * @returns {string}
  */
 function writeExclusive(fs, base, body) {
   let path = base;
-  let attempt = 1;
-  for (;;) {
+  let lastErr;
+  for (let attempt = 1; attempt <= MAX_FILENAME_ATTEMPTS; attempt += 1) {
     try {
       fs.writeFileSync(path, body, { flag: 'wx' });
       return path;
     } catch (err) {
       if (!isEexist(err)) throw err;
-      attempt += 1;
-      path = base.replace(/\.json$/, `-${attempt}.json`);
+      lastErr = err;
+      path = base.replace(/\.json$/, `-${attempt + 1}.json`);
     }
   }
+  throw new Error(
+    `ops audit: could not reserve an audit filename after ${MAX_FILENAME_ATTEMPTS} attempts from ${base} — every candidate through `
+    + `${base.replace(/\.json$/, `-${MAX_FILENAME_ATTEMPTS}.json`)} already exists. A collision needs the same millisecond, op and uid, `
+    + 'so this many means the audit directory is being written by something else, the clock is not advancing, or the filesystem is '
+    + 'reporting EEXIST for another reason. Refusing: no destructive write is issued without a durable pre-image.',
+    { cause: lastErr },
+  );
 }
 
 /**
