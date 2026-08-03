@@ -55,8 +55,14 @@ export const UNION_MAILBOXES = OWN_MAILBOXES.filter((box) => !DROP_MAILBOXES.inc
  */
 export const CANVAS_CARRIED = ['bg'];
 
-/** Canvas keys are SORTED uid pairs. @param {string} a @param {string} b */
-const canvasKeyFor = (a, b) => [a, b].sort().join('_');
+/**
+ * Canvas keys are SORTED uid pairs. The other half — taking one apart — is
+ * ops/project.js's canvasUids, and the round trip between the two is pinned in
+ * ops-project.test.js (followups M3). Exported for that test only; every
+ * consumer of the split reads it there.
+ * @param {string} a @param {string} b
+ */
+export const canvasKeyFor = (a, b) => [a, b].sort().join('_');
 
 /**
  * @param {import('../telegram-link-write.js').ReadDeps} deps
