@@ -49,10 +49,19 @@ client does when its token is refused, and it touches every write path in the
 app. **Start with a spec, not code** — the measurements are already in
 `docs/operator-panel-followups.md`, so don't re-derive them.
 
-Everything else in that file (**G1**, **G4**, **M1–M8**, **M10**) is a
+Everything else in that file (**G1**, **G4**, **M1–M8**, **M10**, **M11**) is a
 deliberate deferral, each with its `file:line` and the reason. The test to
 re-apply before promoting one: does it affect the correctness of a destructive
-write? **G9 and G10 are CLOSED** (`728180d`, `4780b1f`) — both were filed
+write? **M11 is the one to read first** — it is the only open item created *by*
+a fix on this branch rather than found in code that predated it. G10's fix
+hoists `clearRevocation` ahead of the refusable `setFollowingEntry`, so a
+redemption that is **refused** has already dropped the key the redeemer's
+revocation watcher uses to prune a stale own-side `following/{creator}` entry.
+The residue is in the redeemer's own list, is visible to them, and self-corrects
+on their next follow or unfollow of that uid — which is why it was filed rather
+than fixed, but it is undocumented behaviour nowhere except its three recorded
+places (`docs/operator-panel-followups.md`, the design spec's §4.2, and a
+comment at `js/invites.ts`'s call site). **G9 and G10 are CLOSED** (`728180d`, `4780b1f`) — both were filed
 2026-08-03 by the same review that closed out G6, found by reading rather than
 by running the smoke test, and both got a small client-side fix the same day:
 `rotateCode`'s fan-out (`js/db/social.ts`) now drops a followee whose
@@ -206,20 +215,29 @@ branch was continued as `claude/knockknock-g3-g6-revocation-cy2i0n`, not
 | `4780b1f` | **G10**: redemption writes reordered so the refusable one runs first |
 | `4cea158` | test-isolation follow-up on `4780b1f` — one-shot mock rejection, not a persistent one |
 | `38e95c6` | docs — G9 and G10 closed, the handoff reconciled |
-| *(this commit)* | final-review fix wave — `clearRevocation` extracted and hoisted ahead of the redemption's refusable write, the two ordering tests strengthened to pin resolution, spec §3/§4/§5 and this file corrected |
+| `da8a3a2` | final-review fix wave — `clearRevocation` extracted and hoisted ahead of the redemption's refusable write, the two ordering tests strengthened to pin resolution, spec §3/§4/§5 and this file corrected |
+| `ad9aa29` | **M11** filed — what the `clearRevocation` hoist costs, recorded in the followups ledger, spec §4.2 and a comment at the call site |
 
-The seven rows above land on this same feature branch **after** the `8ad9ef0`
-merge to `dev` described above — they are not part of the seventeen that
-merge carried; they are **pushed** — the branch tracks
-`origin/claude/knockknock-g6-g9-fixes-lt02a8` — and **not merged to `dev`**.
+**Those eight rows are now MERGED TO `dev` AND PUSHED**, at the operator's
+explicit instruction. `origin/dev` moved `6c45ff5` → `d47fbbb`, a `--no-ff`
+merge commit matching `dev`'s own history (`8ad9ef0` and `d5c7a53` are the same
+shape; a fast-forward was available and deliberately not taken). The feature
+branch is fully contained in `dev` and needs no merge of its own.
+
+Two commits on it, `b1d55ed` and `ecc551d`, carry a `Co-Authored-By` trailer
+naming a model, which collides with the standing rule that no model identifier
+appears in a commit. Every later commit is clean. Left as-is by operator
+decision rather than rewritten — recorded here so nobody re-derives it as a
+finding.
 
 `dev` → `main` is **the maintainer's**; no PR was opened, and none was asked
 for. Older branches
 (`claude/smoke-test-merge-leg-87l2w1`, `claude/operator-panel-step-9-z31g3w`,
 `claude/knockknock-smoke-test-9-10-1zohil`,
 `claude/knockknock-ui-improvements-7bm5o9`) carry nothing unique and are
-redundant, and `claude/knockknock-operator-followups-1kyjy6` now joins them.
-**`dev` is 81 ahead of `origin/main`.**
+redundant, and `claude/knockknock-operator-followups-1kyjy6` and
+`claude/knockknock-g6-g9-fixes-lt02a8` now join them.
+**`dev` is 92 ahead of `origin/main`.**
 
 **These seventeen touch TWO deploy surfaces, and neither is the functions
 one.** `ops/**` is excluded from the functions archive, so G8
@@ -336,12 +354,22 @@ equally safe.
 
 ## Verification state
 
-Green bar OBSERVED on the MERGED result at `8ad9ef0` — `dev`'s tip, not the
-branch's (2026-08-03): web jest **2132/2132** (88 suites, unchanged) · rules
-(emulator) **116/116** (12 suites) · functions **941/941** (32 suites,
-unchanged) · `typecheck` + `typecheck:scripts` clean · `node scripts/prod.js`
-builds. Run after the merge on purpose: a green run on the branch only proves
-the branch. The same five were green at the branch tip `6ff93cb` beforehand.
+Green bar OBSERVED on the MERGED result at `d47fbbb` — `dev`'s tip, not the
+branch's (2026-08-03): web jest **2139/2139** (88 suites, unchanged) · rules
+(emulator) **116/116** (12 suites, unchanged) · functions **941/941** (32
+suites, unchanged) · `typecheck` + `typecheck:scripts` clean ·
+`node scripts/prod.js` builds. Run after the merge on purpose: a green run on
+the branch only proves the branch. The same five were green at the branch tip
+`ad9aa29` beforehand.
+
+Web movement from the `8ad9ef0` bar (2132/88): **+7**, all from the G9/G10 work
+— 4 in `tests/db.test.js` (the fan-out filter: a dead followee omitted, a live
+one carried, an inconclusive read failing open, and the reads preceding the
+`codeIndex` reservation) and 3 in `tests/invites.test.js` (the write order, a
+refused follow leaving nothing behind, and the revocation clear preceding the
+refusable write). Suite count unchanged; no new test file. **Functions and rules
+are unchanged, and that is the evidence this stayed a client-only change** — the
+rules surface never moved.
 
 **What that bar does NOT cover, and it is the whole point of this piece of
 work:** nothing here ran against a live Firebase project — no session container
@@ -678,6 +706,23 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 ## Landmines (read before touching code)
 
+- **An invariant documented INSIDE a function can be a property of its CALL
+  SITE, and reordering callers breaks it with that function untouched.**
+  `registerAsFollower` (`js/db/social.ts`) clears `revocations/{me}/{target}`
+  before setting the followers entry, and its own comment says why: the
+  receiver's revocation watcher can fire on either write, and observing the
+  followers set while the key is still there fires an auto-unfollow on the
+  relationship just established. G10's fix reordered two *callers* in
+  `js/invites.ts` — that function's body never changed, its internal ordering
+  still held, and the invariant broke anyway, because what mattered was that
+  the clear precede the *following* write, which now happened outside it. The
+  design spec asserted "this does not touch it" and was wrong; only the
+  whole-branch review caught it. **Fixed by extracting `clearRevocation` and
+  hoisting it at the call site**, so the ordering is preserved by construction
+  rather than by which function happens to run first. When you reorder calls,
+  read the comments inside the functions being reordered and ask whether the
+  ordering they promise is theirs to keep. What that hoist itself costs is
+  **M11** — the clear now precedes a write that can be refused.
 - **An existence check is only as strong as who can create the node it checks
   (G6).** `database.rules.json`'s new guard on
   `userPrefs/$uid/following/$followee` needed to answer "does this account
