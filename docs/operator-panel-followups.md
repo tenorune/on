@@ -15,7 +15,7 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Twelve open, six closed. **G8 is the newest** — found on 2026-08-03 by running
+Eleven open, seven closed. **G8 is the newest** — found on 2026-08-03 by running
 the residue recipe, and closed the same day. **S1 is closed** — the smoke test ran to completion
 across 2026-08-02 and 2026-08-03, all ten steps — so nothing here blocks pointing
 the panel at production data any more. **M9 is closed** too, and it was never
@@ -31,7 +31,9 @@ a review. G5 and G7 are real defects in shipped production code that four review
 and a full green bar had walked past; both were found by the panel's integrity
 report, not by the residue sweep, and both have the same shape — a wholesale
 parent null destroys a record and strands the global key that resolves to it.
-G6 is the one gap here with no available mitigation.
+**G6 is now closed too** (`13cb18c`+`8a0ff62`) — it stays in the table, like
+G2/G5/G7, because *why* "closes with G3" survived in this file and in
+`docs/HANDOFF.md` is the useful part: it doesn't, and never did — see below.
 
 | ID | Item | Where | Weight |
 |---|---|---|---|
@@ -41,7 +43,7 @@ G6 is the one gap here with no available mitigation.
 | **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** |
 | **G4** | A pre-image cannot undo a cascade the purge only triggered | `ops/audit.js` (model, not a bug) | Known gap, bounded; mitigated |
 | **G5** | ~~Expunge and graduation stranded `pushTokens/{uid}`~~ | `functions/telegram-auth.js` | **CLOSED** — F6c relocated the node and the deletion path never followed |
-| **G6** | A peer's client republishes cross-user residue, permanently | `database.rules.json` (whole-app, sibling of G3) | Known gap, **no mitigation** — detection only |
+| **G6** | ~~A peer's client republishes cross-user residue, permanently~~ | `database.rules.json` + `js/following.ts` | **CLOSED** (`13cb18c`+`8a0ff62`) — does NOT close with G3; see below |
 | **G7** | ~~Expunge stranded `groupIdIndex` + group-scoped `inviteIndex`~~ | `functions/telegram-auth.js` | **CLOSED** — indexes pointing into a wholesale-deleted group |
 | **G8** | ~~Purge refused any account with no Auth record~~ | `ops/server.js:720` | **CLOSED** — it refused the safest case, and blocked the G3/G6 mitigation |
 | **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | Minor |
@@ -115,7 +117,8 @@ parked residuals R1-R4 (`c1b2cf9`). None is owed any more.
    `docs/operator-panel-smoke-test.md`. Running it produced: three new tools
    (`ops/restore-preimage.js` with its residue sweep, plus
    `ops/seed-merge-fixture.js` and `ops/verify-merge.js`), one gap that is a
-   property of the model (**G4**), one with no mitigation (**G6**), two real
+   property of the model (**G4**), one that had no mitigation at the time
+   (**G6** — since closed; see its entry below), two real
    defects in shipped production code (**G5**, **G7**), the `inviteIndex` shape
    fix, and one defect in the leg's own verifier (`2dec78c`). Every one of them
    came from *running* it. None came from a review.
@@ -449,11 +452,12 @@ group-scoped tokens an account created in groups it does *not* own. Their
 release them. Not dangling — the records resolve — so the integrity report will
 not flag it.
 
-### G6 — a PEER's client republishes cross-user residue, permanently
+### G6 — a PEER's client republishes cross-user residue, permanently — CLOSED
 
 Device-observed on dev 2026-08-02, during the second step-9 run. **This is a
-whole-app gap, a sibling of G3 — not a panel item.** It is also the one finding
-here with no available mitigation.
+whole-app gap, a sibling of G3 — not a panel item.** It no longer lacks a
+mitigation (below), but the entry originally on file here said the mitigation
+was G3's. That was wrong; see "The correction" below.
 
 **What happened.** A purge nulled `userPrefs/{M}/following/{T}` as part of its
 36-path atomic update. Afterwards the path was live again, holding the captured
@@ -493,24 +497,72 @@ peers to RE-CREATE things. The group case has a client-side cleanup path, which
 is exactly what makes it G4; the follow case has none, which is what makes G6
 permanent.
 
-**Mitigated only by detection** (`0f31553`+). `ops/restore-preimage.js` now
-distinguishes `already-there` on a peer-owned path from the benign kind and
-prints a `PEER REPUBLISH` block naming the path and the account that wrote it.
-Scoped deliberately to `users/{other}/**` and `userPrefs/{other}/**`, both
-owner-only in the rules, so the attribution has exactly one possible author; a
-group node is not claimed, because an owner can write another member's row and
-that would be a guess.
+**The author, named.** `js/following.ts`'s `syncFollowingFromServer` — the
+callback of the `watchFollowing` subscription — carries an empty-server
+migration branch (`:1055-1063`) that pushes every local `following` entry back
+up via `setFollowingEntry` whenever the server's list is empty and the
+device's is not. It writes `{ code, label }`, the exact shape `getFollowing()`
+holds in `localStorage`, which is why the restore's dry run reported
+`already-there`: the republished value is byte-identical to what the purge had
+just deleted, because it is the same cache writing itself back. The other
+three `setFollowingEntry` call sites are ruled out: `:1130` sits inside
+`subscribePresence`, guarded by `if (!userData) return`, so a purged `T` with
+no `users/{T}` record left returns before it ever writes; `:1345` (a label
+rename) and `:1510` (an explicit follow) are both user actions, not automatic
+republish.
 
-**The real fix is G3's.** `database.rules.json` never checks
-`auth.token.auth_time`, which is what leaves the window open at all. Close that
-and G6 closes with it. Until then, treat a `follow-dangling` finding in the hour
-after a purge as expected rather than as evidence of a missed delete — and note
-that "expected" here still means a permanent dangling reference somebody has to
-clean up by hand.
+**The correction: G6 does not close with G3.** This entry and
+`docs/HANDOFF.md` both said the real fix was G3's — put
+`auth.token.auth_time` in `database.rules.json` and G6 closes with it. **That
+does not hold.** G3's author is the *revoked* account's own client, writing
+inside its unexpired ID token's window; a revocation-time gate refuses that.
+G6's author is **M — a peer whose session was never revoked.** M's refresh
+token works, M's ID token renews hourly forever, and `userPrefs/{M}` is M's own
+owner-only node. No revocation-time comparison on M's token can refuse that
+write, because there is nothing wrong with M's token. The two items share a
+*sighting window* — both surfaced in the hour after the same purge — and that
+is the whole of what they share. Full reasoning:
+`docs/superpowers/specs/2026-08-03-g6-peer-republish-design.md`, §2-3.
 
-**Also worth knowing:** the integrity report is the only thing that surfaces
-this. The residue sweep cannot — a republished path is not transient, and the
-sweep only speaks about the families it refuses to restore.
+**The fix, both halves.** `database.rules.json` now guards
+`userPrefs/$uid/following/$followee`:
+
+```json
+".validate": "root.child('users').child($followee).child('presence').child('code').exists()"
+```
+
+Read: *a follow entry may only name an account that exists.* The predicate is
+`presence/code`, not `users/{T}` — a bare `users/{T}.exists()` would be
+forgeable, because `users/$uid/followers/$follower` is writable by the
+follower, so a peer's own follower row creates the `users/{T}` node before any
+presence write ever lands. `presence/code` carries no such override; the
+owner-only ancestor rule on `users/$uid` applies to it untouched. That half
+closes G6 for every client, including ones nobody can update — rules bind on
+deploy, not on client update. The second half is defence in depth:
+`js/following.ts`'s `syncFollowingFromServer` now gates the push-up on
+`hasSeenServerFollowing`/`markServerFollowingSeen` (`js/store.ts`), so it fires
+only for a device that has never seen a server list for this account; if
+`localStorage` is unavailable the gate degrades to noise (the guard refuses
+the write) rather than residue. `13cb18c` (the rules guard) + `f7ac8c7` (which
+also caught `tests/rules/ownership.test.js` writing a `following` entry for a
+uid it never seeded — the new guard's first catch) + `8620702` (the store
+helpers) + `8a0ff62` (the client gate). Verified against
+`tests/rules/g6-following-referent.test.js` (7 cases) on the **rules emulator
+only** — no session here has ever held a service-account credential, and
+`database.rules.json` is not deployed by anything in a session, so this closes
+the emulator-verified gap, not a live-verified one.
+
+**What remains open.** The rest of §4.1's peer-writable family table in the
+design spec — `canvases/{T}_{peer}`, `groups/{gid}/members/{T}`,
+`pendingInvitesByGroup/{gid}/{T}`, and the
+`knocks`/`calls`/`followRequests`/`followGrants`/`pendingInvites`/`revocations`
+mailboxes — is deliberately untouched: unlike `following`'s automatic
+republish, each of those needs a human to act on a ghost row before residue
+can form, so none is promoted here. And dangling entries already sitting in
+production are untouched too — the guard refuses new writes, it does not
+sweep old ones. `integrity.js`'s `follow-dangling` still enumerates them, and
+`ops/restore-preimage.js`'s `PEER REPUBLISH` block (`0f31553`+) still
+attributes one on sight; sweeping them is an operator call, not made here.
 
 ### G8 — purge refused any account with no Auth record — CLOSED
 

@@ -1,8 +1,13 @@
 # G6 — a peer's client republishes cross-user residue, permanently
 
 **Date:** 2026-08-03
-**Status:** design drafted, NOT approved. No code touched. Scope chosen by the
-operator: G6 alone, ahead of G3 (see §2).
+**Status:** IMPLEMENTED. Rules guard `13cb18c`, client gate `8a0ff62`
+(store helpers `8620702`); `f7ac8c7` seeds the followee the new guard caught
+`tests/rules/ownership.test.js` missing. Verified against the rules emulator
+only (`tests/rules/g6-following-referent.test.js`, 7 cases) — no session has
+ever held a service-account credential, and `database.rules.json` is not
+deployed by anything in a session. Scope chosen by the operator: G6 alone,
+ahead of G3 (see §2).
 **Item:** G6 in `docs/operator-panel-followups.md:452`. Sibling: G3 (`:244`).
 
 ## 1. Problem
