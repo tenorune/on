@@ -60,6 +60,15 @@ app. **If and when #302 is picked up, start with a spec, not code** — the
 measurements are already in `docs/operator-panel-followups.md`, so don't
 re-derive them.
 
+⚠️ **EVERY OPEN ITEM IS NOW RULED, AND THERE IS A BUILD QUEUE.** See
+"The next session's queue — operator rulings, 2026-08-03" in
+`docs/operator-panel-followups.md`, immediately under the at-a-glance table.
+**DO: G4** (name the purge preview's cascades — the first of its two
+candidates, not the second), **M12, M8, M5, M4, M3**. **WON'T FIX: G1, M1, M2,
+M6, M7** — ruled, not open questions; raise it before working one, not after.
+**G3 is parked** as #302 and is not part of that queue. Nothing in the queue is
+unruled, so a session picking it up does not need to re-litigate any of it.
+
 Everything else in that file (**G1**, **G4**, **M1–M8**, **M12**) is a
 deliberate deferral, each with its `file:line` and the reason. The test to
 re-apply before promoting one: does it affect the correctness of a destructive

@@ -15,7 +15,13 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Twelve open, eleven closed. **M10 and M11 are the newest closed items** (2026-08-03) — both G6-descended, both closed after the G3 park; see their entries below. **G8 was the newest closed item before them** — found on
+Twelve open, eleven closed — and as of 2026-08-03 **every open item has been
+ruled**: six to DO, five WON'T FIX, one (G3) parked. The rulings are stamped in
+the Weight column below and on each entry, and the build order is in
+"The next session's queue" directly under this table. **Read the queue rather
+than this table if you are here to work.**
+
+**M10 and M11 are the newest closed items** (2026-08-03) — both G6-descended, both closed after the G3 park; see their entries below. **G8 was the newest closed item before them** — found on
 2026-08-03 by running the residue recipe, and closed the same day. **G9 and
 G10 are the next-newest closed items** — filed 2026-08-03 by the review that
 closed out G6's fix wave, from reading rather than from running the smoke
@@ -64,28 +70,77 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 | ID | Item | Where | Weight |
 |---|---|---|---|
 | **S1** | ~~The manual dev-project smoke test~~ | whole panel | **CLOSED** — all ten steps pass; see below for the two variants it did not cover |
-| **G1** | Divergence check compares paths, not write values | `ops/merge.js:221` | Known gap, bounded — **severity corrected DOWN 2026-08-03**; the `role`-escalation reading was wrong, see below |
+| **G1** | Divergence check compares paths, not write values | `ops/merge.js:221` | **WON'T FIX** (operator, 2026-08-03) — severity corrected DOWN the same day; the `role`-escalation reading was wrong, see below |
 | **G2** | ~~Auth-record deletion has no route (D5)~~ | `ops/server.js` | **CLOSED** — the deferral was wrong; see below |
 | **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** — **parked as [#302](https://github.com/tenorune/on/issues/302)** |
-| **G4** | A pre-image cannot undo a cascade the purge only triggered | `ops/audit.js` (model, not a bug) | Known gap, bounded; mitigated |
+| **G4** | A pre-image cannot undo a cascade the purge only triggered | `ops/audit.js` (model, not a bug) | **DO** (operator, 2026-08-03) — name the cascades in the purge preview; see the queue below |
 | **G5** | ~~Expunge and graduation stranded `pushTokens/{uid}`~~ | `functions/telegram-auth.js` | **CLOSED** — F6c relocated the node and the deletion path never followed |
 | **G6** | ~~A peer's client republishes cross-user residue, permanently~~ | `database.rules.json` + `js/following.ts` | **CLOSED** (`13cb18c`+`8a0ff62`) — does NOT close with G3; see below |
 | **G7** | ~~Expunge stranded `groupIdIndex` + group-scoped `inviteIndex`~~ | `functions/telegram-auth.js` | **CLOSED** — indexes pointing into a wholesale-deleted group |
 | **G8** | ~~Purge refused any account with no Auth record~~ | `ops/server.js:720` | **CLOSED** — it refused the safest case, and blocked the G3/G6 mitigation |
 | **G9** | ~~`rotateCode`'s fan-out re-creates a followers row for a purged followee~~ | `js/db/social.ts:359-363` | **CLOSED** (`728180d`) — client filter; see below |
 | **G10** | ~~Invite redemption can leave an asymmetric follower row for a vanished creator~~ | `js/invites.ts:211-212` | **CLOSED** (`4780b1f`) — write order swapped; see below |
-| **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | Minor |
-| **M2** | Detail lookup builds and sorts every row to find one | `ops/project.js:88` | Minor |
-| **M3** | Canvas-key split inlined rather than shared | `ops/integrity.js:190` | Minor |
-| **M4** | Non-`EEXIST` rethrow untested | `ops/audit.js:167` | Minor |
-| **M5** | Audit filename retry loop has no attempt cap | `ops/audit.js:181-189` | Minor |
-| **M6** | Approvals have no TTL, and detail-view overwrites a pending one | `ops/server.js:462,664` | Minor |
-| **M7** | Production banner does not name the project inline | `ops/server.js:690-692` | Minor |
-| **M8** | `adoptGroupNames` is unreachable from the browser | `ops/panel.html:207,228` | Minor |
+| **M1** | Snapshot type collapses "absent" and "empty" | `ops/types.d.ts:26-38` | **WON'T FIX** (operator, 2026-08-03) |
+| **M2** | Detail lookup builds and sorts every row to find one | `ops/project.js:88` | **WON'T FIX** (operator, 2026-08-03) |
+| **M3** | Canvas-key split inlined rather than shared | `ops/integrity.js:190` | **DO** (operator, 2026-08-03) |
+| **M4** | Non-`EEXIST` rethrow untested | `ops/audit.js:167` | **DO** (operator, 2026-08-03) |
+| **M5** | Audit filename retry loop has no attempt cap | `ops/audit.js:181-189` | **DO** (operator, 2026-08-03) |
+| **M6** | Approvals have no TTL, and detail-view overwrites a pending one | `ops/server.js:462,664` | **WON'T FIX** (operator, 2026-08-03) |
+| **M7** | Production banner does not name the project inline | `ops/server.js:690-692` | **WON'T FIX** (operator, 2026-08-03) |
+| **M8** | `adoptGroupNames` is unreachable from the browser | `ops/panel.html:207,228` | **DO** (operator, 2026-08-03) |
 | **M9** | ~~`restore-preimage.js` has no guard on the dump's `op`~~ | `ops/restore-preimage.js` | **CLOSED** — the one entry here that could drive a bad destructive write |
 | **M10** | ~~The G6 rules test types the guarded path by hand, untied to what `setFollowingEntry` writes~~ | `tests/db.test.js` | **CLOSED** — jest now pins the path the client builds; see below |
 | **M11** | ~~G10's fix clears the revocation before a write that may be refused, so a failed redemption drops the watcher's cleanup of a stale own-side follow~~ | `js/db/social.ts`, `js/invites.ts` | **CLOSED** — the clear and the write are now one atomic update; see below |
-| **M12** | The G6 `presence/code` predicate is written twice — once in the rules, once in `followeeExists` — with nothing tying them | `js/db/social.ts:380-383` + `database.rules.json:10,12` | Minor — filed 2026-08-03 by the doc-claim audit |
+| **M12** | The G6 `presence/code` predicate is written twice — once in the rules, once in `followeeExists` — with nothing tying them | `js/db/social.ts:380-383` + `database.rules.json:10,12` | **DO** (operator, 2026-08-03) — filed the same day by the doc-claim audit |
+
+---
+
+## The next session's queue — operator rulings, 2026-08-03
+
+Every open item has been ruled on. **Six to DO, five WON'T FIX, one parked.**
+Nothing here is unruled, so a session picking this up does not need to
+re-litigate any of it — build the six, in whatever order suits, and leave the
+rest alone. A ruling is the operator's; if you think one is wrong, say so
+before working it rather than working it anyway.
+
+### DO — in rough order of value
+
+| ID | What to build | Where | Notes before starting |
+|---|---|---|---|
+| **G4** | Teach the **purge preview** to name the cascades it will trigger, so the operator sees them **before** approving. | `ops/purge.js`, `ops/panel.html`, the preview plan shape | The item names two options; this is the one chosen, and its own entry calls it "the cheaper half [that] would have turned this from a discovery into a line of preview text". **Do NOT** take the other option (have the pre-image capture cascades) — that means modelling client behaviour in the panel and is probably the wrong trade. The known cascade is the owned-group one: purging a group's OWNER nulls `groups/{gid}` wholesale, and every other member's client then deletes its own `users/{member}/groups/{gid}` entry (`js/groupNav.ts:250-258`, `js/groupContext.ts:1499-1508`). The preview must say so; it is a *prediction* of client behaviour, so word it as one, not as a write-set line. |
+| **M12** | Tie the G6 `presence/code` predicate to `followeeExists` so the two cannot drift. | `js/db/social.ts:380-383`, `database.rules.json:10,12` | Two routes in its entry: a rules test that reads the predicate's node path out of `database.rules.json` and asserts `followeeExists` probes the same one, or hoist the path to a `shared/` constant both sides consume. The second is real work — the rules file is JSON and cannot import — so cost the first honestly before reaching for it. Note this un-mirrors for **every** client caller at once if it drifts: G9's `rotateCode` filter and I1's `js/followRequests.ts` check both route through `followeeExists`. |
+| **M8** | Make `adoptGroupNames` reachable from the browser. | `ops/panel.html:207,228` | `server.js:623` already accepts it and `merge.js:76,230` already implements it — this is the UI half only. Today both merge buttons post `{loserUid, survivorUid}` (+`telegramRepoint`), so a `group-member-collision` previewed from the browser always resolves "survivor's record kept". Read the M8 row for why the per-group name **carry** has to come from a loser-only group; the fixture seeds one of each. |
+| **M5** | Cap the audit filename-collision retry. | `ops/audit.js:182` | `for (;;)` appending `-2`, `-3`, … with no bound. It fails safe today (terminates as soon as one name is free), so this is insurance: pick a cap, and make exceeding it fail closed with a named cause, matching the module's existing style. |
+| **M4** | Test the non-`EEXIST` rethrow. | `ops/audit.js:167` | Coverage only — the branch is already correct. Same family as R3, which was also missing coverage rather than a defect and whose two tests passed first run. The fs is trivially mockable. |
+| **M3** | Take the canvas-key split from the shared helper instead of inlining it. | `ops/integrity.js:190` | `key.split('_')` written inline. Read-only report module, so a wrong split misreports rather than mis-deletes — but the shared-helper rule exists because one concept transcribed into several places caused three separate defects on this build (see "Why the enumerator rule exists"). |
+
+**M4 and M5 are both in `ops/audit.js` and should ride one commit.** M3 is
+independent and small.
+
+### WON'T FIX — ruled, do not work these
+
+| ID | Why the ruling stands |
+|---|---|
+| **G1** | Severity was corrected DOWN on the same day: `role` is write-only and read by nothing, and `ownerId` — the write that actually confers ownership — is already covered by the path-set comparison. What is left is a possible spurious co-member notification via `statusOverride`, self-correcting, recoverable from the pre-image, and needing a third party to act inside a seconds-long window. |
+| **M1** | Consumers do not trust the type here — they use a runtime key-count check. Tightening it improves types over code that already guards at runtime. |
+| **M2** | O(n log n) for a single-account read, on an operator tool with one user and an account list that fits in memory. Real, and invisible at this scale. |
+| **M6** | It fails toward refusal, never toward an unapproved write: the overwriting nonce carries `approved: null`, so an execute against it is rejected and the operator previews again. Annoying, not dangerous. |
+| **M7** | The startup line immediately above the banner already names the project (`project=<id>`). Duplication, not absence. |
+
+### Parked, not ruled here
+
+**G3** — the whole-app rules gap, parked as
+[#302](https://github.com/tenorune/on/issues/302). Spec-first work that has not
+been started. It is not part of this queue and picking it up is its own
+decision.
+
+### Also settled, and not items
+
+The two **G6 residuals** are recorded as OUT OF SCOPE in G6's own entry — the
+rest of §4.1's peer-writable family table, and sweeping entries already dangling
+in production. They get no IDs and nothing is owed against them.
+
+---
 
 **Standing constraints, not work items** — these are decisions, and nothing is
 owed against them: the panel is single-operator by construction (approvals are
@@ -211,6 +266,9 @@ location fix; graduation moves it), so the coverage lives in
 touched and its 0-line diff still holds.
 
 ### G1 — the preview/execute divergence check compares paths, not values
+
+**WON'T FIX — operator ruling, 2026-08-03.** See the severity correction
+below; it is the reason. Nothing is owed against this.
 
 Execute re-reads the database and refuses if the plan diverged from the one
 previewed. `digest` (`ops/server.js:447-451`) captures sorted write **paths**,
@@ -353,6 +411,12 @@ against them. Only the third is an open item.
   the reading it rests on, and this one had never been in front of live data.
 
 ### G4 — a pre-image cannot undo a cascade the purge only triggered
+
+**DO — operator ruling, 2026-08-03.** Build the FIRST of the two candidates at
+the end of this entry: teach the purge preview to *name* the cascades it will
+trigger, so an operator sees them before approving. The second (have the
+pre-image capture them) is explicitly not chosen. See the queue section above
+for what to read first.
 
 Found by actually restoring an account, 2026-08-02 (smoke-test step 10), not by
 review. It is a property of the audit model rather than a bug in it, which is
@@ -935,18 +999,18 @@ rather than letting the section heading stand as a verdict.
 
 | ID | Where | What | Why it was left |
 |---|---|---|---|
-| **M1** | `ops/types.d.ts:26-38` | Snapshot nodes are typed `Record<string, any>` and never optional, so "the node is absent" and "the node is present but empty" are the same type. | Consumers do not trust the type here — they use a runtime key-count check. Tightening it would be a type-level improvement over code that already guards at runtime. |
-| **M2** | `ops/project.js:88` | The detail lookup calls `buildRows(...)` — which builds and sorts *every* row — and then `.find()`s the one uid it wants. | O(n log n) for a single-account read, on an operator tool with one user and an account list that fits in memory. Real, and invisible at this scale. |
-| **M3** | `ops/integrity.js:190` | The canvas-key split (`key.split('_')`) is written inline rather than taken from the shared helper. | It is the read-only report module: a wrong split misreports, it cannot mis-delete. The shared-helper rule earns its severity from write paths. |
-| **M4** | `ops/audit.js:167` | The non-`EEXIST` rethrow has no test, though the fs is trivially mockable. | Fails closed with a named cause. Same family as R3 below, which is the one worth doing first. |
-| **M5** | `ops/audit.js:181-189` | The filename-collision retry is `for (;;)` with no attempt cap — it appends `-2`, `-3`, … indefinitely. | It terminates as soon as one name is free, and the loop only spins on genuine collisions in a directory one operator writes to. A cap would be cheap insurance rather than a fix. |
-| **M6** | `ops/server.js:462,664` | Approvals live in a `Map` with no TTL, and `GET /api/detail` issues a nonce through the same `approvals.set(uid, …)` that previews use — so opening a detail view **overwrites a pending approval** for that uid. | It fails toward refusal, never toward an unapproved write: the overwriting nonce carries `approved: null`, so an execute against it is rejected and the operator previews again. Annoying, not dangerous. |
-| **M7** | `ops/server.js:690-692` | The production banner does not name the project inline. | The startup line immediately above it does (`project=<id>`). Duplication, not absence. |
-| **M8** | `ops/panel.html:207,228` | `adoptGroupNames` is accepted by `server.js:623` and implemented by `merge.js:229-231`, but **`panel.html` never sends it** — both merge buttons post only `{loserUid, survivorUid}` (+`telegramRepoint`). So a `group-member-collision` previewed from the browser always resolves *"survivor's record kept"*, and the loser's per-group `displayName` can never be adopted without POSTing the route by hand. | It fails toward the conservative resolution: the survivor's own record is what survives, which is the safe half of the choice, and the preview states that resolution honestly rather than promising an adoption that will not happen. A capability gap, not a correctness one. Worth knowing when reading the merge leg's results — it is why the per-group name **carry** has to come from a group only the loser is in (`merge.js:220-221`), which is what `ops/merge-fixture.js` seeds. |
+| **M1** | `ops/types.d.ts:26-38` | Snapshot nodes are typed `Record<string, any>` and never optional, so "the node is absent" and "the node is present but empty" are the same type. | **WON'T FIX** (2026-08-03). Consumers do not trust the type here — they use a runtime key-count check. Tightening it would be a type-level improvement over code that already guards at runtime. |
+| **M2** | `ops/project.js:88` | The detail lookup calls `buildRows(...)` — which builds and sorts *every* row — and then `.find()`s the one uid it wants. | **WON'T FIX** (2026-08-03). O(n log n) for a single-account read, on an operator tool with one user and an account list that fits in memory. Real, and invisible at this scale. |
+| **M3** | `ops/integrity.js:190` | The canvas-key split (`key.split('_')`) is written inline rather than taken from the shared helper. | **DO** (2026-08-03). It is the read-only report module: a wrong split misreports, it cannot mis-delete. The shared-helper rule earns its severity from write paths. |
+| **M4** | `ops/audit.js:167` | The non-`EEXIST` rethrow has no test, though the fs is trivially mockable. | **DO** (2026-08-03). Fails closed with a named cause. Same family as R3 below, which is the one worth doing first. |
+| **M5** | `ops/audit.js:181-189` | The filename-collision retry is `for (;;)` with no attempt cap — it appends `-2`, `-3`, … indefinitely. | **DO** (2026-08-03). It terminates as soon as one name is free, and the loop only spins on genuine collisions in a directory one operator writes to. A cap would be cheap insurance rather than a fix. |
+| **M6** | `ops/server.js:462,664` | Approvals live in a `Map` with no TTL, and `GET /api/detail` issues a nonce through the same `approvals.set(uid, …)` that previews use — so opening a detail view **overwrites a pending approval** for that uid. | **WON'T FIX** (2026-08-03). It fails toward refusal, never toward an unapproved write: the overwriting nonce carries `approved: null`, so an execute against it is rejected and the operator previews again. Annoying, not dangerous. |
+| **M7** | `ops/server.js:690-692` | The production banner does not name the project inline. | **WON'T FIX** (2026-08-03). The startup line immediately above it does (`project=<id>`). Duplication, not absence. |
+| **M8** | `ops/panel.html:207,228` | `adoptGroupNames` is accepted by `server.js:623` and implemented by `merge.js:229-231`, but **`panel.html` never sends it** — both merge buttons post only `{loserUid, survivorUid}` (+`telegramRepoint`). So a `group-member-collision` previewed from the browser always resolves *"survivor's record kept"*, and the loser's per-group `displayName` can never be adopted without POSTing the route by hand. | **DO** (2026-08-03). It fails toward the conservative resolution: the survivor's own record is what survives, which is the safe half of the choice, and the preview states that resolution honestly rather than promising an adoption that will not happen. A capability gap, not a correctness one. Worth knowing when reading the merge leg's results — it is why the per-group name **carry** has to come from a group only the loser is in (`merge.js:220-221`), which is what `ops/merge-fixture.js` seeds. |
 | **M9** — **CLOSED** | `ops/restore-preimage.js` (`opGuard`) | The dump was read for `preImage` and its `op` printed but never checked. Every judgement in that module rests on **"a purge NULLED every path in its write-set"** (`:204`) — true for a purge, false for a merge, whose write-set is mostly non-null *carries* onto the survivor. So the verdicts, the `RESIDUE SWEEP` and the `PEER REPUBLISH` block were all built on an assumption that does not hold for a merge dump, and the `restore` verdict on the paths the merge *did* null would **partially resurrect the merged-away account**. A restore's own dump has the mirror problem: it holds the PRE-restore state, so replaying it undoes the restore. | **Closed** by `opGuard`. It is an **allowlist** — an absent, empty or unrecognised `op` is refused rather than assumed to be a purge, because the assumption *is* the risk. It fires on a **dry run** too: the dry run writes nothing, but its verdicts and its sweep are the misleading part, and `jq` reads a dump of any shape without pretending to interpret it. The override is `--i-know-this-is-not-a-purge`, named so it cannot be typed by reflex, and it prints what it is overriding. Deferring stopped being tenable on 2026-08-03, when the merge leg put a real merge dump in `.ops-audit/` beside the purge dumps, one tab-complete from the familiar command. Verified by planting two violations (an always-ok guard, and the allowlist turned into a denylist) **and** by running the CLI against fabricated merge / purge / no-`op` dumps — tests on the pure function prove nothing about the wiring, which is the mistake the `ops/**` import guard made twice. |
 | **M10** — **CLOSED** | `tests/db.test.js`, `tests/rules/g6-following-referent.test.js` | The G6 rules suite's guarded path (`userPrefs/M/following/T`) was typed by hand in the test, with nothing tying it to the path `setFollowingEntry` actually writes. The design spec's §7 asked for that case to be "exercised through `setFollowingEntry` itself" — the client half honoured the equivalent requirement (through the `watchFollowing` callback), the rules half did not. A refactor of that one line in `js/db/social.ts` would have left the guard sitting on a path nothing writes, with the rules suite still green and nobody told. Filed as **G6-review finding M6** (that review's own numbering, not this file's stable **M6**). | **Closed** by three jest cases in `tests/db.test.js` pinning what `setFollowingEntry` builds: the exact path `userPrefs/{me}/following/{followee}`, the `{ code, label }` value, and `label ?? ''` for a null label. The rules suite cannot import `js/db/social.ts` — it runs against the emulator, not jsdom — so the tie is a test on the *client* side plus a header comment in the rules file naming its counterpart in both directions. `setFollowingEntry` was mocked in seven suites and asserted in none, which is why nothing caught this. Each case verified by planting a violation that turns exactly that one red (path drift, dropped label key, mangled label value); `js/db/social.ts` byte-identical after the reverts. |
 | **M11** — **CLOSED** | `js/db/social.ts`, `js/invites.ts` | G10's fix hoisted `clearRevocation(redeemerUid, creatorUid)` ahead of `setFollowingEntry`, the write the G6 rules guard can refuse. When that write IS refused — the creator purged between the `presence/code` read at `:201` and the write landing — the key was already gone, and the redeemer's revocation watcher uses exactly that key to prune a stale `following/{creator}` entry. So a *failed* redemption could leave a stale own-side follow. ⚠️ **Correction to the original entry:** it said the watcher prunes from the **local** list, which made the case look unreachable — `attemptRedeemFromUrl` bails with `already-following` when the local list holds the creator, so the clear is never reached. The reachable shape is a **server-side** `userPrefs/{redeemer}/following/{creator}` the watcher's own `removeFollowingEntry(...).catch(() => {})` failed to delete: local pruned, server stale, key still present and re-arming the prune each time the local list resyncs from the server. Clearing the key ends that loop. | **Closed** by `setFollowingEntryClearingRevocation` (`js/db/social.ts`), which issues the revocation clear and the following write as **one multi-path `update()`**. Neither of the two fixes this entry originally proposed was taken: restoring the key on the refusal path needs an extra `get` per redemption to avoid fabricating a revocation that never existed, and re-predicating the watcher touches every revocation rather than this one. Atomicity subsumes both constraints — the watcher cannot observe the entry while the key is present (G10's invariant, now by construction rather than by sequencing), and a refusal leaves the key exactly where it was (M11). Deliberately **not** folded into `setFollowingEntry` itself: a label rename and the presence-driven republish both call that, and clearing a revocation there would resurrect a follow the followee ended. ⚠️ This **replaced** a regression test — "the revocation clear resolves before the following write" (`4780b1f`/`da8a3a2`) — because the redemption path no longer calls `clearRevocation` at all; the new property is strictly stronger, and the substitution is recorded in the test body. RTDB's all-or-nothing behaviour is the load-bearing assumption and jest cannot see it, so it is pinned on the **rules emulator** (2 cases): a refused following path leaves `revocations/M/T` intact, and the same update lands whole once the followee exists. |
-| **M12** | `js/db/social.ts:380-383` + `database.rules.json:10,12` | The G6 referential predicate exists in two independent hand-written copies. The rules say `root.child('users').child($followee).child('presence').child('code').exists()`; `followeeExists` says `get(ref(db, \`users/${userId}/presence/code\`))`. Nothing ties them. Change the rules to key on a different node and the client keeps probing the old one, with the rules suite, the jest suite and both typechecks green. `rotateCode`'s G9 filter and `js/followRequests.ts`'s I1 check both route through `followeeExists`, so a drift silently un-mirrors the guard for every client-side caller at once. | Filed 2026-08-03 by the doc-claim audit, not by a code review — G9's entry asserted the two were "reused rather than re-derived, so the two cannot drift apart", and that claim is what failed checking. **Same shape as M10, one layer over**: M10 tied the guarded PATH to what the client writes, and left the guarded PREDICATE untied. Deferred on the usual test — it cannot drive a bad destructive write; a drift fails toward the client keeping a followee it should have dropped (G9 residue) or dropping one it should have kept, never toward a wrong delete. Closing it means either a rules test that reads the predicate's node path out of `database.rules.json` and asserts `followeeExists` probes the same one, or hoisting the node path to a `shared/` constant both sides consume — the second is real work, since the rules file is JSON and cannot import. |
+| **M12** | `js/db/social.ts:380-383` + `database.rules.json:10,12` | The G6 referential predicate exists in two independent hand-written copies. The rules say `root.child('users').child($followee).child('presence').child('code').exists()`; `followeeExists` says `get(ref(db, \`users/${userId}/presence/code\`))`. Nothing ties them. Change the rules to key on a different node and the client keeps probing the old one, with the rules suite, the jest suite and both typechecks green. `rotateCode`'s G9 filter and `js/followRequests.ts`'s I1 check both route through `followeeExists`, so a drift silently un-mirrors the guard for every client-side caller at once. | **DO** (2026-08-03). Filed 2026-08-03 by the doc-claim audit, not by a code review — G9's entry asserted the two were "reused rather than re-derived, so the two cannot drift apart", and that claim is what failed checking. **Same shape as M10, one layer over**: M10 tied the guarded PATH to what the client writes, and left the guarded PREDICATE untied. Deferred on the usual test — it cannot drive a bad destructive write; a drift fails toward the client keeping a followee it should have dropped (G9 residue) or dropping one it should have kept, never toward a wrong delete. Closing it means either a rules test that reads the predicate's node path out of `database.rules.json` and asserts `followeeExists` probes the same one, or hoisting the node path to a `shared/` constant both sides consume — the second is real work, since the rules file is JSON and cannot import. |
 
 **One review-method note worth keeping:** grepping for `as any` alone is
 insufficient — `/** @type {any} */` is the same escape hatch in JSDoc and slipped
