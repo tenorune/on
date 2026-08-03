@@ -3,6 +3,15 @@
 // The write being refused here is a PEER's client replaying its localStorage
 // cache into its OWN prefs after the followee was purged — a legitimate session
 // writing an owner-only node, which is why no revocation-time check reaches it.
+//
+// M10: the guarded path below is typed BY HAND. It cannot import
+// js/db/social.ts — this suite runs against the rules emulator, not jsdom — so
+// the tie to the client is a test on the other side:
+// tests/db.test.js, "setFollowingEntry — the path the G6 rules guard
+// validates", asserts setFollowingEntry builds exactly
+// userPrefs/{me}/following/{followee}. If you change the path here, change it
+// there too; if that test goes red, this guard is sitting on a path nothing
+// writes and these cases prove nothing.
 const { assertSucceeds, assertFails } = require('@firebase/rules-unit-testing');
 const { makeTestEnv, dbAs, seed } = require('./helpers');
 

@@ -18,6 +18,7 @@ const {
   writeFollowGrant, watchFollowGrants, deleteFollowGrant,
   writeKnock, getKnocks, watchKnocksAdded, clearKnock,
   removeFollower, registerAsFollower, watchRevocations, watchFollowerNames,
+  setFollowingEntry,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -797,6 +798,36 @@ describe('watchFollowerNames', () => {
     expect(seen[0]).toEqual({ f1: 'Bea', f2: 'Cy' });
     cb({ val: () => null });
     expect(seen[1]).toEqual({});
+  });
+});
+
+// M10: the G6 rules guard (.validate on userPrefs/$uid/following/$followee)
+// is only worth anything if it sits on the path the client actually writes.
+// tests/rules/g6-following-referent.test.js types that path by HAND, so a
+// refactor of the template below would leave the guard validating a path
+// nothing writes — rules suite still green, nobody told. This is the jest half
+// that ties the two together: if it goes red, the rules suite's hand-typed
+// path is stale and must move with it.
+describe('setFollowingEntry — the path the G6 rules guard validates', () => {
+  test('writes userPrefs/{me}/following/{followee}, the exact node the guard covers', async () => {
+    set.mockResolvedValue();
+    ref.mockClear();
+    await setFollowingEntry('meUid', 'followeeUid', 'ABC123', 'Bea');
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'userPrefs/meUid/following/followeeUid');
+  });
+
+  test('writes { code, label } — the shape the guard\'s $field/$sub rules bound', async () => {
+    set.mockResolvedValue();
+    await setFollowingEntry('meUid', 'followeeUid', 'ABC123', 'Bea');
+    expect(set).toHaveBeenCalledWith(expect.anything(), { code: 'ABC123', label: 'Bea' });
+  });
+
+  test('a null label becomes an empty string, never a missing key', async () => {
+    // The guard validates the written data; an undefined label would drop the
+    // key and change the node's shape under the same .validate.
+    set.mockResolvedValue();
+    await setFollowingEntry('meUid', 'followeeUid', 'ABC123', null);
+    expect(set).toHaveBeenCalledWith(expect.anything(), { code: 'ABC123', label: '' });
   });
 });
 
