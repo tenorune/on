@@ -54,6 +54,7 @@ export const OWNER_KEY = 'statusapp_cache_owner';
 // identity/push-plumbing lives here.
 export const ACCOUNT_SCOPED_KEYS = [
   'statusapp_following',
+  'statusapp_following_server_seen', // G6: records whether this device has seen this account's server following list; cleared on owner change so a newly-switched account doesn't inherit the old account's migration heuristic.
   'statusapp_favorites',
   'statusapp_favorites_collapsed',
   'statusapp_palette_state',
