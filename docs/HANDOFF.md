@@ -12,15 +12,15 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 ## What's next
 
 **THERE IS A BUILD QUEUE, AND IT IS THE FIRST THING TO READ.** Every open item
-was ruled on 2026-08-03 — six to DO, five WON'T FIX, one parked. **G4 is DONE
-(`33d89ae`); five remain.** The queue lives in
+was ruled on 2026-08-03 — six to DO, five WON'T FIX, one parked. **G4 and M12
+are DONE; four remain (M8, M5, M4, M3).** The queue lives in
 `docs/operator-panel-followups.md` under **"The next session's queue"**,
 directly beneath the at-a-glance table, with what to read before starting each:
 
 | | | |
 |---|---|---|
 | ~~**G4**~~ | ~~name the cascades the purge preview will trigger~~ — **DONE, `33d89ae`**: `plan.cascades` on all four destructive previews, compared preview-to-execute | the FIRST of that entry's two candidates was the one built — **not** the pre-image one |
-| **M12** | tie the G6 `presence/code` predicate to `followeeExists` so the two cannot drift | |
+| ~~**M12**~~ | ~~tie the G6 `presence/code` predicate to `followeeExists`~~ — **DONE**: a jest guard derives the node path from the rules `.validate` and pins `followeeExists` to it | the `shared/` constant route was NOT taken — the rules file is JSON and cannot import |
 | **M8** | make `adoptGroupNames` reachable from the browser | UI half only; server + merge already exist |
 | **M5** | cap the audit filename-collision retry | rides one commit with M4 |
 | **M4** | test the non-`EEXIST` rethrow | coverage; the branch is already correct |
@@ -86,13 +86,15 @@ re-derive them.
 "The next session's queue — operator rulings, 2026-08-03" in
 `docs/operator-panel-followups.md`, immediately under the at-a-glance table.
 **G4 is DONE** (`33d89ae` — the purge preview names its cascades; the first of
-its two candidates, not the second). **Still to DO: M12, M8, M5, M4, M3.**
+its two candidates, not the second). **M12 is DONE** too — the rules predicate
+and `followeeExists` are now tied by a test that derives one from the other.
+**Still to DO: M8, M5, M4, M3.**
 **WON'T FIX: G1, M1, M2,
 M6, M7** — ruled, not open questions; raise it before working one, not after.
 **G3 is parked** as #302 and is not part of that queue. Nothing in the queue is
 unruled, so a session picking it up does not need to re-litigate any of it.
 
-Everything else in that file (**G1**, **G4**, **M1–M8**, **M12**) is a
+Everything else in that file (**G1**, **M1–M8**) is a
 deliberate deferral, each with its `file:line` and the reason. The test to
 re-apply before promoting one: does it affect the correctness of a destructive
 write? **M10 and M11 are now CLOSED** — both were G6-descended, and closing
@@ -230,15 +232,16 @@ not by passing. `docs/operator-panel-followups.md` has said "now DONE" since it
 landed; this file was the stale one. Nothing else is owed on this branch.
 
 **Branch status (2026-08-03, LATEST): `claude/knockknock-operator-queue-xycpd8`
-— the build queue's first item, NOT merged.** Cut from `dev` at `dadb529`, two
-commits: `33d89ae` (G4's code + tests) and this docs update. **Nothing is
-merged and no PR was opened** — `dev` is the maintainer's to take, and merging
-would deploy (see the deploy warning below).
+— the build queue's first two items, NOT merged.** Cut from `dev` at `b02dc47`:
+`33d89ae` (G4's code + tests), `8d8b128` (G4's docs), `f730f34` (M12's guard)
+and this docs update. **Nothing is merged and no PR was opened** — `dev` is the
+maintainer's to take, and merging would deploy (see the deploy warning below).
 
-⚠️ **This branch adds NO deploy surface.** Every file it moves is under
+⚠️ **This branch adds NO deploy surface.** G4's files are under
 `functions/ops/**` — excluded from the functions archive via `functions.ignore`
-— or is a doc. `database.rules.json`, `js/` and the shipped `functions/*.js`
-are untouched, so even a merge to `dev` ships none of it anywhere.
+— M12's are tests, and the only `js/` movement is comments (no statement moved).
+`database.rules.json` and the shipped `functions/*.js` are untouched, so even a
+merge to `dev` ships no behaviour change anywhere.
 
 **Prior branch status (2026-08-03): `claude/g3-revocation-timeout-eabaf4`
 MERGED TO `dev` AND PUSHED, at the operator's explicit instruction.**
@@ -391,9 +394,9 @@ the dev project** — CI deploys functions on every push to `dev`.
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, M1–M8, M12) is either an operator action
+What remains (G1, G3, M1–M8) is either an operator action
 or explicitly deferred — none of it is unfinished build work. **G4, G6, G9,
-G10, M10 and M11 are all CLOSED**, and G3 is parked as #302.
+G10, M10, M11 and M12 are all CLOSED**, and G3 is parked as #302.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -471,6 +474,24 @@ migration they are on. Deploying it before or after the migration completes is
 equally safe.
 
 ## Verification state
+
+**M12 closure, green bar OBSERVED (2026-08-03) at `f730f34`** on the same
+branch — web jest **2149/2149** (88 suites, **+3**: `followeeExists` probing
+the node the rules `.validate` names, the rules file's own two copies agreeing,
+and the parser refusing a predicate that is no longer an existence chain) ·
+rules (emulator) **118/118** (12, unchanged — `database.rules.json` is
+untouched) · functions **951/951** (32, unchanged) · `typecheck` +
+`typecheck:scripts` clean, zero new suppressions · `node scripts/prod.js`
+builds. Verified by planting four violations, never by passing: the client
+probing `presence` instead of `presence/code` (2 red), the rules keying on
+`presence/status` (1), only the `$field` copy edited (1), the predicate
+rewritten to `hasChild` (1); both files byte-identical after the reverts. **The
+only `js/` movement is comments** — no statement moved.
+
+**What that bar does NOT cover.** The guard proves the two copies name the same
+node; it does not prove the rules and the client draw the same CONCLUSION from
+it, and it says nothing about `getCreatorCode`, which reads the same node for
+its value and is deliberately left untied (see M12's entry). Jest only.
 
 **G4 closure, green bar OBSERVED (2026-08-03) at `33d89ae`** on
 `claude/knockknock-operator-queue-xycpd8`, on a FRESH container after the
@@ -912,7 +933,9 @@ proxy and would abort an `&&` chain. Functions deps are required for
   * G1's "the survivor silently gains ownership of a shared group" — `role` is
     write-only, read by nothing; real ownership is `ownerId` and it IS covered;
   * G9's "reused rather than re-derived, so the two cannot drift apart" — two
-    independent hand-written copies of the predicate (**M12**);
+    independent hand-written copies of the predicate (**M12**, since CLOSED by
+    building the tie the claim assumed: a test that derives the client's node
+    path from the rules' own `.validate`);
   * M10, found by a review rather than the audit, is the same shape: a guarded
     path nothing tied to what the client writes.
   Three of the four asserted **impossibility or equivalence** ("cannot drift",
