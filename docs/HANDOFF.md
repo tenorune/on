@@ -60,7 +60,7 @@ app. **If and when #302 is picked up, start with a spec, not code** — the
 measurements are already in `docs/operator-panel-followups.md`, so don't
 re-derive them.
 
-Everything else in that file (**G1**, **G4**, **M1–M8**) is a
+Everything else in that file (**G1**, **G4**, **M1–M8**, **M12**) is a
 deliberate deferral, each with its `file:line` and the reason. The test to
 re-apply before promoting one: does it affect the correctness of a destructive
 write? **M10 and M11 are now CLOSED** — both were G6-descended, and closing
@@ -162,7 +162,7 @@ confirmed working on a custom-token uid, which was the original deferral's
 question. The rules gap underneath it is filed as **G3**. Full reasoning and the
 measurements live in `docs/operator-panel-followups.md`.
 
-**Eleven open, eleven closed** — all ranked with stable IDs in the "at a
+**Twelve open, eleven closed** — all ranked with stable IDs in the "at a
 glance" table at the top of `docs/operator-panel-followups.md`. **S1 and M9 are
 now CLOSED** (the smoke test ran to completion; M9's `op` guard shipped straight
 after, because completing the leg is what made it urgent — a real merge dump now
@@ -305,7 +305,7 @@ the dev project** — CI deploys functions on every push to `dev`.
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, G4, M1–M8) is either an operator action
+What remains (G1, G3, G4, M1–M8, M12) is either an operator action
 or explicitly deferred — none of it is unfinished build work. **G6, G9, G10,
 M10 and M11 are all CLOSED**, and G3 is parked as #302.
 
@@ -776,6 +776,28 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 ## Landmines (read before touching code)
 
+- **This repo's docs fail on claims about CONSEQUENCE, not on claims about
+  MECHANISM — and no test catches either.** A 2026-08-03 audit checked the
+  load-bearing factual claims in these docs against the code. Descriptions of
+  *what code does* held up almost everywhere; the failures were all assertions
+  about what that **means**, and each one would have changed a risk judgement:
+  * "`13cb18c`+`e2dde4e` are an undeployed RULES change … a live project stays
+    exactly as exposed to G6 as before" — CI deploys on push to `dev`; the guard
+    had been live on dev for hours;
+  * G1's "the survivor silently gains ownership of a shared group" — `role` is
+    write-only, read by nothing; real ownership is `ownerId` and it IS covered;
+  * G9's "reused rather than re-derived, so the two cannot drift apart" — two
+    independent hand-written copies of the predicate (**M12**);
+  * M10, found by a review rather than the audit, is the same shape: a guarded
+    path nothing tied to what the client writes.
+  Three of the four asserted **impossibility or equivalence** ("cannot drift",
+  "exactly as exposed", "gains ownership"). That phrasing is the tell. Before
+  writing one, ask what artifact enforces it — if the answer is "they agree
+  today, by inspection", write *that* instead, or build the tie.
+  Line numbers are a lesser, separate problem: several citations had drifted
+  10-100 lines (`ops/project.js:69`→`:88`, `ops/server.js:359,385`→`:462,664`,
+  `merge.js:212-213`→`:221`) while being exactly right about the behaviour.
+  Fix them when you touch the entry; do not trust one as a landmark.
 - **"Nothing deploys from sessions" is TRUE and it is not the whole sentence —
   CI deploys on push, and `dev` is ungated.**
   `.github/workflows/deploy-dev.yml` fires on `push: branches: [dev]` and runs
@@ -839,7 +861,12 @@ proxy and would abort an `&&` chain. Functions deps are required for
   `users/$uid/invites/$token/redemptionsUsed` grants `.write: "auth != null"`
   to **any** signed-in uid, for any `$uid`/`$token` (`database.rules.json:34-38`),
   so redeeming someone else's invite link creates the same node with nothing
-  more than a token guess behind it. The guard checks `presence/code` instead
+  more than a token guess behind it. (A sibling `.validate` at
+  `database.rules.json:37` bounds a non-owner to writing exactly `prior + 1`,
+  so the write is not unconstrained — but `1` into a node that does not exist
+  passes, and **creating the node is the whole of what the forgery needs**.
+  Named here because the `.write` alone reads more open than it is, and a
+  reader who spots the `.validate` should not conclude the landmine is wrong.) The guard checks `presence/code` instead
   — no client can write another account's presence, so the owner-only
   ancestor rule on `users/$uid` actually holds there. Before adding a
   `.exists()` predicate to a rule, ask who else's write can plant the thing
