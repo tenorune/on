@@ -18,8 +18,10 @@ const {
   writeFollowGrant, watchFollowGrants, deleteFollowGrant,
   writeKnock, getKnocks, watchKnocksAdded, clearKnock,
   removeFollower, registerAsFollower, watchRevocations, watchFollowerNames,
-  setFollowingEntry, setFollowingEntryClearingRevocation,
+  setFollowingEntry, setFollowingEntryClearingRevocation, followeeExists,
 } = require('../js/db');
+const fs = require('fs');
+const path = require('path');
 
 jest.mock('firebase/database', () => ({
   ref: jest.fn(() => 'mock-ref'),
@@ -828,6 +830,72 @@ describe('setFollowingEntry — the path the G6 rules guard validates', () => {
     set.mockResolvedValue();
     await setFollowingEntry('meUid', 'followeeUid', 'ABC123', null);
     expect(set).toHaveBeenCalledWith(expect.anything(), { code: 'ABC123', label: '' });
+  });
+});
+
+// M12: the G6 referential predicate is written TWICE — once as the rules'
+// `.validate` and once as followeeExists' read — and until this guard nothing
+// tied them. Change the rules to key on a different node and the client keeps
+// probing the old one, with the rules suite, the jest suite and both typechecks
+// green. It un-mirrors for every client caller at once: rotateCode's G9 filter
+// and js/followRequests.ts's I1 check both route through followeeExists.
+//
+// Same shape as M10 one layer over — M10 tied the guarded PATH to what the
+// client writes and left the guarded PREDICATE untied. The rules file cannot
+// import JS, so the tie is derived FROM the rules file here, the way
+// tests/name-cap-invariant.test.js pins the display-name cap.
+describe('followeeExists — the predicate the G6 rules guard enforces', () => {
+  const RULES = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '..', 'database.rules.json'), 'utf8'),
+  );
+  const FOLLOWING = RULES.rules.userPrefs.$uid.following.$followee;
+
+  /**
+   * Turn `root.child('users').child($followee).child('presence').child('code')
+   * .exists()` into `users/{uid}/presence/code`.
+   *
+   * Deliberately strict: anything that is not that exact shape throws rather
+   * than returning a best guess. A predicate rewritten to `hasChild()`, or one
+   * that grew a second clause, is a DELIBERATE change to what the guard means,
+   * and it must come here and decide what the client's counterpart should be —
+   * not slip past a lenient parser.
+   */
+  function predicatePath(validate, uid) {
+    const shape = /^root(?:\.child\((?:'[^']+'|\$[A-Za-z]+)\))+\.exists\(\)$/;
+    if (!shape.test(validate)) {
+      throw new Error(
+        `the G6 predicate is no longer a plain root.child(...).exists() chain, so this guard `
+        + `cannot derive the path the client must probe. Read it and update followeeExists `
+        + `(js/db/social.ts) and this test together — M12. Predicate: ${validate}`,
+      );
+    }
+    return [...validate.matchAll(/\.child\((?:'([^']+)'|\$([A-Za-z]+))\)/g)]
+      .map(([, literal, placeholder]) => (literal !== undefined ? literal : (placeholder === 'followee' ? uid : `$${placeholder}`)))
+      .join('/');
+  }
+
+  test('reads exactly the node database.rules.json requires to exist', async () => {
+    get.mockResolvedValueOnce({ exists: () => true });
+    ref.mockClear();
+    await followeeExists('followeeUid');
+    expect(ref).toHaveBeenCalledWith(
+      expect.anything(),
+      predicatePath(FOLLOWING['.validate'], 'followeeUid'),
+    );
+  });
+
+  // The rules hold the predicate twice themselves — once on the entry and once
+  // on $field — so a half-applied edit would leave the two levels disagreeing
+  // and this test's first case still passing.
+  test('both copies inside the rules file say the same thing', () => {
+    expect(FOLLOWING.$field['.validate']).toBe(FOLLOWING['.validate']);
+  });
+
+  // The parser is the load-bearing part: a lenient one would keep passing
+  // through exactly the rewrite that should stop it.
+  test('a predicate that is not a plain existence chain fails loudly', () => {
+    expect(() => predicatePath("root.child('users').child($followee).hasChild('presence')", 'x'))
+      .toThrow(/no longer a plain root\.child/);
   });
 });
 

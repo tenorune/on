@@ -377,6 +377,14 @@ export async function userExists(userId: string): Promise<boolean> {
 // ordinary transient failure, so a permanently-refused grant can be resolved
 // instead of retried on every boot. Throws on network error, same contract as
 // userExists — the caller decides how to treat an inconclusive read.
+//
+// M12: this read and that `.validate` are two hand-written copies of one
+// predicate, and the rules file cannot import JS. What ties them is a test —
+// tests/db.test.js, "followeeExists — the predicate the G6 rules guard
+// enforces" — which DERIVES the node path from database.rules.json and asserts
+// this function probes it. Move either side without the other and that test
+// goes red. Every client caller routes through here (rotateCode's G9 filter,
+// js/followRequests.ts's I1 check), so this is the one place to keep in step.
 export async function followeeExists(userId: string): Promise<boolean> {
   const snap = await get(ref(db, `users/${userId}/presence/code`));
   return snap.exists();
@@ -396,7 +404,10 @@ export async function rotateCode(userId: string, oldCode: string): Promise<strin
   // the last sync would otherwise get users/{T}/followers/{me} rewritten under
   // a dead uid — residue in T's OWN subtree, which crossRefRenderers does not
   // enumerate and nothing ever sweeps. Same predicate as the G6 rules guard,
-  // through the same function so the two cannot drift apart.
+  // reached through followeeExists so every client caller asks the same
+  // question. This used to claim the two "cannot drift apart"; the rules file
+  // holds its own hand-written copy, so what stops the drift is the M12 test
+  // over followeeExists, not the sharing of a function on this side.
   //
   // Before the reservation on purpose: reads placed between reserving the new
   // code and publishing it would widen the window in which a crash leaves an
