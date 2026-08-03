@@ -36,9 +36,19 @@ forgeable, see the landmines below), plus a client-side gate in
 server list. Full reasoning:
 `docs/superpowers/specs/2026-08-03-g6-peer-republish-design.md`;
 `docs/operator-panel-followups.md`'s G6 entry carries the same correction.
-**Verified against the rules emulator only** — nothing here has run against a
-live project, and `database.rules.json` now carries this as a fourth
-undeployed behaviour change (see the branch-status note below).
+**Verified against the rules emulator only** — nothing here was *exercised*
+against a live project. It is nonetheless **deployed to the dev project**: the
+merge to `dev` shipped `database.rules.json` via
+`.github/workflows/deploy-dev.yml`. It is the fourth prod-undeployed behaviour
+change (see the branch-status note below). Deployed is not verified, and
+undeployed-to-prod is not undeployed — keep the two apart.
+
+**G3 IS PARKED AS [#302](https://github.com/tenorune/on/issues/302)
+(2026-08-03), so NO BUILD WORK IS OWED ON THIS REPO AT ALL.** It is spec-first
+work that has not been started — no spec, no branch, no code. The section below
+describes what it *is*, not something in flight;
+`docs/operator-panel-followups.md`'s G3 entry stays the ledger of record and
+the issue is its tracking half.
 
 **What is left is G3, alone.** `database.rules.json` never checks
 `auth.token.auth_time`, so a revoked session keeps writing for up to an hour
@@ -46,17 +56,27 @@ undeployed behaviour change (see the branch-status note below).
 That is a spec-first piece of work, not an afternoon: it needs a rules-readable
 place to store a per-uid revocation time, a decision about what a mid-session
 client does when its token is refused, and it touches every write path in the
-app. **Start with a spec, not code** — the measurements are already in
-`docs/operator-panel-followups.md`, so don't re-derive them.
+app. **If and when #302 is picked up, start with a spec, not code** — the
+measurements are already in `docs/operator-panel-followups.md`, so don't
+re-derive them.
 
-Everything else in that file (**G1**, **G4**, **M1–M8**, **M10**, **M11**) is a
+⚠️ **EVERY OPEN ITEM IS NOW RULED, AND THERE IS A BUILD QUEUE.** See
+"The next session's queue — operator rulings, 2026-08-03" in
+`docs/operator-panel-followups.md`, immediately under the at-a-glance table.
+**DO: G4** (name the purge preview's cascades — the first of its two
+candidates, not the second), **M12, M8, M5, M4, M3**. **WON'T FIX: G1, M1, M2,
+M6, M7** — ruled, not open questions; raise it before working one, not after.
+**G3 is parked** as #302 and is not part of that queue. Nothing in the queue is
+unruled, so a session picking it up does not need to re-litigate any of it.
+
+Everything else in that file (**G1**, **G4**, **M1–M8**, **M12**) is a
 deliberate deferral, each with its `file:line` and the reason. The test to
 re-apply before promoting one: does it affect the correctness of a destructive
-write? **M11 is the one to read first** — it is the only open item created *by*
-a fix on this branch rather than found in code that predated it. G10's fix
-hoists `clearRevocation` ahead of the refusable `setFollowingEntry`, so a
-redemption that is **refused** has already dropped the key the redeemer's
-revocation watcher uses to prune a stale own-side `following/{creator}` entry.
+write? **M10 and M11 are now CLOSED** — both were G6-descended, and closing
+them leaves the G6 wave with nothing open but two residuals the operator ruled
+**out of scope** (the rest of §4.1's peer-writable family table, and sweeping
+dangling entries already in production). Those two are recorded as decisions
+inside G6's own entry, where no open-item count will surface them.
 The residue is in the redeemer's own list, is visible to them, and self-corrects
 on their next follow or unfollow of that uid — which is why it was filed rather
 than fixed, but it is undocumented behaviour nowhere except its three recorded
@@ -110,9 +130,11 @@ theoretical, it fired on 2026-08-02 and reappeared as a conflict at
 `userPrefs/{uid}` on the way back out. And closing the target's clients is not
 sufficient (**G6**): a PEER's client republishes cross-user residue permanently.
 **G6 now has a real fix** (`13cb18c`+`8a0ff62` — a rules `.validate` plus a
-client gate), but it is not deployed to any project, so this precondition
-still stands against a live target until `database.rules.json` ships there:
-the tool only detects the republish and prints a `PEER REPUBLISH` block.
+client gate). The rules half is **live on the dev project** — the merge to
+`dev` deployed it via CI — and **absent on prod** until `dev` → `main`. So this
+precondition still stands in full against a PROD target; against dev the guard
+is active but has never been exercised, which is untested, not absent. Either
+way the tool only detects the republish and prints a `PEER REPUBLISH` block.
 The merge leg sidestepped both by seeding **synthetic** accounts no client ever
 held — the reasoning is in `ops/merge-fixture.js`'s header and it is the pattern
 to reuse.
@@ -149,19 +171,18 @@ confirmed working on a custom-token uid, which was the original deferral's
 question. The rules gap underneath it is filed as **G3**. Full reasoning and the
 measurements live in `docs/operator-panel-followups.md`.
 
-**Thirteen open, nine closed** — all ranked with stable IDs in the "at a
+**Twelve open, eleven closed** — all ranked with stable IDs in the "at a
 glance" table at the top of `docs/operator-panel-followups.md`. **S1 and M9 are
 now CLOSED** (the smoke test ran to completion; M9's `op` guard shipped straight
 after, because completing the leg is what made it urgent — a real merge dump now
 sits in `.ops-audit/` beside the purge dumps). **G9 and G10 are now CLOSED**
-too (`728180d`, `4780b1f`) — see "What's next" above. Open: G1, **G3** and
-**G4** (known gaps — G3 is a whole-app rules gap, not a panel item; G4 came
-out of running the smoke test); **M10**, filed 2026-08-03 by the review that
-closed out G6's fix wave, from READING rather than from running; **M11**, filed
-the same day by the scoped re-review of this branch's final fix wave — the only
-open item created *by* a fix here rather than found in code that predated it
-(G10's revocation-clear hoist drops the watcher's cleanup of a stale own-side
-follow when the redemption is refused); and M1–M8
+too (`728180d`, `4780b1f`) — see "What's next" above. **M10 and M11 are now
+CLOSED too**: M10 by three jest cases pinning the path `setFollowingEntry`
+builds against the hand-typed path the G6 rules suite guards, M11 by folding
+the revocation clear and the refusable following write into one atomic
+multi-path update (`setFollowingEntryClearingRevocation`). Open: G1, **G3** and
+**G4** (known gaps — G3 is a whole-app rules gap, not a panel item, and is now
+parked as #302; G4 came out of running the smoke test); and M1–M8
 (deferred minors, each with its `file:line` and why it was left; none of them
 affects the correctness of a destructive write, which is the test to
 re-apply before promoting one).
@@ -169,12 +190,16 @@ re-apply before promoting one).
 NOT close with G3, contrary to what this file used to say; see "What's next"
 above.
 **G5 is closed** (`0f31553`) and stays in that table with its reasoning, like G2,
-because *why it survived every review* is the useful part. It carries one open
-half, deliberately not done: `integrity.js` only catches residue families someone
-remembered to add to it, and a test asserting every own-account top-level node in
-`database.rules.json` is either in the expunge null-set or explicitly exempt would
-catch the NEXT relocation instead of the last one. Nothing else is owed on this
-branch.
+because *why it survived every review* is the useful part. **Its follow-up half
+is DONE, not open** — this file described it as "deliberately not done" long
+after it had shipped. `integrity.js` only catches residue families someone
+remembered to add to it, so the guard that catches the NEXT relocation instead
+of the last one is `functions/test/expunge-completeness.test.js` (`5f4dcd5`):
+it reads the top-level node list out of `database.rules.json`, requires every
+node to be classified into one of four buckets, and asserts every own-account
+node really is nulled at `{node}/{uid}`. Verified by planting three violations,
+not by passing. `docs/operator-panel-followups.md` has said "now DONE" since it
+landed; this file was the stale one. Nothing else is owed on this branch.
 
 **Branch status (2026-08-03): MERGED TO `dev` AND PUSHED, at the operator's
 explicit instruction.** `origin/dev` moved `22abc8a` → `8ad9ef0`, a `--no-ff`
@@ -243,40 +268,55 @@ redundant, and `claude/knockknock-operator-followups-1kyjy6` and
 one.** `ops/**` is excluded from the functions archive, so G8
 (`ops/server.js`, `ops/panel.html`) and the merge-leg CLIs ride no deploy at
 all, and the docs commits ride nothing.
-⚠️ **`13cb18c`+`e2dde4e` are an undeployed RULES change** — the fourth
-undeployed behaviour change on `dev`, and the only one on this surface.
+⚠️ **"UNDEPLOYED" BELOW MEANS UNDEPLOYED TO *PROD*. Everything here is already
+LIVE ON THE DEV PROJECT.** Pushing to `dev` triggers
+`.github/workflows/deploy-dev.yml`, which runs
+`firebase deploy --only hosting,database,functions` against the dev project
+with **no approval gate**. This file used to read as though none of it had
+shipped anywhere; that was wrong, and the deploy landmine below records why the
+wording misled.
+⚠️ **`13cb18c`+`e2dde4e` are a RULES change — live on dev, undeployed to
+prod.** The fourth prod-undeployed behaviour change, and the only one on this
+surface. It went live on dev with the `8ad9ef0` merge (deploy-dev run
+2026-08-03T13:17:49Z, success).
 ⚠️ **`8620702`, `8a0ff62`, `94c9aa6`, `b595dcb`, and now `js/db/social.ts` and
-`js/invites.ts` (G9 and G10, `728180d`+`4780b1f`) are undeployed CLIENT
-behaviour**, riding the next **hosting** deploy: the push-up gate, its
+`js/invites.ts` (G9 and G10, `728180d`+`4780b1f`) are CLIENT behaviour — live
+on dev, undeployed to prod**, riding the next prod **hosting** deploy (G9/G10
+went live on dev with the `d47fbbb` merge, run 2026-08-03T19:18:48Z): the
+push-up gate, its
 localStorage key and that key's account-scoped classification, I1's
 undeliverable-grant handling, `rotateCode`'s dead-followee filter, and
 invite redemption's write reorder. Do not read "only `js/`" as "no deploy" —
 `js/` is exactly what Hosting serves.
 ⚠️ **G9 and G10 do NOT touch `database.rules.json`.** The rules surface is
-**unchanged** by this branch: the undeployed rules commits (`13cb18c`+
-`e2dde4e`) are exactly as they were, and remain the only undeployed RULES
-change. A reader who knows G6 will reasonably assume a G6-adjacent fix moved
-the rules again — it did not; both G9 and G10 are client-only fixes.
+**unchanged** by this branch: the rules commits (`13cb18c`+
+`e2dde4e`) are exactly as they were, and remain the only RULES
+change here. A reader who knows G6 will reasonably assume a G6-adjacent fix
+moved the rules again — it did not; both G9 and G10 are client-only fixes.
 The two surfaces are independent of each other and of the functions queue: the
 rules guard is the half that actually closes G6 and it binds every client the
 moment it ships, including ones nobody can update; the client half only ever
 binds clients that have updated.
-Rules deploy independently of hosting and functions
+On PROD, rules can be deployed independently of hosting and functions
 (`firebase deploy --only database`) and bind every client immediately,
-including ones nobody can update. Nothing deploys from sessions;
-`docs/DEPLOY-PROD.md` is the runbook.
+including ones nobody can update. **Nothing deploys from a session — but CI
+deploys on push**: `dev` ships all three surfaces to the dev project ungated,
+and `main` ships them to prod behind `deploy-prod.yml`'s
+`environment: production` required reviewer. `docs/DEPLOY-PROD.md` is the prod
+runbook.
 
 ⚠️ **`dev` carries THREE production behaviour changes** on the `performLink` →
-`expungeDerivedAccount` path, all riding the next functions deploy: `pushTokens`
-cleanup (`0f31553`), the owned-group index releases (`1f639ee`), and the
-`inviteIndex` shape fix (`2fcc51f`). `docs/DEPLOY-PROD.md` is the runbook;
-nothing deploys from sessions. **The merge-leg work adds nothing to that list** —
+`expungeDerivedAccount` path, all riding the next **prod** functions deploy:
+`pushTokens` cleanup (`0f31553`), the owned-group index releases (`1f639ee`),
+and the `inviteIndex` shape fix (`2fcc51f`). All three are **already live on
+the dev project** — CI deploys functions on every push to `dev`.
+`docs/DEPLOY-PROD.md` is the prod runbook; no session deploys, but CI does. **The merge-leg work adds nothing to that list** —
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, G4, M1–M8, M10, M11) is either an operator action
-or explicitly deferred — none of it is unfinished build work. **G6, G9 and
-G10 are all CLOSED.**
+What remains (G1, G3, G4, M1–M8, M12) is either an operator action
+or explicitly deferred — none of it is unfinished build work. **G6, G9, G10,
+M10 and M11 are all CLOSED**, and G3 is parked as #302.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -341,7 +381,8 @@ is still the maintainer's.
 workflow (required-reviewer). If a prod deploy is still owed, the ordering is
 the LOAD-BEARING `pushTokens` F6c sequence + a functions deploy (the Telegram
 beacon batch touches `functions/`) — full runbook in `docs/DEPLOY-PROD.md`.
-Nothing deploys from sessions.
+No session deploys anything; CI does, and the `dev` half is ungated (see the
+deploy landmine).
 
 `0f31553` adds to that functions deploy and touches the same F6c node, so read
 the two together. It needs no migration ordering of its own: expunge nulls
@@ -353,6 +394,42 @@ migration they are on. Deploying it before or after the migration completes is
 equally safe.
 
 ## Verification state
+
+**M10 + M11 closure, green bar OBSERVED (2026-08-03)** on
+`claude/g3-revocation-timeout-eabaf4`, on a FRESH container after the
+documented `npm ci` — baseline `7e9a36b` (web 2139/2139 in 88 suites · rules
+116/116 in 12 · functions 941/941 in 32):
+
+- web jest **2146/2146** (88 suites, unchanged) — **+7**: 3 in `tests/db.test.js`
+  for M10 (path, value shape, null label), 3 more there for M11's atomic write,
+  and net +1 in `tests/invites.test.js` (one ordering test replaced by two)
+- rules (emulator) **118/118** (12 suites, unchanged) — **+2**, both in
+  `tests/rules/g6-following-referent.test.js`: a refused following path leaves
+  `revocations/M/T` intact, and the same update lands whole once the followee
+  exists
+- functions **941/941** (32 suites) — **unchanged**
+- `typecheck` + `typecheck:scripts` — clean; **zero** new suppressions, all
+  seven forms swept over the diff
+- `node scripts/prod.js` — builds
+
+**`database.rules.json` is UNCHANGED by this work** — the rules movement is
+test-only, so this adds **no** new deploy surface. `js/db/social.ts` and
+`js/invites.ts` did move, so both ride the same **hosting** queue as the G9/G10
+client changes: live on dev on merge, undeployed to prod.
+
+**What that bar does NOT cover.** Every case is jest or the rules emulator. No
+session container has ever held a service-account credential, so neither fix
+has run against a live Firebase project, and M11's failure mode was never
+device-observed — it was found by reading, in the re-review of G10's own fix.
+What the emulator *does* settle, and jest could not, is the assumption the M11
+fix rests on: that RTDB rejects a multi-path update whole when one path fails a
+`.validate`. That is now pinned rather than assumed.
+
+Each guard was verified by planting a violation, never by passing: M10's three
+by path drift, a dropped label key and a mangled label value; M11's by
+implementing the function as two sequential writes (all three cases red) and by
+leaving `js/invites.ts` on the old call pair (7 red across the redemption
+path). Production files are byte-identical after every revert.
 
 Green bar OBSERVED on the MERGED result at `d47fbbb` — `dev`'s tip, not the
 branch's (2026-08-03): web jest **2139/2139** (88 suites, unchanged) · rules
@@ -372,11 +449,12 @@ are unchanged, and that is the evidence this stayed a client-only change** — t
 rules surface never moved.
 
 **What that bar does NOT cover, and it is the whole point of this piece of
-work:** nothing here ran against a live Firebase project — no session container
-has ever held a service-account credential — so G6's fix is verified against the
-**rules emulator and jest only**. `database.rules.json` is not deployed by
-anything in a session, which means a live project stays exactly as exposed to G6
-as it was before this branch until the rules ship there.
+work:** nothing here was *exercised* against a live Firebase project — no
+session container has ever held a service-account credential — so G6's fix is
+verified against the **rules emulator and jest only**. It is nonetheless
+**deployed to the dev project**: CI ships `database.rules.json` on every push to
+`dev`. "Not verified live" and "not live" are different claims — on dev the
+guard is active and untested; on prod it is absent until `dev` → `main`.
 
 This bar was not green on the first pass at this tip minus one commit
 (`8a0ff62`): `tests/cacheOwner.test.js`'s drift guard ("every statusapp_ key in
@@ -617,10 +695,11 @@ Read in this order; stop when you have what you need.
    (**G1**, **G3**, **G4**, **M1–M9**), each with `file:line` and why it
    was left, plus closed-but-instructive **S1**, **G2**, **G5**, **G6**, **G7**
    and **G8**. Read **G6** before purging anything real: the rules guard that
-   closes it is verified against the emulator only and is not deployed to any
-   project, so a live purge or merge is exactly as exposed as before until
-   `database.rules.json` ships. Cite the IDs rather than re-describing the
-   items.
+   closes it is verified against the emulator only, is **live on dev** (CI
+   deploys rules on every push to `dev`) and **absent on prod** until
+   `dev` → `main` — so a prod purge or merge is exactly as exposed as before,
+   and a dev one is covered by a guard nobody has exercised. Cite the IDs
+   rather than re-describing the items.
 3. `docs/operator-panel-smoke-test.md` — the ten-step script and its filled-in
    results table (**all ten pass**), "What a restore cannot recover", and the
    two merge variants the run did not cover.
@@ -706,6 +785,49 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 ## Landmines (read before touching code)
 
+- **This repo's docs fail on claims about CONSEQUENCE, not on claims about
+  MECHANISM — and no test catches either.** A 2026-08-03 audit checked the
+  load-bearing factual claims in these docs against the code. Descriptions of
+  *what code does* held up almost everywhere; the failures were all assertions
+  about what that **means**, and each one would have changed a risk judgement:
+  * "`13cb18c`+`e2dde4e` are an undeployed RULES change … a live project stays
+    exactly as exposed to G6 as before" — CI deploys on push to `dev`; the guard
+    had been live on dev for hours;
+  * G1's "the survivor silently gains ownership of a shared group" — `role` is
+    write-only, read by nothing; real ownership is `ownerId` and it IS covered;
+  * G9's "reused rather than re-derived, so the two cannot drift apart" — two
+    independent hand-written copies of the predicate (**M12**);
+  * M10, found by a review rather than the audit, is the same shape: a guarded
+    path nothing tied to what the client writes.
+  Three of the four asserted **impossibility or equivalence** ("cannot drift",
+  "exactly as exposed", "gains ownership"). That phrasing is the tell. Before
+  writing one, ask what artifact enforces it — if the answer is "they agree
+  today, by inspection", write *that* instead, or build the tie.
+  Line numbers are a lesser, separate problem: several citations had drifted
+  10-100 lines (`ops/project.js:69`→`:88`, `ops/server.js:359,385`→`:462,664`,
+  `merge.js:212-213`→`:221`) while being exactly right about the behaviour.
+  Fix them when you touch the entry; do not trust one as a landmark.
+- **"Nothing deploys from sessions" is TRUE and it is not the whole sentence —
+  CI deploys on push, and `dev` is ungated.**
+  `.github/workflows/deploy-dev.yml` fires on `push: branches: [dev]` and runs
+  `firebase deploy --only hosting,database,functions` against the dev project.
+  There is no `environment:` key on its deploy job, so nothing approves it.
+  `deploy-prod.yml` is the same deploy on `main`, and *that* one carries
+  `environment: production` — the required-reviewer gate everyone remembers.
+  So merging a feature branch to `dev` **ships rules, hosting and functions to
+  the dev project within minutes**, with no operator action at all.
+  **This file said the opposite for a whole branch.** It described
+  `13cb18c`+`e2dde4e` as "an undeployed RULES change" and told readers "a live
+  project stays exactly as exposed to G6 as it was before this branch" — both
+  written from "nothing deploys from sessions", which is true of *sessions* and
+  silent about *CI*. The G6 rules guard had in fact been live on dev since the
+  `8ad9ef0` merge (deploy-dev run 2026-08-03T13:17:49Z, success). The error was
+  caught by the operator reading a summary, not by any check in the repo.
+  **The rule: say which PROJECT.** "Undeployed" alone is not a state — write
+  "live on dev, undeployed to prod". And keep **deployed** apart from
+  **verified**: CI shipping a rules change proves the deploy ran, never that
+  anyone exercised the guard. Before claiming an exposure still stands, check
+  `git log origin/dev` for the commit and the workflow run for the push.
 - **An invariant documented INSIDE a function can be a property of its CALL
   SITE, and reordering callers breaks it with that function untouched.**
   `registerAsFollower` (`js/db/social.ts`) clears `revocations/{me}/{target}`
@@ -721,14 +843,26 @@ proxy and would abort an `&&` chain. Functions deps are required for
   hoisting it at the call site**, so the ordering is preserved by construction
   rather than by which function happens to run first. When you reorder calls,
   read the comments inside the functions being reordered and ask whether the
-  ordering they promise is theirs to keep. What that hoist itself costs is
-  **M11** — the clear now precedes a write that can be refused.
+  ordering they promise is theirs to keep.
+  **The hoist is gone, and so is what it cost (M11).** Hoisting made the clear
+  precede a write the G6 guard can refuse, so a refused redemption dropped the
+  key the redeemer's own watcher prunes on. Ordering could satisfy one
+  constraint or the other, never both — the general lesson, worth more than the
+  bug: when two constraints pull opposite ways on the ORDER of two writes, stop
+  sequencing them and make them ONE write. `setFollowingEntryClearingRevocation`
+  (`js/db/social.ts`) issues both paths in a single multi-path `update()`, so
+  RTDB applies them together or not at all: the invariant holds by construction
+  and a refusal rolls the clear back with it. The all-or-nothing behaviour is
+  the load-bearing assumption and jest cannot see it — it is pinned on the rules
+  emulator in `tests/rules/g6-following-referent.test.js`.
 - **An existence check is only as strong as who can create the node it checks
   (G6).** `database.rules.json`'s new guard on
   `userPrefs/$uid/following/$followee` needed to answer "does this account
   exist," and a bare `users/{T}.exists()` would have been the obvious
   predicate — and worthless. There are **three** non-owner writers under
-  `users/$uid`, not two (a final-review finding, M5): `users/$uid/followers/$follower`
+  `users/$uid`, not two (**G6-review finding M5** — that review's own
+  numbering, NOT the followups ledger's stable **M5**, which is an unrelated
+  `ops/audit.js` retry cap): `users/$uid/followers/$follower`
   and `followerNames/$follower` are writable BY the follower, so a peer's own
   `registerAsFollower` call creates the `users/{T}` node moments before
   `setFollowingEntry` runs (`following.ts:1518-1520`), satisfying the weak
@@ -736,7 +870,12 @@ proxy and would abort an `&&` chain. Functions deps are required for
   `users/$uid/invites/$token/redemptionsUsed` grants `.write: "auth != null"`
   to **any** signed-in uid, for any `$uid`/`$token` (`database.rules.json:34-38`),
   so redeeming someone else's invite link creates the same node with nothing
-  more than a token guess behind it. The guard checks `presence/code` instead
+  more than a token guess behind it. (A sibling `.validate` at
+  `database.rules.json:37` bounds a non-owner to writing exactly `prior + 1`,
+  so the write is not unconstrained — but `1` into a node that does not exist
+  passes, and **creating the node is the whole of what the forgery needs**.
+  Named here because the `.write` alone reads more open than it is, and a
+  reader who spots the `.validate` should not conclude the landmine is wrong.) The guard checks `presence/code` instead
   — no client can write another account's presence, so the owner-only
   ancestor rule on `users/$uid` actually holds there. Before adding a
   `.exists()` predicate to a rule, ask who else's write can plant the thing

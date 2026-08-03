@@ -6,7 +6,7 @@ import {
   claimInviteToken, writeUserInvite, readUserInvites,
   setInviteRevoked, setInviteLabel, releaseInviteToken,
   readInviteIndex, readUserInvite, incrementInviteRedemptions, getCreatorCode,
-  registerAsFollower, setFollowingEntry, clearRevocation,
+  registerAsFollower, setFollowingEntryClearingRevocation,
   writeGroupInvite, readGroupInvites, readGroupInvite, setGroupInviteRevoked,
   readGroupName, readMember, callResolveInvitePreview,
 } from './db.js';
@@ -210,31 +210,27 @@ export async function redeemPersonalInvite(token: string, redeemerUid: string, r
   // that never went through a follow-request approval to teach them the name.
   // G10: the refusable write goes FIRST. The creator's presence/code was read
   // at :201, but they can be purged between that read and these writes; in
-  // that window the G6 rules guard refuses setFollowingEntry, and running it
+  // that window the G6 rules guard refuses the following write, and running it
   // first means registerAsFollower never writes users/{creator}/followers/{me}
   // (plus its followerNames sibling) for an account that is gone. The refusal
   // propagates as a throw rather than becoming reason: 'creator-missing' —
   // "that invite is dead" and "couldn't check" are different answers (W1 J#1).
   //
-  // The revocation clear runs ahead of BOTH writes (final-review finding 1).
-  // registerAsFollower documents clear-before-establish as load-bearing against
-  // the redeemer's own revocation watcher (js/following.ts:323-333), which drops
-  // from the local following list any uid still present in revocations/{me} —
-  // and that key survives every revoke, since the watcher never deletes it. With
-  // setFollowingEntry hoisted ahead of registerAsFollower, leaving the clear
-  // inside registerAsFollower would put the following write into that window and
-  // let the watcher silently undo a follow the creator is about to get a
-  // follower row for. Clearing first is free of G10 risk because the key is in
-  // the redeemer's OWN mailbox: it leaves nothing in the creator's subtree even
-  // when the write below is refused.
-  //
-  // What that costs is filed as M11: when the write below IS refused, the key is
-  // already gone, so the watcher no longer prunes a stale following/{creator}
-  // entry off it. That residue sits in the redeemer's own list and self-corrects
-  // on their next follow or unfollow of this uid — unlike the cross-user row the
-  // ordering exists to prevent, which nothing ever sweeps.
-  await clearRevocation(redeemerUid, creatorUid);
-  await setFollowingEntry(redeemerUid, creatorUid, creatorCode, followLabel);
+  // M11: the revocation clear is part of that same write, not a step before it.
+  // Two constraints pull in opposite directions, and no sequence satisfies both:
+  //   * the clear must not be observable AFTER the following write, or the
+  //     redeemer's own revocation watcher (js/following.ts:323-333) sees the
+  //     fresh entry while revocations/{me}/{creator} still exists and drops it —
+  //     the invariant registerAsFollower's comment documents, and the one G10's
+  //     reorder broke;
+  //   * the clear must not SURVIVE a refused following write, or a redemption
+  //     the guard refuses has dropped the key that same watcher uses to prune a
+  //     stale server-side following/{creator} entry once the local list resyncs
+  //     from it. That was M11, the cost of hoisting the clear.
+  // setFollowingEntryClearingRevocation issues both paths in ONE multi-path
+  // update, so RTDB applies them together or not at all: the ordering holds by
+  // construction and a refusal leaves the key exactly where it was.
+  await setFollowingEntryClearingRevocation(redeemerUid, creatorUid, creatorCode, followLabel);
   await registerAsFollower(creatorUid, redeemerUid, redeemerCode, redeemerName);
   await incrementInviteRedemptions(creatorUid, token);
 

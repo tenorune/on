@@ -18,6 +18,7 @@ const {
   writeFollowGrant, watchFollowGrants, deleteFollowGrant,
   writeKnock, getKnocks, watchKnocksAdded, clearKnock,
   removeFollower, registerAsFollower, watchRevocations, watchFollowerNames,
+  setFollowingEntry, setFollowingEntryClearingRevocation,
 } = require('../js/db');
 
 jest.mock('firebase/database', () => ({
@@ -797,6 +798,76 @@ describe('watchFollowerNames', () => {
     expect(seen[0]).toEqual({ f1: 'Bea', f2: 'Cy' });
     cb({ val: () => null });
     expect(seen[1]).toEqual({});
+  });
+});
+
+// M10: the G6 rules guard (.validate on userPrefs/$uid/following/$followee)
+// is only worth anything if it sits on the path the client actually writes.
+// tests/rules/g6-following-referent.test.js types that path by HAND, so a
+// refactor of the template below would leave the guard validating a path
+// nothing writes — rules suite still green, nobody told. This is the jest half
+// that ties the two together: if it goes red, the rules suite's hand-typed
+// path is stale and must move with it.
+describe('setFollowingEntry — the path the G6 rules guard validates', () => {
+  test('writes userPrefs/{me}/following/{followee}, the exact node the guard covers', async () => {
+    set.mockResolvedValue();
+    ref.mockClear();
+    await setFollowingEntry('meUid', 'followeeUid', 'ABC123', 'Bea');
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'userPrefs/meUid/following/followeeUid');
+  });
+
+  test('writes { code, label } — the shape the guard\'s $field/$sub rules bound', async () => {
+    set.mockResolvedValue();
+    await setFollowingEntry('meUid', 'followeeUid', 'ABC123', 'Bea');
+    expect(set).toHaveBeenCalledWith(expect.anything(), { code: 'ABC123', label: 'Bea' });
+  });
+
+  test('a null label becomes an empty string, never a missing key', async () => {
+    // The guard validates the written data; an undefined label would drop the
+    // key and change the node's shape under the same .validate.
+    set.mockResolvedValue();
+    await setFollowingEntry('meUid', 'followeeUid', 'ABC123', null);
+    expect(set).toHaveBeenCalledWith(expect.anything(), { code: 'ABC123', label: '' });
+  });
+});
+
+// M11: the redemption path used to clear revocations/{me}/{creator} and then
+// write the following entry as two sequential awaits. The G6 rules guard can
+// refuse the second, and by then the first had already landed — dropping the
+// key the redeemer's revocation watcher uses to prune a stale server-side
+// following/{creator} entry. Folding both into ONE multi-path update makes the
+// refusal undo the clear too, because RTDB rejects the whole update.
+describe('setFollowingEntryClearingRevocation — M11: one atomic write', () => {
+  test('clears the revocation and writes the following entry in a SINGLE update', async () => {
+    update.mockResolvedValue();
+    update.mockClear();
+    await setFollowingEntryClearingRevocation('meUid', 'followeeUid', 'ABC123', 'Bea');
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith(expect.anything(), {
+      'revocations/meUid/followeeUid': null,
+      'userPrefs/meUid/following/followeeUid': { code: 'ABC123', label: 'Bea' },
+    });
+  });
+
+  test('a refused update leaves the revocation clear undone — no separate remove/set', async () => {
+    // The whole point of M11. If the two were still separate writes, the clear
+    // would survive the refusal and the watcher would lose its prune signal.
+    update.mockRejectedValueOnce(new Error('PERMISSION_DENIED'));
+    remove.mockClear();
+    set.mockClear();
+    await expect(setFollowingEntryClearingRevocation('meUid', 'followeeUid', 'ABC123', 'Bea'))
+      .rejects.toThrow('PERMISSION_DENIED');
+    expect(remove).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  test('a null label becomes an empty string, matching setFollowingEntry', async () => {
+    update.mockResolvedValue();
+    update.mockClear();
+    await setFollowingEntryClearingRevocation('meUid', 'followeeUid', 'ABC123', null);
+    expect(update).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      'userPrefs/meUid/following/followeeUid': { code: 'ABC123', label: '' },
+    }));
   });
 });
 
