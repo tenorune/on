@@ -566,9 +566,17 @@ also caught `tests/rules/ownership.test.js` writing a `following` entry for a
 uid it never seeded — the new guard's first catch) + `8620702` (the store
 helpers) + `8a0ff62` (the client gate). Verified against
 `tests/rules/g6-following-referent.test.js` (7 cases) on the **rules emulator
-only** — no session here has ever held a service-account credential, and
-`database.rules.json` is not deployed by anything in a session, so this closes
-the emulator-verified gap, not a live-verified one.
+only** — no session here has ever held a service-account credential, so this
+closes the emulator-verified gap, not a live-verified one.
+
+**Deployed is not verified.** No session deploys anything, but CI does:
+`.github/workflows/deploy-dev.yml` runs
+`firebase deploy --only hosting,database,functions` on every push to `dev`,
+ungated. The guard therefore went **live on the dev project** with the
+`8ad9ef0` merge (run 2026-08-03T13:17:49Z, success) and is **absent on prod**
+until `dev` → `main`, which is gated by `deploy-prod.yml`'s
+`environment: production` reviewer. So: dev has an active guard nobody has
+exercised; prod has none.
 
 **What remains open.** The rest of §4.1's peer-writable family table in the
 design spec — `canvases/{T}_{peer}`, `groups/{gid}/members/{T}`,

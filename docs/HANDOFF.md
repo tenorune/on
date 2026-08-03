@@ -36,9 +36,12 @@ forgeable, see the landmines below), plus a client-side gate in
 server list. Full reasoning:
 `docs/superpowers/specs/2026-08-03-g6-peer-republish-design.md`;
 `docs/operator-panel-followups.md`'s G6 entry carries the same correction.
-**Verified against the rules emulator only** — nothing here has run against a
-live project, and `database.rules.json` now carries this as a fourth
-undeployed behaviour change (see the branch-status note below).
+**Verified against the rules emulator only** — nothing here was *exercised*
+against a live project. It is nonetheless **deployed to the dev project**: the
+merge to `dev` shipped `database.rules.json` via
+`.github/workflows/deploy-dev.yml`. It is the fourth prod-undeployed behaviour
+change (see the branch-status note below). Deployed is not verified, and
+undeployed-to-prod is not undeployed — keep the two apart.
 
 **G3 IS PARKED AS [#302](https://github.com/tenorune/on/issues/302)
 (2026-08-03), so NO BUILD WORK IS OWED ON THIS REPO AT ALL.** It is spec-first
@@ -118,9 +121,11 @@ theoretical, it fired on 2026-08-02 and reappeared as a conflict at
 `userPrefs/{uid}` on the way back out. And closing the target's clients is not
 sufficient (**G6**): a PEER's client republishes cross-user residue permanently.
 **G6 now has a real fix** (`13cb18c`+`8a0ff62` — a rules `.validate` plus a
-client gate), but it is not deployed to any project, so this precondition
-still stands against a live target until `database.rules.json` ships there:
-the tool only detects the republish and prints a `PEER REPUBLISH` block.
+client gate). The rules half is **live on the dev project** — the merge to
+`dev` deployed it via CI — and **absent on prod** until `dev` → `main`. So this
+precondition still stands in full against a PROD target; against dev the guard
+is active but has never been exercised, which is untested, not absent. Either
+way the tool only detects the republish and prints a `PEER REPUBLISH` block.
 The merge leg sidestepped both by seeding **synthetic** accounts no client ever
 held — the reasoning is in `ops/merge-fixture.js`'s header and it is the pattern
 to reuse.
@@ -251,34 +256,49 @@ redundant, and `claude/knockknock-operator-followups-1kyjy6` and
 one.** `ops/**` is excluded from the functions archive, so G8
 (`ops/server.js`, `ops/panel.html`) and the merge-leg CLIs ride no deploy at
 all, and the docs commits ride nothing.
-⚠️ **`13cb18c`+`e2dde4e` are an undeployed RULES change** — the fourth
-undeployed behaviour change on `dev`, and the only one on this surface.
+⚠️ **"UNDEPLOYED" BELOW MEANS UNDEPLOYED TO *PROD*. Everything here is already
+LIVE ON THE DEV PROJECT.** Pushing to `dev` triggers
+`.github/workflows/deploy-dev.yml`, which runs
+`firebase deploy --only hosting,database,functions` against the dev project
+with **no approval gate**. This file used to read as though none of it had
+shipped anywhere; that was wrong, and the deploy landmine below records why the
+wording misled.
+⚠️ **`13cb18c`+`e2dde4e` are a RULES change — live on dev, undeployed to
+prod.** The fourth prod-undeployed behaviour change, and the only one on this
+surface. It went live on dev with the `8ad9ef0` merge (deploy-dev run
+2026-08-03T13:17:49Z, success).
 ⚠️ **`8620702`, `8a0ff62`, `94c9aa6`, `b595dcb`, and now `js/db/social.ts` and
-`js/invites.ts` (G9 and G10, `728180d`+`4780b1f`) are undeployed CLIENT
-behaviour**, riding the next **hosting** deploy: the push-up gate, its
+`js/invites.ts` (G9 and G10, `728180d`+`4780b1f`) are CLIENT behaviour — live
+on dev, undeployed to prod**, riding the next prod **hosting** deploy (G9/G10
+went live on dev with the `d47fbbb` merge, run 2026-08-03T19:18:48Z): the
+push-up gate, its
 localStorage key and that key's account-scoped classification, I1's
 undeliverable-grant handling, `rotateCode`'s dead-followee filter, and
 invite redemption's write reorder. Do not read "only `js/`" as "no deploy" —
 `js/` is exactly what Hosting serves.
 ⚠️ **G9 and G10 do NOT touch `database.rules.json`.** The rules surface is
-**unchanged** by this branch: the undeployed rules commits (`13cb18c`+
-`e2dde4e`) are exactly as they were, and remain the only undeployed RULES
-change. A reader who knows G6 will reasonably assume a G6-adjacent fix moved
-the rules again — it did not; both G9 and G10 are client-only fixes.
+**unchanged** by this branch: the rules commits (`13cb18c`+
+`e2dde4e`) are exactly as they were, and remain the only RULES
+change here. A reader who knows G6 will reasonably assume a G6-adjacent fix
+moved the rules again — it did not; both G9 and G10 are client-only fixes.
 The two surfaces are independent of each other and of the functions queue: the
 rules guard is the half that actually closes G6 and it binds every client the
 moment it ships, including ones nobody can update; the client half only ever
 binds clients that have updated.
-Rules deploy independently of hosting and functions
+On PROD, rules can be deployed independently of hosting and functions
 (`firebase deploy --only database`) and bind every client immediately,
-including ones nobody can update. Nothing deploys from sessions;
-`docs/DEPLOY-PROD.md` is the runbook.
+including ones nobody can update. **Nothing deploys from a session — but CI
+deploys on push**: `dev` ships all three surfaces to the dev project ungated,
+and `main` ships them to prod behind `deploy-prod.yml`'s
+`environment: production` required reviewer. `docs/DEPLOY-PROD.md` is the prod
+runbook.
 
 ⚠️ **`dev` carries THREE production behaviour changes** on the `performLink` →
-`expungeDerivedAccount` path, all riding the next functions deploy: `pushTokens`
-cleanup (`0f31553`), the owned-group index releases (`1f639ee`), and the
-`inviteIndex` shape fix (`2fcc51f`). `docs/DEPLOY-PROD.md` is the runbook;
-nothing deploys from sessions. **The merge-leg work adds nothing to that list** —
+`expungeDerivedAccount` path, all riding the next **prod** functions deploy:
+`pushTokens` cleanup (`0f31553`), the owned-group index releases (`1f639ee`),
+and the `inviteIndex` shape fix (`2fcc51f`). All three are **already live on
+the dev project** — CI deploys functions on every push to `dev`.
+`docs/DEPLOY-PROD.md` is the prod runbook; no session deploys, but CI does. **The merge-leg work adds nothing to that list** —
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
@@ -349,7 +369,8 @@ is still the maintainer's.
 workflow (required-reviewer). If a prod deploy is still owed, the ordering is
 the LOAD-BEARING `pushTokens` F6c sequence + a functions deploy (the Telegram
 beacon batch touches `functions/`) — full runbook in `docs/DEPLOY-PROD.md`.
-Nothing deploys from sessions.
+No session deploys anything; CI does, and the `dev` half is ungated (see the
+deploy landmine).
 
 `0f31553` adds to that functions deploy and touches the same F6c node, so read
 the two together. It needs no migration ordering of its own: expunge nulls
@@ -380,11 +401,12 @@ are unchanged, and that is the evidence this stayed a client-only change** — t
 rules surface never moved.
 
 **What that bar does NOT cover, and it is the whole point of this piece of
-work:** nothing here ran against a live Firebase project — no session container
-has ever held a service-account credential — so G6's fix is verified against the
-**rules emulator and jest only**. `database.rules.json` is not deployed by
-anything in a session, which means a live project stays exactly as exposed to G6
-as it was before this branch until the rules ship there.
+work:** nothing here was *exercised* against a live Firebase project — no
+session container has ever held a service-account credential — so G6's fix is
+verified against the **rules emulator and jest only**. It is nonetheless
+**deployed to the dev project**: CI ships `database.rules.json` on every push to
+`dev`. "Not verified live" and "not live" are different claims — on dev the
+guard is active and untested; on prod it is absent until `dev` → `main`.
 
 This bar was not green on the first pass at this tip minus one commit
 (`8a0ff62`): `tests/cacheOwner.test.js`'s drift guard ("every statusapp_ key in
@@ -625,10 +647,11 @@ Read in this order; stop when you have what you need.
    (**G1**, **G3**, **G4**, **M1–M9**), each with `file:line` and why it
    was left, plus closed-but-instructive **S1**, **G2**, **G5**, **G6**, **G7**
    and **G8**. Read **G6** before purging anything real: the rules guard that
-   closes it is verified against the emulator only and is not deployed to any
-   project, so a live purge or merge is exactly as exposed as before until
-   `database.rules.json` ships. Cite the IDs rather than re-describing the
-   items.
+   closes it is verified against the emulator only, is **live on dev** (CI
+   deploys rules on every push to `dev`) and **absent on prod** until
+   `dev` → `main` — so a prod purge or merge is exactly as exposed as before,
+   and a dev one is covered by a guard nobody has exercised. Cite the IDs
+   rather than re-describing the items.
 3. `docs/operator-panel-smoke-test.md` — the ten-step script and its filled-in
    results table (**all ten pass**), "What a restore cannot recover", and the
    two merge variants the run did not cover.
@@ -714,6 +737,27 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 ## Landmines (read before touching code)
 
+- **"Nothing deploys from sessions" is TRUE and it is not the whole sentence —
+  CI deploys on push, and `dev` is ungated.**
+  `.github/workflows/deploy-dev.yml` fires on `push: branches: [dev]` and runs
+  `firebase deploy --only hosting,database,functions` against the dev project.
+  There is no `environment:` key on its deploy job, so nothing approves it.
+  `deploy-prod.yml` is the same deploy on `main`, and *that* one carries
+  `environment: production` — the required-reviewer gate everyone remembers.
+  So merging a feature branch to `dev` **ships rules, hosting and functions to
+  the dev project within minutes**, with no operator action at all.
+  **This file said the opposite for a whole branch.** It described
+  `13cb18c`+`e2dde4e` as "an undeployed RULES change" and told readers "a live
+  project stays exactly as exposed to G6 as it was before this branch" — both
+  written from "nothing deploys from sessions", which is true of *sessions* and
+  silent about *CI*. The G6 rules guard had in fact been live on dev since the
+  `8ad9ef0` merge (deploy-dev run 2026-08-03T13:17:49Z, success). The error was
+  caught by the operator reading a summary, not by any check in the repo.
+  **The rule: say which PROJECT.** "Undeployed" alone is not a state — write
+  "live on dev, undeployed to prod". And keep **deployed** apart from
+  **verified**: CI shipping a rules change proves the deploy ran, never that
+  anyone exercised the guard. Before claiming an exposure still stands, check
+  `git log origin/dev` for the commit and the workflow run for the push.
 - **An invariant documented INSIDE a function can be a property of its CALL
   SITE, and reordering callers breaks it with that function untouched.**
   `registerAsFollower` (`js/db/social.ts`) clears `revocations/{me}/{target}`
