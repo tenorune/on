@@ -15,16 +15,18 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Thirteen open, nine closed. **G8 is the newest closed item** — found on
+Eleven open, eleven closed. **M10 and M11 are the newest closed items** (2026-08-03) — both G6-descended, both closed after the G3 park; see their entries below. **G8 was the newest closed item before them** — found on
 2026-08-03 by running the residue recipe, and closed the same day. **G9 and
 G10 are the next-newest closed items** — filed 2026-08-03 by the review that
 closed out G6's fix wave, from reading rather than from running the smoke
 test, and closed the same day by a client-side fix verified against jest
-only; see their entries below. **M11 is the newest open item** — a consequence
-of G10's own fix, filed 2026-08-03 by the whole-branch review's scoped
-re-review rather than by a reviewer reading the original code. **M10, filed
-alongside G9 and G10, is still open** — see both entries in "Deferred minors
-judged fine to leave". **S1 is closed** — the smoke test ran to completion
+only; see their entries below. **M11 was filed and closed on the same day** —
+a consequence of G10's own fix, found by the whole-branch review's scoped
+re-review rather than by a reviewer reading the original code, then closed
+once the G3 park freed the session to work it. **M10 closed alongside it.**
+Both were G6-descended, and with them the G6 wave has nothing open except the
+two residuals recorded as OUT OF SCOPE in G6's own entry.
+**S1 is closed** — the smoke test ran to completion
 across 2026-08-02 and 2026-08-03, all ten steps — so nothing here blocks pointing
 the panel at production data any more. **M9 is closed** too, and it was never
 really a minor: it was the one entry that could drive a bad destructive write,
@@ -81,8 +83,8 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 | **M7** | Production banner does not name the project inline | `ops/server.js:690-692` | Minor |
 | **M8** | `adoptGroupNames` is unreachable from the browser | `ops/panel.html:207,228` | Minor |
 | **M9** | ~~`restore-preimage.js` has no guard on the dump's `op`~~ | `ops/restore-preimage.js` | **CLOSED** — the one entry here that could drive a bad destructive write |
-| **M10** | The G6 rules test types the guarded path by hand, untied to what `setFollowingEntry` writes | `tests/rules/g6-following-referent.test.js:22` | Minor |
-| **M11** | G10's fix clears the revocation before a write that may be refused, so a failed redemption drops the watcher's cleanup of a stale own-side follow | `js/invites.ts:230` | Minor |
+| **M10** | ~~The G6 rules test types the guarded path by hand, untied to what `setFollowingEntry` writes~~ | `tests/db.test.js` | **CLOSED** — jest now pins the path the client builds; see below |
+| **M11** | ~~G10's fix clears the revocation before a write that may be refused, so a failed redemption drops the watcher's cleanup of a stale own-side follow~~ | `js/db/social.ts`, `js/invites.ts` | **CLOSED** — the clear and the write are now one atomic update; see below |
 
 **Standing constraints, not work items** — these are decisions, and nothing is
 owed against them: the panel is single-operator by construction (approvals are
@@ -594,17 +596,34 @@ until `dev` → `main`, which is gated by `deploy-prod.yml`'s
 `environment: production` reviewer. So: dev has an active guard nobody has
 exercised; prod has none.
 
-**What remains open.** The rest of §4.1's peer-writable family table in the
-design spec — `canvases/{T}_{peer}`, `groups/{gid}/members/{T}`,
+**What remains — OUT OF SCOPE, operator ruling 2026-08-03.** Both residuals
+below are recorded as decisions, not as work: they are **not** items, they get
+no IDs, and nothing is owed against them. They are written down because they sit
+inside an entry marked CLOSED, where no open-item count will ever surface them —
+which is exactly how a reader concludes "G6 is closed" and stops looking. With
+M10 and M11 closed, these two are all that is left of the G6 wave, and neither
+is being done.
+
+**Out of scope (1) — the rest of the peer-writable family table.** §4.1 of the
+design spec lists `canvases/{T}_{peer}`, `groups/{gid}/members/{T}`,
 `pendingInvitesByGroup/{gid}/{T}`, and the
 `knocks`/`calls`/`followRequests`/`followGrants`/`pendingInvites`/`revocations`
-mailboxes — is deliberately untouched: unlike `following`'s automatic
-republish, each of those needs a human to act on a ghost row before residue
-can form, so none is promoted here. And dangling entries already sitting in
-production are untouched too — the guard refuses new writes, it does not
-sweep old ones. `integrity.js`'s `follow-dangling` still enumerates them, and
-`ops/restore-preimage.js`'s `PEER REPUBLISH` block (`0f31553`+) still
-attributes one on sight; sweeping them is an operator call, not made here.
+mailboxes. None gets a referential guard. The reason is a real difference in
+kind, not a deferral of convenience: `following`'s republish is **automatic** —
+`syncFollowingFromServer` fires it off a watcher tick with nobody present —
+whereas every family above needs a **human to act on a ghost row** before a
+write is issued. That bounds the exposure to what a person can do by hand,
+which is the line drawn here.
+
+**Out of scope (2) — dangling entries already in production.** The guard
+refuses **new** writes; it does not sweep what is already there. Every
+`userPrefs/{M}/following/{T}` written before it deployed is still sitting in
+the dev project and in prod, pointing at uids that no longer exist. Detection
+exists and is not being extended: `integrity.js`'s `follow-dangling` enumerates
+them, and `ops/restore-preimage.js`'s `PEER REPUBLISH` block (`0f31553`+)
+attributes one on sight. **Sweeping them is an operator call and has not been
+made** — it is a destructive cross-user write against live data, which is not
+something a session decides.
 
 ### G8 — purge refused any account with no Auth record — CLOSED
 
@@ -863,8 +882,8 @@ rather than letting the section heading stand as a verdict.
 | **M7** | `ops/server.js:690-692` | The production banner does not name the project inline. | The startup line immediately above it does (`project=<id>`). Duplication, not absence. |
 | **M8** | `ops/panel.html:207,228` | `adoptGroupNames` is accepted by `server.js:623` and implemented by `merge.js:229-231`, but **`panel.html` never sends it** — both merge buttons post only `{loserUid, survivorUid}` (+`telegramRepoint`). So a `group-member-collision` previewed from the browser always resolves *"survivor's record kept"*, and the loser's per-group `displayName` can never be adopted without POSTing the route by hand. | It fails toward the conservative resolution: the survivor's own record is what survives, which is the safe half of the choice, and the preview states that resolution honestly rather than promising an adoption that will not happen. A capability gap, not a correctness one. Worth knowing when reading the merge leg's results — it is why the per-group name **carry** has to come from a group only the loser is in (`merge.js:220-221`), which is what `ops/merge-fixture.js` seeds. |
 | **M9** — **CLOSED** | `ops/restore-preimage.js` (`opGuard`) | The dump was read for `preImage` and its `op` printed but never checked. Every judgement in that module rests on **"a purge NULLED every path in its write-set"** (`:204`) — true for a purge, false for a merge, whose write-set is mostly non-null *carries* onto the survivor. So the verdicts, the `RESIDUE SWEEP` and the `PEER REPUBLISH` block were all built on an assumption that does not hold for a merge dump, and the `restore` verdict on the paths the merge *did* null would **partially resurrect the merged-away account**. A restore's own dump has the mirror problem: it holds the PRE-restore state, so replaying it undoes the restore. | **Closed** by `opGuard`. It is an **allowlist** — an absent, empty or unrecognised `op` is refused rather than assumed to be a purge, because the assumption *is* the risk. It fires on a **dry run** too: the dry run writes nothing, but its verdicts and its sweep are the misleading part, and `jq` reads a dump of any shape without pretending to interpret it. The override is `--i-know-this-is-not-a-purge`, named so it cannot be typed by reflex, and it prints what it is overriding. Deferring stopped being tenable on 2026-08-03, when the merge leg put a real merge dump in `.ops-audit/` beside the purge dumps, one tab-complete from the familiar command. Verified by planting two violations (an always-ok guard, and the allowlist turned into a denylist) **and** by running the CLI against fabricated merge / purge / no-`op` dumps — tests on the pure function prove nothing about the wiring, which is the mistake the `ops/**` import guard made twice. |
-| **M10** | `tests/rules/g6-following-referent.test.js:22` | The G6 rules suite's guarded path (`userPrefs/M/following/T`) is typed by hand in the test, with nothing tying it to the path `js/db/social.ts:287`'s `setFollowingEntry` actually writes. The design spec's §7 asked for that specific case to be "exercised through `setFollowingEntry` itself" — the client half honoured the equivalent requirement (through the `watchFollowing` callback), the rules half did not. | Today the two agree, verified by inspection, and the rules suite is green. But a refactor of that one line in `js/db/social.ts` would leave the guard sitting on a path nothing writes, with the suite still green and nobody told. Filed (**G6-review finding M6** — that review's own numbering, not this file's stable **M6**) rather than fixed on this branch: closing it means adding a jest assertion on the ref path `setFollowingEntry` itself builds, which is a client-side (jest) addition to a rules-emulator suite and deserves its own small review rather than riding in on this wave's rules/client split. |
-| **M11** | `js/invites.ts:230` | G10's fix hoists `clearRevocation(redeemerUid, creatorUid)` ahead of `setFollowingEntry`, which is the write the G6 rules guard can refuse. When that write IS refused — the creator was purged between the `presence/code` read at `:201` and the write landing — the revocation key has already been cleared, and the redeemer's revocation watcher (`js/following.ts`) uses exactly that key to prune a stale `following/{creator}` entry from the local list. So a *failed* redemption can leave a stale own-side follow that the watcher would otherwise have cleaned up. Note the old ordering did not have this property either by design: it avoided the case by never clearing the key until `registerAsFollower` ran, which is the ordering G10 had to break. | It is in the redeemer's **own** subtree, not a peer's — visible in their own list, and self-correcting on the next successful follow or unfollow of that uid. It is strictly better than what it replaced: the alternative orderings either re-open G10 (cross-user residue under an account that no longer exists, which nothing sweeps) or reintroduce the silent auto-unfollow the whole-branch review caught. Left because the cost is a stale row in the user's own cache-backed list against a permanent cross-user write, and that trade is not close. Closing it means having the refusal path restore the key, or having the watcher prune on a predicate other than the revocation key — either is its own change with its own review. Filed 2026-08-03 by the scoped re-review of the final fix wave. |
+| **M10** — **CLOSED** | `tests/db.test.js`, `tests/rules/g6-following-referent.test.js` | The G6 rules suite's guarded path (`userPrefs/M/following/T`) was typed by hand in the test, with nothing tying it to the path `setFollowingEntry` actually writes. The design spec's §7 asked for that case to be "exercised through `setFollowingEntry` itself" — the client half honoured the equivalent requirement (through the `watchFollowing` callback), the rules half did not. A refactor of that one line in `js/db/social.ts` would have left the guard sitting on a path nothing writes, with the rules suite still green and nobody told. Filed as **G6-review finding M6** (that review's own numbering, not this file's stable **M6**). | **Closed** by three jest cases in `tests/db.test.js` pinning what `setFollowingEntry` builds: the exact path `userPrefs/{me}/following/{followee}`, the `{ code, label }` value, and `label ?? ''` for a null label. The rules suite cannot import `js/db/social.ts` — it runs against the emulator, not jsdom — so the tie is a test on the *client* side plus a header comment in the rules file naming its counterpart in both directions. `setFollowingEntry` was mocked in seven suites and asserted in none, which is why nothing caught this. Each case verified by planting a violation that turns exactly that one red (path drift, dropped label key, mangled label value); `js/db/social.ts` byte-identical after the reverts. |
+| **M11** — **CLOSED** | `js/db/social.ts`, `js/invites.ts` | G10's fix hoisted `clearRevocation(redeemerUid, creatorUid)` ahead of `setFollowingEntry`, the write the G6 rules guard can refuse. When that write IS refused — the creator purged between the `presence/code` read at `:201` and the write landing — the key was already gone, and the redeemer's revocation watcher uses exactly that key to prune a stale `following/{creator}` entry. So a *failed* redemption could leave a stale own-side follow. ⚠️ **Correction to the original entry:** it said the watcher prunes from the **local** list, which made the case look unreachable — `attemptRedeemFromUrl` bails with `already-following` when the local list holds the creator, so the clear is never reached. The reachable shape is a **server-side** `userPrefs/{redeemer}/following/{creator}` the watcher's own `removeFollowingEntry(...).catch(() => {})` failed to delete: local pruned, server stale, key still present and re-arming the prune each time the local list resyncs from the server. Clearing the key ends that loop. | **Closed** by `setFollowingEntryClearingRevocation` (`js/db/social.ts`), which issues the revocation clear and the following write as **one multi-path `update()`**. Neither of the two fixes this entry originally proposed was taken: restoring the key on the refusal path needs an extra `get` per redemption to avoid fabricating a revocation that never existed, and re-predicating the watcher touches every revocation rather than this one. Atomicity subsumes both constraints — the watcher cannot observe the entry while the key is present (G10's invariant, now by construction rather than by sequencing), and a refusal leaves the key exactly where it was (M11). Deliberately **not** folded into `setFollowingEntry` itself: a label rename and the presence-driven republish both call that, and clearing a revocation there would resurrect a follow the followee ended. ⚠️ This **replaced** a regression test — "the revocation clear resolves before the following write" (`4780b1f`/`da8a3a2`) — because the redemption path no longer calls `clearRevocation` at all; the new property is strictly stronger, and the substitution is recorded in the test body. RTDB's all-or-nothing behaviour is the load-bearing assumption and jest cannot see it, so it is pinned on the **rules emulator** (2 cases): a refused following path leaves `revocations/M/T` intact, and the same update lands whole once the followee exists. |
 
 **One review-method note worth keeping:** grepping for `as any` alone is
 insufficient — `/** @type {any} */` is the same escape hatch in JSDoc and slipped

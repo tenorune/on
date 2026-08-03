@@ -60,14 +60,14 @@ app. **If and when #302 is picked up, start with a spec, not code** — the
 measurements are already in `docs/operator-panel-followups.md`, so don't
 re-derive them.
 
-Everything else in that file (**G1**, **G4**, **M1–M8**, **M10**, **M11**) is a
+Everything else in that file (**G1**, **G4**, **M1–M8**) is a
 deliberate deferral, each with its `file:line` and the reason. The test to
 re-apply before promoting one: does it affect the correctness of a destructive
-write? **M11 is the one to read first** — it is the only open item created *by*
-a fix on this branch rather than found in code that predated it. G10's fix
-hoists `clearRevocation` ahead of the refusable `setFollowingEntry`, so a
-redemption that is **refused** has already dropped the key the redeemer's
-revocation watcher uses to prune a stale own-side `following/{creator}` entry.
+write? **M10 and M11 are now CLOSED** — both were G6-descended, and closing
+them leaves the G6 wave with nothing open but two residuals the operator ruled
+**out of scope** (the rest of §4.1's peer-writable family table, and sweeping
+dangling entries already in production). Those two are recorded as decisions
+inside G6's own entry, where no open-item count will surface them.
 The residue is in the redeemer's own list, is visible to them, and self-corrects
 on their next follow or unfollow of that uid — which is why it was filed rather
 than fixed, but it is undocumented behaviour nowhere except its three recorded
@@ -162,19 +162,18 @@ confirmed working on a custom-token uid, which was the original deferral's
 question. The rules gap underneath it is filed as **G3**. Full reasoning and the
 measurements live in `docs/operator-panel-followups.md`.
 
-**Thirteen open, nine closed** — all ranked with stable IDs in the "at a
+**Eleven open, eleven closed** — all ranked with stable IDs in the "at a
 glance" table at the top of `docs/operator-panel-followups.md`. **S1 and M9 are
 now CLOSED** (the smoke test ran to completion; M9's `op` guard shipped straight
 after, because completing the leg is what made it urgent — a real merge dump now
 sits in `.ops-audit/` beside the purge dumps). **G9 and G10 are now CLOSED**
-too (`728180d`, `4780b1f`) — see "What's next" above. Open: G1, **G3** and
-**G4** (known gaps — G3 is a whole-app rules gap, not a panel item; G4 came
-out of running the smoke test); **M10**, filed 2026-08-03 by the review that
-closed out G6's fix wave, from READING rather than from running; **M11**, filed
-the same day by the scoped re-review of this branch's final fix wave — the only
-open item created *by* a fix here rather than found in code that predated it
-(G10's revocation-clear hoist drops the watcher's cleanup of a stale own-side
-follow when the redemption is refused); and M1–M8
+too (`728180d`, `4780b1f`) — see "What's next" above. **M10 and M11 are now
+CLOSED too**: M10 by three jest cases pinning the path `setFollowingEntry`
+builds against the hand-typed path the G6 rules suite guards, M11 by folding
+the revocation clear and the refusable following write into one atomic
+multi-path update (`setFollowingEntryClearingRevocation`). Open: G1, **G3** and
+**G4** (known gaps — G3 is a whole-app rules gap, not a panel item, and is now
+parked as #302; G4 came out of running the smoke test); and M1–M8
 (deferred minors, each with its `file:line` and why it was left; none of them
 affects the correctness of a destructive write, which is the test to
 re-apply before promoting one).
@@ -306,9 +305,9 @@ the dev project** — CI deploys functions on every push to `dev`.
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, G4, M1–M8, M10, M11) is either an operator action
-or explicitly deferred — none of it is unfinished build work. **G6, G9 and
-G10 are all CLOSED.**
+What remains (G1, G3, G4, M1–M8) is either an operator action
+or explicitly deferred — none of it is unfinished build work. **G6, G9, G10,
+M10 and M11 are all CLOSED**, and G3 is parked as #302.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -386,6 +385,42 @@ migration they are on. Deploying it before or after the migration completes is
 equally safe.
 
 ## Verification state
+
+**M10 + M11 closure, green bar OBSERVED (2026-08-03)** on
+`claude/g3-revocation-timeout-eabaf4`, on a FRESH container after the
+documented `npm ci` — baseline `7e9a36b` (web 2139/2139 in 88 suites · rules
+116/116 in 12 · functions 941/941 in 32):
+
+- web jest **2146/2146** (88 suites, unchanged) — **+7**: 3 in `tests/db.test.js`
+  for M10 (path, value shape, null label), 3 more there for M11's atomic write,
+  and net +1 in `tests/invites.test.js` (one ordering test replaced by two)
+- rules (emulator) **118/118** (12 suites, unchanged) — **+2**, both in
+  `tests/rules/g6-following-referent.test.js`: a refused following path leaves
+  `revocations/M/T` intact, and the same update lands whole once the followee
+  exists
+- functions **941/941** (32 suites) — **unchanged**
+- `typecheck` + `typecheck:scripts` — clean; **zero** new suppressions, all
+  seven forms swept over the diff
+- `node scripts/prod.js` — builds
+
+**`database.rules.json` is UNCHANGED by this work** — the rules movement is
+test-only, so this adds **no** new deploy surface. `js/db/social.ts` and
+`js/invites.ts` did move, so both ride the same **hosting** queue as the G9/G10
+client changes: live on dev on merge, undeployed to prod.
+
+**What that bar does NOT cover.** Every case is jest or the rules emulator. No
+session container has ever held a service-account credential, so neither fix
+has run against a live Firebase project, and M11's failure mode was never
+device-observed — it was found by reading, in the re-review of G10's own fix.
+What the emulator *does* settle, and jest could not, is the assumption the M11
+fix rests on: that RTDB rejects a multi-path update whole when one path fails a
+`.validate`. That is now pinned rather than assumed.
+
+Each guard was verified by planting a violation, never by passing: M10's three
+by path drift, a dropped label key and a mangled label value; M11's by
+implementing the function as two sequential writes (all three cases red) and by
+leaving `js/invites.ts` on the old call pair (7 red across the redemption
+path). Production files are byte-identical after every revert.
 
 Green bar OBSERVED on the MERGED result at `d47fbbb` — `dev`'s tip, not the
 branch's (2026-08-03): web jest **2139/2139** (88 suites, unchanged) · rules
@@ -777,8 +812,18 @@ proxy and would abort an `&&` chain. Functions deps are required for
   hoisting it at the call site**, so the ordering is preserved by construction
   rather than by which function happens to run first. When you reorder calls,
   read the comments inside the functions being reordered and ask whether the
-  ordering they promise is theirs to keep. What that hoist itself costs is
-  **M11** — the clear now precedes a write that can be refused.
+  ordering they promise is theirs to keep.
+  **The hoist is gone, and so is what it cost (M11).** Hoisting made the clear
+  precede a write the G6 guard can refuse, so a refused redemption dropped the
+  key the redeemer's own watcher prunes on. Ordering could satisfy one
+  constraint or the other, never both — the general lesson, worth more than the
+  bug: when two constraints pull opposite ways on the ORDER of two writes, stop
+  sequencing them and make them ONE write. `setFollowingEntryClearingRevocation`
+  (`js/db/social.ts`) issues both paths in a single multi-path `update()`, so
+  RTDB applies them together or not at all: the invariant holds by construction
+  and a refusal rolls the clear back with it. The all-or-nothing behaviour is
+  the load-bearing assumption and jest cannot see it — it is pinned on the rules
+  emulator in `tests/rules/g6-following-referent.test.js`.
 - **An existence check is only as strong as who can create the node it checks
   (G6).** `database.rules.json`'s new guard on
   `userPrefs/$uid/following/$followee` needed to answer "does this account
