@@ -64,6 +64,17 @@ describe('rotateCode', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     getFollowing.mockReturnValue([]);
+    // Default: every followee still exists. Without this the G9 filter's
+    // fail-open catch would swallow an unmocked get() and the pre-existing
+    // multi-path test would pass for the wrong reason — proving the catch
+    // works, not that a live followee is carried.
+    get.mockResolvedValue({ exists: () => true });
+  });
+
+  // jest.clearAllMocks() does NOT clear mockResolvedValue implementations, so
+  // without this the default above leaks into every later describe in this file.
+  afterEach(() => {
+    get.mockReset();
   });
 
   test('happy path: reserves new code, updates user record, releases old code, returns new code', async () => {
@@ -125,6 +136,84 @@ describe('rotateCode', () => {
 
     await expect(rotateCode('user-1', 'OLD123')).rejects.toThrow('network error');
     expect(remove).not.toHaveBeenCalled();
+  });
+
+  test('G9: a followee whose presence/code is gone is left out of the fan-out', async () => {
+    getFollowing.mockReturnValue([
+      { userId: 'live-A', code: 'CODEA1', label: 'Alice' },
+      { userId: 'ghost-B', code: 'CODEB2', label: 'Bob' },
+    ]);
+    // One get() per followee, issued in getFollowing() order: .map runs its
+    // callbacks in order, each calls followeeExists synchronously, and
+    // followeeExists calls get() before its first await — so the queued
+    // ...Once values line up with the array.
+    get
+      .mockResolvedValueOnce({ exists: () => true })
+      .mockResolvedValueOnce({ exists: () => false });
+    generateCode.mockReturnValue('NEW456');
+    runTransaction.mockResolvedValue({ committed: true });
+    update.mockResolvedValue();
+    remove.mockResolvedValue();
+
+    await rotateCode('user-1', 'OLD123');
+
+    // ghost-B's mirror would be residue under a uid that no longer exists —
+    // in that account's OWN subtree, so crossRefRenderers never enumerates it
+    // and nothing ever sweeps it (G9).
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      'users/user-1/presence/code': 'NEW456',
+      'users/live-A/followers/user-1': 'NEW456',
+    });
+    // The predicate is the G6 rules guard's own: presence/code, not users/{T}.
+    expect(ref).toHaveBeenCalledWith(expect.anything(), 'users/ghost-B/presence/code');
+  });
+
+  test('G9: an inconclusive existence read keeps the followee in (fail open)', async () => {
+    getFollowing.mockReturnValue([{ userId: 'followee-A', code: 'CODEA1', label: 'Alice' }]);
+    get.mockRejectedValueOnce(new Error('network error'));
+    generateCode.mockReturnValue('NEW456');
+    runTransaction.mockResolvedValue({ committed: true });
+    update.mockResolvedValue();
+    remove.mockResolvedValue();
+
+    // Dropping a LIVE followee strands their mirror on the old code and
+    // silently breaks a real contact, with nothing to retry it. Writing one
+    // ghost row is no worse than the behaviour before this filter existed.
+    const result = await rotateCode('user-1', 'OLD123');
+
+    expect(update).toHaveBeenCalledWith('mock-ref', {
+      'users/user-1/presence/code': 'NEW456',
+      'users/followee-A/followers/user-1': 'NEW456',
+    });
+    expect(result).toBe('NEW456');
+  });
+
+  test('G9: no followees issues no existence read', async () => {
+    getFollowing.mockReturnValue([]);
+    generateCode.mockReturnValue('NEW456');
+    runTransaction.mockResolvedValue({ committed: true });
+    update.mockResolvedValue();
+    remove.mockResolvedValue();
+
+    await rotateCode('user-1', 'OLD123');
+
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  test('G9: the existence reads run before the code reservation', async () => {
+    getFollowing.mockReturnValue([{ userId: 'followee-A', code: 'CODEA1', label: 'Alice' }]);
+    generateCode.mockReturnValue('NEW456');
+    runTransaction.mockResolvedValue({ committed: true });
+    update.mockResolvedValue();
+    remove.mockResolvedValue();
+
+    await rotateCode('user-1', 'OLD123');
+
+    // Placement is load-bearing: reads between the codeIndex reservation and
+    // the publish would widen the window in which a crash orphans a reserved
+    // code.
+    expect(get.mock.invocationCallOrder[0])
+      .toBeLessThan(runTransaction.mock.invocationCallOrder[0]);
   });
 });
 

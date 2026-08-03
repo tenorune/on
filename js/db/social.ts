@@ -341,6 +341,27 @@ export async function touchLastSeen(userId: string): Promise<void> {
 // Returns the new code string on success. Throws on failure.
 // Old code is deleted LAST so it remains valid if any earlier write fails.
 export async function rotateCode(userId: string, oldCode: string): Promise<string> {
+  // Step 0 (G9): drop followees that no longer exist before building the
+  // fan-out. A cached entry for an account purged, merged or graduated since
+  // the last sync would otherwise get users/{T}/followers/{me} rewritten under
+  // a dead uid — residue in T's OWN subtree, which crossRefRenderers does not
+  // enumerate and nothing ever sweeps. Same predicate as the G6 rules guard,
+  // through the same function so the two cannot drift apart.
+  //
+  // Before the reservation on purpose: reads placed between reserving the new
+  // code and publishing it would widen the window in which a crash leaves an
+  // orphan in codeIndex.
+  //
+  // An inconclusive read keeps the entry. Dropping a LIVE followee strands
+  // their mirror on the old code and silently breaks a working contact with
+  // nothing to retry it; including a dead one writes a single row that would
+  // have been written anyway before this filter existed.
+  const checked = await Promise.all(getFollowing().map(async (entry) => ({
+    entry,
+    live: await followeeExists(entry.userId).catch(() => true),
+  })));
+  const liveFollowing = checked.filter((c) => c.live).map((c) => c.entry);
+
   // Step 1: reserve new code (collision-safe)
   let newCode: string, committed: boolean;
   do {
@@ -357,7 +378,7 @@ export async function rotateCode(userId: string, oldCode: string): Promise<strin
   // per followee (#214 R6). If it throws, the new code is orphaned in codeIndex
   // but the old code remains valid — user retries and the orphan is harmless.
   const updates: Record<string, unknown> = { [`users/${userId}/presence/code`]: newCode };
-  for (const entry of getFollowing()) {
+  for (const entry of liveFollowing) {
     updates[`users/${entry.userId}/followers/${userId}`] = newCode;
   }
   await update(ref(db), updates);
