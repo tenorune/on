@@ -11,9 +11,16 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 
 ## What's next
 
-**THERE IS A BUILD QUEUE, AND IT IS THE FIRST THING TO READ.** Every open item
-was ruled on 2026-08-03 — six to DO, five WON'T FIX, one parked. **ALL SIX ARE
-NOW DONE (G4, M12, M5, M4, M3, M8) and the queue is EMPTY.** It lived in
+**THE BUILD QUEUE IS DONE AND MERGED. NOTHING IS IN FLIGHT.** All six items
+ruled on 2026-08-03 — G4, M12, M5, M4, M3, M8 — are built, verified and merged
+to `dev` (`aa7322b`); `origin/dev` = `aa7322b`, working tree clean. **There is
+no owed build work on this repo**, and no operator run is owed either. What is
+left is five WON'T FIX rulings (G1, M1, M2, M6, M7), G3 parked as
+[#302](https://github.com/tenorune/on/issues/302) — spec-first, not started —
+and the deferred minors nobody promoted. A session picking this up chooses what
+to do next rather than continuing something.
+
+The queue below is kept as a record of what shipped, not as work. It lived in
 `docs/operator-panel-followups.md` under **"The next session's queue"**,
 directly beneath the at-a-glance table, with what to read before starting each:
 
@@ -82,16 +89,14 @@ app. **If and when #302 is picked up, start with a spec, not code** — the
 measurements are already in `docs/operator-panel-followups.md`, so don't
 re-derive them.
 
-⚠️ **EVERY OPEN ITEM IS NOW RULED, AND THERE IS A BUILD QUEUE.** See
-"The next session's queue — operator rulings, 2026-08-03" in
-`docs/operator-panel-followups.md`, immediately under the at-a-glance table.
-**G4 is DONE** (`33d89ae` — the purge preview names its cascades; the first of
-its two candidates, not the second). **M12 is DONE** too — the rules predicate
-and `followeeExists` are now tied by a test that derives one from the other.
-**M5 and M4 are DONE** too, in one
-commit as the queue planned, **M3 is DONE**, and **M8 is DONE** — the queue is
-empty. **Nothing on it is owed.** What is left in the followups file is the five
-WON'T FIX rulings, G3 parked as #302, and the deferred minors nobody promoted.
+⚠️ **THE QUEUE IS CLOSED AND MERGED — DO NOT RE-OPEN IT.** All six items are
+built and on `dev` at `aa7322b`: **G4** (`33d89ae`, the purge preview names its
+cascades — the first of its two candidates, not the second), **M12**
+(`f730f34`, the rules predicate and `followeeExists` tied by a test that derives
+one from the other), **M5 + M4** (`f7fa67d`, one commit as the queue planned),
+**M3** (`787f6be`) and **M8** (`17945c3`). Their entries in
+`docs/operator-panel-followups.md` carry what shipped, what each deliberately
+does not claim, and the planted violations behind them.
 **WON'T FIX: G1, M1, M2,
 M6, M7** — ruled, not open questions; raise it before working one, not after.
 **G3 is parked** as #302 and is not part of that queue. Nothing in the queue is
@@ -235,18 +240,26 @@ not by passing. `docs/operator-panel-followups.md` has said "now DONE" since it
 landed; this file was the stale one. Nothing else is owed on this branch.
 
 **Branch status (2026-08-03, LATEST): `claude/knockknock-operator-queue-xycpd8`
-— the WHOLE build queue, NOT merged.** Cut from `dev` at
-`b02dc47`: `33d89ae` (G4's code + tests), `8d8b128` (G4's docs), `f730f34`
-(M12's guard), `3bc2e7c` (M12's docs), `f7fa67d` (M5 + M4, one commit as the
-queue planned), `35e300e` (their docs), `787f6be` (M3), `6c7bce9` (its docs),
-`17945c3` (M8) and this docs update. **Nothing is merged and no PR was opened** — `dev` is the
-maintainer's to take, and merging would deploy (see the deploy warning below).
+MERGED TO `dev` AND PUSHED, at the operator's explicit instruction.**
+`origin/dev` moved `b02dc47` → `aa7322b`, a `--no-ff` merge commit matching
+`dev`'s own history (`dadb529`, `d47fbbb`, `8ad9ef0` are the same shape;
+fast-forward was available and deliberately not taken). Ten commits — five
+items and their docs: `33d89ae`+`8d8b128` (G4), `f730f34`+`3bc2e7c` (M12),
+`f7fa67d`+`35e300e` (M5 + M4, one commit as the queue planned),
+`787f6be`+`6c7bce9` (M3), `17945c3`+`d201bf2` (M8). Working tree clean, nothing
+unpushed. The feature branch is fully contained in `dev` and is now redundant —
+kept, not deleted, like its predecessors. `dev` → `main` is the maintainer's;
+no PR was opened and none was asked for.
 
-⚠️ **This branch adds NO deploy surface.** G4's files are under
-`functions/ops/**` — excluded from the functions archive via `functions.ignore`
-— M12's are tests, and the only `js/` movement is comments (no statement moved).
-`database.rules.json` and the shipped `functions/*.js` are untouched, so even a
-merge to `dev` ships no behaviour change anywhere.
+⚠️ **THAT PUSH FIRED `deploy-dev.yml`, AND IT SHIPPED NO BEHAVIOUR CHANGE.**
+Both halves matter. CI deploys `hosting,database,functions` on every push to
+`dev`, ungated, so the workflow ran — but every code file in this merge is
+under `functions/ops/**` (excluded from the functions archive via
+`functions.ignore`) or is a test. `database.rules.json` and the shipped
+`functions/*.js` are untouched, and the only `js/` movement is comments, with
+no statement moved. This is the first merge in a while where "nothing shipped"
+is true of the artifacts rather than merely of the sessions — do not generalise
+it to the next one.
 
 **Prior branch status (2026-08-03): `claude/g3-revocation-timeout-eabaf4`
 MERGED TO `dev` AND PUSHED, at the operator's explicit instruction.**
@@ -479,6 +492,14 @@ migration they are on. Deploying it before or after the migration completes is
 equally safe.
 
 ## Verification state
+
+**GREEN BAR OBSERVED ON THE MERGED RESULT at `aa7322b` — `dev`'s tip, not the
+branch's (2026-08-03):** web jest **2149/2149** (88 suites) · rules (emulator)
+**118/118** (12 suites) · functions **964/964** (32 suites) · `typecheck` +
+`typecheck:scripts` clean · `node scripts/prod.js` builds. Run after the merge
+on purpose: a green run on the branch only proves the branch. The same five
+were green at the branch tip `d201bf2` beforehand, on a fresh container after
+the documented `npm ci`.
 
 **M8 closure, green bar OBSERVED (2026-08-03) at `17945c3`** — functions
 **964/964** (32 suites, **+5**: the collision conflict carrying its gid, an
