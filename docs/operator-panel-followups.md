@@ -15,13 +15,14 @@ each was ruled on rather than dropped.
 
 ## Everything still open, at a glance
 
-Twelve open, eleven closed — and as of 2026-08-03 **every open item has been
-ruled**: six to DO, five WON'T FIX, one (G3) parked. The rulings are stamped in
+Eleven open, twelve closed — **G4 is the newest closed item** (2026-08-03, the
+first of the queue's six) — and as of 2026-08-03 **every open item has been
+ruled**: five still to DO, five WON'T FIX, one (G3) parked. The rulings are stamped in
 the Weight column below and on each entry, and the build order is in
 "The next session's queue" directly under this table. **Read the queue rather
 than this table if you are here to work.**
 
-**M10 and M11 are the newest closed items** (2026-08-03) — both G6-descended, both closed after the G3 park; see their entries below. **G8 was the newest closed item before them** — found on
+**M10 and M11 were the newest closed items before G4** (2026-08-03) — both G6-descended, both closed after the G3 park; see their entries below. **G8 was the newest closed item before them** — found on
 2026-08-03 by running the residue recipe, and closed the same day. **G9 and
 G10 are the next-newest closed items** — filed 2026-08-03 by the review that
 closed out G6's fix wave, from reading rather than from running the smoke
@@ -73,7 +74,7 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 | **G1** | Divergence check compares paths, not write values | `ops/merge.js:221` | **WON'T FIX** (operator, 2026-08-03) — severity corrected DOWN the same day; the `role`-escalation reading was wrong, see below |
 | **G2** | ~~Auth-record deletion has no route (D5)~~ | `ops/server.js` | **CLOSED** — the deferral was wrong; see below |
 | **G3** | Revoked sessions keep writing for up to an hour | `database.rules.json` | Known gap, **whole-app** — **parked as [#302](https://github.com/tenorune/on/issues/302)** |
-| **G4** | A pre-image cannot undo a cascade the purge only triggered | `ops/audit.js` (model, not a bug) | **DO** (operator, 2026-08-03) — name the cascades in the purge preview; see the queue below |
+| **G4** | ~~A pre-image cannot undo a cascade the purge only triggered~~ | `ops/purge.js`, `ops/panel.html` | **CLOSED** — the preview now NAMES the cascade before approval; the model is unchanged, see below |
 | **G5** | ~~Expunge and graduation stranded `pushTokens/{uid}`~~ | `functions/telegram-auth.js` | **CLOSED** — F6c relocated the node and the deletion path never followed |
 | **G6** | ~~A peer's client republishes cross-user residue, permanently~~ | `database.rules.json` + `js/following.ts` | **CLOSED** (`13cb18c`+`8a0ff62`) — does NOT close with G3; see below |
 | **G7** | ~~Expunge stranded `groupIdIndex` + group-scoped `inviteIndex`~~ | `functions/telegram-auth.js` | **CLOSED** — indexes pointing into a wholesale-deleted group |
@@ -100,14 +101,14 @@ G2/G5/G7, because *why* "closes with G3" survived in this file and in
 Every open item has been ruled on. **Six to DO, five WON'T FIX, one parked.**
 Nothing here is unruled, so a session picking this up does not need to
 re-litigate any of it — build the six, in whatever order suits, and leave the
-rest alone. A ruling is the operator's; if you think one is wrong, say so
+rest alone. **G4 is done (2026-08-03); five remain: M12, M8, M5, M4, M3.** A ruling is the operator's; if you think one is wrong, say so
 before working it rather than working it anyway.
 
 ### DO — in rough order of value
 
 | ID | What to build | Where | Notes before starting |
 |---|---|---|---|
-| **G4** | Teach the **purge preview** to name the cascades it will trigger, so the operator sees them **before** approving. | `ops/purge.js`, `ops/panel.html`, the preview plan shape | The item names two options; this is the one chosen, and its own entry calls it "the cheaper half [that] would have turned this from a discovery into a line of preview text". **Do NOT** take the other option (have the pre-image capture cascades) — that means modelling client behaviour in the panel and is probably the wrong trade. The known cascade is the owned-group one: purging a group's OWNER nulls `groups/{gid}` wholesale, and every other member's client then deletes its own `users/{member}/groups/{gid}` entry (`js/groupNav.ts:250-258`, `js/groupContext.ts:1499-1508`). The preview must say so; it is a *prediction* of client behaviour, so word it as one, not as a write-set line. |
+| ~~**G4**~~ **DONE** | ~~Teach the **purge preview** to name the cascades it will trigger, so the operator sees them **before** approving.~~ **Shipped: `plan.cascades` on all four destructive previews, compared between preview and execute. See G4's entry below.** | `ops/purge.js`, `ops/panel.html`, the preview plan shape | The item names two options; this is the one chosen, and its own entry calls it "the cheaper half [that] would have turned this from a discovery into a line of preview text". **Do NOT** take the other option (have the pre-image capture cascades) — that means modelling client behaviour in the panel and is probably the wrong trade. The known cascade is the owned-group one: purging a group's OWNER nulls `groups/{gid}` wholesale, and every other member's client then deletes its own `users/{member}/groups/{gid}` entry (`js/groupNav.ts:250-258`, `js/groupContext.ts:1499-1508`). The preview must say so; it is a *prediction* of client behaviour, so word it as one, not as a write-set line. |
 | **M12** | Tie the G6 `presence/code` predicate to `followeeExists` so the two cannot drift. | `js/db/social.ts:380-383`, `database.rules.json:10,12` | Two routes in its entry: a rules test that reads the predicate's node path out of `database.rules.json` and asserts `followeeExists` probes the same one, or hoist the path to a `shared/` constant both sides consume. The second is real work — the rules file is JSON and cannot import — so cost the first honestly before reaching for it. Note this un-mirrors for **every** client caller at once if it drifts: G9's `rotateCode` filter and I1's `js/followRequests.ts` check both route through `followeeExists`. |
 | **M8** | Make `adoptGroupNames` reachable from the browser. | `ops/panel.html:207,228` | `server.js:623` already accepts it and `merge.js:76,230` already implements it — this is the UI half only. Today both merge buttons post `{loserUid, survivorUid}` (+`telegramRepoint`), so a `group-member-collision` previewed from the browser always resolves "survivor's record kept". Read the M8 row for why the per-group name **carry** has to come from a loser-only group; the fixture seeds one of each. |
 | **M5** | Cap the audit filename-collision retry. | `ops/audit.js:182` | `for (;;)` appending `-2`, `-3`, … with no bound. It fails safe today (terminates as soon as one name is free), so this is insurance: pick a cap, and make exceeding it fail closed with a named cause, matching the module's existing style. |
@@ -410,13 +411,37 @@ against them. Only the third is an open item.
   The general lesson is worth more than the item: a deferral is only as good as
   the reading it rests on, and this one had never been in front of live data.
 
-### G4 — a pre-image cannot undo a cascade the purge only triggered
+### G4 — a pre-image cannot undo a cascade the purge only triggered — CLOSED
 
-**DO — operator ruling, 2026-08-03.** Build the FIRST of the two candidates at
-the end of this entry: teach the purge preview to *name* the cascades it will
-trigger, so an operator sees them before approving. The second (have the
-pre-image capture them) is explicitly not chosen. See the queue section above
-for what to read first.
+**CLOSED (2026-08-03, `33d89ae`)** by the first of the two candidates at the end
+of this entry: every destructive preview now carries a `cascades` block naming what the
+operation will trigger, so the operator reads it before approving. The second
+candidate (have the pre-image capture cascades) was explicitly not taken.
+
+**What shipped, and what it does not claim.** `plan.cascades` is a field of its
+own on `WritePlan` — not extra `losses` lines — because the entries are
+predictions about client behaviour and must not be read as write-set lines.
+`describeImpact` derives them in the same loop that decides a group is deleted
+wholesale, so the loss line and the prediction cannot disagree about which
+group; `buildProductionLinkPlan` carries them because it runs the same expunge;
+`buildMergePlan` returns `[]`, and that is a claim with a test behind it (a
+merge repoints `groups/{gid}/ownerId` rather than nulling the group, asserted
+alongside "no whole-group null appears in these writes"). `server.js`'s digest
+compares cascades between preview and execute, so a member joining an owned
+group in between refuses the execute and names the new cascade. `panel.html`
+renders the block on all four destructive previews.
+
+**One cascade is modelled — the owned-group one below.** Nothing enforces that
+the list is complete: it is a hand-maintained model of client behaviour living
+in `groupEnumerationCascade`'s neighbourhood in `ops/purge.js`, and a future
+client-side cleanup reaction gains a prediction only when someone adds it there.
+`none predicted` therefore means "none of the modelled cascades apply", which is
+what the panel's wording says. **Verified by jest only** — seven cases in
+`ops-purge.test.js`, one in `ops-merge.test.js`, two in `ops-server.test.js`
+(the refusal diff and the page's rendering), each turned red by a planted
+violation; production files byte-identical after every revert. No live run: the
+rendered block has never been seen in a browser, and no session container has
+ever held a service-account credential.
 
 Found by actually restoring an account, 2026-08-02 (smoke-test step 10), not by
 review. It is a property of the audit model rather than a bug in it, which is
@@ -444,14 +469,16 @@ as such in its output, never presented as recovery. It writes `true` (the
 default shape, `js/db/groups.ts:23-26`) only where no entry exists, so a member
 who still has one keeps their `lastVisited`. Device-verified 2026-08-02.
 
-**What is still open** is the general shape: this is the cascade we know about.
-Any future client-side "the thing I was watching disappeared, clean up after
-myself" reaction has the same property. Two candidates for whoever picks this
-up: teach the purge preview to *name* the cascades it will trigger, so an
-operator sees them before approving; or have the pre-image capture them, which
-means the panel has to model client behaviour and is probably the wrong trade.
-Naming them is the cheaper half and would have turned this from a discovery
-into a line of preview text.
+**The general shape outlives the fix.** This is the cascade we know about, and
+any future client-side "the thing I was watching disappeared, clean up after
+myself" reaction has the same property — the preview will be silent about it
+until someone adds it to the model. That is a property of the chosen candidate,
+not an oversight in it: naming cascades is a hand-maintained list, and the other
+candidate (have the pre-image capture them) was rejected because it means
+modelling client behaviour in the panel. The audit model itself is unchanged —
+the dump is still the purge's write-set, and a cascade is still outside it. What
+moved is when the operator learns: before approving, rather than during a
+restore.
 
 ### G5 — expunge and graduation stranded `pushTokens/{uid}` — CLOSED
 

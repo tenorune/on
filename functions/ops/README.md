@@ -494,6 +494,40 @@ record is not inert: it keeps the purged account's session alive, which is how
 the first step-9 run produced an hour of false residue. See "Why purge ends the
 session" and **G3**.
 
+## Predicted cascades are not part of the write-set
+
+Every destructive preview carries a third block, under the conflicts and the
+losses: **predicted client cascades**. These are deletions the operation
+*causes* without writing them — another account's client reacting to what the
+write-set destroys. Nothing writes them, so nothing captures them, so the
+pre-image cannot replay them (**G4**). Read the block before approving: it is
+the part a restore will not give back.
+
+One cascade is known and predicted today. Purging a group's **owner** nulls
+`groups/{gid}` wholesale, and every other member's client then deletes its own
+`users/{member}/groups/{gid}` entry — an owner has no permission to clear
+another member's record, so each client clears its own (`js/groupNav.ts`,
+`js/groupContext.ts`, both via `removeUserGroupsEntry`). Restore the group and
+it comes back real and **invisible in those members' nav**;
+`ops/restore-preimage.js --heal-group-enumeration` rebuilds the entries from the
+restored member list, and the integrity report names the un-healed state
+`group-enumeration-missing`.
+
+The block is a **prediction about client behaviour**, never a path the plan
+writes, which is why it is a field of its own (`plan.cascades`) rather than more
+loss lines. `none predicted` means the panel modelled the cascades it knows and
+found none for this account — not that no client will react to anything. A merge
+predicts none for a structural reason: it repoints `groups/{gid}/ownerId` to the
+survivor instead of deleting the group.
+
+The prediction is compared between preview and execute like the losses and the
+conflicts. A member joining an owned group in between changes what the purge
+destroys for a third party, so the execute refuses and names the new cascade
+rather than applying a plan nobody read.
+
+New cascades belong in `groupEnumerationCascade`'s neighbourhood in
+`ops/purge.js` — one place, so every preview gains them at once.
+
 ## "canvases were not examined" is not "no canvases"
 
 Canvas keys come from a shallow REST read, because `canvases/{pair}/strokes` is

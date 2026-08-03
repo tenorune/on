@@ -12,13 +12,14 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 ## What's next
 
 **THERE IS A BUILD QUEUE, AND IT IS THE FIRST THING TO READ.** Every open item
-was ruled on 2026-08-03 — six to DO, five WON'T FIX, one parked. The queue lives
-in `docs/operator-panel-followups.md` under **"The next session's queue"**,
+was ruled on 2026-08-03 — six to DO, five WON'T FIX, one parked. **G4 is DONE
+(`33d89ae`); five remain.** The queue lives in
+`docs/operator-panel-followups.md` under **"The next session's queue"**,
 directly beneath the at-a-glance table, with what to read before starting each:
 
 | | | |
 |---|---|---|
-| **G4** | name the cascades the purge preview will trigger, so an operator sees them before approving | the FIRST of that entry's two candidates — **not** the pre-image one |
+| ~~**G4**~~ | ~~name the cascades the purge preview will trigger~~ — **DONE, `33d89ae`**: `plan.cascades` on all four destructive previews, compared preview-to-execute | the FIRST of that entry's two candidates was the one built — **not** the pre-image one |
 | **M12** | tie the G6 `presence/code` predicate to `followeeExists` so the two cannot drift | |
 | **M8** | make `adoptGroupNames` reachable from the browser | UI half only; server + merge already exist |
 | **M5** | cap the audit filename-collision retry | rides one commit with M4 |
@@ -84,8 +85,9 @@ re-derive them.
 ⚠️ **EVERY OPEN ITEM IS NOW RULED, AND THERE IS A BUILD QUEUE.** See
 "The next session's queue — operator rulings, 2026-08-03" in
 `docs/operator-panel-followups.md`, immediately under the at-a-glance table.
-**DO: G4** (name the purge preview's cascades — the first of its two
-candidates, not the second), **M12, M8, M5, M4, M3**. **WON'T FIX: G1, M1, M2,
+**G4 is DONE** (`33d89ae` — the purge preview names its cascades; the first of
+its two candidates, not the second). **Still to DO: M12, M8, M5, M4, M3.**
+**WON'T FIX: G1, M1, M2,
 M6, M7** — ruled, not open questions; raise it before working one, not after.
 **G3 is parked** as #302 and is not part of that queue. Nothing in the queue is
 unruled, so a session picking it up does not need to re-litigate any of it.
@@ -169,7 +171,9 @@ every one.
 
 **Step 10 passed in its strongest form** — the dump was not merely read back but
 used to restore the purged account. That is where `functions/ops/restore-preimage.js`
-and **G4** came from. Read G4 before purging any account that owns a group.
+and **G4** came from. **G4 is now CLOSED** (`33d89ae`): purging an account that
+owns a group still triggers the cascade, and the preview now names it before
+you approve rather than leaving you to find it during a restore.
 
 **What the panel is**, if you have not met it: `functions/ops/` is a local
 Admin-SDK CLI plus a one-page browser UI — user list, merge, purge, Telegram
@@ -192,7 +196,7 @@ confirmed working on a custom-token uid, which was the original deferral's
 question. The rules gap underneath it is filed as **G3**. Full reasoning and the
 measurements live in `docs/operator-panel-followups.md`.
 
-**Twelve open, eleven closed** — all ranked with stable IDs in the "at a
+**Eleven open, twelve closed** — all ranked with stable IDs in the "at a
 glance" table at the top of `docs/operator-panel-followups.md`. **S1 and M9 are
 now CLOSED** (the smoke test ran to completion; M9's `op` guard shipped straight
 after, because completing the leg is what made it urgent — a real merge dump now
@@ -201,9 +205,12 @@ too (`728180d`, `4780b1f`) — see "What's next" above. **M10 and M11 are now
 CLOSED too**: M10 by three jest cases pinning the path `setFollowingEntry`
 builds against the hand-typed path the G6 rules suite guards, M11 by folding
 the revocation clear and the refusable following write into one atomic
-multi-path update (`setFollowingEntryClearingRevocation`). Open: G1, **G3** and
-**G4** (known gaps — G3 is a whole-app rules gap, not a panel item, and is now
-parked as #302; G4 came out of running the smoke test); and M1–M8
+multi-path update (`setFollowingEntryClearingRevocation`). **G4 is now CLOSED**
+too (`33d89ae`) — the preview names the cascade the write-set only triggers;
+the audit model is unchanged, and the cascade list is a hand-maintained model
+of client behaviour rather than an enforced one. Open: G1 and **G3** (G3 is a
+whole-app rules gap, not a panel item, and is now
+parked as #302); and M1–M8
 (deferred minors, each with its `file:line` and why it was left; none of them
 affects the correctness of a destructive write, which is the test to
 re-apply before promoting one).
@@ -222,7 +229,18 @@ node really is nulled at `{node}/{uid}`. Verified by planting three violations,
 not by passing. `docs/operator-panel-followups.md` has said "now DONE" since it
 landed; this file was the stale one. Nothing else is owed on this branch.
 
-**Branch status (2026-08-03, LATEST): `claude/g3-revocation-timeout-eabaf4`
+**Branch status (2026-08-03, LATEST): `claude/knockknock-operator-queue-xycpd8`
+— the build queue's first item, NOT merged.** Cut from `dev` at `dadb529`, two
+commits: `33d89ae` (G4's code + tests) and this docs update. **Nothing is
+merged and no PR was opened** — `dev` is the maintainer's to take, and merging
+would deploy (see the deploy warning below).
+
+⚠️ **This branch adds NO deploy surface.** Every file it moves is under
+`functions/ops/**` — excluded from the functions archive via `functions.ignore`
+— or is a doc. `database.rules.json`, `js/` and the shipped `functions/*.js`
+are untouched, so even a merge to `dev` ships none of it anywhere.
+
+**Prior branch status (2026-08-03): `claude/g3-revocation-timeout-eabaf4`
 MERGED TO `dev` AND PUSHED, at the operator's explicit instruction.**
 `origin/dev` moved `7e9a36b` → `dadb529`, a `--no-ff` merge commit matching
 `dev`'s own history (`d47fbbb`, `8ad9ef0`, `d5c7a53` are the same shape;
@@ -373,9 +391,9 @@ the dev project** — CI deploys functions on every push to `dev`.
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, G4, M1–M8, M12) is either an operator action
-or explicitly deferred — none of it is unfinished build work. **G6, G9, G10,
-M10 and M11 are all CLOSED**, and G3 is parked as #302.
+What remains (G1, G3, M1–M8, M12) is either an operator action
+or explicitly deferred — none of it is unfinished build work. **G4, G6, G9,
+G10, M10 and M11 are all CLOSED**, and G3 is parked as #302.
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -453,6 +471,37 @@ migration they are on. Deploying it before or after the migration completes is
 equally safe.
 
 ## Verification state
+
+**G4 closure, green bar OBSERVED (2026-08-03) at `33d89ae`** on
+`claude/knockknock-operator-queue-xycpd8`, on a FRESH container after the
+documented `npm ci` — baseline `b02dc47` re-measured on the same container
+(functions 941/941 in 32 suites):
+
+- functions **951/951** (32 suites, unchanged) — **+10**: 7 in
+  `ops-purge.test.js` (the cascade's content, its remedy wording, the predicted
+  path's absence from the write-set, the non-owned and solo-owner silences, an
+  account owning no group, and the production link carrying the same cascades),
+  1 in `ops-merge.test.js` (a merge predicts none, and no whole-group null
+  appears in its writes), 2 in `ops-server.test.js` (the refusal diff names a
+  `+ cascade:`, and every destructive preview renders the block)
+- web jest **2146/2146** (88 suites) — **unchanged**; nothing here touches `js/`
+- rules (emulator) **118/118** (12 suites) — **unchanged**;
+  `database.rules.json` is untouched
+- `typecheck` + `typecheck:scripts` — clean; **zero** new suppressions, all
+  seven forms swept over the diff
+- `node scripts/prod.js` — builds
+
+Each new guard was verified by planting a violation, never by passing: the
+cascade never pushed (6 red), the no-other-members guard dropped (2), the
+production link dropping its cascades (1), the digest no longer comparing them
+(1), merge claiming a cascade it does not have (1), one preview dropping the
+block (1). All four production files byte-identical after every revert.
+
+**What that bar does NOT cover.** Jest only. The cascade block has never been
+rendered in a browser, and no session container has ever held a service-account
+credential, so none of it has run against a live project. The cascade list is a
+hand-maintained model of client behaviour — `none predicted` means none of the
+MODELLED cascades apply, and nothing enforces that the model is complete.
 
 **GREEN BAR OBSERVED ON THE MERGED RESULT at `dadb529` — `dev`'s tip, not the
 branch's (2026-08-03):** web jest **2146/2146** (88 suites) · rules (emulator)
@@ -759,9 +808,9 @@ Read in this order; stop when you have what you need.
 
 1. This file — the source of truth for "where things are."
 2. `docs/operator-panel-followups.md` — every open item with a stable ID
-   (**G1**, **G3**, **G4**, **M1–M9**), each with `file:line` and why it
-   was left, plus closed-but-instructive **S1**, **G2**, **G5**, **G6**, **G7**
-   and **G8**. Read **G6** before purging anything real: the rules guard that
+   (**G1**, **G3**, **M1–M9**), each with `file:line` and why it
+   was left, plus closed-but-instructive **S1**, **G2**, **G4**, **G5**, **G6**,
+   **G7** and **G8**. Read **G6** before purging anything real: the rules guard that
    closes it is verified against the emulator only, is **live on dev** (CI
    deploys rules on every push to `dev`) and **absent on prod** until
    `dev` → `main` — so a prod purge or merge is exactly as exposed as before,
