@@ -763,6 +763,42 @@ describe('canvasKeys omitted vs empty are different facts', () => {
     expect(page).not.toMatch(/esc\(r\.status\b/);
   });
 
+  // M8: server.js has accepted adoptGroupNames since the panel was built and
+  // merge.js has implemented it, but panel.html never sent it — so a
+  // group-member collision previewed from the browser always resolved
+  // "survivor's record kept" and the loser's per-group name could not be
+  // adopted without POSTing by hand. Source assertions, like the three above.
+  test('both merge previews can send adoptGroupNames', () => {
+    const page = readFileSync(join(OPS_DIR, 'panel.html'), 'utf8');
+    // one flow, used by "merge into…" and by "link via merge…"
+    expect(page).toMatch(/adoptGroupNames/);
+    expect(page.match(/adoptGroupNames/g).length).toBeGreaterThanOrEqual(2);
+    // a tick per colliding group, built from the conflict's own gid rather
+    // than from a path parsed in the page
+    expect(page).toMatch(/data-adopt/);
+    expect(page).toMatch(/group-member-collision/);
+    expect(page).not.toMatch(/\.path\.split\(/);
+    // ...and the block is actually RENDERED. Asserting only that the page
+    // contains adoptBlock's definition passes with the call site deleted —
+    // a defined-but-unrendered control is exactly the shape of M8 itself,
+    // where the server accepted a flag the page never sent.
+    expect(page).toMatch(/\$\{adoptBlock\(plan, adopt\)\}/);
+  });
+
+  // Ticking a box changes the plan — a new write path and a different
+  // resolution line — so the dialog has to re-preview rather than remember the
+  // tick locally. Without this the execute would be refused by the digest
+  // check, which is safe but useless; with it, what the operator reads is what
+  // executes.
+  test('ticking a group re-previews rather than editing the shown plan', () => {
+    const page = readFileSync(join(OPS_DIR, 'panel.html'), 'utf8');
+    // the dialog WIRES the handler, not merely mentions one: passing an
+    // onChange that nothing installs leaves the tick inert, and the page's
+    // own text would still contain the word.
+    expect(page).toMatch(/\$\('preview-body'\)\.onchange\s*=/);
+    expect(page).toMatch(/re-?preview/i);
+  });
+
   // G4: a preview that computes cascades and never shows them is the defect
   // this item is about, one layer up. Source assertion for the same reason as
   // the two above — the page has no DOM harness — and it checks the block is
@@ -773,7 +809,12 @@ describe('canvasKeys omitted vs empty are different facts', () => {
     // its own block, worded as a prediction, never folded into the losses pre
     expect(page).toContain('predicted client cascades');
     expect(page).toMatch(/cascadeNote\(plan\)/);
-    expect(page.match(/\$\{cascadeNote\(plan\)\}/g) || []).toHaveLength(4);
+    // Three call sites, four destructive previews: purge, the shared merge
+    // body ("merge into…" AND "link via merge…", one flow since M8), and link
+    // as production. A dropped call site turns this red; the count moves only
+    // when the previews themselves are restructured.
+    expect(page.match(/\$\{cascadeNote\(plan\)\}/g) || []).toHaveLength(3);
+    expect(page).toMatch(/mergePreview\(uid, survivorUid/);
   });
 
   test('the panel renders the two states with different text', () => {
@@ -851,6 +892,31 @@ describe('merge preview and execute cannot drift', () => {
     expect(withAdopt.store['groups/g1/members/S/displayName']).toBe('LoserName');
     expect(Object.keys(preImageRecords(withAdopt.audit)[0].preImage).sort())
       .toEqual(Object.keys(p1.plan.writes).sort());
+  });
+
+  // M8 gives the browser a per-group tick that re-previews. The property that
+  // makes that safe is this one: an execute whose adoption set is not the one
+  // the operator read is refused, so a page that ticked a box and forgot to
+  // re-preview cannot apply a plan nobody approved.
+  test('an execute whose adoption set differs from the preview is refused', async () => {
+    const { routes, events, store } = harness();
+    const { nonce } = await routes['POST /api/merge/preview']({ loserUid: 'L', survivorUid: 'S' });
+    await expect(routes['POST /api/merge/execute']({
+      loserUid: 'L', survivorUid: 'S', adoptGroupNames: ['g1'], confirmUid: 'L', nonce,
+    })).rejects.toThrow(/not the plan this would apply/);
+    expect(events).not.toContain('rootUpdate');
+    // untouched at its seeded value — nothing was written, so this is still
+    // the nested fixture rather than a flat path the update would have created
+    expect(store['groups/g1'].members.S.displayName).toBe('SurvivorName');
+  });
+
+  test('and the mirror: dropping an adoption the preview carried is refused too', async () => {
+    const { routes, events } = harness();
+    const { nonce } = await routes['POST /api/merge/preview']({ loserUid: 'L', survivorUid: 'S', adoptGroupNames: ['g1'] });
+    await expect(routes['POST /api/merge/execute']({
+      loserUid: 'L', survivorUid: 'S', confirmUid: 'L', nonce,
+    })).rejects.toThrow(/not the plan this would apply/);
+    expect(events).not.toContain('rootUpdate');
   });
 
   test('a merge execute actually mutates and invalidates the cached snapshot', async () => {

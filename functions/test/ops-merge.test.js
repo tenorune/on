@@ -166,6 +166,23 @@ describe('groups', () => {
     expect(writes['groups/g1/members/S/displayName']).toBe('LoserName');
   });
 
+  // M8: the browser could not reach adoptGroupNames because the preview named
+  // no group a caller could tick. The collision conflict now carries the gid,
+  // which is what panel.html builds its per-group checkbox from — the page has
+  // no DOM harness, so a gid parsed out of `path` there would be an untestable
+  // rule living in the one file nothing covers.
+  test('a group-member collision names the gid a caller would adopt', async () => {
+    const { conflicts } = await merge(world());
+    const collision = conflicts.find((c) => c.kind === 'group-member-collision');
+    expect(collision.gid).toBe('g1');
+    // and it still says which way it resolves, both with and without adoption
+    expect(collision.resolution).toMatch(/survivor's record kept/);
+    const adopted = await merge(world(), { adoptGroupNames: ['g1'] });
+    expect(adopted.conflicts.find((c) => c.kind === 'group-member-collision').gid).toBe('g1');
+    expect(adopted.conflicts.find((c) => c.kind === 'group-member-collision').resolution)
+      .toMatch(/loser's displayName adopted/);
+  });
+
   test('the higher role wins on a member collision', async () => {
     const deps = world({ 'groups/g1/members/L': { role: 'owner', displayName: 'LoserName' } });
     const { writes } = await merge(deps);

@@ -109,8 +109,14 @@ export async function buildMergePlan(deps, opts) {
   const conflicts = [];
   /** @type {string[]} */
   const losses = [];
-  /** @type {(kind: string, path: string, detail: string, resolution: string) => void} */
-  const conflict = (kind, path, detail, resolution) => conflicts.push({ kind, path, detail, resolution });
+  /**
+   * `extra` carries the fields a CALLER needs to act on a conflict — today
+   * just `gid`, so the panel can offer a per-group adoption tick without
+   * parsing a path (M8). Everything the operator READS stays in
+   * `detail`/`resolution`; this is for the machine reading it.
+   * @type {(kind: string, path: string, detail: string, resolution: string, extra?: Partial<import('./types.js').Conflict>) => void}
+   */
+  const conflict = (kind, path, detail, resolution, extra) => conflicts.push({ kind, path, detail, resolution, ...extra });
 
   // Every repointed peer backref carries this. Without it `followers/{S}` would
   // be written as null — a DELETE — and every peer who followed only the loser
@@ -231,6 +237,7 @@ export async function buildMergePlan(deps, opts) {
         `groups/${gid}/members/${S}`,
         `both accounts are members of ${groupName || gid}: "${loserMember.displayName ?? '—'}" vs "${survivorMember.displayName ?? '—'}"`,
         adopt.has(gid) ? "loser's displayName adopted" : "survivor's record kept",
+        { gid },
       );
       if (adopt.has(gid) && loserMember.displayName !== undefined) {
         writes[`groups/${gid}/members/${S}/displayName`] = loserMember.displayName;

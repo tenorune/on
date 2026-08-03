@@ -106,6 +106,14 @@ export interface Conflict {
   path: string;
   detail: string;
   resolution: string;
+  /**
+   * The group this conflict is about, on the kinds that have one
+   * (`group-member-collision`). Carried so a caller can act on the conflict —
+   * panel.html builds its per-group adoption tick from this (M8) — rather than
+   * parsing a gid back out of `path`, which would put a path-shape rule in the
+   * one file that has no test harness.
+   */
+  gid?: string;
 }
 
 export interface WritePlan {
