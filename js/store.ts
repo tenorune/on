@@ -6,6 +6,7 @@ const PALETTE_LEGACY_KEY = 'statusapp_palette';
 const MADE_CALL_COUNT_KEY = 'statusapp_made_call_count';
 const ANSWERED_CALL_COUNT_KEY = 'statusapp_answered_call_count';
 const FOLLOWER_NAMES_KEY = 'statusapp_follower_names';
+const FOLLOWING_SERVER_SEEN_KEY = 'statusapp_following_server_seen';
 
 export type FollowingEntry = { userId: string; code: string; label?: string };
 // Palette state is genuinely loose localStorage JSON — consumers (js/palettes.ts,
@@ -187,7 +188,22 @@ function setFollowerName(userId: string, name: string) {
   } catch { /* quota */ }
 }
 
+// G6: once this device has seen the server's following list hold at least one
+// entry for this account, an EMPTY server list means the server deleted those
+// entries — not that this device predates the migration. Stores the uid rather
+// than a boolean so switching identities re-arms the one-shot push-up in
+// js/following.ts's syncFollowingFromServer instead of suppressing it forever.
+function hasSeenServerFollowing(userId: string): boolean {
+  try { return localStorage.getItem(FOLLOWING_SERVER_SEEN_KEY) === userId; }
+  catch { return false; }
+}
+
+function markServerFollowingSeen(userId: string) {
+  try { localStorage.setItem(FOLLOWING_SERVER_SEEN_KEY, userId); }
+  catch { /* quota / private mode — the rules guard is the backstop */ }
+}
+
 // Call-counter helpers moved to js/prefs.js — they now sync via userPrefs/
 // instead of staying device-local.
 
-export { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, renameFollowing, updateFollowingCode, getPalette, getPaletteState, setPaletteState, getFavorites, setFavorites, getFollowerName, setFollowerName };
+export { getFollowing, setFollowing, addFollowing, removeFollowing, isFollowing, getLastTimeout, setLastTimeout, getGroupChipMinutes, setGroupChipMinutes, renameFollowing, updateFollowingCode, getPalette, getPaletteState, setPaletteState, getFavorites, setFavorites, getFollowerName, setFollowerName, hasSeenServerFollowing, markServerFollowingSeen };
