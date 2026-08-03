@@ -242,6 +242,77 @@ describe('buildPurgePlan', () => {
   });
 });
 
+// --- G4 --------------------------------------------------------------------
+// A purge also CAUSES deletions it never writes, and those are invisible to the
+// pre-image: nothing captured them, so nothing can replay them. The preview has
+// to NAME them before the operator approves, and they must stay apart from the
+// write-set — every claim here is a prediction about client behaviour, not a
+// path this plan writes.
+describe('cascade predictions', () => {
+  /** D owns a group whose only other member is `other`. */
+  const soloOwner = () => {
+    const deps = loaded();
+    deps.store['users/D'].groups.solo = { lastVisited: 1 };
+    deps.store['groups/solo'] = { name: 'Solo Group', ownerId: 'D', members: { D: { role: 'owner' } } };
+    return deps;
+  };
+
+  test('names the group, the member and the entry that member’s client deletes', async () => {
+    const { cascades } = await buildPurgePlan(loaded(), 'D');
+    expect(cascades).toHaveLength(1);
+    expect(cascades[0]).toContain('Owned Group');
+    expect(cascades[0]).toContain('other');
+    expect(cascades[0]).toContain('users/other/groups/owned');
+  });
+
+  // The whole point of the entry: the operator must not read it as a write-set
+  // line. It is worded as a prediction, and it names both the remedy and the
+  // integrity check that spots the un-healed state.
+  test('reads as a prediction, and names the remedy rather than only the damage', async () => {
+    const { cascades } = await buildPurgePlan(loaded(), 'D');
+    expect(cascades[0]).toContain('PREDICTED');
+    expect(cascades[0]).toContain('--heal-group-enumeration');
+    expect(cascades[0]).toContain('group-enumeration-missing');
+  });
+
+  test('the predicted path is NOT in the write-set — that is why it needs naming', async () => {
+    const { writes, cascades } = await buildPurgePlan(loaded(), 'D');
+    expect(cascades).toHaveLength(1);
+    expect(Object.prototype.hasOwnProperty.call(writes, 'users/other/groups/owned')).toBe(false);
+  });
+
+  test('a group the account does not own cascades nothing — the group survives', async () => {
+    const { cascades } = await buildPurgePlan(loaded(), 'D');
+    expect(cascades.some((c) => c.includes('Joined Group'))).toBe(false);
+  });
+
+  // No other member means no other client, so there is nothing to predict.
+  // Reporting one here would be noise on the commonest owned-group purge.
+  test('an owned group with no other members cascades nothing', async () => {
+    const { cascades } = await buildPurgePlan(soloOwner(), 'D');
+    expect(cascades.some((c) => c.includes('Solo Group'))).toBe(false);
+    expect(cascades).toHaveLength(1);
+  });
+
+  test('an account owning no group has no cascades at all', async () => {
+    const { cascades } = await buildPurgePlan(empty(), 'E');
+    expect(cascades).toEqual([]);
+  });
+
+  // The production link runs the SAME expunge, so it triggers the same cascade.
+  // Carrying it on one of the two previews and not the other would be the same
+  // defect this item exists to close, one route over.
+  test('the production link carries them too — it is the same expunge', async () => {
+    const deps = loaded();
+    deps.store['telegramUsers/42'] = { uid: 'D', chatId: '42', createdAt: 100 };
+    deps.store['telegramByUid/D'] = { tgId: '42', chatId: '42' };
+    deps.store['users/P'] = { presence: { code: 'PPP111' } };
+    const { cascades } = await buildProductionLinkPlan(deps, { derivedUid: 'D', phraseUid: 'P', now: 1_750_000_000_000 });
+    expect(cascades).toHaveLength(1);
+    expect(cascades[0]).toContain('users/other/groups/owned');
+  });
+});
+
 describe('mailbox durability partition', () => {
   test('is the one partition of OWN_MAILBOXES, never a second local list', () => {
     expect([...DROP_MAILBOXES, ...UNION_MAILBOXES].sort()).toEqual([...OWN_MAILBOXES].sort());

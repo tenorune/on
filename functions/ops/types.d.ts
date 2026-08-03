@@ -112,4 +112,13 @@ export interface WritePlan {
   writes: Record<string, unknown>;
   conflicts: Conflict[];
   losses: string[];
+  /**
+   * Deletions the plan CAUSES without writing them: another account's client
+   * reacting to what this write-set destroys. They are predictions of client
+   * behaviour, never paths this plan writes — which is exactly why they are a
+   * field of their own rather than more `losses` (G4). Nothing captures them,
+   * so the pre-image cannot replay them; an empty list is the claim that this
+   * operation triggers none.
+   */
+  cascades: string[];
 }

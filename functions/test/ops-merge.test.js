@@ -143,6 +143,17 @@ describe('groups', () => {
     expect(writes['groups/g2/ownerId']).toBe('S');
   });
 
+  // G4's cascade is a purge property, and this is the assertion that says WHY
+  // it is not a merge property: no `groups/{gid}` is nulled here, so no other
+  // member's client sees the group vanish and prunes its own enumeration
+  // entry. If a merge ever starts deleting a group wholesale, this goes red
+  // and the plan owes a prediction like the purge's.
+  test('a merge predicts no cascade — it repoints ownership rather than deleting the group', async () => {
+    const plan = await merge(world());
+    expect(plan.cascades).toEqual([]);
+    expect(Object.entries(plan.writes).filter(([p, v]) => /^groups\/[^/]+$/.test(p) && v === null)).toEqual([]);
+  });
+
   test('a shared group keeps the survivor displayName by default (D4)', async () => {
     const { writes, conflicts } = await merge(world());
     expect(writes['groups/g1/members/S']).toBeUndefined(); // survivor's record untouched

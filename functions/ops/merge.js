@@ -398,7 +398,12 @@ export async function buildMergePlan(deps, opts) {
   writes[`userPrefs/${L}`] = null;
   losses.push(`userPrefs/${L} discarded (survivor's prefs win)`);
 
-  return { writes, conflicts, losses };
+  // No cascades, and this is a claim rather than a placeholder: a merge never
+  // nulls `groups/{gid}` — ownership repoints to the survivor above — so no
+  // other member's client ever sees a group vanish and prunes its own
+  // enumeration entry, which is the purge-side cascade G4 is about. Pinned by
+  // a test that also asserts no whole-group null appears in these writes.
+  return { writes, conflicts, losses, cascades: [] };
 }
 
 /**

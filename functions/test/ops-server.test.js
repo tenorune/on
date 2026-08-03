@@ -763,6 +763,19 @@ describe('canvasKeys omitted vs empty are different facts', () => {
     expect(page).not.toMatch(/esc\(r\.status\b/);
   });
 
+  // G4: a preview that computes cascades and never shows them is the defect
+  // this item is about, one layer up. Source assertion for the same reason as
+  // the two above — the page has no DOM harness — and it checks the block is
+  // rendered on EVERY destructive preview, not only the purge one.
+  test('every destructive preview renders the predicted cascades', () => {
+    const page = readFileSync(join(OPS_DIR, 'panel.html'), 'utf8');
+    expect(page).toMatch(/plan\.cascades/);
+    // its own block, worded as a prediction, never folded into the losses pre
+    expect(page).toContain('predicted client cascades');
+    expect(page).toMatch(/cascadeNote\(plan\)/);
+    expect(page.match(/\$\{cascadeNote\(plan\)\}/g) || []).toHaveLength(4);
+  });
+
   test('the panel renders the two states with different text', () => {
     const page = readFileSync(join(OPS_DIR, 'panel.html'), 'utf8');
     // "no canvases" and "not examined" must not share a rendering.
@@ -907,6 +920,26 @@ describe('an execute must apply the plan the operator approved', () => {
 
     await expect(routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce }))
       .rejects.toThrow(/Preview again[\s\S]*newPeer/);
+  });
+
+  // G4: the cascades an operator reads are part of what they approved, so the
+  // execute has to check them like the losses and the conflicts. Today every
+  // cascade change also moves a loss line, so the refusal is over-determined —
+  // the assertion is on the DIFF naming a cascade, which is the half that only
+  // holds while the digest actually compares them.
+  test('a cascade that appears after the preview is named in the refusal', async () => {
+    const { routes, store, events } = harness();
+    const { plan, nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    expect(plan.cascades).toEqual([]);
+
+    // someone joins the group L owns: purging L now deletes it out from under a
+    // second member, whose client prunes its own enumeration entry
+    store['groups/g2'].members.newMember = { role: 'member' };
+
+    await expect(routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce }))
+      .rejects.toThrow(/\+ cascade: [\s\S]*newMember/);
+    expect(events).not.toContain('rootUpdate');
+    expect(store['users/L']).toBeDefined();
   });
 
   test('a merge whose plan diverged is refused too', async () => {

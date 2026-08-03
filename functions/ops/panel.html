@@ -18,6 +18,7 @@
   .error { color: #b00; } .warn { color: #a60; } .info { color: #555; }
   dialog { max-width: 46rem; font: inherit; }
   pre { white-space: pre-wrap; max-height: 18rem; overflow: auto; background: #f6f6f6; padding: .5rem; }
+  pre.cascade { background: #fff7ed; border-left: 3px solid #a60; }
   .footnote { color: #555; font-size: 11px; }
 </style>
 
@@ -123,6 +124,16 @@ async function refresh() {
 const pathNote = (plan) => `<p class="footnote">${Object.keys(plan.writes).length} paths in the preview write-set
   (a superset of the wire payload: rootUpdate drops nulls already covered by an ancestor null).</p>`;
 
+// Cascades are deletions the operation CAUSES without writing them — another
+// member's client reacting to what this write-set destroys (G4). They get their
+// own block, visibly apart from the write-set and the losses, because an
+// operator must not read a prediction about client behaviour as a path this
+// plan writes. Empty is a real answer here ("none predicted"), unlike the
+// canvas list, which can be genuinely unknown.
+const cascadeNote = (plan) => `<p class="footnote">predicted client cascades — NOT in the write-set, and NOT in the
+  pre-image, so a restore cannot replay them:</p>
+  <pre class="cascade">${esc(plan.cascades.join('\n\n') || 'none predicted')}</pre>`;
+
 async function openDetail(uid) {
   const { detail, nonce, canvasKeys } = await api(`/api/detail?uid=${encodeURIComponent(uid)}`);
   state = { ...state, nonce, uid, canvasKeys };
@@ -184,7 +195,7 @@ $('detail').onclick = async (e) => {
       // only losses would hide the name of the account that really holds it.
       preview(`<h3>purge ${esc(uid)}</h3>${canvasNote()}
         <pre>${esc(plan.conflicts.map((c) => `${c.kind}: ${c.detail} → ${c.resolution}`).join('\n') || 'no conflicts')}</pre>
-        <pre>${esc(plan.losses.join('\n') || 'nothing of value')}</pre>${pathNote(plan)}
+        <pre>${esc(plan.losses.join('\n') || 'nothing of value')}</pre>${cascadeNote(plan)}${pathNote(plan)}
         <p class="footnote">The account's session is revoked before the write either way. That stops a
         client that is <em>already open</em> from republishing its cache — it does NOT evict one: an
         ID token already in hand keeps working until it expires (measured: up to ~1h from when the
@@ -209,7 +220,7 @@ $('detail').onclick = async (e) => {
       state.nonce = nonce; state.canvasKeys = canvasKeys; renderCanvasBanner();
       preview(`<h3>merge ${esc(uid)} → ${esc(survivorUid)}</h3>${canvasNote()}
         <pre>${esc(plan.conflicts.map((c) => `${c.kind}: ${c.detail} → ${c.resolution}`).join('\n') || 'no conflicts')}</pre>
-        <pre>${esc(plan.losses.join('\n') || 'no losses')}</pre>${pathNote(plan)}`,
+        <pre>${esc(plan.losses.join('\n') || 'no losses')}</pre>${cascadeNote(plan)}${pathNote(plan)}`,
       async (confirmUid) => {
         await api('/api/merge/execute', { loserUid: uid, survivorUid, confirmUid, nonce: state.nonce });
         await refresh();
@@ -230,7 +241,7 @@ $('detail').onclick = async (e) => {
       state.nonce = nonce; state.canvasKeys = canvasKeys; renderCanvasBanner();
       preview(`<h3>link ${esc(uid)} → ${esc(survivorUid)} via merge (nothing is lost)</h3>${canvasNote()}
         <pre>${esc(plan.conflicts.map((c) => `${c.kind}: ${c.detail} → ${c.resolution}`).join('\n') || 'no conflicts')}</pre>
-        <pre>${esc(plan.losses.join('\n') || 'no losses')}</pre>${pathNote(plan)}`,
+        <pre>${esc(plan.losses.join('\n') || 'no losses')}</pre>${cascadeNote(plan)}${pathNote(plan)}`,
       async (confirmUid) => {
         await api('/api/merge/execute', { loserUid: uid, survivorUid, telegramRepoint: true, confirmUid, nonce: state.nonce });
         await refresh();
@@ -248,7 +259,7 @@ $('detail').onclick = async (e) => {
       preview(`<h3>link as production: ${esc(uid)} is DESTROYED</h3>${canvasNote()}
         <p>impact verdict: <strong>${esc(impact.verdict)}</strong> — use "link via merge" instead whenever this is lossy.</p>
         <pre>${esc(plan.conflicts.map((c) => `${c.kind}: ${c.detail} → ${c.resolution}`).join('\n') || 'no conflicts')}</pre>
-        <pre>${esc(plan.losses.join('\n') || 'nothing of value')}</pre>${pathNote(plan)}`,
+        <pre>${esc(plan.losses.join('\n') || 'nothing of value')}</pre>${cascadeNote(plan)}${pathNote(plan)}`,
       async (confirmUid) => {
         await api('/api/link/production/execute', { derivedUid: uid, phraseUid, confirmUid, nonce: state.nonce });
         await refresh();

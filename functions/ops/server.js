@@ -428,7 +428,7 @@ export function createRoutes(ctx) {
    * plan could differ from the one on screen and be applied anyway — the panel
    * showing one thing and doing another, which is the failure this whole tool
    * exists to prevent.
-   * @typedef {{ paths: string[], losses: string[], conflicts: string[] }} PlanDigest
+   * @typedef {{ paths: string[], losses: string[], conflicts: string[], cascades: string[] }} PlanDigest
    */
   /** @typedef {{ nonce: string, approved: PlanDigest | null }} Approval */
 
@@ -448,6 +448,11 @@ export function createRoutes(ctx) {
     paths: Object.keys(plan.writes).sort(),
     losses: [...plan.losses],
     conflicts: plan.conflicts.map((c) => `${c.kind}|${c.path}|${c.detail}|${c.resolution}`),
+    // A cascade is a prediction rather than a write, but it is still something
+    // the operator read and approved: a member who joins an owned group between
+    // the preview and the execute changes what this purge destroys for a third
+    // party. Compared like the rest so the refusal names it (G4).
+    cascades: [...plan.cascades],
   });
 
   /**
@@ -501,6 +506,7 @@ export function createRoutes(ctx) {
     compare('path', approved.paths, fresh.paths);
     compare('loss', approved.losses, fresh.losses);
     compare('conflict', approved.conflicts, fresh.conflicts);
+    compare('cascade', approved.cascades, fresh.cascades);
     if (diffs.length) {
       throw new Error(
         'refused: the database changed since that preview, so the plan you approved is not the plan '

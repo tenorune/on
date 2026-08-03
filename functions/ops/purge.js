@@ -131,6 +131,36 @@ function countEntries(value) {
 }
 
 /**
+ * The ONE cascade this tool knows about, and the shape every future one takes:
+ * a client watching something this write-set destroys, reacting by deleting a
+ * path of its OWN that the write-set never touched.
+ *
+ * G4 — deleting `groups/{gid}` wholesale (the owned-group block of
+ * buildExpungeWrites) leaves every other member holding a
+ * `users/{member}/groups/{gid}` enumeration entry the purged owner had no
+ * permission to clear, so each member's client clears it itself
+ * (`removeUserGroupsEntry` in `js/groupNav.ts` and `js/groupContext.ts`, both
+ * deliberate). The purge never wrote those paths, so they are not in its
+ * write-set and therefore not in the pre-image: a restore brings the group back
+ * real and invisible in every other member's nav.
+ *
+ * This is a PREDICTION about client behaviour, and the wording has to keep
+ * saying so — an operator reading it beside the write-set must not take it for
+ * a path this plan writes. It is also the reason cascades are their own field
+ * rather than more loss lines.
+ *
+ * A future "the thing I was watching disappeared, clean up after myself"
+ * reaction belongs here, next to this one, so the preview gains it everywhere
+ * at once rather than in whichever report someone remembered.
+ *
+ * @param {string} gid @param {string | null} name @param {string[]} others
+ */
+function groupEnumerationCascade(gid, name, others) {
+  const paths = others.map((m) => `users/${m}/groups/${gid}`).join(', ');
+  return `PREDICTED CASCADE (client behaviour, NOT a write in this plan): deleting group "${name || gid}" takes it out from under ${others.join(', ')}, whose own clients then delete ${paths} — an owner cannot clear another member's record, so each client clears its own (js/groupNav.ts, js/groupContext.ts, both via removeUserGroupsEntry). Nothing writes those paths here, so they are NOT in the pre-image and a restore cannot replay them: the group comes back real and invisible in those members' nav. ops/restore-preimage.js --heal-group-enumeration rebuilds them from the restored member list, and integrity.js reports the un-healed state as group-enumeration-missing.`;
+}
+
+/**
  * The loss report. Every line describes something the operator loses; `keeps`
  * holds only the three families spec §269-270 names as explicitly NOT a loss —
  * knocks, calls and location nodes — so the report is not noisy. "The write-set
@@ -152,13 +182,19 @@ function countEntries(value) {
  *   canvasKeys: string[] | undefined,
  *   tgId: string | null,
  * }} ctx
- * @returns {Promise<{ losses: string[], keeps: string[] }>}
+ * @returns {Promise<{ losses: string[], keeps: string[], cascades: string[] }>}
  */
 async function describeImpact(deps, uid, { own, prefs, writes, canvasKeys, tgId }) {
   /** @type {string[]} */
   const losses = [];
   /** @type {string[]} */
   const keeps = [];
+  // Derived HERE, in the same loop that decides a group is deleted wholesale,
+  // rather than from a second reading of the same nodes: "which group does this
+  // destroy for everyone" is one question, and answering it twice is how the
+  // loss line and the prediction would come to disagree.
+  /** @type {string[]} */
+  const cascades = [];
 
   // --- contacts -------------------------------------------------------------
   const followerIds = Object.keys(own?.followers || {}).filter((p) => p !== uid);
@@ -185,6 +221,8 @@ async function describeImpact(deps, uid, { own, prefs, writes, canvasKeys, tgId 
     if (ownerId === uid) {
       const who = others.length ? `: ${others.join(', ')}` : ' (no other members)';
       losses.push(`group "${name || gid}" is DELETED for every member${who}`);
+      // No other member means no other client, so there is nothing to predict.
+      if (others.length) cascades.push(groupEnumerationCascade(gid, name, others));
     } else {
       losses.push(`removed from group "${name || gid}" (the group itself survives)`);
     }
@@ -268,7 +306,7 @@ async function describeImpact(deps, uid, { own, prefs, writes, canvasKeys, tgId 
     keeps.push(`locations/${uid} deleted — a position fix, not durable state, not a loss`);
   }
 
-  return { losses, keeps };
+  return { losses, keeps, cascades };
 }
 
 /**
@@ -318,8 +356,8 @@ export async function buildPurgePlan(deps, uid, canvasKeys) {
   }
 
   const writes = await expungeWrites(deps, uid, extraNulls);
-  const { losses } = await describeImpact(deps, uid, { own, prefs, writes, canvasKeys, tgId });
-  return { writes, conflicts, losses: [...losses, ...mappingLosses] };
+  const { losses, cascades } = await describeImpact(deps, uid, { own, prefs, writes, canvasKeys, tgId });
+  return { writes, conflicts, losses: [...losses, ...mappingLosses], cascades };
 }
 
 /**
@@ -438,6 +476,9 @@ export async function buildProductionLinkPlan(deps, { derivedUid, phraseUid, now
 
   Object.assign(writes, linkWrites.writes);
 
+  // The same expunge runs here, so the same cascades follow from it. A
+  // prediction carried on one preview and not the other would leave this route
+  // exactly where the purge route was before G4.
   const impact = await describeImpact(deps, derivedUid, { own, prefs, writes, canvasKeys, tgId });
-  return { writes, conflicts, losses: [...impact.losses, ...losses] };
+  return { writes, conflicts, losses: [...impact.losses, ...losses], cascades: impact.cascades };
 }
