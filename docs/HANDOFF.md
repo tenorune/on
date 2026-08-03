@@ -15,10 +15,13 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 ruled on 2026-08-03 — G4, M12, M5, M4, M3, M8 — are built, verified and merged
 to `dev` (`aa7322b`); `origin/dev` = `aa7322b`, working tree clean. **There is
 no owed build work on this repo**, and no operator run is owed either. What is
-left is five WON'T FIX rulings (G1, M1, M2, M6, M7), G3 parked as
-[#302](https://github.com/tenorune/on/issues/302) — spec-first, not started —
-and the deferred minors nobody promoted. A session picking this up chooses what
-to do next rather than continuing something.
+left is **exactly six open items and no more**: the five WON'T FIX rulings
+(G1, M1, M2, M6, M7) and G3, parked as
+[#302](https://github.com/tenorune/on/issues/302) — spec-first, not started.
+The followups file's "deferred minors" section still exists, but every entry
+under it is now either CLOSED or one of those four WON'T FIX M-items — there is
+no third pile of leftover work. A session picking this up chooses what to do
+next rather than continuing something.
 
 The queue below is kept as a record of what shipped, not as work. It lived in
 `docs/operator-panel-followups.md` under **"The next session's queue"**,
@@ -1013,6 +1016,13 @@ proxy and would abort an `&&` chain. Functions deps are required for
   "exactly as exposed", "gains ownership"). That phrasing is the tell. Before
   writing one, ask what artifact enforces it — if the answer is "they agree
   today, by inspection", write *that* instead, or build the tie.
+  A **fifth kind** turned up on 2026-08-03, and it is cheaper to make and harder
+  to see: a summary sentence that names a category which is EMPTY. Both docs
+  said what remained was "the five WON'T FIX rulings, the parked G3, and the
+  deferred minors nobody promoted" — the third clause is the same four M-items
+  as the first, so it invented a third pile of leftover work that does not
+  exist. The operator caught it by asking which items it meant. A list in a
+  summary is a claim: count it against the table before writing it.
   Line numbers are a lesser, separate problem: several citations had drifted
   10-100 lines (`ops/project.js:69`→`:88`, `ops/server.js:359,385`→`:462,664`,
   `merge.js:212-213`→`:221`) while being exactly right about the behaviour.

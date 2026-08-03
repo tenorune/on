@@ -102,8 +102,10 @@ Every open item has been ruled on. **Six to DO, five WON'T FIX, one parked.**
 Nothing here is unruled, so a session picking this up does not need to
 re-litigate any of it — build the six, in whatever order suits, and leave the
 rest alone. **ALL SIX ARE DONE (2026-08-03): G4, M12, M5, M4, M3, M8.** The
-queue is empty; what is left in this file is the five WON'T FIX rulings, the
-parked G3, and the deferred minors nobody promoted. A ruling is the operator's; if you think one is wrong, say so
+queue is empty; what is left open in this file is the five WON'T FIX rulings
+(G1, M1, M2, M6, M7) and the parked G3 — six items, and the "deferred minors"
+section below holds no others: every entry there is now CLOSED or is one of
+those four M-items. A ruling is the operator's; if you think one is wrong, say so
 before working it rather than working it anyway.
 
 ### DO — in rough order of value
