@@ -1,6 +1,6 @@
 // tests/rules/ownership.test.js
 const { assertSucceeds, assertFails } = require('@firebase/rules-unit-testing');
-const { makeTestEnv, dbAs } = require('./helpers');
+const { makeTestEnv, dbAs, seed } = require('./helpers');
 
 let env;
 beforeAll(async () => { env = await makeTestEnv(); });
@@ -8,6 +8,9 @@ afterAll(async () => { await env.cleanup(); });
 beforeEach(async () => { await env.clearDatabase(); });
 
 test('userPrefs: owner read/write only', async () => {
+  // The followee must exist — userPrefs/$uid/following/$followee is guarded by a
+  // referential .validate (G6). This test is about ownership, not the referent.
+  await seed(env, (db) => db.ref('users/u2/presence').set({ code: 'XK7P2M', status: 'unavailable', availableUntil: null }));
   await assertSucceeds(dbAs(env, 'u1').ref('userPrefs/u1/following/u2').set({ code: 'X' }));
   await assertFails(dbAs(env, 'u2').ref('userPrefs/u1/following/u2').get());
   await assertFails(dbAs(env, 'u2').ref('userPrefs/u1/following/u2').set({ code: 'Y' }));

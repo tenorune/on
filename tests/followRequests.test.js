@@ -6,6 +6,9 @@ jest.mock('../js/db.js', () => ({
   deleteFollowGrant: jest.fn().mockResolvedValue(undefined),
   setFollowingEntry: jest.fn().mockResolvedValue(undefined),
   registerAsFollower: jest.fn().mockResolvedValue(undefined),
+  // Default: target still exists, matching the "ordinary transient failure"
+  // case — tests that want the "target is gone" branch override per-call.
+  followeeExists: jest.fn().mockResolvedValue(true),
 }));
 jest.mock('../js/prefs.js', () => ({
   getFollowing: jest.fn(() => []),
@@ -237,10 +240,39 @@ describe('initFollowGrants', () => {
     expect(db.deleteFollowGrant).not.toHaveBeenCalled();
   });
 
-  test('a failed follow write leaves the grant in place (no delete)', async () => {
+  test('a failed follow write leaves the grant in place when the target still exists (transient)', async () => {
     let cb;
     db.watchFollowGrants.mockImplementation((uid, fn) => { cb = fn; return () => {}; });
     db.setFollowingEntry.mockRejectedValueOnce(new Error('offline'));
+    db.followeeExists.mockResolvedValueOnce(true); // approver still exists
+    initFollowGrants('me', 'MYCODE');
+    await cb({ tgt: { from: 'tgt', code: 'TGTCODE', ts: 1 } });
+    expect(db.followeeExists).toHaveBeenCalledWith('tgt');
+    expect(db.deleteFollowGrant).not.toHaveBeenCalled();
+    expect(isRequested('tgt')).toBe(false); // untouched — was never set in this test
+  });
+
+  test('a refused follow write for a purged approver deletes the grant and clears requested (I1)', async () => {
+    localStorage.setItem('statusapp_follow_requested', JSON.stringify(['tgt']));
+    let cb;
+    db.watchFollowGrants.mockImplementation((uid, fn) => { cb = fn; return () => {}; });
+    db.setFollowingEntry.mockRejectedValueOnce(new Error('PERMISSION_DENIED'));
+    db.followeeExists.mockResolvedValueOnce(false); // approver's presence/code is gone
+    initFollowGrants('me', 'MYCODE');
+    await cb({ tgt: { from: 'tgt', code: 'TGTCODE', ts: 1 } });
+    expect(db.followeeExists).toHaveBeenCalledWith('tgt');
+    // setFollowingEntry is the first await, so a refusal there means neither
+    // registerAsFollower nor a second setFollowingEntry attempt ran.
+    expect(db.registerAsFollower).not.toHaveBeenCalled();
+    expect(db.deleteFollowGrant).toHaveBeenCalledWith('me', 'tgt');
+    expect(isRequested('tgt')).toBe(false);
+  });
+
+  test('the existence probe itself failing (offline) is treated as transient — grant stays', async () => {
+    let cb;
+    db.watchFollowGrants.mockImplementation((uid, fn) => { cb = fn; return () => {}; });
+    db.setFollowingEntry.mockRejectedValueOnce(new Error('offline'));
+    db.followeeExists.mockRejectedValueOnce(new Error('offline'));
     initFollowGrants('me', 'MYCODE');
     await cb({ tgt: { from: 'tgt', code: 'TGTCODE', ts: 1 } });
     expect(db.deleteFollowGrant).not.toHaveBeenCalled();

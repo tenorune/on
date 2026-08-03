@@ -329,10 +329,18 @@ const AUTH_USERS = [
 // cleared (observed on dev, 2026-08-02 — userPrefs/{uid} came back holding the
 // same `following` keys and none of the other fields). So the routes need an
 // Admin-SDK auth handle, and the stub records call ORDER alongside the write.
-function makeAuthStub(events, { failRevoke = false, failDelete = false, record = { uid: 'L', email: 'l@example.com', metadata: { creationTime: '2026-01-01T00:00:00Z' } } } = {}) {
+function makeAuthStub(events, { failRevoke = false, failDelete = false, noAuthRecord = false, record = { uid: 'L', email: 'l@example.com', metadata: { creationTime: '2026-01-01T00:00:00Z' } } } = {}) {
   return {
     revokeRefreshTokens: jest.fn(async (uid) => {
       events.push(`revoke:${uid}`);
+      // What the real SDK throws for a uid Firebase Auth has never seen. The
+      // message is the one an operator reads on the panel, so it is verbatim.
+      if (noAuthRecord) {
+        throw Object.assign(
+          new Error('There is no user record corresponding to the provided identifier.'),
+          { code: 'auth/user-not-found' },
+        );
+      }
       if (failRevoke) throw new Error('revoke boom');
     }),
     getUser: jest.fn(async (uid) => {
@@ -455,6 +463,82 @@ describe('purge ends the purged account\'s session', () => {
     await expect(h.routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce }))
       .rejects.toThrow(/revoke/i);
     expect(h.events).not.toContain('rootUpdate');
+  });
+
+  // G8, found on dev 2026-08-03. The revoke was unguarded, so a uid Firebase
+  // Auth has never seen — every account ops/seed-merge-fixture.js writes, and
+  // every synthetic account the runbook tells you to seed — aborted the purge
+  // before it wrote anything. That refuses the SAFEST case: no Auth record means
+  // no session, so there is nothing to outlive the write and nothing to republish
+  // its cache. It also made the one documented mitigation for G3 and G6 —
+  // purge accounts no client ever held — impossible to carry out through the
+  // panel. server.js:525 already applies this principle to the Auth DELETE
+  // ("already absent is not a failure"); the revoke never got it.
+  test('an account with no Auth record is purged, not refused — there is no session to end', async () => {
+    /** @type {string[]} */
+    const evs = [];
+    const h = harness({ auth: makeAuthStub(evs, { noAuthRecord: true }) });
+    const { nonce } = await h.routes['POST /api/purge/preview']({ uid: 'L' });
+    const res = await h.routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce });
+
+    expect(h.events).toContain('rootUpdate');
+    // And it is not silent: an operator who sees no revocation must be told why,
+    // or "the session was ended" is a claim nobody made and everybody assumes.
+    expect(res.sessionNote).toMatch(/no auth record/i);
+  });
+
+  // The allowlist is the point — only user-not-found is benign. Anything else is
+  // a revoke that SHOULD have worked and did not, which is the G2 case.
+  test('a revoke that fails for any other reason still refuses, and nothing is written', async () => {
+    /** @type {string[]} */
+    const evs = [];
+    const auth = makeAuthStub(evs, {});
+    auth.revokeRefreshTokens = jest.fn(async () => {
+      throw Object.assign(new Error('backend unavailable'), { code: 'auth/internal-error' });
+    });
+    const h = harness({ auth });
+    const { nonce } = await h.routes['POST /api/purge/preview']({ uid: 'L' });
+    await expect(h.routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce }))
+      .rejects.toThrow(/revoke|session/i);
+    expect(h.events).not.toContain('rootUpdate');
+  });
+
+  // Ticking the box on an RTDB-only account is now reachable, so it has to
+  // behave: there is no record to delete, and calling deleteUser anyway would
+  // fail and print "the Auth record could not be deleted" — a false alarm about
+  // a record that never existed, on exactly the accounts G8 unblocks.
+  test('deleting the Auth record of an account that has none is a no-op, not a warning', async () => {
+    /** @type {string[]} */
+    const evs = [];
+    const h = harness({ auth: makeAuthStub(evs, { noAuthRecord: true, record: null }) });
+    const { nonce } = await h.routes['POST /api/purge/preview']({ uid: 'L' });
+    const res = await h.routes['POST /api/purge/execute']({
+      uid: 'L', confirmUid: 'L', nonce, deleteAuthRecord: true,
+    });
+
+    expect(h.events).toContain('rootUpdate');
+    // `evs` is the AUTH stub's log; h.events is the store's. Asserting the
+    // absence of an auth call against the store's array passes vacuously.
+    expect(evs).toContain('revoke:L');
+    expect(evs.some((e) => e.startsWith('deleteUser:'))).toBe(false);
+    expect(res.authWarning).toBeUndefined();
+    expect(res.sessionNote).toMatch(/no auth record/i);
+  });
+
+  // The route returning a note is worth nothing if the page never shows it —
+  // the same "tested the function, never checked the wiring" shape the ops/**
+  // import guard hit twice. panel.html has no DOM harness, so this is a source
+  // check: weak, but it fails when someone adds a field the page ignores.
+  test('panel.html surfaces the session note rather than dropping it', () => {
+    const page = readFileSync(new URL('../ops/panel.html', import.meta.url), 'utf8');
+    expect(page).toMatch(/res\.sessionNote/);
+  });
+
+  test('a purge that DID revoke says nothing about a missing record', async () => {
+    const { routes } = harness();
+    const { nonce } = await routes['POST /api/purge/preview']({ uid: 'L' });
+    const res = await routes['POST /api/purge/execute']({ uid: 'L', confirmUid: 'L', nonce });
+    expect(res.sessionNote).toBeUndefined();
   });
 
   test('purge refuses outright when no auth handle is wired', async () => {

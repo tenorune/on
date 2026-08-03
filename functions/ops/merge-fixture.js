@@ -118,12 +118,58 @@ export function fixtureCanvasKeys({ tag }) {
 }
 
 /**
+ * Who holds `telegramUsers/{tgId}` when the plain merge's teardown runs.
+ *
+ * merge.js:389 calls buildMappingTeardown with `owner: L` and NO `ownUids`, so
+ * everything except `loser` lands in the builder's refusal
+ * (telegram-link-write.js:100) and the mapping must SURVIVE the merge.
+ *
+ * All five ran on dev, 2026-08-03, one run each: `loser` 61/61, `third-party`
+ * 62/62, `no-uid` 62/62, `absent` 61/61, `survivor` 61/61. The refusals were
+ * watched rather than reasoned about, which is what these exist for.
+ *
+ * `survivor` is the one refusal that is right rather than merely safe: S is not
+ * destroyed by this merge, so the loss line's "the forward mapping stays with
+ * its owner, whose Telegram keeps working" is true — which is exactly what it
+ * was NOT in the case R2 had to fix at merge.js:363.
+ * @typedef {'loser' | 'third-party' | 'no-uid' | 'absent' | 'survivor'} MappingShape
+ */
+export const MAPPING_SHAPES = /** @type {MappingShape[]} */ ([
+  'loser', 'third-party', 'no-uid', 'absent', 'survivor',
+]);
+
+/**
+ * A shape only means anything when a mapping is seeded, and combining one with
+ * a repoint would produce claims for the WRONG branch — link via merge takes
+ * merge.js:351, where buildLinkWrites has its own refusal and its own ownUids.
+ * Both are refused rather than coerced: a fixture that silently seeds something
+ * other than what was asked for hands the verifier claims that do not match the
+ * tree, and a verifier that reports a correct merge as owed is the 2dec78c
+ * failure on purpose.
+ * @param {{ mappingShape?: string, telegram?: boolean, repoint?: boolean }} opts
+ * @returns {MappingShape}
+ */
+export function assertMappingShape({ mappingShape = 'loser', telegram = false, repoint = false }) {
+  if (!MAPPING_SHAPES.includes(/** @type {MappingShape} */ (mappingShape))) {
+    throw new Error(`unknown mappingShape "${mappingShape}" — expected one of ${MAPPING_SHAPES.join(', ')}`);
+  }
+  if (mappingShape !== 'loser' && !telegram) {
+    throw new Error(`mappingShape "${mappingShape}" needs a telegram mapping to hold — seed with --telegram, or drop the shape`);
+  }
+  if (mappingShape !== 'loser' && repoint) {
+    throw new Error(`mappingShape "${mappingShape}" is a plain-merge shape; --repoint takes the other branch (merge.js:351), whose expectations are not these`);
+  }
+  return /** @type {MappingShape} */ (mappingShape);
+}
+
+/**
  * The whole seed as one flat, DISJOINT write-set — every key is a whole
  * top-level record, because an RTDB multi-path update refuses two keys where
  * one is an ancestor of the other.
- * @param {{ tag: string, now: number, telegram?: boolean }} opts
+ * @param {{ tag: string, now: number, telegram?: boolean, mappingShape?: string }} opts
  */
-export function buildMergeFixture({ tag, now, telegram = false }) {
+export function buildMergeFixture({ tag, now, telegram = false, mappingShape = 'loser' }) {
+  const shape = assertMappingShape({ mappingShape, telegram });
   const uids = fixtureUids(tag);
   const gids = fixtureGids(tag);
   const codes = fixtureCodes(tag);
@@ -280,16 +326,52 @@ export function buildMergeFixture({ tag, now, telegram = false }) {
   }
 
   // --- telegram, opt-in -----------------------------------------------------
+  // The loser's reverse index is seeded in EVERY shape: it is what sends
+  // merge.js:385 into the teardown branch at all. What varies is who the
+  // forward mapping says it belongs to.
   if (telegram) {
-    writes[`telegramUsers/${tgId}`] = { uid: L, chatId: tgId, linkedAt: now - 100_000 };
     writes[`telegramByUid/${L}`] = { tgId, chatId: tgId, linkedAt: now - 100_000 };
+    if (shape === 'loser') {
+      writes[`telegramUsers/${tgId}`] = { uid: L, chatId: tgId, linkedAt: now - 100_000 };
+    } else if (shape === 'third-party') {
+      // P2 is in the fixture but not in the merge, and it gets its own reverse
+      // index so P2 itself is self-consistent — the asymmetry is L's alone.
+      writes[`telegramUsers/${tgId}`] = { uid: P2, chatId: tgId, linkedAt: now - 200_000 };
+      writes[`telegramByUid/${P2}`] = { tgId, chatId: tgId, linkedAt: now - 200_000 };
+    } else if (shape === 'no-uid') {
+      writes[`telegramUsers/${tgId}`] = { chatId: tgId, linkedAt: now - 100_000 };
+    } else if (shape === 'survivor') {
+      writes[`telegramUsers/${tgId}`] = { uid: S, chatId: tgId, linkedAt: now - 200_000 };
+      writes[`telegramByUid/${S}`] = { tgId, chatId: tgId, linkedAt: now - 200_000 };
+    }
+    // 'absent': the reverse index above points at nothing. The teardown nulls
+    // the mapping path anyway — deliberately unconditional, so a residue null
+    // is never conditioned on a read (telegram-link-write.js:77).
   }
 
   return { writes, uids, gids, codes, tokens, tgId, canvasKeys: fixtureCanvasKeys({ tag }), notes: fixtureNotes() };
 }
 
-/** What the operator should know before and after, printed by both CLIs. */
-export function fixtureNotes() {
+/**
+ * What the operator should know before and after, printed by both CLIs.
+ *
+ * A refusal shape is deliberately INCONSISTENT — that is the state it exists to
+ * seed — so the "no errors before the merge" line is false for it and has to be
+ * replaced rather than left standing. Unsaid, the operator reads a legitimate
+ * integrity ERROR as a defect and stops.
+ * @param {{ mappingShape?: string }} [opts]
+ */
+export function fixtureNotes({ mappingShape = 'loser' } = {}) {
+  if (mappingShape !== 'loser') {
+    return [
+      'Accounts are SYNTHETIC and no client ever holds them, so G3 and G6 have no author on this leg.',
+      'Expect exactly one integrity finding per seeded uid: auth-missing, severity INFO (an RTDB user with no Auth record).',
+      `This is the "${mappingShape}" mapping shape, so the seed is deliberately inconsistent: EXPECT telegram-mapping-asymmetric (ERROR) against the loser BEFORE the merge${mappingShape === 'no-uid' ? ', plus telegram-mapping-dangling (WARN) for the mapping node itself' : ''}. That is the state being tested, not a defect.`,
+      'The teardown must REFUSE: expect a telegram-mapping-not-owned conflict in the preview and NO loss line saying the mapping was dropped. The mapping must still be there afterwards.',
+      'Verify with the same --mapping-shape you seeded, or the claims describe a different merge than the one you ran.',
+      'ops/restore-preimage.js is purge-shaped (it assumes every dumped path was NULLED) — do not read a merge dump with it. Verify with ops/verify-merge.js.',
+    ];
+  }
   return [
     'Accounts are SYNTHETIC and no client ever holds them, so G3 and G6 have no author on this leg.',
     'Expect exactly one integrity finding per seeded uid: auth-missing, severity INFO (an RTDB user with no Auth record).',
@@ -306,7 +388,15 @@ export function fixtureNotes() {
  * @param {{ tag: string }} opts
  */
 export function buildFixtureCleanup({ tag }) {
-  const seeded = buildMergeFixture({ tag, now: 0, telegram: true }).writes;
+  // Every shape's paths, not just the default one's: a run seeded with
+  // --mapping-shape third-party owns telegramByUid/{P2}, and a cleanup derived
+  // from the loser shape alone would leave a live-looking Telegram mapping
+  // behind on a project someone else is about to read an integrity report on.
+  /** @type {Record<string, unknown>} */
+  const seeded = {};
+  for (const mappingShape of MAPPING_SHAPES) {
+    Object.assign(seeded, buildMergeFixture({ tag, now: 0, telegram: true, mappingShape }).writes);
+  }
   const { L, S, P1 } = fixtureUids(tag);
   const tgId = fixtureTgId(tag);
   /** @type {Record<string, null>} */
@@ -336,10 +426,16 @@ export function buildFixtureCleanup({ tag }) {
  * What the database must look like once the merge has run. Grouped in the order
  * the smoke test asks for it: contacts, groups, per-group names, canvases, push
  * tokens, then the loser's own nodes.
- * @param {{ tag: string, telegram?: boolean, repoint?: boolean }} opts
+ *
+ * `mappingShape` must match the shape the fixture was SEEDED with: it decides
+ * whether the forward mapping is claimed gone or claimed still standing, and
+ * reading one back against the other is the cry-wolf failure (2dec78c), not a
+ * discovery.
+ * @param {{ tag: string, telegram?: boolean, repoint?: boolean, mappingShape?: string }} opts
  * @returns {Assertion[]}
  */
-export function buildMergeAssertions({ tag, telegram = false, repoint = false }) {
+export function buildMergeAssertions({ tag, telegram = false, repoint = false, mappingShape = 'loser' }) {
+  const shape = assertMappingShape({ mappingShape, telegram, repoint });
   const { L, S, P1, P2, F1, C1 } = fixtureUids(tag);
   const { GA, GB, GC, GD } = fixtureGids(tag);
   const codes = fixtureCodes(tag);
@@ -440,9 +536,28 @@ export function buildMergeAssertions({ tag, telegram = false, repoint = false })
     add(`userPrefs/${S}/telegram/linkedAt`, 'present', 'stamped alongside the mapping');
     add(`userPrefs/${S}/notifyChannel`, 'equals', 'the survivor is switched onto telegram — and it is routable, because the mapping above exists (`telegram-channel-unroutable` is an ERROR)', 'telegram');
   } else if (telegram) {
-    add(`telegramUsers/${tgId}`, 'gone', 'without a repoint the mapping must come down, or the next Mini App open bootstraps onto a dead uid');
+    // The loser's reverse index comes down in EVERY shape — it is the loser's,
+    // and merge.js:390 nulls it outside the teardown's verdict entirely. What
+    // the shape decides is whether the forward mapping survives.
     add(`telegramByUid/${L}`, 'gone', 'the loser reverse index is nulled either way');
-    add(`telegramByUid/${S}`, 'gone', 'a plain merge does NOT hand the survivor the Telegram link — that is what link via merge is for');
+    if (shape === 'loser' || shape === 'absent') {
+      // 'absent' reads identically: the teardown nulls a path that held nothing.
+      // The difference between the two lives in the seed and in the preview's
+      // loss line, and no read-back can see it.
+      add(`telegramUsers/${tgId}`, 'gone', 'without a repoint the mapping must come down, or the next Mini App open bootstraps onto a dead uid');
+      add(`telegramByUid/${S}`, 'gone', 'a plain merge does NOT hand the survivor the Telegram link — that is what link via merge is for');
+    } else if (shape === 'third-party') {
+      add(`telegramUsers/${tgId}/uid`, 'equals', 'the mapping belongs to an account this merge is NOT destroying, so the teardown must refuse it — deleting it would unlink a live third party (R2)', P2);
+      add(`telegramByUid/${P2}/tgId`, 'equals', "and P2's Telegram keeps working, which is what the refusal's loss line promises", tgId);
+      add(`telegramByUid/${S}`, 'gone', 'a plain merge does NOT hand the survivor the Telegram link');
+    } else if (shape === 'no-uid') {
+      add(`telegramUsers/${tgId}`, 'present', 'a mapping node carrying no uid has no provable owner, so it is refused and left standing rather than deleted on a guess');
+      add(`telegramUsers/${tgId}/uid`, 'gone', 'and it still carries no uid — the merge did not adopt it either');
+      add(`telegramByUid/${S}`, 'gone', 'a plain merge does NOT hand the survivor the Telegram link');
+    } else if (shape === 'survivor') {
+      add(`telegramUsers/${tgId}/uid`, 'equals', "the survivor holds the mapping and survives the merge, so tearing it down would unlink an account that is still here", S);
+      add(`telegramByUid/${S}/tgId`, 'equals', "the survivor's own reverse index is untouched — this is the one refusal that is right rather than merely safe", tgId);
+    }
     add(`userPrefs/${S}/notifyChannel`, 'gone', 'and it is not switched onto a channel it cannot receive on');
   }
 

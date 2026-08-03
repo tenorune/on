@@ -15,28 +15,43 @@ for ambient presence. Repo `tenorune/on`, working dir `/home/user/on`.
 `docs/operator-panel-smoke-test.md` pass, and S1 is CLOSED** — so nothing blocks
 pointing the panel at production data any more. **No build work is owed.**
 
-**THE ONE CONCRETE ACTION LEFT is an operator run, ~10 minutes**, and it is
-optional: the last unexercised merge path, a plain merge of a **Telegram-linked**
-loser (`merge.js:385-394`'s `buildMappingTeardown` branch). Everything else on the
-list below is either a deliberate deferral or a whole-app gap that is its own
-piece of work.
+**THE OPERATOR-FACING LIST IS EMPTY.** Every live merge path, every branch of
+`buildMappingTeardown`, and both of the panel's last never-seen renderings ran on
+dev across 2026-08-02/03. Nothing on `docs/operator-panel-smoke-test.md` is
+unexercised, and no operator run is owed.
 
-```bash
-cd functions
-export GOOGLE_APPLICATION_CREDENTIALS_JSON="$(cat ~/sa-dev.json)"
-node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tdn1 --telegram --yes
-# refresh the panel · integrity report · LOSER row → "merge into…"  (NOT "link via merge…")
-node ops/verify-merge.js       --project $DEV --prod-project $PROD --tag tdn1 --telegram
-node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tdn1 --clean --yes
-```
+**G6 is CLOSED (`13cb18c`+`8a0ff62`), and G3 stands alone.** This section used
+to read "G3 and G6 are the same fix — close G3 and G6 closes with it." That
+was wrong, and so was "G6 has no mitigation": G3's author is the *revoked*
+account's own client, writing inside its unexpired ID token's window, and a
+revocation-time gate refuses that. G6's author is a **peer** — M, whose
+session was never revoked, whose ID token renews hourly forever, writing its
+own owner-only node (`userPrefs/{M}/following/{T}`). No revocation-time
+comparison on M's token could ever have refused that write. The two items
+share only a *sighting window*, not a mechanism. G6 got its own fix instead: a
+`database.rules.json` `.validate` on `userPrefs/$uid/following/$followee`
+requiring `presence/code` to exist (not `users/{T}` — that predicate is
+forgeable, see the landmines below), plus a client-side gate in
+`js/following.ts` that stops issuing the republish once a device has seen a
+server list. Full reasoning:
+`docs/superpowers/specs/2026-08-03-g6-peer-republish-design.md`;
+`docs/operator-panel-followups.md`'s G6 entry carries the same correction.
+**Verified against the rules emulator only** — nothing here has run against a
+live project, and `database.rules.json` now carries this as a fourth
+undeployed behaviour change (see the branch-status note below).
 
-Expect **61 of 61**. If it prints 65 you pressed the wrong button and ran
-link-via-merge again. Runbook: `functions/ops/README.md`, "Seeding and verifying
-a merge".
+**What is left is G3, alone.** `database.rules.json` never checks
+`auth.token.auth_time`, so a revoked session keeps writing for up to an hour
+(**G3**, measured: writes landing 33 min after the revoke, refused by 66).
+That is a spec-first piece of work, not an afternoon: it needs a rules-readable
+place to store a per-uid revocation time, a decision about what a mid-session
+client does when its token is refused, and it touches every write path in the
+app. **Start with a spec, not code** — the measurements are already in
+`docs/operator-panel-followups.md`, so don't re-derive them.
 
-Otherwise pick from the open items in `docs/operator-panel-followups.md` — **G3**
-and **G6** are the ones that matter (both whole-app rules gaps, G6 with no
-mitigation at all); M1–M8 are minors that were each ruled non-blocking.
+Everything else in that file (**G1**, **G4**, **M1–M8**) is a deliberate
+deferral, each with its `file:line` and the reason. The test to re-apply before
+promoting one: does it affect the correctness of a destructive write?
 
 **Step 9's purge side, OBSERVED across three runs (2026-08-02).** Run 3 closed it:
 a purge with the **Auth-record box ticked**, `ops/verify-auth-delete.js` run
@@ -57,22 +72,27 @@ own `--telegram` fixture: **65 of 65** claims, covering all of `buildLinkWrites`
 — mapping node, reverse index, and the prefs side where `telegram-prefs-disagree`
 and `telegram-channel-unroutable` (both integrity ERRORS) live.
 
-⚠️ **One merge path is still unexercised live**: a plain merge of a
-Telegram-linked loser — `merge.js:385-394`'s `buildMappingTeardown` branch, the
-*opposite* branch of the same `if` link-via-merge takes (`:351`). Running one
-says nothing about the other: there the mapping must come **down** rather than
-repoint, or it points at a uid that no longer exists and the next Mini App open
-bootstraps onto it. One run — seed `--telegram`, press `merge into…`, verify
-`--telegram` without `--repoint` (61 claims). Deliberately NOT filed as an open
-item; recorded so nobody reads "S1 closed" as "every merge path has been seen
-live".
+**Plain merge of a Telegram-linked loser, OBSERVED 2026-08-03.** The last
+unexercised merge path — `merge.js:385-394`'s `buildMappingTeardown` branch, the
+*opposite* branch of the same `if` link-via-merge takes (`:351`) — ran on its own
+`--telegram` fixture (tag `tdn1`): **61 of 61** claims under
+`ops/verify-merge.js --telegram`, no `--repoint`. There the mapping must come
+**down** rather than repoint, or it points at a uid that no longer exists and the
+next Mini App open bootstraps onto it. Integrity was clean either side (exactly
+one `auth-missing` INFO per seeded uid before, nothing above INFO after), the
+audit log carried an `ok` line, and the fixture was cleaned. **Every live merge
+path has now been seen; none of them is proven** — one run each, one fixture
+shape each.
 
 **If you run the panel again, the preconditions still stand.** Close the Mini App
 and any signed-in web client for the target account first (**G3**) — it is not
 theoretical, it fired on 2026-08-02 and reappeared as a conflict at
 `userPrefs/{uid}` on the way back out. And closing the target's clients is not
-sufficient (**G6**): a PEER's client republishes cross-user residue permanently,
-with no mitigation; the tool only detects it and prints a `PEER REPUBLISH` block.
+sufficient (**G6**): a PEER's client republishes cross-user residue permanently.
+**G6 now has a real fix** (`13cb18c`+`8a0ff62` — a rules `.validate` plus a
+client gate), but it is not deployed to any project, so this precondition
+still stands against a live target until `database.rules.json` ships there:
+the tool only detects the republish and prints a `PEER REPUBLISH` block.
 The merge leg sidestepped both by seeding **synthetic** accounts no client ever
 held — the reasoning is in `ops/merge-fixture.js`'s header and it is the pattern
 to reuse.
@@ -109,16 +129,18 @@ confirmed working on a custom-token uid, which was the original deferral's
 question. The rules gap underneath it is filed as **G3**. Full reasoning and the
 measurements live in `docs/operator-panel-followups.md`.
 
-**Twelve open items, five closed** — all ranked with stable IDs in the "at a
+**Eleven open items, six closed** — all ranked with stable IDs in the "at a
 glance" table at the top of `docs/operator-panel-followups.md`. **S1 and M9 are
 now CLOSED** (the smoke test ran to completion; M9's `op` guard shipped straight
 after, because completing the leg is what made it urgent — a real merge dump now
-sits in `.ops-audit/` beside the purge dumps). Open: G1, G3, **G4** and G6 (known
-gaps — G3 and G6 are whole-app rules gaps, not panel items; G4 and G6 both came
-out of running the smoke test, and G6 has no mitigation at all), and M1–M8
+sits in `.ops-audit/` beside the purge dumps). Open: G1, **G3** and **G4** (known
+gaps — G3 is a whole-app rules gap, not a panel item; G4 came out of running
+the smoke test), and M1–M8
 (deferred minors, each with its `file:line` and why it was left; none of them
 affects the correctness of a destructive write, which is the test to re-apply
-before promoting one).
+before promoting one). **G6 is now CLOSED** too (`13cb18c`+`8a0ff62`) — it does
+NOT close with G3, contrary to what this file used to say; see "What's next"
+above.
 **G5 is closed** (`0f31553`) and stays in that table with its reasoning, like G2,
 because *why it survived every review* is the useful part. It carries one open
 half, deliberately not done: `integrity.js` only catches residue families someone
@@ -127,15 +149,45 @@ remembered to add to it, and a test asserting every own-account top-level node i
 catch the NEXT relocation instead of the last one. Nothing else is owed on this
 branch.
 
-**Branch status (2026-08-03): clean.** Nothing uncommitted, nothing unpushed,
-nothing unmerged. `origin/dev` and `origin/claude/smoke-test-merge-leg-87l2w1`
-point at the **same commit** — merged fast-forward at the operator's instruction
-each time, so the feature branch carries nothing unique and is redundant.
-`origin/claude/operator-panel-step-9-z31g3w`,
-`origin/claude/knockknock-smoke-test-9-10-1zohil` and
-`origin/claude/knockknock-ui-improvements-7bm5o9` are previous branches, likewise
-redundant. **`dev` is 62 ahead of `origin/main`; `dev` → `main` remains the
-maintainer's**, and no PR is open.
+**Branch status (2026-08-03): clean, and TWELVE commits await the maintainer.**
+Nothing uncommitted, nothing unpushed. The branch was renamed/continued as
+`claude/knockknock-g3-g6-revocation-cy2i0n` (not
+`claude/knockknock-operator-followups-1kyjy6`, named here previously) and is
+**12 ahead of `origin/dev`** (`22abc8a`) and pushed:
+
+| | |
+| --- | --- |
+| `53d4789` | the plain-merge teardown branch ran on dev — 61/61 |
+| `1d3a235` | `--mapping-shape` on both merge-leg CLIs, +17 tests |
+| `44dc688` | the four other mapping holders ran — 62/62, 62/62, 61/61, 61/61 |
+| `864de74` | **G8**: purge no longer refuses an account with no Auth record |
+| `edb528c` | hand off — operator list empty, G3/G6 filed as one fix (the reading this update corrects) |
+| `bb41719` | spec: G6 — the peer republish, and why it does not close with G3 |
+| `845293b` | plan: implementation for the G6 spec |
+| `13cb18c` | rules guard — a follow entry may only name an account that exists (**G6**) |
+| `f7ac8c7` | seeds the `ownership.test.js` followee the new guard caught was missing |
+| `8620702` | store helpers — `hasSeenServerFollowing`/`markServerFollowingSeen` |
+| `8a0ff62` | client gate — stop republishing a following list the server emptied (**G6**) |
+| `94c9aa6` | classifies `statusapp_following_server_seen` as account-scoped in `js/cacheOwner.ts`, closing a drift-guard failure the six commits above it left open |
+
+`dev` → `main` and the branch → `dev` are both **the maintainer's**; no PR is
+open, and none was asked for. Older branches
+(`claude/smoke-test-merge-leg-87l2w1`, `claude/operator-panel-step-9-z31g3w`,
+`claude/knockknock-smoke-test-9-10-1zohil`,
+`claude/knockknock-ui-improvements-7bm5o9`) carry nothing unique and are
+redundant. **`dev` is 62 ahead of `origin/main`.**
+
+**Of these twelve, only `13cb18c` rides a deploy.** `ops/**` is excluded from
+the functions archive, so G8 (`ops/server.js`, `ops/panel.html`) and the
+merge-leg CLIs ride no deploy at all, and the spec/plan/store/client-gate/
+cache-owner commits (`bb41719`, `845293b`, `8620702`, `8a0ff62`, `94c9aa6`)
+touch only `docs/` and `js/`, neither of which is a rules deploy surface.
+⚠️ **`13cb18c` is a fourth undeployed behaviour change riding on
+`database.rules.json`**, on top of the three `dev` already carries below.
+Rules deploy independently of hosting and functions
+(`firebase deploy --only database`) and bind every client immediately,
+including ones nobody can update. Nothing deploys from sessions;
+`docs/DEPLOY-PROD.md` is the runbook.
 
 ⚠️ **`dev` carries THREE production behaviour changes** on the `performLink` →
 `expungeDerivedAccount` path, all riding the next functions deploy: `pushTokens`
@@ -145,8 +197,8 @@ nothing deploys from sessions. **The merge-leg work adds nothing to that list** 
 `ops/merge-fixture.js`, `ops/seed-merge-fixture.js` and `ops/verify-merge.js` are
 operator-machine tools under `ops/**`, excluded from every deploy.
 
-What remains (G1, G3, G4, G6, M1–M9) is either an operator action
-or explicitly deferred — none of it is unfinished build work.
+What remains (G1, G3, G4, M1–M9) is either an operator action
+or explicitly deferred — none of it is unfinished build work. **G6 is CLOSED.**
 
 Spec: `docs/superpowers/specs/2026-08-01-operator-control-panel-design.md` —
 decisions D1–D6 and their rationale; §7 (merge family rules) and §8 (the
@@ -179,11 +231,16 @@ merge leg on 2026-08-03. Three things to carry in anyway, none of them work
 items: approvals are per-uid and held in memory, so the panel is single-operator
 by construction — two people running it against the same project at once do not
 share approval state; a purge is recoverable from its pre-image but **not
-completely** (**G4**); and **G6** has no mitigation at all, so a peer's client
-can write permanent cross-user residue during any purge or merge, including the
-`performLink` path in production where no operator is present.
+completely** (**G4**); and, as of this 2026-08-02 entry, **G6** had no
+mitigation at all, so a peer's client could write permanent cross-user residue
+during any purge or merge, including the `performLink` path in production
+where no operator is present. **G6 is now CLOSED** (`13cb18c`+`8a0ff62`,
+2026-08-03) — see "What's next" at the top of this file; this paragraph is
+left as the historical snapshot it was written as.
 
-Everything below is SHIPPED and merged; no pending uncommitted/unpushed work.
+Everything below is SHIPPED; nothing is uncommitted or unpushed. The four
+commits listed under "Branch status" are pushed but **not yet merged to `dev`** —
+that merge is the maintainer's.
 
 - **v2.0.0 released.** `dev` → `main` merged by the maintainer (`main` =
   `731eed9`); tagged `v2.0.0` on GitHub at the release commit `ca1d1fa`.
@@ -219,18 +276,42 @@ equally safe.
 
 ## Verification state
 
-Green bar OBSERVED at the `origin/dev` tip (2026-08-03): web jest
-**2123/2123** (88 suites, unchanged) · functions **919/919** (31 suites) ·
-`typecheck` + `typecheck:scripts` clean · `node scripts/prod.js` builds · zero
-new suppressions across all seven forms.
+Green bar OBSERVED at `94c9aa6`, the branch tip (2026-08-03): web jest
+**2130/2130** (88 suites, unchanged) · rules (emulator) **115/115** (12
+suites) · functions **941/941** (32 suites, unchanged) · `typecheck` +
+`typecheck:scripts` clean · `node scripts/prod.js` builds.
 
-Functions movement from the `5f4dcd5` bar (879/30): **+26** and a new suite
-(`ops-merge-fixture.test.js`) for the merge leg's seed and its read-back, **+4**
-in the same suite for the verifier's key-order fix, **+7** in `ops-restore.test.js`
-for M9's `op` guard, **+3** for the telegram merge variants. Web is untouched
-throughout.
+This bar was not green on the first pass at this tip minus one commit
+(`8a0ff62`): `tests/cacheOwner.test.js`'s drift guard ("every statusapp_ key in
+js/ is classified") failed, because `js/store.ts`'s new
+`statusapp_following_server_seen` key (`8620702`) had never been added to
+`js/cacheOwner.ts`'s classification lists. **The guard did exactly what it was
+built for** — catching a new `statusapp_*` key that skipped its account/device
+classification decision before it could leak an old account's cache across an
+owner change, the same class of leak two of this repo's own reviews had
+already walked past once (see the landmine below). Fixed in `94c9aa6`, ruled
+**account-scoped**: the key records whether a given ACCOUNT's server-side
+following list has been seen on this device, so it must clear alongside
+`statusapp_following` on an owner change, or a newly-switched account inherits
+the previous account's migration heuristic — exactly the inherited-cache leak
+`js/cacheOwner.ts`'s header exists to prevent.
 
-Prior bars: `2bf54b7` functions 916 (31). `2dec78c` functions 909 (31). `5f4dcd5` functions 879 (30). `0f31553` functions 857 (28).
+Web movement from the `864de74`/`edb528c` bar (2123/88): **+7** — 4 new cases
+in `tests/following.test.js` (the client gate, exercised through the
+`watchFollowing` callback, not the branch directly) and 3 in
+`tests/store.test.js` (`hasSeenServerFollowing`/`markServerFollowingSeen`).
+Suite count unchanged; no new test file. Rules movement: **+7**, all in the
+new `tests/rules/g6-following-referent.test.js` (the 12-suite rules run was
+not tracked in this file before this branch — 115/115 is this run's own
+baseline, not a delta). Functions is **unchanged** at 941/941 (32 suites) —
+nothing in this plan touches `functions/`.
+
+Functions movement from the `22abc8a` bar (919/31): **+12** in
+`ops-merge-fixture.test.js` for the mapping shapes, **+5** in a new suite
+(`ops-merge-cli.test.js`) that spawns both merge-leg CLIs, **+5** in
+`ops-server.test.js` for G8. Web is untouched throughout that prior move.
+
+Prior bars: `22abc8a` functions 919 (31). `2bf54b7` functions 916 (31). `2dec78c` functions 909 (31). `5f4dcd5` functions 879 (30). `0f31553` functions 857 (28).
 `373b7ec` functions 842 (27).
 `f38f5cb` functions 807 (26).
 
@@ -287,6 +368,22 @@ each carries its evidence):
 - `5f4dcd5` `functions/test/expunge-completeness.test.js` — the guard that fails
   when a new top-level node in `database.rules.json` is not classified against
   the expunge. Verified by planting three violations, not by passing.
+
+**Shipped 2026-08-03, on `claude/knockknock-operator-followups-1kyjy6`** — pushed,
+awaiting the maintainer's merge to `dev`:
+
+- `53d4789` the plain-merge teardown branch ran on dev, 61/61 — docs only.
+- `1d3a235` `--mapping-shape <loser|third-party|no-uid|absent|survivor>` on
+  `ops/seed-merge-fixture.js` and `ops/verify-merge.js`, so the four holders of
+  `telegramUsers/{tgId}` that `merge.js:389` REFUSES can be seeded and read back.
+  The claims differ per shape; a mismatch would report a correct merge as owed,
+  so a shape without `--telegram` or combined with `--repoint` is refused before
+  the credential is read. +17 tests, verified by planting four violations —
+  **one of which stayed green**, and its gap is recorded in the commit body.
+- `44dc688` the four shapes ran on dev — 62/62, 62/62, 61/61, 61/61 — docs only.
+- `864de74` **G8** fixed: `revokeRefreshTokens` throwing `auth/user-not-found` no
+  longer refuses the purge. Also records the residue sweep's `✗` branch and the
+  `PEER REPUBLISH` block, both run for the first time.
 
 **Shipped 2026-08-03, all on `dev`** — the merge leg:
 
@@ -365,16 +462,32 @@ steps 1-8 and 10 plus step 9's purge side (2026-08-02), and step 9's merge leg
 probed either side), one live restore driven from its pre-image, the
 `RESIDUE SWEEP` clearing an owned group's whole cells node, the integrity report
 over live data (which surfaced G5, G6 and G7), one live plain merge with 57/57
-read-back claims holding, and one live **link via merge** with 65/65.
+read-back claims holding, one live **link via merge** with 65/65, and one live
+**plain merge of a Telegram-linked loser** with 61/61 — the two Telegram variants
+being opposite branches of the same `if` (`merge.js:351` vs `:385`), so each
+needed its own run.
 
-**Still never exercised:** a plain merge of a **Telegram-linked** loser — the
-`buildMappingTeardown` branch (`merge.js:385-394`), 61 read-back claims. Link via
-merge (`:351`, 65 claims) HAS now run; it is the opposite branch of the same
-`if`, so it does not cover this one. Runbook in `functions/ops/README.md`.
-Also unexercised: the sweep's `present` branch (the `✗` output — every live sweep
-came back clean, so half that rendering is pinned only by tests), and the
-`PEER REPUBLISH` block, which was written from a diagnosis rather than from
-watching it print.
+**The teardown branch's four other mapping holders also ran (2026-08-03)**, via
+the `--mapping-shape` flag added the same day: `third-party` 62/62, `no-uid`
+62/62, `absent` 61/61, `survivor` 61/61. Three of the four are REFUSALS — the
+mapping must survive — and each carried a `telegram-mapping-not-owned` conflict
+in the preview with no loss line claiming a delete. Their pre-merge
+`telegram-mapping-asymmetric` ERROR is the state being seeded, not a finding, and
+both CLIs say so. This also settled a wiring question the tests could not reach:
+had the flag been dropped between the CLI and the fixture, a `third-party` run
+would have seeded the loser shape and come back owed. It did not.
+
+**The last two renderings ran on 2026-08-03, and the list is now empty.** A
+seeded fixture's loser was purged and two paths were replayed out of its own
+pre-image: the dry run printed `RESIDUE SWEEP` with `swept: 7`, one `✗`
+(`locations/smk-res1-loser`, `keys: lat, lng, updatedAt`), and a
+`PEER REPUBLISH` block naming `smk-res1-follower`.
+
+⚠️ **Rendering observed, causation NOT.** An operator credential wrote those
+values back, not a peer's client in the G3 window — so the block's "that
+account's own client put it back" is false in that run. It exercised the
+classification, the attribution and the text; the live G6 sighting is still the
+one from 2026-08-02, and this run must not be cited as a second.
 
 ## On-ramp
 
@@ -382,10 +495,13 @@ Read in this order; stop when you have what you need.
 
 1. This file — the source of truth for "where things are."
 2. `docs/operator-panel-followups.md` — every open item with a stable ID
-   (**G1**, **G3**, **G4**, **G6**, **M1–M9**), each with `file:line` and why it
-   was left, plus closed-but-instructive **S1**, **G2**, **G5** and **G7**. Read
-   **G6** before purging anything real: it is the one gap with no mitigation.
-   Cite the IDs rather than re-describing the items.
+   (**G1**, **G3**, **G4**, **M1–M9**), each with `file:line` and why it
+   was left, plus closed-but-instructive **S1**, **G2**, **G5**, **G6**, **G7**
+   and **G8**. Read **G6** before purging anything real: the rules guard that
+   closes it is verified against the emulator only and is not deployed to any
+   project, so a live purge or merge is exactly as exposed as before until
+   `database.rules.json` ships. Cite the IDs rather than re-describing the
+   items.
 3. `docs/operator-panel-smoke-test.md` — the ten-step script and its filled-in
    results table (**all ten pass**), "What a restore cannot recover", and the
    two merge variants the run did not cover.
@@ -471,6 +587,51 @@ proxy and would abort an `&&` chain. Functions deps are required for
 
 ## Landmines (read before touching code)
 
+- **An existence check is only as strong as who can create the node it checks
+  (G6).** `database.rules.json`'s new guard on
+  `userPrefs/$uid/following/$followee` needed to answer "does this account
+  exist," and a bare `users/{T}.exists()` would have been the obvious
+  predicate — and worthless. There are **three** non-owner writers under
+  `users/$uid`, not two (a final-review finding, M5): `users/$uid/followers/$follower`
+  and `followerNames/$follower` are writable BY the follower, so a peer's own
+  `registerAsFollower` call creates the `users/{T}` node moments before
+  `setFollowingEntry` runs (`following.ts:1518-1520`), satisfying the weak
+  predicate every time with no real account behind it — and
+  `users/$uid/invites/$token/redemptionsUsed` grants `.write: "auth != null"`
+  to **any** signed-in uid, for any `$uid`/`$token` (`database.rules.json:34-38`),
+  so redeeming someone else's invite link creates the same node with nothing
+  more than a token guess behind it. The guard checks `presence/code` instead
+  — no client can write another account's presence, so the owner-only
+  ancestor rule on `users/$uid` actually holds there. Before adding a
+  `.exists()` predicate to a rule, ask who else's write can plant the thing
+  you're checking for.
+- **A new `localStorage` key is not done when it's written and read — it also
+  has to be classified.** `js/cacheOwner.ts`'s drift guard
+  (`tests/cacheOwner.test.js`, "every statusapp_ key in js/ is classified")
+  fails until every `statusapp_*` key found by scanning `js/**` is named in
+  `ACCOUNT_SCOPED_KEYS`, `DEVICE_SCOPED_KEYS`, or one of their prefix lists —
+  it exists precisely so a key that skips that decision fails loud instead of
+  silently surviving an account switch. It caught exactly that on this branch:
+  `statusapp_following_server_seen` (`8620702`) shipped three commits before
+  anyone classified it, and the drift guard — not either of the reviews those
+  three commits went through — is what surfaced it, fixed in `94c9aa6` as
+  account-scoped (it records whether a given ACCOUNT's server list has been
+  seen, so an owner change must clear it same as `statusapp_following`, or the
+  new owner inherits the old account's migration heuristic). Classify a new
+  `statusapp_*` key in the same commit that introduces it.
+- **A fail-closed guard must say what the BENIGN absence is (G8).** The purge
+  revoked refresh tokens before its write and refused if that threw — correct for
+  an account whose session it could not end, and wrong for an account that has no
+  session at all. `revokeRefreshTokens` throws `auth/user-not-found` for a uid
+  Firebase Auth has never seen, so every RTDB-only account was refused: every
+  `ops/seed-merge-fixture.js` account, and every synthetic account the runbook
+  prescribes as the ONLY mitigation for G3 and G6. "Refuse unless the dangerous
+  thing succeeded" and "refuse unless the dangerous thing was possible" look
+  identical in code. Fixed with an allowlist of one code (`server.js:720`), like
+  `opGuard`; `readAuthIdentity` already did this and the revoke did not, so the
+  precedent was sitting two hundred lines away. **Nothing in a session can reach
+  the Auth path** — no container has a service-account credential — so this class
+  of defect is operator-run-only, every time.
 - **RTDB returns an object's keys in ITS order, not the order you wrote them, so
   `JSON.stringify(live) === JSON.stringify(expected)` is a false-negative
   generator.** Cost a live run on 2026-08-03: `ops/verify-merge.js` reported
@@ -605,9 +766,10 @@ proxy and would abort an `&&` chain. Functions deps are required for
   `.write`.** Under `users/$uid` (blanket self `.write`), enforcement must be
   `.validate` (doesn't cascade, skipped on delete) — that's why the
   `followers`/`followerNames` guards are `.validate` and the sibling `.write`
-  narrowing is inert decoration. Under `groups/$gid` (owner-only ancestor),
-  child `.write` narrowing IS load-bearing. Check the ancestor chain before
-  judging or editing any rule.
+  narrowing is inert decoration. Same reason under `userPrefs/$uid`, which is
+  why G6's `following/$followee` referential guard is `.validate` too. Under
+  `groups/$gid` (owner-only ancestor), child `.write` narrowing IS
+  load-bearing. Check the ancestor chain before judging or editing any rule.
 - **Shallow clone → false "unrelated histories."** Fresh containers clone shallow
   (`.git/shallow`). Run `git fetch --unshallow origin` **before** any cross-branch
   merge/compare/ancestry check.

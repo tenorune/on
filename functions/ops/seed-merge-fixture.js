@@ -35,6 +35,7 @@ import {
   fixtureGids,
   fixtureCanvasKeys,
   fixtureNotes,
+  assertMappingShape,
 } from './merge-fixture.js';
 
 const proc = /** @type {{ argv: string[]; env: Record<string, string | undefined>; exit: (code?: number) => never }} */ (
@@ -59,6 +60,7 @@ async function main() {
   const apply = argv.includes('--yes');
   const clean = argv.includes('--clean');
   const telegram = argv.includes('--telegram');
+  const mappingShape = flag(argv, '--mapping-shape') || 'loser';
 
   if (!projectId) throw new Error('need --project <firebase-project-id>');
   // A tag is required and must be path-safe: it is embedded in every uid, gid
@@ -67,6 +69,12 @@ async function main() {
   if (!/^[a-z0-9]{1,16}$/.test(tag)) {
     throw new Error('need --tag <1-16 lowercase alphanumerics> — it names every path this owns, and --clean derives its null-set from it');
   }
+
+  // Argument validation before anything reaches the network or the credential:
+  // a typo'd shape should not need a database connection to be caught, and the
+  // refusal is the only part of this CLI a container without a service account
+  // can exercise (test/ops-merge-cli.test.js).
+  if (!clean) assertMappingShape({ mappingShape, telegram });
 
   // The panel's gate, same rule: an UNDECLARED production project counts as
   // production. This writes to the database, so it fails closed too.
@@ -91,9 +99,9 @@ async function main() {
 
   const writes = clean
     ? buildFixtureCleanup({ tag })
-    : buildMergeFixture({ tag, now: deps.now(), telegram }).writes;
+    : buildMergeFixture({ tag, now: deps.now(), telegram, mappingShape }).writes;
 
-  console.log(`\n${clean ? 'CLEAN' : 'SEED'} tag=${tag} project=${projectId} paths=${Object.keys(writes).length}`);
+  console.log(`\n${clean ? 'CLEAN' : 'SEED'} tag=${tag} project=${projectId}${!clean && telegram ? ` mapping-shape=${mappingShape}` : ''} paths=${Object.keys(writes).length}`);
   for (const path of Object.keys(writes).sort()) {
     console.log(`  ${clean ? '−' : '+'} ${path}`);
   }
@@ -105,12 +113,14 @@ async function main() {
     for (const [role, gid] of Object.entries(gids)) console.log(`  ${role.padEnd(3)} ${gid}`);
     console.log(`Canvas keys at seed time: ${fixtureCanvasKeys({ tag }).join(', ')}`);
     console.log('\nNotes');
-    for (const note of fixtureNotes()) console.log(`  • ${note}`);
+    for (const note of fixtureNotes({ mappingShape })) console.log(`  • ${note}`);
     console.log('\nNext');
     console.log(`  1. refresh the panel so its shallow canvas-key read picks the seeded canvases up`);
-    console.log(`  2. run the integrity report — expect auth-missing (INFO) per uid and nothing worse`);
+    console.log(mappingShape === 'loser'
+      ? `  2. run the integrity report — expect auth-missing (INFO) per uid and nothing worse`
+      : `  2. run the integrity report — expect auth-missing (INFO) per uid, PLUS the telegram-mapping-asymmetric ERROR this shape exists to seed`);
     console.log(`  3. merge ${uids.L} → ${uids.S} (preview, read the conflicts and losses, execute)`);
-    console.log(`  4. node ops/verify-merge.js --project ${projectId} --prod-project <prod-id> --tag ${tag}${telegram ? ' --telegram' : ''}`);
+    console.log(`  4. node ops/verify-merge.js --project ${projectId} --prod-project <prod-id> --tag ${tag}${telegram ? ' --telegram' : ''}${mappingShape === 'loser' ? '' : ` --mapping-shape ${mappingShape}`}`);
   }
 
   if (!apply) {

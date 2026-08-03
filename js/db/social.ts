@@ -320,6 +320,18 @@ export async function userExists(userId: string): Promise<boolean> {
   return snap.exists();
 }
 
+// One-time check mirroring the rules guard's own predicate (database.rules.json,
+// userPrefs/$uid/following/$followee's `.validate`): does this account still have
+// a presence/code? Used by initFollowGrants (js/followRequests.ts, G6 finding I1)
+// to tell "the guard will refuse this forever because the target is gone" from an
+// ordinary transient failure, so a permanently-refused grant can be resolved
+// instead of retried on every boot. Throws on network error, same contract as
+// userExists — the caller decides how to treat an inconclusive read.
+export async function followeeExists(userId: string): Promise<boolean> {
+  const snap = await get(ref(db, `users/${userId}/presence/code`));
+  return snap.exists();
+}
+
 // Update lastSeen timestamp without changing status — called on every app open.
 export async function touchLastSeen(userId: string): Promise<void> {
   await update(ref(db, `users/${userId}/presence`), { lastSeen: Date.now() });

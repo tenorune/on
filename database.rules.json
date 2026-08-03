@@ -4,7 +4,16 @@
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid",
-        "notifyChannel": { ".validate": "newData.isString() && (newData.val() === 'push' || newData.val() === 'telegram')" }
+        "notifyChannel": { ".validate": "newData.isString() && (newData.val() === 'push' || newData.val() === 'telegram')" },
+        "following": {
+          "$followee": {
+            ".validate": "root.child('users').child($followee).child('presence').child('code').exists()",
+            "$field": {
+              ".validate": "root.child('users').child($followee).child('presence').child('code').exists()",
+              "$sub": { ".validate": false }
+            }
+          }
+        }
       }
     },
     "users": {

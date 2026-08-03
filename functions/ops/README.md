@@ -139,6 +139,16 @@ revoke fails the purge is refused outright: a purge that will be undone is worse
 than one that did not happen, because the operator walks away believing it
 worked.
 
+**One failure is benign and does not refuse (G8):** `auth/user-not-found`, which
+is what Firebase Auth throws for a uid it has never seen. No Auth record means no
+session, so there is nothing to outlive the write — the purge proceeds and the
+panel shows a `NO AUTH RECORD` note saying so. This is the ordinary case for a
+**synthetic** account: everything `ops/seed-merge-fixture.js` writes is RTDB-only,
+and until 2026-08-03 the unguarded revoke made those accounts impossible to purge
+through the panel at all — the accounts this runbook tells you to seed precisely
+because they have no client (G3, G6). Ticking the Auth-record box on one is a
+no-op rather than a warning. **Every other revoke failure still refuses.**
+
 **What revoking does NOT do — measured on dev, 2026-08-02.** Revocation does not
 evict a live session. An already-issued ID token stays valid until it expires,
 and `database.rules.json` never checks `auth.token.auth_time`, so the client
@@ -351,13 +361,71 @@ disagreeing with the reverse index) and `telegram-channel-unroutable`
 **errors**. The remaining 57 are the plain merge's, unchanged, which is the claim
 "non-lossy" actually makes: everything a merge carries, plus the link.
 
+**The plain-plus-telegram variant. Exercised on dev 2026-08-03, 61/61:**
+
+```bash
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tdn1 --telegram --yes
+# refresh · integrity · click the LOSER row → "merge into…" (NOT "link via merge…")
+node ops/verify-merge.js --project $DEV --prod-project $PROD --tag tdn1 --telegram
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tdn1 --clean --yes
+```
+
 Run the **plain** merge with `--telegram` (no `--repoint`, 61 claims) and you are
 checking the opposite property — that the mapping comes *down* rather than
 transferring, and that the survivor is not switched onto a channel it cannot
 receive on. Both are seeded by the same flag; only the panel button and the
 `--repoint` flag differ. **They take opposite branches of the same `if`**
 (`merge.js:351` vs `:385`), so a green run of one says nothing about the other —
-the teardown branch is the one still never run against a live project.
+which is why each carries its own date and claim count above. Both have now been
+run against a live project, once each.
+
+#### Who holds the mapping — `--mapping-shape`
+
+The 61/61 run above covered one case: the **loser** holds `telegramUsers/{tgId}`,
+so the teardown deletes it. `merge.js:389` passes **no `ownUids`**, so every other
+holder lands in the builder's refusal (`telegram-link-write.js:100`) and the
+mapping must **survive** the merge. Pass the same shape to both CLIs:
+
+| `--mapping-shape` | Who holds the mapping | What must happen | Run live? |
+|---|---|---|---|
+| `loser` (default) | the loser | torn down | **PASS 2026-08-03**, 61/61 |
+| `third-party` | `P2`, not in the merge | **refused**; P2's Telegram keeps working | **PASS 2026-08-03**, 62/62 |
+| `no-uid` | a mapping node with no `uid` | **refused** — no provable owner, so no delete on a guess | **PASS 2026-08-03**, 62/62 |
+| `absent` | nobody; the reverse index points at nothing | nulled anyway (a no-op) | **PASS 2026-08-03**, 61/61 |
+| `survivor` | the survivor | **refused**, and correctly — `S` is still here | **PASS 2026-08-03**, 61/61 |
+
+**All five ran on dev, 2026-08-03.** On each of the three refusal shapes the
+preview carried a `telegram-mapping-not-owned` conflict and **no** loss line
+claiming the mapping was dropped; `absent` raised no conflict at all. Integrity
+before each merge showed the expected `telegram-mapping-asymmetric` ERROR (plus
+`telegram-mapping-dangling`, WARN, on `no-uid` only) and nothing above INFO
+after. Every tag was cleaned. **Observed once each, on one fixture per shape** —
+which is coverage of the branch, not proof of it.
+
+```bash
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tp1 --telegram --mapping-shape third-party --yes
+# refresh · integrity · LOSER row → "merge into…" · READ THE PREVIEW: a
+#   telegram-mapping-not-owned conflict must be there, and NO loss line saying
+#   the mapping was dropped
+node ops/verify-merge.js --project $DEV --prod-project $PROD --tag tp1 --telegram --mapping-shape third-party
+node ops/seed-merge-fixture.js --project $DEV --prod-project $PROD --tag tp1 --clean --yes
+```
+
+Three things this changes about the checklist above:
+
+* **A refusal shape seeds a deliberately inconsistent account**, so the "no
+  errors before the merge" rule does not hold for it: expect
+  `telegram-mapping-asymmetric` (ERROR) against the loser, and for `no-uid` a
+  `telegram-mapping-dangling` (WARN) as well. That is the state being tested.
+  Both CLIs say so in their notes.
+* **Verify with the shape you seeded.** The claims differ per shape — `loser`
+  asserts the mapping is GONE, three of the others assert it is still there — so
+  a mismatch reports a correct merge as owed, which is the `2dec78c` failure
+  deliberately re-created. A shape without `--telegram`, or combined with
+  `--repoint`, is refused rather than coerced, before the credential is read.
+* **`absent` reads back identically to `loser`** — a null over a path that held
+  nothing leaves the same tree. What differs is the preview's loss line, which
+  no read-back can see; read it on the panel or the run says nothing.
 
 All five action buttons render unconditionally, so `link via merge…` is offered
 for a synthetic account like any other. Note the origin badge will read

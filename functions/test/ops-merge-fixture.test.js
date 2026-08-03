@@ -26,6 +26,8 @@ import {
   fixtureGids,
   fixtureTokens,
   fixtureCanvasKeys,
+  fixtureTgId,
+  fixtureNotes,
   buildMergeFixture,
   buildMergeAssertions,
   checkAssertion,
@@ -336,6 +338,143 @@ describe('the telegram variants', () => {
       if (!res.ok) failures.push(`${a.path}: ${res.detail}`);
     }
     expect(failures).toEqual([]);
+  });
+});
+
+// --- who holds the mapping when the teardown branch runs ---------------------
+//
+// merge.js:389 calls buildMappingTeardown with owner=L and NO ownUids, so the
+// builder's refusal (telegram-link-write.js:100) governs every case except "the
+// loser holds it". The live 61/61 run covered only that one. These are the rest:
+// each is a different holder of telegramUsers/{tgId}, and three of the four must
+// end with the mapping still standing.
+//
+// The verifier is the reason these are seedable at all. Its plain+telegram claim
+// list asserts telegramUsers/{tgId} is GONE, which is right for the loser shape
+// and wrong for every other — and a verifier that reports a correct merge as
+// owed is the 2dec78c failure repeated on purpose.
+describe('the mapping shapes the teardown branch can meet', () => {
+  test('a mapping held by an uninvolved account is refused, and that account keeps working', async () => {
+    const { fixture, live } = await runMerge({ telegram: true, mappingShape: 'third-party' });
+    const { L, S, P2 } = fixture.uids;
+    expect(live(`telegramUsers/${fixture.tgId}/uid`)).toBe(P2);
+    expect(live(`telegramByUid/${P2}/tgId`)).toBe(fixture.tgId);
+    // The loser's own reverse index still comes down — it is the loser's.
+    expect(live(`telegramByUid/${L}`)).toBeNull();
+    expect(live(`telegramByUid/${S}`)).toBeNull();
+  });
+
+  test('the refusal is reported as a conflict rather than performed silently', async () => {
+    const { plan, fixture } = await runMerge({ telegram: true, mappingShape: 'third-party' });
+    const kinds = plan.conflicts.map((c) => c.kind);
+    expect(kinds).toContain('telegram-mapping-not-owned');
+    // And no loss line may claim the mapping was dropped, because it was not.
+    expect(plan.losses.some((l) => l.includes(`telegramUsers/${fixture.tgId} dropped`))).toBe(false);
+  });
+
+  test('a mapping node carrying no uid is refused and named as such', async () => {
+    const { plan, live, fixture } = await runMerge({ telegram: true, mappingShape: 'no-uid' });
+    expect(live(`telegramUsers/${fixture.tgId}`)).not.toBeNull();
+    expect(live(`telegramUsers/${fixture.tgId}/uid`)).toBeNull();
+    const conflict = plan.conflicts.find((c) => c.kind === 'telegram-mapping-not-owned');
+    expect(conflict?.detail).toContain('a mapping node carrying no uid');
+  });
+
+  test('a reverse index pointing at no mapping at all raises no conflict', async () => {
+    // The seed must genuinely omit the mapping, or this passes by deleting one
+    // that was there — which is the loser shape wearing a different name.
+    const seeded = buildMergeFixture({ tag: TAG, now: NOW, telegram: true, mappingShape: 'absent' }).writes;
+    expect(seeded[`telegramUsers/${fixtureTgId(TAG)}`]).toBeUndefined();
+    expect(seeded[`telegramByUid/${fixtureUids(TAG).L}`]).toBeDefined();
+    const { plan, live, fixture } = await runMerge({ telegram: true, mappingShape: 'absent' });
+    expect(live(`telegramUsers/${fixture.tgId}`)).toBeNull();
+    expect(live(`telegramByUid/${fixture.uids.L}`)).toBeNull();
+    expect(plan.conflicts.map((c) => c.kind)).not.toContain('telegram-mapping-not-owned');
+  });
+
+  // The one shape whose refusal is CORRECT rather than merely safe: the survivor
+  // is not destroyed by this merge, so "the forward mapping stays with its
+  // owner, whose Telegram keeps working" — the loss line R2 had to fix at
+  // merge.js:363 — is a true statement here.
+  test('a mapping held by the SURVIVOR is left alone, and the survivor keeps its link', async () => {
+    const { fixture, live } = await runMerge({ telegram: true, mappingShape: 'survivor' });
+    const { L, S } = fixture.uids;
+    expect(live(`telegramUsers/${fixture.tgId}/uid`)).toBe(S);
+    expect(live(`telegramByUid/${S}/tgId`)).toBe(fixture.tgId);
+    expect(live(`telegramByUid/${L}`)).toBeNull();
+  });
+
+  test('every shape has assertions that hold against the real post-merge tree', async () => {
+    // A shape whose mapping SURVIVES must produce its own claim list. Identical
+    // lists would mean the flag reached the seed and never reached the verifier
+    // — the failure this whole block exists to prevent.
+    const claims = (mappingShape) => buildMergeAssertions({ tag: TAG, telegram: true, mappingShape })
+      .map((a) => `${a.path}:${a.kind}`).sort().join('|');
+    for (const shape of ['third-party', 'no-uid', 'survivor']) {
+      expect(claims(shape)).not.toBe(claims('loser'));
+    }
+    // `absent` is the exception and it would be dishonest to manufacture a
+    // difference: the merge writes a null over a path that held nothing, so the
+    // post-merge TREE is indistinguishable from the loser shape's. What differs
+    // is the seed and the preview's loss line, neither of which a read-back sees.
+    expect(claims('absent')).toBe(claims('loser'));
+    const failures = [];
+    for (const mappingShape of ['loser', 'third-party', 'no-uid', 'absent', 'survivor']) {
+      const { live } = await runMerge({ telegram: true, mappingShape });
+      for (const a of buildMergeAssertions({ tag: TAG, telegram: true, mappingShape })) {
+        const res = checkAssertion(a, live(a.path));
+        if (!res.ok) failures.push(`${mappingShape} ${a.path}: ${res.detail}`);
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  // The flag has to change the CLAIMS, not just the seed. If the default list
+  // still passed against a third-party merge, the shapes would be decoration.
+  test('the loser-shape claims FAIL against a third-party merge — the flag is not cosmetic', async () => {
+    const { live } = await runMerge({ telegram: true, mappingShape: 'third-party' });
+    const owed = buildMergeAssertions({ tag: TAG, telegram: true })
+      .filter((a) => !checkAssertion(a, live(a.path)).ok);
+    expect(owed.map((a) => a.path)).toContain(`telegramUsers/${fixtureTgId(TAG)}`);
+  });
+
+  test('the cleanup nulls the paths only some shapes seed', () => {
+    const cleanup = buildFixtureCleanup({ tag: TAG });
+    const { P2, S } = fixtureUids(TAG);
+    for (const shape of ['third-party', 'no-uid', 'absent', 'survivor']) {
+      for (const path of Object.keys(buildMergeFixture({ tag: TAG, now: NOW, telegram: true, mappingShape: shape }).writes)) {
+        expect(cleanup[path]).toBeNull();
+      }
+    }
+    expect(cleanup[`telegramByUid/${P2}`]).toBeNull();
+    expect(cleanup[`telegramByUid/${S}`]).toBeNull();
+  });
+
+  test('a shape without --telegram is refused rather than silently ignored', () => {
+    expect(() => buildMergeFixture({ tag: TAG, now: NOW, mappingShape: 'third-party' }))
+      .toThrow(/telegram/i);
+  });
+
+  // link via merge takes the OTHER branch (merge.js:351), where buildLinkWrites
+  // has its own refusal and its own ownUids. Those expectations are a different
+  // matrix; producing this one's claims for that run would be the cry-wolf bug.
+  test('a shape combined with --repoint is refused', () => {
+    expect(() => buildMergeAssertions({ tag: TAG, telegram: true, repoint: true, mappingShape: 'third-party' }))
+      .toThrow(/repoint/i);
+  });
+
+  test('an unknown shape is refused by name', () => {
+    expect(() => buildMergeFixture({ tag: TAG, now: NOW, telegram: true, mappingShape: 'nonsense' }))
+      .toThrow(/nonsense/);
+  });
+
+  // A refusal shape is deliberately INCONSISTENT — that is the state it exists
+  // to seed — so the "no errors before the merge" note is false for it. Left
+  // unsaid, the operator reads a legitimate ERROR as a defect and stops.
+  test('the notes warn that a refusal shape shows an integrity ERROR before the merge', () => {
+    const notes = fixtureNotes({ mappingShape: 'third-party' }).join(' ');
+    expect(notes).toContain('telegram-mapping-asymmetric');
+    expect(fixtureNotes().join(' ')).not.toContain('telegram-mapping-asymmetric');
   });
 });
 
